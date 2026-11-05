@@ -18,15 +18,15 @@ const wide = require("nupp.runtime.core.coreintegers")
 const threads = require("nupp.runtime.core.threads")
 const guestio = require("nupp.runtime.core.guestio")
 const basics = require("nupp.runtime.core.guestbasics")
-const widths = require("nupp.runtime.core.guestwidths")
 const numbers = require("nupp.runtime.core.guestnumbers")
-const bitops = require("nupp.runtime.core.guestbits")
 const corestorage = require("nupp.runtime.core.corestorage")
 const modules = require("nupp.runtime.core.modules")
 const texts = require("nupp.runtime.core.guesttexts")
 const librarycalls = require("nupp.runtime.core.librarycalls")
 const librarylayouts = require("nupp.runtime.core.librarylayouts")
 const librarytexts = require("nupp.runtime.core.librarytexts")
+const guesttables = require("nupp.runtime.core.guesttables")
+const gueststorage = require("nupp.runtime.core.gueststorage")
 
 -- The closed checked producer binds these program/slot reads to corebytecode's
 -- canonical opcode recipes and its retained complete graph-derived byte stream.
@@ -476,7 +476,7 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     end
     -- Storage plus a count of elements is a view from there on.
     if result == values.TRUE and corestorage.isstorage(left) then
-        local view = basics.storageoffset(ctx, left, right)
+        local view = gueststorage.storageoffset(ctx, left, right)
         if view == values.TRUE then
             ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
             return native.fail()
@@ -1250,7 +1250,11 @@ export function GetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
     local header = tableHeader(slots.readValue(frame, regs, object))
     if header == 0ULL and corestorage.isstorage(slots.readValue(frame, regs, object)) then
         -- Storage's element at a zero-based index.
-        local element = basics.storageget(ctx, slots.readValue(frame, regs, object), slots.readValue(frame, regs, key))
+        local element = gueststorage.storageget(
+            ctx,
+            slots.readValue(frame, regs, object),
+            slots.readValue(frame, regs, key)
+        )
         if element == values.TRUE then
             ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
             return native.fail()
@@ -1318,7 +1322,7 @@ export function SetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
     end
     local header = tableHeader(slots.readValue(frame, regs, object))
     if header == 0ULL and corestorage.isstorage(slots.readValue(frame, regs, object)) then
-        if basics.storageset(
+        if gueststorage.storageset(
             ctx,
             slots.readValue(frame, regs, object),
             slots.readValue(frame, regs, key),
@@ -1730,17 +1734,17 @@ export function LibCall(
     elseif libraryId == librarycalls.HOST_ARGUMENTS then
         slots.writeValue(frame, regs, dst, guestio.arguments(ctx))
     elseif libraryId >= librarycalls.WIDTHS_FIRST and libraryId <= librarycalls.WIDTHS_LAST then
-        slots.writeValue(frame, regs, dst, widths.call(ctx, libraryId, a))
+        slots.writeValue(frame, regs, dst, numbers.widthcall(ctx, libraryId, a))
     elseif libraryId >= librarycalls.BITS_FIRST and libraryId <= librarycalls.BITS_LAST then
-        slots.writeValue(frame, regs, dst, bitops.bitcall(ctx, libraryId, a, b))
+        slots.writeValue(frame, regs, dst, numbers.bitcall(ctx, libraryId, a, b))
     elseif libraryId == librarycalls.FOR_LIMIT then
         slots.writeValue(frame, regs, dst, numbers.forlimit(ctx, a))
     elseif libraryId == librarycalls.TONUMBER_BASE then
         slots.writeValue(frame, regs, dst, numbers.tonumberbase(ctx, a, b))
     elseif libraryId == librarycalls.STORAGE_ALLOCBYTES then
-        slots.writeValue(frame, regs, dst, basics.allocate(ctx, values.TAG_INTEGER | corestorage.UINT8, a))
+        slots.writeValue(frame, regs, dst, gueststorage.allocate(ctx, values.TAG_INTEGER | corestorage.UINT8, a))
     elseif libraryId == librarycalls.STORAGE_ALLOCATE then
-        slots.writeValue(frame, regs, dst, basics.allocate(ctx, a, b))
+        slots.writeValue(frame, regs, dst, gueststorage.allocate(ctx, a, b))
     elseif libraryId == librarycalls.TABLE_NEWARRAY then
         slots.writeValue(
             frame,
@@ -1761,7 +1765,7 @@ export function LibCall(
     elseif libraryId == librarycalls.PROTECTED_COUNT then
         slots.writeValue(frame, regs, dst, basics.protectedcount(ctx, a, b))
     elseif libraryId >= librarycalls.VIEWS_FIRST and libraryId <= librarycalls.VIEWS_LAST then
-        slots.writeValue(frame, regs, dst, basics.storagecall(ctx, libraryId, count, a, b, c, d))
+        slots.writeValue(frame, regs, dst, gueststorage.storagecall(ctx, libraryId, count, a, b, c, d))
     elseif libraryId == librarycalls.NEXT or libraryId == librarycalls.NEXT_ALL then
         guestscope.nameLibrary(ctx, librarytexts.NAME_NEXT)
         local after = values.NIL
@@ -1780,26 +1784,26 @@ export function LibCall(
         -- (guestscope.replaybegin): a function __index, __newindex or __len
         -- it reaches is called here, and the call runs again once it answers.
         local replay = guestscope.REPLAY_NONE
-        if guestlib.replays(libraryId) then
+        if guesttables.replays(libraryId) then
             replay = guestscope.replaybegin(
                 ctx,
                 frame,
                 slots.readValue(frame, regs, dst),
-                guestlib.reachesmeta(libraryId, a, b)
+                guesttables.reachesmeta(libraryId, a, b)
             )
         end
         -- Run again, its arguments are its entry's: the metamethod's staging
         -- overwrote the frame's.
         if replay == guestscope.REPLAY_START then
             guestscope.replaykeep(ctx, a, b, c, d)
-            guestscope.replaysave(ctx, guestlib.stepstate(ctx, libraryId, a))
-            guestlib.copystate(ctx, libraryId, a, guestscope.replaysaved(ctx))
+            guestscope.replaysave(ctx, guesttables.stepstate(ctx, libraryId, a))
+            guesttables.copystate(ctx, libraryId, a, guestscope.replaysaved(ctx))
         elseif replay == guestscope.REPLAY_AGAIN then
             a = guestscope.replayarg(ctx, 0ULL)
             b = guestscope.replayarg(ctx, 1ULL)
             c = guestscope.replayarg(ctx, 2ULL)
             d = guestscope.replayarg(ctx, 3ULL)
-            guestlib.copystate(ctx, libraryId, guestscope.replaysaved(ctx), a)
+            guesttables.copystate(ctx, libraryId, guestscope.replaysaved(ctx), a)
         end
         local result = guestlib.call(ctx, libraryId, count, a, b, c, d)
         guestscope.libraryReturned(ctx)

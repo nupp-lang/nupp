@@ -450,7 +450,7 @@ local function binary(ctx: any, node: any, expected: string?, version: integer):
     local operation = node.op.text
     need(expected == nil or expected == "tagged", "tagged result required")
     -- From v8 `..`, `/`, `//` and the bitwise operators are core library
-    -- calls (guestlib, guestbits).
+    -- calls (gueststrings, guestnumbers).
     local library = version >= 8
         and ({
             [".."] = corelibrary.id("CONCAT2"),
@@ -3073,7 +3073,7 @@ function tagged.forVersion(version: integer): any
                 return ctx.emit(node, "Mul", {operand, minusOne}, "tagged") as integer
             end
 
-            -- `~x`, a core library call (guestbits).
+            -- `~x`, a core library call (guestnumbers).
             if node.op and node.op.text == "~" and catalog(ctx).byNode[node] == nil then
                 need(expected == nil or expected == "tagged", "bitwise not requires tagged destination")
                 return libraryCall(ctx, node, corelibrary.id("BNOT"), {node.operand})

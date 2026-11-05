@@ -1,0 +1,523 @@
+module nupp.runtime.core.guesttables
+
+-- Lua's table library on the core: concat, insert, remove, move, unpack,
+-- sort (a comparator stepped through its state), Luau's freeze and
+-- isfrozen, and which of them run in replay over a table with a metatable.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const strings = require("nupp.runtime.core.corestrings")
+const tables = require("nupp.runtime.core.coretables")
+const guestscope = require("nupp.runtime.core.guestscope")
+const texts = require("nupp.runtime.core.guesttexts")
+const ints = require("nupp.runtime.core.coreintegers")
+const librarycalls = require("nupp.runtime.core.librarycalls")
+const librarylayouts = require("nupp.runtime.core.librarylayouts")
+const librarytexts = require("nupp.runtime.core.librarytexts")
+const guestvalues = require("nupp.runtime.core.guestvalues")
+
+-- The table library calls that run in replay (guestscope.replaybegin).
+export function replays(id: uint64): boolean
+    return id == librarycalls.TABLE_CONCAT
+        or id == librarycalls.TABLE_INSERT
+        or id == librarycalls.TABLE_REMOVE
+        or id == librarycalls.TABLE_UNPACK
+        or id == librarycalls.TABLE_UNPACK_ALL
+        or id == librarycalls.TABLE_MOVE
+        or id == librarycalls.TABLE_MOVE_PACK
+        or id == librarycalls.TABLE_SORT
+        or id == librarycalls.TABLE_SORT_BEGIN
+        or id == librarycalls.TABLE_SORT_STEP
+end
+
+-- table.move's arguments past its first, packed: the destination is the
+-- fourth of them.
+const MOVE_DESTINATION: uint64 = 4ULL
+
+-- Whether a table library call `id` with arguments a and b reaches a table
+-- with a metatable: its list, or table.move's destination.
+export function reachesmeta(id: uint64, a: uint64, b: uint64): boolean
+    if guestscope.metatabled(a) then
+        return true
+    end
+    -- A comparator's step reaches the list its state holds.
+    local state = guestscope.tableof(a)
+    if id == librarycalls.TABLE_SORT_STEP and state ~= 0ULL then
+        return guestscope.metatabled(tables.get(state, values.TAG_INTEGER | native.word(librarylayouts.SORT_LIST)))
+    end
+    local pack = guestscope.tableof(b)
+    if id == librarycalls.TABLE_MOVE_PACK and pack ~= 0ULL then
+        return guestscope.metatabled(tables.get(pack, values.TAG_INTEGER | MOVE_DESTINATION))
+    end
+
+    return false
+end
+
+-- #t as the table library takes it (guestscope.leni): what __len answers
+-- must be an integer, or a float with an integral value. 0 when the call
+-- stopped for __len, which its caller checks first.
+local function lengthof(ctx: voidptr, t: uint64): int64
+    local value = guestscope.leni(ctx, t)
+    if guestscope.suspended(ctx) then
+        return 0
+    end
+    if ints.isInteger(value) then
+        return native.index(ints.bitsOf(value))
+    end
+    if value & values.QNAN ~= values.QNAN and ints.integralFloat(value) then
+        return native.index(ints.floatToBits(value))
+    end
+    texts.libraryError(ctx, librarytexts.TEXT_LENGTH_INTEGER)
+
+    return 0
+end
+
+-- table.concat(t, sep) over t[1..#t], whose elements are strings or numbers.
+export function concat(
+    ctx: voidptr,
+    count: uint64,
+    list: uint64,
+    separator: uint64,
+    first: uint64,
+    last: uint64
+): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = guestvalues.guestHeap(ctx)
+        if list & values.TAG_MASK ~= values.TAG_OBJ then
+            texts.argumentError(ctx, 1ULL, librarytexts.TEXT_TABLE, 0ULL, list)
+        end
+        local t = list & values.PAYLOAD
+        -- Lua takes the length first, whether or not j is given.
+        local size = lengthof(ctx, t)
+        if guestscope.suspended(ctx) then
+            return values.NIL
+        end
+        local sep: uint64 = 0ULL
+        if count >= 2ULL and separator ~= values.NIL then
+            sep = strings.header(separator)
+            if sep == 0ULL then
+                texts.argumentError(ctx, 2ULL, librarytexts.TEXT_STRING, 0ULL, separator)
+            end
+        end
+        local builder = state as strings.Builder*
+        -- t[i] to t[j], 1 and #t by default; strings and numbers only.
+        local i = guestvalues.integerArgument(ctx, first, 1, 3ULL)
+        local j = guestvalues.integerArgument(ctx, last, size, 4ULL)
+        while i <= j do
+            local item = guestscope.geti(ctx, t, i)
+            if guestscope.suspended(ctx) then
+                strings.release(builder)
+                return values.NIL
+            end
+            if strings.header(item) == 0ULL and guestvalues.floatOf(item) == values.NIL then
+                strings.release(builder)
+                texts.concatError(ctx, item, i)
+            end
+            guestvalues.appendText(h, builder, item)
+            if i < j and sep ~= 0ULL then
+                strings.appendString(h, builder, sep)
+            end
+            i = i + 1
+        end
+        return values.TAG_OBJ | strings.finish(h, builder)
+    end
+end
+
+-- A table library call that writes to `t` raises when it is frozen
+-- (runtime Decision 16), as Luau's do, before it writes anything.
+local function writable(ctx: voidptr, t: uint64): nil
+    if tables.frozen(t) then
+        guestscope.readonly(ctx)
+    end
+end
+
+-- table.freeze(t): t, frozen shallowly and for good. A frozen t, or one whose
+-- metatable is protected, raises, as Luau's does.
+export function tableFreeze(ctx: voidptr, list: uint64): uint64
+    local t = guestvalues.tableArgument(ctx, list, 1ULL)
+    if tables.frozen(t) then
+        texts.argumentError(ctx, 1ULL, 0ULL, librarytexts.TEXT_ALREADY_FROZEN, list)
+    end
+    if guestscope.metaField(ctx, t, guestscope.META_METATABLE) ~= values.NIL then
+        texts.argumentError(ctx, 1ULL, 0ULL, librarytexts.TEXT_PROTECTED_TABLE, list)
+    end
+    tables.freeze(guestvalues.guestHeap(ctx), t)
+
+    return list
+end
+
+-- table.isfrozen(t): whether t is frozen.
+export function tableIsfrozen(ctx: voidptr, list: uint64): uint64
+    if tables.frozen(guestvalues.tableArgument(ctx, list, 1ULL)) then
+        return values.TRUE
+    end
+
+    return values.FALSE
+end
+
+-- table.insert(t, v) appends; table.insert(t, pos, v) moves t[pos..#t] up
+-- one first, through the table's __index and __newindex.
+export function tableInsert(ctx: voidptr, count: uint64, list: uint64, a: uint64, b: uint64): uint64
+    @unsafe do
+        local h = guestvalues.guestHeap(ctx)
+        local t = guestvalues.tableArgument(ctx, list, 1ULL)
+        local size = lengthof(ctx, t)
+        if guestscope.suspended(ctx) then
+            return values.NIL
+        end
+        if count == 2ULL then
+            writable(ctx, t)
+            guestscope.seti(ctx, t, size + 1, a)
+            tables.drain(h)
+            return values.NIL
+        end
+        local pos = guestvalues.integerArgument(ctx, a, 0, 2ULL)
+        if pos < 1 or pos > size + 1 then
+            texts.argumentError(ctx, 2ULL, 0ULL, librarytexts.TEXT_OUT_OF_BOUNDS, a)
+        end
+        writable(ctx, t)
+        local at = size + 1
+        while at > pos and not guestscope.suspended(ctx) do
+            guestscope.seti(ctx, t, at, guestscope.geti(ctx, t, at - 1))
+            at = at - 1
+        end
+        guestscope.seti(ctx, t, pos, b)
+        tables.drain(h)
+        return values.NIL
+    end
+end
+
+-- table.remove(t [, pos]): removes t[pos] (the last by default), moving the
+-- rest down, and answers it.
+export function tableRemove(ctx: voidptr, count: uint64, list: uint64, a: uint64): uint64
+    @unsafe do
+        local h = guestvalues.guestHeap(ctx)
+        local t = guestvalues.tableArgument(ctx, list, 1ULL)
+        local size = lengthof(ctx, t)
+        if guestscope.suspended(ctx) then
+            return values.NIL
+        end
+        local pos = size
+        if count >= 2ULL then
+            pos = guestvalues.integerArgument(ctx, a, size, 2ULL)
+            if pos ~= size and (pos < 1 or pos > size + 1) then
+                texts.argumentError(ctx, 2ULL, 0ULL, librarytexts.TEXT_OUT_OF_BOUNDS, a)
+            end
+        end
+        writable(ctx, t)
+        local removed = guestscope.geti(ctx, t, pos)
+        -- A packed table's wide integer is a fresh box, which the reads
+        -- after it could collect.
+        guestscope.hold(ctx, removed)
+        local at = pos
+        while at < size and not guestscope.suspended(ctx) do
+            guestscope.seti(ctx, t, at, guestscope.geti(ctx, t, at + 1))
+            at = at + 1
+        end
+        if at >= 1 and at <= size then
+            guestscope.seti(ctx, t, at, values.NIL)
+        end
+        tables.drain(h)
+        return removed
+    end
+end
+
+-- table.move(a1, f, e, t [, a2]): a1[f..e] to a2[t..], a2 being a1 when
+-- absent, copying backwards when the ranges overlap that way; answers a2.
+-- Raw, as the tables' metatables are not consulted.
+export function tableMove(ctx: voidptr, source: uint64, fv: uint64, ev: uint64, tv: uint64, target: uint64): uint64
+    @unsafe do
+        local h = guestvalues.guestHeap(ctx)
+        local a1 = guestvalues.tableArgument(ctx, source, 1ULL)
+        local destination = source
+        if target ~= values.NIL then
+            destination = target
+        end
+        local a2 = guestvalues.tableArgument(ctx, destination, 5ULL)
+        local f = guestvalues.integerArgument(ctx, fv, 0, 2ULL)
+        local e = guestvalues.integerArgument(ctx, ev, 0, 3ULL)
+        local t = guestvalues.integerArgument(ctx, tv, 0, 4ULL)
+        if e >= f then
+            if f <= 0 and e >= native.index(0x7fffffffffffffffULL) + f then
+                texts.argumentError(ctx, 3ULL, 0ULL, librarytexts.TEXT_TOO_MANY_MOVE, ev)
+            end
+            local n = e - f + 1
+            if t > native.index(0x7fffffffffffffffULL) - n + 1 then
+                texts.argumentError(ctx, 4ULL, 0ULL, librarytexts.TEXT_WRAP, tv)
+            end
+            writable(ctx, a2)
+            if t > e or t <= f or a1 ~= a2 then
+                local i: int64 = 0
+                while i < n and not guestscope.suspended(ctx) do
+                    guestscope.seti(ctx, a2, t + i, guestscope.geti(ctx, a1, f + i))
+                    i = i + 1
+                end
+            else
+                local i = n - 1
+                while i >= 0 and not guestscope.suspended(ctx) do
+                    guestscope.seti(ctx, a2, t + i, guestscope.geti(ctx, a1, f + i))
+                    i = i - 1
+                end
+            end
+            tables.drain(h)
+        end
+        return destination
+    end
+end
+
+-- table.unpack(t [, i [, j]]): t[i] to t[j] (1 and #t by default). Alone,
+-- the first of them; with `all`, every one in a pack.
+export function tableUnpack(ctx: voidptr, list: uint64, a: uint64, b: uint64, all: boolean): uint64
+    @unsafe do
+        local pack: uint64 = 0ULL
+        if all then
+            -- Held while the strings it is given are made.
+            pack = guestscope.newTable(ctx)
+            guestscope.hold(ctx, values.TAG_OBJ | pack)
+        end
+        local h = guestvalues.guestHeap(ctx)
+        local t = guestvalues.tableArgument(ctx, list, 1ULL)
+        local i = guestvalues.integerArgument(ctx, a, 1, 2ULL)
+        local size: int64 = 0
+        if b == values.NIL then
+            size = lengthof(ctx, t)
+            if guestscope.suspended(ctx) then
+                return values.NIL
+            end
+        end
+        local j = guestvalues.integerArgument(ctx, b, size, 3ULL)
+        if i > j then
+            return guestvalues.packed(h, pack, 0ULL, values.NIL)
+        end
+        if j - i >= 1000000 then
+            texts.libraryError(ctx, librarytexts.TEXT_UNPACK_MANY)
+        end
+        if pack == 0ULL then
+            return guestscope.geti(ctx, t, i)
+        end
+        local k = i
+        while k <= j and not guestscope.suspended(ctx) do
+            guestvalues.packPut(h, pack, native.word(k - i + 1), guestscope.geti(ctx, t, k))
+            k = k + 1
+        end
+        return guestvalues.packed(h, pack, native.word(j - i + 1), guestvalues.loadAt(pack, 1))
+    end
+end
+
+-- Whether a sorts before b by `<`, for table.sort without a comparator:
+-- numbers by value, strings byte by byte.
+local function sortLess(ctx: voidptr, a: uint64, b: uint64): boolean
+    local ai = ints.isInteger(a)
+    local bi = ints.isInteger(b)
+    if ai and bi then
+        return native.index(ints.bitsOf(a)) < native.index(ints.bitsOf(b))
+    end
+    if ai and guestvalues.isFloat(b) then
+        return ints.intFloatLess(ints.bitsOf(a), b, false)
+    end
+    if guestvalues.isFloat(a) and bi then
+        return ints.floatIntLess(a, ints.bitsOf(b), false)
+    end
+    if guestvalues.isFloat(a) and guestvalues.isFloat(b) then
+        return native.fromBits(a) < native.fromBits(b)
+    end
+    local x = strings.header(a)
+    local y = strings.header(b)
+    if x == 0ULL or y == 0ULL then
+        texts.faultError(ctx, guestscope.FAULT_COMPARE, a, b)
+    end
+
+    return strings.less(x, y, false)
+end
+
+-- The merge of runs [lo, lo + width - 1] and [lo + width, hi], the second
+-- cut short by the list's end.
+local function sortAt(h: heap.Heap*, st: uint64, lo: int64, width: int64): nil
+    local n = guestvalues.sortGet(st, librarylayouts.SORT_N)
+    local hi = lo + 2 * width - 1
+    if hi > n then
+        hi = n
+    end
+    guestvalues.sortPut(h, st, librarylayouts.SORT_WIDTH, width)
+    guestvalues.sortPut(h, st, librarylayouts.SORT_LO, lo)
+    guestvalues.sortPut(h, st, librarylayouts.SORT_MID, lo + width - 1)
+    guestvalues.sortPut(h, st, librarylayouts.SORT_HI, hi)
+    guestvalues.sortPut(h, st, librarylayouts.SORT_I, lo)
+    guestvalues.sortPut(h, st, librarylayouts.SORT_J, lo + width)
+    guestvalues.sortPut(h, st, librarylayouts.SORT_K, lo)
+end
+
+-- The next pair of runs to merge, doubling the width once a pass ends.
+-- False once one run spans the list.
+local function sortRuns(h: heap.Heap*, st: uint64): boolean
+    local n = guestvalues.sortGet(st, librarylayouts.SORT_N)
+    local width = guestvalues.sortGet(st, librarylayouts.SORT_WIDTH)
+    local lo = guestvalues.sortGet(st, librarylayouts.SORT_LO) + 2 * width
+    if lo + width > n then
+        width = width * 2
+        lo = 1
+        if width >= n then
+            return false
+        end
+    end
+    sortAt(h, st, lo, width)
+
+    return true
+end
+
+-- A comparator's step runs in replay as the other table library calls do,
+-- but it changes the sort's state as it goes: the state as the step found
+-- it is kept before its first run and put back before each rerun. The
+-- handler roots the empty copy `stepstate` makes in the call's entry before
+-- `copystate` fills it, since filling it can collect. The merge buffer needs
+-- no copy, since a step writes every slot of it the step reads.
+export function stepstate(ctx: voidptr, id: uint64, value: uint64): uint64
+    if id ~= librarycalls.TABLE_SORT_STEP or guestscope.tableof(value) == 0ULL then
+        return values.NIL
+    end
+
+    return values.TAG_OBJ | guestscope.newTable(ctx)
+end
+
+-- Copies the sort state fields of `from` into `to`, for a step of call `id`.
+export function copystate(ctx: voidptr, id: uint64, from: uint64, to: uint64): nil
+    local source = guestscope.tableof(from)
+    local target = guestscope.tableof(to)
+    if id ~= librarycalls.TABLE_SORT_STEP or source == 0ULL or target == 0ULL then
+        return
+    end
+    @unsafe do
+        local h = guestvalues.guestHeap(ctx)
+        local key: int64 = librarylayouts.SORT_LIST
+        while key <= librarylayouts.SORT_PENDING do
+            guestvalues.storeAt(h, target, key, guestvalues.loadAt(source, key))
+            key = key + 1
+        end
+        tables.drain(h)
+    end
+end
+
+-- table.sort's state for list t and comparator `less` (nil for `<`), at the
+-- first merge. A bottom-up merge sort: stable, and O(n log n) comparisons.
+export function sortBegin(ctx: voidptr, list: uint64, less: uint64): uint64
+    @unsafe do
+        local t = guestvalues.tableArgument(ctx, list, 1ULL)
+        writable(ctx, t)
+        local state = guestscope.newTable(ctx)
+        -- The state is held while the buffer is made, which can collect.
+        guestscope.hold(ctx, values.TAG_OBJ | state)
+        local buffer = guestscope.newTable(ctx)
+        guestscope.release(ctx)
+        local h = guestvalues.guestHeap(ctx)
+        guestvalues.storeAt(h, state, librarylayouts.SORT_LIST, list)
+        guestvalues.storeAt(h, state, librarylayouts.SORT_LESS, less)
+        guestvalues.storeAt(h, state, librarylayouts.SORT_BUFFER, values.TAG_OBJ | buffer)
+        local n = lengthof(ctx, t)
+        guestvalues.sortPut(h, state, librarylayouts.SORT_N, n)
+        guestvalues.sortPut(h, state, librarylayouts.SORT_PENDING, guestvalues.RUNNING)
+        if n < 2 or guestscope.suspended(ctx) then
+            guestvalues.sortPut(h, state, librarylayouts.SORT_PENDING, guestvalues.FINISHED)
+        else
+            sortAt(h, state, 1, 1)
+        end
+        tables.drain(h)
+        return values.TAG_OBJ | state
+    end
+end
+
+-- Advances the sort: true when the comparator must say whether state[3]
+-- sorts before state[4] (its answer goes to state[5]), false once sorted.
+-- Without a comparator it runs to the end.
+export function sortStep(ctx: voidptr, value: uint64): uint64
+    @unsafe do
+        local h = guestvalues.guestHeap(ctx)
+        local st = value & values.PAYLOAD
+        local pending = guestvalues.sortGet(st, librarylayouts.SORT_PENDING)
+        if pending == guestvalues.FINISHED then
+            return values.FALSE
+        end
+        local t = guestvalues.loadAt(st, librarylayouts.SORT_LIST) & values.PAYLOAD
+        local buffer = guestvalues.loadAt(st, librarylayouts.SORT_BUFFER) & values.PAYLOAD
+        local less = guestvalues.loadAt(st, librarylayouts.SORT_LESS)
+        local mid = guestvalues.sortGet(st, librarylayouts.SORT_MID)
+        local hi = guestvalues.sortGet(st, librarylayouts.SORT_HI)
+        local i = guestvalues.sortGet(st, librarylayouts.SORT_I)
+        local j = guestvalues.sortGet(st, librarylayouts.SORT_J)
+        local k = guestvalues.sortGet(st, librarylayouts.SORT_K)
+        if pending == guestvalues.WAITING then
+            -- The right element goes first only when it sorts before the left,
+            -- which keeps equal elements in order.
+            local answer = guestvalues.loadAt(st, librarylayouts.SORT_ANSWER)
+            if answer ~= values.NIL and answer ~= values.FALSE then
+                guestvalues.storeAt(h, buffer, k, guestscope.geti(ctx, t, j))
+                j = j + 1
+            else
+                guestvalues.storeAt(h, buffer, k, guestscope.geti(ctx, t, i))
+                i = i + 1
+            end
+            k = k + 1
+        end
+        while true do
+            if guestscope.suspended(ctx) then
+                return values.FALSE
+            end
+            if i <= mid and j <= hi then
+                -- Kept in the state while left is read: a packed table's
+                -- wide integer is a fresh box, which that read could collect.
+                guestvalues.storeAt(h, st, librarylayouts.SORT_A, guestscope.geti(ctx, t, j))
+                local left = guestscope.geti(ctx, t, i)
+                local right = guestvalues.loadAt(st, librarylayouts.SORT_A)
+                if guestscope.suspended(ctx) then
+                    return values.FALSE
+                end
+                if less ~= values.NIL then
+                    guestvalues.storeAt(h, st, librarylayouts.SORT_A, right)
+                    guestvalues.storeAt(h, st, librarylayouts.SORT_B, left)
+                    guestvalues.sortPut(h, st, librarylayouts.SORT_I, i)
+                    guestvalues.sortPut(h, st, librarylayouts.SORT_J, j)
+                    guestvalues.sortPut(h, st, librarylayouts.SORT_K, k)
+                    guestvalues.sortPut(h, st, librarylayouts.SORT_PENDING, guestvalues.WAITING)
+                    tables.drain(h)
+                    return values.TRUE
+                end
+                if sortLess(ctx, right, left) then
+                    guestvalues.storeAt(h, buffer, k, right)
+                    j = j + 1
+                else
+                    guestvalues.storeAt(h, buffer, k, left)
+                    i = i + 1
+                end
+                k = k + 1
+            else
+                while i <= mid do
+                    guestvalues.storeAt(h, buffer, k, guestscope.geti(ctx, t, i))
+                    i = i + 1
+                    k = k + 1
+                end
+                while j <= hi do
+                    guestvalues.storeAt(h, buffer, k, guestscope.geti(ctx, t, j))
+                    j = j + 1
+                    k = k + 1
+                end
+                local at = guestvalues.sortGet(st, librarylayouts.SORT_LO)
+                while at <= hi do
+                    guestscope.seti(ctx, t, at, guestvalues.loadAt(buffer, at))
+                    at = at + 1
+                end
+                if not sortRuns(h, st) then
+                    guestvalues.sortPut(h, st, librarylayouts.SORT_PENDING, guestvalues.FINISHED)
+                    tables.drain(h)
+                    return values.FALSE
+                end
+                mid = guestvalues.sortGet(st, librarylayouts.SORT_MID)
+                hi = guestvalues.sortGet(st, librarylayouts.SORT_HI)
+                i = guestvalues.sortGet(st, librarylayouts.SORT_I)
+                j = guestvalues.sortGet(st, librarylayouts.SORT_J)
+                k = guestvalues.sortGet(st, librarylayouts.SORT_K)
+            end
+        end
+
+        return values.FALSE
+    end
+end

@@ -1,0 +1,233 @@
+module nupp.runtime.core.gueststorage
+
+-- The storage calls on the core (storagecalls): allocate and allocbytes,
+-- views, casts, copies, fills and texts of storage, and a storage value's
+-- elements read, written and stepped through.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const tables = require("nupp.runtime.core.coretables")
+const ints = require("nupp.runtime.core.coreintegers")
+const corestorage = require("nupp.runtime.core.corestorage")
+const strings = require("nupp.runtime.core.corestrings")
+const guestscope = require("nupp.runtime.core.guestscope")
+const texts = require("nupp.runtime.core.guesttexts")
+const librarycalls = require("nupp.runtime.core.librarycalls")
+const librarytexts = require("nupp.runtime.core.librarytexts")
+const guestvalues = require("nupp.runtime.core.guestvalues")
+
+-- No index: an error was raised instead.
+const NOINDEX: uint64 = 0xffffffffffffffffULL
+
+-- The element a key names in storage `object`, zero-based, or NOINDEX once
+-- "index out of range" is raised for a key that names none.
+local function storageindex(ctx: voidptr, object: uint64, key: uint64): uint64
+    local index = NOINDEX
+    if ints.isInteger(key) then
+        index = ints.bitsOf(key)
+    elseif key & values.QNAN ~= values.QNAN then
+        -- A float that is a whole number names that index.
+        local x = native.fromBits(key)
+        local whole = native.toInt(x)
+        if native.toFloat(whole) == x and whole >= 0 then
+            index = native.word(whole)
+        end
+    end
+    if index == NOINDEX or index >= corestorage.elementcount(object) then
+        guestscope.raise(ctx, texts.textvalue(ctx, librarytexts.TEXT_INDEX_RANGE), 1ULL)
+        return NOINDEX
+    end
+
+    return index
+end
+
+-- storage[key] for GetIdx: the element, or values.TRUE once an error is
+-- raised.
+export function storageget(ctx: voidptr, subject: uint64, key: uint64): uint64
+    local object = subject & values.PAYLOAD
+    local index = storageindex(ctx, object, key)
+    if index == NOINDEX then
+        return values.TRUE
+    end
+    @unsafe do
+        local h = guestvalues.guestHeap(ctx)
+        local value = corestorage.readelement(h, object, index)
+        tables.drain(h)
+        return value
+    end
+end
+
+-- storage[key] = value for SetIdx: 0, or 1 once an error is raised. A float
+-- stored as an integer kind is truncated toward zero, as C converts one.
+export function storageset(ctx: voidptr, subject: uint64, key: uint64, value: uint64): uint64
+    local object = subject & values.PAYLOAD
+    local index = storageindex(ctx, object, key)
+    if index == NOINDEX then
+        return 1ULL
+    end
+    local kind = corestorage.elementkind(object)
+    local floating = kind == corestorage.FLOAT32 or kind == corestorage.FLOAT64
+    local bits: uint64 = 0ULL
+    if ints.isInteger(value) then
+        bits = ints.bitsOf(value)
+        if floating then
+            bits = ints.toFloatBits(bits)
+        end
+    elseif value & values.QNAN ~= values.QNAN or value == values.QNAN then
+        bits = value
+        if not floating then
+            bits = native.word(native.toInt(native.fromBits(value)))
+        end
+    else
+        guestscope.raise(ctx, texts.textvalue(ctx, librarytexts.TEXT_NUMBER_EXPECTED), 1ULL)
+        return 1ULL
+    end
+    corestorage.writeelement(object, index, bits)
+
+    return 0ULL
+end
+
+-- New zeroed storage of `n` elements of `kind`, an integer value.
+export function allocate(ctx: voidptr, kind: uint64, n: uint64): uint64
+    local code = corestorage.elementwidth(ints.bitsOf(kind))
+    if not ints.isInteger(kind) or code == 0ULL then
+        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_NUMBER, 0ULL, kind)
+    end
+    if not ints.isInteger(n) or native.index(ints.bitsOf(n)) < 0 then
+        texts.argumentError(ctx, 2ULL, librarytexts.TEXT_NUMBER, 0ULL, n)
+    end
+    @unsafe do
+        local h = guestvalues.guestHeap(ctx)
+        local made = corestorage.newstorage(h, ints.bitsOf(kind), ints.bitsOf(n))
+        if made == 0ULL then
+            error("not enough memory")
+        end
+        tables.drain(h)
+        return values.TAG_OBJ | made
+    end
+end
+
+-- Argument `position`, storage: its header address.
+local function storageargument(ctx: voidptr, value: uint64, position: uint64): uint64
+    if not corestorage.isstorage(value) then
+        texts.argumentError(ctx, position, librarytexts.TEXT_STORAGE, 0ULL, value)
+    end
+
+    return value & values.PAYLOAD
+end
+
+-- Argument `position`, a count of no more than `limit`.
+local function countargument(ctx: voidptr, value: uint64, position: uint64, limit: uint64): uint64
+    if not ints.isInteger(value) or native.index(ints.bitsOf(value)) < 0 or ints.bitsOf(value) > limit then
+        texts.argumentError(ctx, position, 0ULL, librarytexts.TEXT_INDEX_RANGE, value)
+    end
+
+    return ints.bitsOf(value)
+end
+
+-- The storage views (`STORAGE_VIEW` through `STORAGE_CAST`),
+-- given `n` arguments.
+export function storagecall(ctx: voidptr, id: uint64, n: uint64, a: uint64, b: uint64, c: uint64, d: uint64): uint64
+    @unsafe do
+        local h = guestvalues.guestHeap(ctx)
+        if id == librarycalls.STORAGE_FROMSTRING then
+            local s = strings.header(a)
+            if s == 0ULL then
+                texts.argumentError(ctx, 1ULL, librarytexts.TEXT_STRING, 0ULL, a)
+            end
+            local length = strings.length(s)
+            local made = corestorage.newstorage(h, corestorage.UINT8, length)
+            if made == 0ULL then
+                error("not enough memory")
+            end
+            corestorage.copybytes(corestorage.storagebase(made), (native.pointer(s) as heap.Header*).auxPtr, length)
+            tables.drain(h)
+            return values.TAG_OBJ | made
+        end
+        local object = storageargument(ctx, a, 1ULL)
+        local size = corestorage.bytelength(object)
+        if id == librarycalls.STORAGE_ELEMENTS then
+            return values.TAG_INTEGER | corestorage.elementcount(object)
+        elseif id == librarycalls.STORAGE_ELEMENTKIND then
+            return values.TAG_INTEGER | corestorage.elementkind(object)
+        elseif id == librarycalls.STORAGE_VIEW or id == librarycalls.STORAGE_CAST then
+            local kind: uint64 = 0ULL
+            if ints.isInteger(b) then
+                kind = ints.bitsOf(b)
+            end
+            local width = corestorage.elementwidth(kind)
+            if width == 0ULL then
+                texts.argumentError(ctx, 2ULL, librarytexts.TEXT_NUMBER, 0ULL, b)
+            end
+            local offset: uint64 = 0ULL
+            if id == librarycalls.STORAGE_VIEW then
+                offset = countargument(ctx, c, 3ULL, size)
+            end
+            local count = (size - offset) // width
+            if id == librarycalls.STORAGE_VIEW and n >= 4ULL and d ~= values.NIL then
+                count = countargument(ctx, d, 4ULL, count)
+            end
+            local made = corestorage.newview(h, object, kind, offset, count)
+            if made == 0ULL then
+                error("not enough memory")
+            end
+            tables.drain(h)
+            return values.TAG_OBJ | made
+        elseif id == librarycalls.STORAGE_COPY then
+            -- The source is storage or a string.
+            local s = strings.header(b)
+            local from: uint64 = 0ULL
+            local available: uint64 = 0ULL
+            if s ~= 0ULL then
+                from = (native.pointer(s) as heap.Header*).auxPtr
+                available = strings.length(s)
+            else
+                local source = storageargument(ctx, b, 2ULL)
+                from = corestorage.storagebase(source)
+                available = corestorage.bytelength(source)
+            end
+            local limit = size
+            if available < limit then
+                limit = available
+            end
+            local count = countargument(ctx, c, 3ULL, limit)
+            corestorage.copybytes(corestorage.storagebase(object), from, count)
+            return values.NIL
+        elseif id == librarycalls.STORAGE_FILL then
+            local count = countargument(ctx, b, 2ULL, size)
+            local byte: uint64 = 0ULL
+            if ints.isInteger(c) then
+                byte = ints.bitsOf(c)
+            end
+            corestorage.fillbytes(corestorage.storagebase(object), count, byte)
+            return values.NIL
+        end
+        -- STORAGE_TEXT: the first `count` bytes as a string.
+        local count = countargument(ctx, b, 2ULL, size)
+        local made = strings.make(h, corestorage.storagebase(object), count)
+        tables.drain(h)
+        return values.TAG_OBJ | made
+    end
+end
+
+-- storage + n: a view from `n` elements in, through its end; values.TRUE
+-- once "index out of range" is raised for an `n` outside it.
+export function storageoffset(ctx: voidptr, subject: uint64, step: uint64): uint64
+    local object = subject & values.PAYLOAD
+    local count = corestorage.elementcount(object)
+    if not ints.isInteger(step) or native.index(ints.bitsOf(step)) < 0 or ints.bitsOf(step) > count then
+        guestscope.raise(ctx, texts.textvalue(ctx, librarytexts.TEXT_INDEX_RANGE), 1ULL)
+        return values.TRUE
+    end
+    local n = ints.bitsOf(step)
+    local kind = corestorage.elementkind(object)
+    @unsafe do
+        local h = guestvalues.guestHeap(ctx)
+        local made = corestorage.newview(h, object, kind, n * corestorage.elementwidth(kind), count - n)
+        if made == 0ULL then
+            error("not enough memory")
+        end
+        tables.drain(h)
+        return values.TAG_OBJ | made
+    end
+end

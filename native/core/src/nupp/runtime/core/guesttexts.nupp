@@ -128,7 +128,9 @@ export function argumentError(ctx: voidptr, position: uint64, expected: uint64, 
                 | librarytexts.append(h, builder, librarytexts.TEXT_OPEN)
         end
         if expected ~= 0ULL then
-            refused = refused | librarytexts.append(h, builder, expected) | librarytexts.append(h, builder, librarytexts.TEXT_EXPECTED)
+            refused = refused
+                | librarytexts.append(h, builder, expected)
+                | librarytexts.append(h, builder, librarytexts.TEXT_EXPECTED)
             if position > guestscope.libraryCount(ctx) then
                 refused = refused | librarytexts.append(h, builder, librarytexts.TEXT_NO_VALUE)
             else
