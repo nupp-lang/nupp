@@ -199,6 +199,10 @@ local CASES = {
     -- Recursion to 150,000 frames and an overflow at 200,000 (7 * 10^6 +
     -- the deepest call, 199,999).
     {"callsdeep", 0x7FFF0000006DDCFF},
+    -- Forty calls through a function value in one function, run directly
+    -- and in a coroutine that yields at each; recursion with results and
+    -- extra arguments; a deep error caught (850,001 * 8 + every check, 7).
+    {"callsmany", 0x7FFF00000067C28F},
     -- 260 modules whose chunk depths sum to 4,421 frames: every one ran.
     {"modulesmany", 0x7FFB000000000000}
 }
@@ -295,6 +299,13 @@ local STRESS = {
     serdejson = true,
     functionsmany = true,
     callsdeep = true,
+    callsmany = true,
+    callsResults = true,
+    callsVariadic = true,
+    callsSpread = true,
+    callsProtected = true,
+    callsXpcall = true,
+    recordsaffineraise = true,
     modulesretry = true,
     errorsruntime = true,
     hostlibrary = true,
@@ -413,6 +424,7 @@ local NUMERIC = {
     modulesdynamic = "catalog-modules-dynamic",
     libraryvalues = "catalog-library-values",
     callsoverflow = "catalog-calls-overflow",
+    callsmany = "catalog-calls-many",
     modulesretry = "catalog-modules-retry",
     errorsruntime = "catalog-errors-runtime",
     tablespackedsemantics = "catalog-tables-packed-semantics",

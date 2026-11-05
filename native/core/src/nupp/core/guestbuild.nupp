@@ -168,6 +168,7 @@ local CASES: {[string]: {
     },
     callsoverflow = {fixture = "catalog-calls-overflow", version = 8},
     callsdeep = {fixture = "catalog-calls-deep", version = 8},
+    callsmany = {fixture = "catalog-calls-many", version = 8},
     modulesmany = {fixture = "modulesmany", version = 8, generated = true, modules = manymodules()},
     modulesretry = {
         fixture = "catalog-modules-retry",

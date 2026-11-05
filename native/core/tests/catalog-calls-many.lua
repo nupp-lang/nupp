@@ -1,0 +1,101 @@
+-- Reference Lua 5.5 twin of catalog-calls-many.nupp, without its types.
+-- The call path's fast paths. One function makes forty calls, so the
+-- callsite search finds the first, the last and every one between, through
+-- a function value; the same function runs in a coroutine whose step yields
+-- at every call, so each return resumes in the middle of it; recursion
+-- passes several results and a growing run of extra arguments; and an error
+-- raised deep in a chain of calls is caught, then the same calls run again
+-- on the frames it retired.
+local function step(t, k)
+    return (t * 31 + k) % 1000003
+end
+
+local function walk(f, n)
+    local t = f(n, 1)
+    t = f(t, 2)
+    t = f(t, 3)
+    t = f(t, 4)
+    t = f(t, 5)
+    t = f(t, 6)
+    t = f(t, 7)
+    t = f(t, 8)
+    t = f(t, 9)
+    t = f(t, 10)
+    t = f(t, 11)
+    t = f(t, 12)
+    t = f(t, 13)
+    t = f(t, 14)
+    t = f(t, 15)
+    t = f(t, 16)
+    t = f(t, 17)
+    t = f(t, 18)
+    t = f(t, 19)
+    t = f(t, 20)
+    t = f(t, 21)
+    t = f(t, 22)
+    t = f(t, 23)
+    t = f(t, 24)
+    t = f(t, 25)
+    t = f(t, 26)
+    t = f(t, 27)
+    t = f(t, 28)
+    t = f(t, 29)
+    t = f(t, 30)
+    t = f(t, 31)
+    t = f(t, 32)
+    t = f(t, 33)
+    t = f(t, 34)
+    t = f(t, 35)
+    t = f(t, 36)
+    t = f(t, 37)
+    t = f(t, 38)
+    t = f(t, 39)
+    t = f(t, 40)
+
+    return t
+end
+
+local direct = walk(step, 7)
+local score = 0
+
+local co = coroutine.create(function(n)
+    return walk(function(t, k)
+        coroutine.yield(t)
+        return step(t, k)
+    end, n)
+end)
+local _, value = coroutine.resume(co, 7)
+local yields = 0
+while coroutine.status(co) == "suspended" do
+    yields = yields + 1
+    _, value = coroutine.resume(co)
+end
+if value == direct and yields == 40 then
+    score = score + 1
+end
+
+local spread
+spread = function(n, ...)
+    if n == 0 then
+        return select("#", ...), 0
+    end
+    local count, total = spread(n - 1, n, ...)
+
+    return count, total + n
+end
+local count, total = spread(30)
+if count == 30 and total == 465 then
+    score = score + 2
+end
+
+local function dive(n)
+    if n == 0 then
+        error("bottom", 0)
+    end
+    return dive(n - 1) + 1
+end
+local fine, message = pcall(dive, 5000)
+if not fine and message == "bottom" and walk(step, 7) == direct then
+    score = score + 4
+end
+return direct * 8 + score
