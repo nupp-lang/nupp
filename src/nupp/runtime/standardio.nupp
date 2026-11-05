@@ -231,7 +231,7 @@ export const newreader = source1.newReader
 export const newwriter = source1.newWriter
 export const readall = source1.readAll
 
-const {type Process as ChildProcess} = require("io.internal.process")
+const {type Process as ChildProcess, type Options as ProcessOptions} = require("io.internal.process")
 
 export type Process = ChildProcess
 
@@ -548,7 +548,7 @@ end
 --- @return the operating-system error code, when available
 export const popen = openProcess as function(
     command: string | {string},
-    options: (Process.Options | string)?
+    options: (ProcessOptions | string)?
 ): (affine(Process)?, string?, integer?)
 
 local function closeFile(value: any): ...any
