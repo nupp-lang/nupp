@@ -180,6 +180,125 @@ local function equal(actual: any, expected: any, message: string?): any
     fail(difference(expected, actual, message), 2)
 end
 
+--- Requires the actual value to be less than the bound and returns it.
+--- @raises string when the comparison fails
+--- @export
+local function lessThan(actual: any, bound: any, message: string?): any
+    if actual < bound then
+        return actual
+    end
+    fail("expected " .. show(actual) .. " < " .. show(bound) .. (message and (": " .. message) or ""), 2)
+end
+
+--- Requires the actual value to be at most the bound and returns it.
+--- @raises string when the comparison fails
+--- @export
+local function lessEqual(actual: any, bound: any, message: string?): any
+    if actual <= bound then
+        return actual
+    end
+    fail("expected " .. show(actual) .. " <= " .. show(bound) .. (message and (": " .. message) or ""), 2)
+end
+
+--- Requires the actual value to be greater than the bound and returns it.
+--- @raises string when the comparison fails
+--- @export
+local function greaterThan(actual: any, bound: any, message: string?): any
+    if actual > bound then
+        return actual
+    end
+    fail("expected " .. show(actual) .. " > " .. show(bound) .. (message and (": " .. message) or ""), 2)
+end
+
+--- Requires the actual value to be at least the bound and returns it.
+--- @raises string when the comparison fails
+--- @export
+local function greaterEqual(actual: any, bound: any, message: string?): any
+    if actual >= bound then
+        return actual
+    end
+    fail("expected " .. show(actual) .. " >= " .. show(bound) .. (message and (": " .. message) or ""), 2)
+end
+
+--- Requires numbers to differ by at most the tolerance and returns the actual value.
+---
+--- The tolerance must be finite and non-negative. Equal infinities compare near;
+--- NaN never does.
+--- @raises string when the tolerance is invalid or the comparison fails
+--- @export
+local function near(actual: number, expected: number, tolerance: number, message: string?): number
+    if tolerance ~= tolerance or tolerance < 0 or tolerance == math.huge then
+        fail("tolerance must be finite and non-negative", 2)
+    end
+    if actual == expected or math.abs(actual - expected) <= tolerance then
+        return actual
+    end
+    fail(
+        "expected " .. show(
+            actual
+        ) .. " within " .. show(tolerance) .. " of " .. show(expected) .. (message and (": " .. message) or ""),
+        2
+    )
+end
+
+--- Requires a nil value and returns it.
+--- @raises string when value is not nil
+--- @export
+local function isNil(value: any, message: string?): any
+    if value == nil then
+        return value
+    end
+    fail("expected nil, got " .. show(value) .. (message and (": " .. message) or ""), 2)
+end
+
+--- Requires a non-nil value and returns it.
+--- @raises string when value is nil
+--- @export
+local function notNil(value: any, message: string?): any
+    if value ~= nil then
+        return value
+    end
+    fail("expected a non-nil value" .. (message and (": " .. message) or ""), 2)
+end
+
+--- Requires a truthy value and returns it.
+--- @raises string when value is nil or false
+--- @export
+local function truthy(value: any, message: string?): any
+    if value then
+        return value
+    end
+    fail("expected a truthy value, got " .. show(value) .. (message and (": " .. message) or ""), 2)
+end
+
+--- Requires a falsy value and returns it.
+--- @raises string when value is neither nil nor false
+--- @export
+local function falsy(value: any, message: string?): any
+    if not value then
+        return value
+    end
+    fail("expected a falsy value, got " .. show(value) .. (message and (": " .. message) or ""), 2)
+end
+
+--- Requires a value to have the given Lua type and returns it.
+--- @raises string when the value has a different type
+--- @export
+local function isType(value: any, expected: string, message: string?): any
+    local actual = type(value)
+    if actual == expected then
+        return value
+    end
+    fail("expected type " .. show(expected) .. ", got " .. show(actual) .. (message and (": " .. message) or ""), 2)
+end
+
+--- Raises an assertion failure with the given message.
+--- @raises string always
+--- @export
+local function failure(message: string): never
+    fail(message, 2)
+end
+
 local function keyRank(key: any): integer?
     local kind = type(key)
     if kind == "boolean" then
@@ -328,6 +447,39 @@ local function matches(value: any, pattern: string, message: string?): string
         detail = detail .. ": " .. message
     end
     fail(detail, 2)
+end
+
+--- Requires a string to contain a literal substring and returns the string.
+--- @raises string when value is not a string or does not contain substring
+--- @export
+local function contains(value: any, substring: string, message: string?): string
+    if type(value) == "string" and value:find(substring, 1, true) then
+        return value
+    end
+    fail("expected " .. show(value) .. " to contain " .. show(substring) .. (message and (": " .. message) or ""), 2)
+end
+
+--- Requires a string not to contain a literal substring and returns the string.
+--- @raises string when value is not a string or contains substring
+--- @export
+local function notContains(value: any, substring: string, message: string?): string
+    if type(value) == "string" and not value:find(substring, 1, true) then
+        return value
+    end
+    fail(
+        "expected " .. show(value) .. " not to contain " .. show(substring) .. (message and (": " .. message) or ""),
+        2
+    )
+end
+
+--- Requires a string not to match a Lua pattern and returns the string.
+--- @raises string when value is not a string or matches pattern
+--- @export
+local function notMatches(value: any, pattern: string, message: string?): string
+    if type(value) == "string" and not value:find(pattern) then
+        return value
+    end
+    fail("expected " .. show(value) .. " not to match " .. show(pattern) .. (message and (": " .. message) or ""), 2)
 end
 
 --- Requires a callback to raise and returns its error value.
@@ -569,7 +721,27 @@ function suite.notexecutedreason(value: any): string?
     return nil
 end
 
-local callable = {eq = equal, ne = notEqual, deepeq = deepEqual, matches = matches, raises = raises,} as Callable
+local callable = {
+    eq = equal,
+    ne = notEqual,
+    deepeq = deepEqual,
+    lt = lessThan,
+    le = lessEqual,
+    gt = greaterThan,
+    ge = greaterEqual,
+    near = near,
+    isnil = isNil,
+    notnil = notNil,
+    truthy = truthy,
+    falsy = falsy,
+    istype = isType,
+    contains = contains,
+    notcontains = notContains,
+    matches = matches,
+    notmatches = notMatches,
+    raises = raises,
+    fail = failure,
+} as Callable
 callable.suite = suite
 
 rawset(_G, "assert", callable)
