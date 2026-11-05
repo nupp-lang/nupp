@@ -22,15 +22,16 @@ bus:emit(7, Damage, amount = 10, source = 3)
 
 Here `bus` is the event source: it owns the observer registry and reusable
 event storage. `7` is the address within that source, so observers registered
-at another entity id do not receive this delivery. The `MessageBus` methods
+at another address do not receive this delivery. The `MessageBus` methods
 forward to the module functions below; the equivalent direct call is
 `events.observe(bus, 7, Damage, callback, "log")`.
 
 Observer state belongs to a source: `MessageBus<A>` is one, and any record with
 an `observers` field implements [](events.Source) and dispatches through
 the same functions. Record and struct events draw from a [](table.Pool), created
-the first time an event type is emitted through a source. `setallocator` installs
-one the caller owns instead.
+the first time an event type is emitted through a source.
+`bus:setallocator(Event, allocator)` installs one the caller owns instead;
+`events.setallocator(source, Event, allocator)` does the same for any source.
 ]]
 module events
 
@@ -236,8 +237,8 @@ end
 --- Observer registrations for a source, keyed by address and event identity.
 ---
 --- A source holds one of these in its `observers` field. Nothing exists for an
---- address until something observes there, so a world of millions of entities
---- pays for the observers it has and not for the entities it could have.
+--- address until something observes there, so storage grows with registered
+--- observers rather than the number of possible addresses.
 --- @export
 record events.Observers<A>
     constructor(self)
@@ -270,9 +271,9 @@ end
 
 --- Something that owns observer state.
 ---
---- A bus or a world implements this by holding an `observers` field; the
---- dispatch functions take the source exclusively and reach its state through
---- that field. The source is not implicitly passed to observers.
+--- A record implements this by holding an `observers` field. The dispatch
+--- functions reach its state through that field. The source is not implicitly
+--- passed to observers.
 --- @export
 interface events.Source<A>
     observers: events.Observers<A>
@@ -491,8 +492,7 @@ end
 --- Observers run in registration order. A name lets `stop` remove this
 --- registration by name; a name already registered at the same address and
 --- event is an error, since the second could never be removed alone.
---- @param source the bus or world that owns the observer registry and event
----     storage
+--- @param source the source that owns the observer registry and event storage
 --- @param address where the event is delivered
 --- @param event the event declaration
 --- @param callback what runs when one is delivered
@@ -514,7 +514,7 @@ end
 --- The registration is tombstoned before the callback is invoked, so a nested
 --- or interleaved delivery of the same event never reaches it again, whatever
 --- the callback goes on to do.
---- @param source the bus or world to observe through
+--- @param source the source to observe through
 --- @param address where the event is delivered
 --- @param event the event declaration
 --- @param callback what runs, once
@@ -539,7 +539,7 @@ end
 --- delivery leaves. A caller removing by callback keeps the value it
 --- registered: a short function is a fresh object each time its expression
 --- runs.
---- @param source the bus or world observed through
+--- @param source the source observed through
 --- @param address where the registration was made
 --- @param event the event declaration
 --- @param callbackorid the callback registered, or the name it was given
@@ -592,7 +592,7 @@ function events.stop<A, S is events.Source<A>, E is events.Emittable>(
 end
 
 --- Whether anything observes an event type at an address.
---- @param source the bus or world
+--- @param source the source to inspect
 --- @param address the address to ask about
 --- @param event the event declaration
 --- @return whether a delivery there would reach an observer
@@ -629,9 +629,8 @@ end
 ---
 --- A delivery in flight at that address finishes the list it already holds; the
 --- next emission there finds nothing. Registrations at other addresses are
---- untouched, which is how a world clears an entity without losing what
---- observes the world itself.
---- @param source the bus or world
+--- untouched.
+--- @param source the source whose registrations are cleared
 --- @param address the address to clear
 function events.clear<A, S is events.Source<A>>(exclusive source: S, borrows address: A): nil
     local observers = source.observers as any
@@ -651,7 +650,7 @@ end
 ---
 --- Allocators are left alone: an arena the caller installed is still theirs,
 --- and the source's own storage is reused by the next emission.
---- @param source the bus or world
+--- @param source the source whose registrations are reset
 function events.reset<A, S is events.Source<A>>(exclusive source: S): nil
     local observers = source.observers as any
     local addresses: {any} = {}
@@ -672,7 +671,7 @@ end
 --- The allocator is the caller's: it must outlive the source's use of it, and
 --- the source never resets or closes it. Replacing one while a delivery holds
 --- storage from it is refused, since the lease would have nowhere to return.
---- @param source the bus or world
+--- @param source the source whose event storage is configured
 --- @param event the event declaration
 --- @param allocator storage of the event's representation
 --- @raises string when a delivery of that event is active
@@ -778,7 +777,7 @@ end
 --- observer registered when the delivery began runs in order, and the lease is
 --- released whether the delivery returned, raised, or was cancelled while an
 --- observer was suspended.
---- @param source the bus or world
+--- @param source the source to emit through
 --- @param address where to deliver
 --- @param event the event declaration
 --- @param ... the event's constructor arguments, positional or named
@@ -821,7 +820,7 @@ end
 --- The instance is neither acquired nor released: what the caller built stays
 --- the caller's, and is handed to each observer as the borrow its contract
 --- names. Everything else is as `emit`.
---- @param source the bus or world
+--- @param source the source to deliver through
 --- @param address where to deliver
 --- @param event the event declaration
 --- @param instance the instance to deliver
