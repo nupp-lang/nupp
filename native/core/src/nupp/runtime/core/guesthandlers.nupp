@@ -1797,12 +1797,15 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
-    local current = native.pointer(access.active(s))
-    local currentValues = native.pointer(access.values(s, current))
-    local currentIntegers = native.pointer(access.integers(s, current))
-    local currentFloats = native.pointer(access.floats(s, current))
-    local currentPC = native.pointer(access.pc(s, current))
-    access.refresh(s, current, ctx)
+    -- The frame now active, read as frameaccess reads it.
+    local current = native.loadPointer(s, native.fieldOffset<frames.State>("active"))
+    local currentValues = native.loadPointer(current, native.fieldOffset<frames.Frame>("values"))
+    local currentIntegers = native.loadPointer(current, native.fieldOffset<frames.Frame>("integers"))
+    local currentFloats = native.loadPointer(current, native.fieldOffset<frames.Frame>("floats"))
+    local currentCode = native.load64(current, native.fieldOffset<frames.Frame>("code"))
+    local resumeIndex = native.load64(current, native.fieldOffset<frames.Frame>("resumePC"))
+    local currentPC = native.pointer(currentCode + (resumeIndex << ops.INSTRUCTION_SHIFT))
+    native.store64(ctx, context.CODE_START, currentCode)
 
     return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
 end
@@ -1881,12 +1884,15 @@ export function Ret(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
-    local current = native.pointer(access.active(s))
-    local currentValues = native.pointer(access.values(s, current))
-    local currentIntegers = native.pointer(access.integers(s, current))
-    local currentFloats = native.pointer(access.floats(s, current))
-    local currentPC = native.pointer(access.pc(s, current))
-    access.refresh(s, current, ctx)
+    -- The frame now active, read as frameaccess reads it.
+    local current = native.loadPointer(s, native.fieldOffset<frames.State>("active"))
+    local currentValues = native.loadPointer(current, native.fieldOffset<frames.Frame>("values"))
+    local currentIntegers = native.loadPointer(current, native.fieldOffset<frames.Frame>("integers"))
+    local currentFloats = native.loadPointer(current, native.fieldOffset<frames.Frame>("floats"))
+    local currentCode = native.load64(current, native.fieldOffset<frames.Frame>("code"))
+    local resumeIndex = native.load64(current, native.fieldOffset<frames.Frame>("resumePC"))
+    local currentPC = native.pointer(currentCode + (resumeIndex << ops.INSTRUCTION_SHIFT))
+    native.store64(ctx, context.CODE_START, currentCode)
 
     return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
 end
@@ -1975,12 +1981,15 @@ export function RetN(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
-    local current = native.pointer(access.active(s))
-    local currentValues = native.pointer(access.values(s, current))
-    local currentIntegers = native.pointer(access.integers(s, current))
-    local currentFloats = native.pointer(access.floats(s, current))
-    local currentPC = native.pointer(access.pc(s, current))
-    access.refresh(s, current, ctx)
+    -- The frame now active, read as frameaccess reads it.
+    local current = native.loadPointer(s, native.fieldOffset<frames.State>("active"))
+    local currentValues = native.loadPointer(current, native.fieldOffset<frames.Frame>("values"))
+    local currentIntegers = native.loadPointer(current, native.fieldOffset<frames.Frame>("integers"))
+    local currentFloats = native.loadPointer(current, native.fieldOffset<frames.Frame>("floats"))
+    local currentCode = native.load64(current, native.fieldOffset<frames.Frame>("code"))
+    local resumeIndex = native.load64(current, native.fieldOffset<frames.Frame>("resumePC"))
+    local currentPC = native.pointer(currentCode + (resumeIndex << ops.INSTRUCTION_SHIFT))
+    native.store64(ctx, context.CODE_START, currentCode)
 
     return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
 end
@@ -2120,12 +2129,15 @@ export function CallV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
-    local current = native.pointer(access.active(s))
-    local currentValues = native.pointer(access.values(s, current))
-    local currentIntegers = native.pointer(access.integers(s, current))
-    local currentFloats = native.pointer(access.floats(s, current))
-    local currentPC = native.pointer(access.pc(s, current))
-    access.refresh(s, current, ctx)
+    -- The frame now active, read as frameaccess reads it.
+    local current = native.loadPointer(s, native.fieldOffset<frames.State>("active"))
+    local currentValues = native.loadPointer(current, native.fieldOffset<frames.Frame>("values"))
+    local currentIntegers = native.loadPointer(current, native.fieldOffset<frames.Frame>("integers"))
+    local currentFloats = native.loadPointer(current, native.fieldOffset<frames.Frame>("floats"))
+    local currentCode = native.load64(current, native.fieldOffset<frames.Frame>("code"))
+    local resumeIndex = native.load64(current, native.fieldOffset<frames.Frame>("resumePC"))
+    local currentPC = native.pointer(currentCode + (resumeIndex << ops.INSTRUCTION_SHIFT))
+    native.store64(ctx, context.CODE_START, currentCode)
 
     return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
 end
@@ -2229,12 +2241,15 @@ export function RetV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
-    local current = native.pointer(access.active(s))
-    local currentValues = native.pointer(access.values(s, current))
-    local currentIntegers = native.pointer(access.integers(s, current))
-    local currentFloats = native.pointer(access.floats(s, current))
-    local currentPC = native.pointer(access.pc(s, current))
-    access.refresh(s, current, ctx)
+    -- The frame now active, read as frameaccess reads it.
+    local current = native.loadPointer(s, native.fieldOffset<frames.State>("active"))
+    local currentValues = native.loadPointer(current, native.fieldOffset<frames.Frame>("values"))
+    local currentIntegers = native.loadPointer(current, native.fieldOffset<frames.Frame>("integers"))
+    local currentFloats = native.loadPointer(current, native.fieldOffset<frames.Frame>("floats"))
+    local currentCode = native.load64(current, native.fieldOffset<frames.Frame>("code"))
+    local resumeIndex = native.load64(current, native.fieldOffset<frames.Frame>("resumePC"))
+    local currentPC = native.pointer(currentCode + (resumeIndex << ops.INSTRUCTION_SHIFT))
+    native.store64(ctx, context.CODE_START, currentCode)
 
     return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
 end
@@ -2349,12 +2364,15 @@ export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
-    local current = native.pointer(access.active(s))
-    local currentValues = native.pointer(access.values(s, current))
-    local currentIntegers = native.pointer(access.integers(s, current))
-    local currentFloats = native.pointer(access.floats(s, current))
-    local currentPC = native.pointer(access.pc(s, current))
-    access.refresh(s, current, ctx)
+    -- The frame now active, read as frameaccess reads it.
+    local current = native.loadPointer(s, native.fieldOffset<frames.State>("active"))
+    local currentValues = native.loadPointer(current, native.fieldOffset<frames.Frame>("values"))
+    local currentIntegers = native.loadPointer(current, native.fieldOffset<frames.Frame>("integers"))
+    local currentFloats = native.loadPointer(current, native.fieldOffset<frames.Frame>("floats"))
+    local currentCode = native.load64(current, native.fieldOffset<frames.Frame>("code"))
+    local resumeIndex = native.load64(current, native.fieldOffset<frames.Frame>("resumePC"))
+    local currentPC = native.pointer(currentCode + (resumeIndex << ops.INSTRUCTION_SHIFT))
+    native.store64(ctx, context.CODE_START, currentCode)
 
     return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
 end
