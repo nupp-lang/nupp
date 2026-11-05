@@ -434,6 +434,18 @@ export function newTable(ctx: voidptr): uint64
     end
 end
 
+-- A fresh table whose array part is packed as `kind` (coretables), with
+-- room for `capacity` elements; answers its header address.
+export function newpacked(ctx: voidptr, kind: uint64, capacity: uint64): uint64
+    @unsafe do
+        local h = native.pointer(guestHeap(ctx)) as heap.Heap*
+        local t = tables.createpacked(h, kind, capacity)
+        tables.drain(h)
+
+        return t
+    end
+end
+
 -- The pack {[0] = n, ...} of the `count` values at `source` followed by the
 -- values of `extra`, a pack (0 for none): a call's results for a caller that
 -- takes them all as one value.

@@ -38,6 +38,12 @@ export const LIB_CAST: uint64 = 103ULL
 -- A cleanup function set under its key, and read back by it.
 export const LIB_CLEANUPSET: uint64 = 104ULL
 export const LIB_CLEANUPGET: uint64 = 105ULL
+-- A table constructor for a checked `{T}` whose elements pack: the fresh
+-- table, its array part packed as kind a (coretables), with room for b. And
+-- storagecalls.packedkind(t): that kind, 0 once the table is general (or for
+-- a value that is not a table).
+export const LIB_NEWARRAY: uint64 = 116ULL
+export const LIB_PACKEDKIND: uint64 = 117ULL
 
 -- No index: an error was raised instead.
 const NOINDEX: uint64 = 0xffffffffffffffffULL
@@ -66,6 +72,8 @@ export function rawnext(ctx: voidptr, subject: uint64, after: uint64, all: boole
             return key
         end
         local pack = guestscope.newTable(ctx)
+        -- Held while a packed table boxes a wide integer, which can collect.
+        guestscope.hold(ctx, values.TAG_OBJ | pack)
         if key == values.NIL then
             tables.set(h, pack, values.TAG_INTEGER, values.TAG_INTEGER | 1ULL)
             tables.set(h, pack, values.TAG_INTEGER | 1ULL, values.NIL)

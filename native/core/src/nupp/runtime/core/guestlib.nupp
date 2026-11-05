@@ -1890,6 +1890,9 @@ local function tableRemove(ctx: voidptr, count: uint64, list: uint64, a: uint64)
         end
         writable(ctx, t)
         local removed = guestscope.geti(ctx, t, pos)
+        -- A packed table's wide integer is a fresh box, which the reads
+        -- after it could collect.
+        guestscope.hold(ctx, removed)
         local at = pos
         while at < size and not guestscope.suspended(ctx) do
             guestscope.seti(ctx, t, at, guestscope.geti(ctx, t, at + 1))
@@ -2170,8 +2173,11 @@ local function sortStep(ctx: voidptr, value: uint64): uint64
                 return values.FALSE
             end
             if i <= mid and j <= hi then
-                local right = guestscope.geti(ctx, t, j)
+                -- Kept in the state while left is read: a packed table's
+                -- wide integer is a fresh box, which that read could collect.
+                storeAt(h, st, SORT_A, guestscope.geti(ctx, t, j))
                 local left = guestscope.geti(ctx, t, i)
+                local right = loadAt(st, SORT_A)
                 if guestscope.suspended(ctx) then
                     return values.FALSE
                 end
@@ -2856,7 +2862,12 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
     elseif id == TABLE_ISFROZEN then
         return tableIsfrozen(ctx, a)
     elseif id == TABLE_SORT then
-        sortStep(ctx, sortBegin(ctx, a, values.NIL))
+        -- The state is held while the sort runs: reading a packed table's
+        -- wide integer can collect.
+        local state = sortBegin(ctx, a, values.NIL)
+        guestscope.hold(ctx, state)
+        sortStep(ctx, state)
+        guestscope.release(ctx)
         return values.NIL
     elseif id == SORT_BEGIN then
         return sortBegin(ctx, a, b)

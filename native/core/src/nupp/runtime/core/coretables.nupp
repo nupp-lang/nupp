@@ -5,21 +5,46 @@ module nupp.runtime.core.coretables
 -- layout the collector walks. The header's auxPtr and auxLen mirror the array
 -- part after every change, since that is what marking reads.
 --
--- Keys are integers, booleans and objects by identity. Float keys are refused
--- until integral floats are normalized to integers (Lua's t[1.0] is t[1]);
--- nil and NaN keys are refused as Lua refuses them.
+-- Keys are integers, booleans and objects by identity. A float key with an
+-- integral value is the integer it equals (Lua's t[1.0] is t[1]); nil and
+-- NaN keys are refused as Lua refuses them.
+--
+-- Packed array parts (runtime Decision 15). A table made for a checked
+-- `{T}` whose T is a fixed-width number, a float or a boolean holds its keys
+-- 1..n as raw elements of that kind rather than as values: a block of int64s,
+-- of binary64s, of bytes. A descriptor for them follows the TableBody, and
+-- the kind sits in bits 2 to 5 of the header's aux (the weak modes have bits
+-- 0 and 1, a card record bits 8 up). The TableBody's own array part, and so
+-- the header's auxPtr and auxLen, stay empty, so the collector sees no array
+-- part: it neither traces the elements nor keeps cards over them, and a
+-- store into them needs no barrier.
+--
+-- A write the kind cannot hold exactly first switches the table to the
+-- general representation, once and for good (`general`): a value of another
+-- type, which only untyped code can store; a nil inside 1..n-1, a hole; or a
+-- key past n + 1. Removing element n, appending at n + 1, and any key that is
+-- not a positive integer keep it packed. So while a table is packed its hash
+-- part holds no positive integer key, and its array part never takes keys
+-- over from the hash part as a general one does.
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const collector = require("nupp.runtime.vm.collector")
 const values = require("nupp.runtime.vm.values")
 const arrays = require("nupp.runtime.vm.valuearray")
 const hashes = require("nupp.runtime.vm.objecttable")
+const backing = require("nupp.runtime.vm.backing")
 const ints = require("nupp.runtime.core.coreintegers")
 const corestorage = require("nupp.runtime.core.corestorage")
 
 export const OK: uint64 = 0ULL
 export const BAD_KEY: uint64 = 1ULL
 export const NO_MEMORY: uint64 = 2ULL
+
+-- The packed element kinds: corestorage's UINT8 (1) through FLOAT64 (10),
+-- and booleans, one byte each.
+export const PACKED_BOOLEAN: uint64 = 11ULL
+const KIND_SHIFT: uint64 = 2ULL
+const KIND_BITS: uint64 = 0x3cULL
 
 local function arrayOf(o: heap.Header*): heap.ValueArray*
     @unsafe do
@@ -34,11 +59,64 @@ local function hashOf(o: heap.Header*): heap.ValueTable*
     end
 end
 
+-- A packed table's element descriptor, after its TableBody: the heap as
+-- owner, the elements' backing, and their count and room in elements.
+local function packedof(o: heap.Header*): heap.ValueArray*
+    @unsafe do
+        return native.pointer(
+            native.address(o as voidptr) + heap.HEADER_BYTES + native.sizeOf<heap.TableBody>()
+        ) as heap.ValueArray*
+    end
+end
+
 local function mirror(o: heap.Header*): nil
     @unsafe do
         local a = arrayOf(o)
         o.auxPtr = a.base
         o.auxLen = a.length
+    end
+end
+
+-- Recycles every object the sweep retired onto the released list (tables, interned
+-- strings, boxed integers and coroutines), releasing a table's owned parts and a
+-- coroutine's frame pages first. Every allocating guest leaf calls this after its
+-- collector work.
+export function drain(h: heap.Heap*): nil
+    @unsafe do
+        while h.released.count > 0ULL do
+            local address = heap.wordsPop(h.released)
+            local o = native.pointer(address) as heap.Header*
+            -- The sweep already retired it: its former kind is in aux.
+            if o.aux as uint64 == heap.KIND_TABLE then
+                local a = arrayOf(o)
+                if a.base ~= 0ULL then
+                    arrays.arrayRelease(a)
+                end
+                local t = hashOf(o)
+                if t.ptr ~= 0ULL then
+                    hashes.tableOwnedRelease(t)
+                end
+                -- A table made packed is the one with room for the descriptor.
+                if (
+                    o.size as uint64
+                ) >= heap.HEADER_BYTES + native.sizeOf<heap.TableBody>() + native.sizeOf<heap.ValueArray>() then
+                    local d = packedof(o)
+                    if d.base ~= 0ULL then
+                        backing.wordBackingRelease(d.base)
+                        d.base = 0ULL
+                    end
+                end
+            elseif o.aux as uint64 == heap.KIND_BYTES then
+                corestorage.releasestorage(o)
+            elseif o.aux as uint64 == heap.KIND_THREAD then
+                local thread = native.pointer(address + heap.HEADER_BYTES) as heap.ThreadBody*
+                if thread.pages ~= 0ULL then
+                    heap.releaseChunks(thread.pages)
+                    thread.pages = 0ULL
+                end
+            end
+            heap.recycle(h, o)
+        end
     end
 end
 
@@ -79,6 +157,124 @@ local function position(key: uint64): uint64
     return payload
 end
 
+-- The kind of the table's packed array part, 0 when it is general.
+export function packedkind(table: uint64): uint64
+    @unsafe do
+        return (((native.pointer(table) as heap.Header*).aux as uint64) & KIND_BITS) >> KIND_SHIFT
+    end
+end
+
+-- Bytes per element of a packed kind, 0 for none.
+local function packedwidth(kind: uint64): uint64
+    if kind == PACKED_BOOLEAN then
+        return 1ULL
+    end
+
+    return corestorage.elementwidth(kind)
+end
+
+local function isfloat(value: uint64): boolean
+    return value & values.QNAN ~= values.QNAN or value == values.QNAN
+end
+
+-- Whether a `kind` element holds `value` exactly: a boolean, a float (one
+-- binary32 represents, for FLOAT32), or an integer in the kind's range.
+local function fits(kind: uint64, value: uint64): boolean
+    if kind == PACKED_BOOLEAN then
+        return value == values.TRUE or value == values.FALSE
+    elseif kind == corestorage.FLOAT64 then
+        return isfloat(value)
+    elseif kind == corestorage.FLOAT32 then
+        return isfloat(value) and corestorage.narrow(value) == value
+    end
+    if not ints.isInteger(value) then
+        return false
+    end
+    local bits = ints.bitsOf(value)
+    if kind == corestorage.UINT8 then
+        return bits < 0x100ULL
+    elseif kind == corestorage.INT8 then
+        return bits + 0x80ULL < 0x100ULL
+    elseif kind == corestorage.UINT16 then
+        return bits < 0x10000ULL
+    elseif kind == corestorage.INT16 then
+        return bits + 0x8000ULL < 0x10000ULL
+    elseif kind == corestorage.UINT32 then
+        return bits < 0x100000000ULL
+    elseif kind == corestorage.INT32 then
+        return bits + 0x80000000ULL < 0x100000000ULL
+    end
+
+    return true
+end
+
+-- Element `index` (from 0) of a packed part as a value; a wide integer is
+-- boxed on `h`, which can collect.
+local function packedload(h: heap.Heap*, kind: uint64, base: uint64, index: uint64): uint64
+    if kind == PACKED_BOOLEAN then
+        @unsafe do
+            if native.load8(native.pointer(base), native.index(index)) ~= 0 then
+                return values.TRUE
+            end
+        end
+        return values.FALSE
+    end
+
+    return corestorage.loadelement(h, kind, base, index)
+end
+
+-- Stores `value`, which `fits` the kind, as element `index` (from 0).
+local function packedstore(kind: uint64, base: uint64, index: uint64, value: uint64): nil
+    if kind == PACKED_BOOLEAN then
+        @unsafe native.store8(native.pointer(base), native.index(index), native.asWord(value == values.TRUE))
+    elseif kind == corestorage.FLOAT64 or kind == corestorage.FLOAT32 then
+        corestorage.storeelement(kind, base, index, value)
+    else
+        corestorage.storeelement(kind, base, index, ints.bitsOf(value))
+    end
+end
+
+-- Room in the packed part `d` for `wanted` elements, growing its backing by
+-- doubling; nonzero, the part as it was, when there is none. Growth maps
+-- backing and never collects.
+local function packedreserve(h: heap.Heap*, d: heap.ValueArray*, kind: uint64, wanted: uint64): uint64
+    @unsafe do
+        if wanted <= d.capacity then
+            return 0ULL
+        end
+        local width = packedwidth(kind)
+        local capacity = wanted
+        if capacity < d.capacity * 2ULL then
+            capacity = d.capacity * 2ULL
+        end
+        if capacity * width < 32ULL then
+            capacity = 32ULL // width
+        end
+        local words = (capacity * width + 7ULL) // 8ULL
+        local fresh = backing.wordBackingTake(h, words)
+        if fresh == 0ULL then
+            return 1ULL
+        end
+        local used = (d.length * width + 7ULL) // 8ULL
+        local i: uint64 = 0ULL
+        while i < used do
+            native.store64(
+                native.pointer(fresh),
+                native.index(i * 8ULL),
+                native.load64(native.pointer(d.base), native.index(i * 8ULL))
+            )
+            i = i + 1ULL
+        end
+        if d.base ~= 0ULL then
+            backing.wordBackingRelease(d.base)
+        end
+        d.base = fresh
+        d.capacity = capacity
+
+        return 0ULL
+    end
+end
+
 -- A fresh empty table on `h`; answers its header address.
 export function create(h: heap.Heap*): uint64
     @unsafe do
@@ -98,14 +294,121 @@ export function create(h: heap.Heap*): uint64
     end
 end
 
--- The value at `key`, nil when absent.
+-- A fresh empty table on `h` whose array part is packed as `kind`, with
+-- room for `capacity` elements when backing for them can be had; a kind
+-- that is none of the packed ones makes a general table.
+export function createpacked(h: heap.Heap*, kind: uint64, capacity: uint64): uint64
+    if kind == 0ULL or kind > PACKED_BOOLEAN then
+        return create(h)
+    end
+    @unsafe do
+        local bytes = native.sizeOf<heap.TableBody>() + native.sizeOf<heap.ValueArray>()
+        local o = collector.allocate(h, heap.KIND_TABLE, bytes)
+        local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES)
+        local i: uint64 = 0ULL
+        while i < bytes do
+            native.store64(body, native.index(i), 0ULL)
+            i = i + 8ULL
+        end
+        native.store64(body, native.fieldOffset<heap.TableBody>("meta"), values.NIL)
+        o.auxPtr = 0ULL
+        o.auxLen = 0ULL
+        o.aux = kind << KIND_SHIFT
+        packedof(o).owner = native.address(h as voidptr)
+        collector.initialized(h, o)
+        -- A constructor's count; a refused reservation grows later instead.
+        if capacity > 0ULL and capacity <= 0x1000000ULL then
+            packedreserve(h, packedof(o), kind, capacity)
+        end
+
+        return native.address(o as voidptr)
+    end
+end
+
+-- Switches a packed table to the general representation, once: its
+-- elements, as values, become the TableBody's array part, which the
+-- collector traces. Answers OK, or NO_MEMORY with the table still packed.
+-- Boxing a wide integer allocates, which can collect, so the part is laid
+-- out full of nil and published before the first is boxed, each element is
+-- stored through the barrier and its card, and `keep` (a value the caller
+-- has yet to store) is a root meanwhile. A general table answers OK.
+export function general(h: heap.Heap*, table: uint64, keep: uint64): uint64
+    local kind = packedkind(table)
+    if kind == 0ULL then
+        return OK
+    end
+    @unsafe do
+        local o = native.pointer(table) as heap.Header*
+        local d = packedof(o)
+        local a = arrayOf(o)
+        local n = d.length
+        if n > 0ULL then
+            if a.owner == 0ULL and arrays.arrayInitialize(a, h, n) ~= 0ULL then
+                return NO_MEMORY
+            end
+            if arrays.arrayResize(a, n, values.NIL) ~= 0ULL then
+                return NO_MEMORY
+            end
+            mirror(o)
+            local mark = collector.scopeOpen(h)
+            collector.scopePush(h, keep)
+            local i: uint64 = 0ULL
+            while i < n do
+                local value = packedload(h, kind, d.base, i)
+                collector.insertion(h, o, value)
+                native.store64(native.pointer(a.base), native.index(i * 8ULL), value)
+                collector.arraystore(h, o, i, value)
+                i = i + 1ULL
+            end
+            collector.scopeClose(h, mark)
+        end
+        if d.base ~= 0ULL then
+            backing.wordBackingRelease(d.base)
+        end
+        d.base = 0ULL
+        d.length = 0ULL
+        d.capacity = 0ULL
+        o.aux = (o.aux as uint64) & ~KIND_BITS
+
+        return OK
+    end
+end
+
+-- The value at `key`, nil when absent. A packed table's wide integer
+-- element is boxed here, which can collect.
 export function get(table: uint64, key: uint64): uint64
     @unsafe do
         local o = native.pointer(table) as heap.Header*
         local index = position(key)
-        local a = arrayOf(o)
-        if index ~= 0ULL and index <= a.length then
-            return native.load64(native.pointer(a.base), native.index((index - 1ULL) * 8ULL))
+        local kind = packedkind(table)
+        if kind ~= 0ULL then
+            if index ~= 0ULL then
+                local d = packedof(o)
+                if index > d.length then
+                    return values.NIL
+                end
+                -- The common kinds read in line: an integer that fits an
+                -- immediate, and a float, whose bits are its value.
+                if kind == corestorage.INT64 then
+                    local bits = native.load64(native.pointer(d.base), native.index((index - 1ULL) * 8ULL))
+                    if bits + 0x0000800000000000ULL < 0x0001000000000000ULL then
+                        return values.TAG_INTEGER | (bits & values.PAYLOAD)
+                    end
+                elseif kind == corestorage.FLOAT64 then
+                    return native.load64(native.pointer(d.base), native.index((index - 1ULL) * 8ULL))
+                end
+                local h = native.pointer(d.owner) as heap.Heap*
+                local value = packedload(h, kind, d.base, index - 1ULL)
+                if value & values.TAG_MASK == values.TAG_OBJ then
+                    drain(h)
+                end
+                return value
+            end
+        else
+            local a = arrayOf(o)
+            if index ~= 0ULL and index <= a.length then
+                return native.load64(native.pointer(a.base), native.index((index - 1ULL) * 8ULL))
+            end
         end
         local t = hashOf(o)
         if t.ptr == 0ULL then
@@ -131,6 +434,53 @@ export function lookup(h: heap.Heap*, table: uint64, key: uint64): uint64
     return get(table, k)
 end
 
+-- A store at positive integer key `index` of a packed table: OK or
+-- NO_MEMORY when the packed part takes it, else 1 for a write it cannot
+-- hold, which switches the table first.
+local function packedset(h: heap.Heap*, o: heap.Header*, kind: uint64, index: uint64, value: uint64): uint64
+    @unsafe do
+        local d = packedof(o)
+        local n = d.length
+        -- An immediate integer stored or appended in an integer part, in line.
+        if kind == corestorage.INT64 and index <= n + 1ULL and value & 0xffff000000000000ULL == values.TAG_INTEGER then
+            if index > n then
+                if packedreserve(h, d, kind, index) ~= 0ULL then
+                    return NO_MEMORY
+                end
+                d.length = index
+            end
+            local bits = value & values.PAYLOAD
+            if bits & 0x0000800000000000ULL ~= 0ULL then
+                bits = bits | 0xffff000000000000ULL
+            end
+            native.store64(native.pointer(d.base), native.index((index - 1ULL) * 8ULL), bits)
+            return OK
+        end
+        if value == values.NIL then
+            -- Removing the last element keeps it dense; a key past it is absent.
+            if index == n then
+                d.length = n - 1ULL
+                return OK
+            end
+            if index > n then
+                return OK
+            end
+        elseif index <= n and fits(kind, value) then
+            packedstore(kind, d.base, index - 1ULL, value)
+            return OK
+        elseif index == n + 1ULL and fits(kind, value) then
+            if packedreserve(h, d, kind, index) ~= 0ULL then
+                return NO_MEMORY
+            end
+            packedstore(kind, d.base, n, value)
+            d.length = index
+            return OK
+        end
+
+        return 1ULL
+    end
+end
+
 -- Stores `value` at `key`; nil removes. Answers OK, BAD_KEY or NO_MEMORY.
 -- The insertion barrier runs before the store; the generational record,
 -- which names the slot so a large table's card is marked, after it.
@@ -141,6 +491,16 @@ export function set(h: heap.Heap*, table: uint64, raw: uint64, value: uint64): u
     end
     @unsafe do
         local o = native.pointer(table) as heap.Header*
+        local kind = packedkind(table)
+        if kind ~= 0ULL and position(key) ~= 0ULL then
+            local status = packedset(h, o, kind, position(key), value)
+            if status ~= 1ULL then
+                return status
+            end
+            if general(h, table, value) ~= OK then
+                return NO_MEMORY
+            end
+        end
         collector.insertion(h, o, key)
         collector.insertion(h, o, value)
         local a = arrayOf(o)
@@ -213,13 +573,25 @@ export function nextKey(table: uint64, key: uint64): uint64
         local t = hashOf(o)
         local index = position(key)
         local after = key
-        if key == values.NIL or (index ~= 0ULL and index <= a.length) then
-            -- Array slots holding nil are holes, which a traversal skips.
-            while index < a.length do
-                if native.load64(native.pointer(a.base), native.index(index * 8ULL)) ~= values.NIL then
+        local packed = packedkind(table) ~= 0ULL
+        local count = a.length
+        if packed then
+            count = packedof(o).length
+        end
+        if key == values.NIL or (index ~= 0ULL and index <= count) then
+            if packed then
+                -- A packed part has no holes.
+                if index < count then
                     return values.TAG_INTEGER | (index + 1ULL)
                 end
-                index = index + 1ULL
+            else
+                -- Array slots holding nil are holes, which a traversal skips.
+                while index < a.length do
+                    if native.load64(native.pointer(a.base), native.index(index * 8ULL)) ~= values.NIL then
+                        return values.TAG_INTEGER | (index + 1ULL)
+                    end
+                    index = index + 1ULL
+                end
             end
             after = values.NIL
         end
@@ -278,39 +650,10 @@ end
 -- A border: the array part's length, which the hash part never extends.
 export function length(table: uint64): uint64
     @unsafe do
-        return arrayOf(native.pointer(table) as heap.Header*).length
-    end
-end
-
--- Recycles every object the sweep retired onto the released list (tables, interned
--- strings, boxed integers and coroutines), releasing a table's owned parts and a
--- coroutine's frame pages first. Every allocating guest leaf calls this after its
--- collector work.
-export function drain(h: heap.Heap*): nil
-    @unsafe do
-        while h.released.count > 0ULL do
-            local address = heap.wordsPop(h.released)
-            local o = native.pointer(address) as heap.Header*
-            -- The sweep already retired it: its former kind is in aux.
-            if o.aux as uint64 == heap.KIND_TABLE then
-                local a = arrayOf(o)
-                if a.base ~= 0ULL then
-                    arrays.arrayRelease(a)
-                end
-                local t = hashOf(o)
-                if t.ptr ~= 0ULL then
-                    hashes.tableOwnedRelease(t)
-                end
-            elseif o.aux as uint64 == heap.KIND_BYTES then
-                corestorage.releasestorage(o)
-            elseif o.aux as uint64 == heap.KIND_THREAD then
-                local thread = native.pointer(address + heap.HEADER_BYTES) as heap.ThreadBody*
-                if thread.pages ~= 0ULL then
-                    heap.releaseChunks(thread.pages)
-                    thread.pages = 0ULL
-                end
-            end
-            heap.recycle(h, o)
+        local o = native.pointer(table) as heap.Header*
+        if packedkind(table) ~= 0ULL then
+            return packedof(o).length
         end
+        return arrayOf(o).length
     end
 end

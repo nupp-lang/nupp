@@ -268,16 +268,12 @@ local function shorten(bits: uint64): uint64
     return sign | (significand >> shift)
 end
 
--- The element at `index` as a value, an integer that does not fit inline
--- made on `h`. Answers values.TRUE when the index is outside the storage.
-export function readelement(h: heap.Heap*, object: uint64, index: uint64): uint64
+-- Element `index` of `kind` elements at `base` as a value, an integer that
+-- does not fit inline made on `h`. Packed table array parts (coretables)
+-- read their elements through this as storage does.
+export function loadelement(h: heap.Heap*, kind: uint64, base: uint64, index: uint64): uint64
     @unsafe do
-        local o = native.pointer(object) as heap.Header*
-        if index >= o.auxLen then
-            return values.TRUE
-        end
-        local kind = o.aux as uint64
-        local at = native.pointer(o.auxPtr)
+        local at = native.pointer(base)
         local offset = native.index(index * elementwidth(kind))
         if kind == UINT8 then
             return values.TAG_INTEGER | native.word(native.load8(at, offset))
@@ -318,18 +314,16 @@ export function readelement(h: heap.Heap*, object: uint64, index: uint64): uint6
 end
 
 -- Stores `bits` (an integer's two's complement, or a float's binary64 bits
--- for the float kinds) as the element at `index`. Answers 1 when the index
--- is outside the storage.
-export function writeelement(object: uint64, index: uint64, bits: uint64): uint64
+-- for the float kinds) as element `index` of `kind` elements at `base`.
+export function storeelement(kind: uint64, base: uint64, index: uint64, bits: uint64): nil
     @unsafe do
-        local o = native.pointer(object) as heap.Header*
-        if index >= o.auxLen then
-            return 1ULL
-        end
-        local kind = o.aux as uint64
         local size = elementwidth(kind)
-        local at = native.pointer(o.auxPtr)
+        local at = native.pointer(base)
         local offset = native.index(index * size)
+        if size == 8ULL then
+            native.store64(at, offset, bits)
+            return
+        end
         local word = bits
         if kind == FLOAT32 then
             word = shorten(narrow(bits))
@@ -339,6 +333,32 @@ export function writeelement(object: uint64, index: uint64, bits: uint64): uint6
             native.store8(at, offset + native.index(i), (word >> (i * 8ULL)) & 0xffULL)
             i = i + 1ULL
         end
+    end
+end
+
+-- The element at `index` as a value, an integer that does not fit inline
+-- made on `h`. Answers values.TRUE when the index is outside the storage.
+export function readelement(h: heap.Heap*, object: uint64, index: uint64): uint64
+    @unsafe do
+        local o = native.pointer(object) as heap.Header*
+        if index >= o.auxLen then
+            return values.TRUE
+        end
+
+        return loadelement(h, o.aux as uint64, o.auxPtr, index)
+    end
+end
+
+-- Stores `bits` (an integer's two's complement, or a float's binary64 bits
+-- for the float kinds) as the element at `index`. Answers 1 when the index
+-- is outside the storage.
+export function writeelement(object: uint64, index: uint64, bits: uint64): uint64
+    @unsafe do
+        local o = native.pointer(object) as heap.Header*
+        if index >= o.auxLen then
+            return 1ULL
+        end
+        storeelement(o.aux as uint64, o.auxPtr, index, bits)
 
         return 0ULL
     end

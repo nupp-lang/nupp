@@ -342,7 +342,11 @@ UNITS[#UNITS + 1] = {
         {"tableunits", "removal", 1},
         {"tableunits", "objectKeys", 1},
         {"tableunits", "survives", 1},
-        {"tableunits", "traversal", 1}
+        {"tableunits", "traversal", 1},
+        {"tableunits", "packedround", 1},
+        {"tableunits", "packedswitch", 2},
+        {"tableunits", "packedskip", 1},
+        {"tableunits", "packedboxes", 2}
     },
     cases = function()
         local cases = {}
@@ -361,6 +365,21 @@ UNITS[#UNITS + 1] = {
             local half = n * (n + 1) // 2
             local sum = (half - 3) + (half + 1000 * n - 1002) + (half - 3) + (half - 2)
             cases[#cases + 1] = {"traversal", {n}, (2 * n - 2) * 1000000000 + sum * 10 + 1}
+        end
+        -- Packed array parts: every kind round trips; each trigger switches or
+        -- keeps it; the collector visits none of a packed part; boxes made
+        -- as one switches survive, collecting at every allocation or not.
+        for _, n in ipairs({3, 100, 5000}) do
+            cases[#cases + 1] = {"packedround", {n}, 11}
+            for trigger = 0, 5 do
+                local same = trigger == 1 and n - 3 or n - 2
+                cases[#cases + 1] = {"packedswitch", {trigger, n}, (trigger <= 3 and 1000 or 0) + same}
+            end
+            cases[#cases + 1] = {"packedskip", {n}, n + 1}
+        end
+        for _, n in ipairs({1, 40, 300}) do
+            cases[#cases + 1] = {"packedboxes", {n, 0}, 1}
+            cases[#cases + 1] = {"packedboxes", {n, 1}, 1}
         end
 
         return cases

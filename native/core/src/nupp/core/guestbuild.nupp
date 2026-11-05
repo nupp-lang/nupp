@@ -167,7 +167,9 @@ local CASES: {[string]: {
         modules = {"catalog-modules-tally", "catalog-modules-faulty"}
     },
     errorsruntime = {fixture = "catalog-errors-runtime", version = 8},
-    tablesfrozen = {fixture = "catalog-tables-frozen", version = 8}
+    tablesfrozen = {fixture = "catalog-tables-frozen", version = 8},
+    tablespacked = {fixture = "catalog-tables-packed", version = 8},
+    tablespackedsemantics = {fixture = "catalog-tables-packed-semantics", version = 8}
 }
 
 -- The handlers a profile version dispatches, in table order.

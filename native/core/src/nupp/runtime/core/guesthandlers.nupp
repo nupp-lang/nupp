@@ -1728,6 +1728,19 @@ export function LibCall(
         slots.writeValue(frame, regs, dst, basics.allocate(ctx, values.TAG_INTEGER | corestorage.UINT8, a))
     elseif libraryId == basics.LIB_ALLOCATE then
         slots.writeValue(frame, regs, dst, basics.allocate(ctx, a, b))
+    elseif libraryId == basics.LIB_NEWARRAY then
+        slots.writeValue(
+            frame,
+            regs,
+            dst,
+            values.TAG_OBJ | guestscope.newpacked(ctx, a & values.PAYLOAD, b & values.PAYLOAD)
+        )
+    elseif libraryId == basics.LIB_PACKEDKIND then
+        local packed: uint64 = 0ULL
+        if tableHeader(a) ~= 0ULL then
+            packed = tables.packedkind(tableHeader(a))
+        end
+        slots.writeValue(frame, regs, dst, values.TAG_INTEGER | packed)
     elseif libraryId == basics.LIB_CLEANUPSET then
         slots.writeValue(frame, regs, dst, basics.cleanupset(ctx, a, b))
     elseif libraryId == basics.LIB_CLEANUPGET then
