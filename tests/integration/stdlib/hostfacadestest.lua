@@ -169,7 +169,10 @@ function M.hostAndVmBindingsSelectTheTargetImplementationOnce()
             binding = "nupp.runtime.bindings.files",
             native = "nupp.runtime.provider.nativefiles",
             browser = "nupp.runtime.browser.files",
-            member = "capabilities"
+            member = "capabilities",
+            -- `fscaps` remembers the provider's answer rather than re-exporting it.
+            exported = "fscaps",
+            wrapped = true
         },
         {
             module = "nupp.runtime.uuidprovider",
@@ -302,7 +305,7 @@ function M.hostAndVmBindingsSelectTheTargetImplementationOnce()
                 assert(facade.storage == expected, label)
             elseif case.member then
                 local call = facade[case.exported or case.member]
-                assert(call == expected[case.member], label)
+                assert(case.wrapped or call == expected[case.member], label)
                 assert(call() == selectedName and call() == selectedName, label)
                 if case.module == "nupp.suspension" then
                     local host = load("nupp.suspension.host")
@@ -387,8 +390,8 @@ function M.memoizedAppPathsAreRecreated()
     local files = require("helpers.providerstate").load("files", provider)
     files.setappid("example", "application-path-test")
 
-    assert(files.datapath() == root)
-    assert(files.datapath() == root)
+    assert(files.appdir("data") == root)
+    assert(files.appdir("data") == root)
     assert(resolved == 1, "the platform root is resolved once")
     assert(created == 1, "a cached root is recreated if the caller removed it")
 end

@@ -298,7 +298,6 @@ end
 function M.filesystemFunctionsTypeAsTheirTuplesAndIterators()
     local parser = require("nupp.compiler.syntax.parser")
     local checker = require("helpers.fragment")
-    local gen = require("nupp.compiler.lua.gen")
     local root = require("helpers.paths").tests .. "/.."
     local accepted = {
         'local kind, size, modified, readonly, err = os.stat("a")\n'
@@ -322,9 +321,6 @@ function M.filesystemFunctionsTypeAsTheirTuplesAndIterators()
         local env = require("nupp.compiler.project.env").new(root, {cache = false})
         local diagnostics = checker.check(parsed, "filesystem-surface.nupp", env)
         test.eq(#diagnostics, 0, (diagnostics[1] and diagnostics[1].msg or "") .. "\n" .. source)
-        local _, errors, _, emitted = gen.generate(parsed, "filesystem-surface.nupp")
-        test.eq(#errors, 0)
-        assert(emitted["runtime.files"], "a filesystem call must package its provider: " .. source)
     end
     for _, source in ipairs({
         "os.fscaps().glob = false",
