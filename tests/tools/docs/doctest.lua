@@ -170,7 +170,7 @@ end
     local markdown = doc.markdown({module})
     local overview = assert(markdown:match("#### Members\n\n(::: api%-overview.-\n:::)"), markdown)
     local last = 0
-    for _, title in ipairs({"Instance methods", "Static methods", "Constructors", "Metamethods", "Types", "Fields"}) do
+    for _, title in ipairs({"Static methods", "Instance methods", "Constructors", "Metamethods", "Types", "Fields"}) do
         local position = assert(overview:find("**" .. title:lower() .. "**", 1, true), title)
         assert(position > last, "member groups out of order")
         last = position
@@ -271,8 +271,8 @@ end
     assert(api.isInstanceMethod(items.Native.members[1]))
     local markdown = require("nupp.tools.doc.markdown").items({items.Widget})
     local overview = assert(markdown:match("#### Members\n\n(::: api%-overview.-\n:::)"), markdown)
-    local instance = assert(overview:match("%*%*instance methods%*%*\n\n(.-)\n\n%*%*static methods%*%*"), overview)
-    local static = assert(overview:match("%*%*static methods%*%*\n\n(.-)\n\n%*%*types%*%*"), overview)
+    local static = assert(overview:match("%*%*static methods%*%*\n\n(.-)\n\n%*%*instance methods%*%*"), overview)
+    local instance = assert(overview:match("%*%*instance methods%*%*\n\n(.-)\n\n%*%*types%*%*"), overview)
     for name, receiver in pairs(expected) do
         assert((receiver and instance or static):find("[`" .. name .. "`]", 1, true), name .. "\n" .. overview)
         assert(not (receiver and static or instance):find("[`" .. name .. "`]", 1, true), name .. "\n" .. overview)
