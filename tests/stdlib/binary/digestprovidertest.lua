@@ -254,17 +254,18 @@ function M.digestAndMacCatalogsRetryFailedLoadsBeforePublishing()
                 return {algorithms = {}}
             end
         })
-        local api = load("binary")[PUBLIC[kind]]
-        local ok, problem = pcall(api.Algorithm.names)
+        local binary = load("binary")
+        local api = binary[kind]
+        local ok, problem = pcall(binary.formats, kind)
         assert(not ok and tostring(problem):find("temporary catalog failure", 1, true), tostring(problem))
-        local names = api.Algorithm.names()
+        local names = binary.formats(kind)
         assert(#names > 0 and counts.resolutions == 2)
         for index = 2, #names do
             assert(names[index - 1] < names[index], "catalog names are sorted and unique")
         end
-        assert(#api.Algorithm.names() == #names and counts.resolutions == 2)
+        assert(#binary.formats(kind) == #names and counts.resolutions == 2)
         local name = kind == "digest" and "sha256" or "hmac-sha256"
-        assert(api.Algorithm.of(name).digestsize == 32)
+        assert(api(name).digestsize == 32)
     end
 end
 
