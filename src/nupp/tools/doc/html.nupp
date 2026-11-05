@@ -453,11 +453,14 @@ local function extractBlocks(text, links, rendered)
                 end
                 local columns = count > 24 and 3 or count > 8 and 2 or 1
                 placeholder(
-                    '<div class="nuppdoc-overview nuppdoc-overview-' .. columns .. '">' .. markdownHtml(
+                    '<section class="nuppdoc-overview-section"><div class="nuppdoc-overview nuppdoc-overview-'
+                    .. columns
+                    .. '">'
+                    .. markdownHtml(
                         body,
                         links,
                         0
-                    ) .. '</div>'
+                    ) .. '</div></section>'
                 )
             else
                 out[#out + 1] = line
@@ -732,6 +735,18 @@ markdownHtml = function(text: string?, links: Links?, headingShift: integer?, he
         -- A block's markup is returned by a function so that a `%` in it is never read
         -- as a capture reference.
         return rendered[tonumber(index)] or ""
+    end)
+
+    -- Keep the Markdown heading and its scoped anchor, inside the overview it
+    -- names. A heading cannot consume intervening paragraphs or other headings.
+    out = out:gsub('(<h[1-6][^>]*>[^\n]-</h[1-6]>)%s*<section class="nuppdoc%-overview%-section">', function(
+        title: string
+    ): string
+        local id = title:match(' id="([^"]+)"')
+        title = title:gsub('<h([1-6]) ', '<h%1 class="nuppdoc-overview-title" ', 1)
+        return '<section class="nuppdoc-overview-section"' .. (
+            id and ' aria-labelledby="' .. id .. '"' or ''
+        ) .. '>' .. title
     end)
 
     return trim(out)
