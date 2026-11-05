@@ -777,7 +777,13 @@ local FEATURES: {[string]: native.Feature} = {
         host = "native-process",
         library = "nupp_native",
         binary = true,
-        requires = {"runtime.process_contract", "runtime.process_types", "runtime.suspension", "runtime.native"},
+        requires = {
+            "runtime.process_contract",
+            "runtime.process_types",
+            "runtime.suspension",
+            "runtime.native",
+            "native.time"
+        },
     },
     [
         "native.workers"
