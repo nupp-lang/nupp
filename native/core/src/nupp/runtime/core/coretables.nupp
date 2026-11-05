@@ -388,6 +388,16 @@ export function get(table: uint64, key: uint64): uint64
                 if index > d.length then
                     return values.NIL
                 end
+                -- The common kinds read in line: an integer that fits an
+                -- immediate, and a float, whose bits are its value.
+                if kind == corestorage.INT64 then
+                    local bits = native.load64(native.pointer(d.base), native.index((index - 1ULL) * 8ULL))
+                    if bits + 0x0000800000000000ULL < 0x0001000000000000ULL then
+                        return values.TAG_INTEGER | (bits & values.PAYLOAD)
+                    end
+                elseif kind == corestorage.FLOAT64 then
+                    return native.load64(native.pointer(d.base), native.index((index - 1ULL) * 8ULL))
+                end
                 local h = native.pointer(d.owner) as heap.Heap*
                 local value = packedload(h, kind, d.base, index - 1ULL)
                 if value & values.TAG_MASK == values.TAG_OBJ then
@@ -432,6 +442,21 @@ local function packedset(h: heap.Heap*, o: heap.Header*, kind: uint64, index: ui
     @unsafe do
         local d = packedof(o)
         local n = d.length
+        -- An immediate integer stored or appended in an integer part, in line.
+        if kind == corestorage.INT64 and index <= n + 1ULL and value & 0xffff000000000000ULL == values.TAG_INTEGER then
+            if index > n then
+                if packedreserve(h, d, kind, index) ~= 0ULL then
+                    return NO_MEMORY
+                end
+                d.length = index
+            end
+            local bits = value & values.PAYLOAD
+            if bits & 0x0000800000000000ULL ~= 0ULL then
+                bits = bits | 0xffff000000000000ULL
+            end
+            native.store64(native.pointer(d.base), native.index((index - 1ULL) * 8ULL), bits)
+            return OK
+        end
         if value == values.NIL then
             -- Removing the last element keeps it dense; a key past it is absent.
             if index == n then
