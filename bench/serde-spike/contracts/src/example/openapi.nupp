@@ -38,12 +38,12 @@ export record Model
     @readonly positiveAlternative: boolean
 end
 export function model(positiveAlternative: boolean?): Model
-    return new Model(
-        root = new Property(name = "Response"),
-        name = new Property(name = "name", index = 1),
-        secret = new Property(name = "secret", index = 2, writeOnly = true),
-        identifier = new Property(name = "id", index = 3, readOnly = true),
-        payload = new Property(name = "payload", index = 4),
+    return Model(
+        root = Property(name = "Response"),
+        name = Property(name = "name", index = 1),
+        secret = Property(name = "secret", index = 2, writeOnly = true),
+        identifier = Property(name = "id", index = 3, readOnly = true),
+        payload = Property(name = "payload", index = 4),
         positiveAlternative = positiveAlternative == true
     )
 end
@@ -60,7 +60,7 @@ end
 local record Text is core.Adapter<string, Property>
     @readonly member: Property
     function describe(self, direction: core.Direction): core.Description<Property>
-        return new Description(kind = "string", member = self.member)
+        return Description(kind = "string", member = self.member)
     end
 
     function write(self, borrows value: string, exclusive writer: core.Writer<Property>): nil
@@ -74,7 +74,7 @@ end
 
 local function choose(schema: Model, value: documents.Document): Choice
     if value.kind == "string" then
-        return new Choice(alternative = "text", value = value)
+        return Choice(alternative = "text", value = value)
     else
         assert2(value.kind == "numbertoken", "oneOf accepts text or an integer")
         local token = value:numbertoken()
@@ -82,14 +82,14 @@ local function choose(schema: Model, value: documents.Document): Choice
         local parsed = assert2(tonumber(token), "invalid integer")
         assert2(parsed >= -2147483648 and parsed <= 2147483647, "oneOf integer overflow")
         assert2(not schema.positiveAlternative or parsed <= 0, "ambiguous oneOf: two integer alternatives match")
-        return new Choice(alternative = "integer", value = value)
+        return Choice(alternative = "integer", value = value)
     end
 end
 
 local record Alternatives is core.Adapter<Choice, Property>
     @readonly schema: Model
     function describe(self, direction: core.Direction): core.Description<Property>
-        return new Description(kind = "dynamic", member = self.schema.payload)
+        return Description(kind = "dynamic", member = self.schema.payload)
     end
 
     function write(self, borrows value: Choice, exclusive writer: core.Writer<Property>): nil
@@ -118,12 +118,12 @@ local record Builder is own.Closeable
 end
 local record Construction is structures.Construction<Value, Builder>
     function begin(self): Builder
-        return new Builder()
+        return Builder()
     end
 
     function finish(self, takes state: Builder): Value
         local owned: Builder = state
-        local result = new Value(
+        local result = Value(
             name = assert2(owned.name, "required name"),
             secret = owned.secret,
             identifier = owned.identifier,
@@ -157,7 +157,7 @@ local record Additional is core.Members<Property, Value>
         table.sort(names)
         for _, name in ipairs(names) do
             writer:writeunknown(
-                new jsonDocument.FieldName(name = name),
+                jsonDocument.FieldName(name = name),
                 assert2(value.additional[name]),
                 documents.adapter()
             )
@@ -174,7 +174,7 @@ export function binding(schema: Model): core.Binding<Value>
             function(exclusive state: Builder, value: string): nil
                 state.name = value
             end,
-            new Text(member = schema.name),
+            Text(member = schema.name),
             true,
             false
         ),
@@ -186,7 +186,7 @@ export function binding(schema: Model): core.Binding<Value>
             function(exclusive state: Builder, value: string): nil
                 state.secret = value
             end,
-            new Text(member = schema.secret),
+            Text(member = schema.secret),
             false,
             true
         ),
@@ -198,7 +198,7 @@ export function binding(schema: Model): core.Binding<Value>
             function(exclusive state: Builder, value: string): nil
                 state.identifier = value
             end,
-            new Text(member = schema.identifier),
+            Text(member = schema.identifier),
             false,
             true
         ),
@@ -210,14 +210,14 @@ export function binding(schema: Model): core.Binding<Value>
             function(exclusive state: Builder, value: Choice): nil
                 state.payload = value
             end,
-            new Alternatives(schema = schema),
+            Alternatives(schema = schema),
             true,
             false
         )
     }
 
-    return new core.Bound<Value, Property>(
-        adapter = structures.structure(schema.root, fields, new Construction(), new Unknown(), new Additional())
+    return core.Bound<Value, Property>(
+        adapter = structures.structure(schema.root, fields, Construction(), Unknown(), Additional())
     )
 end
 
@@ -228,7 +228,7 @@ local record DocumentBuilder is own.Closeable
 end
 local record DocumentConstruction is structures.Construction<documents.Document, DocumentBuilder>
     function begin(self): DocumentBuilder
-        return new DocumentBuilder()
+        return DocumentBuilder()
     end
 
     function finish(self, takes state: DocumentBuilder): documents.Document
@@ -237,7 +237,7 @@ local record DocumentConstruction is structures.Construction<documents.Document,
         assert2(value:get("name") ~= nil and value:get("payload") ~= nil, "missing required OpenAPI property")
         for _, name in ipairs({"secret", "id"}) do
             if value:get(name) == nil then
-                owned.fields[#owned.fields + 1] = new documents.Entry(name = name, value = documents.string(""))
+                owned.fields[#owned.fields + 1] = documents.Entry(name = name, value = documents.string(""))
             end
         end
         value = documents.object(owned.fields)
@@ -264,9 +264,7 @@ local record DocumentField is structures.Field<documents.Document, DocumentBuild
     end
 
     function read(self, exclusive state: DocumentBuilder, exclusive reader: core.Reader<Property>): nil
-        state.fields[
-            #state.fields + 1
-        ] = new documents.Entry(name = self.member.name, value = self.adapter:read(reader))
+        state.fields[#state.fields + 1] = documents.Entry(name = self.member.name, value = self.adapter:read(reader))
     end
 
     function accept<R>(self, consumer: structures.FieldConsumer<documents.Document, DocumentBuilder, Property, R>): R
@@ -282,7 +280,7 @@ local record DocumentField is structures.Field<documents.Document, DocumentBuild
                 return (assert2(source:get(name), "absent property"))
             end),
             function(exclusive state: DocumentBuilder, value: documents.Document): nil
-                state.fields[#state.fields + 1] = new documents.Entry(name = name, value = value)
+                state.fields[#state.fields + 1] = documents.Entry(name = name, value = value)
             end,
             self.adapter,
             nil
@@ -293,10 +291,7 @@ local record DocumentScalar is core.Adapter<documents.Document, Property>
     @readonly schema: Model
     @readonly member: Property
     function describe(self, direction: core.Direction): core.Description<Property>
-        return new Description(
-            member = self.member,
-            kind = self.member == self.schema.payload and "dynamic" or "string"
-        )
+        return Description(member = self.member, kind = self.member == self.schema.payload and "dynamic" or "string")
     end
 
     function write(self, borrows value: documents.Document, exclusive writer: core.Writer<Property>): nil
@@ -332,7 +327,7 @@ local record DocumentUnknown is core.UnknownConsumer<DocumentBuilder>
     ): nil
         state.fields[
             #state.fields + 1
-        ] = new documents.Entry(name = jsonDocument.fieldname(field), value = reader:capturevalue(documents.adapter()))
+        ] = documents.Entry(name = jsonDocument.fieldname(field), value = reader:capturevalue(documents.adapter()))
     end
 end
 local record DocumentAdditional is core.Members<Property, documents.Document>
@@ -347,7 +342,7 @@ local record DocumentAdditional is core.Members<Property, documents.Document>
         end
         table.sort(names)
         for _, name in ipairs(names) do
-            writer:writeunknown(new jsonDocument.FieldName(name = name), assert2(value:get(name)), documents.adapter())
+            writer:writeunknown(jsonDocument.FieldName(name = name), assert2(value:get(name)), documents.adapter())
         end
     end
 end
@@ -358,22 +353,22 @@ export function documentBinding(schema: Model): core.Binding<documents.Document>
         local required = member == schema.name or member == schema.payload
         fields[
             #fields + 1
-        ] = new DocumentField(
+        ] = DocumentField(
             member = member,
             required = required,
             hasdefault = not required,
-            adapter = new DocumentScalar(schema = schema, member = member)
+            adapter = DocumentScalar(schema = schema, member = member)
         )
         names[member.name] = true
     end
 
-    return new core.Bound<documents.Document, Property>(
+    return core.Bound<documents.Document, Property>(
         adapter = structures.structure(
             schema.root,
             fields,
-            new DocumentConstruction(),
-            new DocumentUnknown(),
-            new DocumentAdditional(names = names)
+            DocumentConstruction(),
+            DocumentUnknown(),
+            DocumentAdditional(names = names)
         )
     )
 end
@@ -411,9 +406,9 @@ local record Factory is plans.PolicyFactory
         end
         assert2(getmetatable(member) == Property, "OpenAPI policy needs its own model")
 
-        return new Policy<M>(view = self.view)
+        return Policy<M>(view = self.view)
     end
 end
 export function policy(view: View): plans.PolicyFactory
-    return new Factory(view = view)
+    return Factory(view = view)
 end

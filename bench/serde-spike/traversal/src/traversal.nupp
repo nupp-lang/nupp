@@ -100,7 +100,7 @@ local function rowSet(value: Row, index: integer, scalar: integer): nil
 end
 
 export function makeValue(seed: integer): Value
-    local row = new Row(
+    local row = Row(
         a = seed,
         b = seed + 1,
         c = seed + 2,
@@ -119,7 +119,7 @@ export function makeValue(seed: integer): Value
         slots[index] = seed + index - 1
     end
 
-    return new Value(row = row, slots = slots)
+    return Value(row = row, slots = slots)
 end
 
 export function loadModel(count: integer, indexed: boolean, prefix: string): Model
@@ -128,11 +128,11 @@ export function loadModel(count: integer, indexed: boolean, prefix: string): Mod
     local names: {[string]: integer} = {}
     for index = 1, count do
         local name = prefix .. string.char(96 + index)
-        members[index] = new Member(index = index, name = name, key = "")
+        members[index] = Member(index = index, name = name, key = "")
         names[name] = index
     end
 
-    return new Model(members = members, indexed = indexed, names = names)
+    return Model(members = members, indexed = indexed, names = names)
 end
 
 local function get(model: Model, source: Value, index: integer): integer
@@ -354,7 +354,7 @@ export record Operation
         elseif self.variant == "specialized" then
             aggregate(source, sink, self.specialized)
         elseif self.variant == "cursor" then
-            local cursor = new Cursor(description = self.description, source = source, index = 0)
+            local cursor = Cursor(description = self.description, source = source, index = 0)
             while cursor:advance() do
                 sink:integer(cursor:member(), cursor:integer())
             end
@@ -375,7 +375,7 @@ export record Operation
         if cursor ~= nil then
             cursor:start("object")
         end
-        local fields = new Fields(
+        local fields = Fields(
             description = self.description,
             cursor = cursor,
             tokens = tokens,
@@ -433,7 +433,7 @@ export record Operation
     end
 
     function encode(self, source: Value, jsonOutput: boolean): (string, number)
-        local sink = new Sink(total = 0, parts = jsonOutput and {} or nil)
+        local sink = Sink(total = 0, parts = jsonOutput and {} or nil)
         self:emit(source, sink)
         return sink.parts ~= nil and "{" .. table.concat(sink.parts, ",") .. "}" or "", sink.total
     end
@@ -446,12 +446,12 @@ export function buildOperation(description: Model, variant: Variant): Operation
     for index, member in ipairs(description.members) do
         assert(member.index == index and names[member.name] == nil, "invalid member layout")
         names[member.name] = index
-        selected[index] = new Member(index = index, name = member.name, key = json.encodevalue(member.name))
+        selected[index] = Member(index = index, name = member.name, key = json.encodevalue(member.name))
     end
-    description = new Model(members = selected, indexed = description.indexed, names = names)
+    description = Model(members = selected, indexed = description.indexed, names = names)
     local ops: {Op} = {}
     for _, member in ipairs(description.members) do
-        ops[#ops + 1] = new Op(code = description.indexed and 1 or 2, member = member)
+        ops[#ops + 1] = Op(code = description.indexed and 1 or 2, member = member)
     end
     local generated: Encode?
     local assign: Assign?
@@ -481,13 +481,13 @@ export function buildOperation(description: Model, variant: Variant): Operation
         assign = assert(loadstring(setters, "=serde-runtime-decode"))() as Assign
     end
 
-    return new Operation(
+    return Operation(
         description = description,
         variant = variant,
-        walk = new Walk(description = description),
-        specialized = new Straight(description = description),
-        readGeneric = new ReadGeneric(description = description),
-        readSpecialized = new ReadSpecialized(indexed = description.indexed),
+        walk = Walk(description = description),
+        specialized = Straight(description = description),
+        readGeneric = ReadGeneric(description = description),
+        readSpecialized = ReadSpecialized(indexed = description.indexed),
         ops = ops,
         generated = generated,
         assign = assign,

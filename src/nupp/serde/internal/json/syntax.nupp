@@ -62,7 +62,7 @@ export record Cursor
 
     function fail(self, message: string, code: errors.Code?): never
         error(
-            new errors.Error(
+            errors.Error(
                 code = code or "syntax",
                 message = message,
                 path = self:path(),
@@ -282,7 +282,7 @@ export record Cursor
             self:fail("nesting limit exceeded", "limit")
         end
         self.position += 1
-        self.frames[#self.frames + 1] = new Frame(kind = kind, phase = "first", names = {}, count = 0)
+        self.frames[#self.frames + 1] = Frame(kind = kind, phase = "first", names = {}, count = 0)
     end
 
     function next(self, kind: "object" | "array"): boolean
@@ -370,7 +370,7 @@ export record Cursor
 
     function mark(self): Mark
         local frame = self.frames[#self.frames]
-        return new Mark(depth = #self.frames, count = frame ~= nil and frame.count or self.roots)
+        return Mark(depth = #self.frames, count = frame ~= nil and frame.count or self.roots)
     end
 
     function consumed(self, mark: Mark): nil
@@ -395,22 +395,19 @@ end
 
 export function reader(input: string, maxDepth: integer?, maxTokens: integer?, limits: Limits?): Cursor
     local depth, tokens = maxDepth or 128, maxTokens or 1000000
-    local bounds = limits or new Limits()
+    local bounds = limits or Limits()
     assert(
         bounds.tokenBytes >= 1 and bounds.aggregateEntries >= 1 and bounds.inputBytes >= 1,
         "JSON limits must be positive"
     )
     if #input > bounds.inputBytes then
-        error(
-            new errors.Error(code = "limit", message = "input byte limit exceeded", path = "$", byte = 1, cause = nil),
-            0
-        )
+        error(errors.Error(code = "limit", message = "input byte limit exceeded", path = "$", byte = 1, cause = nil), 0)
     end
     if depth < 1 or depth > 1024 or tokens < 1 then
         error("JSON limits require depth 1..1024 and a positive token budget", 2)
     end
 
-    return new Cursor(
+    return Cursor(
         input = input,
         position = 1,
         frames = {},

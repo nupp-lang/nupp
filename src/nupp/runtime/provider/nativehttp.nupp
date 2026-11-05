@@ -54,7 +54,7 @@ type http.Capabilities = messages.Capabilities
 
 --- Reports the guarantees of the selected HTTP provider.
 function http.capabilities(): http.Capabilities
-    return new messages.Capabilities(
+    return messages.Capabilities(
         streamingresponse = true,
         streamingrequest = true,
         transportpolicy = true,
@@ -65,7 +65,6 @@ end
 
 type http.Version = messages.Version
 type http.Options = messages.Options
-type http.Reader = messages.Reader
 type http.ReaderBody = messages.ReaderBody
 http.ReaderBody = messages.ReaderBody
 type http.FileBody = messages.FileBody
@@ -551,7 +550,7 @@ function http.Body.drop(takes self: http.Body): nil
 end
 
 local function makeBody(client: BodyClient, transfer: NativeTransfer): http.Body
-    return new http.Body(_client = client, _transfer = transfer, _closed = false, _reading = false)
+    return http.Body(_client = client, _transfer = transfer, _closed = false, _reading = false)
 end
 
 local function u32(bytes: string, at: integer): integer
@@ -768,7 +767,7 @@ local function makeResponse(
     takes body: http.Body,
     packed: string
 ): http.Response
-    return new http.Response(
+    return http.Response(
         status = status,
         version = version,
         url = url,
@@ -801,7 +800,7 @@ record http.Client is BodyClient, contracts.Client
     --- Keep one for the program rather than one per request.
     ---
     --- ```nupp:fragment
-    --- local client = http.newclient({
+    --- local client = http.Client.create({
     ---     useragent = "nupp/1",
     ---     timeoutms = 5000,
     --- })
@@ -880,32 +879,17 @@ function http.Client._releaseSource(self: http.Client): nil
 end
 
 local function readUpload(
-    borrows source: messages.Reader,
+    borrows source: io.Reader,
     exclusive destination: io.Buffer,
     offset: integer,
     count: integer
 ): (integer?, string?)
-    -- The full byte-reader contract offers a direct buffer path. The portable
-    -- request contract also accepts a string-only reader; guard the extension
-    -- before using it and preserve capability tracking across either call.
-    if type((source as io.Reader).readinto) == "function" then
-        local got, reason = (source as io.Reader):readinto(destination, offset, count)
-        if got ~= nil and (type(got) ~= "number" or got ~= math.floor(got) or got < 0 or got > count) then
-            error("nupp: HTTP request reader returned an invalid byte count", 3)
-        end
+    local got, reason = source:readinto(destination, offset, count)
+    if got ~= nil and (type(got) ~= "number" or got ~= math.floor(got) or got < 0 or got > count) then
+        error("nupp: HTTP request reader returned an invalid byte count", 3)
+    end
 
-        return got, reason
-    end
-    local chunk, reason = source:read(count)
-    if chunk == nil then
-        return nil, reason
-    end
-    if type(chunk) ~= "string" or #chunk > count then
-        error("nupp: HTTP request reader returned invalid bytes", 3)
-    end
-    destination:setstring(chunk, offset)
-
-    return #chunk
+    return got, reason
 end
 
 --- Sends a request and waits for its response headers.
@@ -918,8 +902,8 @@ end
 --- reason.
 ---
 --- ```nupp:fragment
---- local response, reason = client:send(new http.Request(
----     url = assert(uri.newuri("https://example.com/data.json"))
+--- local response, reason = client:send(http.Request(
+---     url = assert(io.URI.of("https://example.com/data.json"))
 --- ))
 --- assert(response, reason)
 --- local text = assert(response.body:read(1 << 20))
@@ -952,7 +936,7 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
     end
     local requestBody = given.body
     local body, bodyKind, bodyLength = requestBody, 0, nil
-    local reader: messages.Reader? = nil
+    local reader: io.Reader? = nil
     local contentType = nil
     if body ~= nil then
         local concrete: any = body
@@ -1039,7 +1023,7 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
     end
     local head, problem
     if reader ~= nil then
-        local scratch = io.newbuffer(UPLOAD_SIZE)
+        local scratch = io.Buffer.create(UPLOAD_SIZE)
         local uploadTransfer = transfer
 
         local function uploadAndWait(): any takes (scratch)
@@ -1194,7 +1178,7 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
                 end
             end
             transfer:close()
-            local redirected = new messages.Request(
+            local redirected = messages.Request(
                 url = target,
                 method = nextMethod,
                 headers = merged,
@@ -1255,7 +1239,7 @@ end
 ----------------------------------------------------------------------------
 
 local function openClient(options: messages.Options?): contracts.Client
-    return new http.Client(options)
+    return http.Client(options)
 end
 
 export = {newclient = openClient, capabilities = http.capabilities}

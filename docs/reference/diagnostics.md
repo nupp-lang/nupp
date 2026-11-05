@@ -130,7 +130,7 @@ that page:
 | Derives | [derives.md](derives.md) | `NUPP2810` |
 | Effect contracts | [effects.md](../learn/language/effects.md) | `NUPP2112`, `NUPP2710`, `NUPP2711` |
 | File types | [file-types.md](../learn/language/file-types.md) | `NUPP1006`, `NUPP1008`, `NUPP2105`, `NUPP2106` |
-| Files | [](io.files) | `NUPP2701` |
+| Files | [](os.stat) | `NUPP2701` |
 | Formatter | [fmt.md](../learn/tooling/formatter.md) | `NUPP4001` |
 | Generics | [generics.md](../learn/language/types/generics.md) | `NUPP2003`, `NUPP2116`, `NUPP2122`, `NUPP2146`, `NUPP2148` |
 | Hot reload | [hot-reload.md](../learn/projects/hot-reload.md) | `NUPP5001` |

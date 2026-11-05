@@ -13,16 +13,16 @@ Base64 and hexadecimal are reversible codecs.
 ## Incremental digests
 
 ```nupp
-local algorithm = binary.digest.algorithm("sha256")
+local algorithm = binary.Digest.Algorithm.of("sha256")
 assert(algorithm.digestsize == 32)
-local rolling = algorithm:newdigest()
+local rolling = algorithm:digest()
 rolling:write("first chunk")
 rolling:write("second chunk")
 local raw: string = rolling:digest()
 ```
 
-`binary.digest.newdigest(name)` is shorthand for
-`algorithm(name):newdigest()`.
+`binary.Digest.create(name)` is shorthand for
+`algorithm(name):digest()`.
 `lookup(name)` returns nil when an algorithm is unavailable; `algorithm` and
 `newdigest` raise instead. `algorithms()` returns sorted canonical names.
 Descriptors expose `name` and `digestsize` before construction; a created
@@ -46,7 +46,7 @@ Every finalization consumes the digest; it neither snapshots nor resets it.
 Scope exit closes an unfinished digest context.
 
 ```nupp
-local rolling = binary.digest.newdigest("sha256")
+local rolling = binary.Digest.create("sha256")
 rolling:write("payload")
 local bytes = nupp.array.bytes(rolling:digestsize())
 local output = bytes:write()
@@ -62,15 +62,15 @@ is written; pass a slice to choose an offset. A short destination raises before
 any output is written. The digest is consumed and the digest context is closed
 even when finalization fails. The destination remains owned by the caller.
 
-One-shot conveniences are `binary.digest.digest(name, bytes)` and
-`binary.digest.hexdigest(name, bytes)`. Encoding is also available
+One-shot conveniences are `binary.Digest.compute(name, bytes)` and
+`binary.Digest.computehex(name, bytes)`. Encoding is also available
 separately:
 `binary.hexencode(raw)` or `binary.base64encode(raw)`.
 
 ## Checksums and MACs
 
 ```nupp
-local sum = binary.checksum.newchecksum("crc32c")
+local sum = binary.Checksum.create("crc32c")
 assert(sum:width() == 32)
 sum:write("1234")
 local partial = sum:value()
@@ -89,7 +89,7 @@ It differs from Smithy's `CRC64NVME` algorithm.
 The checksum API chooses no byte order: a protocol writes the value using its
 own scalar serialization rules. Checksums provide no authentication.
 
-`binary.mac.newmac("hmac-sha256", key)` accepts a raw-byte key and returns
+`binary.Mac.create("hmac-sha256", key)` accepts a raw-byte key and returns
 the same writer and consuming finalization as a digest. Its descriptor has
 `digestsize = 32`. The one-shot forms are `mac.digest(name, key, bytes)` and
 `mac.hexdigest(name, key, bytes)`.

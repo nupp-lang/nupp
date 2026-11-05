@@ -42,7 +42,7 @@ local indexed = require("binary.span")
 local record Fake
     @readonly count: integer
 end
-const fake = new Fake(count = 1)
+const fake = Fake(count = 1)
 const range = indexed.range(1, 1, fake)
 print(range)
 ]]

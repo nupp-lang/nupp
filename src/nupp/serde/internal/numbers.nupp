@@ -24,7 +24,7 @@ export function integer(text: string, width: 8 | 16 | 32 | 64, signed: boolean):
         error("integer is out of range", 2)
     end
 
-    return new core.Integer(decimal = text, width = width, signed = signed)
+    return core.Integer(decimal = text, width = width, signed = signed)
 end
 
 export function floating(value: number, width: 32 | 64, allownonfinite: boolean?): number

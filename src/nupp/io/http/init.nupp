@@ -9,9 +9,9 @@ that works the same in a CLI, a scheduler and a game host.
 local http = io.http
 local uri = io
 
-local client = http.newclient()
-local response = assert(client:send(new http.Request(
-    url = assert(uri.newuri("https://example.com/"))
+local client = http.Client.create()
+local response = assert(client:send(http.Request(
+    url = assert(uri.URI.of("https://example.com/"))
 )))
 print(response.status)
 response:close()
@@ -55,7 +55,7 @@ local uri = io
 
 local function storeStatus(client: alias(http.Client), codes: {integer}, index: integer, url: string): nil
     local status = client:with(function(borrows open: http.Client): integer
-        local response = assert(open:send(new http.Request(url = assert(uri.newuri(url)))))
+        local response = assert(open:send(http.Request(url = assert(uri.URI.of(url)))))
         local code = response.status
         response:close()
 
@@ -64,7 +64,7 @@ local function storeStatus(client: alias(http.Client), codes: {integer}, index: 
     codes[index] = assert(status)
 end
 
-local client = own.manage(http.newclient())
+local client = own.manage(http.Client.create())
 local codes: {integer} = {}
 do
     local scope = tasks.scope()
@@ -94,16 +94,15 @@ module nupp.io.http
 
 local contracts = require("nupp.io.http.contracts")
 local messages = require("nupp.io.http.messages")
-const {type Path} = require("io.files")
+const {type Reader} = require("nupp.io")
+const {type Path} = require("io.internal.files.path")
 const paths = require("io.internal.path")
-const appPaths = require("io.files.internal.path")
+const appPaths = require("io.internal.files.path")
 local provider: contracts.Provider = require("nupp.runtime.bindings.http")
 local http = {}
 
 type http.Client = contracts.Client
 type http.Response = contracts.Response
-type http.Body = contracts.Body
-type http.Reader = messages.Reader
 type http.Capabilities = messages.Capabilities
 type http.Version = messages.Version
 type http.Options = messages.Options
@@ -117,7 +116,7 @@ type http.RequestBody = messages.RequestBody
 
 --- Opens a connection pool owned by the caller.
 ---
---- Every option is optional, so `http.newclient()` is a client with the defaults
+--- Every option is optional, so `http.Client.create()` is a client with the defaults
 --- [](nupp.io.http.Options) describes.
 --- @return the open client
 const http.newClient = provider.newclient
@@ -138,7 +137,7 @@ const http.capabilities = provider.capabilities
 --- peer never sees the shortened body as complete.
 ---
 --- ```nupp:fragment
---- local request = new http.Request(
+--- local request = http.Request(
 ---     url = endpoint,
 ---     method = "POST",
 ---     body = http.reader(source, size, "application/octet-stream")
@@ -151,9 +150,10 @@ const http.capabilities = provider.capabilities
 --- @return the request body
 --- @raises string when reader does not implement the reader contract, length is
 ---     negative, or contenttype is not a string
-function http.reader(takes reader: messages.Reader, len: integer?, contenttype: string?): http.ReaderBody
+function http.reader(takes reader: Reader, len: integer?, contenttype: string?): http.ReaderBody
     if type(reader) ~= "table"
         or type((reader as any).read) ~= "function"
+        or type((reader as any).readinto) ~= "function"
         or type((reader as any).close) ~= "function"
     then
         error("nupp: HTTP reader body needs a reader", 2)
@@ -167,7 +167,7 @@ function http.reader(takes reader: messages.Reader, len: integer?, contenttype: 
         error("nupp: HTTP content type must be a string", 2)
     end
 
-    return new messages.ReaderBody(reader = reader, len = len, contenttype = contenttype)
+    return messages.ReaderBody(reader = reader, len = len, contenttype = contenttype)
 end
 
 --- Builds a request body read from a file as it is sent.
@@ -175,7 +175,7 @@ end
 --- The path must name a regular file when the request is sent. A device, FIFO or
 --- directory has no length to send, and the native transport refuses it.
 ---
---- @param path the file to send, as anything [](io.files) accepts
+--- @param path the file to send, as anything [](os.Path) names
 --- @param contenttype the `content-type` to send, unless the request names one
 --- @return the request body
 --- @raises string when path is neither a string nor a path, or contenttype is not a
@@ -188,7 +188,7 @@ function http.file(path: Path, contenttype: string?): http.FileBody
         error("nupp: HTTP content type must be a string", 2)
     end
 
-    return new http.FileBody(path = path, contenttype = contenttype)
+    return http.FileBody(path = path, contenttype = contenttype)
 end
 
 export = http

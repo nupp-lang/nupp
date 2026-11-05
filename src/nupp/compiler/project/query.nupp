@@ -98,7 +98,7 @@ end
 
 --- A new, empty query database.
 export function new(): Q
-    return new Q(
+    return Q(
         revision = 1,
         inputs = {},
         defs = {},

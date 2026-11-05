@@ -18,7 +18,7 @@ local record Circle
     radius: number
 end
 
-local n: Named = new Circle(name = "c", radius = 1)
+local n: Named = Circle(name = "c", radius = 1)
 ```
 
 ## Satisfaction is structural

@@ -7,9 +7,9 @@ that works the same in a CLI, a scheduler and a game host.
 local http = io.http
 local uri = io
 
-local client = http.newclient()
-local response = assert(client:send(new http.Request(
-    url = assert(uri.newuri("https://example.com/"))
+local client = http.Client.create()
+local response = assert(client:send(http.Request(
+    url = assert(uri.URI.of("https://example.com/"))
 )))
 print(response.status)
 response:close()
@@ -53,7 +53,7 @@ local uri = io
 
 local function storeStatus(client: alias(http.Client), codes: {integer}, index: integer, url: string): nil
     local status = client:with(function(borrows open: http.Client): integer
-        local response = assert(open:send(new http.Request(url = assert(uri.newuri(url)))))
+        local response = assert(open:send(http.Request(url = assert(uri.URI.of(url)))))
         local code = response.status
         response:close()
 
@@ -62,7 +62,7 @@ local function storeStatus(client: alias(http.Client), codes: {integer}, index: 
     codes[index] = assert(status)
 end
 
-local client = own.manage(http.newclient())
+local client = own.manage(http.Client.create())
 local codes: {integer} = {}
 do
     local scope = tasks.scope()
@@ -90,23 +90,25 @@ also closes a reader body transferred into it.
 ]]
 module io.http
 
-local source1 = require("nupp.io.http")
-export type Body = source1.Body
-export type Capabilities = source1.Capabilities
-export type Client = source1.Client
-export type FileBody = source1.FileBody
-export type Options = source1.Options
-export type Reader = source1.Reader
-export type ReaderBody = source1.ReaderBody
-export type Request = source1.Request
-export type RequestBody = source1.RequestBody
-export type Response = source1.Response
-export type Version = source1.Version
-export const Capabilities = source1.Capabilities
-export const FileBody = source1.FileBody
-export const ReaderBody = source1.ReaderBody
-export const Request = source1.Request
-export const capabilities = source1.capabilities
-export const file = source1.file
-export const newclient = source1.newClient
-export const reader = source1.reader
+local implementation = require("nupp.io.http")
+export type Capabilities = implementation.Capabilities
+export interface Client is implementation.Client
+    --- Opens an owned client using the selected HTTP provider.
+    function create(options: implementation.Options?): Client
+        return implementation.newClient(options)
+    end
+end
+export type FileBody = implementation.FileBody
+export type Options = implementation.Options
+export type ReaderBody = implementation.ReaderBody
+export type Request = implementation.Request
+export type RequestBody = implementation.RequestBody
+export type Response = implementation.Response
+export type Version = implementation.Version
+export const Capabilities = implementation.Capabilities
+export const FileBody = implementation.FileBody
+export const ReaderBody = implementation.ReaderBody
+export const Request = implementation.Request
+export const capabilities = implementation.capabilities
+export const file = implementation.file
+export const reader = implementation.reader

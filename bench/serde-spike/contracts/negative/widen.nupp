@@ -1,5 +1,5 @@
 const core = require("contract.dispatch")
 const model = require("example.model")
-local schema = new model.Schema(name = "text", wireName = "text")
+local schema = model.Schema(name = "text", wireName = "text")
 local wrong: core.Binding<string | integer> = model.binding(schema)
 return wrong

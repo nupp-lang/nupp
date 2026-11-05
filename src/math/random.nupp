@@ -6,7 +6,7 @@ the host random sequence controlled by `math.randomseed`.
 ```nupp
 local random = math.random
 
-const dice = new random.Xoshiro128(42)
+const dice = random.Xoshiro128(42)
 
 print(dice:integer(20))
 print(dice:next())

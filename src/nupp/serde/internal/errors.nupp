@@ -54,7 +54,7 @@ export function wrap(problem: unknown, path: string, byte: integer?): Error
     end
     local ok, message = pcall(tostring, problem)
 
-    return new Error(
+    return Error(
         code = "model",
         message = ok and type(message) == "string" and message as string or "model operation failed",
         path = path,
@@ -79,7 +79,7 @@ export function prefix(problem: unknown, parent: string): Error
         return inner
     end
 
-    return new Error(
+    return Error(
         code = inner.code,
         message = inner.message,
         path = parent .. inner.path:sub(2),

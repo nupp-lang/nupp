@@ -92,7 +92,7 @@ end
 local record Resource is own.Closeable
     function close(takes self): nil end
 end
-local value = new Resource()
+local value = Resource()
 value:close()
 return 17
 ]],
@@ -150,7 +150,7 @@ local record Resource is own.Closeable
     function close(takes self): nil end
 end
 local manage = own.manage
-local value = new Resource()
+local value = Resource()
 local cell = manage(value)
 cell:close()
 ]]
@@ -310,7 +310,7 @@ local api = require("types")
 local Debug = api.debug
 @derive(Debug)
 local record Point label: string end
-local value: types.Debug = new Point(label = "one")
+local value: types.Debug = Point(label = "one")
 local type Bounded = api.range(integer, 0, 20)
 local answer: Bounded = 17
 return value:debug(), answer, api.answer
@@ -335,7 +335,7 @@ local move = api.manage
 local record Resource is api.Closeable
     function close(takes self): nil end
 end
-local value = new Resource()
+local value = Resource()
 local cell = move(value)
 cell:close()
 return api.answer
@@ -699,7 +699,7 @@ function M.qualifiedLocalRecordsOwnTheirNamespacePastAmbientRoots()
         [[
 local types = {}
 record types.Point value: integer end
-local point = new types.Point(value = 7)
+local point = types.Point(value = 7)
 return point.value
 ]]
     )
@@ -804,7 +804,7 @@ export const answer: integer = 17
 local record Resource is own.Closeable
     function close(takes self): nil end
 end
-local value = new Resource()
+local value = Resource()
 local cell = own.manage(value)
 cell:close()
 ]],
@@ -1091,7 +1091,7 @@ export function submit(borrows scope: coroutine.Scope): (integer, string?, nil)
 end
 ]]
         ):format(member)
-        local _, errors, parsed = compile(source)
+        local _, errors, parsed = compile(source, nil, "acceptingwork.nupp")
         test.eq(errors, "", errors)
         local found = {}
 

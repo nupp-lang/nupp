@@ -47,7 +47,7 @@ end
 local candidate = {}
 
 function candidate.make(name: string): Scenario
-    local bus: events.MessageBus<integer> = events.newbus()
+    local bus: events.MessageBus<integer> = events.MessageBus()
     local checksum: number = 0
     local calls: integer = 0
 
@@ -66,7 +66,7 @@ function candidate.make(name: string): Scenario
         -- Something observes elsewhere, so the emission pays for both lookups
         -- rather than the registration-count short circuit.
         bus:observe(1, Tick, tick)
-        return new Scenario(
+        return Scenario(
             run = function(n: integer): nil
                 for index = 1, n do
                     bus:emit(2, Tick, index)
@@ -79,7 +79,7 @@ function candidate.make(name: string): Scenario
         for _ = 1, count do
             bus:observe(1, Tick, tick)
         end
-        return new Scenario(
+        return Scenario(
             run = function(n: integer): nil
                 for index = 1, n do
                     bus:emit(1, Tick, index)
@@ -91,7 +91,7 @@ function candidate.make(name: string): Scenario
         for address = 1, ADDRESSES do
             bus:observe(address as integer, Tick, tick)
         end
-        return new Scenario(
+        return Scenario(
             run = function(n: integer): nil
                 for index = 1, n do
                     bus:emit((index % ADDRESSES + 1) as integer, Tick, index)
@@ -107,7 +107,7 @@ function candidate.make(name: string): Scenario
                 checksum = checksum + 1
             end
         end)
-        return new Scenario(
+        return Scenario(
             run = function(n: integer): nil
                 for index = 1, n do
                     bus:emit(1, Damage, amount = index, source = 3, knockback = 0.5)
@@ -120,7 +120,7 @@ function candidate.make(name: string): Scenario
             calls = calls + 1
             checksum = checksum + event.a + event.b + event.impulse
         end)
-        return new Scenario(
+        return Scenario(
             run = function(n: integer): nil
                 for index = 1, n do
                     bus:emit(1, Contact, index, 2, 0.5)
@@ -130,8 +130,8 @@ function candidate.make(name: string): Scenario
         )
     elseif name == "deliver" then
         bus:observe(1, Tick, tick)
-        local held = new Tick(value = 0)
-        return new Scenario(
+        local held = Tick(value = 0)
+        return Scenario(
             run = function(n: integer): nil
                 for index = 1, n do
                     held.value = index
@@ -150,7 +150,7 @@ function candidate.make(name: string): Scenario
             calls = calls + 1
             checksum = checksum + event.value
         end)
-        return new Scenario(
+        return Scenario(
             run = function(n: integer): nil
                 for index = 1, n do
                     bus:emit(1, Tick, index)
@@ -159,7 +159,7 @@ function candidate.make(name: string): Scenario
             read = read
         )
     elseif name == "once" then
-        return new Scenario(
+        return Scenario(
             run = function(n: integer): nil
                 for index = 1, n do
                     bus:once(1, Tick, tick)
@@ -172,7 +172,7 @@ function candidate.make(name: string): Scenario
         -- An observer registered at an address nothing else observes and
         -- removed again: the entity spawn and despawn case, where the
         -- per-address map and list come and go each time.
-        return new Scenario(
+        return Scenario(
             run = function(n: integer): nil
                 for index = 1, n do
                     bus:observe(index, Tick, tick, "churn")

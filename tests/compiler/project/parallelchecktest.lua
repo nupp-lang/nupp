@@ -37,7 +37,7 @@ record box.Value
 end
 
 function box.newValue(number: number): box.Value
-    return new box.Value(number = number)
+    return box.Value(number = number)
 end
 
 return box
@@ -56,7 +56,7 @@ local function closeHandle(takes handle: resource.Handle): nil
 end
 
 function resource.open(value: number): affine(resource.Handle, closeHandle)
-    return new resource.Handle(value = value)
+    return resource.Handle(value = value)
 end
 
 return resource
@@ -491,11 +491,11 @@ function M.recordsNamingStagedStandardModulesAreReused()
     write(
         directory .. "/src/clock.nupp",
         [[
-local files = require("io.files")
+local files = require("io.http")
 local time = require("coroutine")
 
 local function stamp(path: string): number
-    if files.exists(path) then
+    if files.file(path) ~= nil then
         return os.monotonic()
     end
     return 0
@@ -510,15 +510,15 @@ return {stamp = stamp}
             (
                 [[
 local clock = require("clock")
-local files = require("io.files")
+local files = require("io.http")
 local time = require("coroutine")
 
 local function value(path: string): number
-    local exists = files.exists(path) and 1 or 0
+    local exists = files.file(path) ~= nil and 1 or 0
     return clock.stamp(path) + os.monotonic() + exists + %d
 end
 
-local function described(info: files.Info?): boolean
+local function described(info: files.FileBody?): boolean
     return info ~= nil
 end
 
@@ -553,24 +553,24 @@ function M.aStandardGenericFillsAFieldInEitherSchedule()
         [[
 const {type Observers} = require("events")
 local events = require("events")
-local files = require("io.files")
+local files = require("io.http")
 
 local record World
     observers: Observers<integer>
 end
 
 local function newWorld(): World
-    local world = new World(observers = events.newobservers())
-    world.observers = events.newobservers()
+    local world = World(observers = events.Observers())
+    world.observers = events.Observers()
     return world
 end
 
 local function fresh(): Observers<integer>
-    return events.newobservers()
+    return events.Observers()
 end
 
 local function count(path: string): integer
-    return files.exists(path) and newWorld().observers.count or fresh().count
+    return files.file(path) ~= nil and newWorld().observers.count or fresh().count
 end
 
 return {count = count}
@@ -582,10 +582,10 @@ return {count = count}
             (
                 [[
 local world = require("world")
-local files = require("io.files")
+local files = require("io.http")
 
 local function value(path: string): integer
-    return world.count(path) + (files.exists(path) and %d or 0)
+    return world.count(path) + (files.file(path) ~= nil and %d or 0)
 end
 
 return {value = value}
@@ -640,7 +640,7 @@ end
 
 local function make(): number
     ann.noop()
-    local marked = new Marked%d(value = 1)
+    local marked = Marked%d(value = 1)
     return marked.value
 end
 

@@ -35,13 +35,13 @@ local function decoder(finishInput)
 end
 
 function M.compressionNamesUseCanonicalKeysOnly()
-    local contract = require("binary.compress.internal.contracts")
+    local contract = require("nupp.compression.contracts")
     assert(contract.needinput == NEED_INPUT and contract.needoutput == NEED_OUTPUT and contract.finished == FINISHED)
     assert(contract.NEED_INPUT == nil and contract.NEED_OUTPUT == nil and contract.FINISHED == nil)
     local load = state.family("compression", {})
-    local format = load("binary.compress").format("gzip")
-    assert(type(format.newreader) == "function" and format.newReader == nil)
-    assert(type(format.newwriter) == "function" and format.newWriter == nil)
+    local format = load("binary").compression("gzip")
+    assert(type(format.reader) == "function" and format.newReader == nil)
+    assert(type(format.writer) == "function" and format.newWriter == nil)
     local native = require("nupp.runtime.provider.nativecompression")
     local implementation = native.formats.gzip
     assert(type(implementation.createencoder) == "function" and implementation.createEncoder == nil)
@@ -66,7 +66,7 @@ function M.decoderEofCanFillMoreThanOneOutputSpan()
             end)
         ),
     })
-    local reader = load("binary.compress").format("fixture"):newreader(io2.newreader("input"), {
+    local reader = load("binary").compression("fixture"):reader(io2.Reader.of("input"), {
         workspacebytes = 1,
         unbounded = true
     })
@@ -86,7 +86,7 @@ function M.rejectsInvalidProviderAndSourceProgress()
         end,
     }) do
         local load = state.family("compression", {provider("fixture", decoder(finishInput))})
-        local reader = load("binary.compress").format("fixture"):newreader(io2.newreader("input"), {
+        local reader = load("binary").compression("fixture"):reader(io2.Reader.of("input"), {
             workspacebytes = 1,
             unbounded = true
         })
@@ -110,7 +110,7 @@ function M.rejectsInvalidProviderAndSourceProgress()
         close = function()
         end,
     }
-    local reader = load("binary.compress").format("fixture"):newreader(source, {workspacebytes = 1, unbounded = true})
+    local reader = load("binary").compression("fixture"):reader(source, {workspacebytes = 1, unbounded = true})
     local bytes, reason = reader:read(1)
     assert(bytes == nil and reason:find("source reader", 1, true), tostring(reason))
     reader:close()
@@ -125,11 +125,11 @@ function M.rejectsMalformedUntypedOptions()
             end)
         )
     })
-    local format = load("binary.compress").format("fixture")
+    local format = load("binary").compression("fixture")
 
     local function rejects(options, expected)
-        local source = io2.newreader("")
-        local ok, problem = pcall(format.newreader, format, source, options)
+        local source = io2.Reader.of("")
+        local ok, problem = pcall(format.reader, format, source, options)
         if ok then
             problem:close()
         else
@@ -142,9 +142,9 @@ function M.rejectsMalformedUntypedOptions()
     rejects({unbounded = "yes"}, "unbounded must be a boolean")
     rejects({maxexpansionratio = "1"}, "maxexpansionratio must be positive and finite")
 
-    local destination = io2.newbuffer()
+    local destination = io2.Buffer.create()
     local sink = destination:writer()
-    local ok, problem = pcall(format.newwriter, format, sink, false)
+    local ok, problem = pcall(format.writer, format, sink, false)
     if ok then
         problem:close()
     else
@@ -188,7 +188,7 @@ function M.cleanupContinuesAfterProviderReleaseFailure()
             },
         },
     }
-    local format = state.family("compression", {fixture})("binary.compress").format("fixture")
+    local format = state.family("compression", {fixture})("binary").compression("fixture")
     local destination = {
         flush = function()
             return true
@@ -197,7 +197,7 @@ function M.cleanupContinuesAfterProviderReleaseFailure()
             released.destination = released.destination + 1
         end,
     }
-    local writer = format:newwriter(destination, {workspacebytes = 1})
+    local writer = format:writer(destination, {workspacebytes = 1})
     local ok, problem = pcall(writer.finish, writer)
     assert(not ok and tostring(problem):find("encoder release failed", 1, true), tostring(problem))
     assert(released.encoder == 1 and released.destination == 1)
@@ -210,7 +210,7 @@ function M.cleanupContinuesAfterProviderReleaseFailure()
             released.source = released.source + 1
         end,
     }
-    local reader = format:newreader(source, {workspacebytes = 1, unbounded = true})
+    local reader = format:reader(source, {workspacebytes = 1, unbounded = true})
     ok, problem = pcall(reader.close, reader)
     assert(not ok and tostring(problem):find("decoder release failed", 1, true), tostring(problem))
     assert(released.decoder == 1 and released.source == 1)
@@ -218,11 +218,17 @@ end
 
 function M.targetBindingRetainsCatalogWithoutDiscovery()
     local load, counts = state.family("compression")
-    local api = load("binary.compress")
-    assert(api.format("gzip"))
-    assert(api.format("zlib"))
-    assert(api.format("deflate-raw"))
-    assert(load("binary.compress") == api)
+    local api = load("binary")
+    assert(counts.resolutions == 0, "loading binary does not initialize compression")
+    assert(api.compress == nil, "the removed compression submodule has no alias")
+    local names = api.compressionformats()
+    assert(table.concat(names, ",") == "deflate-raw,gzip,zlib")
+    names[1] = "changed"
+    assert(api.compressionformats()[1] == "deflate-raw", "format listings are independent copies")
+    assert(api.compression("gzip"))
+    assert(api.compression("zlib"))
+    assert(api.compression("deflate-raw"))
+    assert(load("binary") == api)
     assert(counts.resolutions == 1, "builtin implementation initializes once")
 end
 

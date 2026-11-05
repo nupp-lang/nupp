@@ -213,7 +213,7 @@ end
 
 function M.aDatagramCrossesWithItsPeer()
     local a, b = datagrams()
-    local buffer = io_.newbuffer(2048)
+    local buffer = io_.Buffer.create(2048)
     assert(a:sendto({host = "127.0.0.1", port = b:port()}, "ping"), "a sends")
     local message = assert(b:receivefrom(buffer, 2048))
     testAssert.eq(message.len, 4, "b receives the whole datagram")
@@ -229,7 +229,7 @@ function M.aDatagramLargerThanTheStorageIsReportedTruncated()
     -- Against a real socket, because this is the one a protocol must not get
     -- wrong: parsing the first part of a larger message nobody sent.
     local a, b = datagrams()
-    local buffer = io_.newbuffer(2048)
+    local buffer = io_.Buffer.create(2048)
     assert(a:sendto({host = "127.0.0.1", port = b:port()}, ("x"):rep(600)), "a sends 600 bytes")
     local message = assert(b:receivefrom(buffer, 100))
     testAssert.eq(message.len, 100, "b takes what it offered room for")
@@ -241,7 +241,7 @@ end
 
 function M.anEmptyDatagramArrivesAsAMessage()
     local a, b = datagrams()
-    local buffer = io_.newbuffer(2048)
+    local buffer = io_.Buffer.create(2048)
     assert(a:sendto({host = "127.0.0.1", port = b:port()}, ""), "a sends an empty datagram")
     local message = assert(b:receivefrom(buffer, 2048))
     testAssert.eq(message.len, 0, "which arrives as zero bytes")
@@ -256,7 +256,7 @@ function M.datagramsKeepTheirBoundaries()
     -- The property that makes this a message transport rather than a stream one:
     -- three sends are three receives, never one run of bytes.
     local a, b = datagrams()
-    local buffer = io_.newbuffer(2048)
+    local buffer = io_.Buffer.create(2048)
     for index = 1, 3 do
         assert(a:sendto({host = "127.0.0.1", port = b:port()}, ("m%d"):format(index)), "each send is its own datagram")
     end
@@ -787,7 +787,7 @@ function M.aLinkLocalPeerCanBeAnswered()
     end
     local a = assert(net.bind({host = "::", port = 0}))
     local b = assert(net.bind({host = "::", port = 0}))
-    local buffer = io_.newbuffer(64)
+    local buffer = io_.Buffer.create(64)
     assert(a:sendto({host = zoned, port = b:port()}, "ping"), "a sends to its own link-local address")
     local message = assert(b:receivefrom(buffer, 64))
     testAssert.eq(buffer:getstring(0, message.len), "ping", "b receives it")

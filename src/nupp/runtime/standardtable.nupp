@@ -2,7 +2,7 @@
 
 --[[
 `table` provides sequence operations and reusable pools of record and struct
-instances. Use `newpool` when a hot path repeatedly acquires instances of the
+instances. Use `Pool` when a hot path repeatedly acquires instances of the
 same declared type.
 
 ```nupp
@@ -10,7 +10,7 @@ local record Damage
     amount: integer
 end
 
-local damage = table.newpool(Damage, 64)
+local damage = table.Pool(Damage, 64)
 local hit = damage:acquire()
 hit.amount = 12
 damage:release(hit)
@@ -33,9 +33,6 @@ local pool = require("nupp.util.internal.pool")
 export type Pool<T> = pool.Pool<T>
 
 export const Pool = pool.Pool
-
---- Creates a pool of instances of a record or struct declaration.
-export const newpool = pool.new
 
 local function index(value: any, position: integer): integer
     local number: any = value
@@ -99,7 +96,6 @@ end
 -- Keep a host implementation and its identity whenever one already exists.
 export function install(host: table): table
     rawset(host, "Pool", Pool)
-    rawset(host, "newpool", newpool)
     if rawget(host, "move") == nil then
         rawset(host, "move", move)
     end

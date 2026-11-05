@@ -45,9 +45,9 @@ for _, bytes in ipairs({
     )
 end
 local entries = {
-    new binary.Entry(field = new binary.Field(number = 1, wire = 2), bytes = "known"),
-    new binary.Entry(field = new binary.Field(number = 47, wire = 200), bytes = "\0opaque\255"),
-    new binary.Entry(field = new binary.Field(number = 47, wire = 201), bytes = "different"),
+    binary.Entry(field = binary.Field(number = 1, wire = 2), bytes = "known"),
+    binary.Entry(field = binary.Field(number = 47, wire = 200), bytes = "\0opaque\255"),
+    binary.Entry(field = binary.Field(number = 47, wire = 201), bytes = "different"),
 }
 local bytes = binary.encode(entries)
 local fields = binary.reader(bytes)

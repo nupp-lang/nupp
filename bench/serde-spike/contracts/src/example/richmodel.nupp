@@ -51,7 +51,7 @@ export record Choice
     end
 end
 export function knownChoice(text: string): Choice
-    return new Choice(text = text)
+    return Choice(text = text)
 end
 
 export type Labels = {[integer]: string}
@@ -121,7 +121,7 @@ local record PacketStorage is Storage<Packet>
 
     function finish(self, state: State<Packet>): Packet
         assert2(state.notePresence ~= "null", "Packet cannot retain explicit null separately from absence")
-        return new Packet(
+        return Packet(
             id = assert2(state.id),
             created = assert2(state.created),
             note = state.note,
@@ -221,7 +221,7 @@ local record IndexedStorage is Storage<Indexed>
     end
 
     function finish(self, state: State<Indexed>): Indexed
-        return new Indexed(
+        return Indexed(
             owner = self.owner,
             notePresence = state.notePresence,
             slots = {
@@ -250,8 +250,8 @@ export record Model
     @private @readonly owner: table
 end
 
-export const schemaContext = util.newkey<Model>()
-export const memberContext = util.newkey<string>()
+export const schemaContext = util.Key<Model>()
+export const memberContext = util.Key<string>()
 
 export record ModelDocument
     @private @readonly model: Model
@@ -287,8 +287,8 @@ export record ModelDocument
             for key, item in pairs(state.labels) do
                 entries[
                     #entries + 1
-                ] = new documents.MapEntry(
-                    key = documents.integer(new core.Integer(decimal = tostring(key), width = 32, signed = true)),
+                ] = documents.MapEntry(
+                    key = documents.integer(core.Integer(decimal = tostring(key), width = 32, signed = true)),
                     value = documents.string(item)
                 )
             end
@@ -356,7 +356,7 @@ local record DocumentStorage is Storage<ModelDocument>
     end
 
     function finish(self, state: State<ModelDocument>): ModelDocument
-        return new ModelDocument(model = self.model, state = state)
+        return ModelDocument(model = self.model, state = state)
     end
 end
 
@@ -377,7 +377,7 @@ local record ChoiceState
 end
 local record ReadChoice is core.MemberConsumer<Member, ChoiceState>
     function apply(self, exclusive state: ChoiceState, member: Member, exclusive reader: core.Reader<Member>): nil
-        state.value = new Choice(text = reader:readstring(member))
+        state.value = Choice(text = reader:readstring(member))
     end
 end
 local record UnknownChoice is core.UnknownConsumer<ChoiceState>
@@ -387,10 +387,10 @@ local record UnknownChoice is core.UnknownConsumer<ChoiceState>
         field: F,
         exclusive reader: core.UnknownReader
     ): nil
-        state.value = new Choice(field = field, payload = reader:capturevalue(documents.adapter()))
+        state.value = Choice(field = field, payload = reader:capturevalue(documents.adapter()))
     end
 end
-local readChoice, unknownChoice = new ReadChoice(), new UnknownChoice()
+local readChoice, unknownChoice = ReadChoice(), UnknownChoice()
 local record Fields<T> is core.Members<Member, T>
     @readonly model: Model
     @readonly storage: Storage<T>
@@ -452,7 +452,7 @@ local record ReadFields<T> is core.MemberConsumer<Member, State<T>>
     @readonly storage: Storage<T>
     @readonly unknown: Unknown<T>
     function read(self, member: Member, exclusive reader: core.Reader<Member>): T
-        local state = new State<T>(sourceContext = reader:context())
+        local state = State<T>(sourceContext = reader:context())
         reader:readstruct(member, state, self, self.unknown)
         if state.id == nil or state.created == nil then
             error("missing required member", 2)
@@ -482,7 +482,7 @@ local record ReadFields<T> is core.MemberConsumer<Member, State<T>>
         elseif member == model.next then
             state.next = self:read(member, reader)
         elseif member == model.choice then
-            local choice = new ChoiceState()
+            local choice = ChoiceState()
             reader:readunion(member, choice, readChoice, unknownChoice)
             state.choice = assert2(choice.value)
         else
@@ -508,34 +508,34 @@ local record Adapter<T> is core.Adapter<T, Member>
 end
 
 local function scalar(member: Member, kind: core.Kind): Description
-    return new Description(kind = kind, member = member, nullable = false, canread = true, children = {})
+    return Description(kind = kind, member = member, nullable = false, canread = true, children = {})
 end
 
 local function child(member: Member, target: core.Description<Member>, required: boolean?): Child
-    return new Child(member = member, required = required == true, hasdefault = false, target = target)
+    return Child(member = member, required = required == true, hasdefault = false, target = target)
 end
 
 export function newModel(collision: boolean?): Model
-    local root = new Member(name = "Packet")
-    local id = new Member(name = "id", index = 1, renamed = "identifier")
-    local created = new Member(name = "created", index = 2, renamed = collision and "identifier" or nil)
-    local note = new Member(name = "note", index = 3)
-    local document = new Member(name = "document", index = 4)
-    local labels = new Member(name = "labels", index = 5)
-    local next = new Member(name = "next", index = 6)
-    local choice = new Member(name = "choice", index = 7)
-    local choiceValue = new Member(name = "text", index = 1)
-    local key, value = new Member(name = "key", index = 1), new Member(name = "value", index = 2)
+    local root = Member(name = "Packet")
+    local id = Member(name = "id", index = 1, renamed = "identifier")
+    local created = Member(name = "created", index = 2, renamed = collision and "identifier" or nil)
+    local note = Member(name = "note", index = 3)
+    local document = Member(name = "document", index = 4)
+    local labels = Member(name = "labels", index = 5)
+    local next = Member(name = "next", index = 6)
+    local choice = Member(name = "choice", index = 7)
+    local choiceValue = Member(name = "text", index = 1)
+    local key, value = Member(name = "key", index = 1), Member(name = "value", index = 2)
     local children: {
         core.Child<Member>
     } = {
         child(id, scalar(id, "string"), true),
         child(created, scalar(created, "timestamp"), true),
-        child(note, new Description(kind = "string", member = note, nullable = true, canread = true, children = {})),
+        child(note, Description(kind = "string", member = note, nullable = true, canread = true, children = {})),
         child(document, scalar(document, "document")),
         child(
             labels,
-            new Description(
+            Description(
                 kind = "map",
                 member = labels,
                 nullable = false,
@@ -543,7 +543,7 @@ export function newModel(collision: boolean?): Model
                 children = {
                     child(
                         key,
-                        new Description(
+                        Description(
                             kind = "integer",
                             member = key,
                             nullable = false,
@@ -560,7 +560,7 @@ export function newModel(collision: boolean?): Model
         ),
         child(
             choice,
-            new Description(
+            Description(
                 kind = "union",
                 member = choice,
                 nullable = false,
@@ -569,7 +569,7 @@ export function newModel(collision: boolean?): Model
             )
         ),
     }
-    local description = new Description(
+    local description = Description(
         kind = "structure",
         member = root,
         nullable = false,
@@ -578,7 +578,7 @@ export function newModel(collision: boolean?): Model
     )
     table.insert(children, 6, child(next, description))
 
-    return new Model(
+    return Model(
         root = description,
         id = id,
         created = created,
@@ -594,29 +594,25 @@ export function newModel(collision: boolean?): Model
 end
 
 local function bind<T is own.Copyable>(model: Model, storage: Storage<T>): core.Binding<T>
-    return new core.Bound<T, Member>(
-        adapter = new Adapter<T>(
+    return core.Bound<T, Member>(
+        adapter = Adapter<T>(
             model = model,
-            fields = new Fields<T>(
-                model = model,
-                storage = storage,
-                emitChoice = new EmitChoice(member = model.choiceValue)
-            ),
-            consume = new ReadFields<T>(model = model, storage = storage, unknown = new Unknown<T>())
+            fields = Fields<T>(model = model, storage = storage, emitChoice = EmitChoice(member = model.choiceValue)),
+            consume = ReadFields<T>(model = model, storage = storage, unknown = Unknown<T>())
         )
     )
 end
 
 export function binding(model: Model): core.Binding<Packet>
-    return bind(model, new PacketStorage())
+    return bind(model, PacketStorage())
 end
 
 export function indexed(model: Model): core.Binding<Indexed>
-    return bind(model, new IndexedStorage(owner = model.owner))
+    return bind(model, IndexedStorage(owner = model.owner))
 end
 
 export function documentBinding(model: Model): core.Binding<ModelDocument>
-    return bind(model, new DocumentStorage(model = model))
+    return bind(model, DocumentStorage(model = model))
 end
 
 export function indexedValue(
@@ -629,7 +625,7 @@ export function indexedValue(
     next: Indexed?,
     choice: Choice?
 ): Indexed
-    return new Indexed(
+    return Indexed(
         owner = model.owner,
         notePresence = note == nil and "absent" or "value",
         slots = {[1] = id, [2] = created, [3] = note, [4] = document, [5] = labels, [6] = next, [7] = choice}
@@ -679,9 +675,9 @@ local record Factory is plans.PolicyFactory
             error("policy requires this model's member handles", 2)
         end
 
-        return new Policy<M>(rename = self.rename)
+        return Policy<M>(rename = self.rename)
     end
 end
 export function policy(rename: boolean): plans.PolicyFactory
-    return new Factory(rename = rename)
+    return Factory(rename = rename)
 end

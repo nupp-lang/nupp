@@ -49,9 +49,9 @@ end
 -- Runtime -------------------------------------------------------------------
 
 function M.idsAreSequentialAcrossNamedAndAnonymousKeys()
-    local first = data.newkey(nil)
-    local named = data.newkey("store.test.sequence")
-    local third = data.newkey(nil)
+    local first = data.Key(nil)
+    local named = data.Key("store.test.sequence")
+    local third = data.Key(nil)
     check.eq(named.id, first.id + 1)
     check.eq(third.id, named.id + 1)
     check.eq(named.name, "store.test.sequence")
@@ -59,35 +59,35 @@ function M.idsAreSequentialAcrossNamedAndAnonymousKeys()
 end
 
 function M.emptyAndDuplicateNamesRaiseBeforeAnIdIsUsed()
-    local before = data.newkey(nil)
+    local before = data.Key(nil)
     raises(
         function()
-            data.newkey("")
+            data.Key("")
         end,
         "must not be empty"
     )
-    local named = data.newkey("store.test.duplicate")
+    local named = data.Key("store.test.duplicate")
     raises(
         function()
-            data.newkey("store.test.duplicate")
+            data.Key("store.test.duplicate")
         end,
         "already registered"
     )
-    local after = data.newkey(nil)
+    local after = data.Key(nil)
     check.eq(named.id, before.id + 1)
     check.eq(after.id, named.id + 1)
 end
 
 function M.keyFindReturnsTheRegisteredIdentityOrNil()
-    local key = data.newkey("store.test.find")
+    local key = data.Key("store.test.find")
     check(rawequal(data.Key.find("store.test.find"), key), "lookup returned another table")
     check.eq(data.Key.find("store.test.absent"), nil)
 end
 
 function M.keyRegisteredWalksNamesAscendingByIdWithoutTheRegistry()
-    local first = data.newkey("store.test.list.first")
-    local anonymous = data.newkey(nil)
-    local second = data.newkey("store.test.list.second")
+    local first = data.Key("store.test.list.first")
+    local anonymous = data.Key(nil)
+    local second = data.Key("store.test.list.second")
     local seen = {}
     for id, name in data.Key.registered() do
         seen[name] = id
@@ -109,19 +109,19 @@ function M.keyRegisteredWalksNamesAscendingByIdWithoutTheRegistry()
 end
 
 function M.storesAreIndependentAndKeysAreShared()
-    local score = data.newkey("store.test.score")
-    local first = data.newstore()
-    local second = data.newstore()
+    local score = data.Key("store.test.score")
+    local first = data.Store.create()
+    local second = data.Store.create()
     first:set(score, 10)
     second:set(score, 20)
     check.eq(first:get(score), 10)
     check.eq(second:get(score), 20)
-    check.eq(data.newstore():get(score), nil)
+    check.eq(data.Store.create():get(score), nil)
 end
 
 function M.removeDeletesAndSetRejectsNil()
-    local key = data.newkey(nil)
-    local store = data.newstore()
+    local key = data.Key(nil)
+    local store = data.Store.create()
     local held = {}
     store:set(key, held)
     check(rawequal(store:get(key), held), "reference identity was lost")
@@ -148,8 +148,8 @@ function M.removeDeletesAndSetRejectsNil()
 end
 
 function M.clearDropsValuesAndKeepsRegistrations()
-    local key = data.newkey("store.test.clear")
-    local store = data.newstore()
+    local key = data.Key("store.test.clear")
+    local store = data.Store.create()
     store:set(key, "ready")
     store:clear()
     check.eq(store:get(key), nil)
@@ -159,9 +159,9 @@ function M.clearDropsValuesAndKeepsRegistrations()
 end
 
 function M.entriesAscendByIdAndCarryNoValue()
-    local named = data.newkey("store.test.inspect")
-    local anonymous = data.newkey(nil)
-    local store = data.newstore()
+    local named = data.Key("store.test.inspect")
+    local anonymous = data.Key(nil)
+    local store = data.Store.create()
     store:set(anonymous, 4)
     store:set(named, "text")
     local seen = {}
@@ -180,8 +180,8 @@ end
 function M.entriesWalkABorrowedStore()
     -- The walk returns the store it was handed as its loop state, so a caller
     -- holding the store as a borrow can drive it without naming the step.
-    local key = data.newkey("store.test.step")
-    local store = data.newstore()
+    local key = data.Key("store.test.step")
+    local store = data.Store.create()
     store:set(key, "text")
     local seen = {}
     for id, name, valueType in store:entries() do
@@ -199,9 +199,9 @@ local PRELUDE = [=[
 local record State
     frames: integer
 end
-local frames: types.Key<integer> = types.newkey("fixture.frames")
-local state: types.Key<State> = types.newkey("fixture.state")
-local store = types.newstore()
+local frames: types.Key<integer> = types.Key("fixture.frames")
+local state: types.Key<State> = types.Key("fixture.state")
+local store = types.Store.create()
 ]=]
 
 function M.annotatedDeclarationsTypeTheKey()
@@ -210,7 +210,7 @@ function M.annotatedDeclarationsTypeTheKey()
             PRELUDE
             .. [=[
 store:set(frames, (store:get(frames) or 0) + 1)
-store:set(state, new State(frames = 1))
+store:set(state, State(frames = 1))
 store:remove(state)
 local current = store:get(state)
 print(current and current.frames, store:get(frames))
@@ -242,7 +242,7 @@ print(wide)
         codes(
             PRELUDE
             .. [=[
-local narrow: types.Key<integer> = types.newkey<number>("fixture.number") as types.Key<number>
+local narrow: types.Key<integer> = types.Key<number>("fixture.number") as types.Key<number>
 print(narrow)
 ]=]
         )[1],
@@ -287,7 +287,7 @@ function M.anUnannotatedKeyNeedsATypeArgument()
         codes(
             PRELUDE
             .. [=[
-local loose = types.newkey("fixture.loose")
+local loose = types.Key("fixture.loose")
 store:set(loose, 7)
 local text: string? = store:get(loose)
 print(text)

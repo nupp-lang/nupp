@@ -549,7 +549,7 @@ local function closeResource(takes value: Resource): nil
     closed = closed + 1
 end
 local function openResource(id: number): affine(Resource, closeResource)
-    return new Resource(id = id)
+    return Resource(id = id)
 end
 for i = 1, 3 do
     repeat

@@ -1,11 +1,11 @@
 local system = os.info()
-local random = require("math.random")
+local random = require("nupp.runtime.standardmath").value
 local uuid = os
 local providerstate = require("helpers.providerstate")
 local targetLayout = require("nupp.compiler.targetlayout")
 local M = {}
 
-function M.randomNamespaceForwardsTheHostCallExactly()
+function M.generatorNamespacePreservesTheHostRandomFunction()
     local host = {}
     for key, value in pairs(math) do
         host[key] = value
@@ -21,9 +21,12 @@ function M.randomNamespaceForwardsTheHostCallExactly()
 
         return 0.25
     end
-    local load = providerstate.instance({["math.random"] = true}, nil, nil, {math = host})
-    local moved = load("math.random")
-    assert(moved == host.random and moved == load("math.random"))
+    local original = host.random
+    local load = providerstate.instance({["nupp.runtime.standardmath"] = true}, nil, nil, {math = host})
+    local namespace = load("nupp.runtime.standardmath")
+    local moved = host.random
+    assert(moved == original and type(moved) == "function")
+    assert(namespace.value == host and host.Xoshiro128 == namespace.Xoshiro128)
     assert(moved() == 0.25 and moved(8) == 0.25 and moved(-4, 12) == 0.25)
     assert(calls[1].count == 0)
     assert(calls[2].count == 1 and calls[2][1] == 8)

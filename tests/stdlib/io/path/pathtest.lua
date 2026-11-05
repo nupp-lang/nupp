@@ -278,10 +278,7 @@ function M.joiningOntoABareDriveStaysDriveRelative()
 end
 
 function M.absolutizingADriveRelativePathRequiresTheCurrentDrive()
-    local loadedPath = package.loaded["io.internal.path"]
-    local loadedProvider = package.loaded["nupp.io.path.provider"]
-    package.loaded["io.internal.path"] = nil
-    package.loaded["nupp.io.path.provider"] = {
+    local windowsProvider = {
         sep = function()
             return "\\"
         end,
@@ -292,10 +289,12 @@ function M.absolutizingADriveRelativePathRequiresTheCurrentDrive()
             return value, nil
         end,
     }
-    local ok, windowsPath = pcall(require, "io.internal.path")
-    package.loaded["io.internal.path"] = loadedPath
-    package.loaded["nupp.io.path.provider"] = loadedProvider
-    assert(ok, windowsPath)
+    local load = require(
+        "helpers.providerstate"
+    ).instance({["io.internal.path"] = true, ["io.internal.pathtypes"] = true}, {
+        ["nupp.io.path.provider"] = windowsProvider
+    })
+    local windowsPath = load("io.internal.path")
 
     test.eq(assert(windowsPath.newpath("c:work"):absolute()):tostring(), "C:/base/work")
     test.eq(assert(windowsPath.newpath("C:"):absolute()):tostring(), "C:/base")

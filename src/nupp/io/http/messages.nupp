@@ -2,13 +2,9 @@
 
 module nupp.io.http.messages
 
-const {type Path} = require("io.files")
+const {type Path} = require("io.internal.files.path")
 const uri = require("io.internal.uri")
-
---- A portable byte source for an HTTP upload, with consuming teardown.
-export interface Reader is own.Closeable
-    read: function(exclusive self: Reader, count: integer): (string?, string?)
-end
+const {type Reader} = require("nupp.io")
 
 --- Transport capability flags describing observable HTTP guarantees.
 ---
@@ -37,7 +33,7 @@ export type Version = "1.0" | "1.1" | "2"
 --- What a client applies to every request it sends.
 ---
 --- A plain table, like every other option bag in the io facades. Every field is
---- optional, so `http.newclient()` with nothing is a client with the defaults
+--- optional, so `http.Client.create()` with nothing is a client with the defaults
 --- below. A request may override the three limits it also names.
 export type Options = {
     --- The `user-agent` header sent with every request.
@@ -101,7 +97,7 @@ export type Options = {
 --- Built by [](io.http.reader). A redirect that preserves the request body
 --- cannot replay one, so the request fails rather than following that redirect.
 export record ReaderBody is own.Closeable
-    --- Where the body's bytes come from.
+    --- The owned [](io.Reader) supplying the body's bytes.
     reader: Reader
 
     --- How many bytes the reader will produce, when that is known ahead of time.
@@ -121,7 +117,7 @@ end
 --- Built by [](io.http.file). The path must name a regular file: a device,
 --- FIFO or directory has no length to send, and the native transport refuses it.
 export record FileBody
-    --- The file to send, named as anything [](io.files) accepts: text, a
+    --- The file to send, named as anything [](os.Path) names: text, a
     --- [](io.Path), or an application path.
     path: Path
 
@@ -141,8 +137,8 @@ export type RequestBody = string | ReaderBody | FileBody
 --- closing it closes a streaming reader body, and otherwise has no external work.
 ---
 --- ```nupp:fragment
---- local request = new http.Request(
----     url = assert(uri.newURI("https://example.com/upload")),
+--- local request = http.Request(
+---     url = assert(io.URI.of("https://example.com/upload")),
 ---     method = "POST",
 ---     headers = {["content-type"] = "application/json"},
 ---     body = document

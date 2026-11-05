@@ -4,39 +4,20 @@ local standard = require("io")
 local http = require("io.http")
 local tests = {}
 
-local record Upload is http.Reader
-    bytes: string
-    closed: {boolean}
-
-    function read(exclusive self, count: integer): (string?, string?)
-        local out = self.bytes:sub(1, count)
-        self.bytes = self.bytes:sub(#out + 1)
-        return out
-    end
-
-    function close(takes self): nil
-        self.closed[1] = true
-    end
-end
-
-local function consume(takes source: http.Reader): string
-    local first = assert2(source:read(3))
-    local second = assert2(source:read(3))
-    source:close()
-    return first .. second
-end
-
-function tests.lightweightUploadsKeepTheirNarrowContract(): nil
-    local closed = {false}
-    assert2(consume(new Upload(bytes = "abcdef", closed = closed)) == "abcdef")
-    assert2(closed[1])
+function tests.uploadBodiesUseTheSharedReaderContract(): nil
+    local body = http.reader(standard.Reader.of("abcdef"), 6)
+    local destination = standard.Buffer.create()
+    assert2(body.reader:readinto(destination, 0, 3) == 3)
+    assert2(destination:getstring() == "abc")
+    assert2(body.reader:read(3) == "def")
+    body:close()
 end
 
 function tests.byteReadersSnapshotBuffersAndViews(): nil
-    local buffer = standard.newbuffer("before")
+    local buffer = standard.Buffer.create("before")
     local view = buffer:view()
-    local fromBuffer = standard.newreader(buffer)
-    local fromView = standard.newreader(view)
+    local fromBuffer = standard.Reader.of(buffer)
+    local fromView = standard.Reader.of(view)
     buffer:clear()
     buffer:close()
     view:close()
@@ -45,17 +26,13 @@ function tests.byteReadersSnapshotBuffersAndViews(): nil
 end
 
 function tests.byteWriterExclusivelyBorrowsAndClearsItsBuffer(): nil
-    local buffer = standard.newbuffer("old")
+    local buffer = standard.Buffer.create("old")
     do
-        local writer = standard.newwriter(buffer)
+        local writer = standard.Writer.of(buffer)
         assert2(writer:write("new"))
         assert2(writer:flush())
     end
     assert2(buffer:getstring() == "new")
-end
-
-function tests.ordinaryReadersSatisfyTheUploadSubset(): nil
-    assert2(consume(standard.newreader("abcdef")) == "abcdef")
 end
 
 local record Queue is standard.ByteQueue
@@ -77,8 +54,8 @@ function Queue.get(self: Queue, ...: integer?): string
 end
 
 function tests.byteQueuesAreStructuralSources(): nil
-    local queue = new Queue(bytes = "abcdef")
-    local reader = standard.newreader(queue)
+    local queue = Queue(bytes = "abcdef")
+    local reader = standard.Reader.of(queue)
     assert2(reader:read(3) == "abc")
     assert2(#queue.bytes == 3)
     assert2(reader:read(3) == "def")
@@ -86,8 +63,8 @@ function tests.byteQueuesAreStructuralSources(): nil
 end
 
 function tests.scalarReadersAcceptStructuralQueues(): nil
-    local queue = new Queue(bytes = "\1\2\3\4")
-    local reader = standard.newreader(queue):scalar()
+    local queue = Queue(bytes = "\1\2\3\4")
+    local reader = standard.Reader.of(queue):scalar()
     assert2(reader:remaining() == 4)
     assert2(reader:readuint32() == 67305985)
     assert2(reader:remaining() == 0)
@@ -95,9 +72,9 @@ function tests.scalarReadersAcceptStructuralQueues(): nil
 end
 
 function tests.structuralQueuesReadIntoBuffersAndWritableSpans(): nil
-    local queue = new Queue(bytes = "abcdef")
-    local reader = standard.newreader(queue)
-    local destination = standard.newbuffer(8)
+    local queue = Queue(bytes = "abcdef")
+    local reader = standard.Reader.of(queue)
+    local destination = standard.Buffer.create(8)
     assert2(reader:readinto(destination, 0, 3) == 3)
     local lease = destination:reservewrite(3, 3)
     do
@@ -111,8 +88,8 @@ function tests.structuralQueuesReadIntoBuffersAndWritableSpans(): nil
 end
 
 function tests.stringReadersFillWritableSpans(): nil
-    local reader = standard.newreader("abc")
-    local destination = standard.newbuffer(3)
+    local reader = standard.Reader.of("abc")
+    local destination = standard.Buffer.create(3)
     local lease = destination:reservewrite(0, 3)
     do
         local output = lease:span()
@@ -124,7 +101,7 @@ function tests.stringReadersFillWritableSpans(): nil
 end
 
 function tests.linesKeepTerminatorsAndFinalFragments(): nil
-    local lines = standard.newreader("one\r\ntwo\nlast"):lines()
+    local lines = standard.Reader.of("one\r\ntwo\nlast"):lines()
     assert2(lines:read() == "one")
     assert2(lines:read() == "two")
     assert2(lines:read() == "last")

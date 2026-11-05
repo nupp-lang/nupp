@@ -1,6 +1,6 @@
 const util = require("types")
 
 local contexts = require("serde.codec")
-local strings = util.newkey<string>()
+local strings = util.Key<string>()
 local builder = contexts.contextbuilder({}, {})
 builder:set(strings, 123)

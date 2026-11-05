@@ -195,9 +195,9 @@ function FileWriter.close(takes self: FileWriter): nil
 end
 
 export function reader(exclusive file: any): affine(bytes.Reader) borrows (file)
-    return new FileReader(anchor = file, _closed = false)
+    return FileReader(anchor = file, _closed = false)
 end
 
 export function writer(exclusive file: any): affine(bytes.Writer) borrows (file)
-    return new FileWriter(anchor = file, _closed = false)
+    return FileWriter(anchor = file, _closed = false)
 end

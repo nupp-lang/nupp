@@ -43,7 +43,7 @@ record labels.User
     active: boolean
 end
 
-local user = new labels.User(name = "Ada", active = true)
+local user = labels.User(name = "Ada", active = true)
 print(user:label()) -- <User>
 
 -- try breaking it: change `record` to `interface`, and read the provider's

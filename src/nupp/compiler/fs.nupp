@@ -6,14 +6,16 @@ existing path's filesystem identity, while `absolute` also answers for a missing
 path. Writes stage content beside the destination before replacing it, so an
 interrupted build does not expose a half-written module.
 
-Directory operations go through [](io.files), so the compiler requires
+Directory operations go through the `os` filesystem functions, so the compiler requires
 its native filesystem provider. Whole-file reads and writes stay on `io.open`
 because the provider's transfer lane would add a worker handoff to every small
 compiler file.
 ]]
 module nupp.compiler.fs
 
-const files2 = require("io.files")
+-- The `os` filesystem functions, reached directly while the pinned stage zero
+-- predates them.
+const files2 = require("io.internal.files")
 const path2 = require("io.internal.path")
 
 -- A compiler command never changes its own working directory. Remember the one its
@@ -167,7 +169,7 @@ export function readFile(path: string): string?, string?
         -- Either way, say what happened rather than the raw OS error: a caller that
         -- reports it printed a permissions complaint where the path belonged, saying
         -- neither what it tried to read nor the actual reason.
-        if files2.isdirectory(path) then
+        if files2.stat(path) == "directory" then
             return nil, path .. " is a directory"
         end
 
@@ -176,7 +178,7 @@ export function readFile(path: string): string?, string?
     local text = f:read("*a")
     f:close()
     if not text then
-        if files2.isdirectory(path) then
+        if files2.stat(path) == "directory" then
             return nil, path .. " is a directory"
         end
 
@@ -195,7 +197,7 @@ end
 --- checkout had no `.git`, and a types root was missing -- three different
 --- reports of one answer.
 export function exists(path: string): boolean
-    return files2.info(path) ~= nil
+    return files2.exists(path) == true
 end
 
 export function mkdir(path: string): boolean
@@ -303,6 +305,16 @@ export function copyFile(source: string, destination: string): boolean?, string?
     return writeFile(destination, text)
 end
 
+local function exhausted(): (string?, files2.FileKind)
+    return nil, nil as any
+end
+
+--- Iterates a directory's children like `os.list`, except that a directory that
+--- cannot be opened lists as nothing.
+export function children(directory: string): function(): (string?, files2.FileKind)
+    return files2.list(directory) or exhausted
+end
+
 --- Every regular file at or under `path`, normalized and sorted.
 ---
 --- A symbolic link is resolved rather than reported as one, so a source tree
@@ -328,16 +340,15 @@ export function listFiles(path: string, skipDirectory: (function(name: string, p
     local parent: {[string]: string} = {}
     while #pending > 0 do
         local directory = table.remove(pending) as string
-        for _, entry in ipairs(files2.list(directory) or {}) do
-            local child = join(directory, entry.name)
-            local kind = entry.kind
+        for name, entryKind in children(directory) do
+            local child = join(directory, name)
+            local kind = entryKind
             local link = kind == "symlink"
             if kind == "symlink" then
-                local resolved = files2.info(child)
-                kind = resolved and resolved.kind or "other"
+                kind = files2.stat(child) or "other"
             end
             if kind == "directory" then
-                if not (skipDirectory and skipDirectory(entry.name, child)) then
+                if not (skipDirectory and skipDirectory(name, child)) then
                     local cycle = false
                     if link then
                         local identity = canonical(child)

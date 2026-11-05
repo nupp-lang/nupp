@@ -28,9 +28,9 @@ end
 
 --- Values that can write a complete JSON value through a checked writer.
 ---
---- `serde.json` names it for callers; it is declared here so the modules
---- the facade reads, serde and types.derive among them, can name it without
---- reading the facade. `Writer` below names the encoder `newwriter()` returns.
+--- `serde.json` names it for callers; it is declared here so the modules the facade
+--- reads, serde and types.derive among them, can name it without reading the facade.
+--- `Writer` below names the encoder `serde.json.Writer.of()` returns.
 ---
 --- ```nupp
 --- local record Money is serde.json.JSONEncodable
@@ -52,7 +52,7 @@ end
 ---
 --- ```nupp
 --- local out = string.buffer.new()
---- local writer = serde.json.newwriter(out)
+--- local writer = serde.json.Writer.of(out)
 --- writer:startobject():key("ok"):write(true):endobject()
 --- writer:close()
 --- assert(out:tostring() == [[{"ok":true}]])
@@ -63,7 +63,7 @@ export interface Writer is own.Closeable
     ---
     --- ```nupp
     --- local out = string.buffer.new()
-    --- local writer = serde.json.newwriter(out)
+    --- local writer = serde.json.Writer.of(out)
     --- writer:startarray():write("first"):endarray()
     --- writer:close()
     --- assert(out:tostring() == "[\"first\"]")
@@ -76,7 +76,7 @@ export interface Writer is own.Closeable
     ---
     --- ```nupp
     --- local out = string.buffer.new()
-    --- local writer = serde.json.newwriter(out)
+    --- local writer = serde.json.Writer.of(out)
     --- writer:startobject():endobject()
     --- writer:close()
     --- assert(out:tostring() == "{}")
@@ -89,7 +89,7 @@ export interface Writer is own.Closeable
     ---
     --- ```nupp
     --- local out = string.buffer.new()
-    --- local writer = serde.json.newwriter(out)
+    --- local writer = serde.json.Writer.of(out)
     --- writer:startobject():key("answer"):write(42):endobject()
     --- writer:close()
     --- assert(out:tostring() == [[{"answer":42}]])
@@ -104,7 +104,7 @@ export interface Writer is own.Closeable
     ---
     --- ```nupp
     --- local out = string.buffer.new()
-    --- local writer = serde.json.newwriter(out)
+    --- local writer = serde.json.Writer.of(out)
     --- writer:startarray():write({id = 41}):endarray()
     --- writer:close()
     --- assert(out:tostring() == "[{\"id\":41}]")
@@ -125,7 +125,7 @@ export interface Writer is own.Closeable
     ---
     --- ```nupp
     --- local out = string.buffer.new()
-    --- local writer = serde.json.newwriter(out)
+    --- local writer = serde.json.Writer.of(out)
     --- writer:startarray():null():endarray()
     --- writer:close()
     --- assert(out:tostring() == "[null]")
@@ -138,7 +138,7 @@ export interface Writer is own.Closeable
     ---
     --- ```nupp
     --- local out = string.buffer.new()
-    --- local writer = serde.json.newwriter(out)
+    --- local writer = serde.json.Writer.of(out)
     --- writer:startarray():startobject():endobject():endarray()
     --- writer:close()
     --- assert(out:tostring() == "[{}]")
@@ -151,7 +151,7 @@ export interface Writer is own.Closeable
     ---
     --- ```nupp
     --- local out = string.buffer.new()
-    --- local writer = serde.json.newwriter(out)
+    --- local writer = serde.json.Writer.of(out)
     --- writer:startobject():key("items"):startarray():endarray():endobject()
     --- writer:close()
     --- assert(out:tostring() == [[{"items":[]}]])
@@ -164,7 +164,7 @@ export interface Writer is own.Closeable
     ---
     --- ```nupp
     --- local out = string.buffer.new()
-    --- local writer = serde.json.newwriter(out)
+    --- local writer = serde.json.Writer.of(out)
     --- writer:startarray():write(1)
     --- writer:flush()
     --- assert(out:tostring() == "[1")
@@ -182,7 +182,7 @@ export interface Writer is own.Closeable
     ---
     --- ```nupp
     --- local out = string.buffer.new()
-    --- local writer = serde.json.newwriter(out)
+    --- local writer = serde.json.Writer.of(out)
     --- writer:startarray():write(1)
     --- writer:abort()
     --- writer:close()
@@ -195,7 +195,7 @@ export interface Writer is own.Closeable
     ---
     --- ```nupp
     --- local out = string.buffer.new()
-    --- local writer = serde.json.newwriter(out)
+    --- local writer = serde.json.Writer.of(out)
     --- writer:write({ok = true})
     --- writer:close()
     --- assert(out:tostring() == [[{"ok":true}]])

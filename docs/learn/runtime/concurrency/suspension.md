@@ -344,7 +344,7 @@ inside a host barrier where yielding would violate a runtime invariant.
 `shutdown` drains work queued while the handled extent is ending.
 
 ```nupp:fragment [scheduler.nupp]
-local scheduler = new host.Handler(
+local scheduler = host.Handler(
     park = function(_: host.Handler, waiting: host.Waiting, _: function(): nil): nil
         local task = assert(coroutine.running())
         waiting:onresume(function(): nil
@@ -374,7 +374,7 @@ and the first `ready` check to guard against. The loop remains because a
 scheduler may resume a coroutine for its own reasons, and a park ends only when
 its wait is ready.
 
-A handler is a record, so `new host.Handler(...)` constructs it and the
+A handler is a record, so `host.Handler(...)` constructs it and the
 checker holds each member to its declared signature. There is nothing to cast.
 
 ```nupp:fragment [scheduler.nupp]

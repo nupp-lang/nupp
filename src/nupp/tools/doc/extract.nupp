@@ -29,6 +29,7 @@ export type Param = {
     name: string,
     type: string,
     mode: string?,
+    optional: boolean?,
     text: string
 }
 
@@ -72,9 +73,14 @@ export record Member
     raises: {docblock.Raise}
     lua: boolean?
     isFunction: boolean?
+    instanceMethod: boolean?
     isMetamethod: boolean?
     isType: boolean?
     signature: string?
+    stored: boolean?
+    defaultValue: string?
+    constructionBlocked: boolean?
+    generatedConstructor: boolean?
 
     --- This member is a nested `type` alias, so `type` above holds what it names
     --- rather than what a value of it is, and `generics` holds its parameters.
@@ -111,6 +117,7 @@ export type Item = {
     line: integer,
     members: {Member},
     supertypes: {string}?,
+    constructionBlocked: boolean?,
     params: {Param},
     returns: {Result},
     forms: {Form}?,
@@ -478,8 +485,8 @@ local function structureSupertypes(stat): {string}?
     return #names > 0 and names or nil
 end
 
--- Keep the declaration header separate from its documented members. The renderer
--- combines them without private entries, comments, or method implementations.
+-- Keep the declaration header separate from its documented members so an overview
+-- can identify the type without repeating their definitions.
 local function structureHeader(stat): string
     local parts: {string} = {}
     if stat.modifier then
@@ -530,20 +537,22 @@ local function declaredResults(node): {any}
     return rets
 end
 
-local function functionSignature(stat, name)
+local function functionSignature(stat, name, omitReceiver)
     local body = stat.body
     local params = {}
-    for _, param in ipairs(body and body.params or {}) do
-        local piece
-        if param[1] and param[1].kind == "..." then
-            piece = "..." .. (param.name and param.name.text or "")
-        else
-            piece = (param.modeTok and (param.modeTok.text .. " ") or "") .. (param.name and param.name.text or "?")
+    for index, param in ipairs(body and body.params or {}) do
+        if not (omitReceiver and index == 1 and param.name and param.name.text == "self") then
+            local piece
+            if param[1] and param[1].kind == "..." then
+                piece = "..." .. (param.name and param.name.text or "")
+            else
+                piece = (param.modeTok and (param.modeTok.text .. " ") or "") .. (param.name and param.name.text or "?")
+            end
+            if param.type then
+                piece = piece .. ": " .. syntax(param.type)
+            end
+            params[#params + 1] = piece
         end
-        if param.type then
-            piece = piece .. ": " .. syntax(param.type)
-        end
-        params[#params + 1] = piece
     end
     local returns = {}
     for _, value in ipairs(declaredResults(body)) do
@@ -577,7 +586,8 @@ local function functionSignature(stat, name)
         result = result .. " yields " .. syntax(body.yieldPack) .. " resumes " .. syntax(body.resumePack)
     end
     if #returns > 0 then
-        result = result .. ": " .. table.concat(returns, ", ")
+        local values = table.concat(returns, ", ")
+        result = result .. ": " .. (#returns > 1 and "(" .. values .. ")" or values)
     end
 
     return result
@@ -1290,12 +1300,23 @@ local function setReceiver(details, body, receiver)
     end
 end
 
+local function constructionBlocked(entries): boolean
+    for _, entry in ipairs(entries or {}) do
+        if (entry.kind == "fieldDecl" or entry.kind == "constructorDecl") and hiddenEntry(entry, false) then
+            return true
+        end
+    end
+
+    return false
+end
+
 local function buildMembers(
     entries: {any}?,
     basePath: string,
     includePrivate: boolean,
     fieldTextOverrides: {[string]: string}?,
-    receiver: string?
+    receiver: string?,
+    implicitReceiver: boolean?
 ): {Member}
     local members = {}
     for _, entry in ipairs(entries or {}) do
@@ -1305,7 +1326,7 @@ local function buildMembers(
             and entryVisible
         then
             local fieldInfo = entryInfo
-            local member = new Member(
+            local member = Member(
                 name = entry.name.text,
                 type = syntax(entry.type),
                 text = fieldInfo.text ~= "" and fieldInfo.text
@@ -1316,7 +1337,9 @@ local function buildMembers(
                 returns = {},
                 raises = fieldInfo.raises,
                 annotations = annotationsOf(entry),
-                comptimeKind = comptimeKind(entry.type)
+                comptimeKind = comptimeKind(entry.type),
+                stored = entry.kind == "fieldDecl" or nil,
+                defaultValue = entry.defaultValue and syntax(entry.defaultValue) or nil
             )
             local fieldFunction = typeFunction(entry.type)
             if fieldFunction then
@@ -1351,7 +1374,7 @@ local function buildMembers(
             setReceiver(details, entry.body, receiver)
             members[
                 #members + 1
-            ] = new Member(
+            ] = Member(
                 name = entry.name.text,
                 type = functionSignature(entry, entry.name.text),
                 text = methodInfo.text,
@@ -1360,25 +1383,44 @@ local function buildMembers(
                 returns = details.returns,
                 raises = methodInfo.raises,
                 isFunction = true,
+                instanceMethod = implicitReceiver
+                or entry.body.params[1] ~= nil
+                and entry.body.params[1].name ~= nil
+                and entry.body.params[1].name.text == "self"
+                or false,
                 annotations = annotationsOf(entry)
             )
         elseif entry.kind == "constructorDecl" and entryVisible then
             -- A constructor has no name of its own, because a caller does not write
-            -- one: `new T(...)` is the spelling. It documents under the keyword, so
+            -- one: `T(...)` constructs it. It documents under the keyword, so
             -- what it says about its parameters has somewhere to be read.
             local constructorInfo = entryInfo
             local details = functionDetails(entry, constructorInfo)
-            setReceiver(details, entry.body, receiver)
+            if details.params[1] and details.params[1].name == "self" then
+                table.remove(details.params, 1)
+            end
+            local signature = functionSignature(entry, "constructor", true)
+            if #details.returns == 0 or #details.returns == 1 and details.returns[1].type == "nil" then
+                signature = signature:gsub(":%s*nil%s*$", "") .. ": " .. (receiver or basePath)
+                details.returns = {
+                    {type = receiver or basePath, text = constructorInfo.returns[1] or "the constructed instance"}
+                }
+            end
+            local typeargs = {}
+            for _, generic in ipairs(entry.body.generics and entry.body.generics.names or {}) do
+                typeargs[#typeargs + 1] = {name = generic.text, text = constructorInfo.typeargs[generic.text] or ""}
+            end
             members[
                 #members + 1
-            ] = new Member(
+            ] = Member(
                 name = "constructor",
-                type = functionSignature(entry, "constructor"),
+                type = signature,
                 text = constructorInfo.text,
                 path = basePath .. ".constructor",
                 params = details.params,
                 returns = details.returns,
                 raises = constructorInfo.raises,
+                typeargs = typeargs,
                 isFunction = true,
                 annotations = annotationsOf(entry)
             )
@@ -1390,7 +1432,7 @@ local function buildMembers(
             end
             members[
                 #members + 1
-            ] = new Member(
+            ] = Member(
                 name = entry.name.text,
                 type = entry.declKind or "record",
                 text = entryInfo.text,
@@ -1401,13 +1443,15 @@ local function buildMembers(
                 isType = true,
                 signature = structureHeader(entry),
                 supertypes = structureSupertypes(entry),
+                constructionBlocked = constructionBlocked(entry.entries),
                 typeargs = typeargs,
                 members = buildMembers(
                     entry.entries,
                     nestedPath,
                     includePrivate,
                     entryInfo.fields,
-                    receiverName(nestedPath, entry.generics)
+                    receiverName(nestedPath, entry.generics),
+                    entry.declKind == "struct"
                 ),
                 annotations = annotationsOf(entry)
             )
@@ -1418,7 +1462,7 @@ local function buildMembers(
             -- says what the alias is for.
             members[
                 #members + 1
-            ] = new Member(
+            ] = Member(
                 name = entry.name.text,
                 type = syntax(entry.value),
                 text = entryInfo.text,
@@ -1433,7 +1477,7 @@ local function buildMembers(
         elseif entry.name and entryVisible then
             members[
                 #members + 1
-            ] = new Member(
+            ] = Member(
                 name = entry.name.text,
                 type = entry.kind,
                 text = entryInfo.text,
@@ -1679,6 +1723,7 @@ declarationItem = function(
         kind = kind,
         signature = signature,
         supertypes = stat.kind == "recordDecl" and structureSupertypes(stat) or nil,
+        constructionBlocked = stat.kind == "recordDecl" and constructionBlocked(stat.entries) or nil,
         aliasSource = stat.kind == "typeAlias" and syntax(stat.value)
         or (stat.kind == "localStmt" or stat.kind == "assignStmt")
         and stat.exprs
@@ -1750,7 +1795,8 @@ declarationItem = function(
             item.path,
             includePrivate,
             info.fields,
-            receiverName(item.path, stat.generics)
+            receiverName(item.path, stat.generics),
+            stat.declKind == "struct"
         )
     end
     if item.annotation then
@@ -1868,7 +1914,7 @@ local function foldMethods(
             else
                 owner.members[
                     #owner.members + 1
-                ] = new Member(
+                ] = Member(
                     name = name,
                     type = item.signature,
                     text = item.doc.text,
@@ -1878,6 +1924,9 @@ local function foldMethods(
                     forms = item.forms,
                     raises = item.raises,
                     isFunction = true,
+                    instanceMethod = item.kind == "method"
+                    or item.params[1] ~= nil and item.params[1].name == "self"
+                    or false,
                     annotations = item.annotations,
                     comptimeKind = item.comptimeKind
                 )

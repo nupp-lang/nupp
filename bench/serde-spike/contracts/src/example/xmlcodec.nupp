@@ -57,7 +57,7 @@ local function plan<M is core.Member>(
         field.role ~= "attribute" or kind == "string" or kind == "bool" or kind == "integer",
         "XML attribute must be scalar"
     )
-    local result = new Plan<M>(description = description, field = field, flattened = flattened)
+    local result = Plan<M>(description = description, field = field, flattened = flattened)
     seen[description] = result
     local names: {[string]: boolean} = {}
     for index, child in ipairs(description.children) do
@@ -70,7 +70,7 @@ local function plan<M is core.Member>(
             names[key] = true
             result.mappings[
                 index
-            ] = new assembly.Mapping<M>(member = child.member, field = selected.field, repeated = selected.flattened)
+            ] = assembly.Mapping<M>(member = child.member, field = selected.field, repeated = selected.flattened)
         else
             assert2(
                 kind == "list" and index == 1 and selected.field.role == "element",
@@ -109,7 +109,7 @@ local record Scope
             end
         end
         assert2(self.count < 256, "XML fixture extension cache is full")
-        local slot = new Slot()
+        local slot = Slot()
         cache[adapter] = slot
         self.count += 1
         self.active += 1
@@ -133,7 +133,7 @@ local record Opaque is core.Atom
     @readonly family: table
     @readonly node: assembly.Node
     function snapshot(borrows self): core.Atom
-        return new Opaque(family = family, node = assembly.copy(self.node))
+        return Opaque(family = family, node = assembly.copy(self.node))
     end
 end
 local record Unknown is core.UnknownReader, own.Closeable
@@ -153,7 +153,7 @@ local record Unknown is core.UnknownReader, own.Closeable
     function capturevalue<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
         self:live()
         local value = documents.withcontext(
-            documents.atom(new Opaque(family = family, node = assembly.copy(self.node))),
+            documents.atom(Opaque(family = family, node = assembly.copy(self.node))),
             self.source
         )
         local reader = documentReaders.reader(value)
@@ -181,11 +181,11 @@ local record Collect<M is core.Member> is assembly.Consumer<M, {Group<M>}>
         for _, node in ipairs(values) do
             owned[#owned + 1] = assembly.copy(node)
         end
-        state[#state + 1] = new Group<M>(member = member, values = owned)
+        state[#state + 1] = Group<M>(member = member, values = owned)
     end
 
     function unknown(self, exclusive state: {Group<M>}, value: assembly.Node): nil
-        state[#state + 1] = new Group<M>(values = {value})
+        state[#state + 1] = Group<M>(values = {value})
     end
 end
 local record Input<M is core.Member> is core.Reader<M>, own.Closeable
@@ -239,7 +239,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
     end
 
     function child(self, selected: Plan<M>, value: assembly.Node): affine(Input<M>)
-        return new Input<M>(selected = selected, value = value, source = self.source, depth = self.depth + 1)
+        return Input<M>(selected = selected, value = value, source = self.source, depth = self.depth + 1)
     end
 
     function readstruct<S>(
@@ -251,7 +251,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
     ): nil
         self:consume(member, "structure")
         local groups: {Group<M>} = {}
-        assembly.read(self.value, self.selected.mappings, groups, new Collect<M>())
+        assembly.read(self.value, self.selected.mappings, groups, Collect<M>())
         for _, group in ipairs(groups) do
             local selected = group.member ~= nil and self.selected.children[group.member] or nil
             local node = group.values[1]
@@ -261,13 +261,13 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
                     for _, value in ipairs(group.values) do
                         content[#content + 1] = value
                     end
-                    node = new assembly.Node(field = selected.field, attributes = {}, content = content)
+                    node = assembly.Node(field = selected.field, attributes = {}, content = content)
                 end
                 local reader = self:child(selected, node)
                 consume:apply(state, selected.description.member, reader)
                 assert2(reader.used, "XML member was not consumed")
             else
-                local reader: affine(Unknown) = new Unknown(node = node, source = self.source)
+                local reader: affine(Unknown) = Unknown(node = node, source = self.source)
                 unknown:apply(state, node.field, reader)
                 assert2(reader.used, "unknown XML field was not consumed")
             end
@@ -412,14 +412,14 @@ local record Output<M is core.Member> is core.Writer<M>
         if selected.field.role == "attribute" then
             frame.node.attributes[
                 #frame.node.attributes + 1
-            ] = new syntax.Attribute(field = selected.field, value = assembly.text(value))
+            ] = syntax.Attribute(field = selected.field, value = assembly.text(value))
         elseif selected.flattened then
             for _, item in ipairs(value.content) do
                 assert2(type(item) ~= "string", "invalid flattened XML content")
                 local node = item as assembly.Node
                 frame.node.content[
                     #frame.node.content + 1
-                ] = new assembly.Node(field = selected.field, attributes = node.attributes, content = node.content)
+                ] = assembly.Node(field = selected.field, attributes = node.attributes, content = node.content)
             end
         else
             frame.node.content[#frame.node.content + 1] = value
@@ -427,11 +427,7 @@ local record Output<M is core.Member> is core.Writer<M>
     end
 
     function scalar(exclusive self, member: M, kind: string, value: string): nil
-        self:put(
-            member,
-            kind,
-            new assembly.Node(field = self:selected(member).field, attributes = {}, content = {value})
-        )
+        self:put(member, kind, assembly.Node(field = self:selected(member).field, attributes = {}, content = {value}))
     end
 
     function writestring(exclusive self, member: M, value: string): nil
@@ -459,8 +455,8 @@ local record Output<M is core.Member> is core.Writer<M>
     function aggregate<S>(exclusive self, member: M, kind: string, borrows source: S, emit: core.Members<M, S>): nil
         local selected = self:selected(member)
         assert2(selected.description.kind == kind, "XML aggregate does not match its description")
-        local node = new assembly.Node(field = selected.field, attributes = {}, content = {})
-        self.frames[#self.frames + 1] = new Frame<M>(selected = selected, node = node)
+        local node = assembly.Node(field = selected.field, attributes = {}, content = {})
+        self.frames[#self.frames + 1] = Frame<M>(selected = selected, node = node)
         emit:apply(source, self)
         self.frames[#self.frames] = nil
         if #self.frames == 0 then
@@ -505,7 +501,7 @@ local record Output<M is core.Member> is core.Writer<M>
         if selected.role == "attribute" then
             frame.node.attributes[
                 #frame.node.attributes + 1
-            ] = new syntax.Attribute(field = selected, value = assembly.text(node))
+            ] = syntax.Attribute(field = selected, value = assembly.text(node))
         else
             frame.node.content[#frame.node.content + 1] = node
         end
@@ -575,13 +571,13 @@ local record Output<M is core.Member> is core.Writer<M>
 end
 
 local function output<M is core.Member>(selected: Plan<M>, policy: Policy): affine(Output<M>)
-    return new Output<M>(root = selected, policy = policy)
+    return Output<M>(root = selected, policy = policy)
 end
 
 local function input<M is core.Member>(selected: Plan<M>, bytes: string, source: core.Context): affine(Input<M>)
     local node = assembly.parse(bytes)
     assert2(identity(node.field) == identity(selected.field), "unexpected XML root")
-    return new Input<M>(selected = selected, value = node, source = source)
+    return Input<M>(selected = selected, value = node, source = source)
 end
 
 local record Encode<T> is core.Consumer<T, T, string>
@@ -619,14 +615,14 @@ end
 local record Cached is Codec
     @readonly scope: Scope
     function encode<T>(self, binding: core.Binding<T>, borrows value: T): string
-        return binding:accept(new Encode<T>(scope = self.scope), value)
+        return binding:accept(Encode<T>(scope = self.scope), value)
     end
 
     function decode<T>(self, binding: core.Binding<T>, bytes: string): T
         assert2(#bytes <= 16777216, "XML input exceeds byte limit")
-        return binding:accept(new Decode<T>(binding = binding, scope = self.scope, bytes = bytes), nil)
+        return binding:accept(Decode<T>(binding = binding, scope = self.scope, bytes = bytes), nil)
     end
 end
 export function codec(policy: Policy): Codec
-    return new Cached(scope = new Scope(policy = policy))
+    return Cached(scope = Scope(policy = policy))
 end

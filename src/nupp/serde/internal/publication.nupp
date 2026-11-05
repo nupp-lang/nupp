@@ -15,7 +15,7 @@ export function failure<T>(owner: core.Discard<T>, takes value: T, cause: unknow
     end
     suppressed[#suppressed + 1] = problem
 
-    return new errors.Error(
+    return errors.Error(
         code = original.code,
         message = original.message,
         path = original.path,

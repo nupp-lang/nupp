@@ -1,0 +1,49 @@
+@!internal
+
+--[[
+`io.internal.files.messages` defines the scalar vocabulary and capability report
+shared by the filesystem providers and the `os` functions above them.
+]]
+module io.internal.files.messages
+
+--- The kind of filesystem object a path names.
+export type FileKind = "file" | "directory" | "symlink" | "other"
+
+--- One of an app's three storage roots.
+export type AppDir = "config" | "data" | "cache"
+
+export type Mode = "r" | "w" | "a" | "r+" | "w+" | "a+"
+export type Origin = "set" | "current" | "end"
+
+--- The exact filesystem guarantees supplied by a provider.
+export record FsCaps
+    --- Whether filesystem access is available at all.
+    @readonly available: boolean
+
+    --- Whether ordinary native paths are accepted.
+    @readonly arbitrarypaths: boolean
+
+    --- Whether symbolic links can be queried and created.
+    @readonly symlinks: boolean
+
+    --- Whether `os.glob` can expand patterns.
+    @readonly glob: boolean
+
+    --- Whether paths can be renamed.
+    @readonly rename: boolean
+
+    --- Whether atomic replacement writes are supported.
+    @readonly atomicwrite: boolean
+
+    --- Whether temporary path owners can be created.
+    @readonly tmppaths: boolean
+
+    --- Whether the same file may have several open handles.
+    @readonly concurrentopenhandles: boolean
+
+    --- Whether a process working directory exists.
+    @readonly cwd: boolean
+
+    --- Whether `os.persiststorage` can make storage non-evictable.
+    @readonly persist: boolean
+end

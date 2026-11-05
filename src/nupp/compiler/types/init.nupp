@@ -630,7 +630,7 @@ record types.Neutral
 end
 
 --- The metatable a receiver type carries, which is a record's own runtime table: the
---- value its name holds, and what `new R(...)` stamps on the instances it builds.
+--- value its name holds, and what `R(...)` stamps on the instances it builds.
 --- Reaching a member through it reaches the receiver's. It erases to an ordinary Lua
 --- table.
 record types.Metatable
@@ -1220,7 +1220,7 @@ local function prim(tag: types.PrimTag): types.Type
         return existing
     end
 
-    return intern(tag, new types.Prim(tag = tag))
+    return intern(tag, types.Prim(tag = tag))
 end
 
 types.any = prim("any")
@@ -1342,7 +1342,7 @@ function types.array(elem: types.Type, elems: {types.Type}?, fresh: boolean?): t
 
     return intern(
         internKey,
-        new types.Array(tag = "array", elem = elem, fresh = (elems or fresh) and true or nil, elems = elems)
+        types.Array(tag = "array", elem = elem, fresh = (elems or fresh) and true or nil, elems = elems)
     )
 end
 
@@ -1374,7 +1374,7 @@ function types.indexer(
 
     return intern(
         id,
-        new types.Map(
+        types.Map(
             tag = "map",
             key = key,
             value = value,
@@ -1399,7 +1399,7 @@ function types.tuple(elems: {types.Type}): types.Type
         return existing
     end
 
-    return intern(internKey, new types.Tuple(tag = "tuple", elems = elems))
+    return intern(internKey, types.Tuple(tag = "tuple", elems = elems))
 end
 
 --- A structural shape: a table known by the fields it has.
@@ -1461,7 +1461,7 @@ function types.shape(fields: {types.Field}, indexer: types.Indexer?, fresh: bool
 
     return intern(
         key,
-        new types.Shape(
+        types.Shape(
             tag = "shape",
             fields = sorted,
             byname = byname,
@@ -1662,7 +1662,7 @@ local function unionOf(members: {types.Type}): types.Type
         end
     end
 
-    return intern(internKey, new types.Union(tag = "union", members = flat, hasNil = hasNil))
+    return intern(internKey, types.Union(tag = "union", members = flat, hasNil = hasNil))
 end
 
 --- Unions of two members already built, by the members in the order they were given.
@@ -1761,7 +1761,7 @@ function types.intersection(members: {types.Type}): types.Type
         return existing
     end
 
-    return intern(internKey, new types.Intersection(tag = "intersection", members = flat))
+    return intern(internKey, types.Intersection(tag = "intersection", members = flat))
 end
 
 --- `t` or nil: what an annotation writes `T?`.
@@ -1783,12 +1783,12 @@ function types.ptr(t: types.Type): types.Type
         return existing
     end
 
-    return intern(internKey, new types.Ptr(tag = "ptr", elem = t))
+    return intern(internKey, types.Ptr(tag = "ptr", elem = t))
 end
 
 --- A free cleanup binding resolved in its declaring module.
 function types.functionCleanup(key: string, name: string, functionType: types.Type?): types.Cleanup
-    return new types.Cleanup(
+    return types.Cleanup(
         id = "function:" .. key,
         kind = "function",
         key = key,
@@ -1801,7 +1801,7 @@ end
 --- A free cleanup represented by the same const-function term a generic type carries.
 function types.constFunctionCleanup(term: types.ConstTerm, name: string?, functionType: types.Type?): types.Cleanup
     local key = term.tag == "constLiteral" and term.domain == "function" and term.value as string or nil
-    return new types.Cleanup(
+    return types.Cleanup(
         id = key and "function:" .. key or "functionconst:" .. term.id,
         kind = "function",
         key = key,
@@ -1813,27 +1813,22 @@ end
 
 --- The generated terminal for a closure that owns captured affine values.
 function types.closureCleanup(): types.Cleanup
-    return new types.Cleanup(id = "generated:closure", kind = "closure")
+    return types.Cleanup(id = "generated:closure", kind = "closure")
 end
 
 --- A terminal reached through the owned value itself.
 function types.methodCleanup(name: string): types.Cleanup
-    return new types.Cleanup(id = "method:" .. name, kind = "method", name = name)
+    return types.Cleanup(id = "method:" .. name, kind = "method", name = name)
 end
 
 --- A cleanup applied to one affine field of an owning record.
 function types.fieldCleanup(field: string, cleanup: types.Cleanup): types.Cleanup
-    return new types.Cleanup(
-        id = "field:" .. field .. ":" .. cleanup.id,
-        kind = "field",
-        field = field,
-        cleanup = cleanup
-    )
+    return types.Cleanup(id = "field:" .. field .. ":" .. cleanup.id, kind = "field", field = field, cleanup = cleanup)
 end
 
 --- Dropping a pinned field's strong Lua anchor needs no call.
 function types.dropFieldCleanup(field: string): types.Cleanup
-    return new types.Cleanup(id = "dropfield:" .. field, kind = "dropfield", field = field)
+    return types.Cleanup(id = "dropfield:" .. field, kind = "dropfield", field = field)
 end
 
 --- Ownership qualifiers exist only in the static model. Both erase to the wrapped
@@ -1864,15 +1859,15 @@ local function obligationId(obligation: types.Obligation?): string
 end
 
 function types.cleanupObligation(cleanup: types.Cleanup, component: string?): types.Obligation
-    return new types.Obligation(kind = "cleanup", cleanup = cleanup, component = component)
+    return types.Obligation(kind = "cleanup", cleanup = cleanup, component = component)
 end
 
 function types.transferObligation(component: string?): types.Obligation
-    return new types.Obligation(kind = "transfer-only", component = component)
+    return types.Obligation(kind = "transfer-only", component = component)
 end
 
 function types.aggregateObligation(children: {types.Obligation}, component: string?): types.Obligation
-    return new types.Obligation(kind = "aggregate", children = children, component = component)
+    return types.Obligation(kind = "aggregate", children = children, component = component)
 end
 
 local function obligationFrom(cleanups: {types.Cleanup}, transferOnly: boolean?): types.Obligation
@@ -1919,7 +1914,7 @@ function types.affine(
 
     return intern(
         internKey,
-        new types.Affine(
+        types.Affine(
             tag = "affine",
             inner = t,
             cleanups = list,
@@ -1998,7 +1993,7 @@ function types.borrowed(t: types.Type): types.Type
         return existing
     end
 
-    return intern(internKey, new types.Borrowed(tag = "borrowed", inner = t))
+    return intern(internKey, types.Borrowed(tag = "borrowed", inner = t))
 end
 
 -- A pinned pointer is paired with a strong Lua anchor at runtime. It may be handed to C
@@ -2012,7 +2007,7 @@ function types.pinned(t: types.Type): types.Type
         return existing
     end
 
-    return intern(internKey, new types.Pinned(tag = "pinned", inner = t))
+    return intern(internKey, types.Pinned(tag = "pinned", inner = t))
 end
 
 --- The value type inside an ownership qualifier, or `t` itself.
@@ -2129,12 +2124,12 @@ function types.capability(t: types.Type, facts: types.CapabilityFacts?): types.C
         local id = "none:loans=:anchors=:retentions="
         local found = capabilityArena[id]
         if not found then
-            found = new types.Capability(id = id, loans = {}, anchors = {}, retentions = {})
+            found = types.Capability(id = id, loans = {}, anchors = {}, retentions = {})
             capabilityArena[id] = found
         end
         return found
     end
-    facts = facts or new types.CapabilityFacts()
+    facts = facts or types.CapabilityFacts()
     local obligation = types.obligationFor(t)
     local loans: {types.Loan} = {}
     for _, loan in ipairs(facts.loans or {}) do
@@ -2144,7 +2139,7 @@ function types.capability(t: types.Type, facts: types.CapabilityFacts?): types.C
     if t.tag == "borrowed" or #roots > 0 or facts.regionRoot then
         loans[
             #loans + 1
-        ] = new types.Loan(
+        ] = types.Loan(
             roots = roots,
             access = facts.exclusive and "exclusive" or "shared",
             regionRoot = facts.regionRoot or roots[1],
@@ -2159,7 +2154,7 @@ function types.capability(t: types.Type, facts: types.CapabilityFacts?): types.C
         anchors[#anchors + 1] = anchor
     end
     if t.tag == "pinned" and #anchors == 0 then
-        anchors[1] = new types.PinnedAnchor(root = facts.anchor or t, component = facts.component)
+        anchors[1] = types.PinnedAnchor(root = facts.anchor or t, component = facts.component)
     end
     insertById(anchors, anchorId)
 
@@ -2168,9 +2163,7 @@ function types.capability(t: types.Type, facts: types.CapabilityFacts?): types.C
         retentions[#retentions + 1] = retention
     end
     if facts.retention then
-        retentions[
-            #retentions + 1
-        ] = new types.ForeignRetention(identity = facts.retention, component = facts.component)
+        retentions[#retentions + 1] = types.ForeignRetention(identity = facts.retention, component = facts.component)
     end
     insertById(retentions, retentionId)
 
@@ -2194,7 +2187,7 @@ function types.capability(t: types.Type, facts: types.CapabilityFacts?): types.C
     if found then
         return found
     end
-    local made = new types.Capability(
+    local made = types.Capability(
         id = id,
         obligation = obligation,
         loans = loans,
@@ -2308,7 +2301,7 @@ function types.capabilityTransferOnly(capability: types.Capability): boolean
 end
 
 function types.valueSlot(t: types.Type, facts: types.CapabilityFacts?): types.ValueSlot
-    return new types.ValueSlot(payload = types.unwrapOwnership(t), capability = types.capability(t, facts))
+    return types.ValueSlot(payload = types.unwrapOwnership(t), capability = types.capability(t, facts))
 end
 
 -- Region paths are stable length-prefixed segments. Their representation is compact
@@ -2635,7 +2628,7 @@ function types.pack(head: {types.Type}?, tail: types.PackTail?, modes: {string}?
             copiedNames[j] = names and names[j] or ""
         end
     end
-    local made = new types.Pack(tag = "pack", head = copied, modes = ms, tail = tail)
+    local made = types.Pack(tag = "pack", head = copied, modes = ms, tail = tail)
     if named then
         made.names = copiedNames
     end
@@ -2651,7 +2644,7 @@ function types.packvar(name: string, identity: string?): types.PackVar
     if found then
         return found
     end
-    local made = new types.PackVar(tag = "packvar", name = name, identity = identity)
+    local made = types.PackVar(tag = "packvar", name = name, identity = identity)
     made.id = "!p" .. serial("pv")
     packVarArena[key] = made
 
@@ -2673,7 +2666,7 @@ function types.constLiteral(domain: string, value: string | boolean | integer): 
     if found then
         return found as types.ConstLiteral
     end
-    local made = new types.ConstLiteral(tag = "constLiteral", domain = domain, value = value)
+    local made = types.ConstLiteral(tag = "constLiteral", domain = domain, value = value)
     made.id = serial("c")
     constArena[key] = made
 
@@ -2686,7 +2679,7 @@ function types.constvar(name: string, domain: string, identity: string?): types.
     if found then
         return found as types.ConstVar
     end
-    local made = new types.ConstVar(tag = "constVar", name = name, domain = domain, identity = identity)
+    local made = types.ConstVar(tag = "constVar", name = name, domain = domain, identity = identity)
     made.id = "!c" .. serial("c")
     constArena[key] = made
 
@@ -2703,7 +2696,7 @@ function types.constOp(operation: string, operands: {types.ConstTerm}): types.Co
     if found then
         return found as types.ConstOp
     end
-    local made = new types.ConstOp(tag = "constOp", operation = operation, operands = operands)
+    local made = types.ConstOp(tag = "constOp", operation = operation, operands = operands)
     made.id = inheritedMarks(key) .. serial("c")
     constArena[key] = made
 
@@ -2807,7 +2800,7 @@ function types.packUnion(alternatives: {types.Pack}): types.Pack
     if found then
         return found
     end
-    local made = new types.Pack(tag = "pack", head = {}, modes = {}, alternatives = flat)
+    local made = types.Pack(tag = "pack", head = {}, modes = {}, alternatives = flat)
     made.id = key
     packArena[key] = made
 
@@ -2847,7 +2840,7 @@ function types.protocolThread(
 
     return intern(
         key,
-        new types.ProtocolThread(
+        types.ProtocolThread(
             tag = "protocolThread",
             startPack = startPack,
             resumePack = resumePack,
@@ -2894,7 +2887,7 @@ function types.genericAlias(
 
     return intern(
         key,
-        new types.GenericAlias(
+        types.GenericAlias(
             tag = "genericAlias",
             name = name,
             body = body,
@@ -3161,7 +3154,7 @@ function types.func(
 
     return intern(
         key,
-        new types.Func(
+        types.Func(
             tag = "func",
             params = params,
             rets = rets,
@@ -3399,7 +3392,7 @@ function types.literal(value: string | number | boolean, base: types.Type?): typ
         return existing
     end
 
-    return intern(internKey, new types.Literal(tag = "literal", constant = value, base = of))
+    return intern(internKey, types.Literal(tag = "literal", constant = value, base = of))
 end
 
 -- A base narrowed by a refinement. `key` is the predicate's canonical spelling, which
@@ -3420,7 +3413,7 @@ function types.constrained(base: types.Type, node: any, key: string, label: stri
 
     return intern(
         internKey,
-        new types.Constrained(tag = "constrained", base = base, predicate = node, constraintKey = key, label = label)
+        types.Constrained(tag = "constrained", base = base, predicate = node, constraintKey = key, label = label)
     )
 end
 
@@ -3459,7 +3452,7 @@ function types.carray(elem: types.Type, count: integer?, countTerm: types.ConstT
         return existing
     end
 
-    return intern(internKey, new types.CArray(tag = "carray", elem = elem, count = count, countTerm = term))
+    return intern(internKey, types.CArray(tag = "carray", elem = elem, count = count, countTerm = term))
 end
 
 -- A read-only view of T. Const is carried so an imported signature keeps what the
@@ -3475,7 +3468,7 @@ function types.constOf(t: types.Type): types.Type
         return existing
     end
 
-    return intern(internKey, new types.Const(tag = "const", inner = t))
+    return intern(internKey, types.Const(tag = "const", inner = t))
 end
 
 -- The runtime ctype object standing for T, as ffi.typeof returns.
@@ -3487,7 +3480,7 @@ function types.ctype(t: types.Type): types.Type
         return existing
     end
 
-    return intern(internKey, new types.CType(tag = "ctype", of = t))
+    return intern(internKey, types.CType(tag = "ctype", of = t))
 end
 
 -- Generic type parameters. A declaration-derived identity keeps shadowed T binders
@@ -3503,7 +3496,7 @@ function types.typevar(name: string, identity: string?): types.Type
         return existing
     end
 
-    return intern(internKey, new types.TypeVar(tag = "typevar", name = name, identity = identity))
+    return intern(internKey, types.TypeVar(tag = "typevar", name = name, identity = identity))
 end
 
 function types.typeHandle(bound: types.Type): types.Type
@@ -3513,7 +3506,7 @@ function types.typeHandle(bound: types.Type): types.Type
         return existing
     end
 
-    return intern(key, new types.TypeHandle(tag = "typeHandle", bound = bound))
+    return intern(key, types.TypeHandle(tag = "typeHandle", bound = bound))
 end
 
 function types.packResult(pack: types.Pack): types.Type
@@ -3523,7 +3516,7 @@ function types.packResult(pack: types.Pack): types.Type
         return existing
     end
 
-    return intern(key, new types.PackResult(tag = "packResult", pack = pack))
+    return intern(key, types.PackResult(tag = "packResult", pack = pack))
 end
 
 --- Interns a blocked type-level operation.  The reducer decides whether a
@@ -3574,7 +3567,7 @@ function types.neutral(
 
     return intern(
         id,
-        new types.Neutral(
+        types.Neutral(
             tag = "neutral",
             op = op,
             capability = capability,
@@ -3623,7 +3616,7 @@ function types.comptimeCall(
 
     return intern(
         id,
-        new types.Neutral(
+        types.Neutral(
             tag = "neutral",
             op = "comptimeCall",
             comptimeIdentity = identity,
@@ -3643,7 +3636,7 @@ function types.metatable(t: types.Type): types.Type
         return existing
     end
 
-    return intern(internKey, new types.Metatable(tag = "metatable", of = t))
+    return intern(internKey, types.Metatable(tag = "metatable", of = t))
 end
 
 --- The first-class declaration witness `Type<T>`.
@@ -3654,7 +3647,7 @@ function types.typeObject(t: types.Type): types.Type
         return existing
     end
 
-    return intern(internKey, new types.TypeObject(tag = "typeobject", of = t))
+    return intern(internKey, types.TypeObject(tag = "typeobject", of = t))
 end
 
 --- `of.name`, built and interned. It reduces nowhere: see `generics.normalize`.
@@ -3666,7 +3659,7 @@ function types.projection(of: types.Type, name: string): types.Type
         return existing
     end
 
-    return intern(internKey, new types.Projection(tag = "projection", of = of, name = name))
+    return intern(internKey, types.Projection(tag = "projection", of = of, name = name))
 end
 
 --- Whether `t` has a projection anywhere inside it. Read off the id's marks, as
@@ -3869,7 +3862,7 @@ function types.nominal(name: string, declKind: string, declarationKey: string?):
         end
     end
     nominalCounter = nominalCounter + 1
-    local t = new types.Nominal(
+    local t = types.Nominal(
         tag = "nominal",
         declKind = declKind,
         name = name,

@@ -231,7 +231,7 @@ end
 
 function M.unsignedBytePointerCastsAreIndexableUnderUnsafe()
     -- "unsigned char *" and "uint8_t *" name the bytes of a value, not text
-    local V = P .. "\nlocal ffi = require('ffi')\nlocal v = new P(1.0, 2.0)\n"
+    local V = P .. "\nlocal ffi = require('ffi')\nlocal v = P(1.0, 2.0)\n"
     testAssert.eq(
         diagsOf(
             V .. table.concat(

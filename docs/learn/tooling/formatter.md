@@ -57,7 +57,7 @@ local function count(values: binary.span.Span<uint8>): integer
     return #values
 end
 
-return io.files.exists("notes.txt"), count
+return io.http.file("notes.txt"), count
 ```
 
 ```nupp [Formatted]
@@ -65,7 +65,7 @@ local function count(values: binary.span.Span<uint8>): integer
     return #values
 end
 
-return io.files.exists("notes.txt"), count
+return io.http.file("notes.txt"), count
 ```
 :::
 

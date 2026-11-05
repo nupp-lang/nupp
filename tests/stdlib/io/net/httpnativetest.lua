@@ -17,7 +17,7 @@ local function startProcess(command, options)
 end
 
 local function newHttpClient(options)
-    return http.newclient(options)
+    return http.Client.create(options)
 end
 
 local function temporaryRoot()
@@ -61,7 +61,7 @@ function M.beforeAll()
     process = require("io")
     http = require("io.http")
     buffers = require("io")
-    files = require("io.files")
+    files = require("io.internal.files")
     port, unavailable = startServer()
 end
 
@@ -90,7 +90,7 @@ local function endpoint(path)
 end
 
 local function readAll(body, chunkSize)
-    local destination = buffers.newbuffer()
+    local destination = buffers.Buffer.create()
     while true do
         local count, reason = body:readinto(destination, destination:len(), chunkSize)
         assert(count, reason)
@@ -128,7 +128,7 @@ end
 function M.buffersViewsAndFilesKeepTheirConcreteUploadPaths()
     local client = ready()
     local payload = string.rep("concrete-", 8192)
-    local buffer = buffers.newbuffer(payload)
+    local buffer = buffers.Buffer.create(payload)
     for _, body in ipairs({buffer, buffer:view(0, buffer:len())}) do
         local response, reason = client:send({url = endpoint("/echo"), method = "POST", body = body,})
         assert(response, reason)
@@ -322,7 +322,7 @@ end
 function M.genericReadersAndLargeDownloadsStayProgressive()
     local client = ready()
     local payload = string.rep("reader-", 8192)
-    local reader = buffers.newreader(payload)
+    local reader = buffers.Reader.of(payload)
     local response, reason = client:send({
         url = endpoint("/echo"),
         method = "POST",
@@ -341,7 +341,7 @@ function M.genericReadersAndLargeDownloadsStayProgressive()
     test.eq(#repeated, 2)
     test.eq(repeated[1], "one")
     test.eq(repeated[2], "two")
-    local downloaded = buffers.newbuffer(4 * 1024 * 1024)
+    local downloaded = buffers.Buffer.create(4 * 1024 * 1024)
     local writer = downloaded:writer()
     local copied, copyReason = response.body:transferto(writer)
     assert(copied, copyReason)
@@ -427,22 +427,8 @@ end
 -- peer never answers, so nothing but the declaration can stop the excess.
 function M.aReaderBodyLongerThanItsDeclarationFails()
     local client = ready()
-    local declared, calls = 4096, 0
-    local reader = {
-        read = function(_self, count)
-            calls = calls + 1
-            if calls == 1 then
-                return string.rep("a", declared)
-            elseif calls == 2 then
-                return "EXTRA"
-            end
-
-            return ""
-        end,
-        close = function()
-            return true
-        end,
-    }
+    local declared = 4096
+    local reader = buffers.Reader.of(string.rep("a", declared) .. "EXTRA")
     local response, reason = client:send({
         url = endpoint("/slow-upload"),
         method = "POST",

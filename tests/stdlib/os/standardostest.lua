@@ -2,6 +2,38 @@ local test = require("assert")
 local providerstate = require("helpers.providerstate")
 local M = {}
 
+function M.fileOperationsRemainUsableWithoutAClockProvider()
+    local removed, renamed
+    local host = {
+        remove = function(path)
+            removed = path
+            return true
+        end,
+        rename = function(from, to)
+            renamed = {from, to}
+            return true
+        end,
+    }
+    local load = providerstate.instance(
+        {["nupp.runtime.standardos"] = true},
+        {["nupp.runtime.timeprovider"] = {}, ["nupp.runtime.system"] = {}, ["nupp.runtime.entropy"] = {},},
+        {
+            ["nupp.runtime.clocks"] = function()
+                error("nupp.time: no clock provider is available")
+            end,
+        },
+        {os = host}
+    )
+    local surface = load("nupp.runtime.standardos")
+    test.eq(surface.value, host)
+    test.eq(host.remove("temporary"), true)
+    test.eq(host.rename("before", "after"), true)
+    test.eq(removed, "temporary")
+    test.deepeq(renamed, {"before", "after"})
+    test.raises(host.monotonic, "no clock provider is available")
+    test.raises(host.walltime, "no clock provider is available")
+end
+
 function M.preservesTheHostTableAndQueriesParallelismPerCall()
     local count, queries = 2, 0
     local uuidLoads, calls4, calls7 = 0, 0, 0
@@ -40,7 +72,7 @@ function M.preservesTheHostTableAndQueriesParallelismPerCall()
                     return count
                 end,
             },
-            ["nupp.runtime.clocks"] = {selected = {now = monotonic, walltime = walltime}},
+            ["nupp.runtime.timeprovider"] = {provider = {now = monotonic, walltime = walltime}},
             ["nupp.runtime.entropy"] = {randombytes = randombytes},
         },
         {
@@ -82,7 +114,7 @@ function M.preservesTheHostTableAndQueriesParallelismPerCall()
     test.eq(surface.randombytes, randombytes)
     test.eq(original.randombytes, randombytes)
     test.eq(original.randombytes(3), "rrr")
-    test.eq(require("math.random").randombytes, nil)
+    test.eq(require("nupp.runtime.standardmath").value.randombytes, nil)
     test.eq(original.clock(), 9)
 end
 
@@ -133,7 +165,7 @@ local function fileSurface(host, provider, browser)
         {["nupp.runtime.standardos"] = true},
         {
             ["nupp.runtime.system"] = {},
-            ["nupp.runtime.clocks"] = {selected = {}},
+            ["nupp.runtime.timeprovider"] = {},
             ["nupp.runtime.entropy"] = {},
             ["nupp.runtime.bindings.files"] = provider,
         },
@@ -226,8 +258,8 @@ function M.fileMutationsAcceptPathTypesAndRetainTheirRuntimeFeatures()
     local checker = require("helpers.fragment")
     local root = require("helpers.paths").tests .. "/.."
     for _, source in ipairs({
-        'local path: io.Path = io.newpath("tree")\nreturn os.remove(path, true)',
-        'local from: io.files.AppPath = assert(io.files.datapath())\nreturn os.rename(from, from:join("new"))',
+        'local path: io.Path = io.Path.of("tree")\nreturn os.remove(path, true)',
+        'local from: os.AppPath = assert(os.appdir("data"))\nreturn os.rename(from, from:join("new"))',
     }) do
         local parsed = parser.parse(source, "file-mutations.nupp")
         test.eq(#parsed.errors, 0)
@@ -261,6 +293,51 @@ function M.temporaryNamesReportDeprecation()
     local parsed = parser.parse(source, "shadowed-temporary-name.nupp")
     local env = require("nupp.compiler.project.env").new(root, {cache = false})
     test.eq(#checker.check(parsed, "shadowed-temporary-name.nupp", env), 0)
+end
+
+function M.filesystemFunctionsTypeAsTheirTuplesAndIterators()
+    local parser = require("nupp.compiler.syntax.parser")
+    local checker = require("helpers.fragment")
+    local gen = require("nupp.compiler.lua.gen")
+    local root = require("helpers.paths").tests .. "/.."
+    local accepted = {
+        'local kind, size, modified, readonly, err = os.stat("a")\n'
+            .. "if kind ~= nil then\n"
+            .. "    local k: os.FileKind = kind\n"
+            .. "    print(k, size, modified, readonly)\n"
+            .. "else\n"
+            .. "    local e: io.Error? = err\n"
+            .. "    print(e)\n"
+            .. "end",
+        'for name, kind in os.list("src") do\n    local n: string = name\n    local k: os.FileKind = kind\n    print(n, k)\nend',
+        'local present: boolean?, err: io.Error? = os.exists("a")\nprint(present, err)',
+        'local matches: {io.Path}? = os.glob("src/*.nupp")\nprint(matches)',
+        'os.setappid("example", "notes")\nlocal data: os.AppPath? = os.appdir("data")\nprint(data)',
+        'local caps: os.FsCaps = os.fscaps()\nlocal glob: boolean = caps.glob\nprint(glob)',
+        'local scratch = assert(os.mktemp(nil, ".json"))\nprint(scratch:tostring())\nscratch:close()',
+    }
+    for _, source in ipairs(accepted) do
+        local parsed = parser.parse(source, "filesystem-surface.nupp")
+        test.eq(#parsed.errors, 0, source)
+        local env = require("nupp.compiler.project.env").new(root, {cache = false})
+        local diagnostics = checker.check(parsed, "filesystem-surface.nupp", env)
+        test.eq(#diagnostics, 0, (diagnostics[1] and diagnostics[1].msg or "") .. "\n" .. source)
+        local _, errors, _, emitted = gen.generate(parsed, "filesystem-surface.nupp")
+        test.eq(#errors, 0)
+        assert(emitted["runtime.files"], "a filesystem call must package its provider: " .. source)
+    end
+    for _, source in ipairs({
+        "os.fscaps().glob = false",
+        'os.appdir("documents")',
+        'local present: boolean = os.exists("a")',
+        'local info = io.files.info("a")',
+        'print(os.userdir, os.setreadonly)',
+    }) do
+        local parsed = parser.parse(source, "filesystem-refused.nupp")
+        local env = require("nupp.compiler.project.env").new(root, {cache = false})
+        local diagnostics = checker.check(parsed, "filesystem-refused.nupp", env)
+        assert(#diagnostics > 0, "the checker accepted: " .. source)
+    end
 end
 
 return M

@@ -72,7 +72,7 @@ function M.httpResponseBodiesRetainOwnedIoSignatures()
 local contracts = require("io.http")
 local io = require("io")
 local function copy(borrows response: contracts.Response): nil
-local destination = io.newbuffer()
+local destination = io.Buffer.create()
 response.body:readinto(destination, 0, 8)
 local lease = destination:reservewrite(0, 8)
 local output = lease:span()
@@ -83,6 +83,30 @@ local writer = destination:writer()
 response.body:transferto(writer)
 writer:close()
 end
+return true
+]]
+    )
+    assert(found == "", found)
+end
+
+function M.httpUploadsUseTheSharedOwnedReaderContract()
+    local found = errors(
+        [[
+local http = require("io.http")
+local io = require("io")
+local function inspectReader(borrows reader: io.Reader): nil
+    local buffer = io.Buffer.create()
+    reader:readinto(buffer, 0, 8)
+end
+local function inspect(borrows body: http.ReaderBody): nil
+    inspectReader(body.reader)
+end
+local function upload(takes source: io.Reader): http.ReaderBody
+    return http.reader(source, nil, nil)
+end
+local body = upload(io.Reader.of("payload"))
+inspect(body)
+body:close()
 return true
 ]]
     )
@@ -299,9 +323,9 @@ record m.Owner
     range: function(borrows self: m.Owner): m.Range borrows (self)
 end
 local function range(borrows self: m.Owner): m.Range borrows (self)
-    return new m.Range(anchor = self, count = 1)
+    return m.Range(anchor = self, count = 1)
 end
-return new m.Owner(range = range)
+return m.Owner(range = range)
 ]]
     )
     assert(accepted == "", accepted)
@@ -350,10 +374,10 @@ function M.applicationImportsCannotReachBuiltinImplementationContracts()
         "binary.checksum.internal.contracts",
         "binary.digest.internal.contracts",
         "binary.mac.internal.contracts",
-        "binary.compress.internal.contracts",
+        "nupp.compression.contracts",
         "serde.json.internal.contracts",
         "io.internal.contracts",
-        "io.files.internal.contracts",
+        "io.internal.files.contracts",
         "io.net.internal.contracts",
         "nupp.io.net.contracts",
         "nupp.io.http.contracts",

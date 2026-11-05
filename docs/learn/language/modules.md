@@ -23,7 +23,7 @@ end
 export const originName: string = "origin"
 
 export function origin(): Point
-    return new Point(x = 0, y = 0)
+    return Point(x = 0, y = 0)
 end
 ```
 
@@ -122,7 +122,7 @@ module app.main
 const shapes = require("geom.shapes")
 
 export function makePoint(): shapes.Point
-    return new shapes.Point(x = 1, y = 2)
+    return shapes.Point(x = 1, y = 2)
 end
 ```
 
@@ -312,7 +312,7 @@ record shapes.Point
 end
 
 function shapes.origin(): shapes.Point
-    return new shapes.Point(x = 0, y = 0)
+    return shapes.Point(x = 0, y = 0)
 end
 
 return shapes
@@ -336,7 +336,7 @@ record shapes.Point
 end
 
 function shapes.origin(): shapes.Point
-    return new shapes.Point(x = 0, y = 0)
+    return shapes.Point(x = 0, y = 0)
 end
 
 export = shapes

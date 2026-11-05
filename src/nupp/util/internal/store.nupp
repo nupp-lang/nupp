@@ -37,6 +37,25 @@ end
 --- silent widening.
 --- @export
 export record Key<T>
+    constructor(self, name: string?)
+        if name ~= nil then
+            if name == "" then
+                error("nupp: a key name must not be empty", 2)
+            elseif named[name] ~= nil then
+                error("nupp: key " .. name .. " is already registered", 2)
+            end
+        end
+        self.id = nextId
+        self.name = name
+        self._valueType = nil
+        self._inferredType = nil as T
+        nextId = nextId + 1
+        if name ~= nil then
+            named[name] = self
+            names[self.id] = name
+        end
+    end
+
     --- The step of [](types.Key.registered).
     ---
     --- Terminating on nil is the generic for's business, so the surface type
@@ -82,26 +101,19 @@ end
 --- @raises string when the name is empty or already registered, before an id is used
 --- @export
 export function newKey<T>(name: string?): Key<T>
-    if name ~= nil then
-        if name == "" then
-            error("nupp: a key name must not be empty", 2)
-        elseif named[name] ~= nil then
-            error("nupp: key " .. name .. " is already registered", 2)
-        end
-    end
-    local key: Key<T> = new Key(id = nextId, name = name, _valueType = nil, _inferredType = nil as T)
-    nextId = nextId + 1
-    if name ~= nil then
-        named[name] = key
-        names[key.id] = name
-    end
-
-    return key
+    return Key<T>(name)
 end
 
 --- An independent typed bag indexed by keys.
 --- @export
+local createStore: function(): Store
+
 export interface Store
+    --- Creates an empty typed store.
+    function create(): Store
+        return createStore()
+    end
+
     --- The step of [](types.Store.entries).
     ---
     --- Terminating on nil is the generic for's business, so the surface type
@@ -136,7 +148,11 @@ end
 --- @return the store
 --- @export
 export function newStore(): Store
-    return new Bag(values = {})
+    return createStore()
+end
+
+createStore = function(): Store
+    return Bag(values = {})
 end
 
 function Bag.get<T>(self, key: Key<T>): T?

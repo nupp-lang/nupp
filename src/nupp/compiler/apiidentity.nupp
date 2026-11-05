@@ -21,7 +21,9 @@ local PRIVATE_MODULES = {
     "nupp.gpu.types",
     "nupp.gpu.operations",
     "nupp.gpu.internal",
-    "nupp.gpu.layoutfacts"
+    "nupp.gpu.layoutfacts",
+    "nupp.gpu.layout",
+    "nupp.gpu.limits"
 }
 
 function apiidentity.canonical(path: string): string

@@ -6,11 +6,10 @@ local provider = require("nupp.io.uri.provider")
 
 export type URI = uriTypes.URI
 export const URI = uriTypes.URI
-export const isuri = uriTypes.isuri
 
 local function fromComponents(components: any): (string?, string?)
     if type(components) ~= "table" then
-        return nil, "nupp: io.newuri needs absolute text or URI components"
+        return nil, "nupp: io.URI.of needs absolute text or URI components"
     end
     local scheme = components.scheme
     if type(scheme) ~= "string" or not (scheme as string):match("^[A-Za-z][A-Za-z0-9+.-]*$") then

@@ -9,7 +9,7 @@ their reason.
 ]]
 module nupp.runtime.provider.nativecompression
 
-const contract = require("binary.compress.internal.contracts")
+const contract = require("nupp.compression.contracts")
 const host = require("nupp.vm.compression")
 const span = require("nupp.mem.span")
 
@@ -97,7 +97,7 @@ local record Format is contract.Format
             error("nupp: " .. (problem or "could not create a compression encoder"), 2)
         end
 
-        return new Encoder(handle = handle)
+        return Encoder(handle = handle)
     end
 
     function createdecoder(self, options: contract.FormatOptions?): contract.Decoder
@@ -107,16 +107,16 @@ local record Format is contract.Format
             error("nupp: " .. (problem or "could not create a compression decoder"), 2)
         end
 
-        return new Decoder(handle = handle)
+        return Decoder(handle = handle)
     end
 end
 
 local formats: {
     [string]: contract.Format
 } = {
-    gzip = new Format(name = "gzip", id = 1),
-    zlib = new Format(name = "zlib", id = 2),
-    ["deflate-raw"] = new Format(name = "deflate-raw", id = 3),
+    gzip = Format(name = "gzip", id = 1),
+    zlib = Format(name = "zlib", id = 2),
+    ["deflate-raw"] = Format(name = "deflate-raw", id = 3),
 }
 
 local provider: contract.Provider = {formats = formats}

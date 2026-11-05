@@ -23,9 +23,9 @@ const terminal = require("io.cli")
 local json = require("serde.json")
 
 local buildProcess = require("nupp.compiler.process")
-local files = require("io.files")
+local files = require("io.internal.files")
 local process = require("nupp.runtime.standardio")
-local random = math.random
+local random = require("math.internal.random")
 local statistics = require("nupp.bench.internal.statistics")
 local system = os.info()
 
@@ -33,7 +33,7 @@ local type Bench = {
     schema: integer,
     compare: function(any, any): ({string}, {string}),
     compilerchange: function(any, any): string?,
-    decodebaseline: function(string, string, integer?): (any, string?),
+    decode: function(string, string, integer?): (any, string?),
     format: function(any, any?): string
 }
 local bench = require("debug.bench") as Bench
@@ -964,7 +964,7 @@ export function mergeForks(name: string, path: string, forks: {any}): (any, {str
                 #notes + 1
             ] = (
                 "%s: scattered: only %.0f%% of samples lie within %.0f%% of the median, "
-                .. "so the score describes no rate this benchmark ran at; raise sampleiterations "
+                .. "so the score describes no rate this benchmark ran at; raise batch "
                 .. "until one sample spans whole collector cycles"
             ):format(name, typical * 100.0, statistics.CONCENTRATION_TOLERANCE * 100.0)
         end
@@ -1141,7 +1141,7 @@ local function machineKey(): string?
             return trimmed
         end
     end
-    local generator = new random.Xoshiro128(
+    local generator = random.Xoshiro128(
         assert2(math.tointeger(math.floor(os.time() * 1000 + os.clock() * 1000000)))
     )
     local letters = "0123456789abcdef"
@@ -1489,7 +1489,7 @@ export function run(options: Options): integer
     if baselinePath then
         local text = readFile(baselinePath)
         if text then
-            local document, refused = bench.decodebaseline(text, baselinePath, OLDEST_BASELINE_SCHEMA)
+            local document, refused = bench.decode(text, baselinePath, OLDEST_BASELINE_SCHEMA)
             -- Accepting replaces the file, so one this version cannot read is only
             -- replaced; otherwise it is an error rather than a missing baseline.
             if refused then
@@ -1532,7 +1532,7 @@ export function run(options: Options): integer
         executionFailures
     )
     local seed = options.seed or assert2(math.tointeger(math.floor(os.time() * 1000 + os.clock() * 1000) % 0x7FFFFFFF))
-    local shuffler = new random.Xoshiro128(seed)
+    local shuffler = random.Xoshiro128(seed)
 
     -- Rounds outside, benchmarks inside. Running every fork of one benchmark back to
     -- back would give that benchmark one contiguous slice of the machine's thermal and
@@ -1913,7 +1913,7 @@ export function run(options: Options): integer
         for _, entry in ipairs(merged) do
             cases[#cases + 1] = entry.summary
         end
-        io.stdout:write(format({cases = cases,}, {geometricmean = options.geo == true, forks = forks,}))
+        io.stdout:write(format({cases = cases,}, {geomean = options.geo == true, forks = forks,}))
         for _, comparison in ipairs(document.comparisons) do
             if #comparison.verdicts > 0 then
                 io.stdout:write(

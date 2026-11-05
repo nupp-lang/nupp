@@ -68,14 +68,14 @@ end
 local SOURCES: {
     Source
 } = {
-    new Source(file = "/decls/lua.d.nupp"),
-    new Source(file = "/decls/prelude.d.nupp"),
-    new Source(file = "/decls/ffi.d.nupp", required = "ffi"),
-    new Source(file = "/decls/stringbuffer.d.nupp", required = "string.buffer"),
-    new Source(file = "/decls/jit/util.d.nupp", required = "jit.util"),
-    new Source(file = "/decls/jit/profile.d.nupp", required = "jit.profile"),
-    new Source(file = "/decls/jit/zone.d.nupp", required = "jit.zone"),
-    new Source(file = "/decls/jit/vmdef.d.nupp", required = "jit.vmdef"),
+    Source(file = "/decls/lua.d.nupp"),
+    Source(file = "/decls/prelude.d.nupp"),
+    Source(file = "/decls/ffi.d.nupp", required = "ffi"),
+    Source(file = "/decls/stringbuffer.d.nupp", required = "string.buffer"),
+    Source(file = "/decls/jit/util.d.nupp", required = "jit.util"),
+    Source(file = "/decls/jit/profile.d.nupp", required = "jit.profile"),
+    Source(file = "/decls/jit/zone.d.nupp", required = "jit.zone"),
+    Source(file = "/decls/jit/vmdef.d.nupp", required = "jit.vmdef"),
 }
 
 -- Lua standard-library names from the Lua 5.1 through 5.5 manual indexes.
@@ -346,14 +346,14 @@ local function navigationItems(items: {any}): {Entry}
     for _, item in ipairs(items) do
         entries[
             #entries + 1
-        ] = new Entry(name = item.name, path = item.path, items = navigationItems(item.members or {}), kind = item.kind)
+        ] = Entry(name = item.name, path = item.path, items = navigationItems(item.members or {}), kind = item.kind)
     end
 
     return entries
 end
 
 local function libraryEntry(module: extractMod.Module): Entry
-    return new Entry(
+    return Entry(
         name = module.name,
         path = stringsMod.headingId(module.name),
         items = navigationItems(module.items),

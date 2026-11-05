@@ -41,7 +41,7 @@ const thumbnail = scope:work(bytes, jobs.thumbnail)    -- on a worker lane
 A module function with arguments builds nothing per call, which is what a loop
 that spawns many children wants. A bare body is the zero-argument case.
 Arguments to `spawn` are plain values: an owner or a borrow cannot be tracked
-through the table the child unpacks them from. Arguments to `fork` are copied
+through the table the child unpacks them from. Arguments to `work` are copied
 into a worker's own VM, and the callable must be sendable, a module function or a
 literal whose effectively-final captures can be copied. The selected worker
 provider says which values may cross: the native provider moves an engine-backed

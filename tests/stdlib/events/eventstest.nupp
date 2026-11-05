@@ -1,6 +1,7 @@
 -- events: addressed synchronous delivery over pooled and arena-backed storage.
 local events = require("events")
-const {type Pool, newpool as newPool} = require("table")
+local {type Pool} = require("table")
+const Pool = table.Pool
 local test = require("assert")
 
 local M = {}
@@ -77,7 +78,7 @@ local record Counting is events.Allocator<Damage>
 end
 
 local function newCounting(): Counting
-    return new Counting(inner = newPool(Damage, 8), acquires = 0, releases = 0, live = 0)
+    return Counting(inner = Pool(Damage, 8), acquires = 0, releases = 0, live = 0)
 end
 
 --- An arena-backed allocator that records what a row held when it was leased.
@@ -104,7 +105,7 @@ local record Rows is events.Allocator<Contact>
 end
 
 local function newBus(): Bus
-    return events.newbus()
+    return events.MessageBus<integer>()
 end
 
 -- Bytes allocated while `body` ran, with the collector stopped: the count
@@ -198,7 +199,7 @@ function M.canonicalNamesDoNotRetainPublicAliases(): nil
 end
 
 function M.canonicalModuleFunctionsDispatchThroughACustomSource(): nil
-    local source = new CustomSource(observers = events.newobservers(), label = "world")
+    local source = CustomSource(observers = events.Observers<integer>(), label = "world")
     local total = 0
     events.once<integer, CustomSource, Damage>(
         source,
@@ -346,7 +347,7 @@ function M.deliverHandsTheCallersInstanceToEveryObserverWithoutLeasing(): nil
     local bus = newBus()
     local counting = newCounting()
     bus:setallocator(Damage, counting)
-    local held = new Damage(amount = 99, source = 4)
+    local held = Damage(amount = 99, source = 4)
     local identical = 0
     local amounts: {number} = {}
     bus:observe(7, Damage, |event| -> do
@@ -993,7 +994,7 @@ end
 
 function M.structRowsReadAsZeroWhenLeasedAndAreDeliveredAsStructReferences(): nil
     local bus = newBus()
-    local rows = new Rows(inner = newPool(Contact, 4), acquires = 0, seenA = {}, seenB = {}, seenImpulse = {})
+    local rows = Rows(inner = Pool(Contact, 4), acquires = 0, seenA = {}, seenB = {}, seenImpulse = {})
     bus:setallocator(Contact, rows)
     local seen: {string} = {}
     bus:observe(0, Contact, |event| -> do
@@ -1065,7 +1066,7 @@ function M.anExplicitAllocatorSeesOneAcquireAndOneReleasePerEmitAndNoneForDelive
     test.eq(counting.live, 0)
 
     test(bus:stop(7, Damage, "emitted"))
-    local held = new Damage(amount = 1, source = 1)
+    local held = Damage(amount = 1, source = 1)
     bus:observe(7, Damage, |event| -> do
         runs = runs + 1
         test.eq(counting.live, 0, "deliver holds no lease")

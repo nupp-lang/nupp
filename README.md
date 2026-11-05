@@ -13,10 +13,10 @@ local record Point
 end
 
 local function scale(point: Point, factor: number): Point
-    return new Point(x = point.x * factor, y = point.y * factor)
+    return Point(x = point.x * factor, y = point.y * factor)
 end
 
-print(scale(new Point(x = 3, y = 4), 2).x)
+print(scale(Point(x = 3, y = 4), 2).x)
 ```
 
 ## Install

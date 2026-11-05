@@ -36,6 +36,11 @@ end
 
 local suite = {}
 
+function suite.legacyKeywordIsAnUnboundIdentifier()
+    local _, errors = compile("local record Point end\nlocal value = new Point()\nreturn value")
+    assert(table.concat(errors, "\n"):find('unknown variable "new"', 1, true))
+end
+
 function suite.defaultConstructionAndAliases()
     local Point, direct, alias, chained = run(
         [[
@@ -380,6 +385,21 @@ local function invoke(value: Callable): string return value() end
 ]]
     )
     assert(#valid == 0, table.concat(valid, "\n"))
+end
+
+function suite.ownedDeclarationsKeepTheirWitnessThroughAnnotations()
+    local result = run(
+        [[
+local record Owner is own.Closeable
+    value: integer
+    function close(takes self): nil end
+end
+local factory: Type<Owner> = Owner
+local value = factory(value = 9)
+return value.value
+]]
+    )
+    assert(result == 9)
 end
 
 return suite

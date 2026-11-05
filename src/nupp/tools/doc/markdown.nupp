@@ -14,6 +14,7 @@ local stringsMod = require("nupp.tools.doc.strings")
 local extractMod = require("nupp.tools.doc.extract")
 local urlsMod = require("nupp.tools.doc.urls")
 local apiMod = require("nupp.tools.doc.api")
+local constructors = require("nupp.tools.doc.constructors")
 local parser = require("nupp.compiler.syntax.parser")
 local cst = require("nupp.compiler.syntax.cst")
 
@@ -36,6 +37,7 @@ local markdown = {}
 local anchors: Links? = nil
 local known: Links? = nil
 local typeModule: Module? = nil
+local constructionIndex = {}
 local typeOwner = ""
 local typeParameters: {[string]: boolean} = {}
 local primitiveTypes: {[string]: boolean} = {}
@@ -357,8 +359,9 @@ local function markdownMemberSummary(out, members, heading, title, path, superty
         title: string,
         entries: {OverviewMember}
     }} = {
-        {title = "Methods", entries = {}},
         {title = "Constructors", entries = {}},
+        {title = "Static methods", entries = {}},
+        {title = "Instance methods", entries = {}},
         {title = "Metamethods", entries = {}},
         {title = "Types", entries = {}},
         {title = "Fields", entries = {}},
@@ -366,15 +369,15 @@ local function markdownMemberSummary(out, members, heading, title, path, superty
     local seen = {}
     for index, member in ipairs(members) do
         local path = overloadAnchor(member.path, seen)
-        local group = groups[5]
+        local group = groups[6]
         if member.isType or member.isAlias then
-            group = groups[4]
+            group = groups[5]
         elseif member.isMetamethod then
-            group = groups[3]
+            group = groups[4]
         elseif member.name == "constructor" then
-            group = groups[2]
-        elseif member.isFunction then
             group = groups[1]
+        elseif member.isFunction then
+            group = groups[apiMod.isInstanceMethod(member) and 3 or 2]
         end
         group.entries[
             #group.entries + 1
@@ -428,20 +431,34 @@ local function renderMarkdownMembers(out, members, level)
             out[#out + 1] = ""
         end
         markdownAnnotations(out, member.annotations)
-        if member.text ~= "" then
-            out[#out + 1] = prose(member.text)
+        local text, examples = member.text, ""
+        local constructor = member.name == "constructor" and member.isFunction
+        if constructor then
+            text, examples = constructors.examples(text)
+        end
+        if text ~= "" then
+            out[#out + 1] = prose(text)
             out[#out + 1] = ""
         end
         if member.forms then
             markdownForms(out, member.forms, member.name, path, level + 1, member.lua)
         else
+            markdownTypeargs(out, member.typeargs or {}, hSub)
             markdownArguments(out, member.params, hSub)
             markdownReturns(out, member.returns, hSub)
             markdownRaises(out, member.raises, hSub)
         end
+        if constructor then
+            out[#out + 1] = hSub .. " Examples"
+            out[#out + 1] = ""
+            out[#out + 1] = examples ~= "" and prose(examples)
+                or constructors.example(member, typeModule or {name = ""})
+            out[#out + 1] = ""
+        end
         if member.isType then
-            markdownMemberSummary(out, member.members, hSub, nil, path, member.supertypes)
-            renderMarkdownMembers(out, member.members, level + 1)
+            local children = constructors.members(member, typeModule or {name = ""}, constructionIndex)
+            markdownMemberSummary(out, children, hSub, nil, path, member.supertypes)
+            renderMarkdownMembers(out, children, level + 1)
         end
         out[#out + 1] = ":::"
         out[#out + 1] = ""
@@ -486,15 +503,16 @@ local function renderMarkdownItem(out, item, level, bodyOnly, path)
         markdownReturns(out, item.returns, hSub)
         markdownRaises(out, item.raises, hSub)
     end
+    local members = constructors.members(item, typeModule or {name = item.module or ""}, constructionIndex)
     markdownMemberSummary(
         out,
-        item.members,
+        members,
         hSub,
         item.kind == "annotation" and "Values" or nil,
         path or item.path,
         item.supertypes
     )
-    renderMarkdownMembers(out, item.members, level + 1)
+    renderMarkdownMembers(out, members, level + 1)
     if not bodyOnly then
         out[#out + 1] = ":::"
         out[#out + 1] = ""
@@ -520,8 +538,11 @@ function markdown.items(
     legacy: boolean?,
     links: Links?
 ): string
-    local previous = anchors
+    local previous, previousIndex = anchors, constructionIndex
     anchors = links or anchors
+    if not typeModule then
+        constructionIndex = constructors.index({{name = "", items = items}})
+    end
     local out = {}
     local seen = seen or {}
     for _, item in ipairs(items) do
@@ -535,15 +556,19 @@ function markdown.items(
         renderMarkdownItem(out, item, level or 3, false, overloadAnchor(item.path, seen))
     end
 
-    anchors = previous
+    anchors, constructionIndex = previous, previousIndex
 
     return table.concat(out, "\n")
 end
 
 --- Renders a declaration for a reader which supplies its own section heading.
 function markdown.itemBody(item: Item): string
+    local previousIndex = constructionIndex
+    constructionIndex = constructors.index({{name = "", items = {item}}})
     local out = {}
     renderMarkdownItem(out, item, 3, true)
+    constructionIndex = previousIndex
+
     return table.concat(out, "\n")
 end
 
@@ -633,6 +658,7 @@ function markdown.render(
     siteLinks: Links?
 ): string
     local all = all or modules
+    constructionIndex = constructors.index(all)
     anchors = symbolLinkIndex(modules, function(module: string, path: string?): string
         if prefix then
             return prefix .. urlsMod.moduleFile(module) .. (path and "#" .. path or "")
@@ -698,6 +724,7 @@ function markdown.render(
         end
     end
     anchors, known, typeModule = nil, nil, nil
+    constructionIndex = {}
 
     return table.concat(out, "\n") .. "\n"
 end

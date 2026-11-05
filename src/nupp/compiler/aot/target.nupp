@@ -264,7 +264,7 @@ function target.select(triple: string?, tier: string?): (target.Target?, string?
         ):format(architecture, tostring(selected), table.concat(available, ", "))
     end
 
-    return new target.Target(triple = named as string, architecture = architecture, tier = selected as string), nil
+    return target.Target(triple = named as string, architecture = architecture, tier = selected as string), nil
 end
 
 --- The widest vector a target's frame can carry, keyed by operating system.

@@ -44,7 +44,7 @@ local record Adapter is core.Adapter<Resource, Member>
 
     function read(self, exclusive reader: core.Reader<Member>): Resource
         self.counts.created += 1
-        local result = new Resource(counts = self.counts, text = "")
+        local result = Resource(counts = self.counts, text = "")
         if self.consume then
             result.text = reader:readstring(self.description.member)
         end
@@ -72,23 +72,23 @@ local record Policy<M is core.Member> is plans.Policy<M>
 end
 local record Factory is plans.PolicyFactory
     function policy<M is core.Member>(self, member: M): plans.Policy<M>
-        return new Policy<M>()
+        return Policy<M>()
     end
 end
 
-local counts = new Counts()
-local member = new Member(name = "resource")
+local counts = Counts()
+local member = Member(name = "resource")
 
 local function binding(fail: boolean): core.Binding<Resource>
-    return new core.OwnedBound<Resource, Member>(
+    return core.OwnedBound<Resource, Member>(
         drop = function(takes value: Resource): nil
             value:close()
         end,
-        adapter = new Adapter(counts = counts, description = new Description(member = member), fail = fail)
+        adapter = Adapter(counts = counts, description = Description(member = member), fail = fail)
     )
 end
 
-local jsonCodec = codec.codec(new Factory())
+local jsonCodec = codec.codec(Factory())
 local accepted = binding(false)
 do
     local resource = jsonCodec:decode(accepted, '"kept"')
@@ -132,7 +132,7 @@ local record SkipField is core.UnknownConsumer<Resource>
         reader:skipvalue()
     end
 end
-local readField, skipField = new ReadField(), new SkipField()
+local readField, skipField = ReadField(), SkipField()
 local record Aggregate is core.Adapter<Resource, Member>
     @readonly counts: Counts
     @readonly description: Description
@@ -146,24 +146,24 @@ local record Aggregate is core.Adapter<Resource, Member>
 
     function read(self, exclusive reader: core.Reader<Member>): Resource
         self.counts.created += 1
-        local result = new Resource(counts = self.counts, text = "")
+        local result = Resource(counts = self.counts, text = "")
         reader:readstruct(self.description.member, result, readField, skipField)
         assert2(result.text ~= "", "required text")
 
         return result
     end
 end
-local textMember = new Member(name = "text", index = 1)
-local aggregate: core.Binding<Resource> = new core.OwnedBound<Resource, Member>(
+local textMember = Member(name = "text", index = 1)
+local aggregate: core.Binding<Resource> = core.OwnedBound<Resource, Member>(
     drop = function(takes value: Resource): nil
         value:close()
     end,
-    adapter = new Aggregate(
+    adapter = Aggregate(
         counts = counts,
-        description = new Description(
+        description = Description(
             member = member,
             kind = "structure",
-            children = {new Field(member = textMember, target = new Description(member = textMember))}
+            children = {Field(member = textMember, target = Description(member = textMember))}
         )
     )
 )
@@ -179,16 +179,11 @@ assert2(counts.created == 6 and counts.closed == 6)
 print("aggregate callbacks borrow owning construction state exclusively")
 
 local before = counts.closed
-local unconsumed: core.Binding<Resource> = new core.OwnedBound<Resource, Member>(
+local unconsumed: core.Binding<Resource> = core.OwnedBound<Resource, Member>(
     drop = function(takes value: Resource): nil
         value:close()
     end,
-    adapter = new Adapter(
-        counts = counts,
-        description = new Description(member = member),
-        fail = false,
-        consume = false
-    )
+    adapter = Adapter(counts = counts, description = Description(member = member), fail = false, consume = false)
 )
 assert2(not pcall(decodeAndClose, unconsumed, '"ignored"'))
 assert2(counts.closed == before + 1 and counts.closed == counts.created, "JSON publication leaked an owned result")

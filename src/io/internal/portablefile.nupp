@@ -2,9 +2,10 @@
 
 module io.internal.portablefile
 
-local bindings = require("nupp.runtime.bindings.files")
+const {type Provider} = require("io.internal.files.contracts")
+local bindings: Provider = require("nupp.runtime.bindings.files")
 local formats = require("io.internal.fileformat")
-local messages = require("io.files.messages")
+local messages = require("io.internal.files.messages")
 const {type Reader, type Writer} = require("nupp.io.internal.bytes")
 
 local MODES: {[string]: boolean} = {r = true, w = true, a = true, ["r+"] = true, ["w+"] = true, ["a+"] = true}

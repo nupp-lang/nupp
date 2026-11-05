@@ -796,11 +796,6 @@ local function sep(prev, tok)
         if prev.contextualOp then
             return " "
         end
-        -- A construction is spelled as call sugar and is not one: the fields belong to
-        -- the type rather than being an argument to it, so the brace stands off it.
-        if prev.constructTarget then
-            return " "
-        end
         return prev.kind == "name" and "" or " "
     end
 
@@ -1928,7 +1923,7 @@ end
 --- Resolves `opts` into a reusable formatter. Unset fields keep the fixed defaults: 120
 --- columns and parenthesized method calls.
 export function new(opts: Options?): Formatter
-    return new Formatter(
+    return Formatter(
         imports = imports.new(opts and opts.environment, opts and opts.bindImports),
         width = (opts and opts.width) or WIDTH,
         methodParens = opts and opts.methodParens,

@@ -48,7 +48,7 @@ local function plan<M is core.Member>(description: core.Description<M>, seen: {[
         return prior
     end
     assert2(description.canread, "binding has no construction operation")
-    local result = new Plan<M>(description = description)
+    local result = Plan<M>(description = description)
     seen[description] = result
     for _, child in ipairs(description.children) do
         assert2(result.names[child.member.name] == nil, "duplicate logical member name")
@@ -108,7 +108,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
     end
 
     function scoped(self, value: Value, selected: Plan<M>): Input<M>
-        return new Input<M>(value = value, plan = selected, source = self.source, materialize = self.materialize)
+        return Input<M>(value = value, plan = selected, source = self.source, materialize = self.materialize)
     end
 
     function live(self): nil
@@ -158,7 +158,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
 
     function readdecimal(exclusive self, member: M): core.Decimal
         self:consume("decimal")
-        return new core.Decimal(coefficient = self.value[2] as string, exponent = self.value[3] as integer)
+        return core.Decimal(coefficient = self.value[2] as string, exponent = self.value[3] as integer)
     end
 
     function readnumbertoken(exclusive self, member: M): string
@@ -178,7 +178,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
 
     function readtimestamp(exclusive self, member: M): core.Timestamp
         self:consume("timestamp")
-        return new core.Timestamp(seconds = self.value[2] as string, nanos = self.value[3] as integer)
+        return core.Timestamp(seconds = self.value[2] as string, nanos = self.value[3] as integer)
     end
 
     function readatom(exclusive self, member: M): core.Atom
@@ -227,7 +227,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
     end
 
     function child(self, value: Value, child: Plan<M>): Input<M>
-        return new Input<M>(value = value, plan = child, source = self.source, materialize = self.materialize)
+        return Input<M>(value = value, plan = child, source = self.source, materialize = self.materialize)
     end
 
     function object<S>(
@@ -250,8 +250,8 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
                 consume:apply(state, member, child)
                 assert2(child.used, "member callback did not consume its value")
             else
-                local child = new Unknown(value = value, source = self.source, materialize = self.materialize)
-                unknown:apply(state, new documents.Name(name = name), child)
+                local child = Unknown(value = value, source = self.source, materialize = self.materialize)
+                unknown:apply(state, documents.Name(name = name), child)
                 assert2(child.used, "unknown callback did not consume its value")
             end
         end
@@ -326,7 +326,7 @@ local function input<M is core.Member>(
     source: core.Context?,
     materialize: Materialize
 ): Input<M>
-    return new Input<M>(value = value, plan = selected, source = source, materialize = materialize)
+    return Input<M>(value = value, plan = selected, source = source, materialize = materialize)
 end
 
 export interface Decoder<T>
@@ -353,7 +353,7 @@ export function decoderFor<T, M is core.Member>(
     discard: core.Discard<T>,
     materialize: Materialize
 ): Decoder<T>
-    return new Reconstruction<T, M>(
+    return Reconstruction<T, M>(
         adapter = adapter,
         selected = plan(description, {}),
         discard = discard,

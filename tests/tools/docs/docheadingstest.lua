@@ -57,4 +57,37 @@ function M.generatedMemberAnchorsKeepTheirCanonicalPaths()
     assert(count == 1, rendered)
 end
 
+function M.overviewSectionsContainTheirHeadingsAndPreserveScopedLinks()
+    local source = "## Earlier\n\nUnrelated prose.\n\n## Members\n\n"
+        .. "::: api-overview\n**fields**\n\n- [`name`](#sample.name)\n:::\n\n"
+        .. "[Members](#members).\n\n## Later\n"
+    local rendered = html.markdownHtml(source, nil, 0, "sample")
+    local section = assert(rendered:match('(<section class="nuppdoc%-overview%-section".-</section>)'), rendered)
+    assert(section:find('aria-labelledby="sample.members"', 1, true), section)
+    assert(section:find('<h2 class="nuppdoc-overview-title" id="sample.members">Members', 1, true), section)
+    assert(section:find('<div class="nuppdoc-overview nuppdoc-overview-1">', 1, true), section)
+    assert(not section:find('Earlier', 1, true) and not section:find('Later', 1, true), section)
+    assert(not section:find('Unrelated prose', 1, true), section)
+    assert(rendered:find('href="#sample.members">Members</a>', 1, true), rendered)
+    local _, count = rendered:gsub('id="sample%.members"', "")
+    assert(count == 1, rendered)
+end
+
+function M.overviewSectionsPreserveExplicitMemberOverviewAnchors()
+    local source = '<a id="sample.members-overview"></a>\n#### Members\n\n'
+        .. '::: api-overview\n**fields**\n\n- [`members`](#sample.members)\n:::\n'
+    local rendered = html.markdownHtml(source, nil, 0, "sample")
+    assert(rendered:find('aria-labelledby="sample.members-overview"', 1, true), rendered)
+    assert(rendered:find('class="nuppdoc-overview-title" id="sample.members-overview"', 1, true), rendered)
+    assert(rendered:find('href="#sample.members"><code>members</code></a>', 1, true), rendered)
+    local _, count = rendered:gsub('id="sample%.members%-overview"', "")
+    assert(count == 1, rendered)
+end
+
+function M.overviewsWithoutHeadingsStillHaveASection()
+    local rendered = html.markdownHtml('::: api-overview\n**functions**\n\n- `run`\n:::\n')
+    assert(rendered:find('<section class="nuppdoc-overview-section"><div class="nuppdoc-overview', 1, true), rendered)
+    assert(not rendered:find('aria-labelledby', 1, true), rendered)
+end
+
 return M

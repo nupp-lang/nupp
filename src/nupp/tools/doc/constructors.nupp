@@ -1,0 +1,339 @@
+--[[
+Caller-facing construction contracts and examples for records.
+]]
+module nupp.tools.doc.constructors
+
+local extract = require("nupp.tools.doc.extract")
+local api = require("nupp.tools.doc.api")
+local parser = require("nupp.compiler.syntax.parser")
+local cst = require("nupp.compiler.syntax.cst")
+
+local constructors = {}
+
+local function typeNode(source): any
+    local parsed = parser.parse("local value: " .. source, "documentation-construction.nupp")
+    if #parsed.errors == 0 then
+        local statement: any = parsed.root.blocks[1] and parsed.root.blocks[1].stats[1]
+        return statement and statement.types and statement.types[1]
+    end
+
+    return nil
+end
+
+-- Substitute type names through the CST, leaving field names, literals and
+-- a nested function's own generic binders alone.
+local function substitute(source, bindings)
+    if not next(bindings) then
+        return source
+    end
+    local root = typeNode(source)
+    if not root then
+        return source
+    end
+    local edits = {}
+
+    local function visit(node, scope)
+        if cst.isToken(node) then
+            return
+        end
+        if node.generics then
+            local nested = {}
+            for name, value in pairs(scope) do
+                nested[name] = value
+            end
+            for _, name in ipairs(node.generics.names) do
+                nested[name.text] = nil
+            end
+            scope = nested
+        end
+        if node.kind == "tname" and scope[node.base.text] then
+            edits[
+                #edits + 1
+            ] = {start = node.base.offset - #"local value: ", name = node.base.text, value = scope[node.base.text]}
+        end
+        for _, child in ipairs(node) do
+            visit(child, scope)
+        end
+    end
+
+    visit(root, bindings)
+    table.sort(edits, function(a, b)
+        return a.start > b.start
+    end)
+    for _, edit in ipairs(edits) do
+        source = source:sub(1, edit.start - 1) .. edit.value .. source:sub(edit.start + #edit.name)
+    end
+
+    return source
+end
+
+function constructors.index(modules)
+    local index = {}
+
+    local function add(owner, module)
+        index[owner.path] = {owner = owner, module = module}
+        for _, member in ipairs(owner.members or {}) do
+            if member.isType or member.isAlias then
+                add(member, module)
+            end
+        end
+    end
+
+    for _, module in ipairs(modules) do
+        for _, item in ipairs(module.items) do
+            add(item, module)
+        end
+    end
+
+    return index
+end
+
+local function resolve(index, name, context)
+    local owner = context.owner.path
+    while owner ~= "" do
+        local found = index[owner .. "." .. name]
+        if found then
+            return found
+        end
+        owner = owner:match("^(.*)%.[^.]+$") or ""
+    end
+    local module = context.module
+    local first, rest = name:match("^([%w_]+)%.(.*)$")
+    first = first or name
+    local imported = module.imports and module.imports[first]
+    if imported then
+        local member = module.importedMembers and module.importedMembers[first]
+        local suffix = member and member .. (rest and "." .. rest or "") or rest
+        return index[imported .. (suffix and "." .. suffix or "")]
+    end
+    if rest and first == module.moduleLocal then
+        return index[module.name .. "." .. rest]
+    end
+
+    return index[name]
+end
+
+local function application(index, source, context)
+    local node = typeNode(source)
+    if not node or node.kind ~= "tname" then
+        return nil
+    end
+    local name = source:match("^%s*([%w_.]+)")
+    local target = name and resolve(index, name, context)
+    if not target then
+        return nil
+    end
+    local bindings = {}
+    for position, parameter in ipairs(target.owner.typeargs or {}) do
+        local argument = node.typeArgs and node.typeArgs[position]
+        if argument then
+            bindings[parameter.name] = cst.textOf(argument):match("^%s*(.-)%s*$")
+        end
+    end
+
+    return target, bindings
+end
+
+local function admitsNil(index, source, context, seen)
+    local node = typeNode(source)
+
+    local function optional(node)
+        if not node then
+            return false
+        end
+        if node.kind == "topt" then
+            return true
+        end
+        if node.kind == "tparen" or node.kind == "tconst" then
+            return optional(node.inner or node.base)
+        end
+        if node.kind == "tunion" then
+            for _, arm in ipairs(node.types) do
+                if optional(arm) then
+                    return true
+                end
+            end
+        end
+        if node.kind == "tname" then
+            local name = cst.textOf(node):match("^%s*(.-)%s*$")
+            if name == "nil" or name == "any" or name == "unknown" then
+                return true
+            end
+            local target, bindings = application(index, name, context)
+            if target and target.owner.aliasSource and not seen[target.owner.path] then
+                seen[target.owner.path] = true
+                return admitsNil(index, substitute(target.owner.aliasSource, bindings), target, seen)
+            end
+        end
+
+        return false
+    end
+
+    return optional(node)
+end
+
+local function constructionFields(index, context, bindings, visiting)
+    local owner = context.owner
+    if owner.constructionBlocked or visiting[owner.path] then
+        return nil
+    end
+    visiting[owner.path] = true
+    local fields, byName = {}, {}
+    for _, member in ipairs(owner.members or {}) do
+        if member.stored and not member.isMetamethod and not api.isInstanceMethod(member) then
+            local field = {
+                name = member.name,
+                type = substitute(member.type, bindings),
+                text = member.text,
+                defaultValue = member.defaultValue,
+            }
+            fields[#fields + 1], byName[field.name] = field, field
+        end
+    end
+    local inherited = {}
+    for _, supertype in ipairs(owner.supertypes or {}) do
+        local target, arguments = application(index, substitute(supertype, bindings), context)
+        if not target then
+            visiting[owner.path] = nil
+            return nil
+        end
+        local parent = constructionFields(index, target, arguments, visiting)
+        if not parent then
+            visiting[owner.path] = nil
+            return nil
+        end
+        for _, field in ipairs(parent) do
+            if not byName[field.name] then
+                inherited[#inherited + 1], byName[field.name] = field, field
+            end
+        end
+    end
+    table.sort(inherited, function(a, b)
+        return a.name < b.name
+    end)
+    for _, field in ipairs(inherited) do
+        fields[#fields + 1] = field
+    end
+    visiting[owner.path] = nil
+
+    return fields
+end
+
+-- Synthetic members live only in the rendered view. Rendering never changes
+-- the extracted declarations or adds constructors to interfaces.
+function constructors.members(owner, module, index)
+    local members = owner.members or {}
+    if (owner.kind or owner.type) ~= "record" or owner.constructionBlocked then
+        return members
+    end
+    for _, member in ipairs(members) do
+        if member.name == "constructor" then
+            return members
+        end
+    end
+    local context = {owner = owner, module = module}
+    local fields = constructionFields(index, context, {}, {})
+    if not fields then
+        return members
+    end
+    local params, signature = {}, {}
+    for _, field in ipairs(fields) do
+        local optional = field.defaultValue ~= nil or admitsNil(index, field.type, context, {})
+        local note = field.defaultValue and "Optional. Defaults to `" .. field.defaultValue .. "`."
+            or optional and "Optional. Defaults to `nil`."
+            or "Required."
+        params[
+            #params + 1
+        ] = {
+            name = field.name,
+            type = field.type,
+            text = note .. (field.text ~= "" and " " .. field.text or ""),
+            optional = optional,
+        }
+        signature[#signature + 1] = field.name .. ": " .. field.type
+    end
+    local result = owner.path
+    local arguments = {}
+    for _, parameter in ipairs(owner.typeargs or {}) do
+        arguments[#arguments + 1] = parameter.name
+    end
+    if #arguments > 0 then
+        result = result .. "<" .. table.concat(arguments, ", ") .. ">"
+    end
+    local generated = extract.Member(
+        name = "constructor",
+        path = owner.path .. ".constructor",
+        type = "function(" .. table.concat(signature, ", ") .. "): " .. result,
+        text = "Constructs an instance from named fields. Optional fields may be omitted.",
+        params = params,
+        returns = {{type = result, text = "the constructed instance"}},
+        raises = {},
+        isFunction = true,
+        generatedConstructor = true
+    )
+    local view = {generated}
+    for _, member in ipairs(members) do
+        view[#view + 1] = member
+    end
+
+    return view
+end
+
+-- An author's Examples section (or an unheaded code example) moves after the
+-- contract. Fence contents cannot accidentally become documentation headings.
+function constructors.examples(text)
+    local body, examples = {}, {}
+    local fence, inExamples, exampleDepth = nil, false, nil
+    for line in (text .. "\n"):gmatch("(.-)\n") do
+        local marker = line:match("^%s*(```+)") or line:match("^%s*(~~~+)")
+        local closing = fence and marker and marker:sub(1, 1) == fence:sub(1, 1) and #marker >= #fence
+        if not fence then
+            -- Keep heading parsing outside fences, including examples which
+            -- happen to contain a Markdown heading in a string literal.
+            local hashes, title = line:match("^%s*(#+)%s+(.+)%s*$")
+            if hashes then
+                local name = title:gsub("%s+#+%s*$", ""):lower()
+                if name == "examples" or name == "example" then
+                    inExamples, exampleDepth = true, #hashes
+                    goto continue
+                elseif inExamples and #hashes <= exampleDepth then
+                    inExamples = false
+                end
+            end
+        end
+        local target = inExamples or fence or marker and true
+        local output = target and examples or body
+        output[#output + 1] = line
+        if closing then
+            fence = nil
+        elseif not fence and marker then
+            fence = marker
+        end
+        ::continue::
+    end
+
+    return table.concat(body, "\n"):match("^%s*(.-)%s*$"), table.concat(examples, "\n"):match("^%s*(.-)%s*$")
+end
+
+function constructors.example(member, module)
+    local owner = member.path:gsub("%.constructor$", "")
+    local suffix = owner:sub(#module.name + 1)
+    local call = owner
+    if owner == module.name or suffix:sub(1, 1) == "." then
+        call = 'require("' .. module.name .. '")' .. suffix
+    end
+    local arguments = {}
+    for _, param in ipairs(member.params) do
+        if not (member.generatedConstructor and param.optional) and param.name ~= "..." then
+            arguments[#arguments + 1] = member.generatedConstructor and param.name .. " = " .. param.name or param.name
+        end
+    end
+    local invocation = call .. "()"
+    if #arguments > 0 then
+        invocation = call .. "(\n    " .. table.concat(arguments, ",\n    ") .. "\n)"
+    end
+
+    return "Using values of the argument types above:\n\n```nupp\nlocal value = " .. invocation .. "\n```"
+end
+
+export = constructors

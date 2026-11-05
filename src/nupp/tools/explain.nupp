@@ -307,11 +307,11 @@ local ENTRIES: {any} = {
         .. "local and pluck from the local.",
         wrong = "local record Vec3\n    x: number\n    y: number\n    z: number\nend\n\n"
         .. "local function draw(x: number, y: number): nil\n    print(x, y)\nend\n\n"
-        .. "local function make(): Vec3\n    return new Vec3(x = 1, y = 2, z = 3)\nend\n\n"
+        .. "local function make(): Vec3\n    return Vec3(x = 1, y = 2, z = 3)\nend\n\n"
         .. "draw({x, y} = make())\n\nreturn draw\n",
         right = "local record Vec3\n    x: number\n    y: number\n    z: number\nend\n\n"
         .. "local function draw(x: number, y: number): nil\n    print(x, y)\nend\n\n"
-        .. "local function make(): Vec3\n    return new Vec3(x = 1, y = 2, z = 3)\nend\n\n"
+        .. "local function make(): Vec3\n    return Vec3(x = 1, y = 2, z = 3)\nend\n\n"
         .. "local position = make()\ndraw({x, y} = position)\n\nreturn draw\n",
         related = {"NUPP2004", "NUPP2125"},
         docs = "docs/learn/language/named-arguments.md#rejected-arrangements",
@@ -587,13 +587,13 @@ local ENTRIES: {any} = {
         .. "seen from here, so a computed metatable stays unchecked.",
         wrong = "local record I64\n    v: integer\n"
         .. "    metamethod __add: function(self: I64, other: I64): I64\n"
-        .. "end\n\nlocal x = new I64(v = 1)\n"
+        .. "end\n\nlocal x = I64(v = 1)\n"
         .. "setmetatable(x, {__add = \"not a function\"})\n\nreturn x\n",
         right = "local record I64\n    v: integer\n"
         .. "    metamethod __add: function(self: I64, other: I64): I64\n"
-        .. "end\n\nlocal x = new I64(v = 1)\n"
+        .. "end\n\nlocal x = I64(v = 1)\n"
         .. "setmetatable(x, {__add = function(a: I64, b: I64): I64\n"
-        .. "    return new I64(v = a.v + b.v)\nend})\n\nreturn x\n",
+        .. "    return I64(v = a.v + b.v)\nend})\n\nreturn x\n",
         related = {"NUPP2118", "NUPP2006"},
         docs = "docs/learn/language/metamethods.md#checking-a-metatable-literal",
     },
@@ -940,7 +940,7 @@ local ENTRIES: {any} = {
         right = "local interface Holds\n    associated type Item\nend\n\n"
         .. "local record Lines is Holds\n    associated type Item = string\nend\n\n"
         .. "local function held<T is Holds>(x: T): T.Item\n    return nil as any\nend\n\n"
-        .. "local kept = held(new Lines())\n\nreturn kept\n",
+        .. "local kept = held(Lines())\n\nreturn kept\n",
         related = {"NUPP2134"},
         docs = "docs/learn/language/types/associated-types.md#erased-projections",
     },
@@ -963,16 +963,13 @@ local ENTRIES: {any} = {
     },
     {
         code = "NUPP2202",
-        summary = "A declaration is built with 'new'",
-        rule = "Records and structs are constructed with `new`, so calling a "
-        .. "declaration is never a construction and the call stays the "
-        .. "program's own: a record's `__call` is not shadowed when the "
-        .. "argument is a table, and a struct's ctype call is not claimed. "
-        .. "A record that does declare a `__call` contract is called, not "
-        .. "reported.",
+        summary = "Construction takes arguments rather than an initializer table",
+        rule = "Call a record declaration with named or positional field arguments. "
+        .. "An initializer table is a separate value, not the fields of the new instance. "
+        .. "A struct accepts positional arguments in layout order.",
         wrong = "local record Point\n    x: integer\nend\n\n" .. "local p = Point{x = 1}\n\nreturn p\n",
-        right = "local record Point\n    x: integer\nend\n\n" .. "local p = new Point(x = 1)\n\nreturn p\n",
-        related = {"NUPP2206"},
+        right = "local record Point\n    x: integer\nend\n\n" .. "local p = Point(x = 1)\n\nreturn p\n",
+        related = {"NUPP2208"},
         docs = "docs/learn/language/types/records-and-structs.md#records",
     },
     {
@@ -995,11 +992,11 @@ local ENTRIES: {any} = {
         wrong = "local record Resource\nend\n"
         .. "local function release(takes value: Resource): nil\nend\n"
         .. "local function acquire(): affine(Resource, release)\n"
-        .. "    return new Resource()\nend\nacquire()\nreturn acquire\n",
+        .. "    return Resource()\nend\nacquire()\nreturn acquire\n",
         right = "local record Resource\nend\n"
         .. "local function release(takes value: Resource): nil\nend\n"
         .. "local function acquire(): affine(Resource, release)\n"
-        .. "    return new Resource()\nend\n"
+        .. "    return Resource()\nend\n"
         .. "local value = acquire()\nrelease(value)\nreturn acquire\n",
         related = {"NUPP2602", "NUPP2603", "NUPP2010"},
         docs = "docs/learn/language/types/packs.md#ownership-and-provenance",
@@ -1052,13 +1049,13 @@ local ENTRIES: {any} = {
         .. "possibly repeating path.",
         wrong = "local record Resource\nend\n"
         .. "local function close(takes value: Resource): nil\nend\n"
-        .. "local function open(): affine(Resource, close) return new Resource() end\n"
+        .. "local function open(): affine(Resource, close) return Resource() end\n"
         .. "local function run(again: boolean): nil\n"
         .. "    local value = open()\n"
         .. "    while again do\n        own.drop(value)\n    end\nend\nreturn run\n",
         right = "local record Resource\nend\n"
         .. "local function close(takes value: Resource): nil\nend\n"
-        .. "local function open(): affine(Resource, close) return new Resource() end\n"
+        .. "local function open(): affine(Resource, close) return Resource() end\n"
         .. "local function run(again: boolean): nil\n"
         .. "    local value = open()\n"
         .. "    if again then\n        print('once')\n    end\n"
@@ -1098,11 +1095,11 @@ local ENTRIES: {any} = {
         .. "outside state. Transfer-only obligations, external roots, outstanding "
         .. "exclusive loans, and unmatched foreign retentions cannot be managed.",
         wrong = "local record Resource\nend\n"
-        .. "local function begin(): affine(Resource) return new Resource() end\n"
+        .. "local function begin(): affine(Resource) return Resource() end\n"
         .. "local cell = own.manage(begin())\n",
         right = "local record Resource\nend\n"
         .. "local function close(takes value: Resource): nil\nend\n"
-        .. "local function open(): affine(Resource, close) return new Resource() end\n"
+        .. "local function open(): affine(Resource, close) return Resource() end\n"
         .. "local cell = own.manage(open())\n",
         related = {"NUPP2608", "NUPP2611", "NUPP2614"},
         docs = "docs/learn/runtime/ownership/borrowing.md#dynamic-boundaries-and-managed-cells",
@@ -1120,7 +1117,7 @@ local ENTRIES: {any} = {
         right = "local record File is own.Closeable\n"
         .. "    function flush(exclusive self): nil\nend\n"
         .. "    function close(takes self): nil\nend\nend\n"
-        .. "local owner = own.manage(new File())\n"
+        .. "local owner = own.manage(File())\n"
         .. "local erased: any = owner:alias()\n"
         .. "local recovered = own.recoveralias(erased)\n"
         .. "local file = recovered and recovered:downcast<File>()\n",
@@ -1159,11 +1156,11 @@ local ENTRIES: {any} = {
         wrong = "local record Resource\nend\nlocal record Other\nend\n"
         .. "local function release(takes value: Other): nil\nend\n"
         .. "local function acquire(): affine(Resource, release)\n"
-        .. "    return new Resource()\nend\nreturn acquire\n",
+        .. "    return Resource()\nend\nreturn acquire\n",
         right = "local record Resource\nend\nlocal record Other\nend\n"
         .. "local function release(takes value: Resource): nil\nend\n"
         .. "local function acquire(): affine(Resource, release)\n"
-        .. "    return new Resource()\nend\nreturn acquire\n",
+        .. "    return Resource()\nend\nreturn acquire\n",
         related = {"NUPP2602", "NUPP2603"},
         docs = "docs/learn/runtime/ownership/affine-types.md#cleanup-and-transfer-only-forms",
     },
@@ -1297,23 +1294,6 @@ local ENTRIES: {any} = {
         docs = "docs/learn/runtime/concurrency/suspension.md#c-call-boundaries",
     },
     {
-        code = "NUPP2206",
-        summary = "Only a record or a struct can be constructed",
-        rule = "`new` names a type and builds a value of it, so the operand "
-        .. "has to be a declaration with something to build. An interface "
-        .. "declares a contract and has no runtime table to stamp; an enum "
-        .. "value is one of its declared strings, written directly. The "
-        .. "operand is answered as a type rather than through whatever "
-        .. "value stands under the name, because an interface binds none.",
-        wrong = "local interface Named\n    name: string\nend\n\n"
-        .. "local n = new Named(name = \"ada\")\n\nreturn n\n",
-        right = "local interface Named\n    name: string\nend\n\n"
-        .. "local record User is Named\n    name: string\nend\n\n"
-        .. "local n = new User(name = \"ada\")\n\nreturn n\n",
-        related = {"NUPP2202"},
-        docs = "docs/learn/language/types/records-and-structs.md#records",
-    },
-    {
         code = "NUPP2207",
         summary = "A binding is read before it holds a value",
         rule = "`local v: Vec2` declares a binding and constructs nothing, "
@@ -1327,8 +1307,8 @@ local ENTRIES: {any} = {
         .. "is meant to start empty. A declaration file states what exists "
         .. "elsewhere and assigns nothing, so it is exempt.",
         wrong = "local record Point\n    x: integer\nend\n\n" .. "local p: Point\n\nreturn p.x\n",
-        right = "local record Point\n    x: integer\nend\n\n" .. "local p: Point = new Point(x = 0)\n\nreturn p.x\n",
-        related = {"NUPP2202", "NUPP2206"},
+        right = "local record Point\n    x: integer\nend\n\n" .. "local p: Point = Point(x = 0)\n\nreturn p.x\n",
+        related = {"NUPP2202"},
         docs = "docs/learn/language/types/records-and-structs.md#records",
     },
     {
@@ -1342,10 +1322,9 @@ local ENTRIES: {any} = {
         .. "it is its C layout, and that order is the layout's rather than the "
         .. "program's to name. Turn it off by name or by its `style` category, "
         .. "or write `@allow(\"positional-record-construction\")`.",
-        wrong = "local record Point\n    x: integer\n    y: integer\nend\n\n"
-        .. "local p = new Point(1, 2)\n\nreturn p\n",
+        wrong = "local record Point\n    x: integer\n    y: integer\nend\n\n" .. "local p = Point(1, 2)\n\nreturn p\n",
         right = "local record Point\n    x: integer\n    y: integer\nend\n\n"
-        .. "local p = new Point(x = 1, y = 2)\n\nreturn p\n",
+        .. "local p = Point(x = 1, y = 2)\n\nreturn p\n",
         related = {"NUPP2202", "NUPP2208"},
         docs = "docs/reference/lints.md#positional-record-construction",
     },
@@ -1386,7 +1365,7 @@ local ENTRIES: {any} = {
     {
         code = "NUPP2208",
         summary = "A constructor does not hold up its declaration",
-        rule = "A `constructor(self, ...)` body is what `new T(...)` runs. The "
+        rule = "A `constructor(self, ...)` body is what `T(...)` runs. The "
         .. "instance is made before it and returned after it, so its whole "
         .. "job is to fill the fields in, and every field that cannot hold "
         .. "nil has to be filled, or the value handed back does not match "
@@ -1437,13 +1416,13 @@ local ENTRIES: {any} = {
         .. "also carries no runtime identity, even when its bound does.",
         wrong = "local interface Drawable\n    width: number\nend\n\n"
         .. "local record Sprite is Drawable\n    width: number\nend\n\n"
-        .. "local unknown: any = new Sprite(width = 1)\n\n"
+        .. "local unknown: any = Sprite(width = 1)\n\n"
         .. "return unknown is Drawable\n",
         right = "local interface Drawable\n    kind: \"drawable\"\n"
         .. "    width: number\nend\n\n"
         .. "local record Sprite is Drawable\n    kind: \"drawable\"\n"
         .. "    width: number\nend\n\n"
-        .. "local unknown: any = new Sprite(kind = \"drawable\", width = 1)\n\n"
+        .. "local unknown: any = Sprite(kind = \"drawable\", width = 1)\n\n"
         .. "return unknown is Drawable\n",
         related = {"NUPP2122"},
         docs = "docs/learn/language/types/interfaces.md#is-at-runtime",
@@ -1665,7 +1644,7 @@ ENTRIES[
     .. "return {conjugate = conjugate, Pair = Pair}\n",
     right = "local simd = require(\"simd\")\n\nlocal struct Pair\n"
     .. "    re: simd.Vector<float32, simd.Preferred>\n    im: simd.Vector<float32, simd.Preferred>\nend\n\n@aot\n"
-    .. "local function conjugate(z: Pair): Pair\n    return new Pair(z.re, -z.im)\nend\n\n"
+    .. "local function conjugate(z: Pair): Pair\n    return Pair(z.re, -z.im)\nend\n\n"
     .. "return {conjugate = conjugate, Pair = Pair}\n",
     related = {"NUPP2910"},
     docs = "docs/learn/performance/ahead-of-time/simd-programming.md#native-only-aggregates",
@@ -1725,9 +1704,9 @@ ENTRIES[
 ] = {
     code = "NUPP1004",
     summary = "A required expression is missing",
-    rule = "An expression position, whether a parenthesized operand, a call argument, or the whole of a value, must actually contain one; a token that cannot begin an expression is reported there and replaced with a zero-width placeholder. `new` is held to the same requirement in its own way: it takes a suffixed expression that must end in a call, since a bare `new T` would be a second spelling of `new T()`.",
-    wrong = "local record Point\n    x: integer\nend\n\nlocal bare = new Point\n\nreturn bare\n",
-    right = "local record Point\n    x: integer\nend\n\nlocal made = new Point(x = 1)\n\nreturn made\n",
+    rule = "An expression position, whether a parenthesized operand, a call argument, or the whole of a value, must actually contain one; a token that cannot begin an expression is reported there and replaced with a zero-width placeholder.",
+    wrong = "local value = ()\nreturn value\n",
+    right = "local value = 1\nreturn value\n",
     related = {"NUPP1002", "NUPP1003"},
     docs = "docs/reference/diagnostics.md#nupp1004",
 }
@@ -2330,8 +2309,8 @@ ENTRIES[
     code = "NUPP2619",
     summary = "A borrowed value's provenance does not reach its declared root",
     rule = "A declared borrow names where its value comes from, and the value has to be provably derived from there, sharing the provenance chain rather than merely equalling or coincidentally matching. The same code reports each place that promise is checked: a field declared `T borrows (source)` constructed from a different root than the sibling passed as `source`; a result declared `T borrows (param)` returned from something that cannot be traced to that parameter; a call whose borrowed result has no rooted argument to borrow from; and a C output declared borrowed without a named lifetime source. Derive the value from the root the declaration names, or name the root it is derived from.",
-    wrong = "local record Buffer\n    value: string\nend\n\nlocal function view(borrows source: Buffer): Buffer borrows (source)\n    return source\nend\n\nlocal record Cursor\n    source: Buffer\n    bytes: Buffer borrows (source)\nend\n\nlocal left = new Buffer(value = \"left\")\nlocal right = new Buffer(value = \"right\")\nlocal cursor = new Cursor(source = left, bytes = view(right))\nprint(cursor.bytes.value)\n",
-    right = "local record Buffer\n    value: string\nend\n\nlocal function view(borrows source: Buffer): Buffer borrows (source)\n    return source\nend\n\nlocal record Cursor\n    source: Buffer\n    bytes: Buffer borrows (source)\nend\n\nlocal left = new Buffer(value = \"left\")\nlocal cursor = new Cursor(source = left, bytes = view(left))\nprint(cursor.bytes.value)\n",
+    wrong = "local record Buffer\n    value: string\nend\n\nlocal function view(borrows source: Buffer): Buffer borrows (source)\n    return source\nend\n\nlocal record Cursor\n    source: Buffer\n    bytes: Buffer borrows (source)\nend\n\nlocal left = Buffer(value = \"left\")\nlocal right = Buffer(value = \"right\")\nlocal cursor = Cursor(source = left, bytes = view(right))\nprint(cursor.bytes.value)\n",
+    right = "local record Buffer\n    value: string\nend\n\nlocal function view(borrows source: Buffer): Buffer borrows (source)\n    return source\nend\n\nlocal record Cursor\n    source: Buffer\n    bytes: Buffer borrows (source)\nend\n\nlocal left = Buffer(value = \"left\")\nlocal cursor = Cursor(source = left, bytes = view(left))\nprint(cursor.bytes.value)\n",
     related = {"NUPP2602", "NUPP2203"},
     docs = "docs/learn/runtime/ownership/borrowing.md#borrowing-and-pinning",
 }
@@ -2456,7 +2435,7 @@ function explain.lookup(code: string): explain.Entry?
     -- so a lint's entry is filled in from there rather than said twice.
     local lint = require("nupp.compiler.lints").get(code)
     if entry then
-        return new explain.Entry(
+        return explain.Entry(
             code = code,
             summary = entry.summary,
             rule = entry.rule,
@@ -2469,7 +2448,7 @@ function explain.lookup(code: string): explain.Entry?
         )
     end
 
-    return new explain.Entry(
+    return explain.Entry(
         code = code,
         summary = lint and lint.summary or family.summary,
         rule = lint

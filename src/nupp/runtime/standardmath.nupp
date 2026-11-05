@@ -1,9 +1,24 @@
 @!internal
 
+--[[Independent random sequences live beside the host math functions.
+Each Xoshiro128 owns its seed and state; math.random keeps the original host function.
+
+```nupp
+local dice = math.Xoshiro128(42)
+print(dice:integer(20))
+```
+]]
+
 --- @namespace math
 module nupp.runtime.standardmath
 
---- The host random function with independently seeded generator types.
-export const random = require("math.random")
+local implementation = require("math.internal.random")
 
-export const value: table = rawget(_G, "math") as table
+--- An independent deterministic xoshiro128** sequence.
+export type Xoshiro128 = implementation.Xoshiro128
+
+export const Xoshiro128 = implementation.Xoshiro128
+
+local host = rawget(_G, "math") as table
+rawset(host, "Xoshiro128", Xoshiro128)
+export const value: table = host

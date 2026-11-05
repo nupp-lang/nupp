@@ -1,0 +1,11 @@
+@!internal
+module nupp.util.internal.encoding
+
+export function hexencode(bytes: string): string
+    local parts: {string} = {}
+    for index = 1, #bytes do
+        parts[index] = string.format("%02x", bytes:byte(index))
+    end
+
+    return table.concat(parts)
+end

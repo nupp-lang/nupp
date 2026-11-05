@@ -18,7 +18,7 @@ export record Point
 end
 
 export function scale(p: Point, k: number): Point
-    return new Point(x = p.x * k, y = p.y * k)
+    return Point(x = p.x * k, y = p.y * k)
 end
 ```
 

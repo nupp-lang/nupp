@@ -2,7 +2,7 @@
 
 module io.internal.process.types
 
-const {type Path} = require("io.files.internal.path")
+const {type Path} = require("io.internal.files.path")
 const {type Buffer, type Error} = require("nupp.io")
 const {type ByteView} = require("nupp.io")
 
@@ -15,7 +15,7 @@ export type Options = {
     --- translation for File methods. Byte streams and `communicate` stay binary.
     mode: ("r" | "w" | "rb" | "wb")?,
 
-    --- The child's working directory, as anything [](io.files) accepts, or nil
+    --- The child's working directory, as anything [](os.Path) names, or nil
     --- to inherit this one.
     cwd: Path?,
 

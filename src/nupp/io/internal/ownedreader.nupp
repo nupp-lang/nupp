@@ -117,5 +117,5 @@ end
 export function newOwnedReader(takes buffer: bytes.OwnedBuffer): Reader
     local state = @unsafe own.release(buffer)
     assert2(not (state as any)._closed, "nupp: io.Buffer is closed")
-    return new MemoryReader(_data = (state as any)._data, _length = (state as any)._length, _at = 0, _closed = false)
+    return MemoryReader(_data = (state as any)._data, _length = (state as any)._length, _at = 0, _closed = false)
 end

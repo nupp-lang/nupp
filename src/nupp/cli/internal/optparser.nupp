@@ -133,7 +133,7 @@ export record OptParser
             if not attached and arity == "required" then
                 local following = self.argv[self.nextIndex]
                 if following == nil then
-                    return nil, new SyntaxError(
+                    return nil, SyntaxError(
                         kind = "missingvalue",
                         index = index,
                         raw = raw,
@@ -144,7 +144,7 @@ export record OptParser
                 self.nextIndex = self.nextIndex + 1
                 value = following
             elseif not attached and arity == "attachedonly" then
-                return nil, new SyntaxError(
+                return nil, SyntaxError(
                     kind = "needsattachedvalue",
                     index = index,
                     raw = raw,
@@ -268,7 +268,7 @@ end
 
 --- Creates an incremental option parser.
 export function optParser(argv: {string}, config: OptParserConfig?): OptParser
-    return new OptParser(
+    return OptParser(
         argv = argv,
         config = config or {},
         nextIndex = 1,

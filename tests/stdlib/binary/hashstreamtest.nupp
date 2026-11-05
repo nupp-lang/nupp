@@ -1,6 +1,6 @@
-local digest = require("binary.digest")
-local mac = require("binary.mac")
-local checksum = require("binary.checksum")
+local digest = require("binary").Digest
+local mac = require("binary").Mac
+local checksum = require("binary").Checksum
 local io = require("io")
 local hash = require("binary")
 local array = require("nupp.array")
@@ -9,12 +9,12 @@ local test = require("assert")
 local M = {}
 
 function M.hashFamiliesKeepSeparateAlgorithmCatalogs(): nil
-    test(checksum.lookup("sha256") == nil)
-    test(digest.lookup("crc32") == nil)
-    test(mac.lookup("sha256") == nil)
-    test(checksum == require("binary.checksum"))
-    test(digest == require("binary.digest"))
-    test(mac == require("binary.mac"))
+    test(checksum.Algorithm.lookup("sha256") == nil)
+    test(digest.Algorithm.lookup("crc32") == nil)
+    test(mac.Algorithm.lookup("sha256") == nil)
+    test(checksum == require("binary").Checksum)
+    test(digest == require("binary").Digest)
+    test(mac == require("binary").Mac)
     test(hash == require("binary"))
 end
 
@@ -24,27 +24,27 @@ function M.publishedFnv1a64VectorsAndByteViews(): nil
     test(hash.fnv1a64("foobar") == "85944171f73967e8")
     test(hash.fnv1a64("a\0b\255c") == "3e5746fc83766ddc")
 
-    local bytes = io.newbuffer("\0\1\127\128\255")
+    local bytes = io.Buffer.create("\0\1\127\128\255")
     local view = bytes:view()
     test(hash.fnv1a64(view) == "a5bcd1d1065f84b6")
     test(hash.fnv1a64(view) == "a5bcd1d1065f84b6")
 end
 
 function M.publishedDigestVectors(): nil
-    test(digest.hexdigest("md5", "") == "d41d8cd98f00b204e9800998ecf8427e")
-    test(digest.hexdigest("md5", "abc") == "900150983cd24fb0d6963f7d28e17f72")
-    test(digest.hexdigest("sha1", "") == "da39a3ee5e6b4b0d3255bfef95601890afd80709")
-    test(digest.hexdigest("sha1", "abc") == "a9993e364706816aba3e25717850c26c9cd0d89d")
-    test(digest.hexdigest("sha256", "") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
-    test(digest.hexdigest("sha256", "abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    test(digest.computehex("md5", "") == "d41d8cd98f00b204e9800998ecf8427e")
+    test(digest.computehex("md5", "abc") == "900150983cd24fb0d6963f7d28e17f72")
+    test(digest.computehex("sha1", "") == "da39a3ee5e6b4b0d3255bfef95601890afd80709")
+    test(digest.computehex("sha1", "abc") == "a9993e364706816aba3e25717850c26c9cd0d89d")
+    test(digest.computehex("sha256", "") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+    test(digest.computehex("sha256", "abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
     test(
-        digest.hexdigest(
+        digest.computehex(
             "sha512",
             ""
         ) == "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e"
     )
     test(
-        digest.hexdigest(
+        digest.computehex(
             "sha512",
             "abc"
         ) == "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"
@@ -86,30 +86,30 @@ function M.wordDigestPaddingBoundariesMatchIndependentVectors(): nil
     for _, vector in ipairs(vectors) do
         for index = 2, #vector, 2 do
             local length = test(tonumber(vector[index])) as integer
-            test(digest.hexdigest(vector[1], string.rep("x", length)) == vector[index + 1])
+            test(digest.computehex(vector[1], string.rep("x", length)) == vector[index + 1])
         end
     end
 end
 
 function M.metadataAndIndependentContexts(): nil
-    test(table.concat(digest.algorithms(), ",") == "md5,sha1,sha256,sha512")
-    test(digest.lookup("unknown") == nil)
-    local algorithm = digest.algorithm("sha256")
+    test(table.concat(digest.Algorithm.names(), ",") == "md5,sha1,sha256,sha512")
+    test(digest.Algorithm.lookup("unknown") == nil)
+    local algorithm = digest.Algorithm.of("sha256")
     test(algorithm.name == "sha256" and algorithm.digestsize == 32)
-    local first = algorithm:newdigest()
-    local second = algorithm:newdigest()
+    local first = algorithm:digest()
+    local second = algorithm:digest()
     test(first:algorithm() == "sha256" and first:digestsize() == 32)
     first:write("a")
     second:write("abc")
     first:write("bc")
     test(first:digest() == second:digest())
 
-    test(table.concat(mac.algorithms(), ",") == "hmac-sha256")
-    test(mac.lookup("unknown") == nil)
-    local macAlgorithm = mac.algorithm("hmac-sha256")
+    test(table.concat(mac.Algorithm.names(), ",") == "hmac-sha256")
+    test(mac.Algorithm.lookup("unknown") == nil)
+    local macAlgorithm = mac.Algorithm.of("hmac-sha256")
     test(macAlgorithm.name == "hmac-sha256" and macAlgorithm.digestsize == 32)
-    local firstMac = macAlgorithm:newmac("key")
-    local secondMac = macAlgorithm:newmac("key")
+    local firstMac = macAlgorithm:mac("key")
+    local secondMac = macAlgorithm:mac("key")
     firstMac:write("a")
     secondMac:write("abc")
     firstMac:write("bc")
@@ -117,14 +117,14 @@ function M.metadataAndIndependentContexts(): nil
 end
 
 function M.overloadedFinalizationWritesOnlyTheSuppliedSlice(): nil
-    for _, name in ipairs(digest.algorithms()) do
-        local algorithm = digest.algorithm(name)
+    for _, name in ipairs(digest.Algorithm.names()) do
+        local algorithm = digest.Algorithm.of(name)
         local bytes = array.bytes(algorithm.digestsize + 2)
         local output = bytes:write()
         output[1] = 0xa5
         output[#output] = 0x5a
         local region = output:slice(2, algorithm.digestsize + 1)
-        local rolling = algorithm:newdigest()
+        local rolling = algorithm:digest()
         local source = "abc"
         local input = span.fromstring(source)
         rolling:writespan(input)
@@ -132,7 +132,7 @@ function M.overloadedFinalizationWritesOnlyTheSuppliedSlice(): nil
         test(written == algorithm.digestsize)
         own.drop(region)
         test(output[1] == 0xa5 and output[#output] == 0x5a)
-        local expected = digest.digest(name, "abc")
+        local expected = digest.compute(name, "abc")
         for index = 1, #expected do
             test(output[index + 1] == expected:byte(index))
         end
@@ -144,7 +144,7 @@ function M.shortDestinationIsRejected(): nil
         function(): nil
             local bytes = array.bytes(31)
             local output = bytes:write()
-            local rolling = digest.newdigest("sha256")
+            local rolling = digest.create("sha256")
             rolling:write("abc")
             rolling:digest(output)
         end,
@@ -153,88 +153,88 @@ function M.shortDestinationIsRejected(): nil
 end
 
 function M.chunkingAndBinaryInput(): nil
-    for _, name in ipairs(digest.algorithms()) do
+    for _, name in ipairs(digest.Algorithm.names()) do
         for length = 0, 260 do
             local input = string.rep("a\0b\255c", 53):sub(1, length)
-            local rolling = digest.newdigest(name)
+            local rolling = digest.create(name)
             for index = 1, #input, 7 do
                 rolling:write(input:sub(index, index + 6))
             end
-            test(rolling:hexdigest() == digest.hexdigest(name, input), name .. " length " .. length)
+            test(rolling:hexdigest() == digest.computehex(name, input), name .. " length " .. length)
         end
     end
 end
 
 function M.hmacRfc4231AndBinaryInput(): nil
     test(
-        mac.hexdigest(
+        mac.computehex(
             "hmac-sha256",
             string.rep("\11", 20),
             "Hi There"
         ) == "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
     )
     test(
-        mac.hexdigest(
+        mac.computehex(
             "hmac-sha256",
             "Jefe",
             "what do ya want for nothing?"
         ) == "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
     )
     test(
-        mac.hexdigest(
+        mac.computehex(
             "hmac-sha256",
             string.rep("\170", 131),
             "Test Using Larger Than Block-Size Key - Hash Key First"
         ) == "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54"
     )
-    local rolling = mac.newmac("hmac-sha256", "k\0ey")
+    local rolling = mac.create("hmac-sha256", "k\0ey")
     rolling:write("one\0")
     rolling:write("two\255")
-    test(rolling:digest() == mac.digest("hmac-sha256", "k\0ey", "one\0two\255"))
+    test(rolling:digest() == mac.compute("hmac-sha256", "k\0ey", "one\0two\255"))
 end
 
 function M.checksumVectorsAndNonConsumingReads(): nil
-    test(table.concat(checksum.algorithms(), ",") == "adler32,crc32,crc32c,crc64-ecma,crc64nvme")
-    local listed = checksum.algorithms()
+    test(table.concat(checksum.Algorithm.names(), ",") == "adler32,crc32,crc32c,crc64-ecma,crc64nvme")
+    local listed = checksum.Algorithm.names()
     listed[1] = "changed"
-    test(checksum.algorithms()[1] == "adler32")
-    test(checksum.lookup("unknown") == nil)
+    test(checksum.Algorithm.names()[1] == "adler32")
+    test(checksum.Algorithm.lookup("unknown") == nil)
     test.raises(
         function(): nil
-            checksum.algorithm("unknown")
+            checksum.Algorithm.of("unknown")
         end,
         "unknown checksum algorithm unknown"
     )
-    test(checksum.value("adler32", "") == 1ULL)
-    test(checksum.value("crc32", "") == 0ULL)
-    test(checksum.value("crc32c", "") == 0ULL)
-    test(checksum.value("crc64-ecma", "") == 0ULL)
-    test(checksum.value("crc64nvme", "") == 0ULL)
-    test(checksum.value("adler32", "123456789") == 0x091e01deULL)
-    test(checksum.value("crc32", "123456789") == 0xcbf43926ULL)
-    test(checksum.value("crc32c", "123456789") == 0xe3069283ULL)
-    test(checksum.value("crc64-ecma", "123456789") == 0x6c40df5f0b497347ULL)
-    test(checksum.algorithm("crc64-ecma").width == 64)
-    test(checksum.value("crc64nvme", "123456789") == 0xae8b14860a799888ULL)
-    test(checksum.algorithm("crc64nvme").width == 64)
-    for _, name in ipairs(checksum.algorithms()) do
-        test(checksum.lookup(name) == checksum.algorithm(name))
-        local rolling = checksum.newchecksum(name)
+    test(checksum.compute("adler32", "") == 1ULL)
+    test(checksum.compute("crc32", "") == 0ULL)
+    test(checksum.compute("crc32c", "") == 0ULL)
+    test(checksum.compute("crc64-ecma", "") == 0ULL)
+    test(checksum.compute("crc64nvme", "") == 0ULL)
+    test(checksum.compute("adler32", "123456789") == 0x091e01deULL)
+    test(checksum.compute("crc32", "123456789") == 0xcbf43926ULL)
+    test(checksum.compute("crc32c", "123456789") == 0xe3069283ULL)
+    test(checksum.compute("crc64-ecma", "123456789") == 0x6c40df5f0b497347ULL)
+    test(checksum.Algorithm.of("crc64-ecma").width == 64)
+    test(checksum.compute("crc64nvme", "123456789") == 0xae8b14860a799888ULL)
+    test(checksum.Algorithm.of("crc64nvme").width == 64)
+    for _, name in ipairs(checksum.Algorithm.names()) do
+        test(checksum.Algorithm.lookup(name) == checksum.Algorithm.of(name))
+        local rolling = checksum.create(name)
         test(rolling:algorithm() == name)
-        test(rolling:width() == checksum.algorithm(name).width)
+        test(rolling:width() == checksum.Algorithm.of(name).width)
         rolling:write("1234")
-        test(rolling:value() == checksum.value(name, "1234"))
+        test(rolling:value() == checksum.compute(name, "1234"))
         local source = "56789"
         local tail = span.fromstring(source)
         rolling:writespan(tail)
-        test(rolling:value() == checksum.value(name, "123456789"))
+        test(rolling:value() == checksum.compute(name, "123456789"))
 
-        local chunked = checksum.newchecksum(name)
+        local chunked = checksum.create(name)
         local message = string.rep("a\0b\255c", 53)
         for index = 1, #message, 7 do
             chunked:write(message:sub(index, index + 6))
         end
-        test(chunked:value() == checksum.value(name, message))
+        test(chunked:value() == checksum.compute(name, message))
     end
 end
 
@@ -263,16 +263,16 @@ function M.crcViewsRespectOffsetsAndContextsAreIndependent(): nil
     local view = bytes:slice(7, #storage - 6)
     local payload = storage:sub(7, -7)
     for _, name in ipairs({"crc32", "crc32c", "crc64-ecma", "crc64nvme"}) do
-        local first = checksum.newchecksum(name)
-        local second = checksum.newchecksum(name)
+        local first = checksum.create(name)
+        local second = checksum.create(name)
         first:writespan(view)
         second:write("1234")
-        test(first:value() == checksum.value(name, payload))
+        test(first:value() == checksum.compute(name, payload))
         local before = first:value()
         second:write("56789")
         first:write("")
         test(first:value() == before)
-        test(second:value() == checksum.value(name, "123456789"))
+        test(second:value() == checksum.compute(name, "123456789"))
     end
 end
 
@@ -280,19 +280,19 @@ end
 -- answer is the one writing the same bytes by hand gives.
 function M.aReaderTransfersIntoADigestAndAChecksum(): nil
     local message = string.rep("a\0b\255c", 20000)
-    local byHand = digest.newdigest("sha256")
+    local byHand = digest.create("sha256")
     byHand:write(message)
     local expected = byHand:hexdigest()
 
-    local rolling = digest.newdigest("sha256")
-    local source = io.newreader(message)
+    local rolling = digest.create("sha256")
+    local source = io.Reader.of(message)
     test(source:transferto(rolling) == #message)
     test(rolling:hexdigest() == expected)
 
-    local sum = checksum.newchecksum("crc32c")
-    local again = io.newreader(message)
+    local sum = checksum.create("crc32c")
+    local again = io.Reader.of(message)
     test(again:transferto(sum) == #message)
-    test(sum:value() == checksum.value("crc32c", message))
+    test(sum:value() == checksum.compute("crc32c", message))
 end
 
 return M

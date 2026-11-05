@@ -275,8 +275,8 @@ function M.recursiveDerivedGraphRechecksAcrossThreeModules()
                 "local model = require('model')",
                 "local bridge = require('bridge')",
                 "local binding: serde.Binding<model.Node> = bridge.binding()",
-                "local root = new model.Node(name = 'root', children = {",
-                "   new model.Node(name = 'leaf', children = {}),",
+                "local root = model.Node(name = 'root', children = {",
+                "   model.Node(name = 'leaf', children = {}),",
                 "})",
                 "return binding, root",
             },
@@ -333,11 +333,7 @@ function M.changingADeriveProviderReplansItsClaim()
     write(
         mainPath,
         table.concat(
-            {
-                "local model = require('model')",
-                "local config = new model.Config(value = 'x')",
-                "return config:debug()",
-            },
+            {"local model = require('model')", "local config = model.Config(value = 'x')", "return config:debug()",},
             "\n"
         )
     )
@@ -449,7 +445,7 @@ function M.deriveRecipesMemoizeAndPublishBehaviorChanges()
     write(depPath, dep)
     write(
         mainPath,
-        table.concat({"local dep = require('dep')", "local config = new dep.Config()", "return config:debug()",}, "\n")
+        table.concat({"local dep = require('dep')", "local config = dep.Config()", "return config:debug()",}, "\n")
     )
 
     local inc = incremental.new(dir, {cache = false})
@@ -531,11 +527,7 @@ function M.deriveDocumentationChangesInvalidateGeneratedBehavior()
     write(
         mainPath,
         table.concat(
-            {
-                "local dep = require('dep')",
-                "local config = new dep.Config(value = 1)",
-                "return config:documentation()",
-            },
+            {"local dep = require('dep')", "local config = dep.Config(value = 1)", "return config:documentation()",},
             "\n"
         )
     )
@@ -576,7 +568,7 @@ function M.fieldDefaultChangesInvalidateModuleConsumers()
         "\n"
     )
     write(depPath, dep)
-    write(mainPath, table.concat({"local dep = require('dep')", "return new dep.Config()",}, "\n"))
+    write(mainPath, table.concat({"local dep = require('dep')", "return dep.Config()",}, "\n"))
 
     local inc = incremental.new(dir, {cache = false})
     testAssert.eq(#inc.checkFile(mainPath).diags, 0, "defaulted dependency checks cold")
@@ -991,7 +983,7 @@ function M.bundledModuleTypesResolveThroughTheIncrementalGraph()
                 "local record Thing",
                 "   buf: buffer.Buffer",
                 "end",
-                "local thing = new Thing(buf = buffer.new())",
+                "local thing = Thing(buf = buffer.new())",
                 "return thing.buf:tostring()",
             },
             "\n"
@@ -1317,7 +1309,7 @@ function M.aRecordClaimNamesWhatItsLocalsRequire()
         "local b = require('pkg.b')",
         "export const options: b.Options? = nil"
     })
-    write("main.nupp", {"local b = require('pkg.b')", "local o: b.Options = new b.Options()", "print(o.n)"})
+    write("main.nupp", {"local b = require('pkg.b')", "local o: b.Options = b.Options()", "print(o.n)"})
 
     local inc = incremental.new(dir, {cache = false})
     local diags = inc.checkFile(dir .. "/main.nupp").diags
@@ -1369,7 +1361,7 @@ function M.stagingACarriedModuleChecksNothingAgain()
     local dir = os.tmpname()
     os.remove(dir)
     local staged = dir .. "/build/cache/runtime-source"
-    os.execute("mkdir -p '" .. staged .. "/io/files'")
+    os.execute("mkdir -p '" .. staged .. "/io/http'")
     local mainPath = dir .. "/main.nupp"
     local file = assert(io.open(mainPath, "wb"))
     file:write(
@@ -1377,14 +1369,14 @@ function M.stagingACarriedModuleChecksNothingAgain()
             {
                 "const {type Observers} = require('events')",
                 "local events = require('events')",
-                "local files = require(\"io.files\")",
+                "local http = require(\"io.http\")",
                 "local m = {}",
                 "record m.Holder",
                 "   observers: Observers<integer>",
                 "end",
                 "function m.build(path: string): m.Holder",
-                "   print(files.exists(path))",
-                "   return new m.Holder(observers = events.newobservers())",
+                "   print(http.file(path))",
+                "   return m.Holder(observers = events.Observers())",
                 "end",
                 "return m",
             },
@@ -1397,14 +1389,14 @@ function M.stagingACarriedModuleChecksNothingAgain()
     testAssert.eq(#inc.checkFile(mainPath).diags, 0, "checks cold")
     local checks = inc.q.stats.checkModule
 
-    local source = assert(require("nupp.compiler.bundled").source("/io/files/init.nupp"))
+    local source = assert(require("nupp.compiler.bundled").source("/io/http/init.nupp"))
     inc.env.roots[#inc.env.roots + 1] = staged
-    local stagedPath = staged .. "/io/files/init.nupp"
+    local stagedPath = staged .. "/io/http/init.nupp"
     local copy = assert(io.open(stagedPath, "wb"))
     copy:write(source)
     copy:close()
-    inc.stageCarriedDocument("io.files", stagedPath, source)
-    testAssert.eq(inc.modulePath("io.files"), stagedPath, "the build finds the staged copy to link")
+    inc.stageCarriedDocument("io.http", stagedPath, source)
+    testAssert.eq(inc.modulePath("io.http"), stagedPath, "the build finds the staged copy to link")
     testAssert.eq(#inc.checkFile(mainPath).diags, 0, "still clean with the module staged")
     testAssert.eq(inc.q.stats.checkModule, checks, "staging the carried copy checks nothing again")
 

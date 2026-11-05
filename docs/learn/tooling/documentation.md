@@ -306,7 +306,7 @@ a caller to write it. Wherever a rendered signature applies `affine` to a
 cleanup the documentation hides, the argument prints as `_`:
 
 ```nupp:fragment
-newreader: function(self: ByteView): affine(Reader, _)
+reader: function(self: ByteView): affine(Reader, _)
 ```
 
 The argument is replaced rather than dropped, because `affine(Reader)` is a
@@ -669,7 +669,8 @@ it would otherwise be the one name in the reference that led nowhere. Such a
 page is titled `Namespace:` rather than `Module:`, and its entries in the
 sidebar, the search index, and the Markdown output say the same.
 
-Construction is what `new` does. A `constructor` declaration documents inside
+Calling a record or struct declaration constructs an instance. A `constructor`
+declaration documents inside
 the record it belongs to, where a caller reads it beside the fields it fills. A
 module-level function that happens to return an instance is a function, whatever
 it is named, so no naming convention promotes one to a kind of its own.

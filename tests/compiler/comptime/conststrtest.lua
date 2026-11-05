@@ -101,7 +101,7 @@ end
 function M.constIsAPromiseNotToWrite()
     local P = "local struct P\n    x: float\nend"
     -- a mutable value satisfies a const one
-    testAssert.eq(diagsOf(P .. "\nlocal p: P = new P()\nlocal r: const P = p"), "")
+    testAssert.eq(diagsOf(P .. "\nlocal p: P = P()\nlocal r: const P = p"), "")
     -- the reverse discards the promise
     testAssert.eq(diagsOf(P .. "\nlocal r: const P = nil as any\nlocal p: P = r"), "NUPP2001")
     testAssert.eq(diagsOf(P .. "\nlocal p: const P* = nil"), "NUPP2001", "still a non-null pointer")

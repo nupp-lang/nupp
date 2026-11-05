@@ -36,7 +36,7 @@ local scalarAdapters = require("nupp.io.internal.scalars")
 const {type Reader} = require("nupp.io")
 const {type Writer} = require("nupp.io")
 const {type Buffer} = require("nupp.io")
-const {type Path} = require("io.files")
+const {type Path} = require("io.internal.files.path")
 
 local suspension = require("nupp.suspension")
 local span = require("binary.span")
@@ -77,7 +77,7 @@ export type ListenOptions = {
     port: integer?,
 
     --- A filesystem name to bind instead, for a Unix domain socket, as anything
-    --- [](io.files) accepts.
+    --- [](os.Path) names.
     ---
     --- The name is not removed when the listener closes. A caller that binds a
     --- path owns that path, and unlinking a file this process may not have
@@ -106,7 +106,7 @@ export type ConnectOptions = {
     port: integer?,
 
     --- A filesystem name to reach instead, for a Unix domain socket, as anything
-    --- [](io.files) accepts. Nothing is resolved for one, so a connect to a
+    --- [](os.Path) names. Nothing is resolved for one, so a connect to a
     --- path starts at the handshake.
     path: Path?,
 
@@ -817,7 +817,7 @@ export record Stream is io.Reader, io.Writer
     --- @param self the connection to view
     --- @return the view, which may not outlive it
     function asreader(borrows self): affine(Reader) borrows (self)
-        return new DirectionView(
+        return DirectionView(
             _provider = self._provider,
             _handle = self._handle,
             _writing = false,
@@ -833,7 +833,7 @@ export record Stream is io.Reader, io.Writer
     --- @param self the connection to view
     --- @return the view, which may not outlive it
     function aswriter(borrows self): affine(Writer) borrows (self)
-        return new DirectionView(
+        return DirectionView(
             _provider = self._provider,
             _handle = self._handle,
             _writing = true,
@@ -915,7 +915,7 @@ export record Listener is own.Closeable
             return nil, io.toError(failure)
         end
 
-        return new Stream(
+        return Stream(
             _provider = self._provider,
             _handle = handle,
             _closed = false,
@@ -1032,7 +1032,7 @@ export record Datagram is own.Closeable
             lease:commit(landed)
         end
 
-        return new Message(
+        return Message(
             len = landed,
             address = {host = host or "", port = peerPort or 0} as Address,
             truncated = cut or false
@@ -1154,7 +1154,7 @@ export function bind(options: DatagramOptions): (affine(Datagram)?, io.Error?)
         return nil, io.toError(why)
     end
 
-    return new Datagram(_provider = chosen, _handle = handle, _closed = false)
+    return Datagram(_provider = chosen, _handle = handle, _closed = false)
 end
 
 --- Opens a listener.
@@ -1191,7 +1191,7 @@ export function listen(options: ListenOptions): (affine(Listener)?, io.Error?)
         return nil, io.toError(why)
     end
 
-    return new Listener(_provider = chosen, _handle = handle, _closed = false, _highWater = DEFAULT_HIGH_WATER)
+    return Listener(_provider = chosen, _handle = handle, _closed = false, _highWater = DEFAULT_HIGH_WATER)
 end
 
 --- Opens a connection, resolving the peer's name off this frame.
@@ -1267,7 +1267,7 @@ export function connect(options: ConnectOptions): (affine(Stream)?, io.Error?)
         return nil, io.toError(failure)
     end
 
-    return new Stream(_provider = chosen, _handle = handle, _closed = false, _shutdown = false, _highWater = highWater)
+    return Stream(_provider = chosen, _handle = handle, _closed = false, _shutdown = false, _highWater = highWater)
 end
 
 ----------------------------------------------------------------------------

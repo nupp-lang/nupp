@@ -318,9 +318,13 @@ function doc.json(modules: {extractMod.Module}, annotationItems: {extractMod.Ite
             forms = value.forms and array(value.forms, form) or nil,
             raises = array(value.raises, raise),
             isFunction = value.isFunction,
+            instanceMethod = value.instanceMethod,
             isMetamethod = value.isMetamethod,
             isType = value.isType,
             signature = value.signature,
+            stored = value.stored,
+            defaultValue = value.defaultValue,
+            constructionBlocked = value.constructionBlocked,
             supertypes = value.supertypes and array(value.supertypes) or nil,
             comptimeKind = value.comptimeKind,
             lua = value.lua,
@@ -340,6 +344,7 @@ function doc.json(modules: {extractMod.Module}, annotationItems: {extractMod.Ite
             lua = value.lua,
             signature = value.signature,
             supertypes = value.supertypes and array(value.supertypes) or nil,
+            constructionBlocked = value.constructionBlocked,
             annotation = value.annotation,
             path = value.path,
             module = value.module,
@@ -477,6 +482,23 @@ local function loadModules(root, config, settings, requested)
                 if not held then
                     into.items[#into.items + 1] = item
                     byPath[item.path] = item
+                elseif held.kind == "type"
+                    and held.aliasSource
+                    and held.aliasSource:match("^([%w_%.]+)") == held.path
+                    and item.kind ~= "type"
+                then
+                    -- A facade can alias the ambient declaration at its own public
+                    -- path. Keep that declaration's structure, not the self-alias.
+                    if held.doc.text ~= "" then
+                        item.doc = held.doc
+                    end
+                    for index, existing in ipairs(into.items) do
+                        if existing == held then
+                            into.items[index] = item
+                            break
+                        end
+                    end
+                    byPath[item.path] = item
                 elseif held.doc.text == "" then
                     held.doc = item.doc
                 end
@@ -587,6 +609,7 @@ local function loadModules(root, config, settings, requested)
                     },
                     members = member.members or {},
                     supertypes = member.supertypes,
+                    constructionBlocked = member.constructionBlocked,
                     params = {},
                     returns = {},
                     raises = {},
@@ -682,6 +705,10 @@ local function loadModules(root, config, settings, requested)
 
     local function aliasTarget(item: any, module: any): any
         local aliasText = item.aliasSource and "= " .. item.aliasSource or item.signature
+        local required, selected = aliasText:match("=%s*require%s*%(%s*['\"]([^'\"]+)['\"]%s*%)%.([%w_%.]+)%s*$")
+        if required and selected then
+            return byPath[required .. "." .. selected]
+        end
         local path = aliasText:match("=%s*([%w_%.]+)%s*$") or aliasText:match("=%s*([%w_%.]+)%b<>%s*$")
         local direct = path and reference(path, module)
         if direct then
@@ -847,7 +874,8 @@ local function loadModules(root, config, settings, requested)
         context: any,
         module: any,
         binders: any,
-        declarationOffset: integer?
+        declarationOffset: integer?,
+        localNames: any
     ): string
         local tokens = lexerMod.lex(text)
         local scopes = {}
@@ -909,7 +937,7 @@ local function loadModules(root, config, settings, requested)
                 end
                 local source = not shadowed and not (nextToken and nextToken.text == ":") and reference(path, context)
                     or nil
-                local name = source and publicName(source, module) or nil
+                local name = source and (localNames[original(source, {})] or publicName(source, module)) or nil
                 if name then
                     parts[#parts + 1] = text:sub(at, token.offset - 1)
                     parts[#parts + 1] = name
@@ -997,6 +1025,12 @@ local function loadModules(root, config, settings, requested)
             return item
         end
         local context = declaringModule[candidate]
+        local localNames = {}
+
+        local function displayReferences(text, sourceContext, targetModule, binders, offset)
+            return references(text, sourceContext, targetModule, binders, offset, localNames)
+        end
+
         local expanded = copy(candidate)
         projectedAliases[expanded] = true
         expanded.name, expanded.path, expanded.module, expanded.line = item.name, item.path, item.module, item.line
@@ -1008,7 +1042,7 @@ local function loadModules(root, config, settings, requested)
         -- Rename the declaration before resolving its references so a public name
         -- cannot be mistaken for an unrelated declaration in the origin module.
         local signature, declarationOffset = renamed(expanded.signature, candidate.name:match("([%w_]+)$"), item.name)
-        expanded.signature = references(signature, context, module, binders, declarationOffset)
+        expanded.signature = displayReferences(signature, context, module, binders, declarationOffset)
         local documented, seen = item, {}
         while documented and not seen[documented] do
             seen[documented] = true
@@ -1022,21 +1056,79 @@ local function loadModules(root, config, settings, requested)
         local expanding = {}
 
         local function fields(value: any, path: string, sourceContext: any, parentBinders: any): nil
+            local parentNames = localNames
+            localNames = copy(parentNames)
             local binders = copy(parentBinders)
             for _, generic in ipairs(value.typeargs or {}) do
                 binders[generic.name] = true
             end
-            value.type = value.type and references(value.type, sourceContext, module, binders, nil) or nil
+            -- A facade can extend a private interface to add factories. Publish the
+            -- inherited contract here because that base has no public page to link.
+            local inherited = {}
+            local flattened = false
+            local bases = {}
+            local present = {}
+            for _, member in ipairs(value.members or {}) do
+                present[member.name] = true
+            end
+
+            local function inherit(owner, ownerContext)
+                for _, supertype in ipairs(owner.supertypes or {}) do
+                    local base = reference(supertype, ownerContext)
+                    base = base and original(base, {}) or nil
+                    local baseContext = base and declaringModule[base]
+                    if base
+                        and hiddenModule(baseContext)
+                        and not publicName(base, module)
+                        and #(base.typeargs or {}) == 0
+                        and not expanding[base]
+                    then
+                        expanding[base] = true
+                        flattened = true
+                        localNames[base] = value.name
+                        for _, member in ipairs(base.members or {}) do
+                            if not present[member.name] then
+                                local copied = copy(member)
+                                copied.path = path .. "." .. copied.name
+                                inherited[#inherited + 1] = {member = copied, context = baseContext}
+                                present[member.name] = true
+                            end
+                        end
+                        inherit(base, baseContext)
+                        expanding[base] = nil
+                    else
+                        bases[#bases + 1] = displayReferences(supertype, ownerContext, module, binders, nil)
+                    end
+                end
+            end
+
+            inherit(value, sourceContext)
+            value.supertypes = #bases > 0 and bases or nil
+            if value.signature and flattened then
+                local depth = 0
+                local tokens = lexerMod.lex(value.signature)
+                for _, token in ipairs(tokens) do
+                    if token.text == "is" and depth == 0 then
+                        value.signature = value.signature:sub(1, token.offset - 1):gsub("%s+$", "")
+                        break
+                    elseif token.text == "<" or token.text == "(" or token.text == "{" or token.text == "[" then
+                        depth = depth + 1
+                    elseif token.text == ">" or token.text == ")" or token.text == "}" or token.text == "]" then
+                        depth = depth - 1
+                    end
+                end
+                if #bases > 0 then
+                    value.signature = value.signature .. " is " .. table.concat(bases, ", ")
+                end
+            end
+            value.type = value.type and displayReferences(value.type, sourceContext, module, binders, nil) or nil
             if value.isType and value.signature then
                 local _, offset = renamed(value.signature, value.name, value.name)
-                value.signature = references(value.signature, sourceContext, module, binders, offset)
-            end
-            for index, supertype in ipairs(value.supertypes or {}) do
-                value.supertypes[index] = references(supertype, sourceContext, module, binders, nil)
+                value.signature = displayReferences(value.signature, sourceContext, module, binders, offset)
             end
             for _, key in ipairs({"params", "returns", "raises"}) do
                 for _, field in ipairs(value[key] or {}) do
-                    field.type = references(field.type, sourceContext, module, binders, nil)
+                    field.type = displayReferences(field.type, sourceContext, module, binders, nil)
                 end
             end
             for _, form in ipairs(value.forms or {}) do
@@ -1044,10 +1136,10 @@ local function loadModules(root, config, settings, requested)
                 for _, generic in ipairs(form.typeargs) do
                     formBinders[generic.name] = true
                 end
-                form.signature = references(form.signature, sourceContext, module, formBinders, nil)
+                form.signature = displayReferences(form.signature, sourceContext, module, formBinders, nil)
                 for _, parts in ipairs({form.params, form.returns, form.raises}) do
                     for _, part in ipairs(parts) do
-                        part.type = references(part.type, sourceContext, module, formBinders, nil)
+                        part.type = displayReferences(part.type, sourceContext, module, formBinders, nil)
                     end
                 end
             end
@@ -1069,6 +1161,7 @@ local function loadModules(root, config, settings, requested)
                         field.members = copy(target.members)
                         field.typeargs = copy(target.typeargs)
                         field.supertypes = copy(target.supertypes)
+                        field.constructionBlocked = target.constructionBlocked
                     elseif target.aliasSource then
                         field.type = target.aliasSource
                     end
@@ -1079,11 +1172,16 @@ local function loadModules(root, config, settings, requested)
                     expanding[target] = nil
                 end
             end
+            for _, entry in ipairs(inherited) do
+                fields(entry.member, entry.member.path, entry.context, binders)
+                value.members[#value.members + 1] = entry.member
+            end
+            localNames = parentNames
         end
 
         fields(expanded, item.path, context, binders)
         for _, raised in ipairs(expanded.doc.raises or {}) do
-            raised.type = references(raised.type, context, module, binders, nil)
+            raised.type = displayReferences(raised.type, context, module, binders, nil)
         end
 
         return expanded
@@ -1704,7 +1802,7 @@ memberOutline = function(members: {extractMod.Member}?): {pageMod.Entry}?
     for _, member in ipairs(members or {}) do
         entries[
             #entries + 1
-        ] = new pageMod.Entry(path = member.path, name = member.name, items = memberOutline(member.members))
+        ] = pageMod.Entry(path = member.path, name = member.name, items = memberOutline(member.members))
     end
 
     return #entries > 0 and entries or nil
@@ -1715,10 +1813,10 @@ local function appendOutline(items: {pageMod.Entry}, markdown: string?)
         local parent = items[#items]
         if heading.level > 2 and parent then
             local children = parent.items or {}
-            children[#children + 1] = new pageMod.Entry(path = heading.path, name = heading.name)
+            children[#children + 1] = pageMod.Entry(path = heading.path, name = heading.name)
             parent.items = children
         else
-            items[#items + 1] = new pageMod.Entry(path = heading.path, name = heading.name)
+            items[#items + 1] = pageMod.Entry(path = heading.path, name = heading.name)
         end
     end
 end
@@ -1829,7 +1927,7 @@ local function renderSite(root, outDir, modules, title, settings, standardLibrar
             -- it, so whichever of the two is rendered is the one the outline lists.
             appendOutline(items, overview ~= "" and overview or module.text)
             if #children > 0 or #module.items > 0 then
-                items[#items + 1] = new pageMod.Entry(path = "overview", name = "Overview")
+                items[#items + 1] = pageMod.Entry(path = "overview", name = "Overview")
             end
             local groups = itemGroups(module.items)
             for _, group in ipairs(groups) do
@@ -1838,11 +1936,11 @@ local function renderSite(root, outDir, modules, title, settings, standardLibrar
                     for _, item in ipairs(group.items) do
                         entries[
                             #entries + 1
-                        ] = new pageMod.Entry(path = item.path, name = item.name, items = memberOutline(item.members))
+                        ] = pageMod.Entry(path = item.path, name = item.name, items = memberOutline(item.members))
                     end
                     items[
                         #items + 1
-                    ] = new pageMod.Entry(
+                    ] = pageMod.Entry(
                         path = group.path == module.name and group.path .. "-group" or group.path,
                         name = group.title,
                         items = entries

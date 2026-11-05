@@ -11,7 +11,7 @@ local record User
     name: string
 end
 local users = serde.binding(User)
-local bytes = json.encode(users, new User(id = 7, name = "Ada"))
+local bytes = json.encode(users, User(id = 7, name = "Ada"))
 assert(bytes == '{"id":7,"name":"Ada"}')
 assert(json.decode(users, bytes).name == "Ada")
 ```
@@ -70,7 +70,7 @@ export type Binding<T> = core.Binding<T>
 ---     children: {Node} = {}
 --- end
 --- local nodes = serde.binding(Node)
---- local tree = new Node(name = "root", children = {new Node(name = "leaf")})
+--- local tree = Node(name = "root", children = {Node(name = "leaf")})
 --- assert(json.encode(nodes, tree) == '{"name":"root","children":[{"name":"leaf","children":[]}]}')
 --- ```
 ---
@@ -94,12 +94,12 @@ export const binding = declarations.binding
 ---     displayName: string
 ---     passwordHash: string?
 --- end
---- local public = serde.binding(Account, new serde.Options(
+--- local public = serde.binding(Account, serde.Options(
 ---     naming = "snakecase",
----     fields = {displayName = new serde.FieldOptions()},
+---     fields = {displayName = serde.FieldOptions()},
 ---     unknownmembers = "ignore"
 --- ))
---- assert(json.encode(public, new Account(displayName = "Ada", passwordHash = "x")) == '{"display_name":"Ada"}')
+--- assert(json.encode(public, Account(displayName = "Ada", passwordHash = "x")) == '{"display_name":"Ada"}')
 --- assert(json.decode(public, '{"display_name":"Ada","admin":true}').passwordHash == nil)
 --- ```
 ---
@@ -127,10 +127,10 @@ export const FieldOptions = declarations.FieldOptions
 --- local record Event
 ---     at: integer
 --- end
---- local events = serde.binding(Event, new serde.Options(
----     fields = {at = new serde.FieldOptions(representation = serde.iso8601seconds)}
+--- local events = serde.binding(Event, serde.Options(
+---     fields = {at = serde.FieldOptions(representation = serde.iso8601seconds)}
 --- ))
---- assert(json.encode(events, new Event(at = 0)) == '{"at":"1970-01-01T00:00:00Z"}')
+--- assert(json.encode(events, Event(at = 0)) == '{"at":"1970-01-01T00:00:00Z"}')
 --- assert(json.decode(events, '{"at":"1970-01-01T00:01:00Z"}').at == 60)
 --- ```
 export const iso8601seconds = declarations.iso8601seconds
@@ -194,8 +194,8 @@ export type Adapter<T, M is core.Member> = core.Adapter<T, M>
 ---     @readonly name: string
 ---     @readonly index: integer?
 --- end
---- local title: serde.Binding<string> = new serde.Bound<string, Member>(
----     adapter = adapters.text(new Member(name = "title"))
+--- local title: serde.Binding<string> = serde.Bound<string, Member>(
+---     adapter = adapters.text(Member(name = "title"))
 --- )
 --- assert(json.codec(json.membernamepolicy):encode(title, "Dune") == '"Dune"')
 --- ```

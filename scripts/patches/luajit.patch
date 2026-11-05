@@ -10,12 +10,12 @@ uint32_t as a halfword.
 @@ -409,7 +409,7 @@
  #define irt_is64(t)		((IRT_IS64 >> irt_type(t)) & 1)
  #define irt_is64orfp(t)		(((IRT_IS64|(1u<<IRT_FLOAT))>>irt_type(t)) & 1)
- 
+
 -#define irt_size(t)		(lj_ir_type_size[irt_t((t))])
 +#define irt_size(t)		(lj_ir_type_size[irt_type((t))])
- 
+
  LJ_DATA const uint8_t lj_ir_type_size[];
- 
+
 ARM64's JFORI, the loop entry once a numeric for loop has a trace, leaves PC
 at the loop body on its floating-point path when the loop runs no iterations,
 so the body ran once. Any bound that is not an int32 takes that path:
@@ -32,3 +32,56 @@ The integer path and the other VMs branch to the loop exit here.
        |  ldrh RCw, [RC, #-4+OFS_RD]
        |  bls =>BC_JLOOP
      } else if (op == BC_IFORL) {
+
+Darwin tmpfile uses a process-wide signal mask while unlinking its file.
+Concurrent Lua worker states can leave that mask blocked after returning.
+Create and unlink the temporary file without changing signals.
+
+--- a/src/lib_io.c
++++ b/src/lib_io.c
+@@ -26,6 +26,36 @@
+ #include "lj_ff.h"
+ #include "lj_lib.h"
+ #include "lj_strscan.h"
++
++#if LJ_TARGET_OSX
++#include <stdlib.h>
++#include <unistd.h>
++
++/* Darwin tmpfile() changes the process signal mask around unlink. Concurrent
++** calls can restore another thread's temporary mask and strand child exits.
++** An exclusively created, immediately unlinked file needs no signal masking.
++*/
++static FILE *io_tmpfile_open(void)
++{
++  char path[] = P_tmpdir "/lua_XXXXXX";
++  int fd = mkstemp(path);
++  FILE *fp;
++  if (fd < 0) return NULL;
++  if (unlink(path) != 0) {
++    int saved = errno;
++    close(fd);
++    errno = saved;
++    return NULL;
++  }
++  fp = fdopen(fd, "w+b");
++  if (!fp) {
++    int saved = errno;
++    close(fd);
++    errno = saved;
++  }
++  return fp;
++}
++#endif
+
+ /* Userdata payload for I/O file. */
+ typedef struct IOFileUD {
+@@ -444,6 +474,8 @@
+   IOFileUD *iof = io_file_new(L);
+ #if LJ_TARGET_PS3 || LJ_TARGET_PS4 || LJ_TARGET_PS5 || LJ_TARGET_PSVITA || LJ_TARGET_NX
+   iof->fp = NULL; errno = ENOSYS;
++#elif LJ_TARGET_OSX
++  iof->fp = io_tmpfile_open();
+ #else
+   iof->fp = tmpfile();
+ #endif

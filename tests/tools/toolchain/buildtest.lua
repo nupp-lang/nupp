@@ -739,7 +739,7 @@ function M.jsonBuildReportsColdAndWarmDeriveObservations()
 local record Model
     value: integer = 0
 end
-return new Model()
+return Model()
 ]],
     })
     local first = require("testjson").decode(captureJson(("cd '%s' && '%s' build --json"):format(dir, NUPP)))

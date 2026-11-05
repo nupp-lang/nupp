@@ -1716,40 +1716,40 @@ local jit: {
 -- debug
 ----------------------------------------------------------------------------
 
---- Describes the outcome of a cooperative reload poll.
----
---- The four answers are `"prepared"`, when a patch was staged and committed and
---- `generation` is now the live one; `"no-change"`, when no watched input moved;
---- `"diagnostics"`, when the change did not check and the running generation stands;
---- and `"restart-required"`, when the change is well-typed but outside what a live
---- process can take.
----
---- The fields past `kind` are the ones that answer carries, so read them after
---- branching on it rather than before.
-record debug.ReloadPoll
-    kind: string
-
-    --- Present on `"prepared"` and `"no-change"`. On the first it is the generation
-    --- now running; on the second, the one that stayed.
-    generation: integer?
-
-    --- Optional transaction metadata. The watch poll leaves this nil; a
-    --- `"prepared"` result reports the committed `generation` instead.
-    patch: string?
-
-    --- Optional transaction metadata. The watch poll leaves this nil.
-    basegeneration: integer?
-
-    --- Why the change was refused, on `"diagnostics"` and `"restart-required"`.
-    diagnostics: {any}?
-
-    --- Which boundary refused it, where a restart answer could name one.
-    reason: any
-end
-
 --- Cooperative hot reload installed only while `nupp run --watch` is active.
 --- @internal
-record nupp.HotReload
+record debug.reload
+    --- Describes the outcome of a cooperative reload poll.
+    ---
+    --- The four answers are `"prepared"`, when a patch was staged and committed and
+    --- `generation` is now the live one; `"no-change"`, when no watched input moved;
+    --- `"diagnostics"`, when the change did not check and the running generation
+    --- stands; and `"restart-required"`, when the change is well-typed but outside what
+    --- a live process can take.
+    ---
+    --- The fields past `kind` are the ones that answer carries, so read them after
+    --- branching on it rather than before.
+    record ReloadPoll
+        kind: string
+
+        --- Present on `"prepared"` and `"no-change"`. On the first it is the generation
+        --- now running; on the second, the one that stayed.
+        generation: integer?
+
+        --- Optional transaction metadata. The watch poll leaves this nil; a
+        --- `"prepared"` result reports the committed `generation` instead.
+        patch: string?
+
+        --- Optional transaction metadata. The watch poll leaves this nil.
+        basegeneration: integer?
+
+        --- Why the change was refused, on `"diagnostics"` and `"restart-required"`.
+        diagnostics: {any}?
+
+        --- Which boundary refused it, where a restart answer could name one.
+        reason: any
+    end
+
     --- Returns the currently committed implementation generation.
     generation: @nosuspend function(): integer
 
@@ -1758,7 +1758,7 @@ record nupp.HotReload
     --- Branch on `kind`: a poll that published reports `"prepared"`, one that found
     --- nothing reports `"no-change"`, and the two refusals are told apart by whether
     --- restarting is what it would take.
-    poll: function(): debug.ReloadPoll
+    poll: function(): ReloadPoll
 end
 
 --- The debug interface: stack inspection, hooks, locals and upvalues. Using it costs
@@ -1769,7 +1769,7 @@ local debug: {
     ---
     --- Installed only while `nupp run --watch` is active.
     --- @namespace debug.reload
-    reload: nupp.HotReload,
+    reload: debug.reload,
 
     --- Describes a function, or the activation record at a stack level.
     ---

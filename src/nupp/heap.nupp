@@ -133,7 +133,7 @@ function heap.alloc<T>(element: ctype<T>, count: integer): affine(heap.Array<T>,
 
     @unsafe do
         local pointer = storage.allocarray(element, count) as T[?]
-        local array = new heap.Array(pointer = pointer, count = count) as heap.Array<T>
+        local array = heap.Array(pointer = pointer, count = count) as heap.Array<T>
         return array
     end
 end

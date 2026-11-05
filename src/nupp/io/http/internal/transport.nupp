@@ -376,7 +376,7 @@ local record Client is NativeClient
         if handle == nil then
             return nil, problem, capacity
         end
-        local transfer = new Transfer(_client = self, _handle = handle, _body = nil, _closed = false)
+        local transfer = Transfer(_client = self, _handle = handle, _body = nil, _closed = false)
         self._byHandle[handle] = transfer
 
         return transfer, nil, nil
@@ -481,7 +481,7 @@ export function newClient(options: any): (NativeClient?, string?)
         return nil, problem
     end
 
-    return new Client(
+    return Client(
         _handle = handle,
         _closed = false,
         _byHandle = {},

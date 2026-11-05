@@ -1,0 +1,19 @@
+#!/bin/sh
+# Keep the old parser independent of the compiler currently built in this checkout.
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+MIGRATION_STAGE0=$("$ROOT/scripts/toolchain" migration-stage0)
+NUPP_MIGRATION_COMPILER_ROOT=$(dirname "$MIGRATION_STAGE0")
+NUPP_COMPILER_ROOT=$NUPP_MIGRATION_COMPILER_ROOT
+NUPP_STAGE0=$MIGRATION_STAGE0
+NUPP_NATIVE_LIBRARY=${NUPP_NATIVE_LIBRARY:-$("$ROOT/scripts/toolchain" native-rust base,files,process)}
+MIGRATION_LUAJIT=$("$ROOT/scripts/toolchain" luajit)
+MIGRATION_LPEG=$("$ROOT/scripts/toolchain" lpeg)
+LUA_PATH="$NUPP_MIGRATION_COMPILER_ROOT/build/?.lua;$ROOT/tests/?.lua;$MIGRATION_LPEG/share/?.lua;${LUA_PATH:-;}"
+LUA_CPATH="$MIGRATION_LPEG/lib/?.so;$MIGRATION_LPEG/lib/?.dll;${LUA_CPATH:-;}"
+export NUPP_MIGRATION_COMPILER_ROOT NUPP_COMPILER_ROOT NUPP_STAGE0 NUPP_NATIVE_LIBRARY LUA_PATH LUA_CPATH
+if [ "${1:-}" = --self-test ]; then
+    shift
+    exec "$MIGRATION_LUAJIT/bin/luajit" "$ROOT/scripts/test-construction-migration.lua" "$@"
+fi
+exec "$MIGRATION_LUAJIT/bin/luajit" "$ROOT/scripts/migrate-construction.lua" "$@"

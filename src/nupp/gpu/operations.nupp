@@ -3,9 +3,9 @@ module nupp.gpu.operations
 
 local api = require("nupp.gpu.api")
 local types = require("nupp.gpu.types")
-local tensorlayout = require("io.gpu.layout")
+local tensorlayout = require("nupp.gpu.layout")
 local layoutFacts = require("nupp.gpu.layoutfacts").layoutFacts
-local {type Layout as TensorLayout} = require("io.gpu.layout")
+local {type Layout as TensorLayout} = require("nupp.gpu.layout")
 local array = require("nupp.array")
 local gpu = {}
 
@@ -122,7 +122,7 @@ function gpu.Phases.scratch<T>(borrows self: gpu.Phases, initial: T, count: inte
         values[index] = initial
     end
 
-    return new types.Shared(_values = values, count = size)
+    return types.Shared(_values = values, count = size)
 end
 
 function gpu.Phases.run(borrows self: gpu.Phases, scoped stage: function(uint32): nil): nil
@@ -199,25 +199,9 @@ function gpu.Phases.inclusivescan(
     end
 end
 
---- Executes uniformly ordered workgroup phases on the CPU.
----
---- A GPU AOT body recognizes this call and its immediate callbacks as
---- structure: the controller does not escape, each `run` is a device barrier,
---- and each stage invocation becomes one local lane. It runs `groups`
---- groups, 0 through `groups - 1`, and the device runs the same ones: the
---- kernel's required `u32.div(#span, size)` never visits a partial group.
---- @export
---- @raises string when size is outside the portable workgroup limit
-function gpu.workgroups(groups: uint32, size: uint32, scoped controller: function(uint32, gpu.Phases): nil): nil
-    local groupCount = groups as integer
-    local groupSize = size as integer
-    if groupSize < 1 or groupSize > gpu.PORTABLE_WORKGROUP_THREADS then
-        error("nupp: GPU workgroup size exceeds the portable limit", 2)
-    end
-    local phases = new types.Phases(_size = groupSize)
-    for groupIndex = 0, groupCount - 1 do
-        controller(math.u32.wrap(groupIndex), phases)
-    end
+--- Creates CPU phase state after its methods have been installed.
+function gpu.phases(size: integer): api.Phases
+    return types.Phases(_size = size)
 end
 
 --- The C type a buffer element names: the scalar an array witness stands for,
@@ -273,7 +257,7 @@ end
 
 function gpu.Buffer.layout<T>(borrows buffer: gpu.Buffer<T>): TensorLayout
     liveBuffer(buffer._state)
-    return tensorlayout.new(buffer._shape, buffer._strides, buffer._offset)
+    return tensorlayout.Layout(buffer._shape, buffer._strides, buffer._offset)
 end
 
 function gpu.Buffer.view<T>(borrows buffer: gpu.Buffer<T>, layout: TensorLayout): affine(gpu.Buffer<T>) borrows (buffer)
@@ -284,7 +268,7 @@ function gpu.Buffer.view<T>(borrows buffer: gpu.Buffer<T>, layout: TensorLayout)
         error("nupp: GPU tensor view exceeds its allocation", 2)
     end
 
-    return new types.Buffer<T>(
+    return types.Buffer<T>(
         _elementType = nil,
         _anchor = buffer,
         _context = buffer._context,
@@ -328,7 +312,7 @@ function gpu.Buffer.subview<T>(
         error("nupp: GPU tensor subview exceeds its allocation", 2)
     end
 
-    return new types.Buffer<T>(
+    return types.Buffer<T>(
         _elementType = nil,
         _anchor = self,
         _context = self._context,

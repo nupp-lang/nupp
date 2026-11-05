@@ -62,7 +62,7 @@ record m.Point
     end
 end
 
-return (new m.Point(x = 3, y = 4)):lengthSquared()
+return (m.Point(x = 3, y = 4)):lengthSquared()
 ]],
         "written-out self"
     )
@@ -100,7 +100,7 @@ record m.P
         return 42
     end
 end
-return (new m.P(n = 4)):twice() + m.P.answer()
+return (m.P(n = 4)):twice() + m.P.answer()
 ]],
         "static and instance functions"
     )
@@ -120,7 +120,7 @@ record m.Adder
     end
 end
 
-return (new m.Adder(base = 1)):plus(2, 3)
+return (m.Adder(base = 1)):plus(2, 3)
 ]],
         "self plus parameters"
     )
@@ -161,7 +161,7 @@ local record Decoder
         return "integer:" .. tostring(value)
     end
 end
-local decoder = new Decoder()
+local decoder = Decoder()
 return decoder:decode("hello") .. "," .. decoder:decode(7)
 ]],
         "overloaded bodies"
@@ -205,7 +205,7 @@ end
 local calls = 0
 local function decoder(): Decoder
     calls = calls + 1
-    return new Decoder()
+    return Decoder()
 end
 return decoder():decode("once") .. ":" .. tostring(calls)
 ]],
@@ -220,7 +220,7 @@ local record Decoder
     function decode(self, text: string): string return text end
     function decode(self, value: integer): string return tostring(value) end
 end
-local decoder = new Decoder()
+local decoder = Decoder()
 ]]
     testAssert.eq(diagnostics(declaration .. "decoder:decode(true)"), "NUPP2125:6")
     testAssert.eq(diagnostics(declaration .. "local value: any = 1\ndecoder:decode(value)"), "NUPP2126:7")
@@ -254,7 +254,7 @@ local record LoudDecoder is Decoder
     function decode(self, text: string): string return "loud:" .. text end
 end
 
-local decoder: Decoder = new LoudDecoder()
+local decoder: Decoder = LoudDecoder()
 return decoder:decode("yes") .. "," .. decoder:decode(3)
 ]],
         "overloaded interface defaults"
@@ -276,7 +276,7 @@ end
 local record Decoder is TextDecoder, NumberDecoder
 end
 
-local decoder = new Decoder()
+local decoder = Decoder()
 return decoder:decode("yes") .. "," .. decoder:decode(3)
 ]],
         "distributed interface overloads"
@@ -297,7 +297,7 @@ local record Decoder is DecoderContract
     function decode(self, value: integer): string return "number:" .. tostring(value) end
 end
 
-local decoder: DecoderContract = new Decoder()
+local decoder: DecoderContract = Decoder()
 return decoder:decode("yes") .. "," .. decoder:decode(3)
 ]],
         "bodyless overloaded interface contract"
@@ -318,7 +318,7 @@ local record Decoder is DecoderContract
     function decode(self, value: string): string return "value:" .. value end
 end
 
-local decoder: DecoderContract = new Decoder()
+local decoder: DecoderContract = Decoder()
 return decoder:decode(text = "yes") .. "," .. decoder:decode(value = "yes")
 ]],
         "labeled bodyless interface contract"
@@ -334,7 +334,7 @@ local record Codec<T>
     function encode(self, values: {T}): string return "many:" .. tostring(values[1]) end
 end
 
-local codec = new Codec<integer>()
+local codec = Codec<integer>()
 return codec:encode(4) .. "," .. codec:encode({5})
 ]],
         "generic overloaded methods"
@@ -354,9 +354,9 @@ local record Reader
     function call(self, callback: function(): string): string return callback() end
     function call(self, callback: function(): integer): string return tostring(callback()) end
 end
-local reader = new Reader()
-return reader:read(new Box<string>(value = "yes"))
-    .. "," .. reader:read(new Box<integer>(value = 3))
+local reader = Reader()
+return reader:read(Box<string>(value = "yes"))
+    .. "," .. reader:read(Box<integer>(value = 3))
     .. "," .. reader:call(function(): string return "done" end)
     .. "," .. reader:call(function(): integer return 4 end)
 ]],

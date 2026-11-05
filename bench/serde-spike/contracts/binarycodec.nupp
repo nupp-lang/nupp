@@ -16,7 +16,7 @@ local record Numbers is codec.Policy
         return member.index or 1
     end
 end
-local policy = new Numbers()
+local policy = Numbers()
 local binary = codec.codec(policy)
 local record Packet
     name: string
@@ -24,7 +24,7 @@ local record Packet
     pair: {int32, string}
 end
 local binding = declarations.binding(Packet)
-local packet = new Packet(name = "direct", serial = 18446744073709551615ULL, pair = {-32768, "pair"})
+local packet = Packet(name = "direct", serial = 18446744073709551615ULL, pair = {-32768, "pair"})
 local bytes = binary:encode(binding, packet)
 local restored = binary:decode(binding, bytes)
 assert2(
@@ -47,7 +47,7 @@ local reordered = syntax.encode({entries[3], entries[1], entries[2]})
 assert2(binary:decode(binding, reordered).serial == packet.serial)
 assert2(not pcall(binary.decode, binary, binding, bytes:sub(1, #bytes - 1)))
 assert2(not pcall(binary.decode, binary, binding, syntax.encode({entries[1], entries[1], entries[2], entries[3]})))
-local extended = new syntax.Entry(field = entries[3].field, bytes = entries[3].bytes .. "\0")
+local extended = syntax.Entry(field = entries[3].field, bytes = entries[3].bytes .. "\0")
 assert2(not pcall(binary.decode, binary, binding, syntax.encode({entries[1], entries[2], extended})))
 
 -- Reuse the declaration's public field operations with dense indexed storage.
@@ -86,7 +86,7 @@ local record IndexStructure<
         assert2(additional == nil, "this indexed fixture needs fixed known fields")
         local layout = indexed.layout(member)
         for _, field in ipairs(fields) do
-            field:accept(new IndexField<T, S, M>(layout = layout, required = field.required))
+            field:accept(IndexField<T, S, M>(layout = layout, required = field.required))
         end
 
         return layout:binding()
@@ -98,7 +98,7 @@ local record IndexBinding<T> is core.Consumer<T, nil, core.Binding<indexed.Index
         adapter: core.Adapter<T, M>,
         borrows state: nil
     ): core.Binding<indexed.IndexedValue>
-        return assert2(structure.inspect(adapter, new IndexStructure<T, M>()))
+        return assert2(structure.inspect(adapter, IndexStructure<T, M>()))
     end
 end
 -- Declaration bindings wrap their structure adapter, so use a separately owned
@@ -107,9 +107,9 @@ local record Member is core.Member
     @readonly name: string
     @readonly index: integer?
 end
-local root = new Member(name = "Envelope")
-local name = new Member(name = "name", index = 1)
-local blob = new Member(name = "blob", index = 2)
+local root = Member(name = "Envelope")
+local name = Member(name = "name", index = 1)
+local blob = Member(name = "blob", index = 2)
 local record Captured
     @readonly field: syntax.Field
     @readonly value: documents.Document
@@ -128,12 +128,12 @@ local record Builder is own.Closeable
 end
 local record Construction is structure.Construction<Envelope, Builder>
     function begin(self): Builder
-        return new Builder()
+        return Builder()
     end
 
     function finish(self, takes state: Builder): Envelope
         local owned: Builder = state
-        local value = new Envelope(name = assert2(owned.name), blob = assert2(owned.blob), unknown = owned.unknown)
+        local value = Envelope(name = assert2(owned.name), blob = assert2(owned.blob), unknown = owned.unknown)
         owned:close()
         return value
     end
@@ -147,7 +147,7 @@ local record Unknown is core.UnknownConsumer<Builder>
     ): nil
         state.unknown[
             #state.unknown + 1
-        ] = new Captured(field = syntax.identity(identity), value = reader:capturevalue(documents.adapter()))
+        ] = Captured(field = syntax.identity(identity), value = reader:capturevalue(documents.adapter()))
     end
 end
 local record Additional is core.Members<Member, Envelope>
@@ -183,21 +183,19 @@ local fields: {structure.Field<Envelope, Builder, Member>} = {
         false
     )
 }
-local plain = new core.Bound<Envelope, Member>(
-    adapter = structure.structure(root, fields, new Construction(), nil, nil)
-)
-local dynamic = plain:accept(new IndexBinding<Envelope>(), nil)
-local envelope = new Envelope(name = "wire", blob = "\0\255bytes")
+local plain = core.Bound<Envelope, Member>(adapter = structure.structure(root, fields, Construction(), nil, nil))
+local dynamic = plain:accept(IndexBinding<Envelope>(), nil)
+local envelope = Envelope(name = "wire", blob = "\0\255bytes")
 local encoded = binary:encode(plain, envelope)
 local indexedValue = binary:decode(dynamic, encoded)
 assert2(binary:encode(dynamic, indexedValue) == encoded)
 assert2(bridge.into(plain, bridge.from(dynamic, indexedValue)).blob == envelope.blob)
-local opened = new core.Bound<Envelope, Member>(
-    adapter = structure.structure(root, fields, new Construction(), new Unknown(), new Additional())
+local opened = core.Bound<Envelope, Member>(
+    adapter = structure.structure(root, fields, Construction(), Unknown(), Additional())
 )
 local reader = syntax.reader(encoded)
 local first, second = assert2(reader:next()), assert2(reader:next())
-local future = new syntax.Entry(field = new syntax.Field(number = 47, wire = 200), bytes = "\0future\255")
+local future = syntax.Entry(field = syntax.Field(number = 47, wire = 200), bytes = "\0future\255")
 local captured = binary:decode(opened, syntax.encode({future, second, first}))
 assert2(captured.blob == envelope.blob and #captured.unknown == 1)
 assert2(captured.unknown[1].field.number == 47 and captured.unknown[1].field.wire == 200)
@@ -207,9 +205,9 @@ assert2(assert2(replay:next()).bytes == envelope.blob)
 assert2(assert2(replay:next()).bytes == future.bytes)
 assert2(replay:next() == nil)
 assert2(not pcall(binary.decode, binary, plain, syntax.encode({first, second, future})))
-local foreign = codec.codec(new Numbers())
+local foreign = codec.codec(Numbers())
 assert2(not pcall(foreign.encode, foreign, opened, captured))
-local wrongWire = new syntax.Entry(field = new syntax.Field(number = 1, wire = 2), bytes = "name")
+local wrongWire = syntax.Entry(field = syntax.Field(number = 1, wire = 2), bytes = "name")
 assert2(not pcall(binary.decode, binary, opened, syntax.encode({wrongWire, second})))
 
 local record Skip is core.UnknownConsumer<Builder>
@@ -222,10 +220,8 @@ local record Skip is core.UnknownConsumer<Builder>
         reader:skipvalue()
     end
 end
-local skipping = new core.Bound<Envelope, Member>(
-    adapter = structure.structure(root, fields, new Construction(), new Skip(), nil)
-)
+local skipping = core.Bound<Envelope, Member>(adapter = structure.structure(root, fields, Construction(), Skip(), nil))
 local skipped = binary:decode(skipping, syntax.encode({future, first, second}))
 assert2(skipped.name == envelope.name and #skipped.unknown == 0)
-local malformed = new syntax.Entry(field = first.field, bytes = "\255")
+local malformed = syntax.Entry(field = first.field, bytes = "\255")
 assert2(not pcall(binary.decode, binary, plain, syntax.encode({malformed, second})))

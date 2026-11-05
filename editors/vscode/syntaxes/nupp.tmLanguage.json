@@ -473,10 +473,6 @@
         },
         {
           "name": "keyword.control.nupp",
-          "match": "\\bnew\\b(?=\\s+[A-Za-z_][A-Za-z0-9_.]*\\s*(?:\\(|\\{|\"|'))"
-        },
-        {
-          "name": "keyword.control.nupp",
           "match": "\\bmatches\\b(?!\\s*:)"
         },
         {
@@ -501,9 +497,9 @@
           "match": "\\b(?:borrows|exclusive|out|scoped|takes|releases|retains)\\b(?=\\s+[A-Za-z_][A-Za-z0-9_]*\\s*:)"
         },
         {
-          "comment": "borrows after a return type names the parameter the result borrows from",
+          "comment": "borrows after a return type introduces its parenthesized source list",
           "name": "storage.modifier.ownership.nupp",
-          "match": "\\bborrows\\b(?=[ \\t]+[A-Za-z_][A-Za-z0-9_]*[ \\t]*$)"
+          "match": "\\bborrows\\b(?=[ \\t]*\\()"
         },
         {
           "match": "(\\))([ \\t]*)(:)([ \\t]*)([A-Za-z_][A-Za-z0-9_]*)([ \\t]+)(is)\\b",

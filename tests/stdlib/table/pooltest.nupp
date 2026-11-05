@@ -1,5 +1,6 @@
 -- table.Pool: retained record instances, cleared on release.
-const {type Pool, newpool as newPool} = require("table")
+local {type Pool} = require("table")
+const Pool = table.Pool
 local test = require("assert")
 
 local M = {}
@@ -53,7 +54,7 @@ end
 
 function M.publicPoolPreservesTheHostTableAndRecordIdentity(): nil
     local tables = require("table")
-    local events: Pool<Event> = tables.newpool(Event, 1)
+    local events: Pool<Event> = tables.Pool(Event, 1)
     test.eq(tables, table)
     test.eq(getmetatable(events), tables.Pool)
     local event = events:acquire()
@@ -67,14 +68,14 @@ function M.publicPoolPreservesTheHostTableAndRecordIdentity(): nil
 end
 
 function M.newReservesTheCapacityUpFront(): nil
-    local events = newPool(Event, 4)
+    local events = Pool(Event, 4)
     test.eq(events.capacity, 4)
     test.eq(events:free(), 4)
     test.eq(events:live(), 0)
-    test.eq(newPool(Event).capacity, 32)
+    test.eq(Pool(Event).capacity, 32)
     test.raises(
         function()
-            newPool(Event, -1)
+            Pool(Event, -1)
         end,
         "negative"
     )
@@ -84,27 +85,27 @@ function M.invalidSizesAndWitnessesAreRefused(): nil
     for _, size in ipairs({-1, 0.5, math.huge, 0 / 0}) do
         test.raises(
             function()
-                (newPool as any)(Event, size)
+                (Pool as any)(Event, size)
             end,
             "nonnegative integer"
         )
     end
     test.raises(
         function()
-            (newPool as any)(Event, false)
+            (Pool as any)(Event, false)
         end,
         "nonnegative integer"
     )
     test.raises(
         function()
-            (newPool as any)({}, 1)
+            (Pool as any)({}, 1)
         end,
         "record or struct declaration"
     )
 end
 
 function M.acquireStampsTheDeclarationWithNoFieldsSet(): nil
-    local events = newPool(Event, 2)
+    local events = Pool(Event, 2)
     local event = events:acquire()
     test(event is Event, "the instance carries the record's metatable")
     test(hasNoFields(event), "a fresh instance has no fields")
@@ -114,7 +115,7 @@ function M.acquireStampsTheDeclarationWithNoFieldsSet(): nil
 end
 
 function M.reserveThenAcquireWithinCapacityAllocatesNothing(): nil
-    local events = newPool(Event, 64)
+    local events = Pool(Event, 64)
 
     local function churn(rounds: integer): nil
         for _ = 1, rounds do
@@ -157,7 +158,7 @@ function M.reserveThenAcquireWithinCapacityAllocatesNothing(): nil
 end
 
 function M.releaseClearsEveryField(): nil
-    local events = newPool(Event, 1)
+    local events = Pool(Event, 1)
     local event = events:acquire()
     event.x = 7
     event.name = "seven"
@@ -171,7 +172,7 @@ function M.releaseClearsEveryField(): nil
 end
 
 function M.instancesAreDistinctWhileLive(): nil
-    local events = newPool(Event, 3)
+    local events = Pool(Event, 3)
     local seen: {[Event]: boolean} = {}
     local held: {Event} = {}
     for index = 1, 8 do
@@ -193,7 +194,7 @@ function M.instancesAreDistinctWhileLive(): nil
 end
 
 function M.growthAndReleaseRetainAllInstances(): nil
-    local events = newPool(Event, 2)
+    local events = Pool(Event, 2)
     local held: {Event} = {}
     for index = 1, 5 do
         held[index] = events:acquire()
@@ -208,7 +209,7 @@ function M.growthAndReleaseRetainAllInstances(): nil
 end
 
 function M.reserveTopsTheFreeListUp(): nil
-    local events = newPool(Event, 4)
+    local events = Pool(Event, 4)
     local held: {Event} = {}
     for index = 1, 4 do
         held[index] = events:acquire()
@@ -234,7 +235,7 @@ function M.reserveTopsTheFreeListUp(): nil
 end
 
 function M.resetWithLiveInstancesRaisesAndChangesNothing(): nil
-    local events = newPool(Event, 3)
+    local events = Pool(Event, 3)
     local event = events:acquire()
     test.raises(
         function()
@@ -255,7 +256,7 @@ function M.resetWithLiveInstancesRaisesAndChangesNothing(): nil
 end
 
 function M.resetKeepsInstancesAndRestartsAcquisitionCount(): nil
-    local events = newPool(Event, 2)
+    local events = Pool(Event, 2)
     local first = events:acquire()
     local second = events:acquire()
     local third = events:acquire()
@@ -276,7 +277,7 @@ function M.resetKeepsInstancesAndRestartsAcquisitionCount(): nil
 end
 
 function M.zeroSizeStartsEmptyAndStillReusesInstances(): nil
-    local events = newPool(Event, 0)
+    local events = Pool(Event, 0)
     test.eq(events.capacity, 0)
     test.eq(events:pages(), 0)
     local event = events:acquire()
@@ -291,10 +292,10 @@ function M.zeroSizeStartsEmptyAndStillReusesInstances(): nil
 end
 
 function M.releaseRefusesWhatThePoolDidNotStamp(): nil
-    local events = newPool(Event, 1)
+    local events = Pool(Event, 1)
     test.raises(
         function()
-            events:release(new Event(x = 1))
+            events:release(Event(x = 1))
         end,
         "without a live lease"
     )
@@ -309,7 +310,7 @@ function M.releaseRefusesWhatThePoolDidNotStamp(): nil
 end
 
 function M.releaseRefusesValuesNotLiveInThatPool(): nil
-    local events = newPool(Event, 2)
+    local events = Pool(Event, 2)
     local first = events:acquire()
     local second = events:acquire()
     events:release(first)
@@ -322,7 +323,7 @@ function M.releaseRefusesValuesNotLiveInThatPool(): nil
     test.eq(events:live(), 1)
     test.eq(events:free(), 1)
 
-    local other = newPool(Event, 1)
+    local other = Pool(Event, 1)
     local foreign = other:acquire()
     test.raises(
         function()

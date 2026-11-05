@@ -405,8 +405,8 @@ local struct Node
     value: int32
 end
 
-local head = new Node(nil, 1)
-local tail = new Node(nil, 2)
+local head = Node(nil, 1)
+local tail = Node(nil, 2)
 head.next = tail
 return types.layoutof(Node).size
 ]],
@@ -423,8 +423,8 @@ local struct Node
     value: int32
 end
 
-local head = new Node(nil, 1)
-local tail = new Node(nil, 2)
+local head = Node(nil, 1)
+local tail = Node(nil, 2)
 head.next = tail
 local value: int32 = 0
 @unsafe do
@@ -491,8 +491,8 @@ local struct B
     n: int32
 end
 
-local x = new A(nil, 7)
-local y = new B(nil, 8)
+local x = A(nil, 7)
+local y = B(nil, 8)
 x.b = y
 y.a = x
 local total: integer = 0
@@ -557,7 +557,7 @@ local struct Vertex
     id: int32
 end
 
-local v = new Vertex()
+local v = Vertex()
 v.pos[0] = 1.5
 v.pos[2] = 3.5
 v.id = 7

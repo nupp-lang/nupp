@@ -52,7 +52,7 @@ local record Selected<T is own.Copyable> is Registered
             return nil
         end
 
-        return new Entry(name = self.name, version = self.version, value = bridge.fromBinding(self.binding, value))
+        return Entry(name = self.name, version = self.version, value = bridge.fromBinding(self.binding, value))
     end
 
     function restore(self, store: util.Store, entry: Entry): nil
@@ -134,13 +134,7 @@ local record Owned is Registry
         assert2(name ~= "" and self.names[name] == nil, "duplicate or empty persistent name")
         assert2(not self.keys[key.id], "store key already has a persistence binding")
         assert2(version >= 1 and version % 1 == 0, "invalid persistence version")
-        local entry = new Selected<T>(
-            name = name,
-            key = key,
-            binding = binding,
-            version = version,
-            migration = migration
-        )
+        local entry = Selected<T>(name = name, key = key, binding = binding, version = version, migration = migration)
         self.names[name] = entry
         self.keys[key.id] = true
         self.ordered[#self.ordered + 1] = entry
@@ -155,7 +149,7 @@ local record Owned is Registry
             end
         end
 
-        return new Snapshot(entries = entries)
+        return Snapshot(entries = entries)
     end
 
     function load(self, snapshot: Snapshot, unknown: "reject" | "skip"): util.Store
@@ -177,7 +171,7 @@ local record Owned is Registry
     end
 end
 export function registry(): Registry
-    return new Owned()
+    return Owned()
 end
 
 local scalar = require("nupp.serde.internal.scalar")
@@ -186,15 +180,15 @@ local record Mapping is scalar.Conversion<Snapshot, documents.Document>
         local entries: {documents.Document} = {}
         for _, entry in ipairs(value.entries) do
             entries[#entries + 1] = documents.object({
-                new documents.Entry(name = "name", value = documents.string(entry.name)),
-                new documents.Entry(name = "version", value = documents.numberToken(tostring(entry.version))),
-                new documents.Entry(name = "value", value = documents.document(entry.value))
+                documents.Entry(name = "name", value = documents.string(entry.name)),
+                documents.Entry(name = "version", value = documents.numberToken(tostring(entry.version))),
+                documents.Entry(name = "value", value = documents.document(entry.value))
             })
         end
 
         return documents.object({
-            new documents.Entry(name = "format", value = documents.numberToken(tostring(value.format))),
-            new documents.Entry(name = "entries", value = documents.list(entries))
+            documents.Entry(name = "format", value = documents.numberToken(tostring(value.format))),
+            documents.Entry(name = "entries", value = documents.list(entries))
         })
     end
 
@@ -220,16 +214,16 @@ local record Mapping is scalar.Conversion<Snapshot, documents.Document>
             end
             result[
                 #result + 1
-            ] = new Entry(name = assert2(entry:get("name")):string(), version = version as integer, value = contents)
+            ] = Entry(name = assert2(entry:get("name")):string(), version = version as integer, value = contents)
         end
 
-        return new Snapshot(entries = result)
+        return Snapshot(entries = result)
     end
 end
 -- A document member, so every codec's default policy reads the snapshot.
-local member = new documents.Member(name = "$store")
-local selected: core.Binding<Snapshot> = new core.Bound<Snapshot, documents.Member>(
-    adapter = scalar.convert(scalar.document(member, documents.documentAdapter()), new Mapping())
+local member = documents.Member(name = "$store")
+local selected: core.Binding<Snapshot> = core.Bound<Snapshot, documents.Member>(
+    adapter = scalar.convert(scalar.document(member, documents.documentAdapter()), Mapping())
 )
 export function binding(): core.Binding<Snapshot>
     return selected

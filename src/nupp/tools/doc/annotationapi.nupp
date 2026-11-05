@@ -80,7 +80,7 @@ local function item(name: string, definition: any, directive: boolean?): Item
         local member = definition.members[memberName]
         value.members[
             #value.members + 1
-        ] = new extractMod.Member(
+        ] = extractMod.Member(
             name = memberName,
             type = member.reference and (member.optional and "type?" or "type") or member.type.text,
             text = member.doc or "",

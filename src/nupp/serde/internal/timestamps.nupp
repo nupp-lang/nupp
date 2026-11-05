@@ -43,7 +43,7 @@ export function parseDateTime(text: string): core.Timestamp
         days += 1
     end
 
-    return new core.Timestamp(seconds = tostring(days * 86400 + hour * 3600 + min * 60 + sec), nanos = nanos)
+    return core.Timestamp(seconds = tostring(days * 86400 + hour * 3600 + min * 60 + sec), nanos = nanos)
 end
 
 export function dateTime(borrows value: core.Timestamp): string
@@ -140,7 +140,7 @@ export function parseEpoch(text: string): core.Timestamp
     local whole, fraction = text:match("^(%-?%d+)%.(%d+)$")
     if whole == nil then
         seconds(text)
-        return new core.Timestamp(seconds = text == "-0" and "0" or text, nanos = 0)
+        return core.Timestamp(seconds = text == "-0" and "0" or text, nanos = 0)
     end
     seconds(whole)
     if #fraction > 9 then
@@ -153,5 +153,5 @@ export function parseEpoch(text: string): core.Timestamp
         whole = "0"
     end
 
-    return new core.Timestamp(seconds = whole, nanos = nanos)
+    return core.Timestamp(seconds = whole, nanos = nanos)
 end

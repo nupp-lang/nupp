@@ -1,0 +1,69 @@
+@!internal
+module nupp.digest.internal.contracts
+
+local {type ByteSpan, type ByteWriteSpan} = require("binary.span")
+
+export interface Stream is io.Writer
+    --- Takes the context into a scalar writer, loading its adapter on demand.
+    @override
+    function scalar(takes self): affine(io.ScalarWriter)
+        local scalars = require("nupp.io.internal.scalars")
+        return scalars.writer(self)
+    end
+end
+
+export interface Checksum is Stream
+    --- Consumes this context and releases its provider state without suspension.
+    close: @nosuspend function(takes self: Checksum): nil
+
+    --- Returns the canonical algorithm name.
+    algorithm: function(self: Checksum): string
+
+    --- Returns the number of meaningful bits in each snapshot.
+    width: function(self: Checksum): integer
+
+    --- Absorbs raw bytes while retaining no input views.
+    --- @return true, since a checksum takes every byte it is given
+    write: function(exclusive self: Checksum, bytes: string): (boolean, string?)
+
+    --- Absorbs a borrowed byte view without retaining it.
+    --- @return how many bytes it absorbed, which is all of them
+    writespan: function(exclusive self: Checksum, borrows bytes: ByteSpan): (integer?, string?)
+
+    --- Nothing is buffered behind a checksum, so this only returns true.
+    flush: function(self: Checksum): (boolean, string?)
+
+    --- Returns an unsigned snapshot without consuming this context.
+    value: function(self: Checksum): uint64
+
+end
+
+export interface Digest is Stream
+    --- Consumes an unfinished context and releases provider state without suspension.
+    close: @nosuspend function(takes self: Digest): nil
+
+    --- Returns the canonical algorithm name retained at creation.
+    algorithm: function(self: Digest): string
+
+    --- Returns the fixed output size in bytes.
+    digestsize: function(self: Digest): integer
+
+    --- Absorbs raw bytes without retaining a borrowed input.
+    --- @return true, since a digest takes every byte it is given
+    write: function(exclusive self: Digest, bytes: string): (boolean, string?)
+
+    --- Absorbs a borrowed byte view without retaining it.
+    --- @return how many bytes it absorbed, which is all of them
+    writespan: function(exclusive self: Digest, borrows bytes: ByteSpan): (integer?, string?)
+
+    --- Nothing is buffered behind a digest, so this only returns true.
+    flush: function(self: Digest): (boolean, string?)
+
+    --- Consumes this context and returns raw bytes, or writes the fixed-size
+    --- prefix of destination and returns its byte count. Always closes state.
+    digest: function(takes self: Digest): string
+        & function(takes self: Digest, exclusive destination: ByteWriteSpan): integer
+
+    --- Consumes this context and returns lowercase hexadecimal, always closing state.
+    hexdigest: function(takes self: Digest): string
+end

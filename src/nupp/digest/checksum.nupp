@@ -1,0 +1,172 @@
+@!internal
+module nupp.digest.checksum
+
+const _PROVIDER_REQUIRES = "@requires-dynamically nupp.runtime.provider.checksum"
+
+local {type ByteSpan} = require("binary.span")
+local {type Checksum as ContextChecksum} = require("nupp.digest.internal.contracts")
+const provider = require("binary.checksum.internal.contracts")
+local lookupDescriptor: function(string): any
+local requireDescriptor: function(string): any
+local descriptorNames: function(): {string}
+local makeContext: function(provider.Algorithm, string, integer): ContextChecksum
+
+export interface Checksum is ContextChecksum
+    record Algorithm
+        --- Canonical algorithm name.
+        @readonly name: string
+
+        --- Number of meaningful checksum bits, from one through 64.
+        @readonly width: integer
+
+        @private implementation: provider.Algorithm
+
+        --- Creates independent owned state for incremental writes and snapshots.
+        function checksum(self): Checksum
+            return makeContext(self.implementation, self.name, self.width)
+        end
+
+        --- Finds a descriptor without constructing mutable state.
+        function lookup(name: string): Algorithm?
+            return lookupDescriptor(name) as Algorithm?
+        end
+
+        --- Requires an available descriptor.
+        function of(name: string): Algorithm
+            return requireDescriptor(name) as Algorithm
+        end
+
+        --- Returns canonical names in ascending order.
+        function names(): {string}
+            return descriptorNames()
+        end
+    end
+
+    --- Creates independent owned context state.
+    function create(name: string): Checksum
+        return (requireDescriptor(name) as Algorithm):checksum()
+    end
+
+    --- Computes a complete value and closes its context.
+    function compute(name: string, bytes: string): uint64
+        local value: Checksum = (requireDescriptor(name) as Algorithm):checksum()
+        value:write(bytes)
+        return value:value()
+    end
+end
+
+local record Context is Checksum
+    @private state: affine(provider.State)
+    @private name: string
+    @private bits: integer
+
+    function algorithm(self): string
+        return self.name
+    end
+
+    function width(self): integer
+        return self.bits
+    end
+
+    function write(exclusive self, bytes: string): (boolean, string?)
+        if type(bytes) ~= "string" then
+            error("nupp: Checksum:write bytes must be a string", 2)
+        end
+        local span = require("binary.span")
+        local view = span.fromstring(bytes)
+        self.state:update(view)
+
+        return true, nil
+    end
+
+    function writespan(exclusive self, borrows bytes: ByteSpan): (integer?, string?)
+        self.state:update(bytes)
+
+        return #bytes, nil
+    end
+
+    function flush(self): (boolean, string?)
+        return true, nil
+    end
+
+    function value(self): uint64
+        return self.state:value()
+    end
+
+    function close(takes self): nil
+        self.state:close()
+    end
+end
+
+makeContext = function(implementation: provider.Algorithm, name: string, width: integer): ContextChecksum
+    return Context(state = implementation:create(), name = name, bits = width)
+end
+
+local type Algorithm = Checksum.Algorithm
+local Algorithm = Checksum.Algorithm
+
+local EXPECTED: {[string]: integer} = {adler32 = 32, crc32 = 32, crc32c = 32, ["crc64-ecma"] = 64, crc64nvme = 64}
+
+local function validate(selected: provider.Provider): nil
+    for name, implementation in pairs(selected.algorithms) do
+        if type(name) ~= "string"
+            or name == ""
+            or type(implementation) ~= "table"
+            or implementation.name ~= name
+            or type(implementation.width) ~= "number"
+            or implementation.width < 1
+            or implementation.width > 64
+            or implementation.width % 1 ~= 0
+            or type(implementation.create) ~= "function"
+        then
+            error("invalid checksum algorithm descriptor " .. tostring(name), 2)
+        end
+        local expected = EXPECTED[name]
+        if expected ~= nil and implementation.width ~= expected then
+            error("checksum provider has the wrong width for " .. name, 2)
+        end
+    end
+end
+
+local available: {[string]: Algorithm} = {}
+local names: {string} = {}
+local initialized = false
+
+local function initialize(providerName: string): nil
+    if initialized then
+        return
+    end
+    local selected = require(providerName) as provider.Provider
+    validate(selected)
+    for name, implementation in pairs(selected.algorithms) do
+        available[name] = Algorithm(name = name, width = implementation.width, implementation = implementation)
+    end
+    for name in pairs(available) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    initialized = true
+end
+
+lookupDescriptor = function(name: string): any
+    initialize("nupp.runtime.provider.checksum")
+    return available[name]
+end
+requireDescriptor = function(name: string): any
+    initialize("nupp.runtime.provider.checksum")
+    local found = available[name]
+    if found == nil then
+        error("unknown checksum algorithm " .. name, 2)
+    end
+
+    return found
+end
+descriptorNames = function(): {string}
+    initialize("nupp.runtime.provider.checksum")
+    local result: {string} = {}
+    for index, name in ipairs(names) do
+        result[index] = name
+    end
+
+    return result
+end

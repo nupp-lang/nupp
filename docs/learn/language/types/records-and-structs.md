@@ -97,8 +97,8 @@ assert(build(Point).x == 4)
 A constructor reference retains its `Type<Point>` witness. A generic `Type<T>`
 needs a known construction signature; an instance `__call` contract on `T` does
 not provide one. To pass construction to an API taking a function, use a lambda
-such as `|x: integer| -> Point(x = x)`. Callable declarations remain tables or
-ctypes at runtime, so they do not claim to be Lua functions.
+such as `|x: integer| -> Point(x = x)`. Callable declarations remain type
+declarations at runtime, so they do not claim to be Lua functions.
 
 Interfaces have no generated constructors. They can declare static factories
 that return an implementation, including an error result pack.
@@ -324,10 +324,10 @@ local b: Vec2 -- zero-initialized
 ```
 
 A struct may declare a [constructor](#constructors-and-result-policies) the
-way a record does, and `new` then runs it instead of filling fields
-positionally. The instance is a zero-filled allocation of the struct's layout,
-so a field default is written into it before the body runs, and the body
-assigns the rest:
+way a record does. Calling its declaration then runs that constructor instead
+of filling fields positionally. The instance is a zero-filled allocation of the
+struct's layout, so a field default is written into it before the body runs,
+and the body assigns the rest:
 
 ```nupp
 local struct Scaled

@@ -31,7 +31,7 @@ untracked files for the two definitions to disagree about anyway.
 ]]
 module nupp.tools.template
 
-const files2 = require("io.files")
+const files2 = require("io.internal.files")
 const fileops = require("nupp.runtime.standardos")
 
 local bundled = require("nupp.compiler.bundledlist")
@@ -224,7 +224,7 @@ function template.resolve(spelling: string?, from: string?, rev: string?): templ
             return nil, "--rev has no meaning for a template directory"
         end
 
-        return new template.Source(kind = "directory", path = normalize(from))
+        return template.Source(kind = "directory", path = normalize(from))
     end
     spelling = spelling or "app"
     if isPathSpelling(spelling) then
@@ -232,7 +232,7 @@ function template.resolve(spelling: string?, from: string?, rev: string?): templ
             return nil, "--rev has no meaning for a template directory"
         end
 
-        return new template.Source(kind = "directory", path = normalize(spelling))
+        return template.Source(kind = "directory", path = normalize(spelling))
     end
     local asked, attached = spelling, nil as string?
     local base, suffix = spelling:match("^(.-)@([^@/]+)$")
@@ -244,7 +244,7 @@ function template.resolve(spelling: string?, from: string?, rev: string?): templ
     end
     local wanted = attached or rev
     if isUrlSpelling(asked) then
-        return new template.Source(kind = "remote", url = asked, rev = wanted)
+        return template.Source(kind = "remote", url = asked, rev = wanted)
     end
     if not asked:find("/", 1, true) then
         if wanted then
@@ -252,7 +252,7 @@ function template.resolve(spelling: string?, from: string?, rev: string?): templ
         end
         for _, name in ipairs(template.builtins()) do
             if name == asked then
-                return new template.Source(kind = "builtin", name = name)
+                return template.Source(kind = "builtin", name = name)
             end
         end
 
@@ -266,7 +266,7 @@ function template.resolve(spelling: string?, from: string?, rev: string?): templ
         return nil, "a repository template is spelled owner/repo, optionally followed by a path"
     end
 
-    return new template.Source(
+    return template.Source(
         kind = "remote",
         url = "https://github.com/" .. owner .. "/" .. repo,
         subdir = subdir ~= "" and subdir or nil,
@@ -316,22 +316,22 @@ local function walk(root: string): {string}?, string?
         local relative = table.remove(pending) as string
         local entries, listErr = files2.list(join(root, relative))
         if not entries then
-            return nil, "cannot read " .. join(root, relative) .. ": " .. tostring(listErr)
+            return nil, "cannot read " .. tostring(listErr)
         end
-        for _, entry in ipairs(entries) do
-            local child = relative == "" and entry.name or relative .. "/" .. entry.name
-            if entry.kind == "symlink" then
+        for name, kind in entries do
+            local child = relative == "" and name or relative .. "/" .. name
+            if kind == "symlink" then
                 return nil, child .. " is a symbolic link, which a template may not contain"
 
-            elseif entry.kind == "directory" then
+            elseif kind == "directory" then
                 -- Pruned by name at any depth: the root store a clone leaves, and
                 -- a submodule's, are the same problem and neither belongs in a
                 -- scaffolded project.
-                if entry.name ~= ".git" then
+                if name ~= ".git" then
                     pending[#pending + 1] = child
                 end
 
-            elseif entry.kind == "file" then
+            elseif kind == "file" then
                 if child ~= "template.lua" then
                     found[#found + 1] = child
                 end
@@ -524,7 +524,7 @@ local function readVariables(value: any): {[string]: template.Variable}?, string
         end
         variables[
             name
-        ] = new template.Variable(
+        ] = template.Variable(
             description = entry.description as string?,
             default = entry.default as string?,
             required = entry.required as boolean?,
@@ -583,7 +583,7 @@ function template.manifest(text: string, where: string): template.Manifest?, str
         end
     end
 
-    return new template.Manifest(
+    return template.Manifest(
         description = table_.description as string?,
         variables = variables,
         raw = raw,
@@ -808,8 +808,8 @@ local function destinationIsFree(destination: string): boolean, string?
     if not entries then
         return true
     end
-    for _, entry in ipairs(entries) do
-        if entry.name ~= ".git" then
+    for name in entries do
+        if name ~= ".git" then
             return false, destination .. " is not empty"
         end
     end
@@ -894,7 +894,7 @@ function template.plan(source: template.Source, destination: string, opts: {
             end
             text = substituted
         end
-        files[#files + 1] = new template.File(source = relative, output = output, text = text, verbatim = verbatim)
+        files[#files + 1] = template.File(source = relative, output = output, text = text, verbatim = verbatim)
     end
     if #files == 0 then
         return nil, template.describe(source) .. " contains no files to write"
@@ -910,7 +910,7 @@ function template.plan(source: template.Source, destination: string, opts: {
         end
     end
 
-    return new template.Plan(
+    return template.Plan(
         source = source,
         destination = destination,
         files = files,

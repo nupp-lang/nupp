@@ -435,7 +435,7 @@ export function new(mode: string?, stream: io.File?): Reporter
     local showing = resolve(mode, target)
     local started = clock.now()
 
-    return new Reporter(
+    return Reporter(
         stream = target,
         showing = showing,
         -- Rewriting a line needs the escapes that color needs, so one answer settles

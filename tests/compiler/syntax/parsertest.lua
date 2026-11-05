@@ -289,36 +289,22 @@ function M.ownershipWordsStayContextual()
     testAssert.eq(result.root.blocks[1].stats[4].kind, "callStmt")
 end
 
--- `new` joins the contextual words: a name follows it on the same line or it is
--- an ordinary identifier. The last two lines are the pair that decides it — a
--- `new` ending a line cannot reach across to the next statement's callee.
-function M.newStaysContextual()
-    local src = table.concat(
-        {
-            "local new = 1",
-            "print(new)",
-            "local built = new Point(x = 1)",
-            "local qualified = new m.Point(1, 2)",
-            "local held = new",
-            "print(held)",
-        },
-        "\n"
-    )
-    local result = assertRoundtrip(src)
-    testAssert.eq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
+-- Construction uses ordinary calls; new is an ordinary identifier everywhere.
+function M.newIsAnOrdinaryIdentifier()
+    local result = assertRoundtrip("local new = function(x) return x end\nlocal held = new\nreturn new(1), held(2)")
+    testAssert.eq(#result.errors, 0)
     local stats = result.root.blocks[1].stats
-    testAssert.eq(stats[3].exprs[1].kind, "newExpr")
-    testAssert.eq(stats[4].exprs[1].kind, "newExpr")
-    testAssert.eq(stats[5].exprs[1].kind, "name")
+    testAssert.eq(stats[2].exprs[1].kind, "name")
+    testAssert.eq(stats[3].exprs[1].kind, "call")
 end
 
--- A bare `new T` would be a second spelling of `new T()`, and one spelling per
--- meaning is the reason the keyword exists at all.
-function M.newNeedsAConstruction()
-    local result = parser.parse("local bare = new Point")
-    testAssert.eq(#result.errors, 1, "one error")
-    testAssert.eq(result.errors[1].code, "NUPP1004")
-    assert(result.errors[1].msg:find("needs a construction", 1, true), result.errors[1].msg)
+function M.newDoesNotIntroduceConstruction()
+    local result = assertRoundtrip("local value = new Point()")
+    local stats = result.root.blocks[1].stats
+    testAssert.eq(stats[1].exprs[1].kind, "name")
+    testAssert.eq(stats[1].exprs[1].token.text, "new")
+    testAssert.eq(stats[2].kind, "callStmt")
+    assert(#parser.parse("local value = new Point").errors > 0)
 end
 
 function M.borrowedReturnsAcceptMultipleSources()

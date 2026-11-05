@@ -36,6 +36,10 @@ local function checksum(text: string): integer
 end
 ```
 
+`return` supplies the result of a `comptime do` block. This is a separate
+construct from a [do expression](do-expressions.md), which supplies its result
+with `yield`.
+
 The program holds a 256-entry table of numbers. The loop that built it is not in
 the program at all.
 

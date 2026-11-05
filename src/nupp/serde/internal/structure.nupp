@@ -23,11 +23,11 @@ export record CopiedGet<T, V is own.Copyable>
 end
 export type Get<T, V is own.Copyable> = BorrowedGet<T, V> | CopiedGet<T, V>
 export function borrowedGet<T, V is own.Copyable>(read: BorrowGet<T, V>): Get<T, V>
-    return new BorrowedGet<T, V>(read = read)
+    return BorrowedGet<T, V>(read = read)
 end
 
 export function copiedGet<T, V is own.Copyable>(read: CopyGet<T, V>): Get<T, V>
-    return new CopiedGet<T, V>(read = read)
+    return CopiedGet<T, V>(read = read)
 end
 
 export type Set<S, V is own.Copyable> = function(exclusive state: S, value: V): nil
@@ -148,7 +148,7 @@ export function field<T, S is own.Closeable, V is own.Copyable, M is core.Member
     hasdefault: boolean,
     present: Has<T>?
 ): Field<T, S, M>
-    return new Projected<T, S, V, M>(
+    return Projected<T, S, V, M>(
         member = member,
         get = borrowedGet<T, V>(get),
         present = present,
@@ -278,14 +278,14 @@ export function adapter<T, S is own.Closeable, M is core.Member>(
         children[index] = item
     end
 
-    return new Adapter<T, S, M>(
-        description = new Description<M>(member = member, children = children),
+    return Adapter<T, S, M>(
+        description = Description<M>(member = member, children = children),
         deferredConstruction = deferredconstruction == true,
         fields = ordered,
         construction = construction,
-        emit = new Emit<T, S, M>(fields = ordered, additional = additional),
-        consume = new Read<T, S, M>(byMember = byMember),
-        unknown = unknown or new Reject<S>()
+        emit = Emit<T, S, M>(fields = ordered, additional = additional),
+        consume = Read<T, S, M>(byMember = byMember),
+        unknown = unknown or Reject<S>()
     )
 end
 

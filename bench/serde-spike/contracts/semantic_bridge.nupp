@@ -10,12 +10,12 @@ local packetBinding, indexedBinding, documentBinding = model.binding(
     schema
 ), model.indexed(schema), model.documentBinding(schema)
 local context = contexts.contextbuilder({}, {}):freeze()
-local packet = new model.Packet(
+local packet = model.Packet(
     id = "outer",
-    created = new core.Timestamp(seconds = "-1", nanos = 1),
+    created = core.Timestamp(seconds = "-1", nanos = 1),
     labels = {[7] = "seven"},
     document = documents.boundary(documents.list({documents.null(), documents.string("value")})),
-    next = new model.Packet(id = "inner", created = new core.Timestamp(seconds = "0", nanos = 999999999)),
+    next = model.Packet(id = "inner", created = core.Timestamp(seconds = "0", nanos = 999999999)),
     choice = model.knownChoice("ok")
 )
 local logical = bridge.from(packetBinding, packet, context)
@@ -34,9 +34,9 @@ assert(assert(restored.next).created.nanos == 999999999)
 assert(assert(restored.labels)[7] == "seven")
 assert(assert(restored.document):document():at(1).kind == "null")
 local nullNote = documents.object({
-    new documents.Entry(name = "id", value = documents.string("null")),
-    new documents.Entry(name = "created", value = documents.timestamp(packet.created)),
-    new documents.Entry(name = "note", value = documents.null())
+    documents.Entry(name = "id", value = documents.string("null")),
+    documents.Entry(name = "created", value = documents.timestamp(packet.created)),
+    documents.Entry(name = "note", value = documents.null())
 })
 local retainedNull = bridge.into(indexedBinding, nullNote)
 assert(assert(bridge.from(indexedBinding, retainedNull):get("note")).kind == "null")

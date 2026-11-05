@@ -12,7 +12,7 @@ span and perform no discovery from a state operation.
 The facade uses the target-bound format catalog. Each format name agrees with
 its catalog key.
 ]]
-module binary.compress.internal.contracts
+module nupp.compression.contracts
 
 local {type ByteSpan, type ByteWriteSpan} = require("binary.span")
 

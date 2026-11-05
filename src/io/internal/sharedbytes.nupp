@@ -43,7 +43,7 @@ local record Block
 end
 
 local function newBlock(data: any): Block
-    return new Block(data = data, regions = setmetatable({}, {__mode = "v"}) as {[string]: any})
+    return Block(data = data, regions = setmetatable({}, {__mode = "v"}) as {[string]: any})
 end
 
 local function block(borrows value: Bytes): Block
@@ -274,9 +274,6 @@ function Bytes.Builder.drop(takes self: Bytes.Builder): nil
 end
 
 --- Opens an empty builder.
-function Bytes.newbuilder(): affine(Bytes.Builder)
-    local growing = new Growing(bytes = storage.allocbytes(0), capacity = 0, length = 0, reserved = nil)
-    local builder = {_handle = growing} as Bytes.Builder
-
-    return builder as affine(Bytes.Builder)
+export function builderhandle(): any
+    return Growing(bytes = storage.allocbytes(0), capacity = 0, length = 0, reserved = nil)
 end

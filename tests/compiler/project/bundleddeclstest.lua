@@ -77,6 +77,24 @@ function M.tlsOverviewExampleChecksAgainstItsPublicApi()
     testAssert.eq(diagsUnderPrelude(example), "")
 end
 
+function M.compressionFactoriesAndTypesLiveOnBinary()
+    testAssert.eq(
+        diagsUnderPrelude(
+            [[
+local {compression, compressionformats, type CompressionFormat,
+    type CompressionReaderOptions, type CompressionWriterOptions} = require("binary")
+local gzip: CompressionFormat = compression("gzip")
+local writerOptions: CompressionWriterOptions = {gzip = {level = 6}}
+local readerOptions: CompressionReaderOptions = {maxoutputbytes = 1024}
+assert(gzip:decompress(gzip:compress("hello", writerOptions), readerOptions) == "hello")
+assert(#compressionformats() == 3)
+assert(gzip is binary.CompressionFormat)
+]]
+        ),
+        ""
+    )
+end
+
 function M.retiredNamespacesAreNotBundled()
     local env = strictEnv()
     for _, name in ipairs({
@@ -91,10 +109,14 @@ function M.retiredNamespacesAreNotBundled()
         "binary.checksum.spi",
         "binary.digest.spi",
         "binary.mac.spi",
+        "binary.compress",
+        "binary.compress.internal.contracts",
         "binary.compress.spi",
         "serde.json.spi",
         "io.spi",
         "io.files.spi",
+        "io.files",
+        "io.files.messages",
         "io.net.spi",
         "io.http.spi",
         "io.gpu.spi",
@@ -178,8 +200,8 @@ function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
         ["coroutine.sus.host"] = "/coroutine/sus/host.nupp",
         ["nupp.suspension.contracts"] = "/nupp/suspension/contracts.nupp",
         ["nupp.workers.contracts"] = "/nupp/workers/contracts.nupp",
-        ["io.files"] = "/io/files/init.nupp",
-        ["io.files.messages"] = "/io/files/messages.nupp",
+        ["io.internal.files"] = "/io/internal/files/init.nupp",
+        ["io.internal.files.messages"] = "/io/internal/files/messages.nupp",
         ["io.http"] = "/io/http/init.nupp",
         ["nupp.io.http.contracts"] = "/nupp/io/http/contracts.nupp",
         ["io.net"] = "/io/net/init.nupp",
@@ -251,13 +273,14 @@ local server: io.net.TlsServerOptions = {certificate = "certificate", privatekey
 local function ready(borrows session: io.net.TlsSession): boolean
     return session:isready()
 end
-local {type Pool, newpool} = require("table")
+local {type Pool} = require("table")
+local {Pool} = require("table")
 local record Value
     number: integer
 end
-local bits: binary.Bitset = new binary.Bitset(64)
-local values: Pool<Value> = newpool(Value, 4)
-local qualified: table.Pool<Value> = table.newpool(Value, 4)
+local bits: binary.Bitset = binary.Bitset(64)
+local values: Pool<Value> = Pool(Value, 4)
+local qualified: table.Pool<Value> = table.Pool(Value, 4)
 local bytes: string = os.randombytes(0)
 return bits, values, qualified, bytes
 ]]

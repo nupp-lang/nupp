@@ -56,7 +56,7 @@ end
 
 ## Only interfaces carry refinements
 
-A record is identified by the metatable `new` stamps and a struct by its ctype,
+A record is identified by its declaration metatable and a struct by its ctype,
 so both already answer `is` exactly. A refinement beside either would be a
 second answer to a settled question, and which answer `is R` gave would depend
 on whether a body happened to carry one. See [Records and

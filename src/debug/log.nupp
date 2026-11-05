@@ -220,66 +220,51 @@ module that uses the severity calls also binds its own logging view.
 ]]
 module debug.log
 
-local log = {}
-
 --- The threshold, from silent to most verbose. Each level admits itself and
 --- everything above it, so "warn" emits warnings and errors.
---- @export
-type log.Level = "off" | "error" | "warn" | "info" | "debug"
+export type Level = "off" | "error" | "warn" | "info" | "debug"
 
 --- A module threshold or the instruction to resume inheriting the global one.
---- @export
-type log.LevelOverride = log.Level | "inherit"
+export type LevelOverride = Level | "inherit"
 
 --- A level as a sink sees it: 1 error, 2 warn, 3 info, 4 debug.
---- @export
-type log.Severity = integer
+export type Severity = integer
 
 --- Receives an emitted line, already formatted.
 ---
 --- Replacing this replaces the back end, so a host logging through its own
 --- facility pays for nothing it discards. No timestamp is passed, because a sink
 --- that wants one asks.
---- @export
-type log.Sink = function(level: log.Severity, module: string, line: integer, message: string): nil
+export type Sink = function(level: Severity, module: string, line: integer, message: string): nil
 
 --- Renders a line for a file-like destination. Only consulted when the target is
 --- file-like; a sink function formats however it likes.
---- @export
-type log.Formatter = function(
-    level: log.Severity,
-    module: string,
-    line: integer,
-    message: string,
-    stamp: string
-): string
+export type Formatter = function(level: Severity, module: string, line: integer, message: string, stamp: string): string
 
 --- Where lines go: a sink function, or anything file-like to write to.
---- @export
-type log.Target = log.Sink | io.File
+export type Target = Sink | io.File
 
 --- A logger carrying a fixed name, for subsystems and for call sites the intrinsic
 --- cannot rewrite. Changing the level or target restamps every logger, so a filtered
 --- call reaches an empty function rather than a test.
---- @export
-record log.Logger
+export record Logger
     --- The name every line from this logger carries.
     @readonly name: string
 
     --- Logs at debug. Accepts `string.format` directives.
-    debug: function<F is string>(self: log.Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
+    debug: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
 
     --- Logs at info. Accepts `string.format` directives.
-    info: function<F is string>(self: log.Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
+    info: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
 
     --- Logs at warn. Accepts `string.format` directives.
-    warn: function<F is string>(self: log.Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
+    warn: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
 
     --- Logs at error. Accepts `string.format` directives.
-    error: function<F is string>(self: log.Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
+    error: function<F is string>(self: Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
 
     --- Whether this logger would emit at `level`.
-    enabled: function(self: log.Logger, level: log.Level): boolean
+    enabled: function(self: Logger, level: Level): boolean
 end
 
 local NAMES = {"error", "warn", "info", "debug",}
@@ -292,10 +277,10 @@ local INDEX = {off = 0, error = 1, warn = 2, info = 3, debug = 4,}
 -- module, and its `os.time` is an ordinary builtin, so it keeps that.
 local clock: any = os.time
 -- A literal require, so the module graph still names every module this loads.
-local hasFfi, ffi = pcall(function(): any
+local hasffi, ffi = pcall(function(): any
     return require("ffi")
 end)
-if hasFfi then
+if hasffi then
     pcall(ffi.cdef, "typedef int64_t nupp_time_t; nupp_time_t time(nupp_time_t *t);")
     local resolved, fn = pcall(function(): any
         return ffi.C.time
@@ -312,32 +297,40 @@ if hasFfi then
     end
 end
 
+-- Exported functions are bound across the whole file, so state that shares a name
+-- with one (`formatter`, the warning switch) is named apart from it here, and the
+-- severity functions, which would shadow Lua's `error` and `debug`, are bound at the
+-- end.
 local threshold: integer = 2
-local on = {false, false, false, false,}
 local target: any = io.stderr
-local targetIsSink = false
-local formatter: any = nil
-local dateFormat = "%Y-%m-%d %H:%M:%S "
-local cachedTick: any = -1
-local cachedStamp = ""
-local cachedFormat = ""
+local tosink = false
+local fmtr: any = nil
+local datefmt = "%Y-%m-%d %H:%M:%S "
+local lasttick: any = -1
+local laststamp = ""
+local lastfmt = ""
 local registry: any = {}
-local moduleViews: any = {}
-local scopedOn: any = {}
+local views: any = {}
+local scoped: any = {}
 local overrides: any = {}
 
-local function setOn(flags: {boolean}, index: integer): nil
+--- The global level flags a generated module view shares. Lowering reaches them;
+--- nothing written by hand needs to.
+--- @internal
+export const on = {false, false, false, false,}
+
+local function seton(flags: {boolean}, index: integer): nil
     for i = 1, 4 do
         flags[i] = i <= index
     end
 end
 
 local function admit(index: integer): nil
-    setOn(on, index)
+    seton(on, index)
     threshold = index
-    for name, flags in pairs(scopedOn) do
+    for name, flags in pairs(scoped) do
         if overrides[name] == nil then
-            setOn(flags, index)
+            seton(flags, index)
         end
     end
 end
@@ -345,26 +338,28 @@ end
 admit(threshold)
 
 local function stamp(): string
-    if dateFormat == "" then
+    if datefmt == "" then
         return ""
     end
     local tick = clock()
-    if tick ~= cachedTick or dateFormat ~= cachedFormat then
-        cachedTick = tick
-        cachedFormat = dateFormat
-        cachedStamp = os.date(dateFormat) as string
+    if tick ~= lasttick or datefmt ~= lastfmt then
+        lasttick = tick
+        lastfmt = datefmt
+        laststamp = os.date(datefmt) as string
     end
 
-    return cachedStamp
+    return laststamp
 end
 
-local function emit(severity: integer, module: string, line: integer, message: string): any
-    if targetIsSink then
+--- Emits a line. Lowering calls it behind a level test.
+--- @internal
+export function emit(severity: integer, module: string, line: integer, message: string): any
+    if tosink then
         return target(severity, module, line, message)
     end
     local at = stamp()
-    if formatter then
-        return target:write(formatter(severity, module, line, message, at), "\n")
+    if fmtr then
+        return target:write(fmtr(severity, module, line, message, at), "\n")
     end
     if line > 0 then
         return target:write(at, NAMES[severity], " ", module, ":", line, ": ", message, "\n")
@@ -373,21 +368,12 @@ local function emit(severity: integer, module: string, line: integer, message: s
     return target:write(at, NAMES[severity], " ", module, ": ", message, "\n")
 end
 
---- The global level flags a generated module view shares. Lowering reaches them;
---- nothing written by hand needs to.
---- @internal
-log.on = on
-
---- Emits a line. Lowering calls it behind a level test.
---- @internal
-log.emit = emit
-
-local function onFor(name: string): {boolean}
-    local flags = scopedOn[name]
+local function flagsfor(name: string): {boolean}
+    local flags = scoped[name]
     if not flags then
         flags = {false, false, false, false,}
-        setOn(flags, overrides[name] or threshold)
-        scopedOn[name] = flags
+        seton(flags, overrides[name] or threshold)
+        scoped[name] = flags
     end
 
     return flags
@@ -402,25 +388,25 @@ end
 --- @param module the module name its lines carry
 --- @return the view, whose `on` a site indexes and whose `emit` it calls
 --- @internal
-function log.formodule(module: string): any
-    local view = moduleViews[module]
+export function formodule(module: string): any
+    local view = views[module]
     if not view then
         view = {
-            on = onFor(module),
+            on = flagsfor(module),
             emit = function(severity: integer, line: integer, message: string): any
                 return emit(severity, module, line, message)
             end,
         }
-        moduleViews[module] = view
+        views[module] = view
     end
 
     return view
 end
 
-local function named(severity: log.Level): integer
-    local index = INDEX[severity]
+local function rank(level: Level): integer
+    local index = INDEX[level]
     if index == nil then
-        error("nupp: log has no level named " .. tostring(severity), 3)
+        error("nupp: log has no level named " .. tostring(level), 3)
     end
 
     return index
@@ -438,7 +424,7 @@ local function render(message: string, ...: any): string
     if message:find("?", 1, true) then
         local pieces = {}
         local index = 1
-        local argument: integer = 0
+        local arg: integer = 0
         while index <= #message do
             local percent = message:find("%", index, true)
             if not percent then
@@ -468,9 +454,9 @@ local function render(message: string, ...: any): string
                         current = message:sub(finish, finish)
                     end
                 end
-                argument = argument + 1
+                arg = arg + 1
                 if current == "?" then
-                    values[argument] = values[argument]:debug()
+                    values[arg] = values[arg]:debug()
                     current = "s"
                 end
                 pieces[#pieces + 1] = message:sub(percent, finish - 1) .. current
@@ -481,46 +467,6 @@ local function render(message: string, ...: any): string
     end
 
     return string.format(message, unpack(values, 1, count))
-end
-
--- Written out rather than built by a closure factory, because each one carries the
--- format pack its own directives are checked against. A statement call with a literal
--- format is rewritten to a test around `emit` and never reaches these.
-
---- Logs at error. Accepts `string.format` directives.
---- @export
-function log.error<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
-    if not on[1] then
-        return
-    end
-    emit(1, "?", 0, render(fmt as string, ...))
-end
-
---- Logs at warn. Accepts `string.format` directives.
---- @export
-function log.warn<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
-    if not on[2] then
-        return
-    end
-    emit(2, "?", 0, render(fmt as string, ...))
-end
-
---- Logs at info. Accepts `string.format` directives.
---- @export
-function log.info<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
-    if not on[3] then
-        return
-    end
-    emit(3, "?", 0, render(fmt as string, ...))
-end
-
---- Logs at debug. Accepts `string.format` directives.
---- @export
-function log.debug<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
-    if not on[4] then
-        return
-    end
-    emit(4, "?", 0, render(fmt as string, ...))
 end
 
 local NO_OP = function(): nil
@@ -534,22 +480,22 @@ end
 
 local WRITE = {writer(1), writer(2), writer(3), writer(4),}
 
-local function loggerEnabled(self: any, level: log.Level): boolean
-    local index = named(level)
+local function admits(self: any, level: Level): boolean
+    local index = rank(level)
 
     return index > 0 and self.on[index] or false
 end
 
-local function stampLogger(logger: any): nil
+local function restamp(logger: any): nil
     logger.error = logger.on[1] and WRITE[1] or NO_OP
     logger.warn = logger.on[2] and WRITE[2] or NO_OP
     logger.info = logger.on[3] and WRITE[3] or NO_OP
     logger.debug = logger.on[4] and WRITE[4] or NO_OP
 end
 
-local function restamp(): nil
+local function restampall(): nil
     for _, logger in pairs(registry) do
-        stampLogger(logger)
+        restamp(logger)
     end
 end
 
@@ -568,41 +514,41 @@ end
 --- @param name the name its lines carry
 --- @return the logger
 --- @raises string when name is not a string
-function log.named(name: string): log.Logger
+export function named(name: string): Logger
     if type(name) ~= "string" then
         error("nupp: log name must be a string", 2)
     end
     local logger = registry[name]
     if not logger then
-        logger = {name = name, on = onFor(name), enabled = loggerEnabled,}
-        stampLogger(logger)
+        logger = {name = name, on = flagsfor(name), enabled = admits,}
+        restamp(logger)
         registry[name] = logger
     end
 
-    return logger as log.Logger
+    return logger as Logger
 end
 
 --- The global threshold.
 ---
 --- @return the level in force for every module without an override
-function log.level(): log.Level
-    return (NAMES[threshold] or "off") as log.Level
+export function level(): Level
+    return (NAMES[threshold] or "off") as Level
 end
 
 --- Moves the global threshold. Each level admits itself and everything above it.
 ---
---- @param level the new threshold
+--- @param next the new threshold
 --- @return the threshold this call replaced
---- @raises string when level is unknown
-function log.setlevel(level: log.Level): log.Level
-    local previous = (NAMES[threshold] or "off") as log.Level
-    admit(named(level))
-    restamp()
+--- @raises string when next is unknown
+export function setlevel(next: Level): Level
+    local previous = (NAMES[threshold] or "off") as Level
+    admit(rank(next))
+    restampall()
 
     return previous
 end
 
-local function moduleName(name: string): string
+local function checkname(name: string): string
     if type(name) ~= "string" then
         error("nupp: log module name must be a string", 3)
     end
@@ -616,8 +562,8 @@ end
 --- @param name the exact module or logger name
 --- @return the level in force for that name
 --- @raises string when name is not a string
-function log.modulelevel(name: string): log.Level
-    return (NAMES[overrides[moduleName(name)] or threshold] or "off") as log.Level
+export function modulelevel(name: string): Level
+    return (NAMES[overrides[checkname(name)] or threshold] or "off") as Level
 end
 
 --- Overrides the threshold for a specific module or named logger.
@@ -628,22 +574,22 @@ end
 --- arguments.
 ---
 --- @param name the exact module or logger name
---- @param level the new threshold, or `"inherit"`
+--- @param next the new threshold, or `"inherit"`
 --- @return the effective threshold this call replaced
---- @raises string when name is not a string or level is unknown
-function log.setmodulelevel(name: string, level: log.LevelOverride): log.Level
-    local previous = log.modulelevel(moduleName(name))
-    if level == "inherit" then
+--- @raises string when name is not a string or next is unknown
+export function setmodulelevel(name: string, next: LevelOverride): Level
+    local previous = modulelevel(checkname(name))
+    if next == "inherit" then
         overrides[name] = nil
-        setOn(onFor(name), threshold)
+        seton(flagsfor(name), threshold)
     else
-        local index = named(level)
+        local index = rank(next)
         overrides[name] = index
-        setOn(onFor(name), index)
+        seton(flagsfor(name), index)
     end
     local logger = registry[name]
     if logger then
-        stampLogger(logger)
+        restamp(logger)
     end
 
     return previous
@@ -651,10 +597,10 @@ end
 
 --- Whether a level is currently admitted.
 ---
---- @param level the level to test
+--- @param at the level to test
 --- @return whether a call at that level would emit
-function log.enabled(level: log.Level): boolean
-    local index = named(level)
+export function enabled(at: Level): boolean
+    local index = rank(at)
 
     return index > 0 and on[index] or false
 end
@@ -662,7 +608,7 @@ end
 --- The destination in force.
 ---
 --- @return the sink function or file lines go to
-function log.sink(): log.Target
+export function sink(): Target
     return target
 end
 
@@ -671,21 +617,21 @@ end
 --- @param next a sink function, or a file to write rendered lines to
 --- @return the destination this call replaced
 --- @raises string when next is neither a sink function nor a file
-function log.setsink(takes next: log.Target): log.Target
+export function setsink(takes next: Target): Target
     -- The log holds the target for the rest of the process and never closes it, so
     -- taking it ends the caller's obligation here.
     local taken: any = @unsafe own.release(next)
     local previous = target
     if type(taken) == "function" then
         target = taken
-        targetIsSink = true
+        tosink = true
     elseif (type(taken) == "table" or type(taken) == "userdata") and type(taken.write) == "function" then
         target = taken
-        targetIsSink = false
+        tosink = false
     else
         error("nupp: log target must be a sink function or a file", 2)
     end
-    restamp()
+    restampall()
 
     return previous
 end
@@ -693,8 +639,8 @@ end
 --- The line formatter in force.
 ---
 --- @return the formatter, or nil when lines use the built-in rendering
-function log.formatter(): log.Formatter?
-    return formatter
+export function formatter(): Formatter?
+    return fmtr
 end
 
 --- Replaces the line formatter.
@@ -702,12 +648,12 @@ end
 --- @param next the formatter, or nil to return to the built-in rendering
 --- @return the formatter this call replaced
 --- @raises string when next is neither a function nor nil
-function log.setformatter(next: log.Formatter?): log.Formatter?
+export function setformatter(next: Formatter?): Formatter?
     if next ~= nil and type(next) ~= "function" then
         error("nupp: log formatter must be a function", 2)
     end
-    local previous = formatter
-    formatter = next
+    local previous = fmtr
+    fmtr = next
 
     return previous
 end
@@ -715,15 +661,15 @@ end
 --- The stamp a line written now would carry.
 ---
 --- @return the rendered timestamp, or "" when stamping is off
-function log.timestamp(): string
+export function timestamp(): string
     return stamp()
 end
 
 --- The timestamp format in force.
 ---
 --- @return the `os.date` format, or "" when stamping is off
-function log.timestampformat(): string
-    return dateFormat
+export function timestampformat(): string
+    return datefmt
 end
 
 --- Replaces the timestamp format. An empty format stops stamping.
@@ -731,13 +677,13 @@ end
 --- @param next the `os.date` format
 --- @return the format this call replaced
 --- @raises string when next is not a string
-function log.settimestampformat(next: string): string
+export function settimestampformat(next: string): string
     if type(next) ~= "string" then
         error("nupp: log timestamp format must be a string", 2)
     end
-    local previous = dateFormat
-    dateFormat = next
-    cachedTick = -1
+    local previous = datefmt
+    datefmt = next
+    lasttick = -1
 
     return previous
 end
@@ -746,14 +692,14 @@ end
 ---
 --- @param severity the numeric level a sink received
 --- @return the level's name
-function log.levelname(severity: log.Severity): log.Level
-    return (NAMES[severity] or "off") as log.Level
+export function levelname(severity: Severity): Level
+    return (NAMES[severity] or "off") as Level
 end
 
-local output = log.formodule("warn")
-local enabled = true
+local output = formodule("warn")
+local warnon = true
 
-local function argument(value: any, index: integer): string
+local function checkarg(value: any, index: integer): string
     if type(value) == "string" then
         return value
     elseif type(value) == "number" then
@@ -762,26 +708,72 @@ local function argument(value: any, index: integer): string
     error(("bad argument #%d to 'warn' (string expected, got %s)"):format(index, type(value)), 3)
 end
 
---- Joins messages and emits a warning, or applies a single control string.
+-- Joins messages and emits a warning, or applies a single control string.
 local function warning(message: string, ...: string): nil
-    local parts = {argument(message, 1)}
+    local parts = {checkarg(message, 1)}
     for index = 1, select("#", ...) do
-        parts[index + 1] = argument(select(index, ...), index + 1)
+        parts[index + 1] = checkarg(select(index, ...), index + 1)
     end
     if #parts == 1 and parts[1]:sub(1, 1) == "@" then
         if parts[1] == "@on" then
-            enabled = true
+            warnon = true
         elseif parts[1] == "@off" then
-            enabled = false
+            warnon = false
         end
         return
     end
-    if enabled then
+    if warnon then
         output.emit(2, 0, table.concat(parts))
     end
 end
 
 rawset(_G, "warn", warning)
-rawset(log, "__nuppwarn", warning)
 
-export = log
+--- Lua's `warn`, which the `warn` module publishes.
+--- @internal
+export const warner = warning
+
+-- Written out rather than built by a closure factory, because each one carries the
+-- format pack its own directives are checked against. A statement call with a literal
+-- format is rewritten to a test around `emit` and never reaches these. Bound last:
+-- an exported function would shadow Lua's `error` for the whole file.
+
+local function logerror<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
+    if not on[1] then
+        return
+    end
+    emit(1, "?", 0, render(fmt as string, ...))
+end
+
+local function logwarn<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
+    if not on[2] then
+        return
+    end
+    emit(2, "?", 0, render(fmt as string, ...))
+end
+
+local function loginfo<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
+    if not on[3] then
+        return
+    end
+    emit(3, "?", 0, render(fmt as string, ...))
+end
+
+local function logdebug<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
+    if not on[4] then
+        return
+    end
+    emit(4, "?", 0, render(fmt as string, ...))
+end
+
+--- Logs at error. Accepts `string.format` directives.
+export const error = logerror
+
+--- Logs at warn. Accepts `string.format` directives.
+export const warn = logwarn
+
+--- Logs at info. Accepts `string.format` directives.
+export const info = loginfo
+
+--- Logs at debug. Accepts `string.format` directives.
+export const debug = logdebug

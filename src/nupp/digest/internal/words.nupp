@@ -12,7 +12,7 @@ module nupp.digest.internal.words
 
 const bit = require("nupp.runtime.bitops")
 const span = require("binary.span")
-const binary = require("binary")
+const binary = require("nupp.util.internal.encoding")
 const streaming = require("nupp.digest.internal.streaming")
 const constants = require("nupp.digest.internal.constants")
 
@@ -277,5 +277,5 @@ export function create(name: string): streaming.Hasher
         state[5] = bit.tobit(0xc3d2e1f0)
     end
 
-    return new Engine(name = name, state = state, schedule = {}, tail = "", low = 0, high = 0)
+    return Engine(name = name, state = state, schedule = {}, tail = "", low = 0, high = 0)
 end

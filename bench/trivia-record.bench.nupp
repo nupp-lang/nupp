@@ -48,15 +48,15 @@ assert(recordTrivia(nil, nil as any) == scalarTrivia(nil, nil as any))
 bench.suite(
     {
         name = "trivia-record",
-        baselinevariant = "record",
+        baseline = "record",
         variants = {{name = "record", run = recordTrivia}, {name = "scalar", run = scalarTrivia},},
         cases = {{name = "mixed-trivia", operations = math.floor(triviaCount)},},
-        warmupiterations = 20,
-        sampleiterations = 2000,
+        warmup = 20,
+        batch = 2000,
         minsamples = 15,
-        mindurationms = 1000,
+        minms = 1000,
         maxsamples = 100,
-        maxdurationms = 10000,
+        maxms = 10000,
     } as bench.SuiteOptions
 )
 bench.report()

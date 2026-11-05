@@ -763,7 +763,7 @@ local function frameHandler(owner: ScopeState): suspensionHost.Handler
     const outerCanPark = suspensionHost.delegatedCanPark()
     const parkOutward = suspensionHost.delegatedPark()
 
-    return new suspensionHost.Handler(
+    return suspensionHost.Handler(
         park = function(_: suspensionHost.Handler, waiting: suspensionHost.Waiting, cancel: function(): nil): nil
             -- The wait handed outward when no child is runnable: ready when the block's
             -- own wait is, when a child becomes runnable and the turn allows it, or
@@ -1503,7 +1503,7 @@ local function newState(deadline: number?, limit: integer?): ScopeState
     -- blocking it. Scheduling only: `canpark` delegates outward, so a host barrier
     -- stays visible however deeply scopes nest inside it.
     const outerCanPark = suspensionHost.delegatedCanPark()
-    owner.handler = new suspensionHost.Handler(
+    owner.handler = suspensionHost.Handler(
         park = function(_: suspensionHost.Handler, waiting: suspensionHost.Waiting, cancel: function(): nil): nil
             const child = taskState.child as Child
             const scopeOwner = taskState.scope as ScopeState

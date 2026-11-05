@@ -12,6 +12,7 @@ the module's own table, what publishes a member of it.
 module nupp.compiler.check.bindings
 
 local apiidentity = require("nupp.compiler.apiidentity")
+local native = require("nupp.compiler.native")
 local builtinExtensions = require("nupp.compiler.builtinextensions")
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")
@@ -105,11 +106,24 @@ export function install(c: state.Checker): state.StatHandlers
                     fieldType, definition = c.fieldType(sourceType, fieldName)
                     definition = definition or builtinExtensions.definition(c, source, fieldName)
                 end
-                local effects = c.env and c.env.featureEffects
-                local memberEffects = effects and effects[rawType(sourceType)]
-                local effect = memberEffects and memberEffects[fieldName]
-                if effect and c.recordEffect then
-                    c.recordEffect(effect)
+                if not entry.typeOnly then
+                    local effects = c.env and c.env.featureEffects
+                    local memberEffects = effects and effects[rawType(sourceType)]
+                    local effect = memberEffects and memberEffects[fieldName]
+                    local moduleName = source.standardRoot and source.qualifiedModule or source.requiredModule
+                    if not moduleName and source.kind == "name" and source.token then
+                        local holder = c.lookupEntry(source.token.text)
+                        moduleName = holder and holder.requiredModule
+                    end
+                    effect = effect or moduleName and native.forModuleMember(moduleName, fieldName)
+                    if effect then
+                        -- A value selected by a pattern carries the same runtime
+                        -- dependency as an ordinary member read, including aliases.
+                        local carried = stat.compilerFeatureEffects or {}
+                        carried[#carried + 1] = effect
+                        stat.compilerFeatureEffects = carried
+                        c.recordEffect(effect)
+                    end
                 end
                 entry.selectedDefinition = definition
                 if not fieldType then

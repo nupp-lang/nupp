@@ -49,7 +49,7 @@ local function rounded(value: number, places: integer): number
 end
 
 function harness.absolute(path: string): string
-    local answer, reason = io.newpath(path):absolute()
+    local answer, reason = io.Path.of(path):absolute()
     if answer == nil then
         error(reason or "cannot make path absolute: " .. path, 2)
     end
@@ -58,11 +58,11 @@ function harness.absolute(path: string): string
 end
 
 function harness.join(first: string, ...: string): string
-    return io.newpath(first):join(...):tostring()
+    return io.Path.of(first):join(...):tostring()
 end
 
 function harness.parent(path: string): string
-    local parent = io.newpath(path):parent()
+    local parent = io.Path.of(path):parent()
     if parent == nil then
         return "."
     end
@@ -108,7 +108,7 @@ end
 --- Creates a unique directory which the caller removes explicitly.
 --- @raises string when the platform cannot create or retain the directory
 function harness.temporaryDirectory(prefix: string): string
-    local temporary, reason = files.tmpdirectory(new files.TemporaryOptions(prefix = prefix))
+    local temporary, reason = files.tmpdirectory(files.TemporaryOptions(prefix = prefix))
     if temporary == nil then
         error("cannot create a temporary directory: " .. tostring(reason), 2)
     end

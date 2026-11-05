@@ -129,10 +129,10 @@ export record Input<M is core.Member> is core.Reader<M>
             if digits == "" then
                 digits = "0"
             end
-            return new core.Decimal(coefficient = (negative and "-" or "") .. digits, exponent = scale - #fraction)
+            return core.Decimal(coefficient = (negative and "-" or "") .. digits, exponent = scale - #fraction)
         end
 
-        return new core.Decimal(coefficient = mantissa, exponent = scale)
+        return core.Decimal(coefficient = mantissa, exponent = scale)
     end
 
     function readnumbertoken(exclusive self, member: M): string
@@ -190,7 +190,7 @@ export record Input<M is core.Member> is core.Reader<M>
     end
 
     function child(self, member: M): Input<M>
-        return new Input<M>(
+        return Input<M>(
             cursor = self.cursor,
             policy = self.policy,
             plan = self.plan:child(member) or self.plan,
@@ -232,7 +232,7 @@ export record Input<M is core.Member> is core.Reader<M>
                 self.cursor:skipValue()
             else
                 local reader = documents.unknown(self.cursor, self.sourceContext)
-                local identity = new documents.Name(name = name)
+                local identity = documents.Name(name = name)
                 local ok, problem = pcall(unknown.apply, unknown, state, identity, reader)
                 reader:expire()
                 if not ok then
@@ -279,7 +279,7 @@ export record Input<M is core.Member> is core.Reader<M>
         while self.cursor:nextElement() do
             index += 1
             local mark = self.cursor:mark()
-            local reader = new Input<M>(
+            local reader = Input<M>(
                 cursor = self.cursor,
                 policy = self.policy,
                 plan = self.plan:slot(size ~= nil and index or 1) or self.plan,
@@ -323,7 +323,7 @@ export record Input<M is core.Member> is core.Reader<M>
                 break
             end
             local mark = self.cursor:mark()
-            local reader = new Input<M>(
+            local reader = Input<M>(
                 cursor = self.cursor,
                 policy = self.policy,
                 plan = self.plan:slot(2) or self.plan,
@@ -332,7 +332,7 @@ export record Input<M is core.Member> is core.Reader<M>
                 usedKey = false,
                 expired = false
             )
-            local key = new Input<M>(
+            local key = Input<M>(
                 cursor = syntax.reader(json.encode(name)),
                 policy = self.policy,
                 plan = self.plan:slot(1) or self.plan,
@@ -365,7 +365,7 @@ export function input<M is core.Member>(
     plan: plans.Plan<M>,
     context: core.Context?
 ): Input<M>
-    return new Input<M>(
+    return Input<M>(
         cursor = cursor,
         policy = policy,
         plan = plan,

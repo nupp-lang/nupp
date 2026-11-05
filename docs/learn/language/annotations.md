@@ -317,7 +317,7 @@ local function close(takes file: File): nil
 end
 
 local function open(handle: integer): affine(File, close)
-    return new File(handle = handle)
+    return File(handle = handle)
 end
 ```
 

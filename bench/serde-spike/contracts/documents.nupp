@@ -13,29 +13,29 @@ local record Custom is core.Atom
     @readonly family: table
     @readonly payload: string
     function snapshot(borrows self): core.Atom
-        return new Custom(family = self.family, payload = self.payload)
+        return Custom(family = self.family, payload = self.payload)
     end
 end
 local family: table = {}
-local atom = new Custom(family = family, payload = "custom")
+local atom = Custom(family = family, payload = "custom")
 local codec, profile = {}, {}
-local key = util.newkey<string>()
+local key = util.Key<string>()
 local builder = contexts.contextbuilder(codec, profile)
 builder:set(key, "retained")
 local context = builder:freeze()
 local original = documents.withcontext(
     documents.tuple({
         documents.null(),
-        documents.integer(new core.Integer(decimal = "18446744073709551615", width = 64, signed = false)),
-        documents.decimal(new core.Decimal(coefficient = "-0", exponent = -2)),
-        documents.float(new core.Float(value = 1.5, width = 32)),
+        documents.integer(core.Integer(decimal = "18446744073709551615", width = 64, signed = false)),
+        documents.decimal(core.Decimal(coefficient = "-0", exponent = -2)),
+        documents.float(core.Float(value = 1.5, width = 32)),
         documents.biginteger("123456789012345678901234567890"),
         documents.bytes("\0\255blob"),
-        documents.timestamp(new core.Timestamp(seconds = "-1", nanos = 500000000)),
+        documents.timestamp(core.Timestamp(seconds = "-1", nanos = 500000000)),
         documents.union("ok", documents.bool(true)),
         documents.map({
-            new documents.MapEntry(
-                key = documents.integer(new core.Integer(decimal = "7", width = 32, signed = true)),
+            documents.MapEntry(
+                key = documents.integer(core.Integer(decimal = "7", width = 32, signed = true)),
                 value = documents.null()
             )
         }),
@@ -78,10 +78,10 @@ local record Mutable is core.Atom
     @readonly family: table
     payload: string
     function snapshot(borrows self): core.Atom
-        return new Mutable(family = self.family, payload = self.payload)
+        return Mutable(family = self.family, payload = self.payload)
     end
 end
-local mutable = new Mutable(family = family, payload = "original")
+local mutable = Mutable(family = family, payload = "original")
 local retained = documents.atom(mutable)
 mutable.payload = "changed"
 local exported = retained:atom() as Mutable

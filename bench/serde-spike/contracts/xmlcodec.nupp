@@ -48,12 +48,12 @@ local record Builder is own.Closeable
 end
 local record Construction is structure.Construction<Request, Builder>
     function begin(self): Builder
-        return new Builder()
+        return Builder()
     end
 
     function finish(self, takes value: Builder): Request
         local owned: Builder = value
-        local result = new Request(
+        local result = Request(
             attributeId = assert2(owned.attributeId),
             elementId = assert2(owned.elementId),
             items = owned.items,
@@ -74,7 +74,7 @@ local record Capture is core.UnknownConsumer<Builder>
     ): nil
         state.unknown[
             #state.unknown + 1
-        ] = new smithy.UnknownField(field = field, value = reader:capturevalue(documents.adapter()))
+        ] = smithy.UnknownField(field = field, value = reader:capturevalue(documents.adapter()))
     end
 end
 local record Additional is core.Members<smithy.Member, Request>
@@ -134,8 +134,8 @@ local fields: {structure.Field<Request, Builder, smithy.Member>} = {
         true
     )
 }
-local recordBinding = new core.Bound<Request, smithy.Member>(
-    adapter = structure.structure(root, fields, new Construction(), new Capture(), new Additional())
+local recordBinding = core.Bound<Request, smithy.Member>(
+    adapter = structure.structure(root, fields, Construction(), Capture(), Additional())
 )
 local documentBinding = smithy.binding(shape)
 local policy = protocol.policy()

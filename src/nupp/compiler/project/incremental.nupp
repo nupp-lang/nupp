@@ -1490,7 +1490,7 @@ export function new(rootDir: string, opts: table?): Inc
         }
     end
 
-    return new Inc(
+    return Inc(
         env = env,
         q = q,
         headerStore = headerStore,

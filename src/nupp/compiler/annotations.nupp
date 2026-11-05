@@ -648,7 +648,7 @@ end
 function annotations.deprecationOf(values: {any}?): annotations.Deprecation?
     for _, annotation in ipairs(values or {}) do
         if annotation.name == "deprecated" then
-            local deprecated = new annotations.Deprecation()
+            local deprecated = annotations.Deprecation()
             for _, argument in ipairs(annotation.arguments or {}) do
                 if argument.name == "reason" and type(argument.value) == "string" then
                     deprecated.reason = argument.value

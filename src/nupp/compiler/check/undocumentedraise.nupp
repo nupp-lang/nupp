@@ -134,7 +134,7 @@ export function install(c: state.Checker): Ops
         if #names == 0 then
             return nil
         end
-        local node = new cst.Tname(kind = "tname")
+        local node = cst.Tname(kind = "tname")
         node.base = cst.add(node, tokenLike(anchor, names[1] == "nil" and "nil" or "name", names[1]))
         for index = 2, #names do
             cst.add(node, tokenLike(anchor, ".", "."))

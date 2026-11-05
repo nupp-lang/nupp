@@ -34,7 +34,7 @@ local function initialize<T, M is core.Member>(
     local description = adapter:describe(direction)
     local policy = factory:policy<M>(description.member)
     local plan = plans.resolve(description, policy, direction)
-    return new Operation<T, M>(
+    return Operation<T, M>(
         policy = policy,
         plan = plan,
         native = direction == "read" and compiled.select(adapter, plan) or nil,
@@ -77,5 +77,5 @@ local record Cache is Scope
 end
 
 export function scope(factory: plans.PolicyFactory, capacity: integer?): Scope
-    return new Cache(factory = factory, memo = memos.new("JSON extension", capacity))
+    return Cache(factory = factory, memo = memos.new("JSON extension", capacity))
 end

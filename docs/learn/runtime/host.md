@@ -115,7 +115,7 @@ local struct PointerMove
     y: number
 end
 
-local input: events.MessageBus<integer> = events.newbus()
+local input: events.MessageBus<integer> = events.MessageBus()
 input:observe(1, PointerMove, |move| -> print(move.x, move.y), "cursor")
 local route = host.route("app.pointer.move", PointerMove, input, 1, "latest")
 

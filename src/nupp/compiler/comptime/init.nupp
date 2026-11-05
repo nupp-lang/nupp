@@ -1491,8 +1491,6 @@ evalExpr = function(state, node)
         answer = evalMulti(state, node)[1]
     elseif kind == "funcExpr" or kind == "shortfn" then
         unsupported(node, "defining a function inside a comptime block")
-    elseif kind == "newExpr" then
-        unsupported(node, "a construction")
     elseif kind == "isExpr" then
         unsupported(node, "an `is` test")
     elseif kind == "vararg" then

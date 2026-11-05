@@ -3,6 +3,7 @@ local builtin = require("nupp.digest.internal.builtin")
 local checksumBuiltin = require("nupp.checksum.internal.builtin")
 local checksumProvider = require("nupp.runtime.provider.checksum")
 local M = {}
+local PUBLIC = {checksum = "Checksum", digest = "Digest", mac = "Mac"}
 
 local function selected(kind, algorithms)
     return state.family(kind, {{algorithms = algorithms}})
@@ -11,9 +12,6 @@ end
 function M.binaryRootDoesNotInitializeStorageOrAlgorithmFamilies()
     local preloads = {}
     for _, name in ipairs({
-        "binary.checksum",
-        "binary.digest",
-        "binary.mac",
         "nupp.runtime.provider.checksum",
         "nupp.runtime.provider.digest",
         "nupp.runtime.provider.mac",
@@ -23,7 +21,19 @@ function M.binaryRootDoesNotInitializeStorageOrAlgorithmFamilies()
             error("hash root initialized " .. name)
         end
     end
-    local load = state.instance({["binary"] = true, ["nupp.util.internal.bitset"] = true}, nil, preloads)
+    local load = state.instance(
+        {
+            ["binary"] = true,
+            ["nupp.util.internal.bitset"] = true,
+            ["nupp.digest.checksum"] = true,
+            ["nupp.digest.digest"] = true,
+            ["nupp.digest.mac"] = true,
+            ["nupp.digest.internal.context"] = true,
+            ["nupp.digest.internal.contracts"] = true
+        },
+        nil,
+        preloads
+    )
     local hash = load("binary")
     assert(hash.fnv1a64("hello") == "a430d84680aabd0b")
     assert(load("binary") == hash)
@@ -32,10 +42,10 @@ end
 function M.binaryContextNamesUseCanonicalKeysOnly()
     for _, kind in ipairs({"checksum", "digest", "mac"}) do
         local load = state.family(kind, {})
-        local facade = load("binary." .. kind)
+        local facade = load("binary")[PUBLIC[kind]]
         local name = kind == "checksum" and "crc32" or kind == "digest" and "sha256" or "hmac-sha256"
-        local algorithm = facade.algorithm(name)
-        local final = kind == "checksum" and "newchecksum" or kind == "digest" and "newdigest" or "newmac"
+        local algorithm = facade.Algorithm.of(name)
+        local final = kind
         local retired = kind == "checksum" and "newChecksum" or kind == "digest" and "newDigest" or "newMac"
         assert(type(algorithm[final]) == "function" and algorithm[retired] == nil)
         local context = kind == "mac" and algorithm[final](algorithm, "key") or algorithm[final](algorithm)
@@ -73,18 +83,20 @@ function M.providerSelectionAndCleanup()
             end
         }
     })
-    local digest = load("binary.digest")
+    local digest = load("binary").Digest
+    assert(counts.resolutions == 0, "catalog loads on first use")
+    digest.Algorithm.names()
     local initialized = counts.resolutions
-    assert(initialized > 0)
-    assert(digest.algorithm("sha256").digestsize == 32 and created == 0)
-    assert(digest.lookup("sha512") ~= nil, "unreplaced built-ins remain available")
+    assert(initialized == 1)
+    assert(digest.Algorithm.of("sha256").digestsize == 32 and created == 0)
+    assert(digest.Algorithm.lookup("sha512") ~= nil, "unreplaced built-ins remain available")
     for _ = 1, 20 do
-        assert(digest.hexdigest("sha256", "abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
-        assert(#digest.algorithms() == 4)
+        assert(digest.computehex("sha256", "abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        assert(#digest.Algorithm.names() == 4)
     end
     assert(created == 20 and closed == 20)
     assert(counts.resolutions == initialized, "operations must not reload implementations")
-    assert(load("binary.digest") == digest)
+    assert(load("binary").Digest == digest)
 end
 
 function M.digestAndMacProviderFailuresCloseAndDoNotFallBack()
@@ -115,12 +127,12 @@ function M.digestAndMacProviderFailuresCloseAndDoNotFallBack()
                     end,
                 },
             })
-            local api = load("binary." .. kind)
+            local api = load("binary")[PUBLIC[kind]]
             local ok, problem
             if kind == "digest" then
-                ok, problem = pcall(api.hexdigest, name, "abc")
+                ok, problem = pcall(api.computehex, name, "abc")
             else
-                ok, problem = pcall(api.hexdigest, name, "key", "abc")
+                ok, problem = pcall(api.computehex, name, "key", "abc")
             end
             assert(not ok and tostring(problem):find("test " .. kind .. " " .. failure .. " failure", 1, true))
             assert(closed == 1, "failed " .. kind .. " " .. failure .. " closes exactly once")
@@ -149,8 +161,8 @@ function M.checksumProviderFailureClosesAndDoesNotFallBack()
             end,
         },
     })
-    local checksum = load("binary.checksum")
-    local ok, problem = pcall(checksum.value, "crc32c", "abc")
+    local checksum = load("binary").Checksum
+    local ok, problem = pcall(checksum.compute, "crc32c", "abc")
     assert(not ok and tostring(problem):find("test checksum provider failure", 1, true))
     assert(closed == 1, "failed checksum update closes exactly once")
 end
@@ -180,15 +192,15 @@ function M.checksumOneShotClosesSuccessfulAndFailedReads()
                 end,
             },
         })
-        local checksum = load("binary.checksum")
-        local ok, answer = pcall(checksum.value, "custom", "payload")
+        local checksum = load("binary").Checksum
+        local ok, answer = pcall(checksum.compute, "custom", "payload")
         assert(ok ~= failRead)
         assert(failRead and tostring(answer):find("test checksum read failure", 1, true) or answer == 42)
         assert(created == 1 and closed == 1, "one-shot checksum closes exactly once")
     end
 end
 
-function M.invalidDescriptorsFailAtRequireTime()
+function M.invalidDescriptorsFailAtFirstCatalogUse()
     for _, case in ipairs({
         {"digest", "sha256", "digestsize", 31},
         {"checksum", "crc32c", "width", 16},
@@ -203,7 +215,7 @@ function M.invalidDescriptorsFailAtRequireTime()
                 end
             }
         })
-        local ok, problem = pcall(load, "binary." .. case[1])
+        local ok, problem = pcall(load("binary")[PUBLIC[case[1]]].Algorithm.names)
         assert(not ok and tostring(problem):find("wrong " .. case[3], 1, true), tostring(problem))
     end
 end
@@ -214,23 +226,21 @@ function M.failedLoadFailsTheFacadeInitialization()
             error("loader failure")
         end
     })
-    local ok, problem = pcall(load, "binary.digest")
+    local ok, problem = pcall(load("binary").Digest.Algorithm.names)
     assert(not ok and tostring(problem):find("loader failure", 1, true))
 end
-
-local FACTORIES = {digest = "newdigest", checksum = "newchecksum", mac = "newmac"}
 
 function M.targetBindingsRetainBuiltinsAndIndependentListings()
     for _, kind in ipairs({"digest", "checksum", "mac"}) do
         local load = state.family(kind)
-        local api = load("binary." .. kind)
-        assert(api.lookup("not-installed") == nil)
-        local factory = assert(api[FACTORIES[kind]], kind .. " names its factory after what it makes")
+        local api = load("binary")[PUBLIC[kind]]
+        assert(api.Algorithm.lookup("not-installed") == nil)
+        local factory = assert(api.create, kind .. " names its factory after what it makes")
         assert(not pcall(factory, "not-installed", "key"))
-        local names = api.algorithms()
+        local names = api.Algorithm.names()
         assert(#names > 0)
         names[1] = "mutated"
-        assert(api.algorithms()[1] ~= "mutated", "listing must not expose retained storage")
+        assert(api.Algorithm.names()[1] ~= "mutated", "listing must not expose retained storage")
     end
 end
 
@@ -272,15 +282,17 @@ function M.checksumAndMacRetainCatalogsDuringOperations()
     for _, kind in ipairs({"checksum", "mac"}) do
         local builtinProvider = require("nupp.runtime.provider." .. kind)
         local load, counts = state.family(kind, {builtinProvider})
-        local api = load("binary." .. kind)
+        local api = load("binary")[PUBLIC[kind]]
+        assert(counts.resolutions == 0, "catalog loads on first use")
+        api.Algorithm.names()
         local initialized = counts.resolutions
-        assert(initialized > 0)
+        assert(initialized == 1)
         for _ = 1, 20 do
-            api.algorithms()
+            api.Algorithm.names()
             if kind == "checksum" then
-                assert(tonumber(api.value("crc32c", "123456789")) == 0xe3069283)
+                assert(tonumber(api.compute("crc32c", "123456789")) == 0xe3069283)
             else
-                assert(#api.digest("hmac-sha256", "key", "payload") == 32)
+                assert(#api.compute("hmac-sha256", "key", "payload") == 32)
             end
         end
         assert(counts.resolutions == initialized, kind .. " operations reloaded the implementation")
@@ -290,9 +302,9 @@ end
 function M.builtinBindingsInitializeOnce()
     for _, kind in ipairs({"digest", "checksum", "mac"}) do
         local load, counts = state.family(kind)
-        local api = load("binary." .. kind)
-        assert(#api.algorithms() > 0)
-        assert(load("binary." .. kind) == api)
+        local api = load("binary")[PUBLIC[kind]]
+        assert(#api.Algorithm.names() > 0)
+        assert(load("binary")[PUBLIC[kind]] == api)
         assert(counts.resolutions == 1, "builtin implementation initializes once")
     end
 end

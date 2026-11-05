@@ -2,7 +2,7 @@ module tier2eval
 
 const assert2 = require("assert")
 
-const digest2 = require("binary.digest")
+const digest2 = require("binary").Digest
 
 -- Tier 2: export a commit's parent without Git history, carry its tests forward,
 -- and grade whether an agent can rediscover the implementation without editing
@@ -180,7 +180,7 @@ function tier2.digests(at: string, paths: {string}): {[string]: string}
     for _, path in ipairs(paths) do
         local target = harness.join(at, path)
         if files.exists(target) then
-            digests[path] = digest2.hexdigest("sha256", harness.read(target))
+            digests[path] = digest2.computehex("sha256", harness.read(target))
         end
     end
 

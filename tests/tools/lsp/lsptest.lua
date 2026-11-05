@@ -1100,7 +1100,7 @@ function M.hoverAndInspectExposeAutomaticCleanup()
             "local function close_handle(value: Handle)",
             "end",
             "local function open_handle(): affine(Handle, close_handle)",
-            "   return new Handle(name = 'a')",
+            "   return Handle(name = 'a')",
             "end",
             "local function work()",
             "   local handle = open_handle()",
@@ -1466,7 +1466,7 @@ function M.definitionLocations()
             "local record Point",
             "   x: number",
             "end",
-            "local p: Point = new Point()",
+            "local p: Point = Point()",
             "local function length(v: Point): number",
             "   return v.x + p.x",
             "end",
@@ -1566,7 +1566,7 @@ function M.renamingAnUnaliasedBindingPatternPreservesItsField()
             "   x: number",
             "   y: number",
             "end",
-            "local point = new Point(x = 1, y = 2)",
+            "local point = Point(x = 1, y = 2)",
             "local {x, y as vertical} = point",
             "print(x, vertical)",
         },
@@ -1615,7 +1615,7 @@ function M.languageFeaturesAndCdefTooling()
             "local function sum(pair: Pair, amount: int32): int32",
             "   return cAdd(pair.value, amount)",
             "end",
-            "local pair: Pair = new Pair()",
+            "local pair: Pair = Pair()",
             "local result = sum(pair, 2)",
             "local cdef = 1",
             "local own = cdef",
@@ -1721,6 +1721,7 @@ function M.languageFeaturesAndCdefTooling()
     assert(labels.Pair, "C struct completion")
     assert(labels.cdef, "cdef keyword completion")
     assert(labels.const, "const keyword completion")
+    assert(not labels.new, "new is no longer a keyword completion")
     assert(labels.continue, "continue keyword completion")
     assert(labels.type, "type keyword and Lua function completion")
     assert(labels.global, "global keyword completion")
@@ -2456,7 +2457,7 @@ function M.qualifiedMembersNavigateAcrossFiles()
     local usePath = projectDir .. "/use.nupp"
     local uri = fileUri(usePath)
     -- column 34 sits on `Point` in the annotation
-    local source = "local shapes = require(\"shapes\")\n" .. "local p: shapes.Point = new shapes.Point(x = 1)\n"
+    local source = "local shapes = require(\"shapes\")\n" .. "local p: shapes.Point = shapes.Point(x = 1)\n"
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -2553,7 +2554,7 @@ function M.renamesTheMemberAndNotItsTable()
     assert(os.execute("mkdir -p '" .. projectDir .. "'") == 0)
     local uri = fileUri(projectDir .. "/shapes.nupp")
     local source = "local shapes = {}\n\nrecord shapes.Point\n   x: number\nend\n"
-        .. "\nlocal p: shapes.Point = new shapes.Point(x = 1)\n\nreturn shapes\n"
+        .. "\nlocal p: shapes.Point = shapes.Point(x = 1)\n\nreturn shapes\n"
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -3039,7 +3040,7 @@ function M.completionAfterAValueDotOffersItsFields()
             "    end",
             "end",
             "",
-            "local p: shapes.Point = new shapes.Point(x = 1, y = 2)",
+            "local p: shapes.Point = shapes.Point(x = 1, y = 2)",
             "local n = p.x",
             "",
             "return shapes",
@@ -4168,7 +4169,7 @@ end
 function M.rangeFormattingKeepsQualifiedReferencesBound()
     local projectDir = makeDir()
     local uri = fileUri(projectDir .. "/imports.nupp")
-    local source = '-- imports stay outside the selection\n\nreturn io.files.exists(  "a"  )\n'
+    local source = '-- imports stay outside the selection\n\nreturn io.http.file(  "a"  )\n'
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -4195,7 +4196,7 @@ function M.rangeFormattingKeepsQualifiedReferencesBound()
     os.execute("rm -rf '" .. projectDir .. "'")
     local edits = responseWithId(out, 10).result
     assert(#edits == 1, "range receives its layout edit")
-    assert(edits[1].newText == 'return io.files.exists("a")\n', "reference keeps its module path")
+    assert(edits[1].newText == 'return io.http.file("a")\n', "reference keeps its module path")
 end
 
 function M.formattingHonorsAManifestThatTurnsMethodParensOff()
@@ -4298,7 +4299,7 @@ local OUTLINE = table.concat(
         "type shapes.Colour = 'red' | 'blue'",
         "",
         "function shapes.origin(): shapes.Point",
-        "    return new shapes.Point(x = 0, y = 0)",
+        "    return shapes.Point(x = 0, y = 0)",
         "end",
         "",
         "local function helper(): number",
@@ -4576,7 +4577,7 @@ local provider = require("deriveeditor")
 local record Model
     value: integer = 0
 end
-local model = new Model()
+local model = Model()
 local inspected = model:inspect()
 local kind = Model.kind()
 local fields = Model.fields()
@@ -4840,7 +4841,7 @@ end
 function M.codeActionCorrectsAMetamethodTypo()
     local projectDir = tempProject()
     local source = table.concat(
-        {"local record R end", "local r: R = new R()", "setmetatable(r, {__cal = function() end})",},
+        {"local record R end", "local r: R = R()", "setmetatable(r, {__cal = function() end})",},
         "\n"
     )
     local actions, _, rewritten, diagnostics = codeActionSession(

@@ -8,14 +8,14 @@ local record Damage
     amount: integer
 end
 
-local damage = table.newpool(Damage, 64)
+local damage = table.Pool(Damage, 64)
 local hit = damage:acquire()
 hit.amount = 12
 damage:release(hit)
 assert(damage:free() == 64)
 ```
 
-The size passed to `newpool` warms that many instances and sets the growth
+The size passed to `Pool` warms that many instances and sets the growth
 quantum. `capacity` reports retained instances; it grows when the free list
 runs out. A released instance becomes reusable immediately. `reset` refuses
 live leases, restarts the acquisition count, and retains every allocation.
@@ -26,9 +26,54 @@ work on every backend; struct pools require C storage.
 ]]
 module nupp.util.internal.pool
 
+-- Whether a caller's count is a nonnegative integer. The value is read
+-- untyped: integer-typed arithmetic refuses a fractional or non-finite
+-- operand with its own error before this check could name the argument.
+local function iscount(value: any): boolean
+    return type(value) == "number" and value >= 0 and value % 1 == 0
+end
+
+-- Whether a witness is a struct declaration. Its physical type is reachable
+-- from the declaration and from every value, and only a value is one.
+local function isstruct(witness: any): boolean
+    if type(witness) ~= "cdata" then
+        return false
+    end
+    local physical: any = witness["\0nupp:structType"]
+
+    return physical ~= nil and not physical:isa(witness)
+end
+
 --- Reusable instances of one record or struct declaration.
 --- @export
 export record Pool<T>
+    constructor(self, witness: Type<T>, size: integer?)
+        local initial = size ?? 32
+        if not iscount(initial) then
+            error("nupp: pool size must be a nonnegative integer", 2)
+        end
+        local backend: any = nil
+        if type(witness) ~= "table" or rawget(witness as any, "__index") ~= witness then
+            if not isstruct(witness) then
+                error("nupp: pool expects a record or struct declaration", 2)
+            end
+            local implementation = "nupp.util.internal.structpool"
+            backend = _G.require(implementation).new(witness)
+        end
+        self.witness = witness
+        self.growth = math.max(1, initial)
+        self.backend = backend
+        self.capacity = 0
+        self.available = {}
+        self.values = {}
+        self.freecount = 0
+        self.livecount = 0
+        self.usedcount = 0
+        self.pagecount = 0
+        self.leases = {}
+        self:reserve(initial)
+    end
+
     @private @readonly witness: any
     @private @readonly growth: integer
     @private @readonly backend: any
@@ -55,24 +100,6 @@ export record Pool<T>
 end
 
 local setfield: function(exclusive destination: table, key: string, value: integer): nil = rawset as any
-
--- Whether a caller's count is a nonnegative integer. The value is read
--- untyped: integer-typed arithmetic refuses a fractional or non-finite
--- operand with its own error before this check could name the argument.
-local function iscount(value: any): boolean
-    return type(value) == "number" and value >= 0 and value % 1 == 0
-end
-
--- Whether a witness is a struct declaration. Its physical type is reachable
--- from the declaration and from every value, and only a value is one.
-local function isstruct(witness: any): boolean
-    if type(witness) ~= "cdata" then
-        return false
-    end
-    local physical: any = witness["\0nupp:structType"]
-
-    return physical ~= nil and not physical:isa(witness)
-end
 
 local function addpage<T>(exclusive self: Pool<T>): nil
     local count = self.growth
@@ -227,7 +254,7 @@ end
 ---     frame: integer
 --- end
 ---
---- local ticks = table.newpool(Tick, 8)
+--- local ticks = table.Pool(Tick, 8)
 --- assert(ticks:free() == 8)
 --- ```
 ---
@@ -238,32 +265,5 @@ end
 ---     record or struct declaration
 --- @export
 export function new<T>(witness: Type<T>, size: integer?): Pool<T>
-    local initial = size ?? 32
-    if not iscount(initial) then
-        error("nupp: pool size must be a nonnegative integer", 2)
-    end
-    local backend: any = nil
-    if type(witness) ~= "table" or rawget(witness as any, "__index") ~= witness then
-        if not isstruct(witness) then
-            error("nupp: pool expects a record or struct declaration", 2)
-        end
-        local implementation = "nupp.util.internal.structpool"
-        backend = _G.require(implementation).new(witness)
-    end
-    local created = new Pool(
-        witness = witness,
-        growth = math.max(1, initial),
-        backend = backend,
-        capacity = 0,
-        available = {} as {T},
-        values = {} as {T},
-        freecount = 0,
-        livecount = 0,
-        usedcount = 0,
-        pagecount = 0,
-        leases = {}
-    ) as Pool<T>
-    created:reserve(initial)
-
-    return created
+    return Pool<T>(witness, size)
 end

@@ -6,5 +6,5 @@ local record Resource is own.Closeable
     function close(takes self): nil
     end
 end
-local key: Key<Resource> = util.newkey()
+local key: Key<Resource> = util.Key()
 print(codec.contextbuilder({}, {}):freeze():get(key) == nil)

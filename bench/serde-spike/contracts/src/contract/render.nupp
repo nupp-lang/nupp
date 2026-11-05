@@ -13,12 +13,12 @@ end
 local record Render<T> is core.Consumer<T, T, string>
 
     function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows value: T): string
-        local out = new Output<M>(parts = {})
+        local out = Output<M>(parts = {})
         adapter:write(value, out)
         return table.concat(out.parts)
     end
 end
 
 export function render<T>(binding: core.Binding<T>, borrows value: T): string
-    return binding:accept(new Render<T>(), value)
+    return binding:accept(Render<T>(), value)
 end

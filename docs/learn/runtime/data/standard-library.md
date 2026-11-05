@@ -6,10 +6,10 @@ order: 180
 
 Nupp's standard library provides types, text, data formats, I/O, and application
 tools. Its APIs live in builtin tables such as `math` and in declared modules
-such as `binary.digest`.
+such as `binary.Digest`.
 
 ```nupp
-local digest = binary.digest.hexdigest("sha256", "payload")
+local digest = binary.Digest.computehex("sha256", "payload")
 print(#digest, math.lerp(10, 20, 0.25))
 ```
 
@@ -48,11 +48,11 @@ for how a declared module is named and resolved.
 The standard surface is deliberately small. These pages cover both the
 intrinsic namespaces and the declared modules:
 
-- [](binary.digest) provides incremental MD5, SHA-1, SHA-256 and SHA-512
+- [](binary.Digest) provides incremental MD5, SHA-1, SHA-256 and SHA-512
   with algorithm lookup, output-size metadata and consuming finalization.
-- [](binary.checksum) provides Adler-32 and explicitly named CRC variants
+- [](binary.Checksum) provides Adler-32 and explicitly named CRC variants
   as numeric values; protocols choose their serialization byte order.
-- [](binary.mac) provides keyed authentication, including HMAC-SHA256.
+- [](binary.Mac) provides keyed authentication, including HMAC-SHA256.
 - [](binary.fnv1a64) hashes bytes with FNV-1a.
 - [](serde.json) and [](binary) encode and decode
   representations. [](serde.valuebuilder) supports codec authors.
@@ -60,9 +60,9 @@ intrinsic namespaces and the declared modules:
 - [](serde) binds application types to reusable serialization schemas.
 - [](binary.Bitset) is a growable set of bit positions. [](table.Pool) leases
   cleared records or zero-filled struct rows of one declaration;
-  [](table.newpool) creates one. Released instances become reusable immediately,
+  [](table.Pool) creates one. Released instances become reusable immediately,
   and an idle pool resets without discarding its allocations.
-- [](types.Store) is a bag of values indexed by the typed keys [](types.newkey)
+- [](types.Store) is a bag of values indexed by the typed keys [](types.Key)
   creates.
 - `os.info()` reports execution platform, architecture, endianness, pointer
   width and available parallelism. `os.uuid4()` and `os.uuid7()` generate
@@ -75,7 +75,7 @@ intrinsic namespaces and the declared modules:
 - [](io) owns byte buffers, readers, writers, and typed scalar reads and writes
   over them. [](io.Bytes) shares immutable engine storage across workers and
   lends byte views without copying.
-- [](io.files) owns filesystem metadata and directories.
+- [](os) owns the filesystem: metadata, directories, links, temporary paths, and app storage roots.
 - [](io.net) owns listeners, plain connections, and TLS sessions.
 - [](io) models filesystem paths and resource identifiers.
 - [](debug.log) owns leveled logging over a swappable destination.
@@ -84,9 +84,9 @@ intrinsic namespaces and the declared modules:
 - [`nupp.soa`](structure-of-arrays.md) stores every top-level field of a
   reified struct in its own column.
 - [](io.gpu) owns resident buffers, generated kernel dispatches, and tensor views.
-  [](io.gpu.layout) owns the checked layout algebra.
+  [](io.gpu.Layout) provides checked layout transformations.
 - [](os.randombytes) provides cryptographically secure random bytes.
-  [](math.random) owns deterministic pseudo-random sequences with explicit,
+  [](math.Xoshiro128) owns deterministic pseudo-random sequences with explicit,
   serializable state.
 - [](coroutine.suspend) waits for a callback result. [](coroutine) owns
   application task scopes, and [](coroutine.Scope.work) provides isolated worker

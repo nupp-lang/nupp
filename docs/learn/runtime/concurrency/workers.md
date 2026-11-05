@@ -334,7 +334,7 @@ storage rather than a copy of a value.
 
 A type that says nothing definite is left to the copy. `any`, a bare `table`,
 and a record all describe values that may or may not be copyable. A record built
-with `new` carries its declaration table and crosses with that identity; a plain
+by calling its declaration carries its declaration table and crosses with that identity; a plain
 table cast to the same record type remains plain. The type alone cannot decide
 which value arrives. The checker's guarantee is therefore one level deep -- each
 capture and argument is held to its declared type -- and the transport walks the
@@ -353,7 +353,7 @@ which field stopped the copy rather than that the message was untransferable:
 
 ```nupp:fragment
 local scope = tasks.scope()
-const row = new jobs.Row(name = "a")
+const row = jobs.Row(name = "a")
 
 -- The lane receives its own jobs.Row metatable, so its methods work there.
 scope:work(row, jobs.displayRow)
@@ -369,7 +369,7 @@ scope:work({{name = "a"}, {name = "a"}}, jobs.count)
 ```
 
 All fields present on a record table cross, including dynamic fields not named
-by the declaration. Only the canonical declaration metatable stamped by `new`
+by the declaration. Only the canonical metatable stamped during construction
 is reproducible. A prototype-style instance carrying a private metatable whose
 `__index` points at a record is still rejected rather than silently losing that
 private behavior.
@@ -444,7 +444,7 @@ before rebuilding its owner, and primitive elements move; every other
 ownership mode and element shape keeps the refusal above.
 
 [](io.Bytes) shares immutable engine storage with any number of readers; a move
-hands exclusive mutable storage to one lane. `io.Bytes.newbuilder()` constructs
+hands exclusive mutable storage to one lane. `io.Bytes.Builder()` constructs
 shared bytes incrementally, and consuming `Builder:freeze()` transfers its
 allocation into immutable bytes without copying.
 

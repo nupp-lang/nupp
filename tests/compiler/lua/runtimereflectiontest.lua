@@ -44,7 +44,7 @@ local record Action
     end
 end
 local description = Action.reflect()
-local bus: events.MessageBus<integer> = events.newbus()
+local bus: events.MessageBus<integer> = events.MessageBus()
 local result = 0
 bus:observe(1, Action, |event| -> do result = event:evaluate() end)
 bus:emit(1, Action, callback = function(): integer return 7 end)
@@ -69,7 +69,7 @@ local record User
 end
 
 local witness: Type<User> = User
-local value: User = new User(id = 7)
+local value: User = User(id = 7)
 local first = User.reflect()
 local second = User.reflect()
 return {
@@ -89,15 +89,13 @@ return {
 end
 
 function M.doesNotEmitReflectionForUnusedRecords()
-    local code = compile(
-        [[
+    local code = compile([[
 local record Quiet
     value: integer
 end
-local quiet = new Quiet(value = 1)
+local quiet = Quiet(value = 1)
 return quiet.value
-]]
-    )
+]])
     testAssert.eq(code:find("__reflect", 1, true), nil, "unused reflection runtime")
 end
 
@@ -337,7 +335,7 @@ local record User
 end
 local Alias = User;
 (User as {[string]: any}).__tostring = function(): string return "user" end
-local value = new User(name = "a")
+local value = User(name = "a")
 return getmetatable(value) == Alias and User == (Alias as any)
 ]]
     testAssert.eq(run("runtimereflectiontest.identityAndMetatableUsesDoNotCarryDescriptors", source), true)

@@ -534,7 +534,7 @@ export function parse(source: string, filename: string?): ParseResult
         if cur().kind ~= "<" then
             return nil
         end
-        local g = new cst.Generics(
+        local g = cst.Generics(
             names = {},
             bounds = {},
             packs = {},
@@ -764,7 +764,7 @@ export function parse(source: string, filename: string?): ParseResult
         if kind == "@" then
             local attached: {cst.AnnotationApply} = {}
             while cur().kind == "@" do
-                local application = parseAnnotationApplication(new cst.AnnotationApply(kind = "annotationApply"), true)
+                local application = parseAnnotationApplication(cst.AnnotationApply(kind = "annotationApply"), true)
                 application.typeAttachment = true
                 attached[#attached + 1] = application
             end
@@ -783,7 +783,7 @@ export function parse(source: string, filename: string?): ParseResult
             and startsType(tokens[i + 1])
             and tokens[i + 1].line == cur().line
         then
-            local n = new cst.Tkeyof(kind = "tkeyof", capability = cur().text == "keyof" and "read" or "write")
+            local n = cst.Tkeyof(kind = "tkeyof", capability = cur().text == "keyof" and "read" or "write")
             add(n, advance()).contextualOp = true
             n.inner = add(n, parseTypePrimary())
             return n
@@ -793,7 +793,7 @@ export function parse(source: string, filename: string?): ParseResult
             and startsType(tokens[i + 1])
             and tokens[i + 1].line == cur().line
         then
-            local n = new cst.Twriteof(kind = "twriteof")
+            local n = cst.Twriteof(kind = "twriteof")
             add(n, advance()).contextualOp = true
             n.inner = add(n, parsePosttype())
             return n
@@ -802,7 +802,7 @@ export function parse(source: string, filename: string?): ParseResult
         -- follows it; on its own it is a type name like any other, which is what keeps
         -- `local x: const` meaning what it did.
         if kind == "name" and cur().text == "const" and startsType(tokens[i + 1]) then
-            local n = new cst.Tconst(kind = "tconst")
+            local n = cst.Tconst(kind = "tconst")
             add(n, advance())
             n.inner = add(n, parseTypePrimary())
             return n
@@ -812,7 +812,7 @@ export function parse(source: string, filename: string?): ParseResult
             -- makes a discriminated union declarable. `false` earns its place here
             -- because a function that returns a result or false is a Lua idiom, and
             -- truth-testing it should leave the result behind.
-            local n = new cst.Tliteral(kind = "tliteral")
+            local n = cst.Tliteral(kind = "tliteral")
             n.token = add(n, advance())
             return n
         end
@@ -820,14 +820,14 @@ export function parse(source: string, filename: string?): ParseResult
             -- A negative numeral is one literal, not a negation of one: nothing in a
             -- type is an operand, and a signed bound has no other spelling. The minus
             -- is kept on the node so the token stream still reads back as written.
-            local n = new cst.Tliteral(kind = "tliteral")
+            local n = cst.Tliteral(kind = "tliteral")
             n.negated = true
             add(n, advance())
             n.token = add(n, advance())
             return n
         end
         if kind == "name" or kind == "nil" then
-            local n = new cst.Tname(kind = "tname")
+            local n = cst.Tname(kind = "tname")
             n.base = add(n, advance())
             while cur().kind == "." and tokens[i + 1] and tokens[i + 1].kind == "name" do
                 add(n, advance())
@@ -849,7 +849,7 @@ export function parse(source: string, filename: string?): ParseResult
                 add(n, expectGenericClose("to close type arguments")).generic = true
             end
             if cur().kind == "(" then
-                local call = new cst.Ttypecall(kind = "ttypecall", arguments = {})
+                local call = cst.Ttypecall(kind = "ttypecall", arguments = {})
                 call.callee = add(call, n)
                 add(call, advance())
                 -- A type function takes a pack as readily as a generic application
@@ -869,7 +869,7 @@ export function parse(source: string, filename: string?): ParseResult
             local open = advance()
             local first = parseType()
             if cur().kind == "," then
-                local pack = new cst.Tpack(kind = "tpack", types = {})
+                local pack = cst.Tpack(kind = "tpack", types = {})
                 add(pack, open)
                 pack.types[1] = add(pack, first)
                 while cur().kind == "," do
@@ -879,7 +879,7 @@ export function parse(source: string, filename: string?): ParseResult
                 add(pack, expect(")", "to close type pack"))
                 return pack
             end
-            local n = new cst.Tparen(kind = "tparen")
+            local n = cst.Tparen(kind = "tparen")
             add(n, open)
             n.inner = add(n, first)
             add(n, expect(")", "to close type"))
@@ -926,7 +926,7 @@ export function parse(source: string, filename: string?): ParseResult
             local function shapeMember(): Node
                 local annotations = {}
                 while cur().kind == "@" do
-                    local application = parseAnnotationApplication(new cst.AnnotationApply(kind = "annotationApply"))
+                    local application = parseAnnotationApplication(cst.AnnotationApply(kind = "annotationApply"))
                     application.propertyCapabilityAttachment = true
                     application.name.propertyCapability = true
                     annotations[#annotations + 1] = application
@@ -938,7 +938,7 @@ export function parse(source: string, filename: string?): ParseResult
                     and tokens[i + 2]
                     and tokens[i + 2].kind == "in"
                 then
-                    member = new cst.Tmapped(kind = "tmapped", annotations = annotations)
+                    member = cst.Tmapped(kind = "tmapped", annotations = annotations)
                     for _, application in ipairs(annotations) do
                         add(member, application)
                     end
@@ -954,7 +954,7 @@ export function parse(source: string, filename: string?): ParseResult
                     annotationColon(member, "in mapped member")
                     member.value = add(member, parseType())
                 elseif cur().kind == "[" then
-                    member = new cst.Tmap(kind = "tmap")
+                    member = cst.Tmap(kind = "tmap")
                     member.annotations = annotations
                     for _, application in ipairs(annotations) do
                         add(member, application)
@@ -965,7 +965,7 @@ export function parse(source: string, filename: string?): ParseResult
                     annotationColon(member, "in indexer type")
                     member.value = add(member, parseType())
                 else
-                    member = new cst.TshapeField(kind = "tshapeField")
+                    member = cst.TshapeField(kind = "tshapeField")
                     member.annotations = annotations
                     for _, application in ipairs(annotations) do
                         add(member, application)
@@ -987,7 +987,7 @@ export function parse(source: string, filename: string?): ParseResult
                     return first
                 end
                 if cur().kind == "," then
-                    n = new cst.Tshape(kind = "tshape", fields = {})
+                    n = cst.Tshape(kind = "tshape", fields = {})
                     add(n, addOpen)
                     n.fields[1] = add(n, first)
                     while cur().kind == "," do
@@ -1003,7 +1003,7 @@ export function parse(source: string, filename: string?): ParseResult
             then
                 -- Inline shape members. Capability annotations belong to the member
                 -- they precede; an unprefixed `readonly` remains an ordinary name.
-                n = new cst.Tshape(fields = {}, kind = "tshape")
+                n = cst.Tshape(fields = {}, kind = "tshape")
                 add(n, addOpen)
                 repeat
                     local f = shapeMember()
@@ -1017,7 +1017,7 @@ export function parse(source: string, filename: string?): ParseResult
                 -- array {T} or tuple {T, U, ...}
                 local first = parseType()
                 if cur().kind == "," then
-                    n = new cst.Ttuple(types = {}, kind = "ttuple")
+                    n = cst.Ttuple(types = {}, kind = "ttuple")
                     add(n, addOpen)
                     n.types[1] = add(n, first)
                     while cur().kind == "," do
@@ -1037,7 +1037,7 @@ export function parse(source: string, filename: string?): ParseResult
                         n.types[#n.types + 1] = add(n, parseType())
                     end
                 else
-                    n = new cst.Tarray(kind = "tarray")
+                    n = cst.Tarray(kind = "tarray")
                     add(n, addOpen)
                     n.element = add(n, first)
                 end
@@ -1045,13 +1045,13 @@ export function parse(source: string, filename: string?): ParseResult
             add(n, expect("}", "to close table type"))
             return n
         elseif kind == "function" then
-            local n = new cst.Tfunc(params = {}, kind = "tfunc")
+            local n = cst.Tfunc(params = {}, kind = "tfunc")
             add(n, advance())
             parseGenerics(n)
             add(n, expect("(", "in function type"))
             if cur().kind ~= ")" then
                 repeat
-                    local p = new cst.TfuncParam(kind = "tfuncParam")
+                    local p = cst.TfuncParam(kind = "tfuncParam")
                     local isFunctionConst = cur().kind == "name"
                         and cur().text == "const"
                         and tokens[i + 1]
@@ -1095,8 +1095,8 @@ export function parse(source: string, filename: string?): ParseResult
                             n.params[#n.params + 1] = add(n, p)
                             break
                         elseif cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "..." then
-                            local pack = new cst.Tpack(kind = "tpack", types = {})
-                            local tail = new cst.Tname(kind = "tname")
+                            local pack = cst.Tpack(kind = "tpack", types = {})
+                            local tail = cst.Tname(kind = "tname")
                             tail.base = add(tail, advance())
                             pack.tail = add(pack, tail)
                             pack.tailKind = "generic"
@@ -1159,7 +1159,7 @@ export function parse(source: string, filename: string?): ParseResult
             return parseIstring()
         end
         errAt(cur(), "type expected")
-        local n = new cst.ErrorType(kind = "errorType")
+        local n = cst.ErrorType(kind = "errorType")
         add(n, missing("type"))
 
         return n
@@ -1175,19 +1175,19 @@ export function parse(source: string, filename: string?): ParseResult
             if k == "?" or k == "*" then
                 local n: cst.Topt | cst.Tptr
                 if k == "?" then
-                    n = new cst.Topt(kind = "topt")
+                    n = cst.Topt(kind = "topt")
                 else
-                    n = new cst.Tptr(kind = "tptr")
+                    n = cst.Tptr(kind = "tptr")
                 end
                 n.inner = add(n, t)
                 add(n, advance()).typePostfix = true
                 t = n
             elseif k == "[" and tokens[i - 1] and tokens[i - 1].line == cur().line then
                 -- C array types: T[?] is variable-length, T[N] fixed. Both are
-                -- zero-based cdata, unlike the one-based new Lua {T}. A postfix
+                -- zero-based cdata, unlike the one-based Lua {T}. A postfix
                 -- stays on its type's line, so a declaration-body indexer beginning
                 -- on the next line cannot be absorbed as T[K].
-                local n = new cst.Tcarray(kind = "tcarray")
+                local n = cst.Tcarray(kind = "tcarray")
                 n.element = add(n, t)
                 add(n, advance()).typePostfix = true
                 if cur().kind == "?" then
@@ -1198,7 +1198,7 @@ export function parse(source: string, filename: string?): ParseResult
                 add(n, expect("]", "to close a C array type")).typePostfix = true
                 t = n
             elseif k == "." and tokens[i + 1] and tokens[i + 1].kind == "[" then
-                local n = new cst.Tmember(kind = "tmember")
+                local n = cst.Tmember(kind = "tmember")
                 n.object = add(n, t)
                 add(n, advance()).typePostfix = true
                 add(n, advance()).typePostfix = true
@@ -1243,7 +1243,7 @@ export function parse(source: string, filename: string?): ParseResult
         if cur().kind ~= "&" or stopAtFunctionMember and nextIsFunctionMember() then
             return t
         end
-        local n = new cst.Tintersection(types = {}, kind = "tintersection")
+        local n = cst.Tintersection(types = {}, kind = "tintersection")
         n.types[1] = add(n, t)
         while cur().kind == "&" and not (stopAtFunctionMember and nextIsFunctionMember()) do
             add(n, advance())
@@ -1262,7 +1262,7 @@ export function parse(source: string, filename: string?): ParseResult
         if noUnion or cur().kind ~= "|" then
             return t
         end
-        local n = new cst.Tunion(types = {}, kind = "tunion")
+        local n = cst.Tunion(types = {}, kind = "tunion")
         n.types[1] = add(n, t)
         while cur().kind == "|" do
             add(n, advance())
@@ -1291,28 +1291,28 @@ export function parse(source: string, filename: string?): ParseResult
             and startsType(tokens[i + 1])
             and tokens[i + 1].line == cur().line
         then
-            local n = new cst.Tpack(kind = "tpack", types = {}, tailKind = "computed")
+            local n = cst.Tpack(kind = "tpack", types = {}, tailKind = "computed")
             add(n, advance()).contextualOp = true
             n.tail = add(n, parseType(nil, stopAtFunctionMember))
             return n
         end
         if cur().kind == "..." then
-            local n = new cst.Tpack(kind = "tpack", types = {}, tailKind = "homogeneous")
+            local n = cst.Tpack(kind = "tpack", types = {}, tailKind = "homogeneous")
             local dots = add(n, advance())
             dots.generic, dots.homogeneousPack = true, true
             n.tail = add(n, parseType(nil, stopAtFunctionMember))
             return n
         end
         if cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "..." then
-            local n = new cst.Tpack(kind = "tpack", types = {}, tailKind = "generic")
-            local tail = new cst.Tname(kind = "tname")
+            local n = cst.Tpack(kind = "tpack", types = {}, tailKind = "generic")
+            local tail = cst.Tname(kind = "tname")
             tail.base = add(tail, advance())
             n.tail = add(n, tail)
             add(n, advance()).generic = true
             return n
         end
         if cur().kind ~= "(" then
-            local n = new cst.Tpack(kind = "tpack", types = {})
+            local n = cst.Tpack(kind = "tpack", types = {})
             n.types[1] = add(n, parseReturnType(stopAtFunctionMember))
             while allowBareList and cur().kind == "," and startsType(tokens[i + 1]) do
                 add(n, advance()).typeSeparator = true
@@ -1320,7 +1320,7 @@ export function parse(source: string, filename: string?): ParseResult
             end
             return n
         end
-        local n = new cst.Tpack(kind = "tpack", types = {})
+        local n = cst.Tpack(kind = "tpack", types = {})
 
         -- A parenthesized pack's punctuation is type material, and it is marked as such
         -- here because this is the only place that still knows. A caller may splice
@@ -1341,7 +1341,7 @@ export function parse(source: string, filename: string?): ParseResult
         if cur().kind == "(" then
             local first = add(n, parseTypePack(false))
             if cur().kind == "|" then
-                local union = new cst.TpackUnion(kind = "tpackUnion", packs = {first})
+                local union = cst.TpackUnion(kind = "tpackUnion", packs = {first})
                 for _, child in ipairs(n) do
                     add(union, child)
                 end
@@ -1453,7 +1453,7 @@ export function parse(source: string, filename: string?): ParseResult
     local function parseCallargs(typeFirst: boolean?): Node?
         local kind = cur().kind
         if kind == "(" then
-            local n = new cst.Args(kind = "args")
+            local n = cst.Args(kind = "args")
             add(n, advance())
             n.exprs = {}
             if cur().kind ~= ")" then
@@ -1489,7 +1489,7 @@ export function parse(source: string, filename: string?): ParseResult
                             n.ordinaryTypeArg = ordinaryValid and ordinary or nil
                         end
                     elseif pluckGroupAhead("{", "}") or pluckGroupAhead("(", ")") then
-                        local pluck = new cst.PluckArg(kind = "pluckArg", names = {})
+                        local pluck = cst.PluckArg(kind = "pluckArg", names = {})
                         local oldSpelling = cur().kind == "("
                         local closeKind = oldSpelling and ")" or "}"
                         local openTok = add(pluck, advance())
@@ -1573,7 +1573,7 @@ export function parse(source: string, filename: string?): ParseResult
                         end
                         argument = pluck
                     elseif cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "=" then
-                        local named = new cst.NamedArg(kind = "namedArg")
+                        local named = cst.NamedArg(kind = "namedArg")
                         named.name = add(named, advance())
                         add(named, advance()) -- '='
                         named.value = add(named, resetNoMethod(parseExp))
@@ -1591,11 +1591,11 @@ export function parse(source: string, filename: string?): ParseResult
             add(n, expect(")", "to close arguments"))
             return n
         elseif kind == "{" then
-            local n = new cst.Args(kind = "args")
+            local n = cst.Args(kind = "args")
             n.table = add(n, resetNoMethod(parseTableconstructor))
             return n
         elseif kind == "string" then
-            local n = new cst.Args(kind = "args")
+            local n = cst.Args(kind = "args")
             n.str = add(n, advance())
             return n
         end
@@ -1655,7 +1655,7 @@ export function parse(source: string, filename: string?): ParseResult
     end
 
     local function parseMethodCall(obj: Node, safeObj: Token?): Node
-        local n = new cst.MethodCall(kind = "methodCall")
+        local n = cst.MethodCall(kind = "methodCall")
         n.obj = add(n, obj)
         if safeObj then
             n.safeObj = add(n, safeObj)
@@ -1696,22 +1696,22 @@ export function parse(source: string, filename: string?): ParseResult
     local function parsePrimaryexp(): Node
         local kind = cur().kind
         if kind == "name" then
-            local n = new cst.NameExpr(kind = "name")
+            local n = cst.NameExpr(kind = "name")
             n.token = add(n, advance())
             return n
         elseif kind == "(" then
-            local n = new cst.Paren(kind = "paren")
+            local n = cst.Paren(kind = "paren")
             add(n, advance())
             n.expr = add(n, resetNoMethod(parseExp))
             add(n, expect(")", "to close parenthesized expression"))
             return n
         elseif kind == "error" then
-            local n = new cst.ErrorExpr(kind = "errorExpr")
+            local n = cst.ErrorExpr(kind = "errorExpr")
             add(n, advance())
             return n
         end
         errAt(cur(), ("expression expected; found %s"):format(found(cur())), "NUPP1004")
-        local n = new cst.ErrorExpr(kind = "errorExpr")
+        local n = cst.ErrorExpr(kind = "errorExpr")
         add(n, missing("expr"))
 
         return n
@@ -1723,7 +1723,7 @@ export function parse(source: string, filename: string?): ParseResult
         while true do
             local kind = cur().kind
             if kind == "." then
-                local n = new cst.DotIndex(kind = "dotIndex")
+                local n = cst.DotIndex(kind = "dotIndex")
                 n.obj = add(n, e)
                 add(n, advance())
                 n.name = add(n, expectName("after '.'"))
@@ -1752,7 +1752,7 @@ export function parse(source: string, filename: string?): ParseResult
                     add(n, expectGenericClose("to close a type argument")).generic = true
                 end
             elseif kind == "<" and opensCallTypeArguments(i) then
-                local n = new cst.Call(kind = "call")
+                local n = cst.Call(kind = "call")
                 n.obj = add(n, e)
                 add(n, advance()).generic = true
                 n.typeArgs = {}
@@ -1776,7 +1776,7 @@ export function parse(source: string, filename: string?): ParseResult
                 n.args = add(n, args)
                 e = n
             elseif kind == "[" then
-                local n = new cst.BracketIndex(kind = "bracketIndex")
+                local n = cst.BracketIndex(kind = "bracketIndex")
                 n.obj = add(n, e)
                 add(n, advance())
                 n.expr = add(n, resetNoMethod(parseExp))
@@ -1803,13 +1803,13 @@ export function parse(source: string, filename: string?): ParseResult
                     end
                     e = parseMethodCall(e, qtok)
                 elseif nk == "name" then
-                    local n = new cst.SafeIndex(kind = "safeIndex")
+                    local n = cst.SafeIndex(kind = "safeIndex")
                     n.obj = add(n, e)
                     add(n, qtok)
                     n.name = add(n, advance())
                     e = n
                 elseif nk == "[" then
-                    local n = new cst.SafeBracket(kind = "safeBracket")
+                    local n = cst.SafeBracket(kind = "safeBracket")
                     n.obj = add(n, e)
                     add(n, qtok)
                     add(n, advance())
@@ -1819,14 +1819,14 @@ export function parse(source: string, filename: string?): ParseResult
                 else
                     local args = parseCallargs()
                     if args then
-                        local n = new cst.SafeCall(kind = "safeCall")
+                        local n = cst.SafeCall(kind = "safeCall")
                         n.obj = add(n, e)
                         add(n, qtok)
                         n.args = add(n, args)
                         e = n
                     else
                         errAt(cur(), "name, index, or arguments expected after '?.'")
-                        local n = new cst.ErrorExpr(kind = "errorExpr")
+                        local n = cst.ErrorExpr(kind = "errorExpr")
                         n.obj = add(n, e)
                         add(n, qtok)
                         e = n
@@ -1836,7 +1836,7 @@ export function parse(source: string, filename: string?): ParseResult
                 local comptimeIntrinsic = cst.comptimeTypeIntrinsicSpelling(e)
                 local args = parseCallargs(comptimeIntrinsic ~= nil)
                 if args then
-                    local n = new cst.Call(kind = "call")
+                    local n = cst.Call(kind = "call")
                     n.obj = add(n, e)
                     if e.kind == "dotIndex" and e.ownershipTypeArg then
                         n.typeArgs = {e.ownershipTypeArg}
@@ -1852,12 +1852,12 @@ export function parse(source: string, filename: string?): ParseResult
 
     --- A table constructor.
     parseTableconstructor = function(): Node
-        local n = new cst.TableExpr(fields = {}, kind = "tableExpr")
+        local n = cst.TableExpr(fields = {}, kind = "tableExpr")
         add(n, expect("{"))
         while cur().kind ~= "}" and cur().kind ~= "eof" do
             local f
             if cur().kind == "[" then
-                f = new cst.FieldBracket(kind = "fieldBracket")
+                f = cst.FieldBracket(kind = "fieldBracket")
                 add(f, advance())
                 f.key = add(f, resetNoMethod(parseExp))
                 add(f, expect("]", "to close field key"))
@@ -1870,23 +1870,23 @@ export function parse(source: string, filename: string?): ParseResult
                 and tokens[i + 2]
                 and tokens[i + 2].kind == "="
             then
-                f = new cst.FieldNamed(kind = "fieldNamed")
+                f = cst.FieldNamed(kind = "fieldNamed")
                 f.isConst = true
                 add(f, advance())
                 f.name = add(f, advance())
                 add(f, advance()) -- '='
                 f.value = add(f, resetNoMethod(parseExp))
             elseif cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "=" then
-                f = new cst.FieldNamed(kind = "fieldNamed")
+                f = cst.FieldNamed(kind = "fieldNamed")
                 f.name = add(f, advance())
                 add(f, advance()) -- '='
                 f.value = add(f, resetNoMethod(parseExp))
             elseif atExprStart() then
-                f = new cst.FieldItem(kind = "fieldItem")
+                f = cst.FieldItem(kind = "fieldItem")
                 f.value = add(f, resetNoMethod(parseExp))
             else
                 errAt(cur(), "unexpected symbol in table constructor")
-                f = new cst.ErrorExpr(kind = "errorExpr")
+                f = cst.ErrorExpr(kind = "errorExpr")
                 add(f, advance())
             end
             n.fields[#n.fields + 1] = add(n, f)
@@ -1907,7 +1907,7 @@ export function parse(source: string, filename: string?): ParseResult
 
     --- A short function, `|a, b| -> e`.
     local function parseShortfn(): Node
-        local n = new cst.Shortfn(params = {}, kind = "shortfn")
+        local n = cst.Shortfn(params = {}, kind = "shortfn")
         if atEmptyPipes() then
             -- `||` is one token, so it opens and closes the list at once. Neither
             -- hugging flag applies: there are no parameters between the pipes for them
@@ -1918,7 +1918,7 @@ export function parse(source: string, filename: string?): ParseResult
             open._shortfnOpen = true
             if cur().kind ~= "|" then
                 repeat
-                    local p = new cst.Param(kind = "param")
+                    local p = cst.Param(kind = "param")
                     if cur().kind == "..." then
                         local dots = add(p, advance())
                         if cur().kind == "name" and cur().offset == dots.offset + #dots.text then
@@ -1951,7 +1951,7 @@ export function parse(source: string, filename: string?): ParseResult
             local close = add(n, expect("|", "to close short function parameters"))
             close._shortfnClose = true
         else
-            local p = new cst.Param(kind = "param")
+            local p = cst.Param(kind = "param")
             p.name = add(p, expectName("in short function"))
             n.params[1] = add(n, p)
         end
@@ -1976,7 +1976,7 @@ export function parse(source: string, filename: string?): ParseResult
 
     --- An interpolated string and everything inside it.
     parseIstring = function(): Node
-        local n = new cst.Istring(parts = {}, kind = "istring")
+        local n = cst.Istring(parts = {}, kind = "istring")
         add(n, advance()) -- istringOpen
         while true do
             n.parts[#n.parts + 1] = add(n, resetNoMethod(parseExp))
@@ -1994,23 +1994,7 @@ export function parse(source: string, filename: string?): ParseResult
         end
     end
 
-    -- "new" is contextual [CS-12]: it introduces a construction only when a name
-    -- follows it on the same line. That is what keeps `local new = 1`, `f(new)` and a
-    -- `new` left at the end of a line meaning what they always did, since a name is a
-    -- name everywhere the next token does not make it an operator.
-
-    --- Whether a construction begins at the cursor.
-    local function atNewexp(): boolean
-        local tok = cur()
-        if tok.kind ~= "name" or tok.text ~= "new" then
-            return false
-        end
-        local after = tokens[i + 1]
-
-        return after ~= nil and after.kind == "name" and after.line == tok.line
-    end
-
-    -- "comptime" is contextual on the same rule: it opens a compile-time block only
+    -- "comptime" is contextual: it opens a compile-time block only
     -- when `do` follows it on the same line. A local called `comptime`, a `comptime`
     -- passed to a function, and a `comptime` left at the end of a line all keep being
     -- the name they were.
@@ -2053,7 +2037,7 @@ export function parse(source: string, filename: string?): ParseResult
     end
 
     local function parseDoexp(): Node
-        local n = new cst.DoExpr(kind = "doExpr")
+        local n = cst.DoExpr(kind = "doExpr")
         n.doTok = add(n, advance())
         local savedNoMethod = noMethod
         noMethod = 0
@@ -2073,13 +2057,13 @@ export function parse(source: string, filename: string?): ParseResult
 
     --- `switch selector do ... end`.
     local function parseSwitchexp(): Node
-        local n = new cst.SwitchExpr(kind = "switchExpr", cases = {})
+        local n = cst.SwitchExpr(kind = "switchExpr", cases = {})
         n.switchTok = add(n, advance())
         n.switchTok.contextualOp = true
         n.selector = add(n, parseExp())
         n.doTok = add(n, expect("do", "after switch selector"))
         while cur().kind == "name" and cur().text == "case" do
-            local arm = new cst.SwitchCase(patternKind = "static", kind = "switchCase", values = {}, fields = {})
+            local arm = cst.SwitchCase(patternKind = "static", kind = "switchCase", values = {}, fields = {})
             add(arm, advance()).contextualOp = true
             if cur().kind == "name" and cur().text == "is" then
                 arm.patternKind = "type"
@@ -2093,7 +2077,7 @@ export function parse(source: string, filename: string?): ParseResult
                     add(arm, advance())
                     if cur().kind ~= "}" then
                         repeat
-                            local field = new cst.SwitchField(kind = "switchField")
+                            local field = cst.SwitchField(kind = "switchField")
                             field.name = add(field, expectName("in switch destructuring"))
                             if cur().kind == "name" and cur().text == "as" then
                                 add(field, advance()).contextualOp = true
@@ -2125,7 +2109,7 @@ export function parse(source: string, filename: string?): ParseResult
             -- by `parseExp`, which would swallow `and` into the pattern itself and
             -- leave a case arm quietly matching the operand to its right.
             if cur().kind == "name" and cur().text == "where" then
-                local guard = new cst.WhereClause(kind = "whereClause")
+                local guard = cst.WhereClause(kind = "whereClause")
                 add(guard, advance()).contextualOp = true
                 -- The arm's `->` is the guard's terminator, so a bare name in front
                 -- of it is the guard rather than a short function's parameter.
@@ -2138,47 +2122,12 @@ export function parse(source: string, filename: string?): ParseResult
             n.cases[#n.cases + 1] = add(n, arm)
         end
         if cur().kind == "else" then
-            local arm = new cst.SwitchElse(kind = "switchElse")
+            local arm = cst.SwitchElse(kind = "switchElse")
             add(arm, advance())
             parseSwitchResult(arm)
             n.elseCase = add(n, arm)
         end
         n.endTok = add(n, expect("end", "to close switch"))
-
-        return n
-    end
-
-    --- `new T(...)`: a construction.
-    ---
-    --- The operand is parsed as an ordinary suffixed expression, so a qualified name
-    --- and every call-argument spelling come from the machinery that already reads
-    --- them. What `new` adds is the requirement that it end in a call: a bare `new T`
-    --- would be a second way to write `new T()`, and one spelling per meaning is the
-    --- whole reason the keyword exists.
-    local function parseNewexp(): Node
-        local n = new cst.NewExpr(kind = "newExpr")
-        local kw = advance()
-        add(n, kw)
-        local call = parseSuffixedexp()
-        n.call = add(n, call)
-        if call.kind == "call" or call.kind == "safeCall" then
-            -- A construction takes arguments rather than a table, so a brace here is
-            -- the call sugar `f{...}` and not a construction at all. The mark keeps it
-            -- standing off the type, which is how it was written and how the
-            -- diagnostic about it reads.
-            local calleeEnd = cst.lastToken(call.obj)
-            if calleeEnd then
-                calleeEnd.constructTarget = true
-            end
-        end
-        if call.kind ~= "call" and call.kind ~= "safeCall" then
-            errAt(
-                kw,
-                "'new' needs a construction; write new T(...)",
-                "NUPP1004",
-                "add the constructor arguments, or `()` when there are none"
-            )
-        end
 
         return n
     end
@@ -2194,7 +2143,7 @@ export function parse(source: string, filename: string?): ParseResult
 
     parseOwnership = function(prefix): Node
         local operation = cur().text as 'adopt' | 'release'
-        local n = new cst.ErrorExpr(kind = "errorExpr")
+        local n = cst.ErrorExpr(kind = "errorExpr")
         if prefix then
             add(n, prefix).contextualOp = true
         end
@@ -2241,7 +2190,7 @@ export function parse(source: string, filename: string?): ParseResult
     local function parseSimpleexp(): Node
         local kind = cur().kind
         if kind == "@" then
-            local application = parseAnnotationApplication(new cst.AnnotationApply(kind = "annotationApply"))
+            local application = parseAnnotationApplication(cst.AnnotationApply(kind = "annotationApply"))
             application.expressionAttachment = true
             local operand, permissionOperand
             if application.name.text == "unsafe"
@@ -2267,16 +2216,16 @@ export function parse(source: string, filename: string?): ParseResult
             and tokens[i + 1].kind == "string"
             and tokens[i + 1].text:sub(1, 1) == "["
         then
-            local n = new cst.DedentString(kind = "dedentString")
+            local n = cst.DedentString(kind = "dedentString")
             n.keyword = add(n, advance())
             n.token = add(n, advance())
             return n
         elseif kind == "number" or kind == "string" then
             local n: cst.NumberLit | cst.StringLit
             if kind == "number" then
-                n = new cst.NumberLit(kind = "number")
+                n = cst.NumberLit(kind = "number")
             else
-                n = new cst.StringLit(kind = "string")
+                n = cst.StringLit(kind = "string")
             end
             n.token = add(n, advance())
             return n
@@ -2290,27 +2239,25 @@ export function parse(source: string, filename: string?): ParseResult
         elseif kind == "nil" or kind == "true" or kind == "false" or kind == "..." then
             local n: cst.Vararg | cst.NilExpr | cst.TrueExpr | cst.FalseExpr
             if kind == "..." then
-                n = new cst.Vararg(kind = "vararg")
+                n = cst.Vararg(kind = "vararg")
             elseif kind == "nil" then
-                n = new cst.NilExpr(kind = "nilExpr")
+                n = cst.NilExpr(kind = "nilExpr")
             elseif kind == "true" then
-                n = new cst.TrueExpr(kind = "trueExpr")
+                n = cst.TrueExpr(kind = "trueExpr")
             else
-                n = new cst.FalseExpr(kind = "falseExpr")
+                n = cst.FalseExpr(kind = "falseExpr")
             end
             n.token = add(n, advance())
             return n
         elseif kind == "function" then
-            local n = new cst.FuncExpr(kind = "funcExpr")
+            local n = cst.FuncExpr(kind = "funcExpr")
             add(n, advance())
             n.body = add(n, parseFuncbody())
             return n
         elseif kind == "{" then
             return parseTableconstructor()
-        elseif atNewexp() then
-            return parseNewexp()
         elseif atComptimeexp() then
-            local n = new cst.ComptimeExpr(kind = "comptimeExpr")
+            local n = cst.ComptimeExpr(kind = "comptimeExpr")
             add(n, advance()).contextualOp = true
             add(n, advance()) -- the `do`
             n.body = add(n, parseBlock())
@@ -2364,7 +2311,7 @@ export function parse(source: string, filename: string?): ParseResult
     parseAnnotatedOperand = function(): Node, Node
         local operand
         if UNOPS[cur().kind] then
-            local n = new cst.Unop(kind = "unop")
+            local n = cst.Unop(kind = "unop")
             n.op = add(n, advance())
             n.operand = add(n, parseBinexp(UNARY_PRI))
             operand = n
@@ -2384,7 +2331,7 @@ export function parse(source: string, filename: string?): ParseResult
             return operand, prefix
         end
         while contextualOp(tokens[i - 1] and tokens[i - 1].line or cur().line) == "as" do
-            local n = new cst.CastExpr(kind = "castExpr")
+            local n = cst.CastExpr(kind = "castExpr")
             n.expr = add(n, operand)
             add(n, advance()).contextualOp = true
             n.type = add(n, parseType())
@@ -2419,7 +2366,7 @@ export function parse(source: string, filename: string?): ParseResult
 
     --- Builds the `or return` / `or break` / `or continue` suffix over `operand`.
     local function parseOrExit(operand: Node, exitKind: string): Node
-        local n = new cst.OrExitExpr(kind = "orExitExpr", exitKind = exitKind as any)
+        local n = cst.OrExitExpr(kind = "orExitExpr", exitKind = exitKind as any)
         n.operand = add(n, operand)
         n.orToken = add(n, advance())
         n.exitToken = add(n, advance())
@@ -2464,7 +2411,7 @@ export function parse(source: string, filename: string?): ParseResult
     local function parseBinexpNested(limit: integer): Node
         local left
         if UNOPS[cur().kind] then
-            local n = new cst.Unop(kind = "unop")
+            local n = cst.Unop(kind = "unop")
             n.op = add(n, advance())
             n.operand = add(n, parseBinexp(UNARY_PRI))
             left = n
@@ -2475,13 +2422,13 @@ export function parse(source: string, filename: string?): ParseResult
             local prevLine = tokens[i - 1] and tokens[i - 1].line or cur().line
             local ctx = contextualOp(prevLine)
             if ctx == "as" and 11 > limit then
-                local n = new cst.CastExpr(kind = "castExpr")
+                local n = cst.CastExpr(kind = "castExpr")
                 n.expr = add(n, left)
                 add(n, advance()).contextualOp = true
                 n.type = add(n, parseType())
                 left = n
             elseif ctx == "is" and 3 > limit then
-                local n = new cst.IsExpr(kind = "isExpr")
+                local n = cst.IsExpr(kind = "isExpr")
                 n.expr = add(n, left)
                 add(n, advance()).contextualOp = true
                 n.type = add(n, parseType())
@@ -2495,7 +2442,7 @@ export function parse(source: string, filename: string?): ParseResult
                 if exitKind then
                     left = parseOrExit(left, exitKind)
                 else
-                    local n = new cst.Binop(kind = "binop")
+                    local n = cst.Binop(kind = "binop")
                     n.lhs = add(n, left)
                     n.op = add(n, advance())
                     n.rhs = add(n, parseBinexp(pri[2]))
@@ -2523,7 +2470,7 @@ export function parse(source: string, filename: string?): ParseResult
     parseExp = function(): Node
         local e = parseBinexp(0)
         if cur().kind == "?" then
-            local n = new cst.Ternary(kind = "ternary")
+            local n = cst.Ternary(kind = "ternary")
             n.cond = add(n, e)
             add(n, advance()) -- '?'
             noMethod = noMethod + 1
@@ -2538,7 +2485,7 @@ export function parse(source: string, filename: string?): ParseResult
     end
 
     parseCaptureClause = function(): cst.CaptureClause
-        local n = new cst.CaptureClause(kind = "captureClause", names = {})
+        local n = cst.CaptureClause(kind = "captureClause", names = {})
         n.mode = add(n, advance())
         n.mode.contextualOp = true
         add(n, expect("(", "to open closure captures"))
@@ -2558,12 +2505,12 @@ export function parse(source: string, filename: string?): ParseResult
 
     --- Parameters, return annotation and body of a function.
     parseFuncbody = function(): Node
-        local n = new cst.Funcbody(params = {}, kind = "funcbody")
+        local n = cst.Funcbody(params = {}, kind = "funcbody")
         parseGenerics(n)
         add(n, expect("(", "to begin parameter list"))
         if cur().kind ~= ")" then
             repeat
-                local p = new cst.Param(kind = "param")
+                local p = cst.Param(kind = "param")
                 local isFunctionConst = cur().kind == "name"
                     and cur().text == "const"
                     and tokens[i + 1]
@@ -2694,7 +2641,7 @@ export function parse(source: string, filename: string?): ParseResult
             and tokens[i + 1]
             and (tokens[i + 1].kind == "name" or tokens[i + 1].kind == "(")
         then
-            local n = new cst.Tborrows(kind = "tborrows")
+            local n = cst.Tborrows(kind = "tborrows")
             n.type = add(n, result)
             add(n, advance()) -- 'borrows'
             n.params = {}
@@ -2721,7 +2668,7 @@ export function parse(source: string, filename: string?): ParseResult
     parseReturnType = function(stopAtFunctionMember: boolean?): Node
         local after = tokens[i + 1]
         if cur().kind == "name" and after and after.kind == "name" and after.text == "is" then
-            local n = new cst.Tpredicate(kind = "tpredicate")
+            local n = cst.Tpredicate(kind = "tpredicate")
             n.param = add(n, advance())
             add(n, advance()) -- 'is'
             n.type = add(n, parseType(nil, stopAtFunctionMember))
@@ -2730,7 +2677,7 @@ export function parse(source: string, filename: string?): ParseResult
         local result = parseType(nil, stopAtFunctionMember)
         -- `T preserves p`: the result transports the complete capability of `p`.
         if cur().kind == "name" and cur().text == "preserves" and tokens[i + 1] and tokens[i + 1].kind == "name" then
-            local n = new cst.Tpreserves(kind = "tpreserves")
+            local n = cst.Tpreserves(kind = "tpreserves")
             n.type = add(n, result)
             add(n, advance()) -- 'preserves'
             n.param = add(n, advance())
@@ -2776,7 +2723,7 @@ export function parse(source: string, filename: string?): ParseResult
         n.annotationArgs = {}
         if cur().kind ~= ")" then
             repeat
-                local arg = new cst.AnnotationArg(kind = "annotationArg")
+                local arg = cst.AnnotationArg(kind = "annotationArg")
                 if cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "=" then
                     arg.name = add(arg, advance())
                     arg.eq = add(arg, advance())
@@ -2820,7 +2767,7 @@ export function parse(source: string, filename: string?): ParseResult
 
     --- `associated type Name`, optionally `is Bound`, optionally `= Answer`.
     local function parseAssociatedType(): Node
-        local n = new cst.AssociatedDecl(kind = "associatedDecl")
+        local n = cst.AssociatedDecl(kind = "associatedDecl")
         n.keyword = advance()
         add(n, n.keyword)
         n.typeKeyword = advance()
@@ -2843,7 +2790,7 @@ export function parse(source: string, filename: string?): ParseResult
         while cur().kind ~= "end" and cur().kind ~= "eof" do
             local attached = {}
             while cur().kind == "@" do
-                local application = parseAnnotationApplication(new cst.AnnotationApply(kind = "annotationApply"))
+                local application = parseAnnotationApplication(cst.AnnotationApply(kind = "annotationApply"))
                 attached[#attached + 1] = add(n, application)
             end
             local e
@@ -2852,7 +2799,7 @@ export function parse(source: string, filename: string?): ParseResult
             elseif startsTypedecl(i) then
                 e = parseTypedecl(nil, "nested")
             elseif cur().kind == "function" then
-                e = new cst.InlineMethod(kind = "inlineMethod")
+                e = cst.InlineMethod(kind = "inlineMethod")
                 add(e, advance())
                 e.name = add(e, expectName("after 'function' in declaration"))
                 e.body = add(e, parseFuncbody())
@@ -2863,7 +2810,7 @@ export function parse(source: string, filename: string?): ParseResult
             then
                 -- Contextual, like every other word this grammar adds: a field named
                 -- `constructor` is followed by a colon, never a paren or a pipe.
-                e = new cst.ConstructorDecl(kind = "constructorDecl")
+                e = cst.ConstructorDecl(kind = "constructorDecl")
                 add(e, advance())
                 -- A constructor is a function of the instance, so it is written as one,
                 -- in whichever of the two spellings a function is written in anywhere
@@ -2881,7 +2828,7 @@ export function parse(source: string, filename: string?): ParseResult
             then
                 -- Contextual: a field named `satisfies` is followed by a colon, because
                 -- every field states its own type.
-                e = new cst.SatisfiesDecl(kind = "satisfiesDecl")
+                e = cst.SatisfiesDecl(kind = "satisfiesDecl")
                 add(e, advance())
                 -- A refinement is a function of the value, so it is written as one, in
                 -- whichever of the two spellings a function is written in anywhere
@@ -2897,7 +2844,7 @@ export function parse(source: string, filename: string?): ParseResult
                 and tokens[i + 1]
                 and tokens[i + 1].kind == "name"
             then
-                e = new cst.MetamethodDecl(kind = "metamethodDecl")
+                e = cst.MetamethodDecl(kind = "metamethodDecl")
                 add(e, advance())
                 e.name = add(e, expectName("after 'metamethod'"))
                 annotationColon(e, "in metamethod declaration")
@@ -2905,17 +2852,17 @@ export function parse(source: string, filename: string?): ParseResult
             elseif cur().kind == "{" then
                 -- the array part, written as the array type it is: a record that is
                 -- also a sequence declares `{T}` among its fields
-                e = new cst.ArrayPart(kind = "arrayPart")
+                e = cst.ArrayPart(kind = "arrayPart")
                 e.type = add(e, parseType())
             elseif cur().kind == "[" then
-                e = new cst.IndexerDecl(kind = "indexerDecl")
+                e = cst.IndexerDecl(kind = "indexerDecl")
                 add(e, expect("[", "to open indexer key type"))
                 e.key = add(e, parseType())
                 add(e, expect("]", "to close indexer key type"))
                 annotationColon(e, "in indexer declaration")
                 e.value = add(e, parseType())
             elseif cur().kind == "name" then
-                e = new cst.FieldDecl(kind = "fieldDecl")
+                e = cst.FieldDecl(kind = "fieldDecl")
                 e.name = add(e, advance())
                 if cur().kind == "," then
                     -- grouped fields ("x, y: float") are deliberately not part of the
@@ -2937,7 +2884,7 @@ export function parse(source: string, filename: string?): ParseResult
                 end
             else
                 errAt(cur(), "field or nested declaration expected")
-                e = new cst.ErrorStmt(kind = "errorStmt")
+                e = cst.ErrorStmt(kind = "errorStmt")
                 add(e, advance())
             end
             e.annotations = attached
@@ -2992,14 +2939,14 @@ export function parse(source: string, filename: string?): ParseResult
         end
 
         if which == "type" then
-            local n = introduce(new cst.TypeAlias(kind = "typeAlias"))
+            local n = introduce(cst.TypeAlias(kind = "typeAlias"))
             parseDeclName(n, "after '" .. which .. "'")
             parseGenerics(n)
             add(n, expect("=", "in " .. which .. " declaration"))
             n.value = add(n, parseType())
             return n
         else -- record / interface / struct
-            local n = introduce(new cst.RecordDecl(entries = {}, kind = "recordDecl"))
+            local n = introduce(cst.RecordDecl(entries = {}, kind = "recordDecl"))
             n.declKind = which
             n.sealedTok = sealedTok
             parseDeclName(n, "after '" .. which .. "'")
@@ -3016,7 +2963,7 @@ export function parse(source: string, filename: string?): ParseResult
                 until false
             end
             if cur().kind == "name" and cur().text == "where" then
-                local where = new cst.WhereClause(kind = "whereClause")
+                local where = cst.WhereClause(kind = "whereClause")
                 add(where, advance())
                 where.expr = add(where, parseExp())
                 n.whereClause = add(n, where)
@@ -3035,14 +2982,14 @@ export function parse(source: string, filename: string?): ParseResult
     local function parseCdef(): Node
         local cdefTok = advance()
         if cur().kind == "function" then
-            local n = new cst.CdefFunc(params = {}, kind = "cdefFunc")
+            local n = cst.CdefFunc(params = {}, kind = "cdefFunc")
             add(n, cdefTok)
             add(n, advance())
             n.name = add(n, expectName("after 'cdef function'"))
             add(n, expect("(", "in cdef function"))
             if cur().kind ~= ")" then
                 repeat
-                    local p = new cst.Param(kind = "param")
+                    local p = cst.Param(kind = "param")
                     if cur().kind == "..." then
                         add(p, advance())
                         n.varargs = true
@@ -3088,7 +3035,7 @@ export function parse(source: string, filename: string?): ParseResult
             end
             return n
         end
-        local n = new cst.CdefStruct(entries = {}, kind = "cdefStruct")
+        local n = cst.CdefStruct(entries = {}, kind = "cdefStruct")
         add(n, cdefTok)
         local aggregate = advance()
         add(n, aggregate) -- the contextual 'struct' or 'union' name token
@@ -3108,7 +3055,7 @@ export function parse(source: string, filename: string?): ParseResult
         local kind = cur().kind
 
         if kind == "name" and cur().text == "module" and tokens[i + 1] and tokens[i + 1].kind == "name" then
-            local n = new cst.ModuleStmt(kind = "moduleStmt", names = {})
+            local n = cst.ModuleStmt(kind = "moduleStmt", names = {})
             n.keyword = add(n, advance())
             n.keyword.contextualOp = true
             n.names[1] = add(n, advance())
@@ -3126,7 +3073,7 @@ export function parse(source: string, filename: string?): ParseResult
             and tokens[i + 1]
             and tokens[i + 1].kind == "="
         then
-            local n = new cst.ExportStmt(kind = "exportStmt")
+            local n = cst.ExportStmt(kind = "exportStmt")
             n.keyword = add(n, advance())
             n.keyword.contextualOp = true
             n.equal = add(n, advance())
@@ -3135,7 +3082,7 @@ export function parse(source: string, filename: string?): ParseResult
         end
 
         if kind == "name" and cur().text == "export" and startsExport(i) then
-            local n = new cst.ExportStmt(kind = "exportStmt")
+            local n = cst.ExportStmt(kind = "exportStmt")
             n.keyword = add(n, advance())
             n.keyword.contextualOp = true
             n.stat = add(n, parseStatement())
@@ -3159,7 +3106,7 @@ export function parse(source: string, filename: string?): ParseResult
         end
 
         if kind == "@" then
-            local n = new cst.PragmaStmt(kind = "pragmaStmt")
+            local n = cst.PragmaStmt(kind = "pragmaStmt")
             local application = parseAnnotationApplication(n)
             n.stat = add(n, parseStatement())
             if application.name and application.name.text == "comptime" then
@@ -3180,12 +3127,12 @@ export function parse(source: string, filename: string?): ParseResult
         end
 
         if kind == ";" then
-            local n = new cst.EmptyStmt(kind = "emptyStmt")
+            local n = cst.EmptyStmt(kind = "emptyStmt")
             add(n, advance())
             return n
 
         elseif kind == "if" then
-            local n = new cst.IfStmt(clauses = {}, kind = "ifStmt")
+            local n = cst.IfStmt(clauses = {}, kind = "ifStmt")
 
             -- `if NAME = EXPR then` binds NAME to EXPR for the arm it guards and
             -- takes the arm when the value is not nil. A name followed by `=`
@@ -3198,14 +3145,14 @@ export function parse(source: string, filename: string?): ParseResult
                 clause.cond = add(clause, parseExp())
             end
 
-            local clause = new cst.IfClause(kind = "ifClause")
+            local clause = cst.IfClause(kind = "ifClause")
             add(clause, advance()) -- 'if'
             bindingClause(clause)
             add(clause, expect("then", "after condition"))
             clause.body = add(clause, parseBlock())
             n.clauses[1] = add(n, clause)
             while cur().kind == "elseif" do
-                clause = new cst.ElseifClause(kind = "elseifClause")
+                clause = cst.ElseifClause(kind = "elseifClause")
                 add(clause, advance())
                 bindingClause(clause)
                 add(clause, expect("then", "after condition"))
@@ -3213,7 +3160,7 @@ export function parse(source: string, filename: string?): ParseResult
                 n.clauses[#n.clauses + 1] = add(n, clause)
             end
             if cur().kind == "else" then
-                clause = new cst.ElseClause(kind = "elseClause")
+                clause = cst.ElseClause(kind = "elseClause")
                 add(clause, advance())
                 clause.body = add(clause, parseBlock())
                 n.elseClause = add(n, clause)
@@ -3222,7 +3169,7 @@ export function parse(source: string, filename: string?): ParseResult
             return n
 
         elseif kind == "while" then
-            local n = new cst.WhileStmt(kind = "whileStmt")
+            local n = cst.WhileStmt(kind = "whileStmt")
             add(n, advance())
             n.cond = add(n, parseExp())
             add(n, expect("do", "after condition"))
@@ -3233,7 +3180,7 @@ export function parse(source: string, filename: string?): ParseResult
             return n
 
         elseif kind == "do" then
-            local n = new cst.DoStmt(kind = "doStmt")
+            local n = cst.DoStmt(kind = "doStmt")
             add(n, advance())
             n.body = add(n, parseBlock())
             add(n, expect("end", "to close 'do'"))
@@ -3243,7 +3190,7 @@ export function parse(source: string, filename: string?): ParseResult
             local fortok = advance()
             local name1 = expectName("after 'for'")
             if cur().kind == "=" then
-                local n = new cst.FornumStmt(kind = "fornumStmt")
+                local n = cst.FornumStmt(kind = "fornumStmt")
                 add(n, fortok)
                 n.var = add(n, name1)
                 add(n, advance()) -- '='
@@ -3261,7 +3208,7 @@ export function parse(source: string, filename: string?): ParseResult
                 add(n, expect("end", "to close 'for'"))
                 return n
             else
-                local n = new cst.ForinStmt(names = {}, exprs = {}, kind = "forinStmt")
+                local n = cst.ForinStmt(names = {}, exprs = {}, kind = "forinStmt")
                 add(n, fortok)
                 n.names[1] = add(n, name1)
                 while cur().kind == "," do
@@ -3279,7 +3226,7 @@ export function parse(source: string, filename: string?): ParseResult
             end
 
         elseif kind == "repeat" then
-            local n = new cst.RepeatStmt(kind = "repeatStmt")
+            local n = cst.RepeatStmt(kind = "repeatStmt")
             add(n, advance())
             loopDepth = loopDepth + 1
             n.body = add(n, parseBlock())
@@ -3308,9 +3255,9 @@ export function parse(source: string, filename: string?): ParseResult
             return parseTypedecl(globalTok, "global")
 
         elseif kind == "function" then
-            local n = new cst.FuncStmt(kind = "funcStmt")
+            local n = cst.FuncStmt(kind = "funcStmt")
             add(n, advance())
-            local fn = new cst.Funcname(kind = "funcname")
+            local fn = cst.Funcname(kind = "funcname")
             fn.base = add(fn, expectName("after 'function'"))
             while cur().kind == "." do
                 add(fn, advance())
@@ -3339,7 +3286,7 @@ export function parse(source: string, filename: string?): ParseResult
                 )
             )
         then
-            local n = new cst.AssignStmt(targets = {}, exprs = {}, kind = "assignStmt")
+            local n = cst.AssignStmt(targets = {}, exprs = {}, kind = "assignStmt")
             n.isConst = true
             add(n, advance())
             if cur().kind == "..." then
@@ -3399,7 +3346,7 @@ export function parse(source: string, filename: string?): ParseResult
             local isConst = kind == "name"
             local loctok = advance()
             if cur().kind == "function" then
-                local n = new cst.LocalFuncStmt(kind = "localFuncStmt")
+                local n = cst.LocalFuncStmt(kind = "localFuncStmt")
                 n.isConst = isConst
                 add(n, loctok)
                 add(n, advance())
@@ -3413,7 +3360,7 @@ export function parse(source: string, filename: string?): ParseResult
             if not isConst and startsTypedecl(i) then
                 return parseTypedecl(loctok, "local")
             end
-            local n = new cst.LocalStmt(names = {}, types = {}, kind = "localStmt")
+            local n = cst.LocalStmt(names = {}, types = {}, kind = "localStmt")
             n.isConst = isConst
             add(n, loctok)
             if cur().kind == "{" then
@@ -3423,7 +3370,7 @@ export function parse(source: string, filename: string?): ParseResult
                     errAt(cur(), "a binding pattern needs at least one field", "NUPP1002")
                 else
                     while true do
-                        local entry = new cst.BindingEntry(kind = "bindingEntry")
+                        local entry = cst.BindingEntry(kind = "bindingEntry")
                         if cur().kind == "name" and cur().text == "type" then
                             entry.typeOnly = add(entry, advance())
                             entry.typeOnly.contextualOp = true
@@ -3485,25 +3432,25 @@ export function parse(source: string, filename: string?): ParseResult
             return n
 
         elseif kind == "::" then
-            local n = new cst.LabelStmt(kind = "labelStmt")
+            local n = cst.LabelStmt(kind = "labelStmt")
             add(n, advance())
             n.name = add(n, expectName("in label"))
             add(n, expect("::", "to close label"))
             return n
 
         elseif kind == "goto" then
-            local n = new cst.GotoStmt(kind = "gotoStmt")
+            local n = cst.GotoStmt(kind = "gotoStmt")
             add(n, advance())
             n.name = add(n, expectName("after 'goto'"))
             return n
 
         elseif kind == "break" then
-            local n = new cst.BreakStmt(kind = "breakStmt")
+            local n = cst.BreakStmt(kind = "breakStmt")
             add(n, advance())
             return n
 
         elseif kind == "name" and cur().text == "continue" and tokens[i + 1] and BLOCK_FOLLOW[tokens[i + 1].kind] then
-            local n = new cst.ContinueStmt(kind = "continueStmt")
+            local n = cst.ContinueStmt(kind = "continueStmt")
             local tok = add(n, advance())
             if loopDepth == 0 then
                 errAt(tok, "no loop to continue")
@@ -3511,7 +3458,7 @@ export function parse(source: string, filename: string?): ParseResult
             return n
 
         elseif kind == "return" then
-            local n = new cst.ReturnStmt(exprs = {}, kind = "returnStmt")
+            local n = cst.ReturnStmt(exprs = {}, kind = "returnStmt")
             add(n, advance())
             if not BLOCK_FOLLOW[cur().kind] and cur().kind ~= ";" then
                 n.exprs = parseExplist(n)
@@ -3538,7 +3485,7 @@ export function parse(source: string, filename: string?): ParseResult
                     or (value.kind == "or" and value.text == "||")
                 )
             if contextual then
-                local n = new cst.YieldStmt(kind = "yieldStmt")
+                local n = cst.YieldStmt(kind = "yieldStmt")
                 add(n, advance()).contextualOp = true
                 n.value = add(n, parseExp())
                 return n
@@ -3546,7 +3493,7 @@ export function parse(source: string, filename: string?): ParseResult
         end
 
         if kind == "name" and cur().text == "drop" and tokens[i + 1] and tokens[i + 1].kind ~= "(" then
-            local n = new cst.ErrorStmt(kind = "errorStmt")
+            local n = cst.ErrorStmt(kind = "errorStmt")
             local dropTok = add(n, advance())
             local value = add(n, parseExp())
             local last = cst.lastToken(value)
@@ -3572,7 +3519,7 @@ export function parse(source: string, filename: string?): ParseResult
         -- Expression statement: assignment or call [CS-1].
         local e = parseSuffixedexp()
         if compoundOp() then
-            local n = new cst.CompoundAssign(kind = "compoundAssign")
+            local n = cst.CompoundAssign(kind = "compoundAssign")
             n.target = add(n, e)
             n.op = add(n, advance())
             n.value = add(n, parseExp())
@@ -3582,7 +3529,7 @@ export function parse(source: string, filename: string?): ParseResult
             return n
         end
         if cur().kind == "=" or cur().kind == "," then
-            local n = new cst.AssignStmt(targets = {}, exprs = {}, kind = "assignStmt")
+            local n = cst.AssignStmt(targets = {}, exprs = {}, kind = "assignStmt")
             n.targets[1] = add(n, e)
             while cur().kind == "," do
                 add(n, advance())
@@ -3599,12 +3546,12 @@ export function parse(source: string, filename: string?): ParseResult
         end
         local ek = e.kind
         if ek == "call" or ek == "methodCall" or ek == "safeCall" or ek == "errorExpr" then
-            local n = new cst.CallStmt(kind = "callStmt")
+            local n = cst.CallStmt(kind = "callStmt")
             n.expr = add(n, e)
             return n
         end
         errAt(cur(), "syntax error: expression is not a statement")
-        local n = new cst.ErrorStmt(kind = "errorStmt")
+        local n = cst.ErrorStmt(kind = "errorStmt")
         add(n, e)
 
         return n
@@ -3616,7 +3563,7 @@ export function parse(source: string, filename: string?): ParseResult
 
     --- Statements up to a block terminator.
     local function parseBlockNested(): cst.Block
-        local n = new cst.Block(stats = {}, kind = "block")
+        local n = cst.Block(stats = {}, kind = "block")
         local returned = false
         while not BLOCK_FOLLOW[cur().kind] do
             -- A return ends its block [grammar: block = *stat [retstat]]. What follows
@@ -3641,7 +3588,7 @@ export function parse(source: string, filename: string?): ParseResult
             -- (all-missing tokens); if so, consume the offending token so the block
             -- loop always advances.
             if i == start then
-                local e = new cst.ErrorStmt(kind = "errorStmt")
+                local e = cst.ErrorStmt(kind = "errorStmt")
                 errAt(cur(), ("unexpected '%s'"):format(spelling(cur())))
                 add(e, advance())
                 n.stats[#n.stats + 1] = add(n, e)
@@ -3664,7 +3611,7 @@ export function parse(source: string, filename: string?): ParseResult
     end
 
     local function parseChunk(): cst.Chunk
-        local root = new cst.Chunk(blocks = {}, kind = "chunk")
+        local root = cst.Chunk(blocks = {}, kind = "chunk")
         while cur().kind == "@"
             and tokens[i + 1]
             and tokens[i + 1].kind == "not"
@@ -3701,7 +3648,7 @@ export function parse(source: string, filename: string?): ParseResult
             end
             -- Stray block terminator at top level ('end', 'else', ...): report,
             -- consume, keep parsing.
-            local e = new cst.ErrorStmt(kind = "errorStmt")
+            local e = cst.ErrorStmt(kind = "errorStmt")
             errAt(cur(), ("unexpected '%s' at top level"):format(spelling(cur())))
             add(e, advance())
             add(root, e)
@@ -3726,9 +3673,9 @@ export function parse(source: string, filename: string?): ParseResult
             "NUPP1005",
             "name the inner parts with locals, or split the nesting into functions"
         )
-        local chunk = new cst.Chunk(blocks = {}, kind = "chunk")
-        local block = new cst.Block(stats = {}, kind = "block")
-        local stray = new cst.ErrorStmt(kind = "errorStmt")
+        local chunk = cst.Chunk(blocks = {}, kind = "chunk")
+        local block = cst.Block(stats = {}, kind = "block")
+        local stray = cst.ErrorStmt(kind = "errorStmt")
         for index = 1, #tokens - 1 do
             add(stray, tokens[index])
         end

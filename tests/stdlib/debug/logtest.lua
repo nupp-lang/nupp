@@ -68,7 +68,7 @@ function M.formatDirectivesAreCheckedAtTheCallSite()
     testAssert.eq(
         codesOf(
             table.concat(
-                {"@derive(types.debug)", "local record Value end", "debug.log.debug('value=%?', new Value())",},
+                {"@derive(types.debug)", "local record Value end", "debug.log.debug('value=%?', Value())",},
                 "\n"
             )
         ),
@@ -129,7 +129,7 @@ function M.aDebugDirectiveLowersInsideTheLevelGuard()
             "        return 'v'",
             "    end",
             "end",
-            "debug.log.debug('value=%?', new Value())",
+            "debug.log.debug('value=%?', Value())",
             "return renders",
         },
         "\n"
@@ -151,7 +151,7 @@ function M.debugDirectivesRunThroughDirectAndMethodFormattingCalls()
                 "local record Value",
                 "   name: string",
                 "end",
-                "local value = new Value(name = 'ready')",
+                "local value = Value(name = 'ready')",
                 "return string.format('direct=%?', value), ('method=%?'):format(value)",
             },
             "\n"
@@ -192,7 +192,7 @@ function M.whatIsNotLoweredStaysAnOrdinaryCall()
                 "local record Value",
                 "    function debug(self): string return 'v' end",
                 "end",
-                "local ignored = debug.log.debug('value=%?', new Value())",
+                "local ignored = debug.log.debug('value=%?', Value())",
             },
             "\n"
         ),
@@ -228,7 +228,7 @@ function M.aPluckedArgumentKeepsTheOrdinaryCall()
                 "local record Message",
                 "    fmt: string",
                 "end",
-                "local message = new Message(fmt = 'plain')",
+                "local message = Message(fmt = 'plain')",
                 "debug.log.error({fmt} = message)",
             },
             "\n"

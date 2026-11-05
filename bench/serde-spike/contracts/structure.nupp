@@ -12,7 +12,7 @@ local record Counts
     finished: integer = 0
     gets: integer = 0
 end
-local counts = new Counts()
+local counts = Counts()
 local type Handler = function(): string
 local record Value
     text: string
@@ -34,12 +34,12 @@ end
 local record Construction is structure.Construction<Value, Builder>
     function begin(self): Builder
         counts.opened += 1
-        return new Builder()
+        return Builder()
     end
 
     function finish(self, takes state: Builder): Value
         local owned: Builder = state
-        local value = new Value(text = assert2(owned.text, "required text"))
+        local value = Value(text = assert2(owned.text, "required text"))
         counts.finished += 1
         owned:close()
 
@@ -62,7 +62,7 @@ end
 local record Text is core.Adapter<string, Member>
     @readonly member: Member
     function describe(self, direction: core.Direction): core.Description<Member>
-        return new Description(member = self.member, kind = "string")
+        return Description(member = self.member, kind = "string")
     end
 
     function write(self, borrows value: string, exclusive writer: core.Writer<Member>): nil
@@ -106,12 +106,12 @@ local record Policy<M is core.Member> is plans.Policy<M>
 end
 local record Factory is plans.PolicyFactory
     function policy<M is core.Member>(self, member: M): plans.Policy<M>
-        return new Policy<M>()
+        return Policy<M>()
     end
 end
-local root = new Member(name = "Value")
-local textMember = new Member(name = "text", index = 1)
-local callbackMember = new Member(name = "callback", index = 2)
+local root = Member(name = "Value")
+local textMember = Member(name = "text", index = 1)
+local callbackMember = Member(name = "callback", index = 2)
 local fields: {structure.Field<Value, Builder, Member>} = {
     structure.field<Value, Builder, string, Member>(
         textMember,
@@ -122,7 +122,7 @@ local fields: {structure.Field<Value, Builder, Member>} = {
         function(exclusive state: Builder, value: string): nil
             state.text = value
         end,
-        new Text(member = textMember),
+        Text(member = textMember),
         true,
         false
     ),
@@ -134,15 +134,15 @@ local fields: {structure.Field<Value, Builder, Member>} = {
         function(exclusive state: Builder, value: Handler): nil
             error("redacted setter must not execute")
         end,
-        new Callback(member = callbackMember),
+        Callback(member = callbackMember),
         true,
         true
     )
 }
-local selected = structure.structure(root, fields, new Construction())
-local binding: core.Binding<Value> = new core.Bound<Value, Member>(adapter = selected)
-local engine = codec.codec(new Factory())
-assert2(engine:encode(binding, new Value(text = "ok")) == '{"text":"ok","callback":"[redacted]"}')
+local selected = structure.structure(root, fields, Construction())
+local binding: core.Binding<Value> = core.Bound<Value, Member>(adapter = selected)
+local engine = codec.codec(Factory())
+assert2(engine:encode(binding, Value(text = "ok")) == '{"text":"ok","callback":"[redacted]"}')
 assert2(counts.gets == 1)
 local decoded = engine:decode(binding, '{"text":"ok","callback":null}')
 assert2(decoded.text == "ok" and decoded.callback() == "default")
@@ -165,5 +165,5 @@ local record Inspect is structure.StructureConsumer<Value, Member, integer>
         return #described
     end
 end
-assert2(structure.inspect(selected, new Inspect()) == 2)
+assert2(structure.inspect(selected, Inspect()) == 2)
 print("typed structure operations preserve selection, checked construction, and abort cleanup")

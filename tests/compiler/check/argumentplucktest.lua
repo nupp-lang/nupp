@@ -71,7 +71,7 @@ local record Task
         self.result = callback(name) .. ':' .. tostring(option)
     end
 end
-return (new Task(name = 'load', function(name: string): string return name .. '!' end)).result
+return (Task(name = 'load', function(name: string): string return name .. '!' end)).result
 ]]
     )
     testAssert.eq(answer, "load!:nil")
@@ -119,7 +119,7 @@ local record Runner
 end
 local function receiver(): Runner
     mark('receiver')
-    return new Runner()
+    return Runner()
 end
 local result = receiver():invoke(name = mark('name'), function(): string
     mark('callback')
@@ -181,7 +181,7 @@ function M.aPluckIsSugarForReadingTheFieldTheParameterNames()
                 "local function draw(x: number, y: number, color: string?): string",
                 "   return tostring(x) .. tostring(y) .. (color or '')",
                 "end",
-                "local position = new Vec3(x = 1, y = 2, z = 3)",
+                "local position = Vec3(x = 1, y = 2, z = 3)",
                 "return draw({x} = position, {y} = position, color = 'r')",
             },
             "\n"
@@ -197,7 +197,7 @@ function M.aGroupBindsWhatTheSingleFormBinds()
                 "local function draw(x: number, y: number, color: string?): string",
                 "   return tostring(x) .. tostring(y) .. (color or '')",
                 "end",
-                "local position = new Vec3(x = 1, y = 2, z = 3)",
+                "local position = Vec3(x = 1, y = 2, z = 3)",
                 "return draw({x, y} = position, color = 'r')",
             },
             "\n"
@@ -213,7 +213,7 @@ function M.aGroupsNamesAreUnordered()
         vector .. "\n" .. table.concat(
             {
                 "local function draw(x: number, y: number): number return x * 10 + y end",
-                "local position = new Vec3(x = 1, y = 2, z = 3)",
+                "local position = Vec3(x = 1, y = 2, z = 3)",
                 "return draw({x, y} = position)",
             },
             "\n"
@@ -223,7 +223,7 @@ function M.aGroupsNamesAreUnordered()
         vector .. "\n" .. table.concat(
             {
                 "local function draw(x: number, y: number): number return x * 10 + y end",
-                "local position = new Vec3(x = 1, y = 2, z = 3)",
+                "local position = Vec3(x = 1, y = 2, z = 3)",
                 "return draw({y, x} = position)",
             },
             "\n"
@@ -243,7 +243,7 @@ function M.aPluckReachesAnyRecordWithTheField()
                 "   celsius: number",
                 "end",
                 "local function draw(x: number, y: number): nil end",
-                "local reading = new Reading(x = 1, y = 2, celsius = 20)",
+                "local reading = Reading(x = 1, y = 2, celsius = 20)",
                 "draw({x, y} = reading)",
             },
             "\n"
@@ -264,9 +264,9 @@ function M.dottedPathPluckLowersThroughEmbeddedRecords()
                 "local function draw(x: number, y: number, color: string?): string",
                 "   return tostring(x) .. tostring(y) .. (color or '')",
                 "end",
-                "local position = new Vec3(x = 1, y = 2, z = 3)",
-                "local body = new Body(position = position)",
-                "local entity = new Entity(body = body)",
+                "local position = Vec3(x = 1, y = 2, z = 3)",
+                "local body = Body(position = position)",
+                "local entity = Entity(body = body)",
                 "return draw({x, y} = entity.body.position, color = 'r')",
             },
             "\n"
@@ -332,7 +332,7 @@ function M.nestedPluckBindsThePathInsideTheGuardWithoutAWrapper()
                 "   position: Vec3",
                 "end",
                 "local reads = 0",
-                "local position = new Vec3(x = 1, y = 2, z = 3)",
+                "local position = Vec3(x = 1, y = 2, z = 3)",
                 "local entity = setmetatable({}, {__index = function(_, _)",
                 "   reads = reads + 1",
                 "   return position",
@@ -358,7 +358,7 @@ function M.nestedSafePluckBindsThePathInsideTheGuardWithoutAWrapper()
                 "   position: Vec3",
                 "end",
                 "local reads = 0",
-                "local position = new Vec3(x = 1, y = 2, z = 3)",
+                "local position = Vec3(x = 1, y = 2, z = 3)",
                 "local entity = setmetatable({}, {__index = function(_, _)",
                 "   reads = reads + 1",
                 "   return position",
@@ -382,12 +382,12 @@ local nestedFixture = vector
 local record Body position: Vec3 end
 local record Entity body: Body end
 local reads = 0
-local position = new Vec3(x = 2, y = 3, z = 4)
+local position = Vec3(x = 2, y = 3, z = 4)
 local body = setmetatable({}, {__index = function(_, _)
     reads = reads + 1
     return position
 end}) as Body
-local entity = new Entity(body = body)
+local entity = Entity(body = body)
 local function draw(x: number, y: number): number return x + y end
 ]]
 
@@ -526,7 +526,7 @@ local record Drawer
 end
 local drawer: Drawer | nil = nil
 local missingReceiver = drawer?.:draw?.({x, y} = entity.body.position)
-drawer = new Drawer(draw = nil)
+drawer = Drawer(draw = nil)
 local missingMethod = drawer?.:draw?.({x, y} = entity.body.position)
 drawer.draw = function(_, x: number, y: number): number return x + y end
 local value = true and drawer:draw?.({x} = entity.body.position, {y} = entity.body.position)
@@ -561,7 +561,7 @@ function M.safeCallStatementUsesGuardsWithoutAnExpressionWrapper()
                 "   position: Vec3",
                 "end",
                 "local reads = 0",
-                "local position = new Vec3(x = 1, y = 2, z = 3)",
+                "local position = Vec3(x = 1, y = 2, z = 3)",
                 "local entity = setmetatable({}, {__index = function(_, _)",
                 "   reads = reads + 1",
                 "   return position",
@@ -588,8 +588,8 @@ function M.returnedSafePluckUsesEarlyReturnsWithoutAWrapper()
                 "end",
                 "local function add(x: number, y: number): number return x + y end",
                 "local maybe: function(x: number, y: number) | nil = add",
-                "local position = new Vec3(x = 5, y = 6, z = 7)",
-                "local entity = new Entity(position = position)",
+                "local position = Vec3(x = 5, y = 6, z = 7)",
+                "local entity = Entity(position = position)",
                 "return maybe?.({x, y} = entity.position)",
             },
             "\n"
@@ -610,14 +610,14 @@ function M.safeReceiverAndMethodPluckUsesStagedGuards()
                 "end",
                 "local reads = 0",
                 "local calls = 0",
-                "local position = new Vec3(x = 2, y = 3, z = 4)",
+                "local position = Vec3(x = 2, y = 3, z = 4)",
                 "local entity = setmetatable({}, {__index = function(_, _)",
                 "   reads = reads + 1",
                 "   return position",
                 "end}) as Entity",
                 "local drawer: Drawer | nil = nil",
                 "drawer?.:draw?.({x, y} = entity.position)",
-                "drawer = new Drawer(draw = function(_, x: number, y: number): number",
+                "drawer = Drawer(draw = function(_, x: number, y: number): number",
                 "   calls = calls + 1",
                 "   return x + y",
                 "end)",
@@ -645,9 +645,9 @@ function M.constructorCallsReuseTheSamePlan()
                 "      self.y = y",
                 "   end",
                 "end",
-                "local position = new Vec3(x = 7, y = 8, z = 9)",
-                "local entity = new Entity(position = position)",
-                "local point = new Point({x, y} = entity.position)",
+                "local position = Vec3(x = 7, y = 8, z = 9)",
+                "local entity = Entity(position = position)",
+                "local point = Point({x, y} = entity.position)",
                 "return point.x * 10 + point.y",
             },
             "\n"
@@ -669,8 +669,8 @@ function M.callableObjectsReuseTheOrdinaryPlan()
                 "local adder = setmetatable({}, {__call = function(_, x: number, y: number): number",
                 "   return x + y",
                 "end}) as Adder",
-                "local position = new Vec3(x = 4, y = 5, z = 6)",
-                "local entity = new Entity(position = position)",
+                "local position = Vec3(x = 4, y = 5, z = 6)",
+                "local entity = Entity(position = position)",
                 "return adder({x, y} = entity.position)",
             },
             "\n"
@@ -691,8 +691,8 @@ function M.methodReceiverAndDottedOperandAreEachEvaluatedOnce()
                 "end",
                 "local receiverReads = 0",
                 "local positionReads = 0",
-                "local drawer = new Drawer()",
-                "local position = new Vec3(x = 1, y = 2, z = 3)",
+                "local drawer = Drawer()",
+                "local position = Vec3(x = 1, y = 2, z = 3)",
                 "local entity = setmetatable({}, {__index = function(_, _)",
                 "   positionReads = positionReads + 1",
                 "   return position",
@@ -715,7 +715,7 @@ function M.pluckRejectsEffectfulAndComputedPlaceOperands()
         {
             "local function draw(x: number, y: number): nil end",
             "local function make(): Vec3",
-            "   return new Vec3(x = 1, y = 2, z = 3)",
+            "   return Vec3(x = 1, y = 2, z = 3)",
             "end",
         },
         "\n"
@@ -756,7 +756,7 @@ function M.aCalleePicksTheSubsetItNeeds()
                 "local function consume(x: number, y: number, tag: string): string",
                 "   return tostring(x) .. tostring(y) .. tag",
                 "end",
-                "local position = new Vec3(x = 1, y = 2, z = 3)",
+                "local position = Vec3(x = 1, y = 2, z = 3)",
                 "return consume({x, y} = position, tag = 'k')",
             },
             "\n"
@@ -773,7 +773,7 @@ function M.aTrailingOrdinaryCallStillSuppliesItsResultPack()
                 "local function total(x: number, y: number, c: number, d: number): number",
                 "   return x + y + c + d",
                 "end",
-                "local position = new Vec3(x = 1, y = 2, z = 9)",
+                "local position = Vec3(x = 1, y = 2, z = 9)",
                 "return total(position.x, position.y, pair())",
             },
             "\n"
@@ -793,7 +793,7 @@ function M.aCallAheadOfAPluckIsAdjustedToOneValue()
                     "local function total(a: number, b: number, x: number, y: number): number",
                     "   return a + b + x + y",
                     "end",
-                    "local position = new Vec3(x = 1, y = 2, z = 9)",
+                    "local position = Vec3(x = 1, y = 2, z = 9)",
                     "return total(pair(), {x, y} = position)",
                 },
                 "\n"
@@ -871,7 +871,7 @@ function M.namedLabelsSelectMethodBodiesWithoutADispatcher()
                 "   function decode(self, value: number): string return 'n' end",
                 "   function decode(self, text: string): string return 's' end",
                 "end",
-                "local decoder = new Decoder()",
+                "local decoder = Decoder()",
                 "return decoder:decode(value = 1) .. decoder:decode(text = 'x')",
             },
             "\n"
@@ -887,7 +887,7 @@ function M.invalidPluckAndArgumentBindingAreRejected()
             vector .. "\n" .. table.concat(
                 {
                     "local function draw(x: number, w: number): nil end",
-                    "local position = new Vec3(x = 1, y = 2, z = 3)",
+                    "local position = Vec3(x = 1, y = 2, z = 3)",
                     "draw({x, w} = position)",
                 },
                 "\n"
@@ -901,7 +901,7 @@ function M.invalidPluckAndArgumentBindingAreRejected()
             vector .. "\n" .. table.concat(
                 {
                     "local function draw(x: number): nil end",
-                    "local position = new Vec3(x = 1, y = 2, z = 3)",
+                    "local position = Vec3(x = 1, y = 2, z = 3)",
                     "draw({x} = position, {y} = position)",
                 },
                 "\n"
@@ -919,7 +919,7 @@ function M.invalidPluckAndArgumentBindingAreRejected()
                     "   y: number",
                     "end",
                     "local function draw(x: number, y: number): nil end",
-                    "local tagged = new Tagged(x = 'a', y = 2)",
+                    "local tagged = Tagged(x = 'a', y = 2)",
                     "draw({x, y} = tagged)",
                 },
                 "\n"
@@ -933,7 +933,7 @@ function M.invalidPluckAndArgumentBindingAreRejected()
             vector .. "\n" .. table.concat(
                 {
                     "local function draw(x: number, y: number): nil end",
-                    "local position = new Vec3(x = 1, y = 2, z = 3)",
+                    "local position = Vec3(x = 1, y = 2, z = 3)",
                     "draw({x, y} = position, x = 5)",
                 },
                 "\n"
@@ -947,7 +947,7 @@ function M.invalidPluckAndArgumentBindingAreRejected()
             vector .. "\n" .. table.concat(
                 {
                     "local function draw(x: number, y: number): nil end",
-                    "local position = new Vec3(x = 1, y = 2, z = 3)",
+                    "local position = Vec3(x = 1, y = 2, z = 3)",
                     "draw({x, x} = position)",
                 },
                 "\n"
@@ -961,7 +961,7 @@ function M.invalidPluckAndArgumentBindingAreRejected()
             vector .. "\n" .. table.concat(
                 {
                     "local function draw(x: number, y: number): nil end",
-                    "local position = new Vec3(x = 1, y = 2, z = 3)",
+                    "local position = Vec3(x = 1, y = 2, z = 3)",
                     "draw({x} = position, 5)",
                 },
                 "\n"
@@ -987,8 +987,8 @@ function M.constructionHasNoParametersToPluckInto()
                     "   x: number",
                     "   y: number",
                     "end",
-                    "local position = new Vec3(x = 1, y = 2, z = 3)",
-                    "local point = new Point(x = 1, y = 2, {x, y} = position)",
+                    "local position = Vec3(x = 1, y = 2, z = 3)",
+                    "local point = Point(x = 1, y = 2, {x, y} = position)",
                 },
                 "\n"
             )

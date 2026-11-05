@@ -11,7 +11,7 @@ local record Order
     note: string?
 end
 local orders = serde.binding(Order)
-local bytes = json.encode(orders, new Order(id = 9, items = {"tea"}))
+local bytes = json.encode(orders, Order(id = 9, items = {"tea"}))
 assert(bytes == '{"id":9,"items":["tea"],"note":null}')
 local order = json.decode(orders, bytes)
 assert(order.items[1] == "tea" and order.note == nil)
@@ -94,7 +94,7 @@ leaving the document open, and consuming `close()` requires one complete root:
 
 ```nupp
 local out = string.buffer.new()
-local writer = serde.json.newwriter(out)
+local writer = serde.json.Writer.of(out)
 writer:startobject():key("items"):startarray():write(1):write(2):endarray():endobject()
 writer:close()
 ```
@@ -157,7 +157,7 @@ local record Write<T, M is core.Member> is WriteOperation<T>
                 encoding,
                 value,
                 sink,
-                encoding.dynamic and new lowering.Budget() or nil
+                encoding.dynamic and lowering.Budget() or nil
             )
             if not ok then
                 sink:abort()
@@ -187,7 +187,7 @@ local record SelectWrite<T> is core.Consumer<T, nil, nil>
     @readonly cache: extensions.Scope
     result: WriteOperation<T>?
     function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows state: nil): nil
-        self.result = new Write<T, M>(
+        self.result = Write<T, M>(
             adapter = adapter,
             factory = self.factory,
             operation = self.cache:resolve(adapter, "write"),
@@ -244,7 +244,7 @@ local record SelectRead<T> is core.Consumer<T, nil, nil>
     result: ReadOperation<T>?
     function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows state: nil): nil
         local operation = self.cache:resolve(adapter, "read")
-        self.result = new Read<T, M>(
+        self.result = Read<T, M>(
             binding = self.binding,
             native = getmetatable(self.binding) == core.Bound and operation.native or nil,
             adapter = adapter,
@@ -327,7 +327,7 @@ local record Cached is Codec
     function writing<T>(self, binding: core.Binding<T>): WriteOperation<T>
         self:observeBinding(binding)
         if self.lastWrite == nil then
-            local consumer = new SelectWrite<T>(factory = self.factory, cache = self.cache)
+            local consumer = SelectWrite<T>(factory = self.factory, cache = self.cache)
             binding:accept(consumer, nil)
             self.lastWrite = assert(consumer.result, "binding did not supply its adapter")
         end
@@ -371,7 +371,7 @@ local record Cached is Codec
             -- call context. A different binding drops this one-entry cache.
             selected = self.lastRead as ReadOperation<T>
         else
-            local consumer = new SelectRead<T>(binding = binding, factory = self.factory, cache = self.cache)
+            local consumer = SelectRead<T>(binding = binding, factory = self.factory, cache = self.cache)
             binding:accept(consumer, nil)
             selected = assert(consumer.result, "binding did not supply its adapter")
             self.lastReadBinding, self.lastRead = binding, selected
@@ -388,7 +388,7 @@ local record Cached is Codec
             -- call context. A different binding drops this one-entry cache.
             selected = self.lastRead as ReadOperation<T>
         else
-            local consumer = new SelectRead<T>(binding = binding, factory = self.factory, cache = self.cache)
+            local consumer = SelectRead<T>(binding = binding, factory = self.factory, cache = self.cache)
             binding:accept(consumer, nil)
             selected = assert(consumer.result, "binding did not supply its adapter")
             self.lastReadBinding, self.lastRead = binding, selected
@@ -439,8 +439,8 @@ export const defaultpolicy: plans.PolicyFactory = defaults.factory
 ---     @readonly name: string
 ---     @readonly index: integer?
 --- end
---- local title: serde.Binding<string> = new serde.Bound<string, Member>(
----     adapter = adapters.text(new Member(name = "title"))
+--- local title: serde.Binding<string> = serde.Bound<string, Member>(
+---     adapter = adapters.text(Member(name = "title"))
 --- )
 --- assert(not pcall(json.encode, title, "Dune"))
 --- local plain = json.codec(json.membernamepolicy)
@@ -482,7 +482,7 @@ export const fieldname = documents.name
 --- end
 --- local codec = json.codec(json.defaultpolicy, 16)
 --- local items = serde.binding(Item)
---- assert(codec:decode(items, codec:encode(items, new Item(id = 3))).id == 3)
+--- assert(codec:decode(items, codec:encode(items, Item(id = 3))).id == 3)
 --- assert(codec:cachedbindings() == 1)
 --- codec:clear()
 --- ```
@@ -492,7 +492,7 @@ export const fieldname = documents.name
 --- @return the codec
 export function codec(policy: plans.PolicyFactory?, capacity: integer?): Codec
     local selected = policy or defaults.factory
-    return new Cached(factory = selected, cache = extensions.scope(selected, capacity))
+    return Cached(factory = selected, cache = extensions.scope(selected, capacity))
 end
 
 local shared = codec()
@@ -505,7 +505,7 @@ local shared = codec()
 ---     left: string
 ---     right: string?
 --- end
---- assert(json.encode(serde.binding(Pair), new Pair(left = "a")) == '{"left":"a","right":null}')
+--- assert(json.encode(serde.binding(Pair), Pair(left = "a")) == '{"left":"a","right":null}')
 --- ```
 ---
 --- @param binding the value's binding
@@ -572,9 +572,9 @@ end
 ---     name: string
 --- end
 --- local buffer = string.buffer.new()
---- local writer = json.newwriter(buffer)
+--- local writer = json.Writer.of(buffer)
 --- writer:startarray()
---- json.writevalue(serde.binding(Tag), new Tag(name = "x"), writer)
+--- json.writevalue(serde.binding(Tag), Tag(name = "x"), writer)
 --- writer:endarray()
 --- writer:close()
 --- assert(buffer:tostring() == '[{"name":"x"}]')
@@ -642,17 +642,33 @@ export type EncodedString = json.EncodedString
 --- @export
 export type JSONEncodable = json.JSONEncodable
 
---- A checked incremental JSON writer, which `newwriter` returns.
+--- A checked incremental JSON writer, created by `Writer.of`.
 ---
 --- ```nupp
 --- local out = string.buffer.new()
---- local writer = serde.json.newwriter(out)
+--- local writer = serde.json.Writer.of(out)
 --- writer:startobject():key("ok"):write(true):endobject()
 --- writer:close()
 --- assert(out:tostring() == [[{"ok":true}]])
 --- ```
 --- @export
-export type Writer = json.Writer
+export interface Writer is json.Writer
+    --- Adapts caller-owned output storage for incremental JSON writing.
+    ---
+    --- ```nupp
+    --- local out = string.buffer.new()
+    --- local writer = serde.json.Writer.of(out)
+    --- writer:write(true)
+    --- writer:close()
+    --- assert(out:tostring() == "true")
+    --- ```
+    --- @param out the output storage borrowed until the writer closes
+    --- @param nullvalue the value to encode as JSON null
+    --- @return the incremental JSON writer
+    function of(exclusive out: Buffer, nullvalue: any?): Writer
+        return json.newWriter(out, nullvalue)
+    end
+end
 
 --- Decodes a complete JSON document.
 ---
@@ -821,21 +837,6 @@ export const verified = json.verified
 --- @return a handle retaining the original immutable string
 --- @export
 export const verifiedstring = json.verifiedString
-
---- Creates an incremental JSON writer over caller-owned storage.
----
---- ```nupp
---- local out = string.buffer.new()
---- local writer = serde.json.newwriter(out)
---- writer:startobject():key("id"):write(41):endobject()
---- writer:close()
---- assert(out:tostring() == [[{"id":41}]])
---- ```
---- @param out the destination receiving bytes as operations complete
---- @param nullValue an additional value treated as JSON null
---- @return a new writer
---- @export
-export const newwriter = json.newWriter
 
 --- Creates a schema-driven JSON codec with an immutable wire profile.
 --- Sentinel that decodes from and encodes as JSON null.

@@ -1,4 +1,4 @@
-local random = math.random
+local random = math
 
 local M = {}
 
@@ -10,7 +10,7 @@ local function assertSame(left: const{number}, right: const{number}): nil
 end
 
 function M.reproducesTheTecsSequenceAndState(): nil
-    local generator = new random.Xoshiro128(12345)
+    local generator = random.Xoshiro128(12345)
     local expected: {
         number
     } = {
@@ -30,7 +30,7 @@ function M.reproducesTheTecsSequenceAndState(): nil
 end
 
 function M.reproducesTheTecsIntegerSequence(): nil
-    local generator = new random.Xoshiro128(12345)
+    local generator = random.Xoshiro128(12345)
     local expected = {26, 5, 88, 89, 98, 19, 32, 95, 87, 90, 75, 51}
     for index = 1, #expected do
         assert(generator:integer(1, 100) == expected[index], "integer differs at " .. tostring(index))
@@ -38,7 +38,7 @@ function M.reproducesTheTecsIntegerSequence(): nil
 end
 
 function M.restoresStateAndReseedsInPlace(): nil
-    local generator = new random.Xoshiro128(9)
+    local generator = random.Xoshiro128(9)
     for _ = 1, 12 do
         generator:next()
     end
@@ -48,18 +48,18 @@ function M.restoresStateAndReseedsInPlace(): nil
     assertSame({generator:next(), generator:next(), generator:next()}, expected)
 
     generator:reseed(9)
-    local fresh = new random.Xoshiro128(9)
+    local fresh = random.Xoshiro128(9)
     assert(generator:next() == fresh:next())
 end
 
 function M.readsSeedsAndStateAsSigned32BitWords(): nil
-    local positive = new random.Xoshiro128(2147483648)
-    local negative = new random.Xoshiro128(-2147483648)
+    local positive = random.Xoshiro128(2147483648)
+    local negative = random.Xoshiro128(-2147483648)
     for _ = 1, 20 do
         assert(positive:next() == negative:next())
     end
 
-    local generator = new random.Xoshiro128(1)
+    local generator = random.Xoshiro128(1)
     local zeroOk, zeroReason = pcall(function(): nil
         generator:setstate({0, 0, 0, 0})
     end)
@@ -71,7 +71,7 @@ function M.readsSeedsAndStateAsSigned32BitWords(): nil
 end
 
 function M.drawsRangesAndDeterministicPermutations(): nil
-    local generator = new random.Xoshiro128(11)
+    local generator = random.Xoshiro128(11)
     local seen: {[integer]: boolean} = {}
     for _ = 1, 2000 do
         local value = generator:integer(-3, 3)
@@ -94,9 +94,9 @@ function M.drawsRangesAndDeterministicPermutations(): nil
 
     local first = {1, 2, 3, 4, 5, 6, 7, 8}
     local second = {1, 2, 3, 4, 5, 6, 7, 8}
-    local shuffler = new random.Xoshiro128(99)
+    local shuffler = random.Xoshiro128(99)
     local returned = shuffler:shuffle(first)
-    local again = new random.Xoshiro128(99)
+    local again = random.Xoshiro128(99)
     again:shuffle(second)
     assert(returned == first)
     assertSame(first, second)
@@ -105,7 +105,7 @@ end
 -- One draw carries 32 bits, so scaling it over more than 2^32 values reached at
 -- most 2^32 of them, evenly spaced: over [1, 2^53] every draw was odd.
 function M.drawsOverWideRangesReachEveryResidue(): nil
-    local generator = new random.Xoshiro128(42)
+    local generator = random.Xoshiro128(42)
     local even = 0
     local offGrid = 0
     for _ = 1, 2000 do
@@ -133,7 +133,7 @@ end
 -- A bound that is not a finite integer, or a range wider than doubles count
 -- exactly, has no uniform answer.
 function M.refusesBoundsWithoutAnExactRange(): nil
-    local generator = new random.Xoshiro128(7)
+    local generator = random.Xoshiro128(7)
     const refused: {
         {number}
     } = {
@@ -179,7 +179,7 @@ function M.independentGeneratorsLeaveTheHostSequenceAlone(): nil
     math.randomseed(902)
     local expected = math.random()
     math.randomseed(902)
-    local generator: math.random.Xoshiro128 = new math.random.Xoshiro128(7)
+    local generator: math.Xoshiro128 = math.Xoshiro128(7)
     for _ = 1, 10 do
         generator:next()
     end

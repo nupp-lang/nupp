@@ -129,7 +129,7 @@ local record Construction<M is core.Member> is structures.Construction<Value, Bu
     @readonly fields: {structures.Field<Value, Builder, M>}
     @readonly defaults: {[integer]: function(): unknown}
     function begin(self): Builder
-        return new Builder(value = new Value(owner = self.owner))
+        return Builder(value = Value(owner = self.owner))
     end
 
     function finish(self, takes state: Builder): Value
@@ -225,10 +225,10 @@ local record Mapping<M is core.Member> is Layout<M>
             assert2(field.member ~= member, "duplicate indexed member")
         end
         local position = #self.fields + 1
-        local slot = new Slot<V>(owner = self.owner, position = position)
+        local slot = Slot<V>(owner = self.owner, position = position)
         self.fields[
             position
-        ] = new Field<V, M>(
+        ] = Field<V, M>(
             member = member,
             required = required,
             hasdefault = hasDefault,
@@ -257,17 +257,17 @@ local record Mapping<M is core.Member> is Layout<M>
     end
 
     function value(self): Value
-        return new Value(owner = self.owner)
+        return Value(owner = self.owner)
     end
 
     function binding(self): core.Binding<Value>
         local selected = self.selected
         if selected == nil then
-            selected = new core.Bound<Value, M>(
+            selected = core.Bound<Value, M>(
                 adapter = structures.adapter(
                     self.member,
                     self.fields,
-                    new Construction<M>(owner = self.owner, fields = self.fields, defaults = self.defaults),
+                    Construction<M>(owner = self.owner, fields = self.fields, defaults = self.defaults),
                     nil,
                     nil,
                     true
@@ -281,5 +281,5 @@ local record Mapping<M is core.Member> is Layout<M>
 end
 
 export function layout<M is core.Member>(member: M): Layout<M>
-    return new Mapping<M>(member = member)
+    return Mapping<M>(member = member)
 end

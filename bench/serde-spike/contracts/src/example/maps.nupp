@@ -5,7 +5,7 @@ local core = require("serde")
 local record Key<M is core.Member> is core.Members<M, integer>
     @readonly member: M
     function apply(self, borrows source: integer, exclusive writer: core.Writer<M>): nil
-        writer:writeinteger(self.member, new core.Integer(decimal = tostring(source), width = 32, signed = true))
+        writer:writeinteger(self.member, core.Integer(decimal = tostring(source), width = 32, signed = true))
     end
 end
 
@@ -65,9 +65,9 @@ export record Map<M is core.Member>
 end
 
 export function mapping<M is core.Member>(member: M, key: M, value: M): Map<M>
-    return new Map<M>(
+    return Map<M>(
         member = member,
-        emit = new Entries<M>(key = new Key<M>(member = key), value = new Value<M>(member = value)),
-        consume = new Read<M>(key = key, value = value)
+        emit = Entries<M>(key = Key<M>(member = key), value = Value<M>(member = value)),
+        consume = Read<M>(key = key, value = value)
     )
 end

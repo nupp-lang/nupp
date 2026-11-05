@@ -546,7 +546,7 @@ const PositionCodec: types.reflect.FieldCodec<Position> = comptime do
     return types.reflect.fieldcodec(types.reflect(Position))
 end
 
-return PositionCodec:encode(new Position(x = 1))
+return PositionCodec:encode(Position(x = 1))
 ]],
     })
     local cold, coldStats = {}, {}
@@ -633,7 +633,7 @@ record models.Parent
     child: Child
 end
 function models.make(): models.Parent
-    return new models.Parent(child = new Child(value = 7))
+    return models.Parent(child = Child(value = 7))
 end
 return models
 ]],
@@ -1089,7 +1089,7 @@ function M.browserHostsCannotSelectNativeDistributionPlatforms()
     local status, output = process.capture({root .. "/bin/nupp", "build", "--host", "browser"}, {cwd = dir})
     testAssert.eq(status, 1, "the command-line host override is also rejected\n" .. output)
     assert(output:find('platforms selects native binary hosts', 1, true), output)
-    assert(not require("io.files").isdirectory(dir .. "/out"), "rejection writes no build output")
+    assert(require("io.internal.files").stat(dir .. "/out") ~= "directory", "rejection writes no build output")
     remove(dir)
 end
 
@@ -1935,10 +1935,8 @@ return {
    build = {outDir = "out", entries = {"main"}},
 }
 ]],
-        [
-            "src/main.nupp"
-        ] = [[
-local random = require("math.random")
+        ["src/main.nupp"] = [[
+local random = math.Xoshiro128
 local time = require("coroutine")
 return random, time
 ]],

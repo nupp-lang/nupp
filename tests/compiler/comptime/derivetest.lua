@@ -75,8 +75,8 @@ local record Options
     values: {[string]: integer} = {}
     point: {x: integer, label: string} = {x = 0, label = ""}
 end
-local left = new Options()
-local right = new Options()
+local left = Options()
+local right = Options()
 left.tags[1] = "changed"
 left.values.changed = 1
 left.point.x = 9
@@ -116,8 +116,8 @@ local record Namespace
     end
 end
 
-local boxed: Box<Item> = new Box(value = new Item(label = "ok"))
-local inner: Namespace.Inner = new Namespace.Inner()
+local boxed: Box<Item> = Box(value = Item(label = "ok"))
+local inner: Namespace.Inner = Namespace.Inner()
 return {box = boxed:debug(), inner = inner:debug()}
 ]]
     )
@@ -142,8 +142,8 @@ local record Shape
     origin: Point
 end
 
-local point = new Point(1, 2)
-local shape = new Shape(origin = point)
+local point = Point(1, 2)
+local shape = Shape(origin = point)
 return {point = point:debug(), shape = shape:debug()}
 ]]
     )
@@ -241,7 +241,7 @@ local editor = require("tests.fixtures.deriveeditor")
 local record Stable
     value: integer = 0
 end
-return new Stable()
+return Stable()
 ]]
     local parsed = parser.parse(source, "derive_recheck.nupp")
     testAssert.eq(#parsed.errors, 0, "syntax errors")
@@ -482,7 +482,7 @@ function M.delimitsTheRuntimeFromAnEmittedFirstLine()
 local marker = "first"
 @derive(types.debug)
 local record First value: integer end
-return marker .. ":" .. (new First(value = 1)):debug()
+return marker .. ":" .. (First(value = 1)):debug()
 ]]
     )
     testAssert.eq(result, "first:First { value = 1LL }")
