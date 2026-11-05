@@ -471,6 +471,62 @@ end
     )
 end
 
+function M.cliCallsImportedAndGlobalStructReferences()
+    withProject(
+        {
+            ["nupp.lua"] = "return { include = { 'src' } }\n",
+            [
+                "main.nupp"
+            ] = [[
+local geometry = require("geometry")
+local mathutil = require("mathutil")
+
+local doubled: number = mathutil.double(21)
+local Make: Type<geometry.Point> = geometry.Point
+local point: geometry.Point = Make(3, 4)
+local MakeOrigin: Type<Origin> = Origin
+local origin: Origin = MakeOrigin(5)
+print(doubled, point.x + point.y, origin.x)
+]],
+            [
+                "src/mathutil.nupp"
+            ] = [[
+local function double(value: number): number
+    return value * 2
+end
+return { double = double }
+]],
+            [
+                "src/geometry.nupp"
+            ] = [[
+local geometry = {}
+
+struct geometry.Point
+    x: float
+    y: float
+end
+
+return geometry
+]],
+            ["src/globals.nupp"] = [[
+global struct Origin
+    x: float
+end
+]],
+        },
+        function(dir)
+            local output = dir .. "/output.txt"
+            local errors = dir .. "/errors.txt"
+            local command = (
+                "cd '%s' && '%s/bin/nupp' run main.nupp " .. "> '%s' 2> '%s'"
+            ):format(dir, ROOT, output, errors)
+            local status = os.execute(command)
+            testAssert.eq(status, 0, "required project run: " .. readFile(errors))
+            testAssert.eq(readFile(output), "42\t7\t5\n", "required project output")
+        end
+    )
+end
+
 -- Checking a construction is not enough: a record's runtime table lives on the
 -- module it was attached to, and if the generator does not learn that, it emits
 -- a plain call to a table and the program only fails when it runs.

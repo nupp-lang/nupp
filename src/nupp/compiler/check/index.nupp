@@ -161,7 +161,7 @@ export function install(c: state.Checker): state.ExprHandlers
                     if not resolved and memberIndex == 1 and c.env.exportedNominal then
                         local nominal, declared = c.env.exportedNominal(c.env, candidate, memberName)
                         if nominal and nominal.tag == "nominal" then
-                            resolved = nominal.declKind == "struct" and nominal or T.typeObject(nominal)
+                            resolved = T.typeObject(nominal)
                             definition = declared
                         end
                     end
@@ -639,7 +639,7 @@ export function install(c: state.Checker): state.ExprHandlers
             then
                 -- The same value the declaring module bound, so a record arrives as the
                 -- metatable its table is rather than as an instance of it.
-                local held = t.declKind == "struct" and t or T.typeObject(t)
+                local held = t.declKind == "interface" and T.metatable(t) or T.typeObject(t)
                 c.markToken(member, def, held, def and def.kind or "variable")
                 return held
             end
