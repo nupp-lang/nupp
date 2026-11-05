@@ -2,6 +2,8 @@
 module io.internal.path
 
 local pathTypes = require("io.internal.pathtypes")
+local bounded = require("io.internal.boundedcache")
+
 export type Path = pathTypes.Path
 export const Path = pathTypes.Path
 
@@ -101,10 +103,7 @@ local joined: function(first: string | Path, count: integer, ...: string | Path)
 local raw: function(text: string): Path
 
 const PATH_CACHE_CAPACITY = 1024
-local pathCache: {[string]: any} = {}
-local pathCacheSize = 0
-local pathCacheNewest: any = nil
-local pathCacheOldest: any = nil
+local pathCache = bounded.create<Path>(PATH_CACHE_CAPACITY)
 
 local application: function(provider: string, root: string, parts: {string}, floor: integer): Path
 
@@ -267,44 +266,13 @@ end
 -- different operation. Holding only the most recent paths bounds retention while
 -- repeated parsing and composition reuse the same immutable value.
 raw = function(text: string): Path
-    local found = pathCache[text]
+    local found = pathCache:get(text)
     if found ~= nil then
-        if found ~= pathCacheNewest then
-            local older, newer = found.older, found.newer
-            if older ~= nil then
-                older.newer = newer
-            else
-                pathCacheOldest = newer
-            end
-            if newer ~= nil then
-                newer.older = older
-            end
-            found.older = pathCacheNewest
-            found.newer = nil
-            pathCacheNewest.newer = found
-            pathCacheNewest = found
-        end
-
-        return found.value
+        return found
     end
 
     local value = setmetatable({_text = text,} as any, Path as any) as Path
-    local entry = {value = value, older = pathCacheNewest, newer = nil}
-    if pathCacheNewest ~= nil then
-        pathCacheNewest.newer = entry
-    else
-        pathCacheOldest = entry
-    end
-    pathCacheNewest = entry
-    pathCache[text] = entry
-    pathCacheSize = pathCacheSize + 1
-    if pathCacheSize > PATH_CACHE_CAPACITY then
-        local evicted = pathCacheOldest
-        pathCacheOldest = evicted.newer
-        pathCacheOldest.older = nil
-        pathCache[evicted.value:tostring()] = nil
-        pathCacheSize = pathCacheSize - 1
-    end
+    pathCache:put(text, value)
 
     return value
 end

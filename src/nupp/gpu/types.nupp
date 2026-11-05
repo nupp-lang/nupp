@@ -7,6 +7,17 @@ local {type Span} = require("binary.span")
 local limits = require("nupp.gpu.limits")
 local gpu = {}
 
+--- What a binding reads from the kernel it was made from, including whether
+--- that kernel has since been closed.
+type gpu.KernelView = {
+    @readonly _handle: any,
+    @readonly _released: boolean,
+    @readonly _readonlyBuffers: integer,
+    @readonly _writableBuffers: integer,
+    @readonly _uniformBytes: integer,
+    @readonly _threads: integer
+}
+
 --- The provider's release of a root allocation or a compiled kernel's
 --- handle. Each context carries its own, and none of them suspends.
 local type Release = @nosuspend function(context: any, resource: any): nil

@@ -512,4 +512,18 @@ function M.pathCachingNeverGrantsStorageAuthorityFromText()
     test.eq(paths.descriptor(app).parts[1], "data", "descriptor consumers cannot mutate a path")
 end
 
+function M.interningPromotesCacheHitsAndEvictsTheLeastRecentPath()
+    local paths = ready()
+    local prefix = "nupp-cache-path/"
+    local hot = paths.newpath(prefix .. "hot")
+    local cold = paths.newpath(prefix .. "cold")
+    for index = 1, 1022 do
+        paths.newpath(prefix .. index)
+    end
+    assert(rawequal(paths.newpath(prefix .. "hot"), hot))
+    paths.newpath(prefix .. "newest")
+    assert(not rawequal(paths.newpath(prefix .. "cold"), cold))
+    assert(rawequal(paths.newpath(prefix .. "hot"), hot))
+end
+
 return M
