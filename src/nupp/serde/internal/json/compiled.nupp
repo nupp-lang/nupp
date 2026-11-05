@@ -14,7 +14,6 @@ local provider = require("nupp.codec.json.provider")
 local errors = require("nupp.serde.internal.errors")
 local diagnostic = require("nupp.serde.internal.json.diagnostic")
 local json = require("nupp.serde.internal.json.values")
-const {type Buffer} = require("string.buffer")
 
 local interface Assign<S is own.Closeable>
     apply: function(self, exclusive state: S, value: unknown): nil
@@ -160,33 +159,12 @@ end
 
 export interface Decoder<T>
     accepts: function(self, borrows bytes: string): boolean
-    acceptsBuffer: function(self, exclusive input: Buffer): boolean
     decode: function(self, bytes: string): T
-    decodeBuffer: function(self, exclusive input: Buffer): T
 end
 local record Native<T> is Decoder<T>
     @readonly schema: any
     @readonly syntax: any
     @readonly invoke: function(schema: any, bytes: string): (any?, string?)
-    @readonly invokeBuffer: (function(schema: any, exclusive input: Buffer): (any?, string?))?
-    function acceptsBuffer(self, exclusive input: Buffer): boolean
-        return self.invokeBuffer ~= nil and #input <= 1000000
-    end
-
-    function decodeBuffer(self, exclusive input: Buffer): T
-        assert2(self:acceptsBuffer(input), "compiled buffer input exceeds its execution capability")
-        local invoke = assert2(self.invokeBuffer)
-        local ok, value, problem = pcall(invoke, self.schema, input)
-        if not ok then
-            error(diagnostic.explain(self.syntax, input:tostring(), value), 0)
-        end
-        if problem ~= nil then
-            error(diagnostic.explain(self.syntax, input:tostring(), problem), 0)
-        end
-
-        return value as T
-    end
-
     function accepts(self, borrows bytes: string): boolean
         -- Below this bound, token and entry budgets cannot be exceeded. The
         -- finite recipe's depth is bounded during selection. Larger inputs use
@@ -231,12 +209,7 @@ export function select<T, M is core.Member>(
         return nil
     end
 
-    return Native<T>(
-        schema = schema,
-        syntax = recipe.syntax,
-        invoke = decode,
-        invokeBuffer = selected.decodeserdebuffer
-    )
+    return Native<T>(schema = schema, syntax = recipe.syntax, invoke = decode)
 end
 
 -- Deterministic capability evidence does not require a native host provider.

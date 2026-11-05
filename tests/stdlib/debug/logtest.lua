@@ -412,6 +412,20 @@ function M.aFileLikeTargetRendersThroughTheFormatter()
     assert(written[2]:find("<2|amb|13|again|>", 1, true) ~= nil, "an installed formatter owns the line")
 end
 
+function M.aWriterTargetReceivesEachRenderedLine()
+    local log = runtime()
+    local buffer = require("io").Buffer.create()
+    log.settimestampformat("")
+    log.setformatter(nil)
+    log.setlevel("debug")
+    local previous = log.setsink(buffer:writer())
+    log.emit(2, "amb", 7, "to a buffer")
+    log.emit(3, "amb", 8, "and another")
+    log.setsink(previous)
+    local text = buffer:getstring()
+    assert(text == "warn amb:7: to a buffer\ninfo amb:8: and another\n", text)
+end
+
 function M.aSinkFunctionBypassesFormattingEntirely()
     local log = runtime()
     local lines, sink = recorder()
@@ -568,7 +582,7 @@ function M.everyPathCallRunsFromAModule()
                 "    end)",
                 "    answers[#answers + 1] = debug.log.formatter() ~= nil",
                 "    debug.log.setformatter(nil)",
-                "    debug.log.setsink(sink)",
+                "    local _ = debug.log.setsink(sink)",
                 "    answers[#answers + 1] = debug.log.sink() == sink",
                 "    answers[#answers + 1] = debug.log.levelname(3)",
                 "    debug.log.named('amb.named'):info('named %d', 1)",

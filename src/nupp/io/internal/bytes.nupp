@@ -78,6 +78,7 @@ local function range(length: integer, offset: any, count: any, what: string, lev
 end
 
 const _SCALAR_REQUIRES = "@requires-dynamically nupp.io.internal.scalars"
+const _FILE_REQUIRES = "@requires-dynamically io.internal.fileviews"
 local scalarModule: any = nil
 
 local function scalarImplementation(name: string): any
@@ -85,6 +86,11 @@ local function scalarImplementation(name: string): any
         scalarModule = require(name)
     end
     return scalarModule
+end
+
+-- The file views need native storage, so they load only when a file is adapted.
+local function fileImplementation(name: string): any
+    return require(name)
 end
 
 --- Reads fixed-width numbers from a source of bytes.
@@ -391,6 +397,14 @@ export interface Writer is own.Closeable
     --- Clears and exclusively borrows a buffer as a byte sink.
     function of(exclusive destination: Buffer): affine(Writer) borrows (destination)
         return writeBuffer(destination)
+    end
+
+    --- Takes an open file as a byte sink. Closing the writer closes the file.
+    function of(takes file: io.File): affine(Writer)
+        local create: function(
+            takes file: io.File
+        ): affine(Writer) = fileImplementation("io.internal.fileviews").ownedwriter
+        return create(file)
     end
 
     --- Appends bytes.
@@ -1461,6 +1475,19 @@ export function newWriter(exclusive destination: Buffer): affine(Writer) borrows
 end
 
 writeBuffer = newWriter
+
+-- Both `Writer.of` forms share one runtime entry: a file is taken and closed with the
+-- writer, and anything else is a buffer borrowed for the writer's life.
+local function openWriter(destination: any): any
+    const publicIo: any = rawget(_G, "io")
+    if publicIo ~= nil and publicIo.type(destination) ~= nil then
+        return fileImplementation("io.internal.fileviews").ownedwriter(destination)
+    end
+
+    return destination:writer()
+end
+
+rawset(Writer, "of", openWriter)
 
 --- Reads a reader to its end and returns everything it held as a string.
 ---

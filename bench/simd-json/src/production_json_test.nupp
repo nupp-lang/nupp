@@ -53,6 +53,7 @@ local fastPrepared = serde.binding(FastEnvelope)
 local advancedPrepared = serde.binding(AdvancedEnvelope)
 local fastBuffer = newBuffer()
 fastBuffer:put(fastSource)
+local fastInput = own.manage(io.Buffer.create(fastSource)):alias()
 
 local test = {}
 
@@ -191,11 +192,11 @@ function test.run(): nil
     end
     assert2(json.pull([[{"field-70":70}]], wideShape)["field-70"] == 70)
 
-    local out = newBuffer()
+    local out = io.Buffer.create()
     local writer = json.Writer.of(out)
     writer:startobject():key(json.encodedstring('a"b')):write(json.verified("42")):endobject()
     writer:close()
-    assert2(out:tostring() == [[{"a\"b":42}]])
+    assert2(out:getstring() == [[{"a\"b":42}]])
 
     assert2(json.decodevalue("null", json.NULL) == json.NULL)
     assert2(json.decodevalue("null") == nil)
@@ -211,7 +212,11 @@ function test.preparedDecode(): FastEnvelope
 end
 
 function test.preparedBufferDecode(): FastEnvelope
-    return require("serde.json").decodebuffer(fastPrepared, fastBuffer)
+    local value, problem = fastInput:withexclusive(function(exclusive input: io.Buffer): FastEnvelope
+        return require("serde.json").decodebuffer(fastPrepared, input)
+    end)
+
+    return (assert2(value, problem))
 end
 
 function test.preparedBufferCopyDecode(): FastEnvelope

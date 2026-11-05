@@ -152,7 +152,7 @@ over completely. It receives the parts, not a rendered line, and pays for no
 formatting it would discard:
 
 ```nupp:fragment
-debug.log.setsink(function(level: integer, module: string, line: integer, message: string): nil
+local _ = debug.log.setsink(function(level: integer, module: string, line: integer, message: string): nil
     sdl.logMessage(CATEGORY, PRIORITY[level], ("%s:%d %s"):format(module, line, message))
 end)
 ```
@@ -161,19 +161,20 @@ end)
 one back into its name. `line` is `0` for a line the compiler could not
 attribute, which is every line from a named logger.
 
-Passing anything file-like instead keeps the built-in rendering and only moves
-where it goes:
+Passing an [](io.Writer) instead keeps the built-in rendering and only moves
+where it goes: a file, a buffer, or a connection all work the same way.
 
 ```nupp
-local sink = assert(io.open("game.log", "a"))
-debug.log.setsink(sink)
+local file = assert(io.open("game.log", "a"))
+local _ = debug.log.setsink(io.Writer.of(file))
 ```
 
-`io.open` returns `io.File?`, and `setsink` takes a target rather than a maybe,
-so the `assert` is what turns one into the other. The target is taken: the log
-owns it from then on, and `sink()` reads which one is in force.
+The target is taken: the log holds it from then on, so `io.Writer.of` hands it
+the file as well. `setsink` hands back the target it replaced, owned like any
+writer; bind it to keep it for restoring, or to `_` to let it close. `sink()`
+reads which target is in force; standard error is the default.
 
-A file-like target renders through the formatter, which is replaceable on its
+A writer target renders through the formatter, which is replaceable on its
 own:
 
 ```nupp
@@ -237,12 +238,12 @@ export type Severity = integer
 --- that wants one asks.
 export type Sink = function(level: Severity, module: string, line: integer, message: string): nil
 
---- Renders a line for a file-like destination. Only consulted when the target is
---- file-like; a sink function formats however it likes.
+--- Renders a line for a writer. Only consulted when the target is a writer; a sink
+--- function formats however it likes.
 export type Formatter = function(level: Severity, module: string, line: integer, message: string, stamp: string): string
 
---- Where lines go: a sink function, or anything file-like to write to.
-export type Target = Sink | io.File
+--- Where lines go: a sink function, or a writer each rendered line is written to.
+export type Target = Sink | io.Writer
 
 --- A logger carrying a fixed name, for subsystems and for call sites the intrinsic
 --- cannot rewrite. Changing the level or target restamps every logger, so a filtered
@@ -265,6 +266,46 @@ export record Logger
 
     --- Whether this logger would emit at `level`.
     enabled: function(self: Logger, level: Level): boolean
+end
+
+-- Standard error as a writer: the destination until `setsink` replaces it. It is
+-- written in plain Lua so a program that logs carries no file-view machinery.
+local record StandardError is io.Writer
+    function write(exclusive self, bytes: string): (boolean, string?)
+        local wrote, reason = io.stderr:write(bytes)
+        if wrote == nil then
+            return false, reason
+        end
+
+        return true, nil
+    end
+
+    function writespan(exclusive self, borrows source: binary.span.ByteSpan): (integer?, string?)
+        local bytes: {string} = {}
+        for index = 1, #source do
+            bytes[index] = string.char(source[index])
+        end
+        local wrote, reason = self:write(table.concat(bytes))
+        if not wrote then
+            return nil, reason
+        end
+
+        return #source, nil
+    end
+
+    function flush(self): (boolean, string?)
+        local flushed, reason = io.stderr:flush()
+        if flushed == nil then
+            return false, reason
+        end
+
+        return true, nil
+    end
+
+    -- Standard error belongs to the process, so letting go of it closes nothing.
+    function close(takes self): nil
+        local _ = @unsafe own.release(self)
+    end
 end
 
 local NAMES = {"error", "warn", "info", "debug",}
@@ -301,7 +342,7 @@ end
 -- severity functions, which would shadow Lua's `error` and `debug`, are bound at the
 -- end.
 local threshold: integer = 2
-local target: any = io.stderr
+local target: any = @unsafe own.release(StandardError())
 local tosink = false
 local fmtr: any = nil
 local datefmt = "%Y-%m-%d %H:%M:%S "
@@ -358,13 +399,13 @@ export function emit(severity: integer, module: string, line: integer, message: 
     end
     local at = stamp()
     if fmtr then
-        return target:write(fmtr(severity, module, line, message, at), "\n")
+        return target:write(fmtr(severity, module, line, message, at) .. "\n")
     end
     if line > 0 then
-        return target:write(at, NAMES[severity], " ", module, ":", line, ": ", message, "\n")
+        return target:write(at .. NAMES[severity] .. " " .. module .. ":" .. line .. ": " .. message .. "\n")
     end
 
-    return target:write(at, NAMES[severity], " ", module, ": ", message, "\n")
+    return target:write(at .. NAMES[severity] .. " " .. module .. ": " .. message .. "\n")
 end
 
 local function flagsfor(name: string): {boolean}
@@ -606,20 +647,12 @@ end
 
 --- The destination in force.
 ---
---- @return the sink function or file lines go to
+--- @return the sink function or writer lines go to
 export function sink(): Target
     return target
 end
 
---- Replaces the destination. The log owns the target from then on.
----
---- @param next a sink function, or a file to write rendered lines to
---- @return the destination this call replaced
---- @raises string when next is neither a sink function nor a file
-export function setsink(takes next: Target): Target
-    -- The log holds the target for the rest of the process and never closes it, so
-    -- taking it ends the caller's obligation here.
-    local taken: any = @unsafe own.release(next)
+local function replacesink(taken: any): any
     local previous = target
     if type(taken) == "function" then
         target = taken
@@ -628,12 +661,22 @@ export function setsink(takes next: Target): Target
         target = taken
         tosink = false
     else
-        error("nupp: log target must be a sink function or a file", 2)
+        error("nupp: log target must be a sink function or a writer", 2)
     end
     restampall()
 
     return previous
 end
+
+-- A writer is taken and a sink function is not, and one parameter cannot say both,
+-- so the two targets are separate signatures.
+
+--- Replaces the destination. The log owns a writer target from then on.
+---
+--- @param next a sink function, or a writer to write rendered lines to
+--- @return the destination this call replaced
+--- @raises string when next is neither a sink function nor a writer
+export const setsink = replacesink as(function(takes next: io.Writer): Target) & (function(next: Sink): Target)
 
 --- The line formatter in force.
 ---

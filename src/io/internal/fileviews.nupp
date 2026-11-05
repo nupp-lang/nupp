@@ -117,6 +117,9 @@ local record FileWriter is bytes.Writer
     @private @readonly anchor: any
     @private _closed: boolean
 
+    -- Whether this writer took the file, so closing it closes the file too.
+    @private @readonly _owns: boolean
+
     function write(exclusive self, text: string): (boolean, string?)
         if self._closed then
             return false, "the writer is closed"
@@ -173,7 +176,13 @@ end
 
 function FileWriter.close(takes self: FileWriter): nil
     local state = @unsafe own.release(self)
+    if state._closed then
+        return
+    end
     state._closed = true
+    if state._owns and not parentClosed(state.anchor) then
+        state.anchor:close()
+    end
 end
 
 export function reader(exclusive file: any): affine(bytes.Reader) borrows (file)
@@ -181,5 +190,9 @@ export function reader(exclusive file: any): affine(bytes.Reader) borrows (file)
 end
 
 export function writer(exclusive file: any): affine(bytes.Writer) borrows (file)
-    return FileWriter(anchor = file, _closed = false)
+    return FileWriter(anchor = file, _closed = false, _owns = false)
+end
+
+export function ownedwriter(takes file: any): affine(bytes.Writer)
+    return FileWriter(anchor = @unsafe own.release(file), _closed = false, _owns = true)
 end

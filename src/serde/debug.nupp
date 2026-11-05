@@ -27,7 +27,6 @@ const reflect = require("types.reflect")
 
 local core = require("nupp.serde.internal.value")
 local declarations = require("nupp.serde.internal.declaration")
-local text = require("string.buffer")
 local memos = require("nupp.serde.internal.memo")
 local identity = require("nupp.serde.internal.identity") as function(borrows value: unknown): integer?
 
@@ -476,7 +475,7 @@ export interface Renderer
     render: function<T>(self, selectedbinding: core.Binding<T>, borrows value: T): string
 
     --- Appends a rendered value. See [](write).
-    write: function<T>(self, selectedbinding: core.Binding<T>, borrows value: T, exclusive buffer: text.Buffer): nil
+    write: function<T>(self, selectedbinding: core.Binding<T>, borrows value: T, exclusive buffer: io.Buffer): nil
 
     --- Forgets every binding's selections.
     clear: function(self): nil
@@ -493,12 +492,10 @@ local record Implementation is Renderer
         return table.concat(state.parts)
     end
 
-    function write<T>(self, selectedbinding: core.Binding<T>, borrows value: T, exclusive buffer: text.Buffer): nil
+    function write<T>(self, selectedbinding: core.Binding<T>, borrows value: T, exclusive buffer: io.Buffer): nil
         local state = State(cache = self.cache)
         selectedbinding:accept(Render<T>(state = state), value)
-        for _, part in ipairs(state.parts) do
-            buffer:put(part)
-        end
+        buffer:setstring(table.concat(state.parts), buffer:len())
     end
 
     function clear(self): nil
@@ -538,15 +535,15 @@ end
 ---     x: float
 ---     y: float
 --- end
---- local output = string.buffer.new()
+--- local output = io.Buffer.create()
 --- debug.write(serde.binding(Vec2), Vec2(1.25, 2.5), output)
---- assert(output:tostring() == "Vec2 { x = 1.25, y = 2.5 }")
+--- assert(output:getstring() == "Vec2 { x = 1.25, y = 2.5 }")
 --- ```
 ---
 --- @param selectedbinding the value's binding
 --- @param value the value
 --- @param buffer the buffer to append to
-export function write<T>(selectedbinding: core.Binding<T>, borrows value: T, exclusive buffer: text.Buffer): nil
+export function write<T>(selectedbinding: core.Binding<T>, borrows value: T, exclusive buffer: io.Buffer): nil
     defaultRenderer:write(selectedbinding, value, buffer)
 end
 

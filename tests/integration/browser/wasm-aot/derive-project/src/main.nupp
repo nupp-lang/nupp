@@ -27,12 +27,12 @@ local binding = serde.binding(
 )
 
 local function encodedText(value: Reading): string
-    local out = require("string.buffer").new()
+    local out = io.Buffer.create()
     local writer = json.Writer.of(out)
     typedJSON.writevalue(binding, value, writer)
     writer:close()
 
-    return out:tostring()
+    return out:getstring()
 end
 
 local reading = Reading(id = 7, label = "intake", samples = {3, 1, 4})

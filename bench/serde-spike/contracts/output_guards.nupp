@@ -5,23 +5,18 @@ local documents = require("serde.document")
 local errors = require("serde")
 local json = require("serde.json")
 local model = require("example.richmodel")
-local text = require("string.buffer")
 
 local binding = model.binding(model.newModel())
 local codec = json.codec(model.policy(true))
 local value = codec:decode(binding, '{"identifier":"cycle","created":0}')
 value.next = value
-local buffer = text.new()
-buffer:put("prefix")
+local buffer = io.Buffer.create()
+buffer:setstring("prefix", buffer:len())
 
-local function cyclic(): nil
-    codec:encodeinto(binding, value, buffer)
-end
-
-local ok, problem = pcall(cyclic)
+local ok, problem = pcall(codec.encodeinto, codec, binding, value, buffer)
 assert(not ok and getmetatable(problem) == errors.Error, tostring(problem))
 assert((problem as errors.Error).code == "limit", tostring(problem))
-assert(buffer:tostring() == "prefix")
+assert(buffer:getstring() == "prefix")
 value.next = nil
 
 local record Custom is core.Atom

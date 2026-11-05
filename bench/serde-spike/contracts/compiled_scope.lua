@@ -176,18 +176,17 @@ for _, invalid in ipairs({
 end
 
 -- Cached writers retain the same dynamic paths and transactional output.
-local text = require("string.buffer")
-local buffer = text.new()
-buffer:put("prefix:")
+local buffer = require("io").Buffer.create()
+buffer:setstring("prefix:", buffer:len())
 value.rows[2].value = -1
 local ok, failure = pcall(json.encodeinto, fixture.collectionsBinding, value, buffer)
 assert(not ok and failure.path == '$["rows"][2]["value"]', tostring(failure))
-assert(buffer:tostring() == "prefix:")
+assert(buffer:getstring() == "prefix:")
 value.rows[2].value = 2
 value.labels.a = false
 ok, failure = pcall(json.encodeinto, fixture.collectionsBinding, value, buffer)
 assert(not ok and failure.path == '$["labels"]["a"]', tostring(failure))
-assert(buffer:tostring() == "prefix:")
+assert(buffer:getstring() == "prefix:")
 local many = setmetatable({items = {}}, fixture.Numbers)
 for index = 1, 1000000 do
     many.items[index] = index
@@ -195,34 +194,20 @@ end
 ok, failure = pcall(json.encodeinto, fixture.numbersBinding, many, buffer)
 assert(not ok and failure.code == "limit", tostring(failure))
 assert(failure.path:find('$["items"][', 1, true) == 1, failure.path)
-assert(buffer:tostring() == "prefix:")
+assert(buffer:getstring() == "prefix:")
 
--- Buffer input reaches the provider without another facade copy. The current
--- native host bridge materializes one input string; a future borrowing bridge
--- may eliminate that copy without changing this contract.
-local inputBuffer = text.new()
-inputBuffer:put('{"name":"buffer","child":{"value":"nested"}}')
-assert(decoder:acceptsBuffer(inputBuffer))
-local methods = debug.getmetatable(inputBuffer).__index
-local originalToString, copies = methods.tostring, 0
-methods.tostring = function(self, ...)
-    if self == inputBuffer then
-        copies = copies + 1
-    end
-    return originalToString(self, ...)
-end
-local accepted, result = pcall(decoder.decodeBuffer, decoder, inputBuffer)
-methods.tostring = originalToString
-assert(accepted, tostring(result))
-assert(result.name == "buffer" and copies <= 1, tostring(result.name) .. ": full-input copies=" .. tostring(copies))
-assert(originalToString(inputBuffer) == '{"name":"buffer","child":{"value":"nested"}}')
-inputBuffer:set('{"name":"buffer","child":{"value":false}}')
-local acceptedBuffer, bufferError = pcall(decoder.decodeBuffer, decoder, inputBuffer)
-local acceptedString, stringError = pcall(decoder.decode, decoder, inputBuffer:tostring())
+-- An io.Buffer decodes through the string route, reading its text once, and fails
+-- at the same path and byte as the string it holds.
+local inputBuffer = require("io").Buffer.create('{"name":"buffer","child":{"value":"nested"}}')
+local facade = json.codec()
+assert(facade:decodebuffer(fixture.recordBinding, inputBuffer).name == "buffer")
+inputBuffer:clear()
+inputBuffer:setstring('{"name":"buffer","child":{"value":false}}', 0)
+local acceptedBuffer, bufferError = pcall(json.decodebuffer, fixture.recordBinding, inputBuffer)
+local acceptedString, stringError = pcall(json.decode, fixture.recordBinding, inputBuffer:getstring())
 assert(not acceptedBuffer and not acceptedString)
 assert(bufferError.path == stringError.path and bufferError.byte == stringError.byte)
--- The public facade also works when its selected provider uses a string route.
-inputBuffer:set('{"name":"facade","child":{"value":"retained"}}')
-local facade = json.codec()
+inputBuffer:clear()
+inputBuffer:setstring('{"name":"facade","child":{"value":"retained"}}', 0)
 assert(facade:decodebuffer(fixture.recordBinding, inputBuffer).child.value == "retained")
 assert(json.decodebuffer(fixture.recordBinding, inputBuffer).name == "facade")

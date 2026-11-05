@@ -279,5 +279,4 @@ export interface Provider
     @readonly decodeserde: (function(schema: any, text: string): (any?, string?))?
 
     --- Optionally decodes from exclusive access to the canonical buffer.
-    @readonly decodeserdebuffer: (function(schema: any, exclusive input: SharedBuffer): (any?, string?))?
 end

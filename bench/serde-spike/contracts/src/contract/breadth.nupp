@@ -12,7 +12,6 @@ local core = require("serde")
 local serde = require("serde")
 local json = require("serde.json")
 local syntax = require("serde.json")
-local text = require("string.buffer")
 local docs = require("serde.document")
 local bridge = require("serde.document")
 local readers = require("serde.document")
@@ -30,7 +29,8 @@ local function bindingCases(name, binding, input, policy)
     local value = codec:decode(binding, input)
     local canonical = codec:encode(binding, value)
     assert2(codec:encode(binding, codec:decode(binding, canonical)) == canonical)
-    local buffer = text.new()
+    -- One buffer reused across iterations; a managed alias lets each task borrow it.
+    local buffer = own.manage(io.Buffer.create()):alias()
     task(name .. "/encode", function()
         return codec:encode(binding, value)
     end)
@@ -38,24 +38,31 @@ local function bindingCases(name, binding, input, policy)
         return codec:decode(binding, input)
     end)
     task(name .. "/buffer", function()
-        buffer:reset()
-        codec:encodeinto(binding, value, buffer)
-        return #buffer
+        return buffer:withexclusive(function(exclusive target: io.Buffer): integer
+            target:clear()
+            codec:encodeinto(binding, value, target)
+            return target:len()
+        end)
     end)
     task(name .. "/fresh-buffer", function()
-        local fresh = text.new()
+        local fresh = io.Buffer.create()
         codec:encodeinto(binding, value, fresh)
-        return fresh
+        local size = fresh:len()
+        fresh:close()
+
+        return size
     end)
     task(name .. "/embedded", function()
-        buffer:reset()
-        local sink = syntax.Writer.of(buffer)
-        sink:startarray()
-        codec:writevalue(binding, value, sink)
-        sink:endarray()
-        sink:close()
+        return buffer:withexclusive(function(exclusive target: io.Buffer): integer
+            target:clear()
+            local sink = syntax.Writer.of(target)
+            sink:startarray()
+            codec:writevalue(binding, value, sink)
+            sink:endarray()
+            sink:close()
 
-        return #buffer
+            return target:len()
+        end)
     end)
 
     return value, codec
@@ -231,29 +238,40 @@ bindingCases(
     '{"id":"7","active":true,"name":' .. syntax.encodevalue(string.rep('large " payload ', 4096)) .. '}'
 )
 local richContents = documentAdapter:contents()
-local richBuffer = text.new()
 local richCanonical = richCodec:encode(richContents, rich)
-richCodec:encodeinto(richContents, rich, richBuffer)
-assert2(richBuffer:tostring() == richCanonical)
+local richBuffer = own.manage(io.Buffer.create()):alias()
+assert2(
+    richBuffer:withexclusive(function(exclusive target: io.Buffer): boolean
+        richCodec:encodeinto(richContents, rich, target)
+        return target:getstring() == richCanonical
+    end)
+)
 task("rich/blob-buffer", function()
-    richBuffer:reset()
-    richCodec:encodeinto(richContents, rich, richBuffer)
-    return #richBuffer
+    return richBuffer:withexclusive(function(exclusive target: io.Buffer): integer
+        target:clear()
+        richCodec:encodeinto(richContents, rich, target)
+        return target:len()
+    end)
 end)
 task("rich/blob-fresh-buffer", function()
-    local fresh = text.new()
+    local fresh = io.Buffer.create()
     richCodec:encodeinto(richContents, rich, fresh)
-    return fresh
+    local size = fresh:len()
+    fresh:close()
+
+    return size
 end)
 task("rich/blob-embedded", function()
-    richBuffer:reset()
-    local sink = syntax.Writer.of(richBuffer)
-    sink:startarray()
-    richCodec:writevalue(richContents, rich, sink)
-    sink:endarray()
-    sink:close()
+    return richBuffer:withexclusive(function(exclusive target: io.Buffer): integer
+        target:clear()
+        local sink = syntax.Writer.of(target)
+        sink:startarray()
+        richCodec:writevalue(richContents, rich, sink)
+        sink:endarray()
+        sink:close()
 
-    return #richBuffer
+        return target:len()
+    end)
 end)
 -- Bounded extension churn and release are checked separately from timings.
 local bounded = json.codec(epoch, 8)
