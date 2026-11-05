@@ -2810,7 +2810,7 @@ function M.hostExtensionPagesKeepTheirContractsAndClockLinks()
         "nupp/runtime/standardos.nupp",
         "io/cli.nupp",
         "nupp/cli/internal/terminal.nupp",
-        "nupp/cli/internal/table.nupp",
+        "nupp/cli/internal/tablebuilder.nupp",
     }) do
         fixture["src/" .. name] = readFile(HERE .. "/../src/" .. name)
     end
@@ -2835,16 +2835,12 @@ function M.hostExtensionPagesKeepTheirContractsAndClockLinks()
     for _, item in ipairs(assert(modules["io.cli"], "terminal has no public page").items) do
         terminalItems[item.name] = item
     end
-    for _, name in ipairs({"ColorMode", "Style", "Cell", "TableOptions", "Alignment", "Column"}) do
+    for _, name in ipairs({"ColorMode", "Style", "Table"}) do
         assert(terminalItems[name], "the terminal type is missing: " .. name)
     end
     for _, name in ipairs({
         "style",
         "table",
-        "writetable",
-        "cell",
-        "paintedcell",
-        "annotatedcell",
         "severity",
         "setcolormode",
         "withcolormode",
@@ -2861,9 +2857,40 @@ function M.hostExtensionPagesKeepTheirContractsAndClockLinks()
         )
     end
     assert(
-        #terminalItems.Style.members > 0 and #terminalItems.TableOptions.members > 0,
+        #terminalItems.Style.members > 0 and #terminalItems.Table.members > 0,
         "public type aliases retain their source contract members"
     )
+    for _, name in ipairs({
+        "writetable",
+        "cell",
+        "paintedcell",
+        "annotatedcell",
+        "Cell",
+        "Column",
+        "TableOptions",
+        "Alignment"
+    }) do
+        assert(not terminalItems[name], "retired table API remains documented: " .. name)
+    end
+    local methods = {}
+    for _, item in ipairs(terminalItems.Table.members) do
+        methods[item.name] = true
+    end
+    for _, name in ipairs({
+        "column",
+        "row",
+        "cell",
+        "style",
+        "headings",
+        "gap",
+        "indent",
+        "width",
+        "clear",
+        "tostring",
+        "write"
+    }) do
+        assert(methods[name], "builder method missing from docs: " .. name)
+    end
     assert(not ioItems.value and not osItems.value, "private host-table values do not become public API")
     for _, name in ipairs({"Info", "info", "monotonic", "walltime", "uuid"}) do
         assert(osItems[name], "the system member is missing: " .. name)

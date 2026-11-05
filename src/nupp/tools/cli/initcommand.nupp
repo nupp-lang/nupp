@@ -12,7 +12,7 @@ somebody something rather than only in the documentation.
 ]]
 module nupp.tools.cli.initcommand
 
-const terminal2 = require("io.cli")
+const tables = require("nupp.cli.internal.tablebuilder")
 
 const terminal = require("io.cli")
 
@@ -148,7 +148,7 @@ local function confirm(description: string, count: integer, destination: string)
             count == 1 and "" or "s"
         ) .. " from " .. description .. "\n  into " .. destination .. "\n"
     )
-    if not terminal2.isterminal(io.stdin) then
+    if not terminal.isterminal(io.stdin) then
         return false, "refusing to write a repository template without a terminal to ask"
             .. "\nPass --yes to accept it unread."
     end
@@ -175,24 +175,15 @@ local function listBuiltins(asJson: boolean): integer
     end
     local style = terminal.style(io.stdout)
     local names = template.builtins()
-    local rows: {{terminal.Cell}} = {}
-    for index, name in ipairs(names) do
-        rows[
-            index
-        ] = {
-            terminal2.paintedcell(name, terminal.severity(style, "note")),
-            terminal.cell(template.builtinDescription(name)),
-        }
+    local output = tables.newtable(io.stdout)
+        :style(style)
+        :indent("  ")
+        :column("built-in template")
+        :column("what it writes")
+    for _, name in ipairs(names) do
+        output:row():cell(name, terminal.severity(style, "note")):cell(template.builtinDescription(name))
     end
-    terminal2.writetable(
-        io.stdout,
-        {
-            columns = {{heading = "built-in template"}, {heading = "what it writes"}},
-            rows = rows,
-            style = style,
-            indent = "  ",
-        } as terminal.TableOptions
-    )
+    output:write()
 
     return 0
 end

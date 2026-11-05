@@ -14,7 +14,7 @@ module nupp.tools.benchrunner
 --- directory, starts children, and merges JSON.
 ---
 --- Called by `nupp bench`.
-const terminal2 = require("io.cli")
+const tables = require("nupp.cli.internal.tablebuilder")
 
 const terminal = require("io.cli")
 
@@ -1188,7 +1188,12 @@ local function reportPilot(merged: {any}, forks: integer, failures: {string}): i
     local recommended: integer = statistics.MIN_INTERVAL_SAMPLES
     io.stdout:write(("\nnupp: pilot over %d forks, one shuffled permutation per round\n\n"):format(forks))
     local style = terminal.style(io.stdout)
-    local rows: {{terminal.Cell}} = {}
+    local output = tables.newtable(io.stdout)
+        :style(style)
+        :column("Benchmark")
+        :column("Between-fork CV", "right")
+        :column("Forks for +-2%", "right")
+        :column("Forks for +-5%", "right")
     for _, entry in ipairs(merged) do
         local summaries = entry.summary.forkSummariesMs or {}
         local variation = statistics.coefficientOfVariation(summaries)
@@ -1197,28 +1202,13 @@ local function reportPilot(merged: {any}, forks: integer, failures: {string}): i
         if tight > recommended then
             recommended = tight
         end
-        rows[
-            #rows + 1
-        ] = {
-            terminal2.paintedcell(entry.name, style.strong),
-            terminal.cell(("%.1f%%"):format(variation * 100.0)),
-            terminal.cell(tostring(tight)),
-            terminal.cell(tostring(loose)),
-        }
+        output:row()
+            :cell(entry.name, style.strong)
+            :cell(("%.1f%%"):format(variation * 100.0))
+            :cell(tostring(tight))
+            :cell(tostring(loose))
     end
-    terminal2.writetable(
-        io.stdout,
-        {
-            columns = {
-                {heading = "Benchmark"},
-                {heading = "Between-fork CV", align = "right"},
-                {heading = "Forks for +-2%", align = "right"},
-                {heading = "Forks for +-5%", align = "right"},
-            },
-            rows = rows,
-            style = style,
-        } as terminal.TableOptions
-    )
+    output:write()
     io.stdout:write(("\nnupp: --forks %d covers every selected benchmark at +-2%%\n"):format(recommended))
     for _, failure in ipairs(failures) do
         io.stderr:write("nupp: " .. failure .. "\n")
@@ -1259,7 +1249,12 @@ local function formatVerdicts(verdicts: {any}, margin: number, source: string, p
         lines[#lines + 1] = "      changed on this machine between them. Use --against for a causal claim."
     end
     local counts: {[string]: integer} = {}
-    local rows: {{terminal.Cell}} = {}
+    local output = tables.newtable(io.stdout)
+        :style(style)
+        :column("Benchmark")
+        :column("Change", "right")
+        :column("Interval", "right")
+        :column("Verdict")
     for _, item in ipairs(verdicts) do
         local interval = "-"
         if item.withheld == "trend-warning" then
@@ -1269,29 +1264,14 @@ local function formatVerdicts(verdicts: {any}, margin: number, source: string, p
         elseif item.interval then
             interval = ("[%s, %s]"):format(percent(item.interval.low), percent(item.interval.upper))
         end
-        rows[
-            #rows + 1
-        ] = {
-            terminal2.paintedcell(item.name, style.strong),
-            terminal.cell(percent(item.change)),
-            terminal.cell(interval),
-            terminal2.paintedcell(item.verdict, verdictPaint(style, item.verdict)),
-        }
+        output:row()
+            :cell(item.name, style.strong)
+            :cell(percent(item.change))
+            :cell(interval)
+            :cell(item.verdict, verdictPaint(style, item.verdict))
         counts[item.verdict] = ((counts[item.verdict] or 0) + 1) as integer
     end
-    -- Trailing newline dropped: these lines are joined with one at the end.
-    const table_ = terminal.table(
-        {
-            columns = {
-                {heading = "Benchmark"},
-                {heading = "Change", align = "right"},
-                {heading = "Interval", align = "right"},
-                {heading = "Verdict"},
-            },
-            rows = rows,
-            style = style,
-        } as terminal.TableOptions
-    )
+    const table_ = output:tostring()
     for line in table_:gmatch("[^\n]+") do
         lines[#lines + 1] = line
     end
@@ -1498,23 +1478,11 @@ export function run(options: Options): integer
             return failed and 1 or 0
         end
         local style = terminal.style(io.stdout)
-        local rows: {{terminal.Cell}} = {}
-        for index, entry in ipairs(matched) do
-            rows[
-                index
-            ] = {
-                terminal2.paintedcell(entry.benchmark.name, style.strong),
-                terminal2.paintedcell(entry.path, style.faint),
-            }
+        local output = tables.newtable(io.stdout):style(style):column("benchmark"):column("file")
+        for _, entry in ipairs(matched) do
+            output:row():cell(entry.benchmark.name, style.strong):cell(entry.path, style.faint)
         end
-        terminal2.writetable(
-            io.stdout,
-            {
-                columns = {{heading = "benchmark"}, {heading = "file"}},
-                rows = rows,
-                style = style
-            } as terminal.TableOptions
-        )
+        output:write()
 
         return failed and 1 or 0
     end

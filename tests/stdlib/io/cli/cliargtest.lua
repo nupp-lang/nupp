@@ -139,6 +139,16 @@ local record Stopped
 end
 local stopped = assert(cli.parse(Stopped, {"program", "--flag"}))
 assert(not stopped.flag and #stopped.arguments == 2 and stopped.arguments[2] == "--flag")
+cli.withcolormode("never", function()
+    local listing: cli.Table = cli.table(io.stdout)
+        :column("count", align = "right", minimumwidth = 4)
+        :column("description")
+        :headings(false)
+        :row()
+        :cell("7")
+        :cell("done", note = " (ok)")
+    assert(listing:tostring() == "   7  done (ok)\n")
+end)
 ]]
         local accepted, failure = compile(
             "tests/fixtures/arg_annotation_acceptor.nupp",

@@ -1,0 +1,347 @@
+@!internal
+
+--[[
+Terminal tables retain flat column and cell storage until they are rendered.
+Colors are applied after measuring text, and only the last column can be cut.
+]]
+module nupp.cli.internal.tablebuilder
+
+const {type Style} = require("nupp.cli.internal.terminal")
+local terminal = require("nupp.cli.internal.terminal")
+
+--- A table of aligned text built without row or cell records.
+---
+--- Define columns before adding rows. Every row needs one cell per column.
+--- `tostring` uses only an explicit width; `write` also fits a terminal stream.
+export interface Table
+    --- Adds a column before the first row.
+    --- @param heading the column heading
+    --- @param align the padding direction, left unless specified
+    --- @param paint the default cell styling function
+    --- @param minimumwidth the minimum column width
+    --- @return this table
+    column: function(
+        self: Table,
+        heading: string,
+        align: ("left" | "right")?,
+        paint: (function(string): string)?,
+        minimumwidth: integer?
+    ): Table
+
+    --- Begins a row after the preceding row is complete.
+    --- @return this table
+    row: function(self: Table): Table
+
+    --- Adds text and an optional separately styled note to the current row.
+    --- @param text the cell text
+    --- @param paint the styling function overriding the column's style
+    --- @param note an aside measured with the text
+    --- @param notepaint the note's styling function, faint unless specified
+    --- @return this table
+    cell: function(
+        self: Table,
+        text: string,
+        paint: (function(string): string)?,
+        note: string?,
+        notepaint: (function(string): string)?
+    ): Table
+
+    --- Selects the shared styles for headings and notes.
+    --- @return this table
+    style: function(self: Table, styles: Style): Table
+
+    --- Selects whether headings are printed and how they are styled.
+    --- @return this table
+    headings: function(self: Table, shown: boolean, paint: (function(string): string)?): Table
+
+    --- Sets the text separating columns, two spaces unless changed.
+    --- @return this table
+    gap: function(self: Table, text: string): Table
+
+    --- Sets the text preceding every printed line.
+    --- @return this table
+    indent: function(self: Table, text: string): Table
+
+    --- Sets an explicit output width, or restores automatic fitting with nil.
+    --- @return this table
+    width: function(self: Table, columns: integer?): Table
+
+    --- Removes rows while retaining columns, settings, and reusable storage.
+    --- @return this table
+    clear: function(self: Table): Table
+
+    --- Renders the table as a newline-terminated string, or an empty string.
+    --- @return the rendered table
+    tostring: function(self: Table): string
+
+    --- Writes the complete table to its stream, fitting a terminal's width.
+    write: function(self: Table): nil
+end
+
+local type Paint = function(string): string
+local COLUMN = 6
+local CELL = 4
+local FADE = 8
+local MARKER = "..."
+local NARROWEST = 24
+
+local function identity(text: string): string
+    return text
+end
+
+local function cut(text: string, room: integer, paint: Paint, faint: Paint): string
+    if room <= #MARKER then
+        return paint(text:sub(1, room))
+    end
+    local kept = (room - #MARKER) as integer
+    local tail = math.min(FADE, kept)
+
+    return paint(text:sub(1, kept - tail)) .. faint(text:sub(kept - tail + 1, kept) .. MARKER)
+end
+
+local function laid(
+    text: string,
+    note: string?,
+    paint: Paint,
+    notepaint: Paint,
+    faint: Paint,
+    width: integer,
+    right: boolean,
+    padded: boolean
+): string
+    local noteWidth = note ~= nil and #note or 0
+    local missing = width - #text - noteWidth
+    if missing < 0 then
+        if noteWidth > 0 and noteWidth <= width then
+            return cut(text, (width - noteWidth) as integer, paint, faint) .. notepaint(note as string)
+        end
+        return cut(text, width, paint, faint)
+    end
+    local padding = missing > 0 and (padded or right) and (" "):rep(missing) or ""
+    local body = paint(text)
+    if note ~= nil then
+        body = body .. notepaint(note)
+    end
+
+    return right and padding .. body or body .. padding
+end
+
+local record Builder is Table
+    @private _stream: io.File
+    @private _styles: Style
+    @private _columns: {any}
+    @private _cells: {any}
+    @private _parts: {string}
+    @private _columncount: integer = 0
+    @private _rowcount: integer = 0
+    @private _rowcells: integer = 0
+    @private _showheading: boolean = true
+    @private _headingpaint: Paint?
+    @private _gap: string = "  "
+    @private _indent: string = ""
+    @private _width: integer?
+
+    function column(self, heading: string, align: ("left" | "right")?, paint: Paint?, minimumwidth: integer?): Table
+        if self._rowcount ~= 0 then
+            error("io.cli.table: define columns before rows", 2)
+        end
+        if minimumwidth ~= nil and minimumwidth < 0 then
+            error("io.cli.table: minimum width must not be negative", 2)
+        end
+        local slot = (self._columncount * COLUMN) as integer
+        local columns = self._columns
+        columns[slot + 1] = heading
+        columns[slot + 2] = align == "right"
+        columns[slot + 3] = paint
+        columns[slot + 4] = minimumwidth or 0
+        columns[slot + 5] = minimumwidth or 0
+        columns[slot + 6] = minimumwidth or 0
+        self._columncount = (self._columncount + 1) as integer
+
+        return self
+    end
+
+    function row(self): Table
+        if self._columncount == 0 then
+            error("io.cli.table: define a column before rows", 2)
+        end
+        if self._rowcount > 0 and self._rowcells ~= self._columncount then
+            error("io.cli.table: complete the current row first", 2)
+        end
+        self._rowcount = (self._rowcount + 1) as integer
+        self._rowcells = 0
+
+        return self
+    end
+
+    function cell(self, text: string, paint: Paint?, note: string?, notepaint: Paint?): Table
+        if self._rowcount == 0 then
+            error("io.cli.table: begin a row before adding cells", 2)
+        end
+        if self._rowcells == self._columncount then
+            error("io.cli.table: the current row is full", 2)
+        end
+        local slot = (((self._rowcount - 1) * self._columncount + self._rowcells) * CELL) as integer
+        self._cells[slot + 1] = text
+        self._cells[slot + 2] = paint
+        self._cells[slot + 3] = note
+        self._cells[slot + 4] = notepaint
+        local column = (self._rowcells * COLUMN) as integer
+        local measured = #text + (note ~= nil and #note or 0)
+        if measured > self._columns[column + 5] then
+            self._columns[column + 5] = measured
+        end
+        self._rowcells = (self._rowcells + 1) as integer
+
+        return self
+    end
+
+    function style(self, styles: Style): Table
+        self._styles = styles
+        return self
+    end
+
+    function headings(self, shown: boolean, paint: Paint?): Table
+        self._showheading = shown
+        self._headingpaint = paint
+        return self
+    end
+
+    function gap(self, text: string): Table
+        self._gap = text
+        return self
+    end
+
+    function indent(self, text: string): Table
+        self._indent = text
+        return self
+    end
+
+    function width(self, columns: integer?): Table
+        if columns ~= nil and columns < 0 then
+            error("io.cli.table: width must not be negative", 2)
+        end
+        self._width = columns
+
+        return self
+    end
+
+    function clear(self): Table
+        local size = (self._rowcount * self._columncount * CELL) as integer
+        for index = 1, size do
+            self._cells[index] = nil
+        end
+        for index = 1, #self._parts do
+            self._parts[index] = nil
+        end
+        for index = 1, self._columncount do
+            local slot = ((index - 1) * COLUMN) as integer
+            self._columns[slot + 5] = self._columns[slot + 4]
+        end
+        self._rowcount = 0
+        self._rowcells = 0
+
+        return self
+    end
+
+    function render(self, width: integer?): string
+        if self._rowcount > 0 and self._rowcells ~= self._columncount then
+            error("io.cli.table: complete the current row before rendering", 2)
+        end
+        local parts = self._parts
+        for index = 1, #parts do
+            parts[index] = nil
+        end
+        if self._rowcount == 0 then
+            return ""
+        end
+        local columns = self._columns
+        local cells = self._cells
+        local count = self._columncount
+        local styles = self._styles
+        local headingpaint = self._headingpaint or styles.heading
+        local faint = styles.faint
+        local before = #self._indent
+        for index = 1, count do
+            local slot = ((index - 1) * COLUMN) as integer
+            local measured = columns[slot + 5] as integer
+            local heading = columns[slot + 1] as string
+            if self._showheading and #heading > measured then
+                measured = #heading
+            end
+            columns[slot + 6] = measured
+            if index < count then
+                before = (before + measured + #self._gap) as integer
+            end
+        end
+        if width ~= nil and count > 1 then
+            local room = (width - before) as integer
+            local slot = ((count - 1) * COLUMN) as integer
+            if room >= NARROWEST and columns[slot + 6] > room then
+                columns[slot + 6] = room
+            end
+        end
+        local first = self._showheading and 0 or 1
+        for row = first, self._rowcount do
+            parts[#parts + 1] = self._indent
+            for index = 1, count do
+                if index > 1 then
+                    parts[#parts + 1] = self._gap
+                end
+                local column = ((index - 1) * COLUMN) as integer
+                local text: string
+                local note: string?
+                local paint: Paint
+                local notepaint: Paint = faint
+                if row == 0 then
+                    text = columns[column + 1] as string
+                    paint = headingpaint
+                else
+                    local cell = (((row - 1) * count + index - 1) * CELL) as integer
+                    text = cells[cell + 1] as string
+                    note = cells[cell + 3] as string?
+                    paint = (cells[cell + 2] or columns[column + 3] or identity) as Paint
+                    notepaint = (cells[cell + 4] or faint) as Paint
+                end
+                parts[
+                    #parts + 1
+                ] = laid(
+                    text,
+                    note,
+                    paint,
+                    notepaint,
+                    faint,
+                    columns[column + 6] as integer,
+                    columns[column + 2] as boolean,
+                    index < count
+                )
+            end
+            parts[#parts + 1] = "\n"
+        end
+
+        return table.concat(parts)
+    end
+
+    function tostring(self): string
+        return self:render(self._width)
+    end
+
+    function write(self): nil
+        local width = self._width
+        if width == nil and terminal.isTerminal(self._stream) then
+            width = terminal.columns(self._stream)
+        end
+        local rendered = self:render(width)
+        if rendered ~= "" then
+            self._stream:write(rendered)
+        end
+    end
+end
+
+--- Creates an aligned table builder for a stream, stdout unless specified.
+--- @param stream the output stream
+--- @return a table retaining flat reusable column and cell storage
+export function newtable(stream: io.File?): Table
+    local output = stream or io.stdout
+    return Builder(_stream = output, _styles = terminal.style(output), _columns = {}, _cells = {}, _parts = {})
+end

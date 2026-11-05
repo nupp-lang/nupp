@@ -7,7 +7,7 @@ beside its summary, since the difference is the thing worth noticing.
 ]]
 module nupp.tools.cli.lints
 
-const terminal2 = require("io.cli")
+const tables = require("nupp.cli.internal.tablebuilder")
 
 const terminal = require("io.cli")
 
@@ -108,7 +108,12 @@ local function run(options: any): integer
         report.write({ok = true, lints = rows})
         return 0
     end
-    local cells: {{terminal.Cell}} = {}
+    local output = tables.newtable(io.stdout)
+        :style(style)
+        :column("lint")
+        :column("category")
+        :column("level", minimumwidth = 7)
+        :column("summary")
     for _, row in ipairs(rows) do
         -- The default a project moved a lint off is an aside on the summary rather
         -- than a column, because it is absent from nearly every row.
@@ -116,30 +121,13 @@ local function run(options: any): integer
         if row.moved then
             note = (" (default %s)"):format(row.default)
         end
-        local summary = terminal.cell(row.summary)
-        summary.note = note
-        cells[
-            #cells + 1
-        ] = {
-            terminal2.paintedcell(row.name, style.strong),
-            terminal2.paintedcell(row.category, style.faint),
-            terminal2.paintedcell(row.level, levelPaint(style, row.level)),
-            summary,
-        }
+        output:row()
+            :cell(row.name, style.strong)
+            :cell(row.category, style.faint)
+            :cell(row.level, levelPaint(style, row.level))
+            :cell(row.summary, note = note)
     end
-    terminal2.writetable(
-        io.stdout,
-        {
-            columns = {
-                {heading = "lint"},
-                {heading = "category"},
-                {heading = "level", minimumwidth = 7},
-                {heading = "summary"},
-            },
-            rows = cells,
-            style = style,
-        } as terminal.TableOptions
-    )
+    output:write()
 
     return 0
 end

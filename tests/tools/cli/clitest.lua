@@ -132,14 +132,20 @@ end
 function M.aTableAlignsOnMeasuredTextAndPaintsAfterPadding()
     terminal.setcolormode("never")
     local plain = terminal.style(io.stdout)
-    local rendered = terminal.table({
-        columns = {{heading = "lint"}, {heading = "level"}, {heading = "summary"}},
-        rows = {
-            {terminal.cell("a"), terminal.cell("error"), terminal.cell("first")},
-            {terminal.cell("longer-name"), terminal.cell("off"), terminal.cell("second")},
-        },
-        style = plain,
-    })
+    local rendered = terminal.table()
+        :style(plain)
+        :column("lint")
+        :column("level")
+        :column("summary")
+        :row()
+        :cell("a")
+        :cell("error")
+        :cell("first")
+        :row()
+        :cell("longer-name")
+        :cell("off")
+        :cell("second")
+        :tostring()
     assert(
         rendered == "lint         level  summary\n" .. "a            error  first\n" .. "longer-name  off    second\n",
         "columns are as wide as their widest cell, heading included:\n" .. rendered
@@ -155,11 +161,17 @@ function M.aTableAlignsOnMeasuredTextAndPaintsAfterPadding()
     -- does not. Both rows below carry a painted cell of a different length.
     terminal.setcolormode("always")
     local painted = terminal.style(io.stdout)
-    local coloured = terminal.table({
-        columns = {{heading = "name", paint = painted.strong}, {heading = "note"}},
-        rows = {{terminal.cell("a"), terminal.cell("x")}, {terminal.cell("longer"), terminal.cell("y")}},
-        style = painted,
-    })
+    local coloured = terminal.table()
+        :style(painted)
+        :column("name", nil, painted.strong)
+        :column("note")
+        :row()
+        :cell("a")
+        :cell("x")
+        :row()
+        :cell("longer")
+        :cell("y")
+        :tostring()
     local lines = {}
     for line in coloured:gmatch("[^\n]+") do
         lines[#lines + 1] = line
@@ -173,14 +185,17 @@ function M.aTableAlignsOnMeasuredTextAndPaintsAfterPadding()
     -- A cell may paint itself whatever its column says, and may carry an aside that
     -- is painted apart from its text and measured along with it -- so a column
     -- carrying one still lines up with the column beside it.
-    local mixed = terminal.table({
-        columns = {{heading = "name", paint = painted.strong}, {heading = "note"}},
-        rows = {
-            {terminal.annotatedcell("a", " (extra)", painted.faint), terminal.cell("x")},
-            {terminal.cell("longer-still"), terminal.cell("y")},
-        },
-        style = painted,
-    })
+    local mixed = terminal.table()
+        :style(painted)
+        :column("name", nil, painted.strong)
+        :column("note")
+        :row()
+        :cell("a", painted.faint, " (extra)")
+        :cell("x")
+        :row()
+        :cell("longer-still")
+        :cell("y")
+        :tostring()
     assert(mixed:find("\27%[2ma\27%[0m\27%[2m %(extra%)\27%[0m", 1, false), "a cell overrides its column's paint")
     local noted, plainRow
     for line in mixed:gmatch("[^\n]+") do
@@ -202,17 +217,20 @@ function M.aTableAlignsOnMeasuredTextAndPaintsAfterPadding()
 
     terminal.setcolormode("never")
     assert(
-        terminal.table({
-            columns = {{heading = "only"}},
-            rows = {}
-        }) == "",
+        terminal.table():column("only"):tostring() == "",
         "no rows prints nothing at all rather than a heading over nothing"
     )
     assert(
-        terminal.table({
-            columns = {{heading = "n", align = "right"}, {heading = "what"}},
-            rows = {{terminal.cell("7"), terminal.cell("a")}, {terminal.cell("1234"), terminal.cell("b")}},
-        }) == "   n  what\n   7  a\n1234  b\n",
+        terminal.table()
+            :column("n", "right")
+            :column("what")
+            :row()
+            :cell("7")
+            :cell("a")
+            :row()
+            :cell("1234")
+            :cell("b")
+            :tostring() == "   n  what\n   7  a\n1234  b\n",
         "a right aligned column pads on the left"
     )
     terminal.setcolormode("auto")
@@ -225,21 +243,26 @@ function M.aTableCutsTheLastColumnToFitRatherThanLettingItWrap()
     -- rather than read from the process: a caller printing unpainted gets the marker
     -- whatever the mode says.
     local function build(width)
-        return {
-            columns = {{heading = "name"}, {heading = "summary"}},
-            rows = {{terminal.cell("alpha"), terminal.cell(long)}, {terminal.cell("beta"), terminal.cell("short")}},
-            style = terminal.style(io.stdout),
-            width = width,
-        }
+        return terminal.table()
+            :style(terminal.style(io.stdout))
+            :width(width)
+            :column("name")
+            :column("summary")
+            :row()
+            :cell("alpha")
+            :cell(long)
+            :row()
+            :cell("beta")
+            :cell("short")
     end
 
     terminal.setcolormode("never")
     -- No width is no edge, so nothing is cut. This is the pipe, and a pipe gets every
     -- byte: something reads it later that wanted all of them.
-    local whole = terminal.table(build(nil))
+    local whole = build(nil):tostring()
     assert(whole:find(long, 1, true), "with no width the cell is printed whole")
 
-    local fitted = terminal.table(build(40))
+    local fitted = build(40):tostring()
     for line in fitted:gmatch("[^\n]+") do
         assert(#line <= 40, "every line fits the width: " .. #line .. " " .. line)
     end
@@ -256,7 +279,7 @@ function M.aTableCutsTheLastColumnToFitRatherThanLettingItWrap()
     assert(fitted:find("...", 1, true), "an unpainted cut says it was cut")
 
     terminal.setcolormode("always")
-    local painted = terminal.table(build(40))
+    local painted = build(40):tostring()
     local cut
     for line in painted:gmatch("[^\n]+") do
         if line:find("alpha", 1, true) then
@@ -272,12 +295,15 @@ function M.aTableCutsTheLastColumnToFitRatherThanLettingItWrap()
     -- A cell's aside survives the cut. It is the shorter and more particular half, so
     -- losing it silently would lose the whole of what it said.
     terminal.setcolormode("never")
-    local noted = terminal.table({
-        columns = {{heading = "name"}, {heading = "summary"}},
-        rows = {{terminal.cell("alpha"), terminal.annotatedcell(long, " (note)")}},
-        style = terminal.style(io.stdout),
-        width = 40,
-    })
+    local noted = terminal.table()
+        :style(terminal.style(io.stdout))
+        :width(40)
+        :column("name")
+        :column("summary")
+        :row()
+        :cell("alpha")
+        :cell(long, nil, " (note)")
+        :tostring()
     assert(noted:find(" (note)", 1, true), "the aside is kept and the text cut around it")
     for line in noted:gmatch("[^\n]+") do
         assert(#line <= 40, "still fits: " .. line)
@@ -285,10 +311,96 @@ function M.aTableCutsTheLastColumnToFitRatherThanLettingItWrap()
 
     -- Too narrow to cut usefully: what would survive is a few letters and a fade,
     -- which says less than the wrapped line it replaced.
-    local cramped = terminal.table(build(22))
+    local cramped = build(22):tostring()
     assert(cramped:find(long, 1, true), "below the floor the cell is left alone to wrap")
 
     terminal.setcolormode("auto")
+end
+
+function M.tableBuilderRejectsIncompleteRowsBeforeWritingAndCanBeReused()
+    terminal.setcolormode("never")
+    local file = assert(io.tmpfile())
+    local output = terminal.table(file)
+
+    local function refused(body, message)
+        local ok, reason = pcall(body)
+        assert(not ok and tostring(reason):find(message, 1, true), tostring(reason))
+    end
+
+    refused(
+        function()
+            output:row()
+        end,
+        "define a column"
+    )
+    refused(
+        function()
+            output:cell("early")
+        end,
+        "begin a row"
+    )
+    assert(output:column("name") == output)
+    assert(output:column("kind") == output)
+    assert(output:row() == output)
+    assert(output:cell("very long name") == output)
+    refused(
+        function()
+            output:row()
+        end,
+        "complete the current row"
+    )
+    refused(
+        function()
+            output:write()
+        end,
+        "complete the current row"
+    )
+    assert(file:seek() == 0, "incomplete rows write no bytes")
+    assert(output:cell("binary") == output)
+    refused(
+        function()
+            output:cell("overflow")
+        end,
+        "current row is full"
+    )
+    refused(
+        function()
+            output:column("late")
+        end,
+        "define columns before rows"
+    )
+    assert(output:clear() == output)
+    assert(output:tostring() == "", "clear removes rows and their old output")
+    output:headings(false):indent("  "):gap(" | "):row():cell("x"):cell("y")
+    assert(output:tostring() == "  x | y\n", "clear resets measured widths and retains columns")
+    output:write()
+    file:seek("set", 0)
+    assert(file:read("*a") == "  x | y\n", "write uses the bound stream")
+    file:close()
+    terminal.setcolormode("auto")
+end
+
+function M.tableBuilderReusesCellStorageAfterWarmup()
+    local output = terminal.table():column("value")
+
+    local function fill()
+        for index = 1, 4096 do
+            output:row():cell("value")
+        end
+    end
+
+    fill()
+    output:clear()
+    fill()
+    output:clear()
+    collectgarbage("collect")
+    collectgarbage("stop")
+    local before = collectgarbage("count")
+    fill()
+    local allocated = collectgarbage("count") - before
+    collectgarbage("restart")
+    assert(allocated < 32, "refilling retained capacity allocated " .. allocated .. " KiB")
+    output:clear()
 end
 
 local function capture(argv)

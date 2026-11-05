@@ -162,7 +162,7 @@ local RESOURCES = {
     {source = "src/nupp/cli/internal/optparser.nupp", output = "nupp/compiler/nupp/cli/internal/optparser.nupp"},
     {source = "src/nupp/cli/internal/decode.nupp", output = "nupp/compiler/nupp/cli/internal/decode.nupp"},
     {source = "src/nupp/cli/internal/terminal.nupp", output = "nupp/compiler/nupp/cli/internal/terminal.nupp"},
-    {source = "src/nupp/cli/internal/table.nupp", output = "nupp/compiler/nupp/cli/internal/table.nupp"},
+    {source = "src/nupp/cli/internal/tablebuilder.nupp", output = "nupp/compiler/nupp/cli/internal/tablebuilder.nupp"},
     {source = "src/nupp/cli/internal/application.nupp", output = "nupp/compiler/nupp/cli/internal/application.nupp"},
     {source = "src/nupp/runtime/workersprovider.nupp", output = "nupp/compiler/nupp/runtime/workersprovider.nupp"},
     {source = "src/nupp/runtime/uuidprovider.nupp", output = "nupp/compiler/nupp/runtime/uuidprovider.nupp"},
