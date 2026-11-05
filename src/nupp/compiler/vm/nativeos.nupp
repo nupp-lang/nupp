@@ -18,7 +18,13 @@ local definitions = {
     randomSeed = {slot = 8, params = {}, result = "uint64", cResult = "uint64"},
     readInput = {slot = 9, params = {"voidptr", "uint64"}, result = "int64", cResult = "int64"},
     monotonicNanos = {slot = 10, params = {}, result = "uint64", cResult = "uint64"},
-    argument = {slot = 11, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"}
+    argument = {slot = 11, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    fileOpen = {slot = 12, params = {"voidptr", "uint64", "uint64"}, result = "int64", cResult = "int64"},
+    fileRead = {slot = 13, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    fileWrite = {slot = 14, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    fileSeek = {slot = 15, params = {"uint64", "uint64", "uint64"}, result = "int64", cResult = "int64"},
+    fileClose = {slot = 16, params = {"uint64"}, result = "int64", cResult = "int64"},
+    errorText = {slot = 17, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"}
 }
 
 local function need(value: any, message: string): any

@@ -1714,8 +1714,8 @@ export function LibCall(
         end
         return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
     end
-    if libraryId == guestio.LIB_WRITE then
-        slots.writeValue(frame, regs, dst, guestio.write(ctx, a))
+    if libraryId == guestio.LIB_FILES then
+        slots.writeValue(frame, regs, dst, guestio.files(ctx, a, b, c, d))
     elseif libraryId == guestio.LIB_MONOTONIC then
         slots.writeValue(frame, regs, dst, guestio.monotonic())
     elseif libraryId == guestio.LIB_COLLECTGARBAGE then
@@ -1738,6 +1738,8 @@ export function LibCall(
         slots.writeValue(frame, regs, dst, basics.cleanupset(ctx, a, b))
     elseif libraryId == basics.LIB_CLEANUPGET then
         slots.writeValue(frame, regs, dst, basics.cleanupget(ctx, a))
+    elseif libraryId == basics.LIB_PROTECTEDCOUNT then
+        slots.writeValue(frame, regs, dst, basics.protectedcount(ctx, a, b))
     elseif libraryId >= basics.LIB_VIEW and libraryId <= basics.LIB_CAST then
         slots.writeValue(frame, regs, dst, basics.storagecall(ctx, libraryId, native.word(count), a, b, c, d))
     elseif libraryId == basics.LIB_NEXT or libraryId == basics.LIB_NEXT_ALL then
@@ -2630,9 +2632,18 @@ export function Destroy(
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
+    local owned = slots.readValue(frame, regs, value)
+    -- An optional owner holding nil has nothing to destroy.
+    if owned == values.NIL then
+        local after = ops.branch(ctx, frame, pc, 0)
+        if after == 0ULL then
+            ops.fail(ctx, frame, pc, ops.INVALID)
+            return native.fail()
+        end
+        return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
+    end
     local top = native.index(count - 4ULL)
     local destructor = slots.readValue(frame, regs, callee)
-    local owned = slots.readValue(frame, regs, value)
     slots.writeValue(frame, regs, top, destructor)
     slots.writeValue(frame, regs, top + 1, owned)
     if ops.metaCall(ctx, frame, pc, 1ULL, count - 1ULL, 0ULL) ~= 1ULL then

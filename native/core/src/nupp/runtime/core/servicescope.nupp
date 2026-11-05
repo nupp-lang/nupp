@@ -149,6 +149,36 @@ export function argument(scope: voidptr, index: uint64, out: voidptr, room: uint
     return os.argument(index, out, room)
 end
 
+export function fileOpen(scope: voidptr, path: voidptr, bytes: uint64, flags: uint64): int64
+    local _ = scope
+    return os.fileOpen(path, bytes, flags)
+end
+
+export function fileRead(scope: voidptr, fd: uint64, out: voidptr, room: uint64): int64
+    local _ = scope
+    return os.fileRead(fd, out, room)
+end
+
+export function fileWrite(scope: voidptr, fd: uint64, base: voidptr, bytes: uint64): int64
+    local _ = scope
+    return os.fileWrite(fd, base, bytes)
+end
+
+export function fileSeek(scope: voidptr, fd: uint64, offset: uint64, whence: uint64): int64
+    local _ = scope
+    return os.fileSeek(fd, offset, whence)
+end
+
+export function fileClose(scope: voidptr, fd: uint64): int64
+    local _ = scope
+    return os.fileClose(fd)
+end
+
+export function errorText(scope: voidptr, code: uint64, out: voidptr, room: uint64): int64
+    local _ = scope
+    return os.errorText(code, out, room)
+end
+
 -- Root-registration close failure retains all backing. Entry must preserve
 -- this scope and ledger, never reset them or drain mappings under live roots.
 export function retain(scope: voidptr): nil

@@ -1,4 +1,5 @@
 //! Standalone, opaque native-code transport. Nupp owns all execution semantics.
+mod files;
 mod platform;
 
 #[cfg(all(test, target_arch = "aarch64"))]
@@ -120,6 +121,12 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, String> {
         platform::read_input as *const () as u64,
         platform::monotonic_nanos as *const () as u64,
         platform::argument as *const () as u64,
+        files::file_open as *const () as u64,
+        files::file_read as *const () as u64,
+        files::file_write as *const () as u64,
+        files::file_seek as *const () as u64,
+        files::file_close as *const () as u64,
+        files::error_text as *const () as u64,
     ];
     let packet = [
         1,

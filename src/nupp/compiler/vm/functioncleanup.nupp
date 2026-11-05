@@ -13,16 +13,21 @@ function cleanup.type(t: any): any
     if not t or t.tag ~= "affine" then
         return nil
     end
-    need(
-        t.inner and t.inner.tag ~= "optional" and t.inner.tag ~= "union",
-        "optional or conditional owner cleanup is unsupported"
-    )
+    -- An optional owner is a union of its value and nil.
+    local optional = t.inner ~= nil
+        and t.inner.tag == "union"
+        and t.inner.hasNil == true
+        and #(t.inner.members or {}) == 2
+    need(t.inner and (t.inner.tag ~= "union" or optional), "conditional owner cleanup is unsupported")
     need(#(t.cleanups or {}) > 0, "owner lacks an exact cleanup chain")
-    -- A method cleanup (`close`) is found through the owned value itself.
+    -- An optional owner holds nil or its value; Destroy passes nil by, so a
+    -- free function's cleanup needs no test. A method is found through the
+    -- owned value itself, which nil has none of.
     for _, item in ipairs(t.cleanups) do
         need(
-            item.kind == "function" and item.functionType or item.kind == "method" and type(item.name) == "string",
-            "only checked free-function or method cleanup is supported"
+            item.kind == "function" and item.functionType
+            or not optional and item.kind == "method" and type(item.name) == "string",
+            "only checked free-function or method cleanup is supported, and only free functions for an optional owner"
         )
     end
 
@@ -46,10 +51,7 @@ function cleanup.localOwner(stat: any, index: integer): any
         and owner.type == owner.entry.t,
         "local owner does not match its checked binding"
     )
-    need(
-        not owner.optional and not owner.correlated and not owner.guards,
-        "conditional local owner cleanup is unsupported"
-    )
+    need(not owner.correlated and not owner.guards, "conditional local owner cleanup is unsupported")
     local t = need(cleanup.type(owner.type), "local owner requires an affine type")
     need(owner.cleanups == t.cleanups, "local owner cleanup chain changed")
 

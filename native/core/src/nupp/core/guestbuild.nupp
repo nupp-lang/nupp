@@ -173,6 +173,8 @@ local CASES: {[string]: {
     tablesfrozen = {fixture = "catalog-tables-frozen", version = 8},
     hostlibrary = {fixture = "catalog-host-library", version = 8},
     benchforms = {fixture = "catalog-bench-forms", version = 8},
+    iofiles = {fixture = "catalog-io-files", version = 8},
+    iostandard = {fixture = "catalog-io-standard", version = 8},
     -- The bench harness's own entry: the bench/vm workloads under debug.bench.
     benchworkloads = {
         fixture = "bench/vm/workloads.bench",
@@ -527,6 +529,15 @@ local function compileProgram(caseName: string, fixture: string, version: intege
         if takes then
             table.insert(names, #names, root .. "/src/nupp/runtime/libraryvalues")
         end
+        -- One that reads Lua's `io` carries the core's, over its file layer.
+        local usesio = false
+        for _, name in ipairs(names) do
+            usesio = usesio or graph.mayUseIo(parser.parse(read(modulePath(root, name)), modulePath(root, name)).root)
+        end
+        if usesio then
+            table.insert(names, #names, root .. "/src/nupp/runtime/files")
+            table.insert(names, #names, root .. "/src/nupp/runtime/luaio")
+        end
     end
     local staged = root .. "/build/core-guest-programs/source"
     local project: any = nil
@@ -611,6 +622,12 @@ local function compileProgram(caseName: string, fixture: string, version: intege
             then
                 carried[values] = true
                 queue[#queue + 1] = values
+            end
+            -- And it may read Lua's `io`, which the core carries as a module.
+            local luaio = root .. "/src/nupp/runtime/luaio"
+            if not carried[luaio] and graph.mayUseIo(parser.parse(source, path).root) then
+                carried[luaio] = true
+                queue[#queue + 1] = luaio
             end
         end
     end

@@ -76,5 +76,38 @@ local record Os
     --- builds its `arg` table itself.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     argument: function(index: uint64, out: voidptr, room: uint64): int64
+
+    --- Opens the file named by the `bytes` bytes at `path` with the access
+    --- `flags` asks for (1 read, 2 write, 4 create, 8 truncate, 16 append):
+    --- its descriptor, or the negated error number. The core's bridge
+    --- answers it and the five file calls after it, for the core's file
+    --- layer.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    fileOpen: function(path: voidptr, bytes: uint64, flags: uint64): int64
+
+    --- Reads at most `room` bytes from descriptor `fd` into `out`: the count
+    --- read, 0 at the end, or the negated error number.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    fileRead: function(fd: uint64, out: voidptr, room: uint64): int64
+
+    --- Writes at most `bytes` bytes at `base` to descriptor `fd`: the count
+    --- written, which may be fewer, or the negated error number.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    fileWrite: function(fd: uint64, base: voidptr, bytes: uint64): int64
+
+    --- Moves descriptor `fd` to the two's-complement `offset` from its start
+    --- (0), its position (1) or its end (2): the new position, or the
+    --- negated error number.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    fileSeek: function(fd: uint64, offset: uint64, whence: uint64): int64
+
+    --- Closes descriptor `fd`: 0, or the negated error number.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    fileClose: function(fd: uint64): int64
+
+    --- Copies the system's text for the error number `code` into `out`, at
+    --- most `room` bytes: its whole length.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    errorText: function(code: uint64, out: voidptr, room: uint64): int64
 end
 return Os

@@ -1,0 +1,163 @@
+@!internal
+
+--[[
+The native core's file layer: files as descriptors, and every operation on
+one an `Operation` that is submitted and answered by a `Completion`. Nothing
+above this layer makes a system call; Lua's `io` (`nupp.runtime.luaio`) is
+written over it.
+
+The backend here completes each operation on the calling thread, as its
+system call returns, because the core has no blocking-work pool or reactor
+yet. That is the seam: a backend that hands regular-file operations to the
+pool on Unix, or to completion ports on Windows, replaces `complete`, and
+`submit` then parks the submitting task until its completion arrives.
+Callers see only `submit` and the completion, so none of them changes.
+]]
+module nupp.runtime.files
+
+const filecalls = require("nupp.runtime.filecalls")
+
+--- What an operation does.
+export const OPEN = 1
+
+export const READ = 2
+export const WRITE = 3
+export const SEEK = 4
+export const CLOSE = 5
+
+--- The access an open asks for, added together.
+export const READING = 1
+
+export const WRITING = 2
+export const CREATING = 4
+export const TRUNCATING = 8
+export const APPENDING = 16
+
+--- Where a seek's offset counts from.
+export const FROMSTART = 0
+
+export const FROMHERE = 1
+export const FROMEND = 2
+
+--- The descriptors a program starts with.
+export const STDIN = 0
+
+export const STDOUT = 1
+export const STDERR = 2
+
+--- One operation on a file, as it is submitted: what it does, to which
+--- descriptor, and what that kind of operation takes.
+export record Operation
+    kind: integer
+    descriptor: integer = -1
+
+    --- An open's file and access.
+    path: string = ""
+
+    flags: integer = 0
+
+    --- A write's bytes, from byte `first` of `text`.
+    text: string = ""
+
+    first: integer = 1
+
+    --- The most bytes a read asks for.
+    count: integer = 0
+
+    --- A seek's offset and where it counts from.
+    offset: integer = 0
+
+    whence: integer = 0
+end
+
+--- What an operation completed with.
+export record Completion
+    --- The descriptor an open made, the bytes a write wrote, which may be
+    --- fewer than it was given, or the position a seek reached; 0 for a read
+    --- or a close, and -1 when the operation failed.
+    value: integer
+
+    --- The bytes a read read, "" at the end of the file.
+    text: string = ""
+
+    --- 0, or the system's error number when the operation failed.
+    code: integer = 0
+end
+
+local function answer(result: integer): Completion
+    if result < 0 then
+        return new Completion(value = -1, code = -result)
+    end
+
+    return new Completion(value = result)
+end
+
+-- The backend: completes `operation` on the calling thread, as its system
+-- call returns.
+local function complete(operation: Operation): Completion
+    local kind = operation.kind
+    if kind == READ then
+        local read = filecalls.read(operation.descriptor, operation.count)
+        if type(read) == "string" then
+            return new Completion(value = 0, text = read as string)
+        end
+        return answer(read as integer)
+    elseif kind == OPEN then
+        return answer(filecalls.open(operation.path, operation.flags))
+    elseif kind == WRITE then
+        return answer(filecalls.write(operation.descriptor, operation.text, operation.first))
+    elseif kind == SEEK then
+        return answer(filecalls.seek(operation.descriptor, operation.offset, operation.whence))
+    elseif kind == CLOSE then
+        return answer(filecalls.close(operation.descriptor))
+    end
+    error("files: no operation of kind " .. tostring(kind), 2)
+end
+
+--- Submits `operation` and answers what it completed with. The operation
+--- has completed when this returns; with a pool or reactor behind it, the
+--- submitting task waits here and others run.
+--- @param operation what to do
+--- @return its completion
+export function submit(operation: Operation): Completion
+    return complete(operation)
+end
+
+--- Opens the file at `path` with the access `flags` asks for (`READING`
+--- and the rest, added together); a file it creates gets mode 0666, less
+--- the umask.
+--- @return the completion, whose value is the descriptor
+export function open(path: string, flags: integer): Completion
+    return submit(new Operation(kind = OPEN, path = path, flags = flags))
+end
+
+--- Reads at most `count` bytes from `descriptor`.
+--- @return the completion, whose text is the bytes read
+export function read(descriptor: integer, count: integer): Completion
+    return submit(new Operation(kind = READ, descriptor = descriptor, count = count))
+end
+
+--- Writes `text`, from its byte `first`, to `descriptor`: one write, which
+--- may take fewer bytes than it is given.
+--- @return the completion, whose value is the count written
+export function write(descriptor: integer, text: string, first: integer): Completion
+    return submit(new Operation(kind = WRITE, descriptor = descriptor, text = text, first = first))
+end
+
+--- Moves `descriptor` to `offset` from `whence` (`FROMSTART`, `FROMHERE` or
+--- `FROMEND`).
+--- @return the completion, whose value is the new position
+export function seek(descriptor: integer, offset: integer, whence: integer): Completion
+    return submit(new Operation(kind = SEEK, descriptor = descriptor, offset = offset, whence = whence))
+end
+
+--- Closes `descriptor`, which is gone even when the completion says it
+--- failed.
+export function close(descriptor: integer): Completion
+    return submit(new Operation(kind = CLOSE, descriptor = descriptor))
+end
+
+--- The system's text for error number `code`, as C's strerror gives it.
+export function reason(code: integer): string
+    return filecalls.reason(code)
+end

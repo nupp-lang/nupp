@@ -528,6 +528,17 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         if cleanupEnabled and block and node.kind == "call" then
             local t = cleanup.type(node.inferredType)
             if t then
+                -- assert answers its first argument: a fresh owner given it
+                -- is the one its result now holds.
+                local first = node.args and node.args.exprs and node.args.exprs[1]
+                local given = first and cleanup.source(first)
+                if graph.coreLibraryCall(node) == "assert"
+                    and given
+                    and given.kind == "call"
+                    and cleanup.type(given.inferredType)
+                then
+                    transfer(given, given.statementOwner or given)
+                end
                 registerCleanup(node, node.statementOwner or node, t, value)
             end
         end
@@ -1298,7 +1309,12 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                         if cleanupEnabled then
                             local owner = cleanup.localOwner(stat, index)
                             if owner then
-                                transferExpression(exprs[index])
+                                -- A call spread over several names was not
+                                -- evaluated as an expression, so no temporary
+                                -- owns its first result to hand over.
+                                if not (spread and index >= #exprs) then
+                                    transferExpression(exprs[index])
+                                end
                                 registerCleanup(stat, owner, owner.type, value, exprs[index] == nil and not spread)
                             end
                         end

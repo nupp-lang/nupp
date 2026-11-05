@@ -567,16 +567,18 @@ function program.describe(modules: {any}, entryModule: string): any
             owner = bodyOwner
         end
         -- A library function taken as a value: the function the image's
-        -- `nupp.runtime.libraryvalues` carries under its name, read through a
-        -- require of that module.
+        -- `nupp.runtime.libraryvalues` carries under its name (`io`, the one
+        -- `nupp.runtime.luaio` carries), read through a require of that
+        -- module.
         local libraryValue = graph.libraryValue(node)
-        local values = moduleNames["nupp.runtime.libraryvalues"]
+        local valuesModule = libraryValue and graph.libraryModule(libraryValue)
+        local values = valuesModule and moduleNames[valuesModule]
         if libraryValue and values then
             local item = {
                 id = #p.requires,
                 owner = owner.id,
                 node = node,
-                module = "nupp.runtime.libraryvalues",
+                module = valuesModule,
                 typeOnly = false,
                 target = values.chunk,
                 qualified = true,
@@ -860,7 +862,7 @@ function program.describe(modules: {any}, entryModule: string): any
         local throughValue = node.kind == "call"
             and node.obj.kind == "name"
             and graph.libraryValue(node.obj) ~= nil
-            and moduleNames["nupp.runtime.libraryvalues"] ~= nil
+            and moduleNames[graph.libraryModule(graph.libraryValue(node.obj) as string)] ~= nil
         if node.kind == "call"
             and node.obj.kind == "name"
             and not throughValue

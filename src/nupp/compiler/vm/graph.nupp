@@ -1832,6 +1832,13 @@ local coreLibrary: {[string]: boolean} = {
     ["os.monotonic"] = true,
     collectgarbage = true,
     ["hostcalls.arguments"] = true,
+    ["hostcalls.setcleanup"] = true,
+    ["filecalls.open"] = true,
+    ["filecalls.read"] = true,
+    ["filecalls.write"] = true,
+    ["filecalls.seek"] = true,
+    ["filecalls.close"] = true,
+    ["filecalls.reason"] = true,
     pcall = true,
     xpcall = true,
     error = true,
@@ -1888,7 +1895,6 @@ local coreLibrary: {[string]: boolean} = {
     ["coroutine.running"] = true,
     ["coroutine.isyieldable"] = true,
     ["coroutine.close"] = true,
-    ["io.write"] = true,
     -- `require` of a computed name, or through `_G`.
     ["require.dynamic"] = true
 }
@@ -1944,7 +1950,8 @@ local libraryValues: {
     ["string.reverse"] = true,
     ["string.byte"] = true,
     ["os.getenv"] = true,
-    debug = true
+    debug = true,
+    io = true
 }
 
 -- The library name `node` reads when it names a library function, `tostring`
@@ -1958,6 +1965,40 @@ function graph.libraryValue(node: any): string?
     end
 
     return name and libraryValues[name] and name or nil
+end
+
+-- The module whose `functions` carries library value `name`: Lua's `io`, the
+-- library itself, is `nupp.runtime.luaio`; the others are
+-- `nupp.runtime.libraryvalues`.
+function graph.libraryModule(name: string): string
+    if name == "io" then
+        return "nupp.runtime.luaio"
+    end
+
+    return "nupp.runtime.libraryvalues"
+end
+
+-- Whether an unchecked tree may read Lua's `io`: a name spelled `io`
+-- anywhere, `io.open(...)` and `io.cli` alike. A builder reads it to carry
+-- `nupp.runtime.luaio`; carrying it needlessly costs nothing.
+function graph.mayUseIo(root: any): boolean
+    local found = false
+    local walk: function(any): nil
+    walk = function(node: any): nil
+        if found or type(node) ~= "table" then
+            return
+        end
+        if node.kind == "name" and node.token and node.token.text == "io" then
+            found = true
+            return
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+    walk(root)
+
+    return found
 end
 
 -- Whether an unchecked tree may take a library function as a value: a name
@@ -2004,7 +2045,11 @@ end
 -- nothing.
 local corecallmodules: {
     [string]: string
-} = {["nupp.runtime.storagecalls"] = "storagecalls", ["nupp.runtime.hostcalls"] = "hostcalls"}
+} = {
+    ["nupp.runtime.storagecalls"] = "storagecalls",
+    ["nupp.runtime.hostcalls"] = "hostcalls",
+    ["nupp.runtime.filecalls"] = "filecalls"
+}
 
 function graph.corecallmodule(name: string?): boolean
     return name ~= nil and corecallmodules[name] ~= nil
@@ -2022,6 +2067,7 @@ function graph.erased(node: any): boolean
         end
         return graph.erased(target)
     end
+
     return (kind == "localStmt" or kind == "localFuncStmt" or kind == "funcStmt")
         and (node.comptimeFunction ~= nil or node.comptimeTok ~= nil)
 end
@@ -2331,12 +2377,14 @@ function graph.expandsResults(expr: any): boolean
 end
 
 -- Whether a call's last argument spreads a pack: `...`, or a call whose
--- results it takes all of.
+-- results it takes all of, pcall's and xpcall's among them.
 function graph.spreadsLast(call: any): boolean
     local exprs = call.args and call.args.exprs or {}
     local last = exprs[#exprs]
+    local library = last ~= nil and last.kind == "call" and graph.coreLibraryCall(last) or nil
 
-    return last ~= nil and (last.kind == "vararg" or graph.expandsResults(last))
+    return last ~= nil
+        and (last.kind == "vararg" or graph.expandsResults(last) or library == "pcall" or library == "xpcall")
 end
 
 -- The argument a library call calls back, by its index among the call's

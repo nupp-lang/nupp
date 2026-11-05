@@ -113,7 +113,6 @@ export const TEXT_FUNCTION: uint64 = 99ULL
 export const TEXT_CLOSE_MAIN: uint64 = 100ULL
 export const TEXT_CLOSE_NORMAL: uint64 = 101ULL
 export const NAME_CLOSE: uint64 = 102ULL
-export const NAME_WRITE: uint64 = 103ULL
 export const TEXT_STACK_OVERFLOW: uint64 = 104ULL
 export const TEXT_LENGTH_INTEGER: uint64 = 105ULL
 export const TEXT_YIELD_ACROSS: uint64 = 106ULL
@@ -512,9 +511,6 @@ export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64
     elseif id == NAME_CLOSE then
         -- "close"
         return strings.appendWord(h, b, 0x65736f6c63ULL, 5ULL)
-    elseif id == NAME_WRITE then
-        -- "write"
-        return strings.appendWord(h, b, 0x6574697277ULL, 5ULL)
     elseif id == TEXT_STACK_OVERFLOW then
         -- "stack overflow"
         return strings.appendWord(h, b, 0x766f206b63617473ULL, 8ULL) | strings.appendWord(h, b, 0x776f6c667265ULL, 6ULL)
@@ -530,8 +526,7 @@ export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64
             | strings.appendWord(h, b, 0x27206e6f6974706fULL, 8ULL)
     elseif id == NAME_COLLECTGARBAGE then
         -- "collectgarbage"
-        return strings.appendWord(h, b, 0x677463656c6c6f63ULL, 8ULL)
-            | strings.appendWord(h, b, 0x656761627261ULL, 6ULL)
+        return strings.appendWord(h, b, 0x677463656c6c6f63ULL, 8ULL) | strings.appendWord(h, b, 0x656761627261ULL, 6ULL)
     elseif id == TEXT_ALREADY_FROZEN then
         -- "table is already frozen"
         return strings.appendWord(h, b, 0x736920656c626174ULL, 8ULL)

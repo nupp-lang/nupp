@@ -153,6 +153,7 @@ local stringLibrary: {[string]: {integer}} = {
     ["storagecalls.fromstring"] = {100, 1, 1},
     ["storagecalls.elements"] = {101, 1, 1},
     ["storagecalls.elementkind"] = {102, 1, 1},
+    ["hostcalls.setcleanup"] = {104, 2, 2},
     ["math.i32.wrap"] = {93, 1, 1},
     rawequal = {88, 2, 2},
     next = {89, 1, 2},
@@ -176,6 +177,19 @@ local stringLibrary: {[string]: {integer}} = {
     ["coroutine.create"] = {75, 1, 1},
     ["coroutine.status"] = {78, 1, 1},
     ["coroutine.wrap"] = {79, 1, 1}
+}
+
+-- The file calls (nupp.runtime.filecalls): the operation guestio.files
+-- takes first, and the arguments after it.
+local fileoperations: {
+    [string]: {integer}
+} = {
+    ["filecalls.open"] = {1, 2},
+    ["filecalls.read"] = {2, 2},
+    ["filecalls.write"] = {3, 3},
+    ["filecalls.seek"] = {4, 3},
+    ["filecalls.close"] = {5, 1},
+    ["filecalls.reason"] = {6, 1}
 }
 
 -- What `type` answers for the values of a primitive type a test names.
@@ -234,6 +248,15 @@ end
 local gsubWith: function(any, any, any, boolean): integer
 local packedCall: function(any, any, any, integer): integer
 local librarypack: function(any, any): integer?
+local protectedpack: function(any, any): integer?
+
+-- Whether `expr` is pcall or xpcall: a list that takes all of its results
+-- takes true and its function's, or false and the error.
+local function protectedcall(expr: any): boolean
+    local library = expr ~= nil and expr.kind == "call" and graph.coreLibraryCall(expr) or nil
+
+    return library == "pcall" or library == "xpcall"
+end
 
 -- A core library call (guestlib): its arguments staged as values.
 local function libraryCall(ctx: any, node: any, id: integer, arguments: any): integer
@@ -408,6 +431,7 @@ local function typeKind(t: any): string
         and (t.tag == "literal" or t.tag == "const" or t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned") do
         t = t.tag == "literal" and t.base or t.inner
     end
+
     return t and t.tag or "missing"
 end
 
@@ -418,6 +442,7 @@ local function interfacetype(t: any): boolean
         and (t.tag == "literal" or t.tag == "const" or t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned") do
         t = t.tag == "literal" and t.base or t.inner
     end
+
     return t ~= nil and t.tag == "nominal" and t.declKind == "interface"
 end
 
@@ -672,7 +697,7 @@ local function invoke(ctx: any, node: any, keepResult: boolean, dynamic: boolean
     -- does a call last that gives other than one result.
     local exprs = node.args.exprs
     local spreads = #exprs > 0 and exprs[#exprs].kind == "vararg"
-    local expands = #exprs > 0 and not spreads and graph.expandsResults(exprs[#exprs])
+    local expands = #exprs > 0 and not spreads and (graph.expandsResults(exprs[#exprs]) or protectedcall(exprs[#exprs]))
     local fixed, kinds = {}, {}
     for index, expr in ipairs(exprs) do
         if index < #exprs or not spreads and not expands then
@@ -692,7 +717,11 @@ local function invoke(ctx: any, node: any, keepResult: boolean, dynamic: boolean
         for index, arg in ipairs(args) do
             held[index] = ctx.hold(arg)
         end
-        pack = invoke(ctx, exprs[#exprs], true, true, nil, true)
+        if protectedcall(exprs[#exprs]) then
+            pack = protectedpack(ctx, exprs[#exprs])
+        else
+            pack = invoke(ctx, exprs[#exprs], true, true, nil, true)
+        end
         for index, handle in ipairs(held) do
             args[index] = ctx.readHeld(handle)
             ctx.release(handle)
@@ -884,6 +913,38 @@ local function invokeProtected(ctx: any, node: any, keepResult: boolean, count: 
     return landed(ctx, node, ctx.invoke(node, value, args, contract, keepResult))
 end
 
+-- All of protected call `node`'s results as one pack, the count at key 0:
+-- true and its function's results, or false and the error. The call keeps
+-- as many as the larger needs; the count is the success's until the status
+-- says otherwise.
+protectedpack = function(ctx: any, node: any): integer?
+    local called = graph.protectedInvokeContract(node).callSignature
+    local results = called and called.retPack
+    need(
+        results ~= nil and results.tail == nil,
+        "a protected call whose function's results are open cannot spread them yet"
+    )
+    -- A function declared to return nil returns nothing.
+    local head = results.head
+    local none = #head == 1 and head[1].tag == "nil"
+    local count = none and 1 or 1 + #head
+    local values = invokeProtected(ctx, node, true, math.max(2, count))
+    if values == nil or ctx.block == nil then
+        return nil
+    end
+    local pack = ctx.emit(node, "NewTable", {}, "tagged")
+    for index, value in ipairs(values) do
+        local key = ctx.emit(node, "K", {pool(ctx, "int64", tostring(index))}, "tagged")
+        ctx.emit(node, "SetIdx", {pack, key, value}, nil)
+    end
+    local zero = ctx.emit(node, "K", {pool(ctx, "int64", "0")}, "tagged")
+    ctx.emit(node, "SetIdx", {pack, zero, ctx.emit(node, "K", {pool(ctx, "int64", tostring(count))}, "tagged")}, nil)
+    local status = ctx.emit(node, "K", {pool(ctx, "int64", "1")}, "tagged")
+    ctx.emit(node, "LibCall", {121, pack, status}, "tagged")
+
+    return pack
+end
+
 -- table.sort(t, f): a merge sort the sort step advances until it needs f's
 -- answer, which a call of f here gives it. The step leaves the state table
 -- {t, f, a, b, answer, ...} asking whether a sorts before b, and answers
@@ -952,7 +1013,7 @@ end
 -- value that may have a metatable is its tostring, its __tostring called.
 local function valuespack(ctx: any, node: any, exprs: any, texts: boolean?): integer
     local last = exprs[#exprs]
-    local tail = last ~= nil and (last.kind == "vararg" or graph.expandsResults(last))
+    local tail = last ~= nil and (last.kind == "vararg" or graph.expandsResults(last) or protectedcall(last))
     local fixed, kinds = {}, {}
     for index, expr in ipairs(exprs) do
         if index < #exprs or not tail then
@@ -980,7 +1041,14 @@ local function valuespack(ctx: any, node: any, exprs: any, texts: boolean?): int
     end
     if tail then
         local held = ctx.hold(pack)
-        local values = last.kind == "vararg" and ctx.varargPack() or invoke(ctx, last, true, true, nil, true)
+        local values: integer? = nil
+        if last.kind == "vararg" then
+            values = ctx.varargPack()
+        elseif protectedcall(last) then
+            values = protectedpack(ctx, last)
+        else
+            values = invoke(ctx, last, true, true, nil, true)
+        end
         if values == nil or ctx.block == nil then
             ctx.release(held)
             return nil as any
@@ -2721,7 +2789,6 @@ function tagged.forVersion(version: integer): any
                 return tagged.call(ctx, node, expected)
             end
             local library = graph.coreLibraryCall(node)
-            need(library ~= "io.write", "io.write's result, its file, is not yet supported")
             if library == "tostring" or library == "table.concat" then
                 return libraryCall(ctx, node, library == "tostring" and 1 or 3, node.args.exprs or {})
             elseif library == "assert" then
@@ -2827,6 +2894,25 @@ function tagged.forVersion(version: integer): any
                 need(#(node.args.exprs or {}) == 0, tostring(library) .. " takes no arguments")
                 local none = ctx.emit(node, "Nil", {}, "tagged")
                 return ctx.emit(node, "LibCall", {library == "os.monotonic" and 117 or 119, none}, "tagged") as integer
+            elseif fileoperations[library or ""] then
+                -- The file calls are one library call, the operation first.
+                local spec: {integer} = need(fileoperations[library as string], "file call")
+                local args = node.args.exprs or {}
+                need(#args == spec[2], tostring(library) .. " argument count is not admitted")
+                local kinds = {}
+                for index = 1, #args do
+                    kinds[index] = "tagged"
+                end
+                local evaluated = ctx.operands(args, kinds)
+                if evaluated == nil then
+                    return nil as any
+                end
+                local operation = ctx.emit(node, "K", {pool(ctx, "int64", tostring(spec[1]))}, "tagged")
+                local operands: {any} = {120, operation}
+                for _, value in ipairs(evaluated) do
+                    operands[#operands + 1] = value
+                end
+                return landed(ctx, node, ctx.emit(node, "LibCall", operands, "tagged")) as integer
             elseif library == "collectgarbage" then
                 -- collectgarbage(opt, arg): without an option, "collect".
                 local args = node.args.exprs or {}
@@ -2949,12 +3035,6 @@ function tagged.forVersion(version: integer): any
                 invokeMethod(ctx, node, false)
             elseif graph.coreLibraryCall(node) == "pcall" or graph.coreLibraryCall(node) == "xpcall" then
                 invokeProtected(ctx, node, false)
-            elseif graph.coreLibraryCall(node) == "io.write" then
-                -- io.write(...): its values in a pack, written as they are.
-                local pack = valuespack(ctx, node, node.args.exprs or {})
-                if pack ~= nil then
-                    ctx.emit(node, "LibCall", {83, pack}, "tagged")
-                end
             elseif node.kind == "call" and graph.coreLibraryCall(node) ~= nil then
                 -- error, setmetatable and the other library calls made for
                 -- their effect.

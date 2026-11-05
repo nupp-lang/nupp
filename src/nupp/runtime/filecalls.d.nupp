@@ -1,0 +1,33 @@
+@!internal
+
+--- The system calls under the native core's file layer, as its host answers
+--- them. A call of one is the core's own library call, and requiring this
+--- module loads nothing: it exists only on the core, for `nupp.runtime.files`.
+--- Each answers what the system call did: a descriptor, count or position,
+--- or the negated error number.
+local record filecalls
+    --- Opens the file at `path` with the access `flags` asks for: 1 read,
+    --- 2 write, 4 create, 8 truncate and 16 append, added together. A file
+    --- it creates gets mode 0666, less the umask.
+    open: function(path: string, flags: integer): integer
+
+    --- At most `count` bytes read from `descriptor`, "" at its end.
+    read: function(descriptor: integer, count: integer): string | integer
+
+    --- Writes `text` from its byte `first` on to `descriptor`: the count
+    --- written, which may be fewer.
+    write: function(descriptor: integer, text: string, first: integer): integer
+
+    --- Moves `descriptor` to `offset` from its start (0), its position (1)
+    --- or its end (2): the new position.
+    seek: function(descriptor: integer, offset: integer, whence: integer): integer
+
+    --- Closes `descriptor`, which is gone even when this fails.
+    close: function(descriptor: integer): integer
+
+    --- The system's text for error number `code`, C's strerror.
+    reason: function(code: integer): string
+end
+
+local calls: filecalls
+return calls
