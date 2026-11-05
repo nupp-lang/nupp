@@ -47,7 +47,7 @@ local recordio = require("nupp.bench.internal.record")
 export const schema = 4
 
 --- The oldest schema a standalone program still reads as a baseline.
-export const oldestbaselineschema = 2
+export const oldest = 2
 
 --- Rounds timed per case. The median of these is what a record reports, so an odd
 --- count has a middle to take.
@@ -141,28 +141,28 @@ export type SuiteOptions = {
     cases: {SuiteCase},
 
     --- Variant used as the denominator in the human result table.
-    baselinevariant: string?,
+    baseline: string?,
 
     --- Calls made before timing begins.
-    warmupiterations: integer?,
+    warmup: integer?,
 
     --- Calls to `run` inside a timed sample. State is set up once per sample.
-    sampleiterations: integer?,
+    batch: integer?,
 
     --- Stop once both this many samples and this many milliseconds of measured time
     --- exist.
     minsamples: integer?,
-    mindurationms: number?,
+    minms: number?,
 
     --- Safety bounds when a sample is much faster or slower than expected.
     maxsamples: integer?,
-    maxdurationms: number?
+    maxms: number?
 }
 
 --- Optional sections in the human result report.
 export type FormatOptions = {
     --- Compare suite variants by their geometric-mean ratio.
-    geometricmean: boolean?,
+    geomean: boolean?,
 
     --- Forks behind the measurements, when the runner merged them.
     ---
@@ -193,7 +193,7 @@ export record Measurement
     medianms: number?
 
     --- The fastest round, in milliseconds.
-    minms: number?
+    fastest: number?
 
     --- Suite samples in milliseconds, normalized to one represented operation.
     samplesms: {number}?
@@ -208,14 +208,14 @@ export record Measurement
 
     --- Calls to a suite variant inside a timed sample, and the operations a call
     --- represents.
-    sampleiterations: integer?
+    batch: integer?
 
-    operationsperinvocation: integer?
-    warmupiterations: integer?
+    opspercall: integer?
+    warmup: integer?
     minsamples: integer?
-    mindurationms: number?
+    minms: number?
     maxsamples: integer?
-    maxdurationms: number?
+    maxms: number?
 
     --- Comparative-suite identity. Kept apart so a reader need not parse `name`.
     suite: string?
@@ -223,7 +223,7 @@ export record Measurement
     variant: string?
     casename: string?
     parameters: {[string]: any}?
-    baselinevariant: string?
+    baseline: string?
 
     --- Kilobytes allocated, read with the collector stopped. A case stores one round;
     --- a suite stores one represented operation. A size rather than a count of
@@ -322,7 +322,7 @@ export record Measurement
     --- `trend` is looking for. Every sample stays in `samplesms` and in the median.
     outliercount: integer?
 
-    outliermaxratio: number?
+    outliermax: number?
 
     --- Processes this measurement summarizes, when the runner merged forks into it.
     ---
@@ -332,24 +332,24 @@ export record Measurement
 
     --- One normalized summary per fork, in execution order. The input the interval
     --- below was computed from, kept so a reader can recompute it.
-    forksummariesms: {number}?
+    forksms: {number}?
 
     --- The interval for this benchmark's population median, when one is available.
     ---
-    --- `intervalcoverage` is the probability this interval actually attains, not one
+    --- `coverage` is the probability this interval actually attains, not one
     --- that was requested: it falls out of the fork count through the sign test, and a
     --- run with too few forks gets no interval rather than a relabelled one.
     intervallowms: number?
 
     intervalhighms: number?
-    intervalcoverage: number?
+    coverage: number?
 
     --- Why there is no interval: `below-minimum-forks` or `trend-warning`.
-    intervalwithheld: string?
+    withheld: string?
 end
 
 local measurements: {Measurement} = {}
-local traceprofile: any = nil
+local recorder: any = nil
 
 local type Job = {
     name: string,
@@ -502,12 +502,12 @@ end
 ---
 --- @param text what the baseline file holds
 --- @param path where it was read from, for the message
---- @param oldest the oldest schema the reader accepts, `oldestbaselineschema` by
+--- @param floor the oldest schema the reader accepts, `oldest` by
 ---     default
 --- @return the decoded baseline, or nil where it is refused
 --- @return why it was refused, naming its schema and the ones this version reads
-export function decodebaseline(text: string, path: string, oldest: integer?): (any, string?)
-    local low = oldest or oldestbaselineschema
+export function decode(text: string, path: string, floor: integer?): (any, string?)
+    local low = floor or oldest
     local decoded, document = pcall(json.decodevalue, text)
     if not decoded or type(document) ~= "table" or json.isarray(document) then
         return nil, ("nupp: baseline %s is not a bench record"):format(path)
@@ -539,7 +539,7 @@ local function baseline(): any
     if not text then
         return nil
     end
-    local document, refused = decodebaseline(text, options.baseline)
+    local document, refused = decode(text, options.baseline)
     -- Accepting replaces the file, so one this version cannot read is only replaced.
     if refused and not options.accept then
         error(refused, 0)
@@ -652,7 +652,7 @@ local function identities(report: any): ({string}, integer, integer)
     end
     table.sort(sites)
 
-    return sites, report.totalaborts, report.blacklisted
+    return sites, report.aborts, report.blacklisted
 end
 
 --- Says a case's name under `--list-cases`, as it is declared.
@@ -774,7 +774,7 @@ local function measurecase(name: string, body: function(Case): nil, fixedn: inte
     local blacklisted: integer? = nil
     if session then
         local aborts = session:stop()
-        traceprofile = aborts.traceprofile
+        recorder = aborts.recorder
         sites, total, blacklisted = identities(aborts)
     end
     local sampling = opensample()
@@ -802,7 +802,7 @@ local function measurecase(name: string, body: function(Case): nil, fixedn: inte
         n = n,
         rounds = ROUNDS,
         medianms = median(times),
-        minms = smallest(times),
+        fastest = smallest(times),
         samplesms = times,
         p25ms = statistics.quantile(ordered, 0.25),
         p75ms = statistics.quantile(ordered, 0.75),
@@ -814,7 +814,7 @@ local function measurecase(name: string, body: function(Case): nil, fixedn: inte
         trenddrift = rounds.drift,
         concentration = statistics.concentration(times, statistics.CONCENTRATION_TOLERANCE),
         outliercount = far.severe,
-        outliermaxratio = far.maxRatio,
+        outliermax = far.maxRatio,
         allocatedkb = allocated / ROUNDS,
         retainedkb = retained,
         abortsites = sites,
@@ -973,18 +973,18 @@ local function measuresuite(
     parameters: {[string]: any},
     name: string
 ): nil
-    local warmups = positiveint(opts.warmupiterations, 10, "warmupiterations")
-    local iterations = positiveint(opts.sampleiterations, 1, "sampleiterations")
+    local warmups = positiveint(opts.warmup, 10, "warmup")
+    local iterations = positiveint(opts.batch, 1, "batch")
     local minsamples = positiveint(opts.minsamples, 15, "minsamples")
     local maxsamples = positiveint(opts.maxsamples, 100000, "maxsamples")
-    local minms = positivenum(opts.mindurationms, 500.0, "mindurationms")
-    local maxms = positivenum(opts.maxdurationms, 10000.0, "maxdurationms")
+    local minms = positivenum(opts.minms, 500.0, "minms")
+    local maxms = positivenum(opts.maxms, 10000.0, "maxms")
     local operations = positiveint(spec.operations, 1, "case operations")
     if maxsamples < minsamples then
         error("nupp: maxsamples must be at least minsamples", 0)
     end
     if maxms < minms then
-        error("nupp: maxdurationms must be at least mindurationms", 0)
+        error("nupp: maxms must be at least minms", 0)
     end
 
     announcerun(name)
@@ -1017,7 +1017,7 @@ local function measuresuite(
     if #samples < minsamples or measured < minms then
         error(
             (
-                "nupp: %s reached its sampling limit after %d samples and %.3f ms measured; increase sampleiterations or the maximums"
+                "nupp: %s reached its sampling limit after %d samples and %.3f ms measured; increase batch or the maximums"
             ):format(name, #samples, measured),
             0
         )
@@ -1065,7 +1065,7 @@ local function measuresuite(
     local blacklisted: integer? = nil
     if session then
         local aborts = session:stop()
-        traceprofile = aborts.traceprofile
+        recorder = aborts.recorder
         sites, totalaborts, blacklisted = identities(aborts)
     end
     local sampling = opensample()
@@ -1090,7 +1090,7 @@ local function measuresuite(
         kind = "suite",
         rounds = #samples,
         medianms = p50,
-        minms = minimum,
+        fastest = minimum,
         samplesms = samples,
         meanms = mean,
         stdevms = stdev,
@@ -1105,19 +1105,19 @@ local function measuresuite(
         trenddrift = drift.drift,
         concentration = statistics.concentration(samples, statistics.CONCENTRATION_TOLERANCE),
         outliercount = far.severe,
-        outliermaxratio = far.maxRatio,
-        sampleiterations = iterations,
-        operationsperinvocation = operations,
-        warmupiterations = warmups,
+        outliermax = far.maxRatio,
+        batch = iterations,
+        opspercall = operations,
+        warmup = warmups,
         minsamples = minsamples,
-        mindurationms = minms,
+        minms = minms,
         maxsamples = maxsamples,
-        maxdurationms = maxms,
+        maxms = maxms,
         suite = opts.name,
         variant = variant.name,
         casename = spec.name,
         parameters = parameters,
-        baselinevariant = opts.baselinevariant or opts.variants[1].name,
+        baseline = opts.baseline or opts.variants[1].name,
         allocatedkb = allocated / (iterations * operations),
         retainedkb = retained,
         abortsites = sites,
@@ -1156,9 +1156,9 @@ export function suite(options: SuiteOptions): nil
         end
         variants[variant.name] = true
     end
-    local baselinevariant = options.baselinevariant or options.variants[1].name
-    if not variants[baselinevariant] then
-        error("nupp: baselinevariant does not name a variant", 2)
+    local baseline = options.baseline or options.variants[1].name
+    if not variants[baseline] then
+        error("nupp: baseline does not name a variant", 2)
     end
     local cases: {[string]: boolean} = {}
     for _, spec in ipairs(options.cases) do
@@ -1306,7 +1306,7 @@ function FrameSession:report(): nil
     local blacklisted: integer? = nil
     if self.session then
         local aborts = self.session:stop()
-        traceprofile = aborts.traceprofile
+        recorder = aborts.recorder
         sites, total, blacklisted = identities(aborts)
     end
     if self.sampling then
@@ -1391,7 +1391,7 @@ local function buildrecord(): any
         executionProfile = remarks and remarks.executionProfile or nil,
         remarks = remarks and remarks.remarks or nil,
         allocationSites = remarks and remarks.allocationSites or nil,
-        traceProfile = traceprofile,
+        traceProfile = recorder,
         compiler = remarks and remarks.compiler or nil,
     }
 end
@@ -1558,7 +1558,7 @@ end
 --- Case scores are normalized to one body iteration. The calibrated batch size stays
 --- in the JSON record, where the runner also finds it for the next comparison.
 export function format(record: any, options: FormatOptions?): string
-    local geomean = options and options.geometricmean == true
+    local geomean = options and options.geomean == true
     local rows: {any} = {}
     local width: integer = #"Benchmark"
     local baselines: {[string]: number} = {}
@@ -1601,7 +1601,7 @@ export function format(record: any, options: FormatOptions?): string
                     label = label,
                     suite = entry.suite,
                     casename = entry.casename,
-                    baselinevariant = entry.baselinevariant,
+                    baseline = entry.baseline,
                     values = {},
                     variants = {},
                     seen = {},
@@ -1610,13 +1610,7 @@ export function format(record: any, options: FormatOptions?): string
                 workloads[#workloads + 1] = workload
                 local group = byname[entry.suite]
                 if not group then
-                    group = {
-                        name = entry.suite,
-                        baselinevariant = entry.baselinevariant,
-                        workloads = {},
-                        variants = {},
-                        seen = {},
-                    }
+                    group = {name = entry.suite, baseline = entry.baseline, workloads = {}, variants = {}, seen = {},}
                     byname[entry.suite] = group
                     suites[#suites + 1] = group
                 end
@@ -1632,7 +1626,7 @@ export function format(record: any, options: FormatOptions?): string
                 group.seen[entry.variant] = true
                 group.variants[#group.variants + 1] = entry.variant
             end
-            if entry.variant == entry.baselinevariant then
+            if entry.variant == entry.baseline then
                 baselines[key] = entry.medianms or 0.0
             end
         end
@@ -1656,7 +1650,7 @@ export function format(record: any, options: FormatOptions?): string
 
     -- The interval for a merged measurement, or why there is not one.
     local function intervalcell(entry: any, scale: number): string
-        if entry.intervalwithheld == "trend-warning" then
+        if entry.withheld == "trend-warning" then
             return "unstable"
         end
         if not entry.intervallowms or not entry.intervalhighms then
@@ -1667,11 +1661,11 @@ export function format(record: any, options: FormatOptions?): string
     end
 
     local function coveragecell(entry: any): string
-        if not entry.intervalcoverage then
+        if not entry.coverage then
             return "-"
         end
 
-        return ("%.2f%%"):format(entry.intervalcoverage * 100.0)
+        return ("%.2f%%"):format(entry.coverage * 100.0)
     end
 
     -- Allocation is measured in a separate collector-stopped pass and stored in
@@ -1923,7 +1917,7 @@ export function format(record: any, options: FormatOptions?): string
     for _, group in ipairs(geomean and suites or {}) do
         local expected: integer = 0
         for _, workload in ipairs(group.workloads) do
-            local basescore = workload.values[group.baselinevariant]
+            local basescore = workload.values[group.baseline]
             if basescore and basescore > 0 then
                 expected = (expected + 1) as integer
             end
@@ -1935,7 +1929,7 @@ export function format(record: any, options: FormatOptions?): string
             local order: {string} = {}
             local compared: integer = 0
             for _, workload in ipairs(group.workloads) do
-                local basescore = workload.values[group.baselinevariant]
+                local basescore = workload.values[group.baseline]
                 local score = workload.values[variant]
                 if basescore and basescore > 0 and score and score > 0 then
                     local name = workload.casename
@@ -1962,9 +1956,7 @@ export function format(record: any, options: FormatOptions?): string
         end
         if #summary > 1 then
             lines[#lines + 1] = ""
-            lines[
-                #lines + 1
-            ] = "Geometric mean: " .. tostring(group.name) .. " (vs " .. tostring(group.baselinevariant) .. ")"
+            lines[#lines + 1] = "Geometric mean: " .. tostring(group.name) .. " (vs " .. tostring(group.baseline) .. ")"
             local summarypattern = "%-" .. tostring(summarywidth) .. "s  %8s"
             lines[#lines + 1] = summarypattern:format("Variant", "Ratio")
             for _, entry in ipairs(summary) do
@@ -2049,7 +2041,7 @@ export function report(): nil
 
         return
     end
-    local previous, refused = decodebaseline(text, options.baseline)
+    local previous, refused = decode(text, options.baseline)
     if refused then
         if options.accept then
             io.stderr:write(refused, "; replacing it\n")

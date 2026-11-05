@@ -198,10 +198,10 @@ function M.sampleCollectsCollapsedStacks()
     -- A timer can land entirely in native VM work; those samples have no Lua
     -- source location to retain. Check the mapping only when Lua was sampled.
     if report.text:find("_[N] ", 1, true) or report.text:find("_[I] ", 1, true) then
-        assert(#report.sourcesamples > 0, "Lua leaf source samples are retained")
+        assert(#report.lines > 0, "Lua leaf source samples are retained")
     end
     local sourceCount = 0
-    for _, sample in ipairs(report.sourcesamples) do
+    for _, sample in ipairs(report.lines) do
         assert(sample.line > 0 and sample.samples > 0 and #sample.file > 0, "a source sample has its measured location")
         sourceCount = sourceCount + sample.samples
     end
@@ -405,8 +405,8 @@ end
 function M.sampleRefusesAnIntervalItCannotHonour()
     assert(not pcall(profile.sample, {intervalms = 0}), "zero milliseconds")
     assert(not pcall(profile.sample, {intervalms = 2147483648}), "interval exceeds LuaJIT's signed range")
-    assert(not pcall(profile.sample, {stackdepth = 0}), "zero frames")
-    assert(not pcall(profile.sample, {stackdepth = 2147483648}), "depth exceeds LuaJIT's signed range")
+    assert(not pcall(profile.sample, {depth = 0}), "zero frames")
+    assert(not pcall(profile.sample, {depth = 2147483648}), "depth exceeds LuaJIT's signed range")
     -- Neither attempt may leave the singleton latched.
     local session = profile.sample()
     session:stop()
@@ -446,16 +446,16 @@ function M.publicTraceProfilesKeepTheirSerializedMetadataContract()
     local wire = project(value)
     assert(wire ~= value)
     for old, current in pairs({
-        luajitRevision = "luajitrevision",
-        luajitVersion = "luajitversion",
-        operatingSystem = "operatingsystem",
-        enabledRecorderFeatures = "enabledrecorderfeatures",
-        bytecodeSchema = "bytecodeschema",
+        luajitRevision = "revision",
+        luajitVersion = "version",
+        operatingSystem = "os",
+        enabledRecorderFeatures = "features",
+        bytecodeSchema = "schema",
     }) do
         assert(value[current] ~= nil and value[old] == nil)
         assert(wire[old] == value[current] and wire[current] == nil)
     end
-    assert(wire.id == value.id and wire.architecture == value.architecture)
+    assert(wire.id == value.id and wire.architecture == value.arch)
     assert(wire.supported == value.supported)
     assert(registry.CATALOG_ID == nil and registry.CATALOG_VERSION == nil)
     local features = {"test"}
@@ -463,14 +463,14 @@ function M.publicTraceProfilesKeepTheirSerializedMetadataContract()
     local copied = project(preceding)
     assert(copied ~= preceding and copied.supported == false)
     assert(copied.enabledRecorderFeatures == features)
-    assert(preceding.enabledrecorderfeatures == nil)
+    assert(preceding.features == nil)
 end
 
 function M.traceProfileDigestIsEightHexCharacters()
     local registry = require("debug.profile")
     local described = registry.recorder()
-    assertMatch(described.bytecodeschema, "^%x%x%x%x%x%x%x%x$", "the bytecode schema digest")
-    assertMatch(described.id, described.bytecodeschema, "and the profile id carries it")
+    assertMatch(described.schema, "^%x%x%x%x%x%x%x%x$", "the bytecode schema digest")
+    assertMatch(described.id, described.schema, "and the profile id carries it")
 end
 
 function M.traceRecordsWhereTheCompilerGaveUp()
@@ -482,7 +482,7 @@ function M.traceRecordsWhereTheCompilerGaveUp()
     local report = session:stop()
     jit.on()
 
-    testAssert.eq(report.totalaborts, 1, "the emitted abort is counted")
+    testAssert.eq(report.aborts, 1, "the emitted abort is counted")
     testAssert.eq(#report.sites, 1, "the emitted abort has one site")
     testAssert.eq(report.sites[1].reasonid, "jit/loop-function-construction", "the unrecordable bytecode is reported")
     testAssert.eq(report.sites[1].reasonclass, "blocker", "the operation-level classification is preserved")
@@ -518,7 +518,7 @@ function M.tracePauseLeavesTheWindowOut()
     emitFnewAbort(session)
     local report = session:stop()
 
-    testAssert.eq(report.totalaborts, 0, "a paused session counts nothing")
+    testAssert.eq(report.aborts, 0, "a paused session counts nothing")
 end
 
 function M.onlyOneTraceSessionRunsAtATime()
@@ -827,9 +827,9 @@ function M.traceKeepsRootWhenRecordingAbortsInsideALibrary()
     session.callback("abort", 91, library, 1, FNEW_ERROR_CODE, FNEW_OPCODE)
     local report = session:stop()
     jit.on()
-    testAssert.eq(report.totalaborts, 2, "both recording attempts counted")
+    testAssert.eq(report.aborts, 2, "both recording attempts counted")
     testAssert.eq(#report.sites, 1, "root and abort site aggregate together")
-    assertMatch(report.sites[1].rootlocation, "program.nupp:", "origin retained")
+    assertMatch(report.sites[1].root, "program.nupp:", "origin retained")
     assertMatch(report.sites[1].location, "runtime/library.lua:", "library retained")
 end
 
@@ -888,17 +888,17 @@ end
 function M.sourceSamplesRespectZoneBoundariesAndPreserveFullPaths()
     local session = profile.sample({intervalms = 1000, zone = "kept"})
     session:pause()
-    session.sourcesamples = {
+    session.lines = {
         kept = {["C:/project/work.nupp:12"] = 3},
         ["kept/child"] = {["C:/project/work.nupp:12"] = 2, ["C:/project/work.nupp:14"] = 1},
         keptElsewhere = {["C:/project/work.nupp:12"] = 99},
     }
     local report = session:stop()
-    testAssert.eq(#report.sourcesamples, 2, "one row per retained source line")
-    testAssert.eq(report.sourcesamples[1].file, "C:/project/work.nupp", "path includes drive and directories")
-    testAssert.eq(report.sourcesamples[1].line, 12, "line split occurs after final colon")
-    testAssert.eq(report.sourcesamples[1].samples, 5, "zone subtree counts merge")
-    testAssert.eq(report.sourcesamples[2].samples, 1, "other line stays separate")
+    testAssert.eq(#report.lines, 2, "one row per retained source line")
+    testAssert.eq(report.lines[1].file, "C:/project/work.nupp", "path includes drive and directories")
+    testAssert.eq(report.lines[1].line, 12, "line split occurs after final colon")
+    testAssert.eq(report.lines[1].samples, 5, "zone subtree counts merge")
+    testAssert.eq(report.lines[2].samples, 1, "other line stays separate")
 end
 
 function M.cliProfileJoinsMeasuredHeatToOptimizerRemarks()

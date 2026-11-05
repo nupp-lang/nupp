@@ -56,7 +56,7 @@ export type SampleOptions = {
     --- 2147483647, the range LuaJIT's stack dumper accepts. The walk is linear in
     --- this and it happens on the interrupted thread, so raise it only when a
     --- specific question needs the depth.
-    stackdepth: integer?,
+    depth: integer?,
 
     --- Keep only the samples taken under a zone path starting with this, so
     --- "frame/render" reads as that subtree alone.
@@ -84,7 +84,7 @@ export type TraceOptions = {
     --- Include the aborts that are ordinary trace formation rather than a refusal:
     --- leaving a loop, recursion, an inner loop. False by default; turn it on when the
     --- question is why a particular trace never formed.
-    includebenign: boolean?
+    benign: boolean?
 }
 
 --- A running profiling session whose declaration chooses the report `stop` returns.
@@ -166,7 +166,7 @@ export record SampleReport
 
     --- Lua leaf locations, ordered by file and line. Their sum can be less than
     --- samples because native VM states have no reliable Lua source location.
-    sourcesamples: {SourceSample}
+    lines: {SourceSample}
 
     --- Distinct stacks they fell on.
     stacks: integer
@@ -207,7 +207,7 @@ export record SampleSession is Session, own.Closeable
     aggregate: {[string]: {[string]: Sample}}
 
     --- Lua leaf locations counted separately in each zone, before filtering.
-    sourcesamples: {[string]: {[string]: integer}}
+    lines: {[string]: {[string]: integer}}
 
     pause: function(self)
     resume: function(self)
@@ -244,7 +244,7 @@ export record AbortSite
     location: string
 
     --- Where the root trace began, including when recording entered a library.
-    rootlocation: string?
+    root: string?
 
     --- The zone path that was open, "" when none was.
     zonepath: string
@@ -260,23 +260,23 @@ export record TraceProfile
     id: string
 
     --- The pinned LuaJIT commit, or "external:<version>" for any other build.
-    luajitrevision: string
+    revision: string
 
     --- The snapshot timestamp from the full version string.
-    luajitversion: integer
+    version: integer
 
     --- `jit.arch`.
-    architecture: string
+    arch: string
 
     --- `jit.os`.
-    operatingsystem: string
+    os: string
 
     --- The recorder flags `jit.status` reported, sorted.
-    enabledrecorderfeatures: {string}
+    features: {string}
 
     --- A digest of the VM's bytecode name table, so a renumbered opcode set is
     --- visible rather than silently remapped.
-    bytecodeschema: string
+    schema: string
 
     --- Whether this is the recorder the reason registry was written against.
     supported: boolean
@@ -447,12 +447,12 @@ export function recorder(): TraceProfile
 
     return TraceProfile(
         id = table.concat({revision, jit.arch, jit.os, table.concat(flags, ","), schema}, "|"),
-        luajitrevision = revision,
-        luajitversion = version,
-        architecture = jit.arch,
-        operatingsystem = jit.os,
-        enabledrecorderfeatures = flags,
-        bytecodeschema = schema,
+        revision = revision,
+        version = version,
+        arch = jit.arch,
+        os = jit.os,
+        features = flags,
+        schema = schema,
         supported = revision == pinnedrev
     )
 end
@@ -548,10 +548,10 @@ export record TraceReport
     --- Wallclock seconds the session was active, in whole seconds: it comes from
     --- `os.time`, so a session shorter than one reads as zero and dividing by it is the
     --- caller's problem.
-    durationsec: integer
+    seconds: integer
 
-    --- Abort events recorded. Excludes the benign ones unless `includebenign` was set.
-    totalaborts: integer
+    --- Abort events recorded. Excludes the benign ones unless `benign` was set.
+    aborts: integer
 
     --- Blacklist events among them. Always actionable.
     blacklisted: integer
@@ -561,13 +561,13 @@ export record TraceReport
     sites: {AbortSite}
 
     --- The recorder and registry identities under which the events were interpreted.
-    traceprofile: TraceProfile
+    recorder: TraceProfile
 
     --- The reason registry the identities came from.
-    reasoncatalogid: string
+    catalogid: string
 
     --- Its version, so a stored report can be reread under a later one.
-    reasoncatalogversion: integer
+    catalogversion: integer
 
     metamethod __tostring: function(self): string
 end
@@ -580,10 +580,10 @@ export record TraceSession is Session, own.Closeable
     associated type Report = TraceReport
 
     --- Whether the benign trace-formation events are being counted.
-    includebenign: boolean
+    benign: boolean
 
     --- `os.time` when the session started.
-    startedat: integer
+    started: integer
 
     --- Whether aggregation is suspended. The hook stays attached.
     paused: boolean
@@ -595,12 +595,12 @@ export record TraceSession is Session, own.Closeable
     sites: {[string]: AbortSite}
 
     --- Aborts counted so far.
-    totalaborts: integer
+    aborts: integer
 
     --- Blacklist events among them.
     blacklisted: integer
 
-    traceprofile: TraceProfile
+    recorder: TraceProfile
 
     --- The handler to hand back to `jit.attach` to detach it. Dropping the last
     --- reference to a handler does not remove it.
@@ -842,9 +842,9 @@ export function sample(options: SampleOptions?): SampleSession
     if intervalms < 1 or intervalms > 2147483647 then
         error("nupp: a sample session's intervalms must be between 1 and 2147483647", 2)
     end
-    local stackdepth = opts.stackdepth or 16
-    if stackdepth < 1 or stackdepth > 2147483647 then
-        error("nupp: a sample session's stackdepth must be between 1 and 2147483647", 2)
+    local depth = opts.depth or 16
+    if depth < 1 or depth > 2147483647 then
+        error("nupp: a sample session's depth must be between 1 and 2147483647", 2)
     end
 
     local owned = SampleSession(
@@ -854,7 +854,7 @@ export function sample(options: SampleOptions?): SampleSession
         paused = false,
         stopped = false,
         aggregate = {},
-        sourcesamples = {}
+        lines = {}
     )
     -- The sampler's callback reads the session for as long as it runs, while the
     -- caller holds the one obligation to close it.
@@ -863,7 +863,7 @@ export function sample(options: SampleOptions?): SampleSession
     -- Negative, so the walk runs outermost frame first: that is the order a collapsed
     -- stack is written in, and reversing it here would mean building a list per sample
     -- on the interrupted thread.
-    local walk = -stackdepth
+    local walk = -depth
     local aggregate = session.aggregate
     -- The zone path is a string the zone module holds onto until the stack changes, so
     -- consecutive samples in one zone hit the same table entry without hashing a fresh
@@ -908,10 +908,10 @@ export function sample(options: SampleOptions?): SampleSession
         if thread and (vmstate == "N" or vmstate == "I") then
             -- Preserve paths and lines independently of the flamegraph's names.
             local location = profiler.dumpstack(thread, "pl", 1)
-            local locations = session.sourcesamples[path]
+            local locations = session.lines[path]
             if not locations then
                 locations = {}
-                session.sourcesamples[path] = locations
+                session.lines[path] = locations
             end
             locations[location] = (locations[location] or 0) + samples
         end
@@ -1023,22 +1023,22 @@ function SampleSession:stop(filename: string?): SampleReport
     end
 
     local counts: {[string]: integer} = {}
-    for path, locations in pairs(self.sourcesamples) do
+    for path, locations in pairs(self.lines) do
         if not prefix or path == prefix or path:sub(1, #subtree) == subtree then
             for location, count in pairs(locations) do
                 counts[location] = (counts[location] or 0) + count
             end
         end
     end
-    local sourcesamples: {SourceSample} = {}
+    local lines: {SourceSample} = {}
     for location, count in pairs(counts) do
         local file, at = location:match("^(.*):(%d+)$")
         local line = tonumber(at)
         if file and line and line > 0 then
-            sourcesamples[#sourcesamples + 1] = {file = file, line = line as integer, samples = count}
+            lines[#lines + 1] = {file = file, line = line as integer, samples = count}
         end
     end
-    table.sort(sourcesamples, function(a: SourceSample, b: SourceSample): boolean
+    table.sort(lines, function(a: SourceSample, b: SourceSample): boolean
         if a.file ~= b.file then
             return a.file < b.file
         end
@@ -1046,7 +1046,7 @@ function SampleSession:stop(filename: string?): SampleReport
     end)
     local report = SampleReport(
         intervalms = self.intervalms,
-        sourcesamples = sourcesamples,
+        lines = lines,
         samples = samples,
         stacks = #kept,
         text = collapse(kept)
@@ -1140,7 +1140,7 @@ local function tocsv(report: TraceReport): string
                 quote(site.reason),
                 quote(site.location),
                 quote(site.zonepath),
-                quote(site.rootlocation or site.location),
+                quote(site.root or site.location),
             },
             ","
         )
@@ -1187,7 +1187,7 @@ end
 --- local session = profile.trace()
 --- render()
 --- local report = session:stop("aborts.csv")
---- print(report.blacklisted, report.totalaborts)
+--- print(report.blacklisted, report.aborts)
 --- ```
 ---
 --- @param options omitted leaves the benign trace-formation events out
@@ -1200,14 +1200,14 @@ export function trace(options: TraceOptions?): TraceSession
 
     local opts: TraceOptions = options or {}
     local owned = TraceSession(
-        includebenign = opts.includebenign or false,
-        startedat = os.time() as integer,
+        benign = opts.benign or false,
+        started = os.time() as integer,
         paused = false,
         stopped = false,
         sites = {},
-        totalaborts = 0,
+        aborts = 0,
         blacklisted = 0,
-        traceprofile = recorder(),
+        recorder = recorder(),
         callback = function()
         end
     )
@@ -1241,19 +1241,19 @@ export function trace(options: TraceOptions?): TraceSession
         local detail = (type(errarg) == "number" or type(errarg) == "string") and errarg or nil
         local entry, text = abort(code, detail)
         local severity = classify(text, entry.class)
-        if severity == "info" and not session.includebenign then
+        if severity == "info" and not session.benign then
             return
         end
 
-        session.totalaborts = session.totalaborts + 1
+        session.aborts = session.aborts + 1
         if severity == "blacklist" then
             session.blacklisted = session.blacklisted + 1
         end
 
         local location = locate(func, pc)
         local path = zone.path()
-        local rootlocation = roots[tracenum] or location
-        local key = severity .. "|" .. text .. "|" .. rootlocation .. "|" .. location .. "|" .. path
+        local root = roots[tracenum] or location
+        local key = severity .. "|" .. text .. "|" .. root .. "|" .. location .. "|" .. path
         local site = session.sites[key]
         if site then
             site.count = site.count + 1
@@ -1268,7 +1268,7 @@ export function trace(options: TraceOptions?): TraceSession
                 reasonclass = entry.class,
                 rawreason = text,
                 location = location,
-                rootlocation = rootlocation,
+                root = root,
                 zonepath = path
             )
         end
@@ -1336,13 +1336,13 @@ function TraceSession:stop(filename: string?): TraceReport
     end)
 
     local report = TraceReport(
-        durationsec = (os.time() as integer) - self.startedat,
-        totalaborts = self.totalaborts,
+        seconds = (os.time() as integer) - self.started,
+        aborts = self.aborts,
         blacklisted = self.blacklisted,
         sites = sites,
-        traceprofile = self.traceprofile,
-        reasoncatalogid = catalogid,
-        reasoncatalogversion = catalogversion
+        recorder = self.recorder,
+        catalogid = catalogid,
+        catalogversion = catalogversion
     )
     if filename then
         save(filename, tostring(report))

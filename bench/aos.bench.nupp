@@ -66,22 +66,22 @@ end
 bench.suite(
     {
         name = "aos",
-        baselinevariant = "tables",
+        baseline = "tables",
         variants = {{name = "tables", run = tables}, {name = "carray", run = structs},},
         cases = {{name = "particle-update", operations = N * STEPS},},
-        warmupiterations = 1,
+        warmup = 1,
         -- One call allocates close enough to a collector cycle that a single call per
         -- sample put a collection in every other one, splitting the samples into a
         -- fast cluster and a slow one with the median in the sparse middle. Several
         -- calls per sample span whole cycles, so every sample pays its share instead
         -- of every other one paying all of it.
-        sampleiterations = 8,
+        batch = 8,
         minsamples = 5,
-        mindurationms = 500,
+        minms = 500,
         maxsamples = 100,
         -- Eight table calls take about three seconds on a hosted runner, so ten
         -- seconds stopped the baseline one sample short of minsamples.
-        maxdurationms = 30000,
+        maxms = 30000,
     } as bench.SuiteOptions
 )
 bench.report()

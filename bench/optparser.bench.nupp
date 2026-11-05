@@ -159,15 +159,15 @@ assert(legacy(nil, nil as any) == cursor(nil, nil as any))
 bench.suite(
     {
         name = "optparser",
-        baselinevariant = "record-token",
+        baseline = "record-token",
         variants = {{name = "record-token", run = legacy}, {name = "mutable-cursor", run = cursor},},
         cases = {{name = "mixed-argv", operations = TOKEN_COUNT},},
-        warmupiterations = 20,
-        sampleiterations = 100000,
+        warmup = 20,
+        batch = 100000,
         minsamples = 15,
-        mindurationms = 1000,
+        minms = 1000,
         maxsamples = 100,
-        maxdurationms = 10000,
+        maxms = 10000,
     } as bench.SuiteOptions
 )
 bench.report()

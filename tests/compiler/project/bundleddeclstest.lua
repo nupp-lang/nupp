@@ -313,7 +313,7 @@ local profile = debug.profile
 local version: integer = profile.catalogversion
 local session = profile.trace()
 local report: profile.TraceReport = session:stop()
-return version, report.totalaborts
+return version, report.aborts
 ]]
         ),
         ""

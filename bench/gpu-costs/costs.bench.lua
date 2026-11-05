@@ -83,7 +83,7 @@ end
 
 bench.suite({
     name = "gpu-costs",
-    baselinevariant = "cpu-aot",
+    baseline = "cpu-aot",
     variants = {
         {name = "cpu-aot", setup = host, run = runCpu, teardown = check},
         {
@@ -97,11 +97,11 @@ bench.suite({
         },
     },
     cases = {{name = "mix64", parameters = {count = {64, 4096, 262144}}}},
-    warmupiterations = 1,
-    sampleiterations = 64,
+    warmup = 1,
+    batch = 64,
     minsamples = 7,
-    mindurationms = 100,
+    minms = 100,
     maxsamples = 100000,
-    maxdurationms = 3000,
+    maxms = 3000,
 })
 bench.report()

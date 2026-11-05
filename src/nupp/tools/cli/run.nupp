@@ -347,7 +347,7 @@ local function run(options: any): integer
             sampling = profile.sample({intervalms = intervalMs, root = path})
         end
         if tracingAborts then
-            tracing = profile.trace({includebenign = true})
+            tracing = profile.trace({benign = true})
         end
     end
 
@@ -379,7 +379,7 @@ local function run(options: any): integer
     if sampling then
         local summary = sampling:stop(profileOut)
         own.drop(sampling)
-        compile.attachSamples(settings, summary.sourcesamples, summary.samples, summary.intervalms)
+        compile.attachSamples(settings, summary.lines, summary.samples, summary.intervalms)
         if sampledRemarks then
             require(
                 "nupp.compiler.diagnostics"
@@ -413,16 +413,16 @@ local function run(options: any): integer
                     blacklisted = site.severity == "blacklist",
                     rawReason = site.rawreason,
                     location = siteLocation(site.location),
-                    rootLocation = siteLocation(site.rootlocation),
+                    rootLocation = siteLocation(site.root),
                     zone = site.zonepath,
                 }
             end
             local document = {
-                durationMs = summary.durationsec * 1000,
-                totalAborts = summary.totalaborts,
+                durationMs = summary.seconds * 1000,
+                totalAborts = summary.aborts,
                 blacklisted = summary.blacklisted,
-                traceProfile = require("nupp.tools.profilemetadata").capture(summary.traceprofile),
-                reasonCatalog = {id = summary.reasoncatalogid, version = summary.reasoncatalogversion,},
+                traceProfile = require("nupp.tools.profilemetadata").capture(summary.recorder),
+                reasonCatalog = {id = summary.catalogid, version = summary.catalogversion,},
                 sites = sites,
             }
             -- `NaN` and `Infinity` are not JSON, so a document carrying one is one a
@@ -446,7 +446,7 @@ local function run(options: any): integer
         io.stderr:write(
             (
                 "nupp: %d trace aborts, %d blacklisted, written to " .. "%s\n"
-            ):format(summary.totalaborts, summary.blacklisted, abortsOut)
+            ):format(summary.aborts, summary.blacklisted, abortsOut)
         )
     end
 
