@@ -1254,25 +1254,42 @@ function M.luaJitBuildPatchesOnlyItsPrivateSourceCopy()
     write(root .. "/host/notices/LuaJIT-COPYRIGHT.txt", notice)
     write(source .. "/COPYRIGHT", notice)
     write(source .. "/src/lj_arch.h", "/* fixture source marker */\n")
-    local header = "#define irt_is64(t)\t\t((IRT_IS64 >> irt_type(t)) & 1)\n"
+    local header = string.rep(
+        "\n",
+        408
+    )
+        .. "#define irt_is64(t)\t\t((IRT_IS64 >> irt_type(t)) & 1)\n"
         .. "#define irt_is64orfp(t)\t\t(((IRT_IS64|(1u<<IRT_FLOAT))>>irt_type(t)) & 1)\n\n"
         .. "#define irt_size(t)\t\t(lj_ir_type_size[irt_t((t))])\n\n"
         .. "LJ_DATA const uint8_t lj_ir_type_size[];\n\n"
     write(source .. "/src/lj_ir.h", header)
     -- The loop-entry hunk's context, at the line it names.
-    write(
-        source .. "/src/vm_arm64.dasc",
-        string.rep(
-            "\n",
-            3938
-        )
+    local vm = string.rep(
+        "\n",
+        3938
+    )
         .. "    if (op == BC_FORI) {\n"
         .. "      |  csel PC, RC, PC, hi\n"
         .. "    } else if (op == BC_JFORI) {\n"
         .. "      |  ldrh RCw, [RC, #-4+OFS_RD]\n"
         .. "      |  bls =>BC_JLOOP\n"
         .. "    } else if (op == BC_IFORL) {\n"
+    write(source .. "/src/vm_arm64.dasc", vm)
+    -- The temporary-file hunks start at lines 26 and 444 in the pinned source.
+    local ioSource = string.rep(
+        "\n",
+        25
     )
+        .. '#include "lj_ff.h"\n#include "lj_lib.h"\n#include "lj_strscan.h"\n\n'
+        .. "/* Userdata payload for I/O file. */\ntypedef struct IOFileUD {\n"
+        .. string.rep(
+            "\n",
+            412
+        )
+        .. "  IOFileUD *iof = io_file_new(L);\n"
+        .. "#if LJ_TARGET_PS3 || LJ_TARGET_PS4 || LJ_TARGET_PS5 || LJ_TARGET_PSVITA || LJ_TARGET_NX\n"
+        .. "  iof->fp = NULL; errno = ENOSYS;\n#else\n  iof->fp = tmpfile();\n#endif\n"
+    write(source .. "/src/lib_io.c", ioSource)
     local make = directory .. "/fake-make"
     write(
         make,
@@ -1289,6 +1306,9 @@ while [ "$#" -gt 0 ]; do
 done
 [ "$tree" != "$NUPP_TEST_SHARED_SOURCE" ]
 grep -F 'lj_ir_type_size[irt_type((t))]' "$tree/src/lj_ir.h" >/dev/null
+grep -F '|  mov PC, RC' "$tree/src/vm_arm64.dasc" >/dev/null
+grep -F 'static FILE *io_tmpfile_open(void)' "$tree/src/lib_io.c" >/dev/null
+grep -F 'iof->fp = io_tmpfile_open();' "$tree/src/lib_io.c" >/dev/null
 printf 'private\n' > "$tree/private-build-marker"
 if [ "$mode" = build ]; then
     : > "$tree/src/libluajit.a"
@@ -1317,6 +1337,8 @@ fi
     )
     assert(status == 0, output)
     assert(read(source .. "/src/lj_ir.h") == header, "the shared verified source was patched")
+    assert(read(source .. "/src/vm_arm64.dasc") == vm, "the shared verified VM source was patched")
+    assert(read(source .. "/src/lib_io.c") == ioSource, "the shared verified I/O source was patched")
     assert(not io.open(source .. "/private-build-marker", "rb"), "make wrote into the shared verified source")
 end
 
