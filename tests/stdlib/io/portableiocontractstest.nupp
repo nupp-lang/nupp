@@ -4,32 +4,13 @@ local standard = require("io")
 local http = require("io.http")
 local tests = {}
 
-local record Upload is http.Reader
-    bytes: string
-    closed: {boolean}
-
-    function read(exclusive self, count: integer): (string?, string?)
-        local out = self.bytes:sub(1, count)
-        self.bytes = self.bytes:sub(#out + 1)
-        return out
-    end
-
-    function close(takes self): nil
-        self.closed[1] = true
-    end
-end
-
-local function consume(takes source: http.Reader): string
-    local first = assert2(source:read(3))
-    local second = assert2(source:read(3))
-    source:close()
-    return first .. second
-end
-
-function tests.lightweightUploadsKeepTheirNarrowContract(): nil
-    local closed = {false}
-    assert2(consume(Upload(bytes = "abcdef", closed = closed)) == "abcdef")
-    assert2(closed[1])
+function tests.uploadBodiesUseTheSharedReaderContract(): nil
+    local body = http.reader(standard.Reader.of("abcdef"), 6)
+    local destination = standard.Buffer.create()
+    assert2(body.reader:readinto(destination, 0, 3) == 3)
+    assert2(destination:getstring() == "abc")
+    assert2(body.reader:read(3) == "def")
+    body:close()
 end
 
 function tests.byteReadersSnapshotBuffersAndViews(): nil
@@ -52,10 +33,6 @@ function tests.byteWriterExclusivelyBorrowsAndClearsItsBuffer(): nil
         assert2(writer:flush())
     end
     assert2(buffer:getstring() == "new")
-end
-
-function tests.ordinaryReadersSatisfyTheUploadSubset(): nil
-    assert2(consume(standard.Reader.of("abcdef")) == "abcdef")
 end
 
 local record Queue is standard.ByteQueue

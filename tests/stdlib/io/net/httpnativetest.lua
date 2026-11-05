@@ -466,22 +466,8 @@ end
 -- peer never answers, so nothing but the declaration can stop the excess.
 function M.aReaderBodyLongerThanItsDeclarationFails()
     local client = ready()
-    local declared, calls = 4096, 0
-    local reader = {
-        read = function(_self, count)
-            calls = calls + 1
-            if calls == 1 then
-                return string.rep("a", declared)
-            elseif calls == 2 then
-                return "EXTRA"
-            end
-
-            return ""
-        end,
-        close = function()
-            return true
-        end,
-    }
+    local declared = 4096
+    local reader = buffers.Reader.of(string.rep("a", declared) .. "EXTRA")
     local response, reason = client:send({
         url = endpoint("/slow-upload"),
         method = "POST",

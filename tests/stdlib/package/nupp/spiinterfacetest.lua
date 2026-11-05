@@ -89,6 +89,30 @@ return true
     assert(found == "", found)
 end
 
+function M.httpUploadsUseTheSharedOwnedReaderContract()
+    local found = errors(
+        [[
+local http = require("io.http")
+local io = require("io")
+local function inspectReader(borrows reader: io.Reader): nil
+    local buffer = io.Buffer.create()
+    reader:readinto(buffer, 0, 8)
+end
+local function inspect(borrows body: http.ReaderBody): nil
+    inspectReader(body.reader)
+end
+local function upload(takes source: io.Reader): http.ReaderBody
+    return http.reader(source, nil, nil)
+end
+local body = upload(io.Reader.of("payload"))
+inspect(body)
+body:close()
+return true
+]]
+    )
+    assert(found == "", found)
+end
+
 function M.bundledAliasesShareStagedNominalTypes()
     local fs = require("nupp.compiler.fs")
     local incremental = require("nupp.compiler.project.incremental")

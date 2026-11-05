@@ -94,6 +94,7 @@ module nupp.io.http
 
 local contracts = require("nupp.io.http.contracts")
 local messages = require("nupp.io.http.messages")
+const {type Reader} = require("nupp.io")
 const {type Path} = require("io.internal.files.path")
 const paths = require("io.internal.path")
 const appPaths = require("io.internal.files.path")
@@ -102,8 +103,6 @@ local http = {}
 
 type http.Client = contracts.Client
 type http.Response = contracts.Response
-type http.Body = contracts.Body
-type http.Reader = messages.Reader
 type http.Capabilities = messages.Capabilities
 type http.Version = messages.Version
 type http.Options = messages.Options
@@ -151,9 +150,10 @@ const http.capabilities = provider.capabilities
 --- @return the request body
 --- @raises string when reader does not implement the reader contract, length is
 ---     negative, or contenttype is not a string
-function http.reader(takes reader: messages.Reader, len: integer?, contenttype: string?): http.ReaderBody
+function http.reader(takes reader: Reader, len: integer?, contenttype: string?): http.ReaderBody
     if type(reader) ~= "table"
         or type((reader as any).read) ~= "function"
+        or type((reader as any).readinto) ~= "function"
         or type((reader as any).close) ~= "function"
     then
         error("nupp: HTTP reader body needs a reader", 2)

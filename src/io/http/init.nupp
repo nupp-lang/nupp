@@ -90,27 +90,25 @@ also closes a reader body transferred into it.
 ]]
 module io.http
 
-local source1 = require("nupp.io.http")
-export type Body = source1.Body
-export type Capabilities = source1.Capabilities
-export interface Client is source1.Client
+local implementation = require("nupp.io.http")
+export type Capabilities = implementation.Capabilities
+export interface Client is implementation.Client
     --- Opens an owned client using the selected HTTP provider.
-    function create(options: source1.Options?): Client
-        return source1.newClient(options)
+    function create(options: implementation.Options?): Client
+        return implementation.newClient(options)
     end
 end
-export type FileBody = source1.FileBody
-export type Options = source1.Options
-export type Reader = source1.Reader
-export type ReaderBody = source1.ReaderBody
-export type Request = source1.Request
-export type RequestBody = source1.RequestBody
-export type Response = source1.Response
-export type Version = source1.Version
-export const Capabilities = source1.Capabilities
-export const FileBody = source1.FileBody
-export const ReaderBody = source1.ReaderBody
-export const Request = source1.Request
-export const capabilities = source1.capabilities
-export const file = source1.file
-export const reader = source1.reader
+export type FileBody = implementation.FileBody
+export type Options = implementation.Options
+export type ReaderBody = implementation.ReaderBody
+export type Request = implementation.Request
+export type RequestBody = implementation.RequestBody
+export type Response = implementation.Response
+export type Version = implementation.Version
+export const Capabilities = implementation.Capabilities
+export const FileBody = implementation.FileBody
+export const ReaderBody = implementation.ReaderBody
+export const Request = implementation.Request
+export const capabilities = implementation.capabilities
+export const file = implementation.file
+export const reader = implementation.reader

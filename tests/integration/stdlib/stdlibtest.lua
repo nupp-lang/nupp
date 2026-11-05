@@ -474,23 +474,25 @@ function M.httpBodyHelpersRejectMalformedRuntimeInputs()
         {
             close = function()
             end,
+        },
+        {
+            read = function()
+                return ""
+            end,
+            close = function()
+            end,
         }
     }) do
         local ok, problem = pcall(http.reader, invalid)
         assert(not ok and tostring(problem):find("needs a reader", 1, true), tostring(problem))
     end
 
-    local source = {
-        read = function()
-            return ""
-        end,
-        close = function()
-        end,
-    }
+    local source = io.Reader.of("")
     for _, invalid in ipairs({false, "1", -1, 1.5, math.huge, 0 / 0}) do
         local ok, problem = pcall(http.reader, source, invalid)
         assert(not ok and tostring(problem):find("nonnegative integer", 1, true), tostring(problem))
     end
+    source:close()
 end
 
 function M.browserFilesUseEffectsAndRejectMalformedBoundaries()
@@ -1256,17 +1258,12 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
         local client = browser.newclient(options)
         options.headers["X-Default"] = "changed after client construction"
         local closedUpload = false
-        local input = "upload"
-        local source = {
-            read = function(_, count)
-                local bytes = input:sub(1, count);
-                input = input:sub(#bytes + 1);
-                return bytes
-            end,
-            close = function()
-                closedUpload = true
-            end
-        }
+        local source = require("io").Reader.of("upload")
+        local close = source.close
+        source.close = function(self)
+            closedUpload = true
+            close(self)
+        end
         local request = setmetatable(
             {
                 url = assert(require("io.internal.uri").newuri("https://example.com/")),
@@ -3481,8 +3478,8 @@ function M.applicationResourcesHideLifecycleAndTransportMachinery()
     for _, example in ipairs({
         {"io", "Process", "teardown"},
         {"io", "Process", "destroy"},
-        {"io.http", "Body", "release"},
-        {"io.http", "Body", "_transfer"},
+        {"io", "Reader", "release"},
+        {"io", "Reader", "_transfer"},
         {"io.http", "Response", "_packed"},
         {"io.http", "Client", "_native"},
         {"io.http", "Client", "_retainSource"},

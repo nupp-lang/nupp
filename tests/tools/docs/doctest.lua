@@ -7376,4 +7376,76 @@ export function inspect(kind: string, size: integer, modified: number, readonly:
     assert(short == "function(value: string): string", short)
 end
 
+function M.publicFacadesIncludePrivateBaseContracts()
+    local modules = aliasModel({
+        [
+            "src/http/init.nupp"
+        ] = [[
+module http
+local source1 = require("http.internal.facade")
+export type Options = source1.Options
+export interface Client is source1.Client
+    function create(options: source1.Options?): Client
+        error("fixture")
+    end
+    pending: function(self: Client): integer
+end
+]],
+        [
+            "src/http/internal/facade.nupp"
+        ] = [[
+module http.internal.facade
+local contracts = require("http.internal.contracts")
+export type Client = contracts.Client
+export type Options = contracts.Options
+]],
+        [
+            "src/http/internal/contracts.nupp"
+        ] = [[
+module http.internal.contracts
+local public = require("resource")
+export type Options = {limit: integer?}
+export interface Base is public.Closeable
+    --- Reports the outstanding work.
+    pending: function(self: Base): integer
+end
+export interface Client is Base
+    --- Sends a request.
+    send: function(self: Client, options: Options): string
+    pump: function(exclusive self: Client): nil
+end
+]],
+        [
+            "src/resource.nupp"
+        ] = [[
+module resource
+export interface Closeable
+    close: function(takes self: Closeable): nil
+end
+]],
+    })
+    local client
+    for _, item in ipairs(modules.http.items) do
+        if item.name == "Client" then
+            client = item
+        end
+    end
+    assert(client, "the public client was omitted")
+    assert(client.signature == "interface Client is resource.Closeable", client.signature)
+    assert(#client.supertypes == 1 and client.supertypes[1] == "resource.Closeable")
+    local members = {}
+    for _, member in ipairs(client.members) do
+        assert(not members[member.name], "an inherited member was duplicated")
+        members[member.name] = member
+        assert(member.path == "http.Client." .. member.name, member.path)
+        assert(not member.type:find("source1", 1, true), member.type)
+        assert(not member.type:find("internal", 1, true), member.type)
+    end
+    assert(members.create.type == "function create(options: Options?): Client", members.create.type)
+    assert(members.send.type == "function(self: Client, options: Options): string", members.send.type)
+    assert(members.send.text == "Sends a request.", members.send.text)
+    assert(members.pump.type == "function(exclusive self: Client): nil", members.pump.type)
+    assert(members.pending.text == "", "an inherited member replaced an explicit member")
+end
+
 return M

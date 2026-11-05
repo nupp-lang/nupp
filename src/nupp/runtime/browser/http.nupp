@@ -50,7 +50,6 @@ end
 
 type http.Version = messages.Version
 type http.Options = messages.Options
-type http.Reader = messages.Reader
 type http.ReaderBody = messages.ReaderBody
 http.ReaderBody = messages.ReaderBody
 type http.FileBody = messages.FileBody
@@ -58,8 +57,6 @@ http.FileBody = messages.FileBody
 type http.RequestBody = messages.RequestBody
 type http.Request = messages.Request
 http.Request = messages.Request
-
-type http.Body = io.Reader
 
 local function whole(value: any, what: string, minimum: integer): integer
     if type(value) ~= "number" or value ~= math.floor(value) or value < minimum then
@@ -150,7 +147,7 @@ record http.Response is contracts.Response
     status: integer
     version: http.Version?
     url: uri.URI
-    body: http.Body
+    body: io.Reader
     @private _headers: {[string]: {string}}
     @private _closed: boolean
 
@@ -195,7 +192,7 @@ end
 local function makeResponse(
     status: integer,
     url: uri.URI,
-    takes body: http.Body,
+    takes body: io.Reader,
     headers: {[string]: {string}}
 ): http.Response
     return http.Response(status = status, version = nil, url = url, body = body, _headers = headers, _closed = false)

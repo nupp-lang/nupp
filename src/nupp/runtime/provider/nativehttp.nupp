@@ -66,7 +66,6 @@ end
 
 type http.Version = messages.Version
 type http.Options = messages.Options
-type http.Reader = messages.Reader
 type http.ReaderBody = messages.ReaderBody
 http.ReaderBody = messages.ReaderBody
 type http.FileBody = messages.FileBody
@@ -881,32 +880,17 @@ function http.Client._releaseSource(self: http.Client): nil
 end
 
 local function readUpload(
-    borrows source: messages.Reader,
+    borrows source: io.Reader,
     exclusive destination: io.Buffer,
     offset: integer,
     count: integer
 ): (integer?, string?)
-    -- The full byte-reader contract offers a direct buffer path. The portable
-    -- request contract also accepts a string-only reader; guard the extension
-    -- before using it and preserve capability tracking across either call.
-    if type((source as io.Reader).readinto) == "function" then
-        local got, reason = (source as io.Reader):readinto(destination, offset, count)
-        if got ~= nil and (type(got) ~= "number" or got ~= math.floor(got) or got < 0 or got > count) then
-            error("nupp: HTTP request reader returned an invalid byte count", 3)
-        end
+    local got, reason = source:readinto(destination, offset, count)
+    if got ~= nil and (type(got) ~= "number" or got ~= math.floor(got) or got < 0 or got > count) then
+        error("nupp: HTTP request reader returned an invalid byte count", 3)
+    end
 
-        return got, reason
-    end
-    local chunk, reason = source:read(count)
-    if chunk == nil then
-        return nil, reason
-    end
-    if type(chunk) ~= "string" or #chunk > count then
-        error("nupp: HTTP request reader returned invalid bytes", 3)
-    end
-    destination:setstring(chunk, offset)
-
-    return #chunk
+    return got, reason
 end
 
 --- Sends a request and waits for its response headers.
@@ -953,7 +937,7 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
     end
     local requestBody = given.body
     local body, bodyKind, bodyLength = requestBody, 0, nil
-    local reader: messages.Reader? = nil
+    local reader: io.Reader? = nil
     local contentType = nil
     if body ~= nil then
         local concrete: any = body
