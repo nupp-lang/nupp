@@ -35,7 +35,7 @@ function statements.slot(ctx: context.Context, uniqueName: string, typeName: str
     end
     local llvmType = context.slotType(ctx, typeName, carried == true)
     local scalar = types.value(typeName) ~= nil
-    local slot = new context.Slot(
+    local slot = context.Slot(
         pointer = builder.alloca(ctx.f, llvmType, not scalar and 16 or types.bits(typeName) >= 64 and 8 or 4),
         type = typeName,
         carried = carried == true
@@ -59,7 +59,7 @@ local function condition(ctx: context.Context, node: scalarIR.Expr): string
 end
 
 local function loop(ctx: context.Context, breakLabel: string, continueLabel: string, body: function(): nil): nil
-    ctx.loops[#ctx.loops + 1] = new context.Loop(breakLabel = breakLabel, continueLabel = continueLabel)
+    ctx.loops[#ctx.loops + 1] = context.Loop(breakLabel = breakLabel, continueLabel = continueLabel)
     body()
     ctx.loops[#ctx.loops] = nil
 end
@@ -177,7 +177,7 @@ local function provedSpans(statement: scalarIR.Statement): {string}
 
     visit.block(
         {statement},
-        new visit.Visitor(
+        visit.Visitor(
             scalarExpression = function(node: scalarIR.Expr): nil
                 note(node)
             end,
@@ -217,7 +217,7 @@ local function unrollFactor(ctx: context.Context, statement: scalarIR.While): in
 
     visit.block(
         statement.body,
-        new visit.Visitor(
+        visit.Visitor(
             scalarExpression = function(node: scalarIR.Expr): nil
                 note(node)
             end,
@@ -324,10 +324,10 @@ local function cursorStep(ctx: context.Context, statement: scalarIR.While, fits:
                 end
                 widths[
                     #widths + 1
-                ] = new scalarIR.IntConstant(op = "constant_i32", value = tostring((step as number) + 1), type = "u32")
+                ] = scalarIR.IntConstant(op = "constant_i32", value = tostring((step as number) + 1), type = "u32")
                 left = (left as scalarIR.Fixed).left
             else
-                widths[#widths + 1] = new scalarIR.IntConstant(op = "constant_i32", value = "1", type = "u32")
+                widths[#widths + 1] = scalarIR.IntConstant(op = "constant_i32", value = "1", type = "u32")
             end
             left = uncast(left)
             if left.op ~= "local" or left.type ~= "u32" then
@@ -348,7 +348,7 @@ local function cursorStep(ctx: context.Context, statement: scalarIR.While, fits:
     local writes = 0
     visit.block(
         statement.body,
-        new visit.Visitor(scalarStatement = function(node: scalarIR.Statement): nil
+        visit.Visitor(scalarStatement = function(node: scalarIR.Statement): nil
             if node.op == "assign" then
                 for _, target in ipairs((node as scalarIR.Assign).values) do
                     if target.target.uniqueName == cursor then

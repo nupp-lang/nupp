@@ -275,8 +275,8 @@ function M.recursiveDerivedGraphRechecksAcrossThreeModules()
                 "local model = require('model')",
                 "local bridge = require('bridge')",
                 "local binding: serde.Binding<model.Node> = bridge.binding()",
-                "local root = new model.Node(name = 'root', children = {",
-                "   new model.Node(name = 'leaf', children = {}),",
+                "local root = model.Node(name = 'root', children = {",
+                "   model.Node(name = 'leaf', children = {}),",
                 "})",
                 "return binding, root",
             },
@@ -333,11 +333,7 @@ function M.changingADeriveProviderReplansItsClaim()
     write(
         mainPath,
         table.concat(
-            {
-                "local model = require('model')",
-                "local config = new model.Config(value = 'x')",
-                "return config:debug()",
-            },
+            {"local model = require('model')", "local config = model.Config(value = 'x')", "return config:debug()",},
             "\n"
         )
     )
@@ -449,7 +445,7 @@ function M.deriveRecipesMemoizeAndPublishBehaviorChanges()
     write(depPath, dep)
     write(
         mainPath,
-        table.concat({"local dep = require('dep')", "local config = new dep.Config()", "return config:debug()",}, "\n")
+        table.concat({"local dep = require('dep')", "local config = dep.Config()", "return config:debug()",}, "\n")
     )
 
     local inc = incremental.new(dir, {cache = false})
@@ -531,11 +527,7 @@ function M.deriveDocumentationChangesInvalidateGeneratedBehavior()
     write(
         mainPath,
         table.concat(
-            {
-                "local dep = require('dep')",
-                "local config = new dep.Config(value = 1)",
-                "return config:documentation()",
-            },
+            {"local dep = require('dep')", "local config = dep.Config(value = 1)", "return config:documentation()",},
             "\n"
         )
     )
@@ -576,7 +568,7 @@ function M.fieldDefaultChangesInvalidateModuleConsumers()
         "\n"
     )
     write(depPath, dep)
-    write(mainPath, table.concat({"local dep = require('dep')", "return new dep.Config()",}, "\n"))
+    write(mainPath, table.concat({"local dep = require('dep')", "return dep.Config()",}, "\n"))
 
     local inc = incremental.new(dir, {cache = false})
     testAssert.eq(#inc.checkFile(mainPath).diags, 0, "defaulted dependency checks cold")
@@ -991,7 +983,7 @@ function M.bundledModuleTypesResolveThroughTheIncrementalGraph()
                 "local record Thing",
                 "   buf: buffer.Buffer",
                 "end",
-                "local thing = new Thing(buf = buffer.new())",
+                "local thing = Thing(buf = buffer.new())",
                 "return thing.buf:tostring()",
             },
             "\n"
@@ -1317,7 +1309,7 @@ function M.aRecordClaimNamesWhatItsLocalsRequire()
         "local b = require('pkg.b')",
         "export const options: b.Options? = nil"
     })
-    write("main.nupp", {"local b = require('pkg.b')", "local o: b.Options = new b.Options()", "print(o.n)"})
+    write("main.nupp", {"local b = require('pkg.b')", "local o: b.Options = b.Options()", "print(o.n)"})
 
     local inc = incremental.new(dir, {cache = false})
     local diags = inc.checkFile(dir .. "/main.nupp").diags
@@ -1384,7 +1376,7 @@ function M.stagingACarriedModuleChecksNothingAgain()
                 "end",
                 "function m.build(path: string): m.Holder",
                 "   print(files.exists(path))",
-                "   return new m.Holder(observers = events.newobservers())",
+                "   return m.Holder(observers = events.Observers())",
                 "end",
                 "return m",
             },

@@ -67,7 +67,7 @@ local function clear(exclusive points: span.WriteSpan<Point>): nil
     const view = points
     const indexes = indexed.range(1, #view, view)
     for index = indexes.first, indexes.last do
-        view[index] = new Point(0, 0)
+        view[index] = Point(0, 0)
     end
 end
 

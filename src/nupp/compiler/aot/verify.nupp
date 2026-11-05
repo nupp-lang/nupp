@@ -125,7 +125,7 @@ end
 --- the scope reaches every nested block rather than the ones somebody
 --- remembered to copy it into.
 local function derive(scope: verify.Scope, overrides: {[string]: any}): verify.Scope
-    local nested = new verify.Scope(
+    local nested = verify.Scope(
         spans = scope.spans,
         layouts = scope.layouts,
         helpers = scope.helpers,
@@ -552,7 +552,7 @@ local loopFrames: {verify.LoopFrame} = {}
 --- outside it, and nothing else.
 local function enterLoop(carried: {scalarIR.Carried}?, values: {[string]: string}): nil
     holds(carried ~= nil, "a loop without its carried list")
-    local frame = new verify.LoopFrame(carried = {}, seen = {})
+    local frame = verify.LoopFrame(carried = {}, seen = {})
     for _, entry in ipairs(carried as {scalarIR.Carried}) do
         holds(values[entry.name] == entry.type, "a loop carries a local it cannot see")
         holds(values[ASSIGNED .. entry.name] ~= nil, "a loop carries a local its binding did not declare assigned")
@@ -786,7 +786,7 @@ local function widenedUint32(value: scalarIR.Expr): scalarIR.Expr?
         local written = (value as scalarIR.Int64Constant).value
         local number = tonumber(written)
         if number ~= nil and number >= 0 and number <= 4294967295 and number % 1 == 0 then
-            return new scalarIR.IntConstant(op = "constant_i32", value = written, type = "u32")
+            return scalarIR.IntConstant(op = "constant_i32", value = written, type = "u32")
         end
     end
 
@@ -823,7 +823,7 @@ local function laneBound(
         local product = sum.right as scalarIR.Fixed
         local left, right = widenedUint32(product.left), widenedUint32(product.right)
         if left ~= nil and right ~= nil then
-            lanesNode = new scalarIR.Fixed(
+            lanesNode = scalarIR.Fixed(
                 op = "u32_mul",
                 left = left as scalarIR.Expr,
                 right = right as scalarIR.Expr,
@@ -1176,7 +1176,7 @@ local function genericSimdFieldElement(scope: verify.Scope, layoutName: string?,
     end
 
     return genericSimdSpanElement(
-        new scalarIR.Param(
+        scalarIR.Param(
             kind = "read_span",
             name = field as string,
             type = storedType as string,
@@ -2766,7 +2766,7 @@ local function block(
                 )
                 accumulated[entry.name] = entry
             end
-            block(region.body, values, derive(scope, {region = new verify.Region(reducers = accumulated)}), stored)
+            block(region.body, values, derive(scope, {region = verify.Region(reducers = accumulated)}), stored)
             local named: {[string]: boolean} = {}
             for name in pairs(accumulated) do
                 named[name] = true
@@ -3853,7 +3853,7 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
         end
         indexSpans = provable
     end
-    local scope = new verify.Scope(
+    local scope = verify.Scope(
         spans = byName,
         layouts = layouts,
         helpers = helpers,

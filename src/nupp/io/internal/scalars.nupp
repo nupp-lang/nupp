@@ -166,11 +166,11 @@ put = function(borrows self: ScalarWriter, bytes: string): nil
 end
 
 local function openReader(source: any): ScalarReader
-    return new Scalars(_pending = "", _reader = source, _closed = false)
+    return Scalars(_pending = "", _reader = source, _closed = false)
 end
 
 local function openWriter(destination: any): ScalarWriter
-    return new ScalarSink(_writer = destination, _closed = false)
+    return ScalarSink(_writer = destination, _closed = false)
 end
 
 export const reader: function(takes source: Reader): affine(ScalarReader) = openReader as any
@@ -242,7 +242,7 @@ local record Duplex is ScalarStream
 end
 
 local function openDuplex(source: any): ScalarStream
-    return new Duplex(_pending = "", _reader = source, _writer = source, _closed = false)
+    return Duplex(_pending = "", _reader = source, _writer = source, _closed = false)
 end
 
 export const duplex: function(takes source: Reader): affine(ScalarStream) = openDuplex as any

@@ -92,7 +92,7 @@ export record Layout
             offset = offset + first * self._strides[index]
         end
 
-        return new Layout(shape, self._strides, offset)
+        return Layout(shape, self._strides, offset)
     end
 
     function transpose(borrows self, order: {integer}): Layout
@@ -111,7 +111,7 @@ export record Layout
             strides[index] = self._strides[axis]
         end
 
-        return new Layout(shape, strides, self._offset)
+        return Layout(shape, strides, self._offset)
     end
 
     function broadcast(borrows self, shape: {integer}): Layout
@@ -131,7 +131,7 @@ export record Layout
                 strides[index] = source == 1 and dimension > 1 and 0 or self._strides[index - shift]
             end
         end
-        local result = new Layout(shape, strides, self._offset)
+        local result = Layout(shape, strides, self._offset)
         if result._extent > self._extent then
             error("nupp: GPU tensor broadcast exceeds its source", 2)
         end
@@ -147,7 +147,7 @@ export record Layout
         then
             error("nupp: GPU strided layout offset exceeds uint32", 2)
         end
-        local result = new Layout(shape, strides, self._offset + relativeoffset)
+        local result = Layout(shape, strides, self._offset + relativeoffset)
         if result._extent > self._extent or relativeoffset > self._extent - result._extent then
             error("nupp: GPU strided layout exceeds its source", 2)
         end

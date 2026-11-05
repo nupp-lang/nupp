@@ -591,7 +591,7 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
         error("nupp: a sample session's stackdepth must be between 1 and 2147483647", 2)
     end
 
-    local owned = new profile.SampleSession(
+    local owned = profile.SampleSession(
         intervalms = intervalms,
         zonefilter = opts.zone,
         root = opts.root,
@@ -636,7 +636,7 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
         local stack = thread and jitProfile.dumpstack(thread, "FZ;", walk) or ""
         local sample = cachedStacks[stack]
         if not sample then
-            sample = new profile.Sample(
+            sample = profile.Sample(
                 zonepath = path,
                 stack = stack,
                 count = 0,
@@ -743,7 +743,7 @@ function profile.SampleSession:stop(filename: string?): profile.SampleReport
                 local stack = root and trimToRoot(sample.stack, root) or sample.stack
                 local row = merged[path .. "\0" .. stack]
                 if not row then
-                    row = new profile.Sample(
+                    row = profile.Sample(
                         zonepath = path,
                         stack = stack,
                         count = 0,
@@ -788,7 +788,7 @@ function profile.SampleSession:stop(filename: string?): profile.SampleReport
         end
         return a.line < b.line
     end)
-    local report = new profile.SampleReport(
+    local report = profile.SampleReport(
         intervalms = self.intervalms,
         sourcesamples = sourcesamples,
         samples = samples,
@@ -944,7 +944,7 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
 
     local opts: profile.TraceOptions = options or {}
     local selected = traceRegistry.profile()
-    local owned = new profile.TraceSession(
+    local owned = profile.TraceSession(
         includebenign = opts.includebenign or false,
         startedat = os.time() as integer,
         paused = false,
@@ -952,7 +952,7 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
         sites = {},
         totalaborts = 0,
         blacklisted = 0,
-        traceprofile = new profile.TraceProfile(
+        traceprofile = profile.TraceProfile(
             id = selected.id,
             luajitrevision = selected.luajitrevision,
             luajitversion = selected.luajitversion,
@@ -1014,7 +1014,7 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
         else
             session.sites[
                 key
-            ] = new profile.AbortSite(
+            ] = profile.AbortSite(
                 severity = severity,
                 count = 1,
                 reason = reason,
@@ -1089,7 +1089,7 @@ function profile.TraceSession:stop(filename: string?): profile.TraceReport
         return a.location < b.location
     end)
 
-    local report = new profile.TraceReport(
+    local report = profile.TraceReport(
         durationsec = (os.time() as integer) - self.startedat,
         totalaborts = self.totalaborts,
         blacklisted = self.blacklisted,

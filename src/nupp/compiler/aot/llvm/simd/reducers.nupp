@@ -237,7 +237,7 @@ local function region(ctx: context.Context, node: scalarIR.Statement): nil
                 local scalar = vector:match("x ([%w]+)>$") as string
                 local pointer = builder.alloca(ctx.f, vector, 16)
                 context.emit(ctx, ("store %s %s, ptr %s"):format(vector, lanes.splatOf(scalar, identity), pointer))
-                accumulators[reducer.name] = new context.Accumulator(pointer = pointer, vector = vector)
+                accumulators[reducer.name] = context.Accumulator(pointer = pointer, vector = vector)
                 parallel[#parallel + 1] = reducer
             end
         end

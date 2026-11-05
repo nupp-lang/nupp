@@ -15,7 +15,7 @@ end
 local positions = soa.alloc(ffi.typeof<Position>(), 128)
 local rows = positions:write()
 for index = 1, #rows do
-    rows[index] = new Position(0, 1)
+    rows[index] = Position(0, 1)
 end
 for index = 1, #rows do
     rows[index].x += rows[index].velocity
@@ -137,11 +137,11 @@ export record Layout
             if cursor > MAX_EXACT_INTEGER - bytecount then
                 error("nupp: SoA slab byte size is too large", 2)
             end
-            segments[ordinal] = new SegmentLayout(field = field, offset = cursor, bytecount = bytecount)
+            segments[ordinal] = SegmentLayout(field = field, offset = cursor, bytecount = bytecount)
             cursor = (cursor + bytecount) as integer
         end
 
-        return new InstanceLayout(count = count, bytesize = cursor, segments = segments)
+        return InstanceLayout(count = count, bytesize = cursor, segments = segments)
     end
 end
 
@@ -165,7 +165,7 @@ export function _layout(raw: table): Layout
         if fieldAlignment > alignment then
             alignment = fieldAlignment as integer
         end
-        local field = new FieldLayout(
+        local field = FieldLayout(
             name = source.name as string,
             identity = (raw.name as string) .. "." .. (source.name as string),
             ctype = source.ctype as string,
@@ -180,7 +180,7 @@ export function _layout(raw: table): Layout
         ] = string.format("%s:%s@%d/%d", field.identity, field.ctype, field.elementsize, field.alignment)
     end
 
-    local layout = new Layout(
+    local layout = Layout(
         name = raw.name as string,
         fingerprint = table.concat(fingerprint, "|"),
         alignment = alignment,
@@ -274,7 +274,7 @@ local record SpanImpl<T> is Span<T>
             error("nupp: SoA slice out of bounds", 2)
         end
 
-        return new SpanImpl(
+        return SpanImpl(
             anchor = self,
             element = self.element,
             layout = self.layout,
@@ -380,7 +380,7 @@ local record WriteSpanImpl<T> is WriteToken, WriteSpan<T>
     end
 
     function shared(self): Span<T> borrows (self)
-        return new SpanImpl(
+        return SpanImpl(
             anchor = self,
             element = self.element,
             layout = self.layout,
@@ -432,7 +432,7 @@ local record WriteSpanImpl<T> is WriteToken, WriteSpan<T>
             error("nupp: SoA slice out of bounds", 2)
         end
 
-        return new WriteSpanImpl(
+        return WriteSpanImpl(
             anchor = self,
             element = self.element,
             layout = self.layout,
@@ -482,7 +482,7 @@ export record Array<T> is ArrayToken
 end
 
 function Array.read<T>(borrows self: Array<T>): Span<T> borrows (self)
-    return new SpanImpl(
+    return SpanImpl(
         anchor = self,
         element = self.element,
         layout = self.layout,
@@ -493,7 +493,7 @@ function Array.read<T>(borrows self: Array<T>): Span<T> borrows (self)
 end
 
 function Array.write<T>(exclusive self: Array<T>): affine(WriteToken & WriteSpan<T>, destroywritespan) borrows (self)
-    return new WriteSpanImpl(
+    return WriteSpanImpl(
         anchor = self,
         element = self.element,
         layout = self.layout,
@@ -548,7 +548,7 @@ export function _allocate<T>(element: ctype<T>, count: integer, rawLayout: table
         for ordinal, segment in ipairs(instance.segments) do
             columns[ordinal] = ffi.cast(segment.field.pointerType, base + segment.offset)
         end
-        return new Array(
+        return Array(
             raw = raw,
             element = element,
             layout = layout,

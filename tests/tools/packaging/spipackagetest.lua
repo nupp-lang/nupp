@@ -102,12 +102,11 @@ return {newBuffer = text.new, now = os.monotonic, bytes = array.bytes}
             local facts = assert(loadfile(output .. "/nupp/runtime/target.lua"))()
             testAssert.eq(facts.host, target.host, "generated host")
             testAssert.eq(facts.dialect, "luajit", "every target runs on LuaJIT")
-            for _, name in ipairs({"nativebuffer", "nativestorage"}) do
-                assert(
-                    exists(output .. "/nupp/runtime/provider/" .. name .. ".lua"),
-                    target.name .. " carries " .. name
-                )
-            end
+            assert(exists(output .. "/nupp/runtime/provider/nativestorage.lua"), target.name .. " carries storage")
+            assert(
+                not exists(output .. "/nupp/runtime/provider/nativebuffer.lua"),
+                "string.buffer uses the VM directly"
+            )
             testAssert.eq(
                 exists(output .. "/nupp/runtime/provider/nativetime.lua"),
                 target.host == "native",
@@ -324,7 +323,7 @@ local struct Point
     y: uint8
 end
 export function sum(value: integer): integer
-    local point = new Point(value, 7)
+    local point = Point(value, 7)
     point.x += 1
     return point.x + point.y
 end

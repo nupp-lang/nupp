@@ -1,7 +1,7 @@
 const assert2 = require("assert")
 
 local gpu = require("io.gpu")
-local layout = require("io.gpu.layout")
+local layout = require("io.gpu")
 
 local M = {}
 
@@ -94,10 +94,10 @@ function M.cpuGpuMetadataRejectsFractionalIntegers(): nil
         )
     end)
 
-    local uncheckedNew = layout.new as any
-    local uncheckedSubview = layout.subview as any
-    local uncheckedTranspose = layout.transpose as any
-    local uncheckedStrided = layout.asstrided as any
+    local uncheckedNew = layout.Layout as any
+    local uncheckedSubview = layout.Layout.subview as any
+    local uncheckedTranspose = layout.Layout.transpose as any
+    local uncheckedStrided = layout.Layout.asstrided as any
     rejects(
         function(): nil
             uncheckedNew({1}, {1}, 0.5)
@@ -116,7 +116,7 @@ function M.cpuGpuMetadataRejectsFractionalIntegers(): nil
         end,
         "dimensions and strides must fit uint32"
     )
-    local stored = layout.new({2}, {1})
+    local stored = layout.Layout({2}, {1})
     rejects(
         function(): nil
             uncheckedSubview(stored, {0.5}, {1})
@@ -138,9 +138,9 @@ function M.cpuGpuMetadataRejectsFractionalIntegers(): nil
 end
 
 function M.tensorLayoutsTransposeBroadcastAndProveInjectivity(): nil
-    local stored = layout.new({1, 3, 2}, {6, 2, 1})
-    local transposed = layout.transpose(stored, {1, 3, 2})
-    local broadcast = layout.broadcast(transposed, {4, 2, 3})
+    local stored = layout.Layout({1, 3, 2}, {6, 2, 1})
+    local transposed = stored:transpose({1, 3, 2})
+    local broadcast = transposed:broadcast({4, 2, 3})
     local shape = broadcast:dimensions()
     local strides = broadcast:strides()
 
@@ -151,13 +151,13 @@ function M.tensorLayoutsTransposeBroadcastAndProveInjectivity(): nil
     assert2(not broadcast:isdense())
     assert2(not broadcast:isinjective())
 
-    local gapped = layout.asstrided(stored, {2, 2}, {3, 1}, 0)
+    local gapped = stored:asstrided({2, 2}, {3, 1}, 0)
     assert2(gapped.count == 4)
     assert2(gapped:extent() == 5)
     assert2(not gapped:isdense())
     assert2(gapped:isinjective())
 
-    local singleton = layout.new({1, 6}, {0, 1})
+    local singleton = layout.Layout({1, 6}, {0, 1})
     assert2(singleton:offset() == 0, "the offset defaults to the first element")
     assert2(singleton:isdense())
     assert2(singleton:isinjective())
@@ -166,7 +166,7 @@ end
 function M.tensorLayoutsCopyInputsAndValidateEveryTransformation(): nil
     local shape = {2, 3}
     local strides = {3, 1}
-    local stored = layout.new(shape, strides, 7)
+    local stored = layout.Layout(shape, strides, 7)
     shape[1] = 1
     strides[1] = 0
     local returnedShape = stored:dimensions()
@@ -176,56 +176,56 @@ function M.tensorLayoutsCopyInputsAndValidateEveryTransformation(): nil
     assert2(stored:dimensions()[1] == 2 and stored:dimensions()[2] == 3)
     assert2(stored:strides()[1] == 3 and stored:strides()[2] == 1)
 
-    local last = layout.subview(stored, {1, 2}, {1, 1})
+    local last = stored:subview({1, 2}, {1, 1})
     assert2(last:offset() == 12 and last:extent() == 1)
-    local shifted = layout.asstrided(stored, {1, 3}, {3, 1}, 3)
+    local shifted = stored:asstrided({1, 3}, {3, 1}, 3)
     assert2(shifted:offset() == 10 and shifted:extent() == 3)
 
     rejects(
         function(): nil
-            layout.new({}, {})
+            layout.Layout({}, {})
         end,
         "one through four"
     )
     rejects(
         function(): nil
-            layout.new({1}, {1}, -1)
+            layout.Layout({1}, {1}, -1)
         end,
         "offset exceeds uint32"
     )
     rejects(
         function(): nil
-            layout.new({65536, 65536}, {65536, 1})
+            layout.Layout({65536, 65536}, {65536, 1})
         end,
         "dimensions and strides must fit uint32"
     )
     rejects(
         function(): nil
-            layout.new({2}, {4294967295})
+            layout.Layout({2}, {4294967295})
         end,
         "extent exceeds uint32"
     )
     rejects(
         function(): nil
-            layout.subview(stored, {2, 0}, {1, 1})
+            stored:subview({2, 0}, {1, 1})
         end,
         "outside its layout"
     )
     rejects(
         function(): nil
-            layout.transpose(stored, {1, 1})
+            stored:transpose({1, 1})
         end,
         "every axis exactly once"
     )
     rejects(
         function(): nil
-            layout.broadcast(stored, {2, 4})
+            stored:broadcast({2, 4})
         end,
         "dimensions are incompatible"
     )
     rejects(
         function(): nil
-            layout.asstrided(stored, {2, 2}, {3, 1}, 2)
+            stored:asstrided({2, 2}, {3, 1}, 2)
         end,
         "exceeds its source"
     )

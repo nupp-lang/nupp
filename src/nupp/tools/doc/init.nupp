@@ -1706,7 +1706,7 @@ memberOutline = function(members: {extractMod.Member}?): {pageMod.Entry}?
     for _, member in ipairs(members or {}) do
         entries[
             #entries + 1
-        ] = new pageMod.Entry(path = member.path, name = member.name, items = memberOutline(member.members))
+        ] = pageMod.Entry(path = member.path, name = member.name, items = memberOutline(member.members))
     end
 
     return #entries > 0 and entries or nil
@@ -1717,10 +1717,10 @@ local function appendOutline(items: {pageMod.Entry}, markdown: string?)
         local parent = items[#items]
         if heading.level > 2 and parent then
             local children = parent.items or {}
-            children[#children + 1] = new pageMod.Entry(path = heading.path, name = heading.name)
+            children[#children + 1] = pageMod.Entry(path = heading.path, name = heading.name)
             parent.items = children
         else
-            items[#items + 1] = new pageMod.Entry(path = heading.path, name = heading.name)
+            items[#items + 1] = pageMod.Entry(path = heading.path, name = heading.name)
         end
     end
 end
@@ -1832,7 +1832,7 @@ local function renderSite(root, outDir, modules, title, settings, standardLibrar
             -- it, so whichever of the two is rendered is the one the outline lists.
             appendOutline(items, overview ~= "" and overview or module.text)
             if #children > 0 or #module.items > 0 then
-                items[#items + 1] = new pageMod.Entry(path = "overview", name = "Overview")
+                items[#items + 1] = pageMod.Entry(path = "overview", name = "Overview")
             end
             local groups = itemGroups(module.items)
             for _, group in ipairs(groups) do
@@ -1841,11 +1841,11 @@ local function renderSite(root, outDir, modules, title, settings, standardLibrar
                     for _, item in ipairs(group.items) do
                         entries[
                             #entries + 1
-                        ] = new pageMod.Entry(path = item.path, name = item.name, items = memberOutline(item.members))
+                        ] = pageMod.Entry(path = item.path, name = item.name, items = memberOutline(item.members))
                     end
                     items[
                         #items + 1
-                    ] = new pageMod.Entry(
+                    ] = pageMod.Entry(
                         path = group.path == module.name and group.path .. "-group" or group.path,
                         name = group.title,
                         items = entries

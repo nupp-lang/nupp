@@ -72,7 +72,7 @@ function M.httpResponseBodiesRetainOwnedIoSignatures()
 local contracts = require("io.http")
 local io = require("io")
 local function copy(borrows response: contracts.Response): nil
-local destination = io.newbuffer()
+local destination = io.Buffer.create()
 response.body:readinto(destination, 0, 8)
 local lease = destination:reservewrite(0, 8)
 local output = lease:span()
@@ -308,9 +308,9 @@ record m.Owner
     range: function(borrows self: m.Owner): m.Range borrows (self)
 end
 local function range(borrows self: m.Owner): m.Range borrows (self)
-    return new m.Range(anchor = self, count = 1)
+    return m.Range(anchor = self, count = 1)
 end
-return new m.Owner(range = range)
+return m.Owner(range = range)
 ]]
     )
     assert(accepted == "", accepted)

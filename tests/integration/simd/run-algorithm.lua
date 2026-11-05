@@ -62,7 +62,7 @@ if name == "fused-json" then
     runner.command("cd " .. q(project) .. " && bash ./prepare.sh", directory .. "/fused-prepare.log")
 end
 local manifest = assert(loadfile(project .. "/nupp.lua"))()
-manifest.include = {"src", root .. "/src"}
+manifest.include = {"src"}
 manifest.build.targets[selected.target].aotFeatures = {minimum = tier, maximum = tier}
 
 local function lua(value)

@@ -1179,7 +1179,7 @@ export function decode(image: any, options: DecodeOptions?): (any?, string?)
                 nominal.associatedRequirements as {any}
             )[
                 position
-            ] = new T.AssociatedRequirement(
+            ] = T.AssociatedRequirement(
                 name = requirement.name,
                 bound = optional(requirement.bound),
                 selfBinder = optional(requirement.selfBinder),
@@ -1192,7 +1192,7 @@ export function decode(image: any, options: DecodeOptions?): (any?, string?)
                 nominal.associatedAnswers as {[string]: any}
             )[
                 answer.name
-            ] = new T.AssociatedAnswer(
+            ] = T.AssociatedAnswer(
                 type = edge(answer.type),
                 selfBinder = optional(answer.selfBinder),
                 kind = answer.answerKind or "answer",

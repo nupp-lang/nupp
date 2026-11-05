@@ -37,7 +37,7 @@ export type Version = "1.0" | "1.1" | "2"
 --- What a client applies to every request it sends.
 ---
 --- A plain table, like every other option bag in the io facades. Every field is
---- optional, so `http.newclient()` with nothing is a client with the defaults
+--- optional, so `http.Client.create()` with nothing is a client with the defaults
 --- below. A request may override the three limits it also names.
 export type Options = {
     --- The `user-agent` header sent with every request.
@@ -141,7 +141,7 @@ export type RequestBody = string | ReaderBody | FileBody
 --- closing it closes a streaming reader body, and otherwise has no external work.
 ---
 --- ```nupp:fragment
---- local request = new http.Request(
+--- local request = http.Request(
 ---     url = assert(uri.newURI("https://example.com/upload")),
 ---     method = "POST",
 ---     headers = {["content-type"] = "application/json"},

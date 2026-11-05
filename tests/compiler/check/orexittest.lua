@@ -340,7 +340,7 @@ end
 
 local function fetch(n: integer): (integer?, Problem?)
     if n <= 0 then
-        return nil, new Problem(message = "low")
+        return nil, Problem(message = "low")
     end
 
     return n, nil
@@ -348,7 +348,7 @@ end
 
 local function flag(n: integer): (boolean, Problem?)
     if n <= 0 then
-        return false, new Problem(message = "low")
+        return false, Problem(message = "low")
     end
 
     return true, nil
@@ -594,7 +594,7 @@ return value == nil and handled == 1 and %s
             shape,
             shape == "string" and "tostring(problem)"
             or shape == "integer" and "7"
-            or "new Problem(message = tostring(problem))",
+            or "Problem(message = tostring(problem))",
             shape == "string" and 'problem == "raised"'
             or shape == "integer" and "problem == 7"
             or 'problem ~= nil and problem.message == "raised"'
@@ -663,13 +663,13 @@ local record Resource is own.Closeable
     function close(takes self): nil closed = closed + 1 end
 end
 local function work(n: integer): integer
-    local resource = new Resource()
+    local resource = Resource()
     if n == 0 then error("zero", 0) end
     return n
 end
 local function handler(problem: any): string return tostring(problem) end
 local function wrapped(n: integer): (integer?, unknown)
-    local resource = new Resource()
+    local resource = Resource()
     local value = %s or return
     return value, nil
 end
@@ -677,13 +677,13 @@ local good = wrapped(2)
 local bad = wrapped(0)
 local continued = 0
 for _, n in ipairs({1, 0, 2}) do
-    local resource = new Resource()
+    local resource = Resource()
     local value = %s or continue
     continued = continued + value
 end
 local broken = 0
 for _, n in ipairs({1, 0, 2}) do
-    local resource = new Resource()
+    local resource = Resource()
     local value = %s or break
     broken = broken + value
 end
@@ -708,7 +708,7 @@ local record Resource is own.Closeable
 end
 local function open(n: integer): Resource
     if n == 0 then error("zero", 0) end
-    return new Resource(id = n)
+    return Resource(id = n)
 end
 local function wrapped(n: integer): (integer?, unknown)
     local resource = pcall(open, n) or return
@@ -724,7 +724,7 @@ return good == 4 and bad == nil and closed == 1
 local record Resource is own.Closeable
     function close(takes self): nil end
 end
-local function paired(): (integer, Resource) return 1, new Resource() end
+local function paired(): (integer, Resource) return 1, Resource() end
 local function wrapped(): (integer?, unknown)
     local value = pcall(paired) or return
     return value, nil
@@ -742,7 +742,7 @@ local record Problem is own.Closeable
     function close(takes self): nil closed = closed + 1 end
 end
 local function work(): integer error("raised", 0) end
-local function handler(problem: any): Problem return new Problem() end
+local function handler(problem: any): Problem return Problem() end
 ]=]
     runsGenerated(
         setup
@@ -845,7 +845,7 @@ local function closeResource(takes value: Resource): nil
 end
 
 local function paired(n: integer): (integer?, affine(Resource, closeResource))
-    return n, new Resource(id = n)
+    return n, Resource(id = n)
 end
 
 local function f(n: integer): integer?
@@ -887,9 +887,9 @@ local function via(source: Source?, n: integer): (integer?, string?)
     return value, nil
 end
 
-local present, presentReason = via(new Source(id = 1), 2)
+local present, presentReason = via(Source(id = 1), 2)
 local absent, absentReason = via(nil, 2)
-local failed, failedReason = via(new Source(id = 1), -1)
+local failed, failedReason = via(Source(id = 1), -1)
 
 return present == 3
     and presentReason == nil
@@ -951,7 +951,7 @@ local record Box
     end
 end
 
-return new Box(1)
+return Box(1)
 ]],
         "NUPP2208",
         "a constructor"
@@ -1016,7 +1016,7 @@ end
 local function receiver(): Source
     receivers = receivers + 1
 
-    return new Source(id = 1)
+    return Source(id = 1)
 end
 
 local function once(n: integer): (integer?, string?)
@@ -1140,7 +1140,7 @@ local function closeResource(takes value: Resource): nil
 end
 
 local function openResource(id: integer): affine(Resource, closeResource)
-    return new Resource(id = id)
+    return Resource(id = id)
 end
 
 local function source(n: integer): (integer?, string?)
@@ -1520,7 +1520,7 @@ return described(1)
             shape,
             shape == "string" and "tostring(raised)"
             or shape == "integer" and "1"
-            or "new Problem(message = tostring(raised))"
+            or "Problem(message = tostring(raised))"
         )
         local _, diagnostics = checked(source)
         assertClean(diagnostics, shape)

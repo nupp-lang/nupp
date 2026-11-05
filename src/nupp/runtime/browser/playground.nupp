@@ -25,7 +25,7 @@ local platformLibraries = {
         return require("binary")
     end,
     function()
-        return table.newpool
+        return table.Pool
     end,
     function()
         return os.randombytes
@@ -76,10 +76,10 @@ local platformLibraries = {
         return require("nupp.runtime.standardmath")
     end,
     function()
-        return require("binary.mac")
+        return require("binary").Mac
     end,
     function()
-        return require("binary.digest")
+        return require("binary").Digest
     end,
     function()
         return require("binary")

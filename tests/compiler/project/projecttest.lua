@@ -616,7 +616,7 @@ const Codec: types.reflect.FieldCodec<Message> = comptime do
     return types.reflect.fieldcodec(types.reflect(Message))
 end
 
-return Codec:encode(new Message(text = "ok")).text as string
+return Codec:encode(Message(text = "ok")).text as string
 ]],
     })
     local cold, coldStats = {}, {}
@@ -700,7 +700,7 @@ record models.Parent
     child: Child
 end
 function models.make(): models.Parent
-    return new models.Parent(child = new Child(value = 7))
+    return models.Parent(child = Child(value = 7))
 end
 return models
 ]],
@@ -3024,7 +3024,7 @@ function M.recordPoolBundleOmitsPhysicalStorage()
 local record Item
     value: integer
 end
-local pool = table.newpool(Item, 2)
+local pool = table.Pool(Item, 2)
 local item = pool:acquire()
 item.value = 7
 pool:release(item)
@@ -3052,7 +3052,7 @@ function M.byteIoBundleOmitsUnusedProcessAndClockProviders()
         [
             "src/main.nupp"
         ] = [[
-local buffer = io.newbuffer("portable bytes")
+local buffer = io.Buffer.create("portable bytes")
 assert(buffer:getstring() == "portable bytes")
 buffer:close()
 ]],
@@ -3082,7 +3082,7 @@ function M.popenBinaryStagesItsStructuredImplementationAndProvider()
    outDir = "out", output = "out/app", entries = {"main"}}}]],
         ["src/main.nupp"] = [[
 local open = io.popen
-local child = open({args = {"fixture-child"}})
+local child = open({"fixture-child"})
 ]],
     })
     testAssert.eq(project.build(dir), 0)
@@ -4909,10 +4909,11 @@ return {
 }
 ]],
         [
-            "src/main.nupp"
+            "src/main.lua"
         ] = [[
 assert(os.getenv("NUPP_TEST_BUILD") == "coverage", tostring(os.getenv("NUPP_TEST_BUILD")))
-local file = assert(io.open("test-ran", "wb"))
+local hostio = rawget(_G, "io")
+local file = assert(hostio.open("test-ran", "wb"))
 file:write("yes")
 file:close()
 ]],

@@ -112,7 +112,7 @@ local value = flow_open()
         true,
         [[
 local record Box item: affine(flow_resource*, flow_close) end
-local box = new Box(item = flow_open())
+local box = Box(item = flow_open())
 own.drop(box)
 ]]
     },
@@ -121,7 +121,7 @@ own.drop(box)
         true,
         [[
 local record Box item: affine(flow_resource*, flow_close) end
-local box = new Box(item = flow_open())
+local box = Box(item = flow_open())
 local item = box.item
 own.drop(item)
 own.drop(box)

@@ -27,8 +27,8 @@ local browserGpuEnv = envMod.new(HERE .. "/..", {
 local M = {}
 
 function M.gpuLayoutUsesOnlyCanonicalMethodKeys()
-    local layout = require("io.gpu.layout")
-    local rows = layout.new({2, 2}, {2, 1})
+    local layout = require("io.gpu")
+    local rows = layout.Layout({2, 2}, {2, 1})
     assert(rows:isdense() and rows:isinjective())
     assert(rows.isDense == nil and rows.isInjective == nil)
 end
@@ -608,9 +608,9 @@ local tensor = context:tensor(array.float, {4, 8})
 local bytes: gpu.Buffer<int8>? = nil
 local row = tensor:subview({2, 0}, {1, 8})
 local tensorLayout: gpu.Layout = tensor:layout()
-local layout = require("io.gpu.layout")
-local columns = tensor:view(layout.transpose(tensorLayout, {2, 1}))
-local repeated = row:view(layout.broadcast(row:layout(), {4, 8}))
+local layout = require("io.gpu")
+local columns = tensor:view((tensorLayout):transpose({2, 1}))
+local repeated = row:view((row:layout()):broadcast({4, 8}))
 local gapped = tensor:subview({0, 0}, {4, 4})
 local dimensions = row:dimensions()
 local strides = row:strides()

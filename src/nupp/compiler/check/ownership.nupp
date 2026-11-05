@@ -143,7 +143,7 @@ export function install(c: state.Checker): Ops
         code: any,
         value: Type
     }} = {}
-    local emptyCapabilityFacts = new T.CapabilityFacts()
+    local emptyCapabilityFacts = T.CapabilityFacts()
 
     ---------------------------------------------------------------------
     -- Capabilities
@@ -155,7 +155,7 @@ export function install(c: state.Checker): Ops
             return emptyCapabilityFacts
         end
         if not entry.capabilityFacts and create ~= false then
-            entry.capabilityFacts = new T.CapabilityFacts()
+            entry.capabilityFacts = T.CapabilityFacts()
         end
         if result then
             local existing = entry.resultCapabilityFacts and entry.resultCapabilityFacts[result]
@@ -165,7 +165,7 @@ export function install(c: state.Checker): Ops
                 return result == 1 and entry.capabilityFacts or emptyCapabilityFacts
             end
             entry.resultCapabilityFacts = entry.resultCapabilityFacts or {}
-            entry.resultCapabilityFacts[result] = (result == 1 and entry.capabilityFacts) or new T.CapabilityFacts()
+            entry.resultCapabilityFacts[result] = (result == 1 and entry.capabilityFacts) or T.CapabilityFacts()
             return entry.resultCapabilityFacts[result]
         end
 
@@ -903,12 +903,9 @@ export function install(c: state.Checker): Ops
             and (
                 expr.kind == "paren"
                 or expr.kind == "castExpr"
-                or expr.kind == "newExpr"
                 or (expr.kind == "orExitExpr" and not expr.orExitProtected)
             ) do
-            expr = expr.kind == "newExpr" and expr.call
-                or (expr.kind == "orExitExpr" and not expr.orExitProtected) and expr.operand
-                or expr.expr
+            expr = (expr.kind == "orExitExpr" and not expr.orExitProtected) and expr.operand or expr.expr
         end
         local out, seen = {}, {}
         if not expr or cst.isToken(expr) then
@@ -971,19 +968,13 @@ export function install(c: state.Checker): Ops
     end
 
     function own.provenanceOwner(expr)
-        -- `new` wraps the construction it decides, and provenance is about where a
-        -- value came from rather than how it was written, so it reads through the word
-        -- exactly as it reads through a paren or a cast.
         while expr
             and (
                 expr.kind == "paren"
                 or expr.kind == "castExpr"
-                or expr.kind == "newExpr"
                 or (expr.kind == "orExitExpr" and not expr.orExitProtected)
             ) do
-            expr = expr.kind == "newExpr" and expr.call
-                or (expr.kind == "orExitExpr" and not expr.orExitProtected) and expr.operand
-                or expr.expr
+            expr = (expr.kind == "orExitExpr" and not expr.orExitProtected) and expr.operand or expr.expr
         end
         if not expr then
             return nil
@@ -1038,9 +1029,6 @@ export function install(c: state.Checker): Ops
         out, seen = out or {}, seen or {}
         if not expr or cst.isToken(expr) then
             return out
-        end
-        if expr.kind == "newExpr" then
-            return own.provenanceOwners(expr.call, out, seen)
         end
         local exprRoots = own.capabilityFacts(expr, nil, false).roots
         if exprRoots then
@@ -1154,19 +1142,15 @@ export function install(c: state.Checker): Ops
     -- Moving a value
     ---------------------------------------------------------------------
 
-    --- The node a temporary is tracked under: parentheses and casts add nothing,
-    --- and `new` is the construction call underneath it.
+    --- The node a temporary is tracked under, through parentheses and casts.
     local function temporaryNode(node)
         while node
             and (
                 node.kind == "paren"
                 or node.kind == "castExpr"
-                or node.kind == "newExpr"
                 or (node.kind == "orExitExpr" and not node.orExitProtected)
             ) do
-            node = node.kind == "newExpr" and node.call
-                or (node.kind == "orExitExpr" and not node.orExitProtected) and node.operand
-                or node.expr
+            node = (node.kind == "orExitExpr" and not node.orExitProtected) and node.operand or node.expr
         end
 
         return node

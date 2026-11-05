@@ -143,7 +143,7 @@ function compile.site(application: lower.Application): compile.Site
     local from = first ~= nil and (first as lexer.Token).offset or 1
     local to = last ~= nil and ((last as lexer.Token).offset + #(last as lexer.Token).text - 1) or from
 
-    return new compile.Site(from = from, to = to)
+    return compile.Site(from = from, to = to)
 end
 
 --- The declaration's header as the source spells it: from the first token of
@@ -173,7 +173,7 @@ local function rejection(filename: string, diagnostics: {compile.Diagnostic}): f
     return function(at: scalarIR.Source?, message: string): nil
         diagnostics[
             #diagnostics + 1
-        ] = new compile.Diagnostic(
+        ] = compile.Diagnostic(
             file = filename,
             line = at ~= nil and (at as scalarIR.Source).line or 1,
             column = at ~= nil and (at as scalarIR.Source).column or 1,
@@ -234,7 +234,7 @@ function compile.lower(
         for _, problem in ipairs(tree.errors) do
             diagnostics[
                 #diagnostics + 1
-            ] = new compile.Diagnostic(
+            ] = compile.Diagnostic(
                 file = filename,
                 line = problem.line or 1,
                 column = problem.col or 1,
@@ -246,7 +246,7 @@ function compile.lower(
         return {}, diagnostics, {}
     end
 
-    local context = new lower.Context(
+    local context = lower.Context(
         checked = parsed ~= nil,
         vectors = compile.vectors(selected),
         nativeCpu = selected == nil or selected.architecture ~= "wasm32",
@@ -265,7 +265,7 @@ function compile.lower(
         if #found.applications == 0 then
             diagnostics[
                 #diagnostics + 1
-            ] = new compile.Diagnostic(
+            ] = compile.Diagnostic(
                 file = filename,
                 line = 1,
                 column = 1,
@@ -312,7 +312,7 @@ local function numericForRuntime(program: scalarIR.Program, selected: targets.Ta
         local counted = program.loop ~= nil
         visit.program(
             program,
-            new visit.Visitor(scalarStatement = function(statement: scalarIR.Statement): nil
+            visit.Visitor(scalarStatement = function(statement: scalarIR.Statement): nil
                 counted = counted or statement.op == "fornum"
             end)
         )
@@ -339,7 +339,7 @@ function compile.constSpecializations(
     const maxPerModule = 8
     local diagnostics: {compile.Diagnostic} = {}
     local laneRefusals: {compile.Diagnostic}? = nil
-    local context = new lower.Context(
+    local context = lower.Context(
         checked = true,
         vectors = compile.vectors(selected),
         nativeCpu = selected.architecture ~= "wasm32",
@@ -350,7 +350,7 @@ function compile.constSpecializations(
     -- there is none yet.
     if #parsed.errors > 0 then
         return nil, {
-            new compile.Diagnostic(
+            compile.Diagnostic(
                 file = filename,
                 line = 1,
                 column = 1,
@@ -433,7 +433,7 @@ function compile.constSpecializations(
         local domain = parameter.base.tag
         if domain == "integer" then
             local written = tostring(parameter.constant)
-            return "integer:" .. written, new scalarIR.Constant(
+            return "integer:" .. written, scalarIR.Constant(
                 op = "constant",
                 value = written,
                 type = "f64",
@@ -443,12 +443,12 @@ function compile.constSpecializations(
             local value = parameter.constant == true
             return "boolean:" .. tostring(
                 value
-            ), new scalarIR.Bool(op = "bool", value = value, type = "bool", source = source)
+            ), scalarIR.Bool(op = "bool", value = value, type = "bool", source = source)
         elseif domain == "string" then
             local value = tostring(parameter.constant)
             return "string:" .. tostring(
                 #value
-            ) .. ":" .. value, new scalarIR.LuaString(
+            ) .. ":" .. value, scalarIR.LuaString(
                 op = "lua_string",
                 value = value,
                 type = "lua_string",
@@ -508,7 +508,7 @@ function compile.constSpecializations(
                         candidate.seen[key] = true
                         specializationLines[#specializationLines + 1] = sourceSite.line
                         specializationSites[#specializationSites + 1] = {file = filename, line = sourceSite.line,}
-                        local lowered = new lower.Specialization(
+                        local lowered = lower.Specialization(
                             name = "__nuppConst_" .. (
                                 token as lexer.Token
                             ).text:gsub("[^%w_]", "_") .. "_" .. key:sub(1, 16),
@@ -553,7 +553,7 @@ function compile.constSpecializations(
                         end
                         if complete then
                             local physical = specialization.physical or specialization
-                            local lowered = new lower.Specialization(
+                            local lowered = lower.Specialization(
                                 name = physical.name,
                                 signature = specialization.signature,
                                 values = values,
@@ -608,7 +608,7 @@ function compile.constSpecializations(
         end
         diagnostics[
             #diagnostics + 1
-        ] = new compile.Diagnostic(
+        ] = compile.Diagnostic(
             file = filename,
             line = specializationLines[maxPerModule + 1] or specializationLines[1] or 1,
             column = 1,
@@ -677,7 +677,7 @@ function compile.constSpecializations(
             loopReports[position] = loopAnalysis.program(program)
         end
 
-        return new compile.Artifacts(
+        return compile.Artifacts(
             programs = programs,
             loops = loopReports,
             irText = text.programs(programs),
@@ -726,7 +726,7 @@ function compile.legalizeVectors(
         local at = node.source
         indexRefusals[
             #indexRefusals + 1
-        ] = new compile.Diagnostic(
+        ] = compile.Diagnostic(
             file = filename,
             line = at ~= nil and (at as scalarIR.Source).line or 1,
             column = at ~= nil and (at as scalarIR.Source).column or 1,
@@ -738,7 +738,7 @@ function compile.legalizeVectors(
     if program.usesSimd == true then
         visit.program(
             program,
-            new visit.Visitor(scalarExpression = function(node: scalarIR.Expr): nil
+            visit.Visitor(scalarExpression = function(node: scalarIR.Expr): nil
                 local operation = node as scalarIR.Simd
                 local position: integer = 0
                 local least = 1
@@ -833,7 +833,7 @@ function compile.artifacts(
     end
     if #programs == 0 and constArtifacts == nil then
         return nil, {
-            new compile.Diagnostic(
+            compile.Diagnostic(
                 file = filename,
                 line = 1,
                 column = 1,
@@ -860,7 +860,7 @@ function compile.artifacts(
                 local site = sites[position]
                 local line, column = sitePosition(source, site ~= nil and (site as compile.Site).from or 1)
                 return nil, {
-                    new compile.Diagnostic(
+                    compile.Diagnostic(
                         file = filename,
                         line = line,
                         column = column,
@@ -891,7 +891,7 @@ function compile.artifacts(
         for position, program in ipairs((constArtifacts as compile.Artifacts).programs) do
             if program.executionTarget == "gpu" then
                 return nil, {
-                    new compile.Diagnostic(
+                    compile.Diagnostic(
                         file = filename,
                         line = 1,
                         column = 1,
@@ -934,7 +934,7 @@ function compile.artifacts(
         end
     end
 
-    return new compile.Artifacts(
+    return compile.Artifacts(
         programs = programs,
         loops = loopReports,
         irText = text.programs(programs),

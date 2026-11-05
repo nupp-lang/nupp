@@ -40,11 +40,11 @@ export record Facts
 end
 
 export function all(): Facts
-    return new Facts(alias = true, access = true, effects = true, bounds = true, relations = true, extents = true)
+    return Facts(alias = true, access = true, effects = true, bounds = true, relations = true, extents = true)
 end
 
 export function none(): Facts
-    return new Facts(alias = false, access = false, effects = false, bounds = false, relations = false, extents = false)
+    return Facts(alias = false, access = false, effects = false, bounds = false, relations = false, extents = false)
 end
 
 --- `all`, `none`, or a comma-separated list of families, or nil and why not.

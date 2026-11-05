@@ -312,7 +312,7 @@ end
 
 --- Counts one symbol's instructions by kind.
 function instructions.count(listed: {instructions.Instruction}): instructions.Counts
-    local counts = new instructions.Counts(
+    local counts = instructions.Counts(
         total = #listed,
         vector = 0,
         loads = 0,
@@ -390,7 +390,7 @@ function instructions.parse(assembly: string, architecture: string, system: stri
                 if underscored and symbol:sub(1, 1) == "_" then
                     symbol = symbol:sub(2)
                 end
-                current = new instructions.Listing(
+                current = instructions.Listing(
                     symbol = symbol,
                     role = "helper",
                     instructions = {},
@@ -410,7 +410,7 @@ function instructions.parse(assembly: string, architecture: string, system: stri
             local kinds = architecture == "x86_64" and classifyX86(mnemonic, operands)
                 or classifyArm(mnemonic, operands)
             local held = (current as instructions.Listing).instructions
-            held[#held + 1] = new instructions.Instruction(
+            held[#held + 1] = instructions.Instruction(
                 label = pending,
                 sourceFile = sourceFile,
                 sourceLine = sourceLine,

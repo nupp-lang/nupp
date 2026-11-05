@@ -995,7 +995,9 @@ function M.workerHostDogfoodsNuppWorkersForOrdinarySuites()
     local isolated, isolatedRun = runWorkerHost("processnativetest --lane=isolated --timings=0")
     test.eq(isolatedRun.status, 0, "the isolated run succeeded" .. evidence(isolatedRun))
     test.eq(isolated:find("Nupp workers", 1, true), nil, "the native process suite stays off the mechanism it tests")
-    test.matches(isolated, "11 tests, 11 passed")
+    local isolatedTotal, isolatedPassed = isolated:match("(%d+) tests, (%d+) passed")
+    assert(tonumber(isolatedTotal) and tonumber(isolatedTotal) > 0, "isolated summary is missing: " .. isolated)
+    test.eq(isolatedTotal, isolatedPassed, "every discovered native process test passed")
 end
 
 function M.shellingFailureStaysInsideItsTestOnAProcessWorker()

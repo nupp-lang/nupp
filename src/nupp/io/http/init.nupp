@@ -9,9 +9,9 @@ that works the same in a CLI, a scheduler and a game host.
 local http = io.http
 local uri = io
 
-local client = http.newclient()
-local response = assert(client:send(new http.Request(
-    url = assert(uri.newuri("https://example.com/"))
+local client = http.Client.create()
+local response = assert(client:send(http.Request(
+    url = assert(uri.URI.of("https://example.com/"))
 )))
 print(response.status)
 response:close()
@@ -55,7 +55,7 @@ local uri = io
 
 local function storeStatus(client: alias(http.Client), codes: {integer}, index: integer, url: string): nil
     local status = client:with(function(borrows open: http.Client): integer
-        local response = assert(open:send(new http.Request(url = assert(uri.newuri(url)))))
+        local response = assert(open:send(http.Request(url = assert(uri.URI.of(url)))))
         local code = response.status
         response:close()
 
@@ -64,7 +64,7 @@ local function storeStatus(client: alias(http.Client), codes: {integer}, index: 
     codes[index] = assert(status)
 end
 
-local client = own.manage(http.newclient())
+local client = own.manage(http.Client.create())
 local codes: {integer} = {}
 do
     local scope = tasks.scope()
@@ -117,7 +117,7 @@ type http.RequestBody = messages.RequestBody
 
 --- Opens a connection pool owned by the caller.
 ---
---- Every option is optional, so `http.newclient()` is a client with the defaults
+--- Every option is optional, so `http.Client.create()` is a client with the defaults
 --- [](nupp.io.http.Options) describes.
 --- @return the open client
 const http.newClient = provider.newclient
@@ -138,7 +138,7 @@ const http.capabilities = provider.capabilities
 --- peer never sees the shortened body as complete.
 ---
 --- ```nupp:fragment
---- local request = new http.Request(
+--- local request = http.Request(
 ---     url = endpoint,
 ---     method = "POST",
 ---     body = http.reader(source, size, "application/octet-stream")
@@ -167,7 +167,7 @@ function http.reader(takes reader: messages.Reader, len: integer?, contenttype: 
         error("nupp: HTTP content type must be a string", 2)
     end
 
-    return new messages.ReaderBody(reader = reader, len = len, contenttype = contenttype)
+    return messages.ReaderBody(reader = reader, len = len, contenttype = contenttype)
 end
 
 --- Builds a request body read from a file as it is sent.
@@ -188,7 +188,7 @@ function http.file(path: Path, contenttype: string?): http.FileBody
         error("nupp: HTTP content type must be a string", 2)
     end
 
-    return new http.FileBody(path = path, contenttype = contenttype)
+    return http.FileBody(path = path, contenttype = contenttype)
 end
 
 export = http

@@ -555,7 +555,7 @@ local record Client is NativeClient
             return nil, why, status == ABI_CAPACITY
         end
         handle = ffi.gc(handle, releaseTransfer)
-        local transfer = new Transfer(_client = self, _handle = handle, _body = nil, _closed = false)
+        local transfer = Transfer(_client = self, _handle = handle, _body = nil, _closed = false)
         self._byHandle[tostring(raw(handle))] = transfer
 
         return transfer, nil, nil
@@ -668,7 +668,7 @@ export function newClient(options: any): (NativeClient?, string?)
         return nil, lastError()
     end
 
-    return new Client(
+    return Client(
         _handle = ffi.gc(handle, releaseClient),
         _closed = false,
         _byHandle = {},

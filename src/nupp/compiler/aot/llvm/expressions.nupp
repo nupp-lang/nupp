@@ -509,7 +509,7 @@ function expressions.layoutModel(ctx: context.Context, layoutName: string): expr
     if layout == nil then
         error("no layout " .. layoutName, 0)
     end
-    local model = new expressions.LayoutModel(
+    local model = expressions.LayoutModel(
         members = {},
         index = {},
         storage = {},

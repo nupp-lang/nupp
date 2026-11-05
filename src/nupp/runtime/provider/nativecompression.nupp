@@ -235,7 +235,7 @@ local record Format is contract.Format
         local level = options ~= nil and options.level or 6
         local handle = native.ffi.new("uint64_t[1]")
         native.succeeded(C.nuppNativeCompressionEncoderCreate(self.id, level, handle), 2)
-        return new Encoder(
+        return Encoder(
             handle = handle[0],
             consumed = native.ffi.new("size_t[1]"),
             written = native.ffi.new("size_t[1]"),
@@ -248,7 +248,7 @@ local record Format is contract.Format
         local handle = native.ffi.new("uint64_t[1]")
         native.succeeded(C.nuppNativeCompressionDecoderCreate(self.id, concatenatedMembers and 1 or 0, handle), 2)
 
-        return new Decoder(
+        return Decoder(
             handle = handle[0],
             consumed = native.ffi.new("size_t[1]"),
             written = native.ffi.new("size_t[1]"),
@@ -260,9 +260,9 @@ end
 local formats: {
     [string]: contract.Format
 } = {
-    gzip = new Format(name = "gzip", id = 1),
-    zlib = new Format(name = "zlib", id = 2),
-    ["deflate-raw"] = new Format(name = "deflate-raw", id = 3),
+    gzip = Format(name = "gzip", id = 1),
+    zlib = Format(name = "zlib", id = 2),
+    ["deflate-raw"] = Format(name = "deflate-raw", id = 3),
 }
 
 local provider: contract.Provider = {formats = formats}

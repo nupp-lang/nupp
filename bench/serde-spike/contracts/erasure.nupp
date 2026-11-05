@@ -7,9 +7,9 @@ local record Stored
     binding: core.Binding<string>
 end
 
-local schema = new model.Schema(name = "text", wireName = "wire_text")
-local first = new Stored(binding = model.binding(schema))
-local second = new Stored(binding = other.binding())
+local schema = model.Schema(name = "text", wireName = "wire_text")
+local first = Stored(binding = model.binding(schema))
+local second = Stored(binding = other.binding())
 assert(render.render(first.binding, "hello") == "text=hello")
 assert(render.render(second.binding, "hello") == "other=hello")
 assert(render.render(first.binding, "again") == "text=again")

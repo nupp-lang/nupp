@@ -39,7 +39,7 @@ type http.Capabilities = messages.Capabilities
 
 --- Reports the guarantees of the selected HTTP provider.
 function http.capabilities(): http.Capabilities
-    return new messages.Capabilities(
+    return messages.Capabilities(
         streamingresponse = false,
         streamingrequest = false,
         transportpolicy = false,
@@ -198,14 +198,7 @@ local function makeResponse(
     takes body: http.Body,
     headers: {[string]: {string}}
 ): http.Response
-    return new http.Response(
-        status = status,
-        version = nil,
-        url = url,
-        body = body,
-        _headers = headers,
-        _closed = false
-    )
+    return http.Response(status = status, version = nil, url = url, body = body, _headers = headers, _closed = false)
 end
 
 record http.Client is contracts.Client
@@ -396,7 +389,7 @@ record http.Client is contracts.Client
             releaseBody(body)
             return nil, privateIo.toError(headersProblem)
         end
-        local storage = io.newbuffer(bodyBytes)
+        local storage = io.Buffer.create(bodyBytes)
         local lease = storage:reservewrite(0, bodyBytes)
         do
             local output = lease:span()
@@ -446,7 +439,7 @@ record http.Client is contracts.Client
 end
 
 local function newClient(options: messages.Options?): contracts.Client
-    return new http.Client(options)
+    return http.Client(options)
 end
 
 export = {newclient = newClient, capabilities = http.capabilities}

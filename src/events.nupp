@@ -15,7 +15,7 @@ local record Damage
     kind: string = "physical"
 end
 
-local bus: events.MessageBus<integer> = events.newbus()
+local bus: events.MessageBus<integer> = events.MessageBus()
 bus:observe(7, Damage, |event| -> print(event.amount, event.kind), "log")
 bus:emit(7, Damage, amount = 10, source = 3)
 ```
@@ -164,7 +164,7 @@ local function infoOf(witness: any): Info
     if recorded == nil or initializer == nil then
         error("nupp: the type did not derive events.event", 3)
     end
-    local info = new Info(
+    local info = Info(
         id = nextId,
         name = recorded.name as string,
         representation = recorded.representation as string,
@@ -266,12 +266,6 @@ record events.Observers<A>
     @private freeMaps: {any}
     @private allocators: {[integer]: any}
     @private ownedArenas: {any}
-end
-
---- Empty observer state for a new source.
---- @return the state, with nothing registered
-function events.newobservers<A>(): events.Observers<A>
-    return new events.Observers<A>()
 end
 
 --- Something that owns observer state.
@@ -864,7 +858,7 @@ end
 --- @export
 record events.MessageBus<A> is events.Source<A>
     constructor(self)
-        self.observers = new events.Observers<A>()
+        self.observers = events.Observers<A>()
     end
 
     observers: events.Observers<A>
@@ -1000,15 +994,6 @@ function events.MessageBus.setallocator<A, E is events.Emittable>(
     allocator: events.Allocator<E>
 ): nil
     events.setallocator(self, event, allocator)
-end
-
---- A bus with no observers.
----
---- The address type is whatever the binding asks for:
---- `local bus: events.MessageBus<integer> = events.newbus()`.
---- @return the bus
-function events.newbus<A>(): events.MessageBus<A>
-    return new events.MessageBus<A>()
 end
 
 export = events

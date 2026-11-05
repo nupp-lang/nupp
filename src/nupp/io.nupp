@@ -11,16 +11,16 @@ const bytes = require("nupp.io.internal.bytes")
 
 --- A forward-only byte source.
 ---
---- `io.newreader(source)` accepts a string, a byte queue, a buffer, or a view.
+--- `io.Reader.of(source)` accepts a string, a byte queue, a buffer, or a view.
 --- Buffers and views become independent snapshots; queues are drained as the
 --- reader advances. A reader owns its close obligation and closes automatically
 --- at the end of its scope unless `close()` consumes it earlier.
 ---
 --- ```nupp
---- local reader = io.newreader("abcdef")
+--- local reader = io.Reader.of("abcdef")
 --- assert(reader:read(2) == "ab")
 ---
---- local destination = io.newbuffer()
+--- local destination = io.Buffer.create()
 --- assert(reader:readinto(destination, 0, 3) == 3)
 --- assert(destination:getstring() == "cde")
 --- assert(reader:read(8) == "f")
@@ -48,19 +48,19 @@ export const Reader = bytes.readerdefaults
 
 --- An appending byte sink implemented by buffers, files, and request bodies.
 ---
---- `io.newwriter(buffer)` clears the buffer and returns a forward-only writer
+--- `io.Writer.of(buffer)` clears the buffer and returns a forward-only writer
 --- targeting it. A writer likewise closes automatically; `flush()` publishes
 --- pending work without consuming that ownership. The writer holds its buffer
 --- exclusively for as long as it is live, so the buffer is read once the writer
 --- is gone:
 ---
 --- ```nupp
---- local destination = io.newbuffer()
+--- local destination = io.Buffer.create()
 --- do
----     local writer = io.newwriter(destination)
+---     local writer = io.Writer.of(destination)
 ---     assert(writer:write("prefix:"))
 ---
----     local payload = io.newbuffer("body")
+---     local payload = io.Buffer.create("body")
 ---     assert(writer:writespan(payload:readspan()) == 4)
 ---     assert(writer:flush())
 --- end
@@ -85,7 +85,7 @@ export const Writer = bytes.writerdefaults
 --- A FIFO byte source that a reader borrows without taking ownership.
 ---
 --- A [](string.buffer) FIFO is a byte queue: `put` appends to the back and
---- `get` consumes from the front. `io.newreader(queue):scalar()` adapts one, so
+--- `get` consumes from the front. `io.Reader.of(queue):scalar()` adapts one, so
 --- bytes assembled there are read without copying everything in it first, and
 --- the queue's own `get` stays usable over the same bytes.
 ---
@@ -94,23 +94,23 @@ export const Writer = bytes.writerdefaults
 --- queue:put("header:")
 --- queue:put("!")
 ---
---- local reader = io.newreader(queue):scalar()
+--- local reader = io.Reader.of(queue):scalar()
 --- assert(reader:readbytes(7) == "header:")
 --- assert(queue:tostring() == "!")
 --- assert(reader:readuint8() == 33)
 --- ```
 ---
 --- Reading drains the queue, and `remaining()` reports what it still holds.
---- `newreader` is the same bridge one layer down: it returns an ordinary
+--- `Reader.of` is the same bridge one layer down: it returns an ordinary
 --- `Reader` over the queue, for `transferto`, `readinto`, and everything else
 --- that contract already covers.
 ---
 --- ```nupp
---- local destination = io.newbuffer()
+--- local destination = io.Buffer.create()
 --- local queue = string.buffer.new()
 --- queue:put("payload")
 --- do
----     local reader = io.newreader(queue)
+---     local reader = io.Reader.of(queue)
 ---     assert(reader:transferto(destination:writer()) == 7)
 --- end
 --- assert(destination:getstring() == "payload")
@@ -128,7 +128,7 @@ export type ByteQueue = bytes.ByteQueue
 --- remains valid if the source changes or closes:
 ---
 --- ```nupp
---- local buffer = io.newbuffer("header-body")
+--- local buffer = io.Buffer.create("header-body")
 --- local header = buffer:view(0, 6)
 --- buffer:clear()
 --- assert(header:getstring() == "header")
@@ -155,11 +155,11 @@ export type BufferWriteLease = bytes.BufferWriteLease
 --- Its pointer and logical length never escape separately. A buffer uses a
 --- native array on LuaJIT or a rooted allocation in a Wasm application.
 ---
---- `newbuffer()` creates an empty growable buffer. A string supplies initial
+--- `Buffer.create()` creates an empty growable buffer. A string supplies initial
 --- bytes; an integer reserves capacity without changing the length.
 ---
 --- ```nupp
---- local bytes = io.newbuffer("hello")
+--- local bytes = io.Buffer.create("hello")
 --- bytes:setstring("!", bytes:len())
 --- assert(bytes:getstring() == "hello!")
 --- ```
@@ -175,7 +175,7 @@ export type BufferWriteLease = bytes.BufferWriteLease
 --- truncates or zero-fills:
 ---
 --- ```nupp
---- local bytes = io.newbuffer("hello")
+--- local bytes = io.Buffer.create("hello")
 --- bytes:ensure(4096)
 --- assert(bytes:capacity() >= 4096)
 --- bytes:resize(3)
@@ -198,6 +198,7 @@ export type BufferWriteLease = bytes.BufferWriteLease
 --- @export
 export type Buffer = bytes.Buffer
 
+--- @internal
 export const Buffer = bytes.Buffer
 
 --- Why an io operation failed: a kind to branch on and a message to show.
@@ -332,7 +333,7 @@ export function toError(reason: string | Error | nil, kind: Error.Kind?): Error?
     end
     const message = tostring(reason)
 
-    return new Error(kind = kind ?? classify(message), message = message)
+    return Error(kind = kind ?? classify(message), message = message)
 end
 
 --- Reads fixed-width numbers from a byte source.
@@ -341,7 +342,7 @@ end
 --- the machine's byte order.
 ---
 --- ```nupp
---- local stored = io.newbuffer()
+--- local stored = io.Buffer.create()
 --- do
 ---     local writer = stored:writer():scalar()
 ---     writer:writeuint32(1447383632):writefloat64(1.5)
@@ -360,7 +361,7 @@ end
 --- Create a byte reader over a string, buffer, view, or queue, then adapt it:
 ---
 --- ```nupp
---- local reader = io.newreader("\1\2\3\4"):scalar()
+--- local reader = io.Reader.of("\1\2\3\4"):scalar()
 --- assert(reader:remaining() == 4)
 --- ```
 ---
@@ -382,7 +383,7 @@ export type ScalarReader = bytes.ScalarReader
 --- dropped:
 ---
 --- ```nupp
---- local destination = io.newbuffer()
+--- local destination = io.Buffer.create()
 --- do
 ---     local writer = destination:writer():scalar()
 ---     writer:writeuint8(33)
@@ -405,7 +406,7 @@ export type ScalarStream = bytes.ScalarStream
 --- without its terminator.
 ---
 --- ```nupp
---- local lines = io.newreader("one\r\ntwo\nlast"):lines()
+--- local lines = io.Reader.of("one\r\ntwo\nlast"):lines()
 --- assert(lines:read() == "one")
 --- assert(lines:read() == "two")
 --- assert(lines:read() == "last")
@@ -426,10 +427,10 @@ export type Lines = bytes.Lines
 --- content, and the buffer is still empty afterwards.
 ---
 --- ```nupp
---- local buffer = io.newbuffer("hello")
+--- local buffer = io.Buffer.create("hello")
 --- assert(buffer:len() == 5)
 ---
---- local sized = io.newbuffer(4096)
+--- local sized = io.Buffer.create(4096)
 --- assert(sized:len() == 0 and sized:capacity() == 4096)
 --- ```
 ---
@@ -447,7 +448,7 @@ export const newBuffer = bytes.newBuffer
 ---
 --- ```nupp
 ---
---- local reader = io.newreader("hello")
+--- local reader = io.Reader.of("hello")
 --- assert(reader:read(5) == "hello")
 --- assert(reader:read(1) == "")
 --- ```
@@ -483,8 +484,8 @@ export const newQueueReader = bytes.newQueueReader
 --- held whole.
 ---
 --- ```nupp
---- assert(io.readall(io.newreader("whole")) == "whole")
---- local text, reason = io.readall(io.newreader("too long"), 3)
+--- assert(io.readall(io.Reader.of("whole")) == "whole")
+--- local text, reason = io.readall(io.Reader.of("too long"), 3)
 --- assert(text == nil and reason ~= nil)
 --- ```
 ---

@@ -273,11 +273,11 @@ local function assembly(artifacts: any, selected: Target, wanted: string?, sourc
     -- vectorised kernel gets mistaken for one that was not.
     local claims: {[string]: Claim} = {}
     for _, program in ipairs(artifacts.programs) do
-        claims[program.symbol] = new instructionsMod.Claim(name = program.name, role = "kernel")
-        claims[program.symbol .. "_forced_scalar"] = new instructionsMod.Claim(name = program.name, role = "oracle")
-        claims[program.symbol .. "_lua"] = new instructionsMod.Claim(name = program.name, role = "wrapper")
+        claims[program.symbol] = instructionsMod.Claim(name = program.name, role = "kernel")
+        claims[program.symbol .. "_forced_scalar"] = instructionsMod.Claim(name = program.name, role = "oracle")
+        claims[program.symbol .. "_lua"] = instructionsMod.Claim(name = program.name, role = "wrapper")
         if program.registrar ~= nil then
-            claims[tostring(program.registrar)] = new instructionsMod.Claim(name = program.name, role = "registrar")
+            claims[tostring(program.registrar)] = instructionsMod.Claim(name = program.name, role = "registrar")
         end
     end
     instructionsMod.claim(listings, claims)

@@ -58,8 +58,8 @@ local function root(
     param: scalarIR.Param
 ): nil
     local lua = runtime.lua(ctx)
-    lua.bytes[uniqueName] = new context.Bytes(pointer = pointer, length = length)
-    local span = new context.Span(pointer = pointer, param = param)
+    lua.bytes[uniqueName] = context.Bytes(pointer = pointer, length = length)
+    local span = context.Span(pointer = pointer, param = param)
     local count = lua.size == "i64" and length or context.value(ctx, ("zext %s %s to i64"):format(lua.size, length))
     -- Under the name a vector load's view is rewritten to, and under the
     -- parameter's own, which the bounds around such a load name.
@@ -144,7 +144,7 @@ local function roots(ctx: context.Context, program: scalarIR.Program): nil
     local seen: {[string]: boolean} = {}
     visit.program(
         program,
-        new visit.Visitor(scalarStatement = function(statement: scalarIR.Statement): nil
+        visit.Visitor(scalarStatement = function(statement: scalarIR.Statement): nil
             if statement.op == "let" then
                 local typeName = tostring(statement.type)
                 if typeName == "lua_string"
@@ -178,7 +178,7 @@ local function constants(ctx: context.Context, program: scalarIR.Program): nil
         -- One NUL past the end, which the length does not count, so a
         -- parse the runtime hands to the C library stops there.
         local global = builder.bytes(ctx.module, constant.value .. "\0", 4)
-        local param = new scalarIR.Param(kind = "scalar", name = constant.uniqueName, type = "lua_string")
+        local param = scalarIR.Param(kind = "scalar", name = constant.uniqueName, type = "lua_string")
         root(ctx, constant.uniqueName, global, tostring(#constant.value), param)
     end
 end
@@ -234,7 +234,7 @@ export function registrar(
     declareTable(module)
     local f = builder.func(module, ("define i32 @%s(ptr %%L) %s {"):format(name, attrs))
     local ctx = context.new(module, f, program)
-    ctx.lua = new context.Lua(
+    ctx.lua = context.Lua(
         state = "%L",
         runtime = "null",
         size = size,

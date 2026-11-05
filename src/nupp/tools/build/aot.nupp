@@ -561,7 +561,7 @@ function aot.compileWasm(
             local one = units[index] as aot.Emitted
             compiled[
                 #compiled + 1
-            ] = new aotllvm.Unit(
+            ] = aotllvm.Unit(
                 ir = one.output,
                 triple = WASM_TRIPLE,
                 tier = one.tier,
@@ -622,16 +622,14 @@ function aot.compileWasm(
     for position, one in ipairs(units) do
         local output = one.wasm as string
         local digest = digests[position] as string
-        modules[
-            one.cacheKey
-        ] = new aot.WasmModule(key = moduleKeys[position] as string, output = output, digest = digest)
+        modules[one.cacheKey] = aot.WasmModule(key = moduleKeys[position] as string, output = output, digest = digest)
         outputs[#outputs + 1] = one.output
         outputs[#outputs + 1] = output
         keys[#keys + 1] = one.key
         keys[#keys + 1] = digest
     end
 
-    return new aot.WasmOutcome(
+    return aot.WasmOutcome(
         outputs = outputs,
         key = hash.digest(table.concat(keys, "\0")),
         toolchain = version,
@@ -773,12 +771,7 @@ function aot.link(
             local one = emitted[index] as aot.Emitted
             units[
                 #units + 1
-            ] = new aotllvm.Unit(
-                ir = one.output,
-                triple = selected.triple,
-                tier = one.tier,
-                object = one.object as string
-            )
+            ] = aotllvm.Unit(ir = one.output, triple = selected.triple, tier = one.tier, object = one.object as string)
         end
         local compileErr = aotllvm.compileMany(units)
         if compileErr ~= nil then
@@ -787,7 +780,7 @@ function aot.link(
     end
     table.sort(objects)
 
-    local outcome = new aot.LinkOutcome(objects = objectKeys, reused = reused, compiled = #dirty, linked = true)
+    local outcome = aot.LinkOutcome(objects = objectKeys, reused = reused, compiled = #dirty, linked = true)
     report:at("aot:link")
     -- Not `static and archive() or link()`: an archive that succeeded answers
     -- nil, which would link a shared library over it.
@@ -1088,7 +1081,7 @@ function aot.emit(
                     end
                     emitted[
                         #emitted + 1
-                    ] = new aot.Emitted(
+                    ] = aot.Emitted(
                         source = source,
                         tier = tierTarget.tier,
                         cacheKey = cacheKey,
@@ -1136,7 +1129,7 @@ function aot.emit(
         end
         emitted[
             #emitted + 1
-        ] = new aot.Emitted(
+        ] = aot.Emitted(
             source = "<feature-detector>",
             tier = "baseline",
             cacheKey = cacheKey,
@@ -1380,7 +1373,7 @@ function aot.replay(snapshot: any?, desiredCommand: string?): aot.Result?
 
     local units = #payload.emitted
 
-    return new aot.Result(
+    return aot.Result(
         emitted = payload.emitted,
         specializedBodies = payload.specializedBodies or 0,
         library = payload.library,
@@ -1396,7 +1389,7 @@ function aot.replay(snapshot: any?, desiredCommand: string?): aot.Result?
         objects = payload.objects,
         modules = payload.modules,
         remembered = payload.remembered,
-        facts = new aot.Facts(
+        facts = aot.Facts(
             units = units,
             checkedSources = 0,
             loweredPrograms = 0,
@@ -1461,7 +1454,7 @@ function aot.writeArchiveProbe(
         end
     end
 
-    return new aot.Emitted(
+    return aot.Emitted(
         source = "<archive-probe>",
         tier = selected.tier,
         cacheKey = "@archive-probe",
@@ -1476,7 +1469,7 @@ function aot.writeArchiveProbe(
         detector = true,
         role = "archive-probe",
         backend = backend
-    ), new bindingRules.Archive(symbol = symbol, fingerprint = fingerprint), nil
+    ), bindingRules.Archive(symbol = symbol, fingerprint = fingerprint), nil
 end
 
 --- The format of `aot/units.json`. Another process reads it back -- the browser
@@ -1699,7 +1692,7 @@ function aot.apply(
     scope: {[string]: boolean}?
 ): (aot.Result?, string?, compile.Diagnostic?)
     local report = reporter or progress.new("never")
-    local held = carried or new aot.Carried()
+    local held = carried or aot.Carried()
     toolruns.reset()
     local wasmPolicy = aot.linksWasm(policy)
     -- The same selection a check lowers for, so the two cannot disagree about tiers.
@@ -1940,7 +1933,7 @@ function aot.apply(
                 end
             end
         end
-        return new aot.Result(
+        return aot.Result(
             remarks = remarks,
             emitted = emitted as {aot.Emitted},
             libraryKey = sideModules.key,
@@ -1954,8 +1947,8 @@ function aot.apply(
             specializedBodies = specializedBodies,
             constSelection = constSelection,
             modules = sideModules.modules,
-            remembered = new aot.Remembered(command = "<llvm>", signature = "", version = aotllvm.version()),
-            facts = new aot.Facts(
+            remembered = aot.Remembered(command = "<llvm>", signature = "", version = aotllvm.version()),
+            facts = aot.Facts(
                 units = #(emitted as {aot.Emitted}),
                 checkedSources = work.checkedSources,
                 loweredPrograms = work.loweredPrograms,
@@ -1971,7 +1964,7 @@ function aot.apply(
         ), nil
     end
     if not aot.linksNative(policy) then
-        return new aot.Result(
+        return aot.Result(
             remarks = remarks,
             emitted = emitted as {aot.Emitted},
             manifest = manifest,
@@ -1980,7 +1973,7 @@ function aot.apply(
             gpuSources = gpuSources,
             specializedBodies = specializedBodies,
             constSelection = constSelection,
-            facts = new aot.Facts(
+            facts = aot.Facts(
                 units = #(emitted as {aot.Emitted}),
                 checkedSources = work.checkedSources,
                 loweredPrograms = work.loweredPrograms,
@@ -2015,7 +2008,7 @@ function aot.apply(
                 )
             end
         end
-        return new aot.Result(
+        return aot.Result(
             remarks = remarks,
             emitted = emitted as {aot.Emitted},
             manifest = manifest,
@@ -2025,7 +2018,7 @@ function aot.apply(
             gpuSources = gpuSources,
             specializedBodies = specializedBodies,
             constSelection = constSelection,
-            facts = new aot.Facts(
+            facts = aot.Facts(
                 units = 0,
                 checkedSources = work.checkedSources,
                 loweredPrograms = work.loweredPrograms,
@@ -2044,7 +2037,7 @@ function aot.apply(
     local selected = (selectedForManifest as {targets.Target})[1]
     report:at("aot:reuse")
     -- The code generator compiles and lld links, in process.
-    local chain = new aot.Toolchain(command = "<llvm>", version = aotllvm.version())
+    local chain = aot.Toolchain(command = "<llvm>", version = aotllvm.version())
     local keys: {string} = {}
     for _, one in ipairs(emitted as {aot.Emitted}) do
         keys[#keys + 1] = one.key
@@ -2155,7 +2148,7 @@ function aot.apply(
         end
     end
 
-    return new aot.Result(
+    return aot.Result(
         remarks = remarks,
         emitted = emitted as {aot.Emitted},
         library = library,
@@ -2169,8 +2162,8 @@ function aot.apply(
         specializedBodies = specializedBodies,
         constSelection = constSelection,
         objects = objects,
-        remembered = new aot.Remembered(command = chain.command, signature = chain.version, version = chain.version),
-        facts = new aot.Facts(
+        remembered = aot.Remembered(command = chain.command, signature = chain.version, version = chain.version),
+        facts = aot.Facts(
             units = #(emitted as {aot.Emitted}),
             checkedSources = work.checkedSources,
             loweredPrograms = work.loweredPrograms,

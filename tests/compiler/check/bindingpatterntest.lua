@@ -79,7 +79,7 @@ function M.constBindingsStayImmutableAndKeepTheirFieldTypes()
     testAssert.eq(
         diagnostics(
             pair .. "\n" .. table.concat(
-                {"local point = new Pair(x = 1, y = 2)", "const {x, y as vertical} = point", "x = 3", "vertical = 4",},
+                {"local point = Pair(x = 1, y = 2)", "const {x, y as vertical} = point", "x = 3", "vertical = 4",},
                 "\n"
             )
         ),
@@ -90,7 +90,7 @@ end
 function M.annotationsCheckTheSelectedField()
     testAssert.eq(
         diagnostics(
-            pair .. "\n" .. table.concat({"local point = new Pair(x = 1, y = 2)", "const {x: string} = point",}, "\n")
+            pair .. "\n" .. table.concat({"local point = Pair(x = 1, y = 2)", "const {x: string} = point",}, "\n")
         ),
         "NUPP2001"
     )
@@ -98,22 +98,19 @@ end
 
 function M.missingAndRepeatedSelectionsAreDiagnosed()
     testAssert.eq(
-        diagnostics(pair .. "\n" .. table.concat({"local point = new Pair(x = 1, y = 2)", "local {z} = point",}, "\n")),
+        diagnostics(pair .. "\n" .. table.concat({"local point = Pair(x = 1, y = 2)", "local {z} = point",}, "\n")),
         "NUPP2004"
     )
     testAssert.eq(
         diagnostics(
-            pair .. "\n" .. table.concat(
-                {"local point = new Pair(x = 1, y = 2)", "local {x, x as other} = point",},
-                "\n"
-            )
+            pair .. "\n" .. table.concat({"local point = Pair(x = 1, y = 2)", "local {x, x as other} = point",}, "\n")
         ),
         "NUPP2006"
     )
     testAssert.eq(
         diagnostics(
             pair .. "\n" .. table.concat(
-                {"local point = new Pair(x = 1, y = 2)", "local {x as value, y as value} = point",},
+                {"local point = Pair(x = 1, y = 2)", "local {x as value, y as value} = point",},
                 "\n"
             )
         ),
@@ -128,7 +125,7 @@ function M.patternsDoNotPartiallyMoveOwnedContainers()
                 {
                     "local function close(takes value: Pair): nil end",
                     "local function open(): affine(Pair, close)",
-                    "   return new Pair(x = 1, y = 2)",
+                    "   return Pair(x = 1, y = 2)",
                     "end",
                     "const owned = open()",
                     "local {x} = owned",

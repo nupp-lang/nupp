@@ -235,7 +235,7 @@ end
 --- @param options ignored
 --- @return the new buffer
 export function new(size: (integer | table)?, options: table?): Buffer
-    const state = new Buffer(pieces = {}, count = 0, head = 1, firstByte = 1, bytes = 0)
+    const state = Buffer(pieces = {}, count = 0, head = 1, firstByte = 1, bytes = 0)
     if proxyPrototype ~= nil then
         const proxy = proxyFactory(proxyPrototype) as userdata
         proxyStates[proxy] = state

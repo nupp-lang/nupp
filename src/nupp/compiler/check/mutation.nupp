@@ -76,7 +76,7 @@ local INVOKERS: {
 } = {pcall = 1, xpcall = 1, ["coroutine.wrap"] = 1, ["coroutine.create"] = 1, ["table.sort"] = 2, ["string.gsub"] = 3,}
 
 local function newSummary(): Summary
-    return new Summary(
+    return Summary(
         params = {},
         paramNames = {},
         self = false,
@@ -905,7 +905,7 @@ export function prescan(root: any): Summaries
         end
     end
 
-    return new Summaries(
+    return Summaries(
         byKey = byKey,
         byMethod = byMethod,
         byBody = byBody,

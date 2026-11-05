@@ -81,7 +81,7 @@ leaving the document open, and consuming `close()` requires one complete root:
 
 ```nupp
 local out = string.buffer.new()
-local writer = serde.json.newwriter(out)
+local writer = serde.json.Writer.of(out)
 writer:startobject():key("items"):startarray():write(1):write(2):endarray():endobject()
 writer:close()
 ```
@@ -160,11 +160,11 @@ export type EncodedString = contracts.EncodedString
 --- @export
 export type JSONEncodable = contracts.JSONEncodable
 
---- A checked incremental JSON writer, which `newwriter` returns.
+--- A checked incremental JSON writer, which `Writer.of` returns.
 ---
 --- ```nupp
 --- local out = string.buffer.new()
---- local writer = serde.json.newwriter(out)
+--- local writer = serde.json.Writer.of(out)
 --- writer:startobject():key("ok"):write(true):endobject()
 --- writer:close()
 --- assert(out:tostring() == [[{"ok":true}]])
@@ -463,7 +463,7 @@ end
 ---
 --- ```nupp
 --- local out = string.buffer.new()
---- local writer = serde.json.newwriter(out)
+--- local writer = serde.json.Writer.of(out)
 --- writer:startobject():key("id"):write(41):endobject()
 --- writer:close()
 --- assert(out:tostring() == [[{"id":41}]])
@@ -474,9 +474,9 @@ end
 --- @export
 export function newWriter(exclusive out: Buffer, nullvalue: any?): Writer
     if nullvalue == nil then
-        return new WriterImpl(raw = native.newwriter(out))
+        return WriterImpl(raw = native.newwriter(out))
     end
-    return new WriterImpl(raw = native.newwriter(out, nullvalue))
+    return WriterImpl(raw = native.newwriter(out, nullvalue))
 end
 
 --- Creates a schema-driven JSON codec with an immutable wire profile.

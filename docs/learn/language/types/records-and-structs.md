@@ -339,8 +339,8 @@ local b: Vec2 -- zero-initialized
 ```
 
 A struct may declare a [constructor](#constructors-and-result-policies) the
-way a record does, and `new` then runs it instead of filling fields
-positionally. The instance is the ctype's own zero-filled allocation, so a
+way a record does. Calling its declaration then runs that constructor instead
+of filling fields positionally. The instance is the ctype's own zero-filled allocation, so a
 field default is written into it before the body runs, and the body assigns
 the rest. The generated function sits on the metatype beside the struct's
 methods and returns the cdata it allocated:

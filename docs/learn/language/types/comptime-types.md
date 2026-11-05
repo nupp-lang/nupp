@@ -255,7 +255,7 @@ local record User
     name: string
 end
 
-local inspected = string.format("user=%?", new User(name = "Ada"))
+local inspected = string.format("user=%?", User(name = "Ada"))
 ```
 
 See [derives.md](../../../reference/derives.md#debug) for what

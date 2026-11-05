@@ -119,7 +119,7 @@ local function builtin(target: string): targetProfile.Profile?
     end
     local system = targetProfile.system(target)
     if system == "emscripten" then
-        return new targetProfile.Profile(
+        return targetProfile.Profile(
             target = target,
             origin = "built-in",
             layoutModel = target,
@@ -135,7 +135,7 @@ local function builtin(target: string): targetProfile.Profile?
     end
     local forceLoad, export = hostedLinking(system)
 
-    return new targetProfile.Profile(
+    return targetProfile.Profile(
         target = target,
         origin = "built-in",
         layoutModel = target,
@@ -255,7 +255,7 @@ function targetProfile.fromDescriptor(target: string, value: any, origin: string
         return nil, exportErr
     end
 
-    return new targetProfile.Profile(
+    return targetProfile.Profile(
         target = target,
         origin = origin,
         layoutModel = model as string,

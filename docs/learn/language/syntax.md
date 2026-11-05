@@ -293,7 +293,7 @@ local function closeFile(takes file: File): nil
 end
 
 local function openFile(): affine(File, closeFile)
-    return new File(closed = false)
+    return File(closed = false)
 end
 
 local function readOnce(): nil
@@ -392,7 +392,7 @@ Types are built from a fixed set of forms.
 
 None of the level-1 introducers is reserved. `type`, `record`, `interface`,
 `struct`, `const`, `cdef`, `from`, `continue`, `module`, `export`,
-`global`, `as`, `is`, `new`, `comptime`, `metamethod`, `takes`,
+`global`, `as`, `is`, `comptime`, `metamethod`, `takes`,
 `borrows`, `exclusive`, `retains`, `releases`, `out`, `switch`, `case`,
 `where`, and `yield` all keep their Lua meaning wherever a declaration cannot
 start.

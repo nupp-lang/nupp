@@ -211,7 +211,7 @@ local function restart(path, message, reason)
         help = "restart the process; loaded cdata, callbacks, function pointers, and native state cannot be rebound"
     end
 
-    return new hotSession.Restart(
+    return hotSession.Restart(
         kind = "restart-required",
         reason = reason,
         diagnostics = {
@@ -221,7 +221,7 @@ local function restart(path, message, reason)
 end
 
 local function diagnosticsFailure(values)
-    return new hotSession.Rejected(kind = "diagnostics", diagnostics = values)
+    return hotSession.Rejected(kind = "diagnostics", diagnostics = values)
 end
 
 ----------------------------------------------------------------------------
@@ -1053,12 +1053,12 @@ function Session:prepare(paths)
     if changedCount == 0 then
         self.running = candidate
         self.observedInputs = {}
-        return new hotSession.Unchanged(kind = "no-change", generation = self.generation)
+        return hotSession.Unchanged(kind = "no-change", generation = self.generation)
     end
     -- Integer arithmetic widens, so the sum is narrowed back where it is bound
     -- rather than at each of the two places the record wants an integer.
     local generation = (self.generation + 1) as integer
-    local result = new hotSession.Prepared(
+    local result = hotSession.Prepared(
         kind = "prepared",
         patch = table.concat(patches, "\n"),
         baseGeneration = self.generation,

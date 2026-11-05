@@ -198,7 +198,7 @@ record process.Reader is byteio.Reader
                 -- This stream, and the child: end of stream is something the child's
                 -- ending produces, so a reader that only asked about the pipe could
                 -- sleep through the very event that answers it.
-                return new shared.Interest(child = self.owner.handle, read = {self.handle}, write = {})
+                return shared.Interest(child = self.owner.handle, read = {self.handle}, write = {})
             end,
             self.owner.backend:now() + timeoutms
         )
@@ -404,7 +404,7 @@ record process.Writer is byteio.Writer
         local function interest(): shared.Interest
             -- Room in this pipe, and the child: a child that exits makes every
             -- remaining write impossible, which is an answer too.
-            return new shared.Interest(child = self.owner.handle, read = {}, write = {self.handle})
+            return shared.Interest(child = self.owner.handle, read = {}, write = {self.handle})
         end
 
         -- Both of these are written above the loop rather than in it, so the loop holds
@@ -790,7 +790,7 @@ record process.Process is io.File, own.Affine<self._drop>
                 -- is reading stays ready forever, so asking about it here would turn
                 -- this sleep into a spin. The cost is that waiting without draining can
                 -- fill a pipe and stall, which is exactly what `communicate` is for.
-                return new shared.Interest(child = self.state.handle, read = {}, write = {})
+                return shared.Interest(child = self.state.handle, read = {}, write = {})
             end
         )
         if self.state.timedOut and self.state.exit ~= nil then
@@ -904,7 +904,7 @@ record process.Process is io.File, own.Affine<self._drop>
                     write[#write + 1] = stdin.handle
                 end
 
-                return new shared.Interest(child = self.state.handle, read = read, write = write)
+                return shared.Interest(child = self.state.handle, read = read, write = write)
             end
 
             while not (inputDone() and outputDone()) do
@@ -967,7 +967,7 @@ record process.Process is io.File, own.Affine<self._drop>
 
             abandonInput()
 
-            return new process.Result(output = table.concat(out), erroroutput = table.concat(err), exit = self:wait())
+            return process.Result(output = table.concat(out), erroroutput = table.concat(err), exit = self:wait())
         end)
         if not ok then
             return nil, byteio.toError(
@@ -1083,7 +1083,7 @@ function process.Process.teardown(borrows self: process.Process): nil
                 return not state.closing
             end,
             function(): shared.Interest
-                return new shared.Interest(child = state.handle, read = {}, write = {})
+                return shared.Interest(child = state.handle, read = {}, write = {})
             end
         )
         if state.reaped then
@@ -1148,7 +1148,7 @@ function process.Process.teardown(borrows self: process.Process): nil
                     return state.exit ~= nil
                 end,
                 function(): shared.Interest
-                    return new shared.Interest(child = state.handle, read = {}, write = {})
+                    return shared.Interest(child = state.handle, read = {}, write = {})
                 end
             )
         end)
@@ -1487,7 +1487,7 @@ newReader = function(owner: any, handle: any): process.Reader?
         return nil
     end
 
-    return new process.Reader(owner = owner, handle = handle, closed = false, eof = false, pending = "")
+    return process.Reader(owner = owner, handle = handle, closed = false, eof = false, pending = "")
 end
 
 newWriter = function(owner: any, handle: any): process.Writer?
@@ -1495,7 +1495,7 @@ newWriter = function(owner: any, handle: any): process.Writer?
         return nil
     end
 
-    return new process.Writer(
+    return process.Writer(
         owner = owner,
         handle = handle,
         closed = false,
@@ -1666,7 +1666,7 @@ function process.spawn(
     if handle == nil then
         return nil, problem or "the process could not be started", code
     end
-    local state = new Child(
+    local state = Child(
         backend = backend,
         handle = handle,
         deadline = given.timeoutms ~= nil and (backend:now() + given.timeoutms) or nil,
@@ -1684,7 +1684,7 @@ function process.spawn(
     )
 
     return fileHandle(
-        new process.Process(
+        process.Process(
             state = state,
             pid = pid,
             stdin = newWriter(state, inHandle),

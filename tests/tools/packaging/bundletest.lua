@@ -152,6 +152,34 @@ return {
 }
 ]]
 
+function M.algorithmFactoryReferencesCarryTheirSelectedProviders()
+    local dir = tempProject({
+        ["nupp.lua"] = MANIFEST:gsub('kind = "bundle"', 'kind = "modules"'),
+        [
+            "src/app/main.nupp"
+        ] = [[
+local {Checksum} = require("binary")
+local catalog = require("binary")
+local {Digest, Mac} = catalog
+local checksum = Checksum.compute
+local digest = Digest.computehex
+local mac = Mac.computehex
+assert(checksum("crc32", "123456789") == 0xcbf43926)
+assert(digest("sha256", "abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+assert(#mac("hmac-sha256", "key", "message") == 64)
+print("factories carried")
+]],
+    })
+    local output, built = run(dir, "'" .. NUPP .. "' build")
+    assert(built, output)
+    for _, family in ipairs({"checksum", "digest", "mac"}) do
+        assert(readFile(dir .. "/build/nupp/runtime/provider/" .. family .. ".lua"), family .. " provider is staged")
+    end
+    local result, ran = run(dir, "LUA_PATH='./build/?.lua;;' luajit build/app/main.lua")
+    assert(ran and result == "factories carried\n", result)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.aComponentInstallsBeforeItsEntryRuns()
     local dir = tempProject({
         ["nupp.lua"] = COMPONENT_MANIFEST,
@@ -159,6 +187,9 @@ function M.aComponentInstallsBeforeItsEntryRuns()
             "src/app/main.nupp"
         ] = [[
 local json = require("serde.json")
+local {type Checksum} = require("binary")
+local unfinished: Checksum? = nil
+assert(unfinished == nil)
 assert(_G.component_started == nil)
 debug.log.info("starting component")
 _G.component_json = json.encodevalue({answer = 42})
@@ -347,7 +378,7 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
         ] = [[
 const http = require("io.http")
 
-do local client = http.newclient() ;
+do local client = http.Client.create() ;
     print("mixed native provider")
 end
 ]],
@@ -682,21 +713,21 @@ do local scope = tasks.scope() ;
     const left = scope:work(6, jobs.square)
     const right = scope:work(7, jobs.square)
     const paired = scope:work(5, jobs.pair)
-    const box = new jobs.Box(value = 8)
+    const box = jobs.Box(value = 8)
     local dynamicBox = box as any
     dynamicBox.extra = "kept"
     const boxed = scope:work(box, jobs.doubleBox)
     const returnedBox = scope:work(box, jobs.bumpBox)
     const gradualBox = scope:work(box, jobs.gradual)
-    const nested = scope:work(new jobs.Box.Label(text = "worker"), jobs.labelSize)
+    const nested = scope:work(jobs.Box.Label(text = "worker"), jobs.labelSize)
     const text = scope:work("native string", jobs.echo)
-    const payload = scope:work(new jobs.Payload(id = 9, label = "schema", ready = true), jobs.echoPayload)
-    local malformed = new jobs.Payload(id = 10, label = "fallback", ready = false)
+    const payload = scope:work(jobs.Payload(id = 9, label = "schema", ready = true), jobs.echoPayload)
+    local malformed = jobs.Payload(id = 10, label = "fallback", ready = false)
     local dynamicMalformed = malformed as any
     dynamicMalformed.id = "dynamic"
     const fallbackPayload = scope:work(malformed, jobs.echoPayload)
-    const anyPayload = scope:work(new jobs.Payload(id = 11, label = "any", ready = false), jobs.echoDynamic)
-    local spare = new jobs.Payload(id = 12, label = "extra", ready = true)
+    const anyPayload = scope:work(jobs.Payload(id = 11, label = "any", ready = false), jobs.echoDynamic)
+    local spare = jobs.Payload(id = 12, label = "extra", ready = true)
     local dynamicSpare = spare as any
     dynamicSpare.extra = "spare"
     const extraPayload = scope:work(spare, jobs.echoPayload)
@@ -710,8 +741,8 @@ do local scope = tasks.scope() ;
             escaped = {__nuppAttachmentTable = {nested = true}},
         },
     }, jobs.attachmentMarkers)
-    const sparse = scope:work(new jobs.Sparse(id = 13, ready = true), jobs.echoSparse)
-    const noted = scope:work(new jobs.Sparse(id = 14, ready = false, note = "held"), jobs.echoSparse)
+    const sparse = scope:work(jobs.Sparse(id = 13, ready = true), jobs.echoSparse)
+    const noted = scope:work(jobs.Sparse(id = 14, ready = false, note = "held"), jobs.echoSparse)
     local doubled, label = paired:await()
     const leftValue = left:await()
     const restored = returnedBox:await()
@@ -816,7 +847,7 @@ assert(loaded:len() == 13 and loaded:tostring() == "engine\0bytes\255")
 local absent, missingReason = sharedbytes.readfile("missing-shared-bytes.bin")
 assert(absent == nil and type(missingReason) == "string")
 
-local builder = sharedbytes.newbuilder()
+local builder = sharedbytes.Builder()
 do local writer = builder:reserve(3) ;
     writer[1] = 104
     writer[2] = 105
@@ -847,7 +878,7 @@ const jobs = require("jobs")
 const tasks = require("coroutine")
 
 export function run(base: integer): integer
-    const box = new jobs.Box(value = 21)
+    const box = jobs.Box(value = 21)
     do local scope = tasks.scope() ;
         const scalar = scope:work(2, |value: integer| -> base + value)
         const record = scope:work(|| -> box:doubled())
@@ -881,7 +912,7 @@ local function recordModule(name, from, to)
     end
     lines[#lines + 1] = "const makers: {function(): any} = {"
     for index = from, to do
-        lines[#lines + 1] = ("    function(): any return new R%d(v = %d) end,"):format(index, index)
+        lines[#lines + 1] = ("    function(): any return R%d(v = %d) end,"):format(index, index)
     end
     lines[#lines + 1] = "}\n"
     lines[
@@ -983,7 +1014,7 @@ end
 
 local loaded, loadProblem = pcall(function(): nil
     do local scope = tasks.scope() ;
-        scope:work(new shapes.Point(x = 1, y = 2), points.sum):await()
+        scope:work(shapes.Point(x = 1, y = 2), points.sum):await()
     end
 end)
 print(loaded, tostring(loadProblem):find("cannot initialize on a worker lane", 1, true) ~= nil, wide())

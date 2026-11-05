@@ -1024,7 +1024,7 @@ function M.finalBenchNamesRetireTheOldPublicKeys()
     compile(
         [[
 local bench = debug.bench
-local measurement = new bench.Measurement(name = "x", kind = "case", medianms = 1.25, samplesms = {1.25})
+local measurement = bench.Measurement(name = "x", kind = "case", medianms = 1.25, samplesms = {1.25})
 local options: debug.bench.SuiteOptions = {
     name = "x", variants = {}, cases = {}, baselinevariant = "base",
     warmupiterations = 1, sampleiterations = 2, minsamples = 3,

@@ -65,7 +65,7 @@ happens.
 
 ## Constructors can introduce the policy
 
-A record constructor may make the affine view the default result of `new`:
+A record constructor may make the affine view its default result:
 
 ```nupp:fragment
 local record File
@@ -85,7 +85,7 @@ local record File
 end
 
 do
-    local file = new File(nativeOpen("notes.txt"))
+    local file = File(nativeOpen("notes.txt"))
     print(file:read(128))
 end -- calls File.destroy exactly once
 ```
@@ -125,7 +125,7 @@ local record Child is own.Closeable
 end
 
 do
-    local child = new Child(stdin = openWriter())
+    local child = Child(stdin = openWriter())
     if child.stdin ~= nil then
         child.stdin:close() -- takes the writer; child.stdin is now nil
     end

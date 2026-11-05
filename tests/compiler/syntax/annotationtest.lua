@@ -131,7 +131,7 @@ function M.sealedInterfacesRequireDeclaredConformance()
                     "local record Genuine is Token",
                     "    @readonly value: integer",
                     "end",
-                    "local token: Token = new Genuine(value = 1)",
+                    "local token: Token = Genuine(value = 1)",
                     "print(token.value)",
                 },
                 "\n"
@@ -150,7 +150,7 @@ function M.sealedInterfacesRequireDeclaredConformance()
                     "local record Shaped",
                     "    @readonly value: integer",
                     "end",
-                    "local token: Token = new Shaped(value = 1)",
+                    "local token: Token = Shaped(value = 1)",
                     "print(token.value)",
                 },
                 "\n"
@@ -166,7 +166,7 @@ function M.sealedInterfacesRequireDeclaredConformance()
                     "local record Shaped",
                     "    @readonly value: integer",
                     "end",
-                    "local token: Token = new Shaped(value = 1)",
+                    "local token: Token = Shaped(value = 1)",
                     "local sealed interface Token",
                     "    @readonly value: integer",
                     "end",
@@ -453,7 +453,7 @@ function M.deprecatedUsesReportAcrossApiKinds()
                 "end",
                 '@deprecated(replacement = "Box")',
                 "local type OldBox = Box",
-                "local value: OldBox = new Box(old = legacy(), current = current())",
+                "local value: OldBox = Box(old = legacy(), current = current())",
                 "return value.old",
             },
             "\n"
@@ -948,22 +948,22 @@ function M.unsafeExpressionBoundaries()
 end
 
 function M.expressionAnnotationsPreserveSemanticTokenKinds()
-    local parsed = parser.parse("local unsafe = 1; local value = @unsafe new Box(value = unsafe)")
+    local parsed = parser.parse("local unsafe = 1; local new = unsafe; local value = @unsafe Box(value = new)")
     testAssert.eq(#parsed.errors, 0)
     local kinds = require("nupp.tools.lsp.semantic").syntaxKinds(parsed)
-    local decorators, keywords = 0, 0
+    local decorators, identifiers = 0, 0
     for _, token in ipairs(parsed.tokens) do
         if token.text == "unsafe" and kinds[token] == "decorator" then
             decorators = decorators + 1
         elseif token.text == "unsafe" then
             assert(kinds[token] ~= "nuppKeyword", "ordinary identifiers stay identifiers")
         elseif token.text == "new" then
-            testAssert.eq(kinds[token], "nuppKeyword")
-            keywords = keywords + 1
+            assert(kinds[token] ~= "nuppKeyword", "new is an ordinary identifier")
+            identifiers = identifiers + 1
         end
     end
     testAssert.eq(decorators, 1)
-    testAssert.eq(keywords, 1)
+    testAssert.eq(identifiers, 2)
 end
 
 function M.unsafeStatementTargetsAndSiblingBoundaries()

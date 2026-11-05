@@ -260,13 +260,14 @@ local server: io.net.TlsServerOptions = {certificate = "certificate", privatekey
 local function ready(borrows session: io.net.TlsSession): boolean
     return session:isready()
 end
-local {type Pool, newpool} = require("table")
+local {type Pool} = require("table")
+local {Pool} = require("table")
 local record Value
     number: integer
 end
-local bits: binary.Bitset = new binary.Bitset(64)
-local values: Pool<Value> = newpool(Value, 4)
-local qualified: table.Pool<Value> = table.newpool(Value, 4)
+local bits: binary.Bitset = binary.Bitset(64)
+local values: Pool<Value> = Pool(Value, 4)
+local qualified: table.Pool<Value> = table.Pool(Value, 4)
 local bytes: string = os.randombytes(0)
 return bits, values, qualified, bytes
 ]]

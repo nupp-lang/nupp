@@ -70,13 +70,13 @@ local interface Factory<S is own.Closeable>
     begin: function(self): S
 end
 local record Resources is Factory<Resource>
-    function begin(self): Resource return new Resource() end
+    function begin(self): Resource return Resource() end
 end
 local function use<S is own.Closeable>(factory: Factory<S>, fail: boolean): nil
     local value = factory:begin()
     if fail then error("abort") end
 end
-local factory = new Resources()
+local factory = Resources()
 use(factory, false)
 assert(closed == 1)
 local function fail(): nil use(factory, true) end
@@ -90,7 +90,7 @@ local record Consume is Consumer
         local value = factory:begin()
     end
 end
-local consumer: Consumer = new Consume()
+local consumer: Consumer = Consume()
 consumer:apply(factory)
 assert(closed == 3)
 ]],
@@ -108,7 +108,7 @@ local record Resource is own.Closeable
     end
 end
 local function create(): Resource
-    return new Resource()
+    return Resource()
 end
 local function retain<F is function(...: any): any>(factory: F): F
     return factory
@@ -135,12 +135,12 @@ local record Node
     next: Node?
     value: string
 end
-local node = cache(function(): Node return new Node(value = "ok") end)
+local node = cache(function(): Node return Node(value = "ok") end)
 print(value, node.value)
 ]]
     )
     for _, result in ipairs({"Resource", "managed(Resource)"}) do
-        local construct = result == "Resource" and "new Resource()" or "own.manage(new Resource())"
+        local construct = result == "Resource" and "Resource()" or "own.manage(Resource())"
         local problem = codes(
             [[
 local record Resource is own.Closeable
@@ -187,7 +187,7 @@ local function inherited<V is Cached>(value: V): nil end
 local function inspect(borrows value: Resource): nil
     retain(value)
 end
-local owner = new Resource()
+local owner = Resource()
 retain(owner)
 inherited(owner)
 ]]
@@ -209,7 +209,7 @@ end
 local function invoke<V>(build: function(): V): V
     return build()
 end
-local value = invoke(function(): Resource return new Resource() end)
+local value = invoke(function(): Resource return Resource() end)
 value:close()
 ]],
         "generic-callable-owning-result"
@@ -225,7 +225,7 @@ end
 local function invoke<V>(build: function(): V?): V?
     return build()
 end
-local value = invoke(function(): Resource? return new Resource() end)
+local value = invoke(function(): Resource? return Resource() end)
 if value ~= nil then value:close() end
 ]],
         "generic-optional-owning-result"
@@ -245,9 +245,9 @@ local record Owner<H is table> is own.Closeable
     end
 end
 local function create<H is table>(host: H): Owner<H>
-    return new Owner<H>(host = host)
+    return Owner<H>(host = host)
 end
-local owner = create(new Host(closes = 0))
+local owner = create(Host(closes = 0))
 owner:close()
 ]],
         "generic-owning-result"
@@ -260,7 +260,7 @@ local record Owner<H is table> is own.Closeable
     function close(takes self): nil end
 end
 local function create<H is table>(host: H): Owner<H>
-    return new Owner<H>(host = host)
+    return Owner<H>(host = host)
 end
 local owner = create({})
 owner:close()
@@ -287,9 +287,9 @@ local function invoke<T>(consumer: Consumer<T>, exclusive value: T): nil
     consumer:apply(value)
 end
 local function forward(exclusive value: Resource): nil
-    invoke(new Use(), value)
+    invoke(Use(), value)
 end
-local value = new Resource()
+local value = Resource()
 forward(value)
 value:close()
 ]]
@@ -469,7 +469,7 @@ function M.genericPreservationMovesCapabilitiesIntoAggregateResults()
                 "   value: T",
                 "end",
                 "local function box<T>(takes value: T): Box<T> preserves value",
-                "   return new Box(value = value)",
+                "   return Box(value = value)",
                 "end",
                 "local boxed = box(resource_new())",
                 "own.drop(boxed)",
@@ -487,7 +487,7 @@ function M.genericPreservationMovesCapabilitiesIntoAggregateResults()
                     "   right: T",
                     "end",
                     "local function ambiguous<T>(takes value: T): Pair<T> preserves value",
-                    "   return new Pair(left = value, right = value)",
+                    "   return Pair(left = value, right = value)",
                     "end",
                 },
                 "\n"
@@ -507,7 +507,7 @@ function M.genericPreservationReducesIdentityMappedResults()
                 "   value: T",
                 "end",
                 "local function box<T>(takes value: T): View<Box<T>> preserves value",
-                "   return new Box(value = value)",
+                "   return Box(value = value)",
                 "end",
                 RESOURCE,
                 "local boxed = box(resource_new())",
@@ -657,7 +657,7 @@ function M.optionalAliasesKeepExplicitCleanupOwnership()
                 "end",
                 "local type MaybeResource = affine(Resource, closeResource)?",
                 "local function open(): affine(Resource, closeResource)",
-                "   return new Resource(closed = false)",
+                "   return Resource(closed = false)",
                 "end",
                 "local value: MaybeResource = open()",
                 "if value then own.drop(value) end",
@@ -696,7 +696,7 @@ function M.ownersCannotBeStoredInPlainConstructorFields()
                     "   value: resource*",
                     "end",
                     "local value = resource_new()",
-                    "local box = new Box(value = value)",
+                    "local box = Box(value = value)",
                     "print(box.value)",
                 },
                 "\n"
@@ -1060,7 +1060,7 @@ local record Box<T>
     value: T
 end
 local function box<T>(value: T): Box<T>
-    return new Box<T>(value = value)
+    return Box<T>(value = value)
 end
 local function make(): Box<{string}>
     local values = {"one", "two"}
@@ -1134,7 +1134,7 @@ function M.nominalRecordsCanRetainDeclaredBorrowedFields()
                 "end",
                 "local function closeBuffer(takes value: Buffer): nil end",
                 "local function openBuffer(): affine(Buffer, closeBuffer)",
-                "   return new Buffer(value = 'bytes')",
+                "   return Buffer(value = 'bytes')",
                 "end",
                 "local function view(borrows source: Buffer): Buffer borrows (source)",
                 "   return source",
@@ -1145,7 +1145,7 @@ function M.nominalRecordsCanRetainDeclaredBorrowedFields()
                 "end",
                 "local source = openBuffer()",
                 "do",
-                "   local cursor = new Cursor(source = source, bytes = view(source))",
+                "   local cursor = Cursor(source = source, bytes = view(source))",
                 "   print(cursor.bytes.value)",
                 "end",
                 "own.drop(source)",
@@ -1170,9 +1170,9 @@ function M.aBorrowedFieldMustMatchItsDeclaredSiblingRoot()
                     "   source: Buffer",
                     "   bytes: Buffer borrows (source)",
                     "end",
-                    "local left = new Buffer(value = 'left')",
-                    "local right = new Buffer(value = 'right')",
-                    "local cursor = new Cursor(source = left, bytes = view(right))",
+                    "local left = Buffer(value = 'left')",
+                    "local right = Buffer(value = 'right')",
+                    "local cursor = Cursor(source = left, bytes = view(right))",
                 },
                 "\n"
             )
@@ -1191,7 +1191,7 @@ function M.aRecordCanOwnTheRootOfItsBorrowedField()
                 "   view: resource* borrows (source)",
                 "end",
                 "local source = resource_new()",
-                "local parsed = new Parsed(source = source, view = borrow(source))",
+                "local parsed = Parsed(source = source, view = borrow(source))",
                 "print(parsed.view.value)",
                 "own.drop(parsed)",
             },
@@ -1211,7 +1211,7 @@ function M.anInternallyBorrowedRootFieldCannotMoveAlone()
                     "   view: resource* borrows (source)",
                     "end",
                     "local source = resource_new()",
-                    "local parsed = new Parsed(source = source, view = borrow(source))",
+                    "local parsed = Parsed(source = source, view = borrow(source))",
                     "local detached = parsed.source",
                     "own.drop(detached)",
                     "own.drop(parsed)",
@@ -1284,7 +1284,7 @@ function M.settlingTerminalsAreAcceptedOutsideRegions()
                     "   park()",
                     "end",
                     "local function open(): affine(Resource, close)",
-                    "   return new Resource(value = 1)",
+                    "   return Resource(value = 1)",
                     "end",
                     "local value = open()",
                     "own.drop(value)",
@@ -1307,7 +1307,7 @@ function M.settlingTerminalsAreRefusedInsideANosuspendRegion()
                     "   park()",
                     "end",
                     "local function open(): affine(Resource, close)",
-                    "   return new Resource(value = 1)",
+                    "   return Resource(value = 1)",
                     "end",
                     "@nosuspend do",
                     "   local value = open()",
@@ -1415,7 +1415,7 @@ function M.manageRejectsTransferOnlyOwners()
                     "local record Request",
                     "   value: integer",
                     "end",
-                    "local function beginRequest(): affine(Request) return new Request(value = 1) end",
+                    "local function beginRequest(): affine(Request) return Request(value = 1) end",
                     "local cell = own.manage(beginRequest())",
                 },
                 "\n"
@@ -1462,7 +1462,7 @@ function M.managedCellsEnforceCustodyAtRuntime()
             "   cleaned = cleaned + file.value",
             "end",
             "local function openFile(value: integer): affine(FileState, closeFile)",
-            "   return new FileState(value = value)",
+            "   return FileState(value = value)",
             "end",
             "local owner = own.manage(openFile(1))",
             "local handle = owner:alias()",
@@ -1502,7 +1502,7 @@ function M.managedCellsRejectCapabilitiesTheyCannotDischarge()
             table.concat(
                 {
                     "local record Request value: integer end",
-                    "local function begin(): affine(Request) return new Request(value = 1) end",
+                    "local function begin(): affine(Request) return Request(value = 1) end",
                     "local owner = own.manage(begin())",
                 },
                 "\n"
@@ -1559,7 +1559,7 @@ function M.generalRegionsDistinguishSiblingFieldsAndExactIndexes()
             "   right: table",
             "end",
             "local function together(exclusive left: table, exclusive right: table): nil end",
-            "local pair = new Pair(left = {}, right = {})",
+            "local pair = Pair(left = {}, right = {})",
         },
         "\n"
     )
@@ -1653,7 +1653,7 @@ function M.aliasRecoveryChecksTheStoredCapabilityPolicy()
             "   function flush(exclusive self): nil end",
             "   function close(takes self): nil end",
             "end",
-            "local owner = own.manage(new File())",
+            "local owner = own.manage(File())",
             "local erased: any = owner:alias()",
             "local recovered, problem = own.recoveralias(erased)",
             "assert(recovered ~= nil and problem == nil)",
@@ -1683,7 +1683,7 @@ function M.managedCallbackBorrowsReleaseOnErrorsAndRejectConflicts()
             "   function flush(exclusive self): nil end",
             "   function close(takes self): nil end",
             "end",
-            "local owner = own.manage(new Client(value = 1))",
+            "local owner = own.manage(Client(value = 1))",
             "local handle = owner:alias()",
             "local conflict: string? = nil",
             "local _, outerProblem = handle:with(function(borrows value)",
@@ -1792,10 +1792,7 @@ function M.spansExportANameableGenericWithoutTheirRepresentation()
 
     testAssert.eq(
         codes(
-            table.concat(
-                {"local spans = require(\"binary.span\")", "local made = new spans.Span()", "print(made)",},
-                "\n"
-            )
+            table.concat({"local spans = require(\"binary.span\")", "local made = spans.Span()", "print(made)",}, "\n")
         ),
         "NUPP2004",
         "the interface has no public representation to construct"
@@ -2417,7 +2414,7 @@ local POOL = table.concat(
         "end",
         "local function close_pool(takes p: Pool): nil end",
         "local function open_pool(): affine(Pool, close_pool)",
-        "   return new Pool(items = {})",
+        "   return Pool(items = {})",
         "end",
         "function Pool:get(index: integer): Res borrows (self)",
         "   return self.items[index]",
@@ -2443,7 +2440,7 @@ local ITERATOR_BORROWS = table.concat(
         "end",
         "local function closeCursor(takes cursor: Cursor): nil end",
         "local function openCursor(): affine(Cursor, closeCursor)",
-        "   return new Cursor(next = nil as any, nextExclusive = nil as any)",
+        "   return Cursor(next = nil as any, nextExclusive = nil as any)",
         "end",
         "local function inspectCursor(borrows cursor: Cursor): nil end",
     },
@@ -2708,10 +2705,10 @@ local LAYERED = table.concat(
         "local function close_socket(takes s: Socket): nil end",
         "local function close_tls(takes t: TLS): nil end",
         "local function open_socket(): affine(Socket, close_socket)",
-        "   return new Socket(fd = 1)",
+        "   return Socket(fd = 1)",
         "end",
         "local function open_tls(borrows s: Socket): affine(TLS, close_tls) borrows (s)",
-        "   return new TLS(s = s)",
+        "   return TLS(s = s)",
         "end",
     },
     "\n"
@@ -2898,7 +2895,7 @@ function M.anInlineMethodsBorrowedResultKeepsItsSource()
                     "   end",
                     "end",
                     "local function close_holder(takes h: Holder): nil end",
-                    "local function open_holder(): affine(Holder, close_holder) return new Holder(items = {}) end",
+                    "local function open_holder(): affine(Holder, close_holder) return Holder(items = {}) end",
                     "local h = open_holder()",
                     "local item = h:first()",
                     "own.drop(h)",
@@ -2927,7 +2924,7 @@ function M.aDeclaredMethodsBorrowedResultKeepsItsSource()
                     "   return self.items[1]",
                     "end",
                     "local function close_holder(takes h: Holder): nil end",
-                    "local function open_holder(): affine(Holder, close_holder) return new Holder(items = {}) end",
+                    "local function open_holder(): affine(Holder, close_holder) return Holder(items = {}) end",
                     "local h = open_holder()",
                     "local item = h:first()",
                     "own.drop(h)",
@@ -3084,7 +3081,7 @@ function M.affineUsesItsExactCleanupFunction()
             "   @unsafe do local _raw = @unsafe own.release(file) end",
             "end",
             "local function openFile(): affine(File, closeFile)",
-            "   return new File(closed = false)",
+            "   return File(closed = false)",
             "end",
             "local file = openFile()",
             "own.drop(file)",
@@ -3109,7 +3106,7 @@ function M.anExplicitDropAfterACallIsASeparateStatement()
             "   function drop(takes self): nil calls = calls .. 'stop' end",
             "end",
             "local function closeFile(takes file: File): nil @unsafe do local _raw = @unsafe own.release(file) end end",
-            "local function openFile(): affine(File, closeFile) return new File() end",
+            "local function openFile(): affine(File, closeFile) return File() end",
             "local file = openFile()",
             "print('before')",
             "file:drop()",
@@ -3139,7 +3136,7 @@ function M.aCleanupFunctionCanBeConstrainedByAnInterface()
                 "function File.drop(takes self): nil self.closed = true end",
                 "local function close<T is Closeable>(takes value: T): nil value:drop() end",
                 "local function openFile(): affine(File, close)",
-                "   return new File(closed = false)",
+                "   return File(closed = false)",
                 "end",
                 "do local file = openFile(); print(file.closed) end",
             },
@@ -3254,7 +3251,7 @@ function M.affineRejectsMissingAndInexactCleanupFunctions()
                     "local record File",
                     "   closed: boolean",
                     "end",
-                    "local function openFile(): affine(File, missingCleanup) return new File(closed = false) end",
+                    "local function openFile(): affine(File, missingCleanup) return File(closed = false) end",
                 },
                 "\n"
             )
@@ -3270,7 +3267,7 @@ function M.affineRejectsMissingAndInexactCleanupFunctions()
                     "   closed: boolean",
                     "end",
                     "local function closeFile(file: File): nil end",
-                    "local function openFile(): affine(File, closeFile) return new File(closed = false) end",
+                    "local function openFile(): affine(File, closeFile) return File(closed = false) end",
                 },
                 "\n"
             )
@@ -3290,7 +3287,7 @@ function M.anAffineCleanupBindingMayNotBeReassigned()
                 {
                     "local record File end",
                     "local function closeFile(takes file: File): nil end",
-                    "local function openFile(): affine(File, closeFile) return new File() end",
+                    "local function openFile(): affine(File, closeFile) return File() end",
                     "closeFile = function(takes file: File): nil end",
                 },
                 "\n"
@@ -3303,7 +3300,7 @@ function M.anAffineCleanupBindingMayNotBeReassigned()
             {
                 "local record File end",
                 "local function closeFile(takes file: File): nil end",
-                "local function openFile(): affine(File, closeFile) return new File() end",
+                "local function openFile(): affine(File, closeFile) return File() end",
                 "local other = closeFile",
             },
             "\n"
@@ -3319,7 +3316,7 @@ function M.aCallbackOnlyInvokedIsInferredScoped()
         {
             "local record Res name: string end",
             "local function close(takes r: Res): nil end",
-            "local function open(name: string): affine(Res, close) return new Res(name = name) end",
+            "local function open(name: string): affine(Res, close) return Res(name = name) end",
         },
         "\n"
     )
@@ -3372,7 +3369,7 @@ function M.aDeclaredScopedCallbackCannotEscapeThroughANestedClosure()
         {
             "local record Res name: string end",
             "local function close(takes r: Res): nil end",
-            "local function open(name: string): affine(Res, close) return new Res(name = name) end",
+            "local function open(name: string): affine(Res, close) return Res(name = name) end",
             "local stash: function(): nil = function(): nil end",
         },
         "\n"
@@ -3961,7 +3958,7 @@ function M.borrowedResultsCanNameMultipleSources()
             "local function closePair(takes pair: Pair): nil end",
             "local function pair(borrows left: resource*, borrows right: resource*)",
             "   : affine(Pair, closePair) borrows(left, right)",
-            "   return new Pair(left = left, right = right)",
+            "   return Pair(left = left, right = right)",
             "end",
         },
         "\n"
@@ -4010,13 +4007,13 @@ function M.affineRecordsDropOwnedFieldsInReverseOrder()
             "   calls = calls .. value.name",
             "end",
             "local function openRes(name: string): affine(Res, closeRes)",
-            "   return new Res(name = name)",
+            "   return Res(name = name)",
             "end",
             "local record Bundle",
             "   first: affine(Res, closeRes)",
             "   second: affine(Res, closeRes)",
             "end",
-            "local bundle = new Bundle(first = openRes('a'), second = openRes('b'))",
+            "local bundle = Bundle(first = openRes('a'), second = openRes('b'))",
             "own.drop(bundle)",
             "return calls",
         },
@@ -4037,11 +4034,11 @@ function M.affineRecordsTrackPartialFieldMoves()
             {
                 "local record Res end",
                 "local function closeRes(takes value: Res): nil end",
-                "local function openRes(): affine(Res, closeRes) return new Res() end",
+                "local function openRes(): affine(Res, closeRes) return Res() end",
                 "local record Bundle",
                 "   value: affine(Res, closeRes)",
                 "end",
-                "local bundle = new Bundle(value = openRes())",
+                "local bundle = Bundle(value = openRes())",
                 "local value = bundle.value",
                 "own.drop(value)",
                 "own.drop(bundle)",
@@ -4055,11 +4052,11 @@ function M.affineRecordsTrackPartialFieldMoves()
                 {
                     "local record Res end",
                     "local function closeRes(takes value: Res): nil end",
-                    "local function openRes(): affine(Res, closeRes) return new Res() end",
+                    "local function openRes(): affine(Res, closeRes) return Res() end",
                     "local record Bundle",
                     "   value: affine(Res, closeRes)",
                     "end",
-                    "local bundle = new Bundle(value = openRes())",
+                    "local bundle = Bundle(value = openRes())",
                     "local value = bundle.value",
                     "print(bundle.value)",
                     "own.drop(value)",
@@ -4077,7 +4074,7 @@ function M.customDropOperationsMustDischargeEveryOwnedField()
         {
             "local record Res end",
             "local function closeRes(takes value: Res): nil end",
-            "local function openRes(): affine(Res, closeRes) return new Res() end",
+            "local function openRes(): affine(Res, closeRes) return Res() end",
         },
         "\n"
     )
@@ -4092,7 +4089,7 @@ function M.customDropOperationsMustDischargeEveryOwnedField()
                 "      closeRes(self.first)",
                 "   end",
                 "end",
-                "local bundle = new Bundle(first = openRes(), second = openRes())",
+                "local bundle = Bundle(first = openRes(), second = openRes())",
                 "own.drop(bundle)",
             },
             "\n"
@@ -4136,9 +4133,9 @@ function M.contextualCleanupUsesExplicitOwnerFields()
             "   @unsafe do local _raw = @unsafe own.release(allocation) end",
             "end",
             "local function allocate(arena: Arena, value: string): affine(Allocation, releaseAllocation)",
-            "   return new Allocation(arena = arena, value = value)",
+            "   return Allocation(arena = arena, value = value)",
             "end",
-            "local arena = new Arena(name = 'frame')",
+            "local arena = Arena(name = 'frame')",
             "local allocation = allocate(arena, 'buffer')",
             "own.drop(allocation)",
             "return released",
@@ -4558,7 +4555,7 @@ function M.attemptAllRunsEveryStepAfterAFailure()
             "   own.attemptall(value, stop, release)",
             "end",
             "local function open(): affine(Resource, finish)",
-            "   return new Resource(id = 1)",
+            "   return Resource(id = 1)",
             "end",
             "local ok = pcall(function()",
             "   local value = open()",
@@ -5002,13 +4999,13 @@ function M.sameSpelledCleanupBindingsKeepDistinctReferences()
             "local record Resource end",
             "do",
             "   local function close(takes value: Resource): nil calls = calls .. 'a' end",
-            "   local function open(): affine(Resource, close) return new Resource() end",
+            "   local function open(): affine(Resource, close) return Resource() end",
             "   local value = open()",
             "   own.drop(value)",
             "end",
             "do",
             "   local function close(takes value: Resource): nil calls = calls .. 'b' end",
-            "   local function open(): affine(Resource, close) return new Resource() end",
+            "   local function open(): affine(Resource, close) return Resource() end",
             "   local value = open()",
             "   own.drop(value)",
             "end",
@@ -5292,7 +5289,7 @@ function M.bothSpellingsOfDropLowerTheSameWay()
                 "   @unsafe do local _raw = @unsafe own.release(file) end",
                 "end",
                 "local function openFile(): affine(File, closeFile)",
-                "   return new File(closed = false)",
+                "   return File(closed = false)",
                 "end",
                 "local file = openFile()",
                 call,
@@ -5382,7 +5379,7 @@ local CLOSURE_RESOURCE = table.concat(
         "   calls = calls + 1",
         "end",
         "local function openClosureResource(value: integer): affine(ClosureResource, closeClosureResource)",
-        "   return new ClosureResource(value = value)",
+        "   return ClosureResource(value = value)",
         "end",
     },
     "\n"
@@ -5983,7 +5980,7 @@ function M.anOwnedResultUsesTheTypesStructuralDropOperation()
             {
                 "",
                 "local function open(id: integer): affine(Session, closeSession)",
-                "   return new Session(id = id)",
+                "   return Session(id = id)",
                 "end",
                 "do",
                 "   local session = open(7)",
@@ -6013,10 +6010,10 @@ function M.anOwnedResultUsesALaterQualifiedStructuralDropOperation()
             "   open: function(): affine(m.Session, m.closeSession)",
             "end",
             "function m.Factory:open(): affine(m.Session, m.closeSession)",
-            "   return new m.Session(id = 1)",
+            "   return m.Session(id = 1)",
             "end",
             "do",
-            "   local factory = new m.Factory()",
+            "   local factory = m.Factory()",
             "   local session = factory:open()",
             "   print(session.id)",
             "end",
@@ -6060,9 +6057,9 @@ function M.anOwnedResultCanNameAQualifiedFreeTerminal()
             "record m.Pool",
             "   open: function(): affine(m.Session, m.closeSession)",
             "end",
-            "local pool = new m.Pool(",
+            "local pool = m.Pool(",
             "   open = function(): affine(m.Session, m.closeSession)",
-            "      return new m.Session(id = 1)",
+            "      return m.Session(id = 1)",
             "   end",
             ")",
             "own.drop(pool.open())",
@@ -6093,10 +6090,10 @@ function M.aTransferFieldDoesNotInvokeItsValuesStructuralDropOperation()
                 "   value: affine(Session)",
                 "end",
                 "local function open(): affine(Session)",
-                "   return new Session()",
+                "   return Session()",
                 "end",
                 "local function box(takes value: Session): nil",
-                "   local stored = new Box(value = value)",
+                "   local stored = Box(value = value)",
                 "   @unsafe do",
                 "      local _raw = @unsafe own.release(stored)",
                 "   end",
@@ -6159,7 +6156,7 @@ function M.aNonFirstResultMayBeOwned()
             {
                 "",
                 "local function openLogged(id: integer): (integer, affine(Session, closeSession))",
-                "   return id * 2, new Session(id = id)",
+                "   return id * 2, Session(id = id)",
                 "end",
                 "do",
                 "   local code, session = openLogged(7)",
@@ -6176,7 +6173,7 @@ function M.anOwnedNonFirstResultIsDestroyedAtItsScope()
         {
             "",
             "local function openLogged(id: integer): (integer, affine(Session, closeSession))",
-            "   return id * 2, new Session(id = id)",
+            "   return id * 2, Session(id = id)",
             "end",
             "local function use(): integer",
             "   local code, session = openLogged(7)",
@@ -6199,7 +6196,7 @@ function M.anOwnedResultDeclaresAnOwningResult()
             {
                 "",
                 "local function open(id: integer): affine(Session, closeSession)",
-                "   return new Session(id = id)",
+                "   return Session(id = id)",
                 "end",
                 "do",
                 "   local session = open(7)",
@@ -6266,7 +6263,7 @@ local record Resource
     end
 end
 local function create(): affine(Resource, Resource.destroy)
-    return new Resource(id = 7)
+    return Resource(id = 7)
 end
 local function run(): integer
     local value = create()
@@ -6306,7 +6303,7 @@ local record Resource
     end
 end
 local function create(): affine(Resource, Resource.destroy)
-    return new Resource()
+    return Resource()
 end
 own.drop(create())
 return closed
@@ -6408,7 +6405,7 @@ function M.closeableTypesCarryAnInherentCloseObligation()
                 "   function flush(exclusive self): nil end",
                 "   function close(takes self): nil end",
                 "end",
-                "local client = new Client()",
+                "local client = Client()",
                 "client:flush()",
             },
             "\n"
@@ -6428,7 +6425,7 @@ function M.affineOfAnAffineInterfaceSelectsItsInherentTerminal()
                 "   function close(takes self): nil end",
                 "end",
                 "local function open(borrows anchor: any): affine(Sink) borrows (anchor)",
-                "   return new BufferSink(anchor = anchor)",
+                "   return BufferSink(anchor = anchor)",
                 "end",
                 "local anchor = {}",
                 "local sink = open(anchor)",
@@ -6450,11 +6447,11 @@ function M.constructorsMayInitializeCloseableFields()
                 "   first: Resource?",
                 "   second: Resource?",
                 "   constructor(self, first: boolean, second: boolean)",
-                "      if first then self.first = new Resource() end",
-                "      if second then self.second = new Resource() end",
+                "      if first then self.first = Resource() end",
+                "      if second then self.second = Resource() end",
                 "   end",
                 "end",
-                "local pair = new Pair(true, true)",
+                "local pair = Pair(true, true)",
             },
             "\n"
         )
@@ -6477,7 +6474,7 @@ function M.consumingAggregatesMayForwardTheWholeOwner()
                 "      self:finish()",
                 "   end",
                 "end",
-                "local box = new Box(value = new Resource())",
+                "local box = Box(value = Resource())",
                 "box:close()",
             },
             "\n"
@@ -6498,11 +6495,11 @@ function M.aggregatesOwnTheAffineMemberActuallyStoredInAUnionField()
             "   item: Item",
             "end",
             "do",
-            "   local box = new Box(item = new Resource(name = 'r'))",
+            "   local box = Box(item = Resource(name = 'r'))",
             "   print(box.item)",
             "end",
             "do",
-            "   local box = new Box(item = 'plain')",
+            "   local box = Box(item = 'plain')",
             "   print(box.item)",
             "end",
             "return calls",
@@ -6605,7 +6602,7 @@ function M.returningTaskSpawnsRefuseBorrowedAffineCaptures()
                     "local record Resource is own.Closeable",
                     "   function close(takes self): nil end",
                     "end",
-                    "local resource = new Resource()",
+                    "local resource = Resource()",
                     "do local scope = coroutine.scope() ;",
                     "   local callback = function(): nil borrows (resource)",
                     "      print(resource ~= nil)",
@@ -6671,7 +6668,7 @@ function M.aChildBodyMayBorrowTheScopeThatStartsIt()
                     "local record Resource is own.Closeable",
                     "   function close(takes self): nil end",
                     "end",
-                    "do local resource = new Resource() ;",
+                    "do local resource = Resource() ;",
                     "   do local scope = coroutine.scope() ;",
                     "      scope:spawn(function(): nil",
                     "         scope:cancel(tostring(resource ~= nil))",
@@ -6702,22 +6699,22 @@ function M.anOwnerMovedIntoAFieldIsClosedOnce()
             "   function close(takes self): nil self._inner:close() end",
             "end",
             "local function viaLocal(): nil",
-            "   local inner = new Inner()",
-            "   local outer = new Outer(_inner = inner)",
+            "   local inner = Inner()",
+            "   local outer = Outer(_inner = inner)",
             "   outer:close()",
             "end",
             "local function consume(takes o: Outer): nil o:close() end",
             "local function viaArgument(): nil",
-            "   local inner = new Inner()",
-            "   consume(new Outer(_inner = inner))",
+            "   local inner = Inner()",
+            "   consume(Outer(_inner = inner))",
             "end",
             "local function viaDrop(): nil",
-            "   local inner = new Inner()",
-            "   own.drop(new Outer(_inner = inner))",
+            "   local inner = Inner()",
+            "   own.drop(Outer(_inner = inner))",
             "end",
             "local function make(): Outer",
-            "   local inner = new Inner()",
-            "   return new Outer(_inner = inner)",
+            "   local inner = Inner()",
+            "   return Outer(_inner = inner)",
             "end",
             "local counts: {integer} = {}",
             "viaLocal() counts[1] = closed closed = 0",
@@ -6762,10 +6759,10 @@ function M.aClaimDeclaredBelowItsFirstUseStillGivesATerminal()
             "   function close(takes self): nil closed = closed + 10 end",
             "end",
             "local interface Resource is own.Closeable end",
-            "local spec = new Spec(",
-            "   compile = function(borrows self: Spec): affine(Kernel) return new Kernel() end,",
+            "local spec = Spec(",
+            "   compile = function(borrows self: Spec): affine(Kernel) return Kernel() end,",
             "   box = function(borrows self: Spec): affine(Box<integer>)",
-            "      return new Box<integer>(v = 2)",
+            "      return Box<integer>(v = 2)",
             "   end",
             ")",
             "do local k = spec:compile() ; end",
@@ -6805,11 +6802,11 @@ function M.aNestedClaimDeclaredBelowItsFirstUseStillGivesATerminal()
             "   end",
             "   interface Resource is own.Closeable end",
             "end",
-            "local spec = new Outer.Spec(",
+            "local spec = Outer.Spec(",
             "   compile = function(borrows self: Outer.Spec): affine(Outer.Kernel)",
-            "      return new Outer.Kernel()",
+            "      return Outer.Kernel()",
             "   end,",
-            "   plain = function(borrows self: Outer.Spec): affine(Outer.Plain) return new Outer.Plain() end",
+            "   plain = function(borrows self: Outer.Spec): affine(Outer.Plain) return Outer.Plain() end",
             ")",
             "do local k = spec:compile() ; end",
             "do local p = spec:plain() ; end",
@@ -6843,7 +6840,7 @@ function M.readingClaimsEarlyLeavesALaterGenericContractIntact()
             "   function read(self): number return self.n end",
             "   function reset(self): nil self.n = 0 end",
             "end",
-            "local c: NumberSource = new Counter(n = 3)",
+            "local c: NumberSource = Counter(n = 3)",
             "return c:read()",
         },
         "\n"
@@ -6864,7 +6861,7 @@ function M.aFieldMovesOutOfAnOptionalOwnerOnceItIsNarrowed()
             "   w: W?",
             "   function close(takes self): nil if self.w ~= nil then self.w:close() end end",
             "end",
-            "local function make(): (affine(P)?, string?) return new P(w = new W()), nil end",
+            "local function make(): (affine(P)?, string?) return P(w = W()), nil end",
             "local function consume(takes w: W?): nil if w ~= nil then w:close() end end",
             "local function viaAssert(): nil",
             "   local p = assert(make())",
@@ -6910,27 +6907,27 @@ function M.anOptionalFieldTakenFromASelfClosingRecordIsClosedOnce()
             "   function close(takes self): nil if self.held ~= nil then self.held:close() end end",
             "end",
             "local function consume(takes w: W?): nil if w ~= nil then w:close() end end",
-            "local function viaArgument(): nil local p = new P(w = new W()) consume(p.w) end",
+            "local function viaArgument(): nil local p = P(w = W()) consume(p.w) end",
             "local function viaMethod(): nil",
-            "   local p = new P(w = new W())",
+            "   local p = P(w = W())",
             "   if p.w ~= nil then p.w:close() end",
             "end",
             "local function viaBinding(): nil",
-            "   local p = new P(w = new W())",
+            "   local p = P(w = W())",
             "   local w = p.w",
             "   if w ~= nil then w:close() end",
             "end",
             "local function viaConstruction(): nil",
-            "   local p = new P(w = new W())",
-            "   local b = new Box(held = p.w)",
+            "   local p = P(w = W())",
+            "   local b = Box(held = p.w)",
             "end",
             "local function viaRefill(): nil",
-            "   local p = new P(w = new W())",
+            "   local p = P(w = W())",
             "   consume(p.w)",
             "   p.w = nil",
             "   p:close()",
             "end",
-            "local function viaReturn(): W? local p = new P(w = new W()) return p.w end",
+            "local function viaReturn(): W? local p = P(w = W()) return p.w end",
             "local counts: {integer} = {}",
             "for _, run in ipairs({viaArgument, viaMethod, viaBinding, viaConstruction, viaRefill}) do",
             "   closed = 0",
@@ -6971,8 +6968,8 @@ function M.aRequiredFieldCannotLeaveASelfClosingRecord()
             "   o: W",
             "end",
             "local function consume(takes w: W): nil w:close() end",
-            "local function refused(): nil local p = new P(w = new W()) consume(p.w) end",
-            "local function admitted(): nil local pair = new Pair(w = new W(), o = new W()) consume(pair.w) end",
+            "local function refused(): nil local p = P(w = W()) consume(p.w) end",
+            "local function admitted(): nil local pair = Pair(w = W(), o = W()) consume(pair.w) end",
             "return {refused = refused, admitted = admitted}",
         },
         "\n"
@@ -7000,7 +6997,7 @@ function M.anOptionalAggregateOwnerClosesItsFields()
             "   o: W?",
             "end",
             "local function make(ok: boolean): (P?, string?)",
-            "   if ok then return new P(w = new W(), o = new W()), nil end",
+            "   if ok then return P(w = W(), o = W()), nil end",
             "   return nil, 'no'",
             "end",
             "local function consume(takes w: W?): nil if w ~= nil then w:close() end end",
@@ -7044,7 +7041,7 @@ function M.aFieldCannotMoveOutOfAnOwnerThatMayBeNil()
             "   w: W?",
             "   function close(takes self): nil if self.w ~= nil then self.w:close() end end",
             "end",
-            "local function make(): affine(P)? return new P(w = new W()) end",
+            "local function make(): affine(P)? return P(w = W()) end",
             "local function consume(takes w: W?): nil if w ~= nil then w:close() end end",
             "local p = make()",
             "consume(p.w)",
@@ -7064,7 +7061,7 @@ function M.cancellingAQueuedTaskDropsItsTransferredCaptures()
             "   function close(takes self): nil drops = drops + 1 end",
             "end",
             "do local scope = coroutine.scope() ;",
-            "   local resource = new Resource()",
+            "   local resource = Resource()",
             "   local child = scope:spawn(function(): nil takes (resource)",
             "      resource:close()",
             "   end)",
@@ -7094,7 +7091,7 @@ local CONSUMABLE = table.concat(
         "   function flush(exclusive self): nil end",
         "   function close(takes self): nil end",
         "end",
-        "local function open(id: integer): Res return new Res(id = id) end",
+        "local function open(id: integer): Res return Res(id = id) end",
     },
     "\n"
 )
@@ -7143,7 +7140,7 @@ function M.takesParameterLeftLiveAtTheBodyEndIsReported()
                     "local record Sink",
                     "   function keep(self, takes r: Res): nil print(r.id) end",
                     "end",
-                    "local sink = new Sink()",
+                    "local sink = Sink()",
                     "sink:keep(open(1))",
                 },
                 "\n"
@@ -7227,7 +7224,7 @@ function M.terminalDefinitionsAreTheEndpointOfTheirParameter()
                 "   closed: boolean",
                 "end",
                 "local function closeFile(takes file: File): nil file.closed = true end",
-                "local function openFile(): affine(File, closeFile) return new File(closed = false) end",
+                "local function openFile(): affine(File, closeFile) return File(closed = false) end",
                 "local record Sock is own.Closeable",
                 "   closed: boolean",
                 "   function flush(exclusive self): nil end",
@@ -7235,7 +7232,7 @@ function M.terminalDefinitionsAreTheEndpointOfTheirParameter()
                 "end",
                 "local file = openFile()",
                 "own.drop(file)",
-                "local sock = new Sock(closed = false)",
+                "local sock = Sock(closed = false)",
                 "own.drop(sock)",
             },
             "\n"
@@ -7258,7 +7255,7 @@ function M.anOwnedTemporaryLoanedForOneStatementIsAccepted()
     assertClean(header .. "use(open(1))")
     assertClean(header .. "edit(open(2))")
     assertClean(header .. "open(3):flush()")
-    assertClean(header .. "use(new Res(id = 4))")
+    assertClean(header .. "use(Res(id = 4))")
     assertClean(header .. "use(pass(open(5)))")
     assertClean(header .. "local flag = true\nuse(switch flag do case true -> open(6) else -> open(7) end)")
 end
@@ -7272,8 +7269,8 @@ function M.statementOwnedTemporariesRunTheirTerminalsAtCompletion()
             "   function flush(exclusive self): nil end",
             "   function close(takes self): nil calls = calls .. self.name end",
             "end",
-            "local function open(name: string): Res return new Res(name = name) end",
-            "local function openPair(name: string): (Res, string) return new Res(name = name), 'p' end",
+            "local function open(name: string): Res return Res(name = name) end",
+            "local function openPair(name: string): (Res, string) return Res(name = name), 'p' end",
             "local function inspect(borrows first: Res, exclusive second: Res): nil",
             "   calls = calls .. 'u' .. first.name .. second.name",
             "end",
@@ -7320,7 +7317,7 @@ function M.aLocalInitializedThroughAStatementOwnedTemporaryIsBound()
             "   name: string",
             "   function close(takes self): nil calls = calls .. self.name end",
             "end",
-            "local function open(name: string): Res return new Res(name = name) end",
+            "local function open(name: string): Res return Res(name = name) end",
             "local function view(borrows value: Res): string",
             "   calls = calls .. 'v'",
             "   return value.name",
@@ -7387,7 +7384,7 @@ function M.anOwnedTemporaryThatIsBoundMovedOrReturnedIsAccepted()
                 "end",
                 "local function sink(takes r: Res): nil own.drop(r) end",
                 "local function pass(takes r: Res): Res return r end",
-                "local function make(id: integer): Res return new Res(id = id) end",
+                "local function make(id: integer): Res return Res(id = id) end",
                 "local function pick(flag: boolean): Res",
                 "   return switch flag do",
                 "      case true -> open(1)",
@@ -7398,7 +7395,7 @@ function M.anOwnedTemporaryThatIsBoundMovedOrReturnedIsAccepted()
                 "local b = (open(4))",
                 "local c = pass(open(5))",
                 "local d = open(6)",
-                "local h = new Holder(kept = open(7))",
+                "local h = Holder(kept = open(7))",
                 "sink(open(8))",
                 "own.drop(open(9))",
                 "sink(make(10))",
@@ -7429,7 +7426,7 @@ local PAIR = table.concat(
         "   right: Res",
         "end",
         "local function consume(takes r: Res): nil own.drop(r) end",
-        "local function pair(): Pair return new Pair(left = open(1), right = open(2)) end",
+        "local function pair(): Pair return Pair(left = open(1), right = open(2)) end",
     },
     "\n"
 )
@@ -7522,7 +7519,7 @@ function M.anOwnedFieldLeftLiveAtAReturnFromATerminalIsReported()
                     "      self.resource:close()",
                     "   end",
                     "end",
-                    "local guarded = new Guarded(resource = open(1), closed = false)",
+                    "local guarded = Guarded(resource = open(1), closed = false)",
                     "guarded:close()",
                 },
                 "\n"
@@ -7565,7 +7562,7 @@ function M.anOwnedFieldNarrowedToNilAtAReturnNeedsNoDischarge()
                 "   if p.left == nil then return end",
                 "   own.drop(p.left)",
                 "end",
-                "sink(new MaybePair(left = open(1), right = open(2)))",
+                "sink(MaybePair(left = open(1), right = open(2)))",
             },
             "\n"
         )
@@ -7807,7 +7804,7 @@ function M.aRecordBuiltFromABorrowIsAViewOfItsRoot()
                 "   local function peek(): integer",
                 "      return resource.value",
                 "   end",
-                "   return new Holder(" .. value .. ")",
+                "   return Holder(" .. value .. ")",
                 "end",
                 "print(make())",
             },
@@ -7829,7 +7826,7 @@ function M.aRecordBuiltFromABorrowIsAViewOfItsRoot()
                 "   peek: function(): integer",
                 "end",
                 "local function wrap(borrows resource: ClosureResource): Holder borrows (resource)",
-                "   return new Holder(peek = function(): integer return resource.value end)",
+                "   return Holder(peek = function(): integer return resource.value end)",
                 "end",
                 "local resource = openClosureResource(7)",
                 "do",
@@ -7856,7 +7853,7 @@ function M.aBorrowCannotFillAnOwningRecordField()
                     "   kept: affine(ClosureResource, closeClosureResource)",
                     "end",
                     "local function wrap(borrows resource: ClosureResource): Holder",
-                    "   return new Holder(kept = resource)",
+                    "   return Holder(kept = resource)",
                     "end",
                     "local resource = openClosureResource(7)",
                     "local holder = wrap(resource)",
@@ -7966,7 +7963,7 @@ function M.anOwnerCannotBeConstructedIntoAnAnyField()
                     "local record Box",
                     "   item: any",
                     "end",
-                    "local box = new Box(item = openClosureResource(7))",
+                    "local box = Box(item = openClosureResource(7))",
                     "print(box.item)",
                 },
                 "\n"
@@ -7991,8 +7988,8 @@ function M.aBorrowingFunctionFitsAPlainCallableSlot()
                 "local function describe(borrows self: Counter): string",
                 "   return tostring(self.value)",
                 "end",
-                "local c = new Counter(value = 1, label = describe)",
-                "local d = new Counter(value = 2, label = tostring)",
+                "local c = Counter(value = 1, label = describe)",
+                "local d = Counter(value = 2, label = tostring)",
                 "print(c.value + d.value)",
             },
             "\n"
@@ -8295,7 +8292,7 @@ function M.aPartiallyMovedRecordCannotBeBorrowedWhole()
             "local function poke(exclusive pair: Pair): nil",
             "   print(pair.left.value)",
             "end",
-            "local pair = new Pair(left = resource_new(), right = resource_new())",
+            "local pair = Pair(left = resource_new(), right = resource_new())",
             "consume(pair.left)",
         },
         "\n"
@@ -8332,7 +8329,7 @@ function M.anExclusivePathArgumentIsCheckedAgainstLiveBorrowsOfItsRoot()
             "local function viewSlot(borrows s: Slot): Slot borrows (s)",
             "   return s",
             "end",
-            "local root = new Root(one = new Slot(n = 3), items = {new Slot(n = 1)})",
+            "local root = Root(one = Slot(n = 3), items = {Slot(n = 1)})",
         },
         "\n"
     )
@@ -8444,7 +8441,7 @@ function M.unsafeAnnotationsPreserveCleanupAcrossTransfersAndExits()
 local log = ''
 local record Resource id: string end
 local function close(takes value: Resource): nil log = log .. value.id end
-local function open(id: string): affine(Resource, close) return new Resource(id = id) end
+local function open(id: string): affine(Resource, close) return Resource(id = id) end
 local raw = @unsafe own.release(open('a'))
 local owner = @unsafe own.adopt<affine(Resource, close)>(raw)
 own.drop(owner)
@@ -8534,7 +8531,7 @@ consume(acquireId())
 local record Resource is own.Affine<self.finish>
     function finish(takes self): nil end
 end
-local function acquire(): Resource return new Resource() end
+local function acquire(): Resource return Resource() end
 local owner: Resource = acquire()
 own.drop(owner)
 ]]
@@ -8548,7 +8545,7 @@ local record Incidental
     function close(takes self): nil end
 end
 local function accept<C is own.Affine<releaseId>>(takes value: C): nil end
-accept(new Incidental())
+accept(Incidental())
 ]]
     )
     assert(bad:find("NUPP2116", 1, true), "a compatible method alone is not an Affine claim: " .. bad)
@@ -8566,7 +8563,7 @@ local record Input is Stream
         return self
     end
 end
-local input = new Input()
+local input = Input()
 input:next()
 own.drop(input)
 ]]
@@ -8582,7 +8579,7 @@ local record Parent
     child: Child
 end
 @nosuspend do
-    local parent = new Parent(child = new Child())
+    local parent = Parent(child = Child())
 end
 ]]
     )
@@ -8592,7 +8589,7 @@ local record Incidental
     function close(takes self): nil end
 end
 local function accept<C is own.Closeable>(takes value: C): nil end
-accept(new Incidental())
+accept(Incidental())
 ]]
     )
     assert(bad:find("NUPP2116", 1, true), "close alone must not claim Closeable: " .. bad)
@@ -8798,7 +8795,7 @@ Iterator.__call = function(self: Iterator): integer?
     if self.current > 1 then return nil end
     return self.current
 end
-for value in new Iterator(current = 0) do
+for value in Iterator(current = 0) do
     events[#events + 1] = tostring(value)
 end
 return table.concat(events, ",")
@@ -8835,7 +8832,7 @@ function M.anAliasAppliedInAParameterKeepsItsArgumentsOwnership()
                 "    function run<S is own.Closeable>(self, sink: Alias<S>): nil",
                 "    end",
                 "end",
-                "print(new Impl())",
+                "print(Impl())",
             },
             "\n"
         )
@@ -8889,7 +8886,7 @@ local function stop(value: Resource): nil
 end
 local function finish(value: Resource): nil calls = calls .. ",finish" end
 local function close(takes value: Resource): nil own.attemptall(value, stop, finish) end
-local function open(): affine(Resource, close) return new Resource(id = 1) end
+local function open(): affine(Resource, close) return Resource(id = 1) end
 local ok = pcall(function() local value = open() own.drop(value) end)
 return calls, ok
 ]]
@@ -8915,7 +8912,7 @@ function M.consumingScalarAdaptersKeepTheirBuffersAlive()
         local source = "local function escape(): affine(io."
             .. target
             .. ")\n"
-            .. "    local buffer = io.newbuffer()\n"
+            .. "    local buffer = io.Buffer.create()\n"
             .. "    return "
             .. expression
             .. "\nend"
@@ -8927,7 +8924,7 @@ function M.scalarReadersCanOwnIndependentBufferSnapshots()
     assertClean(
         [[
 local function snapshot(): affine(io.ScalarReader)
-    local buffer = io.newbuffer()
+    local buffer = io.Buffer.create()
     return buffer:reader():scalar()
 end
 ]]
@@ -8942,7 +8939,7 @@ local function wrap(takes writer: io.Writer): affine(io.ScalarWriter)
     return writer:scalar()
 end
 local function escape(): affine(io.ScalarWriter)
-    local buffer = io.newbuffer()
+    local buffer = io.Buffer.create()
     local writer = buffer:writer()
     return wrap(writer)
 end
@@ -8955,7 +8952,7 @@ end
 function M.consumingScalarWritersKeepExclusiveBufferLoans()
     local got = codes(
         [[
-local buffer = io.newbuffer()
+local buffer = io.Buffer.create()
 local scalar = buffer:writer():scalar()
 local overlapping = buffer:writer()
 scalar:writeuint8(1)
@@ -8970,7 +8967,7 @@ function M.scalarWriterReborrowsKeepTheirImmediateHolder()
 local function append(borrows writer: io.ScalarWriter): nil
     writer:writeuint8(33)
 end
-local buffer = io.newbuffer()
+local buffer = io.Buffer.create()
 local writer = buffer:writer():scalar()
 append(writer:writebytes(":"))
 writer:writebytes(":"):writeuint8(33)

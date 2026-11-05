@@ -148,7 +148,7 @@ function heap.alloc<T>(element: ctype<T>, count: integer): affine(heap.Array<T>,
     local pointerType = ffi.typeof(pointerSpec, element)
     @unsafe do
         local pointer = ffi.cast(pointerType, raw) as T[?]
-        local array = new heap.Array(pointer = pointer, count = count) as heap.Array<T>
+        local array = heap.Array(pointer = pointer, count = count) as heap.Array<T>
         return array
     end
 end

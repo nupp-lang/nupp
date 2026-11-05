@@ -6,11 +6,11 @@ local model = api.model()
 local binding = api.binding(model)
 local request = codec.codec(api.policy("request"))
 local response = codec.codec(api.policy("response"))
-local value = new api.Value(
+local value = api.Value(
     name = "Ada",
     secret = "secret",
     identifier = "42",
-    payload = new api.Choice(alternative = "integer", value = documents.numbertoken("17")),
+    payload = api.Choice(alternative = "integer", value = documents.numbertoken("17")),
     additional = {}
 )
 assert(request:encode(binding, value) == '{"name":"Ada","secret":"secret","payload":17}')

@@ -73,7 +73,7 @@ local record JsonSerializer is Serializer
 end
 
 local function member(index: integer, name: string, kind: FieldKind): Member
-    return new Member(index = index, name = name, kind = kind, jsonKey = json.encodedstring(name))
+    return Member(index = index, name = name, kind = kind, jsonKey = json.encodedstring(name))
 end
 
 local function schema(members: {Member}): Schema
@@ -82,12 +82,12 @@ local function schema(members: {Member}): Schema
         fields[index] = {name = item.name, wire = item.name, kind = item.kind,}
     end
 
-    return new Schema(members = members, native = native.compile(fields))
+    return Schema(members = members, native = native.compile(fields))
 end
 
 local function serializer(): JsonSerializer
     local out = text.new()
-    return new JsonSerializer(out = out, writer = @unsafe own.release(json.newwriter(out)))
+    return JsonSerializer(out = out, writer = @unsafe own.release(json.Writer.of(out)))
 end
 
 local function genericEncode(value: any, description: Schema, slots: boolean): string
@@ -258,9 +258,9 @@ local record Medium
     end
 end
 
-local smallValue = new Small(id = 41, active = true, name = "Ada")
+local smallValue = Small(id = 41, active = true, name = "Ada")
 local smallSlots: {any} = {41, true, "Ada"}
-local mediumValue = new Medium(
+local mediumValue = Medium(
     id = 41,
     active = true,
     name = "Ada",
@@ -294,7 +294,7 @@ local record ConstantMedium
     cached: true
 end
 
-local constantMediumValue = new ConstantMedium(
+local constantMediumValue = ConstantMedium(
     id = 41,
     active = true,
     name = "Ada",
@@ -308,9 +308,9 @@ local constantMediumValue = new ConstantMedium(
 )
 
 local productionCodec = typedJSON.codec()
-local preparedSmall = serde.binding(Small, new serde.Options(unknownmembers = "ignore"))
-local preparedMedium = serde.binding(Medium, new serde.Options(unknownmembers = "ignore"))
-local preparedConstantMedium = serde.binding(ConstantMedium, new serde.Options(unknownmembers = "ignore"))
+local preparedSmall = serde.binding(Small, serde.Options(unknownmembers = "ignore"))
+local preparedMedium = serde.binding(Medium, serde.Options(unknownmembers = "ignore"))
+local preparedConstantMedium = serde.binding(ConstantMedium, serde.Options(unknownmembers = "ignore"))
 local preparedDebugSmall = rendering.binding(Small)
 local preparedDebugMedium = rendering.binding(Medium)
 local preparedOutput = text.new()
@@ -351,9 +351,9 @@ local record Payload
     data: string
 end
 
-local preparedPayload = serde.binding(Payload, new serde.Options(unknownmembers = "ignore"))
-local payload4KiB = new Payload(data = string.rep("x", 4 * 1024))
-local payload64KiB = new Payload(data = string.rep("x", 64 * 1024))
+local preparedPayload = serde.binding(Payload, serde.Options(unknownmembers = "ignore"))
+local payload4KiB = Payload(data = string.rep("x", 4 * 1024))
+local payload64KiB = Payload(data = string.rep("x", 64 * 1024))
 
 @derive(types.debug)
 local record NestedChild
@@ -369,13 +369,13 @@ local record NestedEnvelope
     labels: {[string]: string}
 end
 
-local nestedValue = new NestedEnvelope(
+local nestedValue = NestedEnvelope(
     id = 41,
-    child = new NestedChild(label = "primary", scores = {1, 2, 3}),
-    children = {new NestedChild(label = "first", scores = {4, 5}), new NestedChild(label = "second", scores = {6, 7}),},
+    child = NestedChild(label = "primary", scores = {1, 2, 3}),
+    children = {NestedChild(label = "first", scores = {4, 5}), NestedChild(label = "second", scores = {6, 7}),},
     labels = {region = "us-east-1", owner = "example"}
 )
-local preparedNested = serde.binding(NestedEnvelope, new serde.Options(unknownmembers = "ignore"))
+local preparedNested = serde.binding(NestedEnvelope, serde.Options(unknownmembers = "ignore"))
 local preparedDebugNested = rendering.binding(NestedEnvelope)
 local nestedJson = productionCodec:encode(preparedNested, nestedValue)
 local legacyNestedChild: any = {
@@ -454,7 +454,7 @@ end
 -- The public embedding path, with a caller-owned syntax writer.
 local function embeddedEncode<T>(binding: serde.Binding<T>, value: T): string
     local out = text.new()
-    local writer = json.newwriter(out)
+    local writer = json.Writer.of(out)
     productionCodec:writevalue(binding, value, writer)
     writer:close()
 
@@ -515,7 +515,7 @@ end
 
 function m.preparedWriterSmall(): integer
     preparedOutput:reset()
-    local writer = json.newwriter(preparedOutput)
+    local writer = json.Writer.of(preparedOutput)
     productionCodec:writevalue(preparedSmall, smallValue, writer)
     writer:close()
 
@@ -523,7 +523,7 @@ function m.preparedWriterSmall(): integer
 end
 
 function m.coldPreparedEncodeSmall(): string
-    return typedJSON.codec():encode(serde.binding(Small, new serde.Options(unknownmembers = "ignore")), smallValue)
+    return typedJSON.codec():encode(serde.binding(Small, serde.Options(unknownmembers = "ignore")), smallValue)
 end
 
 function m.preparedCopiedWriteSmall(): integer
@@ -624,7 +624,7 @@ end
 
 function m.preparedWriterPayload64KiB(): integer
     preparedOutput:reset()
-    local writer = json.newwriter(preparedOutput)
+    local writer = json.Writer.of(preparedOutput)
     productionCodec:writevalue(preparedPayload, payload64KiB, writer)
     writer:close()
 
@@ -647,7 +647,7 @@ end
 
 function m.preparedWriterNested(): integer
     preparedOutput:reset()
-    local writer = json.newwriter(preparedOutput)
+    local writer = json.Writer.of(preparedOutput)
     productionCodec:writevalue(preparedNested, nestedValue, writer)
     writer:close()
 
@@ -656,7 +656,7 @@ end
 
 function m.currentDecodeNested(): NestedEnvelope
     return assert2(
-        typedJSON.decode(serde.binding(NestedEnvelope, new serde.Options(unknownmembers = "ignore")), nestedJson)
+        typedJSON.decode(serde.binding(NestedEnvelope, serde.Options(unknownmembers = "ignore")), nestedJson)
     )
 end
 
@@ -679,7 +679,7 @@ local mediumReverseJson = [[{"cached":true,"retries":3,"owner":"example-owner","
 local mediumUnknownJson = [[{"ignored":{"nested":[1,2,3]},"id":41,"active":true,"name":"Ada","count":1701,"score":98.25,"region":"us-east-1","enabled":false,"version":7,"ratio":0.625,"owner":"example-owner","retries":3,"cached":true}]]
 
 function m.currentDecodeSmall(): Small
-    return assert2(typedJSON.decode(serde.binding(Small, new serde.Options(unknownmembers = "ignore")), smallJson))
+    return assert2(typedJSON.decode(serde.binding(Small, serde.Options(unknownmembers = "ignore")), smallJson))
 end
 
 function m.documentDecodeSmall(): unknown
@@ -703,7 +703,7 @@ function m.preparedDecodeSmallBuffer(): Small
 end
 
 function m.currentDecodeMedium(): Medium
-    return assert2(typedJSON.decode(serde.binding(Medium, new serde.Options(unknownmembers = "ignore")), mediumJson))
+    return assert2(typedJSON.decode(serde.binding(Medium, serde.Options(unknownmembers = "ignore")), mediumJson))
 end
 
 function m.documentDecodeMedium(): unknown
@@ -731,9 +731,7 @@ function m.preparedDecodeNestedBuffer(): NestedEnvelope
 end
 
 function m.currentDecodePayload64KiB(): Payload
-    return assert2(
-        typedJSON.decode(serde.binding(Payload, new serde.Options(unknownmembers = "ignore")), payload64KiBJson)
-    )
+    return assert2(typedJSON.decode(serde.binding(Payload, serde.Options(unknownmembers = "ignore")), payload64KiBJson))
 end
 
 function m.preparedDecodePayload64KiB(): Payload
@@ -761,15 +759,11 @@ function m.preparedDecodeMediumUnknown(): Medium
 end
 
 function m.currentDecodeMediumReverse(): Medium
-    return assert2(
-        typedJSON.decode(serde.binding(Medium, new serde.Options(unknownmembers = "ignore")), mediumReverseJson)
-    )
+    return assert2(typedJSON.decode(serde.binding(Medium, serde.Options(unknownmembers = "ignore")), mediumReverseJson))
 end
 
 function m.currentDecodeMediumUnknown(): Medium
-    return assert2(
-        typedJSON.decode(serde.binding(Medium, new serde.Options(unknownmembers = "ignore")), mediumUnknownJson)
-    )
+    return assert2(typedJSON.decode(serde.binding(Medium, serde.Options(unknownmembers = "ignore")), mediumUnknownJson))
 end
 
 function m.smallJson(): string

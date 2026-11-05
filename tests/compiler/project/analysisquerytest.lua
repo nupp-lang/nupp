@@ -219,8 +219,8 @@ local record Choice
     end
 end
 
-local text = new Choice("ready")
-local number = new Choice(42)
+local text = Choice("ready")
+local number = Choice(42)
 return text, number
 ]]
     )
@@ -246,7 +246,7 @@ local record Choice
     end
 end
 
-local choice = new Choice()
+local choice = Choice()
 local text = choice:choose("ready")
 local number = choice:choose(42)
 return text, number
@@ -277,7 +277,7 @@ local record Concrete is Choice
     function choose(self, value: string): string return "local:" .. value end
 end
 
-local choice = new Concrete()
+local choice = Concrete()
 local text = choice:choose("ready")
 local number = choice:choose(42)
 return text, number

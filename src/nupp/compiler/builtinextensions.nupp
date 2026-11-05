@@ -10,7 +10,7 @@ local extensions = {}
 local ROOTS = {
     math = {module = "nupp.runtime.standardmath", members = {Xoshiro128 = true}},
     assert = {module = "assert", direct = true},
-    table = {module = "nupp.runtime.standardtable", members = {move = true, Pool = true, newpool = true}},
+    table = {module = "nupp.runtime.standardtable", members = {move = true, Pool = true,}},
     io = {
         module = "nupp.runtime.standardio",
         replace = {popen = true, open = true, lines = true, input = true, output = true},
@@ -19,10 +19,8 @@ local ROOTS = {
             Path = true,
             Buffer = true,
             Bytes = true,
-            newuri = true,
             isuri = true,
             validateuri = true,
-            newpath = true,
             cwd = true,
             sep = true,
             open = true,
@@ -31,11 +29,8 @@ local ROOTS = {
             output = true,
             Error = true,
             popen = true,
-            newbuffer = true,
             Reader = true,
             Writer = true,
-            newreader = true,
-            newwriter = true,
             readall = true,
         }
     },

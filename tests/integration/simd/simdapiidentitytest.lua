@@ -256,19 +256,14 @@ end
 
 function M.formerPublicModulesAreAbsentAndGpuImplementationStaysPrivate()
     local env = envMod.new(HERE .. "/..")
-    for _, name in ipairs({
-        "gpu",
-        "gpu.layout",
-        "gpu.spi",
-        "nupp.gpu",
-        "nupp.gpu.layout",
-        "nupp.gpu.spi",
-        "nupp.simd",
-        "nupp.events"
-    }) do
+    for _, name in ipairs({"gpu", "gpu.layout", "gpu.spi", "nupp.gpu", "nupp.gpu.spi", "nupp.simd", "nupp.events"}) do
         test.eq(env.resolveModule(env, name), nil, name)
     end
     test.eq(env.moduleAccess(env, "io.gpu", "nupp.gpu.api"), nil)
+    assert(env.resolveModule(env, "nupp.gpu.layout"))
+    test.eq(env.moduleAccess(env, "io.gpu", "nupp.gpu.layout"), nil)
+    local layoutReason = env.moduleAccess(env, "application", "nupp.gpu.layout")
+    assert(layoutReason and layoutReason:find("internal", 1, true), tostring(layoutReason))
     local reason = env.moduleAccess(env, "application", "nupp.gpu.api")
     assert(reason and reason:find("internal", 1, true), tostring(reason))
 end

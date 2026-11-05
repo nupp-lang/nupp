@@ -1,7 +1,7 @@
 local browserTime = require("coroutine")
-local digest = require("binary.digest")
-local mac = require("binary.mac")
-local checksum = require("binary.checksum")
+local digest = require("binary").Digest
+local mac = require("binary").Mac
+local checksum = require("binary").Checksum
 local uuid = os
 local json = require("serde.json")
 local system = os.info()
@@ -18,15 +18,15 @@ return json.encodevalue({
     parallelism = system.parallelism,
     elapsed = elapsed,
     randomBytes = #os.randombytes(32),
-    md5 = digest.hexdigest("md5", "abc"),
-    sha1 = digest.hexdigest("sha1", "abc"),
-    sha256 = digest.hexdigest("sha256", "abc"),
-    sha512 = digest.hexdigest("sha512", "abc"),
-    crc32 = checksum.value("crc32", "123456789") == 0xcbf43926ULL,
-    crc64nvme = checksum.value("crc64nvme", "123456789") == 0xae8b14860a799888ULL,
-    crc32c = checksum.value("crc32c", "123456789") == 0xe3069283ULL,
-    crc64 = checksum.value("crc64-ecma", "123456789") == 0x6c40df5f0b497347ULL,
-    hmac = mac.hexdigest("hmac-sha256", "key", "abc"),
+    md5 = digest.computehex("md5", "abc"),
+    sha1 = digest.computehex("sha1", "abc"),
+    sha256 = digest.computehex("sha256", "abc"),
+    sha512 = digest.computehex("sha512", "abc"),
+    crc32 = checksum.compute("crc32", "123456789") == 0xcbf43926ULL,
+    crc64nvme = checksum.compute("crc64nvme", "123456789") == 0xae8b14860a799888ULL,
+    crc32c = checksum.compute("crc32c", "123456789") == 0xe3069283ULL,
+    crc64 = checksum.compute("crc64-ecma", "123456789") == 0x6c40df5f0b497347ULL,
+    hmac = mac.computehex("hmac-sha256", "key", "abc"),
     uuid4 = uuid.uuid4(),
     uuid7 = uuid.uuid7(),
 })

@@ -28,8 +28,8 @@ local record Robot is Greeter
     end
 end
 
-local ada = new Person(name = "ada", age = 36)
-local unit = new Robot(name = "unit-7")
+local ada = Person(name = "ada", age = 36)
+local unit = Robot(name = "unit-7")
 
 local crew: {Greeter} = {ada, unit}
 for _, member in ipairs(crew) do

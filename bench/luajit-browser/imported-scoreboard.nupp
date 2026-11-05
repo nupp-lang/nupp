@@ -43,8 +43,8 @@ local function describe(snapshot: Snapshot): string
 end
 
 local function destination(round: integer): (string, string)
-    local localFile = io.newpath("scores", "round-" .. tostring(round)):withextension("json")
-    local endpoint = assert2(uri.newuri("https://game.example/scores/"))
+    local localFile = io.Path.of("scores", "round-" .. tostring(round)):withextension("json")
+    local endpoint = assert2(uri.URI.of("https://game.example/scores/"))
     local remoteFile = assert2(endpoint:resolve(assert2(localFile:filename())))
     return localFile:tostring(), remoteFile:tostring()
 end

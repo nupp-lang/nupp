@@ -126,7 +126,7 @@ function memory.window(
         ("getelementptr inbounds %s, ptr %s, i64 %s"):format(storage, (span as context.Span).pointer, start)
     )
 
-    return new memory.Window(address = address, room = room, first = first, inside = inside)
+    return memory.Window(address = address, room = room, first = first, inside = inside)
 end
 
 --- The lanes below `room` of a `count`-lane access.
@@ -225,7 +225,7 @@ local function proved(ctx: context.Context, simd: scalarIR.Simd, found: species.
         ):format(expressions.inbounds(ctx), storage, (span as context.Span).pointer, start)
     )
 
-    return new memory.Proof(safe = safe, address = address)
+    return memory.Proof(safe = safe, address = address)
 end
 
 local function maskedLoad(
@@ -284,7 +284,7 @@ record memory.Access
 end
 
 local function access(scalar: string, count: integer, address: string, align: integer): memory.Access
-    return new memory.Access(
+    return memory.Access(
         vector = "<" .. tostring(count) .. " x " .. scalar .. ">",
         scalar = scalar,
         count = count,
@@ -546,7 +546,7 @@ local function prefixRoom(ctx: context.Context, window: memory.Window, count: st
     local fewer = context.value(ctx, ("icmp ult i32 %s, %s"):format(count, window.room))
     local room = context.value(ctx, ("select i1 %s, i32 %s, i32 %s"):format(fewer, count, window.room))
 
-    return new memory.Window(address = window.address, room = room, first = window.first, inside = window.inside)
+    return memory.Window(address = window.address, room = room, first = window.first, inside = window.inside)
 end
 
 --- A contiguous load of `found` at `first`, optionally masked.

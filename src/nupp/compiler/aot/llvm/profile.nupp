@@ -44,7 +44,7 @@ end
 local PROFILES: {[string]: Profile} = {
     [
         "aarch64-apple-darwin"
-    ] = new Profile(
+    ] = Profile(
         public = "aarch64-apple-darwin",
         llvmTriple = "arm64-apple-macosx11.0.0",
         cpu = "apple-m1",
@@ -57,7 +57,7 @@ local PROFILES: {[string]: Profile} = {
     ),
     [
         "x86_64-apple-darwin"
-    ] = new Profile(
+    ] = Profile(
         public = "x86_64-apple-darwin",
         llvmTriple = "x86_64-apple-macosx10.14.0",
         cpu = "x86-64",
@@ -70,7 +70,7 @@ local PROFILES: {[string]: Profile} = {
     ),
     [
         "x86_64-unknown-linux-gnu"
-    ] = new Profile(
+    ] = Profile(
         public = "x86_64-unknown-linux-gnu",
         llvmTriple = "x86_64-unknown-linux-gnu",
         cpu = "x86-64",
@@ -82,7 +82,7 @@ local PROFILES: {[string]: Profile} = {
     ),
     [
         "aarch64-unknown-linux-gnu"
-    ] = new Profile(
+    ] = Profile(
         public = "aarch64-unknown-linux-gnu",
         llvmTriple = "aarch64-unknown-linux-gnu",
         cpu = "generic",
@@ -92,7 +92,7 @@ local PROFILES: {[string]: Profile} = {
         machine = "aarch64linux",
         sizeType = "i64"
     ),
-    ["i686-unknown-linux-gnu"] = new Profile(
+    ["i686-unknown-linux-gnu"] = Profile(
         public = "i686-unknown-linux-gnu",
         llvmTriple = "i686-unknown-linux-gnu",
         cpu = "pentium4",
@@ -106,7 +106,7 @@ local PROFILES: {[string]: Profile} = {
         sizeType = "i32",
         linkedRuntime = "/aot/llvm/lua/runtime-i686.ll"
     ),
-    ["wasm32-unknown-emscripten"] = new Profile(
+    ["wasm32-unknown-emscripten"] = Profile(
         public = "wasm32-unknown-emscripten",
         -- An independent module: nothing Emscripten's name promised is used,
         -- and the module imports nothing.
@@ -118,7 +118,7 @@ local PROFILES: {[string]: Profile} = {
         machine = "wasm32",
         sizeType = "i32"
     ),
-    ["x86_64-pc-windows-msvc"] = new Profile(
+    ["x86_64-pc-windows-msvc"] = Profile(
         public = "x86_64-pc-windows-msvc",
         llvmTriple = "x86_64-w64-windows-gnu",
         cpu = "x86-64",

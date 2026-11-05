@@ -11,7 +11,7 @@ local function finish(takes guard: Guard): nil
 end
 
 local function acquire(name: string): affine(Guard, finish)
-    return new Guard(name = name)
+    return Guard(name = name)
 end
 
 local function protectedWork(fail: boolean): string

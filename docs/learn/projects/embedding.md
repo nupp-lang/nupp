@@ -536,7 +536,7 @@ under [](os.host), which parks instead, and poll the pump from the loop:
 ```nupp:fragment
 local host = os.host
 
-local session = host.newpump()
+local session = host.Pump()
 
 export function frame(dt: number): host.Pump.State
     if session:parked() then

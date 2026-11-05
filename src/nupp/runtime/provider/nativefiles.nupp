@@ -121,7 +121,7 @@ reason.
 return a path:
 
 ```nupp:fragment
-local scratch, reason = files.tmpdirectory(new files.TemporaryOptions(prefix = "build-"))
+local scratch, reason = files.tmpdirectory(files.TemporaryOptions(prefix = "build-"))
 assert(scratch, reason)
 ```
 
@@ -136,7 +136,7 @@ what it created, and the checker runs that cleanup at the end of the scope
 whether the block falls through, returns early, or raises.
 
 ```nupp:fragment
-local scratch = assert(files.tmpfile(new files.TemporaryOptions(suffix = ".json")))
+local scratch = assert(files.tmpfile(files.TemporaryOptions(suffix = ".json")))
 do
     local file = assert(io.open(scratch:path(), "wb"))
     assert(file:write(encoded))
@@ -1180,7 +1180,7 @@ export function info(path: string | paths.Path): (Info?, string?)
         return nil, ffi.string(C.nuppNativeLastError())
     end
 
-    return new Info(
+    return Info(
         kind = KINDS[tonumber(found.kind)] or "other",
         size = tonumber(found.size) as integer,
         -- The library answers seconds; the facade answers the milliseconds the clock
@@ -1354,9 +1354,7 @@ export function list(path: string | paths.Path): ({Entry}?, string?)
     local at = 1
     while at <= #blob do
         local stop = blob:find("\0", at + 1, true) as integer
-        entries[
-            #entries + 1
-        ] = new Entry(kind = ENTRIES[blob:sub(at, at)] or "other", name = blob:sub(at + 1, stop - 1))
+        entries[#entries + 1] = Entry(kind = ENTRIES[blob:sub(at, at)] or "other", name = blob:sub(at + 1, stop - 1))
         at = stop + 1
     end
 
@@ -1564,7 +1562,7 @@ export function open(path: string | paths.Path, mode: Mode?): (affine(File?), st
         return nil, ffi.string(C.nuppNativeLastError())
     end
 
-    return new File(_handle = output[0], _closed = false, _scratch = nil, _capacity = 0), nil
+    return File(_handle = output[0], _closed = false, _scratch = nil, _capacity = 0), nil
 end
 
 --- Creates a uniquely named empty file and hands over the obligation to remove or
@@ -1581,7 +1579,7 @@ end
 --- Write somewhere nobody else can take, then move it into place:
 ---
 --- ```nupp:fragment
---- local options = new io.files.TemporaryOptions(directory = "build")
+--- local options = io.files.TemporaryOptions(directory = "build")
 --- local scratch = assert(io.files.tmpfile(options))
 --- do
 ---     local file = assert(io.open(scratch:path(), "wb"))
@@ -1599,7 +1597,7 @@ export function createTemporaryFile(options: TemporaryOptions?): (affine(Tempora
         return nil, reason
     end
 
-    return new TemporaryPath(_text = text as string, _directory = false, _closed = false), nil
+    return TemporaryPath(_text = text as string, _directory = false, _closed = false), nil
 end
 
 --- Creates a uniquely named empty directory and hands over the obligation to remove or
@@ -1614,7 +1612,7 @@ export function createTemporaryDirectory(options: TemporaryOptions?): (affine(Te
         return nil, reason
     end
 
-    return new TemporaryPath(_text = text as string, _directory = true, _closed = false), nil
+    return TemporaryPath(_text = text as string, _directory = true, _closed = false), nil
 end
 
 --- Returns a well-known user folder.
@@ -1641,7 +1639,7 @@ end
 
 --- Reports the complete native filesystem surface.
 export function capabilities(): messages.Capabilities
-    return new messages.Capabilities(
+    return messages.Capabilities(
         available = true,
         arbitrarypaths = true,
         symlinks = true,

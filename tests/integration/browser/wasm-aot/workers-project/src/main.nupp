@@ -72,7 +72,7 @@ boolean("fannedOut", matched)
 
 do
     local scope = tasks.scope();
-    local reading = new jobs.Reading(label = "left", value = 41)
+    local reading = jobs.Reading(label = "left", value = 41)
     local answer = scope:work(reading, jobs.louder):await()
     boolean("recordCrossed", answer.label == "LEFT" and answer.value == 42)
 

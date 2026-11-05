@@ -136,7 +136,7 @@ function workloads.streamFrames(options)
     local packetBytes = options.packetBytes or 0
     local assetEvery = options.assetEvery or 0
     local stub = options.stub == true
-    local bus = events.newbus()
+    local bus = events.MessageBus()
     local received = 0
     bus:observe(
         1,
@@ -203,7 +203,7 @@ function workloads.channelFrames(options)
     local eventCount = options.events or 17
     local packetBytes = options.packetBytes or 0
     local assetEvery = options.assetEvery or 0
-    local bus = events.newbus()
+    local bus = events.MessageBus()
     local received = 0
     bus:observe(
         1,

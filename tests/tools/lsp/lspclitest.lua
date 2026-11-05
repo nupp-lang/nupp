@@ -127,7 +127,7 @@ function M.inspectCarriesTheAutomaticCleanupBoundary()
                 "local function close_handle(value: Handle)",
                 "end",
                 "local function open_handle(): affine(Handle, close_handle)",
-                "   return new Handle(name = 'a')",
+                "   return Handle(name = 'a')",
                 "end",
                 "local function work()",
                 "   local handle = open_handle()",

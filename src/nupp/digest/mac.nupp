@@ -1,14 +1,16 @@
 @!internal
 module nupp.digest.mac
 
-const context = require("nupp.digest.internal.context")
+const _PROVIDER_REQUIRES = "@requires-dynamically nupp.runtime.provider.mac"
+
+local {type Digest as ContextDigest} = require("nupp.digest.internal.contracts")
 const provider = require("binary.mac.internal.contracts")
 
 local lookupDescriptor: function(string): any
 local requireDescriptor: function(string): any
 local descriptorNames: function(): {string}
 
-export interface Mac is context.Digest
+export interface Mac is ContextDigest
 
     record Algorithm
         --- Canonical authentication algorithm name.
@@ -23,6 +25,7 @@ export interface Mac is context.Digest
         --- @return the unfinished keyed context
         --- @raises string when provider initialization fails
         function mac(self, key: string): Mac
+            local context = require("nupp.digest.internal.context")
             return context.wrap(self.implementation:create(key), self.name, self.digestsize)
         end
 
@@ -44,19 +47,19 @@ export interface Mac is context.Digest
 
     --- Creates independent owned context state.
     function create(name: string, key: string): Mac
-        return requireDescriptor(name):mac(key)
+        return (requireDescriptor(name) as Algorithm):mac(key)
     end
 
     --- Computes a complete value and closes its context.
     function compute(name: string, key: string, bytes: string): string
-        local value = requireDescriptor(name):mac(key)
+        local value: Mac = (requireDescriptor(name) as Algorithm):mac(key)
         value:write(bytes)
         return value:digest()
     end
 
     --- Computes lowercase hexadecimal and consumes its context.
     function computehex(name: string, key: string, bytes: string): string
-        local value = requireDescriptor(name):mac(key)
+        local value: Mac = (requireDescriptor(name) as Algorithm):mac(key)
         value:write(bytes)
         return value:hexdigest()
     end
@@ -91,16 +94,16 @@ local available: {[string]: Algorithm} = {}
 local names: {string} = {}
 local initialized = false
 
-local function initialize(): nil
+local function initialize(providerName: string): nil
     if initialized then
         return
     end
-    local selected: provider.Provider = require("nupp.runtime.provider.mac")
+    local selected = require(providerName) as provider.Provider
     validate(selected)
     for name, implementation in pairs(selected.algorithms) do
         available[
             name
-        ] = new Algorithm(name = name, digestsize = implementation.digestsize, implementation = implementation)
+        ] = Algorithm(name = name, digestsize = implementation.digestsize, implementation = implementation)
     end
     for name in pairs(available) do
         names[#names + 1] = name
@@ -110,11 +113,11 @@ local function initialize(): nil
 end
 
 lookupDescriptor = function(name: string): any
-    initialize()
+    initialize("nupp.runtime.provider.mac")
     return available[name]
 end
 requireDescriptor = function(name: string): any
-    initialize()
+    initialize("nupp.runtime.provider.mac")
     local found = available[name]
     if found == nil then
         error("unknown mac algorithm " .. name, 2)
@@ -123,7 +126,7 @@ requireDescriptor = function(name: string): any
     return found
 end
 descriptorNames = function(): {string}
-    initialize()
+    initialize("nupp.runtime.provider.mac")
     local result: {string} = {}
     for index, name in ipairs(names) do
         result[index] = name

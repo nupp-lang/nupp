@@ -124,7 +124,6 @@ lex:set_word_list(lexer.KEYWORD, {
     "local",
     "matches",
     "metamethod",
-    "new",
     "nil",
     "not",
     "or",

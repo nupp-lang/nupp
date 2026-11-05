@@ -60,7 +60,7 @@ record m.Point
     end
 end
 
-local origin = new m.Point {x = 0, y = 0}
+local origin = m.Point {x = 0, y = 0}
 print(corner.x, origin:lengthSquared())
 ```
 

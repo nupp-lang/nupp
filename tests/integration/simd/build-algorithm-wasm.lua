@@ -133,8 +133,8 @@ write(
 r.write(
     directory .. "/nupp.lua",
     (
-        'return {include={"src",%q},build={targets={app={kind="bundle",entries={%q},sources={"src"},output="dist/app.lua",outDir="build/app",host="browser",optimize=1,aot="require-wasm",aotFeatures={minimum="simd128",maximum="simd128"}}}}}\n'
-    ):format(root .. "/src", runner)
+        'return {include={"src"},build={targets={app={kind="bundle",entries={%q},sources={"src"},output="dist/app.lua",outDir="build/app",host="browser",optimize=1,aot="require-wasm",aotFeatures={minimum="simd128",maximum="simd128"}}}}}\n'
+    ):format(runner)
 )
 local nupp = os.getenv("NUPP_SIMD_NUPP") or root .. "/bin/nupp"
 -- nupp compiles and links the Wasm itself, through its own LLVM.

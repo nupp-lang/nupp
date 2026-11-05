@@ -63,17 +63,13 @@ local function assigned(state: carried.State, target: scalarIR.Target): nil
             frame.present[uniqueName] = true
             frame.order[
                 #frame.order + 1
-            ] = new scalarIR.Carried(
-                name = target.name as string,
-                uniqueName = uniqueName,
-                type = type as scalarIR.Type
-            )
+            ] = scalarIR.Carried(name = target.name as string, uniqueName = uniqueName, type = type as scalarIR.Type)
         end
     end
 end
 
 local function loop(state: carried.State, node: any, body: {scalarIR.Statement}, binding: scalarIR.Binding?): nil
-    local frame = new carried.Frame(node = node, order = {}, present = {})
+    local frame = carried.Frame(node = node, order = {}, present = {})
     state.frames[#state.frames + 1] = frame
     if binding ~= nil then
         declare(state, (binding as scalarIR.Binding).uniqueName, binding)
@@ -139,7 +135,7 @@ function carried.body(statements: {scalarIR.Statement}, state: carried.State): n
 end
 
 function carried.state(): carried.State
-    return new carried.State(depth = {}, declared = {}, frames = {})
+    return carried.State(depth = {}, declared = {}, frames = {})
 end
 
 --- Annotates every body a program has.

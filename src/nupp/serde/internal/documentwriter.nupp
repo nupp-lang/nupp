@@ -56,7 +56,7 @@ export record Output<M is core.Member> is core.Writer<M>
         elseif frame.kind == "structure" or frame.kind == "union" then
             assert(not frame.names[member.name], "duplicate logical document member")
             frame.names[member.name] = true
-            frame.fields[#frame.fields + 1] = new documents.Entry(name = member.name, value = value)
+            frame.fields[#frame.fields + 1] = documents.Entry(name = member.name, value = value)
         elseif frame.kind == "map" then
             assert(frame.inEntry, "map value outside an entry")
             if frame.readingKey then
@@ -64,7 +64,7 @@ export record Output<M is core.Member> is core.Writer<M>
                 frame.key = value
             else
                 local key = assert(frame.key, "map entry has no key or emitted more than one value")
-                frame.entries[#frame.entries + 1] = new documents.MapEntry(key = key, value = value)
+                frame.entries[#frame.entries + 1] = documents.MapEntry(key = key, value = value)
                 frame.key = nil
             end
         else
@@ -85,7 +85,7 @@ export record Output<M is core.Member> is core.Writer<M>
     end
 
     function writefloat(exclusive self, member: M, value: number, width: 32 | 64): nil
-        self:put(member, documents.float(new core.Float(value = numbers.floating(value, width, true), width = width)))
+        self:put(member, documents.float(core.Float(value = numbers.floating(value, width, true), width = width)))
     end
 
     function writebiginteger(exclusive self, member: M, value: string): nil
@@ -93,10 +93,7 @@ export record Output<M is core.Member> is core.Writer<M>
     end
 
     function writedecimal(exclusive self, member: M, borrows value: core.Decimal): nil
-        self:put(
-            member,
-            documents.decimal(new core.Decimal(coefficient = value.coefficient, exponent = value.exponent))
-        )
+        self:put(member, documents.decimal(core.Decimal(coefficient = value.coefficient, exponent = value.exponent)))
     end
 
     function writenumbertoken(exclusive self, member: M, value: string): nil
@@ -112,7 +109,7 @@ export record Output<M is core.Member> is core.Writer<M>
     end
 
     function writetimestamp(exclusive self, member: M, borrows value: core.Timestamp): nil
-        self:put(member, documents.timestamp(new core.Timestamp(seconds = value.seconds, nanos = value.nanos)))
+        self:put(member, documents.timestamp(core.Timestamp(seconds = value.seconds, nanos = value.nanos)))
     end
 
     function writeatom<A is core.Atom>(exclusive self, member: M, borrows value: A): nil
@@ -133,12 +130,9 @@ export record Output<M is core.Member> is core.Writer<M>
     ): nil
         self:live()
         if self.depth + #self.frames >= 128 then
-            error(
-                new errors.Error(code = "limit", message = "document nesting limit exceeded", path = "$", cause = nil),
-                0
-            )
+            error(errors.Error(code = "limit", message = "document nesting limit exceeded", path = "$", cause = nil), 0)
         end
-        local frame = new Frame(kind = kind)
+        local frame = Frame(kind = kind)
         self.frames[#self.frames + 1] = frame
         emit:apply(source, self)
         local value: documents.Document
@@ -216,7 +210,7 @@ export record Output<M is core.Member> is core.Writer<M>
         frame.names[name] = true
         frame.fields[
             #frame.fields + 1
-        ] = new documents.Entry(name = name, value = fromContents(adapter, value, self.depth + #self.frames))
+        ] = documents.Entry(name = name, value = fromContents(adapter, value, self.depth + #self.frames))
     end
 end
 
@@ -224,7 +218,7 @@ local record Capture<T> is core.Consumer<T, T, documents.Document>
     @readonly context: core.Context?
     @readonly depth: integer = 0
     function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows value: T): documents.Document
-        local writer = new Output<M>(source = self.context, depth = self.depth)
+        local writer = Output<M>(source = self.context, depth = self.depth)
         adapter:write(value, writer)
         return writer:finish()
     end
@@ -232,9 +226,9 @@ end
 
 fromContents = function<D>(adapter: core.DocumentAdapter<D>, borrows value: D, depth: integer): documents.Document
     assert(depth <= 128, "document nesting limit exceeded")
-    return adapter:contents():accept(new Capture<D>(context = adapter:context(value), depth = depth), value)
+    return adapter:contents():accept(Capture<D>(context = adapter:context(value), depth = depth), value)
 end
 
 export function fromBinding<T>(binding: core.Binding<T>, borrows value: T, context: core.Context?): documents.Document
-    return binding:accept(new Capture<T>(context = context), value)
+    return binding:accept(Capture<T>(context = context), value)
 end

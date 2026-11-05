@@ -162,7 +162,7 @@ local record Names is cliModule.Completer
         assert(rawget(request as any, "commandPath") == nil)
         assert(request.cwd == "." and request.environment.mode == "test")
 
-        return {new cliModule.CompletionCandidate(value = request.prefix .. "Ada")}
+        return {cliModule.CompletionCandidate(value = request.prefix .. "Ada")}
     end
 end
 

@@ -21,7 +21,7 @@ local function run(): number
             rows[index].x += rows[index].dx
         end
 
-        local replacement = new Particle(10, 20, 30, 40)
+        local replacement = Particle(10, 20, 30, 40)
         rows[2] = replacement
     end
 

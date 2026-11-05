@@ -5,9 +5,9 @@ local json = require("serde.json")
 local uri = io
 local io = require("io")
 
-local client = http.newclient()
-local request = new http.Request(
-    url = assert2(uri.newuri("http://127.0.0.1:8791/http-response.json")),
+local client = http.Client.create()
+local request = http.Request(
+    url = assert2(uri.URI.of("http://127.0.0.1:8791/http-response.json")),
     headers = {accept = "application/json"} as {[string]: string},
     maxbytes = 4096
 )
@@ -15,7 +15,7 @@ local response, sendProblem = client:send(request)
 if response == nil then
     error(sendProblem or "browser HTTP request failed")
 end
-local received = io.newbuffer()
+local received = io.Buffer.create()
 assert2(response.body:readinto(received, 0, 5) == 5)
 local lease = received:reservewrite(5, 5)
 do
@@ -24,7 +24,7 @@ do
     own.drop(output)
 end
 lease:commit(5)
-local remainder = io.newbuffer()
+local remainder = io.Buffer.create()
 local writer = remainder:writer()
 assert2(response.body:transferto(writer) ~= nil)
 writer:close()

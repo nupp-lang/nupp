@@ -217,7 +217,7 @@ end
 --- z squared plus c.
 @aot
 local function step(z: Pair, c: Pair): Pair
-    return new Pair(z.re * z.re - z.im * z.im + c.re, z.re * z.im + z.im * z.re + c.im)
+    return Pair(z.re * z.re - z.im * z.im + c.re, z.re * z.im + z.im * z.re + c.im)
 end
 
 --- One orbit step with its escape mask.
@@ -225,7 +225,7 @@ end
 local function advance(orbit: Orbit, c: Pair): Orbit
     local next = step(orbit.z, c)
     local magnitude = next.re * next.re + next.im * next.im
-    return new Orbit(next, orbit.inside & (magnitude < 4.0))
+    return Orbit(next, orbit.inside & (magnitude < 4.0))
 end
 
 --- Two steps of every lane from zero under c, answering the count still inside.
@@ -235,8 +235,8 @@ local function escaped(exclusive out: span.WriteSpan<float>, borrows cre: span.S
     assert(#cim == #cre, "length mismatch")
     local species = simd.species(array.float)
     for at, active in species:over(#cre) do
-        local c = new Pair(species:load(cre, at, active), species:load(cim, at, active))
-        local orbit = new Orbit(new Pair(species:splat(0.0), species:splat(0.0)), species:mask(true))
+        local c = Pair(species:load(cre, at, active), species:load(cim, at, active))
+        local orbit = Orbit(Pair(species:splat(0.0), species:splat(0.0)), species:mask(true))
         orbit = advance(orbit, c)
         orbit = advance(orbit, c)
         species:store(out, at, orbit.inside:select(species:splat(1.0), species:splat(0.0)), active)

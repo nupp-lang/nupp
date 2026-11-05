@@ -5,7 +5,7 @@
 Its byte interfaces work over buffers, files, and HTTP response bodies.
 
 ```nupp:playground
-local bytes = io.newbuffer("hello")
+local bytes = io.Buffer.create("hello")
 local reader = bytes:reader()
 assert(reader:read(5) == "hello")
 ```
@@ -53,18 +53,18 @@ local immutable = require("io.internal.bytestypes")
 
 --- Immutable engine-owned bytes, shared across worker lanes without copying.
 ---
---- Slices retain the same allocation. Positions are zero-based byte offsets;
---- `view` and `viewas` borrow storage, while `tostring` copies it into a Lua string.
---- `copy` creates bytes from a string and `readfile` reads directly into storage.
---- `newbuilder` creates an owned `Bytes.Builder`; `freeze` consumes it and transfers
---- its allocation without copying. These operations require the engine host
+--- Slices retain the same allocation. Positions are zero-based byte offsets; `view` and
+--- `viewas` borrow storage, while `tostring` copies it into a Lua string. `copy`
+--- creates bytes from a string and `readfile` reads directly into storage.
+--- `Bytes.Builder()` creates an owned `Bytes.Builder`; `freeze` consumes it and
+--- transfers its allocation without copying. These operations require the engine host
 --- supplied by a stamped binary.
 export type Bytes = immutable.Bytes
 
 export const Bytes = immutable.Bytes
 
 local source1 = require("nupp.io")
-const {type Path as NativePath} = require("io.internal.path")
+const {type Path as NativePath} = require("io.internal.pathtypes")
 const {type AppPath} = require("io.files")
 local uriTypes = require("io.internal.uritypes")
 
@@ -84,7 +84,7 @@ export const isuri = uriTypes.isuri
 --- rather than when it reads the bytes behind one.
 ---
 --- ```nupp
---- local source = io.newpath("src", "app", "..", "main.nupp"):normalize()
+--- local source = io.Path.of("src", "app", "..", "main.nupp"):normalize()
 --- assert(source:tostring() == "src" .. io.sep() .. "main.nupp")
 --- assert(source:filename() == "main.nupp")
 --- ```
@@ -95,13 +95,13 @@ export const isuri = uriTypes.isuri
 ---
 --- #### Building a path
 ---
---- `io.newpath(first, parts...)` joins its components using the current
+--- `io.Path.of(first, parts...)` joins its components using the current
 --- platform's rules. `join` appends more to a path already built, and both
 --- accept a string or another path. `Path` has no public constructor; creation
---- goes through `newpath`, which interns recent paths in a bounded LRU cache.
+--- goes through `Path.of`, which interns recent paths in a bounded LRU cache.
 ---
 --- ```nupp
---- local native = io.newpath("out"):join("lib", "native")
+--- local native = io.Path.of("out"):join("lib", "native")
 --- assert(native:filename() == "native")
 --- ```
 ---
@@ -121,7 +121,7 @@ export const isuri = uriTypes.isuri
 --- filesystem, so it returns even for a path that does not exist:
 ---
 --- ```nupp
---- assert(io.newpath("src", "app", "..", "main.nupp"):normalize():stem() == "main")
+--- assert(io.Path.of("src", "app", "..", "main.nupp"):normalize():stem() == "main")
 --- ```
 ---
 --- The operations that consult the process or filesystem can fail, as can a
@@ -138,7 +138,7 @@ export const isuri = uriTypes.isuri
 ---   that stays where the base already is.
 ---
 --- ```nupp
---- local real, reason = io.newpath("."):canonicalize()
+--- local real, reason = io.Path.of("."):canonicalize()
 --- assert(real, reason)
 --- assert(real:isabsolute())
 --- ```
@@ -150,7 +150,7 @@ export const isuri = uriTypes.isuri
 --- extension without its dot:
 ---
 --- ```nupp
---- local source = io.newpath("src", "main.nupp")
+--- local source = io.Path.of("src", "main.nupp")
 --- assert(source:filename() == "main.nupp")
 --- assert(source:stem() == "main")
 --- assert(source:extension() == "nupp")
@@ -163,7 +163,7 @@ export const isuri = uriTypes.isuri
 --- carried into the path it would have produced:
 ---
 --- ```nupp
---- local report = io.newpath("out", "report.tmp"):withextension("json")
+--- local report = io.Path.of("out", "report.tmp"):withextension("json")
 --- assert(report:filename() == "report.json")
 --- ```
 ---
@@ -175,7 +175,7 @@ export const isuri = uriTypes.isuri
 --- working directories also accept paths.
 export type Path = NativePath
 
-export const Path = require("io.internal.path").Path
+export const Path = require("io.internal.pathtypes").Path
 
 --- A file handle with Lua methods and borrowed byte-stream views.
 ---
@@ -229,9 +229,6 @@ export type Writer = source1.Writer
 export const Writer = source1.Writer
 
 export const Error = source1.Error
-export const newbuffer = source1.newBuffer
-export const newreader = source1.newReader
-export const newwriter = source1.newWriter
 export const readall = source1.readAll
 
 const {type Process as ChildProcess} = require("io.internal.process")
@@ -278,26 +275,6 @@ local function uriImplementation(name: string): any
     return uris
 end
 
---- Parses absolute URI text or assembles a URI from components.
----
---- Normalizes with the [WHATWG URL Standard](https://url.spec.whatwg.org/).
---- A host needing IDNA requires a native or browser URL parser. Successful parses
---- reuse the 1024 most recently used normalized URI values.
----
---- ```nupp
---- local address = assert(io.newuri("https://example.com/a?b=1"))
---- assert(address:host() == "example.com" and address:query() == "b=1")
---- local endpoint = assert(io.newuri(new io.URI.Components(
----     scheme = "https", host = "example.com", path = "/status"
---- )))
---- ```
---- @param value absolute URI text or components to assemble
---- @return the URI, or nil when it cannot be parsed
---- @return a failure reason, when unsuccessful
-export function newuri(value: string | URI.Components): (URI?, string?)
-    return uriImplementation("io.internal.uri").newuri(value)
-end
-
 --- Reports whether text parses as an absolute URI without retaining a URI value.
 --- @param value the text to test
 --- @return whether it parses
@@ -314,20 +291,6 @@ local function pathImplementation(name: string): any
         paths = require(name)
     end
     return paths
-end
-
---- Builds a path by joining components using the platform's rules.
----
---- #### Examples
----
---- ```nupp
---- local source = io.newpath("src", "main.nupp")
---- ```
---- @param first the first path component
---- @param ... the remaining path components
---- @return the joined path
-export function newpath(first: string | Path, ...: string | Path): Path
-    return pathImplementation("io.internal.path").newpath(first, ...)
 end
 
 --- Returns the process's current working directory.
@@ -353,20 +316,28 @@ end
 const _FILE_VIEWS_REQUIRES = "@requires-dynamically io.internal.fileviews"
 const _PORTABLE_FILE_REQUIRES = "@requires-dynamically io.internal.portablefile"
 local fileViews: any = nil
+local portableFiles: any = nil
 
-local function views(): any
+local function views(name: string): any
     if fileViews == nil then
-        fileViews = require("io.internal.fileviews")
+        fileViews = require(name)
     end
     return fileViews
 end
 
 local function fileReader(file: any): any
-    return views().reader(file)
+    return views("io.internal.fileviews").reader(file)
 end
 
 local function fileWriter(file: any): any
-    return views().writer(file)
+    return views("io.internal.fileviews").writer(file)
+end
+
+local function portableFileImplementation(name: string): any
+    if portableFiles == nil then
+        portableFiles = require(name)
+    end
+    return portableFiles
 end
 
 local function decorateFile(file: any): any
@@ -383,7 +354,7 @@ end
 
 local function openFile(path: any, mode: any): ...any
     if rawget(_G, "__nuppBrowser") ~= nil then
-        return require("io.internal.portablefile").open(path, mode)
+        return portableFileImplementation("io.internal.portablefile").open(path, mode)
     end
     local file, reason, code = luaOpen(filename(path), mode)
 
@@ -455,7 +426,7 @@ end
 --- Opens a file from a filename or path using Lua file modes.
 ---
 --- ```nupp
---- local path = io.newpath("README.md")
+--- local path = io.Path.of("README.md")
 --- local file = assert(io.open(path, "r"))
 --- print(file:read("*a"))
 --- ```
@@ -598,10 +569,8 @@ end
 export const value: table = do
     original.Bytes = Bytes
     original.URI = URI
-    original.newuri = newuri
     original.isuri = isuri
     original.validateuri = validateuri
-    original.newpath = newpath
     original.cwd = cwd
     original.sep = sep
     original.open = open
@@ -611,11 +580,8 @@ export const value: table = do
     original.Error = Error
     original.Path = Path
     original.Buffer = Buffer
-    original.newbuffer = newbuffer
     original.Reader = Reader
     original.Writer = Writer
-    original.newreader = newreader
-    original.newwriter = newwriter
     original.readall = readall
     decorateFile(original.stdin)
     decorateFile(original.stdout)

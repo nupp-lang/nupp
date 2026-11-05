@@ -125,7 +125,7 @@ function arena.parse(source: string): Document
         fail(errorByte, "parser", status, 2)
     end
 
-    return new Document(
+    return Document(
         source = source,
         tape = tapeStorage,
         nodes = nodes,

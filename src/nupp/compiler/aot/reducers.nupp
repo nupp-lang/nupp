@@ -23,7 +23,7 @@ const constructors: {
 } = {
     [
         "simd.reducer.wrappingsum"
-    ] = new Contract(
+    ] = Contract(
         recordName = "WrappingSum",
         order = "exact",
         operation = "sum",
@@ -34,7 +34,7 @@ const constructors: {
     ),
     [
         "simd.reducer.wrappingproduct"
-    ] = new Contract(
+    ] = Contract(
         recordName = "WrappingProduct",
         order = "exact",
         operation = "product",
@@ -45,7 +45,7 @@ const constructors: {
     ),
     [
         "simd.reducer.andbits"
-    ] = new Contract(
+    ] = Contract(
         recordName = "AndBits",
         order = "exact",
         operation = "and",
@@ -56,7 +56,7 @@ const constructors: {
     ),
     [
         "simd.reducer.orbits"
-    ] = new Contract(
+    ] = Contract(
         recordName = "OrBits",
         order = "exact",
         operation = "or",
@@ -67,7 +67,7 @@ const constructors: {
     ),
     [
         "simd.reducer.xorbits"
-    ] = new Contract(
+    ] = Contract(
         recordName = "XorBits",
         order = "exact",
         operation = "xor",
@@ -78,7 +78,7 @@ const constructors: {
     ),
     [
         "simd.reducer.any"
-    ] = new Contract(
+    ] = Contract(
         recordName = "Any",
         order = "exact",
         operation = "any",
@@ -89,7 +89,7 @@ const constructors: {
     ),
     [
         "simd.reducer.all"
-    ] = new Contract(
+    ] = Contract(
         recordName = "All",
         order = "exact",
         operation = "all",
@@ -100,7 +100,7 @@ const constructors: {
     ),
     [
         "simd.reducer.count"
-    ] = new Contract(
+    ] = Contract(
         recordName = "Count",
         order = "exact",
         operation = "count",
@@ -111,7 +111,7 @@ const constructors: {
     ),
     [
         "simd.reducer.integermin"
-    ] = new Contract(
+    ] = Contract(
         recordName = "IntegerMin",
         order = "integer",
         operation = "min",
@@ -122,7 +122,7 @@ const constructors: {
     ),
     [
         "simd.reducer.integermax"
-    ] = new Contract(
+    ] = Contract(
         recordName = "IntegerMax",
         order = "integer",
         operation = "max",
@@ -133,7 +133,7 @@ const constructors: {
     ),
     [
         "simd.reducer.integerargmin"
-    ] = new Contract(
+    ] = Contract(
         recordName = "IntegerArgMin",
         order = "integer",
         operation = "argmin",
@@ -144,7 +144,7 @@ const constructors: {
     ),
     [
         "simd.reducer.integerargmax"
-    ] = new Contract(
+    ] = Contract(
         recordName = "IntegerArgMax",
         order = "integer",
         operation = "argmax",
@@ -155,7 +155,7 @@ const constructors: {
     ),
     [
         "simd.reducer.propagatingmin"
-    ] = new Contract(
+    ] = Contract(
         recordName = "PropagatingMin",
         order = "propagating",
         operation = "min",
@@ -166,7 +166,7 @@ const constructors: {
     ),
     [
         "simd.reducer.propagatingmax"
-    ] = new Contract(
+    ] = Contract(
         recordName = "PropagatingMax",
         order = "propagating",
         operation = "max",
@@ -177,7 +177,7 @@ const constructors: {
     ),
     [
         "simd.reducer.propagatingargmin"
-    ] = new Contract(
+    ] = Contract(
         recordName = "PropagatingArgMin",
         order = "propagating",
         operation = "argmin",
@@ -188,7 +188,7 @@ const constructors: {
     ),
     [
         "simd.reducer.propagatingargmax"
-    ] = new Contract(
+    ] = Contract(
         recordName = "PropagatingArgMax",
         order = "propagating",
         operation = "argmax",
@@ -199,7 +199,7 @@ const constructors: {
     ),
     [
         "simd.reducer.numbermin"
-    ] = new Contract(
+    ] = Contract(
         recordName = "NumberMin",
         order = "number",
         operation = "min",
@@ -210,7 +210,7 @@ const constructors: {
     ),
     [
         "simd.reducer.numbermax"
-    ] = new Contract(
+    ] = Contract(
         recordName = "NumberMax",
         order = "number",
         operation = "max",
@@ -221,7 +221,7 @@ const constructors: {
     ),
     [
         "simd.reducer.numberargmin"
-    ] = new Contract(
+    ] = Contract(
         recordName = "NumberArgMin",
         order = "number",
         operation = "argmin",
@@ -232,7 +232,7 @@ const constructors: {
     ),
     [
         "simd.reducer.numberargmax"
-    ] = new Contract(
+    ] = Contract(
         recordName = "NumberArgMax",
         order = "number",
         operation = "argmax",
@@ -266,7 +266,7 @@ for _, entry in ipairs({
 }) do
     floatingConstructors[
         "simd.reducer." .. entry[1]:lower()
-    ] = new Contract(
+    ] = Contract(
         recordName = entry[2],
         order = entry[3],
         operation = entry[4],

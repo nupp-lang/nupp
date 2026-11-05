@@ -188,7 +188,7 @@ function packs.resolve(target: string?): (packs.Pack?, string?)
         profile = described
     end
 
-    return new packs.Pack(
+    return packs.Pack(
         host = host,
         target = target,
         version = value.version,

@@ -246,10 +246,6 @@ export function builderhandle(): any
     return handle
 end
 
-function Bytes.newbuilder(): affine(Bytes.Builder)
-    return new Bytes.Builder()
-end
-
 -- Private hooks for the worker transport: recognizing a region as a transfer
 -- leaf, reading its parts for a message's attachments, and rebuilding one
 -- around a received handle. Kept off the authored surface.

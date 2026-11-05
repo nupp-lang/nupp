@@ -134,7 +134,7 @@ end
 export function vectorShape(found: species.Species): Shape
     local count = tostring(found.lanes)
 
-    return new Shape(
+    return Shape(
         t = found.vector,
         i1 = found.mask,
         ints = "<" .. count .. " x " .. bitsType(found) .. ">",
@@ -148,7 +148,7 @@ end
 export function scalarShape(found: species.Species): Shape
     local short = found.scalar == "double" and "f64" or found.scalar == "float" and "f32" or found.scalar
 
-    return new Shape(
+    return Shape(
         t = found.scalar,
         i1 = "i1",
         ints = bitsType(found),

@@ -115,7 +115,7 @@ end
 export function capabilities(): messages.Capabilities
     local value = effect("capabilities", nil)
     local available = type(value) == "table" and value.available == true
-    return new messages.Capabilities(
+    return messages.Capabilities(
         available = available,
         arbitrarypaths = false,
         symlinks = false,
@@ -172,7 +172,7 @@ export function info(path: any): (messages.Info?, string?)
 
     -- The host answers seconds; the facade answers the milliseconds the clock does.
 
-    return new messages.Info(kind = kind, size = size, modified = (modified as number) * 1000, readonly = false), nil
+    return messages.Info(kind = kind, size = size, modified = (modified as number) * 1000, readonly = false), nil
 end
 
 export function exists(path: any): boolean
@@ -254,7 +254,7 @@ export function list(path: any): ({messages.Entry}?, string?)
         then
             return nil, "browser file host returned an invalid directory entry"
         end
-        entries[#entries + 1] = new messages.Entry(name = entry.name, kind = entry.kind)
+        entries[#entries + 1] = messages.Entry(name = entry.name, kind = entry.kind)
     end
 
     return entries, nil
@@ -280,7 +280,7 @@ local record File is io.Reader, io.Writer
             return nil, "the file is closed"
         end
         local wanted = math.min(positive(count, "File:read count", 2), READ_SIZE)
-        local destination = io.newbuffer(wanted)
+        local destination = io.Buffer.create(wanted)
         local lease = destination:reservewrite(0, wanted)
         local got: integer?
         local reason: string?
@@ -516,7 +516,7 @@ export function open(path: any, mode: messages.Mode?): (affine(File?), string?)
         return nil, invalid
     end
 
-    return new File(_handle = handle, _closed = false), nil
+    return File(_handle = handle, _closed = false), nil
 end
 
 local function wholeRead(path: any): (string?, string?)

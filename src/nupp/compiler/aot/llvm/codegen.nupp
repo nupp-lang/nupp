@@ -141,7 +141,7 @@ function codegen.compile(ir: string, name: string, options: {[string]: string}):
             2
         )
 
-        return new codegen.Compiled(
+        return codegen.Compiled(
             object = take(object[0]) or "",
             report = take(report[0]) or "",
             assembly = take(assembly[0]),
@@ -188,8 +188,8 @@ function codegen.compileFiles(jobs: {codegen.Job}, width: integer): ({codegen.Ou
         local outcomes: {codegen.Outcome} = {}
         for record in text:gmatch("([^%z]*)%z") do
             local kind, body = record:match("^(%a+)\31(.*)$")
-            outcomes[#outcomes + 1] = kind == "ok" and new codegen.Outcome(report = body, error = nil)
-                or new codegen.Outcome(report = nil, error = body or record)
+            outcomes[#outcomes + 1] = kind == "ok" and codegen.Outcome(report = body, error = nil)
+                or codegen.Outcome(report = nil, error = body or record)
         end
 
         return outcomes

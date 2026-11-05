@@ -1525,7 +1525,7 @@ end
 
 --- A helper whose body constructs a record substitutes into every field.
 ---
---- The named fields of `new T(...)` hold their value expressions where the copy's
+--- The named fields of `T(...)` hold their value expressions where the copy's
 --- array walk does not reach them, so a splice that followed only the array part
 --- handed back the helper's own tree: the parameter travelled into the caller as
 --- a free name, read as a nil global, and only where the argument happened to be
@@ -1537,7 +1537,7 @@ end
 --- to be asked for.
 function M.inlinesAHelperThatConstructsARecord()
     local source = "record Pair\n    first: number\n    second: number\nend\n"
-        .. "local function pair(value: number): Pair return new Pair(first = value, second = value + 1.0) end\n"
+        .. "local function pair(value: number): Pair return Pair(first = value, second = value + 1.0) end\n"
         .. "local function m(): number local other = 7.0 local made = pair(other) return made.first + made.second end\n"
         .. "return m()"
     testAssert.eq(run(source), 15.0, "the inlined spelling answers")
@@ -1550,8 +1550,8 @@ end
 function M.inlinesAHelperThatReadsAFieldOfItsParameter()
     local source = "record Spot\n    line: number\nend\n"
         .. "record Held\n    at: number\nend\n"
-        .. "local function held(spot: Spot): Held return new Held(at = spot.line) end\n"
-        .. "local function m(): number local somewhereElse = new Spot(line = 3.0) return held(somewhereElse).at end\n"
+        .. "local function held(spot: Spot): Held return Held(at = spot.line) end\n"
+        .. "local function m(): number local somewhereElse = Spot(line = 3.0) return held(somewhereElse).at end\n"
         .. "return m()"
     testAssert.eq(run(source), 3.0, "the inlined spelling answers")
     testAssert.eq(run(source), run(source, 0), "and answers what the call answered")
@@ -1780,7 +1780,7 @@ end
 function M.countsParameterUsesInNamedConstructorArguments()
     local code, remarks = compile(
         "record Pair first: number second: number end\n"
-        .. "local function pair(value: number): Pair return new Pair(first = value, second = value) end\n"
+        .. "local function pair(value: number): Pair return Pair(first = value, second = value) end\n"
         .. "local function m(x: number): Pair return pair(x * 3.0 + 1) end\nreturn m"
     )
     assert(code:find("return pair (", 1, true) ~= nil, code)

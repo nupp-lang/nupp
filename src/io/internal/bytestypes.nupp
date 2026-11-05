@@ -26,7 +26,7 @@ directly through a reserve-and-commit pair, with no intermediate chunk string:
 ```nupp
 const Bytes = io.Bytes
 
-local builder = Bytes.newbuilder()
+local builder = Bytes.Builder()
 do
     local writer = builder:reserve(5)
     for index = 1, 5 do
@@ -99,9 +99,6 @@ export record Bytes
     --- Reads a whole file directly into immutable engine-owned bytes.
     readfile: function(path: string): (Bytes?, string?)
 
-    --- Opens an owned builder whose freeze transfers storage without copying.
-    newbuilder: function(): affine(Bytes.Builder)
-
     @private _handle: any
     @private _first: integer
     @private _length: integer
@@ -131,9 +128,4 @@ end
 function Bytes.readfile(path: string): (Bytes?, string?)
     local read: function(string): (Bytes?, string?) = implementation("io.internal.sharedbytes").Bytes.readfile
     return read(path)
-end
-
-function Bytes.newbuilder(): affine(Bytes.Builder)
-    local create: function(): affine(Bytes.Builder) = implementation("io.internal.sharedbytes").Bytes.newbuilder
-    return create()
 end

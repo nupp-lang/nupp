@@ -67,7 +67,7 @@ local record Bus
     end
 end
 
-local bus = new Bus(handlers = {})
+local bus = Bus(handlers = {})
 ]]
 
 local M = {}
@@ -171,7 +171,7 @@ local record Token
 end
 
 local function consume(callback: function(takes token: Token): nil): nil
-    callback(new Token(closed = false))
+    callback(Token(closed = false))
 end
 
 consume(|token| -> print(token.closed))
@@ -232,10 +232,10 @@ local record Bus
 end
 
 local function each<E>(event: Type<E>, bus: Bus, callback: function(borrows event: E, exclusive bus: Bus): nil): nil
-    callback(new Damage(amount = 1, source = 1) as any as E, bus)
+    callback(Damage(amount = 1, source = 1) as any as E, bus)
 end
 
-each(Damage, new Bus(frame = 0), |event, bus| -> do
+each(Damage, Bus(frame = 0), |event, bus| -> do
     bus:send(amount = event.amount, source = event.source)
 end)
 ]]
@@ -337,7 +337,7 @@ local function describe(event: Button | Other): string
     return event.name
 end
 
-print(describe(new Down(kind = "down")))
+print(describe(Down(kind = "down")))
 ]]
     )
     testAssert.eq(

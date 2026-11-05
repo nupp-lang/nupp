@@ -84,10 +84,7 @@ export record Reader
         end
         self.position = position + size
 
-        return new Entry(
-            field = new Field(number = number, wire = wire),
-            bytes = bytes:sub(position, position + size - 1)
-        )
+        return Entry(field = Field(number = number, wire = wire), bytes = bytes:sub(position, position + size - 1))
     end
 end
 
@@ -95,7 +92,7 @@ export function reader(bytes: string): Reader
     if bytes:sub(1, 4) ~= "NB1\0" then
         error("unsupported binary fixture version", 2)
     end
-    return new Reader(bytes = bytes, position = 5, count = 0)
+    return Reader(bytes = bytes, position = 5, count = 0)
 end
 
 export function identity(field: core.WireField): Field

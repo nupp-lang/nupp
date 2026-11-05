@@ -1515,8 +1515,6 @@ evalExpr = function(state, node)
         answer = evalMulti(state, node)[1]
     elseif kind == "funcExpr" or kind == "shortfn" then
         unsupported(node, "defining a function inside a comptime block")
-    elseif kind == "newExpr" then
-        unsupported(node, "a construction")
     elseif kind == "isExpr" then
         unsupported(node, "an `is` test")
     elseif kind == "vararg" then
@@ -1555,6 +1553,9 @@ end
 --- The whole value sequence a call produces, which the single-value paths then
 --- truncate.
 evalMulti = function(state, node)
+    if node.construction then
+        unsupported(node, "a construction")
+    end
     local kind = node.kind
     local values
     local comptimeIntrinsic, intrinsicQualified = nil, false

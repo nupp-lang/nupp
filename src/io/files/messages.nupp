@@ -5,15 +5,14 @@
 Providers and callers share the same entry and information types.
 
 ```nupp
-local messages = io.files.messages
-local function isfile(info: messages.Info): boolean
+local function isfile(info: io.files.Info): boolean
     return info.kind == "file"
 end
 ```
 ]]
 module io.files.messages
 
-local paths = require("io.internal.path")
+local paths = require("io.internal.pathtypes")
 
 export type Kind = "file" | "directory" | "symlink" | "other"
 export type UserFolder = "home" | "documents" | "downloads" | "desktop" | "pictures" | "music" | "videos"

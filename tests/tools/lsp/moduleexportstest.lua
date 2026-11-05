@@ -29,7 +29,7 @@ end
 api.answer = 42
 --- Return a point.
 function api.make(): api.Point
-    return new api.Point(x = api.answer)
+    return api.Point(x = api.answer)
 end
 export = api
 ]=]
@@ -37,7 +37,7 @@ export = api
     test.matches(result, "export record Point")
     test.matches(result, "export const answer = 42")
     test.matches(result, "export function make%(%)%: Point")
-    test.matches(result, "new Point%(x = answer%)")
+    test.matches(result, "Point%(x = answer%)")
     test.matches(result, "%-%-%- A point%.")
     test.eq(result:find("export =", 1, true), nil)
     test.eq(result:find("api.", 1, true), nil)
@@ -183,7 +183,7 @@ function api.odd(n: integer): boolean
 end
 function api.close(takes point: api.Point): nil closed += point.x end
 function api.make(): affine(api.Point, api.close)
-    return new api.Point(x = api.answer)
+    return api.Point(x = api.answer)
 end
 function api.discard(): integer
     do local value = api.make() end

@@ -402,7 +402,7 @@ local record Impl is Labeled
 end
 
 export function make(): Labeled
-    return new Impl(text = "claimed")
+    return Impl(text = "claimed")
 end
 ]],
         },
@@ -429,10 +429,10 @@ function M.cliRunLoadsCrossModuleDeriveDependencies()
 local models = require("runtime_derive_models")
 @derive(types.debug)
 local record Outer inner: models.Inner end
-local value = new Outer(inner = new models.Inner())
+local value = Outer(inner = models.Inner())
 print(value:debug())
 local out = require("string.buffer").new()
-local writer = serde.json.newwriter(out)
+local writer = serde.json.Writer.of(out)
 require("serde.json").writevalue(serde.binding(Outer), value, writer)
 writer:close()
 print(out:tostring())

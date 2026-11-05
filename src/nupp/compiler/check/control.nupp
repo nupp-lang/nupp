@@ -1289,14 +1289,13 @@ export function install(c: state.Checker): state.StatHandlers
                 local got = T.packAt(returnedPack, j) or T.nil_
                 local expr = fixedExpression(j)
                 -- A cast or a paren around a construction is still that construction:
-                -- `(new Impl(...)) as Public<T>` is how a module returns its private
+                -- `(Impl(...)) as Public<T>` is how a module returns its private
                 -- record under its public name.
                 local constructed = expr
                 while constructed and (constructed.kind == "paren" or constructed.kind == "castExpr") do
                     constructed = constructed.expr
                 end
-                local freshConstruction = constructed
-                    and (constructed.kind == "newExpr" or constructed.construction == true)
+                local freshConstruction = constructed and constructed.construction == true
                 if ownReturns and ownReturns[j] and (not ownershipKind(got) or freshConstruction) then
                     expected = ownReturns[j]
                     got = rawType(got)
@@ -1978,7 +1977,7 @@ export function install(c: state.Checker): state.StatHandlers
                 c.loopOwnerCount = (c.loopOwnerCount or 0) + 1
                 hiddenNames[slot] = tokenLike(first, "name", ("__nuppForHeader%d"):format(c.loopOwnerCount))
             end
-            headerLocal = new cst.LocalStmt(kind = "localStmt", names = hiddenNames, types = {}, exprs = sourceExprs)
+            headerLocal = cst.LocalStmt(kind = "localStmt", names = hiddenNames, types = {}, exprs = sourceExprs)
             headerLocal[1] = tokenLike(first, "local", "local")
             for slot, name in ipairs(hiddenNames) do
                 headerLocal[#headerLocal + 1] = name
@@ -1993,7 +1992,7 @@ export function install(c: state.Checker): state.StatHandlers
                     headerLocal[#headerLocal + 1] = tokenLike(first, ",", ",")
                 end
             end
-            headerBlock = new cst.Block(kind = "block", stats = {headerLocal})
+            headerBlock = cst.Block(kind = "block", stats = {headerLocal})
             c.pushScope()
             c.scope.block = headerBlock
             c.scope.completionScope = headerBlock

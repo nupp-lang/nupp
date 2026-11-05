@@ -91,7 +91,7 @@ local LEVELS: {[string]: integer} = {["0"] = 0, ["1"] = 1, ["2"] = 2}
 --- Reads the settings out of a parse. Every command that compiles takes the same
 --- options, so every one of them reads them the same way.
 function compile.settings(values: {[string]: any}, collected: {any}?): compile.Settings
-    return new compile.Settings(
+    return compile.Settings(
         compat = values.compat,
         optLevel = LEVELS[values.optLevel],
         remarks = values.remarks and true or false,

@@ -476,11 +476,11 @@ function states.operations(
         local product = operation == "product"
         local scalar = floatingType(element)
         local init, add, value = pairwise(module, product and "fmul" or "fadd", product and "1.0" or "0.0", scalar)
-        return new states.Operations(init = init, add = add, value = value, input = scalar, result = scalar)
+        return states.Operations(init = init, add = add, value = value, input = scalar, result = scalar)
     elseif order == "compensated" then
         local scalar = floatingType(element)
         local init, add, value = compensated(module, scalar)
-        return new states.Operations(init = init, add = add, value = value, input = scalar, result = scalar)
+        return states.Operations(init = init, add = add, value = value, input = scalar, result = scalar)
     end
     if element == nil then
         error("reducer " .. order .. " " .. operation .. " names no element", 0)
@@ -491,7 +491,7 @@ function states.operations(
         or (operation == "argmin" or operation == "argmax") and "double"
         or input
 
-    return new states.Operations(init = init, add = add, value = value, skip = skip, input = input, result = result)
+    return states.Operations(init = init, add = add, value = value, skip = skip, input = input, result = result)
 end
 
 export = states

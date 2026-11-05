@@ -12,7 +12,7 @@ local record Policy is xml.Policy
         local namespace = selected:trait("smithy.api#xmlNamespace")
         local attribute = selected:trait("smithy.api#xmlAttribute")
 
-        return new syntax.Field(
+        return syntax.Field(
             namespaceUri = namespace ~= nil and assert(namespace:get("uri")):string() or "",
             localName = name ~= nil and name:string() or selected.name,
             role = attribute ~= nil and "attribute" or "element"
@@ -25,5 +25,5 @@ local record Policy is xml.Policy
     end
 end
 export function policy(): xml.Policy
-    return new Policy()
+    return Policy()
 end

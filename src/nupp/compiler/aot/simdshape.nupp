@@ -236,7 +236,7 @@ end
 
 --- A lane index as the constant it folded to.
 function shape.laneConstant(value: number, source: scalarIR.Source?): scalarIR.Expr
-    return new scalarIR.Constant(op = "constant", value = ("%.17g"):format(value), type = "f64", source = source)
+    return scalarIR.Constant(op = "constant", value = ("%.17g"):format(value), type = "f64", source = source)
 end
 
 export = shape

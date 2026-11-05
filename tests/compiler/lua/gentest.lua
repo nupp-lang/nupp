@@ -12,7 +12,7 @@ local function generate(src)
     testAssert.eq(#result.errors, 0, "syntax errors in test source")
     local code, diags = gen.generate(result, "test")
     -- These generate from a bare parse, where `gen.generate` documents a checked one. A
-    -- construct whose lowering reads the checker's annotations -- `new R(field = v)` is
+    -- construct whose lowering reads the checker's annotations -- `R(field = v)` is
     -- one -- then lowers to Lua that does not parse, which is what NUPP3005 reports and
     -- is not what any of these are about. Every other diagnostic still has to be
     -- absent.
@@ -222,9 +222,9 @@ local record Built
     value: integer
     constructor(self, value: integer) self.value = value end
 end
-local function direct(value: integer): Token return new Token(value = value) end
-local function cast(value: integer): Token return new Token(value = value) as Token end
-local function constructed(value: integer): Built return new Built(value) end
+local function direct(value: integer): Token return Token(value = value) end
+local function cast(value: integer): Token return Token(value = value) as Token end
+local function constructed(value: integer): Built return Built(value) end
 return direct, cast, constructed
 ]]
     local code = generateChecked(source)
@@ -257,7 +257,7 @@ function M.recordReturnsDoNotConsumeAnotherLocalSlot()
         "local record Token value: integer end\n" .. "local function make(): Token\n" .. table.concat(
             declarations,
             "\n"
-        ) .. "\nreturn new Token(value = " .. table.concat(terms, " + ") .. ")\nend\nreturn make()"
+        ) .. "\nreturn Token(value = " .. table.concat(terms, " + ") .. ")\nend\nreturn make()"
     )
     testAssert.eq(assert(loadstring(code))().value, 20100, "a return fits at the local limit")
 end
@@ -271,10 +271,10 @@ local function value(label: string, n: integer): integer log = log .. label retu
 local function tail(): (nil, integer) log = log .. "c" return nil, 9 end
 local function one(): Token
     local __nuppT1: integer = 31
-    return new Token(value = value("a", __nuppT1))
+    return Token(value = value("a", __nuppT1))
 end
 local function many(): (Token, nil, integer)
-    return new Token(value = value("b", 32)), tail()
+    return Token(value = value("b", 32)), tail()
 end
 local a = one()
 local b, c, d = many()
@@ -431,7 +431,7 @@ function M.generatedLinesHaveNoTrailingWhitespace()
                 "   codes: {string}",
                 "end",
                 "local sections = {",
-                "   new Section(",
+                "   Section(",
                 "      title = 'Language',",
                 "      codes = {}",
                 "   )",
@@ -1109,7 +1109,7 @@ function M.loweringsReachRuntimeGlobalsPastAShadowingLocal()
     testAssert.eq(
         printed(
             "local getmetatable = function(x: any): any return nil end\nlocal record R\n    x: integer\nend\n"
-            .. "local r: any = new R(x = 1)\nprint(r is R)"
+            .. "local r: any = R(x = 1)\nprint(r is R)"
         ),
         "true"
     )
@@ -1127,7 +1127,7 @@ function M.loweringsReachRuntimeGlobalsPastAShadowingLocal()
     testAssert.eq(
         printed(
             "local setmetatable = function(t: any, m: any): any return 'hijacked' end\n"
-            .. "local record P\n    x: integer\nend\nlocal p = new P(x = 1)\nprint(p.x)"
+            .. "local record P\n    x: integer\nend\nlocal p = P(x = 1)\nprint(p.x)"
         ),
         "1"
     )
@@ -1180,7 +1180,7 @@ function M.anAffineLocalCanEndARepeatBody()
                     "    print('drop ' .. guard.name)",
                     "end",
                     "local function acquire(name: string): affine(Guard, finish)",
-                    "    return new Guard(name = name)",
+                    "    return Guard(name = name)",
                     "end",
                     "local i = 0",
                     "repeat",
@@ -1252,7 +1252,7 @@ function M.typeCasesAndCdefsReachRuntimeGlobalsPastAShadowingLocal()
                     "        else -> 'other'",
                     "    end",
                     "end",
-                    "print(kind(new R(x = 1)), kind(1))",
+                    "print(kind(R(x = 1)), kind(1))",
                 },
                 "\n"
             )
@@ -1297,7 +1297,7 @@ function M.explicitTypeArgumentsErase()
         printed(
             "local record Box\n    v: integer\nend\n"
             .. "function Box:get<T>(fallback: T): integer | T return self.v end\n"
-            .. "local b = new Box(v = 3)\nprint(b:get<string>('none'))",
+            .. "local b = Box(v = 3)\nprint(b:get<string>('none'))",
             "printed.nupp"
         ),
         "3"
@@ -1366,7 +1366,7 @@ function M.aModuleOverTheLocalLimitSpillsItsDeclarations()
         end
         lines[#lines + 1] = "export function counted(): integer"
         lines[#lines + 1] = "    seen = seen + 1"
-        lines[#lines + 1] = "    local counter = new Counter(n = seen)"
+        lines[#lines + 1] = "    local counter = Counter(n = seen)"
         lines[#lines + 1] = "    return counter:bump()"
         lines[#lines + 1] = "end"
         lines[#lines + 1] = ""

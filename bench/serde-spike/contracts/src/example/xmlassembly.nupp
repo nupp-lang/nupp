@@ -16,7 +16,7 @@ local function element(reader: syntax.Reader, start: syntax.Event): Node
     while true do
         local event = assert2(reader:next(), "incomplete XML element")
         if event.kind == "end" then
-            return new Node(field = assert2(start.field), attributes = start.attributes, content = content)
+            return Node(field = assert2(start.field), attributes = start.attributes, content = content)
         elseif event.kind == "text" then
             content[#content + 1] = assert2(event.text)
         else
@@ -77,13 +77,13 @@ export function read<M is core.Member, S>(
         local key = identity(mapping.field)
         assert2(byIdentity[key] == nil, "duplicate expanded XML binding")
         assert2(not mapping.repeated or mapping.field.role == "element", "XML attributes cannot repeat")
-        local group = new Group<M>(mapping = mapping, values = {})
+        local group = Group<M>(mapping = mapping, values = {})
         byIdentity[key] = group
         ordered[#ordered + 1] = group
     end
     local values: {Node} = {}
     for _, attribute in ipairs(root.attributes) do
-        values[#values + 1] = new Node(field = attribute.field, attributes = {}, content = {attribute.value})
+        values[#values + 1] = Node(field = attribute.field, attributes = {}, content = {attribute.value})
     end
     for _, item in ipairs(root.content) do
         if type(item) == "string" then
@@ -121,8 +121,8 @@ export function copy(borrows node: const Node, depth: integer?): Node
     for _, attribute in ipairs(node.attributes) do
         attributes[
             #attributes + 1
-        ] = new syntax.Attribute(
-            field = new syntax.Field(
+        ] = syntax.Attribute(
+            field = syntax.Field(
                 namespaceUri = attribute.field.namespaceUri,
                 localName = attribute.field.localName,
                 role = attribute.field.role
@@ -135,8 +135,8 @@ export function copy(borrows node: const Node, depth: integer?): Node
         content[#content + 1] = type(value) == "string" and value as string or copy(value as const Node, current + 1)
     end
 
-    return new Node(
-        field = new syntax.Field(
+    return Node(
+        field = syntax.Field(
             namespaceUri = node.field.namespaceUri,
             localName = node.field.localName,
             role = node.field.role

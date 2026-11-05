@@ -42,7 +42,7 @@ local record Entry
     id: uint32
 end
 local binding = serde.binding(Entry)
-local bytes = direct.encode(binding, new Entry(id = 7))
+local bytes = direct.encode(binding, Entry(id = 7))
 assert(direct.decode(binding, bytes).id == 7)
 assert(direct.decodevalue(bytes).id == 7)
 assert(direct.encodevalue({id = 7}) == bytes)
@@ -64,7 +64,7 @@ local record Wide
     signed: int64
     unsigned: uint64
 end
-return (new Wide(signed = -7LL, unsigned = 9ULL)):debug()
+return (Wide(signed = -7LL, unsigned = 9ULL)):debug()
 ]=]
     )
     assert(result == "Wide { signed = -7LL, unsigned = 9ULL }", result)
@@ -86,11 +86,11 @@ local record Parent
     pair: {Child, integer}
     byName: {[string]: Child}
 end
-return (new Parent(
-    first = new Child(label = "a"),
-    rest = {new Child(label = "b")},
-    pair = {new Child(label = "c"), 1},
-    byName = {only = new Child(label = "d")}
+return (Parent(
+    first = Child(label = "a"),
+    rest = {Child(label = "b")},
+    pair = {Child(label = "c"), 1},
+    byName = {only = Child(label = "d")}
 )):debug()
 ]=]
     )
@@ -111,7 +111,7 @@ local record Policies
     secretCallback: function(): nil
 end
 local noop = function(): nil end
-return (new Policies(shown = "yes", callback = noop, secretCallback = noop)):debug()
+return (Policies(shown = "yes", callback = noop, secretCallback = noop)):debug()
 ]=]
     )
     assert(result == 'Policies { shown = "yes", secretCallback = <redacted> }', result)
@@ -160,7 +160,7 @@ local record User
 end
 local binding = serde.binding(User)
 local codec = json.codec()
-local encoded = codec:encode(binding, new User(id = 41, active = false))
+local encoded = codec:encode(binding, User(id = 41, active = false))
 local restored = codec:decode(binding, encoded)
 return {same = binding == serde.binding(User), encoded = encoded,
     id = restored.id, active = restored.active, name = restored.name,
@@ -207,7 +207,7 @@ function M.nonFiniteMembersAreRefused()
 local record Value value: number end
 local binding = serde.binding(Value)
 for _, value in ipairs({math.huge, -math.huge, 0 / 0}) do
-    assert(not pcall(json.encode, binding, new Value(value = value)))
+    assert(not pcall(json.encode, binding, Value(value = value)))
 end
 return true
 ]]
@@ -222,7 +222,7 @@ function M.structsUseTheSameWitnessAndCodec()
 local struct Vec3 x: float y: float z: float end
 local witness: Type<Vec3> = Vec3
 local binding = serde.binding(witness)
-local bytes = json.encode(binding, new Vec3(1.25, 2.5, 5.0))
+local bytes = json.encode(binding, Vec3(1.25, 2.5, 5.0))
 local value = json.decode(binding, bytes)
 return {bytes = bytes, y = value.y}
 ]]
@@ -239,7 +239,7 @@ local record Node
     children: {Node}
 end
 local binding = serde.binding(Node)
-local bytes = json.encode(binding, new Node(name = "root", children = {new Node(name = "leaf", children = {})}))
+local bytes = json.encode(binding, Node(name = "root", children = {Node(name = "leaf", children = {})}))
 local restored = json.decode(binding, bytes)
 return {bytes = bytes, leaf = restored.children[1].name,
     nominal = getmetatable(restored.children[1]) == Node}
@@ -258,11 +258,11 @@ local record User
     secret: string = "private"
     labels: {string} = {}
 end
-local selected = serde.binding(User, new serde.Options(fields = {
-    userId = new serde.FieldOptions(name = "id"),
-    labels = new serde.FieldOptions(omitempty = true),
+local selected = serde.binding(User, serde.Options(fields = {
+    userId = serde.FieldOptions(name = "id"),
+    labels = serde.FieldOptions(omitempty = true),
 }, unknownmembers = "ignore"))
-local value = new User(userId = 7)
+local value = User(userId = 7)
 local first = json.decode(selected, '{"id":1,"extra":[null,true]}')
 local second = json.decode(selected, '{"id":2}')
 first.labels[1] = "changed"
@@ -284,7 +284,7 @@ local record Credentials
     @debug(redact = true)
     password: string
 end
-local value = new Credentials(user = "Ada", password = "secret")
+local value = Credentials(user = "Ada", password = "secret")
 return {shown = value:debug(), bytes = json.encode(serde.binding(Credentials), value)}
 ]]
     )
@@ -300,12 +300,12 @@ local record User id: integer end
 local binding = serde.binding(User)
 local buffer = require("string.buffer").new()
 buffer:put("prefix:")
-json.encodeinto(binding, new User(id = 7), buffer)
+json.encodeinto(binding, User(id = 7), buffer)
 local first = buffer:get()
-local writer = json.newwriter(buffer)
+local writer = json.Writer.of(buffer)
 writer:startarray()
-json.writevalue(binding, new User(id = 8), writer)
-json.writevalue(binding, new User(id = 9), writer)
+json.writevalue(binding, User(id = 8), writer)
+json.writevalue(binding, User(id = 9), writer)
 writer:endarray()
 writer:close()
 return {first = first, embedded = buffer:get()}
@@ -347,7 +347,7 @@ assert(access.typeindex > 0)
 assert(access.fields[1].typeindex > 0 and access.fields[1].hasdefault)
 assert(access.parameters[1].typeindex > 0)
 assert(access:constructionerror() == nil)
-local binding = serde.binding(Entry, new serde.Options(naming = "snakecase", unknownmembers = "reject"))
+local binding = serde.binding(Entry, serde.Options(naming = "snakecase", unknownmembers = "reject"))
 local value = json.decode(binding, '{"enabled":false}')
 assert(not value.enabled and json.encode(binding, value) == '{"enabled":false}')
 local boolean = document.bool(true)

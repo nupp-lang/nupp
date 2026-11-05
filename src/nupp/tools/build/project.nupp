@@ -709,7 +709,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 target.aotFeatures,
                 target.aotTarget as string?,
                 aotLinkage,
-                new aotPolicy.Carried(
+                aotPolicy.Carried(
                     objects = oldState.aotObjects,
                     -- The state holds what JSON read back; these are the records
                     -- the AOT stage wrote into it, and it checks each before use.

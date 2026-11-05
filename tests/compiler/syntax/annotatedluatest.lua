@@ -447,7 +447,7 @@ assert(user ~= nil and problem == nil and user.name == "Ada")
 local absent, failure = User.fromJSON('{"user_name":false}')
 assert(absent == nil and type(failure) == "string")
 local buffer = text.new()
-local writer = syntax.newwriter(buffer)
+local writer = syntax.Writer.of(buffer)
 assert(user):writeJSON(writer)
 writer:close()
 assert(buffer:tostring() == '{"user_name":"Ada"}')
@@ -491,7 +491,7 @@ local record Handwritten
     function writeJSON(self, value: string): string return value end
 end
 function Handwritten.fromJSON(value: string): string return value end
-local handwritten = new Handwritten()
+local handwritten = Handwritten()
 assert(handwritten:writeJSON("x") == Handwritten.fromJSON("x"))
 return selected
 ]]

@@ -88,7 +88,7 @@ export function twice(value: integer): integer
 end
 
 export function box(value: integer): Box
-   return new Box(value = value)
+   return Box(value = value)
 end
 ]],
         },
@@ -364,8 +364,8 @@ end
     )
 end
 
--- `new` through a qualified path stamps the module's export. The metatable used to be
--- the path as written, `tecs.world.shape.Box`, which names no runtime table, so a
+-- Construction through a qualified path stamps the module's export. The metatable used
+-- to be the path as written, `tecs.world.shape.Box`, which names no runtime table, so a
 -- construction that checked clean failed with "attempt to index" when it ran.
 function M.aRecordConstructedThroughAQualifiedPathIsTheModulesRecord()
     withProject(
@@ -386,7 +386,7 @@ end
             ] = [[
 module use
 export function answer(): integer
-   local box = new tecs.world.shape.Box(side = 6)
+   local box = tecs.world.shape.Box(side = 6)
    return box:area() + 6
 end
 ]],
@@ -566,7 +566,7 @@ end
 function M.standardLibraryRootsSharePrivateImplementationOnlyWithEachOther()
     withProject({["src/app/main.nupp"] = "module app.main\n"}, function(dir)
         local env = projectEnv(dir)
-        for _, consumer in ipairs({"nupp.tools.consumer", "serde.json", "binary.digest", "coroutine.workers"}) do
+        for _, consumer in ipairs({"nupp.tools.consumer", "serde.json", "binary.Digest", "coroutine.workers"}) do
             for _, implementation in ipairs({
                 "nupp.runtime.packages",
                 "nupp.serde.internal.value",
@@ -665,7 +665,7 @@ export const Token = implementation.Token
 module app
 local facade = require("io.facade")
 local process = require("nupp.io.child")
-export const token: facade.Token = new facade.Token(value = process.answer)
+export const token: facade.Token = facade.Token(value = process.answer)
 ]],
         },
         function(dir)
@@ -792,7 +792,7 @@ function M.stagedDeclarationsReuseTheirRegisteredNominalIdentity()
                 "src/app.nupp"
             ] = [[module app
 const schema = require("schema")
-export const message: schema.Message = new schema.Message(value = 42)
+export const message: schema.Message = schema.Message(value = 42)
 ]]
         },
         function(dir)
@@ -1028,7 +1028,7 @@ module argvconsumer
 
 local argv = require("argvprobe")
 const {type TokenKind, type Candidate} = require("argvprobe")
-local chosen: Candidate = new argv.Candidate(value = "choice")
+local chosen: Candidate = argv.Candidate(value = "choice")
 assert(chosen.value == "choice")
 local count: integer = #argv
 local word: TokenKind = argv.parse(argv[1])
@@ -1103,7 +1103,7 @@ const {type Named} = require("arrayprovider")
 local record Value
     text: string
 end
-local value: Named = new Value(text = "value")
+local value: Named = Value(text = "value")
 assert(value:name() == "derived")
 local word: string = api[1]
 local count: integer = #api

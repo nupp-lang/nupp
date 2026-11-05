@@ -72,25 +72,25 @@ local record Algorithm is provider.Algorithm
 
     function create(self): provider.State
         if self.id == 0 then
-            return new AdlerState(high = 0, low = 1)
+            return AdlerState(high = 0, low = 1)
         end
         local words = ffi.new("uint64_t[2]")
         const empty = ""
         local bytes = span.fromstring(empty)
         crcUpdate(self.id, 1, words, bytes:ref(), 0)
 
-        return new CrcState(id = self.id, words = words)
+        return CrcState(id = self.id, words = words)
     end
 end
 
 const ALGORITHMS: {
     [string]: provider.Algorithm
 } = {
-    adler32 = new Algorithm(name = "adler32", width = 32, id = 0),
-    crc32 = new Algorithm(name = "crc32", width = 32, id = 1),
-    crc32c = new Algorithm(name = "crc32c", width = 32, id = 2),
-    ["crc64-ecma"] = new Algorithm(name = "crc64-ecma", width = 64, id = 3),
-    crc64nvme = new Algorithm(name = "crc64nvme", width = 64, id = 4),
+    adler32 = Algorithm(name = "adler32", width = 32, id = 0),
+    crc32 = Algorithm(name = "crc32", width = 32, id = 1),
+    crc32c = Algorithm(name = "crc32c", width = 32, id = 2),
+    ["crc64-ecma"] = Algorithm(name = "crc64-ecma", width = 64, id = 3),
+    crc64nvme = Algorithm(name = "crc64nvme", width = 64, id = 4),
 }
 
 export function lookup(name: string): provider.Algorithm?

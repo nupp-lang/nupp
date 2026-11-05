@@ -3,7 +3,7 @@
 `base64encode` to encode bytes as text, and `Bitset` for a mutable set of bits.
 
 ```nupp
-local selected = new binary.Bitset(64)
+local selected = binary.Bitset(64)
 selected:set(31)
 selected:set(32)
 assert(selected:count() == 2)
@@ -13,7 +13,7 @@ A bitset keeps 32 positions in each stored word. Positions and word indexes
 start at zero; `wordat` returns a signed 32-bit word. The set grows as positions
 are added, and clearing it retains capacity for reuse.
 
-See [](binary.span) for checked storage views, [](binary.digest) for digests,
+See [](binary.span) for checked storage views, [](binary.Digest) for digests,
 and [](binary.compress) for compression streams.
 ]]
 module binary

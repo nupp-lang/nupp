@@ -18,7 +18,7 @@ local function closeFile(takes file: File): nil
 end
 
 local function openFile(): affine(File, closeFile)
-    return new File(closed = false)
+    return File(closed = false)
 end
 
 local function readOnce(): nil
@@ -49,7 +49,7 @@ local function closeSession(takes session: Session): nil
 end
 
 local function openSession(id: integer): affine(Session, closeSession)
-    return new Session(id = id)
+    return Session(id = id)
 end
 ```
 
@@ -78,7 +78,7 @@ local record Client is own.Closeable
     end
 end
 
-local client = new Client()
+local client = Client()
 -- `client:close()` runs automatically here.
 ```
 
@@ -158,7 +158,7 @@ local record Bundle
     second: affine(Session, closeSession)
 end
 
-local bundle = new Bundle(
+local bundle = Bundle(
     first = openSession(1),
     second = openSession(2)
 )
@@ -175,7 +175,7 @@ Static borrows should remain the default. When references must escape a lexical
 borrow, move the owner into an independent managed cell:
 
 ```nupp:fragment
-local owner = own.manage(new Client())
+local owner = own.manage(Client())
 local client = owner:alias()
 
 local result, problem = client:with(function(borrows value)

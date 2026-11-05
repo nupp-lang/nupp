@@ -1165,6 +1165,26 @@ function M.generatedBuilderWrappersEstablishFloatResults()
     end
 end
 
+function M.builderLoadersDoNotImportTheIoModuleTheyMayInitialize()
+    local binding = require("nupp.compiler.aot.binding")
+    local gen = require("nupp.compiler.lua.gen")
+    local program = lowered(
+        "@aot\nlocal function identity(value: float): float return value end\nreturn identity\n",
+        "builder-loader.nupp"
+    )
+    local source = table.concat(binding.builderLoader(program, "@lib/loader.so"), "\n")
+    local tree = parser.parse(source, "builder-loader.nupp")
+    assert(#tree.errors == 0)
+    for _, problem in ipairs(compilerCheck.check(tree, "builder-loader.nupp", environment)) do
+        assert(not diagnosticMod.isFatal(problem), problem.msg or problem.message)
+    end
+    local code = gen.generate(tree, "builder-loader")
+    assert(
+        not code:find('require("nupp.runtime.standardio")', 1, true),
+        "a runtime AOT loader must not introduce a circular standardio import"
+    )
+end
+
 function M.mathCallsKeepTheirAdmittedArity()
     local program = lowered(
         [[

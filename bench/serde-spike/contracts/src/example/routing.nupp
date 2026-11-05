@@ -43,7 +43,7 @@ local record Output<M is core.Member> is core.Writer<M>
         end
         self.parameters[
             #self.parameters + 1
-        ] = new Parameter(
+        ] = Parameter(
             location = route.location,
             name = route.name,
             value = route.location == "query" and escape(value) or value
@@ -175,7 +175,7 @@ local record Scope
             return entry.value as Selection<M>
         end
         assert(self.count < 256, "parameter extension cache is full")
-        entry = new Entry()
+        entry = Entry()
         self.entries[adapter] = entry
         self.count += 1
         self.active += 1
@@ -209,14 +209,14 @@ local record Scope
                     end
                     routes[
                         child.member
-                    ] = new Route(
+                    ] = Route(
                         location = route.location,
                         name = route.location == "query" and escape(route.name) or route.name
                     )
                 end
             end
 
-            return new Selection<M>(routes = routes)
+            return Selection<M>(routes = routes)
         end)
         self.active -= 1
         entry.state = ok and "ready" or "failed"
@@ -230,7 +230,7 @@ local record Scope
 end
 
 local function output<M is core.Member>(parameters: {Parameter}, selected: {[M]: Route}): affine(Output<M>)
-    return new Output<M>(parameters = parameters, selected = selected)
+    return Output<M>(parameters = parameters, selected = selected)
 end
 
 local record Encode<T> is core.Consumer<T, T, {Parameter}>
@@ -255,7 +255,7 @@ local record Cached is Codec
     @readonly factory: Factory
     @readonly scope: Scope
     function encode<T>(self, binding: core.Binding<T>, borrows value: T): {Parameter}
-        return binding:accept(new Encode<T>(factory = self.factory, scope = self.scope), value)
+        return binding:accept(Encode<T>(factory = self.factory, scope = self.scope), value)
     end
 
     function clear(self): nil
@@ -263,11 +263,11 @@ local record Cached is Codec
     end
 end
 export function codec(factory: Factory): Codec
-    return new Cached(factory = factory, scope = new Scope())
+    return Cached(factory = factory, scope = Scope())
 end
 
 export function encode<T>(binding: core.Binding<T>, borrows value: T, factory: Factory): {Parameter}
-    return binding:accept(new Encode<T>(factory = factory, scope = new Scope()), value)
+    return binding:accept(Encode<T>(factory = factory, scope = Scope()), value)
 end
 
 export function query(parameters: {Parameter}): string

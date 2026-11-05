@@ -52,7 +52,6 @@ local CONTEXTUAL_KEYWORDS = {
     ["is"] = true,
     keyof = true,
     satisfies = true,
-    ["new"] = true,
     out = true,
     preserves = true,
     record = true,

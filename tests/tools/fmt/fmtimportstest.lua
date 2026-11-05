@@ -182,10 +182,10 @@ function M.keepsDirectBuiltinTypeAliases()
 end
 
 function M.constructsTheSameRecordThroughItsBuiltinNamespace()
-    local source = 'local function make(): io.files.TemporaryOptions\nreturn new io.files.TemporaryOptions(prefix = "fmt-test")\nend\nreturn make()\n'
+    local source = 'local function make(): io.files.TemporaryOptions\nreturn io.files.TemporaryOptions(prefix = "fmt-test")\nend\nreturn make()\n'
     local output = formatted(source)
     assert(not output:find('require', 1, true), output)
-    assert(output:find('new io.files.TemporaryOptions', 1, true), output)
+    assert(output:find('io.files.TemporaryOptions', 1, true), output)
     local baseline = 'local files = require("io.files")\n' .. source:gsub(
         "io%.files%.TemporaryOptions",
         "files.TemporaryOptions"

@@ -74,24 +74,24 @@ export function build(base: T.Type, low: number, high: number, lengthwise: boole
     if low < floor or high > ceiling then
         return nil, ("the bounds %d..%d leave what %s admits"):format(low, high, T.tostring(underlying))
     end
-    local comparison = new predicate.Node(
+    local comparison = predicate.Node(
         op = "and",
-        a = new predicate.Node(op = "cmp", cmp = ">=", path = {}, literal = tostring(low), constant = low),
-        b = new predicate.Node(op = "cmp", cmp = "<=", path = {}, literal = tostring(high), constant = high)
+        a = predicate.Node(op = "cmp", cmp = ">=", path = {}, literal = tostring(low), constant = low),
+        b = predicate.Node(op = "cmp", cmp = "<=", path = {}, literal = tostring(high), constant = high)
     )
-    local node = lengthwise and new predicate.Node(op = "len", path = {}, a = comparison) or comparison
+    local node = lengthwise and predicate.Node(op = "len", path = {}, a = comparison) or comparison
     if not lengthwise then
         -- `type(x) == "number"` is all Lua's own test says, and an integer base says
         -- more than that. Without this a fraction inside the bounds would answer `is`,
         -- and so would an infinity once a bound was open.
-        node = new predicate.Node(op = "and", a = new predicate.Node(op = "integral", path = {}), b = node)
+        node = predicate.Node(op = "and", a = predicate.Node(op = "integral", path = {}), b = node)
     end
     local existing = T.constraintOf(base)
     if existing then
         if predicate.disjoint(existing, node) then
             return nil, ("%d..%d admits nothing %s does"):format(low, high, T.tostring(base))
         end
-        node = new predicate.Node(op = "and", a = existing, b = node)
+        node = predicate.Node(op = "and", a = existing, b = node)
     end
     local normalized = predicate.normalize(node)
 

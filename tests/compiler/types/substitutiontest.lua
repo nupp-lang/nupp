@@ -106,7 +106,7 @@ function M.aGenericMethodPreservesItsOwnBinder()
             "      return value",
             "   end",
             "end",
-            "local box = new Box()",
+            "local box = Box()",
         },
         "\n"
     ) .. "\n"
@@ -126,7 +126,7 @@ function M.aGenericDefaultMethodPreservesItsOwnBinder()
             "end",
             "local record Box is Source",
             "end",
-            "local box = new Box()",
+            "local box = Box()",
         },
         "\n"
     ) .. "\n"
@@ -170,7 +170,7 @@ function M.anInheritedSelfFollowsTheReceiver()
             "local record Node is Chainable",
             "   value: integer",
             "end",
-            "local node = new Node(value = 1)",
+            "local node = Node(value = 1)",
         },
         "\n"
     ) .. "\n"
@@ -205,16 +205,16 @@ function M.anUninferredBinderMaterializesAsItsDefault()
         },
         "\n"
     ) .. "\n"
-    clean(body .. "local o = new Opt()\nlocal s: string? = o.value\nreturn s\n")
-    reports(body .. "local o = new Opt()\nlocal n: integer? = o.value\nreturn n\n", "NUPP2001")
-    clean(body .. "local p = new Pair(key = 1)\nlocal n: integer? = p.value\nreturn n\n")
-    reports(body .. "local p = new Pair(key = 1)\nlocal s: string? = p.value\nreturn s\n", "NUPP2001")
+    clean(body .. "local o = Opt()\nlocal s: string? = o.value\nreturn s\n")
+    reports(body .. "local o = Opt()\nlocal n: integer? = o.value\nreturn n\n", "NUPP2001")
+    clean(body .. "local p = Pair(key = 1)\nlocal n: integer? = p.value\nreturn n\n")
+    reports(body .. "local p = Pair(key = 1)\nlocal s: string? = p.value\nreturn s\n", "NUPP2001")
     clean(body .. "local s: string? = pick()\nreturn s\n")
     reports(body .. "local n: integer? = pick()\nreturn n\n", "NUPP2001")
     -- The default is what an empty construction builds; another instantiation is
     -- written as one.
-    reports(body .. "local o: Opt<integer> = new Opt()\nreturn o\n", "NUPP2001")
-    clean(body .. "local o = new Opt() as Opt<integer>\nlocal n: integer? = o.value\nreturn n\n")
+    reports(body .. "local o: Opt<integer> = Opt()\nreturn o\n", "NUPP2001")
+    clean(body .. "local o = Opt() as Opt<integer>\nlocal n: integer? = o.value\nreturn n\n")
 end
 
 -- A type-level operation over an instantiated nominal -- `Box<T>.["value"]`, `keyof
@@ -235,7 +235,7 @@ function M.anOperationOverAnInstantiatedNominalIsSubstitutedAtTheCall()
                 '   return "value" as any',
                 "end",
                 "local one: integer = 1",
-                "local b = new m.Box(value = one)",
+                "local b = m.Box(value = one)",
                 "local n: integer = m.get(b)",
                 'local k: "value" = m.key(b)',
                 "print(n, k)",
@@ -266,7 +266,7 @@ function M.aBoundedBinderAcceptsOnlyItself()
     ) .. "\n"
     reports(
         body .. table.concat(
-            {"local function same<T is Named>(x: T): T", '   return new P(name = "p")', "end", "return same",},
+            {"local function same<T is Named>(x: T): T", '   return P(name = "p")', "end", "return same",},
             "\n"
         ),
         "NUPP2002"
@@ -275,7 +275,7 @@ function M.aBoundedBinderAcceptsOnlyItself()
         body .. table.concat(
             {
                 "local function store<T is Named>(cell: Cell<T>): nil",
-                '   cell.item = new P(name = "p")',
+                '   cell.item = P(name = "p")',
                 "end",
                 "return store",
             },
@@ -288,7 +288,7 @@ function M.aBoundedBinderAcceptsOnlyItself()
             {
                 "local function keep<T is Named>(x: T): nil",
                 "   local held: T = x",
-                '   held = new P(name = "p")',
+                '   held = P(name = "p")',
                 "end",
                 "return keep",
             },
@@ -428,7 +428,7 @@ function M.anExpectedLiteralInfersItsResults()
                 "   name: string",
                 "   extra: integer",
                 "end",
-                'local build: function(): Q = function() return new P(name = "p") end',
+                'local build: function(): Q = function() return P(name = "p") end',
                 "return build",
             },
             "\n"
@@ -474,16 +474,16 @@ function M.aConstructedFieldIsADestination()
         },
         "\n"
     ) .. "\n"
-    clean(body .. "local holder = new Holder(items = make())\nholder.items = make()\nreturn holder\n")
-    clean(body .. "local box = new Box(default = 1, items = make())\nlocal n: integer = box.items[1] or 0\nreturn n\n")
-    clean(body .. "local box = new Box<string>(default = 'x', items = make())\nreturn box\n")
+    clean(body .. "local holder = Holder(items = make())\nholder.items = make()\nreturn holder\n")
+    clean(body .. "local box = Box(default = 1, items = make())\nlocal n: integer = box.items[1] or 0\nreturn n\n")
+    clean(body .. "local box = Box<string>(default = 'x', items = make())\nreturn box\n")
     -- a later field read without evaluating it -- a literal, a name -- settles it
-    clean(body .. "local box = new Box(items = make(), default = 1)\nlocal n: integer = box.items[1] or 0\nreturn n\n")
-    clean(body .. "local s = 'x'\nlocal box = new Box(items = make(), default = s)\nreturn box\n")
+    clean(body .. "local box = Box(items = make(), default = 1)\nlocal n: integer = box.items[1] or 0\nreturn n\n")
+    clean(body .. "local s = 'x'\nlocal box = Box(items = make(), default = s)\nreturn box\n")
     -- one that has to run first does not: it is inferred where it is written
     reports(
         body
-        .. "local function one(): integer return 1 end\nlocal box = new Box(items = make(), default = one())\nreturn box\n",
+        .. "local function one(): integer return 1 end\nlocal box = Box(items = make(), default = one())\nreturn box\n",
         "NUPP2148"
     )
 end
@@ -532,7 +532,7 @@ function M.anArgumentIsADestination()
     clean(body .. "return take(xs = make())\n")
     clean(body .. "return sized(make(), n = 1)\n")
     clean(body .. "return count(make(), make())\n")
-    clean(body .. "local holder = new Holder(n = 1)\nreturn holder:put(make())\n")
+    clean(body .. "local holder = Holder(n = 1)\nreturn holder:put(make())\n")
     clean(body .. "local n: integer = pair(1, make())\nreturn n\n")
     clean(body .. "local n: integer = pair(three(), make())\nreturn n\n")
     clean(body .. "local n: integer = flipped(make(), 1)\nreturn n\n")
@@ -613,19 +613,19 @@ end
 
 function M.genericConstructionsNeedInferenceEvidence()
     local body = table.concat({"local record Empty<T>", "   tag: string", "end",}, "\n") .. "\n"
-    reports(body .. "local value = new Empty(tag = 'x')\nreturn value\n", "NUPP2148")
-    clean(body .. "local value = new Empty<integer>(tag = 'x')\nreturn value\n")
+    reports(body .. "local value = Empty(tag = 'x')\nreturn value\n", "NUPP2148")
+    clean(body .. "local value = Empty<integer>(tag = 'x')\nreturn value\n")
     local declared = table.concat(
         {"local record Made<T>", "   tag: string", "   constructor(self, tag: string) self.tag = tag end", "end",},
         "\n"
     ) .. "\n"
-    reports(declared .. "local value = new Made('x')\nreturn value\n", "NUPP2148")
-    clean(declared .. "local value = new Made<integer>('x')\nreturn value\n")
+    reports(declared .. "local value = Made('x')\nreturn value\n", "NUPP2148")
+    clean(declared .. "local value = Made<integer>('x')\nreturn value\n")
 end
 
 function M.genericMethodsNeedInferenceEvidence()
     local body = table.concat(
-        {"local record Holder", "   function pick<T>(self): T? return nil end", "end", "local holder = new Holder()",},
+        {"local record Holder", "   function pick<T>(self): T? return nil end", "end", "local holder = Holder()",},
         "\n"
     ) .. "\n"
     reports(body .. "local value = holder:pick()\n", "NUPP2148")
@@ -663,7 +663,7 @@ function M.aCallbackResultJoinsTheBinderItReturns()
             "local function make<T is Named>(proto: T, f: function(): T): T",
             "   return f()",
             "end",
-            'local q = make(new Q(name = "q", extra = 1), function() return new P(name = "p") end)',
+            'local q = make(Q(name = "q", extra = 1), function() return P(name = "p") end)',
         },
         "\n"
     ) .. "\n"
@@ -681,7 +681,7 @@ function M.aLiteralArgumentBindsItsBaseType()
             "   value: T",
             "end",
             "local function cell<T>(v: T): Cell<T>",
-            "   return new Cell(value = v)",
+            "   return Cell(value = v)",
             "end",
             'local function pick<T is "a" | "b">(v: T): T',
             "   return v",
@@ -705,7 +705,7 @@ function M.removingABoundRestoresLiteralWideningAcrossChecks()
    value: T
 end
 local function cell<T is 0>(value: T): Cell<T>
-   return new Cell(value = value)
+   return Cell(value = value)
 end
 ]]
     local revisions = {
@@ -833,8 +833,8 @@ function M.aGenericDeclarationStandsForItsOwnInstantiationInItsBody()
     local node = table.concat({"local record Node<T>", "   value: T", "   next: Node?", "end",}, "\n") .. "\n"
     clean(
         node
-        .. "local tail: Node<integer> = new Node(value = 2)\n"
-        .. "local head: Node<integer> = new Node(value = 1, next = tail)\n"
+        .. "local tail: Node<integer> = Node(value = 2)\n"
+        .. "local head: Node<integer> = Node(value = 1, next = tail)\n"
         .. "return head\n"
     )
     reports(

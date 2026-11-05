@@ -2720,7 +2720,7 @@ local INLINE_MAX_DUPLICATED_OPS = 1
 --
 -- The call becomes the helper's expression as a tree rather than as text. Text was
 -- tried and is wrong here: a helper body is Nupp and a generated line is Lua, so a
--- cast erases, `new T(...)` is not a call, and `math.i32.add(a, b)` generates as
+-- cast erases, `T(...)` is not a call, and `math.i32.add(a, b)` generates as
 -- `__nuppBitTobit((a)+(b))`. Splicing nodes lets `gen` decide all of that exactly as
 -- it would have at the helper's own site.
 --
@@ -2827,7 +2827,7 @@ spliceTree = function(node, subs, at, params, copies, owned)
 end
 
 -- One named field's value for the copy. A node or token of the copied tree becomes
--- its copy, wherever in the tree it stands: `new R(...)` keeps its field values in
+-- its copy, wherever in the tree it stands: `R(...)` keeps its field values in
 -- `recordFields` as well as in its arguments, and naming the original there would
 -- generate the helper's parameter in the caller as a free name.
 --
@@ -3010,8 +3010,6 @@ local function measureInline(node, measured)
         for _, child in ipairs(node.exprs) do
             measureInline(child, measured)
         end
-    elseif kind == "newExpr" then
-        measureInline(node.call, measured)
     elseif kind == "call" or kind == "methodCall" then
         measureInline(node.obj, measured)
         measureInline(node.args, measured)
@@ -3339,7 +3337,7 @@ local function makesCall(node): boolean
         return false
     end
     local kind = node.kind
-    if kind == "call" or kind == "methodCall" or kind == "safeCall" or kind == "newExpr" then
+    if kind == "call" or kind == "methodCall" or kind == "safeCall" then
         return true
     end
     for _, child in ipairs(node) do
@@ -3850,7 +3848,7 @@ export function allocationSites(result: Checked): {AllocationSite}
             local token = firstToken(node)
             sites[
                 #sites + 1
-            ] = new AllocationSite(kind = kind, line = token and token.line or 0, col = token and token.col or 0)
+            ] = AllocationSite(kind = kind, line = token and token.line or 0, col = token and token.col or 0)
         end
         for _, child in ipairs(node) do
             visit(child)

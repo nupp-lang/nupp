@@ -28,7 +28,7 @@ local type HeldLock = affine(LockToken, unlock)
 local function lock(borrows mutex: Mutex): HeldLock borrows (mutex)
     assert(not mutex.locked)
     mutex.locked = true
-    return new LockToken(mutex = mutex)
+    return LockToken(mutex = mutex)
 end
 
 local function update(mutex: Mutex, write: boolean): nil
@@ -40,7 +40,7 @@ local function update(mutex: Mutex, write: boolean): nil
     print("update while the lock is held")
 end -- falling through also calls `unlock(held)`
 
-local mutex = new Mutex(locked = false)
+local mutex = Mutex(locked = false)
 update(mutex, false)
 assert(not mutex.locked)
 ```
@@ -168,7 +168,7 @@ local record File
     end
 end
 
-local file = new File(nativeOpen("notes.txt"))
+local file = File(nativeOpen("notes.txt"))
 ```
 
 The constructor still builds and returns `File`; its result annotation adds the
@@ -185,7 +185,7 @@ result, or moving into another affine location transfers the obligation instead:
 
 ```nupp:fragment
 local function peek(path: string): string
-    local file = new File(nativeOpen(path))
+    local file = File(nativeOpen(path))
     local head = file:read(16)
     own.drop(file)
     return head
@@ -202,8 +202,8 @@ exactly once:
 
 ```nupp:fragment
 local function copy(from: string, to: string): nil
-    local source = new File(nativeOpen(from))
-    local sink = new File(nativeOpen(to))
+    local source = File(nativeOpen(from))
+    local sink = File(nativeOpen(to))
     sink:write(source:read(4096))
 end -- destroys `sink`, then `source`
 ```
@@ -263,7 +263,7 @@ discharge every affine field on every path.
 A closure with `takes (capture)` is an affine, single-shot callable:
 
 ```nupp:fragment
-local file = new File(nativeOpen("notes.txt"))
+local file = File(nativeOpen("notes.txt"))
 local finish = function(): nil takes (file)
     print(file:read(16))
     own.drop(file)
@@ -294,7 +294,7 @@ local function checksum(borrows file: File): integer
     return hash(file:read(4096))
 end
 
-local file = new File(nativeOpen("notes.txt"))
+local file = File(nativeOpen("notes.txt"))
 print(checksum(file)) -- `file` is still live and still owed a close
 own.drop(file)
 ```
@@ -315,7 +315,7 @@ local record Damage
 end
 
 local function each(callback: function(borrows event: Damage): nil): nil
-    callback(new Damage(amount = 1))
+    callback(Damage(amount = 1))
 end
 
 local kept: {Damage} = {}
@@ -421,7 +421,7 @@ local record Box<T>
 end
 
 local function box<T>(takes value: T): Box<T> preserves value
-    return new Box(value = value)
+    return Box(value = value)
 end
 ```
 
@@ -486,7 +486,7 @@ reported:
 
 ```nupp:fragment
 local function run(again: boolean): nil
-    local value = new File(nativeOpen("notes.txt"))
+    local value = File(nativeOpen("notes.txt"))
     while again do
         own.drop(value) -- NUPP2609: the second iteration has nothing to drop
     end
@@ -569,7 +569,7 @@ a typed wrapper or static borrow. When references must escape, `own.manage`
 moves one self-contained exact obligation into an independently owned cell:
 
 ```nupp:fragment
-local owner = own.manage(new Client())
+local owner = own.manage(Client())
 local client = owner:alias()
 
 local answer, problem = client:with(function(borrows value)

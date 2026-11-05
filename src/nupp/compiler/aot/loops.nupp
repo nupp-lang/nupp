@@ -109,7 +109,7 @@ local function count(value: any, counts: loops.Counts): nil
 end
 
 local function measurements(value: any): loops.Counts
-    local answer = new loops.Counts(
+    local answer = loops.Counts(
         nodes = 0,
         simdOperations = 0,
         luaOperations = 0,
@@ -149,7 +149,7 @@ local function append(
     local counts = measurements(value)
     reports[
         #reports + 1
-    ] = new loops.Report(
+    ] = loops.Report(
         id = #reports + 1,
         kind = kind,
         line = source ~= nil and (source as scalarIR.Source).line or 1,

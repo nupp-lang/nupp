@@ -134,7 +134,7 @@ newPath = function(provider: string, root: string, parts: {string}): AppPath
     else
         text = "opfs:/" .. table.concat(parts, "/")
     end
-    local value = new PathImpl(_text = text)
+    local value = PathImpl(_text = text)
     descriptors[value] = {provider = provider, root = root, parts = parts,}
 
     return value

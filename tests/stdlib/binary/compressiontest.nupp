@@ -58,16 +58,16 @@ end
 
 function M.writerAndReaderComposeWithByteIo(): nil
     local gzip = compression.format("gzip")
-    local encoded = io.newbuffer()
+    local encoded = io.Buffer.create()
     local sink = encoded:writer()
-    local writer = gzip:newwriter(sink, {workspacebytes = 2, gzip = {level = 6}})
+    local writer = gzip:writer(sink, {workspacebytes = 2, gzip = {level = 6}})
     test(writer:write("hello "))
     test(writer:write("world"))
     test(writer:finish())
 
-    local source = io.newreader(encoded:getstring())
-    local reader = gzip:newreader(source, {workspacebytes = 3})
-    local decoded = io.newbuffer()
+    local source = io.Reader.of(encoded:getstring())
+    local reader = gzip:reader(source, {workspacebytes = 3})
+    local decoded = io.Buffer.create()
     local destination = decoded:writer()
     test(reader:transferto(destination) == 11)
     reader:close()
@@ -82,9 +82,9 @@ function M.aFlushFinishesWithOneOrTwoWorkspaceBytes(): nil
     -- block, so a writer with a tiny workspace never finished flushing.
     for workspace = 1, 2 do
         local gzip = compression.format("gzip")
-        local encoded = io.newbuffer()
+        local encoded = io.Buffer.create()
         local sink = encoded:writer()
-        local writer = gzip:newwriter(sink, {workspacebytes = workspace, gzip = {level = 6}})
+        local writer = gzip:writer(sink, {workspacebytes = workspace, gzip = {level = 6}})
         test(writer:write("hello"))
         test(writer:flush())
         test(writer:write(" world"))
@@ -108,9 +108,9 @@ function M.spanAndDestinationOverloadsReuseStorage(): nil
     local gzip = compression.format("gzip")
     local text = "span input"
     local input = span.fromstring(text)
-    local encoded = io.newbuffer()
+    local encoded = io.Buffer.create()
     gzip:compress(input, encoded)
-    local decoded = io.newbuffer()
+    local decoded = io.Buffer.create()
     do
         local compressed = encoded:readspan()
         gzip:decompress(compressed, decoded)
@@ -193,9 +193,9 @@ function M.closingAnUnfinishedWriterFails(): nil
     local gzip = compression.format("gzip")
     test.raises(
         function(): nil
-            local destination = io.newbuffer()
+            local destination = io.Buffer.create()
             local sink = destination:writer()
-            local writer = gzip:newwriter(sink)
+            local writer = gzip:writer(sink)
             writer:close()
         end,
         "closed without finish"

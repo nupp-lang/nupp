@@ -82,7 +82,7 @@ const text.ONE_OPERAND = {
 --- A missing position reads as the start of the file, which is what lowering
 --- already does for a construct with no token of its own.
 local function at(source: scalarIR.Source?): string
-    local site = source or new scalarIR.Source(line = 1, column = 1)
+    local site = source or scalarIR.Source(line = 1, column = 1)
 
     return ("@%d:%d"):format(site.line, site.column)
 end

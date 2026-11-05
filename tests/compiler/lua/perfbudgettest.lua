@@ -245,7 +245,7 @@ local function moduleGraph(dir, count)
         lines[#lines + 1] = ("export record R%d\n    a: number\n    b: string\nend\n"):format(i)
         lines[
             #lines + 1
-        ] = ("export function make(a: number): R%d\n    return new R%d(a = a, b = \"m%d\")\nend\n"):format(i, i, i)
+        ] = ("export function make(a: number): R%d\n    return R%d(a = a, b = \"m%d\")\nend\n"):format(i, i, i)
         lines[#lines + 1] = "export function score(x: number): number"
         lines[#lines + 1] = "    local total = x"
         for j in pairs(seen) do

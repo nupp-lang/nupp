@@ -354,7 +354,7 @@ local function close(takes guard: Guard): nil
 end
 local function acquire(value: number, fail: boolean): affine(Guard, close)
     if fail then error("acquisition failed") end
-    return new Guard(value = value)
+    return Guard(value = value)
 end
 local function work(fail: boolean): number
     local first = acquire(1, false)
@@ -385,7 +385,7 @@ function M.cleanupRejectsTransitiveSuspensionWithoutAnAuthoredYield()
     local source = [[
 local record Guard value: number end
 local function close(takes guard: Guard): nil end
-local function acquire(): affine(Guard, close) return new Guard(value=1) end
+local function acquire(): affine(Guard, close) return Guard(value=1) end
 local function work(fail: boolean): number
     do local item = acquire() ;
         if fail then error("failure") end

@@ -327,7 +327,6 @@ complete.completionWords = {
     "is",
     "local",
     "satisfies",
-    "new",
     "nil",
     "not",
     "or",

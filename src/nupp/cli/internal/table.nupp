@@ -104,17 +104,17 @@ local NARROWEST = 24
 
 --- A plain cell.
 export function text(value: string): Cell
-    return new Cell(text = value)
+    return Cell(text = value)
 end
 
 --- A cell that paints itself.
 export function painted(value: string, paint: function(string): string): Cell
-    return new Cell(text = value, paint = paint)
+    return Cell(text = value, paint = paint)
 end
 
 --- A cell carrying an aside.
 export function annotated(value: string, note: string, paint: (function(string): string)?): Cell
-    return new Cell(text = value, paint = paint, note = note)
+    return Cell(text = value, paint = paint, note = note)
 end
 
 local function identity(value: string): string
@@ -237,7 +237,7 @@ export function render(options: Options): string
     if showHeading then
         local parts: {string} = {}
         for index, column in ipairs(columns) do
-            parts[index] = laid(new Cell(text = column.heading), index, column, headingPaint)
+            parts[index] = laid(Cell(text = column.heading), index, column, headingPaint)
         end
         lines[#lines + 1] = indent .. table.concat(parts, gap)
     end
@@ -269,7 +269,7 @@ export function write(stream: io.File, options: Options): nil
         const console = require("nupp.cli.internal.terminal")
         const available = console.isTerminal(stream) and console.columns(stream) or nil
         if available ~= nil then
-            fitted = new Options(
+            fitted = Options(
                 columns = options.columns,
                 rows = options.rows,
                 style = options.style,

@@ -51,7 +51,7 @@ package.preload.testjson = package.preload.testjson or function()
         asObject = native.asobject,
         isArray = native.isarray,
         encode = native.encodevalue,
-        newWriter = native.newwriter,
+        newWriter = native.Writer.of,
     }
 
     -- The facade answers a reason now; the runner's callers want a raise.

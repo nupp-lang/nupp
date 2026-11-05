@@ -101,7 +101,7 @@ end
 --- @raises string when the name is empty or already registered, before an id is used
 --- @export
 export function newKey<T>(name: string?): Key<T>
-    return new Key<T>(name)
+    return Key<T>(name)
 end
 
 --- An independent typed bag indexed by keys.
@@ -152,7 +152,7 @@ export function newStore(): Store
 end
 
 createStore = function(): Store
-    return new Bag(values = {})
+    return Bag(values = {})
 end
 
 function Bag.get<T>(self, key: Key<T>): T?

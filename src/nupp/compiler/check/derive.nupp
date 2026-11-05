@@ -1733,7 +1733,7 @@ function derive.install(c: state.Checker): derive.Ops
         c.result.deriveObservations = observations
     end
 
-    return new derive.Ops(claim = claim, merge = merge, finalize = finalize)
+    return derive.Ops(claim = claim, merge = merge, finalize = finalize)
 end
 
 export = derive

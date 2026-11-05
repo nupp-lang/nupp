@@ -358,13 +358,7 @@ function suspension.source(
     active: (function(suspension.Source): boolean)?
 ): suspension.Source
     sourceSequence = sourceSequence + 1
-    local source = new contract.Source(
-        release = sourcerelease,
-        name = name,
-        order = order,
-        wait = waiter,
-        active = active
-    )
+    local source = contract.Source(release = sourcerelease, name = name, order = order, wait = waiter, active = active)
     const registration = source as any
     registration._sequence = sourceSequence
     registration._poller = poller
@@ -467,7 +461,7 @@ function suspension.derive(
     ready: function(): boolean,
     arm: function(function(): nil): nil
 ): suspension.Waiting
-    local derived = new contract.Waiting(
+    local derived = contract.Waiting(
         ready = function(_: contract.Waiting): boolean
             return base:ready() or ready()
         end,
@@ -523,7 +517,7 @@ function suspension.suspend<T>(
         end
     end
 
-    local context = new contract.Context(source = contextsource, uses = contextuses)
+    local context = contract.Context(source = contextsource, uses = contextuses)
     const scoped = context as any
     scoped._handler = current
     scoped._associated = {}
@@ -545,7 +539,7 @@ function suspension.suspend<T>(
         releaseOwned(context)
         error("nupp: " .. operation .. " cannot suspend here", 0)
     end
-    local waiting = new contract.Waiting(ready = waitingready, onresume = waitingonResume, operation = operation)
+    local waiting = contract.Waiting(ready = waitingready, onresume = waitingonResume, operation = operation)
     const settlement = waiting as any
     settlement._state = state
     local parked: boolean, problem: any
@@ -581,7 +575,7 @@ local function installHandler(value: suspension.Handler, transparent: boolean): 
     local previous = coroutine == nil and suspension._main or suspension._installed[coroutine]
     -- The close runs the handler's shutdown and the pumps, which the checker cannot
     -- prove non-suspending; the contract promises it, as it does for any provider.
-    local owned = new contract.Installed(close = closeInstallation as any, handler = value)
+    local owned = contract.Installed(close = closeInstallation as any, handler = value)
     -- The coroutine's slot keeps the record as well as the caller, who holds the one
     -- obligation to close it. The extent's own state is written here rather than
     -- declared on the record, because nothing outside this file reads it.

@@ -254,7 +254,7 @@ export function open(path: string?, stamp: string): Store
         dirty = false
     end
 
-    return new Store(path = path, stamp = stamp, stats = stats, get = get, put = put, save = save)
+    return Store(path = path, stamp = stamp, stats = stats, get = get, put = put, save = save)
 end
 
 --- A value, kept in a file, under the same guards as a keyed store.
@@ -298,7 +298,7 @@ export function openValue(path: string?, stamp: string): Value
         dirty = false
     end
 
-    self = new Value(value = initial, set = set, save = save)
+    self = Value(value = initial, set = set, save = save)
 
     return self
 end

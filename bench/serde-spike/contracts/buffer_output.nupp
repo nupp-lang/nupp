@@ -15,10 +15,10 @@ assert(buffer:tostring() == 'prefix:"ok"')
 local record Unsupported is core.Atom
     @readonly family: table
     function snapshot(borrows self): core.Atom
-        return new Unsupported(family = self.family)
+        return Unsupported(family = self.family)
     end
 end
-local value = documents.list({documents.string("already written"), documents.atom(new Unsupported(family = {}))})
+local value = documents.list({documents.string("already written"), documents.atom(Unsupported(family = {}))})
 
 local function write(): nil
     profileJson:encodeinto(binding, value, buffer)
@@ -32,7 +32,7 @@ print("direct Buffer output rolls back partial writes and remains reusable")
 
 local syntax = require("serde.json")
 local embedded = text.new()
-local sink = syntax.newwriter(embedded)
+local sink = syntax.Writer.of(embedded)
 sink:startobject()
 sink:key("items")
 sink:startarray()

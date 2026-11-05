@@ -27,7 +27,7 @@ local record Resource
 end
 local function create(id: integer): affine(Resource, Resource.destroy)
     if id < 0 then error("acquisition") end
-    return new Resource(id = id)
+    return Resource(id = id)
 end
 ]]
 
@@ -318,7 +318,7 @@ local record Box
         return
     end
 end
-return function(): Box return new Box() end
+return function(): Box return Box() end
 ]]
         )
         local createBox = assert(loadstring(code))()
@@ -337,7 +337,7 @@ local function run(value: integer): (unknown, unknown)
     end
     local first = create(1)
     local second = create(2)
-    return new R(id = value), R
+    return R(id = value), R
 end
 return run
 ]]
@@ -357,7 +357,7 @@ local function run(value: integer): boolean
     local record R
         id: integer
     end
-    local object: any = new R(id = value)
+    local object: any = R(id = value)
     local first = create(1)
     local second = create(2)
     return object is R

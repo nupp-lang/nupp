@@ -72,7 +72,7 @@ function luaFormat.analyze(format: string): (Analysis?, string?)
     end
     pieces[#pieces + 1] = format:sub(copiedFrom)
 
-    return new Analysis(format = table.concat(pieces), debugArguments = debugArguments), nil
+    return Analysis(format = table.concat(pieces), debugArguments = debugArguments), nil
 end
 
 export = luaFormat

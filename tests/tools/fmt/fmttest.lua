@@ -91,11 +91,11 @@ end
 
 function M.declaredModulesAndExports()
     local source = "module sample.api\nexport record Thing\nvalue:integer\nend\n"
-        .. "export function make(value:integer):Thing\nreturn new Thing(value=value)\nend\n"
+        .. "export function make(value:integer):Thing\nreturn Thing(value=value)\nend\n"
         .. "const {type External as LocalExternal,value as result}=require('other')\n"
         .. "export=setmetatable(result,{__call=make})"
     local expected = "module sample.api\n\nexport record Thing\n    value: integer\nend\n"
-        .. "export function make(value: integer): Thing\n    return new Thing(value = value)\nend\n"
+        .. "export function make(value: integer): Thing\n    return Thing(value = value)\nend\n"
         .. "\nconst {type External as LocalExternal, value as result} = require('other')\n"
         .. "export = setmetatable(result, {__call = make})\n"
     local formatted = fmt1(source)
@@ -255,16 +255,10 @@ function M.sealedInterfaceModifier()
     )
 end
 
--- A construction is spelled as call sugar and is not one: the fields belong to
--- the type rather than being an argument to it, so the brace stands off it while
--- an ordinary `f{...}` keeps hugging its callee.
-function M.constructionBracesStandOffTheirType()
-    testAssert.eq(fmt1("local a = new R(n = 1)"), "local a = new R(n = 1)\n")
-    testAssert.eq(fmt1("local a = new R(n = 1)"), "local a = new R(n = 1)\n")
-    testAssert.eq(fmt1("local a = new m.Point(x = 1)"), "local a = new m.Point(x = 1)\n")
-    -- parentheses stay hugged, the way every other call's do
-    testAssert.eq(fmt1("local a = new V2 (1, 2)"), "local a = new V2(1, 2)\n")
-    -- and the sugar this is spelled like is untouched
+function M.constructionUsesOrdinaryCallFormatting()
+    testAssert.eq(fmt1("local a = R(n = 1)"), "local a = R(n = 1)\n")
+    testAssert.eq(fmt1("local a = m.Point(x = 1)"), "local a = m.Point(x = 1)\n")
+    testAssert.eq(fmt1("local a = V2 (1, 2)"), "local a = V2(1, 2)\n")
     testAssert.eq(fmt1("f{a = 1}"), "f{a = 1}\n")
 end
 

@@ -17,7 +17,7 @@ local record Credentials
     password: string
 end
 
-local credentials = new Credentials(username = "michael", password = "secret")
+local credentials = Credentials(username = "michael", password = "secret")
 assert2(credentials:inspect() == "{username=michael, password=<redacted>}")
 assert2(credentials:inspectKind() == "record")
 assert2(credentials:prefixed("credentials=") == "credentials={username=michael, password=<redacted>}")
@@ -38,7 +38,7 @@ local record Parent
     child: Child
 end
 
-local parent = new Parent(child = new Child(name = "nested"))
+local parent = Parent(child = Child(name = "nested"))
 assert2(parent:inspect() == "{child=<nested>}")
 assert2(credentials:firstField() == "username")
 assert2(parent:documentation() == "<none>\n-- fields --\n<none>")
@@ -65,7 +65,7 @@ local record WrittenClaim is inspect.Inspect
     value: string
 end
 
-local written = new WrittenClaim(value = "coalesced")
+local written = WrittenClaim(value = "coalesced")
 assert2(written:inspect() == "{value=coalesced}")
 assert2(written:inspectKind() == "record")
 
@@ -76,7 +76,7 @@ local record AliasedProvider
     value: string
 end
 
-local aliased = new AliasedProvider(value = "alias")
+local aliased = AliasedProvider(value = "alias")
 assert2(aliased:inspect() == "{value=alias}")
 
 return true

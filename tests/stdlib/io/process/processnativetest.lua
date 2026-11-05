@@ -144,7 +144,7 @@ function M.sharedViewsUseTheRealStreamsAndDeliverEof()
     assert(writer:write("adapter"))
     writer:close()
 
-    local destination = buffers.newbuffer()
+    local destination = buffers.Buffer.create()
     local sink = destination:writer()
     local copied = assert(reader:transferto(sink))
     sink:close()
@@ -195,7 +195,7 @@ end
 function M.aProcessWriterTakesCheckedSpans()
     ready()
     local child = assert(startProcess({args = shell("cat > /dev/null")}))
-    local source = buffers.newbuffer("checked bytes")
+    local source = buffers.Buffer.create("checked bytes")
     local wrote, reason = child.stdin:writespan(source:readspan())
     assert(wrote, reason)
     test.eq(wrote, 13)
@@ -207,7 +207,7 @@ end
 
 function M.communicateAcceptsBuffersAndEnforcesItsCombinedLimit()
     ready()
-    local input = buffers.newbuffer("buffer input")
+    local input = buffers.Buffer.create("buffer input")
     local child = assert(startProcess({args = shell("cat"), stderr = "null"}))
     local result, reason = child:communicate({input = input})
     assert(result, reason)
@@ -228,7 +228,7 @@ function M.environmentAndWorkingDirectoryKeepTheirTecsMeaning()
     local child = assert(
         startProcess({
             args = shell("printf '%s|%s' \"$PWD\" \"$NUPP_PROCESS_MARKER\""),
-            cwd = process.newpath("/"),
+            cwd = process.Path.of("/"),
             clearenv = true,
             env = {NUPP_PROCESS_MARKER = "present"},
             stderr = "null",

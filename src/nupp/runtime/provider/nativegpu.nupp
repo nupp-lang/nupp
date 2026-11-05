@@ -404,7 +404,7 @@ function gpu.Context._allocate<T>(
     local handle = output[0]
     costMetadata(live(self), handle, false, {format = tostring(element), elementBytes = width, shape = {count}})
 
-    return new shared.Buffer<T>(
+    return shared.Buffer<T>(
         _elementType = nil,
         _anchor = self,
         _context = self,
@@ -473,7 +473,7 @@ function gpu.Context.compilegenerated(
         entrypoint = entrypoint
     })
 
-    return new shared.Kernel(
+    return shared.Kernel(
         _anchor = self,
         _handle = handle,
         _uniformBytes = uniformbytes,
@@ -846,7 +846,7 @@ function gpu.Context.bindkernel(
         spanOffsets[index] = 0
     end
 
-    return new gpu.Binding(
+    return gpu.Binding(
         _anchor = self,
         _kernel = kernel as any as KernelView,
         _read = {},
@@ -892,7 +892,7 @@ function gpu.open(): api.KernelContext
     native.succeeded(C.nuppNativeGpuContextCreate(output), 2)
     local handle = output[0]
 
-    return new gpu.Context(_destroy = contextdestroy, _handle = handle, _closed = false)
+    return gpu.Context(_destroy = contextdestroy, _handle = handle, _closed = false)
 end
 
 export const available = gpu.available

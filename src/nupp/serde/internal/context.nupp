@@ -41,7 +41,7 @@ export record Builder
         if self.frozen then
             error("context builder is frozen", 2)
         end
-        self.values[key] = new Entry(value = value)
+        self.values[key] = Entry(value = value)
     end
 
     --- Returns the context holding the values set so far.
@@ -58,10 +58,10 @@ export record Builder
         end
         self.frozen = true
 
-        return new Context(codec = self.codec, profile = self.profile, parent = self.parent, values = self.values)
+        return Context(codec = self.codec, profile = self.profile, parent = self.parent, values = self.values)
     end
 end
 
 export function builder(codec: table, profile: table, parent: core.Context?): Builder
-    return new Builder(codec = codec, profile = profile, parent = parent, values = {}, frozen = false)
+    return Builder(codec = codec, profile = profile, parent = parent, values = {}, frozen = false)
 end

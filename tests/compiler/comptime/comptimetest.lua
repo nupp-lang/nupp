@@ -153,7 +153,7 @@ end
 const current: types.reflect.FieldCodec<Item> = comptime do
     return types.reflect.fieldcodec(types.reflect(Item))
 end
-local value = new Item(value = 23)
+local value = Item(value = 23)
 local left: integer = old:encode(value).value
 local decoded, reason = current:decode(current:encode(value))
 if decoded == nil then error(reason) end
@@ -989,11 +989,11 @@ function M.thePublicTypeFacadeDoesNotReplaceTheHostDebugLibrary()
     testAssert.eq(after, originalDebug, "loading types must preserve the host debug library")
     testAssert.eq(type(originalDebug.getinfo), "function")
     testAssert.eq(exported.debug, nil, "the checked provider is erased from the runtime facade")
-    testAssert.eq(type(exported.newstore), "function", "runtime facade members remain available")
+    testAssert.eq(type(exported.Store.create), "function", "runtime facade members remain available")
     local store = require("nupp.util.internal.store")
     testAssert.eq(exported.Key, store.Key, "the public constructor keeps its original identity")
-    testAssert.eq(exported.newkey, store.newKey, "the public key factory keeps its original handle")
-    testAssert.eq(exported.newstore, store.newStore, "the public store factory keeps its original handle")
+    testAssert.eq(exported.newkey, nil, "keys are constructed through their type")
+    testAssert.eq(exported.Store, store.Store, "the public store keeps its factory namespace")
 end
 
 -- A helper's optional parameter may be left out, exactly as the checker admits it:

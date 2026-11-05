@@ -319,7 +319,7 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.gpu_layout"
     ] = {
         name = "gpu_layout",
-        modules = {"io.gpu.layout", "nupp.gpu.layout"},
+        modules = {"nupp.gpu.layout"},
         exports = {"io.gpu.Layout"},
         runtimeModule = "nupp.gpu.layout",
         portableRuntime = true,
@@ -434,10 +434,10 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {
         name = "io",
         globals = {
-            "io.newbuffer",
+            "io.Buffer.create",
             "io.Reader.lines",
-            "io.newreader",
-            "io.newwriter",
+            "io.Reader.of",
+            "io.Writer.of",
             "io.Reader.scalar",
             "io.Writer.scalar",
             "io.readall",
@@ -446,6 +446,33 @@ local FEATURES: {[string]: native.Feature} = {
         runtimeModule = "nupp.io",
         portableRuntime = true,
         requires = {"runtime.io_internal_bytes", "runtime.io_internal_scalars"},
+    },
+    [
+        "runtime.checksum_catalog"
+    ] = {
+        name = "checksum_catalog",
+        globals = {"binary.Checksum"},
+        exports = {"binary.Checksum"},
+        runtimeModule = "nupp.runtime.provider.checksum",
+        portableRuntime = true,
+    },
+    [
+        "runtime.digest_catalog"
+    ] = {
+        name = "digest_catalog",
+        globals = {"binary.Digest"},
+        exports = {"binary.Digest"},
+        runtimeModule = "nupp.runtime.provider.digest",
+        portableRuntime = true,
+    },
+    [
+        "runtime.mac_catalog"
+    ] = {
+        name = "mac_catalog",
+        globals = {"binary.Mac"},
+        exports = {"binary.Mac"},
+        runtimeModule = "nupp.runtime.provider.mac",
+        portableRuntime = true,
     },
     ["runtime.text_buffer"] = {name = "text_buffer", module = "string.buffer", requires = {}},
     -- `portableRuntime` because the run-time half of `math` names nothing
@@ -492,8 +519,46 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {
         name = "path_runtime",
         module = "io.internal.path",
-        globals = {"io.newpath", "io.cwd", "io.sep"},
-        exports = {"nupp.runtime.standardio.newpath", "nupp.runtime.standardio.cwd", "nupp.runtime.standardio.sep"},
+        globals = {
+            "io.Path.of",
+            "io.cwd",
+            "io.sep",
+            "io.Path.join",
+            "io.Path.normalize",
+            "io.Path.absolute",
+            "io.Path.resolve",
+            "io.Path.canonicalize",
+            "io.Path.relativeto",
+            "io.Path.parent",
+            "io.Path.filename",
+            "io.Path.stem",
+            "io.Path.extension",
+            "io.Path.withfilename",
+            "io.Path.withextension",
+            "io.Path.isabsolute",
+            "io.Path.isrelative",
+        },
+        exports = {
+            "io.Path.of",
+            "io.internal.path.Path.of",
+            "io.internal.pathtypes.Path.of",
+            "io.internal.pathtypes.Path.join",
+            "io.internal.pathtypes.Path.normalize",
+            "io.internal.pathtypes.Path.absolute",
+            "io.internal.pathtypes.Path.resolve",
+            "io.internal.pathtypes.Path.canonicalize",
+            "io.internal.pathtypes.Path.relativeto",
+            "io.internal.pathtypes.Path.parent",
+            "io.internal.pathtypes.Path.filename",
+            "io.internal.pathtypes.Path.stem",
+            "io.internal.pathtypes.Path.extension",
+            "io.internal.pathtypes.Path.withfilename",
+            "io.internal.pathtypes.Path.withextension",
+            "io.internal.pathtypes.Path.isabsolute",
+            "io.internal.pathtypes.Path.isrelative",
+            "nupp.runtime.standardio.cwd",
+            "nupp.runtime.standardio.sep"
+        },
         runtimeModule = "io.internal.path",
         portableRuntime = true,
         requires = {"runtime.pathtext", "runtime.path_provider"},
@@ -518,7 +583,7 @@ local FEATURES: {[string]: native.Feature} = {
         name = "uri_runtime",
         module = "io.internal.uri",
         globals = {
-            "io.newuri",
+            "io.URI.of",
             "io.validateuri",
             "io.URI.withscheme",
             "io.URI.withuserinfo",
@@ -531,7 +596,7 @@ local FEATURES: {[string]: native.Feature} = {
             "io.URI.resolve",
             "io.URI.withendpoint"
         },
-        exports = {"nupp.runtime.standardio.newuri", "nupp.runtime.standardio.validateuri"},
+        exports = {"io.URI.of", "io.internal.uritypes.URI.of", "nupp.runtime.standardio.validateuri"},
         runtimeModule = "io.internal.uri",
         portableRuntime = true,
         requires = {"runtime.uri_whatwg"}
@@ -689,7 +754,7 @@ local FEATURES: {[string]: native.Feature} = {
         "native.sharedbytes"
     ] = {
         name = "sharedbytes",
-        globals = {"io.Bytes.copy", "io.Bytes.readfile", "io.Bytes.newbuilder"},
+        globals = {"io.Bytes.copy", "io.Bytes.readfile", "io.Bytes.Builder"},
         host = "workers",
         binary = true,
         runtimeModule = "io.internal.sharedbytes",

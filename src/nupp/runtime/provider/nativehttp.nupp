@@ -55,7 +55,7 @@ type http.Capabilities = messages.Capabilities
 
 --- Reports the guarantees of the selected HTTP provider.
 function http.capabilities(): http.Capabilities
-    return new messages.Capabilities(
+    return messages.Capabilities(
         streamingresponse = true,
         streamingrequest = true,
         transportpolicy = true,
@@ -552,7 +552,7 @@ function http.Body.drop(takes self: http.Body): nil
 end
 
 local function makeBody(client: BodyClient, transfer: NativeTransfer): http.Body
-    return new http.Body(_client = client, _transfer = transfer, _closed = false, _reading = false)
+    return http.Body(_client = client, _transfer = transfer, _closed = false, _reading = false)
 end
 
 local function u32(bytes: string, at: integer): integer
@@ -769,7 +769,7 @@ local function makeResponse(
     takes body: http.Body,
     packed: string
 ): http.Response
-    return new http.Response(
+    return http.Response(
         status = status,
         version = version,
         url = url,
@@ -802,7 +802,7 @@ record http.Client is BodyClient, contracts.Client
     --- Keep one for the program rather than one per request.
     ---
     --- ```nupp:fragment
-    --- local client = http.newclient({
+    --- local client = http.Client.create({
     ---     useragent = "nupp/1",
     ---     timeoutms = 5000,
     --- })
@@ -919,8 +919,8 @@ end
 --- reason.
 ---
 --- ```nupp:fragment
---- local response, reason = client:send(new http.Request(
----     url = assert(uri.newuri("https://example.com/data.json"))
+--- local response, reason = client:send(http.Request(
+---     url = assert(io.URI.of("https://example.com/data.json"))
 --- ))
 --- assert(response, reason)
 --- local text = assert(response.body:read(1 << 20))
@@ -1040,7 +1040,7 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
     end
     local head, problem
     if reader ~= nil then
-        local scratch = io.newbuffer(UPLOAD_SIZE)
+        local scratch = io.Buffer.create(UPLOAD_SIZE)
         local uploadTransfer = transfer
 
         local function uploadAndWait(): any takes (scratch)
@@ -1195,7 +1195,7 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
                 end
             end
             transfer:close()
-            local redirected = new messages.Request(
+            local redirected = messages.Request(
                 url = target,
                 method = nextMethod,
                 headers = merged,
@@ -1256,7 +1256,7 @@ end
 ----------------------------------------------------------------------------
 
 local function openClient(options: messages.Options?): contracts.Client
-    return new http.Client(options)
+    return http.Client(options)
 end
 
 export = {newclient = openClient, capabilities = http.capabilities}

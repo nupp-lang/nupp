@@ -27,7 +27,7 @@ local function typeText(node: cst.Node): string
 end
 
 local function addEdit(edits: {Edit}, offset: integer, text: string)
-    edits[#edits + 1] = new Edit(offset = offset, length = 0, newText = text)
+    edits[#edits + 1] = Edit(offset = offset, length = 0, newText = text)
 end
 
 local function bodyClose(body: cst.Funcbody)
@@ -178,7 +178,7 @@ local function serdePlan(source: string, path: string): (Plan?, string?, any)
         if first and last then
             edits[
                 #edits + 1
-            ] = new Edit(offset = first.offset, length = last.offset + #last.text - first.offset, newText = text)
+            ] = Edit(offset = first.offset, length = last.offset + #last.text - first.offset, newText = text)
         end
     end
 
@@ -193,7 +193,7 @@ local function serdePlan(source: string, path: string): (Plan?, string?, any)
         local last = annotation.close or annotation.name
         edits[
             #edits + 1
-        ] = new Edit(
+        ] = Edit(
             offset = first.offset,
             length = math.floor(last.offset + #last.text - first.offset),
             newText = replacement
@@ -334,7 +334,7 @@ local function serdePlan(source: string, path: string): (Plan?, string?, any)
                             ] = "[" .. string.format(
                                 "%q",
                                 field.name.text
-                            ) .. "] = new " .. serdeName .. ".FieldOptions(" .. table.concat(arguments, ", ") .. ")"
+                            ) .. "] = " .. serdeName .. ".FieldOptions(" .. table.concat(arguments, ", ") .. ")"
                         end
                     end
                 end
@@ -369,7 +369,7 @@ local function serdePlan(source: string, path: string): (Plan?, string?, any)
                         .. serdeName
                         .. ".binding("
                         .. mapping.name
-                        .. ", new "
+                        .. ", "
                         .. serdeName
                         .. ".Options("
                         .. arguments
@@ -602,7 +602,7 @@ local function serdePlan(source: string, path: string): (Plan?, string?, any)
         finish = edit.offset + edit.length
     end
 
-    return new Plan(
+    return Plan(
         source = path,
         destination = path,
         text = apply(source, edits),
@@ -657,7 +657,7 @@ export function plan(source: string, path: string, dialect: string?): (Plan?, st
     collectSemantic(parsed.root, edits)
     local destination = path:gsub("%.lua$", ".nupp")
 
-    return new Plan(
+    return Plan(
         source = path,
         destination = destination,
         text = apply(source, edits),

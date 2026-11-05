@@ -45,7 +45,7 @@ local record Adapter<V is own.Copyable, M is core.Member> is core.Adapter<{V}, M
     @readonly consume: Read<V, M>
     function describe(self, direction: core.Direction): core.Description<M>
         local selected = self.child:describe(direction)
-        return new Description<M>(member = self.member, children = {self.child}, canread = selected.canread)
+        return Description<M>(member = self.member, children = {self.child}, canread = selected.canread)
     end
 
     function write(self, borrows value: {V}, exclusive writer: core.Writer<M>): nil
@@ -63,10 +63,10 @@ export function adapter<V is own.Copyable, M is core.Member>(
     element: M,
     adapter: core.Adapter<V, M>
 ): core.Adapter<{V}, M>
-    return new Adapter<V, M>(
+    return Adapter<V, M>(
         member = member,
-        child = new Child<V, M>(member = element, adapter = adapter),
-        emit = new Elements<V, M>(adapter = adapter),
-        consume = new Read<V, M>(adapter = adapter)
+        child = Child<V, M>(member = element, adapter = adapter),
+        emit = Elements<V, M>(adapter = adapter),
+        consume = Read<V, M>(adapter = adapter)
     )
 end

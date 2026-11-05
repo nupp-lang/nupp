@@ -1,6 +1,10 @@
 @!internal
 module io.internal.path
 
+local pathTypes = require("io.internal.pathtypes")
+export type Path = pathTypes.Path
+export const Path = pathTypes.Path
+
 const environment = require("nupp.io.path.provider")
 const pathtext = require("nupp.io.path.pathtext")
 
@@ -11,8 +15,7 @@ const pathtext = require("nupp.io.path.pathtext")
 local SEPARATOR = environment.sep()
 local WINDOWS = SEPARATOR == "\\"
 
--- Declared ahead of the record because its constructor and methods call them, and
--- defined below it because they name the record. The types are the contract either way.
+-- Shared by the public methods and the interning factory below.
 local textOf: function(value: string | Path): string
 local joined: function(first: string | Path, count: integer, ...: string | Path): string
 local raw: function(text: string): Path
@@ -23,186 +26,102 @@ local pathCacheSize = 0
 local pathCacheNewest: any = nil
 local pathCacheOldest: any = nil
 
---- A filesystem path.
---- @export
-export record Path
-    --- Joins components and reuses the bounded immutable path cache.
-    function of(first: string | Path, ...: string | Path): Path
-        return raw(joined(first, select("#", ...), ...))
+export function join(self: Path, ...: string | Path): Path
+    return raw(joined(self, select("#", ...), ...))
+end
+
+export function normalize(self: Path): Path
+    return raw(pathtext.normalize(self:tostring(), WINDOWS))
+end
+
+export function absolute(self: Path): (Path?, string?)
+    if #self:tostring() == 0 then
+        return nil, "cannot make an empty path absolute"
     end
-
-    --- The native UTF-8 path text.
-    @private _text: string
-
-    --- Returns the native UTF-8 path text.
-    --- @param self this path
-    --- @return the path text
-    function tostring(self): string
-        return self._text
-    end
-
-    --- Appends path components using the current platform's rules.
-    --- @param self this path
-    --- @param ... the components to append
-    --- @return the joined path
-    function join(self, ...: string | Path): Path
-        return raw(joined(self, select("#", ...), ...))
-    end
-
-    --- Removes lexical `.` and `..` components without accessing the filesystem.
-    --- @param self this path
-    --- @return the normalized path
-    function normalize(self): Path
-        return raw(pathtext.normalize(self._text, WINDOWS))
-    end
-
-    --- Resolves this path against the process's current working directory.
-    ---
-    --- A drive-relative Windows path can be resolved only when the current
-    --- directory is on that drive.
-    --- @param self this path
-    --- @return the absolute path, or nil on failure
-    --- @return a failure reason, when unsuccessful
-    function absolute(self): (Path?, string?)
-        if #self._text == 0 then
-            return nil, "cannot make an empty path absolute"
+    local text = self:tostring()
+    if not pathtext.isAbsolute(text, WINDOWS) then
+        local current, reason = environment.cwd()
+        if current == nil then
+            return nil, reason
         end
-        local text = self._text
-        if not pathtext.isAbsolute(text, WINDOWS) then
-            local current, reason = environment.cwd()
-            if current == nil then
-                return nil, reason
+        local drive = WINDOWS and text:match("^([A-Za-z]:)") or nil
+        if drive ~= nil then
+            local currentDrive = (current as string):match("^([A-Za-z]:)")
+            if currentDrive == nil or currentDrive:lower() ~= drive:lower() then
+                return nil, "cannot resolve a drive-relative path from another drive"
             end
-            local drive = WINDOWS and text:match("^([A-Za-z]:)") or nil
-            if drive ~= nil then
-                local currentDrive = (current as string):match("^([A-Za-z]:)")
-                if currentDrive == nil or currentDrive:lower() ~= drive:lower() then
-                    return nil, "cannot resolve a drive-relative path from another drive"
-                end
-                local suffix = text:sub(#drive + 1)
-                text = #suffix == 0 and current as string or pathtext.pushPart(current as string, suffix, true)
-            else
-                text = pathtext.pushPart(current as string, text, WINDOWS)
-            end
+            local suffix = text:sub(#drive + 1)
+            text = #suffix == 0 and current as string or pathtext.pushPart(current as string, suffix, true)
+        else
+            text = pathtext.pushPart(current as string, text, WINDOWS)
         end
-
-        return raw(pathtext.clean(text, WINDOWS)), nil
     end
 
-    --- Makes this path absolute, appends components, and normalizes the result.
-    --- @param self this path
-    --- @param ... the components to append
-    --- @return the resolved path, or nil on failure
-    --- @return a failure reason, when unsuccessful
-    function resolve(self, ...: string | Path): (Path?, string?)
-        local absolute, reason = self:absolute()
-        if not absolute then
-            return nil, reason
-        end
+    return raw(pathtext.clean(text, WINDOWS)), nil
+end
 
-        return absolute:join(...):normalize(), nil
+export function resolve(self: Path, ...: string | Path): (Path?, string?)
+    local resolved, reason = self:absolute()
+    if not resolved then
+        return nil, reason
     end
 
-    --- Resolves every symbolic link and `..`, which requires the path to exist.
-    ---
-    --- This reads the filesystem, where `normalize` works on the text alone, so
-    --- it fails on a path that is not there.
-    --- @param self this path
-    --- @return the canonical path, or nil on failure
-    --- @return a failure reason, when unsuccessful
-    function canonicalize(self): (Path?, string?)
-        local text, reason = environment.canonicalize(self._text)
-        if text == nil then
-            return nil, reason
-        end
+    return resolved:join(...):normalize(), nil
+end
 
-        return raw(pathtext.finish(text as string, WINDOWS)), nil
+export function canonicalize(self: Path): (Path?, string?)
+    local text, reason = environment.canonicalize(self:tostring())
+    if text == nil then
+        return nil, reason
     end
 
-    --- Expresses this path relative to another. A path expressed against itself
-    --- returns `.`, the path that stays where the base already is.
-    --- @param self this path
-    --- @param base the path to express this one against
-    --- @return the relative path, or nil when there is no relative form
-    --- @return a failure reason, when unsuccessful
-    function relativeto(self, base: string | Path): (Path?, string?)
-        local text, reason = pathtext.relative(self._text, textOf(base), WINDOWS)
-        if text == nil then
-            return nil, reason
-        end
+    return raw(pathtext.finish(text as string, WINDOWS)), nil
+end
 
-        return raw(text as string), nil
+export function relativeto(self: Path, base: string | Path): (Path?, string?)
+    local text, reason = pathtext.relative(self:tostring(), textOf(base), WINDOWS)
+    if text == nil then
+        return nil, reason
     end
 
-    --- The path without its final component.
-    --- @param self this path
-    --- @return the parent, or nil when there is none
-    function parent(self): Path?
-        local answer = pathtext.part(self._text, 0, WINDOWS)
-        if answer == nil then
-            return nil
-        end
+    return raw(text as string), nil
+end
 
-        return raw(answer as string)
+export function parent(self: Path): Path?
+    local answer = pathtext.part(self:tostring(), 0, WINDOWS)
+    if answer == nil then
+        return nil
     end
 
-    --- The final component, extension included.
-    --- @param self this path
-    --- @return the file name, or nil when the path ends in a directory component
-    function filename(self): string?
-        return pathtext.part(self._text, 1, WINDOWS)
-    end
+    return raw(answer as string)
+end
 
-    --- The final component without its extension.
-    --- @param self this path
-    --- @return the stem, or nil when there is no file name
-    function stem(self): string?
-        return pathtext.part(self._text, 2, WINDOWS)
-    end
+export function filename(self: Path): string?
+    return pathtext.part(self:tostring(), 1, WINDOWS)
+end
 
-    --- The final component's extension, without the dot.
-    --- @param self this path
-    --- @return the extension, or nil when there is none
-    function extension(self): string?
-        return pathtext.part(self._text, 3, WINDOWS)
-    end
+export function stem(self: Path): string?
+    return pathtext.part(self:tostring(), 2, WINDOWS)
+end
 
-    --- The path with its final component replaced.
-    --- @param self this path
-    --- @param name the file name to use
-    --- @return the new path
-    --- @raises string when name is not one component: empty, `.`, `..`, or
-    ---     holding a sep or NUL byte (or, on Windows, a colon)
-    function withfilename(self, name: string): Path
-        return raw(pathtext.with(self._text, name, false, WINDOWS))
-    end
+export function extension(self: Path): string?
+    return pathtext.part(self:tostring(), 3, WINDOWS)
+end
 
-    --- The path with its extension replaced.
-    --- @param self this path
-    --- @param extension the extension to use, without the dot
-    --- @return the new path
-    --- @raises string when extension holds a sep or NUL byte (or, on
-    ---     Windows, a colon)
-    function withextension(self, extension: string): Path
-        return raw(pathtext.with(self._text, extension, true, WINDOWS))
-    end
+export function withfilename(self: Path, name: string): Path
+    return raw(pathtext.with(self:tostring(), name, false, WINDOWS))
+end
 
-    --- Whether the path is anchored at a root.
-    --- @param self this path
-    --- @return whether the path is absolute
-    function isabsolute(self): boolean
-        return pathtext.isAbsolute(self._text, WINDOWS)
-    end
+export function withextension(self: Path, suffix: string): Path
+    return raw(pathtext.with(self:tostring(), suffix, true, WINDOWS))
+end
 
-    --- Whether the path is interpreted against a working directory.
-    --- @param self this path
-    --- @return whether the path is relative
-    function isrelative(self): boolean
-        return not self:isabsolute()
-    end
+export function isabsolute(self: Path): boolean
+    return pathtext.isAbsolute(self:tostring(), WINDOWS)
+end
 
-    metamethod __tostring: function(self): string
-    metamethod __eq: function(self, any): boolean
+export function isrelative(self: Path): boolean
+    return not self:isabsolute()
 end
 
 -- Wraps exact path text and interns it in a bounded LRU. `parent`, `withExtension`
@@ -269,17 +188,7 @@ textOf = function(value: string | Path): string
         return value as string
     end
 
-    return (value as Path)._text
-end
-
-    ;
-(Path as {[string]: any}).__tostring = function(self: Path): string
-    return self:tostring()
-end
-
-    ;
-(Path as {[string]: any}).__eq = function(left: Path, right: Path): boolean
-    return left:tostring() == right:tostring()
+    return (value as Path):tostring()
 end
 
 --- Builds a path by joining one or more components using the platform's rules.
@@ -289,7 +198,7 @@ end
 --- #### Examples
 ---
 --- ```nupp
---- local source = io.newpath("src", "main.nupp")
+--- local source = io.Path.of("src", "main.nupp")
 --- ```
 --- @param first the first path component
 --- @param ... the remaining path components

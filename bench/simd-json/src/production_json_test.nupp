@@ -110,13 +110,13 @@ function test.run(): nil
     assert2(wrongTuple == nil and wrongTupleProblem ~= nil)
     local renamed = serde.binding(
         FastEnvelope,
-        new serde.Options(
+        serde.Options(
             unknownmembers = "ignore",
             fields = {
-                id = new serde.FieldOptions(name = "i\"d"),
-                child = new serde.FieldOptions(),
-                children = new serde.FieldOptions(),
-                labels = new serde.FieldOptions(),
+                id = serde.FieldOptions(name = "i\"d"),
+                child = serde.FieldOptions(),
+                children = serde.FieldOptions(),
+                labels = serde.FieldOptions(),
             }
         )
     )
@@ -192,7 +192,7 @@ function test.run(): nil
     assert2(json.pull([[{"field-70":70}]], wideShape)["field-70"] == 70)
 
     local out = newBuffer()
-    local writer = json.newwriter(out)
+    local writer = json.Writer.of(out)
     writer:startobject():key(json.encodedstring('a"b')):write(json.verified("42")):endobject()
     writer:close()
     assert2(out:tostring() == [[{"a\"b":42}]])

@@ -19,7 +19,7 @@ end
 local positions = soa.alloc(ffi.typeof<Position>(), 128)
 local rows = positions:write()
 for index = 1, #rows do
-    rows[index] = new Position(0, 1)
+    rows[index] = Position(0, 1)
 end
 for index = 1, #rows do
     rows[index].x += rows[index].velocity
@@ -84,7 +84,7 @@ end
 local particles = soa.alloc(ffi.typeof<Particle>(), 2)
 do
     local rows = particles:write()
-    rows[1] = new Particle(1, 2, 3, 4)
+    rows[1] = Particle(1, 2, 3, 4)
     rows[2].x = 10
     rows[2].y = 20
 end
@@ -179,8 +179,8 @@ local target = soa.alloc(ffi.typeof<Particle>(), 4)
 
 do
     local rows = source:write()
-    rows[1] = new Particle(1, 2, 3, 4)
-    rows[2] = new Particle(5, 6, 7, 8)
+    rows[1] = Particle(1, 2, 3, 4)
+    rows[2] = Particle(5, 6, 7, 8)
 end
 
 do

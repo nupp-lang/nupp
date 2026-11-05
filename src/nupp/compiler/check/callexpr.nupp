@@ -667,9 +667,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             local luaType = T.luaTypeName(into)
             if luaType then
                 test = predicate.normalize(
-                    new predicate.Node(
+                    predicate.Node(
                         op = "and",
-                        a = new predicate.Node(op = "typeis", path = {}, luaType = luaType),
+                        a = predicate.Node(op = "typeis", path = {}, luaType = luaType),
                         b = constraint
                     )
                 )

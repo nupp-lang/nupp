@@ -9,7 +9,7 @@ local compression = binary.compress
 
 const gzip = compression.format("gzip")
 
-const encoded = gzip:newwriter(destination, {
+const encoded = gzip:writer(destination, {
     gzip = {level = 6},
 })
 
@@ -331,7 +331,7 @@ local record Writer is CompressionWriter
     function finish(takes self): (boolean, string?)
         local output, capacity = self.output, self.capacity
         do
-            local owner = new PairOwner(state = self.state, destination = self.destination)
+            local owner = PairOwner(state = self.state, destination = self.destination)
             while true do
                 local writable = span.writecarray(output, capacity)
                 local written, status, reason = owner.state:finish(writable)
@@ -412,7 +412,7 @@ local function makeWriter(
     local configured = settings(options, "writer")
     local capacity = positive(configured.workspacebytes, DEFAULT_WORKSPACE, "compression workspacebytes")
     local formatSettings = encoderOptions(configured as WriterOptions, name)
-    return new Writer(
+    return Writer(
         state = implementation:createencoder(formatSettings),
         destination = destination,
         output = storage.allocateBytes(capacity),
@@ -648,7 +648,7 @@ export record Format
 
     --- Wraps and owns a reader, validating the stream before EOF.
     --- @raises string when options are invalid or a format block does not match
-    function newreader(self, takes source: io.Reader, options: ReaderOptions?): io.Reader
+    function reader(self, takes source: io.Reader, options: ReaderOptions?): io.Reader
         local configured = settings(options, "reader")
         local capacity = positive(configured.workspacebytes, DEFAULT_WORKSPACE, "compression workspacebytes")
         if configured.unbounded ~= nil and type(configured.unbounded) ~= "boolean" then
@@ -665,7 +665,7 @@ export record Format
         end
         local formatSettings = decoderOptions(configured as ReaderOptions, self.name)
 
-        return new Reader(
+        return Reader(
             state = self.implementation:createdecoder(formatSettings),
             source = source,
             input = storage.allocateBytes(capacity),
@@ -683,7 +683,7 @@ export record Format
 
     --- Wraps and owns a writer. Consume the result with `finish()`.
     --- @raises string when options are invalid or a format block does not match
-    function newwriter(self, takes destination: io.Writer, options: WriterOptions?): CompressionWriter
+    function writer(self, takes destination: io.Writer, options: WriterOptions?): CompressionWriter
         return makeWriter(self.implementation, self.name, destination, options)
     end
 
@@ -719,7 +719,7 @@ export record Format
     --- Compresses a borrowed span into a new string.
     --- @raises string when options are invalid or compression fails
     function compress(self, borrows bytes: span.ByteSpan, options: WriterOptions?): string
-        local destination = io.newbuffer()
+        local destination = io.Buffer.create()
         self:compress(bytes, destination, options)
         local answer = destination:getstring()
         destination:close()
@@ -743,8 +743,8 @@ export record Format
         exclusive destination: io.Buffer,
         options: ReaderOptions?
     ): nil
-        local source = io.newreader(storage.string(bytes:ref(), #bytes))
-        local reader = self:newreader(source, options)
+        local source = io.Reader.of(storage.string(bytes:ref(), #bytes))
+        local reader = self:reader(source, options)
         local writer = destination:writer()
         local _, reason = reader:transferto(writer)
         reader:close()
@@ -766,7 +766,7 @@ export record Format
     --- @raises string when options are invalid, the stream is invalid or a limit is
     ---     exceeded
     function decompress(self, borrows bytes: span.ByteSpan, options: ReaderOptions?): string
-        local destination = io.newbuffer()
+        local destination = io.Buffer.create()
         self:decompress(bytes, destination, options)
         local answer = destination:getstring()
         destination:close()
@@ -807,7 +807,7 @@ validate(selected)
 local available: {[string]: Format} = {}
 local names: {string} = {}
 for name, implementation in pairs(selected.formats) do
-    available[name] = new Format(name = name, implementation = implementation)
+    available[name] = Format(name = name, implementation = implementation)
 end
 for name in pairs(available) do
     names[#names + 1] = name

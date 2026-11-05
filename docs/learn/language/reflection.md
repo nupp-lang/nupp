@@ -97,7 +97,7 @@ local record User
 end
 
 local witness: Type<User> = User
-local user: User = new User(id = 7, name = "ada")
+local user: User = User(id = 7, name = "ada")
 
 assert(witness == User)
 assert(User ~= user)
@@ -120,7 +120,7 @@ local record User
     name: string
 end
 local binding = serde.binding(User)
-local text = json.encode(binding, new User(id = 7, name = "Ada"))
+local text = json.encode(binding, User(id = 7, name = "Ada"))
 assert(json.decode(binding, text).name == "Ada")
 ```
 

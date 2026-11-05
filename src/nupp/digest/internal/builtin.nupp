@@ -48,19 +48,19 @@ local record Algorithm is provider.Algorithm
 
     function create(self): provider.State
         if self.name == "sha256" then
-            return new State(value = streaming.sha256())
+            return State(value = streaming.sha256())
         end
-        return new State(value = words.create(self.name))
+        return State(value = words.create(self.name))
     end
 end
 
 const ALGORITHMS: {
     [string]: provider.Algorithm
 } = {
-    md5 = new Algorithm(name = "md5", digestsize = 16),
-    sha1 = new Algorithm(name = "sha1", digestsize = 20),
-    sha256 = new Algorithm(name = "sha256", digestsize = 32),
-    sha512 = new Algorithm(name = "sha512", digestsize = 64),
+    md5 = Algorithm(name = "md5", digestsize = 16),
+    sha1 = Algorithm(name = "sha1", digestsize = 20),
+    sha256 = Algorithm(name = "sha256", digestsize = 32),
+    sha512 = Algorithm(name = "sha512", digestsize = 64),
 }
 
 export function lookup(name: string): provider.Algorithm?
@@ -72,5 +72,5 @@ export function names(): {string}
 end
 
 export function hmacSha256(key: string): provider.State
-    return new State(value = streaming.hmac(key))
+    return State(value = streaming.hmac(key))
 end

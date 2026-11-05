@@ -1,6 +1,6 @@
 @!internal
 
---[[Implementation interfaces for `binary.digest` algorithm catalogs.
+--[[Implementation interfaces for `binary.Digest` algorithm catalogs.
 
 The facade uses its builtin algorithm catalog. Importing this declaration does
 not load storage or algorithms. The catalog supplies an algorithms map keyed by

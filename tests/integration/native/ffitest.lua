@@ -310,7 +310,7 @@ function M.aStandardFacilityDoesNotDisplaceAFilesOwnDeclarations()
     _G.nupp = nil
     local ok = pcall(function()
         assert(loadstring(stdlib.bootstrap({["stdlib.io"] = true})))()
-        local buffer = require("io").newbuffer("probe")
+        local buffer = require("io").Buffer.create("probe")
         return buffer:len()
     end)
     _G.nupp = previous
@@ -340,7 +340,7 @@ end
 
 function M.unsignedBytePointerCastsAreIndexableUnderUnsafe()
     -- "unsigned char *" and "uint8_t *" name the bytes of a value, not text
-    local V = P .. "\nlocal ffi = require('ffi')\nlocal v = new P(1.0, 2.0)\n"
+    local V = P .. "\nlocal ffi = require('ffi')\nlocal v = P(1.0, 2.0)\n"
     testAssert.eq(
         diagsOf(
             V .. table.concat(

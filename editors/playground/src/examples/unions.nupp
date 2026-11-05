@@ -35,8 +35,8 @@ local function prefix(level: Level): string
     end
 end
 
-local started = new Text(kind = "text", body = "started")
-local elapsed = new Measurement(kind = "measurement", value = 12.5, unit = "ms")
+local started = Text(kind = "text", body = "started")
+local elapsed = Measurement(kind = "measurement", value = 12.5, unit = "ms")
 
 print(prefix("info") .. render(started))
 print(prefix("error") .. render(elapsed))

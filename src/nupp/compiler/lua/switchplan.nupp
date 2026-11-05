@@ -57,18 +57,18 @@ local function scalar(exact: any): switchplan.Scalar?
         return nil
     end
     if exact.tag ~= "literal" then
-        return new switchplan.Scalar(kind = "nil")
+        return switchplan.Scalar(kind = "nil")
     end
     local kind = type(exact.constant)
     if kind ~= "boolean" and kind ~= "number" and kind ~= "string" then
         return nil
     end
 
-    return new switchplan.Scalar(kind = kind as any, value = exact.constant)
+    return switchplan.Scalar(kind = kind as any, value = exact.constant)
 end
 
 local function ordered(reason: string, facts: switchplan.Facts?): switchplan.Plan
-    return new switchplan.Plan(tag = "OrderedBranches", reason = reason, facts = facts)
+    return switchplan.Plan(tag = "OrderedBranches", reason = reason, facts = facts)
 end
 
 --- Collects backend-neutral facts from checker annotations. It deliberately does not
@@ -106,7 +106,7 @@ function switchplan.facts(node: cst.SwitchExpr): switchplan.Facts
                 keyKind = key.kind
             end
             if key and result then
-                entries[#entries + 1] = new switchplan.Entry(key = key, value = result)
+                entries[#entries + 1] = switchplan.Entry(key = key, value = result)
             end
             if key and key.kind == "number" then
                 local number = key.value as number
@@ -125,7 +125,7 @@ function switchplan.facts(node: cst.SwitchExpr): switchplan.Facts
     elseif node.elseCase and not fallback then
         eligible, reason = false, "the fallback is not one inert scalar"
     end
-    fallback = fallback or new switchplan.Scalar(kind = "nil")
+    fallback = fallback or switchplan.Scalar(kind = "nil")
     if #entries > switchplan.MAX_MAP_CASES then
         eligible, reason = false, "the map exceeds the generated-source case cap"
     end
@@ -142,7 +142,7 @@ function switchplan.facts(node: cst.SwitchExpr): switchplan.Facts
         end
     end
 
-    return new switchplan.Facts(
+    return switchplan.Facts(
         entries = entries,
         fallback = fallback as switchplan.Scalar,
         keyKind = keyKind,
@@ -173,22 +173,14 @@ function switchplan.regular(node: cst.SwitchExpr, coverage: boolean?): switchpla
             and facts.density ~= nil
             and facts.density >= switchplan.DENSE_MIN_DENSITY
         then
-            return new switchplan.Plan(
-                tag = "DenseIntegerMap",
-                reason = "dense static integer result map",
-                facts = facts
-            )
+            return switchplan.Plan(tag = "DenseIntegerMap", reason = "dense static integer result map", facts = facts)
         end
         if facts.count >= switchplan.SPARSE_MIN_CASES then
-            return new switchplan.Plan(
-                tag = "SparseIntegerMap",
-                reason = "sparse static integer result map",
-                facts = facts
-            )
+            return switchplan.Plan(tag = "SparseIntegerMap", reason = "sparse static integer result map", facts = facts)
         end
         return ordered("a small sparse integer switch is cheaper as branches", facts)
     elseif facts.keyKind == "string" and facts.count >= switchplan.STRING_MIN_CASES then
-        return new switchplan.Plan(tag = "StringMap", reason = "static string result map", facts = facts)
+        return switchplan.Plan(tag = "StringMap", reason = "static string result map", facts = facts)
     elseif facts.keyKind == "string" then
         return ordered("a small string switch is cheaper as branches", facts)
     end
@@ -199,7 +191,7 @@ end
 --- Selects the AOT annotation plan from the already-lowered physical selector type.
 function switchplan.native(selectorType: string): switchplan.Plan
     if selectorType == "i32" or selectorType == "u32" then
-        return new switchplan.Plan(tag = "NativeIntegerSwitch", reason = "an established fixed-width selector")
+        return switchplan.Plan(tag = "NativeIntegerSwitch", reason = "an established fixed-width selector")
     end
 
     return ordered("the native selector is not an established 32-bit integer")

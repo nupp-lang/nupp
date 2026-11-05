@@ -118,7 +118,7 @@ end
 
 --- Returns the executing ABI's facts and current available parallelism.
 export function info(): Info
-    return new Info(
+    return Info(
         platform = system.platform,
         arch = system.architecture,
         endianness = system.endianness,

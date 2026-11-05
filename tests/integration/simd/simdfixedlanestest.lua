@@ -512,9 +512,9 @@ end
 return function(): ({number}, {number})
     local s = simd.species(array.float, 4)
     local t = simd.species(array.float, 3)
-    const particles = array.newarray(new Particle(), 2)
+    const particles = array.newarray(Particle(), 2)
     do local w = particles:write() ;
-        w[1] = new Particle(1.5, s:splat(2.0), t:iota(7.0, 1.0))
+        w[1] = Particle(1.5, s:splat(2.0), t:iota(7.0, 1.0))
         w[2].pos = s:iota(1.0, 1.0)
         w[2].pos = w[2].pos * 10.0
         w[2].mass = 2.5

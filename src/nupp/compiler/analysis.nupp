@@ -688,11 +688,6 @@ local function inferFunction(info, byDefinition)
         elseif kind == "tableExpr" then
             out.allocates = true
             out.allocatesBeyondWideArithmetic = true
-        elseif kind == "newExpr" then
-            out.allocates = true
-            if not nativeAggregate(node.call and node.call.inferredType or node.inferredType) then
-                out.allocatesBeyondWideArithmetic = true
-            end
         elseif kind == "istring" then
             out.allocates = true
             out.allocatesBeyondWideArithmetic = true

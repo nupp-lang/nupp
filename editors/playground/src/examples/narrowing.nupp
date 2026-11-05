@@ -35,8 +35,8 @@ local function widthOf(value: any): number
 end
 
 print(describe("hello"), describe(42))
-print(labelOf(new Account(id = 7)))
-print(labelOf(new Account(id = 8, label = "savings")))
+print(labelOf(Account(id = 7)))
+print(labelOf(Account(id = 8, label = "savings")))
 print(widthOf("four"), widthOf(true))
 
 -- try breaking it: return `label` before testing it, or take `#value` in describe

@@ -164,11 +164,11 @@ local function checkIndexed(probe: IndexedProbe, modes: integer): number
 end
 
 local function checkFields(probe: FieldProbe): number
-    local input = array.newarray(new Pair(), 64)
-    local output = array.newarray(new Pair(), 64)
+    local input = array.newarray(Pair(), 64)
+    local output = array.newarray(Pair(), 64)
     do
         local writable = input:write()
-        for i = 1, 64 do writable[u32.wrap(i)] = new Pair(i, 64 - i) end
+        for i = 1, 64 do writable[u32.wrap(i)] = Pair(i, 64 - i) end
     end
     local whole = output:write()
     local n = assert(tonumber(probe(whole, input:read(), 0))) as integer
@@ -176,7 +176,7 @@ local function checkFields(probe: FieldProbe): number
     local writable = whole:slice(1, n)
     local cases = 0
     for active = 0, n do
-        for i = 1, n do writable[u32.wrap(i)] = new Pair(61, 62) end
+        for i = 1, n do writable[u32.wrap(i)] = Pair(61, 62) end
         probe(writable, readable, u32.wrap(active))
         for i = 1, n do
             local row = writable[u32.wrap(i)]

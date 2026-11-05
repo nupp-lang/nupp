@@ -17,7 +17,7 @@ end
 --- @param name resource name
 --- @return an owned handle
 local function acquire(name: string): affine(Resource, closeResource)
-    return new Resource(name = name, closed = false)
+    return Resource(name = name, closed = false)
 end
 
 local function use(name: string): string

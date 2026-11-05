@@ -150,7 +150,7 @@ local record Files
         local entries = io.files.list(request.cwd) or {}
         for _, entry in ipairs(entries) do
             if entry.name:sub(1, #request.prefix) == request.prefix then
-                out[#out + 1] = new cli.CompletionCandidate(
+                out[#out + 1] = cli.CompletionCandidate(
                     value = entry.name,
                     kind = "file"
                 )

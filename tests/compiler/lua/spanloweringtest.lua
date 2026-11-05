@@ -585,7 +585,7 @@ local function work(exclusive particles: soa.Array<Particle>): number
     for index = 1, #rows do
         const value = rows[index]
         prior += value.x
-        rows[index] = new Particle(value.x + 1, value.y + 2)
+        rows[index] = Particle(value.x + 1, value.y + 2)
     end
     own.drop(rows)
     return prior
@@ -870,7 +870,7 @@ local indexed = require("binary.span")
 local record Fake
     @readonly count: integer
 end
-const fake = new Fake(count = 1)
+const fake = Fake(count = 1)
 const range = indexed.range(1, 1, fake)
 print(range)
 ]]

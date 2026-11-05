@@ -83,7 +83,7 @@ function species.of(width: integer, typeName: string): species.Species?
     local lanes = found as integer
     local laneText = tostring(lanes)
 
-    return new species.Species(
+    return species.Species(
         family = family as 'vector' | 'mask' | 'species' | 'bitmask',
         element = element as string,
         lanes = lanes,

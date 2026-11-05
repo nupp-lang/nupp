@@ -573,11 +573,7 @@ interface cst.Hints
     --- declaration's field order, which only the checker knows.
     recordFields: {any}?
 
-    --- Set on the call under a `new`, which is what makes it a construction rather than
-    --- an ordinary call reaching `__call` or a ctype.
-    isNew: boolean?
-
-    -- Resolved construction, independent of the compatibility keyword.
+    --- Whether this call resolves to record or struct construction.
     construction: boolean?
 
     --- The runtime path of a record whose declared constructor this call runs.
@@ -585,10 +581,6 @@ interface cst.Hints
 
     --- The nominal a constructor body belongs to.
     ownerNominal: any
-
-    --- Set once a `new` operand has been answered as a type, so the call does not
-    --- answer for it a second time as a value.
-    newReported: boolean?
 
     --- Set on a call that crosses into C.
     cdefCall: boolean?
@@ -1761,23 +1753,6 @@ record cst.ComptimeExpr is cst.Hints
     body: cst.Node?
 end
 
---- `new T(...)`, `new T {...}`: the only way to construct a record or a struct.
----
---- The construction is written as a call so that Lua's existing call sugar covers every
---- form, and so that a qualified name reaches its declaration through the same suffix
---- parsing everything else uses. `new` installs nothing at run time: it lowers to the
---- stamp or the ctype call directly, which is what leaves `__call` and `__new` to the
---- program.
-record cst.NewExpr is cst.Hints
-    {cst.Node | lexer.Token}
-
-    --- Names the production this node stands for.
-    kind: 'newExpr'
-
-    --- The call this constructs from, whose `obj` names the type.
-    call: cst.Node?
-end
-
 --- `satisfies |self| -> test` in an interface body: the runtime test for `is`.
 ---
 --- An interface has no table to stamp, so this is the only identity it can have. The
@@ -1803,13 +1778,13 @@ record cst.SatisfiesDecl is cst.Hints
     annotations: {cst.Node}?
 end
 
---- `constructor(self, ...) ... end` in a declaration body: what `new T(...)` runs.
+--- `constructor(self, ...) ... end` in a declaration body: what `T(...)` runs.
 ---
 --- It has no name. The instance is made before the body runs and returned after it,
 --- so the body's whole job is to fill the fields in. An optional result annotation
 --- may state the affine policy introduced by construction, but must erase to the
 --- instance representation. The receiver is written out the way a method's is, and is
---- no more an argument than a method's is: `new T(...)` passes what follows it.
+--- no more an argument than a method's is: `T(...)` passes what follows it.
 record cst.ConstructorDecl is cst.Hints
     {cst.Node | lexer.Token}
 
@@ -2745,7 +2720,6 @@ type cst.Node = cst.Chunk
     | cst.Vararg
     | cst.Paren
     | cst.ComptimeExpr
-    | cst.NewExpr
     | cst.ConstructorDecl
     | cst.SatisfiesDecl
     | cst.ErrorExpr

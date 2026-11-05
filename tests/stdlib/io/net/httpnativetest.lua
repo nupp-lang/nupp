@@ -21,7 +21,7 @@ local function startProcess(command, options)
 end
 
 local function newHttpClient(options)
-    return http.newclient(options)
+    return http.Client.create(options)
 end
 
 local function temporaryRoot()
@@ -129,7 +129,7 @@ local function endpoint(path)
 end
 
 local function readAll(body, chunkSize)
-    local destination = buffers.newbuffer()
+    local destination = buffers.Buffer.create()
     while true do
         local count, reason = body:readinto(destination, destination:len(), chunkSize)
         assert(count, reason)
@@ -167,7 +167,7 @@ end
 function M.buffersViewsAndFilesKeepTheirConcreteUploadPaths()
     local client = ready()
     local payload = string.rep("concrete-", 8192)
-    local buffer = buffers.newbuffer(payload)
+    local buffer = buffers.Buffer.create(payload)
     for _, body in ipairs({buffer, buffer:view(0, buffer:len())}) do
         local response, reason = client:send({url = endpoint("/echo"), method = "POST", body = body,})
         assert(response, reason)
@@ -361,7 +361,7 @@ end
 function M.genericReadersAndLargeDownloadsStayProgressive()
     local client = ready()
     local payload = string.rep("reader-", 8192)
-    local reader = buffers.newreader(payload)
+    local reader = buffers.Reader.of(payload)
     local response, reason = client:send({
         url = endpoint("/echo"),
         method = "POST",
@@ -380,7 +380,7 @@ function M.genericReadersAndLargeDownloadsStayProgressive()
     test.eq(#repeated, 2)
     test.eq(repeated[1], "one")
     test.eq(repeated[2], "two")
-    local downloaded = buffers.newbuffer(4 * 1024 * 1024)
+    local downloaded = buffers.Buffer.create(4 * 1024 * 1024)
     local writer = downloaded:writer()
     local copied, copyReason = response.body:transferto(writer)
     assert(copied, copyReason)

@@ -221,8 +221,9 @@ function reflection.graph(root: any, hooks: any?): (integer?, {any}, {any})
                 local names = signature.paramNames or {}
                 local declared = signature.params or {}
                 local params = {}
-                -- The receiver is not an argument of `new`, however the signature
-                -- happens to carry it: beside the parameters, or ahead of them.
+                -- The receiver is not an argument of a construction, however the
+                -- signature happens to carry it: beside the parameters, or ahead of
+                -- them.
                 local offset = (#names == #declared + 1 and names[1] == "self") and 1 or 0
                 local start = (offset == 0 and names[1] == "self") and 2 or 1
                 for position = start, #declared do

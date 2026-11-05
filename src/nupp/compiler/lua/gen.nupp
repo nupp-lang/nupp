@@ -2566,12 +2566,6 @@ export function generate(
             direct = statement.exprs[1]
         end
 
-        -- `new` is erased around its constructor call, so it can use the containing
-        -- statement's bindings without an expression wrapper too.
-        if direct and direct.kind == "newExpr" then
-            return direct.call
-        end
-
         return direct
     end
 
@@ -3176,7 +3170,7 @@ export function generate(
             expr = expr.expr
         end
 
-        return expr ~= nil and (expr.kind == "newExpr" or expr.construction == true)
+        return expr ~= nil and expr.construction == true
     end
 
     local function switchOperands(node): {cst.Node}?
@@ -3185,8 +3179,6 @@ export function generate(
             return node.expr and {node.expr} or {}
         elseif kind == "unop" then
             return node.operand and {node.operand} or {}
-        elseif kind == "newExpr" then
-            return node.call and {node.call} or {}
         elseif kind == "binop" then
             return {node.lhs, node.rhs}
         elseif kind == "dotIndex" then
@@ -3572,7 +3564,7 @@ export function generate(
                 entries[index] = byIndex[index] or "nil"
             end
             offset = facts.minimum == 0 and "+1"
-                or ("-(%s)+1"):format(renderSwitchScalar(new switchplan.Scalar(kind = "number", value = facts.minimum)))
+                or ("-(%s)+1"):format(renderSwitchScalar(switchplan.Scalar(kind = "number", value = facts.minimum)))
         else
             for _, entry in ipairs(facts.entries) do
                 entries[#entries + 1] = "[" .. renderSwitchScalar(entry.key) .. "]=" .. renderedResult(entry.value)
@@ -6608,7 +6600,7 @@ export function generate(
         if kind == "recordDecl" and x.declKind == "struct" and emitDepth.nativeOnlyStruct(x) then
             -- A struct holding a vector or a mask is a native-only aggregate: in
             -- native code a register value, and as Lua a table built by position,
-            -- as `new S(...)` supplies its fields. Nothing about it is C memory,
+            -- as `S(...)` supplies its fields. Nothing about it is C memory,
             -- so there is no ctype to lay out and no reference into a parent to
             -- anchor; it is never stored, and a change to it is a new one.
             local line = sourceLine(x)
@@ -6811,7 +6803,7 @@ export function generate(
                     entry.inlineRuntimeOwner = mt .. ".__index"
                     emit(entry)
                 elseif entry.kind == "constructorDecl" then
-                    -- `new S(...)` resolves to `S.__nuppCtorN(...)`, and indexing the
+                    -- `S(...)` resolves to `S.__nuppCtorN(...)`, and indexing the
                     -- ctype consults the same metatype table an instance does, so the
                     -- constructor lives beside the methods and is reached through the
                     -- declaration itself.
@@ -7046,7 +7038,7 @@ export function generate(
                 end
             elseif t.recordName then
                 -- A record is nominal: the question is whether the value came from this
-                -- declaration. `new R{...}` stamps the record itself, but a constructor
+                -- declaration. `R{...}` stamps the record itself, but a constructor
                 -- that links back rather than stamping directly is an ordinary Lua
                 -- shape. tecs builds its event instances that way, with a per-instance
                 -- metatable whose `__index` is the record, and those are instances
@@ -7754,17 +7746,7 @@ export function generate(
             )
             return
 
-        elseif kind == "newExpr" then
-            if x.call then
-                emit(x.call)
-            end
-            return
-
         elseif x.construction and x.constructionOwnerMoves and not x.emittingConstruction then
-            -- `new` is a compile-time word: it decides which lowering the call
-            -- underneath gets and then leaves, so a construction emits exactly the
-            -- stamp or the ctype call it always did.
-            --
             -- An owner a field took is the record's from then on. Its flag is cleared
             -- once the construction has its value, so a raise while building still
             -- leaves the owner to this region and nothing after it closes it twice.
@@ -8008,7 +7990,7 @@ export function generate(
             return
 
         elseif (kind == "call" or kind == "safeCall") and x.recordConstruct then
-            -- `new R(...)` builds an ordinary table carrying R as its metatable. The
+            -- `R(...)` builds an ordinary table carrying R as its metatable. The
             -- table is written here rather than taken from the call, so a construction
             -- allocates the instance and nothing besides it.
             --

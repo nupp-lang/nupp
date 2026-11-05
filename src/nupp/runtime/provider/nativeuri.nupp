@@ -55,7 +55,7 @@ function provider.parse(text: string): (contracts.UriParts?, string?)
     end)
     local rawPort = ffi.new<int32[1]>()
     native.succeeded(C.nuppNativeUriPort(handle[0], rawPort), 2)
-    local parts = new contracts.UriParts(
+    local parts = contracts.UriParts(
         text = part(handle, 0) as string,
         scheme = part(handle, 1) as string,
         authority = part(handle, 2),

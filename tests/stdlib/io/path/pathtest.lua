@@ -90,7 +90,7 @@ function M.rootIoFunctionsAcceptPathValuesAndKeepLuaFileResults()
         test.eq(result, expectedWrite == baseline and file or expectedWrite)
     end
 
-    local filename = channel.newpath(root, "root-io.txt")
+    local filename = channel.Path.of(root, "root-io.txt")
     local file = assert(channel.open(filename, "w"))
     sameWrite(file:write("first\nsecond\n"), file)
     assert(file:close())
@@ -121,7 +121,7 @@ function M.rootIoFunctionsAcceptPathValuesAndKeepLuaFileResults()
     test.eq(stringFile:read("*a"), "changed")
     assert(stringFile:close())
 
-    local missing, reason = channel.open(channel.newpath(root, "missing"), "r")
+    local missing, reason = channel.open(channel.Path.of(root, "missing"), "r")
     test.eq(missing, nil)
     test.eq(type(reason), "string")
     test.eq(channel.sep(), path.sep())
@@ -348,10 +348,7 @@ function M.joiningOntoABareDriveStaysDriveRelative()
 end
 
 function M.absolutizingADriveRelativePathRequiresTheCurrentDrive()
-    local loadedPath = package.loaded["io.internal.path"]
-    local loadedProvider = package.loaded["nupp.io.path.provider"]
-    package.loaded["io.internal.path"] = nil
-    package.loaded["nupp.io.path.provider"] = {
+    local windowsProvider = {
         sep = function()
             return "\\"
         end,
@@ -362,10 +359,12 @@ function M.absolutizingADriveRelativePathRequiresTheCurrentDrive()
             return value, nil
         end,
     }
-    local ok, windowsPath = pcall(require, "io.internal.path")
-    package.loaded["io.internal.path"] = loadedPath
-    package.loaded["nupp.io.path.provider"] = loadedProvider
-    assert(ok, windowsPath)
+    local load = require(
+        "helpers.providerstate"
+    ).instance({["io.internal.path"] = true, ["io.internal.pathtypes"] = true}, {
+        ["nupp.io.path.provider"] = windowsProvider
+    })
+    local windowsPath = load("io.internal.path")
 
     test.eq(assert(windowsPath.newpath("c:work"):absolute()):tostring(), "C:/base/work")
     test.eq(assert(windowsPath.newpath("C:"):absolute()):tostring(), "C:/base")

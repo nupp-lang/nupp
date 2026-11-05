@@ -520,25 +520,25 @@ end
 
 function M.aWritableViewThatRepeatsAnElementIsRefused()
     local context, element, kernel = gpuContext()
-    local layout = require("io.gpu.layout")
+    local layout = require("io.gpu")
     local output = context:buffer(element, 4)
     local binding = context:bindkernel(kernel, 4)
     -- Every element of the view is the allocation's first: four threads would race to
     -- write it, which no dispatch result can make sense of.
-    local repeated = output:view(layout.new({4}, {0}))
+    local repeated = output:view(layout.Layout({4}, {0}))
     local ok, problem = pcall(binding.setwrite, binding, 0, repeated, false)
     check.eq(ok, false, "a repeating writable view was bound")
     check.matches(tostring(problem), "not a disjoint span")
-    local overlapping = output:view(layout.new({2, 2}, {1, 1}))
+    local overlapping = output:view(layout.Layout({2, 2}, {1, 1}))
     ok, problem = pcall(binding.setwrite, binding, 0, overlapping, false)
     check.eq(ok, false, "an overlapping writable view was bound")
     check.matches(tostring(problem), "not a disjoint span")
-    binding:setwrite(0, output:view(layout.new({2, 2}, {2, 1})), false)
+    binding:setwrite(0, output:view(layout.Layout({2, 2}, {2, 1})), false)
 end
 
 function M.oneAllocationCannotBeBoundForReadingAndWriting()
     local context, element, kernel = gpuContext()
-    local layout = require("io.gpu.layout")
+    local layout = require("io.gpu")
     local shared = context:buffer(element, 8)
     local other = context:buffer(element, 8)
 
@@ -551,8 +551,8 @@ function M.oneAllocationCannotBeBoundForReadingAndWriting()
     -- Usage is tracked per allocation, so disjoint views of one root conflict too,
     -- whichever side is bound first.
     local reversed = context:bindkernel(kernel, 4)
-    reversed:setwrite(0, shared:view(layout.new({4}, {1}, 4)), false)
-    ok, problem = pcall(reversed.setread, reversed, 0, shared:view(layout.new({4}, {1})), false)
+    reversed:setwrite(0, shared:view(layout.Layout({4}, {1}, 4)), false)
+    ok, problem = pcall(reversed.setread, reversed, 0, shared:view(layout.Layout({4}, {1})), false)
     check.eq(ok, false, "a view of a buffer bound for writing was bound for reading")
     check.matches(tostring(problem), "both reading and writing")
 

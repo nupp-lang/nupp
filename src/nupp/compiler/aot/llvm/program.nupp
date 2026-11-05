@@ -368,10 +368,10 @@ local function builderEntry(unit: llvmProgram.Unit, program: scalarIR.Program): 
     local f = builder.func(unit.module, ("define internal i32 %s(ptr %%L) %s {"):format(name, attrs))
     -- What runs before the first statement -- the stack check, argument
     -- decoding -- is attributed to the entry's first line.
-    dwarf.at(f, scope, new scalarIR.Source(line = firstLine(program), column = 1))
+    dwarf.at(f, scope, scalarIR.Source(line = firstLine(program), column = 1))
     local ctx = prepared(unit, f, program)
     ctx.scope = scope
-    ctx.lua = new context.Lua(
+    ctx.lua = context.Lua(
         state = "%L",
         runtime = "null",
         size = unit.target.sizeType,
@@ -384,7 +384,7 @@ local function builderEntry(unit: llvmProgram.Unit, program: scalarIR.Program): 
     helpers(unit, ctx, program)
     luaEntry.body(ctx, program)
 
-    return new luaEntry.Registered(name = program.name, fn = name)
+    return luaEntry.Registered(name = program.name, fn = name)
 end
 
 --- A relation term as an i64 value, or nil when the term is not an exact
@@ -567,7 +567,7 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle:
     end
     for _, param in ipairs(program.params) do
         if scalarIR.isSpan(param) then
-            ctx.spans[param.name] = new context.Span(pointer = "%p_" .. param.name, param = param)
+            ctx.spans[param.name] = context.Span(pointer = "%p_" .. param.name, param = param)
             ctx.counts[param.name] = independent
                 and "%count_" .. (roots[param.name] or aliases[param.name] or param.name)
                 or "%count"
@@ -624,7 +624,7 @@ local function kernel(unit: llvmProgram.Unit, program: scalarIR.Program, oracle:
     builder.terminate(f, ("br i1 %s, label %%%s, label %%%s"):format(more, body, exit))
     builder.start(f, body)
     ctx.mapIndex = current
-    ctx.loops[#ctx.loops + 1] = new context.Loop(breakLabel = exit, continueLabel = latch)
+    ctx.loops[#ctx.loops + 1] = context.Loop(breakLabel = exit, continueLabel = latch)
     statements.block(ctx, loopShape.statements)
     ctx.loops[#ctx.loops] = nil
     ctx.mapIndex = nil
@@ -692,7 +692,7 @@ function llvmProgram.module(
     oracleBridges: boolean?
 ): string
     local module = builder.module()
-    local unit = new llvmProgram.Unit(
+    local unit = llvmProgram.Unit(
         module = module,
         tier = logical ~= true and tier or nil,
         maskedMemory = tier == "avx2" or tier == "avx512f",

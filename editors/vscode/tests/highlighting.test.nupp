@@ -47,24 +47,25 @@ global sealed interface Exported
 --                      ^^^^^^^^ entity.name.type.nupp
 end
 
-local interface Factory<P...>
-   constructor(...: P...)
+local record Factory<P...>
+   constructor(self, ...: P...)
 -- ^^^^^^^^^^^ storage.type.function.nupp
-   end
-   matches self.ready
--- ^^^^^^^ keyword.control.nupp
    end
 end
 
 local interface ResultSink
    @readonly result: string
--- ^^^^^^^^ keyword.other.property.nupp
+-- ^ punctuation.definition.annotation.nupp
+--  ^^^^^^^^ entity.name.tag.nupp
    @writeonly result: string
--- ^^^^^^^^^ keyword.other.property.nupp
+-- ^ punctuation.definition.annotation.nupp
+--  ^^^^^^^^^ entity.name.tag.nupp
    @readonly [string]: string
--- ^^^^^^^^ keyword.other.property.nupp
+-- ^ punctuation.definition.annotation.nupp
+--  ^^^^^^^^ entity.name.tag.nupp
    @writeonly [string]: string
--- ^^^^^^^^^ keyword.other.property.nupp
+-- ^ punctuation.definition.annotation.nupp
+--  ^^^^^^^^^ entity.name.tag.nupp
 end
 
 local readonly = true
@@ -73,8 +74,10 @@ local readonly = true
 local record PrivateField
 --    ^^^^^^ storage.type.declaration.nupp
    @private @readonly value: string
--- ^^^^^^^ keyword.control.nupp
---         ^^^^^^^^ keyword.other.property.nupp
+-- ^ punctuation.definition.annotation.nupp
+--  ^^^^^^^ entity.name.tag.nupp
+--          ^ punctuation.definition.annotation.nupp
+--           ^^^^^^^^ entity.name.tag.nupp
 end
 
 local private = true
@@ -103,8 +106,7 @@ yields (number)
 resumes (boolean)
 -- <- keyword.control.nupp
 
-local made = new Task {id = 1, title = "ready"}
---           ^^^ keyword.control.nupp
+local made = Task(id = 1, title = "ready")
 
 cdef function open_file(path: cstring): voidptr? from "native"
 from "native"
@@ -298,10 +300,11 @@ end
 local with = 1
 --    ^^^^ source.nupp - keyword.control.nupp
 
-local function peek(borrows p: Widget): Widget borrows p
+local function peek(borrows p: Widget): Widget borrows (p)
 --                  ^^^^^^^ storage.modifier.ownership.nupp
 --                                             ^^^^^^^ storage.modifier.ownership.nupp
-
+   return p
+end
 do
 -- <- keyword.control.nupp
    local handle: Widget = makeResource()
@@ -333,18 +336,22 @@ local reply = handler?.:respond?.(payload) ?? fallback
 
 local type Events<T> = {
    @readonly [K in keyof T as `${K}Changed`]: @nosuspend function(value: T.[K]): nil
--- ^^^^^^^^ keyword.other.property.nupp
---             ^^ keyword.control.nupp
---                ^^^^^ keyword.operator.nupp
---                        ^^ keyword.control.nupp
---                           ^ string.quoted.other.interpolated.nupp
---                                           ^^^^^^^^^ keyword.control.nupp
---                                                     ^^^^^^^^ storage.type.function.nupp
+-- ^ punctuation.definition.annotation.nupp
+--  ^^^^^^^^ entity.name.tag.nupp
+--                                            ^ punctuation.definition.annotation.nupp
+--                                             ^^^^^^^^^ entity.name.tag.nupp
+--              ^^ keyword.control.nupp
+--                 ^^^^^ keyword.operator.nupp
+--                         ^^ keyword.control.nupp
+--                            ^ string.quoted.other.interpolated.nupp
+--                                                       ^^^^^^^^ storage.type.function.nupp
 }
 
 @comptime local function First(T: type): type
---    ^^^^^^^^ storage.modifier.directive.nupp
---             ^^^^^^^^ storage.type.function.nupp
+-- <- punctuation.definition.annotation.nupp
+-- ^ entity.name.tag.nupp
+--        ^^^^^ storage.modifier.local.nupp
+--              ^^^^^^^^ storage.type.function.nupp
    local elements = types.elements(T)
    return elements[1]
 end
@@ -368,7 +375,9 @@ local compiled = comptime do
 end
 
 @nosuspend do
--- <- keyword.control.nupp
+-- <- punctuation.definition.annotation.nupp
+-- ^ entity.name.tag.nupp
+--         ^^ keyword.control.nupp
    local safe = 1
 end
 
@@ -382,17 +391,20 @@ end
 
 local function releaseSpan(writable: WriteSpan): nil
    own.drop(writable)
--- ^^^^ keyword.control.nupp
+-- ^^^ source.nupp - keyword.control.nupp
+--     ^^^^ source.nupp - keyword.control.nupp
 end
 
 local x = @unsafe own.release(writable)
 --        ^ punctuation.definition.annotation.nupp
 --         ^^^^^^ entity.name.tag.nupp
---                ^^^^^^^ storage.modifier.ownership.nupp
+--                ^^^ source.nupp - storage.modifier.ownership.nupp
+--                    ^^^^^^^ source.nupp - storage.modifier.ownership.nupp
 local y = @unsafe own.adopt<Owner>(raw)
 --        ^ punctuation.definition.annotation.nupp
 --         ^^^^^^ entity.name.tag.nupp
---                ^^^^^ storage.modifier.ownership.nupp
+--                ^^^ source.nupp - storage.modifier.ownership.nupp
+--                    ^^^^^ source.nupp - storage.modifier.ownership.nupp
 
 cdef function fill(out data: voidptr countedBy(n), n: uint64): int32
 --                                   ^^^^^^^^^ storage.modifier.ownership.nupp
@@ -401,8 +413,8 @@ cdef function fill(out data: voidptr countedBy(n), n: uint64): int32
 -- <- punctuation.definition.annotation.nupp
 -- <~--- entity.name.tag.nupp
 local function sumLanes(values: WriteSpan): nil
---  ^ punctuation.definition.annotation.nupp
---   ^^^^ entity.name.tag.nupp
+-- <- storage.modifier.local.nupp
+--    ^^^^^^^^ storage.type.function.nupp
     for index = 1, #values do
 --  ^^^ keyword.control.nupp
         values[index] = values[index]

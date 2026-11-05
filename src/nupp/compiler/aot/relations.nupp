@@ -98,17 +98,17 @@ end
 
 --- The origin every literal is measured from.
 function relations.zero(): scalarIR.Term
-    return new scalarIR.Term(kind = "zero")
+    return scalarIR.Term(kind = "zero")
 end
 
 --- The term one integer parameter is.
 function relations.uniform(name: string): scalarIR.Term
-    return new scalarIR.Term(kind = "uniform", name = name)
+    return scalarIR.Term(kind = "uniform", name = name)
 end
 
 --- The term one span's length is.
 function relations.count(name: string): scalarIR.Term
-    return new scalarIR.Term(kind = "count", name = name)
+    return scalarIR.Term(kind = "count", name = name)
 end
 
 --- The term a literal multiple of one span's length is; the length itself
@@ -118,7 +118,7 @@ function relations.scaledCount(name: string, factor: integer): scalarIR.Term
         return relations.count(name)
     end
 
-    return new scalarIR.Term(kind = "count", name = name, factor = factor)
+    return scalarIR.Term(kind = "count", name = name, factor = factor)
 end
 
 --- `left <= right + offset`, which is what every admitted comparison becomes.
@@ -128,7 +128,7 @@ function relations.relation(
     offset: integer,
     source: scalarIR.Source?
 ): scalarIR.Relation
-    return new scalarIR.Relation(left = left, right = right, offset = offset, source = source)
+    return scalarIR.Relation(left = left, right = right, offset = offset, source = source)
 end
 
 --- Every column of a sealed row view has the same count. These are ABI facts,
@@ -194,7 +194,7 @@ function relations.canonical(pool: {scalarIR.Relation}): {scalarIR.Relation}
     for _, relation in ipairs(pool) do
         keyed[
             #keyed + 1
-        ] = new relations.Keyed(
+        ] = relations.Keyed(
             left = relations.key(relation.left),
             right = relations.key(relation.right),
             offset = relation.offset,
@@ -317,7 +317,7 @@ function relations.closure(pool: {scalarIR.Relation}, terms: {scalarIR.Term}): r
         end
     end
 
-    return new relations.Closure(
+    return relations.Closure(
         terms = terms,
         indexOf = indexOf,
         pool = pool,
@@ -354,7 +354,7 @@ local function scaledTerms(pool: {scalarIR.Relation}): {scalarIR.Term}
             local key = relations.key(term)
             if term.kind == "count" and term.factor ~= nil and seen[key] == nil then
                 seen[key] = true
-                keyed[#keyed + 1] = new relations.Keyed(left = key, right = "", offset = 0, relation = relation)
+                keyed[#keyed + 1] = relations.Keyed(left = key, right = "", offset = 0, relation = relation)
                 keyed[#keyed].relation = relations.relation(term, term, 0)
             end
         end
@@ -430,7 +430,7 @@ function relations.transfers(closure: relations.Closure, spans: {string}): scala
                 if term.kind == "count" and term.name == from and into ~= nil then
                     local offset = closure.dist[into as integer][position]
                     if offset < relations.INFINITE and offset > -relations.INFINITE then
-                        found[#found + 1] = new scalarIR.RoomTransfer(factor = term.factor or 1, offset = offset)
+                        found[#found + 1] = scalarIR.RoomTransfer(factor = term.factor or 1, offset = offset)
                     end
                 end
             end

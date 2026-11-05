@@ -714,7 +714,7 @@ local function installHandler(handler: suspension.Handler, transparent: boolean)
     -- an obligation held in a local here would cost every installation the closure
     -- its scoped cleanup is built from, and one is made per task scope.
     local installation: any = @unsafe own.release(
-        new contract.Installed(close = closeInstallation as any, handler = handler)
+        contract.Installed(close = closeInstallation as any, handler = handler)
     )
     installation._co = co
     installation._previous = previous

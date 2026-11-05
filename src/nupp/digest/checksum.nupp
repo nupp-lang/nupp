@@ -1,37 +1,17 @@
 @!internal
 module nupp.digest.checksum
 
-const span = require("binary.span")
+const _PROVIDER_REQUIRES = "@requires-dynamically nupp.runtime.provider.checksum"
+
+local {type ByteSpan} = require("binary.span")
+local {type Checksum as ContextChecksum} = require("nupp.digest.internal.contracts")
 const provider = require("binary.checksum.internal.contracts")
 local lookupDescriptor: function(string): any
 local requireDescriptor: function(string): any
 local descriptorNames: function(): {string}
-local makeContext: function(provider.Algorithm, string, integer): Checksum
+local makeContext: function(provider.Algorithm, string, integer): ContextChecksum
 
-export interface Checksum is io.Writer
-    --- Consumes this context and releases its provider state without suspension.
-    close: @nosuspend function(takes self: Checksum): nil
-
-    --- Returns the canonical algorithm name.
-    algorithm: function(self: Checksum): string
-
-    --- Returns the number of meaningful bits in each snapshot.
-    width: function(self: Checksum): integer
-
-    --- Absorbs raw bytes while retaining no input views.
-    --- @return true, since a checksum takes every byte it is given
-    write: function(exclusive self: Checksum, bytes: string): (boolean, string?)
-
-    --- Absorbs a borrowed byte view without retaining it.
-    --- @return how many bytes it absorbed, which is all of them
-    writespan: function(exclusive self: Checksum, borrows bytes: span.ByteSpan): (integer?, string?)
-
-    --- Nothing is buffered behind a checksum, so this only returns true.
-    flush: function(self: Checksum): (boolean, string?)
-
-    --- Returns an unsigned snapshot without consuming this context.
-    value: function(self: Checksum): uint64
-
+export interface Checksum is ContextChecksum
     record Algorithm
         --- Canonical algorithm name.
         @readonly name: string
@@ -64,12 +44,12 @@ export interface Checksum is io.Writer
 
     --- Creates independent owned context state.
     function create(name: string): Checksum
-        return requireDescriptor(name):checksum()
+        return (requireDescriptor(name) as Algorithm):checksum()
     end
 
     --- Computes a complete value and closes its context.
     function compute(name: string, bytes: string): uint64
-        local value = requireDescriptor(name):checksum()
+        local value: Checksum = (requireDescriptor(name) as Algorithm):checksum()
         value:write(bytes)
         return value:value()
     end
@@ -92,13 +72,14 @@ local record Context is Checksum
         if type(bytes) ~= "string" then
             error("nupp: Checksum:write bytes must be a string", 2)
         end
+        local span = require("binary.span")
         local view = span.fromstring(bytes)
         self.state:update(view)
 
         return true, nil
     end
 
-    function writespan(exclusive self, borrows bytes: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows bytes: ByteSpan): (integer?, string?)
         self.state:update(bytes)
 
         return #bytes, nil
@@ -117,8 +98,8 @@ local record Context is Checksum
     end
 end
 
-makeContext = function(implementation: provider.Algorithm, name: string, width: integer): Checksum
-    return new Context(state = implementation:create(), name = name, bits = width)
+makeContext = function(implementation: provider.Algorithm, name: string, width: integer): ContextChecksum
+    return Context(state = implementation:create(), name = name, bits = width)
 end
 
 local type Algorithm = Checksum.Algorithm
@@ -151,14 +132,14 @@ local available: {[string]: Algorithm} = {}
 local names: {string} = {}
 local initialized = false
 
-local function initialize(): nil
+local function initialize(providerName: string): nil
     if initialized then
         return
     end
-    local selected: provider.Provider = require("nupp.runtime.provider.checksum")
+    local selected = require(providerName) as provider.Provider
     validate(selected)
     for name, implementation in pairs(selected.algorithms) do
-        available[name] = new Algorithm(name = name, width = implementation.width, implementation = implementation)
+        available[name] = Algorithm(name = name, width = implementation.width, implementation = implementation)
     end
     for name in pairs(available) do
         names[#names + 1] = name
@@ -168,11 +149,11 @@ local function initialize(): nil
 end
 
 lookupDescriptor = function(name: string): any
-    initialize()
+    initialize("nupp.runtime.provider.checksum")
     return available[name]
 end
 requireDescriptor = function(name: string): any
-    initialize()
+    initialize("nupp.runtime.provider.checksum")
     local found = available[name]
     if found == nil then
         error("unknown checksum algorithm " .. name, 2)
@@ -181,7 +162,7 @@ requireDescriptor = function(name: string): any
     return found
 end
 descriptorNames = function(): {string}
-    initialize()
+    initialize("nupp.runtime.provider.checksum")
     local result: {string} = {}
     for index, name in ipairs(names) do
         result[index] = name

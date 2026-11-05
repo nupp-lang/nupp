@@ -242,7 +242,7 @@ export function replacement(program: scalarIR.Program, artifact: gpuartifact.Art
         .. kernelType
         .. ") borrows (context)"
     )
-    append(lines, "    local artifacts = new " .. implementation .. ".ArtifactSet(")
+    append(lines, "    local artifacts = " .. implementation .. ".ArtifactSet(")
     if browser then
         append(lines, "        wgsl = " .. string.format("%q", artifact.wgsl as string) .. ",")
     else
@@ -261,7 +261,7 @@ export function replacement(program: scalarIR.Program, artifact: gpuartifact.Art
     -- local first, so ownership passes straight into the field.
     append(
         lines,
-        "    return new "
+        "    return "
         .. kernelType
         .. "(_kernel = "
         .. implementation
@@ -312,7 +312,7 @@ export function replacement(program: scalarIR.Program, artifact: gpuartifact.Art
             ) .. ", " .. tostring(artifact.exactCounts[param.name] == true) .. ")"
         )
     end
-    append(lines, "    return new " .. bindingType .. "(_binding = " .. rawBinding .. ")")
+    append(lines, "    return " .. bindingType .. "(_binding = " .. rawBinding .. ")")
     append(lines, "end")
     append(lines, "")
 
@@ -349,7 +349,7 @@ export function replacement(program: scalarIR.Program, artifact: gpuartifact.Art
     end
     append(lines, "end")
     append(lines, "")
-    append(lines, "local " .. program.name .. " = new " .. specType .. "(_marker = true)")
+    append(lines, "local " .. program.name .. " = " .. specType .. "(_marker = true)")
 
     return table.concat(lines, "\n")
 end

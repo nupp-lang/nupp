@@ -216,11 +216,11 @@ function M.anInterfaceMemberHoldsImplementorsToIt()
     local contract = "local m = {}\n" .. "interface m.Job\n    run: @sendable function(self: m.Job): nil\nend\n"
     local good = contract
         .. "record m.Good\n    run: @sendable function(self: m.Good): nil\nend\n"
-        .. "local job: m.Job = new m.Good(run = nil as any)\nprint(job)"
+        .. "local job: m.Job = m.Good(run = nil as any)\nprint(job)"
     testAssert.eq(#diagnose(good), 0, "a sendable member conforms")
     local bad = contract
         .. "record m.Bad\n    run: function(self: m.Bad): nil\nend\n"
-        .. "local job: m.Job = new m.Bad(run = nil as any)\nprint(job)"
+        .. "local job: m.Job = m.Bad(run = nil as any)\nprint(job)"
     local errors = diagnose(bad)
     testAssert.eq(#errors, 1, "one refusal")
     assert(

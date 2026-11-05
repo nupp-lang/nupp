@@ -29,7 +29,7 @@ local function facts(
     usesLua: boolean,
     allocatesLua: boolean
 ): Facts
-    return new Facts(
+    return Facts(
         observable = observable,
         mayRaise = mayRaise,
         readsNative = readsNative,

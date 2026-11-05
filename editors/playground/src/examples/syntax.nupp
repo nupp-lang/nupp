@@ -44,7 +44,7 @@ local function summarize(counts: {number}, label: string?): string
     return name .. ": " .. total .. " (" .. size .. ")"
 end
 
-local intake = new Sensor(name = "intake")
+local intake = Sensor(name = "intake")
 local city = intake.site?.city ?? "elsewhere" -- safe navigation
 
 -- `!`, `&&`, `||` and `!=` are legal but linted, because Lua already spells these

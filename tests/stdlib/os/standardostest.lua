@@ -304,7 +304,7 @@ function M.fileMutationsAcceptPathTypesAndRetainTheirRuntimeFeatures()
     local gen = require("nupp.compiler.lua.gen")
     local root = require("helpers.paths").tests .. "/.."
     for _, source in ipairs({
-        'local path: io.Path = io.newpath("tree")\nreturn os.remove(path, true)',
+        'local path: io.Path = io.Path.of("tree")\nreturn os.remove(path, true)',
         'local from: io.files.AppPath = assert(io.files.datapath())\nreturn os.rename(from, from:join("new"))',
     }) do
         local parsed = parser.parse(source, "file-mutations.nupp")

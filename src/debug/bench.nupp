@@ -617,7 +617,7 @@ local function calibrate(name: string, body: function(bench.Case): nil, fixed: i
         -- one quantity and then report another, and the two part company for any body
         -- that waits on anything.
         local started = os.monotonic()
-        body(new bench.Case(name = name, n = n))
+        body(bench.Case(name = name, n = n))
         if os.monotonic() - started >= TARGET_ROUND_MS then
             if held then
                 return n
@@ -746,7 +746,7 @@ local function measureCase(name: string, body: function(bench.Case): nil, fixedn
     -- the one finding that mattered is the one that got away.
     local session = openTrace()
     local n = calibrate(name, body, fixedn or options.iterations or baselineIterations(name))
-    local subject = new bench.Case(name = name, n = n)
+    local subject = bench.Case(name = name, n = n)
     body(subject)
 
     collectgarbage("collect")
@@ -792,7 +792,7 @@ local function measureCase(name: string, body: function(bench.Case): nil, fixedn
     local roundOrder = statistics.sorted(times)
     measurements[
         #measurements + 1
-    ] = new bench.Measurement(
+    ] = bench.Measurement(
         name = name,
         kind = "case",
         n = n,
@@ -997,13 +997,13 @@ local function measureSuite(
     for _ = 1, warmups do
         callVariant(
             variant,
-            new bench.Invocation(name = case.name, data = case.data, parameters = parameters),
+            bench.Invocation(name = case.name, data = case.data, parameters = parameters),
             iterations,
             session
         )
     end
 
-    local invocation = new bench.Invocation(name = case.name, data = case.data, parameters = parameters)
+    local invocation = bench.Invocation(name = case.name, data = case.data, parameters = parameters)
     local samples: {number} = {}
     local measured = 0.0
     local wallStarted = os.monotonic()
@@ -1086,7 +1086,7 @@ local function measureSuite(
     local sampleOrder = statistics.sorted(samples)
     measurements[
         #measurements + 1
-    ] = new bench.Measurement(
+    ] = bench.Measurement(
         name = name,
         kind = "suite",
         rounds = #samples,
@@ -1205,7 +1205,7 @@ end
 --- Opens a frame measurement.
 ---
 --- Plain parameters rather than an options record, because a record would make the
---- ordinary call site write `new bench.FrameOptions(...)` -- a table literal is not
+--- ordinary call site write `bench.FrameOptions(...)` -- a table literal is not
 --- one, which is what the first version of this API got wrong in its documented
 --- example.
 ---
@@ -1231,7 +1231,7 @@ function bench.frames(name: string, budgetms: number?, count: integer?): bench.F
     end
     local inert = options.list or (options.only ~= nil and options.only ~= name)
     if inert then
-        return new bench.FrameSession(
+        return bench.FrameSession(
             name = name,
             budgetms = budgetms or 0.0,
             wanted = count or 0,
@@ -1246,7 +1246,7 @@ function bench.frames(name: string, budgetms: number?, count: integer?): bench.F
     selectedDeclarations = (selectedDeclarations + 1) as integer
     announceRun(name)
 
-    return new bench.FrameSession(
+    return bench.FrameSession(
         name = name,
         budgetms = budgetms or 0.0,
         wanted = count or 0,
@@ -1334,7 +1334,7 @@ function bench.FrameSession:report(): nil
 
     measurements[
         #measurements + 1
-    ] = new bench.Measurement(
+    ] = bench.Measurement(
         name = self.name,
         kind = "frames",
         p50ms = quantile(sorted, 0.5),

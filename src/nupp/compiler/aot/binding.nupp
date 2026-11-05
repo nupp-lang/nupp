@@ -507,7 +507,7 @@ function binding.spanArguments(
             end
             -- A later column of an SoA view shares its first column's count.
             local elements = hasCount and count or viewCounts[(param.soa as scalarIR.SoaColumn).view] or count
-            taken[#taken + 1] = new binding.TakenSpan(param = param, pointer = pointer, count = elements)
+            taken[#taken + 1] = binding.TakenSpan(param = param, pointer = pointer, count = elements)
         else
             arguments[#arguments + 1] = param.name
         end
@@ -543,7 +543,7 @@ function binding.wrapper(program: scalarIR.Program, nativeSymbol: string?): {str
     if #resultSourceTypes > 1 then
         -- One result block per wrapper, reused by every call: a kernel never
         -- re-enters Lua, so nothing can call it again before it is read.
-        lines[#lines + 1] = "local " .. block .. " = new " .. resultName(program) .. "()"
+        lines[#lines + 1] = "local " .. block .. " = " .. resultName(program) .. "()"
     end
     lines[#lines + 1] = "local function " .. program.name .. "("
     for position, param in ipairs(params) do
@@ -701,6 +701,9 @@ function binding.builderLoader(
     end
     local loader = {
         "local function " .. prefix .. "Load()",
+        -- A runtime module can itself contain an AOT entry. Its loader must not
+        -- import standardio while standardio is still loading that module.
+        "    local hostio: any = rawget(_G, \"io\")",
         "    local modules: any = rawget(_G, \"__nuppAotBuilderModules\") or {}",
         "    rawset(_G, \"__nuppAotBuilderModules\", modules)",
         "    local here = debug.getinfo(1, \"S\").source:match(\"^@(.*)$\")",
@@ -711,7 +714,7 @@ function binding.builderLoader(
         "        local cacheKey = path .. \"\\0\" .. " .. prefix .. "Registrar",
         "        local registered: any = modules[cacheKey]",
         "        if registered then return registered[\"" .. program.name .. "\"] end",
-        "        local probe = io.open(path, \"rb\")",
+        "        local probe = hostio.open(path, \"rb\")",
         "        if probe then",
         "            probe:close()",
         "            local loadlib = rawget(package, \"loadlib\")",

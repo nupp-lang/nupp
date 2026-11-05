@@ -10,7 +10,7 @@ local record Payload
 end
 local binding = declarations.binding(Payload)
 local codec = json.codec()
-local value = new Payload(id = 0, active = true, name = "trace probe")
+local value = Payload(id = 0, active = true, name = "trace probe")
 local inputs: {string} = {}
 for index = 1, 16 do
     value.id = math.u32.wrap(index)

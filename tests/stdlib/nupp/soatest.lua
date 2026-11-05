@@ -80,7 +80,7 @@ do local rows = particles:write() ;
         rows[index].dy = 1.5
         rows[index].x += rows[index].dx
     end
-    rows[2] = new Particle(10, 20, 30, 40)
+    rows[2] = Particle(10, 20, 30, 40)
 end
 local rows = particles:read()
 local copied: Particle = rows[2]
@@ -273,12 +273,12 @@ local aos = heap.alloc(ffi.typeof<Particle>(), 1)
 local columns = soa.alloc(ffi.typeof<Particle>(), 1)
 do
     local rows = aos:write()
-    rows[1] = new Particle(1, 2, 3, 4)
+    rows[1] = Particle(1, 2, 3, 4)
     own.drop(rows)
 end
 do
     local rows = columns:write()
-    rows[1] = new Particle(5, 6, 7, 8)
+    rows[1] = Particle(5, 6, 7, 8)
     own.drop(rows)
 end
 local ordinary = types.layoutof(Particle)
@@ -533,9 +533,9 @@ local source = soa.alloc(ffi.typeof<Particle>(), 3)
 local target = soa.alloc(ffi.typeof<Particle>(), 4)
 do
     local rows = source:write()
-    rows[1] = new Particle(1, 2, 3, 4)
-    rows[2] = new Particle(5, 6, 7, 8)
-    rows[3] = new Particle(9, 10, 11, 12)
+    rows[1] = Particle(1, 2, 3, 4)
+    rows[2] = Particle(5, 6, 7, 8)
+    rows[3] = Particle(9, 10, 11, 12)
     own.drop(rows)
 end
 do
@@ -748,7 +748,7 @@ rows[1].x = 2
             .. [[
 local particles = soa.alloc(ffi.typeof<Particle>(), 1)
 local rows = particles:read()
-rows[1] = new Particle(1, 2, 3, 4)
+rows[1] = Particle(1, 2, 3, 4)
 ]]
         ),
         "NUPP2009",

@@ -516,7 +516,7 @@ function visit.reusableScratch(program: scalarIR.Program): string?
     local publishes = 0
     visit.program(
         program,
-        new visit.Visitor(scalarStatement = function(statement: scalarIR.Statement): nil
+        visit.Visitor(scalarStatement = function(statement: scalarIR.Statement): nil
             local op = statement.op
             if op == "lua_builder_string_scratch" or op == "lua_builder_key_scratch" then
                 publishes = publishes + 1

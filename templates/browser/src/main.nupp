@@ -1,11 +1,11 @@
-const digests = require("binary.digest")
+const digests = require("binary").Digest
 const time = require("coroutine")
 const json = require("serde.json")
 
 local started = os.monotonic()
 time.sleep(10)
 
-local digest = digests.hexdigest("sha256", os.randombytes(32))
+local digest = digests.computehex("sha256", os.randombytes(32))
 
 return json.encodevalue({
     project = "${name}",

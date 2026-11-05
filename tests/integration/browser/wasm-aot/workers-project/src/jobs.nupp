@@ -34,7 +34,7 @@ end
 
 --- Reads and rebuilds a record, so a lane has to receive the declaration metatable.
 export function louder(reading: Reading): Reading
-    return new Reading(label = reading.label:upper(), value = reading.value + 1)
+    return Reading(label = reading.label:upper(), value = reading.value + 1)
 end
 
 --- Counts what it was handed. Its parameter says nothing definite about the values,

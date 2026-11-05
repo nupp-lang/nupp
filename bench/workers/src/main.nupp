@@ -95,7 +95,7 @@ rows[
     note = "request + response bytes"
 }
 
-local payload = new jobs.Payload(id = 7, label = "payload", bytes = text)
+local payload = jobs.Payload(id = 7, label = "payload", bytes = text)
 local recordSamples: {number} = {}
 for sample = 1, SAMPLES + 2 do
     local started = now()
@@ -169,14 +169,14 @@ rows[
     note = "plain table through the codec fallback"
 }
 
-local sparse = new jobs.Sparse(id = 7, label = "payload", bytes = text)
+local sparse = jobs.Sparse(id = 7, label = "payload", bytes = text)
 do
     local scope = tasks.scope();
     const bare = scope:work(sparse, jobs.echoSparse):await()
     if bare.note ~= nil or bare.id ~= 7 or #bare.bytes ~= #text then
         error("an optional-field record round trip corrupted its fields")
     end
-    const noted = scope:work(new jobs.Sparse(id = 8, label = "n", bytes = "b", note = "kept"), jobs.echoSparse):await()
+    const noted = scope:work(jobs.Sparse(id = 8, label = "n", bytes = "b", note = "kept"), jobs.echoSparse):await()
     if noted.note ~= "kept" or noted.id ~= 8 then
         error("a present optional field did not survive the round trip")
     end

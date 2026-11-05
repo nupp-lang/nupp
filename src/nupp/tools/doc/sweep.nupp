@@ -119,7 +119,7 @@ local function expandOne(root: string, base: string, file: string): Page?, strin
     end
     local fields, body = frontmatterMod.parse(source)
 
-    return new Page(
+    return Page(
         layout = fields.layout,
         markdown = body,
         order = tonumber(fields.order),

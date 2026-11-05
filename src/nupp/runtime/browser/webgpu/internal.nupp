@@ -325,7 +325,7 @@ function gpu.Context._allocate<T>(
     local handle = answerHandle(answer, "buffer")
     rememberHandle(self._buffers, handle, "buffer")
 
-    return new shared.Buffer<T>(
+    return shared.Buffer<T>(
         _elementType = nil,
         _anchor = self,
         _context = self,
@@ -384,7 +384,7 @@ function gpu.Context.compilegenerated(
     local handle = answerHandle(answer, "kernel")
     rememberHandle(self._kernels, handle, "kernel")
 
-    return new shared.Kernel(
+    return shared.Kernel(
         _anchor = self,
         _handle = handle,
         _readonlyBuffers = readonlybuffers,
@@ -646,7 +646,7 @@ function gpu.Context.bindkernel(
         error("nupp: GPU dispatch count must be from 1 through 4294967295", 2)
     end
 
-    return new gpu.Binding(
+    return gpu.Binding(
         _anchor = self,
         _context = self,
         _uniformBytes = kernel._uniformBytes,
@@ -695,7 +695,7 @@ function gpu.open(): api.KernelContext
         error("nupp: browser GPU returned an invalid open response", 2)
     end
 
-    return new gpu.Context(_destroy = contextdestroyNosuspend, _closed = false, _buffers = {}, _kernels = {})
+    return gpu.Context(_destroy = contextdestroyNosuspend, _closed = false, _buffers = {}, _kernels = {})
 end
 
 export const available = gpu.available

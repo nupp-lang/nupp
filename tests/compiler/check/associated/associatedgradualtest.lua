@@ -133,7 +133,7 @@ function M.anAnswerWrittenAsAnyDoesNotWarn()
             "local function held<T is Holds>(x: T): T.Item",
             "   return nil as any",
             "end",
-            "local fine = held(new Untyped())"
+            "local fine = held(Untyped())"
         )
     )
 end
@@ -170,12 +170,12 @@ function M.aWrongResultCannotPassSilently()
         "      return nil as any",
         "   end",
         "end",
-        "local arch = new Archetype()"
+        "local arch = Archetype()"
     )
     -- concrete: rejected outright
     reports(
         world .. src(
-            "local health = new Health(componentId = 1)",
+            "local health = Health(componentId = 1)",
             "local wrong: {string} = arch:get(health)",
             "return wrong"
         ),

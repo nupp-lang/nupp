@@ -1,6 +1,9 @@
 -- Execute a generated browser bundle in the host LuaJIT while routing its
 -- independent Wasm kernels through the Rust Wasmtime test host.
 local ffi = require("ffi")
+-- The browser bundle installs its own io surface in this Lua state.
+-- Keep the host operation for reading artifacts after guest execution.
+local hostOpen = io.open
 
 local project, library, route = assert(arg[1]), assert(arg[2]), arg[3] or "simd"
 assert(route == "simd" or route == "scalar-c", "route must be simd or scalar-c")
@@ -18,14 +21,14 @@ project = project:gsub("\\", "/"):gsub("^/(%a)/", "%1:/")
 library = library:gsub("\\", "/"):gsub("^/(%a)/", "%1:/")
 
 local function read(path)
-    local handle = assert(io.open(path, "rb"), "cannot read " .. path)
+    local handle = assert(hostOpen(path, "rb"), "cannot read " .. path)
     local value = assert(handle:read("*a"))
     handle:close()
     return value
 end
 
 local function exists(path)
-    local handle = io.open(path, "rb")
+    local handle = hostOpen(path, "rb")
     if handle then
         handle:close()
         return true
@@ -35,7 +38,7 @@ local function exists(path)
 end
 
 local function write(path, value)
-    local handle = assert(io.open(path, "wb"), "cannot write " .. path)
+    local handle = assert(hostOpen(path, "wb"), "cannot write " .. path)
     handle:write(value)
     handle:close()
 end

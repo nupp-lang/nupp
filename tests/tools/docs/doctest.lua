@@ -2244,6 +2244,7 @@ function M.standardTypesPageCombinesBuildersAndRuntimeExports()
     local dir = tempProject({
         ["src/prelude.d.nupp"] = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp"),
         ["src/types/init.nupp"] = readFile(HERE .. "/../src/types/init.nupp"),
+        ["src/nupp/util/internal/store.nupp"] = readFile(HERE .. "/../src/nupp/util/internal/store.nupp"),
         ["src/types/derive.nupp"] = readFile(HERE .. "/../src/types/derive.nupp"),
         ["src/types/reflect.nupp"] = readFile(HERE .. "/../src/types/reflect.nupp"),
     })
@@ -2252,7 +2253,7 @@ function M.standardTypesPageCombinesBuildersAndRuntimeExports()
     for _, name in ipairs({
         "types.string",
         "types.optional",
-        "types.newstore",
+        "types.Store.create",
         "types.derive.implement",
         "types.reflect.runtime"
     }) do
@@ -2328,7 +2329,6 @@ function M.standardJsonApiHasCompleteDocumentation()
         numbertoken = true,
         verified = true,
         verifiedstring = true,
-        newwriter = true,
         NULL = true,
         EMPTY_ARRAY = true,
         EMPTY_OBJECT = true,
@@ -2346,7 +2346,6 @@ function M.standardJsonApiHasCompleteDocumentation()
         numbertoken = true,
         verified = true,
         verifiedstring = true,
-        newwriter = true,
     }
     local writer
     for _, item in ipairs(module.items) do
@@ -2400,7 +2399,7 @@ end
 
 -- Public UTF-8 and digest modules document their complete declared surface.
 function M.standardDataApiHasCompleteDocumentation()
-    local modules = {"src/utf8.nupp", "src/binary/digest/init.nupp",}
+    local modules = {"src/utf8.nupp", "src/nupp/digest/digest.nupp",}
     for _, relative in ipairs(modules) do
         local source = assert(readFile(HERE .. "/../" .. relative), "no module at " .. relative)
         local name = relative:match("^src/(.+)%.nupp$"):gsub("/", "."):gsub("%.init$", "")
@@ -2438,12 +2437,8 @@ function M.standardIOApiHasCompleteDocumentation()
             functions = {newBuffer = true, newStringReader = true,},
         },
         [
-            "src/io/internal/path.nupp"
-        ] = {
-            types = {Path = true,},
-            functions = {newpath = true, cwd = true, sep = true,},
-            overview = "src/nupp/runtime/standardio.nupp",
-        },
+            "src/io/internal/pathtypes.nupp"
+        ] = {types = {Path = true,}, functions = {}, overview = "src/nupp/runtime/standardio.nupp",},
         [
             "src/io/internal/uritypes.nupp"
         ] = {types = {URI = true,}, functions = {isuri = true,}, overview = "src/nupp/runtime/standardio.nupp",},
@@ -2491,38 +2486,26 @@ function M.standardIOApiHasCompleteDocumentation()
         end
     end
 
-    -- Paths are interned by `newpath`; direct construction is intentionally
-    -- unavailable.
-    local path = assert(readFile(HERE .. "/../src/nupp/runtime/standardio.nupp"))
-    local module = assert(doc.extract(path, "src/nupp/runtime/standardio.nupp", "nupp.runtime.standardio"))
-    local factory
-    for _, item in ipairs(module.items) do
-        if item.name == "newpath" then
-            factory = item
+    -- The declarations own their factory documentation.
+    for _, entry in ipairs({
+        {"src/io/internal/pathtypes.nupp", "io.internal.pathtypes", "Path", 'io.Path.of("src", "main.nupp")'},
+        {"src/io/internal/uritypes.nupp", "io.internal.uritypes", "URI", 'io.URI.of("https://example.com/a?b=1")'},
+    }) do
+        local source = assert(readFile(HERE .. "/../" .. entry[1]))
+        local module = assert(doc.extract(source, entry[1], entry[2]))
+        local factory
+        for _, item in ipairs(module.items) do
+            if item.name == entry[3] then
+                for _, method in ipairs(item.members or {}) do
+                    if method.name == "of" then
+                        factory = method
+                    end
+                end
+            end
         end
+        assert(factory, entry[3] .. " did not document of")
+        assert(factory.text:find(entry[4], 1, true), entry[3] .. ".of has no example")
     end
-    assert(factory, "io did not document newpath")
-    assert(factory.doc.text:find("#### Examples", 1, true), "io.newpath has no examples")
-    assert(
-        factory.doc.text:find('io.newpath("src", "main.nupp")', 1, true),
-        "io.newpath has no component-joining example"
-    )
-
-    -- URIs are likewise interned by `newuri`; their exported record is a value type,
-    -- not a public construction surface.
-    local uri = assert(readFile(HERE .. "/../src/nupp/runtime/standardio.nupp"))
-    local uriModule = assert(doc.extract(uri, "src/nupp/runtime/standardio.nupp", "nupp.runtime.standardio"))
-    local uriFactory
-    for _, item in ipairs(uriModule.items) do
-        if item.name == "newuri" then
-            uriFactory = item
-        end
-    end
-    assert(uriFactory, "io did not document newuri")
-    assert(
-        uriFactory.doc.text:find('io.newuri("https://example.com/a?b=1")', 1, true),
-        "io.newuri has no parsing example"
-    )
 end
 
 function M.standardReflectApiKeepsItsGraphAndMaterializerTogether()
@@ -3209,7 +3192,7 @@ function M.highlightsLjppWithTheNativeLexer()
                 "   inspect(box)",
                 "end",
                 "local function make(point: Point): Point",
-                "   return point ?? new Point(x = 1)",
+                "   return point ?? Point(x = 1)",
                 "end",
             },
             "\n"
@@ -3241,7 +3224,7 @@ function M.highlightsCurrentNuppSyntaxWithTheParser()
                 "end",
                 "local function worker()",
                 "   yields (number) resumes (boolean): const unknown & Serializable",
-                "   return new Factory()",
+                "   return Factory()",
                 "end",
             },
             "\n"
@@ -3253,7 +3236,7 @@ function M.highlightsCurrentNuppSyntaxWithTheParser()
     assert(html:find("keyword-satisfies", 1, true), html)
     assert(html:find("keyword-yields", 1, true), html)
     assert(html:find("keyword-resumes", 1, true), html)
-    assert(html:find("keyword-new", 1, true), html)
+    assert(not html:find("keyword-new", 1, true), html)
     assert(html:find("nuppdoc-token-type", 1, true), html)
 end
 
@@ -3335,7 +3318,7 @@ function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
                     "local type First<T> = T.[1]",
                     "local function worker<P..., const Format: string>(...: unpackof Arguments<Format>)",
                     "   yields (number) resumes (boolean): unpackof Results<Format>",
-                    "   return new Factory(count = 1_000)",
+                    "   return Factory(count = 1_000)",
                     "end",
                     "local function preserve(scoped callback: function(): nil, takes value: affine(voidptr)): voidptr preserves value return value end",
                     "local compiled = comptime do return {answer = 42} end",
@@ -3359,7 +3342,7 @@ function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
     assert(not html:find("keyword-with", 1, true), html)
     assert(html:find("keyword-yields", 1, true), html)
     assert(html:find("keyword-resumes", 1, true), html)
-    assert(html:find("keyword-new", 1, true), html)
+    assert(not html:find("keyword-new", 1, true), html)
     assert(html:find("keyword-associated-type", 1, true), html)
     assert(html:find("nuppdoc-token-type", 1, true), html)
     assert(html:find("nuppdoc-token-number", 1, true), html)
@@ -3710,7 +3693,7 @@ function M.hoistsQualifiedTypesOutOfHiddenDeclarationModules()
 end
 
 function M.aNamingConventionIsNotAConstructor()
-    -- Construction is `new`, and a `constructor` declaration documents inside the
+    -- A `constructor` declaration documents inside the
     -- record it belongs to. A module function is a function whatever it is named,
     -- so nothing reads `newEngine` as a kind of its own.
     local files = {
@@ -5497,7 +5480,7 @@ function M.generatedDeriveExampleUsesThePublicProvider()
     assert(example, "the generated derive reference has no runnable example")
     local filename = "derive_documentation.nupp"
     local parsed = parser.parse(
-        example .. "\nlocal point: types.Debug = new Point(x = 1, y = 2)\nreturn point:debug()\n",
+        example .. "\nlocal point: types.Debug = Point(x = 1, y = 2)\nreturn point:debug()\n",
         filename
     )
     assert(#parsed.errors == 0, parsed.errors[1] and parsed.errors[1].msg)
@@ -6736,7 +6719,7 @@ function M.gpuPublicPageExpandsItsExplicitAliases()
         "layout.nupp",
         "layoutfacts.nupp"
     }) do
-        local base = (path == "init.nupp" or path == "layout.nupp") and "src/io/gpu/" or "src/nupp/gpu/"
+        local base = path == "init.nupp" and "src/io/gpu/" or "src/nupp/gpu/"
         files[base .. path] = readFile(HERE .. "/../" .. base .. path)
     end
     local dir = tempProject(files)

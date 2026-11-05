@@ -88,7 +88,7 @@ local struct PointerMove
 end
 
 const WINDOW = 1
-local input: events.MessageBus<integer> = events.newbus()
+local input: events.MessageBus<integer> = events.MessageBus()
 input:observe(WINDOW, PointerMove, |move| -> print(move.x, move.y), "cursor")
 local route = host.route("app.pointer.move", PointerMove, input, WINDOW, "dropoldest", 64)
 ```
@@ -110,7 +110,7 @@ such as `tecs.image.decode`. Names under `nupp.` are reserved for the runtime.
 
 ## Host-owned loops
 
-`newpump` creates a driver that runs one operation at a time for an application that embeds
+`Pump()` creates a driver that runs one operation at a time for an application that embeds
 the runtime and owns its own loop. Reach for it from the exports such an
 application calls, so that an operation which waits -- on a [](os.host)
 request, a timer, the network -- parks instead of blocking the call that
@@ -125,7 +125,7 @@ that pass.
 ```nupp:fragment
 local host = os.host
 
-local session = host.newpump()
+local session = host.Pump()
 
 export function frame(dt: number): host.Pump.State
     if session:parked() then
@@ -334,7 +334,7 @@ export function route<E is events.Emittable>(
 
     local stop, dropped = provider.route(checked, selected, checkedLimit(limit), deliver)
 
-    return new Route(stop = stop, droppedCount = dropped)
+    return Route(stop = stop, droppedCount = dropped)
 end
 
 local type PumpState = "parked" | "continue" | "stopped"
@@ -377,7 +377,7 @@ export record Pump
         self.result = nil
         self.failure = nil
         local pump = self
-        self.handler = new suspensionContract.Handler(
+        self.handler = suspensionContract.Handler(
             park = function(_: suspensionContract.Handler, waiting: suspensionContract.Waiting, _: function(): nil): nil
                 local task = assert(coroutine.running())
 
@@ -474,9 +474,4 @@ export record Pump
         self.result = nil
         self.failure = nil
     end
-end
-
---- Creates an idle pump.
-export function newpump(): Pump
-    return new Pump()
 end

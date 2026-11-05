@@ -7,9 +7,9 @@ that works the same in a CLI, a scheduler and a game host.
 local http = io.http
 local uri = io
 
-local client = http.newclient()
-local response = assert(client:send(new http.Request(
-    url = assert(uri.newuri("https://example.com/"))
+local client = http.Client.create()
+local response = assert(client:send(http.Request(
+    url = assert(uri.URI.of("https://example.com/"))
 )))
 print(response.status)
 response:close()
@@ -53,7 +53,7 @@ local uri = io
 
 local function storeStatus(client: alias(http.Client), codes: {integer}, index: integer, url: string): nil
     local status = client:with(function(borrows open: http.Client): integer
-        local response = assert(open:send(new http.Request(url = assert(uri.newuri(url)))))
+        local response = assert(open:send(http.Request(url = assert(uri.URI.of(url)))))
         local code = response.status
         response:close()
 
@@ -62,7 +62,7 @@ local function storeStatus(client: alias(http.Client), codes: {integer}, index: 
     codes[index] = assert(status)
 end
 
-local client = own.manage(http.newclient())
+local client = own.manage(http.Client.create())
 local codes: {integer} = {}
 do
     local scope = tasks.scope()
@@ -113,5 +113,4 @@ export const ReaderBody = source1.ReaderBody
 export const Request = source1.Request
 export const capabilities = source1.capabilities
 export const file = source1.file
-export const newclient = source1.newClient
 export const reader = source1.reader

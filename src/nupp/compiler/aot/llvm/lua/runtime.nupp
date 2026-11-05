@@ -79,7 +79,7 @@ record runtime.Slot
 end
 
 local function slot(name: string, result: string, params: string): runtime.Slot
-    return new runtime.Slot(name = name, result = result, params = params)
+    return runtime.Slot(name = name, result = result, params = params)
 end
 
 --- The table after its five leading words (version and block sizes).

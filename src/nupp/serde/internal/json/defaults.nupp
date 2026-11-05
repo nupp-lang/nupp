@@ -15,4 +15,4 @@ local record Factory is plans.PolicyFactory
         return declarationPolicy:policy<M>(member)
     end
 end
-export const factory: plans.PolicyFactory = new Factory()
+export const factory: plans.PolicyFactory = Factory()

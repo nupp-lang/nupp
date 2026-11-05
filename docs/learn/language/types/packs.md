@@ -288,7 +288,7 @@ local function release(takes value: Resource): nil
 end
 
 local function acquire(): affine(Resource, release)
-    return new Resource()
+    return Resource()
 end
 
 acquire() -- NUPP2605: the owner has nowhere to land

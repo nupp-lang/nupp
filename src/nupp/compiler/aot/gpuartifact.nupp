@@ -184,7 +184,7 @@ function gpuartifact.program(program: scalarIR.Program, browser: boolean?): (gpu
     end
     visit.program(
         program,
-        new visit.Visitor(
+        visit.Visitor(
             scalarExpression = function(value: scalarIR.Expr): nil
                 if (value.op == "load" or value.op == "element_ref") and (value as any).cursor == nil then
                     exactCounts[(value as any).span as string] = true
@@ -205,7 +205,7 @@ function gpuartifact.program(program: scalarIR.Program, browser: boolean?): (gpu
         return nil, profile
     end
 
-    return new gpuartifact.Artifact(
+    return gpuartifact.Artifact(
         spirv = spirv,
         wgsl = wgsl,
         entrypoint = identifier(program.symbol) .. "_gpu",

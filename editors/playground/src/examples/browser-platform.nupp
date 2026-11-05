@@ -2,14 +2,14 @@
 -- one suspension boundary to the application Worker and its browser APIs.
 
 local time = require("coroutine")
-local mac = require("binary.mac")
-local digests = require("binary.digest")
+local mac = require("binary").Mac
+local digests = require("binary").Digest
 
 time.sleep(10)
 local key = os.uuid4()
-local digest = digests.hexdigest("sha256", os.randombytes(32))
+local digest = digests.computehex("sha256", os.randombytes(32))
 print(key, digest)
-print(mac.hexdigest("hmac-sha256", "key", "browser message"))
+print(mac.computehex("hmac-sha256", "key", "browser message"))
 
 -- try breaking it: pass a negative count to randombytes and read the checked
 -- provider error

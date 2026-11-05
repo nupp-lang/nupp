@@ -4,7 +4,7 @@
 Each Xoshiro128 owns its seed and state; math.random keeps the original host function.
 
 ```nupp
-local dice = new math.Xoshiro128(42)
+local dice = math.Xoshiro128(42)
 print(dice:integer(20))
 ```
 ]]

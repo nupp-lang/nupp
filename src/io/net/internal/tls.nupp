@@ -542,7 +542,7 @@ export function tlsclient(takes stream: net.Stream, options: TlsClientOptions?):
         return nil, io.toError(why)
     end
 
-    return new TlsSession(_provider = chosen, _session = session, _closed = false, _ready = false, _ended = false)
+    return TlsSession(_provider = chosen, _session = session, _closed = false, _ready = false, _ended = false)
 end
 
 --- Encrypts a connection as the server.
@@ -568,5 +568,5 @@ export function tlsserver(takes stream: net.Stream, options: TlsServerOptions): 
         return nil, io.toError(why)
     end
 
-    return new TlsSession(_provider = chosen, _session = session, _closed = false, _ready = false, _ended = false)
+    return TlsSession(_provider = chosen, _session = session, _closed = false, _ready = false, _ended = false)
 end

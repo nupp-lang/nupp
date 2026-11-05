@@ -15,7 +15,7 @@ local record User
     name: string?
 end
 local users = serde.binding(User)
-local bytes = json.encode(users, new User(id = 41, name = "Ada"))
+local bytes = json.encode(users, User(id = 41, name = "Ada"))
 local restored = json.decode(users, bytes)
 assert(restored.id == 41 and restored.name == "Ada")
 ```
@@ -48,11 +48,11 @@ local record User
     name: string
     token: string?
 end
-local publicUser = serde.binding(User, new serde.Options(
-    fields = {name = new serde.FieldOptions(name = "displayName")},
+local publicUser = serde.binding(User, serde.Options(
+    fields = {name = serde.FieldOptions(name = "displayName")},
     unknownmembers = "ignore"
 ))
-assert(json.encode(publicUser, new User(name = "Ada")) == '{"displayName":"Ada"}')
+assert(json.encode(publicUser, User(name = "Ada")) == '{"displayName":"Ada"}')
 assert(json.decode(publicUser, '{"displayName":"Ada"}').token == nil)
 ```
 
@@ -105,9 +105,9 @@ local record Member is serde.Member
     @readonly shapeId: string
 end
 local function textBinding(member: Member): serde.Binding<string>
-    return new serde.Bound<string, Member>(adapter = adapters.text(member))
+    return serde.Bound<string, Member>(adapter = adapters.text(member))
 end
-local binding = textBinding(new Member(name = "title", shapeId = "example#Title"))
+local binding = textBinding(Member(name = "title", shapeId = "example#Title"))
 assert(json.codec(json.membernamepolicy):encode(binding, "Dune") == '"Dune"')
 ```
 
@@ -135,8 +135,8 @@ local document = serde.document
 local json = serde.json
 local adapter = document.adapter()
 local value = document.object({
-    new document.Entry(name = "count", value = document.numbertoken("18446744073709551615")),
-    new document.Entry(name = "payload", value = document.null())
+    document.Entry(name = "count", value = document.numbertoken("18446744073709551615")),
+    document.Entry(name = "payload", value = document.null())
 })
 assert(json.encodedocument(adapter, value) == '{"count":18446744073709551615,"payload":null}')
 ```
@@ -166,7 +166,7 @@ local record Counter
     count: integer
 end
 local binding = serde.binding(Counter)
-local owner = new Counter(count = 1)
+local owner = Counter(count = 1)
 local view = document.view(binding, owner)
 local snapshot = view:snapshot()
 owner.count = 2
@@ -224,7 +224,7 @@ local record Save
     inventory: {string}
 end
 local saves = serde.binding(Save)
-local bytes = native.encode(saves, new Save(level = 12, inventory = {"key"}))
+local bytes = native.encode(saves, Save(level = 12, inventory = {"key"}))
 assert(native.decode(saves, bytes).inventory[1] == "key")
 ```
 
@@ -273,7 +273,7 @@ ambiguous rewrites instead of dropping their policies. Handwritten methods named
 | `codec:prepare(binding):encode(value)` | `codec:encode(binding, value)` |
 | `User.fromJSON(bytes)` | `json.decode(binding, bytes)` |
 | `value:writejson(writer)` | `json.writevalue(binding, value, writer)` |
-| `@json(name = "id")` | `new serde.FieldOptions(name = "id")` |
+| `@json(name = "id")` | `serde.FieldOptions(name = "id")` |
 | `@json(omit = true)` | Leave the field out of the mapping whitelist |
 
 Serialization errors are raised with their logical path and original cause.

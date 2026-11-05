@@ -1132,7 +1132,7 @@ local function startLane(): Lane
         error("nupp: worker initialization failed: " .. (failure or "missing startup acknowledgement"), 3)
     end
 
-    return new Lane(
+    return Lane(
         handle = handle,
         inbox = inbox,
         outbox = outbox,
@@ -1171,7 +1171,7 @@ local function scheduler(): Scheduler
         end
         lanes[index] = lane as Lane
     end
-    sharedScheduler = new Scheduler(lanes = lanes, source = nil, waitCursor = 1)
+    sharedScheduler = Scheduler(lanes = lanes, source = nil, waitCursor = 1)
 
     return sharedScheduler
 end

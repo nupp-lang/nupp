@@ -6,7 +6,7 @@ Its operations preserve the cleanup and borrowing contracts of each resource.
 local record Resource is own.Closeable
     function close(takes self): nil end
 end
-local cell = own.manage(new Resource())
+local cell = own.manage(Resource())
 own.drop(cell)
 ```
 

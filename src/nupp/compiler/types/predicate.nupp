@@ -240,7 +240,7 @@ function predicate.build(node: cst.Node?): predicate.Node?, string?
     local kind = node.kind
 
     if kind == "trueExpr" or kind == "falseExpr" then
-        return new predicate.Node(op = "const", value = kind == "trueExpr")
+        return predicate.Node(op = "const", value = kind == "trueExpr")
     end
 
     if kind == "unop" and node.op and node.op.kind == "not" then
@@ -248,7 +248,7 @@ function predicate.build(node: cst.Node?): predicate.Node?, string?
         if not inner then
             return nil, why
         end
-        return new predicate.Node(op = "not", a = inner)
+        return predicate.Node(op = "not", a = inner)
     end
 
     if kind == "binop" and node.op then
@@ -262,7 +262,7 @@ function predicate.build(node: cst.Node?): predicate.Node?, string?
             if not right then
                 return nil, why2
             end
-            return new predicate.Node(op = op, a = left, b = right)
+            return predicate.Node(op = op, a = left, b = right)
         end
         if COMPARISONS[op] then
             -- `type(self.x) == "table"` is a type test rather than a string comparison,
@@ -280,9 +280,9 @@ function predicate.build(node: cst.Node?): predicate.Node?, string?
                 if op ~= "==" and op ~= "~=" then
                     return nil, "a type() test ordered rather than compared"
                 end
-                local test = new predicate.Node(op = "typeis", path = typePath, luaType = value as string)
+                local test = predicate.Node(op = "typeis", path = typePath, luaType = value as string)
                 if op == "~=" then
-                    return new predicate.Node(op = "not", a = test)
+                    return predicate.Node(op = "not", a = test)
                 end
                 return test
             end
@@ -295,14 +295,14 @@ function predicate.build(node: cst.Node?): predicate.Node?, string?
                 if not text or type(value) ~= "number" then
                     return nil, "a length compared against something that is not a number"
                 end
-                local inner = new predicate.Node(
+                local inner = predicate.Node(
                     op = "cmp",
                     cmp = flipped and FLIPPED[op] or op,
                     path = {},
                     literal = text,
                     constant = value
                 )
-                return new predicate.Node(op = "len", path = lenPath, a = inner)
+                return predicate.Node(op = "len", path = lenPath, a = inner)
             end
             -- otherwise: a field of the subject against a literal, either way round
             local path = pathOf(node.lhs)
@@ -333,7 +333,7 @@ function predicate.build(node: cst.Node?): predicate.Node?, string?
             if op ~= "==" and op ~= "~=" and type(value) ~= "number" and type(value) ~= "string" then
                 return nil, "an ordered comparison against a value Lua cannot order"
             end
-            return new predicate.Node(
+            return predicate.Node(
                 op = "cmp",
                 cmp = flipped and FLIPPED[op] or op,
                 path = path,
@@ -350,7 +350,7 @@ function predicate.build(node: cst.Node?): predicate.Node?, string?
         if #path == 0 then
             return nil, "the subject itself"
         end
-        return new predicate.Node(op = "truthy", path = path)
+        return predicate.Node(op = "truthy", path = path)
     end
 
     if kind == "call" or kind == "methodCall" or kind == "safeCall" then
@@ -386,7 +386,7 @@ function predicate.equals(path: {string}, constant: string | number | boolean): 
         return nil
     end
 
-    return new predicate.Node(op = "cmp", cmp = "==", path = path, literal = text, constant = constant)
+    return predicate.Node(op = "cmp", cmp = "==", path = path, literal = text, constant = constant)
 end
 
 --- Both refinements, as one.
@@ -398,7 +398,7 @@ function predicate.both(a: predicate.Node?, b: predicate.Node?): predicate.Node?
         return a
     end
 
-    return new predicate.Node(op = "and", a = a, b = b)
+    return predicate.Node(op = "and", a = a, b = b)
 end
 
 --- Every field path the refinement reads, so the checker can hold each one to the
@@ -816,9 +816,9 @@ function predicate.normalize(node: predicate.Node?): predicate.Node?
     end
     local op = node.op
     if op == "not" then
-        return new predicate.Node(op = "not", a = predicate.normalize(node.a))
+        return predicate.Node(op = "not", a = predicate.normalize(node.a))
     elseif op == "len" then
-        return new predicate.Node(op = "len", path = node.path, a = predicate.normalize(node.a))
+        return predicate.Node(op = "len", path = node.path, a = predicate.normalize(node.a))
     elseif op ~= "and" and op ~= "or" then
         return node
     end
@@ -855,7 +855,7 @@ function predicate.normalize(node: predicate.Node?): predicate.Node?
         if not seen[entry.key] then
             seen[entry.key] = true
             if out then
-                out = new predicate.Node(op = op, a = entry.node, b = out)
+                out = predicate.Node(op = op, a = entry.node, b = out)
             else
                 out = entry.node
             end
@@ -925,7 +925,7 @@ function predicate.decompose(node: predicate.Node?): predicate.Decomposition?
     end
     local parts: {predicate.Node} = {}
     predicate.flatten(node, "and", parts)
-    local out = new predicate.Decomposition(others = {})
+    local out = predicate.Decomposition(others = {})
     for _, part in ipairs(parts) do
         local op = part.op
         local taken = false

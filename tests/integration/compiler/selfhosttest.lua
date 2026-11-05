@@ -49,7 +49,7 @@ function M.privateRecordFieldsBelongToTheirCanonicalModule()
             "function m.read<T>(secret: m.Secret<T>): T",
             "   return secret.value",
             "end",
-            "local secret = new m.Secret(value = 7, label = 'seven')",
+            "local secret = m.Secret(value = 7, label = 'seven')",
             "local value: number = m.read(secret)",
             "print(value)",
             "return m",
@@ -75,8 +75,8 @@ function M.forwardGenericNominalsPreserveTheirApplications()
                     "   @readonly left: m.Left<T>?",
                     "   @readonly value: T",
                     "end",
-                    "local right = new m.Right(left = nil, value = 7)",
-                    "local left = new m.Left(right = right)",
+                    "local right = m.Right(left = nil, value = 7)",
+                    "local left = m.Left(right = right)",
                     "if left.right then",
                     "   local value: integer = left.right.value",
                     "   print(value)",
@@ -109,7 +109,7 @@ function M.inlineMethodsPreserveExplicitReceiverModes()
                 {
                     "",
                     "local mutate: function(exclusive self: Box): nil = Box.mutate",
-                    "local box = new Box(value = 1)",
+                    "local box = Box(value = 1)",
                     "mutate(box)",
                 },
                 "\n"
@@ -148,8 +148,8 @@ function M.aRecordCanHaveAnArrayPart()
         diagsOf(
             decl .. "\n" .. table.concat(
                 {
-                    'local n = new Node(kind = "if")',
-                    'n[1] = new Node(kind = "x")',
+                    'local n = Node(kind = "if")',
+                    'n[1] = Node(kind = "x")',
                     "n[#n + 1] = n[1]",
                     "local k: string = n[1].kind",
                     "for _, child in ipairs(n) do print(child.kind) end",
@@ -161,7 +161,7 @@ function M.aRecordCanHaveAnArrayPart()
         "index, length, append and ipairs all work"
     )
     -- and the element type is enforced
-    testAssert.eq(diagsOf(decl .. '\nlocal n = new Node(kind = "if")\nn[1] = 5'), "NUPP2001")
+    testAssert.eq(diagsOf(decl .. '\nlocal n = Node(kind = "if")\nn[1] = 5'), "NUPP2001")
 end
 
 function M.anArrayPartIsALuaThingSoAStructHasNone()
@@ -265,7 +265,7 @@ function M.recordIdentityCompiles()
                 "end",
                 -- `any`, because a subject whose own type proves the answer is elided
                 -- rather than tested, and it is the test being checked here
-                "local v: any = new R(x = 1)",
+                "local v: any = R(x = 1)",
                 "print(v is R)",
             },
             "\n"
@@ -283,7 +283,7 @@ function M.aProvenIdentityIsNotTested()
                 "local record R",
                 "    x: integer",
                 "end",
-                "local v = new R(x = 1)",
+                "local v = R(x = 1)",
                 "local maybe: R? = v",
                 "print(v is R, maybe is R)",
             },
@@ -425,16 +425,12 @@ function M.writingNilRemovesAContainerEntry()
     )
     testAssert.eq(diagsOf('local xs: {integer} = {1}\nxs[1] = "no"'), "NUPP2001", "a wrong type is still wrong")
     testAssert.eq(
-        diagsOf(
-            table.concat({"local record R", "    x: integer", "end", "local r = new R(x = 1)", 'r["x"] = nil',}, "\n")
-        ),
+        diagsOf(table.concat({"local record R", "    x: integer", "end", "local r = R(x = 1)", 'r["x"] = nil',}, "\n")),
         "NUPP2004",
         "a record is not bracket-indexable to begin with"
     )
     testAssert.eq(
-        diagsOf(
-            table.concat({"local record R", "    x: integer", "end", "local r = new R(x = 1)", "r.x = nil",}, "\n")
-        ),
+        diagsOf(table.concat({"local record R", "    x: integer", "end", "local r = R(x = 1)", "r.x = nil",}, "\n")),
         "NUPP2001",
         "and a declared field cannot be removed"
     )
@@ -445,9 +441,7 @@ end
 -- being written to it, and every field assignment passed.
 function M.assignmentIsCheckedBeforeItNarrows()
     testAssert.eq(
-        diagsOf(
-            table.concat({"local record R", "    x: integer", "end", "local r = new R(x = 1)", 'r.x = "no"',}, "\n")
-        ),
+        diagsOf(table.concat({"local record R", "    x: integer", "end", "local r = R(x = 1)", 'r.x = "no"',}, "\n")),
         "NUPP2001"
     )
     testAssert.eq(diagsOf(table.concat({"local xs: {integer} = {}", 'xs[1] = "no"',}, "\n")), "NUPP2001")
@@ -615,7 +609,7 @@ function M.aGenericFunctionPreservesItsArgumentType()
                     "local function keep<T>(x: T?): T?",
                     "    return x",
                     "end",
-                    "local n: N? = keep(new N(kind = 'a'))",
+                    "local n: N? = keep(N(kind = 'a'))",
                     "print(n and n.kind)",
                 },
                 "\n"
@@ -638,7 +632,7 @@ function M.narrowingKeepsATypeParameter()
                     "end",
                     "local function first<T>(xs: {N}, x: T?): T?",
                     "    if x ~= nil then",
-                    "        xs[#xs + 1] = new N(kind = 'a')",
+                    "        xs[#xs + 1] = N(kind = 'a')",
                     "    end",
                     "    return x",
                     "end",
@@ -858,7 +852,7 @@ function M.nestedTypesResolveThroughTheirOwnersTable()
                     "    end",
                     "    type Id = uint32",
                     "end",
-                    "local p: m.Shapes.Point = new m.Shapes.Point(x = 1)",
+                    "local p: m.Shapes.Point = m.Shapes.Point(x = 1)",
                     "local i: m.Shapes.Id = 1",
                     "local ok: boolean = p is m.Shapes.Point",
                     "return m",
@@ -968,7 +962,7 @@ function M.methodsAttachToAQualifiedRecord()
                     "function m.Counter:bump(): integer",
                     "    return self.n + 1",
                     "end",
-                    "local c: m.Counter = new m.Counter(n = 1)",
+                    "local c: m.Counter = m.Counter(n = 1)",
                     "local got: integer = c:bump()",
                     "return m",
                 },

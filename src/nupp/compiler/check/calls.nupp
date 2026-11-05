@@ -282,7 +282,7 @@ end
 
 --- A field is a slot the value can be replaced in, so a type argument that
 --- construction inferred from a literal is the literal's type rather than the
---- one value: `new Box(value = 1)` is a `Box<integer>`, as `{1}` is an `{integer}`.
+--- one value: `Box(value = 1)` is a `Box<integer>`, as `{1}` is an `{integer}`.
 --- `only` restricts this to the binders it names.
 local function widenLiteralBindings(map: {[any]: any}, only: {[any]: boolean}?): nil
     for tv, bound in pairs(map) do
@@ -506,8 +506,8 @@ export function install(c: state.Checker): Ops
         local found, valid = false, true
 
         local function visit(node)
-            while node and (node.kind == "paren" or node.kind == "castExpr" or node.kind == "newExpr") do
-                node = node.kind == "newExpr" and node.call or node.expr
+            while node and (node.kind == "paren" or node.kind == "castExpr") do
+                node = node.expr
             end
             if not node or cst.isToken(node) then
                 return
@@ -1440,22 +1440,7 @@ export function install(c: state.Checker): Ops
             calleeT = calleeT.of
             node.signatureType = calleeT
         end
-        local constructible = declarationCall
-            or node.isNew
-            and calleeT.tag == "nominal"
-            and (calleeT.declKind == "struct" or calleeT.declKind == "record")
-        if node.isNew and not constructible and not node.newReported and calleeT ~= T.any then
-            local named = node.obj and c.pathKey(node.obj)
-            c.diag(
-                "NUPP2206",
-                node.obj or node,
-                ("%s cannot be constructed"):format(named or T.tostring(calleeT)),
-                nil,
-                {help = "construction requires a record or struct declaration"}
-            )
-            node.newReported = true
-        end
-        if constructible then
+        if declarationCall then
             node.construction = true
             local affineValues = {}
             local deferredAffineRoots: {[string]: {
@@ -1481,7 +1466,7 @@ export function install(c: state.Checker): Ops
                         node,
                         ("%s declares a constructor, so it is built by calling " .. "it"):format(named),
                         nil,
-                        {help = ("write new %s(...) with the constructor's " .. "arguments"):format(named)}
+                        {help = ("write %s(...) with the constructor's " .. "arguments"):format(named)}
                     )
                     -- The fields were the wrong shape of argument, not a wrong one;
                     -- holding them to the constructor's parameters as well would say
@@ -1490,11 +1475,6 @@ export function install(c: state.Checker): Ops
                     return calleeT, {calleeT}
                 end
                 node.constructorCall = named
-                -- The construction is settled here. What follows is an ordinary
-                -- application of the constructor's signature, and re-entering with
-                -- `new` still set would ask this same node whether it can be
-                -- constructed a second time.
-                node.isNew = nil
                 local builtSignatures, bySignature = {}, {}
                 local entries = calleeT.constructorEntries or {}
                 builtSignatures = require("nupp.compiler.constructors").signatures(calleeT)
@@ -1569,8 +1549,8 @@ export function install(c: state.Checker): Ops
                     ("%s is constructed from arguments, not from a table"):format(declared),
                     tableConstructionFix(tbl),
                     {
-                        help = isRecord and ("write new %s(field = value, ...)"):format(declared)
-                        or ("write new %s(...) with one value per field, in order"):format(declared),
+                        help = isRecord and ("write %s(field = value, ...)"):format(declared)
+                        or ("write %s(...) with one value per field, in order"):format(declared),
                     }
                 )
                 c.infer(tbl)
@@ -1707,12 +1687,12 @@ export function install(c: state.Checker): Ops
                 bound[fname] = true
                 bindings[#bindings + 1] = {name = fname, node = value}
                 -- A field is a destination the way an assigned one is: `r.f = make()`
-                -- resolves make's result binder from the field, so `new R(f = make())`
+                -- resolves make's result binder from the field, so `R(f = make())`
                 -- does too. Only once the field's type is settled -- a binder of the
                 -- record nothing has answered yet would hand the call a guess.
                 -- A binder the fields before this one have not answered may still be
                 -- answered by a later one that can be read without evaluating it: in
-                -- `new Box(items = make(), default = 1)` the literal says what T is.
+                -- `Box(items = make(), default = 1)` the literal says what T is.
                 if value.kind == "call" or value.kind == "safeCall" then
                     local settled = true
                     local mentioned = generics.bindersInPack(T.pack({ft}))
@@ -1835,7 +1815,7 @@ export function install(c: state.Checker): Ops
                             arg,
                             ("a struct is built in field order, so %s takes its values positionally"):format(declared),
                             nil,
-                            {help = ("write new %s(...) with one value per field, in order"):format(declared)}
+                            {help = ("write %s(...) with one value per field, in order"):format(declared)}
                         )
                         c.infer(arg.value or arg)
                     else
@@ -1886,7 +1866,7 @@ export function install(c: state.Checker): Ops
             -- about the call site rather than a claim it is wrong, so it is a lint.
             if byOrder and isRecord then
                 c.diag("NUPP2512", node, ("record %s is constructed by field order"):format(calleeT.name), nil, {
-                    help = ("write new %s(field = value, ...) to name the fields"):format(declared)
+                    help = ("write %s(field = value, ...) to name the fields"):format(declared)
                 })
             end
             for _, field in ipairs(order) do
@@ -2129,9 +2109,7 @@ export function install(c: state.Checker): Ops
 
         local overloads = callableMembers(calleeT)
         if calleeT == T.any or (calleeT.tag ~= "func" and not overloads) then
-            -- A `new` whose operand was already refused is not also a bad call: the
-            -- program said what it meant, and one diagnostic says why it cannot be met.
-            if calleeT ~= T.any and not node.newReported then
+            if calleeT ~= T.any then
                 c.diag("NUPP2005", node, ("%s is not callable"):format(T.tostring(calleeT)))
             end
             -- still check the argument expressions themselves

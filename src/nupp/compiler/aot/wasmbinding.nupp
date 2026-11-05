@@ -95,7 +95,7 @@ export function replacement(program: scalarIR.Program, units: {string}): string
                 ) .. " then error(\"Wasm AOT spans have incompatible lengths\", 2) end"
             end
             arguments[#arguments + 1] = token
-            taken[#taken + 1] = new binding.TakenSpan(param = param, pointer = token, count = count)
+            taken[#taken + 1] = binding.TakenSpan(param = param, pointer = token, count = count)
             local element = param.type:match("^struct:(.+)$") or sourceType(param)
             physicalParams[
                 #physicalParams + 1

@@ -57,7 +57,7 @@ record box.Value
 end
 
 function box.newValue(number: number): box.Value
-    return new box.Value(number = number)
+    return box.Value(number = number)
 end
 
 return box
@@ -76,7 +76,7 @@ local function closeHandle(takes handle: resource.Handle): nil
 end
 
 function resource.open(value: number): affine(resource.Handle, closeHandle)
-    return new resource.Handle(value = value)
+    return resource.Handle(value = value)
 end
 
 return resource
@@ -460,13 +460,13 @@ local record World
 end
 
 local function newWorld(): World
-    local world = new World(observers = events.newobservers())
-    world.observers = events.newobservers()
+    local world = World(observers = events.Observers())
+    world.observers = events.Observers()
     return world
 end
 
 local function fresh(): Observers<integer>
-    return events.newobservers()
+    return events.Observers()
 end
 
 local function count(path: string): integer
@@ -540,7 +540,7 @@ end
 
 local function make(): number
     ann.noop()
-    local marked = new Marked%d(value = 1)
+    local marked = Marked%d(value = 1)
     return marked.value
 end
 

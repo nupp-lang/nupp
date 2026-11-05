@@ -131,7 +131,7 @@ local function expandOne(base: string, settings: Settings, file: string): Page?,
         title = prefix .. " " .. number .. ": " .. name
     end
 
-    return new Page(
+    return Page(
         markdown = header(title, fields) .. body,
         name = name,
         number = number,
@@ -203,7 +203,7 @@ export function index(base: string, settings: Settings, route: string, pages: {P
         end
     end
 
-    return new Page(
+    return Page(
         markdown = table.concat(out, "\n"),
         name = title,
         path = route,

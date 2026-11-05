@@ -17,25 +17,25 @@ end
 
 local binding = serde.binding(
     Reading,
-    new serde.Options(
+    serde.Options(
         fields = {
-            id = new serde.FieldOptions(name = "sensor_id"),
-            label = new serde.FieldOptions(),
-            samples = new serde.FieldOptions(),
+            id = serde.FieldOptions(name = "sensor_id"),
+            label = serde.FieldOptions(),
+            samples = serde.FieldOptions(),
         }
     )
 )
 
 local function encodedText(value: Reading): string
     local out = require("string.buffer").new()
-    local writer = json.newwriter(out)
+    local writer = json.Writer.of(out)
     typedJSON.writevalue(binding, value, writer)
     writer:close()
 
     return out:tostring()
 end
 
-local reading = new Reading(id = 7, label = "intake", samples = {3, 1, 4})
+local reading = Reading(id = 7, label = "intake", samples = {3, 1, 4})
 local encoded = encodedText(reading)
 local decoded = typedJSON.decode(binding, encoded)
 -- A field the document does not carry is the recipe's default rather than absent,
@@ -46,7 +46,7 @@ local accepted = pcall(typedJSON.decode, binding, [[{"label":"nameless"}]])
 local documents = require("serde.document")
 local codecs = require("serde.codec")
 local native = require("serde.native")
-local key = util.newkey<string>()
+local key = util.Key<string>()
 local context = codecs.contextbuilder({}, {})
 context:set(key, "browser schema")
 local document = typedJSON.decodedocument(
@@ -61,7 +61,7 @@ assert2(assert2(values:at(2):context()):get(key) == "browser schema")
 assert2(typedJSON.encodedocument(documents.adapter(), document) == '{"values":[null,18446744073709551615]}')
 assert2(not pcall(native.codec), "native persistence must refuse the browser")
 
-local viewOwner = new Reading(id = 1, samples = {2})
+local viewOwner = Reading(id = 1, samples = {2})
 local view = documents.view(binding, viewOwner)
 local snapshot = view:snapshot()
 viewOwner.samples[1] = 3

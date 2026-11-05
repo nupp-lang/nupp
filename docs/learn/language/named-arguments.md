@@ -201,7 +201,7 @@ local record Point
     y: number
 end
 
-local point = new Point(x = 1, y = 2)
+local point = Point(x = 1, y = 2)
 local {x, y as vertical} = point
 const {x as fixedX: number} = point
 ```

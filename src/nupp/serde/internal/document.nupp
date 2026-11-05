@@ -212,8 +212,8 @@ export record Document
     end
 end
 
-local root = new Member(name = "$document")
-local element = new Member(name = "$element")
+local root = Member(name = "$document")
+local element = Member(name = "$element")
 local write: function(borrows value: Document, member: Member, exclusive writer: core.Writer<Member>): nil
 local read: function(exclusive reader: core.DocumentReader): Document
 local adapter: core.DocumentAdapter<Document>
@@ -221,7 +221,7 @@ local adapter: core.DocumentAdapter<Document>
 local record Fields is core.Members<Member, Document>
     function apply(self, borrows value: Document, exclusive writer: core.Writer<Member>): nil
         for _, field in ipairs(value.fields) do
-            write(field.value, new Member(name = field.name), writer)
+            write(field.value, Member(name = field.name), writer)
         end
     end
 end
@@ -237,7 +237,7 @@ local record One is core.Members<Member, Document>
         write(value, element, writer)
     end
 end
-local one = new One()
+local one = One()
 local record Entries is core.Members<Member, Document>
     function apply(self, borrows value: Document, exclusive writer: core.Writer<Member>): nil
         for _, entry in ipairs(value.entries as {MapEntry}) do
@@ -245,7 +245,7 @@ local record Entries is core.Members<Member, Document>
         end
     end
 end
-local fields, elements, entries = new Fields(), new Elements(), new Entries()
+local fields, elements, entries = Fields(), Elements(), Entries()
 
 write = function(borrows value: Document, member: Member, exclusive writer: core.Writer<Member>): nil
     if value.kind == "null" then
@@ -295,7 +295,7 @@ local record AddElement is core.DocumentElement<{Document}>
 end
 local record AddField is core.DocumentMember<{Entry}>
     function apply(self, exclusive state: {Entry}, name: string, exclusive reader: core.DocumentReader): nil
-        state[#state + 1] = new Entry(name = name, value = read(reader))
+        state[#state + 1] = Entry(name = name, value = read(reader))
     end
 end
 local record AddEntry is core.DocumentEntry<{MapEntry}>
@@ -306,10 +306,10 @@ local record AddEntry is core.DocumentEntry<{MapEntry}>
         exclusive value: core.DocumentReader
     ): nil
         local keyValue = read(key)
-        state[#state + 1] = new MapEntry(key = keyValue, value = read(value))
+        state[#state + 1] = MapEntry(key = keyValue, value = read(value))
     end
 end
-local addElement, addField, addEntry = new AddElement(), new AddField(), new AddEntry()
+local addElement, addField, addEntry = AddElement(), AddField(), AddEntry()
 
 read = function(exclusive reader: core.DocumentReader): Document
     local kind = reader:kind()
@@ -362,7 +362,7 @@ read = function(exclusive reader: core.DocumentReader): Document
         error("unsupported document input: " .. kind, 2)
     end
 
-    return new Document(
+    return Document(
         kind = kind,
         text = text,
         flag = flag,
@@ -387,7 +387,7 @@ local record Description is core.Description<Member>
     @readonly canread: boolean
     @readonly children: {core.Child<Member>}
 end
-local description = new Description(kind = "dynamic", member = root, nullable = true, canread = false, children = {})
+local description = Description(kind = "dynamic", member = root, nullable = true, canread = false, children = {})
 
 local record Contents is core.Adapter<Document, Member>
     function describe(self, direction: core.Direction): core.Description<Member>
@@ -421,27 +421,27 @@ local record Adapter is core.DocumentAdapter<Document>
         return read(reader)
     end
 end
-adapter = new Adapter(binding = new core.Bound<Document, Member>(adapter = new Contents()))
+adapter = Adapter(binding = core.Bound<Document, Member>(adapter = Contents()))
 
 export function documentAdapter(): core.DocumentAdapter<Document>
     return adapter
 end
 
 export function string(value: string): Document
-    return new Document(kind = "string", text = value, elements = {}, fields = {})
+    return Document(kind = "string", text = value, elements = {}, fields = {})
 end
 
 export function numberToken(value: string): Document
     json.numberToken(value)
-    return new Document(kind = "numbertoken", text = value, elements = {}, fields = {})
+    return Document(kind = "numbertoken", text = value, elements = {}, fields = {})
 end
 
 export function document(value: Document): Document
-    return new Document(kind = "document", elements = {value}, fields = {})
+    return Document(kind = "document", elements = {value}, fields = {})
 end
 
 export function null(): Document
-    return new Document(kind = "null", elements = {}, fields = {})
+    return Document(kind = "null", elements = {}, fields = {})
 end
 
 export function list(values: {Document}): Document
@@ -450,7 +450,7 @@ export function list(values: {Document}): Document
         copy[index] = value
     end
 
-    return new Document(kind = "list", elements = copy, fields = {})
+    return Document(kind = "list", elements = copy, fields = {})
 end
 
 export function object(values: {Entry}): Document
@@ -464,23 +464,23 @@ export function object(values: {Entry}): Document
         copy[index] = value
     end
 
-    return new Document(kind = "structure", elements = {}, fields = copy)
+    return Document(kind = "structure", elements = {}, fields = copy)
 end
 
 export function boolean(value: boolean): Document
-    return new Document(kind = "bool", flag = value, elements = {}, fields = {})
+    return Document(kind = "bool", flag = value, elements = {}, fields = {})
 end
 
 export function integer(value: core.Integer): Document
-    return new Document(kind = "integer", integerValue = value, elements = {}, fields = {})
+    return Document(kind = "integer", integerValue = value, elements = {}, fields = {})
 end
 
 export function decimal(value: core.Decimal): Document
-    return new Document(kind = "decimal", decimalValue = value, elements = {}, fields = {})
+    return Document(kind = "decimal", decimalValue = value, elements = {}, fields = {})
 end
 
 export function float(value: core.Float): Document
-    return new Document(kind = "float", floatValue = value, elements = {}, fields = {})
+    return Document(kind = "float", floatValue = value, elements = {}, fields = {})
 end
 
 export function bigInteger(value: string): Document
@@ -489,20 +489,20 @@ export function bigInteger(value: string): Document
         "invalid big integer"
     )
 
-    return new Document(kind = "biginteger", text = value, elements = {}, fields = {})
+    return Document(kind = "biginteger", text = value, elements = {}, fields = {})
 end
 
 export function bytes(value: string): Document
-    return new Document(kind = "bytes", text = value, elements = {}, fields = {})
+    return Document(kind = "bytes", text = value, elements = {}, fields = {})
 end
 
 export function timestamp(value: core.Timestamp): Document
     assert2(value.nanos >= 0 and value.nanos < 1000000000, "invalid timestamp nanos")
-    return new Document(kind = "timestamp", time = value, elements = {}, fields = {})
+    return Document(kind = "timestamp", time = value, elements = {}, fields = {})
 end
 
 export function atom(borrows value: core.Atom): Document
-    return new Document(kind = "atom", atomValue = value:snapshot(), elements = {}, fields = {})
+    return Document(kind = "atom", atomValue = value:snapshot(), elements = {}, fields = {})
 end
 
 export function tuple(values: {Document}): Document
@@ -511,11 +511,11 @@ export function tuple(values: {Document}): Document
         copy[index] = value
     end
 
-    return new Document(kind = "tuple", elements = copy, fields = {})
+    return Document(kind = "tuple", elements = copy, fields = {})
 end
 
 export function union(name: string, value: Document): Document
-    return new Document(kind = "union", elements = {}, fields = {new Entry(name = name, value = value)})
+    return Document(kind = "union", elements = {}, fields = {Entry(name = name, value = value)})
 end
 
 export function map(values: {MapEntry}): Document
@@ -524,11 +524,11 @@ export function map(values: {MapEntry}): Document
         copy[index] = value
     end
 
-    return new Document(kind = "map", elements = {}, fields = {}, entries = copy)
+    return Document(kind = "map", elements = {}, fields = {}, entries = copy)
 end
 
 export function withContext(value: Document, context: core.Context): Document
-    return new Document(
+    return Document(
         kind = value.kind,
         text = value.text,
         flag = value.flag,
@@ -570,16 +570,16 @@ end
 local record NameFactory is plans.PolicyFactory
     @readonly epoch: boolean
     function policy<M is core.Member>(self, member: M): plans.Policy<M>
-        return new Policy<M>(epoch = self.epoch)
+        return Policy<M>(epoch = self.epoch)
     end
 end
 
 -- Any model's members under their own names, which is what a document's are.
-export const memberNames: plans.PolicyFactory = new NameFactory(epoch = false)
+export const memberNames: plans.PolicyFactory = NameFactory(epoch = false)
 
 export function policy<M is core.Member>(member: M, epoch: boolean): plans.Policy<M>?
     if getmetatable(member) ~= Member then
         return nil
     end
-    return new Policy<M>(epoch = epoch)
+    return Policy<M>(epoch = epoch)
 end

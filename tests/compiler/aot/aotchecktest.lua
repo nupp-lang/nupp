@@ -355,7 +355,7 @@ end
 
 @aot
 local function square(z: Pair): Pair
-    return new Pair(z.re * z.re - z.im * z.im, z.re * z.im + z.im * z.re)
+    return Pair(z.re * z.re - z.im * z.im, z.re * z.im + z.im * z.re)
 end
 
 @aot
@@ -364,7 +364,7 @@ local function squares(exclusive out: span.WriteSpan<float>, borrows re: span.Sp
     assert(#im == #re, "length mismatch")
     local species = simd.species(array.float)
     for at, active in species:over(#re) do
-        local w = square(new Pair(species:load(re, at, active), species:load(im, at, active)))
+        local w = square(Pair(species:load(re, at, active), species:load(im, at, active)))
         species:store(out, at, w.re + w.im, active)
     end
 end
@@ -918,7 +918,7 @@ end
 
 local function fromLua(): Pair
     local species = simd.species(array.float)
-    return new Pair(species:splat(1.0), species:splat(2.0))
+    return Pair(species:splat(1.0), species:splat(2.0))
 end
 
 return {conjugate = conjugate, fromLua = fromLua, Pair = Pair}
@@ -930,7 +930,7 @@ return {conjugate = conjugate, fromLua = fromLua, Pair = Pair}
     local found = refusalsByFile(decoded)["pair.nupp"] or {}
     test.eq(#found, 2, raw)
     assert(found[1]:match("^NUPP2911 11:7"), "the field store is refused: " .. found[1])
-    assert(found[2]:match("^NUPP2910 17:16"), "the Lua construction is refused: " .. found[2])
+    assert(found[2]:match("^NUPP2910 17:12"), "the Lua construction is refused: " .. found[2])
     local off, offCode, offRaw = checkJson(dir, "--target off")
     test.eq(offCode, 1, offRaw)
     local offFound = refusalsByFile(off)["pair.nupp"] or {}

@@ -44,7 +44,7 @@ function dwarf.unit(module: builder.Module, path: string, dwarfVersion: integer)
     builder.named(module, "llvm.module.flags", version)
     builder.named(module, "llvm.module.flags", info)
 
-    return new dwarf.Unit(file = file, unit = unit)
+    return dwarf.Unit(file = file, unit = unit)
 end
 
 --- A subprogram for the function `name` starting at `line`.

@@ -73,13 +73,13 @@ function M.colonCallsRequireAMethodBearingReceiver()
 end
 
 function M.recordMethodsTypeAtCallSites()
-    assertClean(TASK .. "\nlocal t: Task = new Task(title = 'test')\nlocal s: string = t:describe()")
+    assertClean(TASK .. "\nlocal t: Task = Task(title = 'test')\nlocal s: string = t:describe()")
     testAssert.eq(
-        diagsOf(TASK .. "\nlocal t: Task = new Task(title = 'test')\nlocal n: number = t:describe()"),
+        diagsOf(TASK .. "\nlocal t: Task = Task(title = 'test')\nlocal n: number = t:describe()"),
         "NUPP2001:8"
     )
-    testAssert.eq(diagsOf(TASK .. "\nlocal t: Task = new Task(title = 'test')\nt:describe(1)"), "NUPP2007:8")
-    testAssert.eq(diagsOf(TASK .. "\nlocal t: Task = new Task(title = 'test')\nt:nosuch()"), "NUPP2004:8")
+    testAssert.eq(diagsOf(TASK .. "\nlocal t: Task = Task(title = 'test')\nt:describe(1)"), "NUPP2007:8")
+    testAssert.eq(diagsOf(TASK .. "\nlocal t: Task = Task(title = 'test')\nt:nosuch()"), "NUPP2004:8")
 end
 
 function M.selfIsBoundInsideMethods()
@@ -156,7 +156,7 @@ function M.inlineFunctionsNeedSelfToBeMethods()
                     "local record Numbers",
                     "    function answer(): integer return 42 end",
                     "end",
-                    "local numbers = new Numbers()",
+                    "local numbers = Numbers()",
                     "numbers:answer()",
                 },
                 "\n"
@@ -210,10 +210,7 @@ function M.dottedMembersTakeNoReceiver()
 end
 
 function M.recordMethodsRunAtRuntime()
-    testAssert.eq(
-        run(TASK .. table.concat({"", "local t = new Task(title = 'ok')", "return t:describe()",}, "\n")),
-        "ok"
-    )
+    testAssert.eq(run(TASK .. table.concat({"", "local t = Task(title = 'ok')", "return t:describe()",}, "\n")), "ok")
 end
 
 function M.structMethodsDispatchThroughMetatype()
@@ -226,7 +223,7 @@ function M.structMethodsDispatchThroughMetatype()
             "function Vec2:len(): number",
             "    return (self.x * self.x + self.y * self.y) ^ 0.5",
             "end",
-            "local v = new Vec2(3, 4)",
+            "local v = Vec2(3, 4)",
             "return v:len()",
         },
         "\n"
@@ -244,7 +241,7 @@ function M.structMethodsDispatchThroughMetatype()
                     "function P:twice(): number",
                     "    return self.n * 2",
                     "end",
-                    "local p = new P(21)",
+                    "local p = P(21)",
                     "return p:twice()",
                 },
                 "\n"
@@ -286,7 +283,7 @@ function M.onlyACallExpandsAcrossTargets()
                 "    one: function(n: string?): string?",
                 "    two: function(n: string?): (string?, any)",
                 "end",
-                "local b = new m.Box(one = function(n) return n end, two = function(n) return n, nil end)",
+                "local b = m.Box(one = function(n) return n end, two = function(n) return n, nil end)",
                 "b.one = function(n)",
                 "    if n == 'x' then return b.one(n) end",
                 "    return b.two(n)",
@@ -301,9 +298,8 @@ function M.onlyACallExpandsAcrossTargets()
     )
 end
 
--- `new` is the construction, for both kinds of declaration. It lowers to the
--- stamp and the ctype call themselves, so what it costs at run time is nothing.
-function M.newConstructsRecordsAndStructs()
+-- Record and struct declarations are callable through ordinary value lookup.
+function M.callsConstructRecordsAndStructs()
     testAssert.eq(
         run(
             table.concat(
@@ -319,9 +315,9 @@ function M.newConstructsRecordsAndStructs()
                     "    x: float",
                     "    y: float",
                     "end",
-                    "local a = new Account(name = 'Hina', balance = 500)",
-                    "local named = new V2(3.0, 4.0)",
-                    "local positional = new V2(1.0, 2.0)",
+                    "local a = Account(name = 'Hina', balance = 500)",
+                    "local named = V2(3.0, 4.0)",
+                    "local positional = V2(1.0, 2.0)",
                     "a:deposit(20)",
                     "return a.balance + named.x + named.y + positional.x + positional.y",
                 },
@@ -332,8 +328,7 @@ function M.newConstructsRecordsAndStructs()
     )
 end
 
--- The keyword is contextual: `new` is a name everywhere a name can stand, and
--- only a name following it on the same line makes it a construction.
+-- `new` is an ordinary name, including a callable function binding.
 function M.newStaysAnOrdinaryNameElsewhere()
     testAssert.eq(
         run(
@@ -346,7 +341,7 @@ function M.newStaysAnOrdinaryNameElsewhere()
                     "local new = id",
                     "local held = new",
                     "id(R)",
-                    "local built = new R(n = 5)",
+                    "local built = R(n = 5)",
                     "return built.n + (held == id and 1 or 0)",
                 },
                 "\n"
@@ -356,21 +351,12 @@ function M.newStaysAnOrdinaryNameElsewhere()
     )
 end
 
--- What `new` names is a type, so an operand that is not one is answered as a
--- type rather than through whatever value stands under the name. An interface
--- binds no value at all, so going through the value would say `any`.
-function M.newRefusesWhatCannotBeConstructed()
+function M.nonCallableDeclarationsUseOrdinaryCallChecks()
     testAssert.eq(
-        diagsOf(table.concat({"local interface I", "    n: integer", "end", "local iface = new I()",}, "\n")),
-        "NUPP2206:4"
+        diagsOf("local interface I function of(): string return 'ok' end end\nlocal invalid = I()"),
+        "NUPP2005:2"
     )
-    testAssert.eq(diagsOf("local prim = new string()"), "NUPP2206:1")
-    -- a closed set of literals is a union, and a value of it is one of the
-    -- literals, written directly
-    testAssert.eq(
-        diagsOf(table.concat({"local type Color = 'red' | 'blue'", "local c = new Color()",}, "\n")),
-        "NUPP2206:2"
-    )
+    testAssert.eq(diagsOf("local prim = string()"), "NUPP2005:1")
 end
 
 -- A refinement is what `is` compiles to. The values here were never built by
@@ -595,7 +581,7 @@ function M.instancesAreRecognisedThroughTheirPrototype()
                     "end",
                     "local make = newEvent(OnSpawn)",
                     "local linked = make(42)",
-                    "local stamped = new OnSpawn(eventId = 1, entity = 2)",
+                    "local stamped = OnSpawn(eventId = 1, entity = 2)",
                     "local foreign: any = {eventId = 1, entity = 2}",
                     -- linked and stamped are both instances; a lookalike and the
                     -- declaration's own table are not
@@ -625,7 +611,7 @@ function M.aProvenInterfaceNeedsNoTest()
                     "   kind: string",
                     "   radius: number",
                     "end",
-                    "local c = new Circle(kind = 'c', radius = 1)",
+                    "local c = Circle(kind = 'c', radius = 1)",
                     "local maybe: Circle? = c",
                     "local absent: Circle? = nil",
                     "return (c is Shape and 1 or 0) + (maybe is Shape and 2 or 0)",
@@ -713,7 +699,7 @@ function M.interfacesCarryDefaultBodies()
                     "local record Person is Greeter",
                     "   name: string",
                     "end",
-                    "local p = new Person(name = 'Ada')",
+                    "local p = Person(name = 'Ada')",
                     "return p:greet()",
                 },
                 "\n"
@@ -737,7 +723,7 @@ function M.interfacesCarryDefaultBodies()
                     "   w: float",
                     "   h: float",
                     "end",
-                    "return (new Box(3, 4)):area()",
+                    "return (Box(3, 4)):area()",
                 },
                 "\n"
             )
@@ -761,7 +747,7 @@ function M.interfacesCarryDefaultBodies()
                     "local record Leaf is Mid",
                     "   n: integer",
                     "end",
-                    "return (new Leaf(n = 21)):twice()",
+                    "return (Leaf(n = 21)):twice()",
                 },
                 "\n"
             )
@@ -796,7 +782,7 @@ function M.overridingADefaultIsOptional()
                     "      return '...'",
                     "   end",
                     "end",
-                    "return (new Silent(name = 'x')):greet()",
+                    "return (Silent(name = 'x')):greet()",
                 },
                 "\n"
             )
@@ -816,7 +802,7 @@ function M.overridingADefaultIsOptional()
                     "      return 'LOUD'",
                     "   end",
                     "end",
-                    "return (new Loud(name = 'x')):greet()",
+                    "return (Loud(name = 'x')):greet()",
                 },
                 "\n"
             )
@@ -1057,7 +1043,7 @@ function M.aReadonlyFieldStaysReadonlyUnderAWritableContract()
                     "local record Cell is Mut",
                     "   @readonly value: string",
                     "end",
-                    "local c = new Cell(value = 'a')",
+                    "local c = Cell(value = 'a')",
                     "c.value = 'b'",
                     "return c",
                 },
@@ -1076,7 +1062,7 @@ function M.aReadonlyFieldStaysReadonlyUnderAWritableContract()
                 "local record Wide is RO",
                 "   value: string | integer",
                 "end",
-                "local w = new Wide(value = 's')",
+                "local w = Wide(value = 's')",
                 "w.value = 1",
                 "return w",
             },
@@ -1165,7 +1151,7 @@ function M.aDefaultInheritedTwiceMustBeChosen()
                     "      return 'mine'",
                     "   end",
                     "end",
-                    "return (new Good(n = 1)):tag()",
+                    "return (Good(n = 1)):tag()",
                 },
                 "\n"
             )
@@ -1174,7 +1160,7 @@ function M.aDefaultInheritedTwiceMustBeChosen()
     )
 end
 
--- A constructor is the whole reason `new` is worth having over a literal: a
+-- A constructor initializes the instance through a checked body: a
 -- literal may leave a declared field out, and a constructor may not.
 function M.constructorsRunAndFillEveryField()
     testAssert.eq(
@@ -1192,7 +1178,7 @@ function M.constructorsRunAndFillEveryField()
                     "        self.balance = self.balance + credit",
                     "    end",
                     "end",
-                    "local a = new Account('Hina', 500)",
+                    "local a = Account('Hina', 500)",
                     "a:deposit(20)",
                     "return a.balance",
                 },
@@ -1212,7 +1198,7 @@ function M.constructorsRunAndFillEveryField()
                     "        self.n = v",
                     "    end",
                     "end",
-                    "local r = new R(7)",
+                    "local r = R(7)",
                     "return (r is R) and r.n or 0",
                 },
                 "\n"
@@ -1237,7 +1223,7 @@ function M.constructorsTakeEitherFunctionSpelling()
                     "        self.y = at",
                     "    end",
                     "end",
-                    "local d = new Diagonal(4)",
+                    "local d = Diagonal(4)",
                     "return d.x + d.y",
                 },
                 "\n"
@@ -1256,7 +1242,7 @@ function M.constructorsTakeEitherFunctionSpelling()
                     "        self.x = flip ? at : -at",
                     "    end",
                     "end",
-                    "return (new Signed(5, false)).x",
+                    "return (Signed(5, false)).x",
                 },
                 "\n"
             )
@@ -1411,8 +1397,8 @@ function M.overloadedConstructorsSelectDistinctBodies()
                     "        self.text = value",
                     "    end",
                     "end",
-                    "local numberValue = new Value(42)",
-                    "local stringValue = new Value('ready')",
+                    "local numberValue = Value(42)",
+                    "local stringValue = Value('ready')",
                     "return numberValue.text .. ':' .. stringValue.text",
                 },
                 "\n"
@@ -1458,8 +1444,8 @@ function M.genericConstructorsRemainOverloadedAfterInstantiation()
                     "        self.value = (convert and tostring(value) or value) as T",
                     "    end",
                     "end",
-                    "local text = new Box('value', 'ready')",
-                    "local number = new Box('converted', 42, true)",
+                    "local text = Box('value', 'ready')",
+                    "local number = Box('converted', 42, true)",
                     "local textValue: string = text.value",
                     "local numberValue: integer = number.value",
                     "return text.value .. ':' .. number.value",
@@ -1490,7 +1476,7 @@ function M.constructorResultsMayIntroduceAnAffinePolicy()
                     "    end",
                     "end",
                     "do",
-                    "    local file = new File('notes.txt')",
+                    "    local file = File('notes.txt')",
                     "    assert(file:read() == 'notes.txt')",
                     "end",
                     "return closed",
@@ -1520,8 +1506,8 @@ function M.constructorOverloadsSelectTheirResultPolicy()
                     "        closed += 1",
                     "    end",
                     "end",
-                    "do local managed = new File('managed') end",
-                    "do local plain = new File('plain') end",
+                    "do local managed = File('managed') end",
+                    "do local plain = File('plain') end",
                     "return closed",
                 },
                 "\n"
@@ -1545,7 +1531,7 @@ function M.genericConstructorResultsUseTheInferredInstance()
                     "    function destroy(takes self): nil closed += 1 end",
                     "end",
                     "do",
-                    "    local box = new Box('ready')",
+                    "    local box = Box('ready')",
                     "    local text: string = box.value",
                     "end",
                     "return closed",
@@ -1581,7 +1567,7 @@ function M.inlineCleanupIdentitiesFollowTheRecordsTypeScope()
                 "    function destroy(takes self): nil end",
                 "end",
                 "local type OwnedFile = affine(File, File.destroy)",
-                "local function open(): OwnedFile return new File() end",
+                "local function open(): OwnedFile return File() end",
                 "do local file = open() end",
             },
             "\n"
@@ -1620,11 +1606,11 @@ function M.aConstructorClosesTheLiteralForm()
         },
         "\n"
     )
-    testAssert.eq(diagsOf(decl .. "\nlocal a = new A {n = 1}"), "NUPP2208:7")
-    assertClean(decl .. "\nlocal a = new A(1)")
+    testAssert.eq(diagsOf(decl .. "\nlocal a = A {n = 1}"), "NUPP2208:7")
+    assertClean(decl .. "\nlocal a = A(1)")
     -- `constructor` is contextual: a field may still be called one
     assertClean(
-        table.concat({"local record C", "    constructor: string", "end", "local c = new C(constructor = 'x')",}, "\n")
+        table.concat({"local record C", "    constructor: string", "end", "local c = C(constructor = 'x')",}, "\n")
     )
 end
 
@@ -1636,7 +1622,7 @@ function M.fieldDefaultsSeedDirectConstructionAndConstructors()
                 "    active: boolean = false",
                 "    retries: integer = 3",
                 "end",
-                "local flags = new Flags(retries = 9)",
+                "local flags = Flags(retries = 9)",
                 "local record Settings",
                 "    port: integer = 8080",
                 "    tags: {string} = {}",
@@ -1644,8 +1630,8 @@ function M.fieldDefaultsSeedDirectConstructionAndConstructors()
                 "        self.port = self.port + offset",
                 "    end",
                 "end",
-                "local left = new Settings(1)",
-                "local right = new Settings(2)",
+                "local left = Settings(1)",
+                "local right = Settings(2)",
                 "left.tags[1] = 'changed'",
                 "return {flags.active, flags.retries, left.port, right.port, #right.tags, left.tags ~= right.tags}",
             },
@@ -1689,19 +1675,14 @@ function M.aContractIsHeldToTheValueThatFulfilsIt()
             "   v: integer",
             "   metamethod __add: function(self: I64, other: I64): I64",
             "end",
-            "local x = new I64(v = 1)",
+            "local x = I64(v = 1)",
         },
         "\n"
     )
     testAssert.eq(diagsOf(i64 .. "\nsetmetatable(x, {__add = 'not a function'})"), "NUPP2123:6")
     assertClean(
         i64 .. table.concat(
-            {
-                "",
-                "setmetatable(x, {__add = function(a: I64, b: I64): I64",
-                "   return new I64(v = a.v + b.v)",
-                "end})",
-            },
+            {"", "setmetatable(x, {__add = function(a: I64, b: I64): I64", "   return I64(v = a.v + b.v)", "end})",},
             "\n"
         )
     )
@@ -1710,7 +1691,7 @@ end
 -- Where a declaration contracts for nothing, LuaJIT still says what it will do
 -- with the key it reads.
 function M.aKeyWithNoContractIsHeldToWhatLuaJITDoesWithIt()
-    local r = "local record R end\nlocal r = new R()\n"
+    local r = "local record R end\nlocal r = R()\n"
     testAssert.eq(diagsOf(r .. "setmetatable(r, {__mode = 42})"), "NUPP2123:3")
     testAssert.eq(diagsOf(r .. "setmetatable(r, {__gc = 'soon'})"), "NUPP2123:3")
     testAssert.eq(diagsOf(r .. "setmetatable(r, {__index = 42})"), "NUPP2123:3")
@@ -1719,14 +1700,14 @@ function M.aKeyWithNoContractIsHeldToWhatLuaJITDoesWithIt()
     testAssert.eq(diagsOf(r .. "setmetatable(r, {__tostirng = tostring})"), "NUPP2118:3")
 end
 
--- The declaration's name holds its runtime table, and `new` builds instances of
+-- The declaration's name holds its runtime table, and calling it builds instances of
 -- it. They are different values and now different types, which is what stops
 -- either standing where the other is wanted.
 function M.aRecordsTableIsNotAnInstanceOfIt()
     local foo = "local record Foo\n   v: integer\nend\n"
     assertClean(
         foo .. table.concat(
-            {"local witness: Type<Foo> = Foo", "local instance: Foo = new Foo(v = 1)", "return {witness, instance}",},
+            {"local witness: Type<Foo> = Foo", "local instance: Foo = Foo(v = 1)", "return {witness, instance}",},
             "\n"
         )
     )
@@ -1737,7 +1718,7 @@ function M.aRecordsTableIsNotAnInstanceOfIt()
     testAssert.eq(
         diagsOf(
             foo .. table.concat(
-                {"local instance = new Foo(v = 1)", "local wrong: metatable<Foo> = instance", "return wrong",},
+                {"local instance = Foo(v = 1)", "local wrong: metatable<Foo> = instance", "return wrong",},
                 "\n"
             )
         ),
@@ -1753,7 +1734,7 @@ function M.aRecordsTableIsNotAnInstanceOfIt()
                     "      n: integer",
                     "   end",
                     "end",
-                    "local made = new Outer.Inner(n = 4)",
+                    "local made = Outer.Inner(n = 4)",
                     "return made.n",
                 },
                 "\n"
@@ -1767,7 +1748,7 @@ end
 -- settled without running: a declaration's own table is not one of the values it
 -- stamps, and the test would spend a metatable lookup to say so.
 function M.aTableIsNotAnInstanceAndIsSaysSoWithoutAsking()
-    local foo = table.concat({"local record Foo", "   v: integer", "end", "local instance = new Foo(v = 1)",}, "\n")
+    local foo = table.concat({"local record Foo", "   v: integer", "end", "local instance = Foo(v = 1)",}, "\n")
     testAssert.eq(
         run(foo .. table.concat({"", "return (instance is Foo and 1 or 0) + (Foo is Foo and 100 or 0)",}, "\n")),
         1
@@ -1784,7 +1765,7 @@ function M.aMetamethodOnAnInstanceIsRefused()
         "\n"
     )
     testAssert.eq(
-        diagsOf(i64 .. table.concat({"", "local x = new I64(v = 1)", "x.__tostring = tostring",}, "\n")),
+        diagsOf(i64 .. table.concat({"", "local x = I64(v = 1)", "x.__tostring = tostring",}, "\n")),
         "NUPP2004:6"
     )
     -- and on the table it is the installation
@@ -1847,7 +1828,7 @@ function M.aContractIsInstalledOnTheRecordsOwnTable()
                     "I64.__tostring = function(self: I64): string",
                     "   return 'I64(' .. tostring(self.v) .. ')'",
                     "end",
-                    "return tostring(new I64(v = 7))",
+                    "return tostring(I64(v = 7))",
                 },
                 "\n"
             )
@@ -1877,7 +1858,7 @@ function M.aGenericRecordsContractIsInstalledByALiteral()
             "Box.__call = function<T>(self: Box<T>, value: T): T",
             "   return value",
             "end",
-            "local box = new Box(default = 1)",
+            "local box = Box(default = 1)",
             "local made: integer = box(2)",
             "return made",
         },
@@ -1895,7 +1876,7 @@ function M.aGenericRecordsContractIsInstalledByALiteral()
                     "Box.__call = function(self, value)",
                     "   return self.default",
                     "end",
-                    "local box = new Box(default = 1)",
+                    "local box = Box(default = 1)",
                     "local made: integer = box(2)",
                     "return made",
                 },
@@ -1933,7 +1914,7 @@ function M.aDeclaredMetamethodIsHeldToItsContract()
                     "function Box.__call<T>(self: Box<T>, value: T): T",
                     "   return value",
                     "end",
-                    "local box = new Box(default = 1)",
+                    "local box = Box(default = 1)",
                     "local made: integer = box(2)",
                     "return made",
                 },
@@ -1961,7 +1942,7 @@ function M.aDeclaredMetamethodIsHeldToItsContract()
         v .. table.concat(
             {
                 "function V.__add(a: V, b: V): V",
-                "   return new V(x = a.x + b.x)",
+                "   return V(x = a.x + b.x)",
                 "end",
                 "function V:__len(): integer",
                 "   return 1",
@@ -1998,7 +1979,7 @@ function M.anOuterMethodIsToldToBindTheRecordsParameters()
                     "function Box.get<T>(self: Box<T>, value: T): T",
                     "   return value",
                     "end",
-                    "local box = new Box(default = 1)",
+                    "local box = Box(default = 1)",
                     "local got: integer = box:get(2)",
                     "return got",
                 },
@@ -2027,7 +2008,7 @@ function M.anOuterMethodOnAGenericRecordReceivesAnInstance()
                     "function Box:describe(): string",
                     "   return 'box of ' .. tostring(self.default)",
                     "end",
-                    "local box = new Box(default = 1)",
+                    "local box = Box(default = 1)",
                     "return box:describe()",
                 },
                 "\n"
@@ -2075,7 +2056,7 @@ function M.anIndexTableIsHeldToTheMembersItStandsIn()
             "   value: integer",
             "   label: function(self: Counter): string",
             "end",
-            "local c = new Counter(value = 1, label = tostring)",
+            "local c = Counter(value = 1, label = tostring)",
         },
         "\n"
     )
@@ -2112,7 +2093,7 @@ function M.aPlainCallableFieldDoesNotSatisfyAMethodMember()
             "local record Impl",
             "   greet: function(n: integer): string",
             "end",
-            "local impl = new Impl(greet = function(n: integer): string return tostring(n + 1) end)",
+            "local impl = Impl(greet = function(n: integer): string return tostring(n + 1) end)",
         },
         "\n"
     )
@@ -2191,7 +2172,7 @@ function M.aPlainCallableFieldDoesNotSatisfyAMethodMember()
                 "      return self.name .. tostring(n)",
                 "   end",
                 "end",
-                "local g: Greeter = new Named(name = 'x')",
+                "local g: Greeter = Named(name = 'x')",
                 "return g:greet(5)",
             },
             "\n"
@@ -2208,7 +2189,7 @@ function M.aComputedMetatableStaysGradual()
                 "local record R",
                 "   metamethod __tostring: function(self): string",
                 "end",
-                "local r = new R()",
+                "local r = R()",
                 "local function build(): table",
                 "   return {__tostring = 42}",
                 "end",
@@ -2297,7 +2278,7 @@ function M.aGenericMethodStillInfers()
             "      return value",
             "   end",
             "end",
-            "local box = new Box()",
+            "local box = Box()",
             "local wrong: string = box:idOf(42)",
             "return wrong",
         },
@@ -2312,7 +2293,7 @@ function M.aGenericMethodStillInfers()
                 "      return value",
                 "   end",
                 "end",
-                "local box = new Box()",
+                "local box = Box()",
                 "local kept: integer = box:idOf(42)",
                 "return kept",
             },
@@ -2334,7 +2315,7 @@ function M.aMethodIsNotAPositionalField()
                 "function Pt:sum(): integer",
                 "    return self.x + self.y",
                 "end",
-                "local p = new Pt(1, 2, 3)",
+                "local p = Pt(1, 2, 3)",
                 "return p",
             },
             "\n"
@@ -2459,7 +2440,7 @@ local record R
         return self
     end
 end
-return (new R(true)).x + (new R(false)).x
+return (R(true)).x + (R(false)).x
 ]]
         ),
         3
@@ -2474,7 +2455,7 @@ local record R
         return
     end
 end
-return (new R()).x
+return (R()).x
 ]]
         ),
         3
@@ -2495,13 +2476,13 @@ end
 local record R
     x: integer
     constructor(self, early: boolean): R
-        do local guard = new Guard() ;
+        do local guard = Guard() ;
             self.x = 1
             if early then return end
         end
     end
 end
-local r = new R(true)
+local r = R(true)
 return r.x + closed
 ]]
         ),
@@ -2611,7 +2592,7 @@ local record Plain
     a: integer
     c: self
 end
-local p = new Plain(a = 1, c = 3)
+local p = Plain(a = 1, c = 3)
 return p
 ]]),
         "NUPP2202:5"
@@ -2623,7 +2604,7 @@ local record Callback<T>
     a: T
     c: function(self): nil
 end
-local made = new Callback(a = 1, c = function(other: integer): nil end)
+local made = Callback(a = 1, c = function(other: integer): nil end)
 return made
 ]]
         ),
@@ -2640,8 +2621,8 @@ local record Node<T>
     value: T
     next: self?
 end
-local tail = new Node(value = 2)
-local head: Node<integer> = new Node(value = 1, next = tail)
+local tail = Node(value = 2)
+local head: Node<integer> = Node(value = 1, next = tail)
 return head
 ]]
     )

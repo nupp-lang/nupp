@@ -45,11 +45,11 @@ end
 local entry = assert(derive.entry(Position))
 assert(entry.schema.data.ecs.name == "nupp.internal.ecsderiveconsumer.Position")
 assert(assert(derive.entry(tablemodule.Position)).schema.data.ecs.name == "tests.fixtures.ecsderivetable.Position")
-local value = new Position()
+local value = Position()
 value.x = 0
 derive.initializer(Position)(value)
 assert(value.x == 7)
-local label = new Label()
+local label = Label()
 assert(derive.initializer(Label)(label, "forwarded") == label)
 assert(label.text == "forwarded")
 derive.initializer(Label)(label)

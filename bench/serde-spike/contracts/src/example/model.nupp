@@ -22,7 +22,5 @@ end
 
 --- Returns the public binding without exposing the model's member type.
 export function binding(schema: Schema): core.Binding<string>
-    return new core.Bound<string, Named>(
-        adapter = new TextAdapter(member = new Named(name = schema.name, schema = schema))
-    )
+    return core.Bound<string, Named>(adapter = TextAdapter(member = Named(name = schema.name, schema = schema)))
 end

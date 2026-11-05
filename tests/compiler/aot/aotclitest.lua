@@ -583,7 +583,7 @@ return xorMask
 
     local binding, bindingCode = run(dir, "--emit binding --triple wasm32-unknown-emscripten gpu.nupp")
     test.eq(bindingCode, 0, binding)
-    assert(binding:find("local artifacts = new gpuImplementation_ks_xor_mask.ArtifactSet", 1, true), binding)
+    assert(binding:find("local artifacts = gpuImplementation_ks_xor_mask.ArtifactSet", 1, true), binding)
     assert(binding:find("wgsl = \"struct nupp_tmp_Uniforms", 1, true), binding)
     assert(binding:find("compileGenerated(context, artifacts, 1, 1", 1, true), binding)
 

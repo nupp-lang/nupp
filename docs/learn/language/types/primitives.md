@@ -291,7 +291,7 @@ local record Options
     verbose: boolean?
 end
 
-local o: Options = new Options() -- fine
+local o: Options = Options() -- fine
 ```
 
 Write `A | B` with spaces. `A||B` lexes as the single `||` operator. See
@@ -337,7 +337,7 @@ local function length(v: Vec2*): number
     return math.sqrt(v.x * v.x + v.y * v.y)
 end
 
-local point = new Vec2(3.0, 4.0)
+local point = Vec2(3.0, 4.0)
 print(length(point)) -- the struct value is taken by address
 ```
 

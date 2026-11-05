@@ -91,7 +91,7 @@ representation and lifetime requirements.
 
 Each GPU context retains its device methods. CPU workgroups and tensor layout
 operations are ordinary code. HTTP clients are created with
-`io.http.newclient(options)` and retain their response and body cleanup
+`io.http.Client.create(options)` and retain their response and body cleanup
 responsibilities.
 
 Host code pumps network events with `io.net.pump(milliseconds)`. Processes

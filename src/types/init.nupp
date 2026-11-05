@@ -4,8 +4,8 @@ typed keys, stores, and generated debug formatting. Compiler-only builders run
 inside `@comptime` functions.
 
 ```nupp
-const theme: types.Key<string> = types.newkey("app.theme")
-const store = types.newstore()
+const theme: types.Key<string> = types.Key("app.theme")
+const store = types.Store.create()
 store:set(theme, "dark")
 assert(store:get(theme) == "dark")
 ```
@@ -39,12 +39,6 @@ const api.Key = store.Key
 type api.Store = store.Store
 
 const api.Store = store.Store
-
---- Registers a new key, optionally under a name.
-const api.newkey = store.newKey
-
---- Creates an empty store.
-const api.newstore = store.newStore
 
 @comptime
 local function option(items, annotationName: string, name: string): any

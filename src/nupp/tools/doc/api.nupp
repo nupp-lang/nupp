@@ -14,9 +14,10 @@ export type ItemGroup = {
     items: {extractMod.Item}
 }
 
--- Construction is what `new` does, and a `constructor` declaration documents inside the
--- record it belongs to. A module-level function that hands back an instance is a
--- function whatever it is called, so nothing here reads a naming convention as a kind.
+-- Calling a record or struct declaration constructs an instance. Its `constructor`
+-- documents inside the record it belongs to. A module-level function that hands back an
+-- instance is a function whatever it is called, so nothing here reads a naming
+-- convention as a kind.
 export function displayKind(item: extractMod.Item): string
     if item.comptimeKind then
         return "comptime " .. item.comptimeKind
@@ -29,7 +30,7 @@ end
 -- gathering members under `Methods`, `Types` and `Fields` headings, which reordered a
 -- declaration away from the order it was written in and spent three headings on one
 -- word each. A metamethod is named for the Lua operation it implements rather than for
--- anything a caller writes, and a constructor is reached as `new T(...)`, so neither
+-- anything a caller writes, and a constructor is reached as `T(...)`, so neither
 -- reads as an ordinary method.
 export function memberKind(member: extractMod.Member): string
     if member.comptimeKind then

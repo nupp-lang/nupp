@@ -1245,18 +1245,19 @@ end
 
 @aot
 local function square(z: Pair): Pair
-    return new Pair(z.re * z.re - z.im * z.im, z.re * z.im + z.im * z.re)
+    return Pair(z.re * z.re - z.im * z.im, z.re * z.im + z.im * z.re)
 end
 
 return {square = square, Pair = Pair}
 ```
 
 `Pair` groups the real and imaginary channels of complex values. Construct
-it with `new`, read its fields, and return a new aggregate for each change.
+it by calling its declaration, read its fields, and return a new aggregate for
+each change.
 A kernel loading separate channels can call `square`:
 
 ```nupp:fragment
-local z = new Pair(species:load(re, at, active), species:load(im, at, active))
+local z = Pair(species:load(re, at, active), species:load(im, at, active))
 local result = square(z)
 species:store(output, at, result.re + result.im, active)
 ```
@@ -1279,7 +1280,7 @@ local function conjugate(z: Pair): Pair
 end
 ```
 
-Return `new Pair(z.re, -z.im)` instead. Under `aot = "off"`, the aggregate
+Return `Pair(z.re, -z.im)` instead. Under `aot = "off"`, the aggregate
 is a Lua table built by position. Its preferred vector and mask fields hold
 numbers and booleans; fixed species use lane tables. Immutability keeps both
 forms consistent when a value is shared.

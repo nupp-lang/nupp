@@ -41,7 +41,7 @@ function M.digestFinalizationConsumesButChecksumReadsDoNot()
         local _, diagnostics = diagsOf(
             table.concat(
                 {
-                    "local rolling = binary.digest.newdigest('sha256')",
+                    "local rolling = binary.Digest.create('sha256')",
                     "local result = rolling:" .. finalizer,
                     "rolling:write('too late')",
                 },
@@ -59,7 +59,7 @@ function M.digestFinalizationConsumesButChecksumReadsDoNot()
     assertClean(
         table.concat(
             {
-                "local sum = binary.checksum.newchecksum('crc32c')",
+                "local sum = binary.Checksum.create('crc32c')",
                 "local before = sum:value()",
                 "sum:write('still open')",
                 "local after = sum:value()",
@@ -72,11 +72,11 @@ end
 -- Every owner the standard library hands out has a cleanup policy, and
 -- `own.drop` runs it early without adding a public `drop` on each resource.
 local FORMER_DROP_OWNERS = {
-    "local owner = io.newbuffer('bytes')",
-    "local source = io.newbuffer('bytes')\nlocal owner = source:view()",
-    "local owner = io.newreader('abcd'):scalar()",
-    "local destination = io.newbuffer(); local owner = destination:writer():scalar()",
-    "local owner = io.newreader('one'):lines()",
+    "local owner = io.Buffer.create('bytes')",
+    "local source = io.Buffer.create('bytes')\nlocal owner = source:view()",
+    "local owner = io.Reader.of('abcd'):scalar()",
+    "local destination = io.Buffer.create(); local owner = destination:writer():scalar()",
+    "local owner = io.Reader.of('one'):lines()",
     "local owner = assert(io.open('input.bin'))",
     "local owner = assert(io.files.tmpfile())",
     "local owner = nupp.heap.alloc(ffi.typeof<int32>(), 4)",
@@ -123,10 +123,10 @@ function M.twoLiveReadersOverOneCursorAreRefused()
 end
 
 function M.aLineReaderReadTakesNoArguments()
-    local source = "local lines = io.newreader('a'):lines()\nprint(lines:read(1))"
+    local source = "local lines = io.Reader.of('a'):lines()\nprint(lines:read(1))"
     local got = diagsOf(source)
     assert(got:find("NUPP", 1, true), "Lines:read takes nothing but the reader: " .. got)
-    assertClean("local lines = io.newreader('a'):lines()\nprint(lines:read())")
+    assertClean("local lines = io.Reader.of('a'):lines()\nprint(lines:read())")
 end
 
 -- An invalid argument raises with the prefix every other standard module uses.
@@ -155,9 +155,9 @@ end
 
 function M.formerResultClosesAnswerNothing()
     local io = require("io")
-    local buffer = io.newbuffer("abc")
+    local buffer = io.Buffer.create("abc")
     testAssert.eq(select("#", buffer:view():close()), 0, "ByteView:close answers nothing")
-    testAssert.eq(select("#", io.newreader("abcd"):scalar():close()), 0, "ScalarReader:close answers nothing")
+    testAssert.eq(select("#", io.Reader.of("abcd"):scalar():close()), 0, "ScalarReader:close answers nothing")
     testAssert.eq(select("#", buffer:writer():scalar():close()), 0, "a borrowing ScalarWriter answers nothing")
     testAssert.eq(buffer:isreleased(), false, "a borrowing scalar writer leaves its buffer open")
     testAssert.eq(select("#", buffer:close()), 0, "Buffer:close answers nothing")
@@ -165,7 +165,7 @@ function M.formerResultClosesAnswerNothing()
 end
 
 function M.closedBufferReleasesItsAllocationWhileMetadataSurvives()
-    local buffer = require("io").newbuffer(string.rep("x", 1048576))
+    local buffer = require("io").Buffer.create(string.rep("x", 1048576))
     local allocation = setmetatable({buffer._data}, {__mode = "v"})
     buffer:close()
     collectgarbage("collect")
@@ -266,7 +266,7 @@ local struct Point
    x: float
    bits: uint8
 end
-local p = new Point(16777217, 254)
+local p = Point(16777217, 254)
 return p
 ]]
     local nativeTree = parser.parse(source, "native-struct.nupp")
@@ -291,9 +291,9 @@ local array = require("nupp.array")
 local struct Sample
    value: float
 end
-local values = array.newarray(new Sample(), 2)
+local values = array.newarray(Sample(), 2)
 local writable = values:write()
-writable[1] = new Sample(3)
+writable[1] = Sample(3)
 own.drop(writable)
 local readable = values:read()
 return #readable, readable[1].value
@@ -321,7 +321,7 @@ function M.poolIsOrdinaryTablesOnEveryHost()
             "local record Event",
             "    id: integer",
             "end",
-            "local events = pool.newpool(Event, 4)",
+            "local events = pool.Pool(Event, 4)",
             "local event = events:acquire()",
             "event.id = 1",
             "events:release(event)",
@@ -340,7 +340,7 @@ function M.arenaLowersThroughTheStorageContract()
             "local struct Sample",
             "   value: float",
             "end",
-            "local samples = arena.newpool(Sample, 8)",
+            "local samples = arena.Pool(Sample, 8)",
             "local sample = samples:acquire()",
             "sample.value = 3",
             "samples:release(sample)",
@@ -395,7 +395,7 @@ function M.randomUsesPortableBitops()
         table.concat(
             {
                 "local random = math",
-                "local generator = new random.Xoshiro128(12345)",
+                "local generator = random.Xoshiro128(12345)",
                 "return generator:next(), generator:integer(1, 100)",
             },
             "\n"
@@ -407,8 +407,8 @@ function M.digestUsesPortableBitops()
     assertClean(
         table.concat(
             {
-                "local digest = require('binary.digest')",
-                "local rolling = digest.newdigest('sha256')",
+                "local digest = require('binary').Digest",
+                "local rolling = digest.create('sha256')",
                 "rolling:write('message')",
                 "return rolling:hexdigest()",
             },
@@ -420,8 +420,8 @@ end
 function M.oneShotHmacUsesOrdinaryCode()
     local source = table.concat(
         {
-            "local mac = require('binary.mac')",
-            "return mac.hexdigest('hmac-sha256', 'key', 'message'), #mac.digest('hmac-sha256', 'key', 'message')",
+            "local mac = require('binary').Mac",
+            "return mac.computehex('hmac-sha256', 'key', 'message'), #mac.compute('hmac-sha256', 'key', 'message')",
         },
         "\n"
     )
@@ -610,10 +610,10 @@ function M.browserHttpRejectsMalformedSharedInputsBeforeEffects()
         assert(not ok and tostring(problem):find(expected, 1, true), tostring(problem))
     end
 
-    rejected({url = assert(uri.newuri("file:///tmp/result"))}, "must use http or https")
-    rejected({url = assert(uri.newuri("https://example.com/")), method = "GET\nX"}, "valid token")
-    rejected({url = assert(uri.newuri("https://example.com/")), headers = {ok = false}}, "valid string")
-    rejected({url = assert(uri.newuri("https://example.com/")), timeoutms = 1.5}, "integer")
+    rejected({url = assert(uri.URI.of("file:///tmp/result"))}, "must use http or https")
+    rejected({url = assert(uri.URI.of("https://example.com/")), method = "GET\nX"}, "valid token")
+    rejected({url = assert(uri.URI.of("https://example.com/")), headers = {ok = false}}, "valid string")
+    rejected({url = assert(uri.URI.of("https://example.com/")), timeoutms = 1.5}, "integer")
 end
 
 function M.nativeHttpDispatchDrainsAfterAWakerRaises()
@@ -866,7 +866,7 @@ function M.filesystemNamesAreFilesPathsEverywhere()
                 "    print(body, listener, stream, child)",
                 "end",
                 "send('/tmp/x')",
-                "send(paths.newpath('/tmp/x'))",
+                "send(paths.Path.of('/tmp/x'))",
                 "send((assert(files.datapath())))",
             },
             "\n"
@@ -875,7 +875,7 @@ function M.filesystemNamesAreFilesPathsEverywhere()
 end
 
 function M.optionBagsArePlainTables()
-    -- http's options were a record built with `new`, where net, tls and process take
+    -- http's options are a record, where net, tls and process take
     -- a table. They are one shape now, and tls.tlsclient's table is optional because
     -- every field in it is.
     assertClean(
@@ -883,14 +883,14 @@ function M.optionBagsArePlainTables()
             {
                 "const http = require(\"io.http\")",
                 "local options: http.Options = {timeoutms = 5000, maxconnections = 2}",
-                "do local client = http.newclient(options) end",
-                "do local client = http.newclient({useragent = 'nupp/1'}) end",
+                "do local client = http.Client.create(options) end",
+                "do local client = http.Client.create({useragent = 'nupp/1'}) end",
             },
             "\n"
         )
     )
     testAssert.eq(
-        (diagsOf(table.concat({"const http = require(\"io.http\")", "local options = new http.Options()",}, "\n"))),
+        (diagsOf(table.concat({"const http = require(\"io.http\")", "local options = http.Options()",}, "\n"))),
         "NUPP2004:2",
         "http.Options is not a record to construct"
     )
@@ -1290,7 +1290,7 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
         local headers = response:headers()
         headers["x-test"] = "changed"
         testAssert.eq(response:headers()["x-test"], "one, two", "headers returns a fresh mapping")
-        local destination = require("io").newbuffer()
+        local destination = require("io").Buffer.create()
         testAssert.eq(response.body:readinto(destination, 0, 2), 2)
         testAssert.eq(destination:getstring(), "ab")
         testAssert.eq(response.body:read(3), "c", "the returned response owns a live ordinary reader")
@@ -1968,8 +1968,8 @@ function M.uriAndSubjectTypesResolveThroughIoAndImportedAliases()
     assertClean(
         [=[
 const {type URI, type Error, type Process} = require("io")
-local components: URI.Components = new io.URI.Components(scheme = "https", host = "example.com", path = "/status")
-local address: io.URI = assert(io.newuri(components))
+local components: URI.Components = io.URI.Components(scheme = "https", host = "example.com", path = "/status")
+local address: io.URI = assert(io.URI.of(components))
 local valid, reason = io.validateuri("http://[")
 local kind: Error.Kind = "timeout"
 local mode: Error.Mode = "stdout"
@@ -2007,11 +2007,11 @@ print(address:host(), io.isuri(address), valid, reason, kind, options.stderr, co
         [[local record Other
         function resolve(self): string return "local" end
     end
-    local value = new Other()
+    local value = Other()
     print(value:resolve())]]
     )
     assert(not other["runtime.uri"], "an unrelated method does not select URI parsing")
-    local pure = effectsOf("local parts = new io.URI.Components(scheme = 'https')\nprint(io.isuri(parts))")
+    local pure = effectsOf("local parts = io.URI.Components(scheme = 'https')\nprint(io.isuri(parts))")
     assert(
         not pure["runtime.uri"] and not pure["runtime.uri_provider"],
         "component construction and identity tests select no parser"
@@ -2030,11 +2030,13 @@ local function files(path: io.Path): nil
     local output: io.File = io.output(path)
     io.output(output)
 end
-local path: io.Path = io.newpath("src", "main.nupp")
+local path: io.Path = io.Path.of("src", "main.nupp")
 print(path:filename(), io.sep())
 ]=]
     )
-    assertClean("const {type Path, newpath} = require('io')\nlocal path: Path = newpath('src')\nprint(path)")
+    assertClean(
+        "const {type Path} = require('io')\nconst {Path} = require('io')\nlocal path: Path = Path.of('src')\nprint(path)"
+    )
     assert(
         #check.check(parser.parse("io.open({})", "bad-path.nupp"), "bad-path.nupp", envMod.new(HERE .. "/..")) > 0,
         "an unrelated table is not a path"
@@ -2119,7 +2121,7 @@ function M.nativeFeaturesAreResolvedEffects()
 
     local shadowed = effectsOf(
         table.concat(
-            {"local binary = {hash = {digest = {hexDigest = function() end}}}", "binary.digest.hexDigest()",},
+            {"local binary = {hash = {digest = {hexDigest = function() end}}}", "binary.Digest.hexDigest()",},
             "\n"
         )
     )
@@ -2139,7 +2141,7 @@ function M.nativeFeaturesAreResolvedEffects()
         ["serde.json.encodevalue({answer = 42})"] = "native.json",
         ["serde.json.pull('{}', {answer = true})"] = "native.json",
         ["utf8.len('hello')"] = "runtime.data_utf8",
-        ["io.newbuffer('hello')"] = "stdlib.io",
+        ["io.Buffer.create('hello')"] = "stdlib.io",
         ["coroutine.sleep(0)"] = "runtime.time",
         [
             "coroutine.suspend('ready', function(resume: function(integer)): function()? resume(42) return nil end)"
@@ -2153,7 +2155,7 @@ function M.nativeFeaturesAreResolvedEffects()
         ["math.vec2.len(3, 4)"] = "stdlib.math",
         ["math.quat.len(0, 0, 0, 1)"] = "stdlib.math",
         ["io.sep()"] = "runtime.path",
-        ["io.newuri('https://example.com')"] = "runtime.uri",
+        ["io.URI.of('https://example.com')"] = "runtime.uri",
         ["os.uuid7()"] = "runtime.uuid",
         ["os.info()"] = "runtime.system",
         ["os.host.attached()"] = "runtime.host",
@@ -2172,11 +2174,11 @@ function M.nativeFeaturesAreResolvedEffects()
         table.concat(
             {
                 "const {type Path} = require('io')",
-                "local source: io.Path = io.newpath('src', 'main.nupp')",
+                "local source: io.Path = io.Path.of('src', 'main.nupp')",
                 "local components: io.URI.Components = nil as any",
                 "local URIOf: function(",
                 "    value: string | io.URI.Components",
-                "): (io.URI?, string?) = io.newuri",
+                "): (io.URI?, string?) = io.URI.of",
                 "local address: io.URI? = URIOf(components)",
                 "print(source, address)",
             },
@@ -2188,7 +2190,7 @@ function M.nativeFeaturesAreResolvedEffects()
     assert(aliased["runtime.system"], "requiring a facility records its feature")
     assert(not aliased["runtime.uuid"], "separate facilities do not share effects")
 
-    local namespaceOnly = effectsOf("local store = types.newstore")
+    local namespaceOnly = effectsOf("local store = types.Store.create")
     assert(next(namespaceOnly) == nil, "reaching a namespace alone has no effect")
 
     -- A require read only for its types is erased, so it selects no feature. It used
@@ -2360,7 +2362,7 @@ end
 function M.randomSurfaceIsBundledOutsideThisCheckout()
     local isolated = envMod.new(os.tmpname() .. "-nupp-random-surface")
     local source = table.concat(
-        {"local random = math", "local generator = new random.Xoshiro128(12345)", "assert(generator:next() >= 0)",},
+        {"local random = math", "local generator = random.Xoshiro128(12345)", "assert(generator:next() >= 0)",},
         "\n"
     )
     local result = parser.parse(source, "outside.nupp")
@@ -2373,12 +2375,12 @@ function M.digestAndMacSurfacesAreBundledOutsideThisCheckout()
     local isolated = envMod.new(os.tmpname() .. "-nupp-streaming-hash-surface")
     local source = table.concat(
         {
-            "local digest = require('binary.digest')",
-            "local mac = require('binary.mac')",
-            "local rolling = digest.newdigest('sha256')",
+            "local digest = require('binary').Digest",
+            "local mac = require('binary').Mac",
+            "local rolling = digest.create('sha256')",
             "rolling:write('message')",
             "assert(#rolling:digest() == 32)",
-            "assert(#mac.hexdigest('hmac-sha256', 'key', 'message') == 64)",
+            "assert(#mac.computehex('hmac-sha256', 'key', 'message') == 64)",
         },
         "\n"
     )
@@ -2435,7 +2437,7 @@ function M.compilerProvidedPureLibraries()
             bootstrap
             .. [[
       local io = require("io")
-      local buffer = io.newbuffer("hello")
+      local buffer = io.Buffer.create("hello")
       local writer = buffer:writer()
       assert(writer:write("world"))
       assert(buffer:getstring() == "world")
@@ -2458,12 +2460,12 @@ function M.compilerProvidedPureLibraries()
       assert(math.lerp(10, 20, 0.25) == 12.5)
       assert(math.lerp(10, 20, 1) == 20)
       assert(math.lerp(10, 20, 1.5) == 25)
-      local checksum = require("binary.checksum")
-      local digest = require("binary.digest")
+      local checksum = require("binary").Checksum
+      local digest = require("binary").Digest
       local hash = require("binary")
       assert(hash.fnv1a64("hello") == "a430d84680aabd0b")
-      assert(checksum.value("crc32", "123456789") == 3421780262ULL)
-      assert(digest.hexdigest("sha256", "abc") ==
+      assert(checksum.compute("crc32", "123456789") == 3421780262ULL)
+      assert(digest.computehex("sha256", "abc") ==
          "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
       local uuid4 = os.uuid4()
       local uuid7 = os.uuid7()
@@ -2542,8 +2544,8 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
     assertClean(
         table.concat(
             {
-                "local buffer = io.newbuffer()",
-                "local reader = io.newreader('abc')",
+                "local buffer = io.Buffer.create()",
+                "local reader = io.Reader.of('abc')",
                 "local moved: integer? = reader:readinto(buffer)",
                 "const files = require(\"io.files\")",
                 "local info = files.info('x')",
@@ -2558,7 +2560,7 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
     testAssert.eq((diagsOf("io.files.append('x', 'bytes')")), "NUPP2004:1")
     assertClean("const files = require(\"io.files\")\nlocal paths: {io.Path} = assert(files.glob('src/**/*.nupp'))")
     testAssert.eq(
-        (diagsOf("const files = require(\"io.files\")\nfiles.glob(io.newpath('src'))")),
+        (diagsOf("const files = require(\"io.files\")\nfiles.glob(io.Path.of('src'))")),
         "NUPP2006:2",
         "a glob takes a pattern, not a path"
     )
@@ -2601,11 +2603,11 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
                 "const io = require(\"io\")",
                 "const uri = require('io')",
                 "const process = require('io')",
-                "do local client = http.newclient() end",
+                "do local client = http.Client.create() end",
                 "do",
-                "    local request = new http.Request(",
-                "        url = assert(uri.newuri('https://example.com')),",
-                "        body = http.reader(io.newreader('body'), 4, nil)",
+                "    local request = http.Request(",
+                "        url = assert(uri.URI.of('https://example.com')),",
+                "        body = http.reader(io.Reader.of('body'), 4, nil)",
                 "    )",
                 "end",
                 "do local child = assert(process.popen({'true'})) end",
@@ -2623,69 +2625,69 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
         table.concat(
             {
                 "const path = require('io')",
-                "local source: path.Path = path.newpath('src', 'main.nupp')",
+                "local source: path.Path = path.Path.of('src', 'main.nupp')",
                 "print(source)",
             },
             "\n"
         )
     )
     testAssert.eq(
-        (diagsOf(table.concat({"const path = require('io')", "local value = new path.Path()",}, "\n"))),
-        "NUPP2004:2"
+        (diagsOf(table.concat({"const path = require('io')", "local value = path.Path()",}, "\n"))),
+        "NUPP2209:2"
     )
 
     local path = require("io.internal.path")
-    local first = path.newpath("cache", "first")
-    assert(rawequal(first, path.newpath("cache", "first")), "path.newpath interns equal path text")
+    local first = path.Path.of("cache", "first")
+    assert(rawequal(first, path.Path.of("cache", "first")), "path.Path.of interns equal path text")
     assert(path.Path.__nuppCtor1 == nil, "Path exposes no generated constructor")
     for index = 1, 1024 do
-        path.newpath("cache", tostring(index))
+        path.Path.of("cache", tostring(index))
     end
     assert(
-        not rawequal(first, path.newpath("cache", "first")),
-        "path.newpath evicts the least recently used path after 1024 entries"
+        not rawequal(first, path.Path.of("cache", "first")),
+        "path.Path.of evicts the least recently used path after 1024 entries"
     )
 
     assertClean(
         table.concat(
             {
                 "const uri = require('io')",
-                "local endpoint: uri.URI = assert(uri.newuri('https://example.com/api'))",
+                "local endpoint: uri.URI = assert(uri.URI.of('https://example.com/api'))",
                 "print(endpoint)",
             },
             "\n"
         )
     )
     testAssert.eq(
-        (diagsOf(table.concat({"const uri = require('io')", "local value = new uri.URI()",}, "\n"))),
+        (diagsOf(table.concat({"const uri = require('io')", "local value = uri.URI()",}, "\n"))),
         "NUPP2209:2"
     )
 
     local uri = require("io.internal.uri")
-    local firstURI = assert(uri.newuri("https://example.com/cache/first"))
+    local firstURI = assert(uri.URI.of("https://example.com/cache/first"))
     assert(
-        rawequal(firstURI, assert(uri.newuri("https://example.com/cache/first"))),
-        "uri.newuri interns equal normalized URI text"
+        rawequal(firstURI, assert(uri.URI.of("https://example.com/cache/first"))),
+        "uri.URI.of interns equal normalized URI text"
     )
     assert(uri.URI.__nuppCtor1 == nil, "URI exposes no generated constructor")
-    local base = assert(uri.newuri("https://example.com/base"))
+    local base = assert(uri.URI.of("https://example.com/base"))
     assert(
-        rawequal(base:withpath("/derived"), assert(uri.newuri("https://example.com/derived"))),
-        "URI-producing operations share the uri.newuri cache"
+        rawequal(base:withpath("/derived"), assert(uri.URI.of("https://example.com/derived"))),
+        "URI-producing operations share the uri.URI.of cache"
     )
     for index = 1, 1024 do
-        assert(uri.newuri("https://example.com/cache/" .. tostring(index)))
+        assert(uri.URI.of("https://example.com/cache/" .. tostring(index)))
     end
     assert(
-        not rawequal(firstURI, assert(uri.newuri("https://example.com/cache/first"))),
-        "uri.newuri evicts the least recently used URI after 1024 entries"
+        not rawequal(firstURI, assert(uri.URI.of("https://example.com/cache/first"))),
+        "uri.URI.of evicts the least recently used URI after 1024 entries"
     )
-    local validatedSentinel = assert(uri.newuri("https://example.com/cache/validated-sentinel"))
+    local validatedSentinel = assert(uri.URI.of("https://example.com/cache/validated-sentinel"))
     for index = 1, 1024 do
         assert(uri.validateuri("https://example.com/validated/" .. tostring(index)))
     end
     assert(
-        rawequal(validatedSentinel, assert(uri.newuri("https://example.com/cache/validated-sentinel"))),
+        rawequal(validatedSentinel, assert(uri.URI.of("https://example.com/cache/validated-sentinel"))),
         "uri.validateuri does not retain parsed URIs or disturb the cache"
     )
 end
@@ -2695,7 +2697,7 @@ function M.bufferAppendsInAmortizedConstantTime()
         loadstring(
             [[
       local io = require("io")
-      local buffer = io.newbuffer()
+      local buffer = io.Buffer.create()
       local writer = buffer:writer()
       local piece = string.rep("x", 64)
       for _ = 1, 100000 do assert(writer:write(piece)) end
@@ -2760,13 +2762,13 @@ function M.theJsonModuleLoadsItsNuppProviderOnRequire()
         local buffer = require("string.buffer").new()
         local name = json.encodedstring('quoted"key')
         assert(name == json.encodedstring('quoted"key'), "encoded keys are interned")
-        local writer = json.newwriter(buffer)
+        local writer = json.Writer.of(buffer)
         writer:startobject():key(name):write(json.verified("4.20e1")):endobject()
         writer:close()
         assert(buffer:tostring() == [[{"quoted\"key":4.20e1}]])
 
         local partial = require("string.buffer").new()
-        local streaming = json.newwriter(partial)
+        local streaming = json.Writer.of(partial)
         streaming:startarray():write(1)
         streaming:flush()
         assert(partial:tostring() == "[1", "flush publishes an incomplete batch")
@@ -2775,12 +2777,12 @@ function M.theJsonModuleLoadsItsNuppProviderOnRequire()
         assert(partial:tostring() == "[1,2]", "close publishes the completed root")
         assert(not pcall(streaming.write, streaming, 3), "a closed writer stays stale")
 
-        local incomplete = json.newwriter(require("string.buffer").new())
+        local incomplete = json.Writer.of(require("string.buffer").new())
         incomplete:startobject()
         assert(not pcall(incomplete.close, incomplete), "close rejects an incomplete root")
         assert(not pcall(incomplete.endobject, incomplete), "a failed consuming close still leaves a terminal writer")
 
-        local replacement = json.newwriter(require("string.buffer").new())
+        local replacement = json.Writer.of(require("string.buffer").new())
         replacement:write(true)
         replacement:close()
         assert(not pcall(streaming.write, streaming, false), "a stale identity cannot reach pooled backing state")
@@ -2890,7 +2892,7 @@ end
 
 function M.utf8ByteViewsAndBudgetsMatchStrings()
     local utf8 = require("utf8")
-    local buffer = require("io").newbuffer("A\xe2\x82\xacZ")
+    local buffer = require("io").Buffer.create("A\xe2\x82\xacZ")
     local view = buffer:view()
     testAssert.eq(utf8.len(view), 3, "byte-view length")
     testAssert.eq(utf8.isvalid(view), true, "byte-view validation")
@@ -3419,7 +3421,7 @@ function M.publicResourceAliasesKeepConstructionAndPrivacy()
         [[
 const http = require("io.http")
 const uri = io
-local request = new http.Request(url = assert(uri.newuri("https://example.com/")))
+local request = http.Request(url = assert(uri.URI.of("https://example.com/")))
 request:close()
 ]]
     )
@@ -3532,8 +3534,8 @@ function M.suspensionRecordsHideProviderState()
 end
 
 function M.tensorLayoutAlgebraDoesNotSelectAGpu()
-    assertClean("local layout = require('io.gpu.layout')", {host = "browser"})
-    testAssert.eq(native.forModule("io.gpu.layout"), "runtime.gpu_layout", "layout algebra is a portable module")
+    assertClean("local rows = io.gpu.Layout({2, 2}, {2, 1}):transpose({2, 1})\nprint(rows.count)", {host = "browser"})
+    testAssert.eq(native.forModule("nupp.gpu.layout"), "runtime.gpu_layout", "layout algebra is a portable module")
     local selected = native.expand({["runtime.gpu_layout"] = true})
     assert(not selected["native.gpu"], "layout algebra must not select a device provider")
 end
@@ -3582,7 +3584,7 @@ function M.filesystemMetadataIsPublicOnlyThroughFiles()
 end
 
 function M.ioCanonicalStorageMembersHaveNoPrecedingRuntimeAliases()
-    local storage = io.newbuffer("abcd")
+    local storage = io.Buffer.create("abcd")
     for _, names in ipairs({
         {"getString", "getstring"},
         {"setString", "setstring"},
@@ -3604,7 +3606,7 @@ function M.ioCanonicalStorageMembersHaveNoPrecedingRuntimeAliases()
     assert(storage:capacity() >= 64)
     testAssert.eq(storage:getstring(), "abcd")
     storage:close()
-    local scalar = io.newreader(string.char(1, 0, 0, 0)):scalar()
+    local scalar = io.Reader.of(string.char(1, 0, 0, 0)):scalar()
     testAssert.eq(type(scalar.readuint32), "function")
     testAssert.eq(scalar.readUint32, nil)
     testAssert.eq(scalar:readuint32(), 1)
@@ -3619,7 +3621,7 @@ function M.ioCanonicalStorageMembersHaveNoPrecedingRuntimeAliases()
 end
 
 function M.lineAdaptersTakeTheirReaderAndRetireTheFactories()
-    local got = diagsOf([[local source = io.newreader("one\ntwo")
+    local got = diagsOf([[local source = io.Reader.of("one\ntwo")
 local lines = source:lines()
 print(source:read(1))]])
     assert(got:find("NUPP26%d%d:3"), "lines takes its source: " .. got)

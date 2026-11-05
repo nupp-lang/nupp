@@ -9,7 +9,7 @@ local record Member is core.Member
 end
 
 local function invalid(adapter: core.Adapter<Resource, Member>): core.Binding<Resource>
-    return new core.Bound<Resource, Member>(adapter = adapter)
+    return core.Bound<Resource, Member>(adapter = adapter)
 end
 
 return invalid

@@ -77,7 +77,7 @@ function M.nestingPastTheParserLimitIsReportedAsTheLimit()
     assert(not d.help:find("bug in the compiler", 1, true), "not called a compiler bug: " .. tostring(d.help))
 end
 
--- `new R(field = value)` lowers from what the checker resolved rather than from what
+-- `R(field = value)` lowers from what the checker resolved rather than from what
 -- the call wrote, so an unchecked construction is one the generator writes out as the
 -- call it was spelled as -- which is not Lua. Entries standing after a computed key
 -- used to go unchecked, and this is where that surfaced.
@@ -91,7 +91,7 @@ function M.constructionsAfterAComputedKeyAreLowered()
                 "    f: integer",
                 "end",
                 "",
-                "local t = {[\"a\"] = new m.R(f = 1), [\"b\"] = new m.R(f = 2)}",
+                "local t = {[\"a\"] = m.R(f = 1), [\"b\"] = m.R(f = 2)}",
                 "",
                 "function m.second(): integer",
                 "    return t[\"b\"].f",

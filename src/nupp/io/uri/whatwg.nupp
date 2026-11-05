@@ -588,7 +588,7 @@ local function serialize(url: any): contracts.UriParts
         out = out .. "#" .. url.fragment
     end
 
-    return new contracts.UriParts(
+    return contracts.UriParts(
         text = out,
         scheme = url.scheme,
         authority = authority,

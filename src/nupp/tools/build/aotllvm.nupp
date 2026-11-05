@@ -221,7 +221,7 @@ function aotllvm.compileMany(units: {aotllvm.Unit}): string?
         end
         jobs[
             position
-        ] = new codegen.Job(
+        ] = codegen.Job(
             ir = unit.ir,
             object = unit.object .. ".tmp",
             options = llvmProfile.options(selected as llvmProfile.Profile, unit.tier)
@@ -274,7 +274,7 @@ local function linkedRuntime(selected: llvmProfile.Profile, directory: string): 
         return nil, tostring(writeErr)
     end
     local err = aotllvm.compileMany({
-        new aotllvm.Unit(ir = ir, triple = selected.public, tier = "baseline", object = object)
+        aotllvm.Unit(ir = ir, triple = selected.public, tier = "baseline", object = object)
     })
     os.remove(ir)
     if err ~= nil then
@@ -309,7 +309,7 @@ local function windowsGlue(selected: llvmProfile.Profile, directory: string): ({
             return nil, tostring(writeErr)
         end
         local err = aotllvm.compileMany({
-            new aotllvm.Unit(ir = source, triple = selected.public, tier = "baseline", object = object)
+            aotllvm.Unit(ir = source, triple = selected.public, tier = "baseline", object = object)
         })
         os.remove(source)
         if err ~= nil then
@@ -441,7 +441,7 @@ function aotllvm.wasmLibm(directory: string): (string?, string?)
         return nil, tostring(writeErr)
     end
     local err = aotllvm.compileMany({
-        new aotllvm.Unit(ir = ir, triple = "wasm32-unknown-emscripten", tier = "scalar", object = object)
+        aotllvm.Unit(ir = ir, triple = "wasm32-unknown-emscripten", tier = "scalar", object = object)
     })
     os.remove(ir)
     if err ~= nil then

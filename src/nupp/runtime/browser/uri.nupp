@@ -6,7 +6,7 @@ contract, as the WHATWG URL Standard does.
 A page host that answers `__nuppBrowser.url` hands the text to its own `URL`,
 which brings the host's IDNA mapping with it; the canonical text it answers is
 then read back into components. Without one, for instance on a hostless
-portable target, [](io.newuri) parses the text itself and refuses a
+portable target, [](io.URI.of) parses the text itself and refuses a
 special-scheme host that needs IDNA.
 
 Either way text that is not valid UTF-8 or holds a NUL byte is refused first,

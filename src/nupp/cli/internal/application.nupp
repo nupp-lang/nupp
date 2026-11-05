@@ -75,7 +75,7 @@ export record Application
             return nil, decoded
         end
 
-        return new Invocation(commandtype = command.subject, options = value, argv = argv, commandpath = path), nil
+        return Invocation(commandtype = command.subject, options = value, argv = argv, commandpath = path), nil
     end
 
     --- Renders the application's top-level help.
@@ -925,5 +925,5 @@ export function application(rootType: any, options: ApplicationOptions?): Applic
         add(rootType, subject)
     end
 
-    return new Application(root = root, commands = commands, byParent = byParent, options = options or {})
+    return Application(root = root, commands = commands, byParent = byParent, options = options or {})
 end

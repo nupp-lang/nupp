@@ -186,7 +186,7 @@ function context.new(
         layouts[layout.name] = layout
     end
 
-    return new context.Context(
+    return context.Context(
         f = f,
         module = module,
         program = program,

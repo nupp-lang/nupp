@@ -126,7 +126,7 @@ export record Contents is core.DocumentReader
         while self.cursor:nextElement() do
             index += 1
             local mark = self.cursor:mark()
-            local child = new Contents(cursor = self.cursor, sourceContext = self.sourceContext, expired = false)
+            local child = Contents(cursor = self.cursor, sourceContext = self.sourceContext, expired = false)
             local ok, problem = pcall(consume.apply, consume, state, index, child)
             child.expired = true
             if not ok then
@@ -145,7 +145,7 @@ export record Contents is core.DocumentReader
                 break
             end
             local mark = self.cursor:mark()
-            local child = new Contents(cursor = self.cursor, sourceContext = self.sourceContext, expired = false)
+            local child = Contents(cursor = self.cursor, sourceContext = self.sourceContext, expired = false)
             local ok, problem = pcall(consume.apply, consume, state, key, child)
             child.expired = true
             if not ok then
@@ -184,7 +184,7 @@ export record Unknown is core.UnknownReader
     function capturevalue<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
         self:live()
         local mark = self.cursor:mark()
-        local child = new Contents(cursor = self.cursor, sourceContext = self.sourceContext, expired = false)
+        local child = Contents(cursor = self.cursor, sourceContext = self.sourceContext, expired = false)
         local ok, result = pcall(adapter.readcontents, adapter, child)
         child:expire()
         if not ok then
@@ -204,9 +204,9 @@ export record Unknown is core.UnknownReader
 end
 
 export function contents(cursor: syntax.Cursor, context: core.Context?): Contents
-    return new Contents(cursor = cursor, sourceContext = context, expired = false)
+    return Contents(cursor = cursor, sourceContext = context, expired = false)
 end
 
 export function unknown(cursor: syntax.Cursor, context: core.Context?): Unknown
-    return new Unknown(cursor = cursor, sourceContext = context, expired = false, used = false)
+    return Unknown(cursor = cursor, sourceContext = context, expired = false, used = false)
 end

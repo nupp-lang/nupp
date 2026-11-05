@@ -172,7 +172,7 @@ return setmetatable(model, {})
 ]],
             [
                 "src/use.nupp"
-            ] = "local model = require(\"model\")\n" .. "local w: model.Wrapped = new model.Wrapped(id = 1)\n",
+            ] = "local model = require(\"model\")\n" .. "local w: model.Wrapped = model.Wrapped(id = 1)\n",
         },
         function(dir)
             testAssert.eq(
@@ -428,8 +428,8 @@ local geometry = require("geometry")
 local mathutil = require("mathutil")
 
 local doubled: number = mathutil.double(21)
-local point: geometry.Point = new geometry.Point(3, 4)
-local origin: Origin = new Origin(5)
+local point: geometry.Point = geometry.Point(3, 4)
+local origin: Origin = Origin(5)
 print(doubled, point.x + point.y, origin.x)
 ]],
             [
@@ -539,8 +539,8 @@ function M.cliConstructsRecordsFromAnotherModule()
             ] = [[
 local shapes = require("geom.shapes")
 
-local p: shapes.Point = new shapes.Point(3, 4)
-local named: shapes.Named = new shapes.Named(label = "origin", at = shapes.origin())
+local p: shapes.Point = shapes.Point(3, 4)
+local named: shapes.Named = shapes.Named(label = "origin", at = shapes.origin())
 print(p.x + p.y, named.label, named.at.x, p is shapes.Point)
 ]],
             [
@@ -559,7 +559,7 @@ record shapes.Named
 end
 
 function shapes.origin(): shapes.Point
-    return new shapes.Point(0, 0)
+    return shapes.Point(0, 0)
 end
 
 return shapes
@@ -610,7 +610,7 @@ function res.closeFile(takes file: res.File): nil
 end
 
 function res.open(): affine(res.File, res.closeFile)
-    return new res.File(closed = false)
+    return res.File(closed = false)
 end
 
 return res
@@ -677,7 +677,7 @@ end
 function res.open(path: string): affine(res.File, closeFile)
     local file = io.open(path, "r")
     if not file then error("cannot open " .. path) end
-    return new res.File(content = file:read("*a"))
+    return res.File(content = file:read("*a"))
 end
 
 return res
@@ -746,7 +746,7 @@ end
 function res.open(path: string): affine(res.File, closeFile)
     local file = io.open(path, "r")
     if not file then error("cannot open " .. path) end
-    return new res.File(content = file:read("*a"))
+    return res.File(content = file:read("*a"))
 end
 
 return res
@@ -1301,12 +1301,10 @@ end
 
 return model
 ]],
-            [
-                "src/use.nupp"
-            ] = [[
+            ["src/use.nupp"] = [[
 local model = require("model")
 
-local a = new model.Account("Ada", 42)
+local a = model.Account("Ada", 42)
 own.drop(a)
 
 return 0
@@ -1330,7 +1328,7 @@ return 0
             -- and the wrong arguments are still the consumer's problem
             local badPath = dir .. "/src/use.nupp"
             local bad = parser.parse(
-                'local model = require("model")\n' .. 'local a = new model.Account(1, 2)\n' .. "return a.balance\n",
+                'local model = require("model")\n' .. 'local a = model.Account(1, 2)\n' .. "return a.balance\n",
                 badPath
             )
             local badDiags = check.check(bad, badPath, projectEnv(dir))
@@ -1421,7 +1419,7 @@ local type Alias = Greeting
 local record Person is Alias
     name: string
 end
-local person = new Person(name = "Ada")
+local person = Person(name = "Ada")
 return person:hello()
 ]],
         },

@@ -17,7 +17,7 @@ return {
                 "      else -> false",
                 "   end",
                 "end",
-                "local item = new Item(value = 7)",
+                "local item = Item(value = 7)",
                 "local yes = subject(item) is Item",
                 "local no = subject(nil) is Item",
                 "return yes, no, calls, classify(item), classify('empty'), classify(nil)",

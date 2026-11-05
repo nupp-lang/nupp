@@ -160,11 +160,6 @@ type lexer.Token = {
     --- Whether this annotation name qualifies a structural property or indexer.
     propertyCapability: boolean?,
 
-    --- The last token of the type a `new` builds. A construction's brace stands off its
-    --- type, as in `new R(x = 1)`, where the `f{...}` call sugar it otherwise looks
-    --- like hugs its callee.
-    constructTarget: boolean?,
-
     --- Where the name in this token was declared, attached by the checker so the
     --- editor can jump to it. Its shape belongs to the checker, not the lexer.
     definition: any,

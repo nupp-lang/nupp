@@ -151,7 +151,7 @@ local record Scalar is core.Adapter<unknown, Member>
             end
             writer:writeinteger(
                 member,
-                new core.Integer(
+                core.Integer(
                     decimal = decimal,
                     width = self.description.width as(8 | 16 | 32 | 64),
                     signed = self.description.signed == true
@@ -223,10 +223,7 @@ local record EpochSeconds is core.Adapter<unknown, Member>
             seconds == seconds and seconds % 1 == 0 and math.abs(seconds) <= 9007199254740991,
             "expected exact integer epoch seconds"
         )
-        writer:writetimestamp(
-            self.description.member,
-            new core.Timestamp(seconds = ("%.0f"):format(seconds), nanos = 0)
-        )
+        writer:writetimestamp(self.description.member, core.Timestamp(seconds = ("%.0f"):format(seconds), nanos = 0))
     end
 
     function read(self, exclusive reader: core.Reader<Member>): unknown
@@ -291,7 +288,7 @@ local record Nullable is core.Adapter<unknown, Member>
             return prior
         end
         local target = self.target:describe(direction)
-        local result = new Description(
+        local result = Description(
             member = self.member,
             kind = target.kind,
             nullable = true,
@@ -417,7 +414,7 @@ local record Sequence is core.Adapter<unknown, Member>
     end
 
     function read(self, exclusive reader: core.Reader<Member>): unknown
-        local state = new SequenceState()
+        local state = SequenceState()
         if self.elements.tuple then
             reader:readtuple(self.description.member, #self.elements.adapters, state, self.consume)
         else
@@ -482,7 +479,7 @@ local record Map is core.Adapter<unknown, Member>
     end
 
     function read(self, exclusive reader: core.Reader<Member>): unknown
-        local state = new MapState()
+        local state = MapState()
         reader:readmap(self.description.member, state, self.consume)
         return state.values
     end
@@ -558,7 +555,7 @@ local function recordAdapter(graph: Graph, index: integer, member: Member): core
             local options = whitelist ~= nil and whitelist[field.name] or nil
             members[
                 position
-            ] = new Member(
+            ] = Member(
                 name = field.name,
                 index = position,
                 annotations = field.annotations,
@@ -589,7 +586,7 @@ local function recordAdapter(graph: Graph, index: integer, member: Member): core
                 matched[field.name] = true
             end
             local child = resolve(graph, field.typeindex, members[position])
-            local target: core.Adapter<unknown, Member> = new Checked(
+            local target: core.Adapter<unknown, Member> = Checked(
                 target = child,
                 problem = not compatible and ("field " .. field.name .. " requires an explicit construction mapping")
                 or nil
@@ -634,12 +631,12 @@ local function recordAdapter(graph: Graph, index: integer, member: Member): core
         end
     end
 
-    return new Checked(
+    return Checked(
         target = structure.adapter(
             member,
             fields,
-            new Construction(selected = selected),
-            graph.options.unknownmembers == "ignore" and new Ignore<access.Builder<unknown>>() or nil,
+            Construction(selected = selected),
+            graph.options.unknownmembers == "ignore" and Ignore<access.Builder<unknown>>() or nil,
             nil,
             true
         ),
@@ -661,7 +658,7 @@ end
 local record ShapeConstruction is structure.Construction<unknown, ShapeState>
     @readonly required: {string}
     function begin(self): ShapeState
-        return new ShapeState()
+        return ShapeState()
     end
 
     function finish(self, takes state: ShapeState): unknown
@@ -703,7 +700,7 @@ local function shapeAdapter(graph: Graph, index: integer, member: Member): core.
     for position, field in ipairs(node.fields) do
         assert2(field.read ~= nil, "shape field is not readable")
         local name: string = field.name
-        local child = new Member(
+        local child = Member(
             name = name,
             index = position,
             wireName = wireName(name, graph.options.naming),
@@ -732,8 +729,8 @@ local function shapeAdapter(graph: Graph, index: integer, member: Member): core.
     return structure.adapter(
         member,
         fields,
-        new ShapeConstruction(required = required),
-        graph.options.unknownmembers == "ignore" and new Ignore<ShapeState>() or nil
+        ShapeConstruction(required = required),
+        graph.options.unknownmembers == "ignore" and Ignore<ShapeState>() or nil
     )
 end
 
@@ -747,7 +744,7 @@ resolve = function(graph: Graph, index: integer, member: Member): core.Adapter<u
     if prior ~= nil then
         return prior
     end
-    local link = new Link()
+    local link = Link()
     slots[index] = link
     local node: any = graph.root.info.types[index]
     local kind = node.kind
@@ -783,44 +780,41 @@ resolve = function(graph: Graph, index: integer, member: Member): core.Adapter<u
         local children: {core.Child<Member>} = {}
         local elements: {integer} = kind == "array" and {node.element} or node.members
         for position, element in ipairs(elements) do
-            local child = new Member(
+            local child = Member(
                 name = tostring(position),
                 index = position,
                 label = typeLabel(graph.root.info, element, {})
             )
             adapters[position] = resolve(graph, element, child)
-            children[position] = new Child(member = child, adapter = adapters[position])
+            children[position] = Child(member = child, adapter = adapters[position])
         end
-        link.target = new Sequence(
-            description = new Description(
+        link.target = Sequence(
+            description = Description(
                 member = member,
                 kind = kind == "array" and "list" or "tuple",
                 children = children
             ),
-            elements = new EmitElements(adapters = adapters, tuple = kind == "tuple"),
-            consume = new ReadElements(adapters = adapters, tuple = kind == "tuple")
+            elements = EmitElements(adapters = adapters, tuple = kind == "tuple"),
+            consume = ReadElements(adapters = adapters, tuple = kind == "tuple")
         )
     elseif kind == "map" and node.readkey ~= nil and node.readvalue ~= nil then
-        local key = new Member(name = "key", index = 1, label = typeLabel(graph.root.info, node.readkey, {}))
-        local value = new Member(name = "value", index = 2, label = typeLabel(graph.root.info, node.readvalue, {}))
+        local key = Member(name = "key", index = 1, label = typeLabel(graph.root.info, node.readkey, {}))
+        local value = Member(name = "value", index = 2, label = typeLabel(graph.root.info, node.readvalue, {}))
         local keyAdapter = resolve(graph, node.readkey, key)
         local valueAdapter = resolve(graph, node.readvalue, value)
-        link.target = new Map(
-            description = new Description(
+        link.target = Map(
+            description = Description(
                 member = member,
                 kind = "map",
-                children = {
-                    new Child(member = key, adapter = keyAdapter),
-                    new Child(member = value, adapter = valueAdapter)
-                }
+                children = {Child(member = key, adapter = keyAdapter), Child(member = value, adapter = valueAdapter)}
             ),
-            entries = new EmitEntries(key = new One(adapter = keyAdapter), value = new One(adapter = valueAdapter)),
-            consume = new ReadEntries(key = new One(adapter = keyAdapter), value = new One(adapter = valueAdapter))
+            entries = EmitEntries(key = One(adapter = keyAdapter), value = One(adapter = valueAdapter)),
+            consume = ReadEntries(key = One(adapter = keyAdapter), value = One(adapter = valueAdapter))
         )
     elseif kind == "const" then
         link.target = resolve(graph, node.element, member)
     elseif kind == "literal" then
-        link.target = new LiteralSet(target = resolve(graph, node.base, member), values = {[node.value] = true})
+        link.target = LiteralSet(target = resolve(graph, node.base, member), values = {[node.value] = true})
     elseif kind == "union" then
         local target: integer? = nil
         local nullable = false
@@ -834,7 +828,7 @@ resolve = function(graph: Graph, index: integer, member: Member): core.Adapter<u
             end
         end
         if target ~= nil and target > 0 and nullable then
-            link.target = new Nullable(member = member, target = resolve(graph, target, member))
+            link.target = Nullable(member = member, target = resolve(graph, target, member))
         else
             local base: integer? = nil
             local category: string? = nil
@@ -861,15 +855,13 @@ resolve = function(graph: Graph, index: integer, member: Member): core.Adapter<u
                 end
             end
             if supported and base ~= nil then
-                local literals: core.Adapter<unknown, Member> = new LiteralSet(
+                local literals: core.Adapter<unknown, Member> = LiteralSet(
                     target = resolve(graph, base, member),
                     values = values
                 )
-                link.target = nullable and new Nullable(member = member, target = literals) or literals
+                link.target = nullable and Nullable(member = member, target = literals) or literals
             else
-                link.target = new Scalar(
-                    description = new Description(member = member, kind = "opaque", canread = false)
-                )
+                link.target = Scalar(description = Description(member = member, kind = "opaque", canread = false))
             end
         end
     else
@@ -900,11 +892,11 @@ resolve = function(graph: Graph, index: integer, member: Member): core.Adapter<u
                 kind == "integer" or scalar == "integer" and width ~= 64,
                 "ISO epoch-seconds mapping requires a Lua integer carrier"
             )
-            link.target = new EpochSeconds(description = new Description(member = member, kind = "timestamp"))
+            link.target = EpochSeconds(description = Description(member = member, kind = "timestamp"))
             return link
         end
-        link.target = new Scalar(
-            description = new Description(
+        link.target = Scalar(
+            description = Description(
                 member = member,
                 kind = scalar,
                 width = width,
@@ -945,20 +937,20 @@ export function binding<T is own.Copyable>(target: Type<T>, options: Options?): 
         for name, field in pairs(options.fields) do
             whitelist[
                 name
-            ] = new FieldOptions(name = field.name, representation = field.representation, omitempty = field.omitempty)
+            ] = FieldOptions(name = field.name, representation = field.representation, omitempty = field.omitempty)
         end
     end
-    local snapshot = new Options(
+    local snapshot = Options(
         fields = whitelist,
         naming = options ~= nil and options.naming or "identity",
         unknownmembers = options ~= nil and options.unknownmembers or "reject",
         view = options ~= nil and options.view or nil
     )
-    local graph = new Graph(root = root, options = snapshot)
+    local graph = Graph(root = root, options = snapshot)
     graph.accesses[selected.typeindex] = root
-    local member = new Member(name = selected.info.name, label = selected.info.name)
-    local result: core.Binding<T> = new core.Bound<T, Member>(
-        adapter = new Root<T>(target = resolve(graph, selected.typeindex, member))
+    local member = Member(name = selected.info.name, label = selected.info.name)
+    local result: core.Binding<T> = core.Bound<T, Member>(
+        adapter = Root<T>(target = resolve(graph, selected.typeindex, member))
     )
     if options == nil then
         rawset(selected.info, cacheKey, result)
@@ -1001,12 +993,12 @@ end
 local record Factory is plans.PolicyFactory
     function policy<M is core.Member>(self, member: M): plans.Policy<M>
         assert2(getmetatable(member) == Member, "declaration policy requires a declaration binding")
-        return new Policy<M>()
+        return Policy<M>()
     end
 end
 
 export function policy(): plans.PolicyFactory
-    return new Factory()
+    return Factory()
 end
 
 export function annotations<M is core.Member>(member: M): const{types.reflect.Annotation}?
@@ -1184,7 +1176,7 @@ export function nativeRecipe<T, M is core.Member>(
             end
             items[index] = recipe.syntax
         end
-        return new lowering.Recipe<T>(
+        return lowering.Recipe<T>(
             syntax = sequence.elements.tuple and {kind = "tuple", items = items} or {kind = "list", element = items[1]}
         )
     elseif identity == Map then
@@ -1206,20 +1198,20 @@ export function nativeRecipe<T, M is core.Member>(
         if value == nil or not inertRecipe(value.syntax) then
             return nil
         end
-        return new lowering.Recipe<T>(syntax = {kind = "map", value = value.syntax})
+        return lowering.Recipe<T>(syntax = {kind = "map", value = value.syntax})
     elseif identity == Scalar then
         local scalar = adapter as unknown as Scalar
         local description = scalar.description
         local kind = description.kind
         if kind == "string" or kind == "bool" or kind == "float" and description.width == 64 then
-            return new lowering.Recipe<T>(
+            return lowering.Recipe<T>(
                 syntax = {kind = kind == "float" and "number" or kind == "bool" and "boolean" or kind}
             )
         elseif kind == "integer" and description.width ~= 64 then
             local width = description.width as integer
             local signed = description.signed == true
             local limit = 2 ^ (width - (signed and 1 or 0))
-            return new lowering.Recipe<T>(
+            return lowering.Recipe<T>(
                 syntax = {
                     kind = signed and "integer" or "unsigned",
                     minimum = signed and -limit or 0,
@@ -1230,7 +1222,7 @@ export function nativeRecipe<T, M is core.Member>(
                 }
             )
         elseif kind == "numbertoken" then
-            return new lowering.Recipe<T>(syntax = {kind = "integer"})
+            return lowering.Recipe<T>(syntax = {kind = "integer"})
         end
     end
 
@@ -1340,7 +1332,7 @@ export function nativeEncoding<T, M is core.Member>(
             end
             items[index] = item
         end
-        return new SequenceEncoding(
+        return SequenceEncoding(
             items = items,
             tuple = sequence.elements.tuple,
             path = path
@@ -1355,7 +1347,7 @@ export function nativeEncoding<T, M is core.Member>(
         if item == nil then
             return nil
         end
-        return new MapEncoding(item = item, path = path) as unknown as lowering.Encoding<T>
+        return MapEncoding(item = item, path = path) as unknown as lowering.Encoding<T>
     elseif identity == Scalar then
         local scalar = adapter as unknown as Scalar
         local kind = scalar.description.kind
@@ -1365,7 +1357,7 @@ export function nativeEncoding<T, M is core.Member>(
             or kind == "numbertoken"
             or kind == "integer" and scalar.description.width ~= 64
         then
-            return new ScalarEncoding(description = scalar.description, path = path) as unknown as lowering.Encoding<T>
+            return ScalarEncoding(description = scalar.description, path = path) as unknown as lowering.Encoding<T>
         end
     end
 

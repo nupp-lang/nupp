@@ -1,8 +1,12 @@
--- Temporary source migration helper. Run from a built Nupp checkout:
--- ./bin/nupp run scripts/migrate-construction.lua --tracked
+-- Retained source migration helper. Run with its pinned compatibility compiler:
+-- ./scripts/migrate-construction --tracked
 -- Default: report only. --stdout prints one converted file; --write applies edits.
 -- Add --audit with a support compiler to compare resolved construction facts.
-package.path = "build/?.lua;" .. package.path
+local migrationRoot = os.getenv("NUPP_MIGRATION_COMPILER_ROOT")
+package.path = (migrationRoot and migrationRoot .. "/build/?.lua;" or "build/?.lua;") .. package.path
+if migrationRoot then
+    package.preload["nupp.embedded"] = assert(loadfile(migrationRoot .. "/build/nupp/embedded.lua"))
+end
 local parser = require("nupp.compiler.syntax.parser")
 local cst = require("nupp.compiler.syntax.cst")
 
@@ -89,7 +93,7 @@ end
 
 -- Compare checked construction facts, not token positions or per-check type IDs.
 -- The two checks use independent trees; local nominal identities are represented
--- by their module/name and generic application rather than pointer equality.
+-- by their declaration path and generic application rather than pointer equality.
 function M.audit(plan, filename, env)
     local checker = require("nupp.compiler.check")
     local T = require("nupp.compiler.types")
@@ -118,6 +122,12 @@ function M.audit(plan, filename, env)
             if node.kind == "recordDecl" and node.resolvedType then
                 local nominal = node.resolvedType
                 localOrigins[nominal.origin or nominal] = path
+            elseif node.kind == "cdefStruct" and node.name.definition then
+                local declaration = node.name.definition.type
+                local nominal = declaration and declaration.tag == "typeobject" and declaration.of
+                if nominal then
+                    localOrigins[nominal.origin or nominal] = path
+                end
             end
             for index, child in ipairs(node) do
                 declarations(child, path .. "/" .. index)
@@ -140,6 +150,7 @@ function M.audit(plan, filename, env)
                 local nominal = result and T.unwrapOwnership(result)
                 local origin = nominal and (nominal.origin or nominal)
                 local declaration = localOrigins[origin]
+                local localDeclaration = declaration ~= nil
                 if origin and not declaration then
                     if not externalOrigins[origin] then
                         externalCount = externalCount + 1
@@ -148,7 +159,11 @@ function M.audit(plan, filename, env)
                     declaration = externalOrigins[origin]
                 end
                 local identity = nominal
-                    and ((nominal.moduleName or "") .. ":" .. T.tostring(nominal) .. ":" .. (declaration or "?"))
+                    and (
+                        (
+                            localDeclaration and "" or nominal.moduleName or ""
+                        ) .. ":" .. T.tostring(nominal) .. ":" .. (declaration or "?")
+                    )
                     or "?"
                 local fields = {}
                 for _, field in ipairs(node.recordFields or {}) do
@@ -241,7 +256,7 @@ local function main()
             exclusions[#exclusions + 1] = value:sub(11)
         elseif not positional and (value == "--help" or value == "-h") then
             io.write(
-                [=[Usage: ./bin/nupp run scripts/migrate-construction.lua [OPTIONS] [--] FILE.nupp...
+                [=[Usage: ./scripts/migrate-construction [OPTIONS] [--] FILE.nupp...
   --tracked  Include tracked .nupp files in the current Git checkout.
   --exclude=PATH  Skip this exact file (repeat for known invalid fixtures).
   --audit    Compare checked constructor identity, signatures, results, and moves.

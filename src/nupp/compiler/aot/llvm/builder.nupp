@@ -46,7 +46,7 @@ record builder.Module
 end
 
 function builder.module(): builder.Module
-    return new builder.Module(
+    return builder.Module(
         order = {},
         pieces = {},
         attributes = {},
@@ -223,7 +223,7 @@ record builder.Function
 end
 
 function builder.func(module: builder.Module, header: string): builder.Function
-    return new builder.Function(
+    return builder.Function(
         module = module,
         header = header,
         allocas = {},
