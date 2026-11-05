@@ -896,6 +896,11 @@ record types.Nominal
     --- Canonical module that may access private fields.
     moduleName: string?
 
+    --- The module a hoisted declaration belongs to, known before its body is
+    --- installed. Overload members mint their names from it for a declaration
+    --- that `moduleName` does not yet name.
+    hoistedModule: string?
+
     --- Canonical module allowed to declare implementations of this interface.
     --- A sealed interface is nominal at conformance sites rather than structural.
     sealedModule: string?

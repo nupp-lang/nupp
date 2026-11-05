@@ -3081,6 +3081,10 @@ function checkMod.check(
                 n.deriveClaimsComplete = nil
                 n.deriveClaimedContracts = nil
                 c.beginNominal(n)
+                -- An overload checked earlier in the file mints its runtime member
+                -- from this declaration's module, and every checker has to mint the
+                -- same one, whether or not the body is installed yet.
+                n.hoistedModule = c.result.moduleName
                 if decl.declKind == "interface" and decl.sealedTok then
                     n.sealedModule = c.result.moduleName or c.filename
                 end
