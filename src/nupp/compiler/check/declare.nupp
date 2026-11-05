@@ -1748,6 +1748,10 @@ export function install(
                 -- witness: the same `Type<R>` its own module sees, so a `Type<T>`
                 -- directed API takes it from either side of the boundary.
                 c.moduleExports.values[name] = T.typeObject(t)
+            elseif t.tag == "nominal" and t.declKind == "interface" and not stat.isAnnotationDefinition then
+                -- An exported interface exposes its declaration namespace, never
+                -- an instance satisfying its own contract.
+                c.moduleExports.values[name] = T.metatable(t)
             end
         elseif visibility == "global" and c.env then
             -- Project globals live in the reactive project index. Only

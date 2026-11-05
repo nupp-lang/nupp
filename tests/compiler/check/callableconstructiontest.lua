@@ -334,4 +334,44 @@ constructor(self) self.x = 1 local self = V() self.x = 2 end end]],
     end
 end
 
+function suite.exportedInterfacesExposeTheirStaticNamespace()
+    local parsed, errors = compile(
+        [[
+module callable
+export sealed interface Factory
+    function of(value: string): string return value end
+end
+]]
+    )
+    assert(#errors == 0, table.concat(errors, "\n"))
+    local value = assert(parsed.moduleExports.values.Factory)
+    assert(value.tag == "metatable", "an exported interface value is its declaration namespace")
+    assert(value.of.staticByname.of, "the namespace carries its factory")
+    local code = gen.generate(parsed, "callable")
+    local factory = assert(loadstring(code))().Factory
+    local make = factory.of
+    assert(make("held factory") == "held factory")
+end
+
+function suite.interfaceCallContractsBelongToInstances()
+    local _, errors = compile(
+        [[
+local interface Callable
+    metamethod __call: function(self): string
+    function of(): string return "factory" end
+end
+local held = Callable
+local invalid = held()
+]]
+    )
+    assert(#errors > 0, "an interface declaration has no constructor")
+    local _, valid = compile(
+        [[
+local interface Callable metamethod __call: function(self): string end
+local function invoke(value: Callable): string return value() end
+]]
+    )
+    assert(#valid == 0, table.concat(valid, "\n"))
+end
+
 return suite

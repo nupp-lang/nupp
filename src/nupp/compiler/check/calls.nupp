@@ -2050,11 +2050,11 @@ export function install(c: state.Checker): Ops
             return finished(calleeT)
         end
 
-        -- A bounded receiver reaches `__call` through its bound, and so does a
-        -- metatable standing for one: calling a declaration's table is exactly what the
-        -- contract on it describes. A concrete record was unwrapped above and answered
-        -- as a construction or a call before reaching here.
-        local callContract = calleeT.tag ~= "typeobject" and ops.metamethodOf(calleeT, "__call") or nil
+        -- Instance call contracts never make a declaration namespace callable.
+        local callContract = calleeT.tag ~= "typeobject"
+            and calleeT.tag ~= "metatable"
+            and ops.metamethodOf(calleeT, "__call")
+            or nil
         if callContract then
             return ops.inferCall(node, dropSelf(callContract), argsNode)
         end
