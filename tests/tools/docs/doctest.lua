@@ -5424,12 +5424,6 @@ end
 function M.exportedTablesUseCanonicalPublicNamesInEveryOutput()
     local examples = {
         {path = "src/io/cli.nupp", name = "io.cli", member = "application", hidden = "cliModule."},
-        {
-            path = "src/debug/bench.nupp",
-            name = "debug.bench",
-            member = "decodebaseline",
-            hidden = "bench.decodeBaseline"
-        },
     }
     for _, example in ipairs(examples) do
         local source = readFile(HERE .. "/../" .. example.path)
@@ -6987,9 +6981,9 @@ local VERSION_SOURCES = {
     ["Documentation model"] = {"src/nupp/tools/doc/init.nupp", "schemaVersion = (%d+), modules = model"},
     ["Coverage report"] = {"src/nupp/tools/coverage.nupp", "export const SCHEMA_VERSION = (%d+)"},
     ["Test report"] = {"src/nupp/tools/cli/test.nupp", "schemaVersion = {%s*type = \"integer\",%s*enum = {(%d+)}"},
-    ["Bench record"] = {"src/debug/bench.nupp", "bench%.schema = (%d+)"},
+    ["Bench record"] = {"src/debug/bench.nupp", "export const schema = (%d+)"},
     ["Optimizer remarks"] = {"src/nupp/tools/cli/compile.nupp", "local document = {%s*schema = (%d+),"},
-    ["Trace reason catalog"] = {"src/debug/profile/trace.nupp", "trace%.catalogversion = (%d+)"},
+    ["Trace reason catalog"] = {"src/debug/profile/init.nupp", "export const catalogversion = (%d+)"},
     ["GPU cost records"] = {"native/crates/gpu/src/costs.rs", "values%[\"schemaVersion\"%] = json!%((%d+)%)"},
 }
 

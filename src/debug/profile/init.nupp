@@ -40,14 +40,12 @@ the program.
 module debug.profile
 
 local zone = require("debug.profile.zone")
-local jitProfile = require("jit.profile")
-local jitUtil = require("jit.util")
-local traceRegistry = require("debug.profile.trace")
-
-local profile = {}
+local profiler = require("jit.profile")
+local jitutil = require("jit.util")
+local vmdef = require("jit.vmdef")
 
 --- What `profile.sample` collects, and how much of it. Every field is optional.
-type profile.SampleOptions = {
+export type SampleOptions = {
     --- Milliseconds between samples; 10 by default, which is 100 a second. Must be
     --- between 1 and 2147483647, the range LuaJIT's profiler accepts. Below about 10
     --- the timer starts taking real time away from the thread it is measuring, so
@@ -82,7 +80,7 @@ type profile.SampleOptions = {
 }
 
 --- What `profile.trace` counts. Every field is optional.
-type profile.TraceOptions = {
+export type TraceOptions = {
     --- Include the aborts that are ordinary trace formation rather than a refusal:
     --- leaving a loop, recursion, an inner loop. False by default; turn it on when the
     --- question is why a particular trace never formed.
@@ -97,7 +95,7 @@ type profile.TraceOptions = {
 --- lexical cleanup calls, ends one that nothing stopped without building a report, and
 --- does nothing after `stop`. The two are separate so a helper bounded by this one can
 --- still name `S.Report`.
-interface profile.Session
+export interface Session
     --- What `stop` returns, chosen by the session declaration rather than here.
     associated type Report
 
@@ -117,12 +115,12 @@ end
 --- `blacklist` is always actionable: the code is demoted to the interpreter for the
 --- rest of the process. `warn` is a refusal that may or may not sit on a hot path.
 --- `info` is trace formation working as designed.
-type profile.Severity = "blacklist" | "warn" | "info"
+export type Severity = "blacklist" | "warn" | "info"
 
 --- A distinct stack, and what landed on it.
 ---
 --- A row of a `SampleReport`, built at `stop`. The five state counts sum to `count`.
-record profile.Sample
+export record Sample
     --- The zone path the samples were taken under, "" when none was open.
     zonepath: string
 
@@ -150,7 +148,7 @@ end
 
 --- Lua leaf samples attributed to a source line. Native VM states have no
 --- reliable Lua location and are excluded.
-type profile.SourceSample = {
+export type SourceSample = {
     file: string,
     line: integer,
     samples: integer
@@ -159,7 +157,7 @@ type profile.SourceSample = {
 --- What a sample session saw, as `SampleSession:stop` returns it.
 ---
 --- `tostring` on it is the collapsed-stack text, so it prints and pipes directly.
-record profile.SampleReport
+export record SampleReport
     --- The interval the session ran at, so the sample counts can be read as time.
     intervalms: integer
 
@@ -168,7 +166,7 @@ record profile.SampleReport
 
     --- Lua leaf locations, ordered by file and line. Their sum can be less than
     --- samples because native VM states have no reliable Lua source location.
-    sourcesamples: {profile.SourceSample}
+    sourcesamples: {SourceSample}
 
     --- Distinct stacks they fell on.
     stacks: integer
@@ -185,8 +183,8 @@ end
 ---
 --- Live until `stop` or `close`, and there is at most one at a time. A local
 --- session closes when its block ends, so the timer never outlives the question.
-record profile.SampleSession is profile.Session, own.Closeable
-    associated type Report = profile.SampleReport
+export record SampleSession is Session, own.Closeable
+    associated type Report = SampleReport
 
     --- The interval it was started at.
     intervalms: integer
@@ -206,7 +204,7 @@ record profile.SampleSession is profile.Session, own.Closeable
     --- Samples so far, by zone path and then by stack. Two levels rather than one
     --- joined key, so a sample taken in a zone that has not changed since the last one
     --- costs a single table lookup.
-    aggregate: {[string]: {[string]: profile.Sample}}
+    aggregate: {[string]: {[string]: Sample}}
 
     --- Lua leaf locations counted separately in each zone, before filtering.
     sourcesamples: {[string]: {[string]: integer}}
@@ -214,15 +212,15 @@ record profile.SampleSession is profile.Session, own.Closeable
     pause: function(self)
     resume: function(self)
     stop: function(self, filename: string?): self.Report
-    close: function(takes self: profile.SampleSession): nil
+    close: function(takes self: SampleSession): nil
 end
 
 --- A place the JIT gave up, and how often it did.
 ---
 --- A row of a `TraceReport`, built at `stop`.
-record profile.AbortSite
+export record AbortSite
     --- How much it is worth reading.
-    severity: profile.Severity
+    severity: Severity
 
     --- Times this exact severity, reason, location and zone fired.
     count: integer
@@ -257,7 +255,7 @@ end
 --- Two reports are comparable when their `id` matches. A report taken under an
 --- unsupported recorder still reads, but its reasons were mapped from a VM the
 --- registry was not written against.
-record profile.TraceProfile
+export record TraceProfile
     --- Every field below joined, which is what two reports are compared on.
     id: string
 
@@ -284,11 +282,269 @@ record profile.TraceProfile
     supported: boolean
 end
 
+-------------------------------------------------------------------------------
+-- Trace reasons
+-------------------------------------------------------------------------------
+
+--- A stable reason the JIT declined to record, however it was observed.
+---
+--- `class` is what the reason is worth acting on: a `blocker` cannot record at
+--- all, a `risk` may or may not sit on a hot path, and a `stop` is trace formation
+--- working as designed. The three index fields are the routes to it, from a
+--- bytecode name, from a static finding, and from the VM's own runtime text.
+---
+--- The recorder's strings are presentation, not API. An abort is interpreted under
+--- the recorder that emitted it and mapped to one of these, and `nupp bc --check`,
+--- `@jit` contracts and `nupp explain` read the same records, so a bytecode finding,
+--- a contract error and an observed abort never acquire three explanations.
+export type Reason = {
+    id: string,
+    class: 'blocker' | 'risk' | 'stop',
+    opcodes: {[string]: boolean}?,
+    source: {[string]: boolean}?,
+    runtime: {string}?,
+    explanation: string?,
+    repair: string?,
+    lint: string?,
+    contractseverity: string?
+}
+
+--- The version of the reason catalog, bumped when a reader would misread it.
+export const catalogversion = 1
+
+--- The reason catalog's identity, which reports carry beside its version.
+export const catalogid = "nupp-trace-reasons-v1"
+
+local pinnedrev = "1edc3e52b67eaf6ce5f809be8e17d6862594b8bc"
+local pinnedversion = 1785763465
+
+local catalog: {
+    Reason
+} = {
+    {
+        id = "jit/tailcall-constructor",
+        class = "risk",
+        explanation = "a constructor in tail position can leave the root trace before its caller loop closes",
+        repair = "bind the constructed result before returning it and inspect run --jit-aborts",
+    },
+    {
+        id = "jit/loop-function-construction",
+        class = "blocker",
+        opcodes = {FNEW = true},
+        source = {["jit-loop-closure"] = true, ["loop-invariant-closure"] = true},
+        explanation = "LuaJIT has no recorder for constructing a function",
+        repair = "declare one function outside the loop and pass what varies to it",
+        lint = "NUPP2515",
+        contractseverity = "error",
+    },
+    {
+        id = "jit/loop-upvalue-close",
+        class = "blocker",
+        opcodes = {UCLO = true},
+        explanation = "LuaJIT has no recorder for closing an upvalue",
+        repair = "move the captured lifetime outside the repeated region",
+        contractseverity = "error",
+    },
+    {
+        id = "jit/ffi-vararg-policy",
+        class = "risk",
+        source = {["jit-boundary"] = true},
+        explanation = "this variadic FFI form depends on argument types and the target ABI",
+        repair = "move the call behind an explicit jit.off boundary when it is not a hot operation",
+        lint = "NUPP2514",
+        contractseverity = "error",
+    },
+    {
+        id = "jit/ffi-callback",
+        class = "risk",
+        source = {["jit-callback"] = true},
+        explanation = "a C call that re-enters Lua through this callback cannot remain on a trace",
+        repair = "disable the callback and its calling boundary with jit.off",
+        lint = "NUPP2502",
+        contractseverity = "error",
+    },
+    {
+        id = "jit/disabled-callee",
+        class = "blocker",
+        explanation = "the resolved callee is explicitly disabled with jit.off",
+        repair = "remove @jit from the caller or keep the disabled call outside its checked hot path",
+        contractseverity = "error",
+    },
+    {
+        id = "jit/dynamic-call",
+        class = "risk",
+        explanation = "the call target is dynamic, so its bytecode recordability is unknown",
+    },
+    {id = "jit/expected-loop-leave", class = "stop", runtime = {"leaving loop in root trace"}},
+    {id = "jit/expected-inner-loop", class = "stop", runtime = {"inner loop in root trace"}},
+    {id = "jit/expected-down-recursion", class = "stop", runtime = {"down-recursion, restarting"}},
+    {id = "jit/expected-up-recursion", class = "stop", runtime = {"up-recursion"}},
+    {id = "jit/retry-recording", class = "stop", runtime = {"retry recording"}},
+    {id = "jit/runtime-blacklisted", class = "risk", runtime = {"blacklisted"}},
+    {id = "jit/runtime-trace-too-short", class = "stop", runtime = {"trace too short"}},
+    {id = "jit/runtime-trace-too-long", class = "risk", runtime = {"trace too long"}},
+    {id = "jit/runtime-trace-too-deep", class = "risk", runtime = {"trace too deep"}},
+    {id = "jit/runtime-too-many-snapshots", class = "risk", runtime = {"too many snapshots"}},
+    {id = "jit/runtime-loop-unroll-limit", class = "risk", runtime = {"loop unroll limit reached"}},
+    {id = "jit/runtime-call-unroll-limit", class = "risk", runtime = {"call unroll limit reached"}},
+    {id = "jit/runtime-disabled-callee", class = "blocker", runtime = {"JIT compilation disabled for function"}},
+    {id = "jit/runtime-ffi-call", class = "risk", runtime = {"NYI: unsupported C function type"}},
+    {id = "jit/runtime-ffi-conversion", class = "risk", runtime = {"NYI: unsupported C type conversion"}},
+    {id = "jit/runtime-type-instability", class = "risk", runtime = {"persistent type instability"}},
+    {
+        id = "jit/runtime-machine-code-limit",
+        class = "risk",
+        runtime = {"machine code too long", "hit mcode limit (retrying)", "failed to allocate mcode memory",}
+    },
+    {id = "jit/runtime-recorder-error", class = "risk", runtime = {"error thrown or hook called during recording"}},
+    {id = "jit/runtime-unknown", class = "risk"},
+}
+
+local byid, byopcode, bysource, bytext = {}, {}, {}, {}
+for _, record in ipairs(catalog) do
+    byid[record.id] = record
+    for opcode in pairs(record.opcodes or {}) do
+        byopcode[opcode] = record
+    end
+    for source in pairs(record.source or {}) do
+        bysource[source] = record
+    end
+    for _, format in ipairs(record.runtime or {}) do
+        bytext[format] = record
+    end
+end
+
+-- FNV-1a over 32 bits. The prime 16777619 is 2^24 + 2^8 + 0x93 and is multiplied in
+-- those pieces: each product fits a double's mantissa, where the direct multiply can
+-- exceed it and lose exactly the low bits `tobit` keeps. `tohex` because "%08x" widens
+-- a negative word to sixteen digits.
+local function fnv(value: string): string
+    local digest = bit.tobit(2166136261)
+    for index = 1, #value do
+        local mixed = bit.bxor(digest, value:byte(index))
+        digest = bit.tobit(bit.lshift(mixed, 24) + bit.lshift(mixed, 8) + mixed * 0x93)
+    end
+
+    return bit.tohex(digest)
+end
+
+--- Describes the recorder this process is running.
+---
+--- @return the profile every event from this process is interpreted under
+export function recorder(): TraceProfile
+    local status = {jit.status()}
+    local flags = {}
+    for index = 2, #status do
+        flags[#flags + 1] = tostring(status[index])
+    end
+    table.sort(flags)
+    -- `jit.version_num` is the compatibility number (20199 for every current 2.1
+    -- snapshot). The pinned snapshot identity is the timestamp suffix exposed in the
+    -- full version string.
+    local version = math.floor(tonumber(jit.version:match("LuaJIT 2%.1%.(%d+)")) or jit.version_num) as integer
+    local revision = version == pinnedversion and pinnedrev or "external:" .. tostring(version)
+    local schema = fnv(vmdef.bcnames)
+
+    return TraceProfile(
+        id = table.concat({revision, jit.arch, jit.os, table.concat(flags, ","), schema}, "|"),
+        luajitrevision = revision,
+        luajitversion = version,
+        architecture = jit.arch,
+        operatingsystem = jit.os,
+        enabledrecorderfeatures = flags,
+        bytecodeschema = schema,
+        supported = revision == pinnedrev
+    )
+end
+
+--- Returns the reason filed under a stable identity.
+---
+--- @param id the identity, as a report or a diagnostic carries it
+--- @return the reason, or nil when nothing is filed under it
+export function reason(id: string): Reason?
+    return byid[id]
+end
+
+--- Returns the reason for a bytecode LuaJIT has no recorder for.
+---
+--- @param opcode the bytecode's name, as `opname` renders it
+--- @return the reason, or nil when that bytecode records
+export function foropcode(opcode: string): Reason?
+    return byopcode[opcode]
+end
+
+--- Returns the reason a static finding maps to.
+---
+--- This is what keeps a checker finding and an observed abort from explaining the
+--- same thing two different ways.
+---
+--- @param source the static finding's name
+--- @return the reason, or nil when the finding has no runtime counterpart
+export function forsource(source: string): Reason?
+    return bysource[source]
+end
+
+--- Renders a bytecode number as the name LuaJIT knows it by.
+---
+--- @param opcode the number the VM reported
+--- @return the trimmed name
+export function opname(opcode: integer): string
+    local start = opcode * 6 + 1
+    return (vmdef.bcnames:sub(start, start + 5):gsub("%s+$", ""))
+end
+
+--- Interprets a raw abort the VM reported.
+---
+--- An abort naming an unrecordable bytecode is routed by that opcode rather
+--- than by its text, so it lands on the same reason a static check would have
+--- found. Anything unrecognized returns `jit/runtime-unknown` rather than
+--- nothing.
+---
+--- @param code the VM's trace error number, or nil
+--- @param arg whatever the VM passed beside it
+--- @return the reason it maps to
+--- @return the rendered text, for display
+export function abort(code: integer?, arg: number | string | nil): (Reason, string)
+    if not code then
+        return byid["jit/runtime-unknown"], "abort"
+    end
+    local format = vmdef.traceerr[code]
+    if not format then
+        return byid["jit/runtime-unknown"], "error " .. tostring(code)
+    end
+    if format:find("NYI: bytecode", 1, true) and type(arg) == "number" then
+        local op = opname(arg as integer)
+        return byopcode[op] or byid["jit/runtime-unknown"], "NYI: bytecode " .. op
+    end
+    local record = bytext[format] or byid["jit/runtime-unknown"]
+    if arg == nil then
+        return record, format
+    end
+    local ok, detail = pcall(string.format, format, arg)
+
+    return record, ok and detail as string or format
+end
+
+--- Returns every reason, in catalog order.
+---
+--- The list is a copy, so a caller sorting or filtering it cannot disturb the
+--- catalog the checker reads.
+---
+--- @return one entry per known reason
+export function reasons(): {Reason}
+    local copy = {}
+    for index, record in ipairs(catalog) do
+        copy[index] = record
+    end
+
+    return copy
+end
+
 --- What a trace session saw, as `TraceSession:stop` returns it.
 ---
 --- `tostring` on it renders `sites` as RFC 4180 CSV, so it prints, sorts and diffs
 --- directly.
-record profile.TraceReport
+export record TraceReport
     --- Wallclock seconds the session was active, in whole seconds: it comes from
     --- `os.time`, so a session shorter than one reads as zero and dividing by it is the
     --- caller's problem.
@@ -302,10 +558,10 @@ record profile.TraceReport
 
     --- One row per distinct severity, reason, location and zone. Ordered by severity,
     --- then by count descending.
-    sites: {profile.AbortSite}
+    sites: {AbortSite}
 
     --- The recorder and registry identities under which the events were interpreted.
-    traceprofile: profile.TraceProfile
+    traceprofile: TraceProfile
 
     --- The reason registry the identities came from.
     reasoncatalogid: string
@@ -320,8 +576,8 @@ end
 ---
 --- Live until `stop` or `close`, and there is at most one at a time. A local
 --- session closes when its block ends, so the event hook never outlives the question.
-record profile.TraceSession is profile.Session, own.Closeable
-    associated type Report = profile.TraceReport
+export record TraceSession is Session, own.Closeable
+    associated type Report = TraceReport
 
     --- Whether the benign trace-formation events are being counted.
     includebenign: boolean
@@ -336,7 +592,7 @@ record profile.TraceSession is profile.Session, own.Closeable
     stopped: boolean
 
     --- Aborts so far, by severity, reason, location and zone joined.
-    sites: {[string]: profile.AbortSite}
+    sites: {[string]: AbortSite}
 
     --- Aborts counted so far.
     totalaborts: integer
@@ -344,7 +600,7 @@ record profile.TraceSession is profile.Session, own.Closeable
     --- Blacklist events among them.
     blacklisted: integer
 
-    traceprofile: profile.TraceProfile
+    traceprofile: TraceProfile
 
     --- The handler to hand back to `jit.attach` to detach it. Dropping the last
     --- reference to a handler does not remove it.
@@ -353,7 +609,7 @@ record profile.TraceSession is profile.Session, own.Closeable
     pause: function(self)
     resume: function(self)
     stop: function(self, filename: string?): self.Report
-    close: function(takes self: profile.TraceSession): nil
+    close: function(takes self: TraceSession): nil
 end
 
 -------------------------------------------------------------------------------
@@ -363,19 +619,19 @@ end
 -- Writes `text` to `path`, replacing whatever was there. Raised errors carry the path,
 -- since the caller passed a name and a failure that does not repeat it says nothing
 -- about which name was wrong.
-local function writeFile(path: string, text: string)
-    local file, openReason = io.open(path, "wb")
+local function save(path: string, text: string)
+    local file, openerr = io.open(path, "wb")
     if not file then
-        error("nupp: cannot write the profile report '" .. path .. "': " .. (openReason or "unknown"), 3)
+        error("nupp: cannot write the profile report '" .. path .. "': " .. (openerr or "unknown"), 3)
     end
-    local written, writeReason = file:write(text)
+    local written, writeerr = file:write(text)
     if not written then
         file:close()
-        error("nupp: cannot write the profile report '" .. path .. "': " .. (writeReason or "unknown"), 3)
+        error("nupp: cannot write the profile report '" .. path .. "': " .. (writeerr or "unknown"), 3)
     end
-    local closed, closeReason = file:close()
+    local closed, closeerr = file:close()
     if not closed then
-        error("nupp: cannot close the profile report '" .. path .. "': " .. (closeReason or "unknown"), 3)
+        error("nupp: cannot close the profile report '" .. path .. "': " .. (closeerr or "unknown"), 3)
     end
 end
 
@@ -394,7 +650,7 @@ end
 -- Appends the pieces of `text`, split on `separator`, to `frames`. Empty pieces are
 -- dropped: a zone path is "" when no zone is open, and dumpstack can render a frame it
 -- has no name for as nothing at all.
-local function appendFrames(frames: {string}, text: string, separator: string)
+local function append(frames: {string}, text: string, separator: string)
     if text == "" then
         return
     end
@@ -412,12 +668,12 @@ end
 -- Each row carries its VM state as a "_[N]" suffix, the convention FlameGraph
 -- and speedscope already colour on. The letters are LuaJIT's own: N compiled, I
 -- interpreted, C in a C function, G collecting, J compiling.
-local function collapse(samples: {profile.Sample}): string
+local function collapse(samples: {Sample}): string
     if #samples == 0 then
         return ""
     end
 
-    table.sort(samples, function(a: profile.Sample, b: profile.Sample): boolean
+    table.sort(samples, function(a: Sample, b: Sample): boolean
         if a.count ~= b.count then
             return a.count > b.count
         end
@@ -432,8 +688,8 @@ local function collapse(samples: {profile.Sample}): string
     for index = 1, #samples do
         local sample = samples[index]
         local frames: {string} = {}
-        appendFrames(frames, sample.zonepath, "/")
-        appendFrames(frames, sample.stack, ";")
+        append(frames, sample.zonepath, "/")
+        append(frames, sample.stack, ";")
         if #frames == 0 then
             frames[1] = "<root>"
         end
@@ -455,7 +711,7 @@ local function collapse(samples: {profile.Sample}): string
                     -- inspected later. Native/GC/JIT work must not inherit that
                     -- later Lua callback's frames.
                     local zones: {string} = {}
-                    appendFrames(zones, sample.zonepath, "/")
+                    append(zones, sample.zonepath, "/")
                     zones[#zones + 1] = "<" .. (state == "G" and "GC" or state == "J" and "JIT" or "C") .. ">"
                     prefix = table.concat(zones, ";")
                 end
@@ -483,18 +739,18 @@ end
 -- outside the program without saying what this command was doing at the time.
 local OUTSIDE_ROOT = "<outside>"
 
-local function trimToRoot(stack: string, root: string): string
+local function trimroot(stack: string, root: string): string
     local prefix = root .. ":"
     local from = 1
     while from <= #stack do
         if stack:sub(from, from + #prefix - 1) == prefix then
             return stack:sub(from)
         end
-        local nextFrame = stack:find(";", from, true)
-        if not nextFrame then
+        local at = stack:find(";", from, true)
+        if not at then
             break
         end
-        from = nextFrame + 1
+        from = at + 1
     end
 
     return OUTSIDE_ROOT
@@ -518,7 +774,7 @@ local sampling = false
 -- that LuaJIT saves and restores around its own handler, so a late one is
 -- ignored too. Put the real disposition back afterwards, since leaving a process
 -- unable to be profiled by anything else is not this module's decision to make.
-local ignoredSignal, restoreSignal = nil, nil
+local mute, unmute = nil, nil
 do
     local loaded, ffi = pcall(require, "ffi")
     if loaded and package.config:sub(1, 1) ~= "\\" then
@@ -538,11 +794,11 @@ do
             -- case it exists for and leave the process unable to be profiled.
             local previous: any = nil
             local captured = false
-            ignoredSignal = function(): nil
+            mute = function(): nil
                 local ok, was = pcall(signal as any, SIGPROF, SIG_IGN)
                 previous, captured = was, ok
             end
-            restoreSignal = function(): nil
+            unmute = function(): nil
                 if captured then
                     pcall(signal as any, SIGPROF, previous)
                     previous, captured = nil, false
@@ -554,11 +810,11 @@ end
 
 -- Ends a sample session's recording: what `stop` does before it builds the report,
 -- and all that `close` does.
-local function haltSampling(borrows session: profile.SampleSession): nil
+local function haltsample(borrows session: SampleSession): nil
     session.stopped = true
-    jitProfile.stop()
-    if restoreSignal ~= nil then
-        restoreSignal()
+    profiler.stop()
+    if unmute ~= nil then
+        unmute()
     end
     sampling = false
     zone.release()
@@ -576,12 +832,12 @@ end
 --- @param options omitted samples every zone at 10 ms to a depth of 16
 --- @return the handle whose `stop` produces the report
 --- @raises string when a sample session is already running or an option is out of range
-function profile.sample(options: profile.SampleOptions?): profile.SampleSession
+export function sample(options: SampleOptions?): SampleSession
     if sampling then
         error("nupp: a sample session is already running; stop it first", 2)
     end
 
-    local opts: profile.SampleOptions = options or {}
+    local opts: SampleOptions = options or {}
     local intervalms = opts.intervalms or 10
     if intervalms < 1 or intervalms > 2147483647 then
         error("nupp: a sample session's intervalms must be between 1 and 2147483647", 2)
@@ -591,7 +847,7 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
         error("nupp: a sample session's stackdepth must be between 1 and 2147483647", 2)
     end
 
-    local owned = profile.SampleSession(
+    local owned = SampleSession(
         intervalms = intervalms,
         zonefilter = opts.zone,
         root = opts.root,
@@ -612,9 +868,9 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
     -- The zone path is a string the zone module holds onto until the stack changes, so
     -- consecutive samples in one zone hit the same table entry without hashing a fresh
     -- key.
-    local cachedPath = ""
-    local cachedStacks: {[string]: profile.Sample} = {}
-    aggregate[cachedPath] = cachedStacks
+    local lastpath = ""
+    local laststacks: {[string]: Sample} = {}
+    aggregate[lastpath] = laststacks
 
     local function record(thread: any, samples: integer, vmstate: string)
         if session.paused then
@@ -622,21 +878,21 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
         end
 
         local path = zone.path()
-        if path ~= cachedPath then
+        if path ~= lastpath then
             local stacks = aggregate[path]
             if not stacks then
                 stacks = {}
                 aggregate[path] = stacks
             end
-            cachedPath, cachedStacks = path, stacks
+            lastpath, laststacks = path, stacks
         end
 
         -- Only meaningful for the thread this callback was handed, and only while it is
         -- running.
-        local stack = thread and jitProfile.dumpstack(thread, "FZ;", walk) or ""
-        local sample = cachedStacks[stack]
+        local stack = thread and profiler.dumpstack(thread, "FZ;", walk) or ""
+        local sample = laststacks[stack]
         if not sample then
-            sample = profile.Sample(
+            sample = Sample(
                 zonepath = path,
                 stack = stack,
                 count = 0,
@@ -646,12 +902,12 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
                 collecting = 0,
                 compiling = 0
             )
-            cachedStacks[stack] = sample
+            laststacks[stack] = sample
         end
 
         if thread and (vmstate == "N" or vmstate == "I") then
             -- Preserve paths and lines independently of the flamegraph's names.
-            local location = jitProfile.dumpstack(thread, "pl", 1)
+            local location = profiler.dumpstack(thread, "pl", 1)
             local locations = session.sourcesamples[path]
             if not locations then
                 locations = {}
@@ -674,18 +930,18 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
     end
 
     zone.acquire()
-    if ignoredSignal ~= nil then
-        ignoredSignal()
+    if mute ~= nil then
+        mute()
     end
     -- "l" keys the sampler on the source line, which is the finest thing it coalesces
     -- on: consecutive samples sharing a key arrive as one call carrying their count, so
     -- anything coarser would attribute a run of samples to whichever stack the last of
     -- them was on. "i<n>" is the interval. The stack and the VM state arrive either
     -- way.
-    jitProfile.start("li" .. string.format("%d", intervalms), record)
+    profiler.start("li" .. string.format("%d", intervalms), record)
     sampling = true
 
-    return session as profile.SampleSession
+    return session as SampleSession
 end
 
 --- Stops recording without ending the session. The timer keeps firing, at the cost of
@@ -695,7 +951,7 @@ end
 --- Idempotent.
 ---
 --- @raises string once the session has stopped
-function profile.SampleSession:pause()
+function SampleSession:pause()
     if self.stopped then
         error("nupp: the sample session has already stopped", 2)
     end
@@ -705,7 +961,7 @@ end
 --- Resumes recording. Idempotent.
 ---
 --- @raises string once the session has stopped
-function profile.SampleSession:resume()
+function SampleSession:resume()
     if self.stopped then
         error("nupp: the sample session has already stopped", 2)
     end
@@ -718,11 +974,11 @@ end
 ---     whatever was in it
 --- @return the report, whose `tostring` is that same text
 --- @raises string once the session has stopped, so it cannot be called twice
-function profile.SampleSession:stop(filename: string?): profile.SampleReport
+function SampleSession:stop(filename: string?): SampleReport
     if self.stopped then
         error("nupp: the sample session has already stopped", 2)
     end
-    haltSampling(self)
+    haltsample(self)
 
     local prefix = self.zonefilter
     -- The filter names a subtree, so a match has to end at a path component:
@@ -730,20 +986,20 @@ function profile.SampleSession:stop(filename: string?): profile.SampleReport
     -- "frame/renderer", which merely shares the characters.
     local subtree = (prefix or "") .. "/"
     local root = self.root
-    local kept: {profile.Sample} = {}
+    local kept: {Sample} = {}
     local samples: integer = 0
     -- Trimming can bring two stacks together, when what they differed in was only what
     -- started them, so the rows are merged rather than the first one standing for both.
     -- The key holds a NUL because a zone name and a frame can hold anything else.
-    local merged: {[string]: profile.Sample} = {}
+    local merged: {[string]: Sample} = {}
     for path, stacks in pairs(self.aggregate) do
         if not prefix or path == prefix or path:sub(1, #subtree) == subtree then
-            for _, sample in pairs(stacks) do
-                samples = samples + sample.count
-                local stack = root and trimToRoot(sample.stack, root) or sample.stack
+            for _, seen in pairs(stacks) do
+                samples = samples + seen.count
+                local stack = root and trimroot(seen.stack, root) or seen.stack
                 local row = merged[path .. "\0" .. stack]
                 if not row then
-                    row = profile.Sample(
+                    row = Sample(
                         zonepath = path,
                         stack = stack,
                         count = 0,
@@ -756,12 +1012,12 @@ function profile.SampleSession:stop(filename: string?): profile.SampleReport
                     merged[path .. "\0" .. stack] = row
                     kept[#kept + 1] = row
                 end
-                row.count = row.count + sample.count
-                row.compiled = row.compiled + sample.compiled
-                row.interpreted = row.interpreted + sample.interpreted
-                row.ccode = row.ccode + sample.ccode
-                row.collecting = row.collecting + sample.collecting
-                row.compiling = row.compiling + sample.compiling
+                row.count = row.count + seen.count
+                row.compiled = row.compiled + seen.compiled
+                row.interpreted = row.interpreted + seen.interpreted
+                row.ccode = row.ccode + seen.ccode
+                row.collecting = row.collecting + seen.collecting
+                row.compiling = row.compiling + seen.compiling
             end
         end
     end
@@ -774,7 +1030,7 @@ function profile.SampleSession:stop(filename: string?): profile.SampleReport
             end
         end
     end
-    local sourcesamples: {profile.SourceSample} = {}
+    local sourcesamples: {SourceSample} = {}
     for location, count in pairs(counts) do
         local file, at = location:match("^(.*):(%d+)$")
         local line = tonumber(at)
@@ -782,13 +1038,13 @@ function profile.SampleSession:stop(filename: string?): profile.SampleReport
             sourcesamples[#sourcesamples + 1] = {file = file, line = line as integer, samples = count}
         end
     end
-    table.sort(sourcesamples, function(a: profile.SourceSample, b: profile.SourceSample): boolean
+    table.sort(sourcesamples, function(a: SourceSample, b: SourceSample): boolean
         if a.file ~= b.file then
             return a.file < b.file
         end
         return a.line < b.line
     end)
-    local report = profile.SampleReport(
+    local report = SampleReport(
         intervalms = self.intervalms,
         sourcesamples = sourcesamples,
         samples = samples,
@@ -796,7 +1052,7 @@ function profile.SampleSession:stop(filename: string?): profile.SampleReport
         text = collapse(kept)
     )
     if filename then
-        writeFile(filename, report.text)
+        save(filename, report.text)
     end
 
     return report
@@ -806,8 +1062,8 @@ end
 -- Trace aborts
 -------------------------------------------------------------------------------
 
-local function classify(reason: string, reasonclass: string): profile.Severity
-    if reason:find("blacklist", 1, true) then
+local function classify(text: string, reasonclass: string): Severity
+    if text:find("blacklist", 1, true) then
         return "blacklist"
     end
     if reasonclass == "stop" then
@@ -817,7 +1073,7 @@ local function classify(reason: string, reasonclass: string): profile.Severity
     return "warn"
 end
 
-local function severityRank(severity: profile.Severity): integer
+local function rank(severity: Severity): integer
     if severity == "blacklist" then
         return 0
     elseif severity == "warn" then
@@ -830,7 +1086,7 @@ end
 -- Lua prefixes a file source with "@", and the function descriptions inherit it. Strip
 -- it so a row reads "path:line". A source that is not a file, "[C]" or a loaded string,
 -- does not carry the prefix and is left as it is.
-local function trimSource(source: string): string
+local function trimsource(source: string): string
     if source:sub(1, 1) == "@" then
         return source:sub(2)
     end
@@ -840,21 +1096,21 @@ end
 -- Where the compiler was when it gave up. `funcinfo` knows the bytecode position, so it
 -- can name the line inside the function rather than the line the function started on;
 -- `debug.getinfo` is the fallback for the case where it answers nothing useful.
-local function describeLocation(func: any, pc: any): string
+local function locate(func: any, pc: any): string
     if func then
-        local ok, info = pcall(jitUtil.funcinfo, func, pc as integer)
+        local ok, info = pcall(jitutil.funcinfo, func, pc as integer)
         if ok and info then
             local described = info as {[string]: any}
             local source = described.short_src or described.source or "?"
             local line = described.currentline or described.linedefined or 0
-            return string.format("%s:%d", trimSource(source as string), line as integer)
+            return string.format("%s:%d", trimsource(source as string), line as integer)
         end
     end
     if type(func) == "function" then
         local info = debug.getinfo(func, "S")
         return string.format(
             "%s:%d",
-            trimSource(info and info.short_src or "?"),
+            trimsource(info and info.short_src or "?"),
             (info and info.linedefined or 0) as integer
         )
     end
@@ -864,14 +1120,14 @@ end
 
 -- RFC 4180: a field holding a comma, a quote or a line break is quoted, and an embedded
 -- quote is doubled. In practice only `reason` ever needs it.
-local function csvField(text: string): string
+local function quote(text: string): string
     if text:find("[,\"\n\r]") then
         return "\"" .. text:gsub("\"", "\"\"") .. "\""
     end
     return text
 end
 
-local function serializeTraceReport(report: profile.TraceReport): string
+local function tocsv(report: TraceReport): string
     local lines: {string} = {"severity,count,reason,location,zone,rootLocation"}
     for index = 1, #report.sites do
         local site = report.sites[index]
@@ -881,10 +1137,10 @@ local function serializeTraceReport(report: profile.TraceReport): string
             {
                 site.severity,
                 string.format("%d", site.count),
-                csvField(site.reason),
-                csvField(site.location),
-                csvField(site.zonepath),
-                csvField(site.rootlocation or site.location),
+                quote(site.reason),
+                quote(site.location),
+                quote(site.zonepath),
+                quote(site.rootlocation or site.location),
             },
             ","
         )
@@ -897,9 +1153,9 @@ end
 -- installing a declared contract is an ordinary assignment to it. The cast is because
 -- the contract is not a field: see
 -- [metamethods.md](docs/learn/language/metamethods.md).
-(profile.TraceReport as {[string]: any}).__tostring = serializeTraceReport;
+(TraceReport as {[string]: any}).__tostring = tocsv;
 
-(profile.SampleReport as {[string]: any}).__tostring = function(report: profile.SampleReport): string
+(SampleReport as {[string]: any}).__tostring = function(report: SampleReport): string
     return report.text
 end
 
@@ -909,15 +1165,15 @@ local tracing = false
 ---
 --- Does nothing once `stop` has run, so a block that stopped its session to read the
 --- report closes it for free.
-function profile.SampleSession.close(takes self: profile.SampleSession): nil
+function SampleSession.close(takes self: SampleSession): nil
     if not self.stopped then
-        haltSampling(self)
+        haltsample(self)
     end
 end
 
 -- Ends a trace session's counting: what `stop` does before it builds the report, and
 -- all that `close` does.
-local function haltTracing(borrows session: profile.TraceSession): nil
+local function halttrace(borrows session: TraceSession): nil
     session.stopped = true
     -- No event names the handler to remove.
     jit.attach(session.callback)
@@ -937,14 +1193,13 @@ end
 --- @param options omitted leaves the benign trace-formation events out
 --- @return the handle whose `stop` produces the report
 --- @raises string when a trace session is already running
-function profile.trace(options: profile.TraceOptions?): profile.TraceSession
+export function trace(options: TraceOptions?): TraceSession
     if tracing then
         error("nupp: a trace session is already running; stop it first", 2)
     end
 
-    local opts: profile.TraceOptions = options or {}
-    local selected = traceRegistry.profile()
-    local owned = profile.TraceSession(
+    local opts: TraceOptions = options or {}
+    local owned = TraceSession(
         includebenign = opts.includebenign or false,
         startedat = os.time() as integer,
         paused = false,
@@ -952,16 +1207,7 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
         sites = {},
         totalaborts = 0,
         blacklisted = 0,
-        traceprofile = profile.TraceProfile(
-            id = selected.id,
-            luajitrevision = selected.luajitrevision,
-            luajitversion = selected.luajitversion,
-            architecture = selected.architecture,
-            operatingsystem = selected.operatingsystem,
-            enabledrecorderfeatures = selected.enabledrecorderfeatures,
-            bytecodeschema = selected.bytecodeschema,
-            supported = selected.supported
-        ),
+        traceprofile = recorder(),
         callback = function()
         end
     )
@@ -974,27 +1220,27 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
     -- root; persistent site identities use locations rather than attempt numbers.
     local roots = {}
 
-    local function onTraceEvent(...: any)
-        local what, traceNumber, func, pc, errorCode, errorArg = ...
+    local function onevent(...: any)
+        local what, tracenum, func, pc, errcode, errarg = ...
         if what == "start" then
-            if session.paused or roots[errorCode] == false then
-                roots[traceNumber] = false
+            if session.paused or roots[errcode] == false then
+                roots[tracenum] = false
             else
-                roots[traceNumber] = roots[errorCode] or describeLocation(func, pc)
+                roots[tracenum] = roots[errcode] or locate(func, pc)
             end
             return
         elseif what == "flush" then
             roots = {}
             return
         end
-        if what ~= "abort" or session.paused or roots[traceNumber] == false then
+        if what ~= "abort" or session.paused or roots[tracenum] == false then
             return
         end
 
-        local normalizedCode = type(errorCode) == "number" and errorCode as integer or nil
-        local normalizedArg = (type(errorArg) == "number" or type(errorArg) == "string") and errorArg or nil
-        local normalized, reason = traceRegistry.runtime(normalizedCode, normalizedArg)
-        local severity = classify(reason, normalized.class)
+        local code = type(errcode) == "number" and errcode as integer or nil
+        local detail = (type(errarg) == "number" or type(errarg) == "string") and errarg or nil
+        local entry, text = abort(code, detail)
+        local severity = classify(text, entry.class)
         if severity == "info" and not session.includebenign then
             return
         end
@@ -1004,23 +1250,23 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
             session.blacklisted = session.blacklisted + 1
         end
 
-        local location = describeLocation(func, pc)
+        local location = locate(func, pc)
         local path = zone.path()
-        local rootlocation = roots[traceNumber] or location
-        local key = severity .. "|" .. reason .. "|" .. rootlocation .. "|" .. location .. "|" .. path
+        local rootlocation = roots[tracenum] or location
+        local key = severity .. "|" .. text .. "|" .. rootlocation .. "|" .. location .. "|" .. path
         local site = session.sites[key]
         if site then
             site.count = site.count + 1
         else
             session.sites[
                 key
-            ] = profile.AbortSite(
+            ] = AbortSite(
                 severity = severity,
                 count = 1,
-                reason = reason,
-                reasonid = normalized.id,
-                reasonclass = normalized.class,
-                rawreason = reason,
+                reason = text,
+                reasonid = entry.id,
+                reasonclass = entry.class,
+                rawreason = text,
                 location = location,
                 rootlocation = rootlocation,
                 zonepath = path
@@ -1028,12 +1274,12 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
         end
     end
 
-    session.callback = onTraceEvent
+    session.callback = onevent
     zone.acquire()
-    jit.attach(onTraceEvent, "trace")
+    jit.attach(onevent, "trace")
     tracing = true
 
-    return session as profile.TraceSession
+    return session as TraceSession
 end
 
 --- Stops counting without ending the session. The hook stays attached, at the cost of
@@ -1042,7 +1288,7 @@ end
 --- Idempotent.
 ---
 --- @raises string once the session has stopped
-function profile.TraceSession:pause()
+function TraceSession:pause()
     if self.stopped then
         error("nupp: the trace session has already stopped", 2)
     end
@@ -1052,7 +1298,7 @@ end
 --- Resumes counting. Idempotent.
 ---
 --- @raises string once the session has stopped
-function profile.TraceSession:resume()
+function TraceSession:resume()
     if self.stopped then
         error("nupp: the trace session has already stopped", 2)
     end
@@ -1064,18 +1310,18 @@ end
 --- @param filename also write the CSV there, replacing whatever was in it
 --- @return the report, whose `tostring` is that CSV
 --- @raises string once the session has stopped, so it cannot be called twice
-function profile.TraceSession:stop(filename: string?): profile.TraceReport
+function TraceSession:stop(filename: string?): TraceReport
     if self.stopped then
         error("nupp: the trace session has already stopped", 2)
     end
-    haltTracing(self)
+    halttrace(self)
 
-    local sites: {profile.AbortSite} = {}
+    local sites: {AbortSite} = {}
     for _, site in pairs(self.sites) do
         sites[#sites + 1] = site
     end
-    table.sort(sites, function(a: profile.AbortSite, b: profile.AbortSite): boolean
-        local left, right = severityRank(a.severity), severityRank(b.severity)
+    table.sort(sites, function(a: AbortSite, b: AbortSite): boolean
+        local left, right = rank(a.severity), rank(b.severity)
         if left ~= right then
             return left < right
         end
@@ -1089,17 +1335,17 @@ function profile.TraceSession:stop(filename: string?): profile.TraceReport
         return a.location < b.location
     end)
 
-    local report = profile.TraceReport(
+    local report = TraceReport(
         durationsec = (os.time() as integer) - self.startedat,
         totalaborts = self.totalaborts,
         blacklisted = self.blacklisted,
         sites = sites,
         traceprofile = self.traceprofile,
-        reasoncatalogid = traceRegistry.catalogid,
-        reasoncatalogversion = traceRegistry.catalogversion
+        reasoncatalogid = catalogid,
+        reasoncatalogversion = catalogversion
     )
     if filename then
-        writeFile(filename, tostring(report))
+        save(filename, tostring(report))
     end
 
     return report
@@ -1109,10 +1355,8 @@ end
 ---
 --- Does nothing once `stop` has run, so a block that stopped its session to read the
 --- report closes it for free.
-function profile.TraceSession.close(takes self: profile.TraceSession): nil
+function TraceSession.close(takes self: TraceSession): nil
     if not self.stopped then
-        haltTracing(self)
+        halttrace(self)
     end
 end
-
-export = profile

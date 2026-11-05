@@ -393,9 +393,9 @@ built by another release is refused by exact version rather than adapted.
 | Documentation model | 3 | read by consumers | `src/nupp/tools/doc/init.nupp` `schemaVersion` |
 | Coverage report | 1 | exact | `src/nupp/tools/coverage.nupp` `SCHEMA_VERSION` |
 | Test report | 1 | exact, for `--rerun` | `src/nupp/tools/cli/test.nupp` `schemaVersion` |
-| Bench record | 4 | an older record is an inconclusive baseline | `src/debug/bench.nupp` `SCHEMA` |
+| Bench record | 4 | an older record is an inconclusive baseline | `src/debug/bench.nupp` `schema` |
 | Optimizer remarks | 1 | read by consumers | `src/nupp/tools/cli/compile.nupp` `schema` |
-| Trace reason catalog | 1 | read by consumers | `src/debug/profile/trace.nupp` `trace.catalogversion` |
+| Trace reason catalog | 1 | read by consumers | `src/debug/profile/init.nupp` `catalogversion` |
 | GPU cost records | 1 | read by consumers | `native/crates/gpu/src/costs.rs` `schemaVersion` |
 
 To bump one, change the constant and this row together; a test holds the two to

@@ -93,7 +93,7 @@ local function body()
     bench.keep({1, 2})
 end
 ]])
-    assert(code:find("__nuppSink", 1, true) ~= nil, "keep lowers against the module's sink field\n" .. code)
+    assert(code:find(".sink.value", 1, true) ~= nil, "keep lowers against the module's sink\n" .. code)
     -- The store is what makes the value escape its trace, so a surviving call would
     -- mean the sink is paying for a call as well as the store it needs.
     assert(code:gmatch("bench%s*%.%s*keep%s*%(")() == nil, "no keep call survives\n" .. code)
@@ -123,7 +123,7 @@ local function body()
 end
 ]]
     )
-    assert(code:find("__nuppSink", 1, true) == nil, "a receiver that is not the module is not the intrinsic\n" .. code)
+    assert(code:find(".sink.value", 1, true) == nil, "a receiver that is not the module is not the intrinsic\n" .. code)
 end
 
 function M.countsTheAllocationsTheTreeStillCarries()

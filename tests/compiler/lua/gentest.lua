@@ -231,7 +231,7 @@ return direct, cast, constructed
     testAssert.eq(countLines(code), countLines(source), "record returns keep source lines")
     local direct, cast, constructed = assert(loadstring(code))()
     local util = require("jit.util")
-    local trace = require("debug.profile.trace")
+    local trace = require("debug.profile")
     for _, fn in ipairs({direct, cast, constructed}) do
         testAssert.eq(fn(37).value, 37)
         local pc = 1
@@ -240,7 +240,7 @@ return direct, cast, constructed
             if not instruction then
                 break
             end
-            local opcode = trace.opcodename(instruction % 256)
+            local opcode = trace.opname(instruction % 256)
             assert(opcode ~= "CALLT" and opcode ~= "CALLMT", "a new return retains its frame: " .. opcode)
             pc = pc + 1
         end

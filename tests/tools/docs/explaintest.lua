@@ -211,7 +211,7 @@ end
 -- merely reach the codes it is carried by.
 function M.everyDocsPointerLeadsToASection()
     local reference = require("nupp.tools.reference")
-    local trace = require("debug.profile.trace")
+    local trace = require("debug.profile")
     local root = HERE .. "/.."
     local pointers = {}
     for _, code in ipairs(explain.codes()) do
@@ -220,7 +220,7 @@ function M.everyDocsPointerLeadsToASection()
     for _, code in ipairs({"NUPP0001", "NUPP1005", "NUPP2617", "NUPP3004"}) do
         pointers[#pointers + 1] = {code, explain.lookup(code).docs}
     end
-    for _, reason in ipairs(trace.records()) do
+    for _, reason in ipairs(trace.reasons()) do
         pointers[#pointers + 1] = {reason.id, explain.reasonDocs(reason.id, reason.class)}
     end
     for _, lint in ipairs(require("nupp.compiler.lints").all) do

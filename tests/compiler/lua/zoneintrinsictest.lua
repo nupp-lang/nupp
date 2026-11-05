@@ -48,7 +48,7 @@ local kept = zone.pop()
 zone.pop()
 ]]
     )
-    assert(code:find("__nuppActive", 1, true) ~= nil, "push lowers against the private fields\n" .. code)
+    assert(code:find(".state;", 1, true) ~= nil, "push lowers against the exported state\n" .. code)
     -- Every reference to `zone` that survives as a call is the one captured pop; the
     -- pushed and discarded-popped sites never call at all.
     local calls = 0
@@ -67,7 +67,7 @@ zone.pop()
     for _, diagnostic in ipairs(diagnostics) do
         assert(diagnostic.severity ~= "error", diagnostic.msg)
     end
-    assert(code:find("__nuppActive", 1, true), code)
+    assert(code:find(".state;", 1, true), code)
 end
 
 function M.lexicalDebugShadowKeepsOrdinaryCalls()
@@ -79,7 +79,7 @@ zone.push("x")
 ]]
     )
     assert(code:find("zone%s*%.%s*push%s*%(") ~= nil, code)
-    assert(code:find("__nuppActive", 1, true) == nil, code)
+    assert(code:find(".state;", 1, true) == nil, code)
 end
 
 function M.lowersPushOnlyOnAReceiverStaticallyKnownToBeTheZoneModule()
@@ -88,7 +88,7 @@ local other = {push = function(_: {any}, _: string): nil end}
 other.push("x")
 ]])
     assert(code:find("other%s*%.%s*push%s*%(") ~= nil, "an unrelated push keeps its call\n" .. code)
-    assert(code:find("__nuppActive", 1, true) == nil, "an unrelated push does not touch zone internals\n" .. code)
+    assert(code:find(".state;", 1, true) == nil, "an unrelated push does not touch zone internals\n" .. code)
 end
 
 function M.lowersPushOnlyOnABareNameReceiver()

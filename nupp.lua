@@ -258,7 +258,6 @@ local RESOURCES = {
     {source = "src/debug/bench.nupp", output = "nupp/compiler/debug/bench.nupp"},
     {source = "src/nupp/bench/internal/record.nupp", output = "nupp/compiler/nupp/bench/internal/record.nupp"},
     {source = "src/debug/profile/zone.nupp", output = "nupp/compiler/debug/profile/zone.nupp"},
-    {source = "src/debug/profile/trace.nupp", output = "nupp/compiler/debug/profile/trace.nupp"},
     {source = "src/debug/profile/init.nupp", output = "nupp/compiler/debug/profile/init.nupp"},
     {source = "src/nupp/tools/profilemetadata.nupp", output = "nupp/compiler/nupp/tools/profilemetadata.nupp"},
     {source = "src/nupp/mem/indexed.nupp", output = "nupp/compiler/nupp/mem/indexed.nupp"},

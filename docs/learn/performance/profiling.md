@@ -270,8 +270,8 @@ the session starts and cannot be widened afterwards.
 ### Collecting aborts
 
 Use `profile.trace()` through a local `profile = debug.profile` alias to collect
-trace aborts. The separate [](debug.profile.trace) module describes the stable
-trace reasons; access that registry directly as `debug.profile.trace`.
+trace aborts. Each abort carries a stable reason from the same catalog `nupp bc
+--check` and `nupp explain` read; `profile.reason(id)` looks one up.
 
 ```nupp:fragment
 local profile = debug.profile

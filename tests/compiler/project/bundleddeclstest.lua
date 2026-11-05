@@ -47,7 +47,6 @@ local BUNDLED = {
     "events",
     "nupp.runtime.contracts",
     "os.host",
-    "debug.profile.trace",
     "debug.profile.zone",
     "debug.profile",
 }
@@ -174,7 +173,6 @@ function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
     local sources = {
         ["nupp.runtime.contracts"] = "/nupp/runtime/contracts.nupp",
         ["debug.profile"] = "/debug/profile/init.nupp",
-        ["debug.profile.trace"] = "/debug/profile/trace.nupp",
         ["debug.profile.zone"] = "/debug/profile/zone.nupp",
         ["binary"] = "/binary/init.nupp",
         ["binary.span"] = "/binary/span.nupp",
@@ -312,8 +310,7 @@ function M.profilingCollectorAndRegistryKeepDistinctQualifiedTypes()
         diagsUnderPrelude(
             [[
 local profile = debug.profile
-local trace = debug.profile.trace
-local version: integer = trace.catalogversion
+local version: integer = profile.catalogversion
 local session = profile.trace()
 local report: profile.TraceReport = session:stop()
 return version, report.totalaborts

@@ -9,11 +9,11 @@ different root trace cannot compile.
 ]]
 module nupp.tools.tracebytecode
 
-local trace = require("debug.profile.trace")
+local profile = require("debug.profile")
 local hash = require("nupp.compiler.hash")
 
 export type Analysis = {
-    profile: trace.Profile,
+    profile: profile.TraceProfile,
     reasonCatalog: {
         id: string,
         version: integer
@@ -241,7 +241,7 @@ local function classify(instructions: {any}): {any}
     for _, ins in ipairs(instructions) do
         local slot = tonumber(ins.text:match("[A-Z][A-Z0-9]*%s+(%d+)"))
         if ins.op == "CALLT" and callees[slot] == "setmetatable" then
-            local reason = assert(trace.reason("jit/tailcall-constructor"))
+            local reason = assert(profile.reason("jit/tailcall-constructor"))
             findings[
                 #findings + 1
             ] = {
@@ -278,7 +278,7 @@ local function classify(instructions: {any}): {any}
         if owner then
             ins.inLoop = true
             ins.loopHeader = owner.header
-            local reason = trace.foropcode(ins.op)
+            local reason = profile.foropcode(ins.op)
             if reason then
                 local must = true
                 for _, latch in ipairs(owner.latches) do
@@ -379,8 +379,8 @@ export function analyze(chunk: function(): any): Analysis
     end
 
     return {
-        profile = trace.profile(),
-        reasonCatalog = {id = trace.catalogid, version = trace.catalogversion},
+        profile = profile.recorder(),
+        reasonCatalog = {id = profile.catalogid, version = profile.catalogversion},
         bytecodeFingerprint = hash.sha256(string.dump(chunk)),
         functions = functions,
         blockers = blockers,

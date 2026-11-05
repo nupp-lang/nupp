@@ -143,7 +143,6 @@ local MODULES: {[string]: {
     ["nupp.mem.span"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.runtime.native"] = {kind = "unavailable", capability = "cinterop"},
     ["debug.profile"] = {kind = "unavailable", capability = "cinterop"},
-    ["debug.profile.trace"] = {kind = "unavailable", capability = "cinterop"},
     ["debug.profile.zone"] = {kind = "unavailable", capability = "cinterop"},
     -- Reaches the recorder through debug.profile, so it is available exactly where that
     -- is.

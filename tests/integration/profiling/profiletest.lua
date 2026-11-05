@@ -96,7 +96,7 @@ local function burn(seconds)
 end
 
 local function fnewAbortPayload()
-    local registry = require("debug.profile.trace")
+    local registry = require("debug.profile")
     local vmdef = require("jit.vmdef")
     local errorCode
     for code, format in pairs(vmdef.traceerr) do
@@ -107,7 +107,7 @@ local function fnewAbortPayload()
     end
     local opcode
     for code = 0, #vmdef.bcnames / 6 - 1 do
-        if registry.opcodename(code) == "FNEW" then
+        if registry.opname(code) == "FNEW" then
             opcode = code;
             break
         end
@@ -417,8 +417,8 @@ end
 -------------------------------------------------------------------------------
 
 function M.recordedTracePayloadUsesTheStaticReasonIdentity()
-    local registry = require("debug.profile.trace")
-    local reason, raw = registry.runtime(FNEW_ERROR_CODE, FNEW_OPCODE)
+    local registry = require("debug.profile")
+    local reason, raw = registry.abort(FNEW_ERROR_CODE, FNEW_OPCODE)
     testAssert.eq(
         reason.id,
         "jit/loop-function-construction",
@@ -429,8 +429,8 @@ function M.recordedTracePayloadUsesTheStaticReasonIdentity()
 end
 
 function M.unknownTracePayloadStaysVisibleWithoutInventedAdvice()
-    local registry = require("debug.profile.trace")
-    local reason, raw = registry.runtime(2147483647, "opaque")
+    local registry = require("debug.profile")
+    local reason, raw = registry.abort(2147483647, "opaque")
     testAssert.eq(reason.id, "jit/runtime-unknown", "unknown stays unknown")
     testAssert.eq(reason.repair, nil, "an unknown event has no guessed repair")
     assertMatch(raw, "2147483647", "the raw VM identity remains visible")
@@ -440,9 +440,9 @@ end
 -- value must not widen the rendering.
 
 function M.publicTraceProfilesKeepTheirSerializedMetadataContract()
-    local registry = require("debug.profile.trace")
+    local registry = require("debug.profile")
     local project = require("nupp.tools.profilemetadata").capture
-    local value = registry.profile()
+    local value = registry.recorder()
     local wire = project(value)
     assert(wire ~= value)
     for old, current in pairs({
@@ -467,8 +467,8 @@ function M.publicTraceProfilesKeepTheirSerializedMetadataContract()
 end
 
 function M.traceProfileDigestIsEightHexCharacters()
-    local registry = require("debug.profile.trace")
-    local described = registry.profile()
+    local registry = require("debug.profile")
+    local described = registry.recorder()
     assertMatch(described.bytecodeschema, "^%x%x%x%x%x%x%x%x$", "the bytecode schema digest")
     assertMatch(described.id, described.bytecodeschema, "and the profile id carries it")
 end

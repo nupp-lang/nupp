@@ -1,7 +1,7 @@
 module nupp.compiler.tracecatalog
 
 -- Immutable reasons for static trace checking. The live LuaJIT recorder and
--- `jit.vmdef` remain in `debug.profile.trace` outside the portable host closure.
+-- `jit.vmdef` remain in `debug.profile` outside the portable host closure.
 
 local catalog = {}
 catalog.CATALOG_VERSION = 1

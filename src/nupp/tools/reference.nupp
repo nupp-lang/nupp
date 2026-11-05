@@ -23,7 +23,7 @@ module nupp.tools.reference
 
 local lints = require("nupp.compiler.lints")
 local explain = require("nupp.tools.explain")
-local trace = require("debug.profile.trace")
+local profile = require("debug.profile")
 
 local reference = {}
 
@@ -2809,7 +2809,7 @@ end
 --- cannot leave an old agent playbook behind.
 local function traceReasonRows(): {string}
     local out = {"| Reason | Class | Meaning | Repair |", "| --- | --- | --- | --- |",}
-    for _, reason in ipairs(trace.records()) do
+    for _, reason in ipairs(profile.reasons()) do
         if reason.explanation then
             out[
                 #out + 1

@@ -7311,9 +7311,10 @@ export function generate(
             -- call, on a receiver the checker proved is exactly the module
             -- `debug.profile.zone` returns -- a zone marker being a call at all is the
             -- cost `debug/profile/zone.nupp`'s own comment marks a hot path against.
-            -- The receiver is bound once so an expression more elaborate than a bare
-            -- name (still possible: the checker only requires a name, not that it stays
-            -- simple) is not evaluated twice.
+            -- The receiver's exported `state` is bound once, so the site pays one field
+            -- read and an expression more elaborate than a bare name (still possible:
+            -- the checker only requires a name, not that it stays simple) is not
+            -- evaluated twice.
             local call = x.expr
             local op = call.zoneIntrinsic
             local line = sourceLine(call)
@@ -7321,23 +7322,23 @@ export function generate(
             local zoneName = nextTemp()
             e(("do const %s = "):format(zoneName), line)
             emit(receiver)
-            e("; ")
+            e(".state; ")
             if op == "push" then
                 local depthName = nextTemp()
                 e(
                     (
-                        "if %s.__nuppActive then const %s=%s.__nuppDepth+1;%s.__nuppDepth=%s;%s.__nuppStack[%s]="
+                        "if %s.active then const %s=%s.depth+1;%s.depth=%s;%s.stack[%s]="
                     ):format(zoneName, depthName, zoneName, zoneName, depthName, zoneName, depthName)
                 )
                 local exprs = call.args and call.args.exprs or {}
                 emit(exprs[1])
-                e((";%s.__nuppVersion=%s.__nuppVersion+1 end"):format(zoneName, zoneName))
+                e((";%s.version=%s.version+1 end"):format(zoneName, zoneName))
             else
                 local depthName = nextTemp()
                 e(
                     (
-                        "if %s.__nuppActive and %s.__nuppDepth>0 then const %s=%s.__nuppDepth;"
-                        .. "%s.__nuppStack[%s]=nil;%s.__nuppDepth=%s-1;%s.__nuppVersion=%s.__nuppVersion+1 end"
+                        "if %s.active and %s.depth>0 then const %s=%s.depth;"
+                        .. "%s.stack[%s]=nil;%s.depth=%s-1;%s.version=%s.version+1 end"
                     ):format(
                         zoneName,
                         zoneName,
@@ -7365,7 +7366,7 @@ export function generate(
             local sinkName = nextTemp()
             e(("do const %s = "):format(sinkName), sourceLine(call))
             emit(receiver)
-            e(("; %s.__nuppSink = "):format(sinkName))
+            e(("; %s.sink.value = "):format(sinkName))
             local exprs = call.args and call.args.exprs or {}
             emit(exprs[1])
             e(" end")

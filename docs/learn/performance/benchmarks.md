@@ -106,7 +106,7 @@ local kept = bench.keep({y = 2})
 ```
 
 ```lua [Generated]
-do const __nuppT2 = bench; __nuppT2.__nuppSink = {x = 1} end
+do const __nuppT2 = bench; __nuppT2.sink.value = {x = 1} end
 local kept = bench.keep({y = 2})
 ```
 :::

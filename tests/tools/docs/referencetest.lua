@@ -9,7 +9,7 @@ local testAssert = require("assert")
 local reference = require("nupp.tools.reference")
 local explain = require("nupp.tools.explain")
 local lints = require("nupp.compiler.lints")
-local trace = require("debug.profile.trace")
+local trace = require("debug.profile")
 local project = require("nupp.tools.build.project")
 local json = require("testjson")
 local parser = require("nupp.compiler.syntax.parser")
@@ -180,7 +180,7 @@ function M.chaptersAreDiscoverableAndFocused()
         performanceMarkdown:find("jit/loop-function-construction", 1, true),
         "takes static reasons from the shared catalog"
     )
-    for _, reason in ipairs(trace.records()) do
+    for _, reason in ipairs(trace.reasons()) do
         if reason.explanation then
             assert(performanceMarkdown:find(reason.id, 1, true), "performance skill names " .. reason.id)
             assert(
