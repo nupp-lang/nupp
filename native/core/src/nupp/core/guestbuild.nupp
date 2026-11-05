@@ -379,6 +379,10 @@ local function libraryModule(name: string): boolean
     return name:sub(1, 4) == "src/" or name:find("/src/", 1, true) ~= nil
 end
 
+-- The namespace of the VM's host modules, which the core answers only where
+-- `graph.coremodule` maps one.
+const VM_HOST_PREFIX = "nupp.vm."
+
 -- The library module under `src/` that module `name` loads from on the
 -- core, or nil when none does: a declaration file, or a host module the
 -- core does not answer.
@@ -406,8 +410,9 @@ end
 
 -- The modules a checked tree loads: its requires, its qualified paths, and
 -- the names its source says it requires dynamically.
-local function requiredmodules(root: any, source: string): {string}
+local function requiredmodules(root: any, source: string): ({string}, {[string]: boolean})
     local found: {string} = {}
+    local dynamic: {[string]: boolean} = {}
     local walk: function(any): nil
     walk = function(node: any): nil
         if type(node) ~= "table" then
@@ -442,10 +447,41 @@ local function requiredmodules(root: any, source: string): {string}
     for list in source:gmatch("@requires%-dynamically ([%w%._, ]+)") do
         for name in list:gmatch("[%w%._]+") do
             found[#found + 1] = name
+            dynamic[name] = true
         end
     end
 
-    return found
+    return found, dynamic
+end
+
+-- Whether a library module can run on the core: one that requires a VM host
+-- module the core does not answer, itself or through what it requires
+-- (`nupp.vm.compression` behind the native compression provider), is the
+-- VM's alone. A module reaches the program only dynamically that way,
+-- through the provider a facade selects at run time.
+local function portable(root: string, library: string, seen: {[string]: boolean}?): boolean
+    local visited = seen or {}
+    if visited[library] then
+        return true
+    end
+    visited[library] = true
+    local graph: any = require("nupp.compiler.vm.graph")
+    local source = read(root .. "/" .. library .. (library:sub(-4) == ".lua" and "" or ".nupp"))
+    for name in source:gmatch("require%(%s*[\"']([%w%._]+)[\"']%s*%)") do
+        local found = librarypath(root, name)
+        if found ~= nil then
+            if not portable(root, found, visited) then
+                return false
+            end
+        elseif name:sub(1, #VM_HOST_PREFIX) == VM_HOST_PREFIX
+            and graph.coremodule(name) == name
+            and not graph.corecallmodule(name)
+        then
+            return false
+        end
+    end
+
+    return true
 end
 
 local function modulePath(root: string, name: string): string
@@ -593,9 +629,10 @@ local function compileProgram(caseName: string, fixture: string, version: intege
             modules[#modules + 1] = module
         end
         if follow then
-            for _, required in ipairs(requiredmodules(parsed.root or parsed, source)) do
-                local library = librarypath(root, required)
-                if library and not carried[library] then
+            local required, dynamic = requiredmodules(parsed.root or parsed, source)
+            for _, name in ipairs(required) do
+                local library = librarypath(root, name)
+                if library and not carried[library] and (not dynamic[name] or portable(root, library)) then
                     carried[library] = true
                     queue[#queue + 1] = library
                 end

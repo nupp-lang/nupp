@@ -118,6 +118,10 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
     ctx.storage = function(key: any): integer
         return need(bindings[key], "capture requires an initialized lexical binding")
     end
+    -- Whether a lexical declaration has a value in this function yet.
+    ctx.bound = function(key: any): boolean
+        return key ~= nil and bindings[key] ~= nil
+    end
     ctx.bind = function(key: any, value: integer): nil
         need(bindings[key] == nil, "duplicate local binding")
         bindings[key] = value
@@ -243,6 +247,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
     local currentEdge: function(any): any
     local expression: function(any, string?): integer?
     local statements: function(any): nil
+    local declareRecord: function(any): nil
     local unwind: function(integer, any, string, any?): nil
     local registerCleanup: function(any, any, any, integer, boolean?): nil
     local reinitialize: function(any): nil
@@ -710,7 +715,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         end
         if source.automaticOwnerMove then
             return cleanup.move(source.automaticOwnerMove)
-        elseif source.kind == "call" and cleanup.type(source.inferredType) then
+        elseif source.kind == "call" and not construction.bare(source) and cleanup.type(source.inferredType) then
             return source.statementOwner or source
         end
 
@@ -760,7 +765,11 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         local modes = t and t.tag == "func" and t.paramPack and (t.paramPack.modes or {}) or nil
         for index, argument in ipairs(node.args.exprs) do
             local source = cleanup.source(argument)
-            if source and source.kind == "call" and cleanup.type(source.inferredType) then
+            if source
+                and source.kind == "call"
+                and not construction.bare(source)
+                and cleanup.type(source.inferredType)
+            then
                 need(modes ~= nil, "an owning argument to a call with no checked closed signature")
                 if modes[index] == "takes" then
                     transfer(source, source.statementOwner or source)
@@ -771,7 +780,11 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 need(modes ~= nil and modes[index] == "takes", "an affine aggregate must be taken")
                 for _, field in ipairs(source.fields) do
                     local value = cleanup.source(field.value)
-                    if value and value.kind == "call" and cleanup.type(value.inferredType) then
+                    if value
+                        and value.kind == "call"
+                        and not construction.bare(value)
+                        and cleanup.type(value.inferredType)
+                    then
                         transfer(value, value.statementOwner or value)
                     end
                 end
@@ -1221,6 +1234,59 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
     end
 
     ctx.inline = inline
+
+    -- Whether a record declares a method or a constructor of its own.
+    local function ownsFunctions(stat: any): boolean
+        for _, entry in ipairs(stat.entries or {}) do
+            if entry.kind == "inlineMethod" or entry.kind == "constructorDecl" then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    -- Whether a declaration nests a record that owns functions.
+    local function nestsFunctions(stat: any): boolean
+        for _, entry in ipairs(stat.entries or {}) do
+            if entry.kind == "recordDecl" and entry.declKind == "record" and ownsFunctions(entry) then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    -- A record's name can hold a table of its methods. A nested record with
+    -- methods of its own is one too, made first: the declaration's methods
+    -- call it through its name, and its table is stored on the declaration's.
+    declareRecord = function(stat: any): nil
+        for _, entry in ipairs(stat.entries or {}) do
+            if block and entry.kind == "recordDecl" and entry.declKind == "record" and ownsFunctions(entry) then
+                declareRecord(entry)
+            end
+        end
+        if not block then
+            return
+        end
+        invoke("erasedStatement", stat, nil)
+        local key = stat.name and stat.name.definition
+        -- Its methods may name it: then a cell holds it from before
+        -- they are made, as a local function's does.
+        local initial = key and invoke("recursiveBinding", stat, key)
+        if initial then
+            ctx.bind(key, initial)
+        end
+        local value = key and invoke("recordValue", stat, nil)
+        if value and block then
+            if initial then
+                writeBinding(stat, key, value)
+            else
+                ctx.bind(key, initializeBinding(stat, key, value))
+            end
+        end
+    end
+
     statements = function(stats: any): nil
         for _, stat in ipairs(stats) do
             local statementDepth = #cleanups
@@ -1795,26 +1861,10 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                     invoke("exportStatement", stat, nil)
                 end
             elseif stat.kind == "recordDecl"
-                and (stat.declKind ~= "interface" or defaultMethods(stat))
+                and (stat.declKind ~= "interface" or defaultMethods(stat) or nestsFunctions(stat))
                 and profile.recordValue
             then
-                -- A record's name can hold a table of its methods.
-                invoke("erasedStatement", stat, nil)
-                local key = stat.name and stat.name.definition
-                -- Its methods may name it: then a cell holds it from before
-                -- they are made, as a local function's does.
-                local initial = key and invoke("recursiveBinding", stat, key)
-                if initial then
-                    ctx.bind(key, initial)
-                end
-                local value = key and invoke("recordValue", stat, nil)
-                if value and block then
-                    if initial then
-                        writeBinding(stat, key, value)
-                    else
-                        ctx.bind(key, initializeBinding(stat, key, value))
-                    end
-                end
+                declareRecord(stat)
             elseif stat.kind == "moduleStmt" or stat.kind == "typeAlias" or stat.kind == "recordDecl" then
                 invoke("erasedStatement", stat, nil)
             elseif stat.kind == "returnStmt" then

@@ -1371,17 +1371,6 @@ function tagged.erasedPattern(ctx: any, stat: any): nil
     end
 end
 
--- Whether record declaration `stat` declares fields and nested types only.
-local function fieldsOnly(stat: any): boolean
-    for _, entry in ipairs(stat.entries or {}) do
-        if entry.kind ~= "fieldDecl" and entry.kind ~= "typeAlias" then
-            return false
-        end
-    end
-
-    return true
-end
-
 function tagged.erasedStatement(ctx: any, stat: any): nil
     -- An interface declares a type only, and has no value.
     if stat.kind == "recordDecl" and stat.declKind == "interface" then
@@ -1405,8 +1394,9 @@ function tagged.erasedStatement(ctx: any, stat: any): nil
                 -- holds whatever fulfills it.
                 or entry.kind == "metamethodDecl"
                 -- A nested type declares a type only, and so does a nested
-                -- record of fields alone, built where it is constructed.
-                or entry.kind == "typeAlias" or entry.kind == "recordDecl" and fieldsOnly(entry),
+                -- record of fields alone, built where it is constructed. One
+                -- with methods holds a table of its own (`recordValue`).
+                or entry.kind == "typeAlias" or entry.kind == "recordDecl",
                 "unsupported record entry: " .. tostring(entry.kind) .. " in " .. tostring(stat.name and stat.name.text)
             )
         end
@@ -2059,18 +2049,13 @@ function tagged.forVersion(version: integer): any
             -- record's name (`R.f`), which holds the table of its methods.
             local tag = typeKind(node.obj.inferredType)
             local plain = slot == nil
-                and (
-                    tag == "table"
-                    or tag == "map"
-                    or tag == "array"
-                    or tag == "shape"
-                    or tag == "typeobject"
-                    or tag == "any"
-                    or tag == "typevar"
-                    or interfacetype(node.obj.inferredType)
-                    or recordOrigin(node.obj.inferredType) ~= nil
-                )
-                and node.name ~= nil
+                and (tag == "table" or tag == "map" or tag == "array" or tag == "shape" or tag == "typeobject"
+                -- A declaration's value, `R.Nested` among its members.
+                or tag == "metatable"
+                or tag == "any"
+                or tag == "typevar"
+                or interfacetype(node.obj.inferredType)
+                or recordOrigin(node.obj.inferredType) ~= nil) and node.name ~= nil
             if slot == nil and not plain then
                 return tagged.constant(ctx, node, expected)
             end
@@ -2420,6 +2405,13 @@ function tagged.forVersion(version: integer): any
                     local key = ctx.emit(entry, "K", {pool(ctx, "str", name)}, "tagged")
                     ctx.emit(entry, "SetIdx", {ctx.readHeld(held), key, ctx.readHeld(closure)}, nil)
                     ctx.release(closure)
+                elseif entry.kind == "recordDecl" and entry.name and ctx.bound(entry.name.definition) then
+                    -- A nested record with methods was made first; its table
+                    -- is reached through the declaration's, as `R.Nested`.
+                    local nested = ctx.hold(ctx.expression({kind = "name", token = entry.name, entry.name}, "tagged"))
+                    local key = ctx.emit(entry, "K", {pool(ctx, "str", entry.name.text)}, "tagged")
+                    ctx.emit(entry, "SetIdx", {ctx.readHeld(held), key, ctx.readHeld(nested)}, nil)
+                    ctx.release(nested)
                 end
             end
             local value = ctx.readHeld(held)
