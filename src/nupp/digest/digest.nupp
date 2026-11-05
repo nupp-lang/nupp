@@ -3,8 +3,8 @@
 Implements the digest contexts and algorithm catalog exposed by [](binary.Digest).
 
 ```nupp
-print(binary.Digest.computehex("sha256", "hello"))
-local running = binary.Digest.create("sha256")
+print(binary.digest("sha256"):computehex("hello"))
+local running = binary.digest("sha256"):create()
 running:write("hel")
 running:write("lo")
 print(running:hexdigest())
@@ -18,73 +18,50 @@ module nupp.digest.digest
 
 const _PROVIDER_REQUIRES = "@requires-dynamically nupp.runtime.provider.digest"
 
-const provider = require("binary.digest.internal.contracts")
+const provider = require("nupp.digest.internal.digestprovider")
 
 local {type Digest as ContextDigest} = require("nupp.digest.internal.contracts")
 
-local lookupDescriptor: function(string): any
-local requireDescriptor: function(string): any
-local descriptorNames: function(): {string}
-
---- An owned digest context with static factories and an algorithm catalog.
+--- An owned incremental digest context.
 export interface Digest is ContextDigest
+end
 
-    record Algorithm
-        --- Canonical algorithm name.
-        @readonly name: string
+--- A reusable digest algorithm descriptor.
+export record DigestFormat
+    --- Canonical algorithm name.
+    @readonly name: string
 
-        --- Number of output bytes, available before creating mutable state.
-        @readonly digestsize: integer
+    --- Fixed output size in bytes.
+    @readonly digestsize: integer
 
-        @private implementation: provider.Algorithm
+    @private implementation: provider.Algorithm
 
-        --- Creates independent owned state for this algorithm.
-        --- @return the unfinished digest context
-        --- @raises string when provider initialization fails
-        function digest(self): Digest
-            local state = self.implementation:create()
-            local contexts = require("nupp.digest.internal.context")
-            return contexts.wrap(state, self.name, self.digestsize)
-        end
-
-        --- Finds a descriptor without constructing mutable state.
-        function lookup(name: string): Algorithm?
-            return lookupDescriptor(name) as Algorithm?
-        end
-
-        --- Requires an available descriptor.
-        function of(name: string): Algorithm
-            return requireDescriptor(name) as Algorithm
-        end
-
-        --- Returns canonical names in ascending order.
-        function names(): {string}
-            return descriptorNames()
-        end
-    end
-
-    --- Creates independent owned context state.
-    function create(name: string): Digest
-        return (requireDescriptor(name) as Algorithm):digest()
+    --- Creates independent owned state for this algorithm.
+    --- @return the unfinished incremental context
+    function create(self): Digest
+        local state = self.implementation:create()
+        local contexts = require("nupp.digest.internal.context")
+        return contexts.wrap(state, self.name, self.digestsize)
     end
 
     --- Computes a complete value and closes its context.
-    function compute(name: string, bytes: string): string
-        local value: Digest = (requireDescriptor(name) as Algorithm):digest()
+    --- @param bytes raw message bytes
+    --- @return raw digest bytes
+    function compute(self, bytes: string): string
+        local value: Digest = self:create()
         value:write(bytes)
         return value:digest()
     end
 
-    --- Computes lowercase hexadecimal and consumes its context.
-    function computehex(name: string, bytes: string): string
-        local value: Digest = (requireDescriptor(name) as Algorithm):digest()
+    --- Computes lowercase hexadecimal and closes its context.
+    --- @param bytes raw message bytes
+    --- @return lowercase hexadecimal digest text
+    function computehex(self, bytes: string): string
+        local value: Digest = self:create()
         value:write(bytes)
         return value:hexdigest()
     end
 end
-
-local type Algorithm = Digest.Algorithm
-local Algorithm = Digest.Algorithm
 
 local EXPECTED: {[string]: integer} = {md5 = 16, sha1 = 20, sha256 = 32, sha512 = 64}
 
@@ -108,7 +85,7 @@ local function validate(selected: provider.Provider): nil
     end
 end
 
-local available: {[string]: Algorithm} = {}
+local available: {[string]: DigestFormat} = {}
 local names: {string} = {}
 local initialized = false
 
@@ -121,7 +98,7 @@ local function initialize(providerName: string): nil
     for name, implementation in pairs(selected.algorithms) do
         available[
             name
-        ] = Algorithm(name = name, digestsize = implementation.digestsize, implementation = implementation)
+        ] = DigestFormat(name = name, digestsize = implementation.digestsize, implementation = implementation)
     end
     for name in pairs(available) do
         names[#names + 1] = name
@@ -130,11 +107,11 @@ local function initialize(providerName: string): nil
     initialized = true
 end
 
-lookupDescriptor = function(name: string): any
-    initialize("nupp.runtime.provider.digest")
-    return available[name]
-end
-requireDescriptor = function(name: string): any
+--- Returns a retained descriptor or raises when the algorithm is unavailable.
+--- @param name canonical algorithm name
+--- @return the retained algorithm descriptor
+--- @raises string when the algorithm is unavailable or its catalog is invalid
+export function digest(name: string): DigestFormat
     initialize("nupp.runtime.provider.digest")
     local found = available[name]
     if found == nil then
@@ -143,7 +120,10 @@ requireDescriptor = function(name: string): any
 
     return found
 end
-descriptorNames = function(): {string}
+
+--- Returns an independent sorted list of canonical algorithm names.
+--- @return available canonical names in ascending order
+export function formats(): {string}
     initialize("nupp.runtime.provider.digest")
     local result: {string} = {}
     for index, name in ipairs(names) do

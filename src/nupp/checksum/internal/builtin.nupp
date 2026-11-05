@@ -6,7 +6,7 @@ crc-fast without retaining them; value reads the saved non-consuming snapshot.
 ]]
 module nupp.checksum.internal.builtin
 
-const provider = require("binary.checksum.internal.contracts")
+const provider = require("nupp.digest.internal.checksumprovider")
 const span = require("binary.span")
 const target = require("nupp.runtime.target")
 const ffi = require("ffi")

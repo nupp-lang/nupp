@@ -41,7 +41,7 @@ function M.digestFinalizationConsumesButChecksumReadsDoNot()
         local _, diagnostics = diagsOf(
             table.concat(
                 {
-                    "local rolling = binary.Digest.create('sha256')",
+                    "local rolling = binary.digest('sha256'):create()",
                     "local result = rolling:" .. finalizer,
                     "rolling:write('too late')",
                 },
@@ -59,7 +59,7 @@ function M.digestFinalizationConsumesButChecksumReadsDoNot()
     assertClean(
         table.concat(
             {
-                "local sum = binary.Checksum.create('crc32c')",
+                "local sum = binary.checksum('crc32c'):create()",
                 "local before = sum:value()",
                 "sum:write('still open')",
                 "local after = sum:value()",
@@ -407,8 +407,8 @@ function M.digestUsesPortableBitops()
     assertClean(
         table.concat(
             {
-                "local digest = require('binary').Digest",
-                "local rolling = digest.create('sha256')",
+                "local digest = require('binary').digest",
+                "local rolling = digest('sha256'):create()",
                 "rolling:write('message')",
                 "return rolling:hexdigest()",
             },
@@ -420,8 +420,8 @@ end
 function M.oneShotHmacUsesOrdinaryCode()
     local source = table.concat(
         {
-            "local mac = require('binary').Mac",
-            "return mac.computehex('hmac-sha256', 'key', 'message'), #mac.compute('hmac-sha256', 'key', 'message')",
+            "local mac = require('binary').mac",
+            "return mac('hmac-sha256'):computehex('key', 'message'), #mac('hmac-sha256'):compute('key', 'message')",
         },
         "\n"
     )
@@ -2127,10 +2127,7 @@ function M.nativeFeaturesAreResolvedEffects()
     assert(native.feature("runtime.int64").runtimeModule == nil, "wide integers have no runtime module")
 
     local shadowed = effectsOf(
-        table.concat(
-            {"local binary = {hash = {digest = {hexDigest = function() end}}}", "binary.Digest.hexDigest()",},
-            "\n"
-        )
+        table.concat({"local binary = {digest = {hexDigest = function() end}}", "binary.digest.hexDigest()",}, "\n")
     )
     assert(not shadowed["native.sha256"], "a local binary is not the global facility")
 
@@ -2382,12 +2379,12 @@ function M.digestAndMacSurfacesAreBundledOutsideThisCheckout()
     local isolated = envMod.new(os.tmpname() .. "-nupp-streaming-hash-surface")
     local source = table.concat(
         {
-            "local digest = require('binary').Digest",
-            "local mac = require('binary').Mac",
-            "local rolling = digest.create('sha256')",
+            "local digest = require('binary').digest",
+            "local mac = require('binary').mac",
+            "local rolling = digest('sha256'):create()",
             "rolling:write('message')",
             "assert(#rolling:digest() == 32)",
-            "assert(#mac.computehex('hmac-sha256', 'key', 'message') == 64)",
+            "assert(#mac('hmac-sha256'):computehex('key', 'message') == 64)",
         },
         "\n"
     )
@@ -2467,12 +2464,12 @@ function M.compilerProvidedPureLibraries()
       assert(math.lerp(10, 20, 0.25) == 12.5)
       assert(math.lerp(10, 20, 1) == 20)
       assert(math.lerp(10, 20, 1.5) == 25)
-      local checksum = require("binary").Checksum
-      local digest = require("binary").Digest
+      local checksum = require("binary").checksum
+      local digest = require("binary").digest
       local hash = require("binary")
       assert(hash.fnv1a64("hello") == "a430d84680aabd0b")
-      assert(checksum.compute("crc32", "123456789") == 3421780262ULL)
-      assert(digest.computehex("sha256", "abc") ==
+      assert(checksum("crc32"):compute("123456789") == 3421780262ULL)
+      assert(digest("sha256"):computehex("abc") ==
          "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
       local uuid4 = os.uuid(4)
       local uuid7 = os.uuid(7)

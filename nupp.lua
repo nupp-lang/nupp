@@ -411,7 +411,10 @@ local RESOURCES = {
     {source = "src/nupp/util/internal/encoding.nupp", output = "nupp/compiler/nupp/util/internal/encoding.nupp"},
     {source = "src/nupp/gpu/layout.nupp", output = "nupp/compiler/nupp/gpu/layout.nupp"},
     {source = "src/nupp/gpu/limits.nupp", output = "nupp/compiler/nupp/gpu/limits.nupp"},
-    {source = "src/binary/mac/internal/contracts.nupp", output = "nupp/compiler/binary/mac/internal/contracts.nupp"},
+    {
+        source = "src/nupp/digest/internal/macprovider.nupp",
+        output = "nupp/compiler/nupp/digest/internal/macprovider.nupp"
+    },
     {source = "src/nupp/runtime/provider/digest.nupp", output = "nupp/compiler/nupp/runtime/provider/digest.nupp"},
     {source = "src/nupp/runtime/provider/checksum.nupp", output = "nupp/compiler/nupp/runtime/provider/checksum.nupp"},
     {source = "src/nupp/runtime/provider/mac.nupp", output = "nupp/compiler/nupp/runtime/provider/mac.nupp"},
@@ -424,8 +427,8 @@ local RESOURCES = {
         output = "nupp/compiler/nupp/runtime/provider/nativesystem.nupp"
     },
     {
-        source = "src/binary/digest/internal/contracts.nupp",
-        output = "nupp/compiler/binary/digest/internal/contracts.nupp"
+        source = "src/nupp/digest/internal/digestprovider.nupp",
+        output = "nupp/compiler/nupp/digest/internal/digestprovider.nupp"
     },
     {source = "src/nupp/digest/internal/contracts.nupp", output = "nupp/compiler/nupp/digest/internal/contracts.nupp"},
     {source = "src/nupp/digest/internal/context.nupp", output = "nupp/compiler/nupp/digest/internal/context.nupp"},
@@ -433,8 +436,8 @@ local RESOURCES = {
     {source = "src/nupp/digest/internal/words.nupp", output = "nupp/compiler/nupp/digest/internal/words.nupp"},
     {source = "src/nupp/digest/internal/constants.nupp", output = "nupp/compiler/nupp/digest/internal/constants.nupp"},
     {
-        source = "src/binary/checksum/internal/contracts.nupp",
-        output = "nupp/compiler/binary/checksum/internal/contracts.nupp"
+        source = "src/nupp/digest/internal/checksumprovider.nupp",
+        output = "nupp/compiler/nupp/digest/internal/checksumprovider.nupp"
     },
     {source = "src/nupp/checksum/internal/builtin.nupp", output = "nupp/compiler/nupp/checksum/internal/builtin.nupp"},
     {

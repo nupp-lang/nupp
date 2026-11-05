@@ -6,10 +6,10 @@ order: 180
 
 Nupp's standard library provides types, text, data formats, I/O, and application
 tools. Its APIs live in builtin tables such as `math` and in declared modules
-such as `binary.Digest`.
+such as `binary`.
 
 ```nupp:playground
-local digest = binary.Digest.computehex("sha256", "payload")
+local digest = binary.digest("sha256"):computehex("payload")
 print(#digest, math.lerp(10, 20, 0.25))
 ```
 
@@ -48,11 +48,11 @@ for how a declared module is named and resolved.
 The standard surface is deliberately small. These pages cover both the
 intrinsic namespaces and the declared modules:
 
-- [](binary.Digest) provides incremental MD5, SHA-1, SHA-256 and SHA-512
+- [](binary.digest) provides incremental MD5, SHA-1, SHA-256 and SHA-512
   with algorithm lookup, output-size metadata and consuming finalization.
-- [](binary.Checksum) provides Adler-32 and explicitly named CRC variants
+- [](binary.checksum) provides Adler-32 and explicitly named CRC variants
   as numeric values; protocols choose their serialization byte order.
-- [](binary.Mac) provides keyed authentication, including HMAC-SHA256.
+- [](binary.mac) provides keyed authentication, including HMAC-SHA256.
 - [](binary.fnv1a64) hashes bytes with FNV-1a.
 - [](serde.json) and [](binary) encode and decode
   representations. [](serde.valuebuilder) supports codec authors.

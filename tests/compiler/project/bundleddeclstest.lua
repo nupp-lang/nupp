@@ -82,18 +82,48 @@ function M.compressionFactoriesAndTypesLiveOnBinary()
     testAssert.eq(
         diagsUnderPrelude(
             [[
-local {compression, compressionformats, type CompressionFormat,
+local {compress, formats, type CompressionFormat,
     type CompressionReaderOptions, type CompressionWriterOptions} = require("binary")
-local gzip: CompressionFormat = compression("gzip")
+local gzip: CompressionFormat = compress("gzip")
 local writerOptions: CompressionWriterOptions = {gzip = {level = 6}}
 local readerOptions: CompressionReaderOptions = {maxoutputbytes = 1024}
 assert(gzip:decompress(gzip:compress("hello", writerOptions), readerOptions) == "hello")
-assert(#compressionformats() == 3)
+assert(#formats("compression") == 3)
 assert(gzip is binary.CompressionFormat)
 ]]
         ),
         ""
     )
+end
+
+function M.binaryDescriptorsAndFamilyEnumCheckOutsideTheCheckout()
+    testAssert.eq(
+        diagsUnderPrelude(
+            [[
+local {digest, checksum, mac, formats, type FormatKind,
+    type DigestFormat, type ChecksumFormat, type MacFormat} = require("binary")
+local sha: DigestFormat = digest("sha256")
+local crc: ChecksumFormat = checksum("crc32c")
+local hmac: MacFormat = mac("hmac-sha256")
+local kind: FormatKind = "digest"
+assert(#formats(kind) > 0)
+assert(#sha:computehex("hello") == 64)
+assert(crc:compute("123456789") == 0xe3069283ULL)
+assert(#hmac:compute("key", "hello") == 32)
+]]
+        ),
+        ""
+    )
+    assert(diagsUnderPrelude('binary.formats("unknown")'):find("NUPP2006", 1, true))
+    for _, expression in ipairs({
+        "binary.compression",
+        "binary.compressionformats",
+        "binary.Digest.create",
+        "binary.Checksum.compute",
+        "binary.Mac.Algorithm"
+    }) do
+        assert(diagsUnderPrelude("return " .. expression):find("NUPP2004", 1, true), expression)
+    end
 end
 
 function M.retiredNamespacesAreNotBundled()

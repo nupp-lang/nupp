@@ -10,8 +10,8 @@ retained implementation functions without discovery.
 ]]
 module nupp.runtime.provider.mac
 
-local contract = require("binary.mac.internal.contracts")
-local {type State} = require("binary.digest.internal.contracts")
+local contract = require("nupp.digest.internal.macprovider")
+local {type State} = require("nupp.digest.internal.digestprovider")
 local builtin = require("nupp.digest.internal.builtin")
 local record Algorithm is contract.Algorithm
     @readonly name: string = "hmac-sha256"

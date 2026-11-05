@@ -3,9 +3,9 @@
 
 coroutine.sleep(10)
 local key = os.uuid(4)
-local digest = binary.Digest.computehex("sha256", os.randombytes(32))
+local digest = binary.digest("sha256"):computehex(os.randombytes(32))
 print(key, digest)
-print(binary.Mac.computehex("hmac-sha256", "key", "browser message"))
+print(binary.mac("hmac-sha256"):computehex("key", "browser message"))
 
 -- try breaking it: pass a negative count to randombytes and read the checked
 -- provider error

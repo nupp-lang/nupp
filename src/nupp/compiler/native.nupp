@@ -481,8 +481,8 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.checksum_catalog"
     ] = {
         name = "checksum_catalog",
-        globals = {"binary.Checksum"},
-        exports = {"binary.Checksum"},
+        globals = {"binary.checksum"},
+        exports = {"binary.checksum"},
         runtimeModule = "nupp.runtime.provider.checksum",
         portableRuntime = true,
     },
@@ -490,8 +490,8 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.digest_catalog"
     ] = {
         name = "digest_catalog",
-        globals = {"binary.Digest"},
-        exports = {"binary.Digest"},
+        globals = {"binary.digest"},
+        exports = {"binary.digest"},
         runtimeModule = "nupp.runtime.provider.digest",
         portableRuntime = true,
     },
@@ -499,10 +499,19 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.mac_catalog"
     ] = {
         name = "mac_catalog",
-        globals = {"binary.Mac"},
-        exports = {"binary.Mac"},
+        globals = {"binary.mac"},
+        exports = {"binary.mac"},
         runtimeModule = "nupp.runtime.provider.mac",
         portableRuntime = true,
+    },
+    [
+        "runtime.binary_formats"
+    ] = {
+        name = "binary_formats",
+        globals = {"binary.formats"},
+        exports = {"binary.formats"},
+        portableRuntime = true,
+        requires = {"runtime.checksum_catalog", "runtime.digest_catalog", "runtime.mac_catalog"},
     },
     ["runtime.text_buffer"] = {name = "text_buffer", module = "string.buffer", requires = {}},
     -- `portableRuntime` because the run-time half of `math` names nothing
@@ -827,8 +836,8 @@ local FEATURES: {[string]: native.Feature} = {
         "native.compression"
     ] = {
         name = "compression",
-        globals = {"binary.compression", "binary.compressionformats"},
-        exports = {"binary.compression", "binary.compressionformats"},
+        globals = {"binary.compress"},
+        exports = {"binary.compress"},
         modules = {"nupp.runtime.provider.nativecompression"},
         runtimeModule = "nupp.runtime.provider.nativecompression",
         provider = "nupp_native",

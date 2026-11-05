@@ -1,10 +1,13 @@
 local browserTime = require("coroutine")
-local digest = require("binary").Digest
-local mac = require("binary").Mac
-local checksum = require("binary").Checksum
+local digest = require("binary").digest
+local mac = require("binary").mac
+local checksum = require("binary").checksum
 local uuid = os
 local json = require("serde.json")
 local system = os.info()
+local binary = require("binary")
+assert(table.concat(binary.formats("digest"), ",") == "md5,sha1,sha256,sha512")
+assert(#binary.formats("compression") == 0)
 
 local started = os.monotonic()
 browserTime.sleep(1)
@@ -18,15 +21,15 @@ return json.encodevalue({
     parallelism = system.parallelism,
     elapsed = elapsed,
     randomBytes = #os.randombytes(32),
-    md5 = digest.computehex("md5", "abc"),
-    sha1 = digest.computehex("sha1", "abc"),
-    sha256 = digest.computehex("sha256", "abc"),
-    sha512 = digest.computehex("sha512", "abc"),
-    crc32 = checksum.compute("crc32", "123456789") == 0xcbf43926ULL,
-    crc64nvme = checksum.compute("crc64nvme", "123456789") == 0xae8b14860a799888ULL,
-    crc32c = checksum.compute("crc32c", "123456789") == 0xe3069283ULL,
-    crc64 = checksum.compute("crc64-ecma", "123456789") == 0x6c40df5f0b497347ULL,
-    hmac = mac.computehex("hmac-sha256", "key", "abc"),
+    md5 = digest("md5"):computehex("abc"),
+    sha1 = digest("sha1"):computehex("abc"),
+    sha256 = digest("sha256"):computehex("abc"),
+    sha512 = digest("sha512"):computehex("abc"),
+    crc32 = checksum("crc32"):compute("123456789") == 0xcbf43926ULL,
+    crc64nvme = checksum("crc64nvme"):compute("123456789") == 0xae8b14860a799888ULL,
+    crc32c = checksum("crc32c"):compute("123456789") == 0xe3069283ULL,
+    crc64 = checksum("crc64-ecma"):compute("123456789") == 0x6c40df5f0b497347ULL,
+    hmac = mac("hmac-sha256"):computehex("key", "abc"),
     uuid4 = uuid.uuid(4),
     uuid7 = uuid.uuid(7),
 })
