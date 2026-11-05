@@ -479,8 +479,8 @@ local function structureSupertypes(stat): {string}?
     return #names > 0 and names or nil
 end
 
--- Keep the declaration header separate from its documented members. The renderer
--- combines them without private entries, comments, or method implementations.
+-- Keep the declaration header separate from its documented members so an overview
+-- can identify the type without repeating their definitions.
 local function structureHeader(stat): string
     local parts: {string} = {}
     if stat.modifier then

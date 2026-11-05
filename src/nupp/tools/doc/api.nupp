@@ -151,61 +151,9 @@ local function formatType(source: string, prefix: string?): string
     return (formatted:sub(#prefix + 1):gsub("\n$", ""))
 end
 
-local function structureSignature(header: string, members: {extractMod.Member}?): string
-    local lines = {header}
-    for _, member in ipairs(members or {}) do
-        local declaration
-        if member.isType then
-            local nested = member.signature or member.type .. " " .. member.name .. (member.generics or "")
-            if not member.signature and member.supertypes then
-                nested = nested .. " is " .. table.concat(member.supertypes, ", ")
-            end
-            declaration = member.type == "type" and nested or structureSignature(nested, member.members)
-        elseif member.isAlias then
-            declaration = "type " .. member.name .. (member.generics or "") .. " = " .. member.type
-        else
-            local value = member.type
-            if member.isFunction then
-                local named
-                value, named = value:gsub("^(.-function)%s+[%w_%.:]+", "%1", 1)
-                if named > 0 and #member.returns > 1 then
-                    local results = {}
-                    for _, result in ipairs(member.returns) do
-                        results[#results + 1] = result.type
-                    end
-                    local pack = table.concat(results, ", ")
-                    local suffix = ": " .. pack
-                    if value:sub(-#suffix) == suffix then
-                        value = value:sub(1, #value - #suffix) .. ": (" .. pack .. ")"
-                    end
-                end
-                local receiver = member.params[1]
-                if receiver and receiver.name == "self" and receiver.mode then
-                    value = value:gsub(
-                        "(%(%s*" .. receiver.mode .. "%s+self)(%s*[,%)])",
-                        function(before, after): string
-                            return before .. ": " .. receiver.type .. after
-                        end,
-                        1
-                    )
-                end
-                value = omitNilResult(value, member.returns)
-            end
-            declaration = (member.isMetamethod and "metamethod " or "") .. member.name .. ": " .. value
-        end
-        for _, annotation in ipairs(member.annotations or {}) do
-            lines[#lines + 1] = "    " .. annotation
-        end
-        lines[#lines + 1] = "    " .. declaration:gsub("\n", "\n    ")
-    end
-    lines[#lines + 1] = "end"
-
-    return table.concat(lines, "\n")
-end
-
 export function displaySignature(item: extractMod.Item): string
     if item.kind == "record" or item.kind == "interface" then
-        return formatType(structureSignature(item.signature, item.members))
+        return item.signature
     end
     if item.kind == "type" then
         return formatType(item.signature)
@@ -280,7 +228,7 @@ end
 -- is a field whose values are types.
 export function memberSpelling(member: extractMod.Member): string
     if member.isType and (member.type == "record" or member.type == "interface") then
-        return formatType(structureSignature(member.signature or member.type .. " " .. member.name, member.members))
+        return member.signature or member.type .. " " .. member.name
     end
     if member.isAlias then
         return formatType("type " .. member.name .. (member.generics or "") .. " = " .. member.type)
