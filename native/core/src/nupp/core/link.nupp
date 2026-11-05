@@ -97,6 +97,21 @@ local function assemble(
         assert(locations[code] == nil, "core link aliased local body")
         append(code)
     end
+    -- NUPP_CORE_SYMBOLS names a file each link appends to: its code size,
+    -- then every body's code offset and name (a root by its index), one per
+    -- line, for attributing a profile of the running core.
+    local symbols = os.getenv("NUPP_CORE_SYMBOLS")
+    if symbols and symbols ~= "" then
+        local file = assert(io.open(symbols, "a"))
+        file:write(("# %d bytes\n"):format(#words * 4))
+        for index, code in ipairs(roots) do
+            file:write(("%x root%d\n"):format(locations[code] as integer, index))
+        end
+        for _, name in ipairs(names) do
+            file:write(("%x %s\n"):format(locations[functions[name]] as integer, name))
+        end
+        file:close()
+    end
     for code, offset in pairs(locations) do
         assert(
             #code.fixupWord == #code.fixupKind
@@ -111,7 +126,10 @@ local function assemble(
             )
             if code.fixupKind[at] == selector.IMPORT_LOAD then
                 local index = assert(imports and imports[code])[code.fixupName[at]]
-                assert(index ~= nil and index >= 0 and index < nativeos.importCount() and index % 1 == 0, "core link OS import index")
+                assert(
+                    index ~= nil and index >= 0 and index < nativeos.importCount() and index % 1 == 0,
+                    "core link OS import index"
+                )
                 local base, slot, importIndex = offset as integer, word as integer, index as integer
                 words[base // 4 + slot] = arm.ldr(8, 16, 22, importIndex * 8)
             else
