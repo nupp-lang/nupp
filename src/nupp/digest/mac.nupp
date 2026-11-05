@@ -1,6 +1,8 @@
 @!internal
 module nupp.digest.mac
 
+local catalog = require("nupp.digest.internal.catalog")
+
 const _PROVIDER_REQUIRES = "@requires-dynamically nupp.runtime.provider.mac"
 
 local {type Digest as ContextDigest} = require("nupp.digest.internal.contracts")
@@ -94,21 +96,17 @@ local available: {[string]: Algorithm} = {}
 local names: {string} = {}
 local initialized = false
 
+local function descriptor(name: string, implementation: provider.Algorithm): Algorithm
+    return Algorithm(name = name, digestsize = implementation.digestsize, implementation = implementation)
+end
+
 local function initialize(providerName: string): nil
     if initialized then
         return
     end
     local selected = require(providerName) as provider.Provider
     validate(selected)
-    for name, implementation in pairs(selected.algorithms) do
-        available[
-            name
-        ] = Algorithm(name = name, digestsize = implementation.digestsize, implementation = implementation)
-    end
-    for name in pairs(available) do
-        names[#names + 1] = name
-    end
-    table.sort(names)
+    catalog.populate(selected.algorithms, available, names, descriptor)
     initialized = true
 end
 

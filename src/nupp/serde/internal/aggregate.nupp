@@ -1,0 +1,87 @@
+module nupp.serde.internal.aggregate
+
+local core = require("nupp.serde.internal.value")
+
+export interface Writer<M is core.Member> is core.Writer<M>
+    aggregate: function<S>(
+        exclusive self: Writer<M>,
+        member: M,
+        kind: core.Kind,
+        size: integer?,
+        borrows source: S,
+        emit: core.Members<M, S>
+    ): nil
+
+    function writestruct<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+        self:aggregate(member, "structure", nil, source, emit)
+    end
+
+    function writeunion<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+        self:aggregate(member, "union", 1, source, emit)
+    end
+
+    function writelist<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+        self:aggregate(member, "list", size, source, emit)
+    end
+
+    function writetuple<S>(exclusive self, member: M, size: integer, borrows source: S, emit: core.Members<M, S>): nil
+        self:aggregate(member, "tuple", size, source, emit)
+    end
+
+    function writemap<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+        self:aggregate(member, "map", size, source, emit)
+    end
+
+end
+
+export interface Reader<M is core.Member> is core.Reader<M>
+    object: function<S>(
+        exclusive self: Reader<M>,
+        kind: core.Kind,
+        exclusive state: S,
+        consume: core.MemberConsumer<M, S>,
+        unknown: core.UnknownConsumer<S>
+    ): nil
+    array: function<S>(
+        exclusive self: Reader<M>,
+        kind: core.Kind,
+        size: integer?,
+        exclusive state: S,
+        consume: core.ElementConsumer<M, S>
+    ): nil
+
+    function readstruct<S>(
+        exclusive self,
+        member: M,
+        exclusive state: S,
+        consume: core.MemberConsumer<M, S>,
+        unknown: core.UnknownConsumer<S>
+    ): nil
+        self:object("structure", state, consume, unknown)
+    end
+
+    function readunion<S>(
+        exclusive self,
+        member: M,
+        exclusive state: S,
+        consume: core.MemberConsumer<M, S>,
+        unknown: core.UnknownConsumer<S>
+    ): nil
+        self:object("union", state, consume, unknown)
+    end
+
+    function readlist<S>(exclusive self, member: M, exclusive state: S, consume: core.ElementConsumer<M, S>): nil
+        self:array("list", nil, state, consume)
+    end
+
+    function readtuple<S>(
+        exclusive self,
+        member: M,
+        size: integer,
+        exclusive state: S,
+        consume: core.ElementConsumer<M, S>
+    ): nil
+        self:array("tuple", size, state, consume)
+    end
+
+end

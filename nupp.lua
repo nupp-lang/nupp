@@ -139,6 +139,10 @@ local RESOURCES = {
     {source = "src/nupp/runtime/aotruntime.nupp", output = "nupp/compiler/nupp/runtime/aotruntime.nupp"},
     {source = "src/nupp/runtime/contracts.nupp", output = "nupp/compiler/nupp/runtime/contracts.nupp"},
     {source = "src/serde/json/internal/contracts.nupp", output = "nupp/compiler/serde/json/internal/contracts.nupp"},
+    {
+        source = "src/nupp/codec/json/internal/writerprotocol.nupp",
+        output = "nupp/compiler/nupp/codec/json/internal/writerprotocol.nupp"
+    },
     {source = "src/nupp/codec/json/number.nupp", output = "nupp/compiler/nupp/codec/json/number.nupp"},
     {source = "src/io/internal/contracts.nupp", output = "nupp/compiler/io/internal/contracts.nupp"},
     {source = "src/nupp/compiler/targetbindings.nupp", output = "nupp/compiler/nupp/compiler/targetbindings.nupp"},
@@ -317,6 +321,8 @@ local RESOURCES = {
         output = "nupp/compiler/nupp/serde/internal/json/defaults.nupp"
     },
     {source = "src/nupp/serde/internal/document.nupp", output = "nupp/compiler/nupp/serde/internal/document.nupp"},
+    {source = "src/nupp/serde/internal/readplan.nupp", output = "nupp/compiler/nupp/serde/internal/readplan.nupp"},
+    {source = "src/nupp/serde/internal/aggregate.nupp", output = "nupp/compiler/nupp/serde/internal/aggregate.nupp"},
     {
         source = "src/nupp/serde/internal/documentcodec.nupp",
         output = "nupp/compiler/nupp/serde/internal/documentcodec.nupp"
@@ -428,6 +434,7 @@ local RESOURCES = {
         output = "nupp/compiler/binary/digest/internal/contracts.nupp"
     },
     {source = "src/nupp/digest/internal/contracts.nupp", output = "nupp/compiler/nupp/digest/internal/contracts.nupp"},
+    {source = "src/nupp/digest/internal/catalog.nupp", output = "nupp/compiler/nupp/digest/internal/catalog.nupp"},
     {source = "src/nupp/digest/internal/context.nupp", output = "nupp/compiler/nupp/digest/internal/context.nupp"},
     {source = "src/nupp/digest/internal/builtin.nupp", output = "nupp/compiler/nupp/digest/internal/builtin.nupp"},
     {source = "src/nupp/digest/internal/words.nupp", output = "nupp/compiler/nupp/digest/internal/words.nupp"},

@@ -231,6 +231,33 @@ function M.failedLoadFailsTheFacadeInitialization()
     assert(not ok and tostring(problem):find("loader failure", 1, true))
 end
 
+function M.digestAndMacCatalogsRetryFailedLoadsBeforePublishing()
+    for _, kind in ipairs({"digest", "mac"}) do
+        local attempts = 0
+        local load, counts = state.family(kind, {
+            function()
+                attempts = attempts + 1
+                if attempts == 1 then
+                    error("temporary catalog failure", 0)
+                end
+
+                return {algorithms = {}}
+            end
+        })
+        local api = load("binary")[PUBLIC[kind]]
+        local ok, problem = pcall(api.Algorithm.names)
+        assert(not ok and tostring(problem):find("temporary catalog failure", 1, true), tostring(problem))
+        local names = api.Algorithm.names()
+        assert(#names > 0 and counts.resolutions == 2)
+        for index = 2, #names do
+            assert(names[index - 1] < names[index], "catalog names are sorted and unique")
+        end
+        assert(#api.Algorithm.names() == #names and counts.resolutions == 2)
+        local name = kind == "digest" and "sha256" or "hmac-sha256"
+        assert(api.Algorithm.of(name).digestsize == 32)
+    end
+end
+
 function M.targetBindingsRetainBuiltinsAndIndependentListings()
     for _, kind in ipairs({"digest", "checksum", "mac"}) do
         local load = state.family(kind)

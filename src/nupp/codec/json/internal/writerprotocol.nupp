@@ -1,0 +1,51 @@
+module nupp.codec.json.internal.writerprotocol
+
+export type Frame = {
+    kind: string,
+    first: boolean,
+    value: boolean?
+}
+
+export function array(value: unknown): nil
+    if type(value) ~= "table" then
+        error("json.asarray needs a table", 3)
+    end
+    local count: integer = 0
+    local highest: integer = 0
+    for key in pairs(value as {[unknown]: unknown}) do
+        if type(key) ~= "number" or (key as number) < 1 or (key as number) % 1 ~= 0 then
+            error("an array-marked table must contain consecutive positive indexes", 3)
+        end
+        count = count + 1
+        highest = math.max(highest, math.floor(key as number))
+    end
+    if count ~= highest then
+        error("an array-marked table must contain consecutive positive indexes", 3)
+    end
+
+end
+
+export function prepare(stack: {Frame}, root: boolean, closed: boolean, add: function(string): nil): boolean
+    if closed then
+        error("writer is already closed", 2)
+    end
+    if #stack == 0 then
+        if root then
+            error("writer already has a root value", 2)
+        end
+        return true
+    end
+    local frame = stack[#stack]
+    if frame.kind == "array" then
+        if not frame.first then
+            add(",")
+        end
+        frame.first = false
+    elseif not frame.value then
+        error("an object value must follow key()", 2)
+    else
+        frame.value = false
+    end
+
+    return root
+end

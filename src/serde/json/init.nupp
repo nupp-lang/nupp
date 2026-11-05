@@ -322,6 +322,23 @@ local record Cached is Codec
         end
     end
 
+    function reading<T>(self, binding: core.Binding<T>): ReadOperation<T>
+        self:observeBinding(binding)
+        local selected: ReadOperation<T>
+        if self.lastRead ~= nil then
+            -- Binding identity fixes T; execution captures neither input nor
+            -- call context. A different binding drops this one-entry cache.
+            selected = self.lastRead as ReadOperation<T>
+        else
+            local consumer = SelectRead<T>(binding = binding, factory = self.factory, cache = self.cache)
+            binding:accept(consumer, nil)
+            selected = assert(consumer.result, "binding did not supply its adapter")
+            self.lastReadBinding, self.lastRead = binding, selected
+        end
+
+        return selected
+    end
+
     function writing<T>(self, binding: core.Binding<T>): WriteOperation<T>
         self:observeBinding(binding)
         if self.lastWrite == nil then
@@ -360,37 +377,11 @@ local record Cached is Codec
     end
 
     function decode<T>(self, binding: core.Binding<T>, bytes: string, context: core.Context?): T
-        self:observeBinding(binding)
-        local selected: ReadOperation<T>
-        if self.lastRead ~= nil then
-            -- Binding identity fixes T; execution captures neither input nor
-            -- call context. A different binding drops this one-entry cache.
-            selected = self.lastRead as ReadOperation<T>
-        else
-            local consumer = SelectRead<T>(binding = binding, factory = self.factory, cache = self.cache)
-            binding:accept(consumer, nil)
-            selected = assert(consumer.result, "binding did not supply its adapter")
-            self.lastReadBinding, self.lastRead = binding, selected
-        end
-
-        return selected:read(bytes, context)
+        return self:reading(binding):read(bytes, context)
     end
 
     function decodebuffer<T>(self, binding: core.Binding<T>, exclusive input: io.Buffer, context: core.Context?): T
-        self:observeBinding(binding)
-        local selected: ReadOperation<T>
-        if self.lastRead ~= nil then
-            -- Binding identity fixes T; execution captures neither input nor
-            -- call context. A different binding drops this one-entry cache.
-            selected = self.lastRead as ReadOperation<T>
-        else
-            local consumer = SelectRead<T>(binding = binding, factory = self.factory, cache = self.cache)
-            binding:accept(consumer, nil)
-            selected = assert(consumer.result, "binding did not supply its adapter")
-            self.lastReadBinding, self.lastRead = binding, selected
-        end
-
-        return selected:read(input:getstring(), context)
+        return self:reading(binding):read(input:getstring(), context)
     end
 
     function clear(self): nil

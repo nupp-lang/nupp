@@ -2397,6 +2397,28 @@ function M.digestAndMacSurfacesAreBundledOutsideThisCheckout()
     testAssert.eq(#diags, 0, "the shipped streaming hash source supplies its typed surface")
 end
 
+function M.serdeHelpersAreBundledOutsideThisCheckout()
+    local isolated = envMod.new(os.tmpname() .. "-nupp-serde-helpers")
+    local source = [[
+local record Entry
+    text: string
+end
+local binding = serde.binding(Entry)
+local value = Entry(text = "value")
+local document = serde.document.from(binding, value)
+assert(serde.document.into(binding, document).text == "value")
+local native = serde.native.encode(binding, value)
+assert(serde.native.decode(binding, native).text == "value")
+local json = serde.json.codec()
+local buffer = io.Buffer.create('{"text":"buffer"}')
+assert(json:decodebuffer(binding, buffer).text == "buffer")
+]]
+    local result = parser.parse(source, "outside.nupp")
+    testAssert.eq(#result.errors, 0, "the external serde consumer parses")
+    local diagnostics = check.check(result, "outside.nupp", isolated)
+    testAssert.eq(#diagnostics, 0, "the shipped serde source resolves its private shared helpers")
+end
+
 function M.optimizedDeadCodeDropsItsNativeFeatures()
     local source = table.concat(
         {"if false then", "    print(os.info().parallelism)", "else", "    print(os.uuid(4))", "end",},

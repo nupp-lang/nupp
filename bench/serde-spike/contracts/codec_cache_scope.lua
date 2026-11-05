@@ -62,10 +62,13 @@ local tracked = {
     end,
 }
 local warm = json.codec(model.policy(true), 2)
+local input = require("io").Buffer.create('{"identifier":"buffer","created":0}')
 for _ = 1, 10 do
     local value = warm:decode(tracked, '{"identifier":"warm","created":0}')
+    assert(warm:decodebuffer(tracked, input).id == "buffer")
     assert(warm:encode(tracked, value) == '{"identifier":"warm","created":0}')
 end
+input:close()
 scopeType.resolve = resolve
 assert(selections == 2 and resolutions == 2, "a warm operation repeated binding or extension selection")
 warm:clear()
