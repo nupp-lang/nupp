@@ -1,0 +1,230 @@
+module nupp.runtime.core.storage
+
+-- Core-only byte storage. The caller owns this descriptor and its heap outlives
+-- the backing. Initialize requires an all-zero fresh descriptor; release clears
+-- every field and is idempotent. Counts and cursors are bytes: read <= len <= cap.
+-- A nonzero kind is caller-validated representation metadata, never a width.
+--
+-- Growth and release cannot collect, suspend, or call guest code. Refusal leaves
+-- the descriptor and its bytes unchanged. Growth preserves [0,len), zeros the
+-- new capacity, and invalidates old raw pointers. Append relocates an initialized
+-- source range within its own backing before using it after growth. External
+-- source pointers must name count readable bytes and remain valid through reserve.
+-- A zero CopyStats pointer disables accounting; no shared VM layout is extended.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const backing = require("nupp.runtime.vm.backing")
+
+export const OK: uint64 = 0ULL
+export const INVALID: uint64 = 1ULL
+export const NO_MEMORY: uint64 = 2ULL
+-- Scalar kinds 1 through 10 and packed booleans 11 retain their existing ids.
+export const TAGGED_VALUES: uint64 = 12ULL
+const MIN_CAPACITY: uint64 = 64ULL
+const WORD_BYTES: uint64 = 8ULL
+
+export struct Storage
+    base: uint64
+    len: uint64
+    cap: uint64
+    read: uint64
+    kind: uint64
+end
+
+export struct CopyStats
+    bytes: uint64
+end
+
+export function maximum(): uint64
+    return backing.wordBackingMaximum() * WORD_BYTES
+end
+
+local function valid(s: Storage*): boolean
+    @unsafe do
+        return s.kind ~= 0ULL
+            and s.read <= s.len
+            and s.len <= s.cap
+            and s.cap <= maximum()
+            and ((s.cap == 0ULL and s.base == 0ULL) or (s.cap > 0ULL and s.base ~= 0ULL))
+    end
+end
+
+local function zero(base: uint64, count: uint64): nil
+    local i: uint64 = 0ULL
+    while i < count do
+        native.store8(native.pointer(base), native.index(i), 0ULL)
+        i = i + 1ULL
+    end
+end
+
+-- Both ranges are caller-proven and may overlap, including in either direction.
+export function copy(target: uint64, source: uint64, count: uint64, stats: CopyStats*): nil
+    if target <= source then
+        local i: uint64 = 0ULL
+        while i < count do
+            native.store8(
+                native.pointer(target),
+                native.index(i),
+                native.word(native.load8(native.pointer(source), native.index(i)))
+            )
+            i = i + 1ULL
+        end
+    else
+        local i = count
+        while i > 0ULL do
+            i = i - 1ULL
+            native.store8(
+                native.pointer(target),
+                native.index(i),
+                native.word(native.load8(native.pointer(source), native.index(i)))
+            )
+        end
+    end
+    if native.address(stats as voidptr) ~= 0ULL then
+        @unsafe stats.bytes = stats.bytes + count
+    end
+end
+
+export function initialize(h: heap.Heap*, s: Storage*, kind: uint64, length: uint64, capacity: uint64): uint64
+    @unsafe do
+        if native.address(h as voidptr) == 0ULL
+            or kind == 0ULL
+            or length > capacity
+            or capacity > maximum()
+            or s.base ~= 0ULL
+            or s.len ~= 0ULL
+            or s.cap ~= 0ULL
+            or s.read ~= 0ULL
+            or s.kind ~= 0ULL
+        then
+            return INVALID
+        end
+        local base: uint64 = 0ULL
+        if capacity > 0ULL then
+            base = backing.wordBackingTake(h, (capacity + WORD_BYTES - 1ULL) // WORD_BYTES)
+            if base == 0ULL then
+                return NO_MEMORY
+            end
+            zero(base, capacity)
+        end
+        s.base = base
+        s.len = length
+        s.cap = capacity
+        s.kind = kind
+
+        return OK
+    end
+end
+
+-- additional is room after len, not after the read cursor.
+export function reserve(h: heap.Heap*, s: Storage*, additional: uint64, stats: CopyStats*): uint64
+    @unsafe do
+        if native.address(h as voidptr) == 0ULL or not valid(s) or additional > maximum() - s.len then
+            return INVALID
+        end
+        local wanted = s.len + additional
+        if wanted <= s.cap then
+            return OK
+        end
+        local capacity = wanted
+        if s.cap <= maximum() // 2ULL and capacity < s.cap * 2ULL then
+            capacity = s.cap * 2ULL
+        end
+        if capacity < MIN_CAPACITY then
+            capacity = MIN_CAPACITY
+        end
+        local fresh = backing.wordBackingTake(h, (capacity + WORD_BYTES - 1ULL) // WORD_BYTES)
+        if fresh == 0ULL then
+            return NO_MEMORY
+        end
+        zero(fresh, capacity)
+        copy(fresh, s.base, s.len, stats)
+        local before = s.base
+        s.base = fresh
+        s.cap = capacity
+        backing.wordBackingRelease(before)
+
+        return OK
+    end
+end
+
+export function append(h: heap.Heap*, s: Storage*, source: uint64, count: uint64, stats: CopyStats*): uint64
+    @unsafe do
+        if not valid(s) or count > maximum() - s.len or (count > 0ULL and source == 0ULL) then
+            return INVALID
+        end
+        local aliases = false
+        local offset: uint64 = 0ULL
+        if s.base ~= 0ULL and source >= s.base and source <= s.base + s.cap then
+            offset = source - s.base
+            if offset > s.len or count > s.len - offset then
+                return INVALID
+            end
+            aliases = true
+        end
+        local status = reserve(h, s, count, stats)
+        if status ~= OK then
+            return status
+        end
+        local from = source
+        if aliases then
+            from = s.base + offset
+        end
+        copy(s.base + s.len, from, count, stats)
+        s.len = s.len + count
+
+        return OK
+    end
+end
+
+-- The caller has initialized count bytes beginning at base + len.
+export function commit(s: Storage*, count: uint64): uint64
+    @unsafe do
+        if not valid(s) or count > s.cap - s.len then
+            return INVALID
+        end
+        s.len = s.len + count
+
+        return OK
+    end
+end
+
+export function consume(s: Storage*, count: uint64): uint64
+    @unsafe do
+        if not valid(s) or count > s.len - s.read then
+            return INVALID
+        end
+        s.read = s.read + count
+
+        return OK
+    end
+end
+
+export function truncate(s: Storage*, length: uint64): uint64
+    @unsafe do
+        if not valid(s) or length < s.read or length > s.len then
+            return INVALID
+        end
+        s.len = length
+
+        return OK
+    end
+end
+
+export function reset(s: Storage*): nil
+    @unsafe do
+        s.len = 0ULL
+        s.read = 0ULL
+    end
+end
+
+export function release(s: Storage*): nil
+    @unsafe do
+        backing.wordBackingRelease(s.base)
+        s.base = 0ULL
+        s.len = 0ULL
+        s.cap = 0ULL
+        s.read = 0ULL
+        s.kind = 0ULL
+    end
+end
