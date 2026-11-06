@@ -15,7 +15,7 @@ use std::sync::{Arc, Once};
 // channel of capacity 1, f3 receives from one and f4 sends on one; f5 holds its
 // argument and never returns, and f6 forks f5 on a worker and awaits it.
 const PROGRAM: &str = r#"
-shape 0 Array identity=nupp.heap:Array pointer:any count:num
+shape 0 Array identity=nupp.array:ArrayImpl pointer:any count:num
 function echo 0 1 4 1 v:v
 Ret 1
 end
@@ -136,7 +136,7 @@ fn shared(vm: &mut Interp, bytes: &[u8]) -> (Value, usize) {
     vm.release(root);
     (view, vm.register(view))
 }
-/// A `nupp.heap` array record over `count` int32 values 1..=count.
+/// A `table.Array` array record over `count` int32 values 1..=count.
 fn array(vm: &mut Interp, count: usize) -> (Value, usize) {
     let kind = vm.intern("int32");
     let element = builtin(vm, "storage.scalar", &[kind]);
@@ -147,7 +147,7 @@ fn array(vm: &mut Interp, count: usize) -> (Value, usize) {
     for (i, chunk) in vm.bytes_mut(o).chunks_exact_mut(4).enumerate() {
         chunk.copy_from_slice(&(i as i32 + 1).to_le_bytes());
     }
-    let shape = vm.heap.shape_identities["nupp.heap:Array"];
+    let shape = vm.heap.shape_identities["nupp.array:ArrayImpl"];
     let record = vm.new_record(shape);
     let root = vm.register(record);
     let key = vm.intern("pointer");

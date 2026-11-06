@@ -268,7 +268,7 @@ pub struct Worker {
 impl Worker {
     /// Copies a function, its captured graph, and arguments into an isolated VM.
     /// Native resources require an explicit transferable representation.
-    /// Shared blocks cross by reference and `nupp.heap` arrays among the
+    /// Shared blocks cross by reference and `table.Array` arrays among the
     /// arguments move (`crate::sharing`); the rest of the graph is copied.
     pub fn spawn(parent: &mut Interp, callee: Value, args: &[Value]) -> Result<Self> {
         Self::spawn_mode(parent, callee, args, false)
@@ -791,7 +791,7 @@ impl Interp {
             raw(nupp, "__heapArrayMetatable"),
             raw(nupp, "__regionMetatable"),
         ];
-        let resource_shapes = ["nupp.heap:Array", "io.internal.bytestypes:Bytes"]
+        let resource_shapes = [crate::sharing::ARRAY_IDENTITY, "io.internal.bytestypes:Bytes"]
             .map(|identity| self.heap.shape_identities.get(identity).copied());
         let record_type = self.heap.interned_key("\0nupp:recordType");
         let canonical = |meta: Value| {
@@ -1561,7 +1561,7 @@ entry 1
     #[test]
     fn refused_arguments_do_not_move_an_array_before_admission() {
         let mut vm = fixture(
-            "shape 0 Array identity=nupp.heap:Array pointer:any count:num\nfunction value 0 1 3 1 v:v\nRet 1\nend\nentry 0\n",
+            "shape 0 Array identity=nupp.array:ArrayImpl pointer:any count:num element:any\nfunction value 0 1 3 1 v:v\nRet 1\nend\nentry 0\n",
         );
         let kind = vm.intern("int32");
         vm.handles.push(kind);
@@ -1577,6 +1577,15 @@ entry 1
         vm.registered.push(array);
         put(&mut vm, array, "pointer", pointer);
         put(&mut vm, array, "count", Value::num(4.0));
+        // The current ArrayImpl carries a private element descriptor. Its
+        // codec graph is validated by the existing exact-resource path.
+        let descriptor = vm.new_table();
+        vm.registered.push(descriptor);
+        let descriptor_meta = vm.new_table();
+        vm.registered.push(descriptor_meta);
+        vm.set_metatable(descriptor, descriptor_meta);
+        put(&mut vm, array, "element", descriptor);
+
         let foreign = vm.new_table();
         vm.registered.push(foreign);
         let meta = vm.new_table();
@@ -1746,7 +1755,7 @@ entry 1
     }
     fn moved_array_fixture() -> (Interp, Value, Value, Vec<u8>) {
         let mut vm = fixture(
-            "shape 0 Array identity=nupp.heap:Array pointer:any count:num\nfunction echo 0 1 3 1 v:v\nRet 1\nend\nentry 0\n",
+            "shape 0 Array identity=nupp.array:ArrayImpl pointer:any count:num\nfunction echo 0 1 3 1 v:v\nRet 1\nend\nentry 0\n",
         );
         let kind = vm.intern("int32");
         vm.handles.push(kind);

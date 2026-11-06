@@ -12,7 +12,7 @@
 //! rebuilds it once and registers it, so the restored worker that names the
 //! same id shares it too. That is the channel registry's protocol.
 //!
-//! A moved allocation is a `nupp.heap` array crossing to a worker. The
+//! A moved allocation is a `table.Array` array crossing to a worker. The
 //! checker consumes the sender's binding; the runtime takes the allocation out
 //! of the sender's owner, leaving a `ByteBuffer::Moved` husk that any stale
 //! view reports, and the receiver adopts the same allocation. An allocation
@@ -45,7 +45,7 @@ pub(crate) const ATTACHED_MOVED: u8 = 34;
 pub(crate) const MOVED_BYTES: u8 = 35;
 
 const OWNER_KEY: &str = "\0nupp:storage:owner";
-const ARRAY_IDENTITY: &str = "nupp.heap:Array";
+pub(crate) const ARRAY_IDENTITY: &str = "nupp.array:ArrayImpl";
 
 /// An immutable allocation shared between VMs. The last holder frees it.
 pub struct Block {
@@ -324,7 +324,7 @@ fn owner_of(vm: &Interp, view: Value) -> Value {
     vm.heap.interned_key("owner").map_or(Value::NIL, |k| vm.get_index(view, k))
 }
 
-/// The owners of every `nupp.heap` array reachable from `roots`: what a
+/// The owners of every `table.Array` array reachable from `roots`: what a
 /// crossing moves rather than copies. The checker allows such an array to
 /// cross only where the sender gives it up (a `takes` argument or a result).
 fn movable_owners(vm: &Interp, roots: &[Value]) -> HashSet<Value> {
@@ -518,7 +518,7 @@ mod measure {
         let mut vm = Interp::new();
         crate::image::load(
             &mut vm,
-            "shape 0 Array identity=nupp.heap:Array pointer:any count:num\nfunction f 0 0 2 1 :v\nRetNil\nend\nentry 0\n",
+            "shape 0 Array identity=nupp.array:ArrayImpl pointer:any count:num\nfunction f 0 0 2 1 :v\nRetNil\nend\nentry 0\n",
         )
         .unwrap();
         vm.install_globals();
