@@ -126,6 +126,18 @@ local function appendFile(path, bytes)
     return writeFile(path, bytes, "ab")
 end
 
+function M.statRejectsNonBooleanLinkFlags()
+    local files = ready()
+    for _, flag in ipairs({"true", 1, {}}) do
+        test.raises(
+            function()
+                files.stat(inRoot("unused"), flag)
+            end,
+            "boolean expected"
+        )
+    end
+end
+
 function M.statDescribesAFileAndFailsOnAMissingOne()
     local files = ready()
     assert(files.mkdir(inRoot("info")))
@@ -162,7 +174,7 @@ function M.existsAnswersPresenceAndKeepsFailuresApart()
     test.eq(files.exists(inRoot("presence/absent/deeper")), false)
     assert(files.symlink(inRoot("presence/absent"), inRoot("presence/dangling")))
     test.eq(files.exists(inRoot("presence/dangling")), false, "a dangling link does not resolve")
-    test.eq(files.lstat(inRoot("presence/dangling")), "symlink", "but the link itself is there")
+    test.eq(files.stat(inRoot("presence/dangling"), true), "symlink", "but the link itself is there")
 end
 
 function M.symbolicLinksAreCreatedReadAndDistinguished()
@@ -171,12 +183,14 @@ function M.symbolicLinksAreCreatedReadAndDistinguished()
     write(inRoot("links/target.txt"), "bytes")
     assert(files.symlink(inRoot("links/target.txt"), inRoot("links/alias")))
 
-    test.eq(files.lstat(inRoot("links/alias")), "symlink")
-    test.eq(files.lstat(inRoot("links/target.txt")), "file")
-    local missing, _, _, _, reason = files.lstat(inRoot("links/absent"))
+    test.eq(files.stat(inRoot("links/alias"), true), "symlink")
+    test.eq(files.stat(inRoot("links/target.txt"), true), "file")
+    local missing, _, _, _, reason = files.stat(inRoot("links/absent"), true)
     test.eq(missing, nil)
     assert(isIoError(reason, "notfound"), "a missing link is a reason, not a kind")
-    test.eq(files.stat(inRoot("links/alias")), "file", "stat follows the link")
+    test.eq(files.stat(inRoot("links/alias")), "file", "stat follows the link by default")
+    test.eq(files.stat(inRoot("links/alias"), false), "file", "false follows the link")
+    test.eq(files.stat(inRoot("links/alias"), nil), "file", "nil follows the link")
     local target = assert(files.readlink(inRoot("links/alias")))
     test.eq(target:tostring(), inRoot("links/target.txt"), "a link's target is a path value")
 end
@@ -827,8 +841,23 @@ function M.appPathsAreScopedPortableAndStable()
     test.eq(apppaths.encodeid("NUL"), "%4EUL")
     test.eq(apppaths.encodeid("COM¹"), "%43OM¹")
     assert(apppaths.encodeid("/") ~= apppaths.encodeid("%2F"), "identity escaping remains reversible")
+    local returned = assert(files.appdir("cache"))
+    assert(getmetatable(returned) == require("io.internal.pathtypes").Path)
+    assert(files.remove(returned, true))
     local data = apppaths.native(root, "nupp", app)
 
+    assert(getmetatable(data) == require("io.internal.pathtypes").Path)
+    assert(files.mkdir(data))
+    local note = assert(data:resolve("notes.txt"))
+    do
+        local handle = assert(io.open(note, "w"))
+        assert(handle:write("unified path"))
+        assert(handle:close())
+    end
+    test.eq(assert(readFile(note)), "unified path")
+    test.eq(note:parent(), data)
+    local canonical = assert(note:canonicalize())
+    test.eq(assert(readFile(canonical)), "unified path")
     local safe = data:join("save files", "slot-1.dat")
     assert(safe:tostring():find("save files", 1, true))
     for _, invalid in ipairs({
@@ -855,7 +884,7 @@ function M.appPathsAreScopedPortableAndStable()
             function()
                 data:join(invalid)
             end,
-            "AppPath component"
+            "application path component"
         )
     end
 
@@ -867,7 +896,7 @@ end
 
 function M.nativeCapabilitiesAreReportedOnce()
     local files = ready()
-    local caps = files.fscaps()
+    local caps = os.info().fs
     for _, name in ipairs({
         "available",
         "arbitrarypaths",
@@ -882,7 +911,7 @@ function M.nativeCapabilitiesAreReportedOnce()
     }) do
         test.eq(caps[name], true, "native capability " .. name)
     end
-    assert(rawequal(files.fscaps(), caps), "the report is built once and shared")
+    assert(rawequal(os.info().fs, caps), "the report is built once and shared")
     assert(files.persiststorage())
 end
 

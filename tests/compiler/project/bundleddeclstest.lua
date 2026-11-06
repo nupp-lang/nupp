@@ -80,18 +80,48 @@ function M.compressionFactoriesAndTypesLiveOnBinary()
     testAssert.eq(
         diagsUnderPrelude(
             [[
-local {compression, compressionformats, type CompressionFormat,
+local {compress, formats, type CompressionFormat,
     type CompressionReaderOptions, type CompressionWriterOptions} = require("binary")
-local gzip: CompressionFormat = compression("gzip")
+local gzip: CompressionFormat = compress("gzip")
 local writerOptions: CompressionWriterOptions = {gzip = {level = 6}}
 local readerOptions: CompressionReaderOptions = {maxoutputbytes = 1024}
 assert(gzip:decompress(gzip:compress("hello", writerOptions), readerOptions) == "hello")
-assert(#compressionformats() == 3)
+assert(#formats("compression") == 3)
 assert(gzip is binary.CompressionFormat)
 ]]
         ),
         ""
     )
+end
+
+function M.binaryDescriptorsAndFamilyEnumCheckOutsideTheCheckout()
+    testAssert.eq(
+        diagsUnderPrelude(
+            [[
+local {digest, checksum, mac, formats, type FormatKind,
+    type DigestFormat, type ChecksumFormat, type MacFormat} = require("binary")
+local sha: DigestFormat = digest("sha256")
+local crc: ChecksumFormat = checksum("crc32c")
+local hmac: MacFormat = mac("hmac-sha256")
+local kind: FormatKind = "digest"
+assert(#formats(kind) > 0)
+assert(#sha:computehex("hello") == 64)
+assert(crc:compute("123456789") == 0xe3069283ULL)
+assert(#hmac:compute("key", "hello") == 32)
+]]
+        ),
+        ""
+    )
+    assert(diagsUnderPrelude('binary.formats("unknown")'):find("NUPP2006", 1, true))
+    for _, expression in ipairs({
+        "binary.compression",
+        "binary.compressionformats",
+        "binary.Digest.create",
+        "binary.Checksum.compute",
+        "binary.Mac.Algorithm"
+    }) do
+        assert(diagsUnderPrelude("return " .. expression):find("NUPP2004", 1, true), expression)
+    end
 end
 
 function M.retiredNamespacesAreNotBundled()
@@ -185,6 +215,24 @@ function M.compilerCarriesEveryFeatureRuntimeSource()
             )
         end
     end
+end
+
+function M.applicationDirectoriesReturnTheUnifiedPathOutsideTheCheckout()
+    local env = envMod.new("/private/tmp/nupp-app-path-consumer", {config = {include = {"src"}}, cache = false})
+    local source = [[
+os.setappid("example", "notes")
+local root: io.Path = assert(os.appdir("data"))
+local path: io.Path = assert(root:resolve("draft.txt")):withfilename("notes.txt")
+local named: os.Path = path
+local file = assert(io.open(named, "w"))
+assert(file:write("notes"))
+]]
+    local parsed = parser.parse(source, "app-path.nupp")
+    testAssert.eq(#parsed.errors, 0)
+    local diagnostics = check.check(parsed, "app-path.nupp", env)
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    local public = assert(env.loadBundledModule("nupp.runtime.standardos"))
+    testAssert.eq(public.exports.types.AppPath, nil, "the separate public type is removed")
 end
 
 function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
@@ -321,16 +369,33 @@ end
 
 function M.uuidUsesItsContractWithoutNativeCompilerServices()
     local env = envMod.new(".", {memoryOnly = true, nativeCompilerServices = false, typeRoots = {},})
-    local result = parser.parse("return os.uuid(4), os.uuid(7)", "uuid-contract.nupp")
+    local result = parser.parse(
+        "local function make(version: 4 | 7): string return os.uuid(version) end\nreturn make(4), make(7)",
+        "uuid-contract.nupp"
+    )
     testAssert.eq(#result.errors, 0)
     local diagnostics = check.check(result, "uuid-contract.nupp", env)
     testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     local uuid = env.globals.os.t
     testAssert.eq(uuid.byname.uuid.tag, "func", "uuid has a checked function signature")
-    testAssert.eq(uuid.byname.uuid.params[1], T.integer, "uuid takes an integer version")
+    testAssert.eq(T.tostring(uuid.byname.uuid.params[1]), "4 | 7", "uuid accepts only supported versions")
     testAssert.eq(uuid.byname.uuid.rets[1].tag, "string", "uuid returns a string")
     testAssert.eq(uuid.byname.uuid4, nil, "the retired version 4 entry is absent")
     testAssert.eq(uuid.byname.uuid7, nil, "the retired version 7 entry is absent")
+    for _, source in ipairs({
+        "return os.uuid(5)",
+        "return os.uuid(4.5)",
+        'return os.uuid("4")',
+        "local function make(version: integer): string return os.uuid(version) end\nreturn make(4)",
+    }) do
+        local refused = parser.parse(source, "uuid-invalid-version.nupp")
+        testAssert.eq(#refused.errors, 0)
+        local rejected = false
+        for _, diagnostic in ipairs(check.check(refused, "uuid-invalid-version.nupp", env)) do
+            rejected = rejected or diagnostic.code == "NUPP2006"
+        end
+        assert(rejected, "unsupported UUID version type was accepted: " .. source)
+    end
     local exports = assert(env.resolveModuleExports(env, "os"))
     testAssert.eq(exports.values.uuid, uuid.byname.uuid, "module and export resolution agree")
     testAssert.eq(
@@ -534,6 +599,31 @@ return m
         end
     end
     testAssert.eq(found, true, "an exported signature mentioning any is still reported")
+end
+
+function M.anEmbeddedCompilerDoesNotProbeDiskForMissingDeclarations()
+    local instances = require("helpers.providerstate")
+    local host = {
+        open = function(path)
+            error("embedded declaration lookup reached disk: " .. path)
+        end
+    }
+    for _, prefix in ipairs({"/compiler", "/nupp/compiler"}) do
+        local load = instances.instance(
+            {["nupp.compiler.bundled"] = true},
+            {["nupp.runtime.standardio"] = {value = host},},
+            {
+                ["nupp.embedded"] = function()
+                    return {[prefix .. "/coroutine.nupp"] = "module coroutine"}
+                end,
+            },
+            {io = host, __nuppCleanupRegistry = {}}
+        )
+        local bundled = load("nupp.compiler.bundled")
+        testAssert.eq(bundled.source("/coroutine/init.nupp"), nil)
+        testAssert.eq(bundled.source("/coroutine.nupp"), "module coroutine")
+        testAssert.eq(bundled.source("/missing.nupp"), nil)
+    end
 end
 
 -- A declaration the build copied beside the compiled modules goes stale the moment
@@ -812,7 +902,10 @@ function M.movedPrivateBundledSourcesKeepFileAndTreePrivacyDistinct()
     package.loaded["nupp.compiler.project.env"] = nil
     local ok, problem = pcall(function()
         local fresh = require("nupp.compiler.project.env")
-        local env = fresh.new("/private/tmp", {config = {include = {"no-bundled-layout-fixture"}}, cache = false})
+        local env = fresh.new("/private/tmp/nupp-bundled-privacy-consumer", {
+            config = {include = {"src"}},
+            cache = false
+        })
         local ioModule = env.loadBundledModule("nupp.io")
         assert(ioModule and ioModule.exports.types.Token)
         testAssert.eq(ioModule.exports.types.Token.moduleName, "nupp.io")

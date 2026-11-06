@@ -1337,7 +1337,10 @@ local function buildModules(root: string, outDir: string, config: Config, target
             local feature = native.feature(effect)
             if feature ~= nil and feature.runtimeModule ~= nil and (feature.portableRuntime or not browserTarget) then
                 local runtimeModule = feature.runtimeModule as string
-                linkRuntimeSource(runtimeModule)
+                linkPackagedRuntime(runtimeModule)
+                if not linkedModules[runtimeModule] then
+                    linkRuntimeSource(runtimeModule)
+                end
                 if linkedModules[runtimeModule] and enqueueLinked ~= nil then
                     enqueueLinked(runtimeModule)
                 end

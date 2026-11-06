@@ -146,6 +146,31 @@ export type Item = {
     }?
 }
 
+local function rewriteTypes(value: {
+    supertypes: {string}?,
+    params: {Param},
+    returns: {Result},
+    forms: {Form}?
+}, rewrite: function(string): string): nil
+    local supertypes = value.supertypes or {}
+    for index, supertype in ipairs(supertypes) do
+        supertypes[index] = rewrite(supertype)
+    end
+    for _, parts in ipairs({value.params, value.returns}) do
+        for _, part in ipairs(parts) do
+            part.type = rewrite(part.type)
+        end
+    end
+    for _, form in ipairs(value.forms or {}) do
+        form.signature = rewrite(form.signature)
+        for _, parts in ipairs({form.params, form.returns, form.raises}) do
+            for _, part in ipairs(parts) do
+                part.type = rewrite(part.type)
+            end
+        end
+    end
+end
+
 --- A source file, read as its documented declarations.
 export type Module = {
     name: string,
@@ -2561,24 +2586,7 @@ export function extract(source: string, path: string?, name: string, opts: Optio
             for _, value in ipairs(values) do
                 value.path = publicName(value.path)
                 value.type = publicName(value.type)
-                local supertypes = value.supertypes or {}
-                for index, supertype in ipairs(supertypes) do
-                    supertypes[index] = publicName(supertype)
-                end
-                for _, param in ipairs(value.params) do
-                    param.type = publicName(param.type)
-                end
-                for _, returned in ipairs(value.returns) do
-                    returned.type = publicName(returned.type)
-                end
-                for _, form in ipairs(value.forms or {}) do
-                    form.signature = publicName(form.signature)
-                    for _, parts in ipairs({form.params, form.returns, form.raises}) do
-                        for _, part in ipairs(parts) do
-                            part.type = publicName(part.type)
-                        end
-                    end
-                end
+                rewriteTypes(value, publicName)
                 members(value.members or {})
             end
         end
@@ -2589,24 +2597,7 @@ export function extract(source: string, path: string?, name: string, opts: Optio
                 item.path = name .. "." .. item.name
             end
             item.signature = publicName(item.signature)
-            local supertypes = item.supertypes or {}
-            for index, supertype in ipairs(supertypes) do
-                supertypes[index] = publicName(supertype)
-            end
-            for _, param in ipairs(item.params) do
-                param.type = publicName(param.type)
-            end
-            for _, returned in ipairs(item.returns) do
-                returned.type = publicName(returned.type)
-            end
-            for _, form in ipairs(item.forms or {}) do
-                form.signature = publicName(form.signature)
-                for _, parts in ipairs({form.params, form.returns, form.raises}) do
-                    for _, part in ipairs(parts) do
-                        part.type = publicName(part.type)
-                    end
-                end
-            end
+            rewriteTypes(item, publicName)
             members(item.members)
         end
     end
@@ -2632,24 +2623,7 @@ export function extract(source: string, path: string?, name: string, opts: Optio
                 for _, value in ipairs(values) do
                     value.path = publicName(value.path)
                     value.type = publicName(value.type)
-                    local supertypes = value.supertypes or {}
-                    for index, supertype in ipairs(supertypes) do
-                        supertypes[index] = publicName(supertype)
-                    end
-                    for _, param in ipairs(value.params or {}) do
-                        param.type = publicName(param.type)
-                    end
-                    for _, returned in ipairs(value.returns or {}) do
-                        returned.type = publicName(returned.type)
-                    end
-                    for _, form in ipairs(value.forms or {}) do
-                        form.signature = publicName(form.signature)
-                        for _, parts in ipairs({form.params, form.returns, form.raises}) do
-                            for _, part in ipairs(parts) do
-                                part.type = publicName(part.type)
-                            end
-                        end
-                    end
+                    rewriteTypes(value, publicName)
                     members(value.members or {})
                 end
             end
@@ -2660,24 +2634,7 @@ export function extract(source: string, path: string?, name: string, opts: Optio
                 end
                 item.path = namespace .. "." .. item.name
                 item.signature = publicName(item.signature)
-                local supertypes = item.supertypes or {}
-                for index, supertype in ipairs(supertypes) do
-                    supertypes[index] = publicName(supertype)
-                end
-                for _, param in ipairs(item.params) do
-                    param.type = publicName(param.type)
-                end
-                for _, returned in ipairs(item.returns) do
-                    returned.type = publicName(returned.type)
-                end
-                for _, form in ipairs(item.forms or {}) do
-                    form.signature = publicName(form.signature)
-                    for _, parts in ipairs({form.params, form.returns, form.raises}) do
-                        for _, part in ipairs(parts) do
-                            part.type = publicName(part.type)
-                        end
-                    end
-                end
+                rewriteTypes(item, publicName)
                 members(item.members)
             end
             extraModules[#extraModules + 1] = projection

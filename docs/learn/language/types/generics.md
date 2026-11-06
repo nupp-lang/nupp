@@ -315,14 +315,3 @@ store[nameKey] = "saved"
 ```
 
 `T` is inferred from `Key<T>` for both the read and the write.
-
-::: seealso
-- [packs.md](packs.md) for what a type-pack parameter binds to and how a call
-  adjusts to it
-- [interfaces.md](interfaces.md#bounded-generics) for the bounds a parameter
-  can carry
-- [refinements.md](refinements.md) for interfaces that answer `is` with a
-  runtime test
-- [type-level-computation.md](comptime-types.md) for computing a type
-  rather than binding one
-:::

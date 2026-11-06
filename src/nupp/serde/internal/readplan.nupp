@@ -1,0 +1,30 @@
+module nupp.serde.internal.readplan
+
+const assert2 = require("assert")
+local core = require("nupp.serde.internal.value")
+
+export record Plan<M is core.Member>
+    @readonly description: core.Description<M>
+    @readonly names: {[string]: M} = {}
+    @readonly children: {[M]: Plan<M>} = {}
+end
+
+export function plan<M is core.Member>(
+    description: core.Description<M>,
+    seen: {[core.Description<M>]: Plan<M>}
+): Plan<M>
+    local prior = seen[description]
+    if prior ~= nil then
+        return prior
+    end
+    assert2(description.canread, "binding has no construction operation")
+    local result = Plan<M>(description = description)
+    seen[description] = result
+    for _, child in ipairs(description.children) do
+        assert2(result.names[child.member.name] == nil, "duplicate logical member name")
+        result.names[child.member.name] = child.member
+        result.children[child.member] = plan(child:describe("read"), seen)
+    end
+
+    return result
+end

@@ -27,20 +27,16 @@ local browserEffects = require("nupp.runtime.browser.effects")
 local codec = require("nupp.runtime.browser.workercodec")
 local suspension = require("nupp.suspension")
 local cancellation = require("nupp.suspension.cancellation")
+local common = require("nupp.workers.internal.support")
 local workers = {}
 
 local contracts = require("nupp.workers.contracts")
 local type Callable = function(...: any): any
 type workers.Worker = contracts.Worker
 type workers.Task<F is Callable> = contracts.Task<F>
-local type Packed = {
-    values: {any},
-    count: integer
-}
+local type Packed = common.Packed
 
-local function pack(...: any): Packed
-    return {values = {...}, count = select("#", ...)}
-end
+local pack = common.pack
 
 local type SendableDescriptor = {
     module: string,
@@ -56,9 +52,7 @@ end
 local sendableDescriptors = registeredSendables as {[any]: SendableDescriptor}
 local outlinedSendables: {[string]: any} = {}
 
-local function sendableKey(moduleName: string, member: string): string
-    return moduleName .. "\0" .. member
-end
+local sendableKey = common.sendableKey
 
 --- Compiler hook: publishes an outlined body when its module loads in this Lua state.
 local function defineSendable(moduleName: string, member: string, fn: any): nil
@@ -80,34 +74,7 @@ workers.describesendable = describeSendable
 local scannedAddresses: {[any]: {string}} = setmetatable({}, {__mode = "k"}) as {[any]: {string}}
 
 local function callableAddress(fn: any): (string?, string?)
-    local described = sendableDescriptors[fn]
-    if described ~= nil then
-        return described.module, described.member
-    end
-    local scanned = scannedAddresses[fn]
-    if scanned ~= nil then
-        return scanned[1], scanned[2]
-    end
-    local found: {string} = {}
-    local loaded = package.loaded as {[any]: any}
-    for moduleName, moduleValue in pairs(loaded) do
-        if type(moduleName) == "string" and type(moduleValue) == "table" then
-            for member, value in pairs(moduleValue as {[any]: any}) do
-                if type(member) == "string" and value == fn then
-                    found[#found + 1] = moduleName .. "\0" .. member
-                end
-            end
-        end
-    end
-    table.sort(found)
-    local address = found[1]
-    if address == nil then
-        return nil, nil
-    end
-    local moduleName, member = address:match("^(.-)%z(.*)$")
-    scannedAddresses[fn] = {moduleName as string, member as string}
-
-    return moduleName, member
+    return common.callableAddress(fn, sendableDescriptors, scannedAddresses, package.loaded)
 end
 
 --- The runtime state of a child computation.
@@ -203,43 +170,9 @@ end
 -- leaves the list as it settles and keeps its outcome for whoever holds it. The
 -- native provider keeps the same list; this lane carries no moved allocations.
 
-local function enlist(scope: any, task: any): nil
-    local last = scope._last
-    task._scope = scope
-    task._listed = true
-    task._before = last
-    task._after = nil
-    if last ~= nil then
-        last._after = task
-    else
-        scope._first = task
-    end
-    scope._last = task
-    scope._registered = scope._registered + 1
-end
+local enlist = common.enlist
 
-local function delist(task: any): nil
-    if not task._listed then
-        return
-    end
-    local scope = task._scope
-    local before = task._before
-    local after = task._after
-    if before ~= nil then
-        before._after = after
-    else
-        scope._first = after
-    end
-    if after ~= nil then
-        after._before = before
-    else
-        scope._last = before
-    end
-    task._listed = false
-    task._before = nil
-    task._after = nil
-    scope._registered = scope._registered - 1
-end
+local delist = common.delist
 
 -- Takes a settled task off its scope's list unless closing would still owe it.
 local function leave(task: any): nil
@@ -255,16 +188,7 @@ local function leave(task: any): nil
 end
 
 -- The listed tasks, copied so settling them cannot move the walk.
-local function listed(borrows scope: workers.Scope): {any}
-    local tasks: {any} = {}
-    local task = scope._first
-    while task ~= nil do
-        tasks[#tasks + 1] = task
-        task = task._after
-    end
-
-    return tasks
-end
+local listed = common.listed
 
 local function release(task: any): nil
     if unsettled[task._id] == nil then
@@ -491,16 +415,7 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
     local captures = descriptor and descriptor.captures or pack()
     local arguments = pack(...)
     codec.validate(captures, arguments)
-    local submitted = arguments
-    if captures.count > 0 then
-        submitted = {values = {}, count = captures.count + arguments.count}
-        for index = 1, captures.count do
-            submitted.values[index] = captures.values[index]
-        end
-        for index = 1, arguments.count do
-            submitted.values[captures.count + index] = arguments.values[index]
-        end
-    end
+    local submitted = common.concatenate(captures, arguments)
     local payload = binary.base64encode(codec.encode(submitted))
     if unsettledCount >= MAX_UNSETTLED or unsettledBytes + #payload > MAX_UNSETTLED_BYTES then
         -- Backpressure, which awaiting what is already submitted relieves. A pool that
@@ -692,12 +607,7 @@ local function runFrame(frame: any): any
         function(): Packed
             local moduleName = frame.module as string
             local member = frame.member as string
-            local moduleValue = require(moduleName)
-            local callable = outlinedSendables[sendableKey(moduleName, member)]
-            or (type(moduleValue) == "table" and (moduleValue as {[string]: any})[member] or nil)
-            if type(callable) ~= "function" then
-                error(("%s.%s is not a registered sendable function"):format(moduleName, member), 0)
-            end
+            local callable = common.resolve(moduleName, member, outlinedSendables, require)
             local arguments = codec.decode((assert(binary.base64decode(frame.payload as string))))
 
             return pack(callable(unpack(arguments.values, 1, arguments.count)))

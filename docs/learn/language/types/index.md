@@ -215,12 +215,3 @@ One page per idea, in the order they build on each other:
 - [Associated types](associated-types.md): the types an interface leaves for
   its implementors to name.
 - [Narrowing](narrowing.md): what proves what, and what does not.
-
-::: seealso
-- [file-types.md](../file-types.md) for which files are checked and how plain
-  Lua joins a project
-- [modules.md](../modules.md) for where a declaration lives and how
-  another module sees it
-- [diagnostics.md](../../../reference/diagnostics.md) for the code behind every rule
-  this section states
-:::

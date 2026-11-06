@@ -1,6 +1,7 @@
 module nupp.serde.internal.documentwriter
 
 local core = require("nupp.serde.internal.value")
+local aggregates = require("nupp.serde.internal.aggregate")
 local documents = require("nupp.serde.internal.document")
 local errors = require("nupp.serde.internal.errors")
 local numbers = require("nupp.serde.internal.numbers")
@@ -18,7 +19,7 @@ end
 
 local fromContents: function<D>(adapter: core.DocumentAdapter<D>, borrows value: D, depth: integer): documents.Document
 
-export record Output<M is core.Member> is core.Writer<M>
+export record Output<M is core.Member> is aggregates.Writer<M>
     @private @readonly frames: {Frame} = {}
     @private @readonly source: core.Context?
     @private @readonly depth: integer = 0
@@ -153,26 +154,6 @@ export record Output<M is core.Member> is core.Writer<M>
         self:put(member, value)
     end
 
-    function writestruct<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
-        self:aggregate(member, "structure", nil, source, emit)
-    end
-
-    function writeunion<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
-        self:aggregate(member, "union", 1, source, emit)
-    end
-
-    function writelist<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
-        self:aggregate(member, "list", size, source, emit)
-    end
-
-    function writetuple<S>(exclusive self, member: M, size: integer, borrows source: S, emit: core.Members<M, S>): nil
-        self:aggregate(member, "tuple", size, source, emit)
-    end
-
-    function writemap<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
-        self:aggregate(member, "map", size, source, emit)
-    end
-
     function writeentry<K, V>(
         exclusive self,
         borrows key: K,
@@ -213,6 +194,12 @@ export record Output<M is core.Member> is core.Writer<M>
         ] = documents.Entry(name = name, value = fromContents(adapter, value, self.depth + #self.frames))
     end
 end
+
+Output.writestruct = aggregates.Writer.writestruct
+Output.writeunion = aggregates.Writer.writeunion
+Output.writelist = aggregates.Writer.writelist
+Output.writetuple = aggregates.Writer.writetuple
+Output.writemap = aggregates.Writer.writemap
 
 local record Capture<T> is core.Consumer<T, T, documents.Document>
     @readonly context: core.Context?

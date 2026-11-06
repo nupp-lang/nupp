@@ -1,8 +1,11 @@
 @!internal
 module nupp.runtime.browser.files
 
+const systeminfo = require("nupp.runtime.systeminfo")
+
 local effects = require("nupp.runtime.browser.effects")
 local messages = require("io.internal.files.messages")
+const paths = require("io.internal.path")
 local appPaths = require("io.internal.files.path")
 local io = require("io")
 local privateIo = require("nupp.io")
@@ -27,7 +30,7 @@ local function descriptor(value: any, level: integer): any
     if not appPaths.is(value) then
         error("nupp: browser file paths must come from an app path", level)
     end
-    local described = appPaths.descriptor(value as appPaths.AppPath)
+    local described = appPaths.descriptor(value as paths.Path)
     if described.provider ~= "browser" then
         error("nupp: browser file paths must come from this browser provider", level)
     end
@@ -113,33 +116,11 @@ local function effect(operation: string, path: any?, extra: any?, discard: (func
     return answer.value, nil
 end
 
-local CAPS: messages.FsCaps? = nil
-
 export function capabilities(): messages.FsCaps
-    local known = CAPS
-    if known ~= nil then
-        return known
-    end
-    local value = effect("capabilities", nil)
-    local available = type(value) == "table" and value.available == true
-    known = messages.FsCaps(
-        available = available,
-        arbitrarypaths = false,
-        symlinks = false,
-        glob = false,
-        rename = false,
-        atomicwrite = false,
-        tmppaths = false,
-        concurrentopenhandles = false,
-        cwd = false,
-        persist = available and value.persistentAvailable == true
-    )
-    CAPS = known
-
-    return known
+    return systeminfo.filesystem()
 end
 
-export function apppath(kind: string, organization: string, app: string): (appPaths.AppPath?, string?)
+export function apppath(kind: string, organization: string, app: string): (paths.Path?, string?)
     if APP_KINDS[kind] == nil then
         return nil, "unknown app path kind"
     end

@@ -32,7 +32,8 @@ function M.nullDropsOrUsesTheSuppliedValue()
     )
 end
 
--- The public writer appends to an io.Buffer; a provider's own writer to a string.buffer.
+-- The public writer appends to an io.Buffer; a provider's own writer to a
+-- string.buffer.
 local function outputFor(provider, prefix)
     if provider == json then
         return require("io").Buffer.create(prefix)
@@ -230,6 +231,72 @@ function M.arrayMarkersRequireEveryConsecutiveIndex()
         not pcall(require("nupp.codec.json.aot").asarray, aotSparse),
         "the AOT provider accepted an array starting at index two"
     )
+end
+
+function M.providersPreserveWriterTransitionsAndArrayIdentity()
+    for _, provider in ipairs({require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot")}) do
+        local function rejected(action, expected)
+            local ok, problem = pcall(action)
+            assert(not ok and tostring(problem):find(expected, 1, true), tostring(problem))
+        end
+
+        local value = {1, 2, 3}
+        assert(provider.asarray(value) == value and provider.isarray(value))
+        for _, invalid in ipairs({{[0] = true}, {[1.5] = true}, {[1] = true, [3] = true}, {named = true}}) do
+            rejected(
+                function()
+                    provider.asarray(invalid)
+                end,
+                "consecutive positive indexes"
+            )
+            assert(getmetatable(invalid) == nil, "rejected marking changed the table")
+        end
+        rejected(
+            function()
+                provider.asarray(false)
+            end,
+            "json.asarray needs a table"
+        )
+
+        local output = require("string.buffer").new()
+        local writer = provider.newwriter(output)
+        writer:startobject()
+        rejected(
+            function()
+                writer:null()
+            end,
+            "an object value must follow key()"
+        )
+        writer:key("nested"):startarray():null():startobject():key("value"):write(2):endobject():endarray()
+        writer:key("pending")
+        rejected(
+            function()
+                writer:endobject()
+            end,
+            "the final object key has no value"
+        )
+        writer:write(true):endobject()
+        rejected(
+            function()
+                writer:startarray()
+            end,
+            "writer already has a root value"
+        )
+        writer:close()
+        assert(output:tostring() == [[{"nested":[null,{"value":2}],"pending":true}]])
+        rejected(
+            function()
+                writer:null()
+            end,
+            "writer is already closed"
+        )
+        rejected(
+            function()
+                writer:startobject()
+            end,
+            "writer is already closed"
+        )
+    end
 end
 
 function M.pullShapesRequireTheMatchingContainerKind()

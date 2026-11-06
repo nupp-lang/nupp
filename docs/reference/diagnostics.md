@@ -285,8 +285,3 @@ different project.
    authoritative answer that nothing was redone, and `slowest` ranks modules by
    time actually spent either way, since confirming that a cache entry is still
    valid costs time too.
-
-::: seealso
-- [cli.md](cli.md) for every command, its options, and its exit codes
-- [lsp.md](../learn/tooling/language-server.md) for the same diagnostics inside an editor
-:::

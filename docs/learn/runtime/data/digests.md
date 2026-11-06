@@ -5,28 +5,28 @@ title: Digests and checksums
 
 # Digests and checksums
 
-Message digests produce fixed-size opaque bytes. Checksums produce numeric
-error-detection values. General-purpose hashes such as FNV are
-[](binary.fnv1a64).
-Base64 and hexadecimal are reversible codecs.
-
-## Incremental digests
+Message digests produce fixed-size opaque bytes, and checksums produce numeric
+error-detection values. Select a reusable descriptor with [](binary.digest),
+[](binary.checksum), or [](binary.mac).
 
 ```nupp
-local algorithm = binary.Digest.Algorithm.of("sha256")
+local algorithm = binary.digest("sha256")
 assert(algorithm.digestsize == 32)
-local rolling = algorithm:digest()
+local rolling = algorithm:create()
 rolling:write("first chunk")
 rolling:write("second chunk")
 local raw: string = rolling:digest()
 ```
 
-`binary.Digest.create(name)` is shorthand for
-`algorithm(name):digest()`.
-`lookup(name)` returns nil when an algorithm is unavailable; `algorithm` and
-`newdigest` raise instead. `algorithms()` returns sorted canonical names.
-Descriptors expose `name` and `digestsize` before construction; a created
-digest exposes `algorithm()` and `digestsize()`.
+A descriptor's `create()` returns independent incremental state. Descriptors
+expose `name` and `digestsize` before construction; a created digest exposes
+`algorithm()` and `digestsize()`.
+
+`binary.formats("digest")` returns sorted canonical names. Selection raises
+when an algorithm is unavailable, and repeated selection returns the same
+descriptor.
+
+## Incremental digests
 
 The built-ins are `md5` (16 bytes), `sha1` (20), `sha256` (32), and
 `sha512` (64). MD5 and SHA-1 are legacy interoperability algorithms and
@@ -46,7 +46,7 @@ Every finalization consumes the digest; it neither snapshots nor resets it.
 Scope exit closes an unfinished digest context.
 
 ```nupp
-local rolling = binary.Digest.create("sha256")
+local rolling = binary.digest("sha256"):create()
 rolling:write("payload")
 local bytes = nupp.array.bytes(rolling:digestsize())
 local output = bytes:write()
@@ -62,15 +62,15 @@ is written; pass a slice to choose an offset. A short destination raises before
 any output is written. The digest is consumed and the digest context is closed
 even when finalization fails. The destination remains owned by the caller.
 
-One-shot conveniences are `binary.Digest.compute(name, bytes)` and
-`binary.Digest.computehex(name, bytes)`. Encoding is also available
+One-shot conveniences are `binary.digest(name):compute(bytes)` and
+`binary.digest(name):computehex(bytes)`. Encoding is also available
 separately:
 `binary.hexencode(raw)` or `binary.base64encode(raw)`.
 
 ## Checksums and MACs
 
 ```nupp
-local sum = binary.Checksum.create("crc32c")
+local sum = binary.checksum("crc32c"):create()
 assert(sum:width() == 32)
 sum:write("1234")
 local partial = sum:value()
@@ -81,7 +81,7 @@ assert(sum:value() == 0xe3069283ULL)
 A checksum is an `io.Writer` too. `value()` is a non-consuming numeric
 snapshot, returned as `uint64`.
 `width()`, and the descriptor's `width` field, specify meaningful bits.
-Built-ins are `adler32`, `crc32`, `crc32c` and `crc64-ecma`.
+Built-ins are `adler32`, `crc32`, `crc32c`, `crc64-ecma`, and `crc64nvme`.
 `crc32` is the reflected IEEE variant. The digest names and `crc32`/`crc32c`
 match Smithy's `httpChecksum` algorithm names in lowercase.
 CRC64 uses ECMA-182 with no reflection, zero initialization and zero final xor.
@@ -89,10 +89,11 @@ It differs from Smithy's `CRC64NVME` algorithm.
 The checksum API chooses no byte order: a protocol writes the value using its
 own scalar serialization rules. Checksums provide no authentication.
 
-`binary.Mac.create("hmac-sha256", key)` accepts a raw-byte key and returns
+`binary.mac("hmac-sha256"):create(key)` accepts a raw-byte key and returns
 the same writer and consuming finalization as a digest. Its descriptor has
-`digestsize = 32`. The one-shot forms are `mac.digest(name, key, bytes)` and
-`mac.hexdigest(name, key, bytes)`.
+`digestsize = 32`. Select it once and use `algorithm:compute(key, bytes)` or
+`algorithm:computehex(key, bytes)` for complete messages. The descriptor retains
+no key; each call creates independent keyed state.
 
 `hmac-sha256` names the HMAC construction over SHA-256. Smithy's `httpChecksum`
 trait defines no MAC algorithms. AWS KMS uses `HMAC_SHA_256` for this
@@ -100,9 +101,14 @@ construction; SigV4's `AWS4-HMAC-SHA256` names the complete signing scheme.
 
 ## Algorithm catalogs
 
-Each family uses its builtin algorithm catalog. Descriptors are retained during
-module initialization, so lookup, listing, context creation, writes, and
-finalization resolve no implementation again.
+`binary.formats(kind)` accepts the [](binary.FormatKind) enum: `"digest"`,
+`"checksum"`, `"mac"`, or `"compression"`. Each call returns an independent sorted
+list. A family unavailable on the target returns an empty list.
+`binary.compress(name)` selects a [](binary.CompressionFormat) with `compress`,
+`decompress`, `reader`, and `writer` methods.
+
+Each family initializes its builtin catalog on first use and retains its
+descriptors, so operations perform no provider discovery.
 
 Every descriptor agrees with its map key and reports a positive fixed output
 size, or a checksum width from 1 through 64. Each digest or MAC creates fresh

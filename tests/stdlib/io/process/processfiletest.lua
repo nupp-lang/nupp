@@ -76,37 +76,16 @@ end
 function M.numericReadsMatchLuaAndPreserveUnreadInput()
     for _, text in ipairs({
         "12abc",
-        "12e+xyz",
-        "1e",
         "0xabcZ",
         "0x1.2p+3!",
-        "nanX",
-        "inf!",
-        "+.",
         "  xyz",
         ".5!",
-        "0x",
         "123.45.67",
         "1e2e3",
         "-12.4e-2 x",
-        "NAN",
-        "infinity",
-        "-inf",
-        "nan(foo)",
-        "nan(foo",
-        "nanny",
-        "infin",
-        "infinityx",
-        "-nan(tag)",
-        "0x.p2",
-        "0x1p+q",
-        "+x",
-        "  +x",
         "",
         " ",
         "-0x1p2",
-        ".",
-        "-",
         "0x1.2",
         "0X1P+3",
         "1f",
@@ -117,6 +96,41 @@ function M.numericReadsMatchLuaAndPreserveUnreadInput()
         end)
         local value = child(text)
         same(expected, packed(file.read(value, "*n"), file.read(value, "*a")))
+    end
+end
+
+function M.numericReadsPreservePortablePrefixConsumption()
+    -- LuaJIT delegates file numbers to fscanf. Its consumption of incomplete
+    -- exponents and special values varies across C libraries, so those files
+    -- cannot serve as an oracle for the portable stream scanner.
+    local nan = 0 / 0
+    for _, case in ipairs({
+        {"12e+xyz", 12, "e+xyz"},
+        {"1e", 1, "e"},
+        {"nanX", nan, "X"},
+        {"inf!", math.huge, "!"},
+        {"+.", nil, "+."},
+        {"0x", 0, "x"},
+        {"NAN", nan, ""},
+        {"infinity", math.huge, ""},
+        {"-inf", -math.huge, ""},
+        {"nan(foo)", nan, ""},
+        {"nan(foo", nan, "(foo"},
+        {"nanny", nan, "ny"},
+        {"infin", math.huge, "in"},
+        {"infinityx", math.huge, "x"},
+        {"-nan(tag)", nan, ""},
+        {"0x.p2", 0, "x.p2"},
+        {"0x1p+q", 1, "p+q"},
+        {"+x", nil, "+x"},
+        {"  +x", nil, "+x"},
+        {".", nil, "."},
+        {"-", nil, "-"},
+    }) do
+        for _, limit in ipairs({1, 2, 4096}) do
+            local value = child(case[1], limit)
+            same(packed(case[2], case[3]), packed(file.read(value, "*n"), file.read(value, "*a")))
+        end
     end
 end
 

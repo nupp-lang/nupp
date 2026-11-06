@@ -174,8 +174,7 @@ local function integer(value: unknown): integer
     return number as integer
 end
 
-local function unpack(value: unknown, budget: Budget, depth: integer): documents.Document
-    budget:take(depth)
+local function nodeHeader(value: unknown): ({unknown}, integer, string)
     assert(type(value) == "table" and getmetatable(value) == nil, "expected native node")
     local node = value as {unknown}
     local size = #node
@@ -186,6 +185,13 @@ local function unpack(value: unknown, budget: Budget, depth: integer): documents
         )
     end
     local kind = text(node[1])
+
+    return node, size, kind
+end
+
+local function unpack(value: unknown, budget: Budget, depth: integer): documents.Document
+    budget:take(depth)
+    local node, size, kind = nodeHeader(value)
     if kind == "null" then
         assert(size == 1, "invalid native null")
         return documents.null()
@@ -269,16 +275,7 @@ end
 
 local function validateTree(value: unknown, budget: Budget, depth: integer): nil
     budget:take(depth)
-    assert(type(value) == "table" and getmetatable(value) == nil, "expected native node")
-    local node = value as {unknown}
-    local size = #node
-    for key in pairs(value as {[unknown]: unknown}) do
-        assert(
-            type(key) == "number" and (key as number) >= 1 and (key as number) <= size and (key as number) % 1 == 0,
-            "native node is not a dense array"
-        )
-    end
-    local kind = text(node[1])
+    local node, size, kind = nodeHeader(value)
     if kind == "structure" or kind == "union" then
         assert(size % 2 == 1 and (kind ~= "union" or size == 3), "invalid native named aggregate")
         local names: {[string]: boolean} = {}

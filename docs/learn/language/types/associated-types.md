@@ -286,13 +286,3 @@ where it was declared.
 
 The rule is which side chooses. When the caller chooses, write a parameter. See
 [generics.md](generics.md#constraints-use-is) for how a bound is written.
-
-::: seealso
-- [interfaces.md](interfaces.md) for the contract these members live on
-- [generics.md](generics.md) for bounds and the inference that resolves a
-  projection
-- [refinements.md](refinements.md) for `satisfies` and what fixing a requirement
-  buys it
-- [lints.md](../../../reference/lints.md#local-suppressions) for suppressing
-  `erased-projection`
-:::

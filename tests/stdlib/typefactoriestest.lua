@@ -39,9 +39,9 @@ function M.factoriesRemainCallableThroughStoredReferences()
     assert(buffer:getstring() == "after")
     buffer:close()
     local binary = require("binary")
-    assert(binary.Digest ~= binary.Mac, "factory namespaces must not alias")
-    local digest = binary.Digest.create
-    local context = digest("sha256")
+    assert(binary.digest ~= binary.mac, "algorithm factories must not alias")
+    local digest = binary.digest
+    local context = digest("sha256"):create()
     context:write("abc")
     assert(context:hexdigest() == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
     local path = io.Path.of

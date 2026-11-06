@@ -371,9 +371,9 @@ end
 function M.applicationImportsCannotReachBuiltinImplementationContracts()
     for _, name in ipairs({
         "nupp.runtime.contracts",
-        "binary.checksum.internal.contracts",
-        "binary.digest.internal.contracts",
-        "binary.mac.internal.contracts",
+        "nupp.digest.internal.checksumprovider",
+        "nupp.digest.internal.digestprovider",
+        "nupp.digest.internal.macprovider",
         "nupp.compression.contracts",
         "serde.json.internal.contracts",
         "io.internal.contracts",

@@ -2,11 +2,93 @@
 module io.internal.path
 
 local pathTypes = require("io.internal.pathtypes")
+local bounded = require("io.internal.boundedcache")
+
 export type Path = pathTypes.Path
 export const Path = pathTypes.Path
 
 const environment = require("nupp.io.path.provider")
 const pathtext = require("nupp.io.path.pathtext")
+const utf8 = require("utf8")
+
+local descriptors: {[any]: any} = setmetatable({}, {__mode = "k"})
+
+local function validText(value: any, what: string, level: integer): string
+    if type(value) ~= "string" or value == "" then
+        error("nupp: os " .. what .. " must be a non-empty string", level)
+    end
+    if not utf8.isvalid(value as string) then
+        error("nupp: os " .. what .. " must be valid UTF-8", level)
+    end
+
+    return value as string
+end
+
+local function reservedDevice(value: string): boolean
+    local base = (value:match("^([^.]*)") or value):upper()
+    return base == "CON"
+        or base == "PRN"
+        or base == "AUX"
+        or base == "NUL"
+        or base:match("^COM[1-9]$") ~= nil
+        or base:match("^LPT[1-9]$") ~= nil
+        -- Windows treats the ISO-8859-1 superscript digits as device-number
+        -- suffixes too, despite their multibyte UTF-8 representation.
+        or base == "COM¹" or base == "COM²" or base == "COM³" or base == "LPT¹" or base == "LPT²" or base == "LPT³"
+end
+
+local function hex(byte: integer): string
+    return ("%%%02X"):format(byte)
+end
+
+--- Encodes an app id component reversibly for every native host.
+export function encodeid(value: any, what: string?): string
+    local text = validText(value, what or "app id", 3)
+    local reserved = reservedDevice(text)
+    local out: {string} = {}
+    for index = 1, #text do
+        local byte = text:byte(index) as integer
+        local character = text:sub(index, index)
+        local escape = byte < 32
+            or byte == 127
+            or character == "%"
+            or character == "/"
+            or character == "\\"
+            or character == "<"
+            or character == ">"
+            or character == ":"
+            or character == '"'
+            or character == "|"
+            or character == "?"
+            or character == "*"
+            or index == #text and (character == "." or character == " ")
+            or index == 1 and (text == "." or text == ".." or reserved)
+        out[#out + 1] = escape and hex(byte) or character
+    end
+
+    return table.concat(out)
+end
+
+local function component(value: any, level: integer): string
+    local text = validText(value, "application path component", level + 1)
+    if text == "." or text == ".." then
+        error("nupp: os application path component must not be '.' or '..'", level)
+    end
+    if text:sub(-1) == "." or text:sub(-1) == " " then
+        error("nupp: os application path component must not end in a dot or space", level)
+    end
+    if text:find("[/\\]", 1) or text:find('[<>:"|?*]') or reservedDevice(text) then
+        error("nupp: os application path component is not portable", level)
+    end
+    for index = 1, #text do
+        local byte = text:byte(index) as integer
+        if byte < 32 or byte == 127 then
+            error("nupp: os application path component contains a control byte", level)
+        end
+    end
+
+    return text
+end
 
 -- Which set of rules this platform spells paths with, read once. The rules take
 -- it as an argument rather than choosing at compile time, so a machine of either
@@ -21,20 +103,41 @@ local joined: function(first: string | Path, count: integer, ...: string | Path)
 local raw: function(text: string): Path
 
 const PATH_CACHE_CAPACITY = 1024
-local pathCache: {[string]: any} = {}
-local pathCacheSize = 0
-local pathCacheNewest: any = nil
-local pathCacheOldest: any = nil
+local pathCache = bounded.create<Path>(PATH_CACHE_CAPACITY)
+
+local application: function(provider: string, root: string, parts: {string}, floor: integer): Path
 
 export function join(self: Path, ...: string | Path): Path
+    local stored = descriptors[self]
+    if stored ~= nil then
+        local parts: {string} = {}
+        for index = 1, #stored.parts do
+            parts[index] = stored.parts[index]
+        end
+        for index = 1, select("#", ...) do
+            local value = select(index, ...) as string | Path
+            if descriptors[value] ~= nil then
+                error("cannot append an application path as a component", 2)
+            end
+            parts[#parts + 1] = component(textOf(value), 2)
+        end
+        return application(stored.provider, stored.root, parts, stored.floor)
+    end
+
     return raw(joined(self, select("#", ...), ...))
 end
 
 export function normalize(self: Path): Path
+    if descriptors[self] ~= nil then
+        return self
+    end
     return raw(pathtext.normalize(self:tostring(), WINDOWS))
 end
 
 export function absolute(self: Path): (Path?, string?)
+    if descriptors[self] ~= nil then
+        return self, nil
+    end
     if #self:tostring() == 0 then
         return nil, "cannot make an empty path absolute"
     end
@@ -70,6 +173,10 @@ export function resolve(self: Path, ...: string | Path): (Path?, string?)
 end
 
 export function canonicalize(self: Path): (Path?, string?)
+    local stored = descriptors[self]
+    if stored ~= nil and stored.provider == "browser" then
+        return nil, "browser storage paths do not support canonicalize"
+    end
     local text, reason = environment.canonicalize(self:tostring())
     if text == nil then
         return nil, reason
@@ -79,6 +186,9 @@ export function canonicalize(self: Path): (Path?, string?)
 end
 
 export function relativeto(self: Path, base: string | Path): (Path?, string?)
+    if descriptors[self] ~= nil or descriptors[base] ~= nil then
+        return nil, "application paths do not support relativeto; join components beneath their root"
+    end
     local text, reason = pathtext.relative(self:tostring(), textOf(base), WINDOWS)
     if text == nil then
         return nil, reason
@@ -88,6 +198,17 @@ export function relativeto(self: Path, base: string | Path): (Path?, string?)
 end
 
 export function parent(self: Path): Path?
+    local stored = descriptors[self]
+    if stored ~= nil then
+        if #stored.parts <= stored.floor then
+            return nil
+        end
+        local parts: {string} = {}
+        for index = 1, #stored.parts - 1 do
+            parts[index] = stored.parts[index]
+        end
+        return application(stored.provider, stored.root, parts, stored.floor)
+    end
     local answer = pathtext.part(self:tostring(), 0, WINDOWS)
     if answer == nil then
         return nil
@@ -109,14 +230,30 @@ export function extension(self: Path): string?
 end
 
 export function withfilename(self: Path, name: string): Path
+    if descriptors[self] ~= nil then
+        local ancestor = self:parent()
+        if ancestor == nil then
+            error("cannot replace an application storage root", 2)
+        end
+        return ancestor:join(component(name, 2))
+    end
+
     return raw(pathtext.with(self:tostring(), name, false, WINDOWS))
 end
 
 export function withextension(self: Path, suffix: string): Path
+    if descriptors[self] ~= nil then
+        local name = pathtext.with(self:filename() as string, suffix, true, false)
+        return self:withfilename(component(name, 2))
+    end
+
     return raw(pathtext.with(self:tostring(), suffix, true, WINDOWS))
 end
 
 export function isabsolute(self: Path): boolean
+    if descriptors[self] ~= nil then
+        return true
+    end
     return pathtext.isAbsolute(self:tostring(), WINDOWS)
 end
 
@@ -129,44 +266,13 @@ end
 -- different operation. Holding only the most recent paths bounds retention while
 -- repeated parsing and composition reuse the same immutable value.
 raw = function(text: string): Path
-    local found = pathCache[text]
+    local found = pathCache:get(text)
     if found ~= nil then
-        if found ~= pathCacheNewest then
-            local older, newer = found.older, found.newer
-            if older ~= nil then
-                older.newer = newer
-            else
-                pathCacheOldest = newer
-            end
-            if newer ~= nil then
-                newer.older = older
-            end
-            found.older = pathCacheNewest
-            found.newer = nil
-            pathCacheNewest.newer = found
-            pathCacheNewest = found
-        end
-
-        return found.value
+        return found
     end
 
     local value = setmetatable({_text = text,} as any, Path as any) as Path
-    local entry = {value = value, older = pathCacheNewest, newer = nil}
-    if pathCacheNewest ~= nil then
-        pathCacheNewest.newer = entry
-    else
-        pathCacheOldest = entry
-    end
-    pathCacheNewest = entry
-    pathCache[text] = entry
-    pathCacheSize = pathCacheSize + 1
-    if pathCacheSize > PATH_CACHE_CAPACITY then
-        local evicted = pathCacheOldest
-        pathCacheOldest = evicted.newer
-        pathCacheOldest.older = nil
-        pathCache[evicted.value:tostring()] = nil
-        pathCacheSize = pathCacheSize - 1
-    end
+    pathCache:put(text, value)
 
     return value
 end
@@ -205,6 +311,9 @@ end
 --- @return the joined path
 --- @export
 export function newpath(first: string | Path, ...: string | Path): Path
+    if type(first) ~= "string" and descriptors[first] ~= nil then
+        return (first as Path):join(...)
+    end
     return raw(joined(first, select("#", ...), ...))
 end
 
@@ -226,4 +335,59 @@ end
 --- @export
 export function sep(): string
     return SEPARATOR
+end
+
+-- Storage paths deliberately bypass the text cache. A textual reconstruction
+-- must never inherit the authority of an app-owned path with the same text.
+application = function(provider: string, root: string, parts: {string}, floor: integer): Path
+    local text: string
+    if provider == "native" then
+        text = root
+        for _, part in ipairs(parts) do
+            text = pathtext.pushPart(text, part, WINDOWS)
+        end
+        text = pathtext.finish(text, WINDOWS)
+    else
+        text = "opfs:/" .. table.concat(parts, "/")
+    end
+    local value = setmetatable({_text = text,} as any, Path as any) as Path
+    descriptors[value] = {provider = provider, root = root, parts = parts, floor = floor,}
+
+    return value
+end
+
+export function native(root: string, organization: string, app: string): Path
+    return application("native", root, {encodeid(organization, "organization"), encodeid(app, "app")}, 2)
+end
+
+export function browser(kind: string, organization: string, app: string): Path
+    return application("browser", kind, {kind, encodeid(organization, "organization"), encodeid(app, "app")}, 3)
+end
+
+export function isapplication(value: any): boolean
+    return type(value) == "table" and descriptors[value] ~= nil
+end
+
+export function descriptor(value: Path): any
+    local stored = descriptors[value]
+    assert(stored ~= nil, "path is not an application path")
+    -- Do not expose the component array retained by the path.
+    local parts: {string} = {}
+    for index = 1, #stored.parts do
+        parts[index] = stored.parts[index]
+    end
+
+    return {provider = stored.provider, root = stored.root, parts = parts,}
+end
+
+export function equal(left: Path, right: Path): boolean
+    if left:tostring() ~= right:tostring() then
+        return false
+    end
+    local a, b = descriptors[left], descriptors[right]
+    if a == nil or b == nil then
+        return a == b
+    end
+
+    return a.provider == b.provider and a.root == b.root and a.floor == b.floor
 end

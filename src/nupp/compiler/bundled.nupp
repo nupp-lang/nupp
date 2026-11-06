@@ -168,11 +168,10 @@ function bundled.source(relative: string): string?
         local preloaded = package.preload["nupp.embedded"]
         embedded = preloaded and preloaded() or false
     end
-    local carried = embedded and embeddedFile(embedded, relative) or nil
-    if carried ~= nil then
-        return carried
+    if embedded then
+        return embeddedFile(embedded, relative)
     end
-    carried = readFile(moduleDir() .. relative)
+    local carried = readFile(moduleDir() .. relative)
     if carried ~= nil then
         noteStale(relative, carried)
         return carried

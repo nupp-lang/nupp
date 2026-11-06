@@ -989,4 +989,18 @@ function M.seededReferencesResolveAsTheHostDoes()
     end
 end
 
+function M.interningUsesNormalizedKeysAndPromotesCacheHits()
+    local uris = ready().URI
+    local prefix = "https://cache.example/"
+    local hot = assert(uris.of("HTTPS://CACHE.EXAMPLE/hot"))
+    local cold = assert(uris.of(prefix .. "cold"))
+    for index = 1, 1022 do
+        assert(uris.of(prefix .. index))
+    end
+    assert(rawequal(assert(uris.of(prefix .. "hot")), hot))
+    assert(uris.of(prefix .. "newest"))
+    assert(not rawequal(assert(uris.of(prefix .. "cold")), cold))
+    assert(rawequal(assert(uris.of("HTTPS://CACHE.EXAMPLE/hot")), hot))
+end
+
 return M

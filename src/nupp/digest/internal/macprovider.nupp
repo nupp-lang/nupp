@@ -15,9 +15,9 @@ success and failure. Cleanup consumes ownership without suspension. Providers
 define private records satisfying the canonical `State` interface rather than
 substituting its identity.
 ]]
-module binary.mac.internal.contracts
+module nupp.digest.internal.macprovider
 
-local {type State} = require("binary.digest.internal.contracts")
+local {type State} = require("nupp.digest.internal.digestprovider")
 
 --- Fixed-output authentication algorithm and a factory for keyed state.
 export interface Algorithm

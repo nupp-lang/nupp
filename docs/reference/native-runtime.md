@@ -108,9 +108,3 @@ gates; their presence alone is not evidence that a particular commit completed
 them. Manual release rehearsals do not hold Apple Developer ID credentials and
 cannot exercise optional tag-only signing and notarization; the same workflow
 still builds and verifies an unsigned macOS archive without them.
-
-::: seealso
-- [Distribution](distribution.md) for payloads and signing
-- [Native modules](../learn/projects/native-modules.md) for extending and embedding the VM
-- [Building projects](../learn/projects/build.md) for binary targets
-:::

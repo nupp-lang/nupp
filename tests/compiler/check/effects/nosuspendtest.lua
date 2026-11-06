@@ -65,6 +65,32 @@ end
     end
 end
 
+function M.declaredFieldsHonorTheirIndexContractsSuspensionMode()
+    for _, access in ipairs({"value.field", 'value["field"]'}) do
+        for _, quiet in ipairs({false, true}) do
+            local source = [[
+local interface Lazy
+    @readonly field: integer
+    metamethod __index: MODEfunction(self: Lazy, key: string): integer
+end
+local function read(value: Lazy): integer
+    local result: integer = 0
+    @nosuspend do result = ACCESS end
+    return result
+end
+]]
+            source = source:gsub("MODE", quiet and "@nosuspend " or ""):gsub("ACCESS", access)
+            local found, diagnostics = diagnose(source)
+            testAssert.eq(#found, quiet and 0 or 1, access)
+            for _, diagnostic in ipairs(diagnostics) do
+                if diagnostic.severity == "error" then
+                    testAssert.eq(diagnostic.code, "NUPP2701", diagnostic.msg)
+                end
+            end
+        end
+    end
+end
+
 function M.allowsACallThatCannot()
     local refusals = diagnose(QUIET .. "@nosuspend do\n    quiet()\nend")
     testAssert.eq(#refusals, 0, "a proved-quiet callee is silent")

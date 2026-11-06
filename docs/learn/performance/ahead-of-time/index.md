@@ -73,8 +73,3 @@ See these pages for each part of the AOT pipeline.
 - [Numeric semantics](numeric-semantics.md) for arithmetic guarantees and
   verification.
 - [GPU compute](gpu.md) for resident buffers and workgroup kernels.
-
-::: seealso
-- [performance.md](../index.md) for reading the bytecode ordinary Nupp lowers to
-- [](binary.span) for the span types a kernel takes
-:::

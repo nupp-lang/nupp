@@ -741,11 +741,3 @@ docs = {
 Then `nupp build --target docs`, and `nupp check --target docs` parses and
 validates every source without writing output. See [documentation
 targets](../projects/build.md#documentation-targets) for every key one takes.
-
-::: seealso
-- [cli.md](../../reference/cli.md#doc) for the command's flags and JSON report
-- [`@!internal`](../../api.md#annotation-file-internal) for generated
-  documentation visibility
-- [diagnostics.md](../../reference/diagnostics.md) for the page the `diagnostics`
-  key generates
-:::

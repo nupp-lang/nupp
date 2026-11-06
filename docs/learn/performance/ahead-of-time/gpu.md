@@ -266,10 +266,3 @@ if a later upload or dispatch changes the resident buffer before readback.
 `downloadMapCopy` reports the staging-to-host copy, and `downloadHostCopy` the
 copy into the caller's span. These records expose the existing two-copy path
 and synchronization costs before any residency optimization is attempted.
-
-::: seealso
-- [`@aot`](../../../api.md#annotation-aot)
-  for the exact `@aot` arguments
-- [](io.gpu) for the generated binding and resident-buffer API
-- [](io.gpu.Layout) for layout construction and transformations
-:::

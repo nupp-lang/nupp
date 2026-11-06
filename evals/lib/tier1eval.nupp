@@ -3,7 +3,6 @@ module tier1eval
 -- Tier 1: give an isolated agent one diagnostic example and grade the repair
 -- only by what the compiler reports afterwards.
 
-local files = require("io.files")
 local harness = require("harness")
 local json = require("serde.json")
 
@@ -60,7 +59,7 @@ end
 function tier1.makeWorkspace(root: string, nupp: string, entry: any): string
     local workspace = harness.join(root, "workspace")
     local bin = harness.join(workspace, "bin")
-    local made, reason = files.mkdir(bin)
+    local made, reason = os.mkdir(bin)
     if not made then
         error("cannot create tier-1 workspace: " .. tostring(reason), 2)
     end
@@ -146,7 +145,7 @@ function tier1.evaluate(
     timeoutSeconds: number?
 ): any
     local entry = tier1.loadTask(nupp, code)
-    local made, makeErr = files.mkdir(out)
+    local made, makeErr = os.mkdir(out)
     if not made then
         error("cannot create evaluation output directory: " .. tostring(makeErr), 2)
     end
@@ -185,7 +184,7 @@ function tier1.evaluate(
             timeoutSeconds
         )
         local sample = harness.join(workspace, "sample.nupp")
-        local source = files.exists(sample) and harness.read(sample) or ""
+        local source = os.exists(sample) and harness.read(sample) or ""
         local after = tier1.check(nupp, workspace, entry)
         local hadFix = false
         for _, diagnostic in ipairs(before) do

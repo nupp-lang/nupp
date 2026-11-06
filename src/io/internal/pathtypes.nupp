@@ -11,11 +11,19 @@ local function implementation(name: string): any
     return paths
 end
 
---- A filesystem path.
+--- A filesystem or app-owned storage path.
+---
+--- Paths from [](os.appdir) carry their storage identity privately. Joining
+--- appends portable single components, and `parent` stops at the app root.
+--- `normalize` and `absolute` preserve these paths; `resolve` appends components.
+--- Browser storage paths do not support `canonicalize`, and app paths do not
+--- support `relativeto`. Native canonicalization returns a filesystem path.
+--- Converting a storage path to text and rebuilding it grants no storage access.
 --- @export
 export record Path
     --- Builds a path by joining components using the platform's rules.
-    --- Recent paths reuse a bounded cache.
+    --- Recent filesystem paths reuse a bounded cache. Passing an app path as the
+    --- first component preserves its storage identity.
     ---
     --- #### Examples
     ---
@@ -29,10 +37,10 @@ export record Path
         return implementation("io.internal.path").newpath(first, ...)
     end
 
-    --- The native UTF-8 path text.
+    --- The UTF-8 display or native path text.
     @private _text: string
 
-    --- Returns the native UTF-8 path text.
+    --- Returns the UTF-8 display or native path text.
     --- @param self this path
     --- @return the path text
     function tostring(self): string
@@ -168,5 +176,5 @@ end
 
     ;
 (Path as {[string]: any}).__eq = function(left: Path, right: Path): boolean
-    return left:tostring() == right:tostring()
+    return implementation("io.internal.path").equal(left, right)
 end

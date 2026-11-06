@@ -1,0 +1,19 @@
+module nupp.compiler.check.modulesurface
+
+local T = require("nupp.compiler.types")
+local state = require("nupp.compiler.check.state")
+
+export function update(c: state.Checker): nil
+    local fields = {}
+    for name, value in pairs(c.moduleFields) do
+        if c.moduleFieldConst[name] then
+            fields[#fields + 1] = {name = name, read = value}
+        else
+            fields[#fields + 1] = {name = name, type = value}
+        end
+    end
+    if #fields > 0 then
+        c.moduleType = T.shape(fields, nil, nil, true)
+        c.moduleTypeFromFields = true
+    end
+end

@@ -3,35 +3,15 @@ module nupp.serde.internal.documentcodec
 const assert2 = require("assert")
 
 local core = require("nupp.serde.internal.value")
+local aggregates = require("nupp.serde.internal.aggregate")
+local readplans = require("nupp.serde.internal.readplan")
+local {type Plan} = require("nupp.serde.internal.readplan")
 local publication = require("nupp.serde.internal.publication")
 local memos = require("nupp.serde.internal.memo")
 local documents = require("nupp.serde.internal.document")
 local readers = require("nupp.serde.internal.documentreader")
 local numbers = require("nupp.serde.internal.numbers")
 local writers = require("nupp.serde.internal.documentwriter")
-
-local record Plan<M is core.Member>
-    @readonly description: core.Description<M>
-    @readonly names: {[string]: M} = {}
-    @readonly children: {[M]: Plan<M>} = {}
-end
-
-local function plan<M is core.Member>(description: core.Description<M>, seen: {[core.Description<M>]: Plan<M>}): Plan<M>
-    local prior = seen[description]
-    if prior ~= nil then
-        return prior
-    end
-    assert2(description.canread, "binding has no construction operation")
-    local result = Plan<M>(description = description)
-    seen[description] = result
-    for _, child in ipairs(description.children) do
-        assert2(result.names[child.member.name] == nil, "duplicate logical member name")
-        result.names[child.member.name] = child.member
-        result.children[child.member] = plan(child:describe("read"), seen)
-    end
-
-    return result
-end
 
 local record Unknown is core.UnknownReader, own.Closeable
     @readonly value: documents.Document
@@ -64,7 +44,8 @@ local record Unknown is core.UnknownReader, own.Closeable
     end
 end
 
-local record Input<M is core.Member> is core.Reader<M>, own.Closeable
+local record Input<M is core.Member> is aggregates.Reader<M>, own.Closeable
+
     @readonly value: documents.Document
     @readonly plan: Plan<M>
     used: boolean = false
@@ -227,26 +208,6 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         end
     end
 
-    function readstruct<S>(
-        exclusive self,
-        member: M,
-        exclusive state: S,
-        consume: core.MemberConsumer<M, S>,
-        unknown: core.UnknownConsumer<S>
-    ): nil
-        self:object("structure", state, consume, unknown)
-    end
-
-    function readunion<S>(
-        exclusive self,
-        member: M,
-        exclusive state: S,
-        consume: core.MemberConsumer<M, S>,
-        unknown: core.UnknownConsumer<S>
-    ): nil
-        self:object("union", state, consume, unknown)
-    end
-
     function array<S>(
         exclusive self,
         kind: core.Kind,
@@ -261,20 +222,6 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
             consume:apply(state, index, child)
             assert2(child.used, "element callback did not consume its value")
         end
-    end
-
-    function readlist<S>(exclusive self, member: M, exclusive state: S, consume: core.ElementConsumer<M, S>): nil
-        self:array("list", nil, state, consume)
-    end
-
-    function readtuple<S>(
-        exclusive self,
-        member: M,
-        size: integer,
-        exclusive state: S,
-        consume: core.ElementConsumer<M, S>
-    ): nil
-        self:array("tuple", size, state, consume)
     end
 
     function readmap<S>(exclusive self, member: M, exclusive state: S, consume: core.EntryConsumer<M, S>): nil
@@ -298,6 +245,11 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         end
     end
 end
+
+Input.readstruct = aggregates.Reader.readstruct
+Input.readunion = aggregates.Reader.readunion
+Input.readlist = aggregates.Reader.readlist
+Input.readtuple = aggregates.Reader.readtuple
 
 local function input<M is core.Member>(value: documents.Document, selected: Plan<M>): Input<M>
     return Input<M>(value = value, plan = selected)
@@ -333,7 +285,7 @@ export function decoderFor<T, M is core.Member>(
     description: core.Description<M>,
     discard: core.Discard<T>
 ): Decoder<T>
-    return Reconstruction<T, M>(adapter = adapter, selected = plan(description, {}), discard = discard)
+    return Reconstruction<T, M>(adapter = adapter, selected = readplans.plan(description, {}), discard = discard)
 end
 
 local record Resolve<T> is core.Consumer<T, nil, nil>

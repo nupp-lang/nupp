@@ -33,7 +33,6 @@ local ROOTS = {
             popen = true,
             Reader = true,
             Writer = true,
-            readall = true,
         }
     },
     coroutine = {
@@ -62,7 +61,6 @@ local ROOTS = {
             rename = true,
             exists = true,
             stat = true,
-            lstat = true,
             readlink = true,
             mkdir = true,
             list = true,
@@ -75,10 +73,8 @@ local ROOTS = {
             setappid = true,
             appid = true,
             appdir = true,
-            fscaps = true,
             persiststorage = true,
             Path = true,
-            AppPath = true,
             FileKind = true,
             AppDir = true,
             FsCaps = true,

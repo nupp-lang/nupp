@@ -15,18 +15,18 @@ local function writerOptions(name: string, workspace: integer?): binary.Compress
 end
 
 function M.rootNamespaceRetainsFactoryReferences(): nil
-    local lookup = binary.compression
-    test(lookup("gzip") == binary.compression("gzip"))
-    test(binary.compression("gzip") == binary.compression("gzip"))
-    local binary = {compression = "local"}
-    test(binary.compression == "local")
+    local lookup = binary.compress
+    test(lookup("gzip") == binary.compress("gzip"))
+    test(binary.compress("gzip") == binary.compress("gzip"))
+    local binary = {compress = "local"}
+    test(binary.compress == "local")
 end
 
 function M.builtinFormatsRoundTripBinaryInput(): nil
-    test(table.concat(binary.compressionformats(), ",") == "deflate-raw,gzip,zlib")
+    test(table.concat(binary.formats("compression"), ",") == "deflate-raw,gzip,zlib")
     local bytes = string.rep("abc\0\255", 2000)
-    for _, name in ipairs(binary.compressionformats()) do
-        local format = binary.compression(name)
+    for _, name in ipairs(binary.formats("compression")) do
+        local format = binary.compress(name)
         test(format.name == name)
         local compressed = format:compress(bytes, writerOptions(name, 17))
         test(#compressed < #bytes)
@@ -35,22 +35,22 @@ function M.builtinFormatsRoundTripBinaryInput(): nil
 end
 
 function M.emptyStreamsRoundTripAtOneByteBoundaries(): nil
-    for _, name in ipairs(binary.compressionformats()) do
-        local format = binary.compression(name)
+    for _, name in ipairs(binary.formats("compression")) do
+        local format = binary.compress(name)
         local compressed = format:compress("", writerOptions(name, 1))
         test(format:decompress(compressed, {workspacebytes = 1}) == "")
     end
 end
 
 function M.gzipUsesTheStandardWrapper(): nil
-    local gzip = binary.compression("gzip")
+    local gzip = binary.compress("gzip")
     local compressed = gzip:compress("hello")
     test(compressed:sub(1, 3) == "\31\139\8")
     test(gzip:decompress(compressed) == "hello")
 end
 
 function M.encoderLevelReachesTheFormatProvider(): nil
-    local gzip = binary.compression("gzip")
+    local gzip = binary.compress("gzip")
     local input = string.rep("compression-level", 1000)
     local stored = gzip:compress(input, {gzip = {level = 0}})
     local compressed = gzip:compress(input, {gzip = {level = 9}})
@@ -58,7 +58,7 @@ function M.encoderLevelReachesTheFormatProvider(): nil
 end
 
 function M.writerAndReaderComposeWithByteIo(): nil
-    local gzip = binary.compression("gzip")
+    local gzip = binary.compress("gzip")
     local encoded = io.Buffer.create()
     local sink = encoded:writer()
     local writer = gzip:writer(sink, {workspacebytes = 2, gzip = {level = 6}})
@@ -82,7 +82,7 @@ function M.aFlushFinishesWithOneOrTwoWorkspaceBytes(): nil
     -- Below five bytes of room, every flush call used to start a fresh empty
     -- block, so a writer with a tiny workspace never finished flushing.
     for workspace = 1, 2 do
-        local gzip = binary.compression("gzip")
+        local gzip = binary.compress("gzip")
         local encoded = io.Buffer.create()
         local sink = encoded:writer()
         local writer = gzip:writer(sink, {workspacebytes = workspace, gzip = {level = 6}})
@@ -96,7 +96,7 @@ function M.aFlushFinishesWithOneOrTwoWorkspaceBytes(): nil
 end
 
 function M.bytesAfterACompleteGzipMemberAreReportedAsTrailing(): nil
-    local gzip = binary.compression("gzip")
+    local gzip = binary.compress("gzip")
     local compressed = gzip:compress("hello")
     local ok, problem = pcall(function(): string
         return gzip:decompress(compressed .. "\31")
@@ -106,7 +106,7 @@ function M.bytesAfterACompleteGzipMemberAreReportedAsTrailing(): nil
 end
 
 function M.spanAndDestinationOverloadsReuseStorage(): nil
-    local gzip = binary.compression("gzip")
+    local gzip = binary.compress("gzip")
     local text = "span input"
     local input = span.fromstring(text)
     local encoded = io.Buffer.create()
@@ -122,7 +122,7 @@ function M.spanAndDestinationOverloadsReuseStorage(): nil
 end
 
 function M.gzipConcatenatedMembersAreExplicitlyConfigurable(): nil
-    local gzip = binary.compression("gzip")
+    local gzip = binary.compress("gzip")
     local joined = gzip:compress("hello") .. gzip:compress(" world")
     test(gzip:decompress(joined) == "hello world")
     test.raises(
@@ -134,7 +134,7 @@ function M.gzipConcatenatedMembersAreExplicitlyConfigurable(): nil
 end
 
 function M.invalidStreamsLimitsAndParameterMismatchesFail(): nil
-    local gzip = binary.compression("gzip")
+    local gzip = binary.compress("gzip")
     local compressed = gzip:compress(string.rep("a", 4096))
     test.raises(
         function(): nil
@@ -160,7 +160,7 @@ function M.invalidStreamsLimitsAndParameterMismatchesFail(): nil
         end,
         "cannot set both"
     )
-    local zlib = binary.compression("zlib")
+    local zlib = binary.compress("zlib")
     local zlibBytes = zlib:compress("checksum")
     local final = test(zlibBytes:byte(#zlibBytes))
     local damaged = zlibBytes:sub(1, #zlibBytes - 1) .. string.char((final + 1) % 256)
@@ -184,14 +184,14 @@ function M.invalidStreamsLimitsAndParameterMismatchesFail(): nil
     )
     test.raises(
         function(): nil
-            binary.compression("unknown")
+            binary.compress("unknown")
         end,
         "unknown compression format"
     )
 end
 
 function M.closingAnUnfinishedWriterFails(): nil
-    local gzip = binary.compression("gzip")
+    local gzip = binary.compress("gzip")
     test.raises(
         function(): nil
             local destination = io.Buffer.create()

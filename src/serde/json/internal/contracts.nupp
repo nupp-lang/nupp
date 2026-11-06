@@ -51,22 +51,22 @@ end
 --- A checked incremental JSON writer.
 ---
 --- ```nupp
---- local out = string.buffer.new()
+--- local out = io.Buffer.create()
 --- local writer = serde.json.Writer.of(out)
 --- writer:startobject():key("ok"):write(true):endobject()
 --- writer:close()
---- assert(out:tostring() == [[{"ok":true}]])
+--- assert(out:getstring() == [[{"ok":true}]])
 --- ```
 --- @export
 export interface Writer is own.Closeable
     --- Starts an array value.
     ---
     --- ```nupp
-    --- local out = string.buffer.new()
+    --- local out = io.Buffer.create()
     --- local writer = serde.json.Writer.of(out)
     --- writer:startarray():write("first"):endarray()
     --- writer:close()
-    --- assert(out:tostring() == "[\"first\"]")
+    --- assert(out:getstring() == "[\"first\"]")
     --- ```
     --- @param self the writer
     --- @return this writer
@@ -75,11 +75,11 @@ export interface Writer is own.Closeable
     --- Starts an object value.
     ---
     --- ```nupp
-    --- local out = string.buffer.new()
+    --- local out = io.Buffer.create()
     --- local writer = serde.json.Writer.of(out)
     --- writer:startobject():endobject()
     --- writer:close()
-    --- assert(out:tostring() == "{}")
+    --- assert(out:getstring() == "{}")
     --- ```
     --- @param self the writer
     --- @return this writer
@@ -88,11 +88,11 @@ export interface Writer is own.Closeable
     --- Selects the next object member.
     ---
     --- ```nupp
-    --- local out = string.buffer.new()
+    --- local out = io.Buffer.create()
     --- local writer = serde.json.Writer.of(out)
     --- writer:startobject():key("answer"):write(42):endobject()
     --- writer:close()
-    --- assert(out:tostring() == [[{"answer":42}]])
+    --- assert(out:getstring() == [[{"answer":42}]])
     --- ```
     --- @param self the writer
     --- @param name the next member name
@@ -103,11 +103,11 @@ export interface Writer is own.Closeable
     --- Appends a complete Lua value.
     ---
     --- ```nupp
-    --- local out = string.buffer.new()
+    --- local out = io.Buffer.create()
     --- local writer = serde.json.Writer.of(out)
     --- writer:startarray():write({id = 41}):endarray()
     --- writer:close()
-    --- assert(out:tostring() == "[{\"id\":41}]")
+    --- assert(out:getstring() == "[{\"id\":41}]")
     --- ```
     --- @param self the writer
     --- @param value the next JSON value
@@ -124,11 +124,11 @@ export interface Writer is own.Closeable
     --- Appends JSON null.
     ---
     --- ```nupp
-    --- local out = string.buffer.new()
+    --- local out = io.Buffer.create()
     --- local writer = serde.json.Writer.of(out)
     --- writer:startarray():null():endarray()
     --- writer:close()
-    --- assert(out:tostring() == "[null]")
+    --- assert(out:getstring() == "[null]")
     --- ```
     --- @param self the writer
     --- @return this writer
@@ -137,11 +137,11 @@ export interface Writer is own.Closeable
     --- Ends the current array.
     ---
     --- ```nupp
-    --- local out = string.buffer.new()
+    --- local out = io.Buffer.create()
     --- local writer = serde.json.Writer.of(out)
     --- writer:startarray():startobject():endobject():endarray()
     --- writer:close()
-    --- assert(out:tostring() == "[{}]")
+    --- assert(out:getstring() == "[{}]")
     --- ```
     --- @param self the writer
     --- @return this writer
@@ -150,11 +150,11 @@ export interface Writer is own.Closeable
     --- Ends the current object.
     ---
     --- ```nupp
-    --- local out = string.buffer.new()
+    --- local out = io.Buffer.create()
     --- local writer = serde.json.Writer.of(out)
     --- writer:startobject():key("items"):startarray():endarray():endobject()
     --- writer:close()
-    --- assert(out:tostring() == [[{"items":[]}]])
+    --- assert(out:getstring() == [[{"items":[]}]])
     --- ```
     --- @param self the writer
     --- @return this writer
@@ -163,14 +163,14 @@ export interface Writer is own.Closeable
     --- Publishes staged bytes without ending the document.
     ---
     --- ```nupp
-    --- local out = string.buffer.new()
+    --- local out = io.Buffer.create()
     --- local writer = serde.json.Writer.of(out)
     --- writer:startarray():write(1)
     --- writer:flush()
-    --- assert(out:tostring() == "[1")
+    --- assert(out:getstring() == "[1")
     --- writer:endarray()
     --- writer:close()
-    --- assert(out:tostring() == "[1]")
+    --- assert(out:getstring() == "[1]")
     --- ```
     --- @param self the writer
     flush: @nosuspend function(exclusive self: Writer): nil
@@ -181,12 +181,12 @@ export interface Writer is own.Closeable
     --- and closing an aborted writer are harmless.
     ---
     --- ```nupp
-    --- local out = string.buffer.new()
+    --- local out = io.Buffer.create()
     --- local writer = serde.json.Writer.of(out)
     --- writer:startarray():write(1)
     --- writer:abort()
     --- writer:close()
-    --- assert(out:tostring() == "")
+    --- assert(out:getstring() == "")
     --- ```
     --- @param self the writer
     abort: @nosuspend function(exclusive self: Writer): nil
@@ -194,11 +194,11 @@ export interface Writer is own.Closeable
     --- Verifies and publishes a complete root, then releases backing state.
     ---
     --- ```nupp
-    --- local out = string.buffer.new()
+    --- local out = io.Buffer.create()
     --- local writer = serde.json.Writer.of(out)
     --- writer:write({ok = true})
     --- writer:close()
-    --- assert(out:tostring() == [[{"ok":true}]])
+    --- assert(out:getstring() == [[{"ok":true}]])
     --- ```
     --- @param self the writer
     close: @nosuspend function(takes self: Writer): nil

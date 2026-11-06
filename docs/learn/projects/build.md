@@ -954,10 +954,3 @@ The build system's own implementation lives under the internal
 owning orchestration. What it shares with the compiler stays in
 `nupp.compiler`: `hash` owns cache digests, `fingerprint` the stamps they are
 kept under, and `process` argv-based subprocess execution.
-
-::: seealso
-- [cli.md](../../reference/cli.md#build) for every flag `nupp build` takes
-- [tasks.md](project-tasks.md) for named tasks and the environment they run in
-- [distribution.md](../../reference/distribution.md) for how a stamped binary is
-  put together
-:::

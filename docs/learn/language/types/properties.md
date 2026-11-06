@@ -158,12 +158,3 @@ separate capability of the same name, and so is a capability property on a
 struct. Struct fields are fixed C
 memory slots, so they remain ordinary invariant fields. See [Records and
 structs](records-and-structs.md#structs) for what a struct field may hold.
-
-::: seealso
-- [interfaces.md](interfaces.md) for the declaration these members most often
-  appear on
-- [records.md](records-and-structs.md) for record and struct members, and the fields a
-  struct refuses
-- [ownership.md](../../runtime/ownership/borrowing.md) for the qualifiers that govern lifetime rather
-  than access
-:::

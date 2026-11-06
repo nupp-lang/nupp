@@ -820,11 +820,3 @@ For C code that ships with the project, declare a `kind = "c"` dependency in
 depend on it, so headers, generated bindings, native libraries, and Nupp
 modules share one cache key and one build graph. See [C
 dependencies](../../projects/build.md#c-dependencies) for the provider configuration.
-
-::: seealso
-- [ownership.md](../ownership/index.md) for the resource workflow a C boundary joins
-- [](binary.span) for the views a counted pointer projects
-- [build.md](../../projects/build.md#c-dependencies) for C and Cargo dependency provider
-  configuration
-- [native-modules.md](../../projects/native-modules.md#embedding-the-vm) for running the VM inside a C or Rust application
-:::

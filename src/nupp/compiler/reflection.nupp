@@ -123,6 +123,21 @@ function reflection.graph(root: any, hooks: any?): (integer?, {any}, {any})
 
     local intern
 
+    local function genericParameters(t: any, out: any): nil
+        out.typeParameters, out.typeBounds, out.packParameters, out.constParameters = {}, {}, {}, {}
+        for position, parameter in ipairs(t.typeParams or {}) do
+            out.typeParameters[position] = intern(parameter)
+            out.typeBounds[position] = intern(t.typeBounds and t.typeBounds[position])
+        end
+        for position, parameter in ipairs(t.packParams or {}) do
+            out.packParameters[position] = intern(parameter)
+        end
+        for position, parameter in ipairs(t.constParams or {}) do
+            out.constParameters[position] = intern(parameter)
+        end
+        out.parameterKinds = t.paramKinds or {}
+    end
+
     local function reflectedAnnotations(applications)
         local out = {}
         for _, application in ipairs(applications or {}) do
@@ -296,18 +311,7 @@ function reflection.graph(root: any, hooks: any?): (integer?, {any}, {any})
                 out.construction = {declared = false, requiresFactory = hidden, params = params}
             end
             out.arrayOf = intern(t.arrayOf)
-            out.typeParameters, out.typeBounds, out.packParameters, out.constParameters = {}, {}, {}, {}
-            for position, parameter in ipairs(t.typeParams or {}) do
-                out.typeParameters[position] = intern(parameter)
-                out.typeBounds[position] = intern(t.typeBounds and t.typeBounds[position])
-            end
-            for position, parameter in ipairs(t.packParams or {}) do
-                out.packParameters[position] = intern(parameter)
-            end
-            for position, parameter in ipairs(t.constParams or {}) do
-                out.constParameters[position] = intern(parameter)
-            end
-            out.parameterKinds = t.paramKinds or {}
+            genericParameters(t, out)
             out.typeArguments = {}
             for _, argument in ipairs(t.typeArgs or {}) do
                 out.typeArguments[#out.typeArguments + 1] = intern(argument)
@@ -362,19 +366,7 @@ function reflection.graph(root: any, hooks: any?): (integer?, {any}, {any})
             out.borrowedFrom = t.borrowsParam
             out.borrowedFromMany = t.borrowsParams or {}
             out.borrowedResult = t.borrowsResult or 1
-            out.typeParameters, out.typeBounds, out.packParameters = {}, {}, {}
-            for position, parameter in ipairs(t.typeParams or {}) do
-                out.typeParameters[position] = intern(parameter)
-                out.typeBounds[position] = intern(t.typeBounds and t.typeBounds[position])
-            end
-            for position, parameter in ipairs(t.packParams or {}) do
-                out.packParameters[position] = intern(parameter)
-            end
-            out.constParameters = {}
-            for position, parameter in ipairs(t.constParams or {}) do
-                out.constParameters[position] = intern(parameter)
-            end
-            out.parameterKinds = t.paramKinds or {}
+            genericParameters(t, out)
             out.parameterPack = intern(t.paramPack)
             out.returnPack = intern(t.retPack)
             out.yieldPack = intern(t.yieldPack)
@@ -415,18 +407,7 @@ function reflection.graph(root: any, hooks: any?): (integer?, {any}, {any})
         elseif tag == "genericAlias" then
             out.name = t.name
             out.body = intern(t.body)
-            out.typeParameters, out.typeBounds, out.packParameters, out.constParameters = {}, {}, {}, {}
-            for position, parameter in ipairs(t.typeParams or {}) do
-                out.typeParameters[position] = intern(parameter)
-                out.typeBounds[position] = intern(t.typeBounds and t.typeBounds[position])
-            end
-            for position, parameter in ipairs(t.packParams or {}) do
-                out.packParameters[position] = intern(parameter)
-            end
-            for position, parameter in ipairs(t.constParams or {}) do
-                out.constParameters[position] = intern(parameter)
-            end
-            out.parameterKinds = t.paramKinds or {}
+            genericParameters(t, out)
         elseif tag == "neutral" and t.op == "comptimeCall" then
             out.operation = "comptimeTypeCall"
             out.identity = t.comptimeIdentity

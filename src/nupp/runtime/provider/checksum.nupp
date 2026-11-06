@@ -9,7 +9,7 @@ Calls through retained descriptors perform no service resolution.
 ]]
 module nupp.runtime.provider.checksum
 
-local contract = require("binary.checksum.internal.contracts")
+local contract = require("nupp.digest.internal.checksumprovider")
 local builtin = require("nupp.checksum.internal.builtin")
 local algorithms: {[string]: contract.Algorithm} = {}
 for _, name in ipairs(builtin.names()) do

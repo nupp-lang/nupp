@@ -94,6 +94,7 @@ local function move(source: any, first: any, last: any, target: any, destination
 end
 
 -- Keep a host implementation and its identity whenever one already exists.
+--- @internal
 export function install(host: table): table
     rawset(host, "Pool", Pool)
     if rawget(host, "move") == nil then
@@ -103,4 +104,5 @@ export function install(host: table): table
     return host
 end
 
+--- @internal
 export const value: table = install(rawget(_G, "table") as table)

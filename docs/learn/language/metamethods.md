@@ -388,12 +388,3 @@ Macro-generated protocol declarations are an `import-tl` concern. Comptime is
 deliberately data-only and does not generate declarations, so a translated
 macroexp-defined `__len` contract must be ejected as an explicit declaration or
 a visible translation residue.
-
-::: seealso
-- [interfaces.md](types/interfaces.md#metamethod-contracts) for how a
-  contract participates in interface satisfaction
-- [generics.md](types/generics.md#generic-metamethods) for the
-  inference rules behind a generic contract
-- [records.md](types/records-and-structs.md#names-hold-their-table) for the
-  namespace table a contract is installed on
-:::

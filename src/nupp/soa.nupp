@@ -224,15 +224,6 @@ local function advance(view: any, by: any): any
     return view + by
 end
 
--- The physical row behind a checked one-based row index, raising at `level`.
-local function physicalRow(offset: integer, count: integer, index: integer, level: integer): integer
-    if index % 1 ~= 0 or index < 1 or index > count then
-        error("nupp: SoA row index out of bounds", level + 1)
-    end
-
-    return offset + index - 1
-end
-
 export sealed interface ArrayToken
     close: @nosuspend function(takes self: ArrayToken): nil
 end
@@ -285,6 +276,23 @@ export sealed interface Span<T> is ReadView
     slice: function(borrows self: Span<T>, first: integer, last: integer?): Span<T> borrows (self)
 end
 
+-- The physical row behind a checked one-based row index, raising at `level`.
+local function rowIndex(offset: integer, count: integer, index: integer, level: integer): integer
+    if index % 1 ~= 0 or index < 1 or index > count then
+        error("nupp: SoA row index out of bounds", level + 1)
+    end
+    return offset + index - 1
+end
+
+local function rowValue<T>(element: ctype<T>, layout: Layout, columns: {any}, physical: integer): T
+    local value = (element as any):new() as T
+    for ordinal, field in ipairs(layout.fields) do
+        (value as any)[field.name] = (columns[ordinal] as {[integer]: any})[physical]
+    end
+
+    return value
+end
+
 local record SpanImpl<T> is Span<T>
     @private @readonly anchor: any
     @private @readonly element: ctype<T>
@@ -293,18 +301,16 @@ local record SpanImpl<T> is Span<T>
     @private @readonly offset: integer
     @readonly count: integer
 
-    function get(self, index: integer): T
-        local physical = physicalRow(self.offset, self.count, index, 2)
-        local value = (self.element as any):new() as T
-        for ordinal, field in ipairs(self.layout.fields) do
-            (value as any)[field.name] = (self.columns[ordinal] as {[integer]: any})[physical]
-        end
+    function checkedIndex(self, index: integer): integer
+        return rowIndex(self.offset, self.count, index, 1)
+    end
 
-        return value
+    function get(self, index: integer): T
+        return rowValue(self.element, self.layout, self.columns, self:checkedIndex(index))
     end
 
     function getField(self, index: integer, ordinal: integer): any
-        local physical = physicalRow(self.offset, self.count, index, 2)
+        local physical = rowIndex(self.offset, self.count, index, 2)
         return (self.columns[ordinal] as {[integer]: any})[physical]
     end
 
@@ -387,30 +393,28 @@ local record WriteSpanImpl<T> is WriteToken, WriteSpan<T>
     @private @readonly offset: integer
     @readonly count: integer
 
-    function get(self, index: integer): T
-        local physical = physicalRow(self.offset, self.count, index, 2)
-        local value = (self.element as any):new() as T
-        for ordinal, field in ipairs(self.layout.fields) do
-            (value as any)[field.name] = (self.columns[ordinal] as {[integer]: any})[physical]
-        end
+    function checkedIndex(self, index: integer): integer
+        return rowIndex(self.offset, self.count, index, 1)
+    end
 
-        return value
+    function get(self, index: integer): T
+        return rowValue(self.element, self.layout, self.columns, self:checkedIndex(index))
     end
 
     function getField(self, index: integer, ordinal: integer): any
-        local physical = physicalRow(self.offset, self.count, index, 2)
+        local physical = rowIndex(self.offset, self.count, index, 2)
         return (self.columns[ordinal] as {[integer]: any})[physical]
     end
 
     function set(exclusive self, index: integer, value: T): nil
-        local physical = physicalRow(self.offset, self.count, index, 2)
+        local physical = rowIndex(self.offset, self.count, index, 2)
         for ordinal, field in ipairs(self.layout.fields) do
             (self.columns[ordinal] as {[integer]: any})[physical] = (value as any)[field.name]
         end
     end
 
     function setField(exclusive self, index: integer, ordinal: integer, value: any): nil
-        local physical = physicalRow(self.offset, self.count, index, 2);
+        local physical = rowIndex(self.offset, self.count, index, 2);
         (self.columns[ordinal] as {[integer]: any})[physical] = value
     end
 

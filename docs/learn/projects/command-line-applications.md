@@ -186,3 +186,36 @@ io.stderr:write(styles.strong("error:") .. " bad input\n")
 Automatic color respects the output stream, `NO_COLOR`, `CLICOLOR_FORCE`, and
 `TERM=dumb`; override it with
 `io.cli.setcolormode("always" | "never" | "auto")`.
+
+## Aligned tables
+
+`io.cli.table` builds aligned text for a stream. Columns precede rows, and
+each row needs one cell per column:
+
+```nupp
+local cli = io.cli
+local style = cli.style(io.stdout)
+
+cli.table(io.stdout)
+    :column("task")
+    :column("kind")
+    :row()
+    :cell("build", style.strong, " (default)")
+    :cell("binary", style.yellow)
+    :write()
+```
+
+`cell` accepts text, an optional styling function, and an optional note. The
+note is measured with the text and styled separately. Plain cells need only
+their text; no cell or row objects are constructed.
+
+`write` fits the last column to a terminal's width and preserves complete
+text when redirected. `tostring` returns the text instead, applying only an
+explicit `width`. Both retain rows so the table can be rendered again.
+`clear` removes rows and resets their measured widths while retaining
+columns, settings, and reusable storage.
+
+Calling `cell` before `row`, adding too many cells, or rendering an incomplete
+row raises before anything is written. Define columns before the first row.
+Use `column("count", align = "right")` for right alignment, and `headings`,
+`indent`, `gap`, and `style` to configure the output without an options table.

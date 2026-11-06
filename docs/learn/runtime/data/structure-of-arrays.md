@@ -317,8 +317,3 @@ fields, owned fields, borrowed fields, or variable-size fields.
 The container exposes no column pointer, byte offset, or `void **` descriptor
 to checked code. Column spans provide typed contiguous access when a system
 needs one column directly.
-
-::: seealso
-- [](binary.span) for the views `field` projects
-- [reflection.md](../../language/reflection.md) for the comptime description of a struct
-:::

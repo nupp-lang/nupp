@@ -2267,23 +2267,22 @@ function expr.install(c: state.Checker): nil
         end
     end
 
+    local function recordInferredValue(node: Node, inferred: Type): Type
+        local called = node.kind == "call" or node.kind == "methodCall" or node.kind == "safeCall"
+        if called then
+            markCallMutation(node)
+        end
+        (node as any).inferredType = inferred
+        if called and c.ownershipKind(inferred) == "affine" then
+            c.own.temporaryProduced(node)
+        end
+
+        return inferred
+    end
+
     local function inferValue(node: Node): Type
         if not EXPANDS[node.kind] then
-            local inferred = inferExpr(node)
-            if node.kind == "call" or node.kind == "methodCall" or node.kind == "safeCall"
-
-            then
-                markCallMutation(node)
-            end
-            local dynamic: any = node
-            dynamic.inferredType = inferred
-            if c.ownershipKind(inferred) == "affine"
-                and (node.kind == "call" or node.kind == "methodCall" or node.kind == "safeCall"
-
-            ) then
-                c.own.temporaryProduced(node)
-            end
-            return inferred
+            return recordInferredValue(node, inferExpr(node))
         end
         -- A tree survives the check that read it, so what the last one concluded about
         -- this call is dropped before this one asks. An incremental recheck reaches the
@@ -2300,17 +2299,7 @@ function expr.install(c: state.Checker): nil
         if node.kind == "call" or node.kind == "methodCall" or node.kind == "safeCall" then
             node.automaticOwnerMoves = nil
         end
-        local first = inferExpr(node)
-        if node.kind == "call" or node.kind == "methodCall" or node.kind == "safeCall" then
-            markCallMutation(node)
-        end
-        local dynamic: any = node
-        dynamic.inferredType = first
-        if c.ownershipKind(first) == "affine"
-            and (node.kind == "call" or node.kind == "methodCall" or node.kind == "safeCall")
-        then
-            c.own.temporaryProduced(node)
-        end
+        local first = recordInferredValue(node, inferExpr(node))
         if fixedWidth.isValue(first) and not node.fixedWidthUntrustedResult then
             c.fixedWidth.mark(node, first)
         end

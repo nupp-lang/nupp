@@ -1,7 +1,7 @@
 # System services
 
 The `os` table provides system facts, clocks, and UUIDs. `os.info()` returns
-facts about the ABI executing the program.
+a shared, immutable report about the executing runtime.
 
 ```nupp
 local facts: os.Info = os.info()
@@ -18,7 +18,23 @@ The browser ABI is 32-bit and little-endian.
 `platform` and `arch` name the operating system and instruction set.
 `endianness` is `"little"` or `"big"`, and `pointerbits` is 32 or 64.
 `parallelism` estimates how many execution units the process may use, including
-host restrictions, and is at least one. Each call queries parallelism again.
+host restrictions, and is at least one. The first read of `parallelism` queries
+that estimate; subsequent reads reuse it.
+
+## Filesystem capabilities
+
+`fs` reports the filesystem guarantees the host supplies. Its first read
+queries the host and caches one immutable report, shared by every later read:
+
+```nupp
+local facts = os.info()
+print(facts.fs.available, facts.fs.atomicwrite)
+```
+
+Reading other system fields does not initialize the filesystem. Concurrent
+first readers share the same query. A first read can suspend in a browser;
+read needed values into locals before entering a nonsuspending region. Both
+the system report and `fs` reject writes, including writes from Lua.
 
 ## Clocks
 

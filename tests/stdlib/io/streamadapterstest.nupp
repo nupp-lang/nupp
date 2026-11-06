@@ -491,21 +491,21 @@ end
 -- A reader drained whole answers one string; a limit is checked as bytes arrive,
 -- and the reader it took is closed either way.
 function M.readAllDrainsAReaderWithinItsLimit(): nil
-    assert2(io2.readall(io2.Reader.of("")) == "")
+    assert2(io2.Reader.of(""):readall() == "")
     local big = string.rep("0123456789", 20000)
-    assert2(io2.readall(io2.Reader.of(big)) == big)
-    assert2(io2.readall(io2.Reader.of(big), #big) == big, "exactly the limit is within it")
-    local refused, reason = io2.readall(io2.Reader.of(big), #big - 1)
+    assert2(io2.Reader.of(big):readall() == big)
+    assert2(io2.Reader.of(big):readall(#big) == big, "exactly the limit is within it")
+    local refused, reason = io2.Reader.of(big):readall(#big - 1)
     assert2(refused == nil and reason ~= nil, "one byte past the limit is refused")
 
     local state = {closes = 0, bytes = "abc", maxRead = 0}
-    local answered = io2.readall(ProbeReader(state = state), 2)
+    local answered = ProbeReader(state = state):readall(2)
     assert2(answered == nil)
     assert2(state.maxRead <= 3, "it never asks for more than one byte past the limit")
     assert2(state.closes == 1, "the reader is closed when the limit refuses it")
 
     local failing = {closes = 0, bytes = "ab", failure = "broken pipe"}
-    local text, why = io2.readall(ProbeReader(state = failing))
+    local text, why = ProbeReader(state = failing):readall()
     assert2(text == nil and why == "broken pipe")
     assert2(failing.closes == 1, "the reader is closed when it fails")
 end

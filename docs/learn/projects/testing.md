@@ -527,10 +527,3 @@ pinned stage zero can still build the tree. See
 [build.md](build.md#self-hosting) for why the first stage does not count, and
 [distribution.md](../../reference/distribution.md) for the packaged variant,
 `nupp fixpoint --binary`.
-
-::: seealso
-- [cli.md](../../reference/cli.md#test) for every option `nupp test`,
-  `nupp test --coverage`, and `nupp fixpoint` take
-- [build.md](build.md) for the targets `test.build` can name
-- [tasks.md](project-tasks.md) for running a command that is not the test command
-:::

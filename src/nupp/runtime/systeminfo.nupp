@@ -1,0 +1,151 @@
+@!internal
+
+--[[
+Cached system facts and filesystem capability metadata, independent of file I/O.
+]]
+module nupp.runtime.systeminfo
+
+const system = require("nupp.runtime.system")
+const target = require("nupp.runtime.target")
+const messages = require("io.internal.files.messages")
+
+const _SUSPENSION_REQUIRES = "@requires-dynamically nupp.suspension"
+const _EFFECTS_REQUIRES = "@requires-dynamically nupp.runtime.browser.effects"
+
+--- Immutable facts about the executing runtime.
+export interface Info
+    @readonly platform: string
+    @readonly arch: string
+    @readonly endianness: "little" | "big"
+    @readonly pointerbits: integer
+
+    --- Usable execution units, queried once on first access.
+    @readonly parallelism: integer
+
+    --- Filesystem capabilities, queried once on first access.
+    @readonly fs: messages.FsCaps
+
+    metamethod __index: function(self: Info, key: "fs" | "parallelism"): integer | messages.FsCaps
+end
+
+local function immutable(): nil
+    error("nupp: system reports are immutable", 2)
+end
+
+local function waitForQuery(state: any): nil
+    local suspension: any = _G.require("nupp.suspension")
+    suspension.suspend("system report", function(resume: function(boolean): nil): function(): nil
+        local waiting = state.waiters
+        if waiting == nil then
+            waiting = {}
+            state.waiters = waiting
+        end
+        waiting[#waiting + 1] = resume
+
+        return function(): nil
+            if state.waiters == waiting then
+                for index = #waiting, 1, -1 do
+                    if waiting[index] == resume then
+                        table.remove(waiting, index)
+                        break
+                    end
+                end
+            end
+        end
+    end)
+end
+
+-- A browser query can suspend. Concurrent readers wait for the same query;
+-- cancellation or failure wakes them to retry rather than poisoning the cache.
+local function once(state: any, read: function(): any): any
+    while not state.ready do
+        if not state.pending then
+            state.pending = true
+            local ok, value = pcall(read)
+            if ok then
+                state.value = value
+                state.ready = true
+            end
+            state.pending = false
+            local waiting = state.waiters
+            state.waiters = nil
+            if waiting ~= nil then
+                for index = 1, #waiting do
+                    waiting[index](true)
+                end
+            end
+            if not ok then
+                error(value, 0)
+            end
+        else
+            waitForQuery(state)
+        end
+    end
+
+    return state.value
+end
+
+local fsState: any = {}
+
+local function queryFilesystem(): messages.FsCaps
+    local native = target.host == "native"
+    local available = native
+    local persistent = native
+    if not native then
+        local suspension: any = _G.require("nupp.suspension")
+        local effects: any = _G.require("nupp.runtime.browser.effects")
+        local answer = suspension.suspend("browser filesystem capabilities", function(
+            resume: function(any): nil
+        ): function(): nil
+            return effects.request("files", {operation = "capabilities"}, resume)
+        end)
+        local value = type(answer) == "table" and answer.ok == true and answer.value or nil
+        available = type(value) == "table" and value.available == true
+        persistent = available and value.persistentAvailable == true
+    end
+    local fields = {
+        available = available,
+        arbitrarypaths = native,
+        symlinks = native,
+        glob = native,
+        rename = native,
+        atomicwrite = native,
+        tmppaths = native,
+        concurrentopenhandles = native,
+        cwd = native,
+        persist = persistent,
+    }
+
+    return setmetatable({}, {__index = fields, __newindex = immutable, __metatable = false}) as messages.FsCaps
+end
+
+--- Returns the shared filesystem capability report without loading file I/O.
+export function filesystem(): messages.FsCaps
+    return once(fsState, queryFilesystem) as messages.FsCaps
+end
+
+local parallelismState: any = {}
+local fields: any = {
+    platform = system.platform,
+    arch = system.architecture,
+    endianness = system.endianness,
+    pointerbits = system.pointerBits,
+}
+local report: Info = setmetatable({}, {
+    __index = function(_: any, name: string): any
+        if name == "fs" then
+            return filesystem()
+        elseif name == "parallelism" then
+            return once(parallelismState, system.availableParallelism)
+        end
+
+        return fields[name]
+    end,
+    __newindex = immutable,
+    __metatable = false,
+}) as Info
+
+--- Returns the runtime's shared system report.
+export function get(): Info
+    return report
+end

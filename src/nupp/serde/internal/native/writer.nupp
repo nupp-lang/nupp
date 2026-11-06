@@ -1,6 +1,7 @@
 module nupp.serde.internal.native.writer
 
 local core = require("nupp.serde.internal.value")
+local aggregates = require("nupp.serde.internal.aggregate")
 local documents = require("nupp.serde.internal.document")
 local numbers = require("nupp.serde.internal.numbers")
 local json = require("nupp.serde.internal.json.values")
@@ -24,7 +25,7 @@ local fromContents: function<D>(
     depth: integer,
     budget: Budget
 ): Value
-local record Output<M is core.Member> is core.Writer<M>
+local record Output<M is core.Member> is aggregates.Writer<M>
     @readonly frames: {Frame} = {}
     @readonly depth: integer
     @readonly budget: Budget
@@ -147,26 +148,6 @@ local record Output<M is core.Member> is core.Writer<M>
         self:put(member, frame.value)
     end
 
-    function writestruct<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
-        self:aggregate(member, "structure", nil, source, emit)
-    end
-
-    function writeunion<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
-        self:aggregate(member, "union", 1, source, emit)
-    end
-
-    function writelist<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
-        self:aggregate(member, "list", size, source, emit)
-    end
-
-    function writetuple<S>(exclusive self, member: M, size: integer, borrows source: S, emit: core.Members<M, S>): nil
-        self:aggregate(member, "tuple", size, source, emit)
-    end
-
-    function writemap<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
-        self:aggregate(member, "map", size, source, emit)
-    end
-
     function writeentry<K, V>(
         exclusive self,
         borrows key: K,
@@ -205,6 +186,12 @@ local record Output<M is core.Member> is core.Writer<M>
         frame.count += 1
     end
 end
+Output.writestruct = aggregates.Writer.writestruct
+Output.writeunion = aggregates.Writer.writeunion
+Output.writelist = aggregates.Writer.writelist
+Output.writetuple = aggregates.Writer.writetuple
+Output.writemap = aggregates.Writer.writemap
+
 local record Capture<T> is core.Consumer<T, T, Value>
     @readonly depth: integer
     @readonly budget: Budget

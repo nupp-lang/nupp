@@ -14,7 +14,7 @@ module nupp.digest.internal.context
 const span = require("binary.span")
 const storage = require("nupp.runtime.storage")
 const binary = require("nupp.util.internal.encoding")
-const provider = require("binary.digest.internal.contracts")
+const provider = require("nupp.digest.internal.digestprovider")
 
 local contracts = require("nupp.digest.internal.contracts")
 export type Digest = contracts.Digest

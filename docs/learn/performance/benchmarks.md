@@ -550,7 +550,3 @@ appends the same document as NDJSON once every selected benchmark reported.
 `debug.bench` measures from inside a program; `nupp bench` discovers and isolates
 those programs. Neither replaces an application's own hot loop, such as a
 game's frame or a server's request path with its real asset load.
-
-::: seealso
-- [index.md](index.md) for what to measure and how to read the bytecode
-:::

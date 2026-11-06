@@ -1326,7 +1326,3 @@ These terms connect the processor model to the Nupp operations.
   as NEON or AVX2.
 - *Widen* and *narrow*: moving lanes to the next larger or smaller
   element type with the same lane count.
-
-::: seealso
-- [](simd) for the complete vector API
-:::

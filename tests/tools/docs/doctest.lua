@@ -74,6 +74,24 @@ local function renderMarkdownItem(out, item)
     )
 end
 
+function M.stableJsonPreservesNestedSentinelsAndRejectsObjectIndexes()
+    local encode = require("nupp.tools.internal.sortedjson").encode
+    local json = require("serde.json")
+    local first = {z = json.NULL, a = {object = json.EMPTY_OBJECT, array = json.EMPTY_ARRAY}, n = 1.5}
+    local second = {n = 1.5, a = {array = json.EMPTY_ARRAY, object = json.EMPTY_OBJECT}, z = json.NULL}
+    local expected = '{"a":{"array":[],"object":{}},"n":1.5,"z":null}'
+    assert(encode(first) == expected, encode(first))
+    assert(encode(second) == expected, encode(second))
+    assert(encode(json.asarray({json.NULL, json.EMPTY_ARRAY, json.EMPTY_OBJECT})) == '[null,[],{}]')
+    for _, invalid in ipairs({
+        {{field = true, [2] = false}, "a JSON container cannot mix array indexes and object keys"},
+        {{[false] = true}, "JSON object keys must be strings and array indexes must be positive integers"},
+    }) do
+        local ok, why = pcall(encode, invalid[1])
+        assert(not ok and why == invalid[2], tostring(why))
+    end
+end
+
 function M.moduleDocumentationPrecedesItsDeclaration()
     for _, source in ipairs({
         "--[[Module description.]]\nmodule example\n",
@@ -1343,6 +1361,7 @@ export record Box<T>
     function choose(self, value: Widget): Widget end
     function choose(self, value: Box<Widget>): Widget end
 end
+
 export type T = string
 export function convert(value: Widget | Box<Widget> | nil): Widget? end
 export function shape(value: {Widget: number, item: Widget, label: 'Widget'}): Missing end
@@ -1391,6 +1410,30 @@ export function deep(value: Box.Nested.Leaf): Box.Nested.Leaf end
     end
 end
 
+function M.fieldTypesLinkToDocumentedTypes()
+    local module = assert(
+        doc.extract(
+            [[
+export record Widget end
+export record Box<T>
+    value: Widget | {Widget}
+    generic: T
+    label: string
+end
+]],
+            "src/model.nupp",
+            "model"
+        )
+    )
+    local markdown = doc.markdown({module})
+    local field = assert(markdown:match('id="model.Box.value"(.-):::'))
+    assert(field:find("`value:` [`Widget`](#model.Widget) `| {`[`Widget`](#model.Widget)`}`", 1, true), field)
+    local generic = assert(markdown:match('id="model.Box.generic"(.-):::'))
+    local label = assert(markdown:match('id="model.Box.label"(.-):::'))
+    assert(generic:find("```nupp\ngeneric: T\n```", 1, true), generic)
+    assert(label:find("```nupp\nlabel: string\n```", 1, true), label)
+end
+
 function M.argumentTypesResolveImportedAliasesAndPageDepth()
     local dir = tempProject({
         ["src/models.nupp"] = "module models\nexport record Widget end\n",
@@ -1411,6 +1454,23 @@ export function first(value: other.Widget): Imported end
     assert(markdown:find("[`Imported`](../../modules/models/index.html#models.Widget)", 1, true), markdown)
     local _, count = page:gsub('href="../../modules/models/index.html#models.Widget"', "")
     assert(count >= 2, page)
+end
+
+function M.argumentTypesLinkToTheMostSpecificNamespacePage()
+    local parent = assert(doc.extract("export record derive\n    record Info end\nend\n", "src/types.nupp", "types"))
+    local nested = assert(doc.extract("export record Info end\n", "src/types/derive.nupp", "types.derive"))
+    local consumer = assert(
+        doc.extract("export function event(info: types.derive.Info): nil end\n", "src/events.nupp", "events")
+    )
+    local links = urls.symbolLinkIndex({parent, nested, consumer})
+    assert(links["types.derive.Info"] == "modules/types/derive/index.html#types.derive.Info")
+    local markdown = require(
+        "nupp.tools.doc.markdown"
+    ).render({consumer}, nil, {parent, nested, consumer}, nil, "../../")
+    assert(
+        markdown:find("[`types.derive.Info`](../../modules/types/derive/index.html#types.derive.Info)", 1, true),
+        markdown
+    )
 end
 
 function M.rendersQuotedTypesWithoutDoubleEscaping()
@@ -2453,8 +2513,8 @@ function M.standardIOApiHasCompleteDocumentation()
         [
             "src/nupp/runtime/standardos.nupp"
         ] = {
-            types = {TemporaryPath = true, FileKind = true, FsCaps = true, Path = true, AppPath = true,},
-            functions = {stat = true, lstat = true, exists = true, list = true, glob = true, writeatomic = true,},
+            types = {TemporaryPath = true, FileKind = true, FsCaps = true, Path = true,},
+            functions = {stat = true, exists = true, list = true, glob = true, writeatomic = true,},
         },
     }
     for relative, expected in pairs(modules) do
@@ -2767,9 +2827,11 @@ function M.hostExtensionPagesKeepTheirContractsAndClockLinks()
     for _, name in ipairs({
         "nupp/runtime/standardio.nupp",
         "nupp/runtime/standardos.nupp",
+        "nupp/runtime/systeminfo.nupp",
+        "io/internal/files/messages.nupp",
         "io/cli.nupp",
         "nupp/cli/internal/terminal.nupp",
-        "nupp/cli/internal/table.nupp",
+        "nupp/cli/internal/tablebuilder.nupp",
     }) do
         fixture["src/" .. name] = readFile(HERE .. "/../src/" .. name)
     end
@@ -2794,16 +2856,12 @@ function M.hostExtensionPagesKeepTheirContractsAndClockLinks()
     for _, item in ipairs(assert(modules["io.cli"], "terminal has no public page").items) do
         terminalItems[item.name] = item
     end
-    for _, name in ipairs({"ColorMode", "Style", "Cell", "TableOptions", "Alignment", "Column"}) do
+    for _, name in ipairs({"ColorMode", "Style", "Table"}) do
         assert(terminalItems[name], "the terminal type is missing: " .. name)
     end
     for _, name in ipairs({
         "style",
         "table",
-        "writetable",
-        "cell",
-        "paintedcell",
-        "annotatedcell",
         "severity",
         "setcolormode",
         "withcolormode",
@@ -2820,19 +2878,51 @@ function M.hostExtensionPagesKeepTheirContractsAndClockLinks()
         )
     end
     assert(
-        #terminalItems.Style.members > 0 and #terminalItems.TableOptions.members > 0,
+        #terminalItems.Style.members > 0 and #terminalItems.Table.members > 0,
         "public type aliases retain their source contract members"
     )
+    for _, name in ipairs({
+        "writetable",
+        "cell",
+        "paintedcell",
+        "annotatedcell",
+        "Cell",
+        "Column",
+        "TableOptions",
+        "Alignment"
+    }) do
+        assert(not terminalItems[name], "retired table API remains documented: " .. name)
+    end
+    local methods = {}
+    for _, item in ipairs(terminalItems.Table.members) do
+        methods[item.name] = true
+    end
+    for _, name in ipairs({
+        "column",
+        "row",
+        "cell",
+        "style",
+        "headings",
+        "gap",
+        "indent",
+        "width",
+        "clear",
+        "tostring",
+        "write"
+    }) do
+        assert(methods[name], "builder method missing from docs: " .. name)
+    end
     assert(not ioItems.value and not osItems.value, "private host-table values do not become public API")
     for _, name in ipairs({"Info", "info", "monotonic", "walltime", "uuid"}) do
         assert(osItems[name], "the system member is missing: " .. name)
     end
     assert(not osItems.uuid4 and not osItems.uuid7, "retired UUID names stay out of the API")
+    assert(not osItems.lstat and not osItems.fscaps, "consolidated filesystem queries stay out of the API")
     local fields = {}
     for _, field in ipairs(osItems.Info.members) do
         fields[field.name] = true
     end
-    for _, name in ipairs({"platform", "arch", "endianness", "pointerbits", "parallelism"}) do
+    for _, name in ipairs({"platform", "arch", "endianness", "pointerbits", "parallelism", "fs"}) do
         assert(fields[name], "os.Info lost its field: " .. name)
     end
     assert(doc.build(dir, config, settings, {format = "site", output = "site"}) == 0)
@@ -4001,6 +4091,41 @@ local function aliasModel(files)
     end
 
     return byName
+end
+
+function M.affineAliasesLinkToTheGenericWrappedType()
+    local modules = aliasModel({
+        [
+            "src/binary/span.nupp"
+        ] = [[
+module binary.span
+local source = require("internal.span")
+export type ByteSpan = source.ByteSpan
+export type Span<T> = source.Span<T>
+export type Writable<T> = source.Writable<T>
+]],
+        [
+            "src/internal/span.nupp"
+        ] = [[
+@!internal
+module internal.span
+export interface Span<T>
+    get: function(self: Span<T>, index: integer): T
+end
+export type ByteSpan = Span<uint8>
+export type Writable<T> = affine(Span<T>)
+]],
+    })
+    local module = assert(modules["binary.span"])
+    local writable
+    for _, item in ipairs(module.items) do
+        if item.name == "Writable" then
+            writable = item
+        end
+    end
+    assert(writable and writable.signature:find("affine(Span<T>)", 1, true), writable and writable.signature)
+    local rendered = doc.markdown({module})
+    assert(rendered:find("[`Span`](#binary.span.Span)", 1, true), rendered)
 end
 
 function M.directRequireMemberAliasesKeepFunctionContracts()
@@ -5820,7 +5945,6 @@ function M.stdlibTypesBelongToTheirNamespaces()
     for _, contract in ipairs({
         {"types", "types.Layout", "types.Layout.Field"},
         {"io", "io.File"},
-        {"assert", "assert.Assertion"},
         {"os", "os.DateFields"},
     }) do
         local rendered = require("nupp.tools.doc").markdown({assert(libraries[contract[1]])})
@@ -5828,9 +5952,43 @@ function M.stdlibTypesBelongToTheirNamespaces()
             assert(rendered:find('<a id="' .. contract[index] .. '"></a>', 1, true), "missing " .. contract[index])
         end
     end
+    if libraries.assert then
+        local rendered = require("nupp.tools.doc").markdown({libraries.assert})
+        assert(not rendered:find('id="assert.Assertion"', 1, true), "assertion type is internal")
+    end
     for _, name in ipairs({"Layout", "LayoutField", "LuaFile", "Assertion", "DateFields"}) do
         assert(not page.symbols[name], "retired global type " .. name)
     end
+end
+
+function M.logSeverityCallsRenderAsFunctions()
+    local source = readFile(HERE .. "/../src/debug/log.nupp")
+    local module = assert(doc.extract(source, "src/debug/log.nupp", "debug.log"))
+    local found = {}
+    for _, item in ipairs(module.items) do
+        found[item.name] = item.kind
+    end
+    for _, name in ipairs({"debug", "info", "warn", "error"}) do
+        assert(found[name] == "function", name .. " must render as a function")
+    end
+end
+
+function M.affineAliasesLinkToTheirWrappedType()
+    local module = assert(
+        doc.extract(
+            [[
+module example
+export interface Handle<T>
+    close: function(takes self: Handle<T>): nil
+end
+export type Owned<T> = affine(Handle<T>, close)
+]],
+            "src/example.nupp",
+            "example"
+        )
+    )
+    local rendered = doc.markdown({module})
+    assert(rendered:find("See [`Handle`](#example.Handle) for the wrapped type's operations.", 1, true), rendered)
 end
 
 -- A global's anchor is the name a program writes. `print` is not a member of the file

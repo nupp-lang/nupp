@@ -366,9 +366,3 @@ understand `module`, `export`, brace selection, and qualified paths. Completion
 on a registered namespace lists child modules and exports. Definition on an
 export reaches its declaration, and an exact module segment reaches the module
 declaration.
-
-::: seealso
-- [build.md](../projects/build.md) for include roots, targets, and the manifest
-- [file-types.md](file-types.md) for how extensions select the checked layer
-- [lsp.md](../tooling/language-server.md) for the editor features listed above
-:::

@@ -6,10 +6,12 @@ local function fixture()
     local calls = {}
     local load = providerstate.instance({warn = true, ["debug.log"] = true})
     local log = load("debug.log")
-    log.setsink(function(level, module, line, message)
-        test.eq(module, "warn")
-        calls[#calls + 1] = {level, line, message}
-    end)
+    log.setsink(
+        log.callback(function(level, module, line, message)
+            test.eq(module, "warn")
+            calls[#calls + 1] = {level, line, message}
+        end)
+    )
 
     return load("warn"), calls
 end
@@ -53,9 +55,11 @@ function M.usesTheApplicationSinkIndependentlyOfItsLevelFilter()
     local warning = require("warn")
     local messages = {}
     local previousLevel = log.setlevel("off")
-    local previousSink = log.setsink(function(level, module, line, message)
-        messages[#messages + 1] = {level, module, line, message}
-    end)
+    local previousSink = log.setsink(
+        log.callback(function(level, module, line, message)
+            messages[#messages + 1] = {level, module, line, message}
+        end)
+    )
     local ok, reason = pcall(function()
         warning("@on")
         warning("shared ", "sink")

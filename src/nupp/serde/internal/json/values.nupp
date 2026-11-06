@@ -80,7 +80,7 @@ building a Lua table or a complete result string. `endarray()` and
 leaving the document open, and consuming `close()` requires one complete root:
 
 ```nupp
-local out = string.buffer.new()
+local out = io.Buffer.create()
 local writer = serde.json.Writer.of(out)
 writer:startobject():key("items"):startarray():write(1):write(2):endarray():endobject()
 writer:close()
@@ -163,11 +163,11 @@ export type JSONEncodable = contracts.JSONEncodable
 --- A checked incremental JSON writer, which `Writer.of` returns.
 ---
 --- ```nupp
---- local out = string.buffer.new()
+--- local out = io.Buffer.create()
 --- local writer = serde.json.Writer.of(out)
 --- writer:startobject():key("ok"):write(true):endobject()
 --- writer:close()
---- assert(out:tostring() == [[{"ok":true}]])
+--- assert(out:getstring() == [[{"ok":true}]])
 --- ```
 --- @export
 export type Writer = contracts.Writer

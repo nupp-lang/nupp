@@ -158,6 +158,16 @@ end
 
 local M = {}
 
+function M.hashesMissingFilesWithTheirPaths()
+    local fingerprint = require("nupp.compiler.project.fingerprint")
+    local hash = require("nupp.compiler.hash")
+    local missing = os.tmpname()
+    os.remove(missing)
+    testAssert.eq(fingerprint.hashFile(missing), nil)
+    testAssert.eq(fingerprint.hashFiles({missing}), hash.digest(missing .. "\0missing"))
+    testAssert.eq(fingerprint.hashFiles({}), hash.digest(""))
+end
+
 function M.moduleSourceChecksReuseOnlyMatchingSourceAndContext()
     local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n'})
     local env = compilerEnv.new(dir, {cache = false})

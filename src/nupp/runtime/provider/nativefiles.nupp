@@ -8,6 +8,7 @@ they return, so `pendingTransfers` is always zero.
 module nupp.runtime.provider.nativefiles
 
 const host = require("nupp.vm.files")
+const systeminfo = require("nupp.runtime.systeminfo")
 const paths = require("io.internal.path")
 const io = require("io")
 local scalarAdapters = require("nupp.io.internal.scalars")
@@ -33,9 +34,6 @@ local ABSENT_REASONS: {string} = {"(os error 2)", "(os error 3)"}
 local function named(value: any, what: string, level: integer): string
     if type(value) == "string" then
         return value as string
-    end
-    if appPaths.is(value) then
-        return (value as appPaths.AppPath):tostring()
     end
     if type(value) == "table" and (value as any).tostring ~= nil then
         return (value as paths.Path):tostring()
@@ -465,26 +463,13 @@ export function createTemporary(
     return TemporaryPath(_text = text, _directory = directory, _closed = false), nil
 end
 
-const CAPS = messages.FsCaps(
-    available = true,
-    arbitrarypaths = true,
-    symlinks = true,
-    glob = true,
-    rename = true,
-    atomicwrite = true,
-    tmppaths = true,
-    concurrentopenhandles = true,
-    cwd = true,
-    persist = true
-)
-
 --- Reports the complete native filesystem surface.
 export function capabilities(): messages.FsCaps
-    return CAPS
+    return systeminfo.filesystem()
 end
 
 --- Returns an app's configuration, data or cache directory, created.
-export function apppath(kind: string, organization: string, app: string): (appPaths.AppPath?, string?)
+export function apppath(kind: string, organization: string, app: string): (paths.Path?, string?)
     local code = APP_BASES[kind]
     if code == nil then
         return nil, "unknown app path kind"

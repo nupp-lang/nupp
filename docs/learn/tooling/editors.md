@@ -127,11 +127,3 @@ in-process session an editor gets, which is what makes them scriptable:
 nupp lsp inspect --json src/app/main.nupp 12 9
 nupp lsp artifact --kind bytecode src/app/main.nupp
 ```
-
-::: seealso
-- [lsp.md](language-server.md#command-line-operations) for every operation and the
-  positions it takes
-- [tooling.md](index.md) for the rest of the tools a
-  project uses day to day
-- [fmt.md](formatter.md) for the formatter behind the editor's format command
-:::

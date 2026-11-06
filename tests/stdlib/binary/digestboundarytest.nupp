@@ -1,4 +1,4 @@
-local digest = require("binary").Digest
+local digest = require("binary").digest
 local M = {}
 
 -- Expected bytes independently generated with Node's OpenSSL-backed crypto.
@@ -72,8 +72,8 @@ function M.independentBoundaryVectors(): nil
             bytes[#bytes + 1] = string.char((index * 73 + 19) % 256)
         end
         local input = table.concat(bytes)
-        assert(digest.computehex(name, input) == expected, name .. " length " .. length)
-        local rolling = digest.create(name)
+        assert(digest(name):computehex(input) == expected, name .. " length " .. length)
+        local rolling = digest(name):create()
         for index = 1, length, 13 do
             rolling:write(input:sub(index, index + 12))
         end

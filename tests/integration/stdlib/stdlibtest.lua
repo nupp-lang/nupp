@@ -68,7 +68,7 @@ function M.digestFinalizationConsumesButChecksumReadsDoNot()
         local _, diagnostics = diagsOf(
             table.concat(
                 {
-                    "local rolling = binary.Digest.create('sha256')",
+                    "local rolling = binary.digest('sha256'):create()",
                     "local result = rolling:" .. finalizer,
                     "rolling:write('too late')",
                 },
@@ -86,7 +86,7 @@ function M.digestFinalizationConsumesButChecksumReadsDoNot()
     assertClean(
         table.concat(
             {
-                "local sum = binary.Checksum.create('crc32c')",
+                "local sum = binary.checksum('crc32c'):create()",
                 "local before = sum:value()",
                 "sum:write('still open')",
                 "local after = sum:value()",
@@ -338,8 +338,8 @@ function M.digestUsesPortableBitops()
     assertClean(
         table.concat(
             {
-                "local digest = require('binary').Digest",
-                "local rolling = digest.create('sha256')",
+                "local digest = require('binary').digest",
+                "local rolling = digest('sha256'):create()",
                 "rolling:write('message')",
                 "return rolling:hexdigest()",
             },
@@ -351,8 +351,8 @@ end
 function M.oneShotHmacUsesOrdinaryCode()
     local source = table.concat(
         {
-            "local mac = require('binary').Mac",
-            "return mac.computehex('hmac-sha256', 'key', 'message'), #mac.compute('hmac-sha256', 'key', 'message')",
+            "local mac = require('binary').mac",
+            "return mac('hmac-sha256'):computehex('key', 'message'), #mac('hmac-sha256'):compute('key', 'message')",
         },
         "\n"
     )
@@ -474,7 +474,29 @@ function M.browserFilesUseEffectsAndRejectMalformedBoundaries()
     local ok, problem = pcall(function()
         local browser = require("helpers.providerstate").browserFiles(memory)
         local paths = require("io.internal.files.path")
-        local path = paths.browser("data", "nupp", "files-test"):join("value.bin")
+        local root = paths.browser("data", "nupp", "files-test")
+        local pathApi = require("io.internal.path")
+        local path = assert(root:absolute())
+            :normalize()
+            :join("draft.tmp")
+            :withfilename("value.tmp")
+            :withextension("bin")
+        assert(path:parent() == root)
+        assert(root:parent() == nil)
+        for _, forged in ipairs({
+            path:tostring(),
+            pathApi.newpath(path:tostring()),
+            pathApi.newpath(path:tostring()):normalize(),
+            paths.native("opfs:/data", "nupp", "files-test"):join("value.bin")
+        }) do
+            local before = #calls
+            local accepted, message = pcall(browser.open, forged, "r")
+            assert(not accepted and tostring(message):find("paths must come from", 1, true), tostring(message))
+            testAssert.eq(#calls, before, "text and another provider cannot reach browser storage")
+        end
+        local copied = pathApi.descriptor(path)
+        copied.parts[1] = "escaped"
+        testAssert.eq(pathApi.descriptor(path).parts[1], "data")
 
         local before = #calls
         local application, kindReason = browser.apppath("logs", "nupp", "files-test")
@@ -487,6 +509,8 @@ function M.browserFilesUseEffectsAndRejectMalformedBoundaries()
 
         local file = assert(browser.open(path, "r+"))
         testAssert.eq(calls[#calls].operation, "open")
+        testAssert.eq(calls[#calls].root, "data")
+        testAssert.eq(table.concat(calls[#calls].parts, "/"), "data/nupp/files-test/value.bin")
         testAssert.eq(assert(file:seek(3)), 3)
         local validCalls = #calls
         local sought, invalidOffset = pcall(file.seek, file, math.huge, "set")
@@ -1742,10 +1766,7 @@ function M.nativeFeaturesAreResolvedEffects()
     assert(native.feature("runtime.int64").runtimeModule == nil, "wide integers have no runtime module")
 
     local shadowed = effectsOf(
-        table.concat(
-            {"local binary = {hash = {digest = {hexDigest = function() end}}}", "binary.Digest.hexDigest()",},
-            "\n"
-        )
+        table.concat({"local binary = {digest = {hexDigest = function() end}}", "binary.digest.hexDigest()",}, "\n")
     )
     assert(not shadowed["native.sha256"], "a local binary is not the global facility")
 
@@ -1997,12 +2018,12 @@ function M.digestAndMacSurfacesAreBundledOutsideThisCheckout()
     local isolated = envMod.new(os.tmpname() .. "-nupp-streaming-hash-surface")
     local source = table.concat(
         {
-            "local digest = require('binary').Digest",
-            "local mac = require('binary').Mac",
-            "local rolling = digest.create('sha256')",
+            "local digest = require('binary').digest",
+            "local mac = require('binary').mac",
+            "local rolling = digest('sha256'):create()",
             "rolling:write('message')",
             "assert(#rolling:digest() == 32)",
-            "assert(#mac.computehex('hmac-sha256', 'key', 'message') == 64)",
+            "assert(#mac('hmac-sha256'):computehex('key', 'message') == 64)",
         },
         "\n"
     )
@@ -2010,6 +2031,40 @@ function M.digestAndMacSurfacesAreBundledOutsideThisCheckout()
     testAssert.eq(#result.errors, 0, "the external consumer parses")
     local diags = check.check(result, "outside.nupp", isolated)
     testAssert.eq(#diags, 0, "the shipped streaming hash source supplies its typed surface")
+    local catalog = isolated.bundled["nupp.digest.internal.catalog"]
+    assert(catalog and catalog.exports, "the compiler registers its shared digest catalog")
+    assert(isolated.bundled["nupp.digest.internal.catalog"] == catalog, "the catalog keeps its warm identity")
+end
+
+function M.serdeHelpersAreBundledOutsideThisCheckout()
+    local isolated = envMod.new(os.tmpname() .. "-nupp-serde-helpers")
+    local source = [[
+local record Entry
+    text: string
+end
+local binding = serde.binding(Entry)
+local value = Entry(text = "value")
+local document = serde.document.from(binding, value)
+assert(serde.document.into(binding, document).text == "value")
+local native = serde.native.encode(binding, value)
+assert(serde.native.decode(binding, native).text == "value")
+local json = serde.json.codec()
+local buffer = io.Buffer.create('{"text":"buffer"}')
+assert(json:decodebuffer(binding, buffer).text == "buffer")
+]]
+    local result = parser.parse(source, "outside.nupp")
+    testAssert.eq(#result.errors, 0, "the external serde consumer parses")
+    local diagnostics = check.check(result, "outside.nupp", isolated)
+    testAssert.eq(#diagnostics, 0, "the shipped serde source resolves its private shared helpers")
+    for _, name in ipairs({
+        "nupp.codec.json.internal.writerprotocol",
+        "nupp.serde.internal.aggregate",
+        "nupp.serde.internal.readplan",
+    }) do
+        local helper = isolated.bundled[name]
+        assert(helper and helper.exports, "the compiler registers " .. name)
+        assert(isolated.bundled[name] == helper, "the helper keeps its warm identity: " .. name)
+    end
 end
 
 function M.compilerProvidedPureLibraries()
@@ -2044,12 +2099,12 @@ function M.compilerProvidedPureLibraries()
       assert(math.lerp(10, 20, 0.25) == 12.5)
       assert(math.lerp(10, 20, 1) == 20)
       assert(math.lerp(10, 20, 1.5) == 25)
-      local checksum = require("binary").Checksum
-      local digest = require("binary").Digest
+      local checksum = require("binary").checksum
+      local digest = require("binary").digest
       local hash = require("binary")
       assert(hash.fnv1a64("hello") == "a430d84680aabd0b")
-      assert(checksum.compute("crc32", "123456789") == 3421780262ULL)
-      assert(digest.computehex("sha256", "abc") ==
+      assert(checksum("crc32"):compute("123456789") == 3421780262ULL)
+      assert(digest("sha256"):computehex("abc") ==
          "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
       local uuid4 = os.uuid(4)
       local uuid7 = os.uuid(7)
@@ -2134,7 +2189,9 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
     testAssert.eq((diagsOf("os.append('x', 'bytes')")), "NUPP2004:1")
     assertClean("local paths: {io.Path} = assert(os.glob('src/**/*.nupp'))")
     testAssert.eq((diagsOf("os.glob(io.Path.of('src'))")), "NUPP2006:1", "a glob takes a pattern, not a path")
-    assertClean("local kind: os.FileKind? = os.lstat('x')")
+    assertClean("local kind: os.FileKind? = os.stat('x', nofollow = true)")
+    assertClean("local kind: os.FileKind? = os.stat('x', false)")
+    testAssert.eq((diagsOf("os.lstat('x')")), "NUPP2004:1")
     testAssert.eq((diagsOf("os.stat(42)")), "NUPP2006:1")
     testAssert.eq((diagsOf("io.open('x')")), "NUPP2605:1")
     testAssert.eq((diagsOf("os.open('x')")), "NUPP2004:1")
@@ -2529,6 +2586,24 @@ function M.utf8ValidationCoversEveryShape()
         end
         if valid then
             testAssert.eq(utf8.truncate(value, #value), value, "a whole valid value truncates to itself")
+        end
+    end
+end
+
+function M.portableJsonAndUriRejectTheSameMalformedUtf8()
+    local json = require("nupp.runtime.provider.lunajson")
+    local uri = require("nupp.io.uri.whatwg")
+    for _, case in ipairs(UTF8_SHAPES) do
+        local value, valid = case[1], case[2]
+        local what = case[3] or ("%q"):format(value)
+        testAssert.eq(pcall(json.encode, value), valid, "portable JSON value: " .. what)
+        testAssert.eq(pcall(json.encode, {[value] = 1}), valid, "portable JSON key: " .. what)
+        local encoded = case[4] or ('"' .. value .. '"')
+        testAssert.eq(pcall(json.decode, encoded), valid, "portable JSON input: " .. what)
+        local parsed, problem = uri.parse("https://example.com/" .. value)
+        testAssert.eq(parsed ~= nil, valid, "portable URI: " .. what)
+        if not valid then
+            testAssert.eq(problem, "URI is not valid UTF-8", what)
         end
     end
 end

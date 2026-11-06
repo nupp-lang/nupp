@@ -324,11 +324,3 @@ A distributed binary is deliberately none of these things.
 - **It does not make Nupp a C project either.** The runtime and its native
   facilities are Rust; the complete ownership and support matrix is in [Native
   runtime and support](native-runtime.md).
-
-::: seealso
-- [build.md](../learn/projects/build.md#rock-dependencies) for the targets and rock
-  globs a payload is assembled from
-- [native-modules.md](../learn/projects/native-modules.md#embedding-the-vm) for
-  running Nupp inside a Rust application you own
-- [native-runtime.md](native-runtime.md) for the exact Rust/native boundary
-:::

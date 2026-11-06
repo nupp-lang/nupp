@@ -175,13 +175,3 @@ state a local operation clearly. A type function builds a structural type and
 never a declaration. See [Comptime
 types](types/comptime-types.md) for the builders, the finite
 operators, and the rules for a call left open inside a generic signature.
-
-::: seealso
-- [reflection.md](reflection.md#comptime-reflection) for the descriptors a block
-  inspects and the codecs it materializes
-- [type-level-computation.md](types/comptime-types.md) for the
-  builders, the finite type operators, and calls left open in a generic
-  signature
-- [diagnostics.md](../../reference/diagnostics.md#diagnostic-index) for every code
-  a block can report
-:::

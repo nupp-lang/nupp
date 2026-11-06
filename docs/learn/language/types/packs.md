@@ -300,12 +300,3 @@ release(value) -- the obligation is discharged
 A correlated owner returned by `pcall` becomes a live obligation only in its
 success arm. See [ownership.md](../../runtime/ownership/borrowing.md) for the model the modes come
 from.
-
-::: seealso
-- [generics.md](generics.md) for how a pack binder is inferred at a call site
-- [ownership.md](../../runtime/ownership/borrowing.md) for the modes a slot carries
-- [narrowing.md](narrowing.md#narrowing-tests) for the tests that pick a
-  correlated arm
-- [type-level-computation.md](comptime-types.md) for `typepack`
-  parameters and the `types` pack API
-:::

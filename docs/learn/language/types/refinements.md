@@ -127,12 +127,3 @@ local record Square is Circle
     radius: number
 end
 ```
-
-::: seealso
-- [interfaces.md](interfaces.md) for what an interface declares and how
-  satisfaction is decided without a refinement
-- [narrowing.md](narrowing.md) for the tests that establish a fact and the
-  assignments that drop it
-- [records.md](records-and-structs.md) for the nominal identity a record and a struct get
-  instead
-:::

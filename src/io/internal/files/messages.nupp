@@ -16,7 +16,7 @@ export type Mode = "r" | "w" | "a" | "r+" | "w+" | "a+"
 export type Origin = "set" | "current" | "end"
 
 --- The exact filesystem guarantees supplied by a provider.
-export record FsCaps
+export interface FsCaps
     --- Whether filesystem access is available at all.
     @readonly available: boolean
 

@@ -64,8 +64,7 @@ export type Bytes = immutable.Bytes
 export const Bytes = immutable.Bytes
 
 local source1 = require("nupp.io")
-const {type Path as NativePath} = require("io.internal.pathtypes")
-const {type AppPath} = require("io.internal.files.path")
+const {type Path as PathType} = require("io.internal.pathtypes")
 local uriTypes = require("io.internal.uritypes")
 
 --- An immutable absolute URI with normalized components.
@@ -73,7 +72,7 @@ export type URI = uriTypes.URI
 
 export const URI = uriTypes.URI
 
---- An immutable filesystem path with platform-specific joining and splitting.
+--- An immutable filesystem or app-owned storage path.
 ---
 --- Reach for it when a program builds a filesystem name or takes one apart,
 --- rather than when it reads the bytes behind one.
@@ -84,16 +83,19 @@ export const URI = uriTypes.URI
 --- assert(source:filename() == "main.nupp")
 --- ```
 ---
---- Path transformations leave the original unchanged. Two paths are equal when
---- their native text is. `tostring(path)` and `path:tostring()` return that
---- same text.
+--- Path transformations leave the original unchanged. Filesystem paths compare
+--- by their text; app paths also compare their provider and storage root.
+--- `tostring(path)` and `path:tostring()` return display text without storage
+--- authority.
 ---
 --- #### Building a path
 ---
 --- `io.Path.of(first, parts...)` joins its components using the current
 --- platform's rules. `join` appends more to a path already built, and both
 --- accept a string or another path. `Path` has no public constructor; creation
---- goes through `Path.of`, which interns recent paths in a bounded LRU cache.
+--- goes through `Path.of`, which interns recent filesystem paths in a bounded
+--- LRU cache. Passing an app path as the first component preserves its storage
+--- identity; constructing one from text does not grant browser storage access.
 ---
 --- ```nupp
 --- local native = io.Path.of("out"):join("lib", "native")
@@ -138,6 +140,13 @@ export const URI = uriTypes.URI
 --- assert(real:isabsolute())
 --- ```
 ---
+--- Paths from [](os.appdir) retain their storage identity when joined or renamed.
+--- Their components must be portable names, and `parent` stops at the app root.
+--- They are already absolute and normalized, so `absolute` and `normalize`
+--- preserve them and `resolve` appends components. App paths refuse `relativeto`;
+--- browser storage paths also refuse `canonicalize`. Native canonicalization
+--- returns an ordinary filesystem path.
+---
 --- #### Path components
 ---
 --- `parent` returns another path or nil. `filename`, `stem` and `extension`
@@ -168,7 +177,7 @@ export const URI = uriTypes.URI
 --- `io.open`, `io.lines`, `io.input`, and `io.output` accept a path wherever
 --- they accept a filename. Filesystem operations, HTTP file bodies, and child
 --- working directories also accept paths.
-export type Path = NativePath
+export type Path = PathType
 
 export const Path = require("io.internal.pathtypes").Path
 
@@ -224,7 +233,6 @@ export type Writer = source1.Writer
 export const Writer = source1.Writer
 
 export const Error = source1.Error
-export const readall = source1.readAll
 
 const {type Process as ChildProcess, type Options as ProcessOptions} = require("io.internal.process")
 
@@ -435,7 +443,7 @@ end
 --- @return the owned file handle, or nil on failure
 --- @return a failure reason, when unsuccessful
 export const open = openFile as function(
-    path: string | Path | AppPath,
+    path: string | Path,
     mode: string?
 ): (affine(io.File, __nuppCloseFile)?, string?)
 
@@ -447,8 +455,8 @@ export const open = openFile as function(
 --- @param format the first Lua read format, when supplied
 --- @param ... the remaining Lua read formats
 --- @return an iterator yielding the selected read formats
-export const lines = fileLines as(function(path: (string | Path | AppPath)?): function(): string?)
-    & (function(path: (string | Path | AppPath)?, format: string | number, ...: any): function(): ...any)
+export const lines = fileLines as(function(path: (string | Path)?): function(): string?)
+    & (function(path: (string | Path)?, format: string | number, ...: any): function(): ...any)
 
 --- Returns or sets the default input file.
 --- @param file a file handle, filename, or path, or nil to return the current file
@@ -576,7 +584,6 @@ export const value: table = do
     original.Buffer = Buffer
     original.Reader = Reader
     original.Writer = Writer
-    original.readall = readall
     decorateFile(original.stdin)
     decorateFile(original.stdout)
     decorateFile(original.stderr)

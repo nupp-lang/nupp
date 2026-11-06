@@ -11,10 +11,3 @@ writing an adapter.
 | Integration | What it covers |
 | --- | --- |
 | [LuaCATS](luacats.md) | Project annotations and pinned, checker-only API definitions. |
-
-::: seealso
-- [File types](../../language/file-types.md) for moving a Lua file into Nupp
-  without changing how other modules load it
-- [LuaCATS](luacats.md) for the comments Nupp reads in ordinary `.lua` files
-- [Native modules](../native-modules.md) when a Rust application embeds the VM
-:::

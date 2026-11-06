@@ -48,7 +48,11 @@ export function source(moduleName: string?, host: string?): string?
         if moduleName == "nupp.runtime.bindings.workers" and host ~= "browser" then
             gate = "if package.loaded['nupp.workers.native']==nil and package.preload['nupp.workers.native']==nil then return {} end;"
         elseif host == "browser" then
-            gate = "if rawget(_G,'__nuppBrowser')==nil then return {} end;"
+            -- The browser carries its implementation in the bundle. A literal
+            -- require keeps that dependency visible to runtime-module discovery.
+            return (
+                "if rawget(_G,'__nuppBrowser')==nil then return {} end;return {provider=require(%q)}"
+            ):format(selected)
         end
         return gate .. ("return {provider=require('nupp.runtime.optional').load(%q)}"):format(selected)
     end

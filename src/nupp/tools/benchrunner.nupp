@@ -16,7 +16,7 @@ const assert2 = require("assert")
 --- directory, starts children, and merges JSON.
 ---
 --- Called by `nupp bench`.
-const terminal2 = require("io.cli")
+const tables = require("nupp.cli.internal.tablebuilder")
 
 const terminal = require("io.cli")
 
@@ -1058,6 +1058,30 @@ end
 
 --- Compares a benchmark's fork summaries against a baseline's.
 ---
+--- Appends the pending comparisons' verdicts, each judged against `margin` after a
+--- Benjamini-Hochberg adjustment, and answers whether every one of them is
+--- noninferior: false when there are none.
+local function appendComparisons(pending: {any}, verdicts: {any}, margin: number): boolean
+    if #pending == 0 then
+        return false
+    end
+    local pValues: {number} = {}
+    for _, item in ipairs(pending) do
+        pValues[#pValues + 1] = item.pValue
+    end
+    local adjusted = statistics.benjaminiHochberg(pValues)
+    local noninferior = true
+    for index, item in ipairs(pending) do
+        item.adjusted = adjusted[index]
+        item.verdict = statistics.verdict(item.interval, margin, adjusted[index])
+        item.noninferiority = statistics.noninferior(item.interval, margin)
+        noninferior = noninferior and item.noninferiority == true
+        verdicts[#verdicts + 1] = item
+    end
+
+    return noninferior
+end
+
 --- Returns the relative change, its interval, the p-value behind it, and the ratio of
 --- geometric means. Paired when the two sets came from one interleaved session, where
 --- fork `k` of each ran under the same conditions; unpaired otherwise, which is every
@@ -1141,9 +1165,7 @@ local function machineKey(): string?
             return trimmed
         end
     end
-    local generator = random.Xoshiro128(
-        assert2(math.tointeger(math.floor(os.time() * 1000 + os.clock() * 1000000)))
-    )
+    local generator = random.Xoshiro128(assert2(math.tointeger(math.floor(os.time() * 1000 + os.clock() * 1000000))))
     local letters = "0123456789abcdef"
     local built: {string} = {}
     for _ = 1, 32 do
@@ -1171,7 +1193,12 @@ local function reportPilot(merged: {any}, forks: integer, failures: {string}): i
     local recommended: integer = statistics.MIN_INTERVAL_SAMPLES
     io.stdout:write(("\nnupp: pilot over %d forks, one shuffled permutation per round\n\n"):format(forks))
     local style = terminal.style(io.stdout)
-    local rows: {{terminal.Cell}} = {}
+    local output = tables.newtable(io.stdout)
+        :style(style)
+        :column("Benchmark")
+        :column("Between-fork CV", "right")
+        :column("Forks for +-2%", "right")
+        :column("Forks for +-5%", "right")
     for _, entry in ipairs(merged) do
         local summaries = entry.summary.forkSummariesMs or {}
         local variation = statistics.coefficientOfVariation(summaries)
@@ -1180,28 +1207,13 @@ local function reportPilot(merged: {any}, forks: integer, failures: {string}): i
         if tight > recommended then
             recommended = tight
         end
-        rows[
-            #rows + 1
-        ] = {
-            terminal2.paintedcell(entry.name, style.strong),
-            terminal.cell(("%.1f%%"):format(variation * 100.0)),
-            terminal.cell(tostring(tight)),
-            terminal.cell(tostring(loose)),
-        }
+        output:row()
+            :cell(entry.name, style.strong)
+            :cell(("%.1f%%"):format(variation * 100.0))
+            :cell(tostring(tight))
+            :cell(tostring(loose))
     end
-    terminal2.writetable(
-        io.stdout,
-        {
-            columns = {
-                {heading = "Benchmark"},
-                {heading = "Between-fork CV", align = "right"},
-                {heading = "Forks for +-2%", align = "right"},
-                {heading = "Forks for +-5%", align = "right"},
-            },
-            rows = rows,
-            style = style,
-        } as terminal.TableOptions
-    )
+    output:write()
     io.stdout:write(("\nnupp: --forks %d covers every selected benchmark at +-2%%\n"):format(recommended))
     for _, failure in ipairs(failures) do
         io.stderr:write("nupp: " .. failure .. "\n")
@@ -1242,7 +1254,12 @@ local function formatVerdicts(verdicts: {any}, margin: number, source: string, p
         lines[#lines + 1] = "      changed on this machine between them. Use --against for a causal claim."
     end
     local counts: {[string]: integer} = {}
-    local rows: {{terminal.Cell}} = {}
+    local output = tables.newtable(io.stdout)
+        :style(style)
+        :column("Benchmark")
+        :column("Change", "right")
+        :column("Interval", "right")
+        :column("Verdict")
     for _, item in ipairs(verdicts) do
         local interval = "-"
         if item.withheld == "trend-warning" then
@@ -1254,29 +1271,14 @@ local function formatVerdicts(verdicts: {any}, margin: number, source: string, p
         elseif item.interval then
             interval = ("[%s, %s]"):format(percent(item.interval.low), percent(item.interval.upper))
         end
-        rows[
-            #rows + 1
-        ] = {
-            terminal2.paintedcell(item.name, style.strong),
-            terminal.cell(percent(item.change)),
-            terminal.cell(interval),
-            terminal2.paintedcell(item.verdict, verdictPaint(style, item.verdict)),
-        }
+        output:row()
+            :cell(item.name, style.strong)
+            :cell(percent(item.change))
+            :cell(interval)
+            :cell(item.verdict, verdictPaint(style, item.verdict))
         counts[item.verdict] = ((counts[item.verdict] or 0) + 1) as integer
     end
-    -- Trailing newline dropped: these lines are joined with one at the end.
-    const table_ = terminal.table(
-        {
-            columns = {
-                {heading = "Benchmark"},
-                {heading = "Change", align = "right"},
-                {heading = "Interval", align = "right"},
-                {heading = "Verdict"},
-            },
-            rows = rows,
-            style = style,
-        } as terminal.TableOptions
-    )
+    const table_ = output:tostring()
     for line in table_:gmatch("[^\n]+") do
         lines[#lines + 1] = line
     end
@@ -1464,23 +1466,11 @@ export function run(options: Options): integer
             return failed and 1 or 0
         end
         local style = terminal.style(io.stdout)
-        local rows: {{terminal.Cell}} = {}
-        for index, entry in ipairs(matched) do
-            rows[
-                index
-            ] = {
-                terminal2.paintedcell(entry.benchmark.name, style.strong),
-                terminal2.paintedcell(entry.path, style.faint),
-            }
+        local output = tables.newtable(io.stdout):style(style):column("benchmark"):column("file")
+        for _, entry in ipairs(matched) do
+            output:row():cell(entry.benchmark.name, style.strong):cell(entry.path, style.faint)
         end
-        terminal2.writetable(
-            io.stdout,
-            {
-                columns = {{heading = "benchmark"}, {heading = "file"}},
-                rows = rows,
-                style = style
-            } as terminal.TableOptions
-        )
+        output:write()
 
         return failed and 1 or 0
     end
@@ -1763,23 +1753,7 @@ export function run(options: Options): integer
                 }
             end
         end
-        comparison.noninferiorityPass = #pending > 0
-        if #pending > 0 then
-            local pValues: {number} = {}
-            for _, item in ipairs(pending) do
-                pValues[#pValues + 1] = item.pValue
-            end
-            local adjusted = statistics.benjaminiHochberg(pValues)
-            for index, item in ipairs(pending) do
-                item.adjusted = adjusted[index]
-                item.verdict = statistics.verdict(item.interval, margin or 0.0, adjusted[index])
-                item.noninferiority = statistics.noninferior(item.interval, margin or 0.0)
-                if item.noninferiority ~= true then
-                    comparison.noninferiorityPass = false
-                end
-                comparison.verdicts[#comparison.verdicts + 1] = item
-            end
-        end
+        comparison.noninferiorityPass = appendComparisons(pending, comparison.verdicts, margin or 0.0)
     end
     if previous then
         local comparison = {
@@ -1858,23 +1832,7 @@ export function run(options: Options): integer
                 #notes + 1
             ] = "durations not compared: the baseline was recorded on another machine, so nothing controls for the difference"
         end
-        comparison.noninferiorityPass = #pending > 0
-        if #pending > 0 then
-            local pValues: {number} = {}
-            for _, item in ipairs(pending) do
-                pValues[#pValues + 1] = item.pValue
-            end
-            local adjusted = statistics.benjaminiHochberg(pValues)
-            for index, item in ipairs(pending) do
-                item.adjusted = adjusted[index]
-                item.verdict = statistics.verdict(item.interval, margin or 0.0, adjusted[index])
-                item.noninferiority = statistics.noninferior(item.interval, margin or 0.0)
-                if item.noninferiority ~= true then
-                    comparison.noninferiorityPass = false
-                end
-                comparison.verdicts[#comparison.verdicts + 1] = item
-            end
-        end
+        comparison.noninferiorityPass = appendComparisons(pending, comparison.verdicts, margin or 0.0)
     end
 
     -- Serialize only after comparisons are complete: stdout, the latest record,

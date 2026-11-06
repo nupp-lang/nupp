@@ -507,6 +507,7 @@ export function page(settings: Settings?): Page?
         types = {},
         annotations = navigationItems(annotationItems)
     }
+    local callableTypes: {[string]: extractMod.Member} = {}
     for _, source in ipairs(SOURCES) do
         local text = bundledMod.source(source.file)
         if text then
@@ -516,6 +517,19 @@ export function page(settings: Settings?): Page?
                 returnedAsModule = source.required ~= nil,
                 publicNames = source.file == "/decls/lua.d.nupp" and {_G = true, _VERSION = true} or nil
             })
+            if source.file == "/decls/lua.d.nupp" then
+                -- Internal interfaces can still describe the call of a public global.
+                local all = extractMod.extract(text, path, "globals", {includePrivate = true})
+                for _, item in ipairs(all and all.items or {}) do
+                    if item.module and item.doc.tags.internal then
+                        for _, member in ipairs(item.members or {}) do
+                            if member.isMetamethod and member.name == "__call" then
+                                callableTypes[item.module .. "." .. item.name] = member
+                            end
+                        end
+                    end
+                end
+            end
             if module then
                 for _, item in ipairs(module.items) do
                     if item.module then
@@ -557,7 +571,6 @@ export function page(settings: Settings?): Page?
     for _, library in ipairs(modules) do
         byModule[library.name] = library
     end
-    local callableTypes: {[string]: extractMod.Member} = {}
     for _, item in ipairs(qualified) do
         local name = item.module as string
         for _, member in ipairs(item.members or {}) do

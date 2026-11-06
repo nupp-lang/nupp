@@ -328,13 +328,3 @@ point to fulfill it. The bit-operator contracts (`__band`, `__bor`, `__bxor`,
 `__bnot`, `__shl`, `__shr`, `__sar`) and `__idiv` are not declarable either. `__gc` and `__close` are not
 contracts either, since deterministic cleanup is
 [ownership](../../runtime/ownership/borrowing.md).
-
-::: seealso
-- [refinements.md](refinements.md) for the `satisfies` test an interface may
-  carry
-- [properties.md](properties.md) for `@readonly` and `@writeonly` members
-- [metamethods.md](../metamethods.md) for generic indexing, runtime
-  fulfillment, `metatable<T>`, and the full set of exclusions
-- [overloads.md](overloads.md#default-implementations-and-override) for
-  `@override` against an overload set
-:::

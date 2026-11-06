@@ -223,9 +223,3 @@ and standalone-command cases in
 `tests/integration/reload/hotreloadguaranteetest.lua`, and the runtime's half
 to `native/crates/vm/tests/hot_patch.rs`. The standalone cases edit a required
 module inside `nupp run --watch` processes.
-
-::: seealso
-- [build.md](build.md) for the ordinary build that ships
-- [c-interop.md](../runtime/c-interop/index.md) for the C declarations a watch
-  session tracks
-:::

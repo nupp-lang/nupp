@@ -3469,4 +3469,46 @@ end
     )
 end
 
+function M.cachedGenericApplicationsRefreshLateDefaultImplementations()
+    local declaration = types.nominal("LateDefaults", "interface")
+    local parameter = types.typevar("T", "late-defaults")
+    declaration.typeParams = {parameter}
+    local bindings = {[parameter] = types.string}
+    local instance = generics.reserveInstantiation(declaration, bindings)
+    generics.instantiate(declaration, bindings)
+    for generation = 1, 2 do
+        declaration.defaults = {get = true}
+        declaration.defaultEntries = {get = {name = "get", member = "get", generation = generation}}
+        declaration.inheritedDefaults = {get = declaration}
+        testAssert.eq(generics.instantiate(declaration, bindings), instance)
+        testAssert.eq(instance.defaults.get, true)
+        testAssert.eq(instance.defaultEntries.get.generation, generation)
+        testAssert.eq(instance.inheritedDefaults.get, declaration)
+    end
+end
+
+function M.cachedGenericParentsRefreshTransitiveDefaultImplementations()
+    local child = types.nominal("LateChildDefaults", "interface")
+    local element = types.typevar("Element", "late-child-defaults")
+    child.typeParams = {element}
+    child.byname.value = element
+    local parent = types.nominal("LateParentDefaults", "record")
+    local parameter = types.typevar("T", "late-parent-defaults")
+    parent.typeParams = {parameter}
+    parent.byname.child = generics.instantiate(child, {[element] = parameter})
+    local bindings = {[parameter] = types.string}
+    local instance = generics.instantiate(parent, bindings)
+    local appliedChild = instance.byname.child
+    for generation = 1, 2 do
+        child.defaults = {get = true}
+        child.defaultEntries = {get = {name = "get", member = "get", generation = generation}}
+        child.inheritedDefaults = {get = child}
+        testAssert.eq(generics.instantiate(parent, bindings), instance)
+        testAssert.eq(instance.byname.child, appliedChild)
+        testAssert.eq(appliedChild.defaults, child.defaults)
+        testAssert.eq(appliedChild.defaultEntries, child.defaultEntries)
+        testAssert.eq(appliedChild.inheritedDefaults, child.inheritedDefaults)
+    end
+end
+
 return M

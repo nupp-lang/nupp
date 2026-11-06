@@ -762,28 +762,26 @@ local function validate(selected: provider.Provider): nil
 end
 
 local available: {[string]: CompressionFormat} = {}
-local names: {string} = {}
 local initialized = false
 
 local function initialize(providerName: string): nil
     if initialized then
         return
     end
-    assert2(target.host == "native", "binary.compression: no implementation is available")
+    assert2(target.host == "native", "binary.compress: no implementation is available")
     local selected = _G.require(providerName) as provider.Provider
     validate(selected)
     for name, implementation in pairs(selected.formats) do
         available[name] = CompressionFormat(name = name, implementation = implementation)
     end
-    for name in pairs(available) do
-        names[#names + 1] = name
-    end
-    table.sort(names)
     initialized = true
 end
 
 --- Acquires a retained format descriptor or raises when unavailable.
-export function compression(name: string): CompressionFormat
+--- @param name canonical compression format name
+--- @return the retained format descriptor
+--- @raises string when the format is unavailable on this target
+export function compress(name: string): CompressionFormat
     initialize("nupp.runtime.provider.nativecompression")
     local found = available[name]
     if found == nil then
@@ -793,12 +791,15 @@ export function compression(name: string): CompressionFormat
     return found
 end
 
---- Lists available canonical format names in ascending order.
-export function compressionformats(): {string}
-    initialize("nupp.runtime.provider.nativecompression")
+--- Lists canonical names available on this target without loading native state.
+--- @return available canonical names in ascending order
+export function formats(): {string}
     local result: {string} = {}
-    for index, name in ipairs(names) do
-        result[index] = name
+    if target.host == "native" then
+        for name in pairs(provider.formatids) do
+            result[#result + 1] = name
+        end
+        table.sort(result)
     end
 
     return result

@@ -111,12 +111,3 @@ end
 ```
 
 See [Structs](types/records-and-structs.md#structs) for the layout rules.
-
-::: seealso
-- [type-system/overview.md](types/index.md) for what the checker
-  infers before any annotation is written
-- [syntax.md](syntax.md) for the typed layer a `.nupp` file may use
-- [c-interop.md](../runtime/c-interop/index.md) for the declarations that survive erasure
-- [diagnostics.md](../../reference/diagnostics.md) for every code the checker
-  reports
-:::
