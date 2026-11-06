@@ -1403,6 +1403,39 @@ local function compileDirectFunction(fn: Fn, options: any): string
             return e.value
         end
 
+        if operation == "add"
+            or operation == "sub"
+            or operation == "mul"
+            or operation == "andBits"
+            or operation == "orBits"
+            or operation == "xorBits"
+        then
+            local operations = {
+                add = "iadd",
+                sub = "isub",
+                mul = "imul",
+                andBits = "band",
+                orBits = "bor",
+                xorBits = "bxor"
+            }
+            local result = emit(operations[operation] .. " " .. word(1) .. ", " .. word(2))
+            return {kind = kind, value = family == "u64" and result or wrap32(kind, result)}
+        elseif operation == "notBits" then
+            return {kind = kind, value = wrap32(kind, emit("bnot " .. word(1)))}
+        elseif operation == "shiftLeft" or operation == "shiftRightArithmetic" or operation == "shiftRightLogical" then
+            local count = emit("band " .. word(2) .. ", " .. constant("i64", "31"))
+            local a = wrap32(operation == "shiftRightArithmetic" and "int32" or "uint32", word(1))
+            local opName = operation == "shiftLeft" and "ishl "
+                or (operation == "shiftRightArithmetic" and "sshr " or "ushr ")
+            return {kind = kind, value = wrap32(kind, emit(opName .. a .. ", " .. count))}
+        elseif operation == "lessThan" or operation == "lessOrEqual" then
+            local predicate = (family == "u32" and "u" or "s") .. (operation == "lessThan" and "lt" or "le")
+            return {
+                kind = "boolean",
+                value = emit("icmp " .. predicate .. " " .. wrap32(kind, word(1)) .. ", " .. wrap32(kind, word(2)))
+            }
+        end
+
         if operation == "wrap"
             or operation == "fromU32"
             or operation == "toU32"

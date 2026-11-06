@@ -2101,20 +2101,34 @@ record nupp.QuatLibrary
     tomatrix: function(x: number, y: number, z: number, w: number, out: {number}, offset: integer): nil
 end
 
---- Signed 32-bit conversions and rotations.
+--- Explicit wrapping signed 32-bit arithmetic and bit operations.
 --- @internal
 record nupp.I32MathLibrary
     wrap: @nosuspend function(value: integer): int32
+    add: @nosuspend function(a: int32, b: int32): int32
+    sub: @nosuspend function(a: int32, b: int32): int32
+    mul: @nosuspend function(a: int32, b: int32): int32
+    andbits: @nosuspend function(a: int32, b: int32): int32
+    orbits: @nosuspend function(a: int32, b: int32): int32
+    xorbits: @nosuspend function(a: int32, b: int32): int32
+    notbits: @nosuspend function(a: int32): int32
+    shiftleft: @nosuspend function(a: int32, count: integer): int32
+    shiftrightarithmetic: @nosuspend function(a: int32, count: integer): int32
     rotateleft: @nosuspend function(a: int32, count: integer): int32
     rotateright: @nosuspend function(a: int32, count: integer): int32
+    lessthan: @nosuspend function(a: int32, b: int32): boolean
+    lessorequal: @nosuspend function(a: int32, b: int32): boolean
     fromu32: @nosuspend function(a: uint32): int32
     tou32: @nosuspend function(a: int32): uint32
 end
 
---- Unsigned 32-bit division, conversions, rotations and bit counts.
+--- Explicit wrapping unsigned 32-bit arithmetic and bit operations.
 --- @internal
 record nupp.U32MathLibrary
     wrap: @nosuspend function(value: integer): uint32
+    add: @nosuspend function(a: uint32, b: uint32): uint32
+    sub: @nosuspend function(a: uint32, b: uint32): uint32
+    mul: @nosuspend function(a: uint32, b: uint32): uint32
 
     --- Unsigned quotient, or zero when the divisor is zero.
     div: @nosuspend function(a: uint32, b: uint32): uint32
@@ -2122,8 +2136,16 @@ record nupp.U32MathLibrary
     --- Unsigned remainder, or zero when the divisor is zero.
     mod: @nosuspend function(a: uint32, b: uint32): uint32
 
+    andbits: @nosuspend function(a: uint32, b: uint32): uint32
+    orbits: @nosuspend function(a: uint32, b: uint32): uint32
+    xorbits: @nosuspend function(a: uint32, b: uint32): uint32
+    notbits: @nosuspend function(a: uint32): uint32
+    shiftleft: @nosuspend function(a: uint32, count: integer): uint32
+    shiftrightlogical: @nosuspend function(a: uint32, count: integer): uint32
     rotateleft: @nosuspend function(a: uint32, count: integer): uint32
     rotateright: @nosuspend function(a: uint32, count: integer): uint32
+    lessthan: @nosuspend function(a: uint32, b: uint32): boolean
+    lessorequal: @nosuspend function(a: uint32, b: uint32): boolean
     fromi32: @nosuspend function(a: int32): uint32
     toi32: @nosuspend function(a: uint32): int32
     popcount: @nosuspend function(a: uint32): uint32
@@ -2134,6 +2156,8 @@ end
 --- Unsigned 64-bit rotations, bit counts and prefix parity.
 --- @internal
 record nupp.U64MathLibrary
+    andbits: @nosuspend function(a: uint64, b: uint64): uint64
+    sub: @nosuspend function(a: uint64, b: uint64): uint64
     rotateleft: @nosuspend function(a: uint64, count: integer): uint64
     rotateright: @nosuspend function(a: uint64, count: integer): uint64
     popcount: @nosuspend function(a: uint64): uint32

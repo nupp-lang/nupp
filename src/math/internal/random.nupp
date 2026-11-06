@@ -11,25 +11,25 @@ const ZERO = math.i32.wrap(0)
 
 --- SplitMix32's finalizer: one word in, one avalanched word out.
 local function mix32(value: int32): int32
-    local shifted = value >> 16
-    local mixed = (value ~ shifted) * math.i32.wrap(0x21F0AAAD)
-    shifted = mixed >> 15
-    mixed = (mixed ~ shifted) * math.i32.wrap(0x735A2D97)
-    shifted = mixed >> 15
+    local shifted = math.i32.fromu32(math.u32.shiftrightlogical(math.u32.fromi32(value), 16))
+    local mixed = math.i32.mul(math.i32.xorbits(value, shifted), math.i32.wrap(0x21F0AAAD))
+    shifted = math.i32.fromu32(math.u32.shiftrightlogical(math.u32.fromi32(mixed), 15))
+    mixed = math.i32.mul(math.i32.xorbits(mixed, shifted), math.i32.wrap(0x735A2D97))
+    shifted = math.i32.fromu32(math.u32.shiftrightlogical(math.u32.fromi32(mixed), 15))
 
-    return mixed ~ shifted
+    return math.i32.xorbits(mixed, shifted)
 end
 
 --- Expands a seed into four state words without xoshiro's all-zero state.
 local function expand(seed: integer): (int32, int32, int32, int32)
     local counter = math.i32.wrap(seed)
-    counter = counter + GOLDEN
+    counter = math.i32.add(counter, GOLDEN)
     local s0 = mix32(counter)
-    counter = counter + GOLDEN
+    counter = math.i32.add(counter, GOLDEN)
     local s1 = mix32(counter)
-    counter = counter + GOLDEN
+    counter = math.i32.add(counter, GOLDEN)
     local s2 = mix32(counter)
-    counter = counter + GOLDEN
+    counter = math.i32.add(counter, GOLDEN)
     local s3 = mix32(counter)
     if s0 == ZERO and s1 == ZERO and s2 == ZERO and s3 == ZERO then
         return GOLDEN, ZERO, ZERO, ZERO
@@ -60,13 +60,13 @@ export record Xoshiro128
         local s1 = math.i32.wrap(self.s1 as integer)
         local s2 = math.i32.wrap(self.s2 as integer)
         local s3 = math.i32.wrap(self.s3 as integer)
-        local result = math.i32.rotateleft(s1 * math.i32.wrap(5), 7) * math.i32.wrap(9)
-        local shifted = s1 << 9
-        s2 = s2 ~ s0
-        s3 = s3 ~ s1
-        s1 = s1 ~ s2
-        s0 = s0 ~ s3
-        s2 = s2 ~ shifted
+        local result = math.i32.mul(math.i32.rotateleft(math.i32.mul(s1, math.i32.wrap(5)), 7), math.i32.wrap(9))
+        local shifted = math.i32.shiftleft(s1, 9)
+        s2 = math.i32.xorbits(s2, s0)
+        s3 = math.i32.xorbits(s3, s1)
+        s1 = math.i32.xorbits(s1, s2)
+        s0 = math.i32.xorbits(s0, s3)
+        s2 = math.i32.xorbits(s2, shifted)
         s3 = math.i32.rotateleft(s3, 11)
         self.s0, self.s1, self.s2, self.s3 = s0, s1, s2, s3
 

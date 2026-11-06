@@ -386,6 +386,29 @@ function M.fixedWidthArithmeticWrapsAndNarrowFieldsLoadAtTheirWidth()
     check(compileFixture("fixedwidth"), FIXED)
 end
 
+function M.releasedScalarCallsKeepTheirExactNativeWidthSemantics()
+    check(compileFixture("scalarmath"), {
+        {"signedAdd", {2147483647, 1}, "-2147483648"},
+        {"signedSub", {-2147483648, 1}, "2147483647"},
+        {"signedMul", {2147483647, 2147483647}, "1"},
+        {"unsignedMul", {4294967295, 4294967295}, "1"},
+        {"signedXor", {-1, -2147483648}, "2147483647"},
+        {"signedNot", {0}, "-1"},
+        {"signedLeft", {1, 31}, "-2147483648"},
+        {"signedLeft", {1, 32}, "1"},
+        {"signedRight", {-8, 1}, "-4"},
+        {"signedRight", {-8, -1}, "-1"},
+        {"unsignedRight", {2147483648, 31}, "1"},
+        {"unsignedRight", {2147483648, 32}, "2147483648"},
+        {"signedRotate", {1, -1}, "-2147483648"},
+        {"unsignedRotate", {1, 32}, "1"},
+        {"signedBelow", {-1, 1}, true},
+        {"unsignedBelow", {4294967295, 1}, false},
+        {"wordAnd", {"18446744073709551615", "9223372036854775808"}, "-9223372036854775808"},
+        {"wordSub", {"0", "1"}, "-1"},
+    })
+end
+
 function M.structValuesArraysAndByteSpansLowerInPlace()
     local clif = compileFixture("aggregates", {"bytes"})
     check(clif, AGGREGATES)

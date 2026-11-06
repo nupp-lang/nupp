@@ -587,6 +587,77 @@ function M.intrinsicIdentityFollowsAliasesButNotShadowing()
     assert(not calls[2].scalarIntrinsic, "a shadowed path is ordinary code")
 end
 
+function M.releasedScalarCallsKeepTheirTypesAndCanonicalAliases()
+    local result = checkedTree(
+        [[
+local i32 = math.i32
+local add = i32.add
+local a: int32 = add(math.i32.wrap(2147483647), 1)
+local b: uint32 = math.u32.mul(math.u32.wrap(4294967295), 2)
+local c: int32 = math.i32.shiftrightarithmetic(a, -1)
+local d: uint32 = math.u32.shiftrightlogical(b, 32)
+local same: boolean = math.i32.lessorequal(a, c)
+local word: uint64 = math.u64.andbits(0xffffffffffffffffULL, 0xffULL)
+local difference: uint64 = math.u64.sub(word, 1ULL)
+local math = {i32 = {add = function(x: integer, y: integer): integer return x + y end}}
+local plain = math.i32.add(1, 2)
+return a, b, c, d, same, difference, plain
+]]
+    )
+    local calls = callsIn(result)
+    local identities = {}
+    for _, call in ipairs(calls) do
+        if call.scalarIntrinsic then
+            identities[call.scalarIntrinsic] = true
+        end
+    end
+    for _, identity in ipairs({
+        "i32.add",
+        "u32.mul",
+        "i32.shiftRightArithmetic",
+        "u32.shiftRightLogical",
+        "i32.lessOrEqual",
+        "u64.andBits",
+        "u64.sub"
+    }) do
+        assert(identities[identity], identity)
+    end
+    assert(not calls[#calls].scalarIntrinsic, "shadowed math remains ordinary code")
+end
+
+function M.releasedScalarFallbackAndFolderAgreeOnWrappingAndShiftCounts()
+    local m = library()
+    local folder = require("nupp.compiler.scalarintrinsics")
+    local cases = {
+        {"i32", "add", 2147483647, 1, -2147483648},
+        {"i32", "sub", -2147483648, 1, 2147483647},
+        {"i32", "mul", 2147483647, 2147483647, 1},
+        {"u32", "mul", 4294967295, 4294967295, 1},
+        {"i32", "andbits", -1, 0x80000000, -2147483648},
+        {"u32", "orbits", 0x80000000, 1, 2147483649},
+        {"i32", "xorbits", -1, 0x80000000, 2147483647},
+        {"i32", "notbits", 0, nil, -1},
+        {"u32", "notbits", 0, nil, 4294967295},
+        {"i32", "shiftleft", 1, 31, -2147483648},
+        {"u32", "shiftleft", 1, 32, 1},
+        {"i32", "shiftrightarithmetic", -8, 1, -4},
+        {"i32", "shiftrightarithmetic", -8, -1, -1},
+        {"u32", "shiftrightlogical", 0x80000000, 31, 1},
+        {"u32", "shiftrightlogical", 0x80000000, 32, 2147483648},
+        {"i32", "rotateleft", 1, -1, -2147483648},
+        {"u32", "rotateright", 1, 32, 1},
+        {"i32", "lessthan", -1, 1, true},
+        {"u32", "lessorequal", 4294967295, 1, false},
+        {"u32", "div", 17, 0, 0},
+        {"u32", "mod", 17, 0, 0},
+    }
+    for _, row in ipairs(cases) do
+        local identity = assert(folder.forPath("math." .. row[1] .. "." .. row[2]))
+        testAssert.eq(m[row[1]][row[2]](row[3], row[4]), row[5], identity .. " runtime")
+        testAssert.eq(folder.fold(identity, {row[3], row[4]}), row[5], identity .. " fold")
+    end
+end
+
 function M.lowercaseScalarFunctionsKeepIdentityAliasingAndLocalShadows()
     local result = checkedTree(
         [[

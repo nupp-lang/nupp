@@ -1,0 +1,61 @@
+module scalarmath
+
+local function signedAdd(a: int32, b: int32): int32
+    return math.i32.add(a, b)
+end
+
+local function signedSub(a: int32, b: int32): int32
+    return math.i32.sub(a, b)
+end
+
+local function signedMul(a: int32, b: int32): int32
+    return math.i32.mul(a, b)
+end
+
+local function unsignedMul(a: uint32, b: uint32): uint32
+    return math.u32.mul(a, b)
+end
+
+local function signedXor(a: int32, b: int32): int32
+    return math.i32.xorbits(a, b)
+end
+
+local function signedNot(a: int32): int32
+    return math.i32.notbits(a)
+end
+
+local function signedLeft(a: int32, b: integer): int32
+    return math.i32.shiftleft(a, b)
+end
+
+local function signedRight(a: int32, b: integer): int32
+    return math.i32.shiftrightarithmetic(a, b)
+end
+
+local function unsignedRight(a: uint32, b: integer): uint32
+    return math.u32.shiftrightlogical(a, b)
+end
+
+local function signedRotate(a: int32, b: integer): int32
+    return math.i32.rotateleft(a, b)
+end
+
+local function unsignedRotate(a: uint32, b: integer): uint32
+    return math.u32.rotateright(a, b)
+end
+
+local function signedBelow(a: int32, b: int32): boolean
+    return math.i32.lessthan(a, b)
+end
+
+local function unsignedBelow(a: uint32, b: uint32): boolean
+    return math.u32.lessorequal(a, b)
+end
+
+local function wordAnd(a: uint64, b: uint64): uint64
+    return math.u64.andbits(a, b)
+end
+
+local function wordSub(a: uint64, b: uint64): uint64
+    return math.u64.sub(a, b)
+end

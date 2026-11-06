@@ -25,9 +25,12 @@ module nupp.compiler.runtime.math
 local bitops: any = require("nupp.runtime.bitops")
 
 const band = bitops.band
+const bnot = bitops.bnot
 const bor = bitops.bor
+const bxor = bitops.bxor
 const lshift = bitops.lshift
 const rshift = bitops.rshift
+const arshift = bitops.arshift
 
 --- Rotations and signed conversion use the required bit operations.
 const tobit: function(number): number = bitops.tobit or function(value: number): number
@@ -307,8 +310,40 @@ function i32.wrap(a: number): number
     return tobit(a)
 end
 
+function i32.add(a: number, c: number): number
+    return tobit(a + c)
+end
+
+function i32.sub(a: number, c: number): number
+    return tobit(a - c)
+end
+
 function i32.mul(a: number, c: number): number
     return mul32(ui32(a), ui32(c))
+end
+
+function i32.andbits(a: number, c: number): number
+    return band(a, c)
+end
+
+function i32.orbits(a: number, c: number): number
+    return bor(a, c)
+end
+
+function i32.xorbits(a: number, c: number): number
+    return bxor(a, c)
+end
+
+function i32.notbits(a: number): number
+    return bnot(a)
+end
+
+function i32.shiftleft(a: number, c: number): number
+    return lshift(a, band(c, 31))
+end
+
+function i32.shiftrightarithmetic(a: number, c: number): number
+    return arshift(a, band(c, 31))
 end
 
 function i32.rotateleft(a: number, c: number): number
@@ -317,6 +352,14 @@ end
 
 function i32.rotateright(a: number, c: number): number
     return ror(a, band(c, 31))
+end
+
+function i32.lessthan(a: number, c: number): boolean
+    return tobit(a) < tobit(c)
+end
+
+function i32.lessorequal(a: number, c: number): boolean
+    return tobit(a) <= tobit(c)
 end
 
 function i32.fromu32(a: number): number
@@ -332,6 +375,14 @@ local u32 = {}
 
 function u32.wrap(a: number): number
     return ui32(a)
+end
+
+function u32.add(a: number, c: number): number
+    return ui32(a + c)
+end
+
+function u32.sub(a: number, c: number): number
+    return ui32(a - c)
 end
 
 function u32.mul(a: number, c: number): number
@@ -350,12 +401,44 @@ function u32.mod(a: number, c: number): number
     return divisor == 0 and 0 or ui32(a) % divisor
 end
 
+function u32.andbits(a: number, c: number): number
+    return ui32(band(a, c))
+end
+
+function u32.orbits(a: number, c: number): number
+    return ui32(bor(a, c))
+end
+
+function u32.xorbits(a: number, c: number): number
+    return ui32(bxor(a, c))
+end
+
+function u32.notbits(a: number): number
+    return ui32(bnot(a))
+end
+
+function u32.shiftleft(a: number, c: number): number
+    return ui32(lshift(a, band(c, 31)))
+end
+
+function u32.shiftrightlogical(a: number, c: number): number
+    return ui32(rshift(a, band(c, 31)))
+end
+
 function u32.rotateleft(a: number, c: number): number
     return ui32(rol(a, band(c, 31)))
 end
 
 function u32.rotateright(a: number, c: number): number
     return ui32(ror(a, band(c, 31)))
+end
+
+function u32.lessthan(a: number, c: number): boolean
+    return ui32(a) < ui32(c)
+end
+
+function u32.lessorequal(a: number, c: number): boolean
+    return ui32(a) <= ui32(c)
 end
 
 function u32.fromi32(a: number): number
@@ -408,6 +491,14 @@ end
 
 --- Unsigned 64-bit bit operations.
 local u64 = {}
+
+function u64.andbits(a: uint64, b: uint64): uint64
+    return a & b
+end
+
+function u64.sub(a: uint64, b: uint64): uint64
+    return a - b
+end
 
 function u64.rotateleft(a: uint64, count: integer): uint64
     local amount = band(count, 63)
