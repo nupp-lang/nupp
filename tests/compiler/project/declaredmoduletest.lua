@@ -614,12 +614,12 @@ end
 function M.theNuppImplementationRootIsInternalAcrossStandardRoots()
     withProject({["src/app.nupp"] = "module app\n"}, function(dir)
         local env = projectEnv(dir)
-        for _, name in ipairs({"nupp", "nupp.array", "nupp.tasks", "nupp.compiler.types", "nupp.workers.contracts"}) do
+        for _, name in ipairs({"nupp", "nupp.array", "nupp.tasks", "nupp.compiler.types", "nupp.workers.contracts", "nupp.embedded.private"}) do
             local reason = env.moduleAccess(env, "app", name)
             assert(reason and reason:find("internal", 1, true), name)
             testAssert.eq(env.moduleAccess(env, "coroutine", name), nil)
         end
-        for _, name in ipairs({"table", "io", "coroutine", "simd", "binary.span", "io.http"}) do
+        for _, name in ipairs({"table", "io", "coroutine", "simd", "binary.span", "io.http", "nupp.embedded"}) do
             testAssert.eq(env.moduleAccess(env, "app", name), nil)
         end
         local filename = dir .. "/src/app.nupp"
