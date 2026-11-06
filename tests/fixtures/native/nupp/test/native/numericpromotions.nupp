@@ -1,4 +1,4 @@
-module numericpromotions
+module nupp.test.native.numericpromotions
 
 local function signed(value: int64): float64
     return value * 1.0

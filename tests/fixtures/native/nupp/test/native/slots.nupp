@@ -1,4 +1,4 @@
-module slots
+module nupp.test.native.slots
 
 const native = require("nupp.runtime.vm.intrinsics")
 const slots = require("nupp.runtime.vm.slots")

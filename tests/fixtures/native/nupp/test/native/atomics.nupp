@@ -1,4 +1,4 @@
-module atomics
+module nupp.test.native.atomics
 
 -- Atomic loads, stores, exchanges and fences on words and their halves, as the
 -- marking flag, a worker handoff and the scheduler's queues use them. One

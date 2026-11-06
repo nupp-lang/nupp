@@ -132,7 +132,9 @@ function M.leavesCannotAcquireHandlerFramesOrCallManagedServices()
 end
 
 function M.nativeLayoutConstantsComeFromCheckedNuppTypes()
-    local path = fs.absolute(os.tmpname() .. ".nupp")
+    local dir = fs.absolute(os.tmpname())
+    os.remove(dir)
+    local path = dir .. "/nupp/runtime/vm/objecthash.nupp"
     local source = [[
 module nupp.runtime.vm.objecthash
 const native = require("nupp.runtime.vm.intrinsics")
@@ -153,7 +155,7 @@ local function pointerLayout(): uint64
 end
 ]]
     assert(fs.writeFile(path, source))
-    local ok, text = pcall(lower.compile, ROOT, {path}, {include = {"src"}})
+    local ok, text = pcall(lower.compile, ROOT, {path}, {include = {dir, "src"}})
     os.remove(path)
     assert(ok, tostring(text))
     for _, name in ipairs({"slotHash", "ordinary"}) do
@@ -174,10 +176,11 @@ end
         local changed, replacements = source:gsub(pattern, invalid[2], 1)
         assert(replacements == 1)
         assert(fs.writeFile(path, changed))
-        local accepted, problem = pcall(lower.compile, ROOT, {path}, {include = {"src"}})
+        local accepted, problem = pcall(lower.compile, ROOT, {path}, {include = {dir, "src"}})
         os.remove(path)
         assert(not accepted and tostring(problem):find(invalid[3], 1, true), tostring(problem))
     end
+    os.remove(dir, true)
 end
 
 function M.nativeUnsignedDivisionKeepsItsExactKindAndTrapOperation()

@@ -1,4 +1,4 @@
-module aggregates
+module nupp.test.native.aggregates
 
 -- Struct values in stack slots, nested structs and fixed arrays of them in
 -- place, copies by value into fields and elements, counted arrays, and byte

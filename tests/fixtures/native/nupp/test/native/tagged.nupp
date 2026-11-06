@@ -1,4 +1,4 @@
-module tagged
+module nupp.test.native.tagged
 
 -- A tagged union of struct pointers: each member's leading field is an integer
 -- literal, the tag, stored as the `int32` a C enumerator occupies. Comparing

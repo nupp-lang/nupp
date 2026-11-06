@@ -1,4 +1,4 @@
-module arenas
+module nupp.test.native.arenas
 
 -- Scoped arenas over mapped pages: a local owns one for its extent and closes
 -- it at every way out, what is allocated from it borrows it, a pool reuses

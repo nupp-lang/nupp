@@ -1,4 +1,4 @@
-module structs
+module nupp.test.native.structs
 
 -- Structs reached through raw pointers, with the compiler's own layout model
 -- deciding field offsets, and the private memory intrinsics beside them.

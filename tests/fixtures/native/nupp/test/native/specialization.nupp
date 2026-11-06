@@ -1,4 +1,4 @@
-module tests.fixtures.native.specialization
+module nupp.test.native.specialization
 
 const specialization = require("nupp.runtime.vm.specialization")
 

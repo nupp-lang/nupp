@@ -1,4 +1,4 @@
-module managed
+module nupp.test.native.managed
 
 -- The managed-fields decision, measured: a runtime struct holding heap
 -- references either lives in the collected heap, where the collector finds it

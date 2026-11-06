@@ -1,4 +1,4 @@
-module fixedwidth
+module nupp.test.native.fixedwidth
 
 -- First-class int32 and uint32 arithmetic, wrapping as the reference states,
 -- and the narrow storage widths loaded and stored through struct fields.

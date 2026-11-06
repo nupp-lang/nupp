@@ -1,5 +1,6 @@
 local ROOT = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]")) .. "/.."
 local lower = require("nupp.compiler.clif.lower")
+local fs = require("nupp.compiler.fs")
 local M = {}
 
 local function quote(s)
@@ -37,10 +38,13 @@ end
 
 local function compile(source)
     setup()
-    local path = os.tmpname() .. ".nupp"
-    write(path, "module native.scalarhelper\nconst native = require(\"nupp.runtime.vm.intrinsics\")\n" .. source)
-    local ok, result = pcall(lower.compile, ROOT, {path}, {handlers = true, layouts = layouts, include = {"src"}})
-    os.remove(path)
+    local dir = fs.absolute(os.tmpname())
+    os.remove(dir)
+    local path = dir .. "/nupp/test/scalarhelper.nupp"
+    assert(fs.mkdir(fs.dirname(path)))
+    write(path, "module nupp.test.scalarhelper\nconst native = require(\"nupp.runtime.vm.intrinsics\")\n" .. source)
+    local ok, result = pcall(lower.compile, ROOT, {path}, {handlers = true, layouts = layouts, include = {dir, "src"}})
+    os.remove(dir, true)
     if not ok then
         error(result, 0)
     end

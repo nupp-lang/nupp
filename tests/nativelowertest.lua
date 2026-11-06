@@ -66,7 +66,7 @@ end
 
 -- A fixture, with the runtime modules it requires compiled beside it.
 local function compileFixture(name, runtimeModules)
-    local paths = {FIXTURES .. "/" .. name .. ".nupp"}
+    local paths = {FIXTURES .. "/nupp/test/native/" .. name .. ".nupp"}
     for _, module in ipairs(runtimeModules or {}) do
         paths[#paths + 1] = ROOT .. "/src/nupp/runtime/vm/" .. module .. ".nupp"
     end
@@ -504,11 +504,11 @@ end
 
 -- An arena's lifetime is the checker's: a borrow of it cannot leave the
 -- owning local's lexical scope, and resetting it needs the sole live view.
-local ARENA_PREFIX = 'module escapes\nconst arena = require("nupp.runtime.vm.arena")\n'
+local ARENA_PREFIX = 'module nupp.test.escapes\nconst arena = require("nupp.runtime.vm.arena")\n'
 
 local function compileArenaUse(body)
     local dir = tempDirectory()
-    local path = dir .. "/escapes.nupp"
+    local path = dir .. "/nupp/test/escapes.nupp"
     write(path, ARENA_PREFIX .. body .. "\n")
     return lower.compile(ROOT, {path, ROOT .. "/src/nupp/runtime/vm/arena.nupp"}, {include = {"src", dir}})
 end

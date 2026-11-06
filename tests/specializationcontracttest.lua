@@ -85,7 +85,7 @@ function M.variantDomainsHandleBothInt64EndsWithoutOverflow()
 end
 
 function M.functionContractsSurviveCheckingAndExportLookup()
-    local path = ROOT .. "/tests/specialization-use.nupp"
+    local path = ROOT .. "/src/nupp/test/specialization-use.nupp"
     local parsed = parser.parse(
         [[
 const specialization = require("nupp.runtime.vm.specialization")
@@ -104,18 +104,18 @@ assert(result)
 end
 
 function M.directLoweringUsesOrdinaryMeaningsAndTheConfiguredVariantBudget()
-    local paths = {ROOT .. "/tests/fixtures/native/specialization.nupp"}
-    local clif = lower.compile(ROOT, paths, {include = {"src"}, specializationVariantCap = 3})
+    local paths = {ROOT .. "/tests/fixtures/native/nupp/test/native/specialization.nupp"}
+    local clif = lower.compile(ROOT, paths, {include = {"src", "tests/fixtures/native"}, specializationVariantCap = 3})
     for _, name in ipairs({"identity", "bounded", "context", "interpreter"}) do
         assert(clif:find("function %" .. name, 1, true), name)
     end
     for _, name in ipairs({"assertConstant", "specializeValue", "pushContext", "popContext", "inInterpreter"}) do
         assert(not clif:find("%" .. name, 1, true), "ordinary intrinsic emitted a foreign call: " .. name)
     end
-    local ok, problem = pcall(lower.compile, ROOT, paths, {include = {"src"}, specializationVariantCap = 2})
+    local ok, problem = pcall(lower.compile, ROOT, paths, {include = {"src", "tests/fixtures/native"}, specializationVariantCap = 2})
     assert(not ok and tostring(problem):find("exceeds variant cap", 1, true), tostring(problem))
     for _, cap in ipairs({0, 1.5, 4097, false}) do
-        assert(not pcall(lower.compile, ROOT, paths, {include = {"src"}, specializationVariantCap = cap}))
+        assert(not pcall(lower.compile, ROOT, paths, {include = {"src", "tests/fixtures/native"}, specializationVariantCap = cap}))
     end
 end
 

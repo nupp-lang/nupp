@@ -1,4 +1,4 @@
-module owners
+module nupp.test.native.owners
 
 -- Lexical owners: a local holding an affine value runs its cleanup at every
 -- way out of its scope, newest first, and not once it has been moved out.

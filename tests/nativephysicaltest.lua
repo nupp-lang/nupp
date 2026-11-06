@@ -130,12 +130,12 @@ function M.rawAbiDependentLocalsRetainExactFieldOwner()
     local fs = require("nupp.compiler.fs")
     local dir = os.tmpname()
     os.remove(dir)
-    assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
-    local path = dir .. "/src/fieldowner.nupp"
+    assert(os.execute("mkdir -p '" .. dir .. "/src/nupp/test'") == 0)
+    local path = dir .. "/src/nupp/test/fieldowner.nupp"
     local file = assert(io.open(path, "wb"))
     file:write(
         [[
-module fieldowner
+module nupp.test.fieldowner
 const native = require("nupp.runtime.vm.intrinsics")
 local struct Box
     value: uint64
@@ -166,11 +166,11 @@ end
     file:close()
     local ok, problem = pcall(function()
         trivia.installDefault(provider)
-        local session = unit.session(dir, {{path = path, moduleName = "fieldowner"}}, TARGET, {
+        local session = unit.session(dir, {{path = path, moduleName = "nupp.test.fieldowner"}}, TARGET, {
             "src",
             fs.absolute(ROOT .. "/src")
         })
-        local owners = session.module("fieldowner").functions
+        local owners = session.module("nupp.test.fieldowner").functions
 
         local function copy(value)
             local result = {}

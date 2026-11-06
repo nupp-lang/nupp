@@ -1,4 +1,4 @@
-module pointers
+module nupp.test.native.pointers
 
 -- Function pointers: `Op*` is a typed pointer to a function, which a module
 -- function's name converts to, a struct field or a fixed array holds, and a
