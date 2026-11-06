@@ -275,6 +275,31 @@ export function again(): number return a.value() end
     assert(ok, problem)
 end
 
+function M.independentEmitsReplayThroughOneFinalNumbering()
+    local dir = tempProject()
+    project.emitCached(dir, "leaf", "", "src", dir .. "/left")
+    project.emitCached(dir, "b", "", "src", dir .. "/right")
+    local original = os.getenv
+    os.getenv = function(name)
+        if name == "NUPP_VM_EMIT_IMPORTS" then
+            return dir .. "/left;" .. dir .. "/right"
+        end
+        return original(name)
+    end
+    local ok, problem = pcall(function()
+        local image, stats = cached(dir)
+        assert(stats.replayed >= 4, "independent fragments were not replayed: " .. stats.replayed)
+        os.getenv = original
+        same(scratch(dir), image, "independent emit imports")
+        local warm, warmStats = cached(dir)
+        same(image, warm, "promoted imports")
+        assert(warmStats.lowered == 0, "the final cache depended on worker directories")
+    end)
+    os.getenv = original
+    remove(dir)
+    assert(ok, problem)
+end
+
 function M.aCachedEmitWritesWhatAnEmitFromNothingWrites()
     local dir = tempProject()
     local expected = scratch(dir)

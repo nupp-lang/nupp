@@ -258,7 +258,7 @@ end
 
 --- Opens the cache under `dir` for an emit checking in `env`, or nil when the
 --- emit keeps nothing. `carried` holds the source of modules that have no file.
-function emitcache.open(dir: string, env: any, config: table, carried: {[string]: string}?): any
+function emitcache.open(dir: string, env: any, config: table, carried: {[string]: string}?, borrowed: {string}?): any
     for _, variable in ipairs(REPORTING) do
         if os.getenv(variable) then
             return nil
@@ -305,6 +305,49 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
     local recorded: {[string]: any} = {}
     if type(indexStore.value) == "table" and type(indexStore.value.modules) == "table" then
         recorded = indexStore.value.modules
+    end
+    local imports: {string} = {}
+    local origins: {[string]: string} = {}
+    for _, imported in ipairs(borrowed or {}) do
+        imports[#imports + 1] = imported
+    end
+    for imported in (os.getenv("NUPP_VM_EMIT_IMPORTS") or ""):gmatch("[^;]+") do
+        imports[#imports + 1] = imported
+    end
+    for _, imported in ipairs(imports) do
+        if imported ~= dir then
+            local kept = storeMod.openValue(imported .. "/index.buf", stamp).value
+            if type(kept) == "table" and type(kept.modules) == "table" then
+                for name, entry in pairs(kept.modules) do
+                    recorded[name] = entry
+                    origins[name] = imported
+                end
+            end
+        end
+    end
+
+    local function keptValue(kind: string, name: string): any
+        local relative = "/" .. kind .. "/" .. name .. ".buf"
+        local candidates: {string} = {origins[name] or dir}
+        if origins[name] then
+            candidates[#candidates + 1] = dir
+        end
+        for _, imported in ipairs(imports) do
+            if imported ~= origins[name] then
+                candidates[#candidates + 1] = imported
+            end
+        end
+        for _, candidate in ipairs(candidates) do
+            local value = storeMod.openValue(candidate .. relative, stamp).value
+            if type(value) == "table" then
+                if candidate ~= dir then
+                    fs.copyFile(candidate .. relative, dir .. relative)
+                end
+                return value
+            end
+        end
+
+        return nil
     end
 
     -- NUPP_VM_RELINK_TRACE says why a module is lowered again, and which
@@ -725,7 +768,7 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
         if not path or entry.declared == nil then
             return false
         end
-        local image = storeMod.openValue(interfaceFile(name), stamp).value
+        local image = keptValue("interfaces", name)
         if type(image) ~= "table" then
             return false
         end
@@ -779,7 +822,7 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
     self.reuse = reuse
 
     function reuse.fragment(name: string, path: string): any
-        local kept = storeMod.openValue(fragmentFile(name), stamp).value
+        local kept = keptValue("modules", name)
         if type(kept) ~= "table" or type(kept.snapshot) ~= "table" or type(kept.reads) ~= "table" then
             trace(name, "nothing kept")
             return nil
