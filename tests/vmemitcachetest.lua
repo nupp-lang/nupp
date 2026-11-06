@@ -251,17 +251,23 @@ end
 function M.aRequireCycleIsCheckedAgainAfterItsInterfacesComplete()
     local envMod = require("nupp.compiler.project.env")
     local dir = tempProject()
-    write(dir .. "/src/cyclea.nupp", [[
+    write(
+        dir .. "/src/cyclea.nupp",
+        [[
 module cyclea
 local b = require("cycleb")
 export function value(): number return b.value() end
-]])
-    write(dir .. "/src/cycleb.nupp", [[
+]]
+    )
+    write(
+        dir .. "/src/cycleb.nupp",
+        [[
 module cycleb
 local a = require("cyclea")
 export function value(): number return 1 end
 export function again(): number return a.value() end
-]])
+]]
+    )
     local config = {include = {"src"}}
     local env = envMod.new(dir, {cache = false, config = config})
     local session = emitcache.open(dir .. "/cache", env, config)
@@ -294,6 +300,52 @@ function M.independentEmitsReplayThroughOneFinalNumbering()
         local warm, warmStats = cached(dir)
         same(image, warm, "promoted imports")
         assert(warmStats.lowered == 0, "the final cache depended on worker directories")
+    end)
+    os.getenv = original
+    remove(dir)
+    assert(ok, problem)
+end
+
+function M.borrowedInterfacesPreservePreludeCleanupTypeIdentity()
+    local dir = tempProject()
+    write(
+        dir .. "/src/handles.nupp",
+        [[
+module handles
+local handles = {}
+export type Handle = io.File
+function handles.identity(value: io.File): io.File
+    return value
+end
+export = handles
+]]
+    )
+    write(
+        dir .. "/src/consumer.nupp",
+        [[
+module consumer
+local handles = require("handles")
+local consumer = {}
+consumer.identity = handles.identity
+export type Owned = affine(handles.Handle, __nuppCloseFile)
+export = consumer
+]]
+    )
+    write(dir .. "/src/left.nupp", [[
+module left
+local handles = require("handles")
+export = handles
+]])
+    local original = os.getenv
+    local ok, problem = pcall(function()
+        local expected = project.emit(dir, "consumer", "", "src")
+        project.emitCached(dir, "left", "", "src", dir .. "/left")
+        os.getenv = function(name)
+            return name == "NUPP_VM_EMIT_IMPORTS" and dir .. "/left" or original(name)
+        end
+        local image = project.emitCached(dir, "consumer", "", "src", dir .. "/final")
+        assert(emitcache.last.stats.restored > 0, "the borrowed interface was not restored")
+        same(expected, image, "prelude cleanup type")
     end)
     os.getenv = original
     remove(dir)
@@ -446,6 +498,7 @@ function M.anotherGenerationsLoweringIsNeverReplayed()
     local dir = tempProject()
     local expected = scratch(dir)
     local _, cold = cached(dir)
+
     local function emit()
         return cached(dir)
     end

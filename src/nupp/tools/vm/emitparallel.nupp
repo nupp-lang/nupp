@@ -10,6 +10,7 @@ const MAX_JOBS = 4
 const READ_BYTES = 65536
 const WAIT_MS = 5
 const TIMEOUT_SECONDS = 120
+const PROFILE_VARIABLE = "NUPP_VM_EMIT_PROFILE"
 const GROUPS = {
     {"nupp.compiler.clif.lower", "nupp.compiler.clif.guest"},
     {"nupp.tools.lsp"},
@@ -36,11 +37,17 @@ function emitparallel.prepare(root: string, cache: string, count: integer, commo
     if image == nil or fingerprint.contentDigest()(image) ~= identity() then
         return {}
     end
+    local profiling = os.getenv(PROFILE_VARIABLE) ~= nil
     local shared = cache .. "/shards/common"
+    local commonStarted = os.time()
     common(shared)
+    if profiling then
+        io.stderr:write(("parallel emit: common phase %ds wall\n"):format(os.time() - commonStarted))
+    end
     collectgarbage()
     local imports = {shared}
     local children: {any} = {}
+    local opened: {number} = {}
     local started = os.time()
 
     local function finish(force: boolean?): nil
@@ -102,6 +109,7 @@ function emitparallel.prepare(root: string, cache: string, count: integer, commo
                 error(tostring(failure), 0)
             end
             children[#children + 1] = child
+            opened[#children] = os.time()
         end
         local pending = #children
         local done: {[integer]: boolean} = {}
@@ -123,6 +131,11 @@ function emitparallel.prepare(root: string, cache: string, count: integer, commo
                     end
                     done[index] = true
                     pending = pending - 1
+                    if profiling then
+                        io.stderr:write(
+                            ("parallel emit: worker %d %ds wall\n"):format(index, os.time() - opened[index])
+                        )
+                    end
                 elseif not done[index] then
                     local chunk = child.stderr:poll(READ_BYTES, WAIT_MS)
                     if chunk ~= nil then

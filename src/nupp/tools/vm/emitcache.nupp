@@ -478,9 +478,14 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
     end
 
     -- Nominals by declaration key, for decoding a kept interface into this run's
-    -- identities: the project index's, and every one a check or a restore of this
-    -- run has made.
+    -- identities: the prelude's, the project index's, and every one a check or a
+    -- restore of this run has made.
     local nominals: {[string]: any} = {}
+    for _, nominal in pairs(env.globalTypes or {}) do
+        if nominal.tag == "nominal" and type(nominal.declarationKey) == "string" then
+            nominals[nominal.declarationKey] = nominal
+        end
+    end
     for key, nominal in pairs((env.projectNominals or {}) as table) do
         nominals[key] = nominal
     end
