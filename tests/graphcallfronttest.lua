@@ -82,6 +82,41 @@ local function constant(g, text)
     error("missing fixture constant " .. text)
 end
 
+function M.scalarLibraryAliasesKeepTheirCheckedIdentity()
+    local cases = {
+        {
+            "local widths = math.i32\nreturn function(value: integer): int32 return math.i32.wrap(value) end",
+            "math.i32.wrap"
+        },
+        {
+            "local scalar = math.i32.wrap\nreturn function(value: integer): int32 return scalar(value) end",
+            "math.i32.wrap"
+        },
+        {
+            "local widths = math.u32\nreturn function(value: integer): uint32 return widths.wrap(value) end",
+            "math.u32.wrap"
+        },
+        {
+            "local scalar = math.f32.narrow\nreturn function(value: number): float32 return scalar(value) end",
+            "math.f32.narrow"
+        },
+    }
+    for _, case in ipairs(cases) do
+        local catalog = checked(case[1])
+        local node = catalog.owners[2].body.body.stats[1].exprs[1]
+        assert(node.scalarIntrinsic, "fixture lost its checked scalar identity")
+        assert(graph.coreLibraryCall(node) == case[2], "scalar alias became an ordinary call")
+    end
+    local catalog = checked(
+        [[
+local math = {i32 = {wrap = function(value: integer): integer return value end}}
+return math.i32.wrap(7)
+]]
+    )
+    local node = catalog.owners[1].body.blocks[1].stats[2].exprs[1]
+    assert(not node.scalarIntrinsic and graph.coreLibraryCall(node) == nil, "shadowed scalar name became intrinsic")
+end
+
 -- Follow explicit invoke transport only; this does not evaluate guest code.
 local function sourceOf(g, call, value)
     if value <= g.nparams then

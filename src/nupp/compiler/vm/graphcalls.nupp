@@ -959,9 +959,17 @@ export function coreLibraryField(node: any): string?
     return nil
 end
 
+-- These checker identities retain the same operation through namespace aliases.
+local scalarLibrary: {
+    [string]: string
+} = {["f32.narrow"] = "math.f32.narrow", ["u32.wrap"] = "math.u32.wrap", ["i32.wrap"] = "math.i32.wrap"}
+
 export function coreLibraryCall(call: any): string?
     if dynamicRequire(call) then
         return "require.dynamic"
+    end
+    if call and call.kind == "call" and scalarLibrary[call.scalarIntrinsic or ""] then
+        return scalarLibrary[call.scalarIntrinsic]
     end
     local name
     if call and call.kind == "methodCall" and call.name and stringType(call.obj and call.obj.inferredType) then
