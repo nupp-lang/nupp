@@ -19,8 +19,6 @@ const luaargs = require("nupp.runtime.luaargs")
 const streams = require("nupp.runtime.luastreams")
 const luaprocess = require("nupp.runtime.luaprocess")
 
-local type Handle = streams.Handle
-
 local stringarg = luaargs.stringarg
 local argerror = luaargs.argerror
 local newhandle = streams.newhandle
@@ -100,7 +98,7 @@ local function close(...: any): (boolean?, string?, integer?)
 end
 
 local function read(...: any): ...any
-    local s = (input as Handle).stream
+    local s = streams.state(input).stream
     if s.closed then
         error("default input file is closed", 2)
     end
@@ -135,7 +133,7 @@ local function lines(filename: any, ...: any): ...any
     local handle = opencheck(name, "r", 2)
     local formats, count = lineformats(2, 2, ...)
 
-    return lineiterator((handle as Handle).stream, true, formats, count), nil, nil, handle
+    return lineiterator(streams.state(handle).stream, true, formats, count), nil, nil, handle
 end
 
 -- Sets or answers a default file, as Lua's g_iofile: a name is opened in
@@ -173,7 +171,7 @@ local function filetype(...: any): string?
     if not streams.isfile(value) then
         return nil
     end
-    if (value as Handle).stream.closed then
+    if streams.state(value).stream.closed then
         return "closed file"
     end
 
@@ -219,7 +217,7 @@ local library: {
 -- The prelude's `__nuppCloseFile`: what an `io.open` handle's owner runs
 -- when it leaves scope with the file still open.
 local function closefile(handle: any): nil
-    local s = (handle as Handle).stream
+    local s = streams.state(handle).stream
     if s.closed then
         return
     end

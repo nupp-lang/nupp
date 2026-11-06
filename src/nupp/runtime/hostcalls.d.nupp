@@ -12,6 +12,15 @@ local record hostcalls
     --- declaration whose checked cleanup key is `key`: what a body for that
     --- declaration would set, for one only a declaration file holds.
     setcleanup: function(key: string, cleanup: function(any): nil): nil
+
+    --- A new full userdata whose metatable is `meta`, carrying `value`:
+    --- `type` names it "userdata", and `meta` answers its fields, `tostring`
+    --- and operators. The core's own libraries make them; Lua cannot
+    --- replace its metatable.
+    userdata: function(meta: {[string]: any}, value: any): any
+
+    --- The value userdata `u` carries, nil for anything else.
+    uservalue: function(u: any): any
 end
 
 return hostcalls

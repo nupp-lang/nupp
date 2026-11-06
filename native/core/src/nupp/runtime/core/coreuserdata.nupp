@@ -1,0 +1,75 @@
+module nupp.runtime.core.coreuserdata
+
+-- Full userdata on the core: a KIND_USERDATA heap object whose body is its
+-- metatable and one value it carries (Lua's user value), the two words the
+-- collector's child walk reads. `type` names it "userdata"; its metatable
+-- answers getmetatable, its fields (`__index`), `tostring` and the
+-- operators, and cannot be replaced from Lua. The core's own libraries make
+-- them (hostcalls.userdata): Lua's file handles are the first.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const collector = require("nupp.runtime.vm.collector")
+const tables = require("nupp.runtime.core.coretables")
+const guestscope = require("nupp.runtime.core.guestscope")
+
+-- The body: the metatable, then the value carried.
+export struct Body
+    meta: uint64
+    value: uint64
+end
+
+-- The body of userdata `value`, or 0 for anything else.
+export function bodyof(value: uint64): uint64
+    if value & values.TAG_MASK ~= values.TAG_OBJ or value & values.PAYLOAD == 0ULL then
+        return 0ULL
+    end
+    local header = value & values.PAYLOAD
+    @unsafe do
+        if native.word(
+            native.load8(native.pointer(header), native.fieldOffset<heap.Header>("kind"))
+        ) ~= heap.KIND_USERDATA then
+            return 0ULL
+        end
+    end
+
+    return header + heap.HEADER_BYTES
+end
+
+-- A new userdata with metatable `metatable` carrying `held`;
+-- both are the caller's arguments, so they stay reachable while it is made.
+export function create(ctx: voidptr, metatable: uint64, held: uint64): uint64
+    @unsafe do
+        local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
+        tables.drain(h)
+        local o = collector.allocate(h, heap.KIND_USERDATA, native.sizeOf<Body>())
+        local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES)
+        native.store64(body, native.fieldOffset<Body>("meta"), metatable)
+        native.store64(body, native.fieldOffset<Body>("value"), held)
+        collector.initialized(h, o)
+
+        return values.TAG_OBJ | native.address(o as voidptr)
+    end
+end
+
+-- The metatable of userdata `value`, nil for anything else.
+export function meta(value: uint64): uint64
+    local body = bodyof(value)
+    if body == 0ULL then
+        return values.NIL
+    end
+    @unsafe do
+        return native.load64(native.pointer(body), native.fieldOffset<Body>("meta"))
+    end
+end
+
+-- The value userdata `value` carries, nil for anything else.
+export function carried(value: uint64): uint64
+    local body = bodyof(value)
+    if body == 0ULL then
+        return values.NIL
+    end
+    @unsafe do
+        return native.load64(native.pointer(body), native.fieldOffset<Body>("value"))
+    end
+end

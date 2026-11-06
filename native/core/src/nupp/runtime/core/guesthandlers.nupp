@@ -30,6 +30,7 @@ const guesttables = require("nupp.runtime.core.guesttables")
 const gueststorage = require("nupp.runtime.core.gueststorage")
 const guesterrors = require("nupp.runtime.core.guesterrors")
 const guestmeta = require("nupp.runtime.core.guestmeta")
+const coreuserdata = require("nupp.runtime.core.coreuserdata")
 const guestreplay = require("nupp.runtime.core.guestreplay")
 const guestarith = require("nupp.runtime.core.guestarith")
 const uncaught = require("nupp.runtime.core.guestuncaught")
@@ -982,16 +983,25 @@ export function GetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
     end
     if header == 0ULL then
-        -- A thread's fields are its shared metatable's (`co:status()`).
-        header = guestmeta.threadIndex(ctx, slots.readValue(frame, regs, object))
-    end
-    if header == 0ULL then
-        guesterrors.fault(ctx, guestscope.FAULT_INDEX, slots.readValue(frame, regs, object), values.NIL)
-        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
-        return native.fail()
+        -- A thread's fields are its shared metatable's (`co:status()`), and a
+        -- userdata's its metatable's __index table.
+        header = guestmeta.objectIndex(ctx, slots.readValue(frame, regs, object))
     end
     local keyValue = slots.readValue(frame, regs, key)
-    local value = guestmeta.tableGet(ctx, header, keyValue)
+    local value = values.NIL
+    if header == 0ULL then
+        -- A userdata whose __index is a function is read through it.
+        local indexed = slots.readValue(frame, regs, object)
+        local indexer = guestmeta.objectIndexer(ctx, indexed)
+        if indexer == 0ULL then
+            guesterrors.fault(ctx, guestscope.FAULT_INDEX, indexed, values.NIL)
+            ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+            return native.fail()
+        end
+        guestmeta.pend(ctx, indexer, indexed & values.PAYLOAD)
+    else
+        value = guestmeta.tableGet(ctx, header, keyValue)
+    end
     local callee = guestmeta.takeMeta(ctx)
     if callee ~= 0ULL then
         -- An __index function: called with the table and the key from the
@@ -1541,6 +1551,13 @@ export function LibCall(
             packed = tables.packedkind(tableHeader(a))
         end
         slots.writeValue(frame, regs, dst, values.TAG_INTEGER | packed)
+    elseif libraryId == librarycalls.USERDATA_NEW then
+        if guestmeta.tableof(a) == 0ULL then
+            error("hostcalls.userdata: a metatable was expected")
+        end
+        slots.writeValue(frame, regs, dst, coreuserdata.create(ctx, a, b))
+    elseif libraryId == librarycalls.USERDATA_VALUE then
+        slots.writeValue(frame, regs, dst, coreuserdata.carried(a))
     elseif libraryId == librarycalls.CLEANUP_SET then
         slots.writeValue(frame, regs, dst, basics.cleanupset(ctx, a, b))
     elseif libraryId == librarycalls.CLEANUP_GET then

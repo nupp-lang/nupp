@@ -183,6 +183,14 @@ for _ = 1, 100 do
     end
 end
 check(kept == 100)
+-- Handles are full userdata with the FILE* metatable, which Lua cannot
+-- replace.
+check(type(io.stdout) == "userdata" and type(io.stdin) == "userdata" and io.type(io.stdout) == "file")
+check(getmetatable(io.stdout) == getmetatable(io.stderr) and string.match(tostring(io.stderr), "^file %(0x%x+%)$") ~= nil)
+local replaced = pcall(function()
+    setmetatable(io.stdout, {})
+end)
+check(not replaced)
 -- The name the base was taken from.
 os.remove("/tmp/lua_" .. string.sub(base, -6))
 return score

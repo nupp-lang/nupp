@@ -180,14 +180,14 @@ local CASES = {
     {"errorsruntime", 0x7FFF00000000001F},
     {"hostlibrary", 0x7FFF0000000000FF},
     {"benchforms", 0x7FFF00000000003F},
-    {"iofiles", 0x7FFF07FFFFFFFFFF},
+    {"iofiles", 0x7FFF3FFFFFFFFFFF},
     {"iostandard", 0x7FFF00000000000F},
     {"reactorpipes", 0x7FFF00000007FFFF},
     {"reactorfiles", 0x7FFF000000001FFF},
     -- Parked I/O and timers in the scheduler's one loop.
     {"tasksreactor", 0x7FFF00000000001F},
     {"processexecute", 0x7FFF000000001FFF},
-    {"processpopen", 0x7FFF00001FFFFFFF},
+    {"processpopen", 0x7FFF00003FFFFFFF},
     {"processhandle", 0x7FFF000001FFFFFF},
     {"processlayer", 0x7FFF000000FFFFFF},
     -- os.exit(3): the program ends there, publishing nothing (EXITS).

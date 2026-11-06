@@ -16,6 +16,7 @@ const librarytexts = require("nupp.runtime.core.librarytexts")
 const collector = require("nupp.runtime.vm.collector")
 const gcweak = require("nupp.runtime.vm.gcweak")
 const gcfinal = require("nupp.runtime.vm.gcfinal")
+const coreuserdata = require("nupp.runtime.core.coreuserdata")
 
 -- tableSet's answer when a __newindex function is to be called instead.
 export const META_PENDING: uint64 = 100ULL
@@ -199,20 +200,30 @@ export function metaSelf(ctx: voidptr): uint64
     end
 end
 
+-- The metatable of a table or a userdata, or 0.
+local function metaOf(value: uint64): uint64
+    local t = tableOf(value)
+    if t ~= 0ULL then
+        return tableOf(tables.meta(t))
+    end
+
+    return tableOf(coreuserdata.meta(value))
+end
+
 -- The `which` metamethod of an operation on `a` and `b`: the first
 -- operand's when it has one, else the second's; 0 when neither is a table
--- with it.
+-- or a userdata with it.
 export function binaryMeta(ctx: voidptr, which: uint64, a: uint64, b: uint64): uint64
-    local first = tableOf(a)
+    local first = metaOf(a)
     if first ~= 0ULL then
-        local found = metaField(ctx, first, which)
+        local found = tables.get(first, metaKey(ctx, which))
         if found ~= values.NIL then
             return found
         end
     end
-    local second = tableOf(b)
+    local second = metaOf(b)
     if second ~= 0ULL then
-        local found = metaField(ctx, second, which)
+        local found = tables.get(second, metaKey(ctx, which))
         if found ~= values.NIL then
             return found
         end
@@ -481,10 +492,13 @@ export function threadMeta(ctx: voidptr, value: uint64): uint64
     end
 end
 
--- The table a thread's fields are read from: its shared metatable's
--- __index, or 0 when that is not a table.
-export function threadIndex(ctx: voidptr, value: uint64): uint64
+-- The table a thread's or a userdata's fields are read from: its
+-- metatable's __index, or 0 when that is not a table.
+export function objectIndex(ctx: voidptr, value: uint64): uint64
     local meta = tableOf(threadMeta(ctx, value))
+    if meta == 0ULL then
+        meta = tableOf(coreuserdata.meta(value))
+    end
     if meta == 0ULL then
         return 0ULL
     end
@@ -492,11 +506,35 @@ export function threadIndex(ctx: voidptr, value: uint64): uint64
     return tableOf(tables.get(meta, metaKey(ctx, META_INDEX)))
 end
 
+-- A userdata's __index when that is a function, which its fields are read
+-- through, or 0.
+export function objectIndexer(ctx: voidptr, value: uint64): uint64
+    local meta = tableOf(coreuserdata.meta(value))
+    if meta == 0ULL then
+        return 0ULL
+    end
+    local index = tables.get(meta, metaKey(ctx, META_INDEX))
+    if index == values.NIL or tableOf(index) ~= 0ULL then
+        return 0ULL
+    end
+
+    return index
+end
+
 -- getmetatable(v): a table's metatable, or its __metatable field when it
--- has one; the threads' shared one for a thread; nil for anything else.
+-- has one; a userdata's, likewise; the threads' shared one for a thread;
+-- nil for anything else.
 export function getMetatable(ctx: voidptr, value: uint64): uint64
     local t = tableOf(value)
     if t == 0ULL then
+        local own = tableOf(coreuserdata.meta(value))
+        if own ~= 0ULL then
+            local shown = tables.get(own, metaKey(ctx, META_METATABLE))
+            if shown ~= values.NIL then
+                return shown
+            end
+            return values.TAG_OBJ | own
+        end
         return threadMeta(ctx, value)
     end
     local protected = metaField(ctx, t, META_METATABLE)

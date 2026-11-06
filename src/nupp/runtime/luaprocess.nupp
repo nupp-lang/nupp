@@ -26,6 +26,7 @@ module nupp.runtime.luaprocess
 
 const processes = require("nupp.runtime.processes")
 const streams = require("nupp.runtime.luastreams")
+const hostcalls = require("nupp.runtime.hostcalls")
 const luaargs = require("nupp.runtime.luaargs")
 const files = require("nupp.runtime.files")
 const filecalls = require("nupp.runtime.filecalls")
@@ -70,7 +71,26 @@ local type ProcessHandle = {
 
 local methods: {[string]: any} = {}
 
-local meta: {[string]: any} = {__index = methods, __name = "FILE*"}
+-- The fields a process's handle shows beside its methods, as main's
+-- io.Process does.
+const FIELDS: {[string]: boolean} = {pid = true, stdin = true, stdout = true, stderr = true}
+
+-- The state process handle `self` carries.
+local function processof(self: any): ProcessHandle
+    return hostcalls.uservalue(self) as ProcessHandle
+end
+
+local meta: {[string]: any} = {
+    __index = function(self: any, key: any): any
+        local method: any = methods[key]
+        if method ~= nil or not FIELDS[key] then
+            return method
+        end
+
+        return (processof(self) as {[string]: any})[key as string]
+    end,
+    __name = "FILE*"
+}
 
 -- A piped stream's file: a file's methods, and `poll` on one that reads.
 local pipemethods: {[string]: any} = setmetatable({}, {__index = streams.methods})
@@ -83,11 +103,10 @@ streams.register(pipemeta)
 -- A file over pipe end `descriptor`, which only reads ("r") or only writes
 -- ("w").
 local function pipefile(descriptor: integer, access: string): any
-    local handle = streams.newhandle(descriptor, false, "full")
-    local s = (handle as streams.Handle).stream
-    s.access = access
+    local handle = streams.newhandle(descriptor, false, "full", pipemeta)
+    streams.state(handle).stream.access = access
 
-    return setmetatable(handle, pipemeta)
+    return handle
 end
 
 local function streamof(file: any): streams.Stream?
@@ -95,7 +114,7 @@ local function streamof(file: any): streams.Stream?
         return nil
     end
 
-    return (file as streams.Handle).stream
+    return streams.state(file).stream
 end
 
 --- Reads what the pipe holds now without waiting: the bytes (at most
@@ -124,10 +143,10 @@ end
 
 -- The handle `self`, which must not be closed, as argument 1 of `name`.
 local function handleof(self: any, name: string): ProcessHandle
-    if type(self) ~= "table" or getmetatable(self) ~= meta then
+    if type(self) ~= "userdata" or getmetatable(self) ~= meta then
         luaargs.argerror(1, name, "FILE* expected, got " .. luaargs.typename(self), 3)
     end
-    local handle = self as ProcessHandle
+    local handle = processof(self)
     if handle.reaped then
         error("attempt to use a closed file", 3)
     end
@@ -199,27 +218,27 @@ end
 methods.seek = function(self: any, whence: any, offset: any): (integer?, string?, integer?)
     local handle = handleof(self, "seek")
 
-    return streams.methods.seek(setmetatable({stream = handle.stream}, pipemeta), whence, offset)
+    return streams.methods.seek(streams.wrap(handle.stream, pipemeta), whence, offset)
 end
 
 --- Sets the buffering of the child's standard input.
 methods.setvbuf = function(self: any, mode: any, size: any): (boolean?, string?, integer?)
     handleof(self, "setvbuf")
-    local target = setmetatable({stream = streams.writer(self)}, pipemeta)
+    local target = streams.wrap(streams.writer(self), pipemeta)
 
     return streams.methods.setvbuf(target, mode, size)
 end
 
 --- Whether the child is still running.
 methods.isrunning = function(self: any): boolean
-    local handle = self as ProcessHandle
+    local handle = processof(self)
 
     return processes.running(handle.child)
 end
 
 --- Waits for the child to end and answers how.
 methods.wait = function(self: any): {[string]: any}
-    local handle = self as ProcessHandle
+    local handle = processof(self)
 
     return exitof(handle, processes.wait(handle.child))
 end
@@ -227,7 +246,7 @@ end
 --- Asks the child and every process in its group to end, with SIGTERM, or
 --- SIGKILL when `force`: whether the request was made, and why not.
 methods.kill = function(self: any, force: any): (boolean, string?)
-    local handle = self as ProcessHandle
+    local handle = processof(self)
     if not processes.running(handle.child) then
         return true
     end
@@ -298,7 +317,7 @@ methods.close = function(self: any): (boolean?, string?, integer?)
 end
 
 meta.__tostring = function(self: any): string
-    local handle = self as ProcessHandle
+    local handle = processof(self)
     if handle.reaped then
         return "file (closed)"
     end
@@ -382,7 +401,7 @@ end
 
 --- Whether `value` is a process's handle, which closes as a process does.
 export function isprocess(value: any): boolean
-    return type(value) == "table" and getmetatable(value) == meta
+    return type(value) == "userdata" and getmetatable(value) == meta
 end
 
 --- Starts `command`, a shell command line or an argument vector, as
@@ -402,7 +421,7 @@ export function popen(command: any, options: any): (any, string?, integer?)
     -- A handle with no pipe at all reads and writes nothing.
     local primary: any = stdout or stdin or pipefile(-1, "")
     local handle: ProcessHandle = {
-        stream = (primary as streams.Handle).stream,
+        stream = streams.state(primary).stream,
         writer = streamof(stdin),
         child = started,
         pid = started.id,
@@ -413,5 +432,5 @@ export function popen(command: any, options: any): (any, string?, integer?)
         reaped = false
     }
 
-    return setmetatable(handle, meta)
+    return hostcalls.userdata(meta, handle)
 end
