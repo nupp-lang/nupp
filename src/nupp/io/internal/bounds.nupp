@@ -1,0 +1,72 @@
+@!internal
+module nupp.io.internal.bounds
+
+export const MAX_EXACT_INTEGER = 9007199254740991
+
+--- @raises string when value is not a non-negative integer
+export function count(value: any, what: string, level: integer): integer
+    if type(value) ~= "number"
+        or value ~= math.floor(value as number)
+        or (value as number) < 0
+        or (value as number) > MAX_EXACT_INTEGER
+    then
+        error("nupp: " .. what .. " must be a non-negative integer", level)
+    end
+
+    return value as integer
+end
+
+--- @raises string when value is not an integer
+export function whole(value: any, what: string, level: integer): integer
+    if type(value) ~= "number"
+        or value ~= math.floor(value as number)
+        or math.abs(value as number) > MAX_EXACT_INTEGER
+    then
+        error("nupp: " .. what .. " must be an integer", level)
+    end
+
+    return value as integer
+end
+
+--- @raises string when the sum is outside the exact integer range
+export function sum(left: integer, right: integer, what: string, level: integer): integer
+    if left > MAX_EXACT_INTEGER - right then
+        error("nupp: " .. what .. " is too large", level)
+    end
+
+    return left + right
+end
+
+--- @raises string when value is not a positive integer
+export function positive(value: any, what: string, level: integer): integer
+    local answer = whole(value, what, level + 1)
+    if answer < 1 then
+        error("nupp: " .. what .. " must be a positive integer", level)
+    end
+
+    return answer
+end
+
+--- @raises string when the owner is closed
+export function opened(closed: boolean, what: string, level: integer): nil
+    if closed then
+        error("nupp: " .. what .. " is closed", level)
+    end
+end
+
+-- An omitted offset is the start and an omitted count is the rest, so a caller that
+-- wants everything says nothing.
+
+--- @raises string when the range is not within length
+export function range(length: integer, offset: any, requested: any, what: string, level: integer): (integer, integer)
+    local from = count(offset == nil and 0 or offset, what .. " offset", level)
+    if from > length then
+        error("nupp: " .. what .. " offset is past the end", level)
+    end
+    local taking = count(requested == nil and length - from or requested, what .. " count", level)
+    if taking > length - from then
+        error("nupp: " .. what .. " range is past the end", level)
+    end
+
+    return from, taking
+end
