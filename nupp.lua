@@ -413,6 +413,7 @@ for _, resource in ipairs({
     "src/io/internal/process/types.nupp",
     "src/io/net/internal/tlstypes.nupp",
     "src/nupp/io/http/messages.nupp",
+    "src/nupp/io/internal/bounds.nupp",
     "src/nupp/io/internal/bytes.nupp",
     "src/nupp/io/internal/ownedreader.nupp",
     "src/nupp/io/internal/scalars.nupp",

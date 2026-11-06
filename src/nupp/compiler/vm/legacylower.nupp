@@ -5260,9 +5260,12 @@ function lower.emit(
                 for _, entry in ipairs(node.entries) do
                     if entry.kind == "inlineMethod" then
                         local member = entry.overloadMember or tokText(entry.name)
+                        local mark, fmark = f.nregs, f.nfregs
                         local c = f:reg()
                         emitClosure(f, entry.body, c, tokText(node.name) .. ":" .. member, inlineImplicitSelf(entry))
                         f:op("SetField", identity, f:const("str", member), c)
+                        f.nregs = math.max(mark, f.declTop or 0)
+                        f.nfregs = math.max(fmark, f.fdeclTop or 0)
                     end
                 end
                 f.declTop = math.max(f.declTop or 0, identity + 1)
@@ -5295,6 +5298,7 @@ function lower.emit(
             for _, entry in ipairs(node.entries) do
                 if entry.kind == "inlineMethod" then
                     local member = entry.overloadMember or tokText(entry.name)
+                    local mark, fmark = f.nregs, f.nfregs
                     local c = f:reg();
                     emitClosure(f, entry.body, c, shape.name .. ":" .. member, inlineImplicitSelf(entry))
                     if not entry.inlineStatic then
@@ -5302,6 +5306,8 @@ function lower.emit(
                     end
                     f:op("SetField", identity, f:const("str", member), c)
                     registerCleanups(f, entry.name.cleanupRegistrations, c)
+                    f.nregs = math.max(mark, f.declTop or 0)
+                    f.nfregs = math.max(fmark, f.fdeclTop or 0)
                 end
             end
             -- Metadata statements use the ordinary closure and capture path.

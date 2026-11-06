@@ -115,6 +115,7 @@ local MODULES: {[string]: {
     ["nupp.runtime.hotreload"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.runtime.storage"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.io"] = {kind = "unavailable", capability = "cstorage"},
+    ["nupp.io.internal.bounds"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.io.internal.bytes"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.io.internal.ownedreader"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.io.internal.scalars"] = {kind = "unavailable", capability = "cstorage"},
