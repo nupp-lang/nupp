@@ -1,21 +1,42 @@
 module nupp.runtime.core.corestorage
 
--- Typed storage on the guest heap: a KIND_CORE_STORAGE object holding `count`
--- elements of one scalar kind, zero-based, in word backing outside the
--- collected heap. The header's aux is the element kind, auxPtr the bytes
--- and auxLen the element count. It holds no references, so the collector
--- traces nothing in it, and `coretables.drain` gives its backing back.
+-- Typed storage owns an external common.Storage descriptor in word backing;
+-- Header.auxPtr names that descriptor even when its data is empty. Descriptor
+-- lengths and capacity are bytes, while the public accessors count elements.
+-- The scalar data contains no references and coretables.drain releases both
+-- external allocations after retirement, independently of Header.aux.
 --
--- A view of storage is a KIND_CORE_VIEW with the same header fields, its
--- auxPtr into the storage it views, and that storage in its first body word,
--- which the collector traces: a view keeps its storage alive. Elements read
--- and write the same through either.
+-- A core view stores its tagged ultimate owner in its first body word and an
+-- absolute byte offset in its second. The collector traces that owner. Raw
+-- pointers are resolved from the owner's current descriptor on every access,
+-- so backing growth cannot leave retained views pointing into a released block.
+-- A view keeps its original extent and element kind; callers must preserve
+-- those bounds when changing an owner beyond reserve-only backing growth.
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const collector = require("nupp.runtime.vm.collector")
 const backing = require("nupp.runtime.vm.backing")
 const values = require("nupp.runtime.vm.values")
 const ints = require("nupp.runtime.core.coreintegers")
+const storage = require("nupp.runtime.core.storage")
+
+const WORD_BYTES: uint64 = 8ULL
+const MAX_STORAGE_BYTES: uint64 = 0x0000ffffffffffffULL
+
+-- Only the core uses this view payload; the shared VM SliceBody is unchanged.
+local struct View
+    owner: uint64
+    offset: uint64
+end
+
+-- Owner-only access for private core callers. Keep the owner rooted for this
+-- pointer's entire lifetime. The descriptor is stable until retirement, but
+-- reserve may replace its base; never retain that raw base across growth.
+export function descriptor(object: uint64): storage.Storage*
+    @unsafe do
+        return native.pointer((native.pointer(object) as heap.Header*).auxPtr) as storage.Storage*
+    end
+end
 
 -- The element kinds.
 export const UINT8: uint64 = 1ULL
@@ -55,23 +76,75 @@ export function isstorage(value: uint64): boolean
     end
 end
 
--- A view of `source`'s bytes from byte `offset`, as `n` elements of `kind`;
--- 0 when there is no room. The caller keeps `source` reachable, and checks
--- that the view lies inside it.
+export function elementkind(object: uint64): uint64
+    @unsafe do
+        local o = native.pointer(object) as heap.Header*
+        if o.kind as uint64 == heap.KIND_CORE_VIEW then
+            return o.aux as uint64
+        end
+
+        return descriptor(object).kind
+    end
+end
+
+export function elementcount(object: uint64): uint64
+    @unsafe do
+        local o = native.pointer(object) as heap.Header*
+        if o.kind as uint64 == heap.KIND_CORE_VIEW then
+            return o.auxLen
+        end
+        local d = descriptor(object)
+
+        return d.len // elementwidth(d.kind)
+    end
+end
+
+export function storagebase(object: uint64): uint64
+    @unsafe do
+        local o = native.pointer(object) as heap.Header*
+        if o.kind as uint64 == heap.KIND_CORE_VIEW then
+            local view = native.pointer(object + heap.HEADER_BYTES) as View*
+            return descriptor(view.owner & values.PAYLOAD).base + view.offset
+        end
+
+        return descriptor(object).base
+    end
+end
+
+-- The bytes object's elements span.
+export function bytelength(object: uint64): uint64
+    return elementcount(object) * elementwidth(elementkind(object))
+end
+
+-- The caller keeps source reachable across the allocating safepoint. A view
+-- retains only the ultimate storage owner; bounds are relative to source.
 export function newview(h: heap.Heap*, source: uint64, kind: uint64, offset: uint64, n: uint64): uint64
     @unsafe do
         local from = native.pointer(source) as heap.Header*
-        local owner = source
-        if from.kind as uint64 == heap.KIND_CORE_VIEW then
-            owner = native.load64(native.pointer(source + heap.HEADER_BYTES), 0) & values.PAYLOAD
+        if from.kind as uint64 ~= heap.KIND_CORE_STORAGE and from.kind as uint64 ~= heap.KIND_CORE_VIEW then
+            return 0ULL
         end
-        local at = from.auxPtr + offset
-        local o = collector.allocate(h, heap.KIND_CORE_VIEW, native.sizeOf<heap.SliceBody>())
-        local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES)
-        native.store64(body, 0, values.TAG_OBJ | owner)
-        native.store64(body, 8, 0ULL)
+        local width = elementwidth(kind)
+        local available = bytelength(source)
+        if width == 0ULL or offset > available or n > (available - offset) // width then
+            return 0ULL
+        end
+        local owner = source
+        local absolute = offset
+        if from.kind as uint64 == heap.KIND_CORE_VIEW then
+            local parent = native.pointer(source + heap.HEADER_BYTES) as View*
+            owner = parent.owner & values.PAYLOAD
+            if offset > MAX_STORAGE_BYTES - parent.offset then
+                return 0ULL
+            end
+            absolute = parent.offset + offset
+        end
+        local o = collector.allocate(h, heap.KIND_CORE_VIEW, native.sizeOf<View>())
+        local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as View*
+        body.owner = values.TAG_OBJ | owner
+        body.offset = absolute
         native.store32(o as voidptr, native.fieldOffset<heap.Header>("aux"), native.index(kind))
-        o.auxPtr = at
+        o.auxPtr = 0ULL
         o.auxLen = n
         collector.initialized(h, o)
 
@@ -79,25 +152,9 @@ export function newview(h: heap.Heap*, source: uint64, kind: uint64, offset: uin
     end
 end
 
--- Copies `n` bytes from `source` to `target`, which may overlap.
+-- Copies n bytes from source to target, which may overlap.
 export function copybytes(target: uint64, source: uint64, n: uint64): nil
-    @unsafe do
-        local to = native.pointer(target)
-        local from = native.pointer(source)
-        if target <= source then
-            local i: uint64 = 0ULL
-            while i < n do
-                native.store8(to, native.index(i), native.word(native.load8(from, native.index(i))))
-                i = i + 1ULL
-            end
-        else
-            local i = n
-            while i > 0ULL do
-                i = i - 1ULL
-                native.store8(to, native.index(i), native.word(native.load8(from, native.index(i))))
-            end
-        end
-    end
+    storage.copy(target, source, n, native.pointer(0ULL) as storage.CopyStats*)
 end
 
 -- Sets `n` bytes at `target` to `byte`.
@@ -112,67 +169,51 @@ export function fillbytes(target: uint64, n: uint64, byte: uint64): nil
     end
 end
 
-export function elementkind(object: uint64): uint64
-    @unsafe do
-        return native.word(native.load32(native.pointer(object), native.fieldOffset<heap.Header>("aux")))
-    end
-end
-
-export function elementcount(object: uint64): uint64
-    @unsafe do
-        return (native.pointer(object) as heap.Header*).auxLen
-    end
-end
-
-export function storagebase(object: uint64): uint64
-    @unsafe do
-        return (native.pointer(object) as heap.Header*).auxPtr
-    end
-end
-
--- The bytes `object`'s elements span.
-export function bytelength(object: uint64): uint64
-    return elementcount(object) * elementwidth(elementkind(object))
-end
-
--- New zeroed storage of `n` elements of `kind`; 0 when its bytes cannot
--- be had.
+-- New zeroed typed storage, or zero on backing refusal. Allocate the managed
+-- header before owning external blocks: its safepoint can fail, while backing
+-- operations cannot collect. A refused unpublished header owns nothing and is
+-- ordinary unreachable managed garbage, reclaimed by the next collection.
 export function newstorage(h: heap.Heap*, kind: uint64, n: uint64): uint64
-    local bytes = elementwidth(kind)
-    if bytes == 0ULL or n > 0x0000ffffffffffffULL // bytes then
+    local width = elementwidth(kind)
+    if width == 0ULL or n > MAX_STORAGE_BYTES // width then
         return 0ULL
-    end
-    local words = (n * bytes + 7ULL) // 8ULL
-    local data: uint64 = 0ULL
-    if words > 0ULL then
-        data = backing.wordBackingTake(h, words)
-        if data == 0ULL then
-            return 0ULL
-        end
-        @unsafe do
-            local i: uint64 = 0ULL
-            while i < words do
-                native.store64(native.pointer(data), native.index(i * 8ULL), 0ULL)
-                i = i + 1ULL
-            end
-        end
     end
     @unsafe do
         local o = collector.allocate(h, heap.KIND_CORE_STORAGE, 0ULL)
-        native.store32(o as voidptr, native.fieldOffset<heap.Header>("aux"), native.index(kind))
-        o.auxPtr = data
-        o.auxLen = n
+        o.auxPtr = 0ULL
+        local words = (native.sizeOf<storage.Storage>() + WORD_BYTES - 1ULL) // WORD_BYTES
+        local address = backing.wordBackingTake(h, words)
+        if address == 0ULL then
+            return 0ULL
+        end
+        local d = native.pointer(address) as storage.Storage*
+        d.base = 0ULL
+        d.len = 0ULL
+        d.cap = 0ULL
+        d.read = 0ULL
+        d.kind = 0ULL
+        local bytes = n * width
+        if storage.initialize(h, d, kind, bytes, bytes) ~= storage.OK then
+            backing.wordBackingRelease(address)
+            return 0ULL
+        end
+        o.auxPtr = address
         collector.initialized(h, o)
 
         return native.address(o as voidptr)
     end
 end
 
--- Gives a retired storage object's bytes back; a view has none of its own.
+-- Retirement overwrites Header.aux with the old heap kind. Only auxPtr is
+-- needed here. Clearing it makes repeated release before recycle harmless.
 export function releasestorage(o: heap.Header*): nil
-    if o.auxPtr ~= 0ULL then
-        backing.wordBackingRelease(o.auxPtr)
-        o.auxPtr = 0ULL
+    @unsafe do
+        local address = o.auxPtr
+        if address ~= 0ULL then
+            storage.release(native.pointer(address) as storage.Storage*)
+            backing.wordBackingRelease(address)
+            o.auxPtr = 0ULL
+        end
     end
 end
 
@@ -339,27 +380,21 @@ end
 -- The element at `index` as a value, an integer that does not fit inline
 -- made on `h`. Answers values.TRUE when the index is outside the storage.
 export function readelement(h: heap.Heap*, object: uint64, index: uint64): uint64
-    @unsafe do
-        local o = native.pointer(object) as heap.Header*
-        if index >= o.auxLen then
-            return values.TRUE
-        end
-
-        return loadelement(h, o.aux as uint64, o.auxPtr, index)
+    if index >= elementcount(object) then
+        return values.TRUE
     end
+
+    return loadelement(h, elementkind(object), storagebase(object), index)
 end
 
 -- Stores `bits` (an integer's two's complement, or a float's binary64 bits
 -- for the float kinds) as the element at `index`. Answers 1 when the index
 -- is outside the storage.
 export function writeelement(object: uint64, index: uint64, bits: uint64): uint64
-    @unsafe do
-        local o = native.pointer(object) as heap.Header*
-        if index >= o.auxLen then
-            return 1ULL
-        end
-        storeelement(o.aux as uint64, o.auxPtr, index, bits)
-
-        return 0ULL
+    if index >= elementcount(object) then
+        return 1ULL
     end
+    storeelement(elementkind(object), storagebase(object), index, bits)
+
+    return 0ULL
 end

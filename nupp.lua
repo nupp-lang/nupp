@@ -305,6 +305,10 @@ local RESOURCES = {
     },
     {source = "src/nupp/array/internal/layout.nupp", output = "nupp/compiler/nupp/array/internal/layout.nupp"},
     {source = "src/nupp/array/internal/storage.lua", output = "nupp/compiler/nupp/array/internal/storage.lua"},
+    {
+        source = "src/nupp/runtime/provider/arraystorage.lua",
+        output = "nupp/compiler/nupp/runtime/provider/arraystorage.lua"
+    },
     {source = "src/nupp/array/internal/api.nupp", output = "nupp/compiler/nupp/array/internal/api.nupp"},
     {source = "src/nupp/array.nupp", output = "nupp/compiler/nupp/array.nupp"},
     {source = "src/nupp/util/internal/pool.nupp", output = "nupp/compiler/nupp/util/internal/pool.nupp"},

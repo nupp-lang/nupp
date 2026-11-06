@@ -1,0 +1,328 @@
+module storagelifetimeunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const backing = require("nupp.runtime.vm.backing")
+const values = require("nupp.runtime.vm.values")
+const corestorage = require("nupp.runtime.core.corestorage")
+const storage = require("nupp.runtime.core.storage")
+const tables = require("nupp.runtime.core.coretables")
+const ints = require("nupp.runtime.core.coreintegers")
+
+const ARENA_BYTES: uint64 = 67108864ULL
+const WORD_BYTES: uint64 = 8ULL
+const MAXIMUM: uint64 = 0xffffffffffffffffULL
+const WRONG: uint64 = 1000000000ULL
+
+local function bit(ok: boolean, value: uint64): uint64
+    if ok then
+        return value
+    end
+
+    return 0ULL
+end
+
+local function root(borrows a: arena.Arena*, h: heap.Heap*): uint64
+    @unsafe do
+        local raw = arena.alloc(a, WORD_BYTES, WORD_BYTES)
+        if raw == nil then
+            error("storage lifetime: no root slot")
+        end
+        native.store64(raw, 0, values.NIL)
+        collector.register(h, native.address(raw), 1ULL)
+
+        return native.address(raw)
+    end
+end
+
+local function live(h: heap.Heap*, address: uint64): boolean
+    return heap.isLiveSlot(h, address)
+end
+
+local function collect(h: heap.Heap*, minor: uint64): uint64
+    if minor == 0ULL then
+        collector.fullCycle(h)
+        return collector.checkOracle(h, true)
+    end
+    collector.minorcycle(h)
+
+    return collector.checkOracle(h, false)
+end
+
+local function descriptorwords(): uint64
+    return (native.sizeOf<storage.Storage>() + WORD_BYTES - 1ULL) // WORD_BYTES
+end
+
+-- Both empty and nonempty owners survive through a rooted view. Unrooting
+-- retires one external owner, then repeated release and drain free each block
+-- exactly once, demonstrated while earlier reclaimed blocks are held allocated.
+export function reclamation(empty: uint64, minor: uint64): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = collector.GENERATIONAL
+            h.automatic = false
+            local roots = root(a, h)
+            local count: uint64 = 16ULL
+            if empty ~= 0ULL then
+                count = 0ULL
+            end
+            local owner = corestorage.newstorage(h, corestorage.UINT8, count)
+            if owner == 0ULL then
+                error("storage lifetime: no owner")
+            end
+            native.store64(native.pointer(roots), 0, values.TAG_OBJ | owner)
+            local o = native.pointer(owner) as heap.Header*
+            local d = corestorage.descriptor(owner)
+            local address = native.address(d as voidptr)
+            local data = d.base
+            local view = corestorage.newview(h, owner, corestorage.UINT8, 0ULL, count)
+            native.store64(native.pointer(roots), 0, values.TAG_OBJ | view)
+            local wrong = collect(h, minor)
+            if not live(h, owner) or not live(h, view) then
+                error("storage lifetime: rooted view lost owner")
+            end
+            answer = answer
+                | bit(
+                    address ~= 0ULL
+                    and d.kind == corestorage.UINT8
+                    and d.len == count
+                    and d.cap == count
+                    and d.read == 0ULL
+                    and corestorage.elementcount(view) == count,
+                    1ULL
+                )
+            local freed = h.stats.freed
+            native.store64(native.pointer(roots), 0, values.NIL)
+            wrong = wrong + collect(h, minor)
+            answer = answer
+                | bit(
+                    not live(h, owner)
+                    and not live(h, view)
+                    and h.released.count == 1ULL
+                    and o.aux as uint64 == heap.KIND_CORE_STORAGE
+                    and d.kind == corestorage.UINT8,
+                    2ULL
+                )
+            corestorage.releasestorage(o)
+            corestorage.releasestorage(o)
+            answer = answer | bit(o.auxPtr == 0ULL, 4ULL)
+            local first = backing.wordBackingTake(h, descriptorwords())
+            local second = backing.wordBackingTake(h, descriptorwords())
+            answer = answer | bit(first == address and second ~= 0ULL and second ~= first, 8ULL)
+            local firstData: uint64 = 0ULL
+            local secondData: uint64 = 0ULL
+            if empty == 0ULL then
+                firstData = backing.wordBackingTake(h, 2ULL)
+                secondData = backing.wordBackingTake(h, 2ULL)
+            end
+            answer = answer
+                | bit(
+                    (empty ~= 0ULL and data == 0ULL)
+                    or (empty == 0ULL and firstData == data and secondData ~= 0ULL and secondData ~= firstData),
+                    16ULL
+                )
+            tables.drain(h)
+            local third = backing.wordBackingTake(h, descriptorwords())
+            answer = answer | bit(third ~= 0ULL and third ~= first and third ~= second, 32ULL)
+            local thirdData: uint64 = 0ULL
+            if empty == 0ULL then
+                thirdData = backing.wordBackingTake(h, 2ULL)
+            end
+            answer = answer
+                | bit(
+                    empty ~= 0ULL or (thirdData ~= 0ULL and thirdData ~= firstData and thirdData ~= secondData),
+                    64ULL
+                )
+            wrong = wrong + collect(h, 0ULL)
+            answer = answer | bit(h.released.count == 0ULL and h.stats.freed == freed + 2ULL, 128ULL)
+            backing.wordBackingRelease(first)
+            backing.wordBackingRelease(second)
+            backing.wordBackingRelease(third)
+            backing.wordBackingRelease(firstData)
+            backing.wordBackingRelease(secondData)
+            backing.wordBackingRelease(thirdData)
+            answer = answer + wrong * WRONG
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- A nested view resolves the new base after growth. Reusing and poisoning the
+-- old block makes a cached raw pointer observably wrong. Only the ultimate
+-- owner survives; promoted old pairs survive minor GC and die at full GC.
+export function relocation(minor: uint64): uint64
+    local copied = storage.CopyStats(0ULL)
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = collector.GENERATIONAL
+            h.automatic = false
+            local roots = root(a, h)
+            local owner = corestorage.newstorage(h, corestorage.UINT8, 16ULL)
+            if owner == 0ULL then
+                error("storage lifetime: no moving owner")
+            end
+            native.store64(native.pointer(roots), 0, values.TAG_OBJ | owner)
+            local d = corestorage.descriptor(owner)
+            local address = native.address(d as voidptr)
+            local before = d.base
+            native.store8(native.pointer(before), 6, 42ULL)
+            native.store8(native.pointer(before), 7, 99ULL)
+            local view = corestorage.newview(h, owner, corestorage.UINT8, 4ULL, 8ULL)
+            native.store64(native.pointer(roots), 0, values.TAG_OBJ | view)
+            local nested = corestorage.newview(h, view, corestorage.UINT8, 2ULL, 3ULL)
+            native.store64(native.pointer(roots), 0, values.TAG_OBJ | nested)
+            answer = answer
+                | bit(
+                    native.load64(native.pointer(nested + heap.HEADER_BYTES), 0) == values.TAG_OBJ | owner
+                    and native.load64(native.pointer(nested + heap.HEADER_BYTES), native.index(WORD_BYTES)) == 6ULL,
+                    1ULL
+                )
+            local wrong = collect(h, minor)
+            if not live(h, owner) or not live(h, nested) then
+                error("storage lifetime: nested view lost owner")
+            end
+            answer = answer | bit(not live(h, view), 2ULL)
+            local stats = copied as storage.CopyStats*
+            if storage.reserve(h, d, 64ULL, stats) ~= storage.OK then
+                error("storage lifetime: no relocated backing")
+            end
+            local after = d.base
+            local words = (d.cap + WORD_BYTES - 1ULL) // WORD_BYTES
+            answer = answer | bit(after ~= before and d.len == 16ULL and d.read == 0ULL and stats.bytes == 16ULL, 4ULL)
+            local poisoned = backing.wordBackingTake(h, 2ULL)
+            if poisoned == 0ULL then
+                error("storage lifetime: no poison block")
+            end
+            native.store64(native.pointer(poisoned), 0, MAXIMUM)
+            native.store64(native.pointer(poisoned), native.index(WORD_BYTES), MAXIMUM)
+            answer = answer | bit(poisoned == before, 8ULL)
+            answer = answer
+                | bit(
+                    corestorage.storagebase(nested) == after + 6ULL
+                    and corestorage.readelement(h, nested, 0ULL) == values.TAG_INTEGER | 42ULL
+                    and corestorage.elementcount(nested) == 3ULL
+                    and corestorage.elementkind(nested) == corestorage.UINT8,
+                    16ULL
+                )
+            local child = corestorage.newview(h, nested, corestorage.UINT8, 1ULL, 2ULL)
+            answer = answer
+                | bit(
+                    corestorage.storagebase(child) == after + 7ULL
+                    and corestorage.readelement(h, child, 0ULL) == values.TAG_INTEGER | 99ULL,
+                    32ULL
+                )
+            wrong = wrong + collect(h, 1ULL) + collect(h, 1ULL)
+            local o = native.pointer(owner) as heap.Header*
+            local v = native.pointer(nested) as heap.Header*
+            answer = answer
+                | bit((o.flags as uint64) & heap.F_OLD ~= 0ULL and (v.flags as uint64) & heap.F_OLD ~= 0ULL, 64ULL)
+            native.store64(native.pointer(roots), 0, values.NIL)
+            wrong = wrong + collect(h, 1ULL)
+            answer = answer | bit(live(h, owner) and live(h, nested), 128ULL)
+            wrong = wrong + collect(h, 0ULL)
+            answer = answer
+                | bit(
+                    not live(h, owner)
+                    and not live(h, nested)
+                    and h.released.count == 1ULL
+                    and o.aux as uint64 == heap.KIND_CORE_STORAGE,
+                    256ULL
+                )
+            tables.drain(h)
+            local returned = backing.wordBackingTake(h, words)
+            local returnedDescriptor = backing.wordBackingTake(h, descriptorwords())
+            local held = backing.wordBackingTake(h, 2ULL)
+            answer = answer
+                | bit(returned == after and returnedDescriptor == address and held ~= before and held ~= 0ULL, 512ULL)
+            backing.wordBackingRelease(returned)
+            backing.wordBackingRelease(returnedDescriptor)
+            backing.wordBackingRelease(held)
+            backing.wordBackingRelease(poisoned)
+            answer = answer + wrong * WRONG
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- Scalar element kinds retain their widths, integer/float values, view bounds,
+-- and out-of-bounds sentinels after the descriptor migration.
+export function typed(kind: uint64): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local width = corestorage.elementwidth(kind)
+            local owner = corestorage.newstorage(h, kind, 3ULL)
+            if owner == 0ULL then
+                error("storage lifetime: no scalar storage")
+            end
+            local floating = kind == corestorage.FLOAT32 or kind == corestorage.FLOAT64
+            local first: uint64 = 7ULL
+            local second = MAXIMUM
+            if floating then
+                first = 0x3ff8000000000000ULL
+                second = 0xc002000000000000ULL
+            end
+            answer = answer
+                | bit(
+                    corestorage.elementcount(owner) == 3ULL
+                    and corestorage.elementkind(owner) == kind
+                    and corestorage.bytelength(owner) == 3ULL * width,
+                    1ULL
+                )
+            local zero = corestorage.readelement(h, owner, 0ULL)
+            answer = answer | bit((floating and zero == 0ULL) or (not floating and zero == values.TAG_INTEGER), 2ULL)
+            corestorage.writeelement(owner, 0ULL, first)
+            corestorage.writeelement(owner, 1ULL, second)
+            local readFirst = corestorage.readelement(h, owner, 0ULL)
+            local readSecond = corestorage.readelement(h, owner, 1ULL)
+            local expected = second
+            if kind == corestorage.UINT8 or kind == corestorage.UINT16 or kind == corestorage.UINT32 then
+                expected = (1ULL << (width * WORD_BYTES)) - 1ULL
+            end
+            answer = answer
+                | bit(
+                    (floating and readFirst == first and readSecond == second)
+                    or (not floating and ints.bitsOf(readFirst) == first and ints.bitsOf(readSecond) == expected),
+                    4ULL
+                )
+            local view = corestorage.newview(h, owner, kind, width, 1ULL)
+            answer = answer
+                | bit(
+                    corestorage.elementcount(view) == 1ULL
+                    and corestorage.readelement(h, view, 0ULL) == readSecond
+                    and corestorage.storagebase(view) == corestorage.storagebase(owner) + width,
+                    8ULL
+                )
+            answer = answer
+                | bit(
+                    corestorage.readelement(h, owner, 3ULL) == values.TRUE
+                    and corestorage.writeelement(view, 1ULL, 0ULL) == 1ULL,
+                    16ULL
+                )
+            answer = answer
+                | bit(
+                    corestorage.newview(h, owner, kind, MAXIMUM, 1ULL) == 0ULL
+                    and corestorage.newview(h, owner, kind, 0ULL, MAXIMUM) == 0ULL,
+                    32ULL
+                )
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
