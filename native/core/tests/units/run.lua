@@ -595,6 +595,33 @@ local GMATCH = {
 }
 
 UNITS[#UNITS + 1] = {
+    name = "storageunits",
+    modules = {"storageunits", "unitentry", "nupp.runtime.core.storage"},
+    paths = {["nupp.runtime.core.storage"] = ROOT .. "/native/core/src/nupp/runtime/core/storage.nupp"},
+    include = "native/core/src",
+    entries = {
+        {"storageunits", "basics", 1},
+        {"storageunits", "rollback", 0},
+        {"storageunits", "overlap", 1},
+        {"storageunits", "aliased", 2}
+    },
+    cases = function()
+        return {
+            {"basics", {1}, 4095},
+            {"basics", {7}, 4095},
+            {"basics", {12}, 4095},
+            {"rollback", {}, 2047},
+            {"overlap", {0}, 3},
+            {"overlap", {1}, 3},
+            {"aliased", {0, 0}, 31},
+            {"aliased", {0, 1}, 31},
+            {"aliased", {1, 0}, 31},
+            {"aliased", {1, 1}, 31}
+        }
+    end
+}
+
+UNITS[#UNITS + 1] = {
     name = "stringunits",
     modules = {
         "stringunits",

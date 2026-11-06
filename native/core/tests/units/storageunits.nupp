@@ -1,0 +1,255 @@
+module storageunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const storage = require("nupp.runtime.core.storage")
+const corestorage = require("nupp.runtime.core.corestorage")
+
+const ARENA_BYTES: uint64 = 16777216ULL
+const MAXIMUM: uint64 = 0xffffffffffffffffULL
+const SAMPLE: uint64 = 0x44332211ULL
+
+local function bit(ok: boolean, value: uint64): uint64
+    if ok then
+        return value
+    end
+
+    return 0ULL
+end
+
+local function same(
+    s: storage.Storage*,
+    base: uint64,
+    length: uint64,
+    capacity: uint64,
+    read: uint64,
+    kind: uint64
+): boolean
+    @unsafe do
+        return s.base == base and s.len == length and s.cap == capacity and s.read == read and s.kind == kind
+    end
+end
+
+local function zeroed(base: uint64, count: uint64): boolean
+    local i: uint64 = 0ULL
+    while i < count do
+        if native.word(native.load8(native.pointer(base), native.index(i))) ~= 0ULL then
+            return false
+        end
+        i = i + 1ULL
+    end
+
+    return true
+end
+
+-- Initialization, cursor operations, idempotent release, and zeroed pool reuse.
+export function basics(kind: uint64): uint64
+    local state = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local copied = storage.CopyStats(0ULL)
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local s = state as storage.Storage*
+            local stats = copied as storage.CopyStats*
+            if storage.initialize(h, s, kind, 8ULL, 16ULL) ~= storage.OK then
+                error("storage units: no basic backing")
+            end
+            answer = answer | 1ULL
+            local base = s.base
+            answer = answer | bit(same(s, base, 8ULL, 16ULL, 0ULL, kind), 2ULL)
+            answer = answer | bit(zeroed(base, 16ULL), 4ULL)
+            native.store64(native.pointer(base), 0, SAMPLE)
+            answer = answer | bit(storage.consume(s, 3ULL) == storage.OK and s.read == 3ULL, 8ULL)
+            answer = answer
+                | bit(
+                    storage.reserve(h, s, 5ULL, stats) == storage.OK and s.base == base and stats.bytes == 0ULL,
+                    16ULL
+                )
+            answer = answer | bit(storage.commit(s, 5ULL) == storage.OK and s.len == 13ULL, 32ULL)
+            answer = answer | bit(storage.truncate(s, 9ULL) == storage.OK and s.len == 9ULL, 64ULL)
+            answer = answer | bit(storage.consume(s, 7ULL) == storage.INVALID and s.read == 3ULL, 128ULL)
+            storage.reset(s)
+            answer = answer | bit(same(s, base, 0ULL, 16ULL, 0ULL, kind), 256ULL)
+            storage.release(s)
+            answer = answer | bit(same(s, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL), 512ULL)
+            storage.release(s)
+            answer = answer | bit(same(s, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL), 1024ULL)
+            local status = storage.initialize(h, s, kind, 16ULL, 16ULL)
+            answer = answer | bit(status == storage.OK and s.base == base and zeroed(s.base, 16ULL), 2048ULL)
+            storage.release(s)
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- Invalid extents and exhausted-arena backing refusal preserve every field and
+-- initialized byte. Exhaustion is bounded and deterministic, not an OS OOM probe.
+export function rollback(): uint64
+    local state = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local other = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local copied = storage.CopyStats(0ULL)
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local s = state as storage.Storage*
+            local stats = copied as storage.CopyStats*
+            local kind = corestorage.UINT8
+            answer = answer
+                | bit(
+                    storage.initialize(h, s, kind, 5ULL, 4ULL) == storage.INVALID
+                    and same(s, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL),
+                    1ULL
+                )
+            if storage.initialize(h, s, kind, 4ULL, 4ULL) ~= storage.OK then
+                error("storage units: no initial backing")
+            end
+            native.store32(native.pointer(s.base), 0, native.index(SAMPLE))
+            storage.consume(s, 1ULL)
+            local base = s.base
+            answer = answer
+                | bit(
+                    storage.reserve(h, s, MAXIMUM, stats) == storage.INVALID and same(s, base, 4ULL, 4ULL, 1ULL, kind),
+                    2ULL
+                )
+            answer = answer
+                | bit(
+                    storage.append(h, s, base + 3ULL, 2ULL, stats) == storage.INVALID
+                    and same(s, base, 4ULL, 4ULL, 1ULL, kind),
+                    4ULL
+                )
+            answer = answer
+                | bit(
+                    storage.append(h, s, 0ULL, 1ULL, stats) == storage.INVALID
+                    and same(s, base, 4ULL, 4ULL, 1ULL, kind),
+                    8ULL
+                )
+            answer = answer
+                | bit(storage.commit(s, MAXIMUM) == storage.INVALID and same(s, base, 4ULL, 4ULL, 1ULL, kind), 16ULL)
+            answer = answer
+                | bit(storage.truncate(s, 0ULL) == storage.INVALID and same(s, base, 4ULL, 4ULL, 1ULL, kind), 32ULL)
+            answer = answer
+                | bit(storage.truncate(s, 5ULL) == storage.INVALID and same(s, base, 4ULL, 4ULL, 1ULL, kind), 64ULL)
+            answer = answer
+                | bit(storage.consume(s, 4ULL) == storage.INVALID and same(s, base, 4ULL, 4ULL, 1ULL, kind), 128ULL)
+            answer = answer
+                | bit(
+                    storage.initialize(h, s, kind, 0ULL, 0ULL) == storage.INVALID
+                    and same(s, base, 4ULL, 4ULL, 1ULL, kind),
+                    256ULL
+                )
+            local limit = a.limit
+            a.limit = a.cursor
+            local status = storage.reserve(h, s, 1ULL, stats)
+            answer = answer
+                | bit(
+                    status == storage.NO_MEMORY
+                    and same(s, base, 4ULL, 4ULL, 1ULL, kind)
+                    and stats.bytes == 0ULL
+                    and native.word(native.load32(native.pointer(base), 0)) == SAMPLE,
+                    512ULL
+                )
+            local fresh = other as storage.Storage*
+            status = storage.initialize(h, fresh, kind, 1ULL, 16384ULL)
+            answer = answer | bit(status == storage.NO_MEMORY and same(fresh, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL), 1024ULL)
+            a.limit = limit
+            storage.release(s)
+            storage.release(fresh)
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+export function overlap(direction: uint64): uint64
+    local state = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local copied = storage.CopyStats(0ULL)
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local s = state as storage.Storage*
+            if storage.initialize(h, s, corestorage.UINT8, 8ULL, 8ULL) ~= storage.OK then
+                error("storage units: no overlap backing")
+            end
+            native.store64(native.pointer(s.base), 0, 0x0807060504030201ULL)
+            local stats = copied as storage.CopyStats*
+            local expected: uint64 = 0x0605040302010201ULL
+            if direction == 0ULL then
+                storage.copy(s.base + 2ULL, s.base, 6ULL, stats)
+            else
+                storage.copy(s.base, s.base + 2ULL, 6ULL, stats)
+                expected = 0x0807080706050403ULL
+            end
+            answer = bit(native.load64(native.pointer(s.base), 0) == expected, 1ULL) | bit(stats.bytes == 6ULL, 2ULL)
+            storage.release(s)
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- Aliased appends both within capacity and across growth, with exact copy
+-- accounting when enabled and a real null stats pointer otherwise.
+export function aliased(grow: uint64, tracked: uint64): uint64
+    local state = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local copied = storage.CopyStats(0ULL)
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local s = state as storage.Storage*
+            local capacity: uint64 = 16ULL
+            if grow ~= 0ULL then
+                capacity = 4ULL
+            end
+            if storage.initialize(h, s, corestorage.UINT8, 4ULL, capacity) ~= storage.OK then
+                error("storage units: no append backing")
+            end
+            local before = s.base
+            native.store32(native.pointer(before), 0, 0x04030201)
+            storage.consume(s, 1ULL)
+            local stats = copied as storage.CopyStats*
+            local status: uint64 = storage.INVALID
+            if tracked == 0ULL then
+                status = storage.append(h, s, before + 1ULL, 3ULL, native.pointer(0ULL) as storage.CopyStats*)
+            else
+                status = storage.append(h, s, before + 1ULL, 3ULL, stats)
+            end
+            if status ~= storage.OK then
+                error("storage units: append refused")
+            end
+            answer = answer
+                | bit(status == storage.OK and s.len == 7ULL and s.read == 1ULL and s.kind == corestorage.UINT8, 1ULL)
+            answer = answer | bit(native.load64(native.pointer(s.base), 0) == 0x0004030204030201ULL, 2ULL)
+            answer = answer | bit(zeroed(s.base + 7ULL, s.cap - 7ULL), 4ULL)
+            answer = answer | bit((grow == 0ULL and s.base == before) or (grow ~= 0ULL and s.base ~= before), 8ULL)
+            local expected: uint64 = 0ULL
+            if tracked ~= 0ULL then
+                expected = 3ULL
+                if grow ~= 0ULL then
+                    expected = 7ULL
+                end
+            end
+            answer = answer | bit(stats.bytes == expected, 16ULL)
+            storage.release(s)
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
