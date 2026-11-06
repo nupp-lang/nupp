@@ -74,7 +74,7 @@ local array = table.Array
 local span = require("binary.span")
 local lanes = require(%q)
 @aot
-local function scale(exclusive values: span.WriteSpan<number>, factor: number): nil
+local function scale(exclusive values: span.WriteSpan<float64>, factor: float64): nil
     local species = lanes.species(array.number)
     for at, active in species:over(#values) do
         species:store(values, at, species:load(values, at, active) * factor, active)

@@ -7,10 +7,15 @@ local envMod = require("nupp.compiler.project.env")
 local HERE = require("helpers.paths").tests
 local env = envMod.new(HERE .. "/..")
 
+local nextFragment = 0
+
 local function compile(source)
-    local parsed = parser.parse(source, "soa-test.nupp")
+    nextFragment = nextFragment + 1
+    local name = "soa-test-" .. nextFragment
+    local path = name .. ".nupp"
+    local parsed = parser.parse(source, path)
     testAssert.eq(#parsed.errors, 0, "syntax errors")
-    local diagnostics = check.check(parsed, "soa-test.nupp", env)
+    local diagnostics = check.check(parsed, path, env, {moduleName = name})
     local errors = {}
     for _, diagnostic in ipairs(diagnostics or {}) do
         if diagnostic.severity == "error" then
@@ -21,7 +26,7 @@ local function compile(source)
         return "", errors, {}, parsed, {}
     end
     local listing = {}
-    local ok, image = pcall(program.image, parsed, "soa-test", "soa-test.nupp", listing)
+    local ok, image = pcall(program.image, parsed, name, path, listing)
     if not ok then
         return "", errors, {{msg = tostring(image)}}, parsed, listing
     end
@@ -64,10 +69,10 @@ local array = table.Array
 local simd = require("simd")
 
 local struct Particle
-    x: float
-    y: float
-    dx: float
-    dy: float
+    x: float32
+    y: float32
+    dx: float32
+    dy: float32
 end
 ]]
 
@@ -102,7 +107,7 @@ function M.countBoundedLoopsUseCheckedColumnOperations()
     local value, image = runs(
         PRELUDE
         .. [[
-local function advance(exclusive view: span.WriteSpan<Particle, "columnar">, delta: float): nil
+local function advance(exclusive view: span.WriteSpan<Particle, "columnar">, delta: float32): nil
     const rows = view
     for index = 1, #rows do
         rows[index].x += rows[index].dx * delta
@@ -125,7 +130,7 @@ function M.nestedCountBoundedLoopsPreserveColumnUpdates()
     local value, image = runs(
         PRELUDE
         .. [[
-local function advance(exclusive view: span.WriteSpan<Particle, "columnar">, delta: float, steps: integer): nil
+local function advance(exclusive view: span.WriteSpan<Particle, "columnar">, delta: float32, steps: integer): nil
     const rows = view
     for _ = 1, steps do
         for index = 1, #rows do
@@ -276,12 +281,12 @@ function M.nestedStructsAndFixedArraysRemainSingleColumns()
 local soa = table.Array
 local span = require("binary.span")
 local struct Position
-    x: float
-    y: float
+    x: float32
+    y: float32
 end
 local struct Sample
     position: Position
-    history: float[3]
+    history: float32[3]
 end
 local layout = soa.layoutof(ffi.typeof<Sample>())
 local instance = layout:forcount(2)
@@ -329,8 +334,8 @@ local span = require("binary.span")
 local particles = soa.alloc(ffi.typeof<Particle>(), 2, "columnar")
 do
     local rows = particles:write()
-    local xs: span.Writable<float> = rows.x
-    local ys: span.Writable<float> = rows["y"]
+    local xs: span.Writable<float32> = rows.x
+    local ys: span.Writable<float32> = rows["y"]
     xs[1] = 3.5
     ys[1] = 4.5
     own.drop(xs)
@@ -338,7 +343,7 @@ do
     own.drop(rows)
 end
 local rows = particles:read()
-local xs: span.Span<float> = rows.x
+local xs: span.Span<float32> = rows.x
 return xs[1] + rows[1].y
 ]]
     )
@@ -374,7 +379,7 @@ function M.literalBracketsReachColumnsThatCollideWithViewMembers()
 local soa = table.Array
 local span = require("binary.span")
 local struct Collision
-    slice: float
+    slice: float32
 end
 local values = soa.alloc(ffi.typeof<Collision>(), 1, "columnar")
 do
@@ -397,7 +402,7 @@ function M.aotBodiesRetainSemanticUnitStrideFieldFacts()
         PRELUDE
         .. [[
 @aot
-local function advance(exclusive rows: span.WriteSpan<Particle, "columnar">, dt: float): nil
+local function advance(exclusive rows: span.WriteSpan<Particle, "columnar">, dt: float32): nil
     for i = 1, #rows do
         rows[i].x += rows[i].dx * dt
         rows[i].y += rows[i].dy * dt
@@ -744,7 +749,7 @@ end
 local DIRECT = PRELUDE
     .. [[
 @aot
-local function advance(exclusive rows: span.WriteSpan<Particle, "columnar">, dt: float): nil
+local function advance(exclusive rows: span.WriteSpan<Particle, "columnar">, dt: float32): nil
     local species = assert(simd.species(array.float))
     local cursor: uint32 = 0
     while cursor < #rows do

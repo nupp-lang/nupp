@@ -6,7 +6,7 @@ local M = {}
 local MAX_FIELD_ALIGNMENT = 8
 
 local function facts(raw, element)
-    if type(element) ~= "table" or element.kind ~= "struct" then
+    if (type(element) ~= "table" and type(element) ~= "cdata") or element.kind ~= "struct" then
         error("nupp: SoA storage needs a struct with a supported storage layout", 3)
     end
     assert(
