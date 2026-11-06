@@ -14,6 +14,8 @@ describe, list and rename paths but not copy or write whole files.
 ]]
 module nupp.runtime.provider.nativefiles
 
+local valueType: function(borrows value: any): string = type as any
+
 const systeminfo = require("nupp.runtime.systeminfo")
 
 ----------------------------------------------------------------------------
@@ -189,10 +191,10 @@ local scratch: function(borrows self: File, count: integer): any
 
 --- @raises string when value is neither a path nor a string
 local function named(value: any, what: string, level: integer): string
-    if type(value) == "string" then
+    if valueType(value) == "string" then
         return value as string
     end
-    if type(value) == "table" and (value as any).tostring ~= nil then
+    if valueType(value) == "table" and (value as any).tostring ~= nil then
         return (value as paths.Path):tostring()
     end
     error("nupp: os " .. what .. " must be a path or a string", level)
@@ -200,7 +202,7 @@ end
 
 --- @raises string when value is not an integer
 local function whole(value: any, what: string, level: integer): integer
-    if type(value) ~= "number"
+    if valueType(value) ~= "number"
         or value ~= math.floor(value as number)
         or math.abs(value as number) > MAX_EXACT_INTEGER
     then
@@ -303,7 +305,7 @@ export record File is io.Reader, io.Writer
     --- @param destination the positive-sized range to fill
     --- @return how many bytes were read, or nil when the file is closed
     --- @return why it could not read, when unsuccessful
-    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readspan(exclusive self, exclusive destination: span.ByteWriteSpan): (integer?, string?)
         if self._closed then
             return nil, "the file is closed"
         end
@@ -333,7 +335,7 @@ export record File is io.Reader, io.Writer
         if self._closed then
             return false, "the file is closed"
         end
-        if type(bytes) ~= "string" then
+        if valueType(bytes) ~= "string" then
             error("nupp: io File:write needs a string", 2)
         end
         local output = ffi.new("size_t[1]")
@@ -726,7 +728,7 @@ local function fragment(value: any, what: string, level: integer): string
     if value == nil then
         return ""
     end
-    if type(value) ~= "string" then
+    if valueType(value) ~= "string" then
         error("nupp: os temporary " .. what .. " must be a string", level)
     end
 
@@ -751,15 +753,21 @@ local function temporary(directory: boolean, prefix: any, suffix: any, within: a
     return answer(status, output)
 end
 
---- @raises string when value is neither bytes nor a byte view
-local function payload(borrows value: string | io.ByteView, what: string, level: integer): string
-    if type(value) == "string" then
-        return tostring(value)
+local spanText: function(
+    borrows source: const uint8[?],
+    count: integer
+): string = require("nupp.runtime.storage").string as any
+
+local function submitBytes(path: string, borrows bytes: string | span.ByteSpan, mode: integer, output: any): integer
+    local payload: string
+    if valueType(bytes) == "string" then
+        payload = tostring(bytes)
+    else
+        local source = bytes as span.ByteSpan;
+        payload = spanText(source:ref(), #source)
     end
-    if type(value) == "table" and (value as io.ByteView).getstring ~= nil then
-        return (value as io.ByteView):getstring()
-    end
-    error("nupp: io " .. what .. " must be bytes or a byte view", level)
+
+    return C.nuppNativeFilesTransferSubmitWrite(slice(path), slice(payload), mode, output)
 end
 
 ----------------------------------------------------------------------------
@@ -1037,11 +1045,10 @@ end
 --- @return whether the write succeeded
 --- @return a failure reason, when unsuccessful
 --- @export
-export function write(path: string | paths.Path, borrows bytes: string | io.ByteView): (boolean, string?)
+export function write(path: string | paths.Path, borrows bytes: string | binary.span.ByteSpan): (boolean, string?)
     local text = named(path, "path", 2)
-    local out = payload(bytes, "contents", 2)
     local output = ffi.new("uint64_t[1]")
-    local status = C.nuppNativeFilesTransferSubmitWrite(slice(text), slice(out), 0, output)
+    local status = submitBytes(text, bytes, 0, output)
 
     if status ~= 0 then
         return false, ffi.string(C.nuppNativeLastError())
@@ -1056,11 +1063,10 @@ end
 --- @return whether the write succeeded
 --- @return a failure reason, when unsuccessful
 --- @export
-export function append(path: string | paths.Path, borrows bytes: string | io.ByteView): (boolean, string?)
+export function append(path: string | paths.Path, borrows bytes: string | binary.span.ByteSpan): (boolean, string?)
     local text = named(path, "path", 2)
-    local out = payload(bytes, "contents", 2)
     local output = ffi.new("uint64_t[1]")
-    local status = C.nuppNativeFilesTransferSubmitWrite(slice(text), slice(out), 1, output)
+    local status = submitBytes(text, bytes, 1, output)
 
     if status ~= 0 then
         return false, ffi.string(C.nuppNativeLastError())
@@ -1079,11 +1085,10 @@ end
 --- @return whether the write succeeded
 --- @return a failure reason, when unsuccessful
 --- @export
-export function writeAtomic(path: string | paths.Path, borrows bytes: string | io.ByteView): (boolean, string?)
+export function writeAtomic(path: string | paths.Path, borrows bytes: string | binary.span.ByteSpan): (boolean, string?)
     local text = named(path, "path", 2)
-    local out = payload(bytes, "contents", 2)
     local output = ffi.new("uint64_t[1]")
-    local status = C.nuppNativeFilesTransferSubmitWrite(slice(text), slice(out), 2, output)
+    local status = submitBytes(text, bytes, 2, output)
 
     if status ~= 0 then
         return false, ffi.string(C.nuppNativeLastError())

@@ -128,7 +128,7 @@ export function glob(pattern: string): ({paths.Path}?, io.Error?)
     return answered(provider.glob(pattern))
 end
 
-export function writeatomic(path: Path, borrows bytes: string | io.ByteView): (boolean, io.Error?)
+export function writeatomic(path: Path, borrows bytes: string | binary.span.ByteSpan): (boolean, io.Error?)
     return answered(provider.writeAtomic(path, bytes))
 end
 

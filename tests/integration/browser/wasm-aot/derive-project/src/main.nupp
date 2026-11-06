@@ -32,7 +32,7 @@ local function encodedText(value: Reading): string
     typedJSON.writevalue(binding, value, writer)
     writer:close()
 
-    return out:getstring()
+    return out:tostring()
 end
 
 local reading = Reading(id = 7, label = "intake", samples = {3, 1, 4})

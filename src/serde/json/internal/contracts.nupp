@@ -55,7 +55,7 @@ end
 --- local writer = serde.json.Writer.of(out)
 --- writer:startobject():key("ok"):write(true):endobject()
 --- writer:close()
---- assert(out:getstring() == [[{"ok":true}]])
+--- assert(out:tostring() == [[{"ok":true}]])
 --- ```
 --- @export
 export interface Writer is own.Closeable
@@ -66,7 +66,7 @@ export interface Writer is own.Closeable
     --- local writer = serde.json.Writer.of(out)
     --- writer:startarray():write("first"):endarray()
     --- writer:close()
-    --- assert(out:getstring() == "[\"first\"]")
+    --- assert(out:tostring() == "[\"first\"]")
     --- ```
     --- @param self the writer
     --- @return this writer
@@ -79,7 +79,7 @@ export interface Writer is own.Closeable
     --- local writer = serde.json.Writer.of(out)
     --- writer:startobject():endobject()
     --- writer:close()
-    --- assert(out:getstring() == "{}")
+    --- assert(out:tostring() == "{}")
     --- ```
     --- @param self the writer
     --- @return this writer
@@ -92,7 +92,7 @@ export interface Writer is own.Closeable
     --- local writer = serde.json.Writer.of(out)
     --- writer:startobject():key("answer"):write(42):endobject()
     --- writer:close()
-    --- assert(out:getstring() == [[{"answer":42}]])
+    --- assert(out:tostring() == [[{"answer":42}]])
     --- ```
     --- @param self the writer
     --- @param name the next member name
@@ -107,7 +107,7 @@ export interface Writer is own.Closeable
     --- local writer = serde.json.Writer.of(out)
     --- writer:startarray():write({id = 41}):endarray()
     --- writer:close()
-    --- assert(out:getstring() == "[{\"id\":41}]")
+    --- assert(out:tostring() == "[{\"id\":41}]")
     --- ```
     --- @param self the writer
     --- @param value the next JSON value
@@ -128,7 +128,7 @@ export interface Writer is own.Closeable
     --- local writer = serde.json.Writer.of(out)
     --- writer:startarray():null():endarray()
     --- writer:close()
-    --- assert(out:getstring() == "[null]")
+    --- assert(out:tostring() == "[null]")
     --- ```
     --- @param self the writer
     --- @return this writer
@@ -141,7 +141,7 @@ export interface Writer is own.Closeable
     --- local writer = serde.json.Writer.of(out)
     --- writer:startarray():startobject():endobject():endarray()
     --- writer:close()
-    --- assert(out:getstring() == "[{}]")
+    --- assert(out:tostring() == "[{}]")
     --- ```
     --- @param self the writer
     --- @return this writer
@@ -154,7 +154,7 @@ export interface Writer is own.Closeable
     --- local writer = serde.json.Writer.of(out)
     --- writer:startobject():key("items"):startarray():endarray():endobject()
     --- writer:close()
-    --- assert(out:getstring() == [[{"items":[]}]])
+    --- assert(out:tostring() == [[{"items":[]}]])
     --- ```
     --- @param self the writer
     --- @return this writer
@@ -167,10 +167,10 @@ export interface Writer is own.Closeable
     --- local writer = serde.json.Writer.of(out)
     --- writer:startarray():write(1)
     --- writer:flush()
-    --- assert(out:getstring() == "[1")
+    --- assert(out:tostring() == "[1")
     --- writer:endarray()
     --- writer:close()
-    --- assert(out:getstring() == "[1]")
+    --- assert(out:tostring() == "[1]")
     --- ```
     --- @param self the writer
     flush: @nosuspend function(exclusive self: Writer): nil
@@ -186,7 +186,7 @@ export interface Writer is own.Closeable
     --- writer:startarray():write(1)
     --- writer:abort()
     --- writer:close()
-    --- assert(out:getstring() == "")
+    --- assert(out:tostring() == "")
     --- ```
     --- @param self the writer
     abort: @nosuspend function(exclusive self: Writer): nil
@@ -198,7 +198,7 @@ export interface Writer is own.Closeable
     --- local writer = serde.json.Writer.of(out)
     --- writer:write({ok = true})
     --- writer:close()
-    --- assert(out:getstring() == [[{"ok":true}]])
+    --- assert(out:tostring() == [[{"ok":true}]])
     --- ```
     --- @param self the writer
     close: @nosuspend function(takes self: Writer): nil

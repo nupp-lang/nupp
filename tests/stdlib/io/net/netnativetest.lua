@@ -138,7 +138,7 @@ function M.aMalformedReadIntoConsumesNothingFromAConnection()
         "offset"
     )
     testAssert.eq(reader:readinto(destination, 0, 64), 10, "the shared default reads what arrived")
-    testAssert.eq(destination:getstring(), "kept bytes", "nothing was lost to the malformed calls")
+    testAssert.eq(destination:tostring(), "kept bytes", "nothing was lost to the malformed calls")
     reader:close()
     destination:close()
     served:close()
@@ -238,7 +238,7 @@ function M.aDatagramCrossesWithItsPeer()
     assert(a:sendto({host = "127.0.0.1", port = b:port()}, "ping"), "a sends")
     local message = assert(b:receivefrom(buffer, 2048))
     testAssert.eq(message.len, 4, "b receives the whole datagram")
-    testAssert.eq(buffer:getstring(0, 4), "ping", "into the storage it offered")
+    testAssert.eq(buffer:readstring(0, 4), "ping", "into the storage it offered")
     testAssert.eq(message.address.port, a:port(), "carrying the peer that sent it")
     testAssert.eq(message.truncated, false, "and it was not truncated")
     buffer:close()
@@ -285,7 +285,7 @@ function M.datagramsKeepTheirBoundaries()
     for _ = 1, 3 do
         local message = assert(b:receivefrom(buffer, 2048))
         testAssert.eq(message.len, 2, "each receive is one whole message")
-        seen[buffer:getstring(0, 2)] = true
+        seen[buffer:readstring(0, 2)] = true
     end
     for index = 1, 3 do
         assert(seen[("m%d"):format(index)], "every message arrived separately")
@@ -811,12 +811,12 @@ function M.aLinkLocalPeerCanBeAnswered()
     local buffer = io_.Buffer.create(64)
     assert(a:sendto({host = zoned, port = b:port()}, "ping"), "a sends to its own link-local address")
     local message = assert(b:receivefrom(buffer, 64))
-    testAssert.eq(buffer:getstring(0, message.len), "ping", "b receives it")
+    testAssert.eq(buffer:readstring(0, message.len), "ping", "b receives it")
     assert(message.address.host:find("%", 1, true) ~= nil, "the peer arrives with its scope")
     local replied, why = b:sendto(message.address, "pong")
     assert(replied, "b answers the peer it heard from: " .. tostring(why))
     local answer = assert(a:receivefrom(buffer, 64))
-    testAssert.eq(buffer:getstring(0, answer.len), "pong", "and a receives the answer")
+    testAssert.eq(buffer:readstring(0, answer.len), "pong", "and a receives the answer")
     buffer:close()
     b:close()
     a:close()
@@ -861,6 +861,34 @@ function M.aHostSleepingOnTheReadinessGenerationIsWokenByTheNetwork()
     -- A loopback connect completes on the provider's executor, never inside the
     -- call, so the host always sleeps at least once and the network wakes it.
     assert(sleeps > 0, "the host slept on the generation")
+end
+
+function M.streamSpansPreservePayloadAndEndOfStream()
+    local listener, client, server = pair()
+    local payload = io_.Buffer.create("native spans")
+    assert(client:writespan(payload:span()) == 12)
+    assert(client:flush())
+    assert(client:shutdownwrite())
+    local result = io_.Buffer.create()
+    local lease = result:reserve(32)
+    local output = lease:span()
+    local total = 0
+    while total < 12 do
+        local rest = output:slice(total + 1)
+        local got, why = server:readspan(rest)
+        rest:drop()
+        assert(got and got > 0, why)
+        total = total + got
+    end
+    assert(server:readspan(output) == 0)
+    output:drop()
+    lease:commit(total)
+    assert(result:tostring() == "native spans")
+    client:close();
+    server:close();
+    listener:close()
+    payload:close();
+    result:close()
 end
 
 return M

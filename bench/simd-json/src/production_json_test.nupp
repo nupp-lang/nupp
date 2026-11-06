@@ -193,7 +193,7 @@ function test.run(): nil
     local writer = json.Writer.of(out)
     writer:startobject():key(json.encodedstring('a"b')):write(json.verified("42")):endobject()
     writer:close()
-    assert2(out:getstring() == [[{"a\"b":42}]])
+    assert2(out:tostring() == [[{"a\"b":42}]])
 
     assert2(json.decodevalue("null", json.NULL) == json.NULL)
     assert2(json.decodevalue("null") == nil)

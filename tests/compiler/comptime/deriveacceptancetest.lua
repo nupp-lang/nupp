@@ -102,7 +102,7 @@ for index, value in ipairs(corpora) do
     local writer = typedJSON.Writer.of(out)
     typedJSON.writevalue(serde.binding(ModuleCache), value, writer)
     writer:close()
-    bytes[index] = out:getstring()
+    bytes[index] = out:tostring()
     out:clear()
     local decoded, why = decode(serde.binding(ModuleCache), bytes[index])
     accepted = accepted and decoded ~= nil and why == nil
@@ -167,7 +167,7 @@ for index, request in ipairs(corpus) do
     local writer = typedJSON.Writer.of(out)
     typedJSON.writevalue(serde.binding(TecsMCPRequest), request, writer)
     writer:close()
-    bytes[index] = out:getstring()
+    bytes[index] = out:tostring()
     out:clear()
     debugged[index] = request:debug()
     local decoded, why = decode(serde.binding(TecsMCPRequest), bytes[index])

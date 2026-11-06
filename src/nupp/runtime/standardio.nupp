@@ -210,7 +210,6 @@ export type Buffer = source1.Buffer
 export const Buffer = source1.Buffer
 export type BufferWriteLease = source1.BufferWriteLease
 export type ByteQueue = source1.ByteQueue
-export type ByteView = source1.ByteView
 export type Error = source1.Error
 export type Lines = source1.Lines
 export type Reader = source1.Reader

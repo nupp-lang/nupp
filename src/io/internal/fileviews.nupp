@@ -22,7 +22,7 @@ local function parentClosed(file: any): boolean
     return publicIo.type(file) == "closed file"
 end
 
-local function copyString(exclusive destination: span.Writable<uint8>, text: string): nil
+local function copyString(exclusive destination: span.ByteWriteSpan, text: string): nil
     if #text > 0 then
         local source = span.fromstring(text)
         local output = destination:ref()
@@ -57,7 +57,7 @@ local record FileReader is bytes.Reader
         return text
     end
 
-    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readspan(exclusive self, exclusive destination: span.ByteWriteSpan): (integer?, string?)
         local output, available = destination:ref()
         local text, reason = self:read(count(available, 1, "Reader:readspan destination length"))
         if text == nil then
@@ -90,7 +90,7 @@ local record FileReader is bytes.Reader
         if #text == 0 then
             return 0
         end
-        local lease = destination:reservewrite(from, #text)
+        local lease = require("nupp.io.internal.bytes").reserveAt(destination, from, #text)
         do
             local output = lease:span()
             copyString(output, text)

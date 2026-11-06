@@ -1975,7 +1975,13 @@ export function generate(
         local view = virtualView(node)
         if view then
             if view.kind == "root" then
-                e(view.offsetName or "0")
+                if view.offsetName then
+                    e(view.offsetName)
+                elseif view.producer and view.producer.kind == "buffer" then
+                    e(view.anchorName .. "._read")
+                else
+                    e("0")
+                end
             else
                 emitViewOffset(view.source)
             end
@@ -2063,7 +2069,7 @@ export function generate(
             else
                 emitViewRoot(view)
                 if producerKind ~= "carray" and producerKind ~= "fixed-carray" then
-                    e(".pointer")
+                    e(producerKind == "buffer" and "._data" or ".pointer")
                 end
                 e("[")
             end
@@ -9564,7 +9570,11 @@ export function generate(
         elseif kind == "methodCall" and x.virtualIndexedView then
             local view = x.virtualIndexedView
             if view.kind == "root" then
-                e(view.anchorName .. ".count", sourceLine(x))
+                if view.producer and view.producer.kind == "buffer" then
+                    e("(" .. view.anchorName .. "._length-" .. view.anchorName .. "._read)", sourceLine(x))
+                else
+                    e(view.anchorName .. ".count", sourceLine(x))
+                end
             elseif view.kind == "slice" then
                 local moduleName = compilerModuleName("nupp.mem.indexed")
                 e(moduleName .. "._sliceFinish(", sourceLine(x))
@@ -9705,6 +9715,9 @@ export function generate(
             else
                 e("const " .. view.anchorName .. "=", sourceLine(x))
                 emit(view.source)
+                if view.producer and view.producer.kind == "buffer" then
+                    e(":_spanroot()")
+                end
                 e(";")
                 emitChildren(x)
             end

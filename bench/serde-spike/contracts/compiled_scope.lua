@@ -178,16 +178,16 @@ end
 
 -- Cached writers retain the same dynamic paths and transactional output.
 local buffer = byteio.Buffer.create()
-buffer:setstring("prefix:", buffer:len())
+buffer:put("prefix:")
 value.rows[2].value = -1
 local ok, failure = pcall(json.encodeinto, fixture.collectionsBinding, value, buffer)
 assert(not ok and failure.path == '$["rows"][2]["value"]', tostring(failure))
-assert(buffer:getstring() == "prefix:")
+assert(buffer:tostring() == "prefix:")
 value.rows[2].value = 2
 value.labels.a = false
 ok, failure = pcall(json.encodeinto, fixture.collectionsBinding, value, buffer)
 assert(not ok and failure.path == '$["labels"]["a"]', tostring(failure))
-assert(buffer:getstring() == "prefix:")
+assert(buffer:tostring() == "prefix:")
 local many = setmetatable({items = {}}, fixture.Numbers)
 for index = 1, 1000000 do
     many.items[index] = index
@@ -195,20 +195,20 @@ end
 ok, failure = pcall(json.encodeinto, fixture.numbersBinding, many, buffer)
 assert(not ok and failure.code == "limit", tostring(failure))
 assert(failure.path:find('$["items"][', 1, true) == 1, failure.path)
-assert(buffer:getstring() == "prefix:")
+assert(buffer:tostring() == "prefix:")
 
 -- An io.Buffer decodes through the string route, reading its text once, and fails
 -- at the same path and byte as the string it holds.
 local inputBuffer = byteio.Buffer.create('{"name":"buffer","child":{"value":"nested"}}')
 local facade = json.codec()
 assert(facade:decodebuffer(fixture.recordBinding, inputBuffer).name == "buffer")
-inputBuffer:clear()
-inputBuffer:setstring('{"name":"buffer","child":{"value":false}}', 0)
+inputBuffer:reset()
+inputBuffer:put('{"name":"buffer","child":{"value":false}}')
 local acceptedBuffer, bufferError = pcall(json.decodebuffer, fixture.recordBinding, inputBuffer)
-local acceptedString, stringError = pcall(json.decode, fixture.recordBinding, inputBuffer:getstring())
+local acceptedString, stringError = pcall(json.decode, fixture.recordBinding, inputBuffer:tostring())
 assert(not acceptedBuffer and not acceptedString)
 assert(bufferError.path == stringError.path and bufferError.byte == stringError.byte)
-inputBuffer:clear()
-inputBuffer:setstring('{"name":"facade","child":{"value":"retained"}}', 0)
+inputBuffer:reset()
+inputBuffer:put('{"name":"facade","child":{"value":"retained"}}')
 assert(facade:decodebuffer(fixture.recordBinding, inputBuffer).child.value == "retained")
 assert(json.decodebuffer(fixture.recordBinding, inputBuffer).name == "facade")

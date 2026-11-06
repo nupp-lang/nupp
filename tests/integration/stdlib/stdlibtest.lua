@@ -73,7 +73,7 @@ end
 -- `own.drop` runs it early without adding a public `drop` on each resource.
 local FORMER_DROP_OWNERS = {
     "local owner = io.Buffer.create('bytes')",
-    "local source = io.Buffer.create('bytes')\nlocal owner = source:view()",
+    "local source = io.Buffer.create('bytes')\nlocal owner = source:reader()",
     "local owner = io.Reader.of('abcd'):scalar()",
     "local destination = io.Buffer.create(); local owner = destination:writer():scalar()",
     "local owner = io.Reader.of('one'):lines()",
@@ -156,7 +156,6 @@ end
 function M.formerResultClosesAnswerNothing()
     local io = require("io")
     local buffer = io.Buffer.create("abc")
-    testAssert.eq(select("#", buffer:view():close()), 0, "ByteView:close answers nothing")
     testAssert.eq(select("#", io.Reader.of("abcd"):scalar():close()), 0, "ScalarReader:close answers nothing")
     testAssert.eq(select("#", buffer:writer():scalar():close()), 0, "a borrowing ScalarWriter answers nothing")
     testAssert.eq(buffer:isreleased(), false, "a borrowing scalar writer leaves its buffer open")
@@ -1312,7 +1311,7 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
         testAssert.eq(response:headers()["x-test"], "one, two", "headers returns a fresh mapping")
         local destination = require("io").Buffer.create()
         testAssert.eq(response.body:readinto(destination, 0, 2), 2)
-        testAssert.eq(destination:getstring(), "ab")
+        testAssert.eq(destination:tostring(), "ab")
         testAssert.eq(response.body:read(3), "c", "the returned response owns a live ordinary reader")
         response:close()
         local bytes, closed = response.body:read(1)
@@ -2508,8 +2507,8 @@ function M.compilerProvidedPureLibraries()
       local buffer = io.Buffer.create("hello")
       local writer = buffer:reset():writer()
       assert(writer:write("world"))
-      assert(buffer:getstring() == "world")
-      local viewReader = buffer:view():reader()
+      assert(buffer:tostring() == "world")
+      local viewReader = io.Reader.of(buffer:span())
       assert(not pcall(function() viewReader:read(0) end))
       assert(viewReader:read(1) == "w")
       local reader = buffer:reader()
@@ -2768,12 +2767,13 @@ function M.bufferAppendsInAmortizedConstantTime()
       for _ = 1, 100000 do assert(writer:write(piece)) end
       assert(buffer:len() == 6400000, "every write landed")
       assert(buffer:capacity() >= buffer:len(), "capacity covers the length")
-      assert(buffer:getstring(6399936, 64) == piece, "the last write is intact")
-      buffer:clear()
+      assert(buffer:readstring(6399936, 64) == piece, "the last write is intact")
+      buffer:reset()
       assert(buffer:len() == 0 and buffer:capacity() >= 6400000,
          "clearing keeps the reserved bytes")
-      buffer:setstring("tail", 6)
-      assert(buffer:getstring() == string.char(0):rep(6) .. "tail",
+      buffer:resize(10)
+      buffer:writestring(6, "tail")
+      assert(buffer:tostring() == string.char(0):rep(6) .. "tail",
          "a gap past the length reads as zeros, not as stale bytes")
    ]]
         )
@@ -2830,16 +2830,16 @@ function M.theJsonModuleLoadsItsNuppProviderOnRequire()
         local writer = json.Writer.of(buffer)
         writer:startobject():key(name):write(json.verified("4.20e1")):endobject()
         writer:close()
-        assert(buffer:getstring() == [[{"quoted\"key":4.20e1}]])
+        assert(buffer:tostring() == [[{"quoted\"key":4.20e1}]])
 
         local partial = require("io").Buffer.create()
         local streaming = json.Writer.of(partial)
         streaming:startarray():write(1)
         streaming:flush()
-        assert(partial:getstring() == "[1", "flush publishes an incomplete batch")
+        assert(partial:tostring() == "[1", "flush publishes an incomplete batch")
         streaming:write(json.verified("2")):endarray()
         streaming:close()
-        assert(partial:getstring() == "[1,2]", "close publishes the completed root")
+        assert(partial:tostring() == "[1,2]", "close publishes the completed root")
         assert(not pcall(streaming.write, streaming, 3), "a closed writer stays stale")
 
         local incomplete = json.Writer.of(require("io").Buffer.create())
@@ -2955,14 +2955,14 @@ function M.utf8WalkingPreservesEveryByteBoundary()
     end
 end
 
-function M.utf8ByteViewsAndBudgetsMatchStrings()
+function M.utf8ByteSpansAndBudgetsMatchStrings()
     local utf8 = require("utf8")
     local buffer = require("io").Buffer.create("A\xe2\x82\xacZ")
-    local view = buffer:view()
+    local view = buffer:span()
     testAssert.eq(utf8.len(view), 3, "byte-view length")
     testAssert.eq(utf8.isvalid(view), true, "byte-view validation")
     testAssert.eq(utf8.validprefixlen(view, 4), 4, "byte-view prefix")
-    view:close()
+    view = nil
     buffer:close()
 
     testAssert.eq(utf8.validprefixlen("A", -1), 0, "a negative budget is empty")
@@ -3519,14 +3519,14 @@ end
 function M.ioCanonicalStorageMembersHaveNoPrecedingRuntimeAliases()
     local storage = io.Buffer.create("abcd")
     for _, names in ipairs({
-        {"getString", "getstring"},
-        {"setString", "setstring"},
+        {"getString", "tostring"},
+        {"setString", "writestring"},
         {"newReader", "reader"},
         {"newreader", "reader"},
         {"newWriter", "writer"},
         {"newwriter", "writer"},
-        {"reserveWrite", "reservewrite"},
-        {"readSpan", "readspan"},
+        {"reserveWrite", "reserve"},
+        {"readSpan", "span"},
         {"isReleased", "isreleased"},
         {"ensureCapacity", "ensure"},
         {"ensurecapacity", "ensure"},
@@ -3534,10 +3534,13 @@ function M.ioCanonicalStorageMembersHaveNoPrecedingRuntimeAliases()
         testAssert.eq(type(storage[names[2]]), "function", names[2])
         testAssert.eq(storage[names[1]], nil, "the preceding IO storage member is absent")
     end
+    for _, removed in ipairs({"getstring", "setstring", "reservewrite", "readspan", "view", "clear"}) do
+        testAssert.eq(storage[removed], nil, removed .. " was retired")
+    end
     storage:ensure(64)
     testAssert.eq(storage:len(), 4)
     assert(storage:capacity() >= 64)
-    testAssert.eq(storage:getstring(), "abcd")
+    testAssert.eq(storage:tostring(), "abcd")
     storage:close()
     local scalar = io.Reader.of(string.char(1, 0, 0, 0)):scalar()
     testAssert.eq(type(scalar.readuint32), "function")

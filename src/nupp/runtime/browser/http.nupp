@@ -387,7 +387,7 @@ record http.Client is contracts.Client
             return nil, privateIo.toError(headersProblem)
         end
         local storage = io.Buffer.create(bodyBytes)
-        local lease = storage:reservewrite(0, bodyBytes)
+        local lease = require("nupp.io.internal.bytes").reserveAt(storage, 0, bodyBytes)
         do
             local output = lease:span()
             do

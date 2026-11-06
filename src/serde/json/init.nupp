@@ -564,7 +564,7 @@ end
 --- json.writevalue(serde.binding(Tag), Tag(name = "x"), writer)
 --- writer:endarray()
 --- writer:close()
---- assert(buffer:getstring() == '[{"name":"x"}]')
+--- assert(buffer:tostring() == '[{"name":"x"}]')
 --- ```
 ---
 --- @param binding the value's binding
@@ -636,7 +636,7 @@ export type JSONEncodable = json.JSONEncodable
 --- local writer = serde.json.Writer.of(out)
 --- writer:startobject():key("ok"):write(true):endobject()
 --- writer:close()
---- assert(out:getstring() == [[{"ok":true}]])
+--- assert(out:tostring() == [[{"ok":true}]])
 --- ```
 --- @export
 export interface Writer is json.Writer
@@ -647,7 +647,7 @@ export interface Writer is json.Writer
     --- local writer = serde.json.Writer.of(out)
     --- writer:write(true)
     --- writer:close()
-    --- assert(out:getstring() == "true")
+    --- assert(out:tostring() == "true")
     --- ```
     --- @param out the output storage borrowed until the writer closes
     --- @param nullvalue the value to encode as JSON null

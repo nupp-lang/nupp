@@ -16,6 +16,8 @@ factory call and retained for later operations.
 ]]
 module nupp.digest.digest
 
+local {type ByteSpan} = require("binary.span")
+
 local catalog = require("nupp.digest.internal.catalog")
 
 const _PROVIDER_REQUIRES = "@requires-dynamically nupp.runtime.provider.digest"
@@ -49,18 +51,28 @@ export record DigestFormat
     --- Computes a complete value and closes its context.
     --- @param bytes raw message bytes
     --- @return raw digest bytes
-    function compute(self, bytes: string): string
+    function compute(self, borrows bytes: string | ByteSpan): string
         local value: Digest = self:create()
-        value:write(bytes)
+        if type(bytes) == "string" then
+            value:write(tostring(bytes))
+        else
+            value:writespan(bytes as ByteSpan)
+        end
+
         return value:digest()
     end
 
     --- Computes lowercase hexadecimal and closes its context.
     --- @param bytes raw message bytes
     --- @return lowercase hexadecimal digest text
-    function computehex(self, bytes: string): string
+    function computehex(self, borrows bytes: string | ByteSpan): string
         local value: Digest = self:create()
-        value:write(bytes)
+        if type(bytes) == "string" then
+            value:write(tostring(bytes))
+        else
+            value:writespan(bytes as ByteSpan)
+        end
+
         return value:hexdigest()
     end
 end

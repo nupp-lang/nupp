@@ -43,7 +43,7 @@ function M.nativeAndFallbackBuffersKeepTheSameStorageSemantics()
         b:resize(6)
         assert(b:tostring() == "ta")
         b:resize(8)
-        assert(b:getstring(6, 2) == "\0\0")
+        assert(b:readstring(6, 2) == "\0\0")
         b:reset():put("new")
         assert(b:get() == "new")
         b:close()
@@ -124,6 +124,41 @@ function M.nativeAndFallbackAgreeOnRandomFifoSequences()
         left:close();
         right:close()
     end
+end
+
+function M.spanReadersKeepTheirSourceRootedUntilClosed()
+    local weak = setmetatable({}, {__mode = "v"})
+
+    local function lend()
+        local buffer = require("io").Buffer.create("rooted reader")
+        weak[1] = buffer
+        return require("io").Reader.of(buffer:span())
+    end
+
+    local reader = lend()
+    collectgarbage("collect")
+    assert(weak[1] ~= nil and reader:read(6) == "rooted")
+    reader:close()
+    collectgarbage("collect")
+    assert(weak[1] == nil)
+end
+
+function M.bufferReadersFillSpansWithoutCallingGet()
+    local source = require("io").Buffer.create("abcdef")
+    source.get = function()
+        error("unexpected string bridge")
+    end
+    local reader = source:reader()
+    local destination = require("io").Buffer.create()
+    local lease = destination:reserve(3)
+    local output = lease:span()
+    assert(reader:readspan(output) == 3)
+    output:drop()
+    lease:commit(3)
+    reader:close()
+    assert(destination:tostring() == "abc" and source:tostring() == "def")
+    source:close();
+    destination:close()
 end
 
 return M

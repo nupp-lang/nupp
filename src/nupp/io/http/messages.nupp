@@ -126,8 +126,8 @@ export record FileBody
 end
 
 --- Everything a typed request body may own: immutable bytes, a reader stream, or a
---- file path. Convert a Buffer or ByteView with `getstring()` so the request owns an
---- immutable snapshot rather than borrowing mutable storage.
+--- file path. Convert a Buffer with `tostring()` so the request owns an immutable
+--- snapshot rather than borrowing mutable storage.
 export type RequestBody = string | ReaderBody | FileBody
 
 --- A request, as `http.Client:send` takes it.

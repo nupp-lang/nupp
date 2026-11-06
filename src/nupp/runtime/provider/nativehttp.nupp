@@ -26,6 +26,10 @@ local tasks = require("coroutine")
 local io = require("io")
 local privateIo = require("nupp.io")
 local span = require("binary.span")
+local spanText: function(
+    borrows source: const uint8[?],
+    count: integer
+): string = require("nupp.runtime.storage").string as any
 local uri = require("io.internal.uri")
 const messages = require("nupp.io.http.messages")
 local contracts = require("nupp.io.http.contracts")
@@ -387,7 +391,7 @@ record http.Body is io.Reader
         return self:_next(wanted)
     end
 
-    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readspan(exclusive self, exclusive destination: span.ByteWriteSpan): (integer?, string?)
         local wanted = whole(#destination, "body destination length", 1)
         local chunk, reason = self:_next(wanted)
         if chunk == nil then
@@ -430,7 +434,7 @@ record http.Body is io.Reader
             return 0
         end
         local input = span.fromstring(chunk)
-        local lease = destination:reservewrite(at, wanted)
+        local lease = require("nupp.io.internal.bytes").reserveAt(destination, at, wanted)
         do
             local output = lease:span()
             for index = 1, #chunk do
@@ -941,10 +945,15 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
     local contentType = nil
     if body ~= nil then
         local concrete: any = body
-        if type(concrete.len) == "function" and type(concrete.getstring) == "function" then
+        if type(concrete.len) == "function" and type(concrete.tostring) == "function" then
             bodyKind = BODY_INLINE
             bodyLength = concrete:len()
-            body = concrete:getstring()
+            body = concrete:tostring()
+        elseif (require("nupp.mem.span") as any).__sharedRef(concrete) ~= nil then
+            local source = concrete as span.ByteSpan
+            bodyKind = BODY_INLINE
+            bodyLength = #source
+            body = spanText(source:ref(), #source)
         elseif concrete.reader ~= nil then
             reader = concrete.reader
             bodyKind = BODY_UPLOAD
@@ -1030,7 +1039,7 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
         local function uploadAndWait(): any takes (scratch)
             local transferred: integer = 0
             while true do
-                scratch:clear()
+                scratch:reset()
                 local got, failure = readUpload(reader, scratch, 0, UPLOAD_SIZE)
                 if got == nil then
                     transfer:cancel()
@@ -1056,7 +1065,7 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
                 end
                 local offered = scratch:len()
                 if offered > 0 then
-                    local source = scratch:getstring()
+                    local source = scratch:tostring()
                     while true do
                         local accepted = uploadTransfer:offer(source, offered)
                         if accepted == "accepted" then

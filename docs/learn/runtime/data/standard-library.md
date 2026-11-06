@@ -149,7 +149,7 @@ automatic detection unless the packaging requires otherwise.
 ## Byte positions
 
 Storage offsets count from zero; element indexes count from one. Storage is a
-[](io.Buffer), a [](io.ByteView), a
+[](io.Buffer), an
 [](io.Bytes) or an open file: a range in one is
 a zero-based offset and a count, because an offset names a distance from the
 beginning and maps directly onto a native byte range. An element view, a

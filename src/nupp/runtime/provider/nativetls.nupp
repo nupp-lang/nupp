@@ -20,6 +20,8 @@ imports this implementation; individual TLS operations use the retained session.
 ]]
 module nupp.runtime.provider.nativetls
 
+local span = require("binary.span")
+
 local contract = require("io.net.internal.contracts")
 local ffi = require("ffi")
 local ffiString: function(borrows source: const uint8[?], count: integer): string = ffi.string as any
@@ -180,8 +182,62 @@ local function create(): contract.TlsProvider
             return ffiString(into, tonumber(length[0]) as integer)
         end,
 
+        readspan = function(
+            self: contract.TlsProvider,
+            session: any,
+            exclusive destination: span.ByteWriteSpan
+        ): (integer?, string?)
+            const taking = #destination
+            const into = destination:ref()
+            local readInto = C.nuppNativeTlsRead as function(
+                handle: any,
+                borrows pointer: uint8[?],
+                count: integer,
+                state: any,
+                length: any
+            ): integer
+            const status = readInto(session, into, taking, state, length)
+            if status ~= 0 then
+                return nil, lastError("nupp: could not read")
+            end
+            if state[0] == TLS_READ_PENDING then
+                return nil
+            end
+            if state[0] == TLS_READ_EOF then
+                return 0
+            end
+
+            return tonumber(length[0]) as integer
+        end,
+
         write = function(self: contract.TlsProvider, session: any, bytes: string): (integer?, string?)
             const status = C.nuppNativeTlsWrite(session, bytes, #bytes, state, length)
+            if status ~= 0 then
+                return nil, lastError("nupp: could not write")
+            end
+            if state[0] == TLS_WRITE_PENDING then
+                return nil
+            end
+            if state[0] == TLS_WRITE_CLOSED then
+                return nil, "nupp: could not write: the connection is closed"
+            end
+
+            return tonumber(length[0]) as integer
+        end,
+
+        writespan = function(
+            self: contract.TlsProvider,
+            session: any,
+            borrows source: span.ByteSpan
+        ): (integer?, string?)
+            local writeFrom = C.nuppNativeTlsWrite as function(
+                handle: any,
+                borrows pointer: const uint8[?],
+                count: integer,
+                state: any,
+                length: any
+            ): integer
+            const status = writeFrom(session, source:ref(), #source, state, length)
             if status ~= 0 then
                 return nil, lastError("nupp: could not write")
             end

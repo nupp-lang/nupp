@@ -2535,14 +2535,7 @@ function M.standardIOApiHasCompleteDocumentation()
         [
             "src/nupp/io.nupp"
         ] = {
-            types = {
-                Buffer = true,
-                ByteView = true,
-                Reader = true,
-                Writer = true,
-                ScalarReader = true,
-                ScalarWriter = true,
-            },
+            types = {Buffer = true, Reader = true, Writer = true, ScalarReader = true, ScalarWriter = true,},
             functions = {newBuffer = true, newStringReader = true,},
         },
         [
@@ -7110,14 +7103,13 @@ function M.ioPublicPageKeepsStorageAndScalarContracts()
     for _, public in ipairs({
         "readspan",
         "writespan",
-        "reservewrite",
+        "Buffer.reserve",
         "readinto",
         "readuint32",
         "Reader.scalar",
         "Writer.scalar",
         "Buffer.reader",
         "Buffer.writer",
-        "ByteView.reader",
         "ScalarStream",
         "Reader.lines"
     }) do

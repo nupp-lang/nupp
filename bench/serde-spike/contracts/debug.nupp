@@ -33,9 +33,9 @@ assert2(
 )
 assert2(debug.render(binding, value) == expected)
 local buffer = io.Buffer.create()
-buffer:setstring("prefix:", buffer:len())
+buffer:put("prefix:")
 debug.write(binding, value, buffer)
-assert2(buffer:getstring() == "prefix:" .. expected)
+assert2(buffer:tostring() == "prefix:" .. expected)
 local record Other
     name: string
     @debug(skip = true)

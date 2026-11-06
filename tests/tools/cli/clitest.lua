@@ -369,7 +369,7 @@ function M.tableBuilderRejectsIncompleteRowsBeforeWritingAndCanBeReused()
         end,
         "define columns before rows"
     )
-    assert(output:clear() == output)
+    assert(output:reset() == output)
     assert(output:tostring() == "", "clear removes rows and their old output")
     output:headings(false):indent("  "):gap(" | "):row():cell("x"):cell("y")
     assert(output:tostring() == "  x | y\n", "clear resets measured widths and retains columns")
@@ -390,9 +390,9 @@ function M.tableBuilderReusesCellStorageAfterWarmup()
     end
 
     fill()
-    output:clear()
+    output:reset()
     fill()
-    output:clear()
+    output:reset()
     collectgarbage("collect")
     collectgarbage("stop")
     local before = collectgarbage("count")
@@ -400,7 +400,7 @@ function M.tableBuilderReusesCellStorageAfterWarmup()
     local allocated = collectgarbage("count") - before
     collectgarbage("restart")
     assert(allocated < 32, "refilling retained capacity allocated " .. allocated .. " KiB")
-    output:clear()
+    output:reset()
 end
 
 local function capture(argv)

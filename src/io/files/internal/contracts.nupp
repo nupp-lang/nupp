@@ -1,0 +1,9 @@
+@!internal
+module io.files.internal.contracts
+
+-- The bootstrap compiler's old path must resolve to the same current identities.
+local current = require("io.internal.files.contracts")
+export type File = current.File
+export type TemporaryPath = current.TemporaryPath
+export type Entries = current.Entries
+export type Provider = current.Provider

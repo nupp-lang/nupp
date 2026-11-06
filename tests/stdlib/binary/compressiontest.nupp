@@ -66,14 +66,14 @@ function M.writerAndReaderComposeWithByteIo(): nil
     test(writer:write("world"))
     test(writer:finish())
 
-    local source = io.Reader.of(encoded:getstring())
+    local source = io.Reader.of(encoded:tostring())
     local reader = gzip:reader(source, {workspacebytes = 3})
     local decoded = io.Buffer.create()
     local destination = decoded:writer()
     test(reader:transferto(destination) == 11)
     reader:close()
     destination:close()
-    test(decoded:getstring() == "hello world")
+    test(decoded:tostring() == "hello world")
     decoded:close()
     encoded:close()
 end
@@ -90,7 +90,7 @@ function M.aFlushFinishesWithOneOrTwoWorkspaceBytes(): nil
         test(writer:flush())
         test(writer:write(" world"))
         test(writer:finish())
-        test(gzip:decompress(encoded:getstring()) == "hello world")
+        test(gzip:decompress(encoded:tostring()) == "hello world")
         encoded:close()
     end
 end
@@ -113,10 +113,10 @@ function M.spanAndDestinationOverloadsReuseStorage(): nil
     gzip:compress(input, encoded)
     local decoded = io.Buffer.create()
     do
-        local compressed = encoded:readspan()
+        local compressed = encoded:span()
         gzip:decompress(compressed, decoded)
     end
-    test(decoded:getstring() == text)
+    test(decoded:tostring() == text)
     decoded:close()
     encoded:close()
 end

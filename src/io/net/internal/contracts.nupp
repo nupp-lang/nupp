@@ -44,6 +44,8 @@ or switch providers.
 ]]
 module io.net.internal.contracts
 
+local span = require("binary.span")
+
 local source1 = require("nupp.io.net.contracts")
 export type Provider = source1.Provider
 
@@ -56,7 +58,7 @@ export interface TlsProvider
     --- Certificate, private key, authority, hostname, and ALPN options follow
     --- the public TLS API. Returns the session or nil and an error.
     @readonly wrap: function(
-        self: Provider,
+        self: TlsProvider,
         handle: any,
         server: boolean,
         hostname: string,
@@ -68,38 +70,46 @@ export interface TlsProvider
     ): (any?, string?)
 
     --- Returns true when ready, false while pending, or nil and an error.
-    @readonly handshake: function(self: Provider, session: any): (boolean?, string?)
+    @readonly handshake: function(self: TlsProvider, session: any): (boolean?, string?)
 
     --- Reports whether peer verification succeeded for this session.
-    @readonly verified: function(self: Provider, session: any): boolean
+    @readonly verified: function(self: TlsProvider, session: any): boolean
 
     --- Optionally reports whether this session resumed prior TLS state.
     @readonly resumed: (function(self: TlsProvider, session: any): boolean)?
 
     --- Returns at most `wanted` bytes, nil while pending, an empty string at
     --- EOF, or nil and an error.
-    @readonly read: function(self: Provider, session: any, wanted: integer): (string?, string?)
+    @readonly read: function(self: TlsProvider, session: any, wanted: integer): (string?, string?)
+
+    @readonly readspan: (
+        function(self: TlsProvider, session: any, exclusive destination: span.ByteWriteSpan): (integer?, string?)
+    )?
 
     --- Returns a positive byte count no greater than the input length, nil
     --- while pending, or nil and an error.
-    @readonly write: function(self: Provider, session: any, bytes: string): (integer?, string?)
+    @readonly write: function(self: TlsProvider, session: any, bytes: string): (integer?, string?)
+
+    @readonly writespan: (
+        function(self: TlsProvider, session: any, borrows source: span.ByteSpan): (integer?, string?)
+    )?
 
     --- Returns true when encrypted output has drained, false while pending,
     --- or false with an error on failure.
-    @readonly flushed: function(self: Provider, session: any): (boolean, string?)
+    @readonly flushed: function(self: TlsProvider, session: any): (boolean, string?)
 
     --- Starts or continues orderly TLS shutdown; true means complete, or that
     --- the bounded time a drain may take is spent, and false means pending
     --- unless accompanied by an error.
-    @readonly closenotify: function(self: Provider, session: any): (boolean, string?)
+    @readonly closenotify: function(self: TlsProvider, session: any): (boolean, string?)
 
     --- Releases TLS session state and its owned transport.
-    @readonly destroy: function(self: Provider, session: any): nil
+    @readonly destroy: function(self: TlsProvider, session: any): nil
 
     --- Reports whether the session remains connected.
-    @readonly connected: function(self: Provider, session: any): boolean
+    @readonly connected: function(self: TlsProvider, session: any): boolean
 
     --- Returns the negotiated ALPN protocol, or nil when none is available.
-    @readonly protocol: function(self: Provider, session: any): string?
+    @readonly protocol: function(self: TlsProvider, session: any): string?
 
 end

@@ -2,7 +2,7 @@ local testAssert = require("assert")
 -- The bulk path the SoA layout was designed around: what tecs does on its hot
 -- side.
 --
--- `internal/snapshot.tl` writes a whole archetype column as one `putcdata` of
+-- The snapshot fixture writes a whole archetype column as one bulk copy of
 -- `structSize * count` bytes and reads it back into the column's memory. The only
 -- thing it needs from the type is the stride, and a fingerprint so a load can
 -- refuse bytes a different layout wrote -- which is the failure a bulk memcpy
@@ -57,21 +57,36 @@ local struct Particle
     vy: float
 end
 
-local function writeColumn(cells: any, count: integer, out: any): nil
-    const layout = types.layoutof(Particle)
-    out:encode(layout.fingerprint)
-    out:encode(count)
-    -- One copy for the whole column: not one call per element, not one per field.
-    out:putcdata(cells as voidptr, (layout.size * count) as uint64)
+local function header(exclusive input: io.Buffer): string
+    local text = ""
+    while true do
+        local byte = input:get(1)
+        if byte == "\n" then return text end
+        if byte == "" then error("missing column header") end
+        text = text .. byte
+    end
 end
 
-local function readColumn(inp: any, cells: any): integer
+local function writeColumn(cells: any, count: integer, exclusive out: io.Buffer): nil
     const layout = types.layoutof(Particle)
-    const saved = inp:decode() as string
+    out:put(layout.fingerprint, "\n", count, "\n")
+    const lease = out:reserve(layout.size * count)
+    do
+        const target = lease:span()
+        const copy: function(borrows destination: uint8[?], source: any, count: integer): nil = require("ffi").copy as any
+        copy(target:ref(), cells, layout.size * count)
+        own.drop(target)
+    end
+    lease:commit(layout.size * count)
+end
+
+local function readColumn(exclusive inp: io.Buffer, cells: any): integer
+    const layout = types.layoutof(Particle)
+    const saved = header(inp)
     if saved ~= layout.fingerprint then
         error("column was written by a different layout: " .. saved)
     end
-    const count = inp:decode() as integer
+    const count = assert(tonumber(header(inp))) as integer
     const raw = inp:get(layout.size * count)
     require("ffi").copy(cells as voidptr, raw, (layout.size * count) as uint64)
     return count
@@ -98,8 +113,7 @@ const out = sb.Buffer.create()
 writeColumn(cells, 8, out)
 
 const back = carray(Particle, 8)
-const input = sb.Buffer.create()
-input:set(out:tostring())
+const input = sb.Buffer.create(out:tostring())
 const count = readColumn(input, back)
 
 local sum = 0
@@ -130,8 +144,7 @@ function M.aColumnFromAnotherLayoutIsRefused()
         COLUMN:format(
             [[
 const wrong = sb.Buffer.create()
-wrong:encode("x:float,y:float|8")
-wrong:encode(2)
+wrong:put("x:float,y:float|8\n2\n")
 const cells = carray(Particle, 2)
 const ok = pcall(readColumn, wrong, cells)
 return not ok

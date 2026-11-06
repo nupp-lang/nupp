@@ -152,7 +152,7 @@ local function copyBytes(exclusive destination: span.WriteSpan<uint8>, borrows s
 end
 
 local byteBuffer = io2.Buffer.create(4)
-local byteLease = byteBuffer:reservewrite(0, 4)
+local byteLease = byteBuffer:reserve(4)
 do
     local bytes = byteLease:span()
     const original = "a\0b\255"
@@ -161,4 +161,4 @@ do
     own.drop(bytes)
 end
 byteLease:commit(4)
-assert2(byteBuffer:getstring() == "a\0b\255")
+assert2(byteBuffer:tostring() == "a\0b\255")

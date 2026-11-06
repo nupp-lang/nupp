@@ -3063,7 +3063,7 @@ function M.byteIoBundleOmitsUnusedProcessAndClockProviders()
             "src/main.nupp"
         ] = [[
 local buffer = io.Buffer.create("portable bytes")
-assert(buffer:getstring() == "portable bytes")
+assert(buffer:tostring() == "portable bytes")
 buffer:close()
 ]],
     })

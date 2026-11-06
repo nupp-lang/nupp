@@ -23,6 +23,8 @@ must agree with their native representation.
 ]]
 module nupp.runtime.provider.nativenet
 
+local span = require("binary.span")
+
 local contract = require("io.net.internal.contracts")
 local shared = require("nupp.io.net.types")
 local ffi = require("ffi")
@@ -298,12 +300,54 @@ local function create(): contract.Provider
             return ffiString(into, tonumber(count[0]) as integer)
         end,
 
+        readspan = function(
+            self: contract.Provider,
+            stream: any,
+            exclusive destination: span.ByteWriteSpan
+        ): (integer?, string?)
+            const taking = #destination
+            const into = destination:ref()
+            local readInto = C.nuppNativeNetStreamRead as function(
+                handle: any,
+                borrows pointer: uint8[?],
+                count: integer,
+                state: any,
+                length: any
+            ): integer
+            if readInto(stream, into, taking, state, count) ~= 0 then
+                return nil, reason("nupp: could not read")
+            end
+            if state[0] == PENDING or state[0] == READ_EOF then
+                return 0
+            end
+
+            return tonumber(count[0]) as integer
+        end,
+
         ended = function(self: contract.Provider, stream: any): boolean
             return streamFlags(stream) & STREAM_READ_EOF ~= 0
         end,
 
         write = function(self: contract.Provider, stream: any, bytes: string): (integer?, string?)
             if C.nuppNativeNetStreamWrite(stream, bytes, #bytes, state, count) ~= 0 then
+                return nil, reason("nupp: could not write")
+            end
+            if state[0] == 2 then
+                return nil, "nupp: could not write: the connection is closed"
+            end
+
+            return tonumber(count[0]) as integer
+        end,
+
+        writespan = function(self: contract.Provider, stream: any, borrows source: span.ByteSpan): (integer?, string?)
+            local writeFrom = C.nuppNativeNetStreamWrite as function(
+                handle: any,
+                borrows pointer: const uint8[?],
+                count: integer,
+                state: any,
+                length: any
+            ): integer
+            if writeFrom(stream, source:ref(), #source, state, count) ~= 0 then
                 return nil, reason("nupp: could not write")
             end
             if state[0] == 2 then

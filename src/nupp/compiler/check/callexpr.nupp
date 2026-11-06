@@ -2356,6 +2356,14 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
             end
             local indexedProducer = callable and indexedViews.methodProducer(rawReceiver, member.text, first) or nil
+            if indexedProducer
+                and indexedProducer.kind == "buffer"
+                and node.args
+                and node.args.kind == "args"
+                and #((node.args as cst.Args).exprs or {}) > 0
+            then
+                indexedProducer = nil
+            end
             if indexedProducer then
                 node.indexedViewProducer = {producer = indexedProducer, source = receiver,}
             end

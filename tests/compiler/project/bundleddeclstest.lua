@@ -963,4 +963,19 @@ function M.retiredUtilRootIsNotCarriedButItsPrivateOwnersRemain()
     testAssert.eq(bitset.values.WORD_BITS, nil)
 end
 
+function M.bootstrapFilesystemAdaptersKeepCurrentPrivateTypes()
+    local environment = envMod.new(ROOT)
+    local prior = assert(environment.resolveModuleExports(environment, "io.files.internal.contracts"))
+    local current = assert(environment.resolveModuleExports(environment, "io.internal.files.contracts"))
+    testAssert.eq(T.unwrapOwnership(prior.types.File), T.unwrapOwnership(current.types.File))
+    testAssert.eq(prior.types.Provider, current.types.Provider)
+    testAssert.eq(T.unwrapOwnership(prior.types.TemporaryPath), T.unwrapOwnership(current.types.TemporaryPath))
+    local tree = parser.parse('return require("io.files")', "bootstrap-adapter-consumer.nupp")
+    local refused = false
+    for _, diagnostic in ipairs(check.check(tree, "bootstrap-adapter-consumer.nupp", environment)) do
+        refused = refused or diagnostic.code == "NUPP2144"
+    end
+    assert(refused, "the bootstrap path must remain private")
+end
+
 return M

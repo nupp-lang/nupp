@@ -167,7 +167,7 @@ export type JSONEncodable = contracts.JSONEncodable
 --- local writer = serde.json.Writer.of(out)
 --- writer:startobject():key("ok"):write(true):endobject()
 --- writer:close()
---- assert(out:getstring() == [[{"ok":true}]])
+--- assert(out:tostring() == [[{"ok":true}]])
 --- ```
 --- @export
 export type Writer = contracts.Writer
@@ -481,7 +481,7 @@ end
 --- local writer = serde.json.Writer.of(out)
 --- writer:startobject():key("id"):write(41):endobject()
 --- writer:close()
---- assert(out:getstring() == [[{"id":41}]])
+--- assert(out:tostring() == [[{"id":41}]])
 --- ```
 --- @param out the buffer receiving bytes as operations complete
 --- @param nullvalue an additional value treated as JSON null

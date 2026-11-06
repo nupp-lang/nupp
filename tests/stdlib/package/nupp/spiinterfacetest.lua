@@ -74,7 +74,7 @@ local io = require("io")
 local function copy(borrows response: contracts.Response): nil
 local destination = io.Buffer.create()
 response.body:readinto(destination, 0, 8)
-local lease = destination:reservewrite(0, 8)
+local lease = destination:reserve(8)
 local output = lease:span()
 response.body:readspan(output)
 own.drop(output)

@@ -18,7 +18,7 @@ export record Descriptor
 end
 
 export record Producer
-    kind: 'carray' | 'fixed-carray' | 'string' | 'heap' | 'soa'
+    kind: 'carray' | 'fixed-carray' | 'string' | 'heap' | 'soa' | 'buffer'
     descriptor: Descriptor
 end
 
@@ -133,14 +133,17 @@ export function methodProducer(receiver: Type, member: string, result: Type): Pr
     local nominal = raw as T.Nominal
     local origin = (nominal.origin or nominal) as T.Nominal
     local moduleName = origin.moduleName or nominal.moduleName or origin.sealedModule
-    if origin.name ~= "Array" or (member ~= "read" and member ~= "write") then
-        return nil
-    end
-    local kind: 'carray' | 'fixed-carray' | 'string' | 'heap' | 'soa'
-    if moduleName == "nupp.heap" then
-        kind = "heap"
-    elseif moduleName == "nupp.soa" then
-        kind = "soa"
+    local kind: 'carray' | 'fixed-carray' | 'string' | 'heap' | 'soa' | 'buffer'
+    if moduleName == "nupp.io.internal.bytes" and origin.name == "Buffer" and member == "span" then
+        kind = "buffer"
+    elseif (origin.name == "Array" or origin.name == "Bytes") and (member == "read" or member == "write") then
+        if moduleName == "nupp.heap" or moduleName == "nupp.array" then
+            kind = "heap"
+        elseif moduleName == "nupp.soa" then
+            kind = "soa"
+        else
+            return nil
+        end
     else
         return nil
     end

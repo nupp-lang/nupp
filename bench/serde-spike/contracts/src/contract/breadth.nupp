@@ -243,7 +243,7 @@ local richBuffer = own.manage(io.Buffer.create()):alias()
 assert2(
     richBuffer:withexclusive(function(exclusive target: io.Buffer): boolean
         richCodec:encodeinto(richContents, rich, target)
-        return target:getstring() == richCanonical
+        return target:tostring() == richCanonical
     end)
 )
 task("rich/blob-buffer", function()

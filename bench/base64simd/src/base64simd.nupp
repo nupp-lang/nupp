@@ -136,13 +136,13 @@ end
 function base64simd.encode(value: string): string
     local bound = encodedLength(value)
     local buffer = io.Buffer.create(bound)
-    local lease = buffer:reservewrite(0, bound)
+    local lease = buffer:reserve(bound)
     local target = lease:span()
     local written = encode(target, span.fromstring(value), ALPHABET_BYTES)
     own.drop(target)
     lease:commit(written)
 
-    return buffer:getstring(0, written)
+    return buffer:readstring(0, written)
 end
 
 --- Allocates the same output buffer and writes one byte.
@@ -157,13 +157,13 @@ end
 function base64simd.allocOnly(value: string): string
     local bound = encodedLength(value)
     local buffer = io.Buffer.create(bound)
-    local lease = buffer:reservewrite(0, math.max(bound, 1))
+    local lease = buffer:reserve(math.max(bound, 1))
     local target = lease:span()
     target[1] = #value % 256
     own.drop(target)
     lease:commit(1)
 
-    return buffer:getstring(0, 1)
+    return buffer:readstring(0, 1)
 end
 
 export = base64simd

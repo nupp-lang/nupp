@@ -74,8 +74,14 @@ end
 --- The session has no reactor of its own: what it is waiting for is always the
 --- socket underneath it, so this drives that one rather than registering a
 --- second source that would poll the same thing twice.
-local function await(operation: string, ready: function(): boolean): nil
-    if ready() then
+local function await(operation: string, borrows ready: function(): boolean): nil
+    -- The suspension contract unregisters its sources before returning or raising.
+    -- Keep the actual closure and its captured span roots; only the scheduler's
+    -- temporary callback registration lies outside lexical borrow tracking.
+    local held = require("nupp.io.internal.bytes").waitCallback(ready)
+    local state = @unsafe own.release(held)
+    local pollReady = state.callback
+    if pollReady() then
         return
     end
     suspension.suspend(operation, function(resume: function(boolean), context: any): function()?
@@ -87,7 +93,7 @@ local function await(operation: string, ready: function(): boolean): nil
             50,
             function(): integer
                 net.pump(0)
-                if not resumed and ready() then
+                if not resumed and pollReady() then
                     resumed = true
                     resume(true)
 
@@ -317,18 +323,61 @@ export record TlsSession is io.Reader, io.Writer
 
     --- Reads directly into a checked writable span. A zero answer is the end.
     --- @raises string when the destination is empty
-    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
-        const wanted = positive(#destination, "io.net.TlsSession readspan destination length", 2)
-        const chunk, why = self:read(wanted)
-        if chunk == nil then
-            return nil, why
+    function readspan(exclusive self, exclusive destination: span.ByteWriteSpan): (integer?, string?)
+        if self._closed then
+            return nil, "the session is closed"
         end
-        const input = span.fromstring(chunk)
-        for index = 1, #chunk do
-            destination[index] = input[index]
+        if not self._ready then
+            return nil, "the handshake has not finished"
+        end
+        local readInto = self._provider.readspan
+        if readInto == nil then
+            local chunk, why = self:read(positive(#destination, "TLS destination length", 2))
+            if chunk == nil then
+                return nil, why
+            end
+            local input = span.fromstring(chunk)
+            for index = 1, #chunk do
+                destination[index] = input[index]
+            end
+            return #chunk
+        end
+        const wanted = positive(#destination, "io.net.TlsSession readspan destination length", 2)
+        local chunk: integer? = nil
+        local failure: string? = nil
+        local ended = false
+        -- The wait borrows plain values rather than the session, which this read
+        -- holds exclusively.
+        const provider = self._provider
+        const session = self._session
+        await("io.net read", function(): boolean
+            const got, why = readInto(provider, session, destination)
+            if why ~= nil then
+                failure = why
+
+                return true
+            end
+            if got == nil then
+                return false
+            end
+            if got < 0 or got > wanted or got % 1 ~= 0 then
+                failure = "the TLS provider returned more bytes than requested"
+
+                return true
+            end
+            chunk = got
+            ended = got == 0
+
+            return true
+        end)
+        if ended then
+            self._ended = true
+        end
+        if failure ~= nil then
+            return nil, failure
         end
 
-        return #chunk as integer
+        return chunk or 0
     end
 
     --- Writes plaintext, in as many records as it takes.
@@ -349,7 +398,7 @@ export record TlsSession is io.Reader, io.Writer
         -- The wait's callback is kept by the reactor until the write lands, so it
         -- holds the backend and the session rather than the exclusive receiver.
         const backend, session = self._provider, self._session
-        local at = 1
+        local at: integer = 1
         while at <= #bytes do
             local took: integer? = nil
             local failure: string? = nil
@@ -384,13 +433,57 @@ export record TlsSession is io.Reader, io.Writer
 
     --- Appends bytes from a checked shared span.
     function writespan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
-        const bytes = spanStringValue(source:ref(), #source)
-        const wrote, why = self:write(bytes)
-        if not wrote then
-            return nil, why
+        if self._closed then
+            return nil, "the session is closed"
+        end
+        if not self:isconnected() then
+            return nil, "the connection underneath was closed first"
+        end
+        if not self._ready then
+            return nil, "the handshake has not finished"
+        end
+        local writeFrom = self._provider.writespan
+        if writeFrom == nil then
+            local ok, why = self:write(spanStringValue(source:ref(), #source))
+            if not ok then
+                return nil, why
+            end
+            return #source
+        end
+        -- The wait's callback is kept by the reactor until the write lands, so it
+        -- holds the backend and the session rather than the exclusive receiver.
+        const backend, session = self._provider, self._session
+        local at: integer = 1
+        while at <= #source do
+            local took: integer? = nil
+            local failure: string? = nil
+            const remaining = source:slice(at)
+            await("io.net write", function(): boolean
+                const moved, why = writeFrom(backend, session, remaining)
+                if why ~= nil then
+                    failure = why
+
+                    return true
+                end
+                if moved == nil then
+                    return false
+                end
+                if moved < 1 or moved > #remaining or math.floor(moved) ~= moved then
+                    failure = "the TLS provider returned an invalid write count"
+
+                    return true
+                end
+                took = moved
+
+                return true
+            end)
+            if failure ~= nil then
+                return nil, failure
+            end
+            at = at + (took or 0)
         end
 
-        return #bytes as integer
+        return #source
     end
 
     --- Waits until the records this session wrote have left the process.

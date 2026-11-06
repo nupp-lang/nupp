@@ -149,7 +149,7 @@ function M.sharedViewsUseTheRealStreamsAndDeliverEof()
     local copied = assert(reader:transferto(sink))
     sink:close()
     test.eq(copied, 7)
-    test.eq(destination:getstring(), "adapter")
+    test.eq(destination:tostring(), "adapter")
     reader:close()
     local exit = child:wait()
     child:_drop()
@@ -190,13 +190,12 @@ function M.aMissingProgramAnswersAReasonRatherThanRaising()
     child:_drop()
 end
 
--- A pipe accepts the same checked span contract as every other writer, copying into
--- the backend's string boundary internally.
+-- A pipe accepts checked spans directly at its native boundary.
 function M.aProcessWriterTakesCheckedSpans()
     ready()
     local child = assert(startProcess({args = shell("cat > /dev/null")}))
     local source = buffers.Buffer.create("checked bytes")
-    local wrote, reason = child.stdin:writespan(source:readspan())
+    local wrote, reason = child.stdin:writespan(source:span())
     assert(wrote, reason)
     test.eq(wrote, 13)
     child.stdin:close()
@@ -205,11 +204,11 @@ function M.aProcessWriterTakesCheckedSpans()
     child:_drop()
 end
 
-function M.communicateAcceptsBuffersAndEnforcesItsCombinedLimit()
+function M.communicateAcceptsSpansAndEnforcesItsCombinedLimit()
     ready()
     local input = buffers.Buffer.create("buffer input")
     local child = assert(startProcess({args = shell("cat"), stderr = "null"}))
-    local result, reason = child:communicate({input = input})
+    local result, reason = child:communicate({input = input:span()})
     assert(result, reason)
     test.eq(result.output, "buffer input")
     child:_drop()
@@ -494,6 +493,32 @@ function M.luaFileIterationDoesNotParkUnderASuspensionHandler()
     test.eq(parked, 0)
     test.eq(table.concat(lines, ","), "first,second")
     assertExit(child, 0)
+end
+
+function M.aProcessReaderFillsCheckedSpansAndReportsEof()
+    ready()
+    local child = assert(startProcess({args = shell("printf span"), stderr = "null"}))
+    local result = buffers.Buffer.create()
+    local lease = result:reserve(16)
+    local output = lease:span()
+    local total = 0
+    while true do
+        local rest = output:slice(total + 1)
+        local got, why = child.stdout:readspan(rest)
+        rest:drop()
+        assert(got, why)
+        if got == 0 then
+            break
+        end
+        total = total + got
+    end
+    output:drop();
+    lease:commit(total)
+    test.eq(result:tostring(), "span")
+    local exit = child:wait()
+    assert(exit.exitcode == 0)
+    child:_drop();
+    result:close()
 end
 
 return M

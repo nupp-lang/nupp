@@ -11,12 +11,12 @@ local codec = json.codec(model.policy(true))
 local value = codec:decode(binding, '{"identifier":"cycle","created":0}')
 value.next = value
 local buffer = io.Buffer.create()
-buffer:setstring("prefix", buffer:len())
+buffer:put("prefix")
 
 local ok, problem = pcall(codec.encodeinto, codec, binding, value, buffer)
 assert(not ok and getmetatable(problem) == errors.Error, tostring(problem))
 assert((problem as errors.Error).code == "limit", tostring(problem))
-assert(buffer:getstring() == "prefix")
+assert(buffer:tostring() == "prefix")
 value.next = nil
 
 local record Custom is core.Atom

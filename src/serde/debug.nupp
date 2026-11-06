@@ -495,7 +495,7 @@ local record Implementation is Renderer
     function write<T>(self, selectedbinding: core.Binding<T>, borrows value: T, exclusive buffer: io.Buffer): nil
         local state = State(cache = self.cache)
         selectedbinding:accept(Render<T>(state = state), value)
-        buffer:setstring(table.concat(state.parts), buffer:len())
+        buffer:put(table.concat(state.parts))
     end
 
     function clear(self): nil
@@ -537,7 +537,7 @@ end
 --- end
 --- local output = io.Buffer.create()
 --- debug.write(serde.binding(Vec2), Vec2(1.25, 2.5), output)
---- assert(output:getstring() == "Vec2 { x = 1.25, y = 2.5 }")
+--- assert(output:tostring() == "Vec2 { x = 1.25, y = 2.5 }")
 --- ```
 ---
 --- @param selectedbinding the value's binding

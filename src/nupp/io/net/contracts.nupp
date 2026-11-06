@@ -19,6 +19,8 @@ representation; selection cannot make unrelated transport handles interoperable.
 ]]
 module nupp.io.net.contracts
 
+local span = require("binary.span")
+
 local {type Address} = require("nupp.io.net.types")
 
 export interface Provider
@@ -60,12 +62,18 @@ export interface Provider
     --- Use ended to distinguish EOF. nil with an error reports a failed read.
     @readonly read: function(self: Provider, stream: any, wanted: integer): (string?, string?)
 
+    @readonly readspan: (
+        function(self: Provider, stream: any, exclusive destination: span.ByteWriteSpan): (integer?, string?)
+    )?
+
     --- Reports that no further read bytes will arrive.
     @readonly ended: function(self: Provider, stream: any): boolean
 
     --- Returns the accepted byte count, or nil and an error.
     --- Accepted bytes may remain queued; pending reports their outstanding count.
     @readonly write: function(self: Provider, stream: any, bytes: string): (integer?, string?)
+
+    @readonly writespan: (function(self: Provider, stream: any, borrows source: span.ByteSpan): (integer?, string?))?
 
     --- Returns bytes accepted for writing that have not yet drained.
     @readonly pending: function(self: Provider, stream: any): integer

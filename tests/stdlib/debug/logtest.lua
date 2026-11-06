@@ -496,7 +496,7 @@ function M.aWriterSinkReceivesEachRenderedLine()
     log.emit(3, "amb", 8, "and another")
     local writer = log.setsink(previous)
     writer:close()
-    local text = buffer:getstring()
+    local text = buffer:tostring()
     assert(text == "warn amb:7: to a buffer\ninfo amb:8: and another\n", text)
 end
 

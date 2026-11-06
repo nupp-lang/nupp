@@ -47,10 +47,6 @@ local function outputFor(provider, prefix)
 end
 
 local function textOf(output)
-    if output.getstring ~= nil then
-        return output:getstring()
-    end
-
     return output:tostring()
 end
 
@@ -175,7 +171,7 @@ function M.portableEncodingRejectsInvalidUtf8Everywhere()
     assert(not pcall(writer.key, writer, "\255"), "the writer accepted an invalid UTF-8 key")
     writer:key("valid"):write(1):endobject()
     writer:close()
-    assert(output:getstring() == [[{"valid":1}]], "a rejected key changed the writer")
+    assert(output:tostring() == [[{"valid":1}]], "a rejected key changed the writer")
 end
 
 function M.arrayMarkersRequireEveryConsecutiveIndex()

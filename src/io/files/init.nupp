@@ -1,0 +1,28 @@
+@!internal
+module io.files
+
+-- The pinned compiler still carries this module path in its filesystem bindings.
+-- Resolve it to current source during bootstrap; applications use os and io.
+local current = require("io.internal.files")
+
+export type FileKind = current.FileKind
+export type AppDir = current.AppDir
+export type FsCaps = current.FsCaps
+export type Path = current.Path
+export type TemporaryPath = current.TemporaryPath
+
+export const setappid = current.setappid
+export const appid = current.appid
+export const appdir = current.appdir
+export const exists = current.exists
+export const stat = current.stat
+export const readlink = current.readlink
+export const symlink = current.symlink
+export const mkdir = current.mkdir
+export const list = current.list
+export const glob = current.glob
+export const writeatomic = current.writeatomic
+export const copy = current.copy
+export const mktemp = current.mktemp
+export const mktempdir = current.mktempdir
+export const persiststorage = current.persiststorage

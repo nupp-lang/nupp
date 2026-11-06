@@ -20,7 +20,7 @@ local function tecsCallSites(command: {string}, options: process.Process.Options
     if child.stdin ~= nil then
         local written, writeReason = child.stdin:write("request\n")
         assert(written, writeReason)
-        local bytes = buffer:readspan()
+        local bytes = buffer:span()
         local fromBuffer, bufferReason = child.stdin:writespan(bytes)
         assert(fromBuffer, bufferReason)
         child.stdin:close()

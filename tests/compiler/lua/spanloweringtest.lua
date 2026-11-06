@@ -1131,4 +1131,32 @@ return #buffer
     assert(code:find("(buffer):len()", 1, true), code)
 end
 
+function M.bufferViewsRefreshTheirPointerAndPreserveTheReadCursor()
+    local code, _, original = compile(
+        [[local b = io.Buffer.create("skip:abc")
+b:skip(5)
+const bytes = b:span()
+local total: integer = 0
+for index = 1, #bytes do total += bytes[index] as integer end
+return total
+]]
+    )
+    assert(code:find(":_spanroot()", 1, true), code)
+    assert(code:find("._data[", 1, true) and code:find("._read", 1, true), code)
+    assert(assert(loadstring(original))() == 294)
+end
+
+function M.managedArrayViewsUseTheSameContiguousLowering()
+    local code = compile(
+        [[local array = nupp.array
+local values = array.scalar(array.int32, 3)
+const rows = values:read()
+local total = 0 as int32
+for index = 1, #rows do total += rows[index] end
+return total
+]]
+    )
+    assert(code:find(".pointer[", 1, true), code)
+end
+
 return M

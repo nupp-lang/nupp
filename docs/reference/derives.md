@@ -123,7 +123,7 @@ end
 local binding = serde.binding(Vec2)
 local output = io.Buffer.create()
 debug.write(binding, Vec2(1.25, 2.5), output)
-assert(output:getstring() == "Vec2 { x = 1.25, y = 2.5 }")
+assert(output:tostring() == "Vec2 { x = 1.25, y = 2.5 }")
 ```
 
 ## Event

@@ -8,9 +8,9 @@ local binding = documents.adapter():contents()
 local profile = model.policy(true)
 local profileJson = codec.codec(profile)
 local buffer = io.Buffer.create()
-buffer:setstring("prefix:", buffer:len())
+buffer:put("prefix:")
 profileJson:encodeinto(binding, documents.string("ok"), buffer)
-assert(buffer:getstring() == 'prefix:"ok"')
+assert(buffer:tostring() == 'prefix:"ok"')
 local record Unsupported is core.Atom
     @readonly family: table
     function snapshot(borrows self): core.Atom
@@ -20,9 +20,9 @@ end
 local value = documents.list({documents.string("already written"), documents.atom(Unsupported(family = {}))})
 
 assert(not pcall(profileJson.encodeinto, profileJson, binding, value, buffer))
-assert(buffer:getstring() == 'prefix:"ok"')
+assert(buffer:tostring() == 'prefix:"ok"')
 profileJson:encodeinto(binding, documents.null(), buffer)
-assert(buffer:getstring() == 'prefix:"ok"null')
+assert(buffer:tostring() == 'prefix:"ok"null')
 print("direct Buffer output rolls back partial writes and remains reusable")
 
 local syntax = require("serde.json")
@@ -36,4 +36,4 @@ codec.codec():writevalue(binding, documents.null(), sink)
 sink:endarray()
 sink:endobject()
 sink:close()
-assert(embedded:getstring() == '{"items":["one",null]}')
+assert(embedded:tostring() == '{"items":["one",null]}')
