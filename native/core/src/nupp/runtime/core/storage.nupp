@@ -280,7 +280,7 @@ end
 -- Buffer state owns shared backing from its first allocation. Empty state may
 -- advertise capacity without a block; reset never reuses a published block.
 -- These entry points cannot collect, suspend, or call guest code. The managed
--- adapter allocates its lease and token before bufferstart publishes admission.
+-- adapter completes its lease before bufferadmit publishes admission.
 local function buffervalid(s: Storage*): boolean
     @unsafe do
         return s.mode == SHARED
@@ -445,11 +445,11 @@ export function bufferreserve(s: Storage*, minimum: uint64, stats: CopyStats*, m
     end
 end
 
--- Admit the gap as well as the payload before exposing a pointer. Existing
--- tickets force a detach only for actual overlap; consumed bytes remain part
--- of initialized [0,len), and unused capacity is never copied. A zero-sized
--- lease writes neither payload nor gap, but still excludes another writer.
-export function bufferstart(s: Storage*, offset: uint64, count: uint64, stats: CopyStats*, mappedLimit: uint64): uint64
+-- Mint a unique prepared capability while no writer is admitted. The caller
+-- may allocate and publish its owned lease after this returns. A failed
+-- publication owns no active writer; a newer preparation invalidates this
+-- token, so stale cleanup can never cancel a later admission.
+export function bufferprepare(s: Storage*, offset: uint64, count: uint64): uint64
     @unsafe do
         if not buffervalid(s) or offset > maximum() or count > maximum() - offset or s.generation == MAX_GENERATION then
             return INVALID
@@ -461,7 +461,34 @@ export function bufferstart(s: Storage*, offset: uint64, count: uint64, stats: C
         if status ~= OK then
             return status
         end
-        local generation = s.generation + 1ULL
+        s.generation = s.generation + 1ULL
+        return OK
+    end
+end
+
+-- Admit the gap as well as the payload before exposing a pointer. Existing
+-- tickets force a detach only for actual overlap; consumed bytes remain part
+-- of initialized [0,len), and unused capacity is never copied. A zero-sized
+-- lease writes neither payload nor gap, but still excludes another writer.
+local function bufferwrite(
+    s: Storage*,
+    offset: uint64,
+    count: uint64,
+    stats: CopyStats*,
+    mappedLimit: uint64,
+    generation: uint64
+): uint64
+    @unsafe do
+        if not buffervalid(s) or offset > maximum() or count > maximum() - offset then
+            return INVALID
+        end
+        if s.writer ~= 0ULL then
+            return BUSY
+        end
+        local status = bufferfinish(s)
+        if status ~= OK then
+            return status
+        end
         local wanted = offset + count
         if count == 0ULL then
             wanted = offset
@@ -499,6 +526,39 @@ export function bufferstart(s: Storage*, offset: uint64, count: uint64, stats: C
         s.generation = generation
         s.writer = generation
         return OK
+    end
+end
+
+-- Core-internal synchronous writes already hold all needed results and can
+-- prepare/admit together. This preserves their original token behavior.
+export function bufferstart(s: Storage*, offset: uint64, count: uint64, stats: CopyStats*, mappedLimit: uint64): uint64
+    @unsafe do
+        if s.generation == MAX_GENERATION then
+            return INVALID
+        end
+        return bufferwrite(s, offset, count, stats, mappedLimit, s.generation + 1ULL)
+    end
+end
+
+-- The managed adapter calls this only after its owned lease is complete.
+-- All capability/view/token objects exist; success is followed only by the
+-- nonallocating return. The immutable prepared view supplies offset/count.
+-- The managed caller validates its original prepared view and consumes that
+-- view's one-shot admission right on success; a numeric token alone is not
+-- an admission authority.
+export function bufferadmit(
+    s: Storage*,
+    token: uint64,
+    offset: uint64,
+    count: uint64,
+    stats: CopyStats*,
+    mappedLimit: uint64
+): uint64
+    @unsafe do
+        if token == 0ULL or token ~= s.generation then
+            return INVALID
+        end
+        return bufferwrite(s, offset, count, stats, mappedLimit, token)
     end
 end
 

@@ -156,10 +156,21 @@ local UNITS = {
             {"nupp.core.bufferstorageunits", "cow", 0},
             {"nupp.core.bufferstorageunits", "admission", 0},
             {"nupp.core.bufferstorageunits", "shrinkgap", 0},
-            {"nupp.core.bufferstorageunits", "growth", 0}
+            {"nupp.core.bufferstorageunits", "growth", 0},
+            {"nupp.core.bufferstorageunits", "preparation", 0},
+            {"nupp.core.bufferstorageunits", "preparedchanges", 0},
+            {"nupp.core.bufferstorageunits", "preparedsnapshot", 0}
         },
         cases = function()
-            return {{"cow", {}, 0}, {"admission", {}, 0}, {"shrinkgap", {}, 0}, {"growth", {}, 0}}
+            return {
+                {"cow", {}, 0},
+                {"admission", {}, 0},
+                {"shrinkgap", {}, 0},
+                {"growth", {}, 0},
+                {"preparation", {}, 0},
+                {"preparedchanges", {}, 0},
+                {"preparedsnapshot", {}, 0}
+            }
         end
     },
 

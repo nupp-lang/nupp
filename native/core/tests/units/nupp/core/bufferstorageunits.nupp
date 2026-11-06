@@ -227,3 +227,103 @@ export function growth(): uint64
         return wrong
     end
 end
+
+export function preparation(): uint64
+    local descriptor = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local copies = storage.CopyStats(0ULL)
+    @unsafe do
+        local s = descriptor as storage.Storage*
+        local stats = copies as storage.CopyStats*
+        local wrong = miss(storage.bufferinitialize(s, 1ULL, 128ULL) == storage.OK)
+        wrong = wrong + miss(storage.bufferprepare(s, 0ULL, 64ULL) == storage.OK)
+        local abandoned = s.generation
+        wrong = wrong + miss(abandoned ~= 0ULL and s.writer == 0ULL and s.block == 0ULL and s.len == 0ULL)
+        -- Publication can fail before admission. Dropping it never starts IO.
+        storage.bufferdrop(s, abandoned)
+        wrong = wrong + miss(s.writer == 0ULL and s.block == 0ULL and stats.bytes == 0ULL)
+        wrong = wrong + miss(storage.bufferstart(s, 0ULL, 1ULL, stats, MAXIMUM) == storage.OK)
+        local active = s.writer
+        wrong = wrong + miss(active == abandoned + 1ULL)
+        storage.bufferdrop(s, abandoned)
+        wrong = wrong + miss(storage.bufferadmit(s, abandoned, 0ULL, 64ULL, stats, MAXIMUM) == storage.INVALID)
+        wrong = wrong + miss(s.writer == active)
+        native.store8(native.pointer(s.base), 0, 17ULL)
+        wrong = wrong + miss(storage.buffercommit(s, active, 0ULL, 1ULL, 1ULL) == storage.OK)
+        wrong = wrong + miss(storage.bufferprepare(s, 0ULL, 8ULL) == storage.OK)
+        local prepared = s.generation
+        wrong = wrong + miss(s.writer == 0ULL and s.len == 1ULL)
+        wrong = wrong + miss(storage.bufferadmit(s, prepared, 0ULL, 8ULL, stats, MAXIMUM) == storage.OK)
+        wrong = wrong + miss(s.generation == prepared and s.writer == prepared)
+        wrong = wrong + miss(storage.bufferadmit(s, prepared, 0ULL, 8ULL, stats, MAXIMUM) == storage.BUSY)
+        wrong = wrong + miss(storage.bufferprepare(s, 0ULL, 8ULL) == storage.BUSY and s.generation == prepared)
+        storage.bufferdrop(s, prepared)
+        wrong = wrong + miss(storage.bufferclose(s) == storage.OK)
+        return wrong
+    end
+end
+
+export function preparedchanges(): uint64
+    local descriptor = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local copies = storage.CopyStats(0ULL)
+    @unsafe do
+        local s = descriptor as storage.Storage*
+        local stats = copies as storage.CopyStats*
+        local wrong = miss(storage.bufferinitialize(s, 1ULL, 64ULL) == storage.OK)
+        wrong = wrong + miss(storage.bufferprepare(s, 0ULL, 1ULL) == storage.OK)
+        local token = s.generation
+        wrong = wrong + miss(storage.bufferreserve(s, 128ULL, stats, MAXIMUM) == storage.OK)
+        wrong = wrong + miss(storage.bufferadmit(s, token, 0ULL, 1ULL, stats, MAXIMUM) == storage.INVALID)
+        wrong = wrong + miss(storage.bufferprepare(s, 0ULL, 1ULL) == storage.OK)
+        token = s.generation
+        wrong = wrong + miss(storage.bufferreset(s) == storage.OK)
+        wrong = wrong + miss(storage.bufferadmit(s, token, 0ULL, 1ULL, stats, MAXIMUM) == storage.INVALID)
+        wrong = wrong + miss(storage.bufferprepare(s, 0ULL, 1ULL) == storage.OK)
+        token = s.generation
+        wrong = wrong + miss(storage.bufferprepare(s, 0ULL, 1ULL) == storage.OK)
+        local current = s.generation
+        wrong = wrong + miss(current == token + 1ULL and s.writer == 0ULL)
+        wrong = wrong + miss(storage.bufferadmit(s, current, 0ULL, 1ULL, stats, 0ULL) == storage.NO_MEMORY)
+        wrong = wrong + miss(s.writer == 0ULL and s.block == 0ULL and s.generation == current)
+        wrong = wrong + miss(storage.bufferadmit(s, current, 0ULL, 1ULL, stats, MAXIMUM) == storage.OK)
+        storage.bufferdrop(s, token)
+        wrong = wrong + miss(s.writer == current)
+        storage.bufferdrop(s, current)
+        wrong = wrong + miss(storage.bufferclose(s) == storage.OK)
+        return wrong
+    end
+end
+
+export function preparedsnapshot(): uint64
+    local descriptor = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local copies = storage.CopyStats(0ULL)
+    local ticket = shared.TicketResult(0ULL)
+    local status = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local s = descriptor as storage.Storage*
+        local stats = copies as storage.CopyStats*
+        local held = ticket as shared.TicketResult*
+        local wrong = miss(storage.bufferinitialize(s, 1ULL, 128ULL) == storage.OK)
+        if not filled(s, 64ULL, stats) then
+            error("buffer units: prepared snapshot fill")
+        end
+        local before = s.block
+        wrong = wrong + miss(storage.bufferprepare(s, 0ULL, 1ULL) == storage.OK)
+        local token = s.generation
+        -- A snapshot created during fallible lease publication is accounted
+        -- for at admission, never by a stale observation made at preparation.
+        wrong = wrong + miss(shared.ticketacquire(held, native.pointer(before), 0ULL, 64ULL) == shared.TICKET_OK)
+        wrong = wrong + miss(storage.bufferadmit(s, token, 0ULL, 1ULL, stats, MAXIMUM) == storage.OK)
+        wrong = wrong + miss(s.block ~= before and s.writer == token and s.generation == token and stats.bytes == 64ULL)
+        native.store8(native.pointer(s.base), 0, 222ULL)
+        wrong = wrong + miss(storage.buffercommit(s, token, 0ULL, 1ULL, 1ULL) == storage.OK)
+        wrong = wrong + miss(native.word(native.load8(shared.bytes(native.pointer(before)), 0)) == 1ULL)
+        wrong = wrong + miss(shared.ticketrelease(status as pages.Scope*, held.ticket) == shared.RELEASED)
+        s.generation = MAXIMUM - 1ULL
+        wrong = wrong + miss(storage.bufferprepare(s, 0ULL, 1ULL) == storage.OK and s.generation == MAXIMUM)
+        wrong = wrong + miss(storage.bufferadmit(s, MAXIMUM, 0ULL, 1ULL, stats, MAXIMUM) == storage.OK)
+        storage.bufferdrop(s, MAXIMUM)
+        wrong = wrong + miss(storage.bufferprepare(s, 0ULL, 1ULL) == storage.INVALID)
+        wrong = wrong + miss(storage.bufferclose(s) == storage.OK)
+        return wrong
+    end
+end
