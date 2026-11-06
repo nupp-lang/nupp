@@ -116,6 +116,7 @@ export function install(c: state.Checker): state.StatHandlers
 
     local ownershipState, pointerShaped = c.ownershipState, c.pointerShaped
     local expectedFuncbodies: {[any]: Type} = {}
+    local expectedReceiverModes: {[any]: string} = {}
 
     ---------------------------------------------------------------------
     -- Parameter modes
@@ -832,6 +833,14 @@ export function install(c: state.Checker): state.StatHandlers
                 expectedModes = generics.expectedParameterModes(expectedFunc, c.reductionControl)
             end
         end
+        local expectedReceiver = expectedReceiverModes[body]
+        if selfType
+            and (not explicitSelf or not declaredModes[1])
+            and (expectedReceiver == "borrows" or expectedReceiver == "exclusive")
+        then
+            receiverMode = expectedReceiver
+            body.receiverMode = receiverMode
+        end
         local savedUnsafe = c.unsafeDepth
         c.unsafeDepth = 0
         c.functionDepth = c.functionDepth + 1
@@ -1103,6 +1112,46 @@ export function install(c: state.Checker): state.StatHandlers
         for result, ret in ipairs(body.rets or {}) do
             if ret.kind == "tborrows" and not declaredBorrow then
                 declaredBorrow, declaredBorrowResult = ret, result
+            end
+        end
+        -- A named definition fills its declared slot. Check the slot's borrow
+        -- obligation against the body, using this body's parameter names.
+        local expectedSignature = expected and rawType(expected) or nil
+        if expectedSignature and expectedSignature.tag == "func" then
+            local sources, seen = {}, {}
+            local missingSource = false
+
+            local function source(name: string?): nil
+                if name == nil then
+                    missingSource = true
+                elseif not seen[name] then
+                    seen[name] = true
+                    sources[#sources + 1] = {text = name}
+                end
+            end
+
+            if expectedSignature.borrowsSelf then
+                source(selfType and "self" or paramNames[1])
+            end
+            if expectedSignature.borrowsParam then
+                source(paramNames[expectedSignature.borrowsParam])
+            end
+            for _, at in ipairs(expectedSignature.borrowsParams or {}) do
+                source(paramNames[at])
+            end
+            if missingSource then
+                c.diag("NUPP2619", body, "a declared borrowed result needs a named source in its definition")
+            end
+            if #sources > 0 then
+                local result = expectedSignature.borrowsResult or 1
+                if declaredBorrow and declaredBorrowResult ~= result then
+                    c.diag("NUPP2621", declaredBorrow, "only one result may declare a borrow")
+                elseif declaredBorrow then
+                    for _, token in ipairs(declaredBorrow.params or {declaredBorrow.param}) do
+                        source(token.text)
+                    end
+                end
+                declaredBorrow, declaredBorrowResult = {params = sources}, result
             end
         end
         c.borrowReturnStack[#c.borrowReturnStack + 1] = declaredBorrow
@@ -1433,6 +1482,9 @@ export function install(c: state.Checker): state.StatHandlers
                 end
             end
         end
+        if declaredBorrow then
+            borrowClause, borrowsResult = declaredBorrow, declaredBorrowResult
+        end
         if borrowClause then
             borrowsParams = {}
             for _, sourceToken in ipairs(borrowClause.params or {borrowClause.param}) do
@@ -1444,8 +1496,8 @@ export function install(c: state.Checker): state.StatHandlers
                     borrowsSelf = true
                     found = true
                 else
-                    for j, p in ipairs(body.params or {}) do
-                        if p.name and p.name.text == want then
+                    for j, name in ipairs(paramNames) do
+                        if name == want then
                             found = j
                         end
                     end
@@ -1495,7 +1547,6 @@ export function install(c: state.Checker): state.StatHandlers
         -- `function<T>(value: T): T return value end` could fill no slot that did not
         -- spell `preserves value`, since callable assignment keeps relations exactly.
         -- One the literal spelled is still its own and is still compared.
-        local expectedSignature = expected and rawType(expected) or nil
         if preservesResults and expectedSignature and expectedSignature.tag == "func" then
             local wanted = (expectedSignature as T.Func).preservesResults or {}
             local conformed = {}
@@ -1848,7 +1899,23 @@ export function install(c: state.Checker): state.StatHandlers
         local diagnosticsBefore = #c.diags
         local priorOwner, priorMember, priorMethod = c.definingOwner, c.definingMember, c.definingMethod
         c.definingOwner, c.definingMember, c.definingMethod = owner, member, fname.method ~= nil
+        local declared = owner and member and (owner.byname[member] or not fname.method and owner.staticByname[member])
+            or nil
+        if declared
+            and declared.tag == "func"
+            and (
+                declared.borrowsSelf or declared.borrowsParam or declared.borrowsParams and #declared.borrowsParams > 0
+            )
+        then
+            if fname.method then
+                expectedReceiverModes[body] = declared.paramModes and declared.paramModes[1] or "plain"
+            end
+            expectedFuncbodies[body] = fname.method and require("nupp.compiler.types.generics").dropSelf(declared)
+                or declared
+        end
         local ft = c.checkFuncbody(body, selfType)
+        expectedFuncbodies[body] = nil
+        expectedReceiverModes[body] = nil
         c.definingOwner, c.definingMember, c.definingMethod = priorOwner, priorMember, priorMethod
         if #c.diags == diagnosticsBefore then
             preferComptime.check(c, stat, body, selfType ~= nil)
@@ -1975,56 +2042,7 @@ export function install(c: state.Checker): state.StatHandlers
             if fname.method then
                 -- stored with the receiver as the first parameter, the shape
                 -- declaration files use; call sites drop it again
-                local params = {selfType}
-                for _, p in ipairs(ft.params) do
-                    params[#params + 1] = p
-                end
-                local modes = {body.receiverMode or "plain"}
-                local names = {"self"}
-                for _, mode in ipairs(ft.paramModes or {}) do
-                    modes[#modes + 1] = mode
-                end
-                for _, name in ipairs(ft.paramNames or {}) do
-                    names[#names + 1] = name
-                end
-                local preserves = {}
-                for result = 1, #ft.rets do
-                    local source = ft.preservesResults and ft.preservesResults[result]
-                    if source then
-                        preserves[result] = source + 1
-                    end
-                end
-                owner.byname[
-                    member
-                ] = T.func(
-                    params,
-                    ft.rets,
-                    ft.vararg,
-                    modes,
-                    ft.predicate,
-                    ft.typeParams,
-                    ft.typeBounds,
-                    ft.borrowsParam,
-                    ft.borrowsSelf,
-                    ft.borrowsParams,
-                    ft.ffiOut,
-                    ft.varargType,
-                    ft.noreturn,
-                    T.pack(params, ft.paramPack.tail, modes),
-                    ft.retPack,
-                    ft.packParams,
-                    ft.yieldPack,
-                    ft.resumePack,
-                    ft.noYield,
-                    names,
-                    next(preserves) and preserves or nil,
-                    ft.foreign,
-                    ft.constParams,
-                    ft.paramKinds,
-                    ft.partitionResults,
-                    ft.comptimeOnly,
-                    ft.explicitPreserves
-                )
+                owner.byname[member] = require("nupp.compiler.types.generics").addSelf(ft, selfType, body.receiverMode)
                 owner.writeByname[member] = owner.byname[member]
                 owner.fieldDefs[member] = owner.fieldDefs[member] or memberDefinition
                 owner.writeFieldDefs[member] = owner.writeFieldDefs[member] or memberDefinition

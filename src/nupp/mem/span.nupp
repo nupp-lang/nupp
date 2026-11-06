@@ -738,7 +738,12 @@ end
 -- it to lend a checked view over a region's storage, anchored on the region so
 -- the storage outlives every read. Only this module can construct the sealed
 -- implementation, which is why the hook lives here.
-local function foreignByteSpan(anchor: any, pointer: any, offset: integer, count: integer): span.Span<uint8>
+local function foreignByteSpan(
+    borrows anchor: any,
+    pointer: any,
+    offset: integer,
+    count: integer
+): span.Span<uint8> borrows (anchor)
     local typed = physical.castBytes(pointer)
     return (SpanImpl(anchor = anchor, pointer = typed as any, offset = offset, count = count)) as span.Span<uint8>
 end
@@ -760,12 +765,12 @@ rawset(span as table, "__foreignByteWriteSpan", foreignByteWriteSpan)
 -- Standard-library storage owners use this private constructor only after
 -- validating byte alignment and extent against the supplied physical type.
 local function foreignSpan<T>(
-    anchor: any,
+    borrows anchor: any,
     pointer: any,
     offset: integer,
     count: integer,
     element: ctype<T>
-): span.Span<T>
+): span.Span<T> borrows (anchor)
     @unsafe do
         local typed = physical.castElements(element, pointer)
         return (SpanImpl(anchor = anchor, pointer = typed as any, offset = offset, count = count)) as span.Span<T>

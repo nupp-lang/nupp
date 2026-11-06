@@ -3063,11 +3063,18 @@ function generics.addSelf(ft: Type, selfType: Type, selfMode: string?): Type
         end
     end
 
+    local borrowed = {}
+    for _, source in ipairs(ft.borrowsParams or {}) do
+        borrowed[#borrowed + 1] = source + 1
+    end
+
     return T.funcWith(ft, {
         params = params,
         paramModes = modes,
         paramPack = paramPack,
         paramNames = names,
+        borrowsParam = ft.borrowsParam and ft.borrowsParam + 1 or false,
+        borrowsParams = next(borrowed) and borrowed or false,
         preservesResults = next(shifted) and shifted or false,
     })
 end

@@ -23,11 +23,17 @@ local storage: any = assert2(
 local foreignByteSpan = rawget(
     spanImplementation as table,
     "__foreignByteSpan"
-) as @nosuspend function(any, any, integer, integer): span.Span<uint8>
+) as @nosuspend function(borrows anchor: any, any, integer, integer): span.Span<uint8> borrows (anchor)
 local foreignSpan = rawget(
     spanImplementation as table,
     "__foreignSpan"
-) as function<T>(any, borrows pointer: voidptr, integer, integer, ctype<T>): span.Span<T>
+) as function<T>(
+    borrows anchor: any,
+    borrows pointer: voidptr,
+    integer,
+    integer,
+    ctype<T>
+): span.Span<T> borrows (anchor)
 
 -- The declarations keep their fields private to `io.internal.bytestypes`, so
 -- this module reads them by name.
