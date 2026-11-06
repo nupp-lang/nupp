@@ -1,12 +1,12 @@
 module nupp.runtime.core.corestorage
 
--- Typed storage on the guest heap: a KIND_BYTES object holding `count`
+-- Typed storage on the guest heap: a KIND_CORE_STORAGE object holding `count`
 -- elements of one scalar kind, zero-based, in word backing outside the
 -- collected heap. The header's aux is the element kind, auxPtr the bytes
 -- and auxLen the element count. It holds no references, so the collector
 -- traces nothing in it, and `coretables.drain` gives its backing back.
 --
--- A view of storage is a KIND_SLICE with the same header fields, its
+-- A view of storage is a KIND_CORE_VIEW with the same header fields, its
 -- auxPtr into the storage it views, and that storage in its first body word,
 -- which the collector traces: a view keeps its storage alive. Elements read
 -- and write the same through either.
@@ -51,7 +51,7 @@ export function isstorage(value: uint64): boolean
     end
     @unsafe do
         local o = native.pointer(value & values.PAYLOAD) as heap.Header*
-        return o.kind as uint64 == heap.KIND_BYTES or o.kind as uint64 == heap.KIND_SLICE
+        return o.kind as uint64 == heap.KIND_CORE_STORAGE or o.kind as uint64 == heap.KIND_CORE_VIEW
     end
 end
 
@@ -62,11 +62,11 @@ export function newview(h: heap.Heap*, source: uint64, kind: uint64, offset: uin
     @unsafe do
         local from = native.pointer(source) as heap.Header*
         local owner = source
-        if from.kind as uint64 == heap.KIND_SLICE then
+        if from.kind as uint64 == heap.KIND_CORE_VIEW then
             owner = native.load64(native.pointer(source + heap.HEADER_BYTES), 0) & values.PAYLOAD
         end
         local at = from.auxPtr + offset
-        local o = collector.allocate(h, heap.KIND_SLICE, native.sizeOf<heap.SliceBody>())
+        local o = collector.allocate(h, heap.KIND_CORE_VIEW, native.sizeOf<heap.SliceBody>())
         local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES)
         native.store64(body, 0, values.TAG_OBJ | owner)
         native.store64(body, 8, 0ULL)
@@ -158,7 +158,7 @@ export function newstorage(h: heap.Heap*, kind: uint64, n: uint64): uint64
         end
     end
     @unsafe do
-        local o = collector.allocate(h, heap.KIND_BYTES, 0ULL)
+        local o = collector.allocate(h, heap.KIND_CORE_STORAGE, 0ULL)
         native.store32(o as voidptr, native.fieldOffset<heap.Header>("aux"), native.index(kind))
         o.auxPtr = data
         o.auxLen = n

@@ -106,7 +106,7 @@ export function drain(h: heap.Heap*): nil
                         d.base = 0ULL
                     end
                 end
-            elseif o.aux as uint64 == heap.KIND_BYTES then
+            elseif o.aux as uint64 == heap.KIND_CORE_STORAGE then
                 corestorage.releasestorage(o)
             elseif o.aux as uint64 == heap.KIND_THREAD then
                 local thread = native.pointer(address + heap.HEADER_BYTES) as heap.ThreadBody*

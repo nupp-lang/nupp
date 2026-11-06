@@ -236,7 +236,7 @@ local function typePhrase(value: uint64): uint64
             return PHRASE_FUNCTION
         elseif kind == heap.KIND_THREAD then
             return PHRASE_THREAD
-        elseif kind == heap.KIND_BYTES or kind == heap.KIND_SLICE or kind == heap.KIND_USERDATA then
+        elseif kind == heap.KIND_CORE_STORAGE or kind == heap.KIND_CORE_VIEW or kind == heap.KIND_USERDATA then
             return PHRASE_USERDATA
         end
     end
