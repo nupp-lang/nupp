@@ -198,16 +198,17 @@ function M.privateArtifactsRejectWideAndMultilineLiterals()
     end
 end
 
-function M.bufferLengthUsesItsCheckedCountOnLua51()
-    local code = compile([[local buffer = io.Buffer.create()
+function M.bufferLengthUsesItsCheckedCount()
+    local result, diagnostics = checked([[local buffer = io.Buffer.create()
 buffer:put("abc")
 return #buffer
 ]])
-    assert(code:find("(buffer):len()", 1, true), code)
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.eq(program.run(result, "buffer-length"), 3)
 end
 
 function M.bufferViewsRefreshTheirPointerAndPreserveTheReadCursor()
-    local code, _, original = compile(
+    local result, diagnostics = checked(
         [[local b = io.Buffer.create("skip:abc")
 b:skip(5)
 const bytes = b:span()
@@ -216,22 +217,26 @@ for index = 1, #bytes do total += bytes[index] as integer end
 return total
 ]]
     )
-    assert(code:find(":_spanroot()", 1, true), code)
-    assert(code:find("._data[", 1, true) and code:find("._read", 1, true), code)
-    assert(assert(loadstring(original))() == 294)
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.eq(program.run(result, "buffer-readable-span"), 294)
 end
 
-function M.managedArrayViewsUseTheSameContiguousLowering()
-    local code = compile(
+function M.managedArrayViewsReadAndWriteSharedStorage()
+    local result, diagnostics = checked(
         [[local array = table.Array
 local values = array.scalar(array.int32, 3)
+do
+    const rows = values:write()
+    for index = 1, 3 do rows[index] = index as int32 end
+end
 const rows = values:read()
-local total = 0 as int32
-for index = 1, #rows do total += rows[index] end
+local total: integer = 0
+for index = 1, #rows do total += rows[index] as integer end
 return total
 ]]
     )
-    assert(code:find(".pointer[", 1, true), code)
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.eq(program.run(result, "array-shared-span"), 6)
 end
 
 return M

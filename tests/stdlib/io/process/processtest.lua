@@ -689,7 +689,8 @@ function M.processStreamsRejectMalformedProviderResults()
 
     local writeResults = {
         {-1, false, "invalid write count"},
-        {1.5, false, "invalid write count"},
+        -- A native integer assignment can reject the fraction before the provider validator.
+        {1.5, false, "invalid write count", "expected an exact integer"},
         {6, false, "invalid write count"},
         {0, "no", "invalid closed-pipe status"},
     }
@@ -701,7 +702,12 @@ function M.processStreamsRejectMalformedProviderResults()
     for _, result in ipairs(writeResults) do
         writeResult = result
         ok, problem = pcall(child.stdin.offer, child.stdin, "input")
-        assert(not ok and tostring(problem):find(result[3], 1, true), tostring(problem))
+        local message = tostring(problem)
+        local expected = message:find(result[3], 1, true)
+        if result[4] then
+            expected = expected or message:find(result[4], 1, true)
+        end
+        assert(not ok and expected, message)
     end
 
     child:_drop()
