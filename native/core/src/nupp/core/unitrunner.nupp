@@ -297,19 +297,19 @@ function runner.build(
     if sharedhandoff then
         assert(
             #entries == 1
-            and entries[1][1] == "sharedbackingunits"
+            and entries[1][1] == "nupp.core.sharedbackingunits"
             and entries[1][2] == "scopelifetime"
             and entries[1][3] == 1,
             "shared backing handoff requires its exact producer"
         )
-        roots[#roots + 1] = {"sharedbackingunits", "afterscope"}
+        roots[#roots + 1] = {"nupp.core.sharedbackingunits", "afterscope"}
     end
     local build = service.buildUnits(fixtures, roots)
 
     phase("session")
     local chosen = runner.select(build, mode, cacheDirectory, nil, phase)
     if sharedhandoff then
-        local consumer = assert(chosen.owners["sharedbackingunits.afterscope"])
+        local consumer = assert(chosen.owners["nupp.core.sharedbackingunits.afterscope"])
         assert(
             #consumer.paramKinds == 1 and consumer.paramKinds[1] == "voidptr" and consumer.resultKind == "uint64",
             "shared backing consumer signature differs"
