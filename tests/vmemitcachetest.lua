@@ -229,19 +229,19 @@ function M.adoptionRefusesIncompleteOrDifferentSourceChecks()
         assert(envMod.resolveModule(env, "shapes"))
         local path = fs.normalize(dir .. "/src/shapes.nupp")
         local record = assert(env.loadedPaths[path])
-        assert(session.checkedTree("shapes", dir .. "/src/b.nupp") == nil, "a different file was adopted")
+        assert(session.checkedtree("shapes", dir .. "/src/b.nupp") == nil, "a different file was adopted")
         record.inProgress = true
-        assert(session.checkedTree("shapes", path) == nil, "an incomplete check was adopted")
+        assert(session.checkedtree("shapes", path) == nil, "an incomplete check was adopted")
         record.inProgress = false
         record.compatDiagnostics = {{severity = "error"}}
-        assert(session.checkedTree("shapes", path) == nil, "a check with errors was adopted")
+        assert(session.checkedtree("shapes", path) == nil, "a check with errors was adopted")
         record.compatDiagnostics = {}
         write(path, SHAPES .. "\n")
-        assert(session.checkedTree("shapes", path) == nil, "a check of different bytes was adopted")
+        assert(session.checkedtree("shapes", path) == nil, "a check of different bytes was adopted")
         write(path, SHAPES)
-        local tree = session.checkedTree("shapes", path)
+        local tree = session.checkedtree("shapes", path)
         assert(tree == record.result.root, "a completed source-identical tree was not adopted")
-        assert(session.checkedTree("shapes", path) == nil, "a tree already given to lowering was adopted again")
+        assert(session.checkedtree("shapes", path) == nil, "a tree already given to lowering was adopted again")
     end)
     session.abandon()
     remove(dir)
@@ -273,40 +273,15 @@ export function again(): number return a.value() end
     local session = emitcache.open(dir .. "/cache", env, config)
     local ok, problem = pcall(function()
         assert(envMod.resolveModule(env, "cyclea"))
-        assert(session.checkedTree("cycleb", dir .. "/src/cycleb.nupp") == nil, "the recursive edge was adopted")
-        assert(session.checkedTree("cyclea", dir .. "/src/cyclea.nupp") == nil, "a reader of that edge was adopted")
+        assert(session.checkedtree("cycleb", dir .. "/src/cycleb.nupp") == nil, "the recursive edge was adopted")
+        assert(session.checkedtree("cyclea", dir .. "/src/cyclea.nupp") == nil, "a reader of that edge was adopted")
     end)
     session.abandon()
     remove(dir)
     assert(ok, problem)
 end
 
-function M.independentEmitsReplayThroughOneFinalNumbering()
-    local dir = tempProject()
-    project.emitCached(dir, "leaf", "", "src", dir .. "/left")
-    project.emitCached(dir, "b", "", "src", dir .. "/right")
-    local original = os.getenv
-    os.getenv = function(name)
-        if name == "NUPP_VM_EMIT_IMPORTS" then
-            return dir .. "/left;" .. dir .. "/right"
-        end
-        return original(name)
-    end
-    local ok, problem = pcall(function()
-        local image, stats = cached(dir)
-        assert(stats.replayed >= 4, "independent fragments were not replayed: " .. stats.replayed)
-        os.getenv = original
-        same(scratch(dir), image, "independent emit imports")
-        local warm, warmStats = cached(dir)
-        same(image, warm, "promoted imports")
-        assert(warmStats.lowered == 0, "the final cache depended on worker directories")
-    end)
-    os.getenv = original
-    remove(dir)
-    assert(ok, problem)
-end
-
-function M.borrowedInterfacesPreservePreludeCleanupTypeIdentity()
+function M.warmInterfacesPreservePreludeCleanupTypeIdentity()
     local dir = tempProject()
     write(
         dir .. "/src/handles.nupp",
@@ -336,18 +311,52 @@ module left
 local handles = require("handles")
 export = handles
 ]])
-    local original = os.getenv
     local ok, problem = pcall(function()
         local expected = project.emit(dir, "consumer", "", "src")
-        project.emitCached(dir, "left", "", "src", dir .. "/left")
-        os.getenv = function(name)
-            return name == "NUPP_VM_EMIT_IMPORTS" and dir .. "/left" or original(name)
-        end
-        local image = project.emitCached(dir, "consumer", "", "src", dir .. "/final")
-        assert(emitcache.last.stats.restored > 0, "the borrowed interface was not restored")
+        project.emitCached(dir, "left", "", "src", dir .. "/cache")
+        local image = project.emitCached(dir, "consumer", "", "src", dir .. "/cache")
+        assert(emitcache.last.stats.restored > 0, "the warm interface was not restored")
         same(expected, image, "prelude cleanup type")
     end)
-    os.getenv = original
+    remove(dir)
+    assert(ok, problem)
+end
+
+function M.warmInterfacesPreserveNestedPreludeTypeIdentity()
+    local dir = tempProject()
+    write(
+        dir .. "/src/info.nupp",
+        [[
+module info
+local info = {}
+function info.identity(value: types.reflect.Info): types.reflect.Info
+    return value
+end
+export = info
+]]
+    )
+    write(dir .. "/src/left.nupp", [[
+module left
+local info = require("info")
+export = info
+]])
+    write(
+        dir .. "/src/consumer.nupp",
+        [[
+module consumer
+local reflected = require("info")
+export function inspect(info: types.reflect.Info): Type<unknown>?
+    return types.reflect.runtimetype(reflected.identity(info), 1)
+end
+]]
+    )
+    local ok, problem = pcall(function()
+        local expected = project.emit(dir, "consumer", "", "src")
+        project.emitCached(dir, "left", "", "src", dir .. "/cache")
+        local image = project.emitCached(dir, "consumer", "", "src", dir .. "/cache")
+        assert(emitcache.last.stats.restored > 0, "the warm interface was not restored")
+        same(expected, image, "nested prelude type")
+    end)
     remove(dir)
     assert(ok, problem)
 end

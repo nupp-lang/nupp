@@ -155,8 +155,7 @@ local function emitProject(
     reached: {[string]: boolean}?,
     coverage: lower.CoverageRequest?,
     cacheDir: string?,
-    sources: {[string]: string}?,
-    borrowed: {string}?
+    sources: {[string]: string}?
 ): string
     if not hostBootstrap then
         triviaarena.installDefault(tableProvider)
@@ -210,8 +209,7 @@ local function emitProject(
     -- What an earlier emit lowered and nothing it read has changed since is
     -- replayed rather than checked and lowered again (`nupp.tools.vm.emitcache`).
     local started = os.time()
-    local cache: any = cacheDir
-        and require("nupp.tools.vm.emitcache").open(cacheDir as string, env, config, carried, borrowed)
+    local cache: any = cacheDir and require("nupp.tools.vm.emitcache").open(cacheDir as string, env, config, carried)
         or nil
 
     local extensions: {[string]: string} = {}
@@ -278,7 +276,7 @@ local function emitProject(
         function(name: string, path: string): table
             if cache then
                 -- What the environment already checked is not checked again.
-                local adopted = not (carried and carried[name]) and cache.checkedTree(name, path) or nil
+                local adopted = not (carried and carried[name]) and cache.checkedtree(name, path) or nil
                 if adopted then
                     return adopted
                 end
@@ -347,8 +345,7 @@ local function emitFrom(
     extras: string?,
     includes: string?,
     hostBootstrap: boolean?,
-    cacheDir: string?,
-    serial: boolean?
+    cacheDir: string?
 ): string
     if not hostBootstrap then
         triviaarena.installDefault(tableProvider)
@@ -366,18 +363,7 @@ local function emitFrom(
         and {["nupp.vm.cliResources"] = require("nupp.compiler.vm.resources").source(root, config)}
         or nil
 
-    local borrowed: {string}? = nil
-    if entry == "nupp.tools.vm.root" and cacheDir and not serial then
-        local parallel = require("nupp.tools.vm.emitparallel")
-        local jobs = parallel.jobs(tonumber(os.getenv("NUPP_VM_EMIT_JOBS") or ""))
-        if jobs > 1 then
-            borrowed = parallel.prepare(root, cacheDir as string, jobs, function(shared: string): nil
-                emitFrom(root, "nupp.compiler.check", nil, includes, hostBootstrap, shared, true)
-            end)
-        end
-    end
-
-    return emitProject(root, config, entry, names(extras), hostBootstrap, carried, nil, nil, cacheDir, nil, borrowed)
+    return emitProject(root, config, entry, names(extras), hostBootstrap, carried, nil, nil, cacheDir)
 end
 
 --- Read, check and lower a project using the compiler's module resolver.

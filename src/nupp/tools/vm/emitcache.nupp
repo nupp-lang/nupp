@@ -258,7 +258,7 @@ end
 
 --- Opens the cache under `dir` for an emit checking in `env`, or nil when the
 --- emit keeps nothing. `carried` holds the source of modules that have no file.
-function emitcache.open(dir: string, env: any, config: table, carried: {[string]: string}?, borrowed: {string}?): any
+function emitcache.open(dir: string, env: any, config: table, carried: {[string]: string}?): any
     for _, variable in ipairs(REPORTING) do
         if os.getenv(variable) then
             return nil
@@ -305,49 +305,6 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
     local recorded: {[string]: any} = {}
     if type(indexStore.value) == "table" and type(indexStore.value.modules) == "table" then
         recorded = indexStore.value.modules
-    end
-    local imports: {string} = {}
-    local origins: {[string]: string} = {}
-    for _, imported in ipairs(borrowed or {}) do
-        imports[#imports + 1] = imported
-    end
-    for imported in (os.getenv("NUPP_VM_EMIT_IMPORTS") or ""):gmatch("[^;]+") do
-        imports[#imports + 1] = imported
-    end
-    for _, imported in ipairs(imports) do
-        if imported ~= dir then
-            local kept = storeMod.openValue(imported .. "/index.buf", stamp).value
-            if type(kept) == "table" and type(kept.modules) == "table" then
-                for name, entry in pairs(kept.modules) do
-                    recorded[name] = entry
-                    origins[name] = imported
-                end
-            end
-        end
-    end
-
-    local function keptValue(kind: string, name: string): any
-        local relative = "/" .. kind .. "/" .. name .. ".buf"
-        local candidates: {string} = {origins[name] or dir}
-        if origins[name] then
-            candidates[#candidates + 1] = dir
-        end
-        for _, imported in ipairs(imports) do
-            if imported ~= origins[name] then
-                candidates[#candidates + 1] = imported
-            end
-        end
-        for _, candidate in ipairs(candidates) do
-            local value = storeMod.openValue(candidate .. relative, stamp).value
-            if type(value) == "table" then
-                if candidate ~= dir then
-                    fs.copyFile(candidate .. relative, dir .. relative)
-                end
-                return value
-            end
-        end
-
-        return nil
     end
 
     -- NUPP_VM_RELINK_TRACE says why a module is lowered again, and which
@@ -481,10 +438,29 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
     -- identities: the prelude's, the project index's, and every one a check or a
     -- restore of this run has made.
     local nominals: {[string]: any} = {}
-    for _, nominal in pairs(env.globalTypes or {}) do
-        if nominal.tag == "nominal" and type(nominal.declarationKey) == "string" then
-            nominals[nominal.declarationKey] = nominal
+
+    local function rememberNominals(origins: {[any]: any}): nil
+        for source in pairs(origins) do
+            local key = type(source) == "table" and source.tag == "nominal" and source.declarationKey or nil
+            if type(key) == "string" and nominals[key as string] == nil then
+                nominals[key as string] = source
+            end
         end
+    end
+
+    -- Namespace members such as types.reflect.Info are reached through their
+    -- prelude owner rather than globalTypes directly. Use the existing semantic
+    -- encoder's complete origin set, as for checked module interfaces below.
+    local preludeTimer = profile and profile.enter("prelude origins", "nupp:prelude")
+    local preludeOrigins: {[any]: any} = {}
+    local preludeOk, preludeImage = pcall(interfaceimage.encode, {prelude = {exports = {types = env.globalTypes}},}, {
+        origins = preludeOrigins,
+        arenas = {}
+    })
+    local preludeKnown = preludeOk and type(preludeImage) == "table"
+    rememberNominals(preludeOrigins)
+    if preludeTimer then
+        profile.leave(preludeTimer)
     end
     for key, nominal in pairs((env.projectNominals or {}) as table) do
         nominals[key] = nominal
@@ -520,12 +496,7 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
             -- Nothing to compare: every reader of it is checked again.
             return "unencodable:" .. tostring({}), nil
         end
-        for source in pairs(origins) do
-            local key = type(source) == "table" and source.tag == "nominal" and source.declarationKey or nil
-            if type(key) == "string" and nominals[key as string] == nil then
-                nominals[key as string] = source
-            end
-        end
+        rememberNominals(origins)
         -- Named for the module rather than the process that encoded it, so images
         -- kept from different runs never share a namespace.
         image.fingerprint = "vm-root-emit:" .. name
@@ -763,7 +734,7 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
     -- missing or refused leaves the module to be checked, as it would have been.
     -- NUPP_VM_EMIT_RESTORE=0 checks every module a check needs.
     local restoring: {[string]: boolean} = {}
-    local restoreEnabled = os.getenv("NUPP_VM_EMIT_RESTORE") ~= "0"
+    local restoreEnabled = preludeKnown and os.getenv("NUPP_VM_EMIT_RESTORE") ~= "0"
     restore = function(name: string): boolean
         if not restoreEnabled or restoring[name] or not isClean(name) then
             return false
@@ -773,7 +744,7 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
         if not path or entry.declared == nil then
             return false
         end
-        local image = keptValue("interfaces", name)
+        local image = storeMod.openValue(interfaceFile(name), stamp).value
         if type(image) ~= "table" then
             return false
         end
@@ -827,7 +798,7 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
     self.reuse = reuse
 
     function reuse.fragment(name: string, path: string): any
-        local kept = keptValue("modules", name)
+        local kept = storeMod.openValue(fragmentFile(name), stamp).value
         if type(kept) ~= "table" or type(kept.snapshot) ~= "table" or type(kept.reads) ~= "table" then
             trace(name, "nothing kept")
             return nil
@@ -911,7 +882,7 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
     --- again. A tree is handed over only from a complete check of these same
     --- bytes that saw nothing half checked, which is the tree a second check would
     --- produce; the environment's check then stands as the one lowering read.
-    function self.checkedTree(name: string, path: string): any
+    function self.checkedtree(name: string, path: string): any
         local frame = checked[name]
         if not frame or frame.partial or lowered[name] or fs.normalize(frame.path) ~= fs.normalize(path) then
             return nil
