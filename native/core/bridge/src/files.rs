@@ -114,3 +114,51 @@ pub unsafe extern "C" fn error_text(code: u64, out: u64, room: u64) -> u64 {
     }
     text.len() as u64
 }
+
+unsafe extern "C" {
+    fn remove(path: *const c_char) -> c_int;
+    fn rename(from: *const c_char, to: *const c_char) -> c_int;
+    fn mkstemp(template: *mut c_char) -> c_int;
+}
+
+/// The name in the `bytes` bytes at `path`, up to a NUL as C reads it, as a
+/// C string.
+fn cname(path: u64, bytes: u64) -> std::ffi::CString {
+    let name = if bytes == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(path as *const u8, bytes as usize) } };
+    let name = name.split(|byte| *byte == 0).next().unwrap_or(&[]);
+    std::ffi::CString::new(name).unwrap_or_default()
+}
+
+/// Removes the file or empty directory named by the `bytes` bytes at `path`,
+/// as C's remove: zero, or the negated error number.
+pub unsafe extern "C" fn file_remove(path: u64, bytes: u64) -> u64 {
+    let name = cname(path, bytes);
+    if unsafe { remove(name.as_ptr()) } == 0 { 0 } else { last() }
+}
+
+/// Renames the file named by the `from_bytes` bytes at `from` to the name in
+/// the `to_bytes` bytes at `to`, as C's rename: zero, or the negated error
+/// number.
+pub unsafe extern "C" fn file_rename(from: u64, from_bytes: u64, to: u64, to_bytes: u64) -> u64 {
+    let (from, to) = (cname(from, from_bytes), cname(to, to_bytes));
+    if unsafe { rename(from.as_ptr(), to.as_ptr()) } == 0 { 0 } else { last() }
+}
+
+/// Where a temporary file is made, as Lua's LUA_TMPNAMTEMPLATE.
+const TEMPORARY: &[u8] = b"/tmp/lua_XXXXXX\0";
+
+/// Makes a new empty file with a unique name, as Lua's os.tmpname does with
+/// mkstemp, and closes it; copies its name into `out`, at most `room` bytes:
+/// the name's length, or the negated error number.
+pub unsafe extern "C" fn file_temporary(out: u64, room: u64) -> u64 {
+    let mut name = TEMPORARY.to_vec();
+    let fd = unsafe { mkstemp(name.as_mut_ptr() as *mut c_char) };
+    if fd < 0 {
+        return last();
+    }
+    unsafe { close(fd) };
+    let length = name.len() - 1;
+    let count = length.min(room as usize);
+    unsafe { std::ptr::copy_nonoverlapping(name.as_ptr(), out as *mut u8, count) };
+    length as u64
+}

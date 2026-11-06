@@ -111,7 +111,7 @@ end
 -- (metamethod '__gc')". The line starts as `log`'s default formatter starts a warning,
 -- without its time: the core has no `warn` or `log` yet.
 export function finalizer(ctx: voidptr, value: uint64, uncallable: boolean): nil
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = guestvalues.guestheap(ctx)
         local builder = state as strings.Builder*

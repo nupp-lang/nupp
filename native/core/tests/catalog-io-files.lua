@@ -4,7 +4,7 @@
 -- results and errors; reads in every format; writes; seek positions; lines;
 -- setvbuf, flush and close; and an io.open handle closed as its owner leaves
 -- scope. Each check is a bit of the score. Files go under NUPP_GUEST_TEMP.
-local base = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/io-" .. tostring(math.random(1, 1 << 40))
+local base = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/io-" .. string.sub(os.tmpname(), -6)
 local score = 0
 local bit = 1
 local path = base .. "-text"
@@ -153,11 +153,13 @@ do
     local out = base .. "-out"
     check(io.type(io.output(out)) == "file")
     check(io.type(io.write("x", 1, "\n")) == "file")
-    io.output():close()
+    local written = io.output()
+    written:close()
     io.output(io.stdout)
     io.input(out)
     check(io.read("l") == "x1" and io.read("l") == nil)
-    io.input():close()
+    local reading = io.input()
+    reading:close()
     local inputOk, inputMessage = pcall(function()
         return io.read("l")
     end)
@@ -181,4 +183,6 @@ for _ = 1, 100 do
     end
 end
 check(kept == 100)
+-- The name the base was taken from.
+os.remove("/tmp/lua_" .. string.sub(base, -6))
 return score

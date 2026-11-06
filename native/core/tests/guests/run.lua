@@ -207,6 +207,12 @@ local CASES = {
     -- An error no protected call takes: reported on standard error, and
     -- the program ends with status 1, publishing nothing (EXITS).
     {"errorsuncaught", 0},
+    -- Lua's clock and calendar (os.time, os.date, os.clock, os.difftime);
+    -- os.remove, os.rename, os.tmpname, os.setlocale and io.tmpfile; and
+    -- main's recursive os.remove and io.Path arguments.
+    {"ostime", 0x7FFF00003FFFFFFF},
+    {"osfiles", 0x7FFF00000003FFFF},
+    {"osremove", 0x7FFF000000001FFF},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
@@ -377,7 +383,10 @@ local STRESS = {
     gcexit = true,
     gcwarn = true,
     gcraise = true,
-    errorsuncaught = true
+    errorsuncaught = true,
+    ostime = true,
+    osfiles = true,
+    osremove = true
 }
 -- Shell statements a case's runs start with: the io and pool cases may hold
 -- 64 descriptors, so a handle left open, or opened by a cancelled pool job,
@@ -496,7 +505,9 @@ local NUMERIC = {
     gcweak = "catalog-gc-weak",
     gcfinalizers = "catalog-gc-finalizers",
     gcoptions = "catalog-gc-options",
-    gcwarn = "catalog-gc-warn"
+    gcwarn = "catalog-gc-warn",
+    ostime = "catalog-os-time",
+    osfiles = "catalog-os-files"
 }
 -- The status a program ends with when an error no protected call takes
 -- ends it, as the command line's: the bridge exits so once the program has
@@ -549,7 +560,9 @@ local RAISES = {
 local POSIXTWINS = {
     ["catalog-process-execute"] = true,
     ["catalog-process-popen"] = true,
-    ["catalog-process-exit"] = true
+    ["catalog-process-exit"] = true,
+    -- os.tmpname: mkstemp under /tmp, where the generic build calls tmpnam.
+    ["catalog-os-files"] = true
 }
 local FIXTURES = {
     "catalog-boolean",
@@ -886,6 +899,10 @@ local function stage()
             "catalog-gc-exit",
             "catalog-gc-warn",
             "catalog-gc-raise"
+            "catalog-process-layer",
+            "catalog-os-time",
+            "catalog-os-files",
+            "catalog-os-remove"
         }) do
             write(
                 base .. "/source/nupp/core/" .. fixture:gsub("-", "") .. ".nupp",

@@ -60,3 +60,28 @@ export function stringarg(value: any, default: string?, position: integer, name:
 
     return ""
 end
+
+--- Raises Lua's error for argument `position` of `name` when a call with
+--- `count` arguments has none there, as luaL_check* finds "no value".
+export function needed(count: integer, position: integer, name: string, expected: string, level: integer): nil
+    if position > count then
+        argerror(position, name, expected .. " expected, got no value", level + 1)
+    end
+end
+
+--- A path argument as `os` takes one: an `io.Path` (a table with a
+--- `tostring` method) as its text, and anything else as it is, for the
+--- argument check after; a table with no `tostring` raises at `level` past
+--- the caller.
+export function pathname(value: any, position: integer, level: integer): any
+    if type(value) == "table" then
+        local method: any = (value as {[string]: any}).tostring
+        if type(method) ~= "function" then
+            error(("bad argument #%d (path or string expected)"):format(position), level + 1)
+        end
+        local path: any = value
+        return path:tostring()
+    end
+
+    return value
+end

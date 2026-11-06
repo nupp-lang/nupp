@@ -4,6 +4,8 @@ mod platform;
 mod poll;
 mod pool;
 mod process;
+mod time;
+mod tree;
 
 #[cfg(all(test, target_arch = "aarch64"))]
 #[path = "../tests/support/abi.rs"]
@@ -184,6 +186,17 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, Failure> {
         process::process_reap as *const () as u64,
         process::process_kill as *const () as u64,
         process::process_exit as *const () as u64,
+        time::wall_clock as *const () as u64,
+        time::cpu_clock as *const () as u64,
+        time::time_parts as *const () as u64,
+        time::time_make as *const () as u64,
+        time::time_format as *const () as u64,
+        files::file_remove as *const () as u64,
+        files::file_rename as *const () as u64,
+        files::file_temporary as *const () as u64,
+        tree::dir_open as *const () as u64,
+        tree::dir_names as *const () as u64,
+        tree::unlink_entry as *const () as u64,
     ];
     let packet = [
         1,

@@ -1,0 +1,100 @@
+module nupp.core.catalogosremove
+
+local unique = os.tmpname()
+
+-- Main's extensions of os.remove and os.rename on the core, which Lua does
+-- not have: a recursive removal of a directory tree that never follows a
+-- link, `io.Path` arguments (any table with a `tostring` method), and their
+-- argument errors. Files go under NUPP_GUEST_TEMP. Each check is a bit of
+-- the score.
+local base = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/remove-" .. string.sub(unique, -6)
+os.remove(unique)
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+local function ends(text: any, suffix: string): boolean
+    return type(text) == "string" and string.sub(text as string, -#suffix) == suffix
+end
+
+local function exists(path: string): boolean
+    local f, _ = io.open(path, "r")
+    if f == nil then
+        return false
+    end
+    f:close()
+
+    return true
+end
+
+local function touch(path: string): nil
+    local f = assert(io.open(path, "w"))
+    f:write("x")
+    f:close()
+end
+
+-- A tree with files, nested directories and a link to a directory beside
+-- it, which the removal must not follow.
+local tree = base .. "-tree"
+local kept = base .. "-kept"
+os.execute(("mkdir -p '%s/a/b/c' '%s/d' '%s'"):format(tree, tree, kept))
+touch(tree .. "/top")
+touch(tree .. "/a/one")
+touch(tree .. "/a/b/c/deep")
+touch(kept .. "/survivor")
+os.execute(("ln -s '%s' '%s/a/link'"):format(kept, tree))
+for k = 1, 40 do
+    touch(tree .. "/d/f" .. tostring(k))
+end
+
+local full, fullMessage, fullCode = os.remove(tree)
+check(full == nil and ends(fullMessage, ": Directory not empty") and math.type(fullCode) == "integer")
+check(os.remove(tree, true) == true and not exists(tree .. "/top") and exists(kept .. "/survivor"))
+check(os.rename(tree, tree .. "-gone") == nil)
+local missing, missingMessage, missingCode = os.remove(tree, true)
+check(missing == nil and missingMessage == "No such file or directory (os error 2)" and missingCode == nil)
+
+-- A file, and a link to a directory, removed recursively are removed alone.
+touch(base .. "-file")
+check(os.remove(base .. "-file", true) == true and not exists(base .. "-file"))
+os.execute(("ln -s '%s' '%s'"):format(kept, base .. "-link"))
+check(os.remove(base .. "-link", true) == true and exists(kept .. "/survivor"))
+check(os.remove(kept, false) == nil and os.remove(kept, true) == true and not exists(kept .. "/survivor"))
+
+-- io.Path arguments.
+local function path(text: string): any
+    return {
+        tostring = function(self: any): string
+            return text
+        end
+    }
+end
+
+touch(base .. "-p")
+check(os.rename(path(base .. "-p"), path(base .. "-q")) == true and exists(base .. "-q"))
+check((os.remove as any)(path(base .. "-q")) == true and not exists(base .. "-q"))
+
+-- Argument errors.
+local flagOk, flagMessage = pcall(function(): any
+    return (os.remove as any)(base, "yes")
+end)
+check(not flagOk and ends(flagMessage, ":85: bad argument #2 to 'remove' (recursive must be a boolean)"))
+local tableOk, tableMessage = pcall(function(): any
+    return (os.remove as any)({})
+end)
+check(not tableOk and ends(tableMessage, ":89: bad argument #1 (path or string expected)"))
+local renameOk, renameMessage = pcall(function(): any
+    return (os.rename as any)("x", {})
+end)
+check(not renameOk and ends(renameMessage, ":93: bad argument #2 (path or string expected)"))
+local numberOk, numberMessage = pcall(function(): any
+    return (os.remove as any)(5, true)
+end)
+check(not numberOk and ends(numberMessage, ":97: nupp: os path must be a path or a string"))
+export = score

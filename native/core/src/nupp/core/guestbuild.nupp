@@ -222,6 +222,11 @@ local CASES: {[string]: {
         modules = {"catalog-reactor-driver"},
         follow = true
     },
+    -- Lua's os clock and calendar; its calls on file names with io.tmpfile;
+    -- and main's recursive os.remove and io.Path arguments.
+    ostime = {fixture = "catalog-os-time", version = 8},
+    osfiles = {fixture = "catalog-os-files", version = 8},
+    osremove = {fixture = "catalog-os-remove", version = 8},
     -- The bench harness's own entry: the bench/vm workloads under debug.bench.
     benchworkloads = {
         fixture = "bench/vm/workloads.bench",
@@ -685,6 +690,7 @@ local function compileProgram(caseName: string, fixture: string, version: intege
             table.insert(names, #names, "src/nupp/runtime/luaio")
         end
         if usesos then
+            table.insert(names, #names, "src/nupp/runtime/luatime")
             table.insert(names, #names, "src/nupp/runtime/luaos")
         end
         -- A program using the task surface carries the scheduler.

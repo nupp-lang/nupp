@@ -80,7 +80,18 @@ local osNames = {
     processUnwatch = true,
     processReap = true,
     processKill = true,
-    processExit = true
+    processExit = true,
+    wallClock = true,
+    cpuClock = true,
+    timeParts = true,
+    timeMake = true,
+    timeFormat = true,
+    fileRemove = true,
+    fileRename = true,
+    fileTemporary = true,
+    dirOpen = true,
+    dirNames = true,
+    unlinkEntry = true
 }
 
 local function need(ok: any, message: string): any

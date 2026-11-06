@@ -27,6 +27,29 @@ local record filecalls
 
     --- The system's text for error number `code`, C's strerror.
     reason: function(code: integer): string
+
+    --- Removes the file or empty directory at `path`, as C's remove: 0.
+    remove: function(path: string): integer
+
+    --- Renames the file at `from` to `to`, as C's rename: 0.
+    rename: function(from: string, to: string): integer
+
+    --- Makes a new empty file with a unique name, as Lua's os.tmpname
+    --- does with mkstemp, and closes it: its name.
+    temporary: function(): string | integer
+
+    --- Opens the directory `path` below directory `parent` (the working
+    --- directory when negative) without following a link: its descriptor,
+    --- ENOTDIR for anything that is not a directory, a link included.
+    diropen: function(parent: integer, path: string): integer
+
+    --- The names of directory `descriptor`'s entries, "." and ".." aside,
+    --- each followed by a NUL.
+    names: function(descriptor: integer): string | integer
+
+    --- Unlinks the entry `name` in directory `parent` (the working directory
+    --- when negative), an empty directory when `directory` is 1: 0.
+    unlink: function(parent: integer, name: string, directory: integer): integer
 end
 
 local calls: filecalls

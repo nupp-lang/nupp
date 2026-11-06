@@ -4,8 +4,8 @@
 Lua 5.5's `io` library on the native core, over its file handles
 (`nupp.runtime.luastreams`): `io.open` with Lua's modes, results and
 errors; `io.read`, `io.write`, `io.lines`, `io.close`, `io.input`,
-`io.output` and `io.type`; the standard files; and `io.popen`, whose
-handle is a process's (`nupp.runtime.luaprocess`).
+`io.output`, `io.type` and `io.tmpfile`; the standard files; and
+`io.popen`, whose handle is a process's (`nupp.runtime.luaprocess`).
 
 The handles of `io.open` are affine (Decision 12): one that leaves its
 owner's scope unclosed is closed by the prelude's `__nuppCloseFile`, which
@@ -92,7 +92,8 @@ local function close(...: any): (boolean?, string?, integer?)
     end
     local s = openstream(file, 1, "close", 2)
     if luaprocess.isprocess(file) then
-        return (file as any):close()
+        local process: any = file
+        return process:close()
     end
 
     return closestream(s)
@@ -179,9 +180,21 @@ local function filetype(...: any): string?
     return "file"
 end
 
--- Temporary files are not the core's yet.
-local function tmpfile(...: any): nil
-    error("'tmpfile' not supported", 2)
+-- A new temporary file open for reading and writing, as C's tmpfile: made
+-- under a unique name, which is removed at once, so the file is gone once
+-- it is closed. The handle, or Lua's failure results.
+local function tmpfile(): (any, string?, integer?)
+    local made = files.temporary()
+    if made.code ~= 0 then
+        return failure(made.code)
+    end
+    local done = files.open(made.text, files.READING + files.WRITING)
+    files.remove(made.text)
+    if done.code ~= 0 then
+        return failure(done.code)
+    end
+
+    return newhandle(done.value, false, "full")
 end
 
 local library: {
@@ -212,7 +225,8 @@ local function closefile(handle: any): nil
     end
     local ok, reason: (boolean?, string?) = nil, nil
     if luaprocess.isprocess(handle) then
-        ok, reason = (handle as any):close()
+        local process: any = handle
+        ok, reason = process:close()
     else
         ok, reason = closestream(s)
     end
