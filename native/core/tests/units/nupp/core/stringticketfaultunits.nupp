@@ -1,0 +1,70 @@
+module nupp.core.stringticketfaultunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const gcweak = require("nupp.runtime.vm.gcweak")
+const strings = require("nupp.runtime.core.corestrings")
+const tables = require("nupp.runtime.core.coretables")
+const shared = require("nupp.runtime.core.sharedbacking")
+const pages = require("nupp.runtime.core.pagemappings")
+const servicescope = require("nupp.runtime.core.servicescope")
+const fixture = require("nupp.core.longstringfaultunits")
+
+const PENDING: uint64 = 4ULL
+const OBS_BLOCK: uint64 = 32ULL
+const OBS_TARGET: uint64 = 40ULL
+const OBS_OTHER: uint64 = 48ULL
+const OBS_QUEUED: uint64 = 56ULL
+const OBS_ARENA: uint64 = 64ULL
+const OBS_TICKET: uint64 = 72ULL
+
+-- Modes1/2/3 fault block/control/both in test transport. Mode4 corrupts the
+-- still-owned block count to expose INVALID's pending, retryable authority.
+export function failure(scopeAddress: uint64, mode: uint64): uint64
+    local state = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = native.pointer(fixture.prepare(scopeAddress, mode)) as heap.Heap*
+        local out = native.pointer(scopeAddress)
+        local extra = native.sizeOf<servicescope.ServiceScope>()
+        local a = native.pointer(native.load64(out, native.index(extra + OBS_ARENA))) as arena.Arena*
+        local source = arena.alloc(a, 136ULL, 8ULL)
+        if source == nil then
+            error("string ticket faults: no source")
+        end
+        local base = native.address(source)
+        local i: uint64 = 0ULL
+        while i < 136ULL do
+            native.store8(native.pointer(base), native.index(i), 42ULL)
+            i = i + 1ULL
+        end
+        local other = strings.make(h, base, 97ULL)
+        local allocation = shared.create(131ULL)
+        if allocation == nil then
+            error("string ticket faults: no block")
+        end
+        local block = native.pointer(native.address(allocation))
+        i = 0ULL
+        while i < 131ULL do
+            native.store8(shared.bytes(block), native.index(i), 42ULL)
+            i = i + 1ULL
+        end
+        local target = strings.fromshared(h, block, 0ULL, 130ULL)
+        local o = native.pointer(target) as heap.Header*
+        if shared.releaselocal(state as pages.Scope*, block) ~= shared.RETAINED then
+            error("string ticket faults: creator reference differs")
+        end
+        native.store64(out, native.index(extra + OBS_BLOCK), native.address(block))
+        native.store64(out, native.index(extra + OBS_TARGET), target)
+        native.store64(out, native.index(extra + OBS_OTHER), other)
+        native.store64(out, native.index(extra + OBS_TICKET), heap.corestringtail(o).ticket)
+        gcweak.release(h, native.pointer(other) as heap.Header*)
+        gcweak.release(h, o)
+        native.store64(out, native.index(extra + OBS_QUEUED), h.released.count)
+        if mode == PENDING then
+            local _ = pages.sharedcompare(block, 1ULL, 0ULL)
+        end
+        tables.drain(h)
+        return 0ULL
+    end
+end

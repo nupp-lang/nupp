@@ -393,3 +393,62 @@ fn ticket_typed_clients_survive_real_producer_scope_close() {
         );
     }
 }
+
+#[test]
+#[ignore = "requires current string-ticket handoff and fault bundles"]
+fn string_ticket_ownership_survives_scope_close_and_terminal_faults() {
+    let handoff = std::path::PathBuf::from(
+        std::env::var_os("CORE_TEST_STRING_TICKET_HANDOFF").expect("handoff"),
+    );
+    let faults = std::path::PathBuf::from(
+        std::env::var_os("CORE_TEST_STRING_TICKET_FAULTS").expect("faults"),
+    );
+    let produced =
+        super::execute(&handoff, &[0, FIXTURE_CAPACITY]).expect("produce independent block");
+    assert_eq!(produced.len(), 2);
+    assert_ne!(produced[0], 0);
+    assert_eq!(produced[1], 0, "producer scope really closed");
+    assert_eq!(
+        super::execute(&handoff, &[1, produced[0]]).expect("consume through string/view"),
+        [0, 0]
+    );
+    for mode in 0..5 {
+        let _cleanup = Cleanup;
+        ATTEMPTS.store(0, Ordering::SeqCst);
+        NODE_ATTEMPTS.store(0, Ordering::SeqCst);
+        let mask = if mode <= 3 { mode } else { 0 };
+        TICKET_FAULTS.store(mask, Ordering::SeqCst);
+        let result = super::execute(&faults, &[0, 0, mode]).expect("string-ticket drain");
+        TICKET_FAULTS.store(0, Ordering::SeqCst);
+        assert_eq!(
+            result,
+            [255, 0],
+            "mode{mode}: consumed fields/queue or pending retry plus actual scope close"
+        );
+        assert_eq!(
+            ATTEMPTS.load(Ordering::SeqCst),
+            mask & 1,
+            "one block terminal attempt"
+        );
+        assert_eq!(
+            NODE_ATTEMPTS.load(Ordering::SeqCst),
+            (mask >> 1) & 1,
+            "one control terminal attempt"
+        );
+        if mask == 3 {
+            let address = NODE_ADDRESS.load(Ordering::SeqCst);
+            assert_ne!(address, 0);
+            // Test transport alone owns these deliberately retained failed
+            // maps. The Nupp tail has cleared both consumed capabilities.
+            let node = unsafe { (address as *const u64).add((PREFIX_BYTES / 8) as usize) };
+            unsafe {
+                assert_eq!(node.read(), 0);
+                assert_eq!(
+                    node.add(7).read(),
+                    FAILURE,
+                    "first errno22 survives later23"
+                );
+            }
+        }
+    }
+}

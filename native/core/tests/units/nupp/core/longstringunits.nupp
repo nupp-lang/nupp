@@ -75,7 +75,7 @@ export function representation(count: uint64): uint64
                 wrong = wrong + miss(first ~= second and stats.bytes == count * 2ULL)
                 wrong = wrong + miss(heap.corestringexternal(o) and o.size as uint64 == heap.corestringextent())
                 local tail = heap.corestringtail(o)
-                wrong = wrong + miss(tail.hashReady == 0ULL and tail.offset == 0ULL)
+                wrong = wrong + miss(tail.hashReady == 0ULL and tail.offset == 0ULL and tail.ticket == 0ULL)
                 wrong = wrong + miss(tail.charge == pages.sharedextent(count + 1ULL))
                 local shorter = strings.make(h, input, count - 1ULL)
                 wrong = wrong + miss(not strings.equal(first, shorter) and tail.hashReady == 0ULL)
@@ -126,14 +126,17 @@ export function sharing(count: uint64): uint64
                 native.pointer(0ULL) as storage.CopyStats*
             )
             local mapped = shared.mapped(block)
+            local charge = mapped + pages.sharedextent(native.sizeOf<pages.RangeTicket>())
             local first = strings.fromshared(h, block, 7ULL, count)
             local second = strings.fromshared(h, block, 7ULL, count)
             wrong = wrong + miss(first ~= 0ULL and second ~= 0ULL and first ~= second)
             wrong = wrong + miss(strings.equal(first, second) and pages.sharedreferences(block) == 3ULL)
             wrong = wrong + miss(strings.bytes(first) == native.address(shared.bytes(block)) + 7ULL)
             local firstHeader = native.pointer(first) as heap.Header*
-            wrong = wrong + miss(heap.corestringtail(firstHeader).charge == mapped)
-            wrong = wrong + miss(h.liveBytes == 2ULL * (heap.corestringextent() + mapped))
+            wrong = wrong + miss(
+                heap.corestringtail(firstHeader).charge == charge and heap.corestringtail(firstHeader).ticket ~= 0ULL
+            )
+            wrong = wrong + miss(h.liveBytes == 2ULL * (heap.corestringextent() + charge))
             wrong = wrong + miss(strings.fromshared(h, block, MAXIMUM, count) == 0ULL)
             wrong = wrong + miss(
                 strings.fromshared(h, block, 1ULL, MAXIMUM) == 0ULL and pages.sharedreferences(block) == 3ULL

@@ -112,7 +112,8 @@ local function publish(
     block: voidptr,
     offset: uint64,
     count: uint64,
-    charge: uint64
+    charge: uint64,
+    ticket: uint64
 ): uint64
     @unsafe do
         local tail = heap.corestringtail(o)
@@ -120,6 +121,7 @@ local function publish(
         tail.offset = offset
         tail.hashReady = 0ULL
         tail.charge = charge
+        tail.ticket = ticket
         o.auxPtr = native.address(shared.bytes(block)) + offset
         o.auxLen = count
         heap.accountResize(h, 0ULL, charge)
@@ -166,7 +168,7 @@ export function makecounted(h: heap.Heap*, bytes: uint64, count: uint64, stats: 
         local base = native.address(shared.bytes(block))
         storage.copy(base, bytes, count, stats)
         native.store8(native.pointer(base), native.index(count), 0ULL)
-        return publish(h, o, block, 0ULL, count, charge)
+        return publish(h, o, block, 0ULL, count, charge, 0ULL)
     end
 end
 
@@ -175,9 +177,12 @@ export function make(h: heap.Heap*, bytes: uint64, count: uint64): uint64
 end
 
 -- The caller owns an active reference to immutable bytes throughout allocation.
--- Invalid bounds/accounting/retain leave it untouched; short ranges copy/intern.
--- Long ranges need not end at a NUL byte. No mutable Buffer sharing is enabled.
+-- Invalid bounds/accounting/acquisition leave it untouched; short ranges copy.
+-- Each long header owns a distinct exact ticket, which alone owns its block
+-- reference. Its tail block is an observer, never a second destruction path.
+-- No mutable Buffer sharing or writer admission is enabled here.
 export function fromshared(h: heap.Heap*, block: voidptr, offset: uint64, count: uint64): uint64
+    local result = shared.TicketResult(0ULL)
     if native.address(block) == 0ULL then
         return 0ULL
     end
@@ -188,13 +193,25 @@ export function fromshared(h: heap.Heap*, block: voidptr, offset: uint64, count:
     if count <= values.INTERN_LIMIT then
         return make(h, native.address(shared.bytes(block)) + offset, count)
     end
-    local charge = shared.mapped(block)
-    local o = native.pointer(emptylong(h)) as heap.Header*
-    if not chargefits(h, charge) or not shared.retain(block) then
+    local mapped = shared.mapped(block)
+    local control = pages.sharedextent(native.sizeOf<pages.RangeTicket>())
+    if control == 0ULL or mapped > MAXIMUM - control then
         return 0ULL
     end
-
-    return publish(h, o, block, offset, count, charge)
+    local charge = mapped + control
+    @unsafe do
+        local o = native.pointer(emptylong(h)) as heap.Header*
+        if not chargefits(h, charge) then
+            return 0ULL
+        end
+        local out = result as shared.TicketResult*
+        if shared.ticketacquire(out, block, offset, count) ~= shared.TICKET_OK then
+            return 0ULL
+        end
+        -- Acquisition succeeded. Everything through publication is now pure,
+        -- noncollecting and nonthrowing, with all arithmetic preflighted.
+        return publish(h, o, block, offset, count, charge, out.ticket)
+    end
 end
 
 -- The header of a string value, or zero.

@@ -116,11 +116,19 @@ export function drain(h: heap.Heap*): nil
             -- The sweep already retired it: its former kind is in aux.
             if o.aux as uint64 == heap.KIND_STR and heap.corestringexternal(o) then
                 local tail = heap.corestringtail(o)
-                local result = shared.releaselocal(status, native.pointer(tail.block))
+                local result: uint64 = 0ULL
+                if tail.ticket ~= 0ULL then
+                    -- release resumes detached pending authority on INVALID;
+                    -- a retry must never drop the same alias a second time.
+                    result = shared.ticketrelease(status, tail.ticket)
+                else
+                    result = shared.releaselocal(status, native.pointer(tail.block))
+                end
                 if result ~= shared.RETAINED and result ~= shared.RELEASED and result ~= shared.FAILED then
                     -- No reference was consumed: retain this queue entry.
                     error("core strings: shared release refused")
                 end
+                tail.ticket = 0ULL
                 tail.block = 0ULL
                 failed = result == shared.FAILED
             elseif o.aux as uint64 == heap.KIND_TABLE then

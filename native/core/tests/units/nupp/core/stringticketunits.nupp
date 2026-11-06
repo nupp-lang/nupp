@@ -1,0 +1,304 @@
+module nupp.core.stringticketunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const gcweak = require("nupp.runtime.vm.gcweak")
+const values = require("nupp.runtime.vm.values")
+const strings = require("nupp.runtime.core.corestrings")
+const storage = require("nupp.runtime.core.corestorage")
+const tables = require("nupp.runtime.core.coretables")
+const shared = require("nupp.runtime.core.sharedbacking")
+const pages = require("nupp.runtime.core.pagemappings")
+
+const ARENA_BYTES: uint64 = 67108864ULL
+const MAXIMUM: uint64 = 0xffffffffffffffffULL
+const SAMPLE: uint64 = 0x44332211ULL
+
+local function miss(ok: boolean): uint64
+    if ok then
+        return 0ULL
+    end
+    return 1ULL
+end
+
+export function ownership(): uint64
+    local state = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local block = shared.create(512ULL)
+            if block == nil then
+                error("string tickets: no block")
+            end
+            local source = native.address(shared.bytes(block))
+            local i: uint64 = 0ULL
+            while i < 512ULL do
+                native.store8(native.pointer(source), native.index(i), i % 251ULL)
+                i = i + 1ULL
+            end
+            local control = pages.sharedextent(native.sizeOf<pages.RangeTicket>())
+            local charge = shared.mapped(block) + control
+            local direct = strings.make(h, source, 41ULL)
+            local directHeader = native.pointer(direct) as heap.Header*
+            wrong = wrong + miss(heap.corestringtail(directHeader).ticket == 0ULL)
+            local first = strings.fromshared(h, block, 7ULL, 97ULL)
+            local second = strings.fromshared(h, block, 7ULL, 97ULL)
+            local sub = strings.fromshared(h, block, 48ULL, 49ULL)
+            local one = native.pointer(first) as heap.Header*
+            local two = native.pointer(second) as heap.Header*
+            local three = native.pointer(sub) as heap.Header*
+            local token = heap.corestringtail(one).ticket
+            wrong = wrong + miss(token ~= 0ULL and token ~= heap.corestringtail(two).ticket)
+            wrong = wrong + miss(
+                token ~= heap.corestringtail(three).ticket
+                and heap.corestringtail(two).ticket ~= heap.corestringtail(three).ticket
+            )
+            wrong = wrong + miss(
+                heap.corestringtail(one).block == native.address(block) and heap.corestringtail(one).charge == charge
+            )
+            wrong = wrong + miss(
+                heap.corestringextent() < native.sizeOf<
+                    heap.Header
+                >() + native.sizeOf<heap.StringBody>() + values.INTERN_LIMIT + 2ULL
+            )
+            wrong = wrong + miss(strings.bytes(first) == source + 7ULL and strings.length(first) == 97ULL)
+            wrong = wrong + miss(
+                strings.equal(first, second)
+                and shared.ticketcount(block) == 3ULL
+                and pages.sharedreferences(block) == 4ULL
+            )
+            local short = strings.fromshared(h, block, 7ULL, 40ULL)
+            wrong = wrong + miss(
+                strings.length(short) == 40ULL and not heap.corestringexternal(native.pointer(short) as heap.Header*)
+            )
+            wrong = wrong + miss(shared.ticketcount(block) == 3ULL and pages.sharedreferences(block) == 4ULL)
+            wrong = wrong + miss(shared.ticketretain(token))
+            gcweak.release(h, one)
+            wrong = wrong + miss(heap.corestringexternal(one) and heap.corestringtail(one).charge == 0ULL)
+            tables.drain(h)
+            wrong = wrong + miss(shared.ticketcount(block) == 3ULL and pages.ticketreferences(token) == 1ULL)
+            wrong = wrong + miss(shared.ticketrelease(state as pages.Scope*, token) == shared.RELEASED)
+            token = 0ULL
+            gcweak.release(h, two)
+            tables.drain(h)
+            wrong = wrong + miss(shared.ticketcount(block) == 1ULL and pages.sharedreferences(block) == 2ULL)
+            wrong = wrong + miss(shared.ticketoverlap(block, 7ULL, 41ULL) == shared.RANGE_CLEAR)
+            wrong = wrong + miss(shared.ticketoverlap(block, 48ULL, 49ULL) == shared.RANGE_OVERLAP)
+            wrong = wrong + miss(shared.ticketoverlap(block, 97ULL, 7ULL) == shared.RANGE_CLEAR)
+            collector.fullCycle(h)
+            tables.drain(h)
+            wrong = wrong + miss(
+                h.liveCount == 0ULL
+                and h.liveBytes == 0ULL
+                and shared.ticketcount(block) == 0ULL
+                and pages.sharedreferences(block) == 1ULL
+            )
+            wrong = wrong + miss(shared.releaselocal(state as pages.Scope*, block) == shared.RELEASED)
+            heap.destroy(h)
+        end
+    end
+
+    return wrong
+end
+
+export function refusals(): uint64
+    local state = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local block = shared.create(256ULL)
+            if block == nil then
+                error("string tickets: no refusal block")
+            end
+            wrong = wrong + miss(strings.fromshared(h, block, MAXIMUM, 97ULL) == 0ULL and h.liveCount == 0ULL)
+            wrong = wrong + miss(pages.sharedcompare(block, 1ULL, MAXIMUM) == 1ULL)
+            wrong = wrong + miss(
+                strings.fromshared(h, block, 0ULL, 97ULL) == 0ULL and pages.sharedreferences(block) == MAXIMUM
+            )
+            wrong = wrong + miss(pages.sharedcompare(block, MAXIMUM, 1ULL) == MAXIMUM)
+            collector.fullCycle(h)
+            tables.drain(h)
+            wrong = wrong + miss(h.liveCount == 0ULL and h.liveBytes == 0ULL and shared.ticketcount(block) == 0ULL)
+            local before = h.debt
+            h.debt = MAXIMUM - heap.corestringextent()
+            wrong = wrong + miss(strings.fromshared(h, block, 0ULL, 97ULL) == 0ULL and h.debt == MAXIMUM)
+            h.debt = before + heap.corestringextent()
+            wrong = wrong + miss(
+                h.liveCount == 1ULL
+                and h.liveBytes == heap.corestringextent()
+                and shared.ticketcount(block) == 0ULL
+                and pages.sharedreferences(block) == 1ULL
+            )
+            collector.fullCycle(h)
+            tables.drain(h)
+            wrong = wrong + miss(h.liveCount == 0ULL and h.liveBytes == 0ULL)
+            wrong = wrong + miss(shared.releaselocal(state as pages.Scope*, block) == shared.RELEASED)
+            heap.destroy(h)
+        end
+    end
+
+    return wrong
+end
+
+export function quota(): uint64
+    local state = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local result = shared.TicketResult(0ULL)
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local list = arena.alloc(a, shared.MAXIMUM_TICKETS * 8ULL, 8ULL)
+            if list == nil then
+                error("string tickets: no quota list")
+            end
+            local base = native.address(list)
+            local allocation = shared.create(256ULL)
+            if allocation == nil then
+                error("string tickets: no quota block")
+            end
+            local block = native.pointer(native.address(allocation))
+            local out = result as shared.TicketResult*
+            local i: uint64 = 0ULL
+            while i < shared.MAXIMUM_TICKETS do
+                wrong = wrong + miss(shared.ticketacquire(out, block, i % 256ULL, 1ULL) == shared.TICKET_OK)
+                native.store64(native.pointer(base), native.index(i * 8ULL), out.ticket)
+                i = i + 1ULL
+            end
+            wrong = wrong + miss(strings.fromshared(h, block, 0ULL, 97ULL) == 0ULL)
+            wrong = wrong + miss(
+                shared.ticketcount(block) == shared.MAXIMUM_TICKETS
+                and pages.sharedreferences(block) == shared.MAXIMUM_TICKETS + 1ULL
+            )
+            i = 0ULL
+            while i < shared.MAXIMUM_TICKETS do
+                local token = native.load64(native.pointer(base), native.index(i * 8ULL))
+                wrong = wrong + miss(shared.ticketrelease(state as pages.Scope*, token) == shared.RELEASED)
+                i = i + 1ULL
+            end
+            collector.fullCycle(h)
+            tables.drain(h)
+            wrong = wrong + miss(
+                h.liveCount == 0ULL
+                and h.liveBytes == 0ULL
+                and shared.ticketcount(block) == 0ULL
+                and pages.sharedreferences(block) == 1ULL
+            )
+            wrong = wrong + miss(shared.releaselocal(state as pages.Scope*, block) == shared.RELEASED)
+            heap.destroy(h)
+        end
+    end
+
+    return wrong
+end
+
+-- A nested readonly view is the sole managed root of the ticket-owning string.
+export function lifetime(minor: uint64, stress: uint64): uint64
+    local state = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = collector.GENERATIONAL
+            h.automatic = false
+            local slot = arena.alloc(a, 8ULL, 8ULL)
+            if slot == nil then
+                error("string tickets: no view root")
+            end
+            local root = native.address(slot)
+            native.store64(native.pointer(root), 0, values.NIL)
+            collector.register(h, root, 1ULL)
+            local block = shared.create(256ULL)
+            if block == nil then
+                error("string tickets: no view block")
+            end
+            native.store8(shared.bytes(block), 18, 83ULL)
+            local owner = strings.fromshared(h, block, 17ULL, 97ULL)
+            native.store64(native.pointer(root), 0, values.TAG_OBJ | owner)
+            h.automatic = true
+            h.stress = stress == 1ULL
+            h.interleave = stress == 2ULL
+            h.oracle = stress == 2ULL
+            h.quarantine = stress == 2ULL
+            local view = storage.newview(h, owner, storage.UINT8, 0ULL, 97ULL)
+            native.store64(native.pointer(root), 0, values.TAG_OBJ | view)
+            local nested = storage.newview(h, view, storage.UINT8, 1ULL, 96ULL)
+            native.store64(native.pointer(root), 0, values.TAG_OBJ | nested)
+            if minor == 0ULL then
+                collector.fullCycle(h)
+                wrong = wrong + collector.checkOracle(h, true)
+            else
+                collector.minorcycle(h)
+                wrong = wrong + collector.checkOracle(h, false)
+            end
+            tables.drain(h)
+            wrong = wrong + miss(
+                heap.isLiveSlot(h, owner) and heap.isLiveSlot(h, nested) and shared.ticketcount(block) == 1ULL
+            )
+            wrong = wrong + miss(
+                storage.elementcount(nested) == 96ULL
+                and not storage.iswritable(nested)
+                and storage.writeelement(nested, 0ULL, 1ULL) == 1ULL
+            )
+            wrong = wrong + miss(native.word(native.load8(native.pointer(storage.storagebase(nested)), 0)) == 83ULL)
+            native.store64(native.pointer(root), 0, values.NIL)
+            h.automatic = false
+            collector.fullCycle(h)
+            tables.drain(h)
+            wrong = wrong + miss(
+                h.liveCount == 0ULL
+                and h.liveBytes == 0ULL
+                and shared.ticketcount(block) == 0ULL
+                and pages.sharedreferences(block) == 1ULL
+            )
+            wrong = wrong + miss(shared.releaselocal(state as pages.Scope*, block) == shared.RELEASED)
+            heap.destroy(h)
+        end
+    end
+
+    return wrong
+end
+
+-- The producer's real scope is already closed. The ticket becomes the sole
+-- block owner, then a readonly view becomes the sole managed string root.
+export function handoff(block: voidptr): uint64
+    local state = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local owner = strings.fromshared(h, block, 0ULL, 97ULL)
+            local handle = collector.handleRegister(h, values.TAG_OBJ | owner)
+            wrong = wrong + miss(shared.releaselocal(state as pages.Scope*, block) == shared.RETAINED)
+            local view = storage.newview(h, owner, storage.UINT8, 0ULL, 97ULL)
+            collector.handleRelease(h, handle)
+            local held = collector.handleRegister(h, values.TAG_OBJ | view)
+            collector.fullCycle(h)
+            tables.drain(h)
+            wrong = wrong + miss(
+                heap.isLiveSlot(h, owner)
+                and heap.isLiveSlot(h, view)
+                and native.load64(native.pointer(storage.storagebase(view)), 0) == SAMPLE
+            )
+            collector.handleRelease(h, held)
+            collector.fullCycle(h)
+            tables.drain(h)
+            wrong = wrong + miss(h.liveCount == 0ULL and h.liveBytes == 0ULL)
+            heap.destroy(h)
+        end
+    end
+
+    return wrong
+end

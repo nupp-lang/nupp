@@ -15,7 +15,7 @@ const MAXIMUM: uint64 = 0xffffffffffffffffULL
 
 -- A non-affine mapped test heap survives the failing native frames. Its entry
 -- observer tears it down only after all those frames have returned.
-local function prepare(scope: uint64, mode: uint64): uint64
+export function prepare(scope: uint64, mode: uint64): uint64
     local raw = os.mapPages(MAPPED)
     if raw == nil then
         error("long string fault units: mapping refused")

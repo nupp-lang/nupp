@@ -213,6 +213,54 @@ local UNITS = {
 }
 
 UNITS[#UNITS + 1] = {
+    name = "stringticketlandingunits",
+    modules = {"stringticketfaultunits", "longstringfaultunits", "stringticketentry", "releasequeueentry"},
+    observeLanding = true,
+    observerEntry = "nupp.core.stringticketentry",
+    entries = {{"stringticketfaultunits", "failure", 2}},
+    cases = function()
+        return {{"failure", {0, 0}, 255}, {"failure", {0, 4}, 255}}
+    end
+}
+UNITS[#UNITS + 1] = {
+    name = "stringticketfaultunits",
+    modules = {"stringticketfaultunits", "longstringfaultunits", "stringticketentry", "releasequeueentry"},
+    observeLanding = true,
+    observerEntry = "nupp.core.stringticketentry",
+    entries = {{"stringticketfaultunits", "failure", 2}},
+    cases = function()
+        return {}
+    end
+}
+UNITS[#UNITS + 1] = {
+    name = "stringticketunits",
+    modules = {"stringticketunits", "unitentry"},
+    entries = {
+        {"stringticketunits", "ownership", 0},
+        {"stringticketunits", "refusals", 0},
+        {"stringticketunits", "quota", 0},
+        {"stringticketunits", "lifetime", 2}
+    },
+    cases = function()
+        local cases = {{"ownership", {}, 0}, {"refusals", {}, 0}, {"quota", {}, 0}}
+        for minor = 0, 1 do
+            for stress = 0, 2 do
+                cases[#cases + 1] = {"lifetime", {minor, stress}, 0}
+            end
+        end
+
+        return cases
+    end
+}
+UNITS[#UNITS + 1] = {
+    name = "stringtickethandoff",
+    modules = {"stringticketunits", "sharedlocalproducer", "unitentry"},
+    entries = {{"sharedlocalproducer", "produce", 1}, {"stringticketunits", "handoff", 1}},
+    cases = function()
+        return {}
+    end
+}
+UNITS[#UNITS + 1] = {
     name = "ticketunits",
     modules = {"ticketunits", "unitentry"},
     entries = {

@@ -133,12 +133,14 @@ end
 
 -- Core-only immutable string metadata after the frozen StringBody. Its current
 -- requested extent is derived below, not a permanent shared-VM ABI. The block
--- owns one independent reference; charge is its mapped extent while live.
+-- owns one independent reference when ticket is zero; otherwise the ticket owns it
+-- and block is only an immutable observer. Charge includes every owned map.
 export struct CoreStringTail
     block: uint64
     offset: uint64
     hashReady: uint64
     charge: uint64
+    ticket: uint64
 end
 
 export function corestringextent(): uint64
