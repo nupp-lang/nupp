@@ -73,6 +73,22 @@ local function need(ok: any, message: string): any
     return ok
 end
 
+local function initializerpositions(p: any, owner: integer, base: any, extension: any): (integer, integer)
+    local baseIndex: integer = 0
+    local extensionIndex: integer = 0
+    for position, load in ipairs(p.qualifiedLoads[owner] or {}) do
+        if load == base then
+            need(baseIndex == 0, "checked builtin base must initialize before its extension exactly once")
+            baseIndex = position
+        elseif load == extension then
+            need(extensionIndex == 0, "checked builtin base must initialize before its extension exactly once")
+            extensionIndex = position
+        end
+    end
+
+    return baseIndex, extensionIndex
+end
+
 -- A checked builtin table read selects the extension's shared host table.
 -- The declaration anchors distinguish it from an authored local of that name.
 function program.builtinprojection(node: any): any
@@ -637,12 +653,12 @@ function program.describe(modules: {any}, entryModule: string): any
     -- The chunk being collected, and the modules its qualified paths load as
     -- it starts: one site each, at the first path that names the module.
     local currentChunk: any = nil
-    local loaded: {[any]: {[string]: boolean}} = {}
+    local loaded: {[any]: {[string]: any}} = {}
 
     -- A hidden require of `module` that chunk `owner` makes as it starts,
     -- before its own body (ahead of the others when `first`), positioned at
     -- `token`.
-    local function eagerLoad(owner: any, module: any, token: any, first: boolean): nil
+    local function eagerLoad(owner: any, module: any, token: any, first: boolean): any
         local load = {kind = "qualifiedLoad", qualifiedModule = module.name, token}
         local eager = {
             id = #p.requires,
@@ -658,6 +674,8 @@ function program.describe(modules: {any}, entryModule: string): any
         local loads = p.qualifiedLoads[owner.id] or {}
         p.qualifiedLoads[owner.id] = loads
         table.insert(loads, first and 1 or #loads + 1, eager)
+
+        return eager
     end
 
     local collect: function(any, any): nil
@@ -769,9 +787,34 @@ function program.describe(modules: {any}, entryModule: string): any
                 p.requires[#p.requires + 1], p.requireByNode[node] = item, item
                 local seen = loaded[currentChunk] or {}
                 loaded[currentChunk] = seen
+                local base: any = nil
+                if projection then
+                    local name = graph.libraryModule(projection.root)
+                    local module = need(moduleNames[name], "checked builtin base module is missing: " .. name)
+                    if not seen[name] then
+                        seen[name] = eagerLoad(currentChunk, module, root.token, false)
+                    end
+                    base = seen[name]
+                end
                 if not seen[node.qualifiedModule] then
-                    seen[node.qualifiedModule] = true
-                    eagerLoad(currentChunk, qualified, root.token, false)
+                    seen[node.qualifiedModule] = eagerLoad(currentChunk, qualified, root.token, false)
+                end
+                if projection then
+                    local extension = seen[node.qualifiedModule]
+                    local baseIndex, extensionIndex = initializerpositions(p, currentChunk.id, base, extension)
+                    need(baseIndex > 0 and extensionIndex > 0, "checked builtin initializer is missing")
+                    if baseIndex > extensionIndex then
+                        local loads = p.qualifiedLoads[currentChunk.id]
+                        table.remove(loads, baseIndex)
+                        table.insert(loads, extensionIndex, base)
+                    end
+                    item.initializers = {
+                        base = base,
+                        extension = seen[node.qualifiedModule],
+                        token = base.node[1],
+                        extensionToken = seen[node.qualifiedModule].node[1],
+                        owner = currentChunk.id
+                    }
                 end
                 return
             end
@@ -1269,6 +1312,32 @@ function program.verify(p: any): boolean
                     and original.members[1] == "value"
                     and item.library == nil,
                     "checked builtin projection anchors changed"
+                )
+                local initializers = need(item.initializers, "checked builtin initializers are missing")
+                local base, extension = initializers.base, initializers.extension
+                local owner = modules[p.owners[item.owner + 1].scope.name]
+                need(
+                    owner
+                    and initializers.owner == owner.id
+                    and base
+                    and extension
+                    and base ~= extension
+                    and base.module == graph.libraryModule(current.root)
+                    and extension.module == current.module
+                    and base.owner == owner.id
+                    and extension.owner == owner.id
+                    and base.eager == true
+                    and extension.eager == true
+                    and base.node[1] == initializers.token
+                    and extension.node[1] == initializers.extensionToken
+                    and p.requires[base.id + 1] == base
+                    and p.requires[extension.id + 1] == extension,
+                    "checked builtin initializer anchors changed"
+                )
+                local baseIndex, extensionIndex = initializerpositions(p, owner.id, base, extension)
+                need(
+                    baseIndex > 0 and extensionIndex > baseIndex,
+                    "checked builtin base must initialize before its extension"
                 )
             end
             need(

@@ -186,3 +186,10 @@ globals.arg = hostcalls.arguments()
 -- into, as the VM's globals carry it.
 globals.nupp = {}
 functions._G = globals
+
+-- A separately initialized base library publishes its existing table into
+-- both value routes before a standard extension reads it through `_G`.
+export function publish(name: string, value: any): nil
+    functions[name] = value
+    globals[name] = value
+end

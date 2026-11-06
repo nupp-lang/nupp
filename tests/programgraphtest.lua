@@ -1344,7 +1344,7 @@ return matches
     )
 end
 
-local function builtinProjectionFixture(source)
+local function builtinProjectionFixture(source, withOs, withSharedBase, internalAccess)
     local dependency = checked(
         [[
 module nupp.runtime.standardio
@@ -1354,14 +1354,58 @@ export const value: table = {Buffer = Buffer}
         "nupp.runtime.standardio"
     )
     local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
+    local declared = env.ensureProjectIndex(env).declaredModules
+    declared[dependency.name] = true
     env.loaded[dependency.name] = {type = dependency.type, exports = dependency.parsed.moduleExports}
-    local consumer = checked(source, "builtinprojectionconsumer", env)
+    local base = checked('module nupp.runtime.luaio\nexport const functions = {io = {}}', 'nupp.runtime.luaio')
+    local inputs = {base, dependency}
+    if withOs then
+        local standardos = checked(
+            'module nupp.runtime.standardos\nexport const stat = function(path: string): string return "file" end\nexport const value: table = {stat = stat}',
+            'nupp.runtime.standardos'
+        )
+        declared[standardos.name] = true
+        env.loaded[standardos.name] = {type = standardos.type, exports = standardos.parsed.moduleExports}
+        inputs[
+            #inputs + 1
+        ] = checked('module nupp.runtime.luaos\nexport const functions = {os = {}}', 'nupp.runtime.luaos')
+        inputs[#inputs + 1] = standardos
+    end
+    if withSharedBase then
+        inputs[
+            #inputs + 1
+        ] = checked('module nupp.runtime.libraryvalues\nexport const functions = {}', 'nupp.runtime.libraryvalues')
+        for _, name in ipairs({"math", "table"}) do
+            local member = name == "math" and "Xoshiro128" or "Array"
+            local extension = checked(
+                'module nupp.runtime.standard'
+                .. name
+                .. '\nexport const '
+                .. member
+                .. ' = {}\nexport const value: table = {'
+                .. member
+                .. ' = '
+                .. member
+                .. '}',
+                'nupp.runtime.standard' .. name
+            )
+            declared[extension.name] = true
+            env.loaded[extension.name] = {type = extension.type, exports = extension.parsed.moduleExports}
+            inputs[#inputs + 1] = extension
+        end
+    end
+    local consumer = checked(
+        source,
+        internalAccess and "nupp.builtinprojectionconsumer" or "builtinprojectionconsumer",
+        env
+    )
+    inputs[#inputs + 1] = consumer
 
-    return program.describe({dependency, consumer}, consumer.name), consumer, dependency
+    return program.describe(inputs, consumer.name), consumer, dependency
 end
 
 function M.checkedBuiltinTablesProjectTheirValueBeforeLegacyLibraryRouting()
-    local p, consumer = builtinProjectionFixture(
+    local p, consumer, dependency = builtinProjectionFixture(
         [[
 local Buffer = io.Buffer
 local whole = io
@@ -1383,11 +1427,14 @@ return Buffer, whole == io, alias
         end
     end
     test.eq(projections, 3)
-    test.eq(eager, 1)
+    test.eq(eager, 2)
+    local loads = p.qualifiedLoads[p.entry]
+    test.eq(loads[1].module, "nupp.runtime.luaio")
+    test.eq(loads[2].module, "nupp.runtime.standardio")
     test.eq(#p.externals, 0)
     local compiled = program.compile(p, tagged.forVersion(8))
     local g = compiled.graphs[p.entry + 1]
-    test.eq(#operations(g, "Require"), 4)
+    test.eq(#operations(g, "Require"), 5)
     test.eq(#operations(g, "GetIdx"), 4)
     assert(require("nupp.compiler.vm.coregraphcontracts").normalize(compiled, 8))
     refuses(
@@ -1396,6 +1443,79 @@ return Buffer, whole == io, alias
         end,
         "projection module is missing"
     )
+    refuses(
+        function()
+            program.describe({dependency, consumer}, consumer.name)
+        end,
+        "base module is missing"
+    )
+end
+
+function M.checkedBuiltinBasePrecedesAnEarlierQualifiedOrExplicitExtensionRead()
+    for index, source in ipairs({
+        'local implementation = require("nupp.runtime.standardio")\nlocal first = nupp.runtime.standardio.Buffer\nreturn first, io.Buffer',
+        'local implementation = require("nupp.runtime.standardio")\nreturn implementation, io.Buffer',
+    }) do
+        local p = builtinProjectionFixture(source, false, false, true)
+        local loads = p.qualifiedLoads[p.entry]
+        test.eq(#loads, 2)
+        test.eq(loads[1].module, "nupp.runtime.luaio")
+        test.eq(loads[2].module, "nupp.runtime.standardio")
+        if index == 1 then
+            assert(
+                loads[2].node[1].offset < loads[1].node[1].offset,
+                "fixture must schedule the extension before discovering its base"
+            )
+        end
+
+        assert(require("nupp.compiler.vm.coregraphcontracts").normalize(program.compile(p, tagged.forVersion(8)), 8))
+    end
+end
+
+function M.checkedBuiltinIoAndOsAliasesShareOnlyTheirOwnCanonicalInitializers()
+    local p = builtinProjectionFixture(
+        'local first = io\nlocal alias = first\nlocal again = io\nlocal system = os\nreturn first, alias, again, system',
+        true
+    )
+    local loads = p.qualifiedLoads[p.entry]
+    test.eq(#loads, 4)
+    for index, module in ipairs({
+        "nupp.runtime.luaio",
+        "nupp.runtime.standardio",
+        "nupp.runtime.luaos",
+        "nupp.runtime.standardos"
+    }) do
+        test.eq(loads[index].module, module)
+    end
+    local seen = {}
+    for _, site in ipairs(p.requires) do
+        if site.builtin then
+            local previous = seen[site.builtin.root]
+            if previous then
+                test.eq(site.initializers.base, previous.base)
+                test.eq(site.initializers.extension, previous.extension)
+            end
+            seen[site.builtin.root] = site.initializers
+        end
+    end
+    assert(seen.io and seen.os and seen.io.base ~= seen.os.base)
+    assert(require("nupp.compiler.vm.coregraphcontracts").normalize(program.compile(p, tagged.forVersion(8)), 8))
+end
+
+function M.checkedBuiltinSharedBaseMovesBeforeEveryEarlierExtension()
+    local p = builtinProjectionFixture(
+        'local extension = require("nupp.runtime.standardtable")\nlocal earlier = nupp.runtime.standardtable.value\nlocal numeric = math\nlocal collection = table\nreturn earlier, numeric, collection',
+        false,
+        true,
+        true
+    )
+    local loads = p.qualifiedLoads[p.entry]
+    test.eq(#loads, 3)
+    test.eq(loads[1].module, "nupp.runtime.libraryvalues")
+    test.eq(loads[2].module, "nupp.runtime.standardtable")
+    test.eq(loads[3].module, "nupp.runtime.standardmath")
+    assert(loads[2].node[1].offset < loads[1].node[1].offset, "fixture must first schedule a qualified extension")
+    assert(require("nupp.compiler.vm.coregraphcontracts").normalize(program.compile(p, tagged.forVersion(8)), 8))
 end
 
 function M.checkedBuiltinProjectionRevalidatesItsExactPreludeAnchors()
@@ -1439,6 +1559,15 @@ function M.checkedBuiltinProjectionRevalidatesItsExactPreludeAnchors()
     mutation(token.definition, "token", clone)
     mutation(site.builtin.members, 1, "functions")
     mutation(site, "builtin", nil, "qualified path lacks its checked module")
+    mutation(site, "initializers", nil, "checked builtin initializers are missing")
+    mutation(site.initializers, "owner", -1, "checked builtin initializer anchors changed")
+    mutation(site.initializers, "token", {}, "checked builtin initializer anchors changed")
+    mutation(site.initializers, "extensionToken", {}, "checked builtin initializer anchors changed")
+    mutation(site.initializers, "base", site.initializers.extension, "checked builtin initializer anchors changed")
+    mutation(site.initializers.base, "module", "nupp.runtime.luaos", "checked builtin initializer anchors changed")
+    local loads = p.qualifiedLoads[site.initializers.owner]
+    mutation(loads, 1, site.initializers.extension, "checked builtin base must initialize before its extension")
+    mutation(loads, 2, nil, "checked builtin base must initialize before its extension")
 end
 
 function M.checkedBuiltinProjectionCannotReplaceAShadowedLocal()

@@ -2,6 +2,9 @@ module nupp.core.catalogbytebuffer
 
 const Buffer = io.Buffer
 
+assert(io == _G.io)
+assert(Buffer == _G.io.Buffer)
+
 local b = Buffer.create()
 b:put("a", 1):put("b")
 local score = 0

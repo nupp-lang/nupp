@@ -541,6 +541,7 @@ local function requiredmodules(root: any, source: string): ({string}, {[string]:
         -- naming a type (`io.Writer`) loads nothing, as the graph sees it.
         local projection = program.builtinprojection(node)
         if projection then
+            found[#found + 1] = graph.libraryModule(projection.root)
             found[#found + 1] = projection.module
         elseif node.kind == "dotIndex" and type(node.qualifiedModule) == "string" then
             found[#found + 1] = node.qualifiedModule
@@ -715,13 +716,21 @@ local function compileProgram(caseName: string, fixture: string, version: intege
     local moduleName = ""
     local follow = declared ~= nil and declared.follow == true
     local carried: {[string]: boolean} = {}
-    for _, name in ipairs(names) do
-        carried[name] = true
-    end
     local entry: any = nil
     local queue: {string} = {}
+
+    local function enqueue(name: string): nil
+        -- Synthetic and followed dependencies may spell the same source
+        -- absolutely or relative to the compiler root. Check it only once.
+        local path = modulePath(root, name)
+        if not carried[path] then
+            carried[path] = true
+            queue[#queue + 1] = name
+        end
+    end
+
     for _, name in ipairs(names) do
-        queue[#queue + 1] = name
+        enqueue(name)
     end
     local at: integer = 1
     while at <= #queue do
@@ -776,37 +785,29 @@ local function compileProgram(caseName: string, fixture: string, version: intege
             local required, dynamic = requiredmodules(parsed.root or parsed, source)
             for _, name in ipairs(required) do
                 local library = librarypath(root, name)
-                if library and not carried[library] and (not dynamic[name] or portable(root, library)) then
-                    carried[library] = true
-                    queue[#queue + 1] = library
+                if library and (not dynamic[name] or portable(root, library)) then
+                    enqueue(library)
                 end
             end
             -- What it carries may take a library function as a value.
             local values = root .. "/src/nupp/runtime/libraryvalues"
             local graph: any = require("nupp.compiler.vm.graph")
-            if not carried[values]
-                and not carried["src/nupp/runtime/libraryvalues"]
-                and graph.mayTakeLibraryValue(parser.parse(source, path).root)
-            then
-                carried[values] = true
-                queue[#queue + 1] = values
+            if graph.mayTakeLibraryValue(parser.parse(source, path).root) then
+                enqueue(values)
             end
             -- And it may read Lua's `io` or `os`, which the core carries as
             -- modules.
             local luaio = "src/nupp/runtime/luaio"
-            if not carried[luaio] and graph.mayUseIo(parser.parse(source, path).root) then
-                carried[luaio] = true
-                queue[#queue + 1] = luaio
+            if graph.mayUseIo(parser.parse(source, path).root) then
+                enqueue(luaio)
             end
             local luaos = "src/nupp/runtime/luaos"
-            if not carried[luaos] and readsos(parser.parse(source, path).root) then
-                carried[luaos] = true
-                queue[#queue + 1] = luaos
+            if readsos(parser.parse(source, path).root) then
+                enqueue(luaos)
             end
             local luawarn = "src/nupp/runtime/luawarn"
-            if not carried[luawarn] and readswarn(source) then
-                carried[luawarn] = true
-                queue[#queue + 1] = luawarn
+            if readswarn(source) then
+                enqueue(luawarn)
             end
         end
     end

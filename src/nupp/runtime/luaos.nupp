@@ -18,6 +18,8 @@ does; every write has reached its file already.
 ]]
 module nupp.runtime.luaos
 
+const libraryvalues = require("nupp.runtime.libraryvalues")
+
 const processes = require("nupp.runtime.processes")
 const processcalls = require("nupp.runtime.processcalls")
 const files = require("nupp.runtime.files")
@@ -176,3 +178,5 @@ local library: {
 
 --- The library values this module carries by name: `os` itself.
 export const functions: {[string]: any} = {os = library}
+
+libraryvalues.publish("os", library)

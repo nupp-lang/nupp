@@ -13,6 +13,8 @@ this module sets.
 ]]
 module nupp.runtime.luaio
 
+const libraryvalues = require("nupp.runtime.libraryvalues")
+
 const files = require("nupp.runtime.files")
 const hostcalls = require("nupp.runtime.hostcalls")
 const luaargs = require("nupp.runtime.luaargs")
@@ -237,3 +239,5 @@ hostcalls.setcleanup("nupp:lua.d.nupp#__nuppCloseFile", closefile)
 
 --- The library values this module carries by name: `io` itself.
 export const functions: {[string]: any} = {io = library}
+
+libraryvalues.publish("io", library)
