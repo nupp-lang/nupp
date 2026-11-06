@@ -1,4 +1,5 @@
 //! Standalone, opaque native-code transport. Nupp owns all execution semantics.
+mod entropy;
 mod files;
 mod platform;
 mod poll;
@@ -18,6 +19,10 @@ mod scratch;
 #[cfg(test)]
 #[path = "../tests/support/shared.rs"]
 mod shared;
+
+#[cfg(test)]
+#[path = "../tests/support/entropy.rs"]
+mod entropy_faults;
 
 use std::fs::File;
 use std::io::Read;
@@ -203,9 +208,12 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, Failure> {
         tree::unlink_entry as *const () as u64,
         platform::atomic_load64 as *const () as u64,
         platform::atomic_cas64 as *const () as u64,
+        entropy::secure_fill as *const () as u64,
     ];
     #[cfg(test)]
     let imports = shared::imports(imports);
+    #[cfg(test)]
+    let imports = entropy_faults::imports(imports);
     let packet = [
         1,
         code.address as u64,

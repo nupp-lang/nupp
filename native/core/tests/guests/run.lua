@@ -58,6 +58,7 @@ local GUEST_ENV = "NUPP_GUEST_PROBE=core-environment NUPP_GUEST_SCALE=3 NUPP_GUE
 ) .. " NUPP_GUEST_TEMP=" .. OUT .. "/temp" .. " "
 
 local CASES = {
+    {"entropy", 0x7FFF00000000000F},
     {"boolean", 0x7FFB000000000000},
     {"nilValue", 0x7FF9000000000000},
     {"live", 0x7FFB000000000000},
@@ -310,6 +311,7 @@ end
 -- spaced by a share of what lives, so the full-scale workloads stay linear;
 -- records and strings, at seconds a run there, run so in normal mode alone.
 local STRESS = {
+    entropy = true,
     callsNumeric = true,
     workloadFib = true,
     tablesBasic = true,
@@ -564,6 +566,8 @@ local POSIXTWINS = {
     ["catalog-os-files"] = true
 }
 local FIXTURES = {
+    "catalog-entropy",
+    "catalog-entropy-failure",
     "catalog-boolean",
     "catalog-nil",
     "catalog-live",
@@ -838,6 +842,8 @@ local function stage()
             write(base .. "/source/nupp/runtime/core/guestaudit.nupp", read(TESTS .. "/guest-lifecycle-audit.nupp"))
         end
         for _, fixture in ipairs({
+            "catalog-entropy",
+            "catalog-entropy-failure",
             "catalog-module-prefix",
             "catalog-module-main",
             "catalog-module-middle",

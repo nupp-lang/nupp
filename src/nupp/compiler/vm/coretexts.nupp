@@ -164,7 +164,8 @@ local texts: {Text} = {
     {name = "TEXT_PAUSE", id = 141, text = "pause"},
     {name = "TEXT_STEPMUL", id = 142, text = "stepmul"},
     {name = "TEXT_STEPSIZE", id = 143, text = "stepsize"},
-    {name = "TEXT_WRITABLE_STORAGE", id = 145, text = "writable storage"}
+    {name = "TEXT_WRITABLE_STORAGE", id = 145, text = "writable storage"},
+    {name = "TEXT_ENTROPY_FAILED", id = 146, text = "secure random source failed: "}
 }
 
 local byName: {[string]: Text} = {}

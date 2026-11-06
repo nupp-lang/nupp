@@ -151,6 +151,7 @@ export const TEXT_PAUSE: uint64 = 141ULL
 export const TEXT_STEPMUL: uint64 = 142ULL
 export const TEXT_STEPSIZE: uint64 = 143ULL
 export const TEXT_WRITABLE_STORAGE: uint64 = 145ULL
+export const TEXT_ENTROPY_FAILED: uint64 = 146ULL
 
 -- Appends text `id` to `b`: nonzero when the builder refused it.
 export function append(h: heap.Heap*, borrows b: strings.Builder*, id: uint64): uint64
@@ -699,6 +700,12 @@ export function append(h: heap.Heap*, borrows b: strings.Builder*, id: uint64): 
         -- "writable storage"
         return strings.appendWord(h, b, 0x656c626174697277ULL, 8ULL)
             | strings.appendWord(h, b, 0x656761726f747320ULL, 8ULL)
+    elseif id == TEXT_ENTROPY_FAILED then
+        -- "secure random source failed: "
+        return strings.appendWord(h, b, 0x7220657275636573ULL, 8ULL)
+            | strings.appendWord(h, b, 0x6f73206d6f646e61ULL, 8ULL)
+            | strings.appendWord(h, b, 0x6961662065637275ULL, 8ULL)
+            | strings.appendWord(h, b, 0x203a64656cULL, 5ULL)
     end
 
     return 0ULL

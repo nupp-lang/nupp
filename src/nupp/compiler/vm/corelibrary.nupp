@@ -325,7 +325,8 @@ local subjectrows: {Subject} = {
             {name = "OS_GETENV", id = 10, text = "NAME_GETENV"},
             {name = "OS_MONOTONIC", id = 117},
             {name = "HOST_ARGUMENTS", id = 119},
-            {name = "HOST_FILES", id = 120}
+            {name = "HOST_FILES", id = 120},
+            {name = "HOST_RANDOM_BYTES", id = 127, call = "hostcalls.randombytes", min = 1, max = 1}
         }
     }
 }

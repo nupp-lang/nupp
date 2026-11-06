@@ -278,5 +278,13 @@ local record Os
     -- not. Alignment and lifetime have the same preconditions as atomicload64.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     atomiccas64: function(base: voidptr, offset: int64, expected: uint64, replacement: uint64): uint64
+
+    --- Fills exactly bytes from the host secure random source: 0 on success,
+    --- otherwise its negative OS status (or a negative getrandom internal status).
+    --- No result bytes are publishable after failure. The destination stays
+    --- owned and writable through this noncollecting, noncallback call.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    securefill: function(base: voidptr, bytes: uint64): int64
+
 end
 return Os

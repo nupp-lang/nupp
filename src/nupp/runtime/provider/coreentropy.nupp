@@ -1,0 +1,17 @@
+@!internal
+module nupp.runtime.provider.coreentropy
+
+local calls = require("nupp.runtime.hostcalls")
+local MAX_RANDOM_BYTES = 1048576
+
+export function randombytes(count: any): string
+    local wanted = type(count) == "number" and math.tointeger(count) or nil
+    if wanted == nil or wanted < 0 or wanted > MAX_RANDOM_BYTES then
+        error("random byte count must be an integer between 0 and 1048576", 2)
+    end
+    if wanted == 0 then
+        return ""
+    end
+
+    return calls.randombytes(wanted)
+end

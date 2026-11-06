@@ -1,0 +1,66 @@
+module nupp.core.entropyunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const os = require("nupp.runtime.vm.os")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const values = require("nupp.runtime.vm.values")
+const strings = require("nupp.runtime.core.corestrings")
+const tables = require("nupp.runtime.core.coretables")
+
+export function roundtrip(count: uint64, minorFirst: uint64): uint64
+    local state = strings.Builder(0ULL, 0ULL)
+    local score: uint64 = 0ULL
+    do
+        local a = arena.open(16777216ULL)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            h.generational = collector.GENERATIONAL
+            local before = h.handles.count - h.handleFree.count
+            do
+                local lifetime = strings.open(h, state as strings.Builder*)
+                if strings.reserve(h, lifetime, count) ~= 0ULL then
+                    error("entropy units: no room")
+                end
+                local d = strings.descriptor(lifetime)
+                if os.securefill(native.pointer(d.base), count) == 0 then
+                    score = score | 1ULL
+                end
+                if d.len == 0ULL then
+                    score = score | 2ULL
+                end
+                if strings.commit(lifetime, count) == 0ULL then
+                    score = score | 4ULL
+                end
+                local made = strings.finish(h, lifetime)
+                if strings.length(made) == count then
+                    score = score | 8ULL
+                end
+                if h.handles.count - h.handleFree.count == before then
+                    score = score | 16ULL
+                end
+                local handle = collector.handleRegister(h, values.TAG_OBJ | made)
+                if minorFirst ~= 0ULL then
+                    collector.minorcycle(h)
+                else
+                    collector.fullCycle(h)
+                end
+                local kept = collector.handleValue(h, handle) & values.PAYLOAD
+                if strings.length(kept) == count then
+                    score = score | 32ULL
+                end
+                collector.handleRelease(h, handle)
+            end
+            collector.fullCycle(h)
+            tables.drain(h)
+            if h.liveCount == 0ULL and h.handles.count - h.handleFree.count == before then
+                score = score | 64ULL
+            end
+            heap.destroy(h)
+        end
+    end
+
+    return score
+end

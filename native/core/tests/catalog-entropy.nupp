@@ -1,0 +1,34 @@
+module nupp.core.catalogentropy
+
+local entropy = require("nupp.runtime.entropy")
+local score = 0
+local random: any = entropy.randombytes
+if entropy.randombytes(0) == "" then
+    score = score | 1
+end
+local valid = true
+for _, count in ipairs({1, 7, 40, 41, 4097, 65536, 1048576}) do
+    local bytes = entropy.randombytes(count)
+    valid = valid and type(bytes) == "string" and #bytes == count
+end
+if valid and #random(1.0) == 1 then
+    score = score | 2
+end
+local invalid = true
+for _, count in ipairs({-1, 1.5, math.huge, 0 / 0, "1", false, 1048577} as {any}) do
+    local ok, why = pcall(random, count)
+    invalid = invalid
+        and not ok
+        and type(why) == "string"
+        and string.find(why as string, "random byte count must be an integer between 0 and 1048576", 1, true) ~= nil
+end
+local missing, _ = pcall(random)
+if invalid and not missing then
+    score = score | 4
+end
+local held = entropy.randombytes(257)
+collectgarbage("collect")
+if #held == 257 and type(held) == "string" then
+    score = score | 8
+end
+export = score

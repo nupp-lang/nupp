@@ -169,6 +169,7 @@ export const OS_GETENV: uint64 = 10ULL
 export const OS_MONOTONIC: uint64 = 117ULL
 export const HOST_ARGUMENTS: uint64 = 119ULL
 export const HOST_FILES: uint64 = 120ULL
+export const HOST_RANDOM_BYTES: uint64 = 127ULL
 
 -- The text a library call's errors name it by, or 0 for none.
 export function libraryname(id: uint64): uint64

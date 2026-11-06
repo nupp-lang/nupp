@@ -32,17 +32,25 @@ end
 local function fixture(body, callback)
     local dir = os.tmpname()
     os.remove(dir)
-    assert(os.execute("mkdir -p '" .. dir .. "/src/nupp/runtime/vm'") == 0)
+    assert(os.execute("mkdir -p '" .. dir .. "/src/nupp/runtime/vm' '" .. dir .. "/src/nupp/test'") == 0)
     -- The real declaration's annotations are discovered from their real source.
     -- Keep both files unchanged; do not replace effects with fixture metadata.
     for _, name in ipairs({"effects.nupp", "os.d.nupp"}) do
         local relative = "/src/nupp/runtime/vm/" .. name
         write(dir .. relative, read(ROOT .. relative))
     end
-    write(dir .. "/src/client.nupp", "module client\nconst os = require('nupp.runtime.vm.os')\n" .. body)
+    write(
+        dir .. "/src/nupp/test/ospagefixture.nupp",
+        "module nupp.test.ospagefixture\nconst os = require('nupp.runtime.vm.os')\n" .. body
+    )
     local ok, result = pcall(function()
-        local session = unit.session(dir, {{moduleName = "client", path = dir .. "/src/client.nupp"}}, TARGET, {"src"})
-        callback(session, session.module("client").functions, dir)
+        local session = unit.session(
+            dir,
+            {{moduleName = "nupp.test.ospagefixture", path = dir .. "/src/nupp/test/ospagefixture.nupp"}},
+            TARGET,
+            {"src"}
+        )
+        callback(session, session.module("nupp.test.ospagefixture").functions, dir)
     end)
     os.execute("rm -rf '" .. dir .. "'")
     if not ok then
@@ -52,6 +60,32 @@ end
 
 local function callOf(owner)
     return owner.body.body.stats[1].exprs[1]
+end
+
+function M.secureEntropyFillRetainsItsExactBufferAndStatusABI()
+    fixture(
+        [[
+export function fill(pointer: voidptr, count: uint64): int64
+    return os.securefill(pointer, count)
+end
+]],
+        function(_, functions)
+            local call = nativeos.call(functions.fill, callOf(functions.fill))
+            assert(nativeos.slot(call, functions.fill) == 48)
+            assert(#call.params == 2 and call.params[1] == "voidptr" and call.params[2] == "uint64")
+            assert(call.result == "int64" and nativeos.result(call) == nil)
+            local original = call.params
+            call.params = {"voidptr", "int64"}
+            refuses(
+                function()
+                    nativeos.validate(call)
+                end,
+                "changed"
+            )
+            call.params = original
+            assert(nativeos.validate(call))
+        end
+    )
 end
 
 function M.frozenOSSourceHasClosedSlotsAndAnOptionalMapResult()

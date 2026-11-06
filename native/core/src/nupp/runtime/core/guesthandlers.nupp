@@ -1524,6 +1524,8 @@ export function LibCall(
             answer = guestgc.kept(ctx)
         end
         slots.writeValue(frame, regs, dst, answer)
+    elseif libraryId == librarycalls.HOST_RANDOM_BYTES then
+        slots.writeValue(frame, regs, dst, guestio.securebytes(ctx, a))
     elseif libraryId == librarycalls.HOST_ARGUMENTS then
         slots.writeValue(frame, regs, dst, guestio.arguments(ctx))
     elseif libraryId >= librarycalls.WIDTHS_FIRST and libraryId <= librarycalls.WIDTHS_LAST then

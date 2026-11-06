@@ -20,6 +20,7 @@ const librarylayouts = require("nupp.runtime.core.librarylayouts")
 const guestprocess = require("nupp.runtime.core.guestprocess")
 const guestgc = require("nupp.runtime.core.guestgc")
 const guesttime = require("nupp.runtime.core.guesttime")
+const librarytexts = require("nupp.runtime.core.librarytexts")
 
 local function heapOf(ctx: voidptr): heap.Heap*
     @unsafe do
@@ -350,5 +351,45 @@ export function arguments(ctx: voidptr): uint64
         guestscope.release(ctx)
 
         return values.TAG_OBJ | t
+    end
+end
+
+-- Secure entropy has one rooted builder and publishes only a successful fill.
+-- The public provider normalizes whole counts; this boundary also refuses
+-- direct malformed core calls before acquiring an owner or exposing a pointer.
+const MAX_RANDOM_BYTES: uint64 = 1048576ULL
+
+export function securebytes(ctx: voidptr, requested: uint64): uint64
+    local state = strings.Builder(0ULL, 0ULL)
+    if not ints.isInteger(requested) or ints.bitsOf(requested) > MAX_RANDOM_BYTES then
+        error("random byte count must be an integer between 0 and 1048576")
+    end
+    local count = ints.bitsOf(requested)
+    @unsafe do
+        local h = heapOf(ctx)
+        if count == 0ULL then
+            return values.TAG_OBJ | strings.make(h, 0ULL, 0ULL)
+        end
+        local lifetime = strings.open(h, state as strings.Builder*)
+        if strings.reserve(h, lifetime, count) ~= 0ULL then
+            error("not enough memory")
+        end
+        local status = os.securefill(native.pointer(strings.descriptor(lifetime).base), count)
+        if status ~= 0 then
+            -- Partial host output is never committed or published. Reuse the
+            -- private owner for the actual status message, then release it.
+            strings.reset(lifetime)
+            if librarytexts.append(h, lifetime, librarytexts.TEXT_ENTROPY_FAILED)
+                | strings.appendInteger(h, lifetime, status) ~= 0ULL
+            then
+                error("not enough memory")
+            end
+            guestscope.raiseLibrary(ctx, values.TAG_OBJ | strings.finish(h, lifetime))
+            error("library error")
+        end
+        if strings.commit(lifetime, count) ~= 0ULL then
+            error("not enough memory")
+        end
+        return values.TAG_OBJ | strings.finish(h, lifetime)
     end
 end

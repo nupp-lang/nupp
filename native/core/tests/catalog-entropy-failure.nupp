@@ -1,0 +1,18 @@
+module nupp.core.catalogentropyfailure
+
+local entropy = require("nupp.runtime.entropy")
+local score = 0
+local expected = "secure random source failed: -13"
+local ok, why = pcall(entropy.randombytes, 64)
+if not ok and type(why) == "string" and string.sub(why as string, -#expected) == expected then
+    score = score | 1
+end
+if entropy.randombytes(0) == "" then
+    score = score | 2
+end
+local invalid = pcall(entropy.randombytes, -1)
+if not invalid then
+    score = score | 4
+end
+collectgarbage("collect")
+export = score

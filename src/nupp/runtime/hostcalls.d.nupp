@@ -8,6 +8,10 @@ local record hostcalls
     --- then its arguments from 1, a new table each call.
     arguments: function(): {[integer]: string}
 
+    --- Exactly count bytes from the secure host source, or an error. The
+    --- private provider validates zero and the public maximum before calling.
+    randombytes: function(count: integer): string
+
     --- Sets `cleanup` as the destructor of the affine types that name the
     --- declaration whose checked cleanup key is `key`: what a body for that
     --- declaration would set, for one only a declaration file holds.

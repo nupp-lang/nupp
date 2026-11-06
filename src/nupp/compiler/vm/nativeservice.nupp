@@ -93,7 +93,8 @@ local osNames = {
     dirNames = true,
     unlinkEntry = true,
     atomicload64 = true,
-    atomiccas64 = true
+    atomiccas64 = true,
+    securefill = true
 }
 
 local function need(ok: any, message: string): any

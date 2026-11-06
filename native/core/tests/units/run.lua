@@ -931,6 +931,24 @@ UNITS[#UNITS + 1] = {
 }
 
 UNITS[#UNITS + 1] = {
+    name = "entropyunits",
+    modules = {"entropyunits", "unitentry", "nupp.runtime.core.coretables"},
+    paths = {["nupp.runtime.core.coretables"] = ROOT .. "/native/core/src/nupp/runtime/core/coretables.nupp"},
+    include = "native/core/src",
+    entries = {{"entropyunits", "roundtrip", 2}},
+    cases = function()
+        local cases = {}
+        for _, count in ipairs({0, 1, 40, 41, 4097, 1048576}) do
+            for _, minor in ipairs({0, 1}) do
+                cases[#cases + 1] = {"roundtrip", {count, minor}, 127}
+            end
+        end
+
+        return cases
+    end
+}
+
+UNITS[#UNITS + 1] = {
     name = "stringunits",
     modules = {
         "stringunits",
