@@ -20,6 +20,10 @@ module nupp.array.internal.api
 
 local current = require("nupp.array")
 local layouts = require("nupp.array.internal.layout")
+
+--- Identifies array values accepted by the affine cleanup.
+export type Token = current.ArrayToken
+
 export type Scalar<T> = current.Scalar<T>
 export type Layout = layouts.Layout
 export type FieldLayout = layouts.FieldLayout

@@ -3681,6 +3681,11 @@ function M.coroutineWorkerDocsRetainScopesAndTaskResultPacks()
     assert(task.await.type:find("unpackof types.results(F)", 1, true), task.await.type)
     assert(task.status.type:find('"cancelled"', 1, true), task.status.type)
     assert(items.Worker, "the sendable worker body type belongs to coroutine")
+    assert(items.Nullary and items.Parameters, "spawn signature types belong to coroutine")
+    assert(not scope.spawn.type:find("nupp.", 1, true), "spawn types must use their public names")
+    assert(items.Submitted and items.Submitted.comptimeKind == "function", "the signature helper belongs to coroutine")
+    assert(scope.work.type:find("Submitted(F)", 1, true), scope.work.type)
+    assert(not scope.work.type:find("nupp.", 1, true), "public work signatures must use their exported type names")
     assert(not modules["coroutine.workers"], "the retired worker module is absent")
     assert(not modules["nupp.tasks"] and not modules["nupp.workers.contracts"], "implementation modules stay private")
     os.execute("rm -rf '" .. dir .. "'")
@@ -3727,7 +3732,11 @@ function M.aRotatedCallSurfaceIsPrintedInCallOrder()
     end
     local spawn = assert(members["nupp.tasks.Scope.spawn"], "Scope:spawn is documented")
     assert(
-        spawn.type:find("(borrows self: nupp.tasks.Scope, ...: unpackof Parameters(F), takes body: F)", 1, true),
+        spawn.type:find(
+            "(borrows self: nupp.tasks.Scope, ...: unpackof nupp.workers.contracts.Parameters(F), takes body: F)",
+            1,
+            true
+        ),
         "the body comes after its arguments: " .. spawn.type
     )
     assert(
@@ -7270,7 +7279,12 @@ function M.everyPublishedModuleSaysWhatItIs()
     os.remove(output)
 
     local empty = {}
+    assert(
+        not require("testjson").encode(model.modules):find("](nupp.", 1, true),
+        "public documentation must link to public module names"
+    )
     for _, module in ipairs(model.modules) do
+        assert(module.name ~= "nupp" and not module.name:match("^nupp%."), "implementation modules must stay internal")
         if not module.namespace and module.text == "" and #module.items == 0 then
             empty[#empty + 1] = module.name .. " (" .. tostring(module.path) .. ")"
         end

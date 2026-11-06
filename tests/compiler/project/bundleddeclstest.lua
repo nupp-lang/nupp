@@ -905,7 +905,9 @@ function M.movedPrivateBundledSourcesKeepFileAndTreePrivacyDistinct()
     local bundled = require("nupp.compiler.bundled")
     local originalSource = bundled.source
     local originalEnv = package.loaded["nupp.compiler.project.env"]
+    -- This fixture tests each child marker independently of the shipped root.
     local overrides = {
+        ["/nupp/init.nupp"] = "const nupp = {}\nreturn nupp\n",
         ["/nupp/io/init.nupp"] = false,
         ["/nupp/io.nupp"] = "@!internal\nmodule nupp.io\nexport record Token value: integer end\n",
         ["/nupp/io/child/init.nupp"] = "module nupp.io.child\nexport const answer: integer = 29\n",

@@ -581,7 +581,7 @@ function M.aStampedBinaryRunsStructuredTasksOnTheSharedScheduler()
             "nupp.lua"
         ] = [[
 return {include = {"src"}, build = {default = "app", targets = {app = {
-   kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",
+   kind = "binary", stub = "nupp", entries = {"nupp.internal.workerapp"}, outDir = "build",
    payloadOutput = "build/app.payload.lua",
 }}}}
 ]],
@@ -741,8 +741,10 @@ export function nested(shards: integer): integer
 end
 ]],
         [
-            "src/main.nupp"
+            "src/nupp/internal/workerapp.nupp"
         ] = [[
+module nupp.internal.workerapp
+
 const capture = require("capture")
 const jobs = require("jobs")
 const tasks = require("coroutine")

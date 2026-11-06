@@ -64,8 +64,6 @@ to the turn.
 ]]
 module nupp.tasks
 
-const types = require("types")
-
 const {type Task as Task2} = require("nupp.workers.contracts")
 const {type Status as Status2} = require("nupp.workers.contracts")
 
@@ -228,24 +226,7 @@ type tasks.Status = Status2
 --- else. `scope:spawn(url, measure)` hands `url` to a body that takes one, and
 --- `scope:spawn("fetch page", body)` names a body that takes none, so no call can
 --- read as both.
-local type Nullary = function(): any
-
-@comptime
-local function Parameters(F: type): typepack
-    if types.kind(F) ~= "function" then
-        return types.error("a task must name a function type")
-    end
-    local described = types.describe(types.parameters(F))
-    for position, mode in ipairs(described.modes or {}) do
-        if mode ~= "plain" then
-            return types.error(
-                "argument " .. tostring(position) .. " is an owner or a borrow, which a child cannot be handed"
-            )
-        end
-    end
-
-    return types.parameters(F)
-end
+export type Nullary = function(): any
 
 --- Represents a scope opened by `scope`.
 ---
@@ -262,7 +243,7 @@ record tasks.Scope is own.Closeable
     spawn: function<F>(
         borrows self: tasks.Scope,
         takes body: F,
-        ...: unpackof Parameters(F)
+        ...: unpackof nupp.workers.contracts.Parameters(F)
     ): tasks.Task<F> borrows (self)
         & function<F is Nullary>(
             borrows self: tasks.Scope,
@@ -1270,7 +1251,7 @@ end
 local spawnSurface: function<F>(
     borrows self: tasks.Scope,
     takes body: F,
-    ...: unpackof Parameters(F)
+    ...: unpackof nupp.workers.contracts.Parameters(F)
 ): tasks.Task<F> borrows (self)
 local spawnNamedSurface: function<F is Nullary>(
     borrows self: tasks.Scope,

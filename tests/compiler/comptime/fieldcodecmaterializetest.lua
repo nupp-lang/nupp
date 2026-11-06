@@ -164,7 +164,7 @@ end
 return Codec
 ]]
     )
-    testAssert.eq(fieldcodec[1], "NUPP2101", "nupp.fieldcodec is no longer public")
+    testAssert.eq(fieldcodec[1], "NUPP2144", "nupp.fieldcodec is internal")
 end
 
 function M.inspectsTheImmutableReflectionSchemaInUserComptimeCode()

@@ -1795,16 +1795,16 @@ end
 function M.constGenericSelectsValueStreamModePerVariant()
     local dir = constProject("require")
     -- The pull stream is internal to the standard library's package, so the
-    -- body lives in a module of that namespace and the entry re-exports it.
+    -- body lives in a module of that namespace and the public entry re-exports it.
     local entry = assert(io.open(dir .. "/src/constkernel.nupp", "wb"))
-    entry:write('module constkernel\nexport = require("nupp.constmodes")\n')
+    entry:write('module constkernel\nexport = require("serde.constmodes")\n')
     entry:close()
-    assert(os.execute("mkdir -p '" .. dir .. "/src/nupp'") == 0)
-    local source = assert(io.open(dir .. "/src/nupp/constmodes.nupp", "wb"))
+    assert(os.execute("mkdir -p '" .. dir .. "/src/serde'") == 0)
+    local source = assert(io.open(dir .. "/src/serde/constmodes.nupp", "wb"))
     source:write(
         table.concat(
             {
-                "module nupp.constmodes",
+                "module serde.constmodes",
                 'local _valueBuilder = require("serde.valuebuilder")',
                 'local _jsonBuilder = require("nupp.codec.json.internal.builder")',
                 "@aot",
@@ -1866,7 +1866,7 @@ function M.constGenericSelectsValueStreamModePerVariant()
     )
     -- Each entry is a `define internal i32 @<entry>_lua` whose runtime
     -- pointers are named for their slots.
-    local unit = assert(read(tieredUnit(dir, firstHostTier(), "nupp/constmodes")))
+    local unit = assert(read(tieredUnit(dir, firstHostTier(), "serde/constmodes")))
     local bodies = {}
     for symbol in unit:gmatch("define internal i32 @(ks_[%w_]+_lua)%(") do
         local from = assert(unit:find("\ndefine internal i32 @" .. symbol .. "(", 1, true))

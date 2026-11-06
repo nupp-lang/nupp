@@ -406,6 +406,7 @@ local RESOURCES = {
     {source = "src/nupp/array/internal/layout.nupp", output = "nupp/compiler/nupp/array/internal/layout.nupp"},
     {source = "src/nupp/array/internal/storage.lua", output = "nupp/compiler/nupp/array/internal/storage.lua"},
     {source = "src/nupp/array/internal/api.nupp", output = "nupp/compiler/nupp/array/internal/api.nupp"},
+    {source = "src/nupp/init.nupp", output = "nupp/compiler/nupp/init.nupp"},
     {source = "src/nupp/array.nupp", output = "nupp/compiler/nupp/array.nupp"},
     {source = "src/nupp/util/internal/pool.nupp", output = "nupp/compiler/nupp/util/internal/pool.nupp"},
     {source = "src/events.nupp", output = "nupp/compiler/events.nupp"},
@@ -746,8 +747,7 @@ return {
                 -- checker itself loads. The prelude is public API written in a
                 -- private tree, so without this the one library every program uses
                 -- is the one the site never shows. It sits in the API reference
-                -- beside `nupp`, because a reader looking a name up does not know
-                -- which of the two libraries declared it until they have found it.
+                -- under the standard module that owns each declaration.
                 stdlib = {path = "api", title = "API reference",},
                 -- The site is the docs tree: a page is published by being written
                 -- to `docs/`, at the route its path gives, under the title its

@@ -217,26 +217,29 @@ replaces that one item with a module per field, named `prefix.field`, or the
 enclosing module's own name when `prefix` is omitted.
 
 ```nupp
---- @namespace nupp
-local nupp: {
+local record MathLibrary
+    abs: function(number): number
+end
+
+--- @namespace toolkit
+local toolkit: {
     --- @namespace
     data: {
         --- Hashes bytes with SHA-256.
         sha256: function(bytes: string): string
     },
-    math: nupp.MathLibrary,
+    math: MathLibrary,
 }
 ```
 
 A field inside one of those modules may carry `@namespace` too; it becomes a
 nested module instead of a value on its parent. A field written inline, as
 `data` above, documents its own fields directly, and a field written as a type
-name, as `math: nupp.MathLibrary`, is followed to a record of that name
+name, as `math: MathLibrary`, is followed to a record of that name
 declared in the same file. Documentation never resolves a type the way the
 checker does, so a field answering to neither is left out rather than guessed
-at. This is how the [`nupp` standard
-library](../runtime/data/standard-library.md), whose native members have no file to
-require them by, gets pages nested under `nupp`.
+at. The [standard library](../runtime/data/standard-library.md) uses this to place
+compiler-provided members under their public modules.
 
 ### Re-exported modules
 
