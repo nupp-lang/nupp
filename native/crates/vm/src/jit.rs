@@ -427,6 +427,7 @@ impl Compiler<ObjectModule> {
         let mut fb = settings::builder();
         fb.set("opt_level", &std::env::var("JIT_OPT").unwrap_or_else(|_| "none".to_string())).unwrap();
         fb.set("enable_verifier", "true").unwrap();
+        if let Ok(ra) = std::env::var("JIT_REGALLOC") { fb.set("regalloc_algorithm", &ra).unwrap(); }
         fb.set("use_colocated_libcalls", "false").unwrap();
         fb.set("is_pic", "true").unwrap();
         fb.set("preserve_frame_pointers", "true").unwrap();
