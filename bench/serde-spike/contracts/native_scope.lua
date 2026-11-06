@@ -34,14 +34,17 @@ local binding = {
     end
 }
 _G.require = function(name)
-    if name == "string.buffer" then
-        error("no string.buffer on this target")
+    if name == "nupp.serde.internal.binarycodec" then
+        error("no serde binary codec on this target")
     end
     return original(name)
 end
 local ok, problem = pcall(native.encode, binding, {})
 _G.require = original
-assert(not ok and tostring(problem):find("requires string.buffer", 1, true) and not selected, tostring(problem))
+assert(
+    not ok and tostring(problem):find("requires the serde binary codec", 1, true) and not selected,
+    tostring(problem)
+)
 local prior = rawget(_G, "__nuppBrowser")
 _G.__nuppBrowser = {}
 ok, problem = pcall(native.decode, binding, "malformed")
