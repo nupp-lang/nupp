@@ -155,7 +155,7 @@ local CASES: {[string]: {
     coreforms = {fixture = "catalog-core-forms", version = 8, follow = true},
     storagebasics = {fixture = "catalog-storage-basics", version = 8},
     storageprovider = {fixture = "catalog-storage-provider", version = 8, follow = true},
-    bytebuffer = {fixture = "catalog-byte-buffer", version = 9, follow = true},
+    bytebuffer = {fixture = "catalog-byte-buffer", version = 8, follow = true},
     modulesdynamic = {fixture = "catalog-modules-dynamic", version = 8, modules = {"catalog-modules-geometry"},},
     modulescycle = {
         fixture = "catalog-modules-cycle",
