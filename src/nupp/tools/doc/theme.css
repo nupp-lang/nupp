@@ -367,7 +367,10 @@ input {
 
 .nuppdoc-sidebar a[aria-current="page"],
 .nuppdoc-outline a:hover {
-    color: var(--nuppdoc-accent);
+    color: var(--nuppdoc-accent)
+}
+
+.nuppdoc-sidebar a[aria-current="page"] {
     font-weight: 650
 }
 
