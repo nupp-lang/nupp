@@ -1123,4 +1123,12 @@ function M.privateArtifactsRejectWideAndMultilineLiterals()
     end
 end
 
+function M.bufferLengthUsesItsCheckedCountOnLua51()
+    local code = compile([[local buffer = io.Buffer.create()
+buffer:put("abc")
+return #buffer
+]])
+    assert(code:find("(buffer):len()", 1, true), code)
+end
+
 return M

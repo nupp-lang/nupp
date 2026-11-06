@@ -49,7 +49,7 @@ export const Reader = bytes.readerdefaults
 
 --- An appending byte sink implemented by buffers, files, and request bodies.
 ---
---- `io.Writer.of(buffer)` clears the buffer and returns a forward-only writer
+--- `io.Writer.of(buffer)` appends to the buffer through a forward-only writer
 --- targeting it. A writer likewise closes automatically; `flush()` publishes
 --- pending work without consuming that ownership. The writer holds its buffer
 --- exclusively for as long as it is live, so the buffer is read once the writer
@@ -379,7 +379,7 @@ export type ScalarReader = bytes.ScalarReader
 --- the machine's byte order.
 ---
 --- A scalar writer writes at its byte writer's current position. Creating a
---- buffer writer clears the buffer; adapting that writer preserves its
+--- buffer writer appends to the buffer; adapting that writer preserves its
 --- position. The caller retains the buffer and reads it after the writer is
 --- dropped:
 ---
@@ -463,7 +463,7 @@ export const newStringReader = bytes.newStringReader
 --- Opens a byte reader over a string, queue, buffer, or view.
 export const newReader = bytes.newReader
 
---- Opens a byte writer that clears and exclusively borrows a buffer.
+--- Opens a byte writer that appends and exclusively borrows a buffer.
 export const newWriter = bytes.newWriter
 
 --- Opens a reader over a byte queue, which it does not own.

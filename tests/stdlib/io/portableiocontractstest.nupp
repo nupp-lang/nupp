@@ -25,14 +25,14 @@ function tests.byteReadersSnapshotBuffersAndViews(): nil
     assert2(fromView:read(6) == "before")
 end
 
-function tests.byteWriterExclusivelyBorrowsAndClearsItsBuffer(): nil
+function tests.byteWriterExclusivelyBorrowsAndAppendsToItsBuffer(): nil
     local buffer = standard.Buffer.create("old")
     do
         local writer = standard.Writer.of(buffer)
         assert2(writer:write("new"))
         assert2(writer:flush())
     end
-    assert2(buffer:getstring() == "new")
+    assert2(buffer:getstring() == "oldnew")
 end
 
 local record Queue is standard.ByteQueue
@@ -107,6 +107,65 @@ function tests.linesKeepTerminatorsAndFinalFragments(): nil
     assert2(lines:read() == "last")
     assert2(lines:read() == nil)
     lines:close()
+end
+
+function tests.buffersAppendConsumeAndBorrow(): nil
+    local buffer = standard.Buffer.create(4)
+    buffer:put("ab", 12)
+    buffer:putf("-%02d", 3)
+    assert2(buffer:tostring() == "ab12-03")
+    assert2(tostring(buffer) == "ab12-03")
+    assert2(#buffer == 7)
+    assert2(buffer:get(2) == "ab")
+    buffer:skip(1)
+    assert2(buffer:tostring() == "2-03")
+    do
+        local bytes = buffer:span(2, 3)
+        assert2(#bytes == 2 and bytes[1] == 45 and bytes[2] == 48)
+    end
+    do
+        local writer = buffer:writer()
+        assert2(writer:write("!"))
+    end
+    assert2(buffer:get() == "2-03!")
+    assert2(buffer:len() == 0)
+    buffer:reset():put("new")
+    assert2(buffer:get(99) == "new")
+end
+
+function tests.bufferReservationsCommitOnlyWrittenBytes(): nil
+    local buffer = standard.Buffer.create("a")
+    do
+        local lease = buffer:reserve(3)
+        do
+            local bytes = lease:span()
+            bytes[1] = 98
+            bytes[2] = 99
+        end
+        lease:commit(2)
+    end
+    assert2(buffer:tostring() == "abc")
+    do
+        local lease = buffer:reserve(2)
+        local bytes = lease:span()
+        bytes[1] = 120
+    end
+    assert2(buffer:tostring() == "abc")
+end
+
+function tests.bufferScalarRangesAndEndianAreExplicit(): nil
+    local buffer = standard.Buffer.create()
+    buffer:resize(16)
+    buffer:writeu16be(0, 0x1234)
+    assert2(buffer:readstring(0, 2) == "\18\52")
+    assert2(buffer:readu16be(0) == 0x1234)
+    buffer:writef64be(4, 1.5)
+    assert2(buffer:readf64be(4) == 1.5)
+    buffer:writebits(15, 12, 0xabc)
+    assert2(buffer:readbits(15, 12) == 0xabc)
+    assert2(buffer:readu8(0) == 0x12)
+    buffer:fill(12, 255, 4)
+    assert2(buffer:readstring(12, 4) == string.rep("\255", 4))
 end
 
 return tests

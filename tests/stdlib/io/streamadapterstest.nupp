@@ -189,7 +189,7 @@ function M.movesRawBytesAndTracksTheCursor(): nil
 end
 
 function M.continuesAtTheByteWritersCurrentPosition(): nil
-    local destination = io2.Buffer.create("head")
+    local destination = io2.Buffer.create()
     do
         local bytes = destination:writer()
         assert2(bytes:write("head"))

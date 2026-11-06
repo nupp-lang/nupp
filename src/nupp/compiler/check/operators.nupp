@@ -549,6 +549,12 @@ export function install(c: state.Checker): state.ExprHandlers
                 }
                 return view.fixedCount or T.integer
             end
+            local raw = T.unwrapOwnership(t)
+            local nominal = raw as T.Nominal
+            local origin = raw.tag == "nominal" and ((nominal.origin or nominal) as T.Nominal) or nil
+            if origin and origin.moduleName == "nupp.io.internal.bytes" and origin.name == "Buffer" then
+                (node as any).bufferLength = true
+            end
             local mm = c.metamethodOf(t, "__len")
             if mm then
                 return c.applyContract(mm, {t}, {operand}, node, "__len")

@@ -6037,6 +6037,12 @@ export function generate(
             end
             return
         end
+        if kind == "unop" and x.bufferLength and x.operand then
+            e("(", sourceLine(x))
+            emit(x.operand)
+            e("):len()")
+            return
+        end
         if kind == "unop" and x.indexedLength and x.operand then
             emitDepth.view.count(x.operand)
             return

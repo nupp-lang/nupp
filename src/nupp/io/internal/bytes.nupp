@@ -260,7 +260,7 @@ export interface ScalarWriter is own.Closeable
     --- @param value the number to write
     --- @return this writer
     function writeuint8(borrows self, value: uint32): ScalarWriter borrows (self)
-        self:writebytes(physical.encodeUint8(value))
+        self:writebytes(physical.encodeUint8(math.u32.wrap(value)))
 
         return self
     end
@@ -270,7 +270,7 @@ export interface ScalarWriter is own.Closeable
     --- @param value the number to write
     --- @return this writer
     function writeint8(borrows self, value: int32): ScalarWriter borrows (self)
-        self:writebytes(physical.encodeInt8(value))
+        self:writebytes(physical.encodeInt8(math.i32.wrap(value)))
 
         return self
     end
@@ -280,7 +280,7 @@ export interface ScalarWriter is own.Closeable
     --- @param value the number to write
     --- @return this writer
     function writeuint16(borrows self, value: uint32): ScalarWriter borrows (self)
-        self:writebytes(physical.encodeUint16(value))
+        self:writebytes(physical.encodeUint16(math.u32.wrap(value)))
 
         return self
     end
@@ -290,7 +290,7 @@ export interface ScalarWriter is own.Closeable
     --- @param value the number to write
     --- @return this writer
     function writeint16(borrows self, value: int32): ScalarWriter borrows (self)
-        self:writebytes(physical.encodeInt16(value))
+        self:writebytes(physical.encodeInt16(math.i32.wrap(value)))
 
         return self
     end
@@ -394,7 +394,7 @@ local createBuffer: function(initial: integer | string?): affine(Buffer)
 --- against the contract fills any of them.
 --- @export
 export interface Writer is own.Closeable
-    --- Clears and exclusively borrows a buffer as a byte sink.
+    --- Exclusively borrows a buffer as an appending byte sink.
     function of(exclusive destination: Buffer): affine(Writer) borrows (destination)
         return writeBuffer(destination)
     end
@@ -622,6 +622,7 @@ local reserve: function(borrows self: Buffer, minimum: integer): nil
 local bytesAt: function(borrows self: Buffer, offset: integer, count: integer): string
 local newReaderOver: function(bytes: string): Reader
 local newWriterOver: function(borrows buffer: Buffer): affine(Writer) borrows (buffer)
+local newBufferReader: function(exclusive buffer: Buffer): affine(Reader) borrows (buffer)
 
 --- A queue of bytes something else is filling, which a reader may be opened over
 --- without owning it.
@@ -743,6 +744,20 @@ export sealed interface BufferWriteLease
     commit: function(takes self: BufferWriteLease, written: integer): nil
 end
 
+local function bigEndian(bytes: string): string
+    if physical.encodeUint16(1):byte(1) == 1 then
+        return bytes:reverse()
+    end
+    return bytes
+end
+
+local function littleEndian(bytes: string): string
+    if physical.encodeUint16(1):byte(1) ~= 1 then
+        return bytes:reverse()
+    end
+    return bytes
+end
+
 --- Growable byte storage whose pointer and logical length never escape separately.
 --- @export
 export sealed interface Buffer is own.Closeable
@@ -751,7 +766,17 @@ export sealed interface Buffer is own.Closeable
         return createBuffer(initial)
     end
 
+    metamethod __len: function(borrows self: Buffer): integer
+    metamethod __tostring: function(borrows self: Buffer): string
     len: function(borrows self: Buffer): integer
+    reset: function(exclusive self: Buffer): Buffer borrows (self)
+    put: function(exclusive self: Buffer, borrows ...: any): Buffer borrows (self)
+    putf: function(exclusive self: Buffer, format: string, ...: any): Buffer borrows (self)
+    get: function(exclusive self: Buffer, count: integer?): string
+    skip: function(exclusive self: Buffer, count: integer): Buffer borrows (self)
+    tostring: function(borrows self: Buffer): string
+    span: function(borrows self: Buffer, first: integer?, last: integer?): span.ByteSpan borrows (self)
+    reserve: function(exclusive self: Buffer, count: integer): affine(BufferWriteLease, destroyLease) borrows (self)
     capacity: function(borrows self: Buffer): integer
     clear: function(exclusive self: Buffer): nil
     ensure: function(exclusive self: Buffer, minimum: integer): nil
@@ -764,8 +789,275 @@ export sealed interface Buffer is own.Closeable
         offset: integer,
         count: integer
     ): affine(BufferWriteLease, destroyLease) borrows (self)
+
+    --- Reads a i8 value at a zero-based byte offset.
+    function readi8(borrows self, offset: integer): integer
+        return physical.decodeInt8(self:getstring(offset, 1)) as integer
+    end
+
+    --- Writes a i8 value within the existing byte extent.
+    function writei8(exclusive self, offset: integer, value: integer): nil
+        self:getstring(offset, 1)
+        self:setstring(physical.encodeInt8(math.i32.wrap(value)), offset)
+    end
+
+    --- Reads a u8 value at a zero-based byte offset.
+    function readu8(borrows self, offset: integer): integer
+        return physical.decodeUint8(self:getstring(offset, 1)) as integer
+    end
+
+    --- Writes a u8 value within the existing byte extent.
+    function writeu8(exclusive self, offset: integer, value: integer): nil
+        self:getstring(offset, 1)
+        self:setstring(physical.encodeUint8(math.u32.wrap(value)), offset)
+    end
+
+    --- Reads a i16 value at a zero-based byte offset.
+    function readi16(borrows self, offset: integer): integer
+        return physical.decodeInt16(littleEndian(self:getstring(offset, 2))) as integer
+    end
+
+    --- Writes a i16 value within the existing byte extent.
+    function writei16(exclusive self, offset: integer, value: integer): nil
+        self:getstring(offset, 2)
+        self:setstring(littleEndian(physical.encodeInt16(math.i32.wrap(value))), offset)
+    end
+
+    --- Reads a i16 value at a zero-based byte offset.
+    function readi16be(borrows self, offset: integer): integer
+        return physical.decodeInt16(bigEndian(self:getstring(offset, 2))) as integer
+    end
+
+    --- Writes a i16 value within the existing byte extent.
+    function writei16be(exclusive self, offset: integer, value: integer): nil
+        self:getstring(offset, 2)
+        self:setstring(bigEndian(physical.encodeInt16(math.i32.wrap(value))), offset)
+    end
+
+    --- Reads a u16 value at a zero-based byte offset.
+    function readu16(borrows self, offset: integer): integer
+        return physical.decodeUint16(littleEndian(self:getstring(offset, 2))) as integer
+    end
+
+    --- Writes a u16 value within the existing byte extent.
+    function writeu16(exclusive self, offset: integer, value: integer): nil
+        self:getstring(offset, 2)
+        self:setstring(littleEndian(physical.encodeUint16(math.u32.wrap(value))), offset)
+    end
+
+    --- Reads a u16 value at a zero-based byte offset.
+    function readu16be(borrows self, offset: integer): integer
+        return physical.decodeUint16(bigEndian(self:getstring(offset, 2))) as integer
+    end
+
+    --- Writes a u16 value within the existing byte extent.
+    function writeu16be(exclusive self, offset: integer, value: integer): nil
+        self:getstring(offset, 2)
+        self:setstring(bigEndian(physical.encodeUint16(math.u32.wrap(value))), offset)
+    end
+
+    --- Reads a i32 value at a zero-based byte offset.
+    function readi32(borrows self, offset: integer): int32
+        return math.i32.wrap(physical.decodeInt32(littleEndian(self:getstring(offset, 4))) as integer)
+    end
+
+    --- Writes a i32 value within the existing byte extent.
+    function writei32(exclusive self, offset: integer, value: int32): nil
+        self:getstring(offset, 4)
+        self:setstring(littleEndian(physical.encodeInt32(value)), offset)
+    end
+
+    --- Reads a i32 value at a zero-based byte offset.
+    function readi32be(borrows self, offset: integer): int32
+        return math.i32.wrap(physical.decodeInt32(bigEndian(self:getstring(offset, 4))) as integer)
+    end
+
+    --- Writes a i32 value within the existing byte extent.
+    function writei32be(exclusive self, offset: integer, value: int32): nil
+        self:getstring(offset, 4)
+        self:setstring(bigEndian(physical.encodeInt32(value)), offset)
+    end
+
+    --- Reads a u32 value at a zero-based byte offset.
+    function readu32(borrows self, offset: integer): uint32
+        return math.u32.wrap(physical.decodeUint32(littleEndian(self:getstring(offset, 4))) as integer)
+    end
+
+    --- Writes a u32 value within the existing byte extent.
+    function writeu32(exclusive self, offset: integer, value: uint32): nil
+        self:getstring(offset, 4)
+        self:setstring(littleEndian(physical.encodeUint32(value)), offset)
+    end
+
+    --- Reads a u32 value at a zero-based byte offset.
+    function readu32be(borrows self, offset: integer): uint32
+        return math.u32.wrap(physical.decodeUint32(bigEndian(self:getstring(offset, 4))) as integer)
+    end
+
+    --- Writes a u32 value within the existing byte extent.
+    function writeu32be(exclusive self, offset: integer, value: uint32): nil
+        self:getstring(offset, 4)
+        self:setstring(bigEndian(physical.encodeUint32(value)), offset)
+    end
+
+    --- Reads a i64 value at a zero-based byte offset.
+    function readi64(borrows self, offset: integer): int64
+        return physical.decodeInt64(littleEndian(self:getstring(offset, 8))) as int64
+    end
+
+    --- Writes a i64 value within the existing byte extent.
+    function writei64(exclusive self, offset: integer, value: int64): nil
+        self:getstring(offset, 8)
+        self:setstring(littleEndian(physical.encodeInt64(value)), offset)
+    end
+
+    --- Reads a i64 value at a zero-based byte offset.
+    function readi64be(borrows self, offset: integer): int64
+        return physical.decodeInt64(bigEndian(self:getstring(offset, 8))) as int64
+    end
+
+    --- Writes a i64 value within the existing byte extent.
+    function writei64be(exclusive self, offset: integer, value: int64): nil
+        self:getstring(offset, 8)
+        self:setstring(bigEndian(physical.encodeInt64(value)), offset)
+    end
+
+    --- Reads a u64 value at a zero-based byte offset.
+    function readu64(borrows self, offset: integer): uint64
+        return physical.decodeUint64(littleEndian(self:getstring(offset, 8))) as uint64
+    end
+
+    --- Writes a u64 value within the existing byte extent.
+    function writeu64(exclusive self, offset: integer, value: uint64): nil
+        self:getstring(offset, 8)
+        self:setstring(littleEndian(physical.encodeUint64(value)), offset)
+    end
+
+    --- Reads a u64 value at a zero-based byte offset.
+    function readu64be(borrows self, offset: integer): uint64
+        return physical.decodeUint64(bigEndian(self:getstring(offset, 8))) as uint64
+    end
+
+    --- Writes a u64 value within the existing byte extent.
+    function writeu64be(exclusive self, offset: integer, value: uint64): nil
+        self:getstring(offset, 8)
+        self:setstring(bigEndian(physical.encodeUint64(value)), offset)
+    end
+
+    --- Reads a f32 value at a zero-based byte offset.
+    function readf32(borrows self, offset: integer): number
+        return physical.decodeFloat32(littleEndian(self:getstring(offset, 4))) as number
+    end
+
+    --- Writes a f32 value within the existing byte extent.
+    function writef32(exclusive self, offset: integer, value: number): nil
+        self:getstring(offset, 4)
+        self:setstring(littleEndian(physical.encodeFloat32(value)), offset)
+    end
+
+    --- Reads a f32 value at a zero-based byte offset.
+    function readf32be(borrows self, offset: integer): number
+        return physical.decodeFloat32(bigEndian(self:getstring(offset, 4))) as number
+    end
+
+    --- Writes a f32 value within the existing byte extent.
+    function writef32be(exclusive self, offset: integer, value: number): nil
+        self:getstring(offset, 4)
+        self:setstring(bigEndian(physical.encodeFloat32(value)), offset)
+    end
+
+    --- Reads a f64 value at a zero-based byte offset.
+    function readf64(borrows self, offset: integer): number
+        return physical.decodeFloat64(littleEndian(self:getstring(offset, 8))) as number
+    end
+
+    --- Writes a f64 value within the existing byte extent.
+    function writef64(exclusive self, offset: integer, value: number): nil
+        self:getstring(offset, 8)
+        self:setstring(littleEndian(physical.encodeFloat64(value)), offset)
+    end
+
+    --- Reads a f64 value at a zero-based byte offset.
+    function readf64be(borrows self, offset: integer): number
+        return physical.decodeFloat64(bigEndian(self:getstring(offset, 8))) as number
+    end
+
+    --- Writes a f64 value within the existing byte extent.
+    function writef64be(exclusive self, offset: integer, value: number): nil
+        self:getstring(offset, 8)
+        self:setstring(bigEndian(physical.encodeFloat64(value)), offset)
+    end
+
+    --- Copies a checked byte range, including overlapping ranges.
+    function copy(exclusive self, offset: integer, borrows source: Buffer, first: integer?, count: integer?): nil
+        local bytes = source:getstring(first, count)
+        self:getstring(offset, #bytes)
+        self:setstring(bytes, offset)
+    end
+
+    --- Fills a checked byte range with a byte value.
+    --- @raises string when the value is not a byte or the range is invalid
+    function fill(exclusive self, offset: integer, value: integer, count: integer?): nil
+        if value % 1 ~= 0 or value < 0 or value > 255 then
+            error("nupp: buffer fill value must be a byte", 2)
+        end
+        local bytes = self:getstring(offset, count)
+        self:setstring(string.rep(string.char(value), #bytes), offset)
+    end
+
+    --- Reads bytes at a zero-based storage offset.
+    function readstring(borrows self, offset: integer, count: integer): string
+        return self:getstring(offset, count)
+    end
+
+    --- Writes bytes within the existing storage extent.
+    function writestring(exclusive self, offset: integer, bytes: string): nil
+        self:getstring(offset, #bytes)
+        self:setstring(bytes, offset)
+    end
+
+    --- Reads up to 32 bits, with the low bit at the lowest bit offset.
+    --- @raises string when the bit range is invalid
+    function readbits(borrows self, offset: integer, count: integer): integer
+        local first = integer_(offset, "io.Buffer bit offset", 2)
+        local width = integer_(count, "io.Buffer bit count", 2)
+        if width > 32 then
+            error("nupp: buffer bit count exceeds 32", 2)
+        end
+        local extent = self:len() * 8
+        range(extent, first, width, "io.Buffer bit range", 2)
+        local result: integer = 0
+        for index = 0, width - 1 do
+            local position = sizeSum(first, index, "io.Buffer bit range", 2)
+            local byte = self:readu8(position // 8)
+            result = (result + ((byte // (2 ^ (position % 8))) % 2) * (2 ^ index)) as integer
+        end
+
+        return result
+    end
+
+    --- Writes up to 32 bits without changing adjacent bits.
+    --- @raises string when the bit range or value is invalid
+    function writebits(exclusive self, offset: integer, count: integer, value: integer): nil
+        local first = integer_(offset, "io.Buffer bit offset", 2)
+        local width = integer_(count, "io.Buffer bit count", 2)
+        if width > 32 or value < 0 or value % 1 ~= 0 or value >= 2 ^ width then
+            error("nupp: buffer bit value is out of bounds", 2)
+        end
+        self:readbits(first, width)
+        for index = 0, width - 1 do
+            local position = first + index
+            local at = position // 8
+            local mask = 2 ^ (position % 8)
+            local byte = self:readu8(at)
+            local old = (byte // mask) % 2
+            local bitValue = (value // (2 ^ index)) % 2
+            self:writeu8(at, (byte + (bitValue - old) * mask) as integer)
+        end
+    end
+
     view: function(self: Buffer, offset: integer?, count: integer?): affine(ByteView)
-    reader: function(self: Buffer): Reader
+    reader: function(exclusive self: Buffer): affine(Reader) borrows (self)
     writer: function(exclusive self: Buffer): affine(Writer) borrows (self)
     isreleased: function(borrows self: Buffer): boolean
     close: @nosuspend function(takes self: Buffer): nil
@@ -781,13 +1073,95 @@ local record HeapBuffer is Buffer
     @private _data: uint8[?]
     @private _length: integer
     @private _capacity: integer
+    @private _read: integer
     @private _closed: boolean
 
     close: @nosuspend function(takes self: HeapBuffer): nil
+    metamethod __len: function(borrows self: HeapBuffer): integer
+    metamethod __tostring: function(borrows self: HeapBuffer): string
 
     function len(borrows self): integer
         opened(self._closed, "io.Buffer", 2)
-        return self._length
+        return self._length - self._read
+    end
+
+    function reset(exclusive self): Buffer borrows (self)
+        self:clear()
+        return self
+    end
+
+    function tostring(borrows self): string
+        opened(self._closed, "io.Buffer", 2)
+        return bytesAt(self, self._read, self._length - self._read)
+    end
+
+    function get(exclusive self, count: integer?): string
+        opened(self._closed, "io.Buffer", 2)
+        local available = self._length - self._read
+        local taking = count == nil and available or math.min(integer_(count, "io.Buffer get count", 2), available)
+        local result = bytesAt(self, self._read, taking)
+        self._read = self._read + taking
+
+        return result
+    end
+
+    function skip(exclusive self, count: integer): Buffer borrows (self)
+        opened(self._closed, "io.Buffer", 2)
+        self._read = self._read + math.min(integer_(count, "io.Buffer skip count", 2), self._length - self._read)
+        return self
+    end
+
+    function put(exclusive self, borrows ...: any): Buffer borrows (self)
+        opened(self._closed, "io.Buffer", 2)
+        for index = 1, select("#", ...) do
+            local value = select(index, ...)
+            if type(value) == "string" or type(value) == "number" then
+                self:setstring(tostring(value), self._length)
+            elseif (value as any).tostring ~= nil then
+                self:setstring((value as Buffer):tostring(), self._length)
+            else
+                local source = value as span.ByteSpan
+                local count = #source
+                reserve(self, sizeSum(self._length, count, "io.Buffer append", 2))
+                @unsafe do
+                    local root = borrowFrom(self._data as voidptr, self)
+                    local destination = (root as uint8*) + self._length
+                    physical.copy(destination, source:ref(), count)
+                end
+                self._length = self._length + count
+            end
+        end
+
+        return self
+    end
+
+    function putf(exclusive self, format: string, ...: any): Buffer borrows (self)
+        self:put(string.format(format, ...))
+        return self
+    end
+
+    function span(borrows self, first: integer?, last: integer?): span.ByteSpan borrows (self)
+        opened(self._closed, "io.Buffer", 2)
+        local view = span.fromcarray(self._data, self._length)
+        local start = first or 1
+        local finish = last or (self._length - self._read)
+        if start % 1 ~= 0
+            or finish % 1 ~= 0
+            or start < 1
+            or finish < start - 1
+            or finish > self._length - self._read
+        then
+            error("nupp: buffer span out of bounds", 2)
+        end
+
+        return view:slice(self._read + start, self._read + finish)
+    end
+
+    function reserve(exclusive self, count: integer): affine(BufferWriteLease, destroyLease) borrows (self)
+        opened(self._closed, "io.Buffer", 2)
+        local available = integer_(count, "io.Buffer reserve count", 2)
+        reserve(self, sizeSum(self._length, available, "io.Buffer reservation", 2))
+        return newWriteLease(self, self._length, available)
     end
 
     function capacity(borrows self): integer
@@ -798,6 +1172,7 @@ local record HeapBuffer is Buffer
     function clear(exclusive self): nil
         opened(self._closed, "io.Buffer", 2)
         self._length = 0
+        self._read = 0
     end
 
     function ensure(exclusive self, minimum: integer): nil
@@ -816,6 +1191,7 @@ local record HeapBuffer is Buffer
             end
         end
         self._length = wanted
+        self._read = math.min(self._read, wanted)
     end
 
     function getstring(borrows self, offset: integer?, count: integer?): string
@@ -851,7 +1227,7 @@ local record HeapBuffer is Buffer
 
     function readspan(borrows self): span.ByteSpan borrows (self)
         opened(self._closed, "io.Buffer", 2)
-        return span.fromcarray(self._data, self._length)
+        return self:span()
     end
 
     function reservewrite(
@@ -873,14 +1249,13 @@ local record HeapBuffer is Buffer
         return newView(bytesAt(self, from, taking))
     end
 
-    function reader(self): Reader
+    function reader(exclusive self): affine(Reader) borrows (self)
         opened(self._closed, "io.Buffer", 2)
-        return newReaderOver(bytesAt(self, 0, self._length))
+        return newBufferReader(self)
     end
 
     function writer(exclusive self): affine(Writer) borrows (self)
         opened(self._closed, "io.Buffer", 2)
-        self:clear()
         return newWriterOver(self)
     end
 
@@ -1272,11 +1647,20 @@ function Snapshot.close(takes self: Snapshot): nil
     state._bytes = ""
 end
 
+function HeapBuffer.__len(borrows self: HeapBuffer): integer
+    return self:len()
+end
+
+function HeapBuffer.__tostring(borrows self: HeapBuffer): string
+    return self:tostring()
+end
+
 function HeapBuffer.close(takes self: HeapBuffer): nil
     local state = @unsafe own.release(self)
     state._closed = true
     state._length = 0
     state._capacity = 0
+    state._read = 0
     -- A spent buffer must not keep its allocation alive through retained metadata.
     (state as any)._data = nil
 end
@@ -1357,8 +1741,12 @@ newReaderOver = function(bytes: string): Reader
     return StringReader(_bytes = bytes, _at = 1, _closed = false)
 end
 
+newBufferReader = function(exclusive buffer: Buffer): affine(Reader) borrows (buffer)
+    return QueueReader(_source = buffer as any, _closed = false)
+end
+
 newWriterOver = function(borrows buffer: Buffer): affine(Writer) borrows (buffer)
-    return BufferWriter(anchor = buffer, _buffer = buffer, _at = 0, _closed = false)
+    return BufferWriter(anchor = buffer, _buffer = buffer, _at = (buffer as any)._length, _closed = false)
 end
 
 ----------------------------------------------------------------------------
@@ -1379,6 +1767,45 @@ local function queueLike(value: any): boolean
     else
         return false
     end
+end
+
+-- Lua 5.1 table length ignores __len. A private userdata facade preserves the
+-- public length operation for plain Lua as well as checked source.
+local bufferProxyStates: any = setmetatable({}, {__mode = "k"})
+local bufferProxyFactory: any = rawget(_G, "newproxy")
+local bufferProxyPrototype: any = nil
+local bufferProxyMetatable: any = nil
+local bufferLengthProbe: any = setmetatable({}, {
+    __len = function(): integer
+        return 1
+    end
+})
+if #bufferLengthProbe ~= 1 and type(bufferProxyFactory) == "function" then
+    bufferProxyPrototype = bufferProxyFactory(true)
+    bufferProxyMetatable = getmetatable(bufferProxyPrototype) as any
+    bufferProxyMetatable.__index = function(self: any, name: string): any
+        return bufferProxyStates[self][name]
+    end
+    bufferProxyMetatable.__newindex = function(self: any, name: string, value: any): nil
+        bufferProxyStates[self][name] = value
+    end
+    bufferProxyMetatable.__len = function(self: any): integer
+        return bufferProxyStates[self]:len() as integer
+    end
+    bufferProxyMetatable.__tostring = function(self: any): string
+        return bufferProxyStates[self]:tostring() as string
+    end
+end
+
+local function bufferFacade(takes state: HeapBuffer): affine(Buffer)
+    local raw = @unsafe own.release(state)
+    if bufferProxyPrototype ~= nil then
+        local proxy = bufferProxyFactory(bufferProxyPrototype)
+        bufferProxyStates[proxy] = raw
+        return @unsafe own.adopt<affine(Buffer)>(proxy)
+    end
+
+    return @unsafe own.adopt<affine(Buffer)>(raw)
 end
 
 --- Creates a buffer, optionally over starting bytes or a starting capacity.
@@ -1410,7 +1837,7 @@ export function newBuffer(initial: integer | string?): affine(Buffer)
         physical.copy(data, bytes, #bytes)
     end
 
-    return HeapBuffer(_data = data, _length = #bytes, _capacity = capacity, _closed = false)
+    return bufferFacade(HeapBuffer(_data = data, _length = #bytes, _capacity = capacity, _read = 0, _closed = false))
 end
 
 createBuffer = newBuffer
@@ -1462,6 +1889,8 @@ end
 local function openReader(source: any): Reader
     if type(source) == "string" then
         return newStringReader(source as string)
+    elseif (type(source) == "table" or getmetatable(source) == bufferProxyMetatable) and source.getstring ~= nil then
+        return newReaderOver(source:getstring() as string)
     elseif queueLike(source) then
         return newQueueReader(source as ByteQueue)
     end
@@ -1482,7 +1911,7 @@ readBorrowed = openReader as any
 -- references use the same implementation and runtime source discrimination.
 rawset(Reader, "of", openReader)
 
---- Opens a byte writer that clears and exclusively borrows a buffer.
+--- Opens a byte writer that appends and exclusively borrows a buffer.
 export function newWriter(exclusive destination: Buffer): affine(Writer) borrows (destination)
     return destination:writer()
 end

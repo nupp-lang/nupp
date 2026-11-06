@@ -2500,7 +2500,7 @@ function M.compilerProvidedPureLibraries()
             .. [[
       local io = require("io")
       local buffer = io.Buffer.create("hello")
-      local writer = buffer:writer()
+      local writer = buffer:reset():writer()
       assert(writer:write("world"))
       assert(buffer:getstring() == "world")
       local viewReader = buffer:view():reader()
