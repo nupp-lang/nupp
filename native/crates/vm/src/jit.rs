@@ -1139,6 +1139,10 @@ impl<M: Module> Compiler<M> {
                                 if changed && live[class].contains(i as u8) { let v = b.ins().load(ty, flags, answer, ((off + stride * i) * 8) as i32); b.def_var(var, v); }
                             }
                         }
+                        // A call can replace a register whose prior comparison
+                        // supplied a cached branch condition. Reloading its word
+                        // must retire that condition along with the value facts.
+                        cond_of.clear();
                         facts.transfer();
                         continue;
                     }
