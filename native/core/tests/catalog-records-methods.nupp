@@ -28,6 +28,63 @@ function Counter:absorb(other: Counter): integer
     return self.count
 end
 
+-- Nominal tests retain their checked declaration, including inside a closure
+-- whose source only mentions that declaration as a type.
+local function nominalTests(): nil
+    local record First
+        value: integer
+    end
+    local record Second
+        value: integer
+    end
+    local type Alias = First
+
+    local function isFirst(value: any): boolean
+        return value is Alias
+    end
+
+    local firstClass: any = First
+    local secondClass: any = Second
+
+    local function equal(a: any, b: any): boolean
+        return true
+    end
+
+    local equality = {__eq = equal}
+    setmetatable(firstClass, equality)
+    setmetatable(secondClass, equality)
+    firstClass.__metatable = "protected record"
+    local first = First(value = 1)
+    local second = Second(value = 1)
+    assert(firstClass == secondClass)
+    assert(getmetatable(first) == "protected record")
+    assert(isFirst(first))
+    assert(not isFirst(second))
+    assert(not isFirst(nil) and not isFirst(1) and not isFirst({value = 1}))
+    local calls = 0
+
+    local function subject(): any
+        calls = calls + 1
+        return first
+    end
+
+    assert(subject() is First)
+    assert(calls == 1)
+    local record Box<T>
+        value: T
+    end
+
+    local function isBox(value: any): boolean
+        return value is Box<integer>
+    end
+
+    assert(isBox(Box<integer>(value = 3)))
+    assert(isBox(Box<string>(value = "same construction declaration")))
+    assert(not isBox(first))
+end
+
+nominalTests()
+
 local c = Counter(count = 1, step = 3)
 local d = Counter(count = 100, step = 1)
 local a = c:bump(2)

@@ -4,6 +4,7 @@ local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
 local graph = require("nupp.compiler.vm.graph")
 local construction = require("nupp.compiler.vm.construction")
+local taggedvalues = require("nupp.compiler.vm.taggedvalues")
 local opcodes = require("nupp.compiler.vm.opcodes")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local graphemit = require("nupp.compiler.vm.graphemit")
@@ -238,6 +239,8 @@ function program.describe(modules: {any}, entryModule: string): any
         inheritTokens = {},
         -- Every record declaration in the program's modules.
         recordDecls = {},
+        -- Runtime class references issued for checked nominal record tests.
+        recordTests = {},
         -- The owners (by id) with any such site.
         cleanupOwners = {},
         -- The definition of the record each method or constructor written in
@@ -620,6 +623,74 @@ function program.describe(modules: {any}, entryModule: string): any
         local bodyOwner = p.byBody[node]
         if bodyOwner then
             owner = bodyOwner
+        end
+        if node.kind == "isExpr"
+            and not node.provenStatically
+            and not node.refutedStatically
+            and not (node.type and node.type.wherePredicate)
+        then
+            local origin = taggedvalues.recordOrigin(node.typeTestTarget)
+            local declaration = origin and origin.deriveDeclaration
+            if declaration and p.recordDecls[declaration] then
+                local definition = need(declaration.name.definition, "record test lacks its checked declaration")
+                local anchor = need(cst.firstToken(node), "record test lacks its source position")
+                local expression: any = nil
+                local token: any = nil
+                if definition.filename == owner.scope.path then
+                    local base = declaration.qualifiers and declaration.qualifiers[1] or declaration.name
+                    token = {
+                        kind = "name",
+                        text = base.text,
+                        line = anchor.line,
+                        col = anchor.col,
+                        offset = anchor.offset,
+                        trivia = {},
+                        definition = base.definition
+                    }
+                    reference(token, owner)
+                    expression = {kind = "name", token = token, token}
+                    if declaration.qualifiers and #declaration.qualifiers > 0 then
+                        need(#declaration.qualifiers == 1, "record test has an unsupported qualified declaration")
+                        expression = {
+                            kind = "dotIndex",
+                            obj = expression,
+                            name = declaration.name,
+                            expression,
+                            declaration.name
+                        }
+                    end
+                else
+                    local foreign = need(
+                        moduleNames[origin.moduleName],
+                        "record test declaration is not in the program"
+                    )
+                    need(foreign.path == definition.filename, "record test crosses its checked module identity")
+                    local members = {}
+                    for member in (origin.runtimePath or declaration.name.text):gmatch("[%w_]+") do
+                        members[#members + 1] = member
+                    end
+                    expression = {kind = "dotIndex", qualifiedModule = foreign.name, qualifiedMembers = members, anchor}
+                    local site = {
+                        id = #p.requires,
+                        owner = owner.id,
+                        node = expression,
+                        module = foreign.name,
+                        typeOnly = false,
+                        target = foreign.chunk,
+                        qualified = true
+                    }
+                    p.requires[#p.requires + 1], p.requireByNode[expression] = site, site
+                end
+                p.recordTests[
+                    node
+                ] = {
+                    owner = owner.id,
+                    origin = origin,
+                    declaration = declaration,
+                    expression = expression,
+                    token = token
+                }
+            end
         end
         -- A library function taken as a value: the function the image's
         -- `nupp.runtime.libraryvalues` carries under its name (`io`, the one
@@ -1285,6 +1356,48 @@ function program.verify(p: any): boolean
         callCount = callCount + 1
     end
     need(callCount == #p.calls, "incomplete callsite array")
+    for node, item in pairs(p.recordTests) do
+        need(
+            node.kind == "isExpr"
+            and taggedvalues.recordOrigin(node.typeTestTarget) == item.origin
+            and item.origin.deriveDeclaration == item.declaration
+            and p.recordDecls[item.declaration]
+            and p.owners[item.owner + 1],
+            "record test declaration identity mismatch"
+        )
+        if item.token then
+            local base = item.declaration.qualifiers and item.declaration.qualifiers[1] or item.declaration.name
+            need(
+                referenceOwners[item.token] == item.owner and item.token.definition == base.definition,
+                "record test lacks its checked class reference"
+            )
+            local expression = item.expression
+            if item.declaration.qualifiers and #item.declaration.qualifiers > 0 then
+                need(
+                    expression.kind == "dotIndex" and expression.name == item.declaration.name,
+                    "record test class expression mismatch"
+                )
+                expression = expression.obj
+            end
+            need(expression.kind == "name" and expression.token == item.token, "record test class expression mismatch")
+
+        else
+            local site = p.requireByNode[item.expression]
+            need(
+                site and site.owner == item.owner and site.module == item.origin.moduleName,
+                "record test lacks its checked module reference"
+            )
+            need(
+                item.expression.qualifiedModule == item.origin.moduleName
+                and table.concat(
+                    item.expression.qualifiedMembers,
+                    "."
+                ) == (item.origin.runtimePath or item.declaration.name.text),
+                "record test module expression mismatch"
+            )
+
+        end
+    end
     for index, item in ipairs(p.calls) do
         local node = item.node
         need(item.id == index - 1 and p.owners[item.owner + 1], "invalid callsite owner")

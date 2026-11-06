@@ -828,6 +828,27 @@ function tagged.forVersion(version: integer): any
                 end
                 return absent as integer
             end
+            local record = catalog(ctx).recordTests[node]
+            if record then
+                local value = ctx.expression(node.expr, "tagged")
+                if value == nil then
+                    return nil as any
+                end
+                local held = ctx.hold(value)
+                local class = ctx.expression(record.expression, "tagged")
+                if class == nil or ctx.block == nil then
+                    ctx.release(held)
+                    return nil as any
+                end
+                local answer = ctx.emit(
+                    node,
+                    "LibCall",
+                    {corelibrary.id("RECORD_IS"), ctx.readHeld(held), class},
+                    "tagged"
+                )
+                ctx.release(held)
+                return answer as integer
+            end
             local target = node.typeTestTarget
             while target and target.tag == "literal" do
                 target = target.base

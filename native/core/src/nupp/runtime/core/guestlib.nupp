@@ -377,6 +377,8 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return guestnumbers.negate(ctx, a)
     elseif id == librarycalls.SETMETATABLE then
         return guestmeta.setMetatable(ctx, a, b)
+    elseif id == librarycalls.RECORD_IS then
+        return guestmeta.recordIs(a, b)
     elseif id == librarycalls.GETMETATABLE then
         return guestmeta.getMetatable(ctx, a)
     elseif id == librarycalls.RAWGET then

@@ -70,6 +70,8 @@ local subjectrows: {Subject} = {
             {name = "PROTECTED_COUNT", id = 121},
             {name = "SETMETATABLE", id = 28, text = "NAME_SETMETATABLE"},
             {name = "GETMETATABLE", id = 29, text = "NAME_GETMETATABLE"},
+            -- Nominal record tests read actual construction metatable identity.
+            {name = "RECORD_IS", id = 126, min = 2, max = 2},
             {name = "RAWGET", id = 30, text = "NAME_RAWGET"},
             {name = "RAWSET", id = 31, text = "NAME_RAWSET"},
             {name = "RAWEQUAL", id = 88, call = "rawequal", min = 2, max = 2},

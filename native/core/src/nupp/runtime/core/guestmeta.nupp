@@ -521,6 +521,17 @@ export function objectIndexer(ctx: voidptr, value: uint64): uint64
     return index
 end
 
+-- A checked record test uses actual construction identity, past __metatable
+-- protection and without invoking a user equality metamethod.
+export function recordIs(value: uint64, class: uint64): uint64
+    local t = tableOf(value)
+    if t ~= 0ULL and tableOf(class) ~= 0ULL and tables.meta(t) == class then
+        return values.TRUE
+    end
+
+    return values.FALSE
+end
+
 -- getmetatable(v): a table's metatable, or its __metatable field when it
 -- has one; a userdata's, likewise; the threads' shared one for a thread;
 -- nil for anything else.

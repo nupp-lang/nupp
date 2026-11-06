@@ -1288,4 +1288,60 @@ function M.completeGuestGraphsBindParametersAndRefuseNativeProfiles()
     )
 end
 
+function M.taggedRecordTestsCaptureTheirCheckedDeclaration()
+    local p = describe(
+        [[
+local record First value: integer end
+local record Second value: integer end
+local type Alias = First
+local function matches(value: any): boolean return value is Alias end
+return matches
+]]
+    )
+    local node, site = next(p.recordTests)
+    assert(node and next(p.recordTests, node) == nil)
+    test.eq(p.owners[site.owner + 1].name, "matches")
+    test.eq(site.declaration.name.text, "First")
+    test.eq(#owner(p, "matches").captures, 1)
+    local complete = program.compile(p, tagged.forVersion(8))
+    local calls = operations(complete.graphs[site.owner + 1], "LibCall")
+    test.eq(#calls, 1)
+    test.eq(calls[1].args[1], require("nupp.compiler.vm.corelibrary").id("RECORD_IS"))
+    site.expression = {kind = "name", token = {text = "Second"}}
+    refuses(
+        function()
+            program.verify(p)
+        end,
+        "record test class expression mismatch"
+    )
+end
+
+function M.taggedRecordTestsRequireTheirCheckedDeclaringModule()
+    local T = require("nupp.compiler.types")
+    local dependency = checked("module nominaltypes\nexport record Item value: integer end", "nominaltypes")
+    local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
+    env.loaded.nominaltypes = {type = T.any, exports = dependency.parsed.moduleExports}
+    local consumer = checked(
+        [[
+local {type Item} = require("nominaltypes")
+local function matches(value: any): boolean return value is Item end
+return matches
+]],
+        "nominalconsumer",
+        env
+    )
+    local p = program.describe({consumer, dependency}, "nominalconsumer")
+    local node, site = next(p.recordTests)
+    assert(node and site.token == nil)
+    test.eq(site.expression.qualifiedModule, "nominaltypes")
+    test.eq(#operations(program.compile(p, tagged.forVersion(8)).graphs[site.owner + 1], "Require"), 1)
+    site.expression.qualifiedMembers = {"Other"}
+    refuses(
+        function()
+            program.verify(p)
+        end,
+        "record test module expression mismatch"
+    )
+end
+
 return M

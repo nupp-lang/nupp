@@ -16,6 +16,7 @@ export const RERAISE: uint64 = 46ULL
 export const PROTECTED_COUNT: uint64 = 121ULL
 export const SETMETATABLE: uint64 = 28ULL
 export const GETMETATABLE: uint64 = 29ULL
+export const RECORD_IS: uint64 = 126ULL
 export const RAWGET: uint64 = 30ULL
 export const RAWSET: uint64 = 31ULL
 export const RAWEQUAL: uint64 = 88ULL
