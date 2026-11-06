@@ -233,8 +233,9 @@ local function serviceModule(): any
     return require("nupp.compiler.vm." .. moduleName)
 end
 
-local function arenaOwnership(capability: any, owner: any, parameter: integer?): any
-    return serviceModule().arenaOwnership(capability, owner, parameter)
+local function ownedboundary(capability: any, owner: any, parameter: integer?): any
+    return serviceModule().builderownership(capability, owner, parameter)
+        or serviceModule().arenaOwnership(capability, owner, parameter)
 end
 
 local function signatureShape(owner: any, context: any, serviceSignature: any?): any
@@ -331,7 +332,7 @@ local function signatureShape(owner: any, context: any, serviceSignature: any?):
                 params[index], borrowing = physical.describe(context, definition.type), true
             elseif mode == "takes" then
                 need(serviceSignature ~= nil, "takes pointer requires a private service signature")
-                local owned = arenaOwnership(serviceSignature, owner, index)
+                local owned = ownedboundary(serviceSignature, owner, index)
                 need(owned == definition.type, "service takes binding changed")
                 params[index] = physical.describe(context, owned)
             else
@@ -363,7 +364,7 @@ local function signatureShape(owner: any, context: any, serviceSignature: any?):
         local owning = false
         if owner.resultType.tag == "affine" then
             need(serviceSignature ~= nil, "affine pointer requires a private service signature")
-            owning = arenaOwnership(serviceSignature, owner) == owner.resultType
+            owning = ownedboundary(serviceSignature, owner) == owner.resultType
         end
         need(
             (
@@ -1266,7 +1267,11 @@ local function localCallOrigin(signature: any, index: integer, descriptor: any):
         signature.params[index] and pointerShape(signature.params[index], descriptor),
         "local pointer call changes checked layout"
     )
-    need(signature.result == nil and held.owner.resultKind ~= "voidptr", "local pointer call cannot return a pointer")
+    need(
+        signature.result == nil and held.owner.resultKind ~= "voidptr"
+        or serviceModule().builderacquisition(held.caller, held.call, held.owner, index),
+        "local pointer call cannot return a pointer"
+    )
 
     return origin
 end
@@ -1294,6 +1299,10 @@ function physical.bindLocalCall(signature: any, index: integer, descriptor: any)
         scoped = require("nupp.compiler.vm.nativeservice").scopedCall(held.caller, held.call, held.owner, index)
     end
     held.localCalls[index] = {origin = origin, scoped = scoped}
+    if serviceModule().builderacquisition(held.caller, held.call, held.owner, index) then
+        need(signature.result and origins[signature.result].ownerSource, "Builder call lacks its acquired result")
+        origins[signature.result].ownerSource.stack = origin
+    end
 end
 
 function physical.validateLocalCall(signature: any, index: integer, descriptor: any): boolean
@@ -1510,6 +1519,9 @@ function physical.affineValue(owner: any, descriptor: any): boolean
     local origin = need(origins[descriptor].ownerSource, "affine graph value lacks ownership origin")
     local service = serviceModule()
     if origin.creation then
+        if service.isbuilderreturn(origin.creation) then
+            return service.validatebuildervalue(origin.creation, owner, descriptor)
+        end
         return service.validateArenaValue(origin.creation, owner, descriptor)
     end
     local signature = origin.signature
@@ -1520,13 +1532,13 @@ function physical.affineValue(owner: any, descriptor: any): boolean
             signature.owner == owner
             and signature.params[origin.parameter]
             and physical.sameValue(signature.params[origin.parameter], descriptor)
-            and service.arenaOwnership(held.serviceSignature, owner, origin.parameter) == descriptor.checkedType,
+            and ownedboundary(held.serviceSignature, owner, origin.parameter) == descriptor.checkedType,
             "affine parameter origin differs"
         )
     else
         acquiredOrigin(owner, descriptor, origin.call)
         need(
-            service.arenaOwnership(held.serviceSignature, signature.owner) == descriptor.checkedType,
+            ownedboundary(held.serviceSignature, signature.owner) == descriptor.checkedType,
             "affine acquisition constructor differs"
         )
     end
@@ -1678,6 +1690,60 @@ function physical.arenaReturnView(owner: any, source: any, node: any, proof: any
     return contract
 end
 
+-- The qualifier owns a handle while the borrowed caller-local descriptor stays
+-- live. It grants no mapping ownership or general pointer-return conversion.
+function physical.builderreturnview(owner: any, source: any, node: any, proof: any): any
+    physical.validate(source)
+    local checked = serviceModule().validatebuilderreturn(proof, owner, source, node)
+    need(
+        source.machineKind == "voidptr"
+        and not source.nullable
+        and source.checkedType == checked.inner
+        and not localOrigins[source],
+        "Builder return requires its exact formal pointer"
+    )
+    local target = physical.describe(source.context, checked)
+    origins[target].ownerSource = {creation = proof}
+    local contract = {source = source, target = target, node = node}
+    views[
+        contract
+    ] = {
+        mode = "builderreturn",
+        owner = owner,
+        node = node,
+        checked = checked,
+        proof = proof,
+        fields = recordFields(contract),
+        source = source,
+        target = target,
+        origin = origins[target].ownerSource
+    }
+
+    return contract
+end
+
+function physical.buildercleanupoperand(owner: any, source: any, expression: any, target: any): boolean
+    physical.validate(source)
+    physical.validateSignature(target)
+    local origin = acquiredOrigin(owner, source, expression)
+    local home = require("nupp.compiler.vm.nativeunit").ownerModule(owner, "nupp.runtime.core.corestrings")
+    local bound = serviceModule().builderownership(signatures[target].serviceSignature, target.owner, 1)
+    need(
+        target.owner == home.exports.close
+        and origin.signature.owner == home.exports.open
+        and source.checkedType.tag == "affine"
+        and source.checkedType.inner == bound.inner
+        and #source.checkedType.cleanups == 1
+        and source.checkedType.cleanups[1].functionType == target.owner.checkedSignature
+        and origin.stack
+        and origin.stack.owner == owner,
+        "Builder cleanup lost its exact stack acquisition or handle terminal"
+    )
+    physical.validateLocal(origin.stack)
+
+    return true
+end
+
 function physical.arenaCleanupOperand(owner: any, source: any, expression: any, target: any): boolean
     physical.validate(source)
     physical.validateSignature(target)
@@ -1741,7 +1807,7 @@ function physical.takesEntry(owner: any, signature: any, source: any, node: any,
         and origin.parameter == value
         and origin.call == nil
         and origin.binding == nil
-        and serviceModule().arenaOwnership(held.serviceSignature, owner, value) == source.checkedType,
+        and ownedboundary(held.serviceSignature, owner, value) == source.checkedType,
         "takes entry ownership origin differs"
     )
 end
@@ -2364,6 +2430,7 @@ function physical.validateCast(contract: any): boolean
                 view.mode == "binding"
                 or view.mode == "owner"
                 or view.mode == "arenaReturn"
+                or view.mode == "builderreturn"
                 or view.mode == "dependentReturn"
                 or view.mode == "managedReturn"
                 or view.mode == "nil" and view.contextual ~= nil
@@ -2408,6 +2475,15 @@ function physical.validateCast(contract: any): boolean
                 and not localOrigins[view.target]
                 and physical.returnValue(view.signature, view.source),
                 "dependent return identity or backing changed"
+            )
+        elseif view.mode == "builderreturn" then
+            local checked = serviceModule().validatebuilderreturn(view.proof, view.owner, contract.source, view.node)
+            need(
+                contract.source == view.source
+                and contract.target == view.target
+                and checked == view.checked
+                and origins[contract.target].ownerSource == view.origin,
+                "Builder return ownership view changed"
             )
         elseif view.mode == "arenaReturn" then
             local checked = serviceModule().validateArenaReturn(view.proof, view.owner, contract.source, view.node)

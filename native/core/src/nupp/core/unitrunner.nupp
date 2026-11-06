@@ -17,6 +17,7 @@ local sink = require("nupp.compiler.s0.nativegraph")
 local linker = require("nupp.core.link")
 local fingerprint = require("nupp.compiler.project.fingerprint")
 local json = require("serde.json")
+local targetlayout = require("nupp.compiler.targetlayout")
 local runner = {}
 
 local function readFile(path: string): string?
@@ -265,7 +266,7 @@ end
 
 -- `fixtures` is a list of {moduleName, path, include}; `entries` lists the
 -- fixture functions in dispatch order as {moduleName, name, arity}.
-function runner.build(fixtures: any, entries: any, mode: string, cacheDirectory: string?): any
+function runner.build(fixtures: any, entries: any, mode: string, cacheDirectory: string?, observeLanding: boolean?): any
     local started = now()
     local timings = {}
 
@@ -273,7 +274,8 @@ function runner.build(fixtures: any, entries: any, mode: string, cacheDirectory:
         timings[#timings + 1] = {name = name, seconds = now() - started}
     end
 
-    local roots = {{"unitentry", "prepare"}, {"unitentry", "finish"}}
+    local entryModule = observeLanding and "builderentry" or "unitentry"
+    local roots = {{entryModule, "prepare"}, {entryModule, "finish"}}
     for _, entry in ipairs(entries) do
         roots[#roots + 1] = {entry[1], entry[2]}
     end
@@ -343,7 +345,13 @@ function runner.build(fixtures: any, entries: any, mode: string, cacheDirectory:
         local skip = emit(arm.b_cond(1, 0))
         local arity: integer = entry[3]
         for at = 1, arity do
-            emit(arm.ldr(8, at - 1, 20, at * 8))
+            if observeLanding and at == 1 then
+                -- The landing fixture borrows the prepared scope explicitly;
+                -- its heap deliberately outlives the failing native stack.
+                emit(arm.ldr(8, at - 1, 19, SLOTS))
+            else
+                emit(arm.ldr(8, at - 1, 20, at * 8))
+            end
         end
         emit(arm.ldr(8, arity, 19, SLOTS))
         call(index + 2)
@@ -360,9 +368,21 @@ function runner.build(fixtures: any, entries: any, mode: string, cacheDirectory:
     end
     emit(arm.str(8, 0, 19, SLOTS + 16))
     emit(arm.ldr(8, 0, 19, SLOTS))
+    if observeLanding then
+        emit(arm.mov_reg(64, 1, 0))
+    end
     call(2)
-    emit(arm.mov_reg(64, 17, 0))
-    emit(arm.ldr(8, 0, 19, SLOTS + 16))
+    if observeLanding then
+        -- Observe after native error cleanup, preserving a separate check for
+        -- errors raised by the observer itself rather than masking them.
+        local scopeType = build.session.module("nupp.runtime.core.servicescope").checkedExports.types.ServiceScope
+        local scopeLayout = assert(targetlayout.of(scopeType, "aarch64-apple-darwin"))
+        emit(arm.ldr(8, 16, 19, SLOTS))
+        emit(arm.ldr(8, 17, 16, scopeLayout.offsets.error))
+    else
+        emit(arm.mov_reg(64, 17, 0))
+        emit(arm.ldr(8, 0, 19, SLOTS + 16))
+    end
     local store = #words + 1
     words[unknown] = arm.b((store - unknown) * 4)
     emit(arm.ldr(8, 16, 31, 160))

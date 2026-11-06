@@ -152,7 +152,7 @@ export const TEXT_STEPMUL: uint64 = 142ULL
 export const TEXT_STEPSIZE: uint64 = 143ULL
 
 -- Appends text `id` to `b`: nonzero when the builder refused it.
-export function append(h: heap.Heap*, b: strings.Builder*, id: uint64): uint64
+export function append(h: heap.Heap*, borrows b: strings.Builder*, id: uint64): uint64
     if id == TEXT_BAD then
         -- "bad argument #"
         return strings.appendWord(h, b, 0x7567726120646162ULL, 8ULL) | strings.appendWord(h, b, 0x2320746e656dULL, 6ULL)

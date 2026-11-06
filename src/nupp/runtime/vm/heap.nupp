@@ -645,6 +645,16 @@ local function wordsGrow(v: Words*, least: uint64): nil
     end
 end
 
+-- Room for `least` words without changing the initialized extent. Private
+-- terminals reserve while successful so returning indices cannot allocate.
+export function wordsreserve(v: Words*, least: uint64): nil
+    @unsafe do
+        if least > v.capacity or v.capacity > MAX_WORDS or v.count > v.capacity then
+            wordsGrow(v, least)
+        end
+    end
+end
+
 export function wordsPush(v: Words*, word: uint64): nil
     @unsafe do
         if v.capacity > MAX_WORDS or v.count > v.capacity then

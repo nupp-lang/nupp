@@ -21,7 +21,7 @@ const guestvalues = require("nupp.runtime.core.guestvalues")
 -- number, upper-case digits when `upper`; at least `digits` digits.
 local function appendRadix(
     h: heap.Heap*,
-    b: strings.Builder*,
+    borrows b: strings.Builder*,
     value: uint64,
     radix: uint64,
     upper: boolean,
@@ -40,9 +40,9 @@ local function appendRadix(
         if count < digits then
             count = digits
         end
-        local at = b.length + count
+        local at = strings.descriptor(b).len + count
         local rest = value
-        while at > b.length do
+        while at > strings.descriptor(b).len do
             at = at - 1ULL
             local digit = rest % radix
             local ch = 48ULL + digit
@@ -52,11 +52,10 @@ local function appendRadix(
                     ch = 55ULL + digit
                 end
             end
-            native.store8(native.pointer(b.base), native.index(at), ch)
+            native.store8(native.pointer(strings.descriptor(b).base), native.index(at), ch)
             rest = rest // radix
         end
-        b.length = b.length + count
-        return 0ULL
+        return strings.commit(b, count)
     end
 end
 
@@ -67,7 +66,7 @@ end
 -- Appends %q's form of string s: quoted, with `"`, `\` and newline escaped
 -- and other control bytes as decimal escapes, padded to three digits when a
 -- digit follows. Answers 1 when backing is refused.
-local function appendQuoted(h: heap.Heap*, b: strings.Builder*, s: uint64): uint64
+local function appendQuoted(h: heap.Heap*, borrows b: strings.Builder*, s: uint64): uint64
     local refused = strings.appendWord(h, b, 34ULL, 1ULL)
     local n = strings.length(s)
     local at = strings.bytes(s)
@@ -99,15 +98,17 @@ end
 
 -- string.format's values are a, b and c, or with `pack` that pack's.
 export function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: uint64, c: uint64, pack: uint64): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
-    local pieceState = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
+    local pieceState = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = guestvalues.guestheap(ctx)
         local f = strings.header(fmt)
         if f == 0ULL then
             texts.argumentError(ctx, 1ULL, librarytexts.TEXT_STRING, 0ULL, fmt)
         end
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
+        local pieceLifetime = strings.open(h, pieceState as strings.Builder*)
         local piece = pieceState as strings.Builder*
         local p = strings.bytes(f)
         local finish = p + strings.length(f)
@@ -279,13 +280,18 @@ export function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: u
                         | strings.appendWord(h, piece, 0ULL, 1ULL)
                         | strings.reserve(h, piece, 520ULL)
                     if refused == 0ULL then
-                        local length = os.formatNumber(bits, native.pointer(piece.base), 512ULL | 0x8000000000000000ULL)
+                        local length = os.formatNumber(
+                            bits,
+                            native.pointer(strings.descriptor(pieceLifetime).base),
+                            512ULL | 0x8000000000000000ULL
+                        )
                         if length < 0 or length > 511 then
                             strings.release(builder)
                             strings.release(piece)
                             texts.conversionError(ctx, spec, p, finish)
                         end
-                        piece.length = native.word(length)
+                        strings.reset(piece)
+                        refused = refused | strings.commit(piece, native.word(length))
                     end
                     numeric = false
                     width = 0ULL
@@ -301,8 +307,8 @@ export function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: u
                 elseif directive == 115ULL then
                     numeric = false
                     refused = refused | guestvalues.appendtext(h, piece, argument)
-                    if precise and piece.length > precision then
-                        piece.length = precision
+                    if precise and strings.descriptor(pieceLifetime).len > precision then
+                        strings.truncate(piece, precision)
                     end
                 elseif directive == 113ULL then
                     -- %q: the value as Lua source reads it back.
@@ -341,7 +347,7 @@ export function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: u
                             if refused == 0ULL then
                                 local length = os.formatNumber(
                                     argument,
-                                    native.pointer(piece.base),
+                                    native.pointer(strings.descriptor(pieceLifetime).base),
                                     512ULL | 0x8000000000000000ULL
                                 )
                                 if length < 0 or length > 511 then
@@ -349,7 +355,8 @@ export function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: u
                                     strings.release(piece)
                                     texts.conversionError(ctx, spec, p, finish)
                                 end
-                                piece.length = native.word(length)
+                                strings.reset(piece)
+                                refused = refused | strings.commit(piece, native.word(length))
                             end
                         end
                     elseif argument == values.NIL or argument == values.TRUE or argument == values.FALSE then
@@ -367,28 +374,29 @@ export function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: u
                 end
                 -- Precision decides an integer's digits, so 0 pads only without it.
                 local padZero = zero and not left and numeric and not precise
-                local length = piece.length
+                local length = strings.descriptor(pieceLifetime).len
                 if not left and not padZero then
                     while width > length do
                         refused = refused | strings.appendWord(h, builder, 32ULL, 1ULL)
                         width = width - 1ULL
                     end
                 end
-                refused = refused | strings.append(h, builder, piece.base, prefix)
+                refused = refused | strings.append(h, builder, strings.descriptor(pieceLifetime).base, prefix)
                 if padZero then
                     while width > length do
                         refused = refused | strings.appendWord(h, builder, 48ULL, 1ULL)
                         width = width - 1ULL
                     end
                 end
-                refused = refused | strings.append(h, builder, piece.base + prefix, length - prefix)
+                refused = refused
+                    | strings.append(h, builder, strings.descriptor(pieceLifetime).base + prefix, length - prefix)
                 if left then
                     while width > length do
                         refused = refused | strings.appendWord(h, builder, 32ULL, 1ULL)
                         width = width - 1ULL
                     end
                 end
-                piece.length = 0ULL
+                strings.reset(piece)
             end
         end
         strings.release(piece)
@@ -483,9 +491,10 @@ end
 
 -- a .. b over strings and numbers.
 export function concat2(ctx: voidptr, a: uint64, b: uint64): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = guestvalues.guestheap(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         if strings.header(a) == 0ULL and not ints.isInteger(a)
             or strings.header(b) == 0ULL and not ints.isInteger(b)
@@ -579,13 +588,14 @@ end
 
 -- string.char(n): one byte, 0 to 255.
 export function char(ctx: voidptr, a: uint64): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local n = guestvalues.intarg(ctx, a, -1, 1ULL)
         if n < 0 or n > 255 then
             texts.argumentError(ctx, 1ULL, 0ULL, librarytexts.TEXT_VALUE_RANGE, a)
         end
         local h = guestvalues.guestheap(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         if strings.appendWord(h, builder, native.word(n), 1ULL) ~= 0ULL then
             strings.release(builder)
@@ -597,7 +607,7 @@ end
 
 -- string.rep(s, n): n copies, empty for n <= 0.
 export function rep(ctx: voidptr, value: uint64, a: uint64, separator: uint64): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local s = guestvalues.strarg(ctx, value, 1ULL)
         local n = guestvalues.intarg(ctx, a, 0, 2ULL)
@@ -607,6 +617,7 @@ export function rep(ctx: voidptr, value: uint64, a: uint64, separator: uint64): 
             sep = guestvalues.strarg(ctx, separator, 3ULL)
         end
         local h = guestvalues.guestheap(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         local each = strings.length(s)
         if sep ~= 0ULL then
@@ -633,10 +644,11 @@ end
 
 -- string.reverse(s): its bytes in reverse order.
 export function reverse(ctx: voidptr, value: uint64): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local s = guestvalues.strarg(ctx, value, 1ULL)
         local h = guestvalues.guestheap(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         local at = strings.bytes(s)
         local i = strings.length(s)
@@ -658,22 +670,25 @@ end
 
 -- string.upper and string.lower over ASCII, as the C locale maps them.
 export function casing(ctx: voidptr, value: uint64, upper: boolean): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local s = guestvalues.strarg(ctx, value, 1ULL)
         local h = guestvalues.guestheap(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         if strings.appendString(h, builder, s) ~= 0ULL then
             strings.release(builder)
             error("not enough memory")
         end
         local i: uint64 = 0ULL
-        while i < builder.length do
-            local c = native.word(native.load8(native.pointer(builder.base), native.index(i)))
+        while i < strings.descriptor(builderLifetime).len do
+            local c = native.word(
+                native.load8(native.pointer(strings.descriptor(builderLifetime).base), native.index(i))
+            )
             if upper and c >= 97ULL and c <= 122ULL then
-                native.store8(native.pointer(builder.base), native.index(i), c - 32ULL)
+                native.store8(native.pointer(strings.descriptor(builderLifetime).base), native.index(i), c - 32ULL)
             elseif not upper and c >= 65ULL and c <= 90ULL then
-                native.store8(native.pointer(builder.base), native.index(i), c + 32ULL)
+                native.store8(native.pointer(strings.descriptor(builderLifetime).base), native.index(i), c + 32ULL)
             end
             i = i + 1ULL
         end
@@ -854,7 +869,7 @@ end
 -- false or nil. Answers 1 when backing is refused.
 local function appendReplacement(
     ctx: voidptr,
-    b: strings.Builder*,
+    borrows b: strings.Builder*,
     ms: patterns.MatchState*,
     subject: uint64,
     replValue: uint64,
@@ -916,7 +931,7 @@ end
 -- replacement: the new string, and with `all` a pack of it and the count.
 export function gsub(ctx: voidptr, value: uint64, pv: uint64, replValue: uint64, maxValue: uint64, all: boolean): uint64
     local ms0 = patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local pack: uint64 = 0ULL
         if all then
@@ -925,6 +940,8 @@ export function gsub(ctx: voidptr, value: uint64, pv: uint64, replValue: uint64,
             guestscope.hold(ctx, values.TAG_OBJ | pack)
         end
         local h = guestvalues.guestheap(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
+        local builder = state as strings.Builder*
         local s = guestvalues.strarg(ctx, value, 1ULL)
         local p = guestvalues.strarg(ctx, pv, 2ULL)
         -- A number replacement is its text; a table is read per match.
@@ -949,7 +966,6 @@ export function gsub(ctx: voidptr, value: uint64, pv: uint64, replValue: uint64,
             pattern = pattern + 1ULL
         end
         local ms = ms0 as patterns.MatchState*
-        local builder = state as strings.Builder*
         if patterns.prepare(h, ms, subject, strings.length(s), pEnd) ~= 0ULL then
             patterns.release(ms)
             error("not enough memory")
@@ -1162,7 +1178,7 @@ end
 -- gsub's result once its step answers false: the pieces joined, alone or
 -- with `all` in a pack with the count of matches.
 export function gsubFinish(ctx: voidptr, value: uint64, all: boolean): uint64
-    local buffer = strings.Builder(0ULL, 0ULL, 0ULL)
+    local buffer = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local pack: uint64 = 0ULL
         if all then
@@ -1171,10 +1187,11 @@ export function gsubFinish(ctx: voidptr, value: uint64, all: boolean): uint64
             guestscope.hold(ctx, values.TAG_OBJ | pack)
         end
         local h = guestvalues.guestheap(ctx)
+        local builderLifetime = strings.open(h, buffer as strings.Builder*)
+        local builder = buffer as strings.Builder*
         local st = value & values.PAYLOAD
         local pieces = guestvalues.loadat(st, librarylayouts.GSUB_PIECES) & values.PAYLOAD
         local count = guestvalues.stateget(st, librarylayouts.GSUB_COUNT)
-        local builder = buffer as strings.Builder*
         local refused: uint64 = 0ULL
         local i: int64 = 1
         while i <= count do

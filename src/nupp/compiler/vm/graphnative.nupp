@@ -320,13 +320,14 @@ export function verifyNativeOperation(g: any, op: string, args: any, dst: intege
                 "pointer call source differs"
             )
             local arenaCleanup = declaration.service and service.arenaCleanup(g, declaration)
+            local buildercleanup = declaration.service and service.buildercleanup(g, declaration)
             local redirected = declaration.service and service.redirectedCall(g, declaration)
-            if not arenaCleanup and not redirected then
+            if not arenaCleanup and not buildercleanup and not redirected then
                 physical.validateCall(pointer, g.source)
             end
             for index, parameter in ipairs(pointer.params) do
                 local actual = physicalValues[args[index + 1]]
-                if actual and physical.localOrigin(actual) then
+                if actual and physical.localOrigin(actual) and not buildercleanup then
                     assert(
                         physical.validateLocalCall(pointer, index, actual),
                         "local pointer call lacks lifetime proof"
@@ -342,7 +343,10 @@ export function verifyNativeOperation(g: any, op: string, args: any, dst: intege
                     and actual
                     and (
                         arenaCleanup and index == 1 and service.arenaCleanup(g, declaration, actual)
-                        or not arenaCleanup and physical.callArgumentPermission(pointer, index, actual)
+                        or buildercleanup and index == 1 and service.buildercleanup(g, declaration, actual)
+                        or not arenaCleanup
+                        and not buildercleanup
+                        and physical.callArgumentPermission(pointer, index, actual)
                     )
                     or service.isTestGraph(g),
                     "pointer call argument descriptor differs"

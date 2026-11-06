@@ -1,0 +1,238 @@
+module builderunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const values = require("nupp.runtime.vm.values")
+const os = require("nupp.runtime.vm.os")
+const servicescope = require("nupp.runtime.core.servicescope")
+const strings = require("nupp.runtime.core.corestrings")
+const storage = require("nupp.runtime.core.storage")
+const corestorage = require("nupp.runtime.core.corestorage")
+const tables = require("nupp.runtime.core.coretables")
+const backing = require("nupp.runtime.vm.backing")
+
+const WORD: uint64 = 0x3837363534333231ULL
+const MAPPED: uint64 = 16777216ULL
+
+local function bit(ok: boolean, mask: uint64): uint64
+    if ok then
+        return mask
+    end
+    return 0ULL
+end
+
+export function lifetime(minorFirst: uint64): uint64
+    local state = strings.Builder(0ULL, 0ULL)
+    local nested = strings.Builder(0ULL, 0ULL)
+    local finalBase: uint64 = 0ULL
+    local finalCap: uint64 = 0ULL
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(MAPPED)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = collector.GENERATIONAL
+            h.automatic = false
+            local initial = h.handles.count - h.handleFree.count
+            do
+                local guard = strings.open(h, state as strings.Builder*)
+                local b = state as strings.Builder*
+                local d = strings.descriptor(guard)
+                local owner = collector.handleValue(h, b.handle) & values.PAYLOAD
+                local opened = b.handle ~= 0ULL
+                    and d.kind == corestorage.UINT8
+                    and d.len == 0ULL
+                    and d.read == 0ULL
+                    and d.cap == 0ULL
+                    and d.base == 0ULL
+                    and h.handles.count - h.handleFree.count == initial + 1ULL
+                local refused: uint64 = 0ULL
+                local i: uint64 = 0ULL
+                while i < 8ULL do
+                    refused = refused | strings.appendWord(h, b, WORD, 8ULL)
+                    i = i + 1ULL
+                end
+                local oldBase, oldCap, oldLen = d.base, d.cap, d.len
+                local refusedGrowth = strings.reserve(h, b, storage.maximum()) ~= 0ULL
+                    and d.base == oldBase
+                    and d.cap == oldCap
+                    and d.len == oldLen
+                    and collector.handleValue(h, b.handle) & values.PAYLOAD == owner
+                refused = refused | strings.append(h, b, oldBase, oldLen)
+                local relocated = d.base ~= oldBase
+                    and d.len == 128ULL
+                    and d.cap >= d.len
+                    and native.load64(native.pointer(d.base), 0) == WORD
+                    and native.load64(native.pointer(d.base + 120ULL), 0) == WORD
+                if minorFirst ~= 0ULL then
+                    collector.minorcycle(h)
+                else
+                    collector.fullCycle(h)
+                end
+                tables.drain(h)
+                local kept = heap.isLiveSlot(h, owner)
+                    and strings.descriptor(guard) == d
+                    and native.load64(native.pointer(d.base), 0) == WORD
+                do
+                    local nestedGuard = strings.open(h, nested as strings.Builder*)
+                    local piece = nested as strings.Builder*
+                    refused = refused | strings.appendWord(h, piece, WORD, 8ULL)
+                    collector.fullCycle(h)
+                    tables.drain(h)
+                    local nestedText = strings.finish(h, piece)
+                    local nestedClosed = piece.handle == 0ULL
+                        and piece.heap == 0ULL
+                        and strings.length(nestedText) == 8ULL
+                        and b.handle ~= 0ULL
+                    answer = answer | bit(nestedClosed, 16ULL)
+                end
+                -- Finish allocates while the byte owner is reachable only by
+                -- its handle. The returned string needs no collecting cleanup.
+                finalBase = d.base
+                finalCap = d.cap
+                h.stress = true
+                local result = strings.finish(h, b)
+                h.stress = false
+                local finished = strings.length(result) == 128ULL
+                    and native.load64(native.pointer(strings.bytes(result) + 120ULL), 0) == WORD
+                    and b.heap == 0ULL
+                    and b.handle == 0ULL
+                strings.release(b)
+                strings.release(b)
+                answer = answer
+                    | bit(opened, 1ULL)
+                    | bit(refusedGrowth, 2ULL)
+                    | bit(relocated and refused == 0ULL, 4ULL)
+                    | bit(kept, 8ULL)
+                    | bit(finished, 32ULL)
+            end
+            local closed = h.handles.count - h.handleFree.count == initial
+            collector.fullCycle(h)
+            local oracle = collector.checkOracle(h, true) == 0ULL
+            tables.drain(h)
+            answer = answer
+                | bit(closed, 64ULL)
+                | bit(h.liveCount == 0ULL and h.released.count == 0ULL, 128ULL)
+                | bit(oracle, 256ULL)
+            local reused = backing.wordBackingTake(h, (finalCap + 7ULL) // 8ULL)
+            answer = answer | bit(reused == finalBase and reused ~= 0ULL, 512ULL)
+            backing.wordBackingRelease(reused)
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- No explicit close: nested native frames must release independent handles
+-- through the real sticky-error cleanup path before the entry observer runs.
+local function failLeaf(h: heap.Heap*): nil
+    local state = strings.Builder(0ULL, 0ULL)
+    local guard = strings.open(h, state as strings.Builder*)
+    local b = state as strings.Builder*
+    if strings.appendWord(h, b, WORD, 8ULL) ~= 0ULL then
+        error("not enough memory")
+    end
+    error("builder landing probe")
+end
+
+local function failOne(h: heap.Heap*): nil
+    local state = strings.Builder(0ULL, 0ULL)
+    local guard = strings.open(h, state as strings.Builder*)
+    local b = state as strings.Builder*
+    if strings.appendWord(h, b, WORD, 8ULL) ~= 0ULL then
+        error("not enough memory")
+    end
+    failLeaf(h)
+end
+
+local function failTwo(h: heap.Heap*): nil
+    local state = strings.Builder(0ULL, 0ULL)
+    local guard = strings.open(h, state as strings.Builder*)
+    local b = state as strings.Builder*
+    if strings.appendWord(h, b, WORD, 8ULL) ~= 0ULL then
+        error("not enough memory")
+    end
+    failOne(h)
+end
+
+local function failThree(h: heap.Heap*): nil
+    local state = strings.Builder(0ULL, 0ULL)
+    local guard = strings.open(h, state as strings.Builder*)
+    local b = state as strings.Builder*
+    if strings.appendWord(h, b, WORD, 8ULL) ~= 0ULL then
+        error("not enough memory")
+    end
+    failTwo(h)
+end
+
+local function failFour(h: heap.Heap*): nil
+    local state = strings.Builder(0ULL, 0ULL)
+    local guard = strings.open(h, state as strings.Builder*)
+    local b = state as strings.Builder*
+    if strings.appendWord(h, b, WORD, 8ULL) ~= 0ULL then
+        error("not enough memory")
+    end
+    failThree(h)
+end
+
+-- A borrowed mapped heap deliberately outlives the failing native stack. The
+-- landing observer retires it after all native frames unwind.
+local function prepareLanding(scopeAddress: uint64, count: uint64): uint64
+    local raw = os.mapPages(MAPPED)
+    if raw == nil then
+        error("builder units: mapping refused")
+    end
+    @unsafe do
+        local scope = native.pointer(scopeAddress)
+        local extra = native.sizeOf<servicescope.ServiceScope>()
+        native.store64(scope, native.index(extra + 8ULL), native.address(raw))
+        native.store64(scope, native.index(extra + 16ULL), MAPPED)
+        native.store64(scope, native.index(extra + 24ULL), count)
+        local metadata = (native.sizeOf<arena.Chunk>() + native.alignmentOf<arena.Arena>() - 1ULL)
+            & ~(native.alignmentOf<arena.Arena>() - 1ULL)
+        local header = (metadata + native.sizeOf<arena.Arena>() + 15ULL) & ~15ULL
+        local chunk = raw as arena.Chunk*
+        local a = native.offset(raw, native.index(metadata)) as arena.Arena*
+        chunk.previous = nil
+        chunk.bytes = MAPPED
+        a.chunk = chunk
+        a.cursor = native.address(raw) + header
+        a.limit = native.address(raw) + MAPPED
+        a.chunkBytes = MAPPED
+        a.growable = false
+        local h = heap.create(a)
+        h.automatic = false
+        native.store64(scope, native.index(extra), native.address(h as voidptr))
+        return native.address(h as voidptr)
+    end
+end
+
+export function landing(scopeAddress: uint64, depth: uint64): uint64
+    @unsafe do
+        local h = native.pointer(prepareLanding(scopeAddress, depth + 1ULL)) as heap.Heap*
+        if depth == 0ULL then
+            failLeaf(h)
+        elseif depth == 1ULL then
+            failOne(h)
+        else
+            failFour(h)
+        end
+        return 0ULL
+    end
+end
+
+-- Force the preflight's checked word-count overflow before any acquisition.
+-- The observer verifies both vectors and the managed heap stayed empty, then
+-- restores this deliberately invalid fixture count before normal teardown.
+export function refusal(scopeAddress: uint64): uint64
+    local state = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local h = native.pointer(prepareLanding(scopeAddress, 0ULL)) as heap.Heap*
+        h.handles.count = 0x1fffffffffffffffULL
+        local guard = strings.open(h, state as strings.Builder*)
+        return 0ULL
+    end
+end

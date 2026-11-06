@@ -401,6 +401,227 @@ function service.owner(signature: any): any
     return held(signature).owner
 end
 
+-- A Builder guard owns one collector handle, not its caller's stack storage.
+-- This exact reviewed constructor/terminal is separate from Arena ownership.
+function service.builderownership(signature: any, owner: any, parameter: integer?): any
+    if owner.scope.name ~= "nupp.runtime.core.corestrings" then
+        return nil
+    end
+    local home = unit.ownerModule(owner, "nupp.runtime.core.corestrings")
+    if owner ~= home.exports.open and owner ~= home.exports.close then
+        return nil
+    end
+    local item = held(signature)
+    need(item.owner == owner and item.scoped and not item.raw, "foreign Builder ownership signature")
+    local builder = need(home.checkedExports.types.Builder, "checked Builder type is absent")
+    local checked = item.checked
+    if parameter ~= nil then
+        need(owner == home.exports.close and parameter == 1 and #owner.body.params == 1, "Builder terminal differs")
+        local node = owner.body.params[1]
+        local annotation, bound = node.type.resolvedType, node.name.definition.type
+        need(
+            checked.params[1] == annotation
+            and checked.paramModes[1] == "takes"
+            and annotation.tag == "ptr"
+            and annotation.elem == builder
+            and bound.tag == "affine"
+            and bound.inner == annotation
+            and #bound.cleanups == 0
+            and #checked.rets == 1
+            and checked.rets[1].tag == "nil",
+            "checked Builder terminal binding differs"
+        )
+        return bound
+    end
+    local result = owner.resultType
+    need(
+        owner == home.exports.open
+        and #owner.body.params == 2
+        and #checked.rets == 1
+        and checked.rets[1] == result
+        and result.tag == "affine"
+        and result.inner == checked.params[2]
+        and result.inner.tag == "ptr"
+        and result.inner.elem == builder
+        and #result.cleanups == 1
+        and result.cleanups[1].kind == "function"
+        and result.cleanups[1].functionType == home.exports.close.checkedSignature
+        and unit.cleanupTarget(owner, owner.body.rets[1], result, result.cleanups[1]) == home.exports.close,
+        "checked Builder acquisition differs"
+    )
+
+    return result
+end
+
+function service.builderacquisition(caller: any, node: any, target: any, index: integer): boolean
+    if target.scope.name ~= "nupp.runtime.core.corestrings" or target.name ~= "open" or index ~= 2 then
+        return false
+    end
+    unit.call(caller, node, target)
+
+    return target == unit.ownerModule(caller, "nupp.runtime.core.corestrings").exports.open
+end
+
+const BUILDER_PROOF_LIMIT: integer = 1000
+
+local function builderinterval(g: any, stop: any, boundary: integer, register: any): nil
+    local rows = {}
+    for _, block in ipairs(g.blocks) do
+        for at, op in ipairs(block.op) do
+            local call = op == "NativeLeafCall" and calls[block.args[at][1]]
+            if call and call.target.owner == register then
+                rows[#rows + 1] = {block = block, at = at}
+            end
+        end
+    end
+    need(#rows == 1, "Builder acquisition needs exactly one independent handle registration")
+    local row = rows[1]
+    local active, work = {}, 0
+    local visit: function(any, boolean): nil
+    visit = function(block, acquired)
+        work = work + 1
+        need(work <= BUILDER_PROOF_LIMIT and not active[block], "Builder acquisition proof is cyclic")
+        active[block] = true
+        local limit = block == stop and boundary or #block.op
+        for at = 1, limit do
+            if block == row.block and at == row.at then
+                need(not acquired, "Builder handle registration repeated")
+                acquired = true
+            elseif acquired then
+                need(block.op[at] ~= "NativeLeafCall", "Builder publication calls after handle acquisition")
+            end
+        end
+        if block == stop then
+            need(acquired, "Builder success bypasses handle registration")
+        else
+            for _, edge in ipairs(block.term and block.term.edges or {}) do
+                visit(g.blocks[edge.target], acquired)
+            end
+        end
+        active[block] = nil
+    end
+    visit(g.blocks[1], false)
+end
+
+local builderplans: any = setmetatable({}, {__mode = "k"})
+
+function service.isbuilderreturn(proof: any): boolean
+    return builderplans[proof] ~= nil
+end
+
+function service.validatebuilderreturn(proof: any, owner: any, source: any, node: any): any
+    local plan = need(builderplans[proof], "unissued Builder return plan")
+    need(
+        next(proof) == nil
+        and getmetatable(proof) == nil
+        and plan.item.owner == owner
+        and plan.source == source
+        and plan.node == node,
+        "Builder return identity differs"
+    )
+    local result = service.builderownership(plan.item.signature, owner)
+    unit.occurrence(owner, node)
+    need(
+        node.exprs[1] == plan.expression
+        and plan.expression.kind == "name"
+        and plan.expression.token.definition == owner.parameterDefinitions[2]
+        and source.checkedType == result.inner,
+        "Builder guard must return its borrowed stack descriptor"
+    )
+
+    if plan.view then
+        local found = nil
+        for _, block in ipairs(plan.graph.blocks) do
+            for at, op in ipairs(block.op) do
+                if op == "NativePointerView" and block.args[at][2] == plan.view then
+                    need(found == nil and block.args[at][1] == 2, "Builder staged formal source changed")
+                    found = {block = block, at = at}
+                end
+            end
+        end
+        need(found ~= nil, "Builder ownership publication disappeared")
+        builderinterval(plan.graph, found.block, (found.at as integer) - 1, plan.register)
+    end
+
+    return result
+end
+
+function service.validatebuildervalue(proof: any, owner: any, descriptor: any): boolean
+    local plan = need(builderplans[proof], "unissued Builder creation origin")
+    service.validatebuilderreturn(proof, owner, plan.source, plan.node)
+    need(
+        plan.view and require("nupp.compiler.vm.nativephysical").same(plan.view.target, descriptor),
+        "Builder creation value differs"
+    )
+
+    return true
+end
+
+local function builderreturn(ctx: any, node: any, source: any, value: integer): any
+    local item = graphs[ctx.g]
+    local result = service.builderownership(item.signature, item.owner)
+    need(
+        result and value == 2 and node.kind == "returnStmt" and #node.exprs == 1,
+        "Builder return requires the exact second formal"
+    )
+    local register = unit.ownerModule(item.owner, "nupp.runtime.vm.collector").exports.handleRegister
+    builderinterval(ctx.g, ctx.block, #ctx.block.op, register)
+    local proof = {}
+    builderplans[
+        proof
+    ] = {item = item, source = source, node = node, expression = node.exprs[1], graph = ctx.g, register = register}
+    service.validatebuilderreturn(proof, item.owner, source, node)
+
+    return proof
+end
+
+function service.buildercleanup(g: any, declaration: any, actual: any?): boolean
+    local call = calls[declaration]
+    if not call
+        or not call.cleanup
+        or call.target.owner.scope.name ~= "nupp.runtime.core.corestrings"
+        or call.target.owner.name ~= "close"
+    then
+        return false
+    end
+    local owner = call.caller.owner
+    local acquisition = call.acquisition or call.node
+    local home = unit.ownerModule(owner, "nupp.runtime.core.corestrings")
+    need(
+        graphs[g] == call.caller
+        and call.target.owner == home.exports.close
+        and acquisition.kind == "call"
+        and unit.callee(owner, acquisition) == home.exports.open,
+        "Builder cleanup requires its exact acquisition"
+    )
+    if call.acquisition then
+        need(
+            call.owner
+            and call.node.kind == "localStmt"
+            and call.owner.expr == acquisition
+            and call.node.exprs[call.owner.index] == acquisition
+            and call.owner.type == call.cleanupType
+            and require("nupp.compiler.vm.functioncleanup").localOwner(call.node, call.owner.index) == call.owner,
+            "Builder cleanup lost its lexical owner"
+        )
+    end
+    local opened = call.caller.state.owners[home.exports.open]
+    need(
+        call.cleanupType == unit.checkedOccurrenceType(owner, acquisition)
+        and call.cleanupType == service.builderownership(opened.signature, home.exports.open)
+        and unit.cleanupTarget(owner, call.node, call.cleanupType, call.cleanup) == home.exports.close,
+        "Builder cleanup registration differs"
+    )
+    service.validateIssued(declaration)
+    if actual then
+        require(
+            "nupp.compiler.vm.nativephysical"
+        ).buildercleanupoperand(owner, actual, acquisition, declaration.physical)
+    end
+
+    return true
+end
+
 -- Signature evidence only. The fixed reviewed service unit supplies these
 -- exact owners and the checker's actual Arena/terminal identities. This query
 -- grants no pointer conversion, takes-call permission or return root plan.
@@ -483,7 +704,11 @@ function service.dependentReturn(signature: any, owner: any): any
     local arena = unit.ownerModule(owner, "nupp.runtime.vm.arena")
     local heap = unit.ownerModule(owner, "nupp.runtime.vm.heap")
     local metadata = owner == heap.exports.classAt
-    need(item.scoped or metadata, "foreign dependent return signature")
+    local builderHome = owner.scope.name == "nupp.runtime.core.corestrings"
+        and unit.ownerModule(owner, "nupp.runtime.core.corestrings")
+        or nil
+    local builderMetadata = builderHome and owner == builderHome.exports.descriptor
+    need(item.scoped or metadata or builderMetadata, "foreign dependent return signature")
     local backing
     if owner == arena.exports.alloc or owner == arena.exports.pool then
         backing = arena.checkedExports.types.Arena
@@ -495,6 +720,16 @@ function service.dependentReturn(signature: any, owner: any): any
         or owner == heap.exports.create
     then
         backing = arena.checkedExports.types.Arena
+    elseif builderMetadata then
+        backing = builderHome.checkedExports.types.Builder
+        local common = unit.ownerModule(owner, "nupp.runtime.core.storage")
+        local result = owner.resultType
+        need(
+            result.tag == "borrowed"
+            and result.inner.tag == "ptr"
+            and result.inner.elem == common.checkedExports.types.Storage,
+            "Builder descriptor result declaration differs"
+        )
     elseif metadata then
         backing = heap.checkedExports.types.Heap
         local result = owner.resultType
@@ -2222,6 +2457,9 @@ end
 -- An implicit terminal has no source call node. Its existing private cleanup
 -- registration is the call authority; the actual acquired instance is separate.
 function service.arenaCleanup(g: any, declaration: any, actual: any?): boolean
+    if service.buildercleanup(g, declaration) then
+        return false
+    end
     local call = calls[declaration]
     if not call or not call.cleanup then
         return false
@@ -2486,7 +2724,20 @@ function service.unmanagedReturn(ctx: any, stage: any?): any
     need(stage and #stage.values == 1 and ctx.block, "return-tail staging point required")
     local g, block, value = ctx.g, ctx.block, stage.values[1]
     local arena, arenaProof, dependent, managed, managedProof
-    if kind == "affine" then
+    if kind == "affine" and service.builderownership(item.signature, item.owner) then
+        local physical = require("nupp.compiler.vm.nativephysical")
+        local source = need(
+            g.nativePhysical and g.nativePhysical.values[value],
+            "Builder return lacks its physical source"
+        )
+        local proof = builderreturn(ctx, stage.node, source, value)
+        local view = physical.builderreturnview(ctx.fn, source, stage.node, proof)
+        builderplans[proof].view = view
+        value = ctx.emit(stage.node, "NativePointerView", {value, view}, "voidptr")
+        g.nativePhysical.values[value] = view.target
+        stage.values[1] = value
+        kind = "voidptr"
+    elseif kind == "affine" then
         local physical = require("nupp.compiler.vm.nativephysical")
         local source = need(
             g.nativePhysical and g.nativePhysical.values[value],
@@ -3314,6 +3565,7 @@ function service.inventory(catalog: any): any
 end
 
 local scopedPolicy = {
+    ["nupp.runtime.core.corestrings.open"] = {[2] = true},
     ["nupp.runtime.vm.arena.grow"] = {[1] = true},
     ["nupp.runtime.vm.childwalk.childRun"] = {[3] = true},
     ["nupp.runtime.vm.childwalk.childPairs"] = {[2] = true},

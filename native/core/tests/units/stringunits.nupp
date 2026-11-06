@@ -39,7 +39,7 @@ end
 -- 1 the same bytes intern to one string, 2 "ab" .. "c" is "abc", 4 the
 -- decimal text of -1234567 and 0 builds "-12345670", 8 lengths agree.
 export function basics(abc: uint64, ab: uint64, c: uint64): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     local answer: uint64 = 0ULL
     do
         local a = arena.open(16777216ULL)
@@ -55,6 +55,7 @@ export function basics(abc: uint64, ab: uint64, c: uint64): uint64
             if joined == first then
                 answer = answer | 2ULL
             end
+            local builderLifetime = strings.open(h, state as strings.Builder*)
             local builder = state as strings.Builder*
             strings.appendInteger(h, builder, -1234567)
             strings.appendInteger(h, builder, 0)

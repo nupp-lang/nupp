@@ -1,0 +1,125 @@
+module builderentry
+
+-- The scope a test unit's fixture functions receive as their hidden last
+-- parameter: a page ledger and service scope in caller-provided scratch.
+const native = require("nupp.runtime.vm.intrinsics")
+const pages = require("nupp.runtime.core.pagemappings")
+const servicescope = require("nupp.runtime.core.servicescope")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const values = require("nupp.runtime.vm.values")
+const tables = require("nupp.runtime.core.coretables")
+const os = require("nupp.runtime.vm.os")
+
+const LEDGER: uint64 = 256ULL
+const RECORDS: uint64 = 256ULL
+
+-- The region holds the ledger, its mapping records and the service scope, in
+-- that order. Zero refuses.
+export function prepare(base: voidptr, bytes: uint64): uint64
+    local recordBytes = RECORDS * native.sizeOf<pages.Mapping>()
+    local scopeOffset = LEDGER + recordBytes
+    if bytes < scopeOffset + native.sizeOf<servicescope.ServiceScope>() + 32ULL then
+        return 0ULL
+    end
+    local records = native.offset(base, native.index(LEDGER))
+    if pages.initialize(base, LEDGER, records, recordBytes, RECORDS) ~= 1ULL then
+        return 0ULL
+    end
+    local scope = native.offset(base, native.index(scopeOffset))
+    if servicescope.initialize(scope, native.sizeOf<servicescope.ServiceScope>(), base, LEDGER) ~= 1ULL then
+        return 0ULL
+    end
+
+    return native.address(scope)
+end
+
+-- The caller invokes this only after the failing native frames have returned.
+-- Clear the observed sticky status before running the test's explicit teardown.
+export function finish(scope: voidptr): uint64
+    local failure = native.load64(scope, native.fieldOffset<servicescope.ServiceScope>("error"))
+    native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("error"), 0ULL)
+    local extra = native.sizeOf<servicescope.ServiceScope>()
+    local address = native.load64(scope, native.index(extra))
+    local base = native.load64(scope, native.index(extra + 8ULL))
+    local bytes = native.load64(scope, native.index(extra + 16ULL))
+    local count = native.load64(scope, native.index(extra + 24ULL))
+    local answer: uint64 = 0ULL
+    if failure == 1ULL then
+        answer = answer | 1ULL
+    end
+    @unsafe do
+        if address ~= 0ULL then
+            local h = native.pointer(address) as heap.Heap*
+            if count == 0ULL then
+                if h.handles.count == 0x1fffffffffffffffULL
+                    and h.handles.base == 0ULL
+                    and h.handles.capacity == 0ULL
+                then
+                    answer = answer | 2ULL
+                end
+                if h.handleFree.count == 0ULL and h.handleFree.base == 0ULL and h.handleFree.capacity == 0ULL then
+                    answer = answer | 4ULL
+                end
+                if h.liveCount == 0ULL then
+                    answer = answer | 8ULL
+                end
+                if h.released.count == 0ULL then
+                    answer = answer | 16ULL
+                end
+                h.handles.count = 0ULL
+            else
+                if h.handles.count == count then
+                    answer = answer | 2ULL
+                end
+                if h.handleFree.count == count then
+                    answer = answer | 4ULL
+                end
+                local nils = true
+                local unique = true
+                local seen: uint64 = 0ULL
+                local i: uint64 = 0ULL
+                while i < count do
+                    if i < h.handles.count then
+                        nils = nils and heap.wordAt(h.handles, i) == values.NIL
+                    else
+                        nils = false
+                    end
+                    if i < h.handleFree.count then
+                        local index = heap.wordAt(h.handleFree, i)
+                        if index == 0ULL or index > count then
+                            unique = false
+                        else
+                            local mask = 1ULL << index
+                            unique = unique and seen & mask == 0ULL
+                            seen = seen | mask
+                        end
+                    else
+                        unique = false
+                    end
+                    i = i + 1ULL
+                end
+                if nils then
+                    answer = answer | 8ULL
+                end
+                if unique then
+                    answer = answer | 16ULL
+                end
+            end
+            collector.fullCycle(h)
+            tables.drain(h)
+            if h.liveCount == 0ULL and h.released.count == 0ULL then
+                answer = answer | 32ULL
+            end
+            heap.destroy(h)
+        end
+    end
+    if base ~= 0ULL then
+        os.unmapPages(native.pointer(base), bytes)
+    end
+    if servicescope.close(scope) == 1ULL then
+        answer = answer | 64ULL
+    end
+
+    return answer
+end

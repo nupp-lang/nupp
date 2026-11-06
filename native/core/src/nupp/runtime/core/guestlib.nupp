@@ -57,13 +57,14 @@ end
 -- value is copied into a builder sized by a first call, then once more if it
 -- did not fit.
 local function getenv(ctx: voidptr, name: uint64): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     local s = strings.header(name)
     if s == 0ULL then
         texts.argumentError(ctx, 1ULL, librarytexts.TEXT_STRING, 0ULL, name)
     end
     @unsafe do
         local h = guestvalues.guestheap(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         if strings.reserve(h, builder, 256ULL) ~= 0ULL then
             error("not enough memory")
@@ -71,14 +72,14 @@ local function getenv(ctx: voidptr, name: uint64): uint64
         local length = os.environment(
             native.pointer(strings.bytes(s)),
             strings.length(s),
-            native.pointer(builder.base),
-            builder.capacity
+            native.pointer(strings.descriptor(builderLifetime).base),
+            strings.descriptor(builderLifetime).cap
         )
         if length < 0 then
             strings.release(builder)
             return values.NIL
         end
-        if native.word(length) > builder.capacity then
+        if native.word(length) > strings.descriptor(builderLifetime).cap then
             if strings.reserve(h, builder, native.word(length)) ~= 0ULL then
                 strings.release(builder)
                 error("not enough memory")
@@ -86,15 +87,18 @@ local function getenv(ctx: voidptr, name: uint64): uint64
             length = os.environment(
                 native.pointer(strings.bytes(s)),
                 strings.length(s),
-                native.pointer(builder.base),
-                builder.capacity
+                native.pointer(strings.descriptor(builderLifetime).base),
+                strings.descriptor(builderLifetime).cap
             )
-            if length < 0 or native.word(length) > builder.capacity then
+            if length < 0 or native.word(length) > strings.descriptor(builderLifetime).cap then
                 strings.release(builder)
                 error("os.getenv: the environment changed while it was read")
             end
         end
-        builder.length = native.word(length)
+        if strings.commit(builder, native.word(length)) ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
         return values.TAG_OBJ | strings.finish(h, builder)
     end
 end
@@ -109,11 +113,12 @@ end
 -- print(...) over a pack {[0] = n, ...}: each value's text, separated by
 -- tabs, and a newline, written to the host's output at once.
 local function printValues(ctx: voidptr, packValue: uint64): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = guestvalues.guestheap(ctx)
         local pack = packValue & values.PAYLOAD
         local n = native.word(guestvalues.intvalue(tables.get(pack, values.TAG_INTEGER)))
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         local refused: uint64 = 0ULL
         local i: uint64 = 1ULL
@@ -129,8 +134,11 @@ local function printValues(ctx: voidptr, packValue: uint64): uint64
             strings.release(builder)
             error("not enough memory")
         end
-        local written = os.writeOutput(native.pointer(builder.base), builder.length)
-        local length = builder.length
+        local written = os.writeOutput(
+            native.pointer(strings.descriptor(builderLifetime).base),
+            strings.descriptor(builderLifetime).len
+        )
+        local length = strings.descriptor(builderLifetime).len
         strings.release(builder)
         if written < 0 or native.word(written) ~= length then
             error("cannot write output")
@@ -163,7 +171,7 @@ end
 
 -- {...}: a fresh table holding a variadic pack's values at 1..n.
 local function packCopy(ctx: voidptr, packValue: uint64, named: boolean): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = guestvalues.guestheap(ctx)
         local pack = packValue & values.PAYLOAD
@@ -185,6 +193,7 @@ local function packCopy(ctx: voidptr, packValue: uint64, named: boolean): uint64
         end
         -- A named vararg carries its count as `n`, as table.pack does.
         if named then
+            local builderLifetime = strings.open(h, state as strings.Builder*)
             local builder = state as strings.Builder*
             if strings.appendWord(h, builder, 0x6eULL, 1ULL) ~= 0ULL then
                 strings.release(builder)

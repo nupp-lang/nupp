@@ -50,9 +50,10 @@ end
 -- Collects the taken pool job `ticket`: the bytes its read read as a new
 -- string, at most `room` of them, or the negated error number it answered.
 local function finishText(ctx: voidptr, ticket: uint64, room: uint64): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = heapOf(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         local wanted = room
         if wanted == 0ULL then
@@ -61,12 +62,15 @@ local function finishText(ctx: voidptr, ticket: uint64, room: uint64): uint64
         if strings.reserve(h, builder, wanted) ~= 0ULL then
             error("not enough memory")
         end
-        local count = os.poolFinish(ticket, native.pointer(builder.base), room)
+        local count = os.poolFinish(ticket, native.pointer(strings.descriptor(builderLifetime).base), room)
         if count < 0 then
             strings.release(builder)
             return ints.make(h, native.word(count))
         end
-        builder.length = native.word(count)
+        if strings.commit(builder, native.word(count)) ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
         return values.TAG_OBJ | strings.finish(h, builder)
     end
 end

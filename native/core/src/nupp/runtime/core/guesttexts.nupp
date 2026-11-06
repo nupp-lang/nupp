@@ -21,7 +21,7 @@ end
 
 -- Raises `message`, a string built on the guest heap, as Lua raises a
 -- library's errors: with the position of the line that called it.
-local function raiseText(ctx: voidptr, h: heap.Heap*, b: strings.Builder*, refused: uint64): nil
+local function raiseText(ctx: voidptr, h: heap.Heap*, borrows b: strings.Builder*, refused: uint64): nil
     @unsafe do
         if refused ~= 0ULL then
             strings.release(b)
@@ -34,9 +34,10 @@ end
 
 -- One of the library's texts as a string value.
 export function textvalue(ctx: voidptr, id: uint64): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         if librarytexts.append(h, builder, id) ~= 0ULL then
             strings.release(builder)
@@ -68,9 +69,10 @@ end
 -- the core's reason in place of the paths Lua searched. As Lua's, it carries
 -- no position, so the text starts with that line.
 export function moduleNotFound(ctx: voidptr, name: uint64): nil
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         local refused = strings.appendWord(h, builder, 0x2720656c75646f6dULL, 8ULL)
             | strings.appendString(h, builder, strings.header(name))
@@ -94,9 +96,10 @@ end
 
 -- Raises one of the library's texts.
 export function libraryError(ctx: voidptr, text: uint64): nil
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         raiseText(ctx, h, builder, librarytexts.append(h, builder, text))
     end
@@ -106,9 +109,10 @@ end
 -- "T expected, got U", U being the argument's type or "no value" past the
 -- call's arguments; else it is the text `detail`.
 export function argumentError(ctx: voidptr, position: uint64, expected: uint64, detail: uint64, value: uint64): nil
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         -- A method call counts from the argument after self, as Lua does,
         -- and self itself is "calling 'name' on bad self (...)".
@@ -147,9 +151,10 @@ end
 -- Raises "bad argument #n to 'name' (invalid option 'X')", X the text of
 -- the string `value`, as Lua's luaL_checkoption does.
 export function optionError(ctx: voidptr, position: uint64, value: uint64): nil
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         local refused = librarytexts.append(h, builder, librarytexts.TEXT_BAD)
             | strings.appendInteger(h, builder, native.index(position))
@@ -165,9 +170,10 @@ end
 
 -- Raises Lua 5.5's "bad 'for' limit (number expected, got <type>)".
 export function forLimitError(ctx: voidptr, value: uint64): nil
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         local refused = librarytexts.append(h, builder, librarytexts.TEXT_FOR_LIMIT)
             | strings.appendString(h, builder, strings.header(guesterrors.typeName(ctx, value)))
@@ -179,9 +185,10 @@ end
 -- Raises `prefix`, the integer n, then `suffix` (0 for none): gsub's
 -- invalid capture index.
 export function indexedError(ctx: voidptr, prefix: uint64, n: int64, suffix: uint64): nil
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         local refused = librarytexts.append(h, builder, prefix)
             | strings.appendInteger(h, builder, n)
@@ -192,9 +199,10 @@ end
 
 -- Raises "invalid value (T) at index n in table for 'concat'".
 export function concatError(ctx: voidptr, value: uint64, n: int64): nil
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         local refused = librarytexts.append(h, builder, librarytexts.TEXT_INVALID_CONCAT)
             | strings.appendString(h, builder, strings.header(guesterrors.typeName(ctx, value)))
@@ -207,9 +215,10 @@ end
 
 -- Raises "invalid replacement value (a T)" for gsub's replacement `value`.
 export function replacementError(ctx: voidptr, value: uint64): nil
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         local refused = librarytexts.append(h, builder, librarytexts.TEXT_INVALID_REPLACEMENT)
             | strings.appendString(h, builder, strings.header(guesterrors.typeName(ctx, value)))
@@ -221,9 +230,10 @@ end
 -- Raises "invalid conversion '%...' to 'format'" naming the directive from
 -- its '%' at `spec` through `p`.
 export function conversionError(ctx: voidptr, spec: uint64, p: uint64, finish: uint64): nil
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         local last = p + 1ULL
         if last > finish then

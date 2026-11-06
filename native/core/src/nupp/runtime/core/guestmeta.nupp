@@ -59,9 +59,10 @@ const SHORT_STRING: uint64 = 40ULL
 -- The interned name of a metatable field: "__index", "__newindex" or
 -- "__metatable".
 local function makeMetaKey(ctx: voidptr, which: uint64): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         local refused: uint64 = 0ULL
         if which == META_INDEX then

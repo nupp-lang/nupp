@@ -11,29 +11,71 @@ const heap = require("nupp.runtime.vm.heap")
 const collector = require("nupp.runtime.vm.collector")
 const values = require("nupp.runtime.vm.values")
 const weakindex = require("nupp.runtime.vm.weakindex")
-const backing = require("nupp.runtime.vm.backing")
+const corestorage = require("nupp.runtime.core.corestorage")
+const storage = require("nupp.runtime.core.storage")
 
--- A growable byte buffer in word backing, outside the collected heap.
+-- A lexical handle roots one managed byte-storage owner. The common descriptor
+-- is authoritative; no backing pointer or byte counts are duplicated here.
 export struct Builder
-    base: uint64
-    length: uint64
-    capacity: uint64
+    heap: uint64
+    handle: uint64
+end
+
+-- Explicit close is idempotent; the lexical terminal repeats it on every exit.
+export function release(borrows b: Builder*): nil
+    @unsafe do
+        if b.handle ~= 0ULL then
+            local h = native.pointer(b.heap) as heap.Heap*
+            local index = b.handle
+            b.handle = 0ULL
+            b.heap = 0ULL
+            collector.handleRelease(h, index)
+        end
+    end
+end
+
+export function close(takes b: Builder*): nil
+    release(b)
+end
+
+-- The borrowed stack descriptor outlives this lexical guard. Initialize before
+-- deriving source pointers: creating the empty managed owner may collect.
+export function open(h: heap.Heap*, b: Builder*): affine(Builder*, close)
+    @unsafe do
+        if b.heap ~= 0ULL or b.handle ~= 0ULL then
+            error("core strings: builder is already open")
+        end
+        -- Counts here are handle slots, not bytes. A reused free slot does
+        -- not enlarge the eventual total. Preflight before owning anything:
+        -- sticky-error cleanup must never grow the free-index vector.
+        local slots = h.handles.count
+        if h.handleFree.count == 0ULL then
+            slots = slots + 1ULL
+        end
+        heap.wordsreserve(h.handleFree, slots)
+        local owner = corestorage.newstorage(h, corestorage.UINT8, 0ULL)
+        if owner == 0ULL then
+            error("not enough memory")
+        end
+        local index = collector.handleRegister(h, values.TAG_OBJ | owner)
+        b.heap = native.address(h as voidptr)
+        b.handle = index
+        return b
+    end
+end
+
+-- The owner stays rooted while this stable descriptor is borrowed. Growth can
+-- replace base, so callers derive a fresh raw pointer after every reserve.
+export function descriptor(borrows b: Builder*): storage.Storage* borrows (b)
+    @unsafe do
+        local h = native.pointer(b.heap) as heap.Heap*
+        local owner = collector.handleValue(h, b.handle) & values.PAYLOAD
+        return borrowFrom(corestorage.descriptor(owner), b)
+    end
 end
 
 local function prefix(): uint64
     return native.sizeOf<heap.Header>() + native.sizeOf<heap.StringBody>()
-end
-
-local function copy(target: uint64, source: uint64, count: uint64): nil
-    local i: uint64 = 0ULL
-    while i < count do
-        native.store8(
-            native.pointer(target),
-            native.index(i),
-            native.word(native.load8(native.pointer(source), native.index(i)))
-        )
-        i = i + 1ULL
-    end
 end
 
 -- The interned string of `count` bytes at `bytes`; answers its header address.
@@ -45,7 +87,7 @@ export function make(h: heap.Heap*, bytes: uint64, count: uint64): uint64
         end
         local o = collector.allocate(h, heap.KIND_STR, native.sizeOf<heap.StringBody>() + count + 1ULL)
         local base = native.address(o as voidptr) + prefix()
-        copy(base, bytes, count)
+        storage.copy(base, bytes, count, native.pointer(0ULL) as storage.CopyStats*)
         native.store8(native.pointer(base), native.index(count), 0ULL)
         o.auxPtr = base
         o.auxLen = count
@@ -106,74 +148,83 @@ export function less(a: uint64, b: uint64, orEqual: boolean): boolean
 end
 
 -- Room for `more` bytes; answers 0, or 1 when backing is refused.
-export function reserve(h: heap.Heap*, b: Builder*, more: uint64): uint64
+export function reserve(h: heap.Heap*, borrows b: Builder*, more: uint64): uint64
     @unsafe do
-        if b.length + more <= b.capacity then
-            return 0ULL
-        end
-        local wanted = b.capacity * 2ULL
-        if wanted < b.length + more then
-            wanted = b.length + more
-        end
-        if wanted < 64ULL then
-            wanted = 64ULL
-        end
-        local fresh = backing.wordBackingTake(h, (wanted + 7ULL) // 8ULL)
-        if fresh == 0ULL then
+        local stats = native.pointer(0ULL) as storage.CopyStats*
+        if storage.reserve(h, descriptor(b), more, stats) ~= storage.OK then
             return 1ULL
         end
-        copy(fresh, b.base, b.length)
-        if b.base ~= 0ULL then
-            backing.wordBackingRelease(b.base)
-        end
-        b.base = fresh
-        b.capacity = ((wanted + 7ULL) // 8ULL) * 8ULL
+
         return 0ULL
     end
 end
 
-export function append(h: heap.Heap*, b: Builder*, source: uint64, count: uint64): uint64
+export function append(h: heap.Heap*, borrows b: Builder*, source: uint64, count: uint64): uint64
     @unsafe do
-        if reserve(h, b, count) ~= 0ULL then
+        local stats = native.pointer(0ULL) as storage.CopyStats*
+        if storage.append(h, descriptor(b), source, count, stats) ~= storage.OK then
             return 1ULL
         end
-        copy(b.base + b.length, source, count)
-        b.length = b.length + count
+
         return 0ULL
+    end
+end
+
+-- Direct writers publish only the bytes they initialized inside reserved room.
+export function commit(borrows b: Builder*, count: uint64): uint64
+    @unsafe do
+        if storage.commit(descriptor(b), count) ~= storage.OK then
+            return 1ULL
+        end
+        return 0ULL
+    end
+end
+
+export function truncate(borrows b: Builder*, count: uint64): uint64
+    @unsafe do
+        return storage.truncate(descriptor(b), count)
+    end
+end
+
+export function reset(borrows b: Builder*): nil
+    @unsafe do
+        storage.reset(descriptor(b))
     end
 end
 
 -- Appends the low `count` bytes of `word`, least significant first.
-export function appendWord(h: heap.Heap*, b: Builder*, word: uint64, count: uint64): uint64
+export function appendWord(h: heap.Heap*, borrows b: Builder*, word: uint64, count: uint64): uint64
     @unsafe do
         if reserve(h, b, count) ~= 0ULL then
             return 1ULL
         end
+        local d = descriptor(b)
         local i: uint64 = 0ULL
         while i < count do
-            native.store8(native.pointer(b.base), native.index(b.length + i), (word >> (i * 8ULL)) & 255ULL)
+            native.store8(native.pointer(d.base), native.index(d.len + i), (word >> (i * 8ULL)) & 255ULL)
             i = i + 1ULL
         end
-        b.length = b.length + count
-        return 0ULL
+        return commit(b, count)
     end
 end
 
 -- Appends a string object's bytes.
-export function appendString(h: heap.Heap*, b: Builder*, s: uint64): uint64
+export function appendString(h: heap.Heap*, borrows b: Builder*, s: uint64): uint64
     return append(h, b, bytes(s), length(s))
 end
 
 -- Appends a signed integer in decimal, as Lua's %d writes it.
-export function appendInteger(h: heap.Heap*, b: Builder*, value: int64): uint64
+export function appendInteger(h: heap.Heap*, borrows b: Builder*, value: int64): uint64
     @unsafe do
         if reserve(h, b, 24ULL) ~= 0ULL then
             return 1ULL
         end
+        local d = descriptor(b)
+        local start = d.len
         local magnitude = native.word(value)
         if value < 0 then
-            native.store8(native.pointer(b.base), native.index(b.length), 45ULL)
-            b.length = b.length + 1ULL
+            native.store8(native.pointer(d.base), native.index(start), 45ULL)
+            start = start + 1ULL
             magnitude = 0ULL - magnitude
         end
         local digits: uint64 = 0ULL
@@ -185,35 +236,23 @@ export function appendInteger(h: heap.Heap*, b: Builder*, value: int64): uint64
                 break
             end
         end
-        local at = b.length + digits
+        local at = start + digits
         while true do
             at = at - 1ULL
-            native.store8(native.pointer(b.base), native.index(at), 48ULL + magnitude % 10ULL)
+            native.store8(native.pointer(d.base), native.index(at), 48ULL + magnitude % 10ULL)
             magnitude = magnitude // 10ULL
             if magnitude == 0ULL then
                 break
             end
         end
-        b.length = b.length + digits
-        return 0ULL
-    end
-end
-
-export function release(b: Builder*): nil
-    @unsafe do
-        if b.base ~= 0ULL then
-            backing.wordBackingRelease(b.base)
-        end
-        b.base = 0ULL
-        b.length = 0ULL
-        b.capacity = 0ULL
+        return commit(b, start + digits - d.len)
     end
 end
 
 -- The builder's bytes as an interned string; the builder is released.
-export function finish(h: heap.Heap*, b: Builder*): uint64
+export function finish(h: heap.Heap*, borrows b: Builder*): uint64
     @unsafe do
-        local s = make(h, b.base, b.length)
+        local s = make(h, descriptor(b).base, descriptor(b).len)
         release(b)
         return s
     end
@@ -222,7 +261,8 @@ end
 -- a .. b as an interned string.
 export function concat(h: heap.Heap*, a: uint64, b: uint64): uint64
     @unsafe do
-        local state = Builder(0ULL, 0ULL, 0ULL)
+        local state = Builder(0ULL, 0ULL)
+        local guard = open(h, state as Builder*)
         local builder = state as Builder*
         if appendString(h, builder, a) ~= 0ULL or appendString(h, builder, b) ~= 0ULL then
             release(builder)

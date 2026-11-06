@@ -19,7 +19,7 @@ const guestscope = require("nupp.runtime.core.guestscope")
 -- no known line, answers the message as it is. pcall has no line, so a
 -- level past a protected call's own frame names nothing.
 export function positioned(ctx: voidptr, message: uint64, level: uint64, failedOwner: uint64, failedPc: uint64): uint64
-    local state0 = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state0 = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local s = strings.header(message)
         if s == 0ULL or level == 0ULL then
@@ -73,6 +73,7 @@ export function positioned(ctx: voidptr, message: uint64, level: uint64, failedO
         end
         local at = data + (chunk & values.PAYLOAD)
         local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
+        local builderLifetime = strings.open(h, state0 as strings.Builder*)
         local builder = state0 as strings.Builder*
         if strings.append(h, builder, at + 8ULL, native.load64(native.pointer(at), 0)) ~= 0ULL
             or strings.appendWord(h, builder, 58ULL, 1ULL) ~= 0ULL
@@ -126,7 +127,7 @@ const PHRASE_NOINT: uint64 = 22ULL
 const PHRASE_READONLY: uint64 = 23ULL
 
 -- Appends phrase `id`; answers 1 when backing is refused.
-local function appendPhrase(h: heap.Heap*, b: strings.Builder*, id: uint64): uint64
+local function appendPhrase(h: heap.Heap*, borrows b: strings.Builder*, id: uint64): uint64
     if id == PHRASE_ARITH then
         return strings.appendWord(h, b, 0x2074706d65747461ULL, 8ULL)
             | strings.appendWord(h, b, 0x6f66726570206f74ULL, 8ULL)
@@ -250,9 +251,10 @@ end
 
 -- type(v): the name of a value's type, as an interned string.
 export function typeName(ctx: voidptr, value: uint64): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         if appendPhrase(h, builder, typePhrase(value)) ~= 0ULL then
             strings.release(builder)
@@ -274,7 +276,7 @@ end
 
 -- Appends Lua's tostring of an `identified` value with no __tostring: its
 -- type and address in hexadecimal, "table: 0x6000012345a0".
-export function appendIdentity(h: heap.Heap*, b: strings.Builder*, value: uint64): uint64
+export function appendIdentity(h: heap.Heap*, borrows b: strings.Builder*, value: uint64): uint64
     -- ": 0x" as a little-endian byte word.
     local refused = appendPhrase(h, b, typePhrase(value)) | strings.appendWord(h, b, 0x7830203aULL, 4ULL)
     local address = value & values.PAYLOAD
@@ -302,13 +304,14 @@ end
 -- The message a handler's guest error carries, as Lua words it (without the
 -- variable Lua names after it), or "runtime error" when no fault was noted.
 export function runtimeError(ctx: voidptr): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
         local kind = native.load64(services, native.fieldOffset<guestscope.Services>("fault"))
         local culprit = native.load64(services, native.fieldOffset<guestscope.Services>("culprit"))
         local other = native.load64(services, native.fieldOffset<guestscope.Services>("other"))
         local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         local refused: uint64 = 0ULL
         if kind == guestscope.FAULT_ARITH then

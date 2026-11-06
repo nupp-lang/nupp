@@ -53,14 +53,15 @@ end
 
 -- timecalls.parts(t, utc): a new table of t's FIELDS, or nil.
 local function parts(ctx: voidptr, t: uint64, utc: uint64): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = heapOf(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         if strings.reserve(h, builder, FIELD_BYTES) ~= 0ULL then
             error("not enough memory")
         end
-        local room = native.pointer(builder.base)
+        local room = native.pointer(strings.descriptor(builderLifetime).base)
         if os.timeParts(integerOf(t), integerOf(utc), room) < 0 then
             strings.release(builder)
             return values.NIL
@@ -89,18 +90,19 @@ end
 -- timecalls.make(fields): C's mktime of the table's FIELDS, which it sets
 -- normalized; the time, or -1.
 local function make(ctx: voidptr, fields: uint64): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     local t = guestmeta.tableof(fields)
     if t == 0ULL then
         error("time calls: a table argument was expected")
     end
     @unsafe do
         local h = heapOf(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         if strings.reserve(h, builder, FIELD_BYTES) ~= 0ULL then
             error("not enough memory")
         end
-        local room = native.pointer(builder.base)
+        local room = native.pointer(strings.descriptor(builderLifetime).base)
         local index: uint64 = 1ULL
         while index <= FIELDS do
             local field = tables.get(t, values.TAG_INTEGER | index)
@@ -130,13 +132,14 @@ end
 
 -- timecalls.format(t, utc, spec): strftime of one conversion, or nil.
 local function format(ctx: voidptr, t: uint64, utc: uint64, spec: uint64): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     local s = strings.header(spec)
     if s == 0ULL then
         error("time calls: a string argument was expected")
     end
     @unsafe do
         local h = heapOf(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         if strings.reserve(h, builder, ITEM_BYTES) ~= 0ULL then
             error("not enough memory")
@@ -146,14 +149,17 @@ local function format(ctx: voidptr, t: uint64, utc: uint64, spec: uint64): uint6
             integerOf(utc),
             native.pointer(strings.bytes(s)),
             strings.length(s),
-            native.pointer(builder.base),
-            builder.capacity
+            native.pointer(strings.descriptor(builderLifetime).base),
+            strings.descriptor(builderLifetime).cap
         )
-        if length < 0 or native.word(length) > builder.capacity then
+        if length < 0 or native.word(length) > strings.descriptor(builderLifetime).cap then
             strings.release(builder)
             return values.NIL
         end
-        builder.length = native.word(length)
+        if strings.commit(builder, native.word(length)) ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
         return values.TAG_OBJ | strings.finish(h, builder)
     end
 end

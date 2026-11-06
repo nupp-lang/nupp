@@ -121,12 +121,13 @@ end
 
 -- math.type: "integer", "float", or nil for anything else.
 export function mathType(ctx: voidptr, a: uint64): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         if not ints.isInteger(a) and not guestvalues.isfloat(a) then
             return values.NIL
         end
         local h = guestvalues.guestheap(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         local refused: uint64 = 0ULL
         if ints.isInteger(a) then
@@ -199,7 +200,7 @@ end
 -- value or text that is not a numeral. Other text, a decimal past int64
 -- included, is read as a float by C's strtod through the host.
 export function tonumber(ctx: voidptr, value: uint64): uint64
-    local cell = strings.Builder(0ULL, 0ULL, 0ULL)
+    local cell = strings.Builder(0ULL, 0ULL)
     if ints.isInteger(value) or guestvalues.floatof(value) ~= values.NIL then
         return value
     end
@@ -211,6 +212,8 @@ export function tonumber(ctx: voidptr, value: uint64): uint64
         return values.NIL
     end
     @unsafe do
+        local h = guestvalues.guestheap(ctx)
+        local slotLifetime = strings.open(h, cell as strings.Builder*)
         local p = strings.bytes(s)
         local finish = p + strings.length(s)
         while p < finish and space(native.word(native.load8(native.pointer(p), 0))) do
@@ -278,8 +281,12 @@ export function tonumber(ctx: voidptr, value: uint64): uint64
         if strings.reserve(guestvalues.guestheap(ctx), slot, 8ULL) ~= 0ULL then
             error("not enough memory")
         end
-        local parsed = os.parseNumber(native.pointer(strings.bytes(s)), strings.length(s), native.pointer(slot.base))
-        local bits = native.load64(native.pointer(slot.base), 0)
+        local parsed = os.parseNumber(
+            native.pointer(strings.bytes(s)),
+            strings.length(s),
+            native.pointer(strings.descriptor(slotLifetime).base)
+        )
+        local bits = native.load64(native.pointer(strings.descriptor(slotLifetime).base), 0)
         strings.release(slot)
         if parsed ~= 1 then
             return values.NIL

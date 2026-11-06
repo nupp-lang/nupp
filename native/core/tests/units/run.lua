@@ -91,6 +91,23 @@ end
 -- and cases of {function, arguments, expected result}.
 local UNITS = {
     {
+        name = "builderunits",
+        modules = {"builderunits", "unitentry"},
+        entries = {{"builderunits", "lifetime", 1}},
+        cases = function()
+            return {{"lifetime", {0}, 1023}, {"lifetime", {1}, 1023}}
+        end
+    },
+    {
+        name = "builderlandingunits",
+        modules = {"builderunits", "builderentry"},
+        observeLanding = true,
+        entries = {{"builderunits", "landing", 2}, {"builderunits", "refusal", 1}},
+        cases = function()
+            return {{"landing", {0, 0}, 127}, {"landing", {0, 1}, 127}, {"landing", {0, 4}, 127}, {"refusal", {0}, 127}}
+        end
+    },
+    {
         name = "heapunits",
         modules = {"heapunits", "unitentry"},
         entries = {
@@ -717,14 +734,17 @@ function workloadTrace(name)
     os.execute("mkdir -p " .. quote(project .. "/src/wl") .. " " .. quote(traces))
     write(project .. "/nupp.lua", 'return {name = "wl", include = {"src"}}\n')
     for _, workload in ipairs(WORKLOADS) do
-        write(project .. "/src/wl/" .. workload .. ".nupp", assert(read(FIXTURES .. "/workloads/" .. workload .. ".nupp")))
+        write(
+            project .. "/src/wl/" .. workload .. ".nupp",
+            assert(read(FIXTURES .. "/workloads/" .. workload .. ".nupp"))
+        )
     end
     local runtime, compiler = vmPackage()
     local image = project .. "/" .. name .. ".image"
     local status, output = shell(
-        ("%s run %s nupp.tools.vm.project emit %s wl.%s '' --output %s"):format(
-            quote(runtime), quote(compiler), quote(project), name, quote(image)
-        )
+        (
+            "%s run %s nupp.tools.vm.project emit %s wl.%s '' --output %s"
+        ):format(quote(runtime), quote(compiler), quote(project), name, quote(image))
     )
     assert(status == 0, "emitting " .. name .. ": " .. output)
     local recorded = BUILD .. "/trace-" .. name
@@ -827,6 +847,7 @@ end
 do
     local corelibrary = require("nupp.compiler.vm.corelibrary")
     local coretexts = require("nupp.compiler.vm.coretexts")
+
     local function unique(space, rows)
         local ids, names, problem = {}, {}, nil
         for _, row in ipairs(rows) do
@@ -837,8 +858,10 @@ do
             end
             ids[row.id], names[row.name] = row.name, true
         end
+
         return problem, names
     end
+
     local calls = {}
     for _, subject in ipairs(corelibrary.subjects()) do
         for _, call in ipairs(subject.calls) do
@@ -885,7 +908,14 @@ for _, unit in ipairs(UNITS) do
         end
         local ok, result
         while true do
-            ok, result = pcall(runner.build, fixtures, entries, mode, ROOT .. "/build/core-unit-cache")
+            ok, result = pcall(
+                runner.build,
+                fixtures,
+                entries,
+                mode,
+                ROOT .. "/build/core-unit-cache",
+                unit.observeLanding
+            )
             if ok then
                 break
             end

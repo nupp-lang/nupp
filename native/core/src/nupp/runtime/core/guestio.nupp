@@ -51,9 +51,10 @@ end
 -- At most `room` bytes read from descriptor `fd` as a new string, "" at
 -- the end, or the negated error number the read answered.
 local function readText(ctx: voidptr, fd: uint64, room: uint64): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = heapOf(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         local wanted = room
         if wanted == 0ULL then
@@ -62,38 +63,53 @@ local function readText(ctx: voidptr, fd: uint64, room: uint64): uint64
         if strings.reserve(h, builder, wanted) ~= 0ULL then
             error("not enough memory")
         end
-        local count = os.fileRead(fd, native.pointer(builder.base), room)
+        local count = os.fileRead(fd, native.pointer(strings.descriptor(builderLifetime).base), room)
         if count < 0 then
             strings.release(builder)
             return ints.make(h, native.word(count))
         end
-        builder.length = native.word(count)
+        if strings.commit(builder, native.word(count)) ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
         return values.TAG_OBJ | strings.finish(h, builder)
     end
 end
 
 -- The system's text for error number `code`, sized by a first call.
 local function reasonText(ctx: voidptr, code: uint64): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = heapOf(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         if strings.reserve(h, builder, 128ULL) ~= 0ULL then
             error("not enough memory")
         end
-        local length = os.errorText(code, native.pointer(builder.base), builder.capacity)
+        local length = os.errorText(
+            code,
+            native.pointer(strings.descriptor(builderLifetime).base),
+            strings.descriptor(builderLifetime).cap
+        )
         if length < 0 then
             strings.release(builder)
             error("file calls: the host has no text for an error")
         end
-        if native.word(length) > builder.capacity then
+        if native.word(length) > strings.descriptor(builderLifetime).cap then
             if strings.reserve(h, builder, native.word(length)) ~= 0ULL then
                 strings.release(builder)
                 error("not enough memory")
             end
-            length = os.errorText(code, native.pointer(builder.base), builder.capacity)
+            length = os.errorText(
+                code,
+                native.pointer(strings.descriptor(builderLifetime).base),
+                strings.descriptor(builderLifetime).cap
+            )
         end
-        builder.length = native.word(length)
+        if strings.commit(builder, native.word(length)) ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
         return values.TAG_OBJ | strings.finish(h, builder)
     end
 end
@@ -104,23 +120,30 @@ const NAME_BYTES: uint64 = 64ULL
 -- filecalls.temporary(): the name of a new empty file, or the negated
 -- error number making it answered.
 local function temporaryName(ctx: voidptr): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = heapOf(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         if strings.reserve(h, builder, NAME_BYTES) ~= 0ULL then
             error("not enough memory")
         end
-        local length = os.fileTemporary(native.pointer(builder.base), builder.capacity)
+        local length = os.fileTemporary(
+            native.pointer(strings.descriptor(builderLifetime).base),
+            strings.descriptor(builderLifetime).cap
+        )
         if length < 0 then
             strings.release(builder)
             return ints.make(h, native.word(length))
         end
-        if native.word(length) > builder.capacity then
+        if native.word(length) > strings.descriptor(builderLifetime).cap then
             strings.release(builder)
             error("file calls: a temporary name is longer than its room")
         end
-        builder.length = native.word(length)
+        if strings.commit(builder, native.word(length)) ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
         return values.TAG_OBJ | strings.finish(h, builder)
     end
 end
@@ -132,9 +155,10 @@ const NAMES_BYTES: uint64 = 4096ULL
 -- NUL, or the negated error number; read again into room for them all when
 -- the first read did not fit.
 local function namesText(ctx: voidptr, fd: uint64): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = heapOf(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         local wanted = NAMES_BYTES
         while true do
@@ -142,13 +166,20 @@ local function namesText(ctx: voidptr, fd: uint64): uint64
                 strings.release(builder)
                 error("not enough memory")
             end
-            local length = os.dirNames(fd, native.pointer(builder.base), builder.capacity)
+            local length = os.dirNames(
+                fd,
+                native.pointer(strings.descriptor(builderLifetime).base),
+                strings.descriptor(builderLifetime).cap
+            )
             if length < 0 then
                 strings.release(builder)
                 return ints.make(h, native.word(length))
             end
-            if native.word(length) <= builder.capacity then
-                builder.length = native.word(length)
+            if native.word(length) <= strings.descriptor(builderLifetime).cap then
+                if strings.commit(builder, native.word(length)) ~= 0ULL then
+                    strings.release(builder)
+                    error("not enough memory")
+                end
                 return values.TAG_OBJ | strings.finish(h, builder)
             end
             wanted = native.word(length)
@@ -257,29 +288,41 @@ end
 -- The program argument at `index` as a string, nil past the last: copied
 -- as os.getenv's value is, into a builder sized by a first call.
 local function argumentText(h: heap.Heap*, index: uint64): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         if strings.reserve(h, builder, 256ULL) ~= 0ULL then
             error("not enough memory")
         end
-        local length = os.argument(index, native.pointer(builder.base), builder.capacity)
+        local length = os.argument(
+            index,
+            native.pointer(strings.descriptor(builderLifetime).base),
+            strings.descriptor(builderLifetime).cap
+        )
         if length < 0 then
             strings.release(builder)
             return values.NIL
         end
-        if native.word(length) > builder.capacity then
+        if native.word(length) > strings.descriptor(builderLifetime).cap then
             if strings.reserve(h, builder, native.word(length)) ~= 0ULL then
                 strings.release(builder)
                 error("not enough memory")
             end
-            length = os.argument(index, native.pointer(builder.base), builder.capacity)
-            if length < 0 or native.word(length) > builder.capacity then
+            length = os.argument(
+                index,
+                native.pointer(strings.descriptor(builderLifetime).base),
+                strings.descriptor(builderLifetime).cap
+            )
+            if length < 0 or native.word(length) > strings.descriptor(builderLifetime).cap then
                 strings.release(builder)
                 error("arg: the program's arguments changed while they were read")
             end
         end
-        builder.length = native.word(length)
+        if strings.commit(builder, native.word(length)) ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
         return values.TAG_OBJ | strings.finish(h, builder)
     end
 end

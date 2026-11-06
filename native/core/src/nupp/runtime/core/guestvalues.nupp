@@ -35,7 +35,7 @@ end
 -- Appends Lua's tostring of `value`: strings as they are, integers in
 -- decimal, booleans and nil by name, and tables, functions, threads and
 -- userdata by type and address. A __tostring is the caller's to call.
-export function appendtext(h: heap.Heap*, b: strings.Builder*, value: uint64): uint64
+export function appendtext(h: heap.Heap*, borrows b: strings.Builder*, value: uint64): uint64
     local s = strings.header(value)
     if s ~= 0ULL then
         return strings.appendString(h, b, s)
@@ -50,13 +50,12 @@ export function appendtext(h: heap.Heap*, b: strings.Builder*, value: uint64): u
             if strings.reserve(h, b, 66ULL) ~= 0ULL then
                 return 1ULL
             end
-            local at = b.base + b.length
+            local at = strings.descriptor(b).base + strings.descriptor(b).len
             local length = os.formatNumber(value, native.pointer(at), 64ULL)
             if length < 0 or length > 64 then
                 return 1ULL
             end
-            b.length = b.length + native.word(length)
-            return 0ULL
+            return strings.commit(b, native.word(length))
         end
     end
     -- "true", "false" and "nil" as little-endian byte words.
@@ -76,12 +75,13 @@ export function appendtext(h: heap.Heap*, b: strings.Builder*, value: uint64): u
 end
 
 export function tostring(ctx: voidptr, value: uint64): uint64
-    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = guestheap(ctx)
         if strings.header(value) ~= 0ULL then
             return value
         end
+        local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
         if appendtext(h, builder, value) ~= 0ULL then
             strings.release(builder)
