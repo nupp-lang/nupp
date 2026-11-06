@@ -519,7 +519,9 @@ UNITS[#UNITS + 1] = {
             {"storageowners", {0}, 255},
             {"storageowners", {1}, 255},
             {"packedowners", {0}, 127},
-            {"packedowners", {1}, 127}
+            {"packedowners", {1}, 127},
+            {"packedowners", {2}, 127},
+            {"packedowners", {3}, 127}
         }
     end
 }

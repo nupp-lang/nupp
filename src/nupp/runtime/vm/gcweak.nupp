@@ -233,13 +233,13 @@ local function owns(o: heap.Header*): boolean
             if t.arrayPtr ~= 0 or t.hashPtr ~= 0 then
                 return true
             end
-            -- Packed core tables append their owned backing descriptor. The
+            -- Packed core tables append a tail owning an external descriptor. The
             -- requested extent excludes ordinary tables and slot padding.
             if (
                 o.size as uint64
-            ) >= heap.HEADER_BYTES + native.sizeOf<heap.TableBody>() + native.sizeOf<heap.ValueArray>() then
-                local packed = native.pointer(body + native.sizeOf<heap.TableBody>()) as heap.ValueArray*
-                return packed.base ~= 0
+            ) >= heap.HEADER_BYTES + native.sizeOf<heap.TableBody>() + native.sizeOf<heap.CoreTableTail>() then
+                local packed = native.pointer(body + native.sizeOf<heap.TableBody>()) as heap.CoreTableTail*
+                return packed.storage ~= 0
             end
             return false
         elseif kind == heap.KIND_RECORD then

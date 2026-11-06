@@ -18,9 +18,13 @@ const final = require("nupp.runtime.vm.gcfinal")
 const tables = require("nupp.runtime.core.coretables")
 const corestorage = require("nupp.runtime.core.corestorage")
 const backing = require("nupp.runtime.vm.backing")
+const common = require("nupp.runtime.core.storage")
 
 const WRONG: uint64 = 1000000000ULL
 const ARENA_BYTES: uint64 = 67108864ULL
+const WORD_BYTES: uint64 = 8ULL
+const MINOR_FIRST: uint64 = 1ULL
+const EMPTY_PACKED: uint64 = 2ULL
 
 -- A closure-kind object with `slots` value slots, all nil.
 local function node(h: heap.Heap*, slots: uint64): uint64
@@ -537,7 +541,7 @@ end
 -- A packed-only table owns backing even without a general array or hash.
 -- Empty ordinary tables still reclaim directly. Drain returns packed backing
 -- once; a second drain cannot hand the same block to two live borrowers.
-export function packedowners(minorFirst: uint64): uint64
+export function packedowners(mode: uint64): uint64
     local answer: uint64 = 0ULL
     do
         local a = arena.open(ARENA_BYTES)
@@ -546,33 +550,47 @@ export function packedowners(minorFirst: uint64): uint64
             h.generational = collector.GENERATIONAL
             h.automatic = false
             local roots = rootsIn(a, h, 2ULL)
-            local packed = tables.createpacked(h, corestorage.UINT8, 16ULL)
+            local filled = mode & EMPTY_PACKED == 0ULL
+            local capacity: uint64 = 0ULL
+            if filled then
+                capacity = 16ULL
+            end
+            local packed = tables.createpacked(h, corestorage.UINT8, capacity)
             local empty = tables.create(h)
             setRoot(roots, 0ULL, values.TAG_OBJ | packed)
             setRoot(roots, 1ULL, values.TAG_OBJ | empty)
-            tables.set(h, packed, int(1ULL), int(42ULL))
+            local expected = values.NIL
+            if filled then
+                tables.set(h, packed, int(1ULL), int(42ULL))
+                expected = int(42ULL)
+            end
             local o = native.pointer(packed) as heap.Header*
             local body = native.pointer(packed + heap.HEADER_BYTES) as heap.TableBody*
-            local descriptor = native.pointer(
+            local tail = native.pointer(
                 packed + heap.HEADER_BYTES + native.sizeOf<heap.TableBody>()
-            ) as heap.ValueArray*
+            ) as heap.CoreTableTail*
+            local address = tail.storage
+            local descriptor = native.pointer(address) as common.Storage*
             local base = descriptor.base
-            local words = (descriptor.capacity + 7ULL) // 8ULL
+            local words = (descriptor.cap + WORD_BYTES - 1ULL) // WORD_BYTES
+            if not filled then
+                words = (native.sizeOf<common.Storage>() + WORD_BYTES - 1ULL) // WORD_BYTES
+            end
             local isolated = tables.packedkind(packed) == corestorage.UINT8
-                and base ~= 0ULL
+                and ((filled and base ~= 0ULL) or (not filled and base == 0ULL))
                 and body.arrayPtr == 0ULL
                 and body.hashPtr == 0ULL
                 and o.auxPtr == 0ULL
                 and o.auxLen == 0ULL
             local wrong: uint64 = 0ULL
-            if minorFirst ~= 0ULL then
+            if mode & MINOR_FIRST ~= 0ULL then
                 wrong = minor(h)
             else
                 wrong = full(h)
             end
             local kept = alive(h, packed)
                 and alive(h, empty)
-                and tables.get(packed, int(1ULL)) == int(42ULL)
+                and tables.get(packed, int(1ULL)) == expected
                 and descriptor.base == base
             setRoot(roots, 0ULL, values.NIL)
             setRoot(roots, 1ULL, values.NIL)
@@ -582,13 +600,25 @@ export function packedowners(minorFirst: uint64): uint64
             local retired = h.released.count == 1ULL and o.aux as uint64 == heap.KIND_TABLE
             tables.drain(h)
             local drained = h.released.count == 0ULL
+            -- Filled owners have descriptor and data in one size class; empty
+            -- owners have only the descriptor. A repeated drain frees neither twice.
             local first = backing.wordBackingTake(h, words)
-            local reused = first == base
-            tables.drain(h)
             local second = backing.wordBackingTake(h, words)
-            local once = first ~= 0ULL and second ~= 0ULL and first ~= second
+            local reused = first == address
+            if filled then
+                reused = (first == base and second == address) or (first == address and second == base)
+            end
+            tables.drain(h)
+            local third = backing.wordBackingTake(h, words)
+            local once = first ~= 0ULL
+                and second ~= 0ULL
+                and third ~= 0ULL
+                and first ~= second
+                and first ~= third
+                and second ~= third
             backing.wordBackingRelease(first)
             backing.wordBackingRelease(second)
+            backing.wordBackingRelease(third)
             answer = bit(
                 isolated,
                 1ULL

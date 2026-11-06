@@ -344,6 +344,14 @@ export struct TableBody
     meta: uint64
 end
 
+-- Core tables append this private tail after the frozen TableBody. The heap
+-- address supports boxing packed elements; storage names an external common
+-- byte descriptor. Ordinary VM tables never carry this tail.
+export struct CoreTableTail
+    owner: uint64
+    storage: uint64
+end
+
 --- A record's owned array descriptor and nullable overflow pointer.
 export struct RecordTail
     arrayOwner: uint64
