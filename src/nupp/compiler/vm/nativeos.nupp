@@ -57,7 +57,9 @@ local definitions = {
     fileTemporary = {slot = 42, params = {"voidptr", "uint64"}, result = "int64", cResult = "int64"},
     dirOpen = {slot = 43, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
     dirNames = {slot = 44, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    unlinkEntry = {slot = 45, params = {"uint64", "voidptr", "uint64", "uint64"}, result = "int64", cResult = "int64"}
+    unlinkEntry = {slot = 45, params = {"uint64", "voidptr", "uint64", "uint64"}, result = "int64", cResult = "int64"},
+    atomicload64 = {slot = 46, params = {"voidptr", "int64"}, result = "uint64", cResult = "uint64"},
+    atomiccas64 = {slot = 47, params = {"voidptr", "int64", "uint64", "uint64"}, result = "uint64", cResult = "uint64"}
 }
 
 local function need(value: any, message: string): any
@@ -153,10 +155,11 @@ local function statusOutput(bound: any): any
         return nil
     end
     local owner = bound.owner
-    -- Both exact wrappers keep the real C status in a separately retained
+    -- The exact wrappers keep the real C status in a separately retained
     -- explicit Scope. A nil OS result never silently discards that status.
     need(
-        (pageOwner(owner, "unmapOwned") or pageOwner(owner, "releaseEntry")) and owner.paramKinds[1] == "voidptr",
+        (pageOwner(owner, "unmapOwned") or pageOwner(owner, "releaseEntry") or pageOwner(owner, "releaseshared"))
+        and owner.paramKinds[1] == "voidptr",
         "unmap requires explicit owned wrapper scope"
     )
     local scope = need(
@@ -268,7 +271,10 @@ end
 function os.ownedSlot(declaration: any, owner: any): integer
     local slot = os.slot(declaration, owner)
     if slot == 0 then
-        need(pageOwner(owner, "map") or pageOwner(owner, "acquireEntry"), "published map requires owned ledger wrapper")
+        need(
+            pageOwner(owner, "map") or pageOwner(owner, "acquireEntry") or pageOwner(owner, "acquireshared"),
+            "published map requires owned ledger wrapper"
+        )
     end
 
     return slot

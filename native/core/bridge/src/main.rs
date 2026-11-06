@@ -15,6 +15,10 @@ mod abi;
 #[path = "../tests/support/scratch.rs"]
 mod scratch;
 
+#[cfg(test)]
+#[path = "../tests/support/shared.rs"]
+mod shared;
+
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -197,7 +201,11 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, Failure> {
         tree::dir_open as *const () as u64,
         tree::dir_names as *const () as u64,
         tree::unlink_entry as *const () as u64,
+        platform::atomic_load64 as *const () as u64,
+        platform::atomic_cas64 as *const () as u64,
     ];
+    #[cfg(test)]
+    let imports = shared::imports(imports);
     let packet = [
         1,
         code.address as u64,

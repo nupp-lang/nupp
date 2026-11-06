@@ -105,9 +105,14 @@ local function now(): number
     return os.time()
 end
 
--- Scratch layout: [0, 64) entry slots, [4096, 65536) the unit scope region,
+-- Scratch layout: [0, 4096) entry slots and optional retained handoff state,
+-- [4096, 65536) the unit scope region,
 -- then spills. Output words: the fixture's result and its error code.
 local SLOTS: integer = 0
+local HANDOFF_STATE: integer = 32
+local HANDOFF_ERROR: integer = 24
+local HANDOFF_EVENT: integer = 48
+local HANDOFF_CLOSED: integer = 2
 local SCOPE: integer = 4096
 local SCOPE_BYTES: integer = 61440
 local SPILL: integer = 65536
@@ -266,7 +271,15 @@ end
 
 -- `fixtures` is a list of {moduleName, path, include}; `entries` lists the
 -- fixture functions in dispatch order as {moduleName, name, arity}.
-function runner.build(fixtures: any, entries: any, mode: string, cacheDirectory: string?, observeLanding: boolean?): any
+function runner.build(
+    fixtures: any,
+    entries: any,
+    mode: string,
+    cacheDirectory: string?,
+    observeLanding: boolean?,
+    sharedhandoff: boolean?
+): any
+    assert(not (observeLanding and sharedhandoff), "unit lifecycle modes are exclusive")
     local started = now()
     local timings = {}
 
@@ -279,10 +292,33 @@ function runner.build(fixtures: any, entries: any, mode: string, cacheDirectory:
     for _, entry in ipairs(entries) do
         roots[#roots + 1] = {entry[1], entry[2]}
     end
+    if sharedhandoff then
+        assert(
+            #entries == 1
+            and entries[1][1] == "sharedbackingunits"
+            and entries[1][2] == "scopelifetime"
+            and entries[1][3] == 1,
+            "shared backing handoff requires its exact producer"
+        )
+        roots[#roots + 1] = {"sharedbackingunits", "afterscope"}
+    end
     local build = service.buildUnits(fixtures, roots)
+
     phase("session")
     local chosen = runner.select(build, mode, cacheDirectory, nil, phase)
+    if sharedhandoff then
+        local consumer = assert(chosen.owners["sharedbackingunits.afterscope"])
+        assert(
+            #consumer.paramKinds == 1 and consumer.paramKinds[1] == "voidptr" and consumer.resultKind == "uint64",
+            "shared backing consumer signature differs"
+        )
+        assert(
+            not service.needsCleanup(service.signature(consumer, service.options(build.catalog, consumer))),
+            "shared backing consumer must not reuse the closed service scope"
+        )
+    end
     local codes = chosen.codes
+
     local rootCodes, rootNames, functions = {}, {}, {}
     for index, root in ipairs(roots) do
         rootNames[index] = root[1] .. "." .. root[2]
@@ -349,6 +385,9 @@ function runner.build(fixtures: any, entries: any, mode: string, cacheDirectory:
                 -- The landing fixture borrows the prepared scope explicitly;
                 -- its heap deliberately outlives the failing native stack.
                 emit(arm.ldr(8, at - 1, 19, SLOTS))
+            elseif sharedhandoff then
+                -- [32,56) is disjoint retained bridge scratch.
+                offset(at - 1, 19, HANDOFF_STATE)
             else
                 emit(arm.ldr(8, at - 1, 20, at * 8))
             end
@@ -379,8 +418,19 @@ function runner.build(fixtures: any, entries: any, mode: string, cacheDirectory:
         local scopeLayout = assert(targetlayout.of(scopeType, "aarch64-apple-darwin"))
         emit(arm.ldr(8, 16, 19, SLOTS))
         emit(arm.ldr(8, 17, 16, scopeLayout.offsets.error))
+    elseif sharedhandoff then
+        emit(arm.str(8, 0, 19, HANDOFF_ERROR))
+        -- The actual producer scope finished above. Consumer is nonscoped.
+        emit(arm.movz(64, 16, HANDOFF_CLOSED, 0))
+        emit(arm.str(8, 16, 19, HANDOFF_EVENT))
+        offset(0, 19, HANDOFF_STATE)
+        call(#roots)
+        emit(arm.str(8, 0, 19, SLOTS + 16))
+        emit(arm.ldr(8, 17, 19, HANDOFF_ERROR))
     else
         emit(arm.mov_reg(64, 17, 0))
+    end
+    if not observeLanding then
         emit(arm.ldr(8, 0, 19, SLOTS + 16))
     end
     local store = #words + 1

@@ -91,7 +91,9 @@ local osNames = {
     fileTemporary = true,
     dirOpen = true,
     dirNames = true,
-    unlinkEntry = true
+    unlinkEntry = true,
+    atomicload64 = true,
+    atomiccas64 = true
 }
 
 local function need(ok: any, message: string): any
@@ -265,13 +267,17 @@ local function catalog(entry: any, roots: any, review: any): any
                         if item.raw then
                             local pages = unit.ownerModule(owner, "nupp.runtime.core.pagemappings")
                             need(
-                                name ~= "mapPages" or owner == pages.exports.map or owner == pages.exports.acquireEntry,
+                                name ~= "mapPages"
+                                or owner == pages.exports.map
+                                or owner == pages.exports.acquireEntry
+                                or owner == pages.exports.acquireshared,
                                 "raw map bypasses ownership ledger"
                             )
                             need(
                                 name ~= "unmapPages"
                                 or owner == pages.exports.unmapOwned
-                                or owner == pages.exports.releaseEntry,
+                                or owner == pages.exports.releaseEntry
+                                or owner == pages.exports.releaseshared,
                                 "raw unmap bypasses status capture"
                             )
                         else

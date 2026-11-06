@@ -1,0 +1,70 @@
+module nupp.runtime.core.sharedbacking
+
+const native = require("nupp.runtime.vm.intrinsics")
+const pages = require("nupp.runtime.core.pagemappings")
+
+-- Private reference-counted byte allocation, not a mutable Storage descriptor.
+-- Every nonnull block argument must name acquireshared's original prefix, and the
+-- caller must own one active reference for the entire operation. Retain may
+-- not race release of that caller's own last reference. References protect
+-- allocation lifetime only; payload mutation/publication is the caller's job.
+-- After a final release, no block field or payload may be read, even to check
+-- whether another release would be harmless. Null is explicitly refused.
+export const INVALID: uint64 = 0ULL
+export const RETAINED: uint64 = 1ULL
+export const RELEASED: uint64 = 2ULL
+export const FAILED: uint64 = 3ULL
+const MAXIMUM_REFERENCES: uint64 = 0xffffffffffffffffULL
+
+export function create(capacity: uint64): voidptr?
+    return pages.acquireshared(capacity)
+end
+
+export function bytes(block: voidptr): voidptr
+    return native.offset(block, native.index(native.sizeOf<pages.SharedBacking>()))
+end
+
+export function capacity(block: voidptr): uint64
+    return native.load64(block, native.fieldOffset<pages.SharedBacking>("capacity"))
+end
+
+export function retain(block: voidptr): boolean
+    if native.address(block) == 0ULL then
+        return false
+    end
+    local before = pages.sharedreferences(block)
+    while before ~= 0ULL and before ~= MAXIMUM_REFERENCES do
+        local actual = pages.sharedcompare(block, before, before + 1ULL)
+        if actual == before then
+            return true
+        end
+        before = actual
+    end
+
+    return false
+end
+
+-- statusScope is a disjoint caller-owned pages.Scope, live until this returns.
+-- INVALID retains the caller's reference. FAILED consumes the final reference
+-- but retains the mapping and terminal status; normal callers never retry it.
+export function release(statusScope: voidptr, block: voidptr): uint64
+    if native.address(block) == 0ULL or not pages.sharedscopevalid(statusScope, block) then
+        return INVALID
+    end
+    local before = pages.sharedreferences(block)
+    while before ~= 0ULL do
+        local actual = pages.sharedcompare(block, before, before - 1ULL)
+        if actual == before then
+            if before > 1ULL then
+                return RETAINED
+            end
+            if pages.releaseshared(statusScope, block) == 1ULL then
+                return RELEASED
+            end
+            return FAILED
+        end
+        before = actual
+    end
+
+    return INVALID
+end

@@ -32,6 +32,21 @@ export struct EntryBacking
     phase: uint64
 end
 
+-- Private independent mapping prefix. No field points into a source heap,
+-- arena, service scope, or mapping ledger. Payload follows this prefix.
+export struct SharedBacking
+    base: uint64
+    mapped: uint64
+    capacity: uint64
+    phase: uint64
+    references: uint64
+end
+
+export const SHARED_LIVE: uint64 = 1ULL
+export const SHARED_CONSUMED: uint64 = 2ULL
+export const SHARED_FAILED: uint64 = 3ULL
+const WORD_MASK: uint64 = 7ULL
+
 const LIMIT: uint64 = 281474976710656ULL
 const MAXIMUM: uint64 = 0xffffffffffffffffULL
 const MAX_RECORDS: uint64 = 4096ULL
@@ -42,6 +57,116 @@ end
 
 local function overlap(a: uint64, an: uint64, b: uint64, bn: uint64): boolean
     return a < b + bn and b < a + an
+end
+
+-- An active reference or the winning last-release authority keeps a nonnull
+-- block readable until its terminal unmap.
+-- These checks validate its immutable envelope, not an arbitrary address.
+local function sharedvalid(block: voidptr): boolean
+    local address = native.address(block)
+    local prefix = native.sizeOf<SharedBacking>()
+    if address == 0ULL or (address & WORD_MASK) ~= 0ULL then
+        return false
+    end
+    local mapped = native.load64(block, native.fieldOffset<SharedBacking>("mapped"))
+    local capacity = native.load64(block, native.fieldOffset<SharedBacking>("capacity"))
+    local page = os.pageSize()
+    if page == 0ULL
+        or page > LIMIT
+        or (page & (page - 1ULL)) ~= 0ULL
+        or (address & (page - 1ULL)) ~= 0ULL
+        or capacity > LIMIT - prefix
+        or capacity + prefix > LIMIT - (page - 1ULL)
+        or not extent(address, mapped)
+    then
+        return false
+    end
+
+    return native.load64(block, native.fieldOffset<SharedBacking>("base")) == address
+        and mapped == ((capacity + prefix + page - 1ULL) & ~(page - 1ULL))
+        and os.atomicload64(block, native.fieldOffset<SharedBacking>("phase")) == SHARED_LIVE
+end
+
+-- Status storage is caller-owned and remains mapped after the block is gone.
+export function sharedscopevalid(statusScope: voidptr, block: voidptr): boolean
+    if not sharedvalid(block) then
+        return false
+    end
+    local status = native.address(statusScope)
+    local size = native.sizeOf<Scope>()
+
+    return extent(status, size)
+        and (status & WORD_MASK) == 0ULL
+        and not overlap(
+            status,
+            size,
+            native.address(block),
+            native.load64(block, native.fieldOffset<SharedBacking>("mapped"))
+        )
+end
+
+-- This exact constructor owns the unjournaled mapping before publication.
+-- Map refusal is nil. All initialization after map is nonallocating and
+-- cannot raise, collect, suspend, or call guest code.
+export function acquireshared(capacity: uint64): voidptr?
+    local prefix = native.sizeOf<SharedBacking>()
+    local page = os.pageSize()
+    if page == 0ULL
+        or page > LIMIT
+        or (page & (page - 1ULL)) ~= 0ULL
+        or capacity > LIMIT - prefix
+        or capacity + prefix > LIMIT - (page - 1ULL)
+    then
+        return nil
+    end
+    local mapped = (capacity + prefix + page - 1ULL) & ~(page - 1ULL)
+    local block = os.mapPages(mapped)
+    if block == nil then
+        return nil
+    end
+    native.store64(block, native.fieldOffset<SharedBacking>("base"), native.address(block))
+    native.store64(block, native.fieldOffset<SharedBacking>("mapped"), mapped)
+    native.store64(block, native.fieldOffset<SharedBacking>("capacity"), capacity)
+    native.store64(block, native.fieldOffset<SharedBacking>("phase"), SHARED_LIVE)
+    native.store64(block, native.fieldOffset<SharedBacking>("references"), 1ULL)
+
+    return block
+end
+
+-- Raw atomic transport stays inside the existing raw infrastructure owner.
+-- Refcount policy is implemented by the caller in Nupp.
+export function sharedreferences(block: voidptr): uint64
+    return os.atomicload64(block, native.fieldOffset<SharedBacking>("references"))
+end
+
+export function sharedcompare(block: voidptr, expected: uint64, replacement: uint64): uint64
+    return os.atomiccas64(block, native.fieldOffset<SharedBacking>("references"), expected, replacement)
+end
+
+-- Caller won references 1 -> 0 and alone owns the terminal operation.
+-- Validation refusal has not attempted unmap. A consumed failed unmap stays
+-- mapped, with its actual status retained externally; it must not be retried.
+export function releaseshared(statusScope: voidptr, block: voidptr): uint64
+    if not sharedscopevalid(statusScope, block) or sharedreferences(block) ~= 0ULL then
+        return 0ULL
+    end
+    local mapped = native.load64(block, native.fieldOffset<SharedBacking>("mapped"))
+    if os.atomiccas64(
+        block,
+        native.fieldOffset<SharedBacking>("phase"),
+        SHARED_LIVE,
+        SHARED_CONSUMED
+    ) ~= SHARED_LIVE then
+        return 0ULL
+    end
+    native.store64(statusScope, native.fieldOffset<Scope>("status"), MAXIMUM)
+    os.unmapPages(block, mapped)
+    if native.load64(statusScope, native.fieldOffset<Scope>("status")) ~= 0ULL then
+        native.store64(block, native.fieldOffset<SharedBacking>("phase"), SHARED_FAILED)
+        return 0ULL
+    end
+
+    return 1ULL
 end
 
 -- All pointer parameters are borrowed mapped extents, not integer-address

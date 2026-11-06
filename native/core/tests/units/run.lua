@@ -183,6 +183,44 @@ local UNITS = {
 }
 
 UNITS[#UNITS + 1] = {
+    name = "sharedbackingunits",
+    modules = {"sharedbackingunits", "unitentry"},
+    entries = {{"sharedbackingunits", "basics", 1}, {"sharedbackingunits", "refusals", 0}},
+    cases = function()
+        return {{"basics", {0}, 127}, {"basics", {1}, 127}, {"basics", {257}, 127}, {"refusals", {}, 1023}}
+    end
+}
+
+UNITS[#UNITS + 1] = {
+    name = "sharedbackingscope",
+    modules = {"sharedbackingunits", "unitentry"},
+    entries = {{"sharedbackingunits", "scopelifetime", 1}},
+    sharedhandoff = true,
+    cases = function()
+        return {{"scopelifetime", {0}, 4095}}
+    end
+}
+
+UNITS[#UNITS + 1] = {
+    name = "sharedbackingfault",
+    modules = {"sharedbackingunits", "unitentry"},
+    entries = {{"sharedbackingunits", "terminalfailure", 0}, {"sharedbackingunits", "constructorrefusal", 0}},
+    -- Only the cfg(test) bridge seam executes this emitted bundle.
+    cases = function()
+        return {}
+    end
+}
+
+UNITS[#UNITS + 1] = {
+    name = "atomicunits",
+    modules = {"atomicunits", "unitentry"},
+    entries = {{"atomicunits", "operations", 1}},
+    cases = function()
+        return {{"operations", {0}, 63}, {"operations", {1}, 63}, {"operations", {-1}, 63}}
+    end
+}
+
+UNITS[#UNITS + 1] = {
     name = "arithunits",
     modules = {"arithunits", "unitentry"},
     entries = {{"arithunits", "floorDiv", 2}, {"arithunits", "floorMod", 2}},
@@ -935,7 +973,8 @@ for _, unit in ipairs(UNITS) do
                 entries,
                 mode,
                 ROOT .. "/build/core-unit-cache",
-                unit.observeLanding
+                unit.observeLanding,
+                unit.sharedhandoff
             )
             if ok then
                 break

@@ -1,0 +1,37 @@
+module atomicunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const os = require("nupp.runtime.vm.os")
+
+const FIRST: uint64 = 7ULL
+const SECOND: uint64 = 11ULL
+const WORD_BYTES: int64 = 8
+const EXTENT: uint64 = 16ULL
+
+local function bit(ok: boolean, value: uint64): uint64
+    if ok then
+        return value
+    end
+
+    return 0ULL
+end
+
+-- A caller-owned aligned mapped extent stays live through all raw operations.
+export function operations(replacement: uint64): uint64
+    local base = os.mapPages(EXTENT)
+    if base == nil then
+        error("atomic units: allocation refused")
+    end
+    @unsafe do
+        native.store64(base, 0, FIRST)
+        native.store64(base, WORD_BYTES, SECOND)
+        local answer = bit(os.atomicload64(base, 0) == FIRST, 1ULL)
+        answer = answer | bit(os.atomiccas64(base, WORD_BYTES, 0ULL, replacement) == SECOND, 2ULL)
+        answer = answer | bit(os.atomicload64(base, WORD_BYTES) == SECOND, 4ULL)
+        answer = answer | bit(os.atomiccas64(base, WORD_BYTES, SECOND, replacement) == SECOND, 8ULL)
+        answer = answer | bit(os.atomicload64(base, WORD_BYTES) == replacement, 16ULL)
+        answer = answer | bit(os.atomicload64(base, 0) == FIRST, 32ULL)
+
+        return answer
+    end
+end

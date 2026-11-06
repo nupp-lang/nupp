@@ -1,0 +1,190 @@
+module sharedbackingunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const os = require("nupp.runtime.vm.os")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const pages = require("nupp.runtime.core.pagemappings")
+const shared = require("nupp.runtime.core.sharedbacking")
+
+const ARENA_BYTES: uint64 = 1048576ULL
+const SAMPLE: uint64 = 0x44332211ULL
+const MAXIMUM: uint64 = 0xffffffffffffffffULL
+const FAULT_CAPACITY: uint64 = 131ULL
+const FAULT_STATUS: uint64 = 22ULL
+const REFUSAL_PAGES: uint64 = 16ULL
+const STATE_FLAGS: int64 = 8
+const STATE_EVENT: int64 = 16
+const STATE_STATUS: int64 = 32
+const SCOPE_PREPARED: uint64 = 1ULL
+const SCOPE_CLOSED: uint64 = 2ULL
+
+local function bit(ok: boolean, value: uint64): uint64
+    if ok then
+        return value
+    end
+
+    return 0ULL
+end
+
+export function basics(capacity: uint64): uint64
+    local out = os.mapPages(native.sizeOf<pages.Scope>())
+    if out == nil then
+        error("shared backing units: status allocation refused")
+    end
+    @unsafe do
+        local block = shared.create(capacity)
+        if block == nil then
+            error("shared backing units: allocation refused")
+        end
+        local answer = bit(shared.capacity(block) == capacity, 1ULL)
+        local data = shared.bytes(block)
+        local zeroed = true
+        local at: uint64 = 0ULL
+        while at < capacity do
+            zeroed = zeroed and native.word(native.load8(data, native.index(at))) == 0ULL
+            at = at + 1ULL
+        end
+        answer = answer | bit(zeroed, 2ULL)
+        answer = answer | bit(shared.retain(block), 4ULL)
+        answer = answer | bit(pages.sharedreferences(block) == 2ULL, 8ULL)
+        answer = answer | bit(shared.release(out, block) == shared.RETAINED, 16ULL)
+        answer = answer | bit(shared.release(out, block) == shared.RELEASED, 32ULL)
+        -- The block is gone; only separately retained status is readable.
+        answer = answer | bit(native.load64(out, native.fieldOffset<pages.Scope>("status")) == 0ULL, 64ULL)
+        return answer
+    end
+end
+
+export function refusals(): uint64
+    local out = os.mapPages(native.sizeOf<pages.Scope>())
+    if out == nil then
+        error("shared backing units: status allocation refused")
+    end
+    @unsafe do
+        local null = native.pointer(0ULL)
+        local answer = bit(shared.create(MAXIMUM) == nil, 1ULL)
+        answer = answer | bit(not shared.retain(null), 2ULL)
+        answer = answer | bit(shared.release(out, null) == shared.INVALID, 4ULL)
+        local block = shared.create(64ULL)
+        if block == nil then
+            error("shared backing units: refusal setup failed")
+        end
+        answer = answer | bit(pages.releaseshared(out, block) == 0ULL and pages.sharedreferences(block) == 1ULL, 8ULL)
+        answer = answer
+            | bit(shared.release(block, block) == shared.INVALID and pages.sharedreferences(block) == 1ULL, 16ULL)
+        -- White-box corruption: refusal must preserve the live allocation.
+        local saved = shared.capacity(block)
+        native.store64(block, native.fieldOffset<pages.SharedBacking>("capacity"), MAXIMUM)
+        answer = answer
+            | bit(shared.release(out, block) == shared.INVALID and pages.sharedreferences(block) == 1ULL, 32ULL)
+        native.store64(block, native.fieldOffset<pages.SharedBacking>("capacity"), saved)
+        answer = answer | bit(pages.sharedcompare(block, 1ULL, MAXIMUM) == 1ULL, 64ULL)
+        answer = answer | bit(not shared.retain(block) and pages.sharedreferences(block) == MAXIMUM, 128ULL)
+        -- The test alone owns the block; restore its injected count before cleanup.
+        answer = answer | bit(pages.sharedcompare(block, MAXIMUM, 1ULL) == MAXIMUM, 256ULL)
+        answer = answer
+            | bit(
+                shared.release(out, block) == shared.RELEASED
+                and native.load64(out, native.fieldOffset<pages.Scope>("status")) == 0ULL,
+                512ULL
+            )
+        return answer
+    end
+end
+
+-- The mechanical unit shim supplies retained bridge scratch, not heap memory.
+export function scopelifetime(state: voidptr): uint64
+    local answer: uint64 = 0ULL
+    do
+        local source = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(source)
+            h.automatic = false
+            local block = shared.create(64ULL)
+            if block == nil then
+                error("shared backing units: lifetime setup failed")
+            end
+            native.storePointer(state, 0, block)
+            native.store64(shared.bytes(block), 0, SAMPLE)
+            answer = answer | bit(shared.retain(block), 1ULL)
+            local out = native.offset(state, STATE_STATUS)
+            answer = answer | bit(shared.release(out, block) == shared.RETAINED, 2ULL)
+            heap.destroy(h)
+            answer = answer | 4ULL
+        end
+    end
+    answer = answer | 8ULL
+    native.store64(state, STATE_FLAGS, answer)
+    native.store64(state, STATE_EVENT, SCOPE_PREPARED)
+
+    return answer
+end
+
+-- Exact nonscoped consumer: the producer's actual unitentry.finish ran first.
+export function afterscope(state: voidptr): uint64
+    local out = native.offset(state, STATE_STATUS)
+    @unsafe do
+        local block = native.loadPointer(state, 0)
+        local answer = native.load64(state, STATE_FLAGS)
+        answer = answer | bit(native.load64(state, STATE_EVENT) == SCOPE_CLOSED, 16ULL)
+        answer = answer | bit(native.load64(shared.bytes(block), 0) == SAMPLE, 32ULL)
+        answer = answer | bit(shared.retain(block), 64ULL)
+        answer = answer | bit(pages.sharedreferences(block) == 2ULL, 128ULL)
+        answer = answer | bit(shared.release(out, block) == shared.RETAINED, 256ULL)
+        answer = answer | bit(shared.capacity(block) == 64ULL, 2048ULL)
+        answer = answer | bit(shared.release(out, block) == shared.RELEASED, 512ULL)
+        answer = answer | bit(native.load64(out, native.fieldOffset<pages.Scope>("status")) == 0ULL, 1024ULL)
+        return answer
+    end
+end
+
+-- Executed only by the cfg(test) bridge, which faults this exact capacity's
+-- terminal unmap, then cleans retained mapping through test transport.
+export function terminalfailure(): uint64
+    local out = os.mapPages(native.sizeOf<pages.Scope>())
+    if out == nil then
+        error("shared backing units: status allocation refused")
+    end
+    @unsafe do
+        local answer: uint64 = 0ULL
+        do
+            local source = arena.open(ARENA_BYTES)
+            local h = heap.create(source)
+            h.automatic = false
+            local block = shared.create(FAULT_CAPACITY)
+            if block == nil then
+                error("shared backing units: fault setup failed")
+            end
+            native.store64(shared.bytes(block), 0, SAMPLE)
+            local result = shared.release(out, block)
+            if result ~= shared.FAILED then
+                heap.destroy(h)
+                return 0ULL
+            end
+            answer = 1ULL
+            -- Failure retains raw mapping, consumed and without active refs.
+            answer = answer | bit(native.load64(out, native.fieldOffset<pages.Scope>("status")) == FAULT_STATUS, 2ULL)
+            answer = answer
+                | bit(
+                    native.load64(block, native.fieldOffset<pages.SharedBacking>("phase")) == pages.SHARED_FAILED,
+                    4ULL
+                )
+            answer = answer
+                | bit(pages.sharedreferences(block) == 0ULL and native.load64(shared.bytes(block), 0) == SAMPLE, 8ULL)
+            answer = answer
+                | bit(
+                    pages.releaseshared(out, block) == 0ULL
+                    and native.load64(out, native.fieldOffset<pages.Scope>("status")) == FAULT_STATUS,
+                    16ULL
+                )
+            heap.destroy(h)
+        end
+        return answer
+    end
+end
+
+-- Only the cfg(test) bridge refuses this constructor's exact mapping extent.
+export function constructorrefusal(): uint64
+    return bit(shared.create(os.pageSize() * REFUSAL_PAGES) == nil, 1ULL)
+end

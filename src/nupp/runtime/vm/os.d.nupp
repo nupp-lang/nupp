@@ -266,5 +266,17 @@ local record Os
     --- `directory` is 1: 0, or the negated error number.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     unlinkEntry: function(fd: uint64, path: voidptr, bytes: uint64, directory: uint64): int64
+
+    -- The standalone core bridge supplies these raw atomics; the frozen VM
+    -- does not. SeqCst access requires a naturally aligned live word.
+    -- The caller owns the
+    -- mapped extent and retains it throughout the operation.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    atomicload64: function(base: voidptr, offset: int64): uint64
+
+    -- SeqCst compare-and-swap; returns the prior word whether it matched or
+    -- not. Alignment and lifetime have the same preconditions as atomicload64.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    atomiccas64: function(base: voidptr, offset: int64, expected: uint64, replacement: uint64): uint64
 end
 return Os
