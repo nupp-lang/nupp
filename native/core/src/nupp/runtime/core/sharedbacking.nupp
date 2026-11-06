@@ -68,3 +68,11 @@ export function release(statusScope: voidptr, block: voidptr): uint64
 
     return INVALID
 end
+
+-- Exact nonescaping bridge for a caller-owned stack status record. The caller
+-- keeps its Scope pointee; only this reviewed formal view is erased.
+export function releaselocal(status: pages.Scope*, block: voidptr): uint64
+    @unsafe do
+        return release(status as voidptr, block)
+    end
+end

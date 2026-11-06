@@ -3572,6 +3572,7 @@ end
 
 local scopedPolicy = {
     ["nupp.runtime.core.corestrings.open"] = {[2] = true},
+    ["nupp.runtime.core.sharedbacking.releaselocal"] = {[1] = true},
     ["nupp.runtime.vm.arena.grow"] = {[1] = true},
     ["nupp.runtime.vm.childwalk.childRun"] = {[3] = true},
     ["nupp.runtime.vm.childwalk.childPairs"] = {[2] = true},

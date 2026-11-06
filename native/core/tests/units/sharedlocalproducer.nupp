@@ -1,0 +1,18 @@
+module sharedlocalproducer
+
+const native = require("nupp.runtime.vm.intrinsics")
+const shared = require("nupp.runtime.core.sharedbacking")
+
+const SAMPLE: uint64 = 0x44332211ULL
+
+-- The transport receives one actual reference from the checked constructor.
+-- Its consumer runs in a separate entry after this producer scope closes.
+export function produce(capacity: uint64): uint64
+    local block = shared.create(capacity)
+    if block == nil then
+        error("shared local status: producer refused")
+    end
+    native.store64(shared.bytes(block), 0, SAMPLE)
+
+    return native.address(block)
+end

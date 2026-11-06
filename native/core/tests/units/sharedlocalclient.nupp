@@ -1,0 +1,59 @@
+module sharedlocalclient
+
+const pages = require("nupp.runtime.core.pagemappings")
+const shared = require("nupp.runtime.core.sharedbacking")
+
+const FAULT_STATUS: uint64 = 22ULL
+
+local struct Other
+    a: uint64
+    b: uint64
+    c: uint64
+    d: uint64
+    e: uint64
+    f: uint64
+    g: uint64
+end
+
+-- Status is live before release can consume a reference. This caller and its
+-- closure allocate nothing: the local record is initialized on the stack.
+export function success(block: voidptr): uint64
+    local status = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local out = status as pages.Scope*
+        if shared.releaselocal(out, block) == shared.RELEASED and out.status == 0ULL then
+            return 1ULL
+        end
+        return 0ULL
+    end
+end
+
+export function failure(block: voidptr): uint64
+    local status = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local out = status as pages.Scope*
+        if shared.releaselocal(out, block) == shared.FAILED and out.status == FAULT_STATUS then
+            return 1ULL
+        end
+        return 0ULL
+    end
+end
+
+export function sticky(block: voidptr): uint64
+    local status = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local out = status as pages.Scope*
+        if shared.releaselocal(out, block) == shared.FAILED and out.status == FAULT_STATUS then
+            error("shared local status: terminal unmap failed")
+        end
+        return 0ULL
+    end
+end
+
+-- A checked unsafe view cannot erase the actual local's nominal pointee.
+export function wrongpointee(block: voidptr): uint64
+    local status = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    @unsafe do
+        return shared.releaselocal((status as Other*) as pages.Scope*, block)
+    end
+end

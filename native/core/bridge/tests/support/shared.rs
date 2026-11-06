@@ -103,3 +103,53 @@ fn failed_shared_unmap_is_consumed_and_status_is_retained() {
         assert_eq!(prefix.add(5).read(), 0x44332211);
     }
 }
+
+#[test]
+#[ignore = "requires exact strict typed-status producer and consumer bundles"]
+fn typed_local_status_preserves_real_failure_and_sticky_error() {
+    let producer = std::path::PathBuf::from(
+        std::env::var_os("CORE_TEST_SHARED_LOCAL_PRODUCER")
+            .expect("CORE_TEST_SHARED_LOCAL_PRODUCER"),
+    );
+    let consumer = std::path::PathBuf::from(
+        std::env::var_os("CORE_TEST_SHARED_LOCAL_CONSUMER")
+            .expect("CORE_TEST_SHARED_LOCAL_CONSUMER"),
+    );
+    for case in 0..3 {
+        ADDRESS.store(0, Ordering::SeqCst);
+        EXTENT.store(0, Ordering::SeqCst);
+        ATTEMPTS.store(0, Ordering::SeqCst);
+        ENABLED.store(false, Ordering::SeqCst);
+        MAP_REFUSAL.store(false, Ordering::SeqCst);
+        let _cleanup = Cleanup;
+        let capacity = if case == 0 { 64 } else { FIXTURE_CAPACITY };
+        // The checked Nupp constructor publishes one actual reference. Its
+        // real producer service scope closes before the distinct consumer.
+        let created = super::execute(&producer, &[0, capacity]).expect("produce reference");
+        assert_eq!(created.len(), 2);
+        assert_eq!(created[1], 0, "producer scope actually closed");
+        assert_ne!(created[0], 0);
+        ENABLED.store(case != 0, Ordering::SeqCst);
+        let result = super::execute(&consumer, &[case, created[0]]).expect("consume reference");
+        ENABLED.store(false, Ordering::SeqCst);
+        if case == 0 {
+            assert_eq!(result, [1, 0], "typed local observed successful C status");
+            assert_eq!(ATTEMPTS.load(Ordering::SeqCst), 0);
+            // Last release succeeded: no field or payload access follows.
+        } else {
+            let expected = if case == 1 { [1, 0] } else { [0, 1] };
+            assert_eq!(result, expected, "actual22 before sticky literal raise");
+            assert_eq!(ATTEMPTS.load(Ordering::SeqCst), 1, "one OS attempt");
+            assert_eq!(ADDRESS.load(Ordering::SeqCst), created[0]);
+            let prefix = created[0] as *const u64;
+            // White-box test transport retains this deliberately failed map.
+            unsafe {
+                assert_eq!(prefix.add(3).read(), FAILED);
+                assert_eq!(prefix.add(4).read(), 0);
+                assert_eq!(prefix.add(5).read(), 0x44332211);
+            }
+        }
+        // Cleanup consumes only the test-retained failed mapping and never
+        // retries the Nupp terminal. It runs before the next producer.
+    }
+}
