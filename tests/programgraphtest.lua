@@ -20,7 +20,7 @@ local function checked(source, name, preparedEnvironment)
         cache = false,
         nativeCompilerServices = false
     })
-    local diagnostics = checker.check(parsed, path, env, {
+    local diagnostics, moduleType = checker.check(parsed, path, env, {
         moduleName = name,
         strict = false,
         lints = {["unused-binding"] = "off"},
@@ -29,7 +29,7 @@ local function checked(source, name, preparedEnvironment)
         assert(diagnostic.severity ~= "error", diagnostic.msg)
     end
 
-    return {name = name, path = path, parsed = parsed, diagnostics = diagnostics}
+    return {name = name, path = path, parsed = parsed, diagnostics = diagnostics, type = moduleType}
 end
 
 local function describe(source)
@@ -1342,6 +1342,140 @@ return matches
         end,
         "record test module expression mismatch"
     )
+end
+
+local function builtinProjectionFixture(source)
+    local dependency = checked(
+        [[
+module nupp.runtime.standardio
+export const Buffer = {create = function(): integer return 73 end}
+export const value: table = {Buffer = Buffer}
+]],
+        "nupp.runtime.standardio"
+    )
+    local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
+    env.loaded[dependency.name] = {type = dependency.type, exports = dependency.parsed.moduleExports}
+    local consumer = checked(source, "builtinprojectionconsumer", env)
+
+    return program.describe({dependency, consumer}, consumer.name), consumer, dependency
+end
+
+function M.checkedBuiltinTablesProjectTheirValueBeforeLegacyLibraryRouting()
+    local p, consumer = builtinProjectionFixture(
+        [[
+local Buffer = io.Buffer
+local whole = io
+local alias = whole
+return Buffer, whole == io, alias
+]]
+    )
+    local projections, eager = 0, 0
+    for _, site in ipairs(p.requires) do
+        if site.builtin then
+            projections = projections + 1
+            test.eq(site.node.kind, "name")
+            test.eq(site.module, "nupp.runtime.standardio")
+            test.eq(site.library, nil)
+            test.eq(site.builtin.definition, site.node.token.definition)
+            test.eq(site.builtin.members[1], "value")
+        elseif site.eager then
+            eager = eager + 1
+        end
+    end
+    test.eq(projections, 3)
+    test.eq(eager, 1)
+    test.eq(#p.externals, 0)
+    local compiled = program.compile(p, tagged.forVersion(8))
+    local g = compiled.graphs[p.entry + 1]
+    test.eq(#operations(g, "Require"), 4)
+    test.eq(#operations(g, "GetIdx"), 4)
+    assert(require("nupp.compiler.vm.coregraphcontracts").normalize(compiled, 8))
+    refuses(
+        function()
+            program.describe({consumer}, consumer.name)
+        end,
+        "projection module is missing"
+    )
+end
+
+function M.checkedBuiltinProjectionRevalidatesItsExactPreludeAnchors()
+    local p = builtinProjectionFixture("return io")
+    local site
+    for _, candidate in ipairs(p.requires) do
+        if candidate.builtin then
+            site = candidate
+        end
+    end
+    assert(site)
+    local node, token = site.node, site.node.token
+
+    local function mutation(object, key, value, expected)
+        local previous = object[key]
+        object[key] = value
+        local ok, problem = pcall(program.verify, p)
+        object[key] = previous
+        test.eq(ok, false)
+        assert(tostring(problem):find(expected or "checked builtin projection", 1, true), tostring(problem))
+        assert(program.verify(p))
+    end
+
+    mutation(node, "standardRoot", "os")
+    mutation(node, "qualifiedModule", "nupp.runtime.standardos")
+    mutation(node, "qualifiedMembers", {"functions", "io"})
+    local clone = {}
+    for key, value in pairs(token) do
+        clone[key] = value
+    end
+    mutation(node, "token", clone)
+    clone = {}
+    for key, value in pairs(token.definition) do
+        clone[key] = value
+    end
+    mutation(token, "definition", clone)
+    clone = {}
+    for key, value in pairs(token.definition.token) do
+        clone[key] = value
+    end
+    mutation(token.definition, "token", clone)
+    mutation(site.builtin.members, 1, "functions")
+    mutation(site, "builtin", nil, "qualified path lacks its checked module")
+end
+
+function M.checkedBuiltinProjectionCannotReplaceAShadowedLocal()
+    local input = checked("local io = {answer = 42}\nreturn io")
+    local name = input.parsed.root.blocks[1].stats[2].exprs[1]
+    name.qualifiedModule, name.qualifiedMembers = "nupp.runtime.standardio", {"value"}
+    local p = program.describe({input}, input.name)
+    test.eq(#p.requires, 0)
+    test.eq(#p.references, 1)
+    test.eq(p.bindings[p.references[1].binding + 1].definition, name.token.definition)
+    assert(program.compile(p, tagged.forVersion(8)))
+    name.standardRoot = "io"
+    refuses(
+        function()
+            program.describe({input}, input.name)
+        end,
+        "prelude declaration"
+    )
+end
+
+function M.legacyBuiltinValuesAndCoreCallsKeepTheirOriginalRoutes()
+    local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
+    env.bootstrapping = true
+    local consumer = checked("return io, os", "legacybuiltinconsumer", env)
+    local ioModule = checked("module nupp.runtime.luaio\nexport const functions = {io = {}}", "nupp.runtime.luaio")
+    local osModule = checked("module nupp.runtime.luaos\nexport const functions = {os = {}}", "nupp.runtime.luaos")
+    local p = program.describe({ioModule, osModule, consumer}, consumer.name)
+    test.eq(#p.requires, 2)
+    test.eq(p.requires[1].library, "io")
+    test.eq(p.requires[2].library, "os")
+    assert(program.compile(p, tagged.forVersion(8)))
+    local call = checked('os.getenv("PATH")', "legacycorecallconsumer")
+    p = program.describe({call}, call.name)
+    test.eq(#p.requires, 0)
+    test.eq(#p.externals, 0)
+    local g = program.compile(p, tagged.forVersion(8)).graphs[1]
+    test.eq(#operations(g, "LibCall"), 1)
 end
 
 function M.foreignDefaultsIssueOneAnchoredRequirePerCheckedMember()

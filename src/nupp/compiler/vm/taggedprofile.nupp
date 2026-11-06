@@ -26,7 +26,7 @@ local invokeMethod = taggedcalls.invokeMethod
 local invokeProtected = taggedcalls.invokeProtected
 local landed = taggedvalues.landed
 local libraryCall = taggedcalls.libraryCall
-local libraryValue = taggedvalues.libraryValue
+local qualifiedvalue = taggedvalues.qualifiedvalue
 local librarypack = taggedcalls.librarypack
 local need = taggedvalues.need
 local numericFor = taggedstatements.numericFor
@@ -127,7 +127,7 @@ function tagged.valueLiteral(ctx: any, node: any, expected: string?): integer
 end
 
 function tagged.constant(ctx: any, node: any, expected: string?): integer
-    local value = libraryValue(ctx, node)
+    local value = qualifiedvalue(ctx, node)
     if value ~= nil then
         return value
     end
@@ -564,19 +564,9 @@ function tagged.forVersion(version: integer): any
         profile.fieldRead = function(ctx: any, node: any, expected: string?): integer
             -- A declared module's qualified path: the module, as a require
             -- answers it, then the members the path names in it.
-            local library = libraryValue(ctx, node)
+            local library = qualifiedvalue(ctx, node)
             if library ~= nil then
                 return library
-            end
-            local site = catalog(ctx).requireByNode[node]
-            if site and site.qualified then
-                need(site.owner == ctx.fn.id, "foreign qualified path")
-                local value = ctx.emit(node, "Require", {pool(ctx, "str", site.module)}, "tagged")
-                for _, member in ipairs(node.qualifiedMembers or {}) do
-                    local key = ctx.emit(node, "K", {pool(ctx, "str", member)}, "tagged")
-                    value = ctx.emit(node, "GetIdx", {value, key}, "tagged")
-                end
-                return value as integer
             end
             -- math.huge, math.pi, math.maxinteger and math.mininteger fold.
             local libraryField = graph.coreLibraryField(node)

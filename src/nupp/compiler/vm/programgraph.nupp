@@ -4,6 +4,7 @@ local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
 local graph = require("nupp.compiler.vm.graph")
 local construction = require("nupp.compiler.vm.construction")
+local builtinextensions = require("nupp.compiler.builtinextensions")
 local taggedvalues = require("nupp.compiler.vm.taggedvalues")
 local opcodes = require("nupp.compiler.vm.opcodes")
 local graphimage = require("nupp.compiler.vm.graphimage")
@@ -70,6 +71,50 @@ end
 local function need(ok: any, message: string): any
     assert(ok, "program graph: " .. message)
     return ok
+end
+
+-- A checked builtin table read selects the extension's shared host table.
+-- The declaration anchors distinguish it from an authored local of that name.
+function program.builtinprojection(node: any): any
+    if node.kind ~= "name" or node.standardRoot == nil then
+        return nil
+    end
+    local root = node.standardRoot
+    need(type(root) == "string" and builtinextensions.has(root), "invalid checked builtin root")
+    local module = builtinextensions.installer(root, nil)
+    -- Direct roots such as assert and warn retain their library routing.
+    if module == nil then
+        return nil
+    end
+    local token = node.token
+    local definition = token and token.definition
+    need(
+        token
+        and token.text == root
+        and definition
+        and definition.filename == "nupp:lua.d.nupp"
+        and definition.name == root
+        and definition.token
+        and definition.token.text == root,
+        "checked builtin projection lacks its prelude declaration"
+    )
+    need(
+        node.namespacePath == root
+        and node.qualifiedModule == module
+        and type(node.qualifiedMembers) == "table"
+        and #node.qualifiedMembers == 1
+        and node.qualifiedMembers[1] == "value",
+        "checked builtin projection differs from its extension"
+    )
+
+    return {
+        root = root,
+        module = module,
+        token = token,
+        definition = definition,
+        declaration = definition.token,
+        members = {"value"}
+    }
 end
 
 -- Whether the core runs ownership intrinsic call `node`.
@@ -692,10 +737,47 @@ function program.describe(modules: {any}, entryModule: string): any
                 }
             end
         end
-        -- A library function taken as a value: the function the image's
-        -- `nupp.runtime.libraryvalues` carries under its name (`io`, the one
-        -- `nupp.runtime.luaio` carries), read through a require of that
-        -- module.
+        -- Checked builtin projections take precedence over legacy library
+        -- tables. Ordinary qualified paths keep their unbound/module roots.
+        local projection = program.builtinprojection(node)
+        local qualified = (projection or node.kind == "dotIndex")
+            and node.qualifiedModule
+            and moduleNames[node.qualifiedModule]
+        if projection then
+            need(qualified, "checked builtin projection module is missing: " .. projection.module)
+        end
+        if qualified then
+            local root = node
+            while root and root.kind == "dotIndex" do
+                root = root.obj
+            end
+            local rootDefinition = root and root.kind == "name" and root.token and root.token.definition
+            if root
+                and root.kind == "name"
+                and (projection or rootDefinition == nil or rootDefinition.kind == "module")
+            then
+                local item = {
+                    id = #p.requires,
+                    owner = owner.id,
+                    node = node,
+                    module = node.qualifiedModule,
+                    typeOnly = false,
+                    target = qualified.chunk,
+                    qualified = true,
+                    builtin = projection
+                }
+                p.requires[#p.requires + 1], p.requireByNode[node] = item, item
+                local seen = loaded[currentChunk] or {}
+                loaded[currentChunk] = seen
+                if not seen[node.qualifiedModule] then
+                    seen[node.qualifiedModule] = true
+                    eagerLoad(currentChunk, qualified, root.token, false)
+                end
+                return
+            end
+        end
+        -- Plain Lua library values retain their legacy implementation when
+        -- the checker supplied no extension projection for this read.
         local libraryValue = graph.libraryValue(node)
         local valuesModule = libraryValue and graph.libraryModule(libraryValue)
         local values = valuesModule and moduleNames[valuesModule]
@@ -712,36 +794,6 @@ function program.describe(modules: {any}, entryModule: string): any
             }
             p.requires[#p.requires + 1], p.requireByNode[node] = item, item
             return
-        end
-        -- A declared module's qualified path (`m.sub.f`) whose root no binding
-        -- holds: a hidden require of m, which the chunk loads as it starts and
-        -- the path reads, never a reference to its root name.
-        local qualified = node.kind == "dotIndex" and node.qualifiedModule and moduleNames[node.qualifiedModule]
-        if qualified then
-            local root = node.obj
-            while root and root.kind == "dotIndex" do
-                root = root.obj
-            end
-            local rootDefinition = root and root.kind == "name" and root.token and root.token.definition
-            if root and root.kind == "name" and (rootDefinition == nil or rootDefinition.kind == "module") then
-                local item = {
-                    id = #p.requires,
-                    owner = owner.id,
-                    node = node,
-                    module = node.qualifiedModule,
-                    typeOnly = false,
-                    target = qualified.chunk,
-                    qualified = true
-                }
-                p.requires[#p.requires + 1], p.requireByNode[node] = item, item
-                local seen = loaded[currentChunk] or {}
-                loaded[currentChunk] = seen
-                if not seen[node.qualifiedModule] then
-                    seen[node.qualifiedModule] = true
-                    eagerLoad(currentChunk, qualified, root.token, false)
-                end
-                return
-            end
         end
         -- `for i, v in ipairs(t)` and `pairs(t)` are loop forms the profile lowers
         -- itself: the iterator is never called, so it is neither a reference nor a
@@ -1202,10 +1254,31 @@ function program.verify(p: any): boolean
         local node = item.node
         need(item.id == index - 1 and p.owners[item.owner + 1], "invalid require callsite owner")
         if item.qualified then
+            if item.builtin then
+                local current = program.builtinprojection(node)
+                local original = item.builtin
+                need(
+                    current
+                    and current.root == original.root
+                    and current.module == item.module
+                    and current.module == original.module
+                    and current.token == original.token
+                    and current.definition == original.definition
+                    and current.declaration == original.declaration
+                    and #original.members == 1
+                    and original.members[1] == "value"
+                    and item.library == nil,
+                    "checked builtin projection anchors changed"
+                )
+            end
             need(
                 (
                     item.library ~= nil and (node.kind == "name" or node.kind == "dotIndex")
-                    or (node.kind == "dotIndex" or item.eager and node.kind == "qualifiedLoad")
+                    or (
+                        node.kind == "dotIndex"
+                        or item.builtin and node.kind == "name"
+                        or item.eager and node.kind == "qualifiedLoad"
+                    )
                     and node.qualifiedModule == item.module
                 )
                 and not requireNodes[node],

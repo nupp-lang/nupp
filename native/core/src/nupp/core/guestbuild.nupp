@@ -539,7 +539,10 @@ local function requiredmodules(root: any, source: string): ({string}, {[string]:
         end
         -- A qualified path loads its module only where it is a value; one
         -- naming a type (`io.Writer`) loads nothing, as the graph sees it.
-        if node.kind == "dotIndex" and type(node.qualifiedModule) == "string" then
+        local projection = program.builtinprojection(node)
+        if projection then
+            found[#found + 1] = projection.module
+        elseif node.kind == "dotIndex" and type(node.qualifiedModule) == "string" then
             found[#found + 1] = node.qualifiedModule
         end
         for _, child in ipairs(node) do

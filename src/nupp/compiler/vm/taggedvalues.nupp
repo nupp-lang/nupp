@@ -143,20 +143,34 @@ export function pool(ctx: any, kind: string, value: any): integer
     return index
 end
 
--- A library function taken as a value: `nupp.runtime.libraryvalues`'s
--- function under its name, the module required as any is.
+-- A qualified read follows its admitted module path. Legacy library values
+-- are the same projection through the module's functions table.
+export function qualifiedvalue(ctx: any, node: any): integer?
+    local site = catalog(ctx).requireByNode[node]
+    if not site or not site.qualified then
+        return nil
+    end
+    need(site.owner == ctx.fn.id, "foreign qualified value")
+    local members = site.library and {"functions", site.library}
+        or site.builtin and site.builtin.members
+        or node.qualifiedMembers
+        or {}
+    local value = ctx.emit(node, "Require", {pool(ctx, "str", site.module)}, "tagged")
+    for _, member in ipairs(members) do
+        local key = ctx.emit(node, "K", {pool(ctx, "str", member)}, "tagged")
+        value = ctx.emit(node, "GetIdx", {value, key}, "tagged")
+    end
+
+    return value
+end
+
 export function libraryValue(ctx: any, node: any): integer?
     local site = catalog(ctx).requireByNode[node]
     if not site or not site.library then
         return nil
     end
-    need(site.owner == ctx.fn.id, "foreign library value")
-    local loaded = ctx.emit(node, "Require", {pool(ctx, "str", site.module)}, "tagged")
-    local functionsKey = ctx.emit(node, "K", {pool(ctx, "str", "functions")}, "tagged")
-    local functions = ctx.emit(node, "GetIdx", {loaded, functionsKey}, "tagged")
-    local key = ctx.emit(node, "K", {pool(ctx, "str", site.library)}, "tagged")
 
-    return ctx.emit(node, "GetIdx", {functions, key}, "tagged")
+    return qualifiedvalue(ctx, node)
 end
 
 -- Ownership qualifiers (affine, borrowed, pinned) wrap the type a value
