@@ -169,9 +169,9 @@ function M.hostAndVmBindingsSelectTheTargetImplementationOnce()
             binding = "nupp.runtime.bindings.files",
             native = "nupp.runtime.provider.nativefiles",
             browser = "nupp.runtime.browser.files",
-            member = "capabilities",
-            -- `fscaps` remembers the provider's answer rather than re-exporting it.
-            exported = "fscaps",
+            member = "exists",
+            -- The facade answers the provider through its own error shape rather
+            -- than re-exporting it.
             wrapped = true
         },
         {

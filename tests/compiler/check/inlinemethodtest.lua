@@ -414,7 +414,7 @@ end
 end
 
 function M.appliedGenericInterfacesKeepTheirRuntimeDefaults()
-    local value, code = runs(
+    local value = runs(
         [[
 local interface Accessor<T>
     value: T
@@ -440,12 +440,9 @@ return text:get() .. ":" .. Replaced(value = "x"):get() .. ":" .. tostring(numbe
 ]],
         "generic interface defaults"
     )
+    -- The program is an image on the VM, with no generated Lua to read the
+    -- attachments from; the answers are what show the inherited bodies ran.
     testAssert.eq(value, "ok:override:7")
-    assert(
-        code:find("Forward.get = Accessor.get", 1, true),
-        "generic interface did not retain its parent implementation"
-    )
-    assert(code:find("Holder.get = Forward.get", 1, true), "generic record did not attach the inherited body directly")
 end
 
 return M
