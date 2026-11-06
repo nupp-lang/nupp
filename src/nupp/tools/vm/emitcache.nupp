@@ -50,6 +50,7 @@ local fingerprint = require("nupp.compiler.project.fingerprint")
 local envMod = require("nupp.compiler.project.env")
 local checkMod = require("nupp.compiler.check")
 local interfaceimage = require("nupp.compiler.project.interfaceimage")
+local emitprofile = require("nupp.tools.vm.emitprofile")
 local T = require("nupp.compiler.types")
 
 local emitcache = {}
@@ -274,9 +275,13 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
         kept = 0,
         unkept = 0,
         forced = 0,
+        adopted = 0,
     }
     self.stats = stats
     emitcache.last = self
+    -- Where the time goes, when NUPP_VM_EMIT_PROFILE asks (`nupp.tools.vm.emitprofile`).
+    local profile: any = emitprofile.open()
+    self.profile = profile
 
     local configText: {string} = {}
     canonical(config, configText, nil, 8)
@@ -403,6 +408,11 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
             if record == nil and type(name) == "string" and restore(name as string) then
                 record = loadedBacking[name]
             end
+            -- A check that saw another module half checked (a require cycle) saw
+            -- less than a later check of the same module would.
+            if frame and name ~= frame.name and type(record) == "table" and (record as any).inProgress then
+                frame.partial = true
+            end
 
             return record
         end,
@@ -487,17 +497,37 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
             reads = {},
         }
         frames[#frames + 1] = frame
+        local timed = profile and profile.enter(frame.environment and "environment check" or "lowering check", frame.name)
         local ok, diags, moduleType, exports, extra = pcall(original, parsed, path, checkEnv, opts)
         frames[#frames] = nil
+        if timed then
+            profile.leave(timed)
+        end
         if not ok then
             error(diags, 0)
         end
         if frame.environment then
             stats.checked = stats.checked + 1
+            local encoding = profile and profile.enter("interface encoding", frame.name)
             frame.iface, frame.image = interfaceOf(frame.name, path, moduleType, exports)
+            if encoding then
+                profile.leave(encoding)
+            end
             checked[frame.name] = frame
         else
             lowered[frame.name] = frame
+            -- An environment check inside a require cycle saw a member half
+            -- checked, so the interface it recorded is not the one a check that
+            -- finds them all complete, as the next emit's will, records. This
+            -- check is made once they are.
+            local partial = checked[frame.name]
+            if partial and partial.partial then
+                local encoding = profile and profile.enter("interface encoding", frame.name)
+                partial.iface, partial.image = interfaceOf(frame.name, path, moduleType, exports)
+                if encoding then
+                    profile.leave(encoding)
+                end
+            end
         end
 
         return diags, moduleType, exports, extra
@@ -782,7 +812,7 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
         return kept.fragment
     end
 
-    function reuse.keep(name: string, fragment: any): nil
+    local function keepFragment(name: string, fragment: any): nil
         local frame = lowered[name]
         local path = frame and frame.path or (carried and carried[name] and "=(" .. name .. ")") or nil
         if not path then
@@ -823,6 +853,44 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
             fragment = fragment,
         })
         kept.save()
+    end
+
+    function reuse.keep(name: string, fragment: any): nil
+        local timed = profile and profile.enter("keeping fragments", name)
+        keepFragment(name, fragment)
+        if timed then
+            profile.leave(timed)
+        end
+    end
+
+    --- The tree the environment's check of `name` left, when lowering may read it
+    --- rather than check the module a second time, or nil.
+    ---
+    --- Lowering reads a checked tree, and the environment already checked every
+    --- module it loaded: half of a cold emit's time was the same checks made
+    --- again. A tree is handed over only from a complete check of these same
+    --- bytes that saw nothing half checked, which is the tree a second check would
+    --- produce; the environment's check then stands as the one lowering read.
+    function self.checkedTree(name: string, path: string): any
+        local frame = checked[name]
+        if not frame or frame.partial or lowered[name] then
+            return nil
+        end
+        local record: any = env.loadedPaths[frame.path]
+        local result: any = type(record) == "table" and not record.inProgress and record.result or nil
+        if not result or type(result.root) ~= "table" or record.source ~= fs.readFile(path) then
+            return nil
+        end
+        for _, d in ipairs(record.compatDiagnostics or {}) do
+            if d.severity == "error" or not d.severity then
+                return nil
+            end
+        end
+        lowered[name] = frame
+        stats.adopted = stats.adopted + 1
+        result.root.vmModuleExports = result.moduleExports
+
+        return result.root
     end
 
     --- Runs `check` as the check of `name` that lowering will read.

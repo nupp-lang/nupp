@@ -275,6 +275,11 @@ local function emitProject(
         end,
         function(name: string, path: string): table
             if cache then
+                -- What the environment already checked is not checked again.
+                local adopted = not (carried and carried[name]) and cache.checkedTree(name, path) or nil
+                if adopted then
+                    return adopted
+                end
                 return cache.lowering(name, function(): any
                     return checked(name, path)
                 end)
@@ -311,10 +316,13 @@ local function emitProject(
     end
     if cache then
         cache.close(cache.reuse.stats)
+        if cache.profile then
+            cache.profile.report()
+        end
         local stats = cache.stats
         io.stderr:write(
             (
-                "vm emit: %d %s lowered, %d replayed (%d refused); %d checked, %d restored; %ds\n"
+                "vm emit: %d %s lowered, %d replayed (%d refused); %d checked, %d restored, %d checked once; %ds\n"
             ):format(
                 stats.lowered,
                 stats.lowered == 1 and "module" or "modules",
@@ -322,6 +330,7 @@ local function emitProject(
                 stats.rejected,
                 stats.checked,
                 stats.restored,
+                stats.adopted,
                 os.time() - started
             )
         )

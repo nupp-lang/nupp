@@ -1,0 +1,87 @@
+module nupp.tools.vm.emitprofile
+
+--[[
+Where a VM image emit's time goes, when `NUPP_VM_EMIT_PROFILE` asks.
+
+Every check an emit makes is bracketed by `nupp.tools.vm.emitcache`, and each
+bracket is timed here exclusive of the brackets inside it: a check that loads
+another module pays for its own work, and the module it loaded pays for its
+own. What is left of the emit's processor time is lowering and linking. The
+report names the kinds of work, then the modules that cost the most.
+]]
+
+local emitprofile = {}
+
+--- The variable that asks for a report.
+const VARIABLE = "NUPP_VM_EMIT_PROFILE"
+
+--- How many of the costliest modules the report names.
+const SHOWN = 25
+
+--- A profile of one emit, or nil when nobody asked for one.
+function emitprofile.open(): any
+    if os.getenv(VARIABLE) == nil then
+        return nil
+    end
+    local self: any = {}
+    local kinds: {[string]: number} = {}
+    local modules: {[string]: number} = {}
+    local stack: {any} = {}
+    local opened = os.clock()
+
+    --- Starts timing `kind` work on `name`; `leave` the answer when it is done.
+    function self.enter(kind: string, name: string): any
+        local mark = {kind = kind, name = name, started = os.clock(), inner = 0}
+        stack[#stack + 1] = mark
+
+        return mark
+    end
+
+    function self.leave(mark: any): nil
+        while #stack > 0 and stack[#stack] ~= mark do
+            stack[#stack] = nil
+        end
+        stack[#stack] = nil
+        local elapsed = os.clock() - mark.started
+        local own = elapsed - mark.inner
+        kinds[mark.kind] = (kinds[mark.kind] or 0) + own
+        local key = mark.kind .. " " .. mark.name
+        modules[key] = (modules[key] or 0) + own
+        local outer = stack[#stack]
+        if outer then
+            outer.inner = outer.inner + elapsed
+        end
+    end
+
+    --- Writes the report to standard error.
+    function self.report(): nil
+        local total = os.clock() - opened
+        local accounted = 0
+        local names: {string} = {}
+        for kind, seconds in pairs(kinds) do
+            names[#names + 1] = kind
+            accounted = accounted + seconds
+        end
+        table.sort(names)
+        local out = io.stderr
+        out:write(("emit profile: %.1fs of processor time\n"):format(total))
+        for _, kind in ipairs(names) do
+            out:write(("  %-24s %8.1fs\n"):format(kind, kinds[kind] or 0))
+        end
+        out:write(("  %-24s %8.1fs\n"):format("lowering and linking", total - accounted))
+        local costly: {string} = {}
+        for key in pairs(modules) do
+            costly[#costly + 1] = key
+        end
+        table.sort(costly, function(left: string, right: string): boolean
+            return (modules[left] or 0) > (modules[right] or 0)
+        end)
+        for index = 1, math.min(SHOWN, #costly) do
+            out:write(("  %8.2fs  %s\n"):format(modules[costly[index]] or 0, costly[index]))
+        end
+    end
+
+    return self
+end
+
+export = emitprofile
