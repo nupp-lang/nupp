@@ -6,7 +6,7 @@ local typesName = "io.internal.bytestypes"
 local priorTypes
 local nativeName = "nupp.mem.sharedbytes.native"
 local priorModule, priorNative, priorRegionMetatable, bytes
-local released = {}
+local nativeBridge
 
 function M.beforeAll()
     local nextIdentity = 0
@@ -16,7 +16,7 @@ function M.beforeAll()
     priorRegionMetatable = rawget(nupp, "__regionMetatable")
     package.loaded[moduleName] = nil
     package.loaded[typesName] = nil
-    package.loaded[nativeName] = {
+    nativeBridge = {
         fromString = function(text)
             nextIdentity = nextIdentity + 1
             local pointer = ffi.new("uint8_t[?]", math.max(#text, 1))
@@ -35,28 +35,11 @@ function M.beforeAll()
         length = function()
             return 0
         end,
-        builderNew = function()
-            return {}
-        end,
-        builderAppend = function()
-            return true
-        end,
-        builderReserve = function()
-            return 1
-        end,
-        builderCommit = function()
-            return true
-        end,
-        builderFreeze = function()
-            return {}, 0
-        end,
-        builderRelease = function(handle)
-            released[#released + 1] = handle
-        end,
         accounted = function()
             return 0
         end,
     }
+    package.loaded[nativeName] = nativeBridge
     bytes = require(moduleName).Bytes
 end
 
@@ -82,18 +65,33 @@ local function checked(source)
     end
 end
 
-function M.publicFactoriesAndBuilderUseTheCanonicalBytesType()
+function M.publicFactoriesAndIOUseTheCanonicalBytesType()
     checked(
         [[
-local function freeze(takes builder: io.Bytes.Builder): io.Bytes
-    return builder:freeze()
+local http = require("io.http")
+local function freeze(takes buffer: io.Buffer): io.Bytes
+    return buffer:freeze()
+end
+local function reader(): io.Reader
+    local region = io.Bytes.copy("payload")
+    return io.Reader.of(region)
+end
+local function request(region: io.Bytes): http.Request
+    return http.Request(url = assert(io.URI.of("https://example.com")), body = region)
 end
 const copy: function(string): io.Bytes = io.Bytes.copy
 const readfile: function(string): (io.Bytes?, string?) = io.Bytes.readfile
-const Builder: Type<io.Bytes.Builder> = io.Bytes.Builder
-return freeze, copy, readfile, Builder
+return freeze, reader, request, copy, readfile
 ]]
     )
+end
+
+function M.theRetiredBuilderIsUnavailable()
+    local refused = false
+    for _, diagnostic in ipairs(diagnostics("return io.Bytes.Builder()")) do
+        refused = refused or diagnostic.severity == "error"
+    end
+    assert(refused and bytes.Builder == nil, "io.Buffer replaces the public byte builder")
 end
 
 function M.applicationImportsCannotReachThePrivateBytesImplementation()
@@ -121,27 +119,57 @@ function M.emptyRegionsKeepEngineBlockIdentity()
     assert(first == first:slice(0, 0))
 end
 
-function M.builderCountsRemainExactAtThePublicBoundary()
-    local reserve = bytes.Builder()
-    assert(
-        not pcall(function()
-            reserve:reserve(1.5)
-        end)
+local function isolatedIO()
+    local load = require(
+        "helpers.providerstate"
+    ).instance(
+        {[typesName] = true, [moduleName] = true, ["nupp.io.internal.bytes"] = true,},
+        {[nativeName] = nativeBridge},
+        nil,
+        {nupp = {}}
     )
-    local commit = bytes.Builder()
-    assert(
-        not pcall(function()
-            commit:commit(1.5)
-        end)
-    )
+
+    return load("nupp.io.internal.bytes"), load(typesName).Bytes
 end
 
-function M.droppingAnUnfrozenBuilderReleasesItsStorageAtOnce()
-    local builder = bytes.Builder()
-    local handle = builder._handle
-    local before = #released
-    builder:drop()
-    assert(#released == before + 1 and released[#released] == handle)
+function M.freezingConsumesOnlyTheUnreadBytes()
+    local ioBytes = isolatedIO()
+    local buffer = ioBytes.newBuffer("skip\0payload")
+    buffer:skip(4)
+    local region = buffer:freeze()
+    assert(region:tostring() == "\0payload")
+    assert(buffer:isreleased(), "freezing spends the mutable buffer")
+    assert(not pcall(buffer.put, buffer, "late"))
+end
+
+function M.aRegionReaderRetainsItsSourceAndCopiesDirectlyIntoBuffers()
+    local ioBytes, Bytes = isolatedIO()
+    local weak = setmetatable({}, {__mode = "v"})
+
+    local function makeReader()
+        local region = Bytes.copy("abc\0def"):slice(1, 5)
+        weak[1] = region
+        region.tostring = function()
+            error("reading a region must not snapshot it as a string")
+        end
+
+        return ioBytes.newReader(region)
+    end
+
+    local reader = makeReader()
+    collectgarbage("collect")
+    assert(weak[1] ~= nil, "the reader retains the region")
+    assert(ioBytes.readerRemaining(reader) == 5)
+    assert(reader:read(2) == "bc")
+    local target = ioBytes.newBuffer("prefix:")
+    assert(reader:readinto(target, 7, 3) == 3)
+    assert(target:tostring() == "prefix:\0de")
+    assert(reader:read(1) == "", "the sliced extent sets EOF")
+    reader:close()
+    collectgarbage("collect")
+    assert(weak[1] == nil, "closing the reader drops its retained region")
+    assert(reader:read(1) == nil)
+    target:close()
 end
 
 function M.aNanOrFractionalBoundIsRefused()
@@ -209,7 +237,7 @@ function M.loadingThePublicBytesTypeDoesNotInitializeTheEngine()
     )
     local public = load("nupp.runtime.standardio").Bytes
     assert(public == load(typesName).Bytes, "io exposes the canonical bytes record")
-    assert(type(public.copy) == "function" and type(public.Builder) == "table")
+    assert(type(public.copy) == "function" and public.Builder == nil)
     assert(attempts == 0, "loading io.Bytes must not load its native bridge")
 end
 

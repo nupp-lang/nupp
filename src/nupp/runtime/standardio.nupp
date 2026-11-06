@@ -56,9 +56,9 @@ local immutable = require("io.internal.bytestypes")
 --- Slices retain the same allocation. Positions are zero-based byte offsets; `view` and
 --- `viewas` borrow storage, while `tostring` copies it into a Lua string. `copy`
 --- creates bytes from a string and `readfile` reads directly into storage.
---- `Bytes.Builder()` creates an owned `Bytes.Builder`; `freeze` consumes it and
---- transfers its allocation without copying. These operations require the engine host
---- supplied by a stamped binary.
+--- `Buffer:freeze()` consumes a buffer and copies its unread bytes into a region.
+--- These operations require the engine host supplied by a stamped binary.
+--- `Bytes` becomes `string` when workers can share long-string storage.
 export type Bytes = immutable.Bytes
 
 export const Bytes = immutable.Bytes

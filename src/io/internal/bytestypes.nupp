@@ -20,23 +20,16 @@ A region is storage, so its positions are zero-based offsets and counts, as a
 [](io.Buffer)'s are: `slice(offset, count)` and `view(offset, count)`
 name `count` bytes starting `offset` bytes in.
 
-A producer that has bytes only behind a pointer writes into builder storage
-directly through a reserve-and-commit pair, with no intermediate chunk string:
+Use `io.Buffer` to build a region and `freeze()` to consume the buffer:
 
 ```nupp
-const Bytes = io.Bytes
-
-local builder = Bytes.Builder()
-do
-    local writer = builder:reserve(5)
-    for index = 1, 5 do
-        writer[index] = 64 + index
-    end
-end
-builder:commit(5)
-builder:append("!")
-assert(builder:freeze():tostring() == "ABCDE!")
+local buffer = io.Buffer.create()
+buffer:put("ABCDE", "!")
+assert(buffer:freeze():tostring() == "ABCDE!")
 ```
+
+`io.Bytes` is transitional. Shared long strings replace it when workers can
+share string storage; use strings for immutable bytes that stay in one lane.
 ]]
 module io.internal.bytestypes
 
@@ -52,47 +45,10 @@ local function implementation(name: string): any
     return factory
 end
 
---- An affine accumulator of engine storage. Appending grows one private
---- allocation, and freezing transfers it into a region without copying.
-local interface BuilderToken is own.Affine<self.drop>
-    drop: @nosuspend function(takes self: BuilderToken): nil
-end
-
 --- An immutable extent of an engine-owned block. Crossing a worker boundary
 --- moves a reference, never the bytes; reading happens in place through a
 --- borrowed byte view, and `tostring` is the one explicit copy into a Lua state.
 export record Bytes
-    --- A growable engine allocation that becomes a region when frozen.
-    record Builder is BuilderToken
-        constructor(self): affine(Bytes.Builder)
-            self._handle = implementation("io.internal.sharedbytes").builderhandle()
-        end
-
-        @private _handle: any
-
-        --- Appends the chunk's bytes to the builder's storage.
-        append: @nosuspend function(Bytes.Builder, string): nil
-
-        --- Grows the storage and lends a checked writer over exactly `count`
-        --- uninitialized bytes past what is already committed. All growth happens
-        --- here, before the writer exists, and the borrow keeps every other
-        --- builder operation a compile error while the writer lives, so the lent
-        --- pointer cannot be invalidated. One `commit` closes the reservation
-        --- after the writer drops.
-        reserve: function(exclusive self: Bytes.Builder, integer): span.Writable<uint8> borrows (self)
-
-        --- Closes the open reservation, keeping its first `written` bytes as
-        --- content; a short read commits what arrived, and the surplus returns to
-        --- capacity for the next reservation.
-        commit: @nosuspend function(Bytes.Builder, integer): nil
-
-        --- Consumes the builder and transfers its allocation into a region.
-        freeze: @nosuspend function(takes self: Bytes.Builder): Bytes
-
-        --- Releases an unfrozen builder's storage at scope exit.
-        drop: @nosuspend function(takes self: Bytes.Builder): nil
-    end
-
     --- Copies text into immutable engine-owned bytes.
     copy: function(text: string): Bytes
 

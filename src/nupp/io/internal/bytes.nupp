@@ -2,6 +2,7 @@
 
 module nupp.io.internal.bytes
 
+local immutable = require("io.internal.bytestypes")
 local physical = require("nupp.runtime.storage")
 local span = require("binary.span")
 local fast = require("nupp.io.internal.nativebuffer")
@@ -399,6 +400,7 @@ end
 local readSource: function(source: string | ByteQueue): Reader
 local readBuffer: function(exclusive source: Buffer): affine(Reader) borrows (source)
 local readSpan: function(borrows source: span.ByteSpan): affine(Reader) borrows (source)
+local readBytes: function(source: immutable.Bytes): Reader
 local writeBuffer: function(exclusive destination: Buffer): affine(Writer) borrows (destination)
 local createBuffer: function(initial: integer | string?): affine(Buffer)
 
@@ -513,6 +515,11 @@ export interface Reader is own.Closeable
     --- Borrows a span without copying its bytes.
     function of(borrows source: span.ByteSpan): affine(Reader) borrows (source)
         return readSpan(source)
+    end
+
+    --- Retains immutable engine bytes without making a string snapshot.
+    function of(source: immutable.Bytes): Reader
+        return readBytes(source)
     end
 
     --- Reads up to `count` bytes.
@@ -741,6 +748,16 @@ export sealed interface Buffer is own.Closeable
     get: function(exclusive self: Buffer, count: integer?): string
     skip: function(exclusive self: Buffer, count: integer): Buffer borrows (self)
     tostring: function(borrows self: Buffer): string
+
+    --- Consumes this buffer and returns its unread bytes as an immutable region.
+    ---
+    --- LuaJIT copies the bytes through a string into engine storage.
+    function freeze(takes self: Buffer): immutable.Bytes
+        local result = immutable.Bytes.copy(self:tostring())
+        self:close()
+        return result
+    end
+
     span: function(borrows self: Buffer, first: integer?, last: integer?): span.ByteSpan borrows (self)
     reserve: function(exclusive self: Buffer, count: integer): affine(BufferWriteLease, destroyLease) borrows (self)
     capacity: function(borrows self: Buffer): integer
@@ -1394,6 +1411,15 @@ end
 
 local spanText: function(borrows source: const uint8[?], count: integer): string = physical.string as any
 
+-- A Bytes source is a retained immutable value; a Span source carries its
+-- caller's borrow. The reader uses one implementation for both.
+local function heldSpan(borrows source: any): span.ByteSpan borrows (source)
+    if source.view ~= nil and source.viewas ~= nil then
+        return (source as immutable.Bytes):view()
+    end
+    return source as span.ByteSpan
+end
+
 local record SpanReader is Reader
     @private _source: any
     @private _at: integer
@@ -1404,7 +1430,7 @@ local record SpanReader is Reader
             return nil, "the reader is closed"
         end
         local wanted = positive(count, "Reader:read count", 2)
-        local source = self._source as span.ByteSpan
+        local source = heldSpan(self._source)
         local taking = math.min(wanted, #source - self._at) as integer
         if taking == 0 then
             return ""
@@ -1421,7 +1447,7 @@ local record SpanReader is Reader
             return nil, "the reader is closed"
         end
         local wanted = positive(#destination, "Reader:readspan destination length", 2)
-        local source = self._source as span.ByteSpan
+        local source = heldSpan(self._source)
         local taking = math.min(wanted, #source - self._at) as integer
         if taking > 0 then
             @unsafe do
@@ -1773,7 +1799,7 @@ export function readerRemaining(borrows source: Reader): integer?
     if source is StringReader then
         return #source._bytes - source._at + 1
     elseif source is SpanReader then
-        return #(source._source as span.ByteSpan) - source._at
+        return #heldSpan(source._source) - source._at
     elseif source is QueueReader then
         return queueLength(source._source as ByteQueue)
     end
@@ -1957,9 +1983,15 @@ local function newSpanReader(borrows source: span.ByteSpan): affine(Reader) borr
     return SpanReader(_source = source, _at = 0, _closed = false)
 end
 
+local function newBytesReader(source: immutable.Bytes): Reader
+    return SpanReader(_source = source, _at = 0, _closed = false)
+end
+
 local function openReader(source: any): any
     if type(source) == "string" then
         return (newStringReader as any)(source)
+    elseif source.view ~= nil and source.viewas ~= nil then
+        return (newBytesReader as any)(source)
     elseif source.span ~= nil and source.reserve ~= nil then
         return (newBufferReader as any)(source)
     end
@@ -1969,17 +2001,19 @@ local function openReader(source: any): any
     elseif queueLike(source) then
         return (newQueueReader as any)(source)
     end
-    error("nupp: io.Reader.of needs a string, buffer, byte span, or queue", 2)
+    error("nupp: io.Reader.of needs a string, buffer, Bytes, byte span, or queue", 2)
 end
 
 --- Opens a byte reader, retaining the source's borrow when needed.
 export const newReader: function(source: string | ByteQueue): Reader
     & function(exclusive source: Buffer): affine(Reader) borrows (source)
-    & function(borrows source: span.ByteSpan): affine(Reader) borrows (source) = openReader as any
+    & function(borrows source: span.ByteSpan): affine(Reader) borrows (source)
+    & function(source: immutable.Bytes): Reader = openReader as any
 
 readSource = openReader as any
 readBuffer = openReader as any
 readSpan = openReader as any
+readBytes = openReader as any
 -- Checked overloads retain their distinct borrow contracts; Lua and stored
 -- references use the same implementation and runtime source discrimination.
 rawset(Reader, "of", openReader)

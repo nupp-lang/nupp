@@ -971,7 +971,7 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
             bodyKind = BODY_INLINE
             bodyLength = #(body as string)
         else
-            error("nupp: HTTP request body is not bytes, a Buffer, ReaderBody, or FileBody", 2)
+            error("nupp: HTTP request body is not a string, Bytes, ReaderBody, or FileBody", 2)
         end
     end
     local manualRedirects = self._options.manualRedirects

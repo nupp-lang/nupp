@@ -465,9 +465,10 @@ before rebuilding its owner, and primitive elements move; every other
 ownership mode and element shape keeps the refusal above.
 
 [](io.Bytes) shares immutable engine storage with any number of readers; a move
-hands exclusive mutable storage to one lane. `io.Bytes.Builder()` constructs
-shared bytes incrementally, and consuming `Builder:freeze()` transfers its
-allocation into immutable bytes without copying.
+hands exclusive mutable storage to one lane. Build shared bytes with
+`io.Buffer` and consume its unread bytes with `buffer:freeze()`. On LuaJIT,
+freezing copies through a string into engine storage; later worker transfers
+share that storage.
 
 ## Failure and termination
 

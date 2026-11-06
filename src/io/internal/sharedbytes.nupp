@@ -15,11 +15,6 @@ local type Native = {
     text: @nosuspend function(any, integer, integer): string?,
     pointer: @nosuspend function(any): any,
     length: @nosuspend function(any): integer?,
-    builderNew: @nosuspend function(): any,
-    builderAppend: @nosuspend function(any, string): (boolean, string?),
-    builderReserve: @nosuspend function(any, integer): (any?, string?),
-    builderCommit: @nosuspend function(any, integer): boolean,
-    builderFreeze: @nosuspend function(any): (any?, any),
     accounted: @nosuspend function(): integer
 }
 -- Bytes retain engine blocks. Other io operations can load this declaration
@@ -50,7 +45,7 @@ local foreignSpan = rawget(
 
 local getfield: function(borrows source: table, key: string): any = rawget as any
 
-local function handle(borrows value: Bytes | Bytes.Builder): any
+local function handle(borrows value: Bytes): any
     return getfield(value as table, "_handle")
 end
 
@@ -163,87 +158,6 @@ function Bytes.readfile(path: string): (Bytes?, string?)
     end
 
     return wrap(handle, 1, native.length(handle) as integer), nil
-end
-
---- @raises string when a reservation is open or the engine cannot grow the storage
-function Bytes.Builder:append(chunk: string): nil
-    local accepted, problem = native.builderAppend(handle(self), chunk)
-    if not accepted then
-        if problem == "open" then
-            error("nupp: a region builder has an open reservation", 2)
-        end
-        error("nupp: cannot grow a region builder", 2)
-    end
-end
-
---- @raises string when count is not a nonnegative integer, a reservation is
----     already open, or the engine cannot grow the storage
-function Bytes.Builder:reserve(count: integer): span.Writable<uint8>
-    if count < 0 or count ~= math.floor(count) then
-        error("nupp: a region reservation must be a nonnegative integer", 2)
-    end
-    local pointer, problem = native.builderReserve(handle(self), count)
-    if pointer == nil then
-        if problem == "open" then
-            error("nupp: a region builder already has an open reservation", 2)
-        end
-        error("nupp: cannot grow a region builder", 2)
-    end
-
-    local typed = ffi.cast<uint8[?]>(pointer)
-
-    return span.writecarray(typed, count)
-end
-
---- @raises string when `written` is not a nonnegative integer, no reservation
----     is open, or `written` exceeds it
-function Bytes.Builder:commit(written: integer): nil
-    if written < 0 or written ~= math.floor(written) then
-        error("nupp: a region commit must be a nonnegative integer", 2)
-    end
-    if not native.builderCommit(handle(self), written) then
-        error("nupp: a commit does not match the builder's open reservation", 2)
-    end
-end
-
---- @raises string when the builder was already frozen or a reservation is open,
----     because sealing would silently drop bytes a producer may have written
-function Bytes.Builder.freeze(takes self: Bytes.Builder): Bytes
-    -- Sealing spends the builder: the engine hands its bytes to the region, and
-    -- the builder's own terminal has nothing left to release.
-    local builder = @unsafe own.release(self)
-    local handle, length = native.builderFreeze(handle(builder))
-    if handle == nil then
-        if length == "open" then
-            error("nupp: a region builder has an open reservation", 2)
-        end
-        error("nupp: a region builder was already frozen", 2)
-    end
-
-    return wrap(handle, 1, length as integer)
-end
-
--- A provider built before the native module could release a builder leaves its
--- storage to the userdata's finalizer, as every provider once did.
-
-function Bytes.Builder.drop(takes self: Bytes.Builder): nil
-    local releaseBuilder = rawget(native as table, "builderRelease") as(@nosuspend function(any): nil)?
-    local builder = @unsafe own.release(self)
-    if releaseBuilder ~= nil then
-        releaseBuilder(handle(builder))
-    end
-end
-
---- Opens an empty builder.
---- @raises string when the engine cannot allocate the builder
-export function builderhandle(): any
-    initialize()
-    local handle = native.builderNew()
-    if handle == nil then
-        error("nupp: cannot allocate a region builder", 2)
-    end
-
-    return handle
 end
 
 -- Private hooks for the worker transport: recognizing a region as a transfer

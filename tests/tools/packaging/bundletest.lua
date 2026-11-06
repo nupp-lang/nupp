@@ -883,7 +883,7 @@ do local scope = tasks.scope() ;
 end
 
 local dynamicShared = sharedbytes as any
-assert(dynamicShared.newBuilder == nil and dynamicShared.readFile == nil)
+assert(dynamicShared.Builder == nil and dynamicShared.newBuilder == nil and dynamicShared.readFile == nil)
 assert(dynamicShared.__regionParts == nil and dynamicShared.__regionFromParts == nil)
 local loaded, readProblem = sharedbytes.readfile("shared-bytes.bin")
 if loaded == nil then error(readProblem or "shared byte file failed") end
@@ -891,14 +891,15 @@ assert(loaded:len() == 13 and loaded:tostring() == "engine\0bytes\255")
 local absent, missingReason = sharedbytes.readfile("missing-shared-bytes.bin")
 assert(absent == nil and type(missingReason) == "string")
 
-local builder = sharedbytes.Builder()
-do local writer = builder:reserve(3) ;
+local builder = io.Buffer.create()
+local lease = builder:reserve(3)
+do local writer = lease:span() ;
     writer[1] = 104
     writer[2] = 105
     writer[3] = 33
 end
-builder:commit(2)
-builder:append("!")
+lease:commit(2)
+builder:put("!")
 print(builder:freeze():tostring())
 
 local type Accounted = {accounted: @nosuspend function(): integer}
@@ -1348,6 +1349,43 @@ end
     local expected = "false\ttrue\n67\n"
     local rustOutput, rustRanOk = run(dir, stampRustHost(dir, dir .. "/build/app.payload.lua"))
     assert(rustRanOk and rustOutput == expected, "a forged region extent is refused before it crosses: " .. rustOutput)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.bufferFreezeSelectsTheEngineAndFeedsReaders()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[
+return {include = {"src"}, build = {default = "app", targets = {app = {
+   kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",
+   payloadOutput = "build/app.payload.lua",
+}}}}
+]],
+        [
+            "src/main.nupp"
+        ] = [[
+local function freeze(takes buffer: io.Buffer): io.Bytes
+    return buffer:freeze()
+end
+local function reader(): io.Reader
+    local buffer = io.Buffer.create("skipabc\0def")
+    buffer:skip(4)
+    return io.Reader.of(freeze(buffer))
+end
+local input = reader()
+local output = io.Buffer.create()
+assert(input:readinto(output, 0, 7) == 7)
+assert(output:tostring() == "abc\0def")
+input:close()
+local region = output:freeze()
+print(region:tostring() == "abc\0def")
+]],
+    })
+    local built, builtOk = run(dir, "'" .. NUPP .. "' build")
+    assert(builtOk, "the byte I/O binary builds: " .. built)
+    local output, ranOk = run(dir, stampRustHost(dir, dir .. "/build/app.payload.lua"))
+    assert(ranOk and output == "true\n", "buffer freezing selects and uses engine storage: " .. output)
     os.execute("rm -rf '" .. dir .. "'")
 end
 
