@@ -147,7 +147,7 @@ end
 -- Raises "bad argument #n to 'name' (invalid option 'X')", X the text of
 -- the string `value`, as Lua's luaL_checkoption does.
 export function optionError(ctx: voidptr, position: uint64, value: uint64): nil
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)
         local builder = state as strings.Builder*

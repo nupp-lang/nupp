@@ -45,7 +45,7 @@ export const META_FIELDS: uint64 = 18ULL
 -- The interned name of a metatable field: "__index", "__newindex" or
 -- "__metatable".
 local function makeMetaKey(ctx: voidptr, which: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
         local builder = state as strings.Builder*

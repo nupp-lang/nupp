@@ -724,7 +724,7 @@ local function iopark(): reactor.Completion
     )
 end
 
-reactor.install(new reactor.Parker(waker = iowaker, park = iopark))
+reactor.install(reactor.Parker(waker = iowaker, park = iopark))
 
 export const functions: {
     [string]: any

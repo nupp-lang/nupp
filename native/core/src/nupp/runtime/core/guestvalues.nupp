@@ -76,7 +76,7 @@ export function appendtext(h: heap.Heap*, b: strings.Builder*, value: uint64): u
 end
 
 export function tostring(ctx: voidptr, value: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = guestheap(ctx)
         if strings.header(value) ~= 0ULL then

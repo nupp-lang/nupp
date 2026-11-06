@@ -50,7 +50,7 @@ end
 -- Collects the taken pool job `ticket`: the bytes its read read as a new
 -- string, at most `room` of them, or the negated error number it answered.
 local function finishText(ctx: voidptr, ticket: uint64, room: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = heapOf(ctx)
         local builder = state as strings.Builder*

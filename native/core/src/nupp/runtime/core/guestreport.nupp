@@ -55,7 +55,7 @@ end
 -- as the VM's report shows them. When there is no room to build it, a
 -- string's bytes are written as they are.
 export function plain(ctx: voidptr, value: uint64): nil
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = guestvalues.guestheap(ctx)
         local builder = state as strings.Builder*
@@ -80,7 +80,7 @@ end
 -- Reports `value` as lua.c reports an error object whose __tostring gave
 -- no string: "(error object is a table value)".
 export function object(ctx: voidptr, value: uint64): nil
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = guestvalues.guestheap(ctx)
         local builder = state as strings.Builder*

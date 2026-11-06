@@ -83,7 +83,7 @@ export function concat(
     first: uint64,
     last: uint64
 ): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = guestvalues.guestheap(ctx)
         if list & values.TAG_MASK ~= values.TAG_OBJ then

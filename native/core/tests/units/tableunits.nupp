@@ -304,7 +304,7 @@ end
 -- hash part's keys and values, and its metatable.
 local function children(t: uint64): uint64
     @unsafe do
-        local state = new childwalk.Cursor(0ULL, 0ULL, values.NIL)
+        local state = childwalk.Cursor(0ULL, 0ULL, values.NIL)
         local cursor = state as childwalk.Cursor*
         local count: uint64 = 0ULL
         while childwalk.childNext(native.pointer(t) as heap.Header*, cursor) ~= 0ULL do

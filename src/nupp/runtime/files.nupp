@@ -42,10 +42,10 @@ export const STDERR = 2
 
 local function answer(result: integer): reactor.Completion
     if result < 0 then
-        return new reactor.Completion(value = -1, code = -result)
+        return reactor.Completion(value = -1, code = -result)
     end
 
-    return new reactor.Completion(value = result)
+    return reactor.Completion(value = result)
 end
 
 -- Completes `operation` on the calling thread, as its system call returns.
@@ -54,7 +54,7 @@ local function complete(operation: reactor.Operation): reactor.Completion
     if kind == reactor.READ then
         local read = filecalls.read(operation.descriptor, operation.count)
         if type(read) == "string" then
-            return new reactor.Completion(value = 0, text = read as string)
+            return reactor.Completion(value = 0, text = read as string)
         end
         return answer(read as integer)
     elseif kind == reactor.OPEN then
@@ -92,33 +92,33 @@ end
 --- the umask.
 --- @return the completion, whose value is the descriptor
 export function open(path: string, flags: integer): reactor.Completion
-    return submit(new reactor.Operation(kind = reactor.OPEN, path = path, flags = flags))
+    return submit(reactor.Operation(kind = reactor.OPEN, path = path, flags = flags))
 end
 
 --- Reads at most `count` bytes from `descriptor`.
 --- @return the completion, whose text is the bytes read
 export function read(descriptor: integer, count: integer): reactor.Completion
-    return submit(new reactor.Operation(kind = reactor.READ, descriptor = descriptor, count = count))
+    return submit(reactor.Operation(kind = reactor.READ, descriptor = descriptor, count = count))
 end
 
 --- Writes `text`, from its byte `first`, to `descriptor`: one write, which
 --- may take fewer bytes than it is given.
 --- @return the completion, whose value is the count written
 export function write(descriptor: integer, text: string, first: integer): reactor.Completion
-    return submit(new reactor.Operation(kind = reactor.WRITE, descriptor = descriptor, text = text, first = first))
+    return submit(reactor.Operation(kind = reactor.WRITE, descriptor = descriptor, text = text, first = first))
 end
 
 --- Moves `descriptor` to `offset` from `whence` (`FROMSTART`, `FROMHERE` or
 --- `FROMEND`).
 --- @return the completion, whose value is the new position
 export function seek(descriptor: integer, offset: integer, whence: integer): reactor.Completion
-    return submit(new reactor.Operation(kind = reactor.SEEK, descriptor = descriptor, offset = offset, whence = whence))
+    return submit(reactor.Operation(kind = reactor.SEEK, descriptor = descriptor, offset = offset, whence = whence))
 end
 
 --- Closes `descriptor`, which is gone even when the completion says it
 --- failed.
 export function close(descriptor: integer): reactor.Completion
-    return submit(new reactor.Operation(kind = reactor.CLOSE, descriptor = descriptor))
+    return submit(reactor.Operation(kind = reactor.CLOSE, descriptor = descriptor))
 end
 
 --- The system's text for error number `code`, as C's strerror gives it.

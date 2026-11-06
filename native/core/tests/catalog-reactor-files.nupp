@@ -98,7 +98,7 @@ do
     local withdrawn = true
     for _ = 1, 20 do
         local id = reactor.submit(
-            new reactor.Operation(kind = reactor.READ, descriptor = opened.value, count = 8),
+            reactor.Operation(kind = reactor.READ, descriptor = opened.value, count = 8),
             function(_: reactor.Completion): nil
                 heard = heard + 1
             end
@@ -108,11 +108,7 @@ do
     check(withdrawn)
     for index = 1, 100 do
         local id = reactor.submit(
-            new reactor.Operation(
-                kind = reactor.OPEN,
-                path = base .. "-cancelled" .. tostring(index % 3),
-                flags = CREATE
-            ),
+            reactor.Operation(kind = reactor.OPEN, path = base .. "-cancelled" .. tostring(index % 3), flags = CREATE),
             function(_: reactor.Completion): nil
                 heard = heard + 1
             end

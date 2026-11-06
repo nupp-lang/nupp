@@ -120,7 +120,7 @@ export function openstream(value: any, position: integer, name: string, level: i
 end
 
 export function newhandle(descriptor: integer, standard: boolean, mode: string): any
-    local s = new Stream(descriptor = descriptor, standard = standard, mode = mode)
+    local s = Stream(descriptor = descriptor, standard = standard, mode = mode)
 
     return setmetatable({stream = s}, meta)
 end

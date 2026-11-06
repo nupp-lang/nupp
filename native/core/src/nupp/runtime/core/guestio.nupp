@@ -74,7 +74,7 @@ end
 
 -- The system's text for error number `code`, sized by a first call.
 local function reasonText(ctx: voidptr, code: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = heapOf(ctx)
         local builder = state as strings.Builder*
@@ -165,7 +165,7 @@ end
 -- The program argument at `index` as a string, nil past the last: copied
 -- as os.getenv's value is, into a builder sized by a first call.
 local function argumentText(h: heap.Heap*, index: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local builder = state as strings.Builder*
         if strings.reserve(h, builder, 256ULL) ~= 0ULL then
@@ -241,7 +241,7 @@ end
 
 -- The header of a new string holding a number's text, as tostring writes it.
 local function numberText(ctx: voidptr, value: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = heapOf(ctx)
         local builder = state as strings.Builder*
