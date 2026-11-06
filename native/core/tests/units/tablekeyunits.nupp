@@ -7,6 +7,8 @@ const collector = require("nupp.runtime.vm.collector")
 const values = require("nupp.runtime.vm.values")
 const hashes = require("nupp.runtime.vm.objecttable")
 const tables = require("nupp.runtime.core.coretables")
+const childwalk = require("nupp.runtime.vm.childwalk")
+const marking = require("nupp.runtime.vm.marking")
 
 const ARENA_BYTES: uint64 = 67108864ULL
 const MAXIMUM: uint64 = 0xffffffffffffffffULL
@@ -147,7 +149,7 @@ export function growth(count: uint64): uint64
                     wrong = wrong + hashes.coreinsert(t, query, values.NIL)
                     wrong = wrong + miss(get(t, query) == values.NIL and resident(t, i) == key)
                     wrong = wrong + miss(hashes.coreposition(t, key) == i)
-                    wrong = wrong + miss(hashes.coreposition(t, query) == MAXIMUM)
+                    wrong = wrong + miss(hashes.coreposition(t, query) == i)
                 end
                 i = i + 1ULL
             end
@@ -245,12 +247,277 @@ export function dead(minor: uint64, weak: uint64): uint64
             wrong = wrong + miss(hashes.coreposition(t, query) == MAXIMUM)
             wrong = wrong + miss(hashes.corenext(t, query) == MAXIMUM)
             wrong = wrong + miss(hashes.corenext(t, values.NIL) == 1ULL)
-            wrong = wrong + miss(resident(t, 0ULL) == key)
+            wrong = wrong + miss(
+                resident(t, 0ULL) & values.PAYLOAD == key & values.PAYLOAD
+                and resident(t, 0ULL) & values.TAG_MASK ~= values.TAG_OBJ
+            )
             wrong = wrong + hashes.coreinsert(t, query, values.TRUE)
             collector.hashstore(h, o, query, values.TRUE)
             wrong = wrong + miss(t.length == 3ULL and resident(t, 2ULL) == query)
             wrong = wrong + hashes.coregrow(t)
             wrong = wrong + miss(t.length == 2ULL and get(t, query) == values.TRUE)
+            heap.destroy(h)
+        end
+    end
+
+    return wrong
+end
+
+local function hashpart(table: uint64): heap.ValueTable*
+    return native.pointer(
+        table + heap.HEADER_BYTES + native.word(native.fieldOffset<heap.TableBody>("hashPtr"))
+    ) as heap.ValueTable*
+end
+
+local function cycle(h: heap.Heap*, minor: uint64): nil
+    if minor == 0ULL then
+        collector.fullCycle(h)
+    else
+        collector.minorcycle(h)
+    end
+    tables.drain(h)
+end
+
+-- Deletion remains content-aware until a scan. After a scan, even an externally
+-- rooted deleted key is opaque; exact identity next/reinsertion still works.
+export function scans(minor: uint64): uint64
+    local state = childwalk.Cursor(0ULL, 0ULL, values.NIL)
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = collector.GENERATIONAL
+            h.automatic = false
+            local table = tables.create(h)
+            local key = string(h, 1ULL, LARGE_STRING)
+            local query = string(h, 1ULL, LARGE_STRING)
+            local following = string(h, 2ULL, 8ULL)
+            local roots = arena.alloc(a, 24ULL, 8ULL)
+            if roots == nil then
+                error("table keys: no root slots")
+            end
+            native.store64(roots, 0, values.TAG_OBJ | table)
+            native.store64(roots, 8, key)
+            native.store64(roots, 16, query)
+            collector.register(h, native.address(roots), 3ULL)
+            local t = hashpart(table)
+            wrong = tables.set(h, table, key, values.TRUE) + tables.set(h, table, following, values.FALSE)
+            wrong = wrong + miss(tables.get(table, query) == values.TRUE)
+            wrong = wrong + tables.set(h, table, query, values.NIL)
+            wrong = wrong + miss(tables.nextKey(table, query) == following and resident(t, 0ULL) == key)
+            cycle(h, minor)
+            wrong = wrong + miss(heap.isLiveSlot(h, key & values.PAYLOAD))
+            wrong = wrong + miss(
+                resident(t, 0ULL) ~= key and resident(t, 0ULL) & values.PAYLOAD == key & values.PAYLOAD
+            )
+            wrong = wrong + miss(
+                tables.nextKey(table, key) == following and tables.nextKey(table, query) == values.TRUE
+            )
+            wrong = wrong + miss(tables.nextKey(table, values.NIL) == following)
+            local cursor = state as childwalk.Cursor*
+            while childwalk.childNext(native.pointer(table) as heap.Header*, cursor) ~= 0ULL do
+                wrong = wrong + miss(cursor.value & 0xffff000000000000ULL ~= 0x7ffe000000000000ULL)
+            end
+            wrong = wrong + tables.set(h, table, key, values.TRUE)
+            wrong = wrong + miss(
+                t.length == 2ULL and resident(t, 0ULL) == key and tables.get(table, query) == values.TRUE
+            )
+            native.store64(roots, 8, values.NIL)
+            cycle(h, minor)
+            wrong = wrong + miss(heap.isLiveSlot(h, key & values.PAYLOAD) and tables.get(table, query) == values.TRUE)
+            wrong = wrong + hashes.coregrow(t)
+            wrong = wrong + miss(resident(t, 0ULL) == key and tables.nextKey(table, query) == following)
+            heap.destroy(h)
+        end
+    end
+
+    return wrong
+end
+
+-- Both weak clear routes must make newly NIL keys opaque before sweeping.
+-- Weak keys use a nonstring object to ensure tagging never classifies headers.
+export function weakclears(minor: uint64, mode: uint64): uint64
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = collector.GENERATIONAL
+            h.automatic = false
+            local table = tables.create(h)
+            local key = string(h, 1ULL, LARGE_STRING)
+            local value = values.TRUE
+            if mode == 1ULL then
+                key = values.TAG_OBJ | tables.create(h)
+            else
+                value = values.TAG_OBJ | tables.create(h)
+            end
+            local roots = arena.alloc(a, 8ULL, 8ULL)
+            if roots == nil then
+                error("table keys: no root slots")
+            end
+            native.store64(roots, 0, values.TAG_OBJ | table)
+            collector.register(h, native.address(roots), 1ULL)
+            collector.weakmode(h, native.pointer(table) as heap.Header*, mode)
+            wrong = tables.set(h, table, key, value)
+            cycle(h, minor)
+            local t = hashpart(table)
+            wrong = wrong + miss(resident(t, 0ULL) & values.PAYLOAD == key & values.PAYLOAD)
+            wrong = wrong + miss(resident(t, 0ULL) & values.TAG_MASK ~= values.TAG_OBJ)
+            wrong = wrong + miss(tables.nextKey(table, values.NIL) == values.NIL)
+            local query = string(h, 1ULL, LARGE_STRING)
+            wrong = wrong + miss(tables.get(table, query) == values.NIL)
+            wrong = wrong + hashes.coregrow(t)
+            wrong = wrong + miss(t.length == 0ULL)
+            heap.destroy(h)
+        end
+    end
+
+    return wrong
+end
+
+-- The resident is installed directly to isolate deletion's recording duty:
+-- the ordinary incremental insertion barrier runs, but no earlier generational
+-- hash record can hide an old-query/young-resident deletion bug. The first
+-- minor keeps the resident externally rooted; the second can reclaim it even
+-- after the first scan dropped the remembered object/card.
+export function removedyoung(count: uint64): uint64
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = collector.GENERATIONAL
+            h.automatic = false
+            local table = tables.create(h)
+            local query = string(h, 1ULL, LARGE_STRING)
+            local roots = arena.alloc(a, 24ULL, 8ULL)
+            if roots == nil then
+                error("table keys: no root slots")
+            end
+            native.store64(roots, 0, values.TAG_OBJ | table)
+            native.store64(roots, 8, query)
+            native.store64(roots, 16, values.NIL)
+            collector.register(h, native.address(roots), 3ULL)
+            wrong = tables.set(h, table, values.FALSE, values.TRUE)
+            local i: uint64 = 0ULL
+            while i < count do
+                wrong = wrong + tables.set(h, table, values.TAG_INTEGER | (i + 1000ULL), values.TRUE)
+                i = i + 1ULL
+            end
+            cycle(h, 1ULL)
+            cycle(h, 1ULL)
+            cycle(h, 1ULL)
+            local o = native.pointer(table) as heap.Header*
+            wrong = wrong + miss((o.flags as uint64) & heap.F_OLD ~= 0ULL)
+            wrong = wrong + miss(
+                ((native.pointer(query & values.PAYLOAD) as heap.Header*).flags as uint64) & heap.F_OLD ~= 0ULL
+            )
+            local key = string(h, 1ULL, LARGE_STRING)
+            native.store64(roots, 16, key)
+            local t = hashpart(table)
+            collector.insertion(h, o, key)
+            wrong = wrong + hashes.coreinsert(t, key, values.TRUE)
+            local position = hashes.coreposition(t, query)
+            wrong = wrong + miss(position ~= MAXIMUM and resident(t, position) == key)
+            local marks = h.stats.cardmarks
+            wrong = wrong + tables.set(h, table, query, values.NIL)
+            if count == 0ULL then
+                wrong = wrong + miss((o.flags as uint64) & heap.F_TOUCHED ~= 0ULL)
+            else
+                wrong = wrong + miss(h.stats.cardmarks > marks and (o.flags as uint64) & heap.F_CARDS ~= 0ULL)
+            end
+            cycle(h, 1ULL)
+            wrong = wrong + miss(heap.isLiveSlot(h, key & values.PAYLOAD))
+            wrong = wrong + miss(resident(t, position) & values.TAG_MASK ~= values.TAG_OBJ)
+            native.store64(roots, 16, values.NIL)
+            cycle(h, 1ULL)
+            wrong = wrong + miss(not heap.isLiveSlot(h, key & values.PAYLOAD))
+            wrong = wrong + miss(heap.isLiveSlot(h, query & values.PAYLOAD) and tables.get(table, query) == values.NIL)
+            wrong = wrong + miss(hashes.coreposition(t, query) == MAXIMUM)
+            heap.destroy(h)
+        end
+    end
+
+    return wrong
+end
+
+-- A new black table need not be scanned this cycle. Its insertion barrier
+-- protects even a key immediately deleted with an equal-content query.
+export function blacknew(): uint64
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local key = string(h, 1ULL, LARGE_STRING)
+            local query = string(h, 1ULL, LARGE_STRING)
+            local roots = arena.alloc(a, 16ULL, 8ULL)
+            if roots == nil then
+                error("table keys: no root slots")
+            end
+            native.store64(roots, 0, values.NIL)
+            native.store64(roots, 8, values.NIL)
+            collector.register(h, native.address(roots), 2ULL)
+            collector.startCycle(h)
+            local table = tables.create(h)
+            local o = native.pointer(table) as heap.Header*
+            wrong = miss(o.color as uint64 == heap.COLOR_BLACK)
+            native.store64(roots, 0, values.TAG_OBJ | table)
+            wrong = wrong + tables.set(h, table, key, values.TRUE)
+            wrong = wrong + tables.set(h, table, query, values.NIL)
+            while h.phase ~= heap.PHASE_IDLE do
+                collector.step(h, 1000000ULL)
+            end
+            tables.drain(h)
+            wrong = wrong + miss(
+                heap.isLiveSlot(h, key & values.PAYLOAD) and heap.isLiveSlot(h, query & values.PAYLOAD)
+            )
+            native.store64(roots, 8, query)
+            cycle(h, 0ULL)
+            wrong = wrong + miss(not heap.isLiveSlot(h, key & values.PAYLOAD))
+            wrong = wrong + miss(tables.get(table, query) == values.NIL)
+            wrong = wrong + miss(resident(hashpart(table), 0ULL) & values.TAG_MASK ~= values.TAG_OBJ)
+            heap.destroy(h)
+        end
+    end
+
+    return wrong
+end
+
+-- Tail-free VM tables and oversized tables without the matching core owner
+-- retain the frozen identity policy and raw tombstones through a strong scan.
+export function noncore(): uint64
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local key = string(h, 1ULL, 8ULL)
+            local n: uint64 = 0ULL
+            while n < 2ULL do
+                local bytes = native.sizeOf<heap.TableBody>() + n * native.sizeOf<heap.CoreTableTail>()
+                local o = heap.allocRaw(h, heap.KIND_TABLE, bytes)
+                local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES)
+                local i: uint64 = 0ULL
+                while i < bytes do
+                    native.store64(body, native.index(i), 0ULL)
+                    i = i + 8ULL
+                end
+                native.store64(body, native.fieldOffset<heap.TableBody>("meta"), values.NIL)
+                local t = hashpart(native.address(o as voidptr))
+                wrong = wrong + hashes.tableOwnedInitialize(t, h, 4ULL)
+                wrong = wrong + hashes.tableOwnedInsert(t, key, values.TRUE)
+                wrong = wrong + hashes.tableOwnedInsert(t, key, values.NIL)
+                wrong = wrong + miss(not hashes.coretable(h, o))
+                marking.scanStrong(h, o)
+                wrong = wrong + miss(resident(t, 0ULL) == key)
+                hashes.tableOwnedRelease(t)
+                n = n + 1ULL
+            end
             heap.destroy(h)
         end
     end

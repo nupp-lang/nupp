@@ -39,6 +39,7 @@ const heap = require("nupp.runtime.vm.heap")
 const weakindex = require("nupp.runtime.vm.weakindex")
 const weakentries = require("nupp.runtime.vm.weakentries")
 const marking = require("nupp.runtime.vm.marking")
+const objecttable = require("nupp.runtime.vm.objecttable")
 
 export const WEAK_KEYS: uint64 = 1
 export const WEAK_VALUES: uint64 = 2
@@ -67,6 +68,7 @@ end
 
 -- The host and standalone tables expose the same borrowed value and bucket views.
 local function markLiveEntries(h: heap.Heap*, o: heap.Header*, mode: uint64): boolean
+    objecttable.coredeadkeys(h, o, 0ULL, 0xffffffffffffffffULL)
     @unsafe do
         local t = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as heap.TableBody*
         return weakentries.weakMarkViews(
@@ -159,6 +161,7 @@ export function weakCycleClearNext(h: heap.Heap*, cursor: ClearCursor*): uint64
                     mode,
                     changed
                 )
+                objecttable.coredeadkeys(h, o, 0ULL, 0xffffffffffffffffULL)
                 t.arrayLen = length
                 o.auxPtr = t.arrayPtr
                 o.auxLen = length
@@ -199,6 +202,7 @@ export function clearSides(h: heap.Heap*, first: uint64, last: uint64, sides: ui
                     mode & (sides | WEAK_MINOR),
                     native.pointer(0ULL)
                 )
+                objecttable.coredeadkeys(h, o, 0ULL, 0xffffffffffffffffULL)
                 t.arrayLen = length
                 o.auxPtr = t.arrayPtr
                 o.auxLen = length

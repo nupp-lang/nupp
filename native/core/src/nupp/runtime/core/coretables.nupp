@@ -5,7 +5,7 @@ module nupp.runtime.core.coretables
 -- layout the collector walks. The header's auxPtr and auxLen mirror the array
 -- part after every change, since that is what marking reads.
 --
--- Keys are integers, booleans and objects by identity. A float key with an
+-- Strings compare by bytes; other object keys compare by identity. A float key with an
 -- integral value is the integer it equals (Lua's t[1.0] is t[1]); nil and
 -- NaN keys are refused as Lua refuses them.
 --
@@ -278,16 +278,18 @@ end
 -- A fresh empty table on `h`; answers its header address.
 export function create(h: heap.Heap*): uint64
     @unsafe do
-        local o = collector.allocate(h, heap.KIND_TABLE, native.sizeOf<heap.TableBody>())
+        local bytes = native.sizeOf<heap.TableBody>() + native.sizeOf<heap.CoreTableTail>()
+        local o = collector.allocate(h, heap.KIND_TABLE, bytes)
         local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES)
         local i: uint64 = 0ULL
-        while i < native.sizeOf<heap.TableBody>() do
+        while i < bytes do
             native.store64(body, native.index(i), 0ULL)
             i = i + 8ULL
         end
         native.store64(body, native.fieldOffset<heap.TableBody>("meta"), values.NIL)
         o.auxPtr = 0ULL
         o.auxLen = 0ULL
+        packedtail(o).owner = native.address(h as voidptr)
         collector.initialized(h, o)
 
         return native.address(o as voidptr)
@@ -426,7 +428,7 @@ export function get(table: uint64, key: uint64): uint64
         if t.ptr == 0ULL then
             return values.NIL
         end
-        local slot = hashes.tableOwnedGetSlot(t, key)
+        local slot = hashes.coregetslot(t, key)
         if slot == 0ULL then
             return values.NIL
         end
@@ -536,12 +538,12 @@ export function set(h: heap.Heap*, table: uint64, raw: uint64, value: uint64): u
             end
             -- The hash part may already hold the keys that now extend the array.
             if t.ptr ~= 0ULL then
-                if hashes.tableOwnedGetSlot(t, key) ~= 0ULL then
-                    hashes.tableOwnedInsert(t, key, values.NIL)
+                if hashes.coregetslot(t, key) ~= 0ULL then
+                    hashes.coreinsert(t, key, values.NIL)
                 end
                 while true do
                     local next = values.TAG_INTEGER | (a.length + 1ULL)
-                    local slot = hashes.tableOwnedGetSlot(t, next)
+                    local slot = hashes.coregetslot(t, next)
                     if slot == 0ULL then
                         break
                     end
@@ -550,7 +552,7 @@ export function set(h: heap.Heap*, table: uint64, raw: uint64, value: uint64): u
                         collector.arrayrange(h, o, index - 1ULL, a.length)
                         return NO_MEMORY
                     end
-                    hashes.tableOwnedInsert(t, next, values.NIL)
+                    hashes.coreinsert(t, next, values.NIL)
                 end
             end
             mirror(o)
@@ -566,10 +568,11 @@ export function set(h: heap.Heap*, table: uint64, raw: uint64, value: uint64): u
                 return NO_MEMORY
             end
         end
-        if hashes.tableOwnedInsert(t, key, value) ~= 0ULL then
+        if hashes.coreinsert(t, key, value) ~= 0ULL then
             return NO_MEMORY
         end
-        collector.hashstore(h, o, key, value)
+        local bucket = hashes.coreprobe(native.pointer(t.ptr), t.capacity, t.mask, key)
+        collector.corehashstore(h, o, bucket)
 
         return OK
     end
@@ -613,9 +616,9 @@ export function nextKey(table: uint64, key: uint64): uint64
             end
             return values.TRUE
         end
-        local next = hashes.tableOwnedNextAfter(t, after)
+        local next = hashes.corenext(t, after)
         if next == 0xffffffffffffffffULL then
-            if after ~= values.NIL and hashes.tableOwnedPosition(t, after) == 0xffffffffffffffffULL then
+            if after ~= values.NIL and hashes.coreposition(t, after) == 0xffffffffffffffffULL then
                 return values.TRUE
             end
             return values.NIL

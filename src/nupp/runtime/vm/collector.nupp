@@ -783,6 +783,36 @@ export function hashstore(h: heap.Heap*, o: heap.Header*, key: uint64, value: ui
     remember(h, o)
 end
 
+-- Core hash stores name the actual post-store resident bucket. In particular,
+-- a content-equal old query may delete a young resident: record the deletion
+-- without reading that NIL key, so its first scan makes the key opaque.
+export function corehashstore(h: heap.Heap*, o: heap.Header*, bucket: uint64): nil
+    if not recording(h, o) then
+        return
+    end
+    @unsafe do
+        local t = tableof(o)
+        if t.hashPtr == 0ULL or bucket >= t.hashCap then
+            return
+        end
+        local key = native.load64(native.pointer(t.hashPtr), native.index(bucket * 16ULL))
+        local value = native.load64(native.pointer(t.hashPtr), native.index(bucket * 16ULL + 8ULL))
+        if key == values.NIL then
+            return
+        end
+        if value ~= values.NIL and not (young(key) or young(value)) then
+            return
+        end
+        if cardable(o) then
+            local r = cardrecord(h, o)
+            if r ~= NONE and markhash(h, r, o, bucket) then
+                return
+            end
+        end
+        remember(h, o)
+    end
+end
+
 --- Freezes a table (Decision 20): it is old from now on and never written
 --- again, so no store into it is recorded. The minor collections that
 --- follow still trace the young objects it holds as it freezes.
@@ -1076,7 +1106,7 @@ end
 
 --- The hash buckets of card `card`, as `arrayslots`; a removed entry, its
 --- value nil, holds nothing.
-local function hashslots(h: heap.Heap*, t: heap.TableBody*, card: uint64, scan: boolean): boolean
+local function hashslots(h: heap.Heap*, o: heap.Header*, t: heap.TableBody*, card: uint64, scan: boolean): boolean
     @unsafe do
         if t.hashPtr == 0ULL then
             return false
@@ -1085,6 +1115,9 @@ local function hashslots(h: heap.Heap*, t: heap.TableBody*, card: uint64, scan: 
         local last = b + CARD_SLOTS
         if last > t.hashCap then
             last = t.hashCap
+        end
+        if scan then
+            objecttable.coredeadkeys(h, o, b, last)
         end
         while b < last do
             local key = native.load64(native.pointer(t.hashPtr), native.index(b * 16ULL))
@@ -1124,7 +1157,7 @@ local function cardover(h: heap.Heap*, o: heap.Header*): boolean
         end
         card = 0ULL
         while card * CARD_SLOTS < t.hashCap do
-            if hashslots(h, t, card, false) and not markhash(h, r, o, card * CARD_SLOTS) then
+            if hashslots(h, o, t, card, false) and not markhash(h, r, o, card * CARD_SLOTS) then
                 return false
             end
             card = card + 1ULL
@@ -1166,7 +1199,8 @@ end
 --- else kept dirty only while one of them holds a fresh object.
 local function cardwalk(h: heap.Heap*, r: uint64, scan: boolean): nil
     @unsafe do
-        local t = tableof(native.pointer(heap.wordAt(h.cards, r)) as heap.Header*)
+        local o = native.pointer(heap.wordAt(h.cards, r)) as heap.Header*
+        local t = tableof(o)
         local bits = heap.wordAt(h.cards, r + 1ULL)
         local arraywords = heap.wordAt(h.cards, r + 2ULL)
         local words = arraywords + heap.wordAt(h.cards, r + 3ULL)
@@ -1182,7 +1216,7 @@ local function cardwalk(h: heap.Heap*, r: uint64, scan: boolean): nil
                         if w < arraywords then
                             holds = arrayslots(h, t, w * 64ULL + b, scan)
                         else
-                            holds = hashslots(h, t, (w - arraywords) * 64ULL + b, scan)
+                            holds = hashslots(h, o, t, (w - arraywords) * 64ULL + b, scan)
                         end
                         if not scan and not holds then
                             word = word & ~bit

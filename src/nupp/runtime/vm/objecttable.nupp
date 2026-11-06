@@ -232,9 +232,60 @@ end
 
 -- Core callers prepare StringBody.hash on every live query and resident
 -- string before using the content policy, and keep query/live-entry objects
--- rooted throughout the call. NIL-valued keys may already be dead. These
+-- rooted throughout the call. Dead NIL keys carry only opaque payloads. These
 -- helpers never collect or compute an unprepared hash.
 const NO_BUCKET: uint64 = 0xffffffffffffffffULL
+-- Private NIL-valued core hash-key encoding, never a live Value. The catalog
+-- reuses this bit pattern for serialized string offsets in a different domain;
+-- those offsets are decoded before runtime stores. No payload header is read.
+const DEAD_KEY: uint64 = 0x7ffe000000000000ULL
+
+-- Requested payload extent, not allocator slot padding, identifies the tail.
+-- The owner matches this collector; frozen VM tables have no such tail.
+export function coretable(h: heap.Heap*, o: heap.Header*): boolean
+    @unsafe do
+        if o.kind as uint64 ~= heap.KIND_TABLE
+            or (
+                o.size as uint64
+            ) < heap.HEADER_BYTES + native.sizeOf<heap.TableBody>() + native.sizeOf<heap.CoreTableTail>()
+        then
+            return false
+        end
+        local tail = native.pointer(
+            native.address(o as voidptr) + heap.HEADER_BYTES + native.sizeOf<heap.TableBody>()
+        ) as heap.CoreTableTail*
+        return tail.owner == native.address(h as voidptr)
+    end
+end
+
+-- Scan-time removal matches Lua's dead-key protocol even if a key is rooted.
+-- A later minor may reclaim it without revisiting this table or card. The
+-- range is in actual resident buckets; tagging never dereferences a key.
+export function coredeadkeys(h: heap.Heap*, o: heap.Header*, first: uint64, last: uint64): nil
+    if not coretable(h, o) then
+        return
+    end
+    @unsafe do
+        local t = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as heap.TableBody*
+        if t.hashPtr == 0ULL then
+            return
+        end
+        if last > t.hashCap then
+            last = t.hashCap
+        end
+        local bucket = first
+        while bucket < last do
+            local offset = native.index(bucket * 16ULL)
+            local key = native.load64(native.pointer(t.hashPtr), offset)
+            if native.load64(native.pointer(t.hashPtr), native.index(bucket * 16ULL + 8ULL)) == values.NIL
+                and key & values.TAG_MASK == values.TAG_OBJ
+            then
+                native.store64(native.pointer(t.hashPtr), offset, DEAD_KEY | (key & values.PAYLOAD))
+            end
+            bucket = bucket + 1ULL
+        end
+    end
+end
 
 local function corestring(key: uint64): uint64
     if key & values.TAG_MASK ~= values.TAG_OBJ then
@@ -269,6 +320,9 @@ end
 local function coreequal(left: uint64, right: uint64): boolean
     if left == right then
         return true
+    end
+    if left & 0xffff000000000000ULL == DEAD_KEY then
+        return right & values.TAG_MASK == values.TAG_OBJ and left & values.PAYLOAD == right & values.PAYLOAD
     end
     local a = corestring(left)
     local b = corestring(right)
@@ -323,12 +377,9 @@ export function coreprobe(table: voidptr, capacity: uint64, mask: uint64, key: u
     local probes: uint64 = 0ULL
     while probes < capacity do
         local found = native.load64(table, native.index(bucket * 16ULL))
-        -- A NIL-valued entry may name reclaimed storage. Its key word is
-        -- opaque: only identity can match it, even before the next GC.
-        if found == key then
-            return bucket
-        end
-        if native.load64(table, native.index(bucket * 16ULL + 8ULL)) ~= values.NIL and coreequal(found, key) then
+        -- Scanned NIL keys are opaque. Unscanned deleted keys remain live
+        -- until the next table/card scan and still compare by content.
+        if coreequal(found, key) then
             return bucket
         end
         if found == values.NIL then
@@ -598,7 +649,13 @@ local function ownedinsert(t: heap.ValueTable*, key: uint64, value: uint64, core
     @unsafe do
         local bucket = ownedprobe(native.pointer(t.ptr), t.capacity, t.mask, key, core)
         if bucket ~= 0xffffffffffffffffULL then
-            if ownedequal(native.load64(native.pointer(t.ptr), native.index(bucket * 16ULL)), key, core) then
+            local resident = native.load64(native.pointer(t.ptr), native.index(bucket * 16ULL))
+            if ownedequal(resident, key, core) then
+                -- A dead identity match becomes traceable before publication.
+                -- Live replacements keep their original resident key and rank.
+                if core and value ~= values.NIL and resident & 0xffff000000000000ULL == DEAD_KEY then
+                    native.store64(native.pointer(t.ptr), native.index(bucket * 16ULL), key)
+                end
                 native.store64(native.pointer(t.ptr), native.index(bucket * 16ULL + 8ULL), value)
                 return 0ULL
             end
@@ -724,9 +781,8 @@ end
 -- Use one key policy consistently for a descriptor; never reinterpret an
 -- identity table that may already hold multiple equal-content string keys.
 -- Core wrappers require prepared hashes for all live query and resident strings.
--- NIL-valued tombstones match only by identity and are never dereferenced.
--- Before guest wiring, GC must distinguish live deleted keys from dead ones:
--- equal-content next queries to a live deleted key are not supported here.
+-- Unscanned NIL keys compare by content; scanned keys match only by identity.
+-- Core collectors must tag NIL OBJ keys before reclaiming their referents.
 -- Initialization, release, entry buckets and next positions share no key policy.
 export function coregrow(t: heap.ValueTable*): uint64
     return ownedgrow(t, true)

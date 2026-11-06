@@ -394,7 +394,16 @@ UNITS[#UNITS + 1] = {
     modules = {"tablekeyunits", "unitentry", "nupp.runtime.core.coretables"},
     paths = {["nupp.runtime.core.coretables"] = ROOT .. "/native/core/src/nupp/runtime/core/coretables.nupp"},
     include = "native/core/src",
-    entries = {{"tablekeyunits", "equality", 1}, {"tablekeyunits", "growth", 1}, {"tablekeyunits", "dead", 2}},
+    entries = {
+        {"tablekeyunits", "equality", 1},
+        {"tablekeyunits", "growth", 1},
+        {"tablekeyunits", "dead", 2},
+        {"tablekeyunits", "scans", 1},
+        {"tablekeyunits", "weakclears", 2},
+        {"tablekeyunits", "removedyoung", 1},
+        {"tablekeyunits", "blacknew", 0},
+        {"tablekeyunits", "noncore", 0}
+    },
     cases = function()
         return {
             {"equality", {0}, 0},
@@ -405,7 +414,17 @@ UNITS[#UNITS + 1] = {
             {"dead", {0, 0}, 0},
             {"dead", {1, 0}, 0},
             {"dead", {0, 1}, 0},
-            {"dead", {1, 1}, 0}
+            {"dead", {1, 1}, 0},
+            {"scans", {0}, 0},
+            {"scans", {1}, 0},
+            {"weakclears", {0, 1}, 0},
+            {"weakclears", {1, 1}, 0},
+            {"weakclears", {0, 2}, 0},
+            {"weakclears", {1, 2}, 0},
+            {"removedyoung", {0}, 0},
+            {"removedyoung", {256}, 0},
+            {"blacknew", {}, 0},
+            {"noncore", {}, 0}
         }
     end
 }
