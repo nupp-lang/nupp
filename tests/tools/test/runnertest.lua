@@ -1409,6 +1409,41 @@ end}
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+function M.internalNuppSuitesKeepTheirPackageNamespace()
+    local dir = copiedRunner()
+    local fs = require("nupp.compiler.fs")
+    assert(fs.mkdir(dir .. "/src/nupp"))
+    assert(fs.mkdir(dir .. "/tests/nupp/test"))
+    write(dir .. "/nupp.lua", 'return {include = {"src"}}\n')
+    write(dir .. "/src/nupp/fixture.nupp", '@!internal\nmodule nupp.fixture\nexport const answer: integer = 42\n')
+    write(dir .. "/tests/nupp/test/ownedtest.nupp", [[
+local implementation = require("nupp.fixture")
+local M = {}
+function M.readsPrivateModule(): nil
+    assert(implementation.answer == 42)
+end
+return M
+]])
+    local output, invocation = capturedRun(
+        ("cd %q && %q run tests/run.lua ownedtest --jobs=1 --json 2>/dev/null"):format(dir, NUPP)
+    )
+    test.eq(invocation.status, 0, evidence(invocation))
+    local report = decode(output)
+    test.eq(report.total, 1)
+    test.eq(report.passed, 1)
+    test.eq(report.tests[1].id, "ownedtest/readsPrivateModule")
+    write(dir .. "/tests/publictest.nupp", [[
+local implementation = require("nupp.fixture")
+return {refused = function(): nil assert(implementation.answer == 42) end}
+]])
+    local refused, refusal = capturedRun(
+        ("cd %q && %q run tests/run.lua publictest --jobs=1 2>&1"):format(dir, NUPP)
+    )
+    test(refusal.status ~= 0, evidence(refusal))
+    test.matches(refused, "internal to package namespace")
+    os.remove(dir, true)
+end
+
 function M.runsNuppSuites()
     local output = run(ROOT, "nuppsuitetest --json")
     test.matches(output, '"suite":"nuppsuitetest"')

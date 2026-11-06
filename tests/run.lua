@@ -1448,7 +1448,10 @@ local function loadSuite(suite)
     if loadImage then
         installVmModules()
         local collected = {}
-        local image = require("nupp.tools.cli.compile").image(path, vmModules, suite.name, collected)
+        -- Internal suites keep their Nupp package scope while reported names
+        -- remain independent of the directory that contains the suite.
+        local moduleName = suite.path:match("^nupp/") and suite.path:gsub("%.nupp$", ""):gsub("/", ".") or suite.name
+        local image = require("nupp.tools.cli.compile").image(path, vmModules, moduleName, collected)
         if not image then
             local reasons = {}
             for _, diagnostic in ipairs(collected) do
@@ -1719,7 +1722,8 @@ local function fixtureManifest(root)
     local manifest = {}
 
     local function walk(directory, prefix)
-        for name, kind in files.list(directory) or function() end do
+        for name, kind in files.list(directory) or function()
+        end do
             local relative = prefix == "" and name or prefix .. "/" .. name
             local path = directory .. "/" .. name
             if relative ~= ".nupp-fixture.json" then
@@ -2016,7 +2020,8 @@ end
 if not queueDir and #shard == 0 then
     pcall(function()
         local files = require("io.internal.files")
-        for name in files.list(fixtureRoot) or function() end do
+        for name in files.list(fixtureRoot) or function()
+        end do
             if name:match("%.failed%.json$") then
                 os.remove(fixtureRoot .. "/" .. name)
             elseif name:match("%.lock$") then
