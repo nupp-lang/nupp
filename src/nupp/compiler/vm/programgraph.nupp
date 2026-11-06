@@ -820,22 +820,9 @@ function program.describe(modules: {any}, entryModule: string): any
                 if super.interfaceName and definition and definition.filename ~= owner.scope.path and foreign then
                     -- Another module's interface: that module, required, and its
                     -- export by the interface's name.
-                    local site: any = {
-                        kind = "dotIndex",
-                        qualifiedModule = origin.moduleName,
-                        inheritFrom = declaration.name.text
-                    }
-                    local item = {
-                        id = #p.requires,
-                        owner = owner.id,
-                        node = site,
-                        module = origin.moduleName,
-                        typeOnly = false,
-                        target = foreign.chunk,
-                        qualified = true
-                    }
-                    p.requires[#p.requires + 1], p.requireByNode[site] = item, item
-                    tokens[super.interfaceName] = site
+                    tokens[
+                        super.interfaceName
+                    ] = {qualifiedModule = origin.moduleName, inheritFrom = declaration.name.text}
                 elseif super.interfaceName and definition and definition.filename == owner.scope.path then
                     local token: any = {
                         kind = "name",
@@ -848,6 +835,33 @@ function program.describe(modules: {any}, entryModule: string): any
                     }
                     reference(token, owner)
                     tokens[super.interfaceName] = token
+                end
+            end
+            -- Each checked inherited member emits its own require, in order.
+            -- Issue a distinct anchored site for each, rather than sharing the
+            -- superinterface's site across multiple emitted operations.
+            for _, taken in ipairs(node.inheritedDefaultNames) do
+                local from = tokens[taken.from]
+                if from and from.qualifiedModule then
+                    local foreign = moduleNames[from.qualifiedModule]
+                    local site = {
+                        kind = "dotIndex",
+                        qualifiedModule = foreign.name,
+                        inheritFrom = from.inheritFrom,
+                        inheritedDefault = taken,
+                        cst.firstToken(node)
+                    }
+                    local item = {
+                        id = #p.requires,
+                        owner = owner.id,
+                        node = site,
+                        module = foreign.name,
+                        typeOnly = false,
+                        target = foreign.chunk,
+                        qualified = true
+                    }
+                    p.requires[#p.requires + 1], p.requireByNode[site] = item, item
+                    tokens[taken] = site
                 end
             end
             p.inheritTokens[node] = tokens
@@ -1356,6 +1370,27 @@ function program.verify(p: any): boolean
         callCount = callCount + 1
     end
     need(callCount == #p.calls, "incomplete callsite array")
+    for declaration, tokens in pairs(p.inheritTokens) do
+        local binding = p.byDefinition[declaration.name.definition]
+        for _, taken in ipairs(declaration.inheritedDefaultNames or {}) do
+            local from = tokens[taken.from]
+            if from and from.qualifiedModule then
+                local token = tokens[taken]
+                local site = token and p.requireByNode[token]
+                need(
+                    site
+                    and site.node == token
+                    and binding
+                    and site.owner == binding.owner
+                    and site.module == from.qualifiedModule
+                    and token.inheritedDefault == taken
+                    and token.inheritFrom == from.inheritFrom
+                    and cst.firstToken(token) == cst.firstToken(declaration),
+                    "foreign inherited default lacks its checked require site"
+                )
+            end
+        end
+    end
     for node, item in pairs(p.recordTests) do
         need(
             node.kind == "isExpr"

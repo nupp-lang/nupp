@@ -954,7 +954,7 @@ function tagged.forVersion(version: integer): any
             for _, taken in ipairs(stat.inheritedDefaultNames or {}) do
                 local tokens = catalog(ctx).inheritTokens[stat] or {}
                 local token = need(
-                    tokens[taken.from],
+                    tokens[taken] or tokens[taken.from],
                     "an inherited default from an interface not in the program: " .. tostring(taken.from)
                 )
                 local parent: integer? = nil

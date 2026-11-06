@@ -1344,4 +1344,80 @@ return matches
     )
 end
 
+function M.foreignDefaultsIssueOneAnchoredRequirePerCheckedMember()
+    local T = require("nupp.compiler.types")
+    local dependency = checked(
+        [[
+module defaultsource
+export interface Defaults
+    function first(self): integer return 1 end
+    function second(self): integer return 2 end
+end
+]],
+        "defaultsource"
+    )
+    local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
+    env.loaded.defaultsource = {type = T.any, exports = dependency.parsed.moduleExports}
+    local consumer = checked(
+        [[
+local {type Defaults} = require("defaultsource")
+local record Child is Defaults end
+return Child()
+]],
+        "defaultconsumer",
+        env
+    )
+    local p = program.describe({consumer, dependency}, "defaultconsumer")
+    local compiled = program.compile(p, tagged.forVersion(8))
+    local contracts = require("nupp.compiler.vm.coregraphcontracts")
+    local issued = {}
+    for _, site in ipairs(p.requires) do
+        if site.qualified then
+            issued[#issued + 1] = site
+        end
+    end
+    test.eq(#issued, 2)
+    test.eq(#operations(compiled.graphs[1], "Require"), 2)
+    assert(require("nupp.compiler.syntax.cst").firstToken(issued[1].node))
+    assert(issued[1].node ~= issued[2].node)
+    assert(contracts.normalize(compiled, 8))
+    p.requireByNode[issued[1].node] = nil
+    refuses(
+        function()
+            contracts.normalize(compiled, 8)
+        end,
+        "checked require target or source identity differs"
+    )
+    p.requireByNode[issued[1].node] = issued[1]
+    local declaration, tokens = next(p.inheritTokens)
+    local taken = declaration.inheritedDefaultNames[1]
+    local original = tokens[taken]
+    tokens[taken] = issued[2].node
+    refuses(
+        function()
+            program.verify(p)
+        end,
+        "foreign inherited default lacks its checked require site"
+    )
+    tokens[taken] = original
+    local owner = issued[1].owner
+    issued[1].owner = p.modules[2].chunk
+    refuses(
+        function()
+            program.verify(p)
+        end,
+        "foreign inherited default lacks its checked require site"
+    )
+    issued[1].owner = owner
+    local anchor = issued[2].node[1]
+    issued[2].node[1] = {kind = "name", text = "foreign", line = 99, col = 1, trivia = {}}
+    refuses(
+        function()
+            contracts.normalize(compiled, 8)
+        end,
+        "foreign inherited default lacks its checked require site"
+    )
+    issued[2].node[1] = anchor
+end
+
 return M
