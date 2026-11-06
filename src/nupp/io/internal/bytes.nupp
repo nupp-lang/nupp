@@ -753,7 +753,9 @@ export sealed interface Buffer is own.Closeable
     ---
     --- LuaJIT copies the bytes through a string into engine storage.
     function freeze(takes self: Buffer): immutable.Bytes
-        local result = immutable.Bytes.copy(self:tostring())
+        -- The public freeze call selects the engine; loading Buffer stays portable.
+        local copy: function(string): immutable.Bytes = rawget(immutable.Bytes as table, "copy") as any
+        local result = copy(self:tostring())
         self:close()
         return result
     end
