@@ -1,3 +1,7 @@
--- Private implementations live under nupp; application code uses the standard roots.
+--[[
+The `nupp` root retains legacy library module paths.
+Use the [standard library](docs/learn/runtime/data/standard-library.md)
+namespaces for typed storage, I/O, and tasks.
+]]
 const nupp = {}
 return nupp

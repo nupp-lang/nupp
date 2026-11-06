@@ -11,6 +11,8 @@ write[1] = 42 as int32
 own.drop(write)
 assert(values:read()[1] == 42)
 ```
+
+See [bytes.md](docs/learn/runtime/data/bytes.md) for ownership, spans, and copies.
 ]]
 
 --- @namespace table.Array
@@ -23,12 +25,28 @@ export type Layout = layouts.Layout
 export type FieldLayout = layouts.FieldLayout
 export type SegmentLayout = layouts.SegmentLayout
 export type InstanceLayout = layouts.InstanceLayout
+
+--- Allocates zeroed managed storage with the struct value's layout.
 export const newarray = current.newarray
+
+--- Allocates zeroed managed storage for a scalar representation witness.
 export const scalar = current.scalar
+
+--- Allocates a zeroed managed byte array.
 export const bytes = current.bytes
+
+--- Allocates owned storage for a C element type.
+---
+--- The default layout is `"packed"`; `"columnar"` stores a struct's fields in
+--- separate columns. The result carries `destroy` as its affine cleanup.
 export const alloc = current.alloc
+
+--- Consumes the array and drops any owned allocation.
 export const destroy = current.destroyarray
+
+--- Reflects the columnar layout of a reified struct without allocating storage.
 export const layoutof = current.layoutof
+
 export const uint8 = current.uint8
 export const int8 = current.int8
 export const uint16 = current.uint16

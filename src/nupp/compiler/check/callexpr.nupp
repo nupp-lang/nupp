@@ -2264,22 +2264,6 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             -- o:m(...) desugars to m(o, ...): drop the self parameter
             local methodType = callable and specializeReceiver(mt, ot) or mt
             local nominal = rawReceiver.tag == "nominal" and rawReceiver as T.Nominal or nil
-            if not nominal and rawReceiver.tag == "intersection" then
-                for _, candidate in ipairs(rawReceiver.members) do
-                    if candidate.tag == "nominal" then
-                        local candidateNominal = candidate as T.Nominal
-                        local candidateOrigin = (candidateNominal.origin or candidateNominal) as T.Nominal
-                        if (
-                            candidateOrigin.moduleName or candidateNominal.moduleName or candidateOrigin.sealedModule
-                        ) == "nupp.soa"
-                            and candidateOrigin.name == "WriteSpan"
-                        then
-                            nominal = candidateNominal
-                            break
-                        end
-                    end
-                end
-            end
             local origin = nominal and ((nominal.origin or nominal) as T.Nominal) or nil
             local spanElement = nil
             if nominal and origin and origin.moduleName == "nupp.mem.span" and nominal.typeArgs then

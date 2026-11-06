@@ -118,6 +118,34 @@ function M.moduleDocumentationKeepsNamespaceTagsAttached()
     assert(projections[1].text == "Public description.", projections[1].text)
 end
 
+function M.explicitPublicNamespacesSurvivePrivateSourceDirectories()
+    local dir = tempProject({
+        [
+            "src/engine/internal/arrays.nupp"
+        ] = [=[
+@!internal
+--[[Public array factories.]]
+--- @namespace table.Array
+module engine.internal.arrays
+
+--- Creates a byte array.
+export function bytes(count: integer): integer
+    return count
+end
+
+local function hidden(): nil end
+]=],
+    })
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "markdown", output = "api.md"}) == 0)
+    local api = readFile(dir .. "/api.md")
+    assert(api:find('<a id="table.Array"></a>', 1, true), api)
+    assert(api:find('<a id="table.Array.bytes"></a>', 1, true), api)
+    assert(api:find("Public array factories.", 1, true), api)
+    assert(not api:find('id="engine.internal', 1, true), api)
+    assert(not api:find('id="table.Array.hidden', 1, true), api)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.moduleDocumentationDoesNotConsumeFollowingComments()
     -- This deliberately misplaced block is an implementation comment.
     local source = "module example\n" .. "--[[Implementation note.]]\nexport const value = 1\n"
@@ -2536,7 +2564,7 @@ function M.standardIOApiHasCompleteDocumentation()
             "src/nupp/io.nupp"
         ] = {
             types = {Buffer = true, Reader = true, Writer = true, ScalarReader = true, ScalarWriter = true,},
-            functions = {newBuffer = true, newStringReader = true,},
+            functions = {},
         },
         [
             "src/io/internal/pathtypes.nupp"

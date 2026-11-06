@@ -1,8 +1,8 @@
 @!internal
 
 --[[
-`table` provides sequence operations and reusable pools of record and struct
-instances. Use `Pool` when a hot path repeatedly acquires instances of the
+`table` provides sequence operations, typed arrays, and reusable pools of
+record and struct instances. Use `Pool` when a hot path repeatedly acquires instances of the
 same declared type.
 
 ```nupp
@@ -30,7 +30,11 @@ module nupp.runtime.standardtable
 local pool = require("nupp.util.internal.pool")
 local arrays = require("nupp.array")
 
+--- Mutable typed elements in packed or columnar storage.
+---
+--- See [bytes.md](docs/learn/runtime/data/bytes.md) for managed and owned arrays.
 export type Array<T, const Layout: string = "packed"> = arrays.Array<T, Layout>
+
 export const Array = require("nupp.array.internal.api")
 
 --- A pool of instances of a record or struct declaration.

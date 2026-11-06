@@ -478,6 +478,7 @@ local function loadModules(root, config, settings, requested)
                 into.text = module.text
             end
             into.documentationInternal = into.documentationInternal or module.documentationInternal
+            into.namespaceProjection = into.namespaceProjection or module.namespaceProjection
         end
     end
     if #order < #modules then
@@ -541,7 +542,7 @@ local function loadModules(root, config, settings, requested)
         if module.documentationInternal or internalModuleName(module.name) then
             return true
         end
-        if module.path and privateSource(root, module.path) then
+        if module.path and not module.namespaceProjection and privateSource(root, module.path) then
             return true
         end
         for _, namespace in ipairs(internalTrees) do

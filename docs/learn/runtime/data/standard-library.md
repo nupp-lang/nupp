@@ -17,7 +17,8 @@ print(#digest, math.lerp(10, 20, 0.25))
 
 Compiler intrinsics live in their subject namespaces, such as `types`, `simd`,
 and `own`. The compiler selects their implementations from the members checked
-source reaches. Typed storage uses [](table.Array); [](io.Buffer) owns FIFO byte buffers.
+source reaches. Typed storage uses [](table.Array); [](io.Buffer) owns growable
+byte buffers. See [bytes.md](bytes.md) for storage, spans, ownership, and copies.
 
 Nupp-authored libraries outside that surface are ordinary declared modules on
 disk. A qualified module path loads one only when the source uses it:
@@ -80,8 +81,8 @@ intrinsic namespaces and the declared modules:
 - [](debug.log) owns leveled logging over a swappable destination.
 - [](math) owns scalar and two-dimensional vector helpers.
 - [](binary.span) owns rooted, bounds-checked shared and writable C array views.
-- [`table.Array`](structure-of-arrays.md) stores every top-level field of a
-  reified struct in its own column.
+- [](table.Array) holds mutable typed elements, with packed and
+  [columnar](structure-of-arrays.md) layouts.
 - [](io.gpu) owns resident buffers, generated kernel dispatches, and tensor views.
   [](io.gpu.Layout) provides checked layout transformations.
 - [](os.randombytes) provides cryptographically secure random bytes.

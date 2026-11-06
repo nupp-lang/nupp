@@ -1430,7 +1430,7 @@ record types.reflect
     ---
     --- This says whether the declaration can be split into columns and identifies
     --- those columns. It deliberately does not contain target sizes or offsets; use
-    --- `nupp.soa.layoutof` for those.
+    --- `table.Array.layoutof` for those.
     ---
     --- ```nupp
     --- local struct Particle

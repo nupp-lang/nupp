@@ -11,10 +11,11 @@ const bytes = require("nupp.io.internal.bytes")
 
 --- A forward-only byte source.
 ---
---- `io.Reader.of(source)` accepts a string, a byte queue, a buffer, or a view.
---- Buffers and views become independent snapshots; queues are drained as the
---- reader advances. A reader owns its close obligation and closes automatically
---- at the end of its scope unless `close()` consumes it earlier.
+--- `io.Reader.of(source)` accepts a string, a byte queue, a buffer, a span, or
+--- `io.Bytes`. A buffer reader exclusively borrows and consumes its source;
+--- a span reader retains its borrow, and a Bytes reader retains the immutable
+--- region. Closing a reader ends its borrow or drops its retained reference.
+--- See [bytes.md](docs/learn/runtime/data/bytes.md) for storage and copies.
 ---
 --- ```nupp
 --- local reader = io.Reader.of("abcdef")
@@ -377,60 +378,3 @@ export type ScalarStream = bytes.ScalarStream
 ---
 --- @export
 export type Lines = bytes.Lines
-
---- Creates a buffer, optionally over starting bytes or a starting capacity.
----
---- The buffer is an owner, so it closes at its lexical boundary unless it is
---- transferred out of one. A number is a capacity to allocate rather than
---- content, and the buffer is still empty afterwards.
----
---- ```nupp
---- local buffer = io.Buffer.create("hello")
---- assert(buffer:len() == 5)
----
---- local sized = io.Buffer.create(4096)
---- assert(sized:len() == 0 and sized:capacity() == 4096)
---- ```
----
---- @param initial the starting bytes, a starting capacity, or nothing
---- @return the buffer, owned by the caller
---- @raises string when initial is neither bytes nor a capacity
---- @export
-export const newBuffer = bytes.newBuffer
-
---- Opens a reader over bytes held as a string.
----
---- The reader is a `Reader` like any other, so a parser written against the
---- contract reads a string here and a file or a response body elsewhere without
---- changing:
----
---- ```nupp
----
---- local reader = io.Reader.of("hello")
---- assert(reader:read(5) == "hello")
---- assert(reader:read(1) == "")
---- ```
----
---- @param text the bytes to read
---- @return the reader, owned by the caller
---- @raises string when text is not a string
---- @export
-export const newStringReader = bytes.newStringReader
-
---- Opens a byte reader over a string, queue, buffer, or view.
-export const newReader = bytes.newReader
-
---- Opens a byte writer that appends and exclusively borrows a buffer.
-export const newWriter = bytes.newWriter
-
---- Opens a reader over a byte queue, which it does not own.
----
---- Closing this reader leaves the queue behind it open, because the queue was
---- never transferred. A process stream and an HTTP response body are both byte
---- queues without naming this module.
----
---- @param source the queue to read from
---- @return the reader, owned by the caller
---- @raises string when source is not a byte queue
---- @export
-export const newQueueReader = bytes.newQueueReader
