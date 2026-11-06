@@ -147,45 +147,40 @@ threshold.
 
 ## Swapping the back end
 
-A host that logs through its own facility installs a sink function and takes
-over completely. It receives the parts, not a rendered line, and pays for no
-formatting it would discard:
+A host that logs through its own facility installs a callback sink. It receives
+the parts of each line and does not pay for formatting it discards:
 
 ```nupp:fragment
-local _ = debug.log.setsink(function(level: integer, module: string, line: integer, message: string): nil
+local _ = debug.log.setsink(debug.log.callback(function(level: integer, module: string, line: integer, message: string): nil
     sdl.logMessage(CATEGORY, PRIORITY[level], ("%s:%d %s"):format(module, line, message))
-end)
+end))
 ```
 
 `level` is `1` error, `2` warn, `3` info, `4` debug; `debug.log.levelname` turns
 one back into its name. `line` is `0` for a line the compiler could not
 attribute, which is every line from a named logger.
 
-Passing an [](io.Writer) instead keeps the built-in rendering and only moves
-where it goes: a file, a buffer, or a connection all work the same way.
+`writersink` adapts an [](io.Writer), using the built-in rendering or a supplied
+formatter. The sink takes and closes the writer. A borrowed writer must remain
+valid until the sink is replaced and closed.
 
 ```nupp
 local file = assert(io.open("game.log", "a"))
-local _ = debug.log.setsink(io.Writer.of(file))
+local previous = debug.log.setsink(debug.log.writersink(io.Writer.of(file)))
+local _ = debug.log.setsink(previous)
 ```
 
-The target is taken: the log holds it from then on, so `io.Writer.of` hands it
-the file as well. `setsink` hands back the target it replaced, owned like any
-writer; bind it to keep it for restoring, or to `_` to let it close. `sink()`
-reads which target is in force. The default is a built-in callback that renders
-lines to standard error using the current formatter.
-
-A writer target renders through the formatter, which is replaceable on its
-own:
+`setsink` takes the new sink and returns the previous one. Bind the returned
+sink to restore it later, or bind it to `_` to close it. The default sink writes
+to standard error. A formatter belongs to its writer sink:
 
 ```nupp
-debug.log.setformatter(function(level: integer, module: string, line: integer, message: string, stamp: string): string
+local file = assert(io.open("game.log", "a"))
+local previous = debug.log.setsink(debug.log.writersink(io.Writer.of(file), function(level: integer, module: string, line: integer, message: string, stamp: string): string
     return ("%s[%s] %s"):format(stamp, debug.log.levelname(level), message)
-end)
+end))
+local _ = debug.log.setsink(previous)
 ```
-
-Both setters return the value they replaced, so a host can restore what it
-found, and `setformatter(nil)` returns to the built-in rendering.
 
 ## Timestamps
 
@@ -232,19 +227,21 @@ export type LevelOverride = Level | "inherit"
 --- A level as a sink sees it: 1 error, 2 warn, 3 info, 4 debug.
 export type Severity = 1 | 2 | 3 | 4
 
---- Receives an emitted line, already formatted.
+--- Receives the severity, source, and message of an emitted line.
 ---
 --- Replacing this replaces the back end, so a host logging through its own
 --- facility pays for nothing it discards. No timestamp is passed, because a sink
 --- that wants one asks.
-export type Sink = function(level: Severity, module: string, line: integer, message: string): nil
+export type SinkCallback = function(level: Severity, module: string, line: integer, message: string): nil
 
---- Renders a line for a writer or the default standard-error sink.
---- Custom sink functions format their own lines.
+--- Renders a line for a writer sink.
 export type Formatter = function(level: Severity, module: string, line: integer, message: string, stamp: string): string
 
---- Where lines go: a sink function, or a writer each rendered line is written to.
-export type Target = Sink | io.Writer
+--- An owned destination for emitted log messages.
+export sealed interface Sink is own.Closeable
+    --- Emits a message at its severity and source location.
+    emit: function(exclusive self: Sink, level: Severity, module: string, line: integer, message: string): nil
+end
 
 --- A logger carrying a fixed name, for subsystems and for call sites the intrinsic
 --- cannot rewrite. Changing the level or target restamps every logger, so a filtered
@@ -304,8 +301,6 @@ end
 -- end.
 local threshold: integer = 2
 local target: any = nil
-local tosink = true
-local fmtr: any = nil
 local datefmt = "%Y-%m-%d %H:%M:%S "
 local lasttick: any = -1
 local laststamp = ""
@@ -352,10 +347,16 @@ local function stamp(): string
     return laststamp
 end
 
-local function renderline(severity: integer, module: string, line: integer, message: string): string
+local function renderline(
+    severity: Severity,
+    module: string,
+    line: integer,
+    message: string,
+    formatter: Formatter?
+): string
     local at = stamp()
-    if fmtr then
-        return fmtr(severity, module, line, message, at) .. "\n"
+    if formatter then
+        return formatter(severity, module, line, message, at) .. "\n"
     end
     if line > 0 then
         return at .. NAMES[severity] .. " " .. module .. ":" .. line .. ": " .. message .. "\n"
@@ -364,19 +365,53 @@ local function renderline(severity: integer, module: string, line: integer, mess
     return at .. NAMES[severity] .. " " .. module .. ": " .. message .. "\n"
 end
 
--- A callback keeps the default destination independent of byte-storage adapters.
-target = function(severity: integer, module: string, line: integer, message: string): nil
-    local _ = io.stderr:write(renderline(severity, module, line, message))
+local record StderrSink is Sink
+    function emit(exclusive self, severity: Severity, module: string, line: integer, message: string): nil
+        local _ = io.stderr:write(renderline(severity, module, line, message, nil))
+    end
+
+    close: @nosuspend function(takes self: StderrSink): nil
 end
+
+function StderrSink.close(takes self: StderrSink): nil
+    local _ = @unsafe own.release(self)
+end
+
+local record CallbackSink is Sink
+    @private callback: SinkCallback
+
+    function emit(exclusive self, severity: Severity, module: string, line: integer, message: string): nil
+        self.callback(severity, module, line, message)
+    end
+
+    close: @nosuspend function(takes self: CallbackSink): nil
+end
+
+function CallbackSink.close(takes self: CallbackSink): nil
+    local _ = @unsafe own.release(self)
+end
+
+local record WriterSink is Sink
+    @private destination: affine(io.Writer)
+    @private formatter: Formatter?
+
+    function emit(exclusive self, severity: Severity, module: string, line: integer, message: string): nil
+        local _ = self.destination:write(renderline(severity, module, line, message, self.formatter))
+    end
+
+    close: @nosuspend function(takes self: WriterSink): nil
+end
+
+function WriterSink.close(takes self: WriterSink): nil
+    self.destination:close()
+end
+
+target = @unsafe own.release(StderrSink())
 
 --- Emits a line. Lowering calls it behind a level test.
 --- @internal
 export function emit(severity: integer, module: string, line: integer, message: string): any
-    if tosink then
-        return target(severity, module, line, message)
-    end
-
-    return target:write(renderline(severity, module, line, message))
+    target:emit(severity, module, line, message)
 end
 
 local function flagsfor(name: string): {boolean}
@@ -616,59 +651,44 @@ export function enabled(at: Level): boolean
     return index > 0 and on[index] or false
 end
 
---- The destination in force.
----
---- @return the sink function or writer lines go to
-export function sink(): Target
-    return target
-end
-
-local function replacesink(taken: any): any
-    local previous = target
-    if type(taken) == "function" then
-        target = taken
-        tosink = true
-    elseif (type(taken) == "table" or type(taken) == "userdata") and type(taken.write) == "function" then
-        target = taken
-        tosink = false
-    else
-        error("nupp: log target must be a sink function or a writer", 2)
+--- Creates a sink that calls `handler` for each message.
+--- @param handler the callback receiving each message
+--- @return the sink, owned by the caller
+export function callback(handler: SinkCallback): affine(Sink)
+    if type(handler) ~= "function" then
+        error("nupp: log callback must be a function", 2)
     end
-    restampall()
-
-    return previous
+    return CallbackSink(callback = handler)
 end
 
--- A writer is taken and a sink function is not, and one parameter cannot say both,
--- so the two targets are separate signatures.
-
---- Replaces the destination. The log owns a writer target from then on.
----
---- @param next a sink function, or a writer to write rendered lines to
---- @return the destination this call replaced
---- @raises string when next is neither a sink function nor a writer
-export const setsink = replacesink as(function(takes next: io.Writer): Target) & (function(next: Sink): Target)
-
---- The line formatter in force.
----
---- @return the formatter, or nil when lines use the built-in rendering
-export function formatter(): Formatter?
-    return fmtr
-end
-
---- Replaces the line formatter.
----
---- @param next the formatter, or nil to return to the built-in rendering
---- @return the formatter this call replaced
---- @raises string when next is neither a function nor nil
-export function setformatter(next: Formatter?): Formatter?
-    if next ~= nil and type(next) ~= "function" then
+--- Creates a sink that renders messages to an owned writer.
+--- @param destination the writer to take; any resource it borrows must outlive the sink
+--- @param formatter the line formatter, or nil for the default
+--- @return the sink, owned by the caller
+export function writersink(takes destination: io.Writer, formatter: Formatter?): affine(Sink)
+    if formatter ~= nil and type(formatter) ~= "function" then
         error("nupp: log formatter must be a function", 2)
     end
-    local previous = fmtr
-    fmtr = next
+    return WriterSink(destination = destination, formatter = formatter)
+end
 
-    return previous
+--- Replaces the sink, transferring ownership of both sinks.
+---
+--- @param next the sink to install
+--- @return the previous sink, owned by the caller
+export function setsink(takes next: Sink): affine(Sink)
+    local kind = type(next)
+    if (kind ~= "table" and kind ~= "userdata" and kind ~= "cdata")
+        or type((next as any).emit) ~= "function"
+        or type((next as any).close) ~= "function"
+    then
+        error("nupp: log sink must implement emit and close", 2)
+    end
+    local previous = target
+    target = @unsafe own.release(next)
+    restampall()
+
+    return @unsafe own.adopt<affine(Sink)>(previous)
 end
 
 --- The stamp a line written now would carry.

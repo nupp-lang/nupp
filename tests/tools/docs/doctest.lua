@@ -1361,6 +1361,7 @@ export record Box<T>
     function choose(self, value: Widget): Widget end
     function choose(self, value: Box<Widget>): Widget end
 end
+
 export type T = string
 export function convert(value: Widget | Box<Widget> | nil): Widget? end
 export function shape(value: {Widget: number, item: Widget, label: 'Widget'}): Missing end
@@ -1407,6 +1408,30 @@ export function deep(value: Box.Nested.Leaf): Box.Nested.Leaf end
     for code in convert:gmatch("<pre>(.-)</pre>") do
         assert(not code:find("<a ", 1, true), code)
     end
+end
+
+function M.fieldTypesLinkToDocumentedTypes()
+    local module = assert(
+        doc.extract(
+            [[
+export record Widget end
+export record Box<T>
+    value: Widget | {Widget}
+    generic: T
+    label: string
+end
+]],
+            "src/model.nupp",
+            "model"
+        )
+    )
+    local markdown = doc.markdown({module})
+    local field = assert(markdown:match('id="model.Box.value"(.-):::'))
+    assert(field:find("`value:` [`Widget`](#model.Widget) `| {`[`Widget`](#model.Widget)`}`", 1, true), field)
+    local generic = assert(markdown:match('id="model.Box.generic"(.-):::'))
+    local label = assert(markdown:match('id="model.Box.label"(.-):::'))
+    assert(generic:find("```nupp\ngeneric: T\n```", 1, true), generic)
+    assert(label:find("```nupp\nlabel: string\n```", 1, true), label)
 end
 
 function M.argumentTypesResolveImportedAliasesAndPageDepth()

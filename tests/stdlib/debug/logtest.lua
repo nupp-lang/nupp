@@ -42,9 +42,9 @@ end
 -- than parse a rendered line back apart.
 local function recorder()
     local lines = {}
-    return lines, function(level, module, line, message)
+    return lines, runtime().callback(function(level, module, line, message)
         lines[#lines + 1] = {level = level, module = module, line = line, message = message}
-    end
+    end)
 end
 
 local M = {}
@@ -52,6 +52,25 @@ local M = {}
 function M.severityContainsOnlyEmittedLevels()
     testAssert.eq(codesOf("local level: debug.log.Severity = 4"), "")
     assert(codesOf("local level: debug.log.Severity = 5"):find("NUPP2001"))
+end
+
+function M.writerSinkCarriesTheWriterOwnership()
+    local source = [[
+local file = assert(io.tmpfile())
+local previous = debug.log.setsink(debug.log.writersink(io.Writer.of(file)))
+debug.log.info("hello")
+local installed = debug.log.setsink(previous)
+own.drop(installed)
+return true
+]]
+    local code = compile(source, "writer-sink")
+    local run = assert(loadstring(code, "@writer-sink"))
+    local log = runtime()
+    local previousLevel = log.setlevel("info")
+    local result = run()
+    log.setlevel(previousLevel)
+    assert(result)
+
 end
 
 function M.formatDirectivesAreCheckedAtTheCallSite()
@@ -189,7 +208,7 @@ function M.loadingTheLoggerDoesNotInitializeByteIO()
         {nupp = {}}
     )
     local log = load("debug.log")
-    testAssert.eq(type(log.sink()), "function", "the default sink needs no byte writer")
+    log.emit(2, "test", 0, "ready")
 end
 
 function M.theLoggingViewIsBoundThroughRequire()
@@ -360,16 +379,9 @@ function M.settersAnswerWhatTheyReplaced()
     local _, sink = recorder()
     local previousSink = log.setsink(sink)
     assert(previousSink ~= nil, "the sink setter answers the previous target")
-    testAssert.eq(log.sink(), sink, "and reading answers the current one")
-
-    -- The module is one process-wide singleton rather than a table a bootstrap
-    -- rebuilds per test, so what a setter replaces is whatever was in force, not nil.
-    local formatterBefore = log.formatter()
-    local formatter = function()
-        return ""
-    end
-    testAssert.eq(log.setformatter(formatter), formatterBefore, "the formatter setter answers the previous formatter")
-    testAssert.eq(log.formatter(), formatter, "and the new one is in force")
+    local replaced = log.setsink(previousSink)
+    testAssert.eq(replaced, sink, "the returned sink is the one installed")
+    replaced:close()
 
     local previousFormat = log.settimestampformat("%H ")
     assert(previousFormat ~= nil, "the timestamp format setter answers the previous one")
@@ -384,7 +396,6 @@ function M.anUnknownLevelRaisesWhereItIsNotALiteral()
     assert(not pcall(log.enabled, "verbose"), "including when only asked about")
     assert(not pcall(log.setsink, 3), "a target that is neither function nor file is refused")
     assert(not pcall(log.setsink, {}), "a table without a writer is not file-like")
-    assert(not pcall(log.setformatter, "text"), "a formatter that is not a function is refused")
     assert(not pcall(log.named, 3), "a name that is not a string is refused")
 end
 
@@ -410,32 +421,43 @@ function M.theTimestampIsCachedToTheSecond()
     assert(log.timestamp() ~= first, "changing the format drops the cached value")
 end
 
-function M.aFileLikeTargetRendersThroughTheFormatter()
+function M.writerSinksOwnTheirFormatterAndWriter()
     local log = runtime()
-    local written = {}
-    local file = {
-        write = function(_, ...)
-            written[#written + 1] = table.concat({...})
-            return true
-        end
-    }
+    local written, closed = {}, 0
+
+    local function writer()
+        return {
+            write = function(_, bytes)
+                written[#written + 1] = bytes
+                return true
+            end,
+            close = function()
+                closed = closed + 1
+            end,
+        }
+    end
+
     log.settimestampformat("")
     log.setlevel("debug")
-    log.setsink(file)
-
-    log.emit(1, "amb", 12, "boom")
-    assert(written[1]:find("error", 1, true) ~= nil, "the default rendering names the level")
-    assert(written[1]:find("amb:12", 1, true) ~= nil, "and locates the site")
-    assert(written[1]:find("boom", 1, true) ~= nil, "and carries the message")
-
-    log.setformatter(function(level, module, line, message, stamp)
+    local first = log.writersink(writer(), function(level, module, line, message, stamp)
         return ("<%d|%s|%d|%s|%s>"):format(level, module, line, message, stamp)
     end)
-    log.emit(2, "amb", 13, "again")
-    assert(written[2]:find("<2|amb|13|again|>", 1, true) ~= nil, "an installed formatter owns the line")
+    local original = log.setsink(first)
+    log.emit(2, "amb", 13, "custom")
+    local saved = log.setsink(log.writersink(writer()))
+    log.emit(1, "amb", 12, "default")
+    local second = log.setsink(saved)
+    second:close()
+    log.emit(2, "amb", 14, "restored")
+    local restored = log.setsink(original)
+    restored:close()
+    testAssert.eq(closed, 2, "each writer closes when its sink is dropped")
+    testAssert.eq(written[1], "<2|amb|13|custom|>\n")
+    testAssert.eq(written[2], "error amb:12: default\n")
+    testAssert.eq(written[3], "<2|amb|14|restored|>\n")
 end
 
-function M.theDefaultSinkPreservesFormattingWhenRestored()
+function M.theDefaultSinkCanBeRestored()
     local previousLog, previousError = package.loaded["debug.log"], io.stderr
     package.loaded["debug.log"] = nil
     local ok, problem = pcall(function()
@@ -448,49 +470,44 @@ function M.theDefaultSinkPreservesFormattingWhenRestored()
             end
         }
         log.settimestampformat("")
-        local default = log.sink()
-        assert(type(default) == "function", "the default destination uses the callback contract")
         log.emit(2, "sample", 7, "first")
-        testAssert.eq(written[1], "warn sample:7: first\n")
-        log.setsink(function()
-        end)
-        log.setformatter(function(_, _, _, message)
-            return "formatted " .. message
-        end)
+        local default = log.setsink(
+            log.callback(function()
+            end)
+        )
         log.emit(2, "sample", 0, "discarded")
-        log.setsink(default)
+        local replaced = log.setsink(default)
+        replaced:close()
         log.emit(2, "sample", 0, "restored")
-        testAssert.eq(#written, 2)
-        testAssert.eq(written[2], "formatted restored\n")
+        testAssert.eq(written[1], "warn sample:7: first\n")
+        testAssert.eq(written[2], "warn sample: restored\n")
     end)
     io.stderr, package.loaded["debug.log"] = previousError, previousLog
     assert(ok, problem)
 end
 
-function M.aWriterTargetReceivesEachRenderedLine()
+function M.aWriterSinkReceivesEachRenderedLine()
     local log = runtime()
     local buffer = require("io").Buffer.create()
     log.settimestampformat("")
-    log.setformatter(nil)
     log.setlevel("debug")
-    local previous = log.setsink(buffer:writer())
+    local previous = log.setsink(log.writersink(buffer:writer()))
     log.emit(2, "amb", 7, "to a buffer")
     log.emit(3, "amb", 8, "and another")
-    log.setsink(previous)
+    local writer = log.setsink(previous)
+    writer:close()
     local text = buffer:getstring()
     assert(text == "warn amb:7: to a buffer\ninfo amb:8: and another\n", text)
 end
 
-function M.aSinkFunctionBypassesFormattingEntirely()
+function M.aCallbackSinkReceivesUnrenderedMessages()
     local log = runtime()
     local lines, sink = recorder()
     log.setlevel("debug")
-    log.setformatter(function()
-        error("a sink function must not be formatted for")
-    end)
-    log.setsink(sink)
-
+    local previous = log.setsink(sink)
     log.emit(3, "amb", 4, "message")
+    local replaced = log.setsink(previous)
+    replaced:close()
     testAssert.eq(#lines, 1, "the sink received the line")
     testAssert.eq(lines[1].message, "message", "unrendered")
 end
@@ -616,12 +633,12 @@ end
 -- used to hand the path the view, so `log.level()` called nil (ER-009).
 function M.everyPathCallRunsFromAModule()
     local log = runtime()
-    local saved = {sink = log.sink(), formatter = log.formatter(), stamp = log.timestampformat()}
+    local saved = {stamp = log.timestampformat()}
     log.setlevel("warn")
     local code = compile(
         table.concat(
             {
-                "return function(sink: debug.log.Sink): {any}",
+                "return function(takes sink: debug.log.Sink): {any}",
                 "    local answers: {any} = {}",
                 "    answers[#answers + 1] = debug.log.setlevel('debug')",
                 "    answers[#answers + 1] = debug.log.level()",
@@ -632,13 +649,8 @@ function M.everyPathCallRunsFromAModule()
                 "    answers[#answers + 1] = debug.log.settimestampformat('')",
                 "    answers[#answers + 1] = debug.log.timestampformat()",
                 "    answers[#answers + 1] = debug.log.timestamp()",
-                "    debug.log.setformatter(function(level: integer, module: string, line: integer, message: string, stamp: string): string",
-                "        return message",
-                "    end)",
-                "    answers[#answers + 1] = debug.log.formatter() ~= nil",
-                "    debug.log.setformatter(nil)",
-                "    local _ = debug.log.setsink(sink)",
-                "    answers[#answers + 1] = debug.log.sink() == sink",
+                "    local previous = debug.log.setsink(sink)",
+                "    own.drop(previous)",
                 "    answers[#answers + 1] = debug.log.levelname(3)",
                 "    debug.log.named('amb.named'):info('named %d', 1)",
                 "    debug.log.info('lowered %d', 2)",
@@ -650,14 +662,18 @@ function M.everyPathCallRunsFromAModule()
         "amb"
     )
     local lines, sink = recorder()
+    local savedSink = log.setsink(
+        log.callback(function()
+        end)
+    )
     local chunk, why = loadstring(code, "@path-calls")
     assert(chunk ~= nil, why)
     local answers = chunk()(sink)
-    log.setsink(saved.sink)
-    log.setformatter(saved.formatter)
+    local replaced = log.setsink(savedSink)
+    replaced:close()
     log.settimestampformat(saved.stamp)
     log.setlevel("warn")
-    local want = {"warn", "debug", "debug", "error", "error", true, saved.stamp, "", "", true, true, "info",}
+    local want = {"warn", "debug", "debug", "error", "error", true, saved.stamp, "", "", "info",}
     for index, value in ipairs(want) do
         testAssert.eq(answers[index], value, "path call " .. index)
     end

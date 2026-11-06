@@ -425,9 +425,18 @@ local function renderMarkdownMembers(out, members, level)
         ) .. "_" .. (member.lua and not member.forms and " _Lua_" or "")
         out[#out + 1] = ""
         if not member.forms and (not member.isType or member.type == "record" or member.type == "interface") then
-            out[#out + 1] = "```nupp"
-            out[#out + 1] = memberSpelling(member)
-            out[#out + 1] = "```"
+            local fieldType = not member.isFunction
+                and not member.isType
+                and not member.isAlias
+                and typeSpan(member.type)
+                or nil
+            if fieldType and fieldType:find("](", 1, true) then
+                out[#out + 1] = codeSpan(member.name .. ":") .. " " .. fieldType
+            else
+                out[#out + 1] = "```nupp"
+                out[#out + 1] = memberSpelling(member)
+                out[#out + 1] = "```"
+            end
             out[#out + 1] = ""
         end
         markdownAnnotations(out, member.annotations)
