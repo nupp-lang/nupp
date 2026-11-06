@@ -181,6 +181,15 @@ fn load_image_bytes(vm: &mut Interp, bytes: &[u8], path: &str) -> Result<(), Str
 }
 
 pub(crate) fn main() {
+    let execution = std::thread::Builder::new()
+        .name("nupp-runtime".into())
+        .stack_size(nupp_vm::HOST_STACK_BYTES)
+        .spawn(run)
+        .expect("cannot start the VM execution thread");
+    if let Err(payload) = execution.join() { std::panic::resume_unwind(payload); }
+}
+
+fn run() {
     // Raises travel as panics between catch points; the default hook would
     // print each one. The runner reports the one that reaches it.
     if std::env::var("RUST_BACKTRACE").is_err() { std::panic::set_hook(Box::new(|_| {})); }

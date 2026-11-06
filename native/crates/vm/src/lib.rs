@@ -5,6 +5,10 @@
 //! frames, opcodes), `builtins` (the library), `verify` (the image checks
 //! and the liveness pass), `image` (the loader) and `host` (the parking
 //! surface).
+// Bootstrap compiler recursion needs the same bounded native stack on every
+// host, including worker VMs whose platform default can be only 2 MiB.
+pub const HOST_STACK_BYTES: usize = 16 << 20;
+
 pub mod value;
 pub mod numeric;
 pub mod os_glue;
