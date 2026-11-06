@@ -23,6 +23,13 @@ const guestentry = require("nupp.runtime.core.guestentry")
 const instances = require("nupp.runtime.core.instances")
 const stacks = require("nupp.runtime.core.stacks")
 
+-- The Services fields the collector roots, from `running` through
+-- `gcanswer`.
+const ROOTED_FIELDS: uint64 = 11ULL
+
+-- heap.storageviews' value for the guest heap.
+const STORAGE_VIEWS: uint64 = 1ULL
+
 -- The scope comes first, so a Services address is also its scope's address.
 export struct Services
     scope: servicescope.ServiceScope
@@ -99,6 +106,9 @@ export struct Services
     -- (`threads.TASK_INSTALL`), or 0.
     threadmeta: uint64
     closetask: uint64
+    -- What collectgarbage answers, kept while the finalizers it let run
+    -- run (`guestgc`).
+    gcanswer: uint64
     -- 1 while coroutine.close unwinds a suspended thread: its error lands at
     -- every frame that owns affine values, and no protected call takes it.
     closing: uint64
@@ -136,6 +146,18 @@ export struct Services
     reporting: uint64
     reportvalue: uint64
     reportanswer: uint64
+    -- Finalizers (`guestfinalizers`): the frame and pc the one running
+    -- returns to (0 while none runs) and the thread it runs on; the exit's
+    -- close (IDLE, CLOSING, CLOSED) and the root's result, an immediate,
+    -- kept while it runs.
+    finalframe: uint64
+    finalpc: uint64
+    finalthread: uint64
+    finalclose: uint64
+    finalresult: uint64
+    -- collectgarbage's parameters (`guestgc`), Lua 5.5's six coded bytes,
+    -- the first lowest.
+    gcparams: uint64
 end
 
 export const FAULT_ARITH: uint64 = 1ULL
@@ -149,6 +171,13 @@ export const FAULT_BITWISE: uint64 = 8ULL
 export const FAULT_NOINT: uint64 = 9ULL
 -- A store into a frozen table: Luau's "attempt to modify a readonly table".
 export const FAULT_READONLY: uint64 = 10ULL
+
+-- Services.finalclose: the exit has not begun to finalize every marked
+-- table, is running their finalizers (setmetatable marks no more, as in
+-- Lua's lua_close), or has run them all.
+export const CLOSE_IDLE: uint64 = 0ULL
+export const CLOSE_RUNNING: uint64 = 1ULL
+export const CLOSE_DONE: uint64 = 2ULL
 const LEDGER: uint64 = 256ULL
 const RECORDS: uint64 = 256ULL
 const HEAP_BYTES: uint64 = 16777216ULL
@@ -188,6 +217,12 @@ export function prepare(base: voidptr, bytes: uint64): uint64
     native.store64(services, native.fieldOffset<Services>("reporting"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("reportvalue"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("reportanswer"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("finalframe"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("finalpc"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("finalthread"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("finalclose"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("finalresult"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("gcparams"), 0ULL)
 
     return native.address(services)
 end
@@ -259,6 +294,9 @@ export function open(
         local h = heap.create(a)
         -- Generations (Decision 20) are kept from the first allocation on.
         h.generational = collector.GENERATIONAL
+        -- Its KIND_SLICE objects are storage views (corestorage), which a
+        -- weak table clears (heap.storageviews).
+        h.storageviews = STORAGE_VIEWS
         native.store64(services, native.fieldOffset<Services>("stacks"), slotstorage)
         native.store64(services, native.fieldOffset<Services>("stride"), stride)
         native.store64(services, native.fieldOffset<Services>("slots"), slots)
@@ -281,6 +319,7 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("cleanups"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("threadmeta"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("closetask"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("gcanswer"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("closing"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replay"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replaycursor"), 0ULL)
@@ -289,7 +328,11 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("replaykey"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replayvalue"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("libraryanswer"), 0ULL)
-        collector.register(h, native.address(native.offset(services, native.fieldOffset<Services>("running"))), 10ULL)
+        collector.register(
+            h,
+            native.address(native.offset(services, native.fieldOffset<Services>("running"))),
+            ROOTED_FIELDS
+        )
         -- Collect-at-every-allocation (1): a whole cycle at every safepoint;
         -- interleaved (2): a small incremental step at every safepoint, the
         -- oracle checking each cycle's survivors. Both keep freed objects as

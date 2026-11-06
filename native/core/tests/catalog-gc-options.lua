@@ -1,0 +1,105 @@
+-- Lua twin of catalog-gc-options.nupp.
+-- collectgarbage's options as Lua 5.5 answers them, starting, as lua.c
+-- starts, in generational mode: a step there answers false, and in
+-- incremental mode one at last answers that it ended a cycle; a parameter
+-- reads back as Lua's byte coding keeps it; and the errors Lua raises for
+-- options and arguments it does not take. Options past the checker are
+-- values of type any.
+local function raises(text, f)
+    local ok, problem = pcall(f)
+    return not ok and string.find(tostring(problem), text, 1, true) ~= nil
+end
+
+local score = 0
+if collectgarbage() == 0 and collectgarbage("collect") == 0 then
+    score = score + 1
+end
+local kilobytes = collectgarbage("count")
+if math.type(kilobytes) == "float" and kilobytes > 0 then
+    score = score + 2
+end
+if collectgarbage("isrunning") == true
+    and collectgarbage("stop") == 0
+    and collectgarbage("isrunning") == false
+    and collectgarbage("restart") == 0
+    and collectgarbage("isrunning") == true
+then
+    score = score + 4
+end
+if collectgarbage("step") == false and collectgarbage("step", 0) == false then
+    score = score + 8
+end
+if collectgarbage("incremental") == "generational" and collectgarbage("incremental") == "incremental" then
+    score = score + 16
+end
+local finished = false
+for _ = 1, 100000 do
+    if collectgarbage("step") then
+        finished = true
+        break
+    end
+end
+if finished then
+    score = score + 32
+end
+if collectgarbage("generational") == "incremental" and collectgarbage("generational") == "generational" then
+    score = score + 64
+end
+if collectgarbage("param", "minormul") == 20
+    and collectgarbage("param", "majorminor") == 50
+    and collectgarbage("param", "minormajor") == 68
+    and collectgarbage("param", "pause") == 250
+    and collectgarbage("param", "stepmul") == 200
+    and collectgarbage("param", "stepsize") == 9600
+then
+    score = score + 128
+end
+if collectgarbage("param", "pause", 300) == 250
+    and collectgarbage("param", "pause") == 300
+    and collectgarbage("param", "pause", 123) == 300
+    and collectgarbage("param", "pause") == 118
+    and collectgarbage("param", "stepsize", 200000) == 9600
+    and collectgarbage("param", "stepsize") == 198400
+    and collectgarbage("param", "pause", -5) == 118
+    and collectgarbage("param", "pause") == 118
+then
+    score = score + 256
+end
+local bogus = "bogus"
+local param = "param"
+local unnamed = "x"
+local step = "step"
+local text = "x"
+local half = 1.5
+local table = {}
+if raises("bad argument #1 to 'collectgarbage' (invalid option 'bogus')", function()
+    return collectgarbage(bogus)
+end) then
+    score = score + 512
+end
+if raises("bad argument #2 to 'collectgarbage' (string expected, got no value)", function()
+    return collectgarbage(param)
+end) then
+    score = score + 1024
+end
+if raises("bad argument #2 to 'collectgarbage' (invalid option 'x')", function()
+    return collectgarbage(param, unnamed)
+end) then
+    score = score + 2048
+end
+if raises("bad argument #3 to 'collectgarbage' (number has no integer representation)", function()
+    return collectgarbage(param, "pause", half)
+end) then
+    score = score + 4096
+end
+if raises("bad argument #2 to 'collectgarbage' (number expected, got string)", function()
+    return collectgarbage(step, text)
+end) then
+    score = score + 8192
+end
+if raises("bad argument #1 to 'collectgarbage' (string expected, got table)", function()
+    return collectgarbage(table)
+end) then
+    score = score + 16384
+end
+return score

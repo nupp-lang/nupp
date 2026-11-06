@@ -1452,9 +1452,10 @@ function tagged.forVersion(version: integer): any
                 end
                 return landed(ctx, node, ctx.emit(node, "LibCall", operands, "tagged")) as integer
             elseif library == "collectgarbage" then
-                -- collectgarbage(opt, arg): without an option, "collect".
+                -- collectgarbage(opt, ...): without an option, "collect";
+                -- "param" takes a name and a value.
                 local args = node.args.exprs or {}
-                need(#args <= 2, "collectgarbage takes an option and its argument")
+                need(#args <= 3, "collectgarbage takes an option and two arguments")
                 if #args == 0 then
                     local none = ctx.emit(node, "Nil", {}, "tagged")
                     return landed(

@@ -1,0 +1,426 @@
+module weakunits
+
+-- Weak tables and finalizers on the owned backend, as the collector keeps
+-- them (gcweak, gcfinal): ephemeron chains whatever order their entries
+-- sit in; tables marked for finalization made pending newest first and
+-- resurrected with what they reach, weak values naming them cleared first
+-- and weak keys kept; a carded old table taking a weak mode; a frozen
+-- (permanently old) weak table across minor and full collections; and a
+-- storage view as a weak value. Each check is one bit of the answer, plus
+-- a billion for every disagreement the reachability oracle reports.
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const values = require("nupp.runtime.vm.values")
+const weak = require("nupp.runtime.vm.gcweak")
+const final = require("nupp.runtime.vm.gcfinal")
+const tables = require("nupp.runtime.core.coretables")
+
+const WRONG: uint64 = 1000000000ULL
+const ARENA_BYTES: uint64 = 67108864ULL
+
+-- A closure-kind object with `slots` value slots, all nil.
+local function node(h: heap.Heap*, slots: uint64): uint64
+    @unsafe do
+        local o = collector.allocate(h, heap.KIND_CLOSURE, slots * 8ULL)
+        o.auxLen = slots
+        local i: uint64 = 0ULL
+        while i < slots do
+            native.store64(native.pointer(o.auxPtr), native.index(i * 8ULL), values.NIL)
+            i = i + 1ULL
+        end
+        collector.initialized(h, o)
+
+        return heap.objectValue(o)
+    end
+end
+
+-- A store into a node's slot, through the barrier.
+local function link(h: heap.Heap*, parent: uint64, slot: uint64, child: uint64): nil
+    @unsafe do
+        local o = heap.objectHeader(parent)
+        collector.barrier(h, o, child)
+        native.store64(native.pointer(o.auxPtr), native.index(slot * 8ULL), child)
+    end
+end
+
+-- `words` root slots in the arena, all nil, registered with the heap.
+local function rootsIn(borrows a: arena.Arena*, h: heap.Heap*, words: uint64): uint64
+    @unsafe do
+        local raw = arena.alloc(a, words * 8ULL + 8ULL, 8ULL)
+        if raw == nil then
+            error("weak units: no room for the roots")
+        end
+        local base = native.address(raw)
+        local i: uint64 = 0ULL
+        while i < words do
+            native.store64(native.pointer(base + i * 8ULL), 0, values.NIL)
+            i = i + 1ULL
+        end
+        collector.register(h, base, words)
+
+        return base
+    end
+end
+
+local function setRoot(base: uint64, i: uint64, value: uint64): nil
+    native.store64(native.pointer(base + i * 8ULL), 0, value)
+end
+
+local function getRoot(base: uint64, i: uint64): uint64
+    return native.load64(native.pointer(base + i * 8ULL), 0)
+end
+
+local function alive(h: heap.Heap*, value: uint64): boolean
+    @unsafe do
+        return heap.isLiveSlot(h, value & values.PAYLOAD)
+    end
+end
+
+local function flagsOf(value: uint64): uint64
+    @unsafe do
+        return heap.objectHeader(value).flags as uint64
+    end
+end
+
+local function auxOf(value: uint64): uint64
+    @unsafe do
+        return heap.objectHeader(value).aux as uint64
+    end
+end
+
+local function old(value: uint64): boolean
+    return flagsOf(value) & heap.F_OLD ~= 0ULL
+end
+
+local function int(i: uint64): uint64
+    return values.TAG_INTEGER | i
+end
+
+-- `bit` when `ok`.
+local function bit(ok: boolean, value: uint64): uint64
+    if ok then
+        return value
+    end
+
+    return 0ULL
+end
+
+-- A weak table of `mode`, as setmetatable leaves one.
+local function weaktable(h: heap.Heap*, mode: uint64): uint64
+    local t = tables.create(h)
+    @unsafe collector.weakmode(h, native.pointer(t) as heap.Header*, mode)
+
+    return values.TAG_OBJ | t
+end
+
+local function minor(h: heap.Heap*): uint64
+    collector.minorcycle(h)
+    tables.drain(h)
+    return collector.checkOracle(h, false)
+end
+
+local function full(h: heap.Heap*): uint64
+    collector.fullCycle(h)
+    tables.drain(h)
+    return collector.checkOracle(h, true)
+end
+
+-- An ephemeron chain of `length` entries in a weak-keys table, entered last
+-- first so marking revisits the table once an entry: key k reaches only its
+-- value, which holds key k + 1. Rooted by its first key every entry lives
+-- through a full collection, a minor one and another full one; unrooted, a
+-- full collection clears them all. Bits: 1 all live, 2 all entries there,
+-- 4 none live after, 8 the table empty.
+export function ephemerons(length: uint64): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = collector.GENERATIONAL
+            h.automatic = false
+            local roots = rootsIn(a, h, 3ULL)
+            local t = weaktable(h, weak.WEAK_KEYS)
+            setRoot(roots, 0ULL, t)
+            -- The keys, held while the chain is made.
+            local keys = weaktable(h, 0ULL)
+            setRoot(roots, 1ULL, keys)
+            local i: uint64 = 1ULL
+            while i <= length + 1ULL do
+                tables.set(h, keys & values.PAYLOAD, int(i), node(h, 1ULL))
+                i = i + 1ULL
+            end
+            i = length
+            while i >= 1ULL do
+                local value = node(h, 1ULL)
+                link(h, value, 0ULL, tables.get(keys & values.PAYLOAD, int(i + 1ULL)))
+                tables.set(h, t & values.PAYLOAD, tables.get(keys & values.PAYLOAD, int(i)), value)
+                i = i - 1ULL
+            end
+            setRoot(roots, 2ULL, tables.get(keys & values.PAYLOAD, int(1ULL)))
+            local first = getRoot(roots, 2ULL)
+            setRoot(roots, 1ULL, values.NIL)
+            local wrong = full(h) + minor(h) + full(h)
+            local living: uint64 = 0ULL
+            local entries: uint64 = 0ULL
+            local key = first
+            while key ~= values.NIL do
+                if alive(h, key) then
+                    living = living + 1ULL
+                end
+                local value = tables.get(t & values.PAYLOAD, key)
+                key = values.NIL
+                if value ~= values.NIL then
+                    entries = entries + 1ULL
+                    key = native.load64(native.pointer(heap.objectHeader(value).auxPtr), 0)
+                end
+            end
+            setRoot(roots, 2ULL, values.NIL)
+            wrong = wrong + full(h)
+            local after: uint64 = 0ULL
+            local cursor = tables.nextKey(t & values.PAYLOAD, values.NIL)
+            while cursor ~= values.NIL do
+                after = after + 1ULL
+                cursor = tables.nextKey(t & values.PAYLOAD, cursor)
+            end
+            answer = bit(
+                living == length + 1ULL,
+                1ULL
+            ) + bit(entries == length, 2ULL) + bit(not alive(h, first), 4ULL) + bit(after == 0ULL, 8ULL) + wrong * WRONG
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- Finalization in a full collection (`minors` 0) or a minor one (1): three
+-- tables marked in order, the last holding a child, a weak-values table and
+-- a weak-keys table naming it. Unrooted, the collection makes them pending
+-- newest first and keeps them and the child; the weak value naming the last
+-- is cleared and the weak key kept. Taken, a table is no longer marked;
+-- left unrooted, a full collection frees them and clears the weak key.
+-- Bits: 1 three pending, 2 all live with the child, 4 the weak value
+-- cleared, 8 the weak key kept, 16 taken newest first, 32 none marked, 64
+-- all freed and the weak key cleared.
+export function resurrection(minors: uint64): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = collector.GENERATIONAL
+            h.automatic = false
+            local roots = rootsIn(a, h, 6ULL)
+            local wv = weaktable(h, weak.WEAK_VALUES)
+            local wk = weaktable(h, weak.WEAK_KEYS)
+            setRoot(roots, 0ULL, wv)
+            setRoot(roots, 1ULL, wk)
+            local i: uint64 = 0ULL
+            while i < 3ULL do
+                local t = values.TAG_OBJ | tables.create(h)
+                setRoot(roots, 2ULL + i, t)
+                final.mark(h, heap.objectHeader(t))
+                i = i + 1ULL
+            end
+            local last = getRoot(roots, 4ULL)
+            local child = node(h, 1ULL)
+            tables.set(h, last & values.PAYLOAD, int(1ULL), child)
+            tables.set(h, wv & values.PAYLOAD, int(1ULL), last)
+            local kept = node(h, 1ULL)
+            setRoot(roots, 5ULL, kept)
+            tables.set(h, wk & values.PAYLOAD, last, kept)
+            local first = getRoot(roots, 2ULL)
+            local middle = getRoot(roots, 3ULL)
+            setRoot(roots, 2ULL, values.NIL)
+            setRoot(roots, 3ULL, values.NIL)
+            setRoot(roots, 4ULL, values.NIL)
+            local wrong: uint64 = 0ULL
+            if minors == 1ULL then
+                wrong = minor(h)
+            else
+                wrong = full(h)
+            end
+            local pending = final.count(h)
+            local living = alive(h, first) and alive(h, middle) and alive(h, last) and alive(h, child)
+            local cleared = tables.get(wv & values.PAYLOAD, int(1ULL)) == values.NIL
+            local keyed = tables.get(wk & values.PAYLOAD, last) == kept
+            local a1 = final.take(h)
+            local a2 = final.take(h)
+            local a3 = final.take(h)
+            local order = a1 == last and a2 == middle and a3 == first and final.take(h) == values.NIL
+            local unmarked = not final.marked(heap.objectHeader(last)) and not final.marked(heap.objectHeader(first))
+            setRoot(roots, 5ULL, values.NIL)
+            wrong = wrong + full(h)
+            local gone = not alive(h, first) and not alive(h, last) and not alive(h, child)
+            local cursor = tables.nextKey(wk & values.PAYLOAD, values.NIL)
+            answer = bit(
+                pending == 3ULL,
+                1ULL
+            ) + bit(
+                living,
+                2ULL
+            ) + bit(
+                cleared,
+                4ULL
+            ) + bit(
+                keyed,
+                8ULL
+            ) + bit(
+                order,
+                16ULL
+            ) + bit(
+                unmarked and final.markedcount(h) == 0ULL,
+                32ULL
+            ) + bit(gone and cursor == values.NIL, 64ULL) + wrong * WRONG
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- A large old table carrying cards, marked for finalization, takes a weak
+-- values mode: it gives its card record up and is remembered, keeping the
+-- rest of `aux`, and a minor collection clears the young values only it
+-- held while keeping an old one. Bits: 1 carded first, 2 no cards after, 4
+-- remembered, 8 the mode and the finalization mark kept, 16 the young
+-- values cleared, 32 the old one kept.
+export function cardsweak(count: uint64): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = collector.GENERATIONAL
+            h.automatic = false
+            local roots = rootsIn(a, h, 2ULL)
+            local t = values.TAG_OBJ | tables.create(h)
+            setRoot(roots, 0ULL, t)
+            local i: uint64 = 1ULL
+            while i <= count do
+                tables.set(h, t & values.PAYLOAD, int(i), int(i))
+                i = i + 1ULL
+            end
+            local elder = node(h, 1ULL)
+            setRoot(roots, 1ULL, elder)
+            local wrong = minor(h) + minor(h) + minor(h)
+            tables.set(h, t & values.PAYLOAD, int(1ULL), elder)
+            i = 50ULL
+            while i <= count do
+                tables.set(h, t & values.PAYLOAD, int(i), node(h, 1ULL))
+                i = i + 50ULL
+            end
+            local carded = old(t) and flagsOf(t) & heap.F_CARDS ~= 0ULL
+            final.mark(h, heap.objectHeader(t))
+            collector.weakmode(h, heap.objectHeader(t), weak.WEAK_VALUES)
+            local uncarded = flagsOf(t) & heap.F_CARDS == 0ULL and auxOf(t) >> 8ULL == 0ULL
+            local remembered = flagsOf(t) & heap.F_TOUCHED ~= 0ULL
+            local kept = auxOf(t) & weak.WEAK_MODES == weak.WEAK_VALUES and final.marked(heap.objectHeader(t))
+            wrong = wrong + minor(h)
+            local cleared = true
+            i = 50ULL
+            while i <= count do
+                if tables.get(t & values.PAYLOAD, int(i)) ~= values.NIL then
+                    cleared = false
+                end
+                i = i + 50ULL
+            end
+            local elderkept = tables.get(t & values.PAYLOAD, int(1ULL)) == elder
+            wrong = wrong + full(h)
+            answer = bit(
+                carded,
+                1ULL
+            ) + bit(
+                uncarded,
+                2ULL
+            ) + bit(remembered, 4ULL) + bit(kept, 8ULL) + bit(cleared, 16ULL) + bit(elderkept, 32ULL) + wrong * WRONG
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- A frozen weak-keys table, permanently old: a minor collection clears the
+-- entry of a young key nothing holds and keeps a held one's; the held key
+-- grown old and let go, minor collections keep its entry and a full one
+-- clears it. Bits: 1 frozen and old, 2 the young unheld key's entry gone,
+-- 4 the held key's kept, 8 kept by minor collections once old, 16 cleared
+-- by a full one.
+export function frozenweak(): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = collector.GENERATIONAL
+            h.automatic = false
+            local roots = rootsIn(a, h, 2ULL)
+            local t = weaktable(h, weak.WEAK_KEYS)
+            setRoot(roots, 0ULL, t)
+            local held = node(h, 1ULL)
+            setRoot(roots, 1ULL, held)
+            local loose = node(h, 1ULL)
+            tables.set(h, t & values.PAYLOAD, held, int(1ULL))
+            tables.set(h, t & values.PAYLOAD, loose, int(2ULL))
+            collector.freeze(h, heap.objectHeader(t))
+            local frozen = old(t) and flagsOf(t) & heap.F_FROZEN ~= 0ULL
+            local wrong = minor(h)
+            local gone = tables.get(t & values.PAYLOAD, loose) == values.NIL and not alive(h, loose)
+            local kept = tables.get(t & values.PAYLOAD, held) == int(1ULL)
+            wrong = wrong + minor(h) + minor(h)
+            setRoot(roots, 1ULL, values.NIL)
+            wrong = wrong + minor(h) + minor(h)
+            local olderkept = old(held) and tables.get(t & values.PAYLOAD, held) == int(1ULL)
+            wrong = wrong + full(h)
+            local cursor = tables.nextKey(t & values.PAYLOAD, values.NIL)
+            answer = bit(
+                frozen,
+                1ULL
+            ) + bit(
+                gone,
+                2ULL
+            ) + bit(
+                kept,
+                4ULL
+            ) + bit(olderkept, 8ULL) + bit(cursor == values.NIL and not alive(h, held), 16ULL) + wrong * WRONG
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- A KIND_SLICE object as a weak value: on a heap whose slices are storage
+-- views (`views` 1, the core's) a collectable object, cleared; else a slice
+-- of a string, never cleared. Answers 1 when it was cleared.
+export function views(storageviews: uint64): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = collector.GENERATIONAL
+            h.automatic = false
+            h.storageviews = storageviews
+            local roots = rootsIn(a, h, 1ULL)
+            local t = weaktable(h, weak.WEAK_VALUES)
+            setRoot(roots, 0ULL, t)
+            local o = collector.allocate(h, heap.KIND_SLICE, native.sizeOf<heap.SliceBody>())
+            local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as heap.SliceBody*
+            body.source = values.NIL
+            body.offset = 0
+            body.length = 0
+            collector.initialized(h, o)
+            tables.set(h, t & values.PAYLOAD, int(1ULL), heap.objectValue(o))
+            local wrong = full(h)
+            answer = bit(tables.get(t & values.PAYLOAD, int(1ULL)) == values.NIL, 1ULL) + wrong * WRONG
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end

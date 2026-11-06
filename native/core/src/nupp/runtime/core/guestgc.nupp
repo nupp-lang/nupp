@@ -1,0 +1,353 @@
+module nupp.runtime.core.guestgc
+
+-- collectgarbage on the core, as Lua 5.5 defines it: "collect" (the
+-- default) runs a whole collection and "step" a step of one, "count"
+-- answers the kilobytes in use, "stop" and "restart" turn automatic
+-- collection off and on and "isrunning" answers which, "incremental" and
+-- "generational" choose the mode and answer the one before, and "param"
+-- answers a parameter's value and may set it.
+--
+-- The heap starts generational, as lua.c starts Lua's. Generations are kept
+-- in either mode, so going back to them is safe; the incremental mode only
+-- stops minor collections. A step in generational mode is a minor
+-- collection and answers false, as Lua's answers until a major collection
+-- ends; in incremental mode it marks or sweeps a share and answers whether
+-- that ended a cycle. The parameters are kept as Lua keeps them, a byte
+-- each in its floating-point coding (luaO_codeparam), so a value set reads
+-- back as Lua's does; the core's pacing does not read them yet.
+--
+-- A collection may leave finalizers pending; the call runs them before it
+-- answers, as Lua's runs them (guestfinalizers), its answer kept meanwhile.
+-- Inside a finalizer every option answers nil, and "param" -1, as Lua's
+-- lua_gc refuses while it runs one.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const collector = require("nupp.runtime.vm.collector")
+const gcfinal = require("nupp.runtime.vm.gcfinal")
+const strings = require("nupp.runtime.core.corestrings")
+const ints = require("nupp.runtime.core.coreintegers")
+const tables = require("nupp.runtime.core.coretables")
+const guestscope = require("nupp.runtime.core.guestscope")
+const guestvalues = require("nupp.runtime.core.guestvalues")
+const texts = require("nupp.runtime.core.guesttexts")
+const librarytexts = require("nupp.runtime.core.librarytexts")
+const finalizers = require("nupp.runtime.core.guestfinalizers")
+
+-- What `collect` answers when finalizers run before the call answers: an
+-- object value (values.TAG_OBJ) with no object, which no answer is.
+export const PENDING: uint64 = 0x7ffd000000000000ULL
+
+-- The parameters, in the order Lua 5.5 numbers them, and the defaults its
+-- lgc.h gives them ("stepsize" is 200 tables' bytes).
+const MINORMUL: uint64 = 0ULL
+const MAJORMINOR: uint64 = 1ULL
+const MINORMAJOR: uint64 = 2ULL
+const PAUSE: uint64 = 3ULL
+const STEPMUL: uint64 = 4ULL
+const STEPSIZE: uint64 = 5ULL
+const PARAMETERS: uint64 = 6ULL
+const MINORMUL_DEFAULT: uint64 = 20ULL
+const MAJORMINOR_DEFAULT: uint64 = 50ULL
+const MINORMAJOR_DEFAULT: uint64 = 70ULL
+const PAUSE_DEFAULT: uint64 = 250ULL
+const STEPMUL_DEFAULT: uint64 = 200ULL
+const STEPSIZE_DEFAULT: uint64 = 9600ULL
+
+-- Services.gcparams: a byte a parameter, the first lowest, and above them
+-- the bit saying they are set.
+const BYTE_BITS: uint64 = 8ULL
+const BYTE_MASK: uint64 = 255ULL
+const PARAMS_SET: uint64 = 0x0100000000000000ULL
+
+-- Lua's floating-point byte (lobject.c): eeeexxxx, the value (1xxxx) *
+-- 2^(eeee - 7 - 1), or (xxxx) * 2^-7 when eeee is 0, of a percentage; a
+-- percentage of at least 0x1F << 7 (OVERFLOW / 100) is the largest byte.
+const PERCENT: uint64 = 100ULL
+const EXCESS: uint64 = 7ULL
+const HIDDEN: uint64 = 16ULL
+const MANTISSA: uint64 = 15ULL
+const EXPONENT_SHIFT: uint64 = 4ULL
+const PRECISION: uint64 = 5ULL
+const LARGEST: uint64 = 255ULL
+const OVERFLOW: uint64 = 396800ULL
+
+-- What a parameter's value is read as: a C int.
+const INT_BITS: uint64 = 0xffffffffULL
+const INT_SIGN: uint64 = 0x80000000ULL
+
+-- A step's work: what the safepoint gives one, a gray object for every 64
+-- bytes asked for and no fewer than 256.
+const STEP_BYTES: uint64 = 64ULL
+const STEP_LEAST: uint64 = 256ULL
+
+-- "count" answers kilobytes.
+const KILOBYTE: uint64 = 1024ULL
+
+local function heapof(ctx: voidptr): heap.Heap*
+    return guestvalues.guestheap(ctx)
+end
+
+-- Whether minor collections run (collector.safepoint's rule).
+local function minors(h: heap.Heap*): boolean
+    @unsafe do
+        return h.generational ~= 0ULL and h.incremental == 0ULL
+    end
+end
+
+-- ceil(log2(x)), for x of at least 1.
+local function ceillog2(x: uint64): uint64
+    local log: uint64 = 0ULL
+    while (1ULL << log) < x do
+        log = log + 1ULL
+    end
+
+    return log
+end
+
+-- luaO_codeparam: percentage `p` as a floating-point byte, rounding up.
+local function codeparam(p: uint64): uint64
+    if p >= OVERFLOW then
+        return LARGEST
+    end
+    local scaled = (p * (1ULL << EXCESS) + PERCENT - 1ULL) // PERCENT
+    if scaled < HIDDEN then
+        return scaled
+    end
+    local log = ceillog2(scaled + 1ULL) - PRECISION
+
+    return ((scaled >> log) - HIDDEN) | ((log + 1ULL) << EXPONENT_SHIFT)
+end
+
+-- luaO_applyparam(p, 100): the percentage byte `p` stands for.
+local function applyparam(p: uint64): uint64
+    local m = p & MANTISSA
+    local e = p >> EXPONENT_SHIFT
+    if e > 0ULL then
+        e = e - 1ULL
+        m = m + HIDDEN
+    end
+    if e >= EXCESS then
+        return (PERCENT * m) << (e - EXCESS)
+    end
+
+    return (PERCENT * m) >> (EXCESS - e)
+end
+
+-- The parameters' bytes, the defaults until one is set.
+local function params(ctx: voidptr): uint64
+    local word = native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("gcparams"))
+    if word & PARAMS_SET ~= 0ULL then
+        return word
+    end
+    local defaults = codeparam(MINORMUL_DEFAULT) << (MINORMUL * BYTE_BITS)
+        | codeparam(MAJORMINOR_DEFAULT) << (MAJORMINOR * BYTE_BITS)
+        | codeparam(MINORMAJOR_DEFAULT) << (MINORMAJOR * BYTE_BITS)
+        | codeparam(PAUSE_DEFAULT) << (PAUSE * BYTE_BITS)
+        | codeparam(STEPMUL_DEFAULT) << (STEPMUL * BYTE_BITS)
+        | codeparam(STEPSIZE_DEFAULT) << (STEPSIZE * BYTE_BITS)
+
+    return defaults | PARAMS_SET
+end
+
+-- Whether the string at header `s` is library text `id`: strings are
+-- interned, so equal ones are one object. `s` is held while the text is
+-- made.
+local function named(ctx: voidptr, s: uint64, id: uint64): boolean
+    guestscope.hold(ctx, values.TAG_OBJ | s)
+    local text = texts.textvalue(ctx, id)
+    guestscope.release(ctx)
+
+    return text & values.PAYLOAD == s
+end
+
+-- An option argument at `position` as a string's header: a number is its
+-- text, as Lua's luaL_checkoption reads one; anything else raises.
+local function option(ctx: voidptr, value: uint64, position: uint64): uint64
+    local s = strings.header(value)
+    if s == 0ULL and (ints.isInteger(value) or guestvalues.isfloat(value)) then
+        s = strings.header(guestvalues.tostring(ctx, value))
+    end
+    if s == 0ULL then
+        texts.argumentError(ctx, position, librarytexts.TEXT_STRING, 0ULL, value)
+    end
+
+    return s
+end
+
+-- A parameter's index by its name, the argument at `position`.
+local function parameter(ctx: voidptr, value: uint64, position: uint64): uint64
+    local s = option(ctx, value, position)
+    if named(ctx, s, librarytexts.TEXT_MINORMUL) then
+        return MINORMUL
+    elseif named(ctx, s, librarytexts.TEXT_MAJORMINOR) then
+        return MAJORMINOR
+    elseif named(ctx, s, librarytexts.TEXT_MINORMAJOR) then
+        return MINORMAJOR
+    elseif named(ctx, s, librarytexts.TEXT_PAUSE) then
+        return PAUSE
+    elseif named(ctx, s, librarytexts.TEXT_STEPMUL) then
+        return STEPMUL
+    elseif named(ctx, s, librarytexts.TEXT_STEPSIZE) then
+        return STEPSIZE
+    end
+    texts.optionError(ctx, position, values.TAG_OBJ | s)
+
+    return PARAMETERS
+end
+
+-- collectgarbage("param", name [, value]): the value before, setting it
+-- when `value` is not negative, read as a C int as Lua reads it.
+local function param(ctx: voidptr, name: uint64, value: uint64): uint64
+    local index = parameter(ctx, name, 2ULL)
+    local given = native.word(guestvalues.intarg(ctx, value, -1, 3ULL)) & INT_BITS
+    if finalizers.running(ctx) then
+        return ints.make(heapof(ctx), native.word(-1))
+    end
+    local word = params(ctx)
+    local shift = index * BYTE_BITS
+    local before = applyparam((word >> shift) & BYTE_MASK)
+    if given & INT_SIGN == 0ULL then
+        word = (word & ~(BYTE_MASK << shift)) | (codeparam(given) << shift)
+        native.store64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("gcparams"), word)
+    end
+
+    return ints.make(heapof(ctx), before)
+end
+
+-- collectgarbage("step", n): in generational mode a minor collection, or a
+-- step of the cycle a verification mode left running, answering false; in
+-- incremental mode a step of `n` bytes' work, at least a basic one,
+-- answering whether it ended a cycle.
+local function step(h: heap.Heap*, n: int64): uint64
+    @unsafe do
+        local budget = STEP_LEAST
+        if n > 0 and native.word(n) // STEP_BYTES > budget then
+            budget = native.word(n) // STEP_BYTES
+        end
+        if minors(h) then
+            if h.phase == heap.PHASE_IDLE then
+                collector.minorcycle(h)
+            else
+                collector.step(h, budget)
+            end
+            tables.drain(h)
+            return values.FALSE
+        end
+        if h.phase == heap.PHASE_IDLE then
+            collector.startCycle(h)
+        end
+        collector.step(h, budget)
+        tables.drain(h)
+        if h.phase == heap.PHASE_IDLE then
+            return values.TRUE
+        end
+        return values.FALSE
+    end
+end
+
+-- collectgarbage("incremental") or ("generational"): the mode before, the
+-- one `incremental` names chosen.
+local function mode(ctx: voidptr, incremental: uint64): uint64
+    @unsafe do
+        local h = heapof(ctx)
+        local before = librarytexts.TEXT_GENERATIONAL
+        if not minors(h) then
+            before = librarytexts.TEXT_INCREMENTAL
+        end
+        h.incremental = incremental
+        return texts.textvalue(ctx, before)
+    end
+end
+
+-- collectgarbage(opt, a, b), its option and the arguments after it.
+export function collectgarbage(ctx: voidptr, opt: uint64, a: uint64, b: uint64): uint64
+    guestscope.nameLibrary(ctx, librarytexts.NAME_COLLECTGARBAGE)
+    if opt == values.NIL then
+        opt = texts.textvalue(ctx, librarytexts.TEXT_COLLECT)
+    end
+    local s = option(ctx, opt, 1ULL)
+    if named(ctx, s, librarytexts.TEXT_PARAM) then
+        return param(ctx, a, b)
+    end
+    local inside = finalizers.running(ctx)
+    @unsafe do
+        local h = heapof(ctx)
+        if named(ctx, s, librarytexts.TEXT_COLLECT) then
+            if inside then
+                return values.NIL
+            end
+            collector.fullCycle(h)
+            tables.drain(h)
+            return values.TAG_INTEGER
+        elseif named(ctx, s, librarytexts.TEXT_COUNT) then
+            if inside then
+                return values.NIL
+            end
+            local bytes = native.fromBits(ints.toFloatBits(h.liveBytes))
+            return guestvalues.floatvalue(native.bits(bytes / native.fromBits(ints.toFloatBits(KILOBYTE))))
+        elseif named(ctx, s, librarytexts.TEXT_STEP) then
+            local n = guestvalues.intarg(ctx, a, 0, 2ULL)
+            if inside then
+                return values.NIL
+            end
+            return step(h, n)
+        elseif named(ctx, s, librarytexts.TEXT_STOP) then
+            if inside then
+                return values.NIL
+            end
+            h.automatic = false
+            return values.TAG_INTEGER
+        elseif named(ctx, s, librarytexts.TEXT_RESTART) then
+            if inside then
+                return values.NIL
+            end
+            h.automatic = true
+            return values.TAG_INTEGER
+        elseif named(ctx, s, librarytexts.TEXT_ISRUNNING) then
+            if inside then
+                return values.NIL
+            elseif h.automatic then
+                return values.TRUE
+            end
+            return values.FALSE
+        elseif named(ctx, s, librarytexts.TEXT_INCREMENTAL) then
+            if inside then
+                return values.NIL
+            end
+            return mode(ctx, 1ULL)
+        elseif named(ctx, s, librarytexts.TEXT_GENERATIONAL) then
+            if inside then
+                return values.NIL
+            end
+            return mode(ctx, 0ULL)
+        end
+    end
+    texts.optionError(ctx, 1ULL, values.TAG_OBJ | s)
+
+    return values.NIL
+end
+
+-- The collectgarbage call at `pc` in `frame`: its answer, or PENDING when
+-- finalizers are to run first (guestfinalizers.step), the answer kept for
+-- `kept`. Run again as each finalizer returns, it collects no more.
+export function call(ctx: voidptr, frame: voidptr, pc: voidptr, opt: uint64, a: uint64, b: uint64): uint64
+    if finalizers.returned(ctx, frame, pc) then
+        return PENDING
+    end
+    local answer = collectgarbage(ctx, opt, a, b)
+    if finalizers.running(ctx) or gcfinal.count(heapof(ctx)) == 0ULL then
+        return answer
+    end
+    native.store64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("gcanswer"), answer)
+
+    return PENDING
+end
+
+-- The answer `call` kept, let go of.
+export function kept(ctx: voidptr): uint64
+    local answer = native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("gcanswer"))
+    native.store64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("gcanswer"), 0ULL)
+
+    return answer
+end

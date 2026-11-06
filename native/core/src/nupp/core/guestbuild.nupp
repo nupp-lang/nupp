@@ -208,6 +208,11 @@ local CASES: {[string]: {
     processpopen = {fixture = "catalog-process-popen", version = 8},
     processhandle = {fixture = "catalog-process-handle", version = 8},
     processexit = {fixture = "catalog-process-exit", version = 8},
+    gcweak = {fixture = "catalog-gc-weak", version = 8},
+    gcfinalizers = {fixture = "catalog-gc-finalizers", version = 8},
+    gcoptions = {fixture = "catalog-gc-options", version = 8},
+    gcend = {fixture = "catalog-gc-end", version = 8},
+    gcexit = {fixture = "catalog-gc-exit", version = 8},
     processlayer = {
         fixture = "catalog-process-layer",
         version = 8,

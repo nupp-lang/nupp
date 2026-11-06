@@ -191,6 +191,14 @@ local CASES = {
     {"processlayer", 0x7FFF000000FFFFFF},
     -- os.exit(3): the program ends there, publishing nothing (EXITS).
     {"processexit", 0},
+    -- Weak tables, finalizers and collectgarbage's options as Lua 5.5 has
+    -- them; every marked table finalized at the program's end and at
+    -- os.exit(4, true), which publishes nothing (EXITS).
+    {"gcweak", 0x7FFF0000000001FF},
+    {"gcfinalizers", 0x7FFF0000000001FF},
+    {"gcoptions", 0x7FFF000000007FFF},
+    {"gcend", 0x7FFF000000000005},
+    {"gcexit", 0},
     -- An error no protected call takes: reported on standard error, and
     -- the program ends with status 1, publishing nothing (EXITS).
     {"errorsuncaught", 0},
@@ -228,7 +236,9 @@ local OUTPUT = {
     libraryspread = "1\t2\t3\n3\t3\n97\t98\t99\n2\t3\ntrue\t1\t2\n",
     moduleslazy = "main start\nshapes loading\ncounter loading\nmain required\n",
     iostandard = "a1 b\t2.5\ne\nc\n1\ttrue\t7\tx\nfalse\tboom\ntail\ttrue\nw\n",
-    processexit = "before exit\nprinted\t1\n"
+    processexit = "before exit\nprinted\t1\n",
+    gcend = "dropped\nend\t3\nend\t2\nend\t1\n",
+    gcexit = "exiting\nclosed\t2\nclosed\t1\n"
 }
 -- The bench entry's record, which holds times: its shape and fib(20)'s
 -- checksum (SETUP) are what is checked, not what it measured.
@@ -260,6 +270,16 @@ end
 -- path, shortened as Lua shortens one.
 OUTPUT.errorsuncaught = function(printed)
     return printed:find("^before error\nprinted\t1\nnupp: [^\n]*catalogerrorsuncaught%.nupp:12: boom\n$") ~= nil
+end
+
+-- The finalizers' failures, warned of as Lua's luaE_warnerror words them,
+-- each on a line as `log` starts a warning: one raised, and a __gc that is
+-- no function.
+OUTPUT.gcfinalizers = function(printed)
+    return printed:find(
+        "^warn warn: error in __gc %([^\n]*catalog%-gc%-finalizers%.nupp:103: boom%)\n"
+            .. "warn warn: error in __gc %(attempt to call a boolean value %(metamethod '__gc'%)%)\n$"
+    ) ~= nil
 end
 
 -- Whether `printed` is what case `name` prints.
@@ -339,6 +359,11 @@ local STRESS = {
     processhandle = true,
     processlayer = true,
     processexit = true,
+    gcweak = true,
+    gcfinalizers = true,
+    gcoptions = true,
+    gcend = true,
+    gcexit = true,
     errorsuncaught = true
 }
 -- Shell statements a case's runs start with: the io and pool cases may hold
@@ -453,7 +478,10 @@ local NUMERIC = {
     iofiles = "catalog-io-files",
     iostandard = "catalog-io-standard",
     processexecute = "catalog-process-execute",
-    processpopen = "catalog-process-popen"
+    processpopen = "catalog-process-popen",
+    gcweak = "catalog-gc-weak",
+    gcfinalizers = "catalog-gc-finalizers",
+    gcoptions = "catalog-gc-options"
 }
 -- The status a program ends with when an error no protected call takes
 -- ends it, as the command line's: the bridge exits so once the program has
@@ -464,8 +492,8 @@ local RAISED = 1
 -- checked for the status and what they printed, output and errors
 -- together, and their twins against reference Lua the same way; the ABI
 -- guard, which runs the entry inside a test, is not run.
-local EXITS = {processexit = 3, errorsuncaught = RAISED}
-local EXITTWINS = {processexit = "catalog-process-exit"}
+local EXITS = {processexit = 3, errorsuncaught = RAISED, gcexit = 4}
+local EXITTWINS = {processexit = "catalog-process-exit", gcexit = "catalog-gc-exit"}
 -- What a printed text must match: exactly this string, or this function's
 -- test of it.
 local function matches(expected, printed)
@@ -834,7 +862,12 @@ local function stage()
             "catalog-process-handle",
             "catalog-process-exit",
             "catalog-errors-uncaught",
-            "catalog-process-layer"
+            "catalog-process-layer",
+            "catalog-gc-weak",
+            "catalog-gc-finalizers",
+            "catalog-gc-options",
+            "catalog-gc-end",
+            "catalog-gc-exit"
         }) do
             write(
                 base .. "/source/nupp/core/" .. fixture:gsub("-", "") .. ".nupp",

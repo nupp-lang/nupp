@@ -2494,7 +2494,7 @@ function M.collectgarbageOverloadsTrackResultKinds()
             {
                 "local collected: number = collectgarbage()",
                 "local size: number = collectgarbage('count')",
-                "local oldPause: number = collectgarbage('setpause', 200)",
+                "local oldPause: integer = collectgarbage('param', 'pause', 200)",
                 "local stepped: boolean = collectgarbage('step', 0)",
                 "local running: boolean = collectgarbage('isrunning')",
             },

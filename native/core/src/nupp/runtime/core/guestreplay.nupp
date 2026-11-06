@@ -285,10 +285,19 @@ export function replaydrop(ctx: voidptr, thread: uint64): nil
 end
 
 -- Whether a library call of the running thread waits on a metamethod the
--- active frame runs inside: a yield there would cross it, as Lua's would a
--- C call.
+-- active frame runs inside, or a finalizer runs on the thread
+-- (guestfinalizers): a yield there would cross it, as Lua's would a C call.
 export function crossing(ctx: voidptr): boolean
-    local stackvalue = native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("replays"))
+    local scope = guestscope.scopeof(ctx)
+    if native.load64(scope, native.fieldOffset<guestscope.Services>("finalframe")) ~= 0ULL
+        and native.load64(
+            scope,
+            native.fieldOffset<guestscope.Services>("finalthread")
+        ) == native.load64(scope, native.fieldOffset<guestscope.Services>("running"))
+    then
+        return true
+    end
+    local stackvalue = native.load64(scope, native.fieldOffset<guestscope.Services>("replays"))
     if stackvalue == 0ULL then
         return false
     end

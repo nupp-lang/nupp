@@ -374,7 +374,7 @@ local grouprows: {Group} = {
     {
         -- The process layer's: a pipe for a child's stream, spawning, watching
         -- and no longer watching a child's exit, collecting it, signalling
-        -- its group, and ending this process.
+        -- its group, ending this process, and running every finalizer first.
         name = "PROCESS",
         call = "HOST_FILES",
         modules = {"processcalls"},
@@ -385,7 +385,8 @@ local grouprows: {Group} = {
             {name = "PROCESS_UNWATCH", library = "processcalls.unwatch", operation = 21, arguments = 2},
             {name = "PROCESS_REAP", library = "processcalls.reap", operation = 22, arguments = 1},
             {name = "PROCESS_KILL", library = "processcalls.kill", operation = 23, arguments = 2},
-            {name = "PROCESS_EXIT", library = "processcalls.exit", operation = 24, arguments = 1}
+            {name = "PROCESS_EXIT", library = "processcalls.exit", operation = 24, arguments = 1},
+            {name = "PROCESS_CLOSE", library = "processcalls.close", operation = 25, arguments = 0}
         }
     },
     {

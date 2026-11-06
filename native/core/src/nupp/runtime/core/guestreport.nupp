@@ -4,8 +4,10 @@ module nupp.runtime.core.guestreport
 -- as the command line writes one (nupp.tools.cli.run): on standard error,
 -- `nupp: ` and the error's text, unless the text names the command line
 -- already (reportprefix), then a newline. guestuncaught decides which text.
+-- A finalizer's failure is warned of on the same stream (`finalizer`).
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
 const os = require("nupp.runtime.vm.os")
 const strings = require("nupp.runtime.core.corestrings")
 const guestvalues = require("nupp.runtime.core.guestvalues")
@@ -99,5 +101,46 @@ export function object(ctx: voidptr, value: uint64): nil
         end
         guestscope.release(ctx)
         emit(h, builder)
+    end
+end
+
+-- Warns that a finalizer failed, as Lua 5.5's luaE_warnerror words it, on standard
+-- error: "error in __gc (" and the error's text, or "error object is not a string" when
+-- it raised no string, then ")". With `uncallable` the finalizer was no function, and
+-- the text is what calling `value` would have raised: "attempt to call a T value
+-- (metamethod '__gc')". The line starts as `log`'s default formatter starts a warning,
+-- without its time: the core has no `warn` or `log` yet.
+export function finalizer(ctx: voidptr, value: uint64, uncallable: boolean): nil
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = guestvalues.guestheap(ctx)
+        local builder = state as strings.Builder*
+        local name = values.NIL
+        if uncallable then
+            -- The name is held while the builder grows, which may collect.
+            name = guesterrors.typeName(ctx, value)
+            guestscope.hold(ctx, name)
+        end
+        local refused = librarytexts.append(h, builder, librarytexts.TEXT_WARNING)
+            | librarytexts.append(h, builder, librarytexts.TEXT_GC_ERROR)
+        if uncallable then
+            refused = refused
+                | librarytexts.append(h, builder, librarytexts.TEXT_CALL_VALUE)
+                | strings.appendString(h, builder, strings.header(name))
+                | librarytexts.append(h, builder, librarytexts.TEXT_OBJECT_VALUE)
+                | librarytexts.append(h, builder, librarytexts.TEXT_GC_METAMETHOD)
+            guestscope.release(ctx)
+        elseif strings.header(value) ~= 0ULL then
+            refused = refused | strings.appendString(h, builder, strings.header(value))
+        else
+            refused = refused | librarytexts.append(h, builder, librarytexts.TEXT_NOT_STRING)
+        end
+        refused = refused
+            | librarytexts.append(h, builder, librarytexts.TEXT_CLOSE)
+            | strings.appendWord(h, builder, NEWLINE, NEWLINE_BYTES)
+        if refused == 0ULL then
+            write(builder.base, builder.length)
+        end
+        strings.release(builder)
     end
 end

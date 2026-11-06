@@ -12,6 +12,10 @@ const tables = require("nupp.runtime.core.coretables")
 const strings = require("nupp.runtime.core.corestrings")
 const ints = require("nupp.runtime.core.coreintegers")
 const guestscope = require("nupp.runtime.core.guestscope")
+const librarytexts = require("nupp.runtime.core.librarytexts")
+const collector = require("nupp.runtime.vm.collector")
+const gcweak = require("nupp.runtime.vm.gcweak")
+const gcfinal = require("nupp.runtime.vm.gcfinal")
 
 -- tableSet's answer when a __newindex function is to be called instead.
 export const META_PENDING: uint64 = 100ULL
@@ -41,6 +45,15 @@ export const META_POW: uint64 = 17ULL
 -- "\0fields", for reads and writes by name its instances' types did not
 -- resolve.
 export const META_FIELDS: uint64 = 18ULL
+
+-- What the collector reads from a metatable: its finalizer and weak mode.
+export const META_GC: uint64 = 19ULL
+export const META_MODE: uint64 = 20ULL
+
+-- A weak mode's letters, which Lua 5.5 reads only in a short string.
+const LETTER_KEYS: uint64 = 107ULL
+const LETTER_VALUES: uint64 = 118ULL
+const SHORT_STRING: uint64 = 40ULL
 
 -- The interned name of a metatable field: "__index", "__newindex" or
 -- "__metatable".
@@ -88,6 +101,10 @@ local function makeMetaKey(ctx: voidptr, which: uint64): uint64
             refused = strings.appendWord(h, builder, 0x776f705f5fULL, 5ULL)
         elseif which == META_FIELDS then
             refused = strings.appendWord(h, builder, 0x73646c65696600ULL, 7ULL)
+        elseif which == META_GC then
+            refused = librarytexts.append(h, builder, librarytexts.TEXT_FIELD_GC)
+        elseif which == META_MODE then
+            refused = librarytexts.append(h, builder, librarytexts.TEXT_FIELD_MODE)
         else
             refused = strings.appendWord(h, builder, 0x61746174656d5f5fULL, 8ULL)
                 | strings.appendWord(h, builder, 0x656c62ULL, 3ULL)
@@ -377,9 +394,36 @@ export function tableof(value: uint64): uint64
     return tableOf(value)
 end
 
+-- The weak mode metatable `mt` gives a table: gcweak's WEAK_KEYS for a "k"
+-- in its __mode and WEAK_VALUES for a "v", when that is a short string.
+local function weakMode(ctx: voidptr, mt: uint64): uint64
+    local s = strings.header(tables.get(mt, metaKey(ctx, META_MODE)))
+    if s == 0ULL or strings.length(s) > SHORT_STRING then
+        return 0ULL
+    end
+    @unsafe do
+        local text = native.pointer(strings.bytes(s))
+        local mode: uint64 = 0ULL
+        local i: uint64 = 0ULL
+        while i < strings.length(s) do
+            local letter = native.word(native.load8(text, native.index(i)))
+            if letter == LETTER_KEYS then
+                mode = mode | gcweak.WEAK_KEYS
+            elseif letter == LETTER_VALUES then
+                mode = mode | gcweak.WEAK_VALUES
+            end
+            i = i + 1ULL
+        end
+        return mode
+    end
+end
+
 -- setmetatable(t, mt): answers t; a metatable with __metatable set is
 -- protected. A frozen t cannot take another, and mt freezes as it is
--- attached (runtime Decision 16), so its metamethods stay what they were.
+-- attached (runtime Decision 16), so its metamethods stay what they were:
+-- t's weak mode is mt's __mode from now on, and a __gc in mt marks t for
+-- finalization, as Lua marks it then (`gcfinal`), unless the exit is
+-- running every finalizer already.
 export function setMetatable(ctx: voidptr, value: uint64, mt: uint64): uint64
     local t = tableOf(value)
     if t == 0ULL then
@@ -397,9 +441,22 @@ export function setMetatable(ctx: voidptr, value: uint64, mt: uint64): uint64
     @unsafe do
         local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
         tables.setMeta(h, t, mt)
+        local o = native.pointer(t) as heap.Header*
+        local mode: uint64 = 0ULL
         if mt ~= values.NIL then
             tables.freeze(h, mt & values.PAYLOAD)
+            mode = weakMode(ctx, mt & values.PAYLOAD)
+            local closing = native.load64(
+                guestscope.scopeof(ctx),
+                native.fieldOffset<guestscope.Services>("finalclose")
+            )
+            if closing == guestscope.CLOSE_IDLE
+                and tables.get(mt & values.PAYLOAD, metaKey(ctx, META_GC)) ~= values.NIL
+            then
+                gcfinal.mark(h, o)
+            end
         end
+        collector.weakmode(h, o, mode)
     end
 
     return value

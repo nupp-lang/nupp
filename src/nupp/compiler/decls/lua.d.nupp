@@ -247,16 +247,33 @@ end
 --- @internal
 type nupp.__Debug = types.Debug
 
---- Controls the garbage collector. `opt` is "collect" for a full cycle, the default, or
---- "stop", "restart", "count", "step", "setpause", "setstepmul" or "isrunning".
+--- Controls the garbage collector, as Lua 5.5's does. `opt` is "collect" for a full
+--- cycle, the default, or "stop", "restart", "count", "step", "isrunning",
+--- "incremental", "generational" or "param".
 ---
 --- @param opt the operation to perform
---- @param arg the step size or parameter that the operation takes
---- @return what the operation reports: "count" gives the kilobytes in use, while
----     "step" and "isrunning" answer a boolean
+--- @param arg the step size, or the parameter "param" reads and may set
+--- @param value the value "param" sets
+--- @return what the operation reports: "count" gives the kilobytes in use, "step" and
+---     "isrunning" answer a boolean, "incremental" and "generational" the mode before,
+---     and "param" the parameter's value before
 local collectgarbage: function(): number
-    & function(opt: 'collect' | 'stop' | 'restart' | 'count' | 'setpause' | 'setstepmul', arg: number?): number
-    & function(opt: 'step' | 'isrunning', arg: number?): boolean
+    & function(
+        opt: 'collect' | 'stop' | 'restart' | 'count',
+        arg: number?
+    ): number
+    & function(
+        opt: 'step' | 'isrunning',
+        arg: number?
+    ): boolean
+    & function(
+        opt: 'incremental' | 'generational'
+    ): string
+    & function(
+        opt: 'param',
+        name: 'minormul' | 'majorminor' | 'minormajor' | 'pause' | 'stepmul' | 'stepsize',
+        value: integer?
+    ): integer
 
 --- Compiles a chunk read piecewise from `chunk`, a function returning successive pieces
 --- of source, without running it.
@@ -1209,11 +1226,13 @@ local os: {
     --- @return the command's exit status, or whether a shell exists
     execute: function(cmd: string?): any,
 
-    --- Ends the process, closing the interpreter state on the way out.
+    --- Ends the process. With `close`, every finalizer runs first, as Lua's
+    --- `lua_close` runs them.
     ---
     --- @param code the exit status: true or 0 for success, false or another
     ---     number for failure
-    exit: function(code: any?): never,
+    --- @param close whether finalizers run before the process ends
+    exit: function(code: any?, close: boolean?): never,
 
     --- Returns the value of the environment variable `name`.
     ---

@@ -11,8 +11,8 @@ other functions are not the core's yet and raise.
 A command's child leads a process group of its own (Decision 8), where C's
 system leaves it in the caller's and ignores SIGINT and SIGQUIT while it
 waits: an interrupt from the terminal reaches this program, not the child.
-`os.exit` ignores its second argument: the core runs no finalizers at exit,
-and every write has reached its file already.
+`os.exit(code, true)` runs every finalizer first, as Lua's `lua_close`
+does; every write has reached its file already.
 ]]
 module nupp.runtime.luaos
 
@@ -43,13 +43,16 @@ local function execute(...: any): ...any
 end
 
 -- Ends the program with `code`: true or none is success, false failure.
+-- With `close`, every finalizer runs first.
 local function exit(code: any, close: any): nil
-    local _ = close
     local status: integer = SUCCESS
     if type(code) == "boolean" then
         status = code and SUCCESS or FAILURE
     elseif code ~= nil then
         status = luaargs.integerarg(code, 1, "exit", 2)
+    end
+    if close then
+        processcalls.close()
     end
     processcalls.exit(status)
 end
