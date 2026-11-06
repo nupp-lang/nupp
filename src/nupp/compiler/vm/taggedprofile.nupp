@@ -401,12 +401,19 @@ function tagged.forVersion(version: integer): any
     -- for, and `@allow` quiets a lint: either way the statement runs as
     -- written. `@nosuspend` is the checker's proof that nothing in it
     -- suspends, which it holds without the core's help.
-    local pragmas: {[string]: boolean} = {unsafe = true, aot = true, allow = true, nosuspend = true}
+    -- Built-in `@deprecated` records tooling metadata; its declaration still
+    -- runs as written and its checked migration lint remains unchanged.
+    local pragmas: {[string]: boolean} = {unsafe = true, aot = true, allow = true, nosuspend = true, deprecated = true}
     profile.checkedPragma = function(ctx: any, node: any): nil
         local name = node.name and node.name.text
         need(
-            pragmas[name or ""] == true and node.annotationDefinition and node.annotationDefinition.name == name,
-            "only a checked @unsafe, @aot, @allow or @nosuspend scope is admitted, not @" .. tostring(name)
+            pragmas[name or ""] == true
+            and node.annotationDefinition
+            and node.annotationDefinition.name == name
+            and (name ~= "deprecated" or node.annotationDefinition.builtin == true),
+            "only a checked @unsafe, @aot, @allow, @nosuspend or @deprecated annotation is admitted, not @" .. tostring(
+                name
+            )
         )
     end
     profile.binary = function(ctx: any, node: any, expected: string?): integer

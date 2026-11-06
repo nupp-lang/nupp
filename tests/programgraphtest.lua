@@ -931,6 +931,84 @@ local function operations(g, wanted)
     return out
 end
 
+function M.checkedDeprecationKeepsItsDeclarationAndLintWithoutRuntimeWork()
+    local input = checked(
+        [[
+@deprecated(reason = "legacy answer", replacement = "current answer")
+local answer = 42
+return answer
+]]
+    )
+    local pragma = input.parsed.root.blocks[1].stats[1]
+    test.eq(pragma.annotationDefinition.name, "deprecated")
+    test.eq(pragma.annotationDefinition.builtin, true)
+    local warnings = 0
+    for _, diagnostic in ipairs(input.diagnostics) do
+        if diagnostic.code == "NUPP2513" then
+            warnings = warnings + 1
+            assert(diagnostic.msg:find("legacy answer", 1, true))
+            test.eq(diagnostic.help, "use current answer instead")
+        end
+    end
+    test.eq(warnings, 1)
+    local p = program.describe({input}, input.name)
+    local plain = describe("local answer = 42\nreturn answer")
+    for version = 2, 8 do
+        local g = program.compile(p, tagged.forVersion(version)).graphs[1]
+        local control = program.compile(plain, tagged.forVersion(version)).graphs[1]
+        local actual, expected = operations(g), operations(control)
+        test.eq(#actual, #expected)
+        for index, op in ipairs(actual) do
+            test.eq(op.op, expected[index].op)
+        end
+        test.eq(g.blocks[#g.blocks].term.kind, "return")
+        assert(g.blocks[#g.blocks].term.value ~= nil)
+    end
+end
+
+function M.deprecationStillRequiresCheckedBuiltinIdentity()
+    for _, mutation in ipairs({
+        function(node)
+            node.annotationDefinition = nil
+        end,
+        function(node)
+            node.annotationDefinition = {name = "other", builtin = true}
+        end,
+        function(node)
+            node.annotationDefinition = {name = "deprecated", builtin = false}
+        end,
+        function(node)
+            node.name.text = "unrecognized"
+            node.annotationDefinition = {name = "unrecognized", builtin = true}
+        end,
+    }) do
+        local input = checked('@deprecated local answer = 42\nreturn answer')
+        mutation(input.parsed.root.blocks[1].stats[1])
+        local p = program.describe({input}, input.name)
+        refuses(
+            function()
+                program.compile(p, tagged.forVersion(8))
+            end,
+            "only a checked @unsafe"
+        )
+    end
+end
+
+function M.unsafeStillRequiresItsCheckedAnnotationDefinition()
+    local input = checked('@unsafe do local answer = 42 end\nreturn 7')
+    local pragma = input.parsed.root.blocks[1].stats[1]
+    local definition = pragma.annotationDefinition
+    test.eq(definition.name, "unsafe")
+    assert(program.compile(program.describe({input}, input.name), tagged.forVersion(8)))
+    pragma.annotationDefinition = nil
+    refuses(
+        function()
+            program.compile(program.describe({input}, input.name), tagged.forVersion(8))
+        end,
+        "only a checked @unsafe"
+    )
+end
+
 function M.taggedModuleCompletionReturnsZeroOrOneValue()
     for _, source in ipairs({"", "return", "local value = 4"}) do
         local p = describe(source)
