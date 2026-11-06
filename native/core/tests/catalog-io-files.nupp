@@ -153,11 +153,13 @@ do
     local out = base .. "-out"
     check(io.type(io.output(out)) == "file")
     check(io.type(io.write("x", 1, "\n")) == "file")
-    io.output():close()
+    local written = io.output()
+    written:close()
     io.output(io.stdout)
     io.input(out)
     check(io.read("l") == "x1" and io.read("l") == nil)
-    io.input():close()
+    local read = io.input()
+    read:close()
     local inputOk, inputMessage = pcall(function(): any
         return io.read("l")
     end)
