@@ -238,8 +238,8 @@ nested module instead of a value on its parent. A field written inline, as
 name, as `math: MathLibrary`, is followed to a record of that name
 declared in the same file. Documentation never resolves a type the way the
 checker does, so a field answering to neither is left out rather than guessed
-at. The [standard library](../runtime/data/standard-library.md) uses this to place
-compiler-provided members under their public modules.
+at. The [standard library](../runtime/data/standard-library.md) uses this to
+place compiler-provided members under their public modules.
 
 ### Re-exported modules
 
