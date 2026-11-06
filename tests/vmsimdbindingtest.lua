@@ -69,13 +69,13 @@ function M.directAndAliasedPublicKernelCallsProduceTheSameGraph()
     local before
     for _, aliased in ipairs({false, true}) do
         local source = [[
-local array = require("nupp.array")
+local array = table.Array
 local lanes = require("simd")
 ]] .. (
             aliased and "local reduce = lanes.horizontal.algebraicsum\n" or ""
         ) .. [[
 local function sum(): float64
-    local species = lanes.species(array.float64, 4)
+    local species = lanes.species(array.number, 4)
 ]] .. (
             aliased and "return reduce(species:splat(1))" or "return lanes.horizontal.algebraicsum(species:splat(1))"
         ) .. "\nend\n"
@@ -116,8 +116,9 @@ end
 -- optional species width returns nil through a call before taking its default.
 function M.defaultSpeciesWidthsSurviveCompiledNilCallResults()
     for _, element in ipairs({"float32", "float64"}) do
+        local witness = element == "float32" and "float" or "number"
         for _, width in ipairs({4, false}) do
-            local arguments = {{kind = "name", exactCallExport = {identity = "nupp.array." .. element}}}
+            local arguments = {{kind = "name", exactCallExport = {identity = "nupp.array." .. witness}}}
             if width then
                 arguments[2] = {kind = "number", token = {text = tostring(width)}}
             end
@@ -151,9 +152,9 @@ end
 
 function M.lowercaseHorizontalIdentitiesKeepFrozenInstructionsAndResults()
     local source = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
-local floats = assert(simd.species(array.float64, 4)):splat(2.0)
+local floats = assert(simd.species(array.number, 4)):splat(2.0)
 local integers = assert(simd.species(array.int32, 4)):splat(3)
 return simd.horizontal.orderedsum(floats),
     simd.horizontal.wrappingsum(integers),

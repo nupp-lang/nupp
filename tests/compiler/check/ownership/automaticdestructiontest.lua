@@ -225,7 +225,7 @@ local span = require("binary.span")
 local function fill(exclusive values: span.WriteSpan<float32>): nil
     for i = 1, #values do values[i] = 3.0 end
 end
-local values = array.scalar(array.float32, 4)
+local values = array.scalar(array.float, 4)
 ]]
 
 function M.scopedWritableSpansKeepTheirSourceLoansUntilExit()

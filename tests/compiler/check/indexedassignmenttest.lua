@@ -17,7 +17,7 @@ end
 local M = {}
 function M.spanAssignmentsPreserveLocationsOrderAndTupleAdjustment()
     local source = [[
-local array = require("nupp.array")
+local array = table.Array
 local span = require("binary.span")
 local u32 = math.u32
 local function apply(exclusive values: span.WriteSpan<float64>, trace: {number}): number
@@ -45,7 +45,7 @@ local function apply(exclusive values: span.WriteSpan<float64>, trace: {number})
     return first * 100 + values[u32.wrap(1)] * 10 + values[u32.wrap(2)]
 end
 local function run(trace: {number}): number
-    const storage = array.scalar(array.float64, 2)
+    const storage = array.scalar(array.number, 2)
     const values = storage:write()
     const result = apply(values, trace)
     own.drop(values)
@@ -103,9 +103,9 @@ end
 
 function M.simultaneousStoresOnAWritableSpan()
     local source = [[
-local array = require("nupp.array")
+local array = table.Array
 local function apply(): number
-    const storage = array.scalar(array.float64, 2)
+    const storage = array.scalar(array.number, 2)
     const values = storage:write()
     values[1], values[2] = 3, 4
     values[1], values[1] = values[2], values[1]
@@ -153,7 +153,7 @@ end
 
 function M.rootedStructFieldsEvaluateIndicesOnce()
     local source = [[
-local array = require("nupp.array")
+local array = table.Array
 local span = require("binary.span")
 local u32 = math.u32
 local struct Cell value: float64 end
