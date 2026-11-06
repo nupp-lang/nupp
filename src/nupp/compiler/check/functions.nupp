@@ -1065,7 +1065,7 @@ export function install(c: state.Checker): state.StatHandlers
         -- statements below may call it, and see this signature when they do.
         local selfBinding: any = (body as any).selfBinding
         if selfBinding ~= nil and body.returnPack and not retPack.tail and not retPack.alternatives then
-            local provisional = T.func(params, rets, vararg)
+            local provisional = T.func(params, rets, vararg, nil, nil, nil, nil, nil, nil, nil, nil, varargType)
             selfBinding.t = provisional
             if selfBinding.definition then
                 selfBinding.definition.type = provisional
@@ -1706,14 +1706,16 @@ export function install(c: state.Checker): state.StatHandlers
         -- Bind the name before checking the body, so a recursive call resolves. A
         -- fully declared plain signature refines this binding as soon as the body
         -- check has resolved it, before the statements are checked, so a call the
-        -- body makes to itself is typed by it rather than left unknown. Generics,
-        -- modes, varargs and packs keep the refining bind below alone.
+        -- body makes to itself is typed by it rather than left unknown. A plain
+        -- `...`, typed or untyped, is declared too. Generics, modes, named varargs and
+        -- packs keep the refining bind below alone.
         c.bindVar(nameTok.text, T.any, false, nameTok, "function", stat.isConst)
         local declared: any = body
         if declared.returnPack and not declared.generics and not declared.varargParam then
             local plain = true
             for _, p in ipairs(declared.params or {}) do
-                if p.vararg or p.namedVararg or not p.type or p.modeTok or p.type.kind == "tpack" then
+                local typed = p.type ~= nil and p.type.kind ~= "tpack"
+                if p.namedVararg or p.modeTok or not typed and not (p.vararg and p.type == nil) then
                     plain = false
                     break
                 end

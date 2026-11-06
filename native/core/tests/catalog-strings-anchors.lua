@@ -1,0 +1,92 @@
+-- Reference Lua 5.5 twin of catalog-strings-anchors.nupp, without its types.
+-- Lua pattern anchors: `^` first anchors find, match and gsub at the start
+-- (gmatch reads it literally), `$` last anchors at the end, and either
+-- anywhere else, or inside a set, is an ordinary character. Each result is
+-- folded into a text whose hash is the answer.
+local parts = {}
+
+local function add(...)
+    local n = select("#", ...)
+    local row = {}
+    for i = 1, n do
+        row[i] = tostring((select(i, ...)))
+    end
+    parts[#parts + 1] = n .. ":" .. table.concat(row, ",")
+end
+
+local function count(s, p)
+    local n = 0
+    for _ in s:gmatch(p) do
+        n = n + 1
+    end
+    return n
+end
+
+-- Whole-string anchors, as a bench filter writes them.
+add(("fib"):match("^fib$"))
+add(("fibs"):match("^fib$"))
+add(("xfib"):match("^fib$"))
+add((""):match("^fib$"))
+add(("fib"):find("^fib$"))
+add(("fib"):find("^()fib()$"))
+add(("fib"):match("^(f)(i)b$"))
+add(string.find("--case", "^%-%-([%w%-]+)=(.*)$"))
+add(string.match("--case=fib", "^%-%-([%w%-]+)=(.*)$"))
+add(string.match("^fib$", "^%-%-([%w%-]+)$"))
+-- Empty subjects and empty patterns.
+add((""):match("^$"))
+add((""):find("^$"))
+add((""):find(""))
+add((""):find("^"))
+add((""):find("$"))
+add(("abc"):find("$"))
+add(("abc"):find("^"))
+add(("abc"):match("^", 4))
+add(("abc"):match("^", 5))
+add(("abc"):match("$", 2))
+-- Anchored at the start with a starting position.
+add(("abcabc"):find("^abc", 2))
+add(("abcabc"):find("^abc", 4))
+add(("abcabc"):find("^abc", -3))
+add(("abcabc"):find("abc$", 2))
+add(("aaa"):match("^a-$"))
+add(("aaa"):match("^(a-)a$"))
+-- Literal anchors: `^` not first, `$` not last, and inside sets.
+add(("a^b"):find("a^b"))
+add(("a$b"):match("a$b"))
+add(("^x"):find("^^x"))
+add(("x$"):match("x$$"))
+add(("x$y"):find("$y"))
+add(("a^b"):match("[%^]"))
+add(("a^b"):match("[b^]+"))
+add(("abc"):match("[^a]+"))
+add(("$"):match("[$]"))
+add(("a$"):match("[$a]+$"))
+add(("^^"):match("^%^+$"))
+-- gmatch reads `^` literally; `$` still anchors at the end.
+add(count("^a^a", "^a"))
+add(count("aaa", "^a"))
+add(count("aaa", "a$"))
+add(count("", "^$"))
+add(count("", "$"))
+-- gsub stops after one try when anchored.
+add(("hello"):gsub("^h", "H"))
+add(("hello"):gsub("o$", "0"))
+add(("aaa"):gsub("^a", "b"))
+add(("aaa"):gsub("^a*", "b"))
+add((""):gsub("^", "x"))
+add(("abc"):gsub("$", "!"))
+add(("abc"):gsub("^", ">"))
+add(("abc"):gsub("", "-"))
+add(("x"):gsub("^$", "y"))
+add((""):gsub("^$", "y"))
+add(("a^b^c"):gsub("%^", "."))
+add(("a^b^c"):gsub("b^", "B"))
+add(("xax"):gsub("^x", "y", 0))
+add(("x$x"):gsub("$x", "!"))
+local text = table.concat(parts, "|")
+local hash = 0
+for i = 1, #text do
+    hash = (hash * 31 + (text:byte(i) or 0)) % 1000000007
+end
+return hash * 100 + #parts
