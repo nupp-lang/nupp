@@ -1009,6 +1009,83 @@ function M.unsafeStillRequiresItsCheckedAnnotationDefinition()
     )
 end
 
+function M.taggedCallsCarryCheckedPlainOptionalAndProtocolThreads()
+    for _, source in ipairs({
+        [[
+local function pass(value: thread): thread return value end
+local function use(value: thread): thread return pass(value) end
+return use
+]],
+        [[
+local function pass(value: thread?): thread? return value end
+return pass((coroutine.running()))
+]],
+        [[
+local function pass<T>(value: T): T return value end
+local task = coroutine.create(function(): integer return 7 end)
+local kept = pass(task)
+return kept:status()
+]],
+    }) do
+        local p = describe(source)
+        local compiled = program.compile(p, tagged.forVersion(8))
+        test.eq(#compiled.graphs, #p.owners)
+        assert(require("nupp.compiler.vm.coregraphcontracts").normalize(compiled, 8))
+    end
+end
+
+function M.threadValueSignaturesRemainLimitedToTheDynamicProfile()
+    local contracts = require("nupp.compiler.vm.coregraphcontracts")
+    for _, typename in ipairs({"thread", "thread<(), (), (), (integer)>"}) do
+        local source = "local function pass(value: "
+            .. typename
+            .. "): "
+            .. typename
+            .. " return value end\n"
+            .. "local function use(value: "
+            .. typename
+            .. "): "
+            .. typename
+            .. " return pass(value) end\nreturn nil"
+        local p = describe(source)
+        local compiled = program.compile(p, tagged.forVersion(8))
+        assert(contracts.normalize(compiled, 8))
+        for version = 2, 7 do
+            refuses(
+                function()
+                    contracts.normalize(compiled, version)
+                end,
+                "core graph"
+            )
+        end
+        refuses(
+            function()
+                contracts.normalize(compiled, 7)
+            end,
+            "unsupported scalar signature"
+        )
+    end
+end
+
+function M.threadValueAdmissionDoesNotAdmitPhysicalStructDeclarations()
+    local input = checked(
+        [[
+local struct Pair
+    value: int64
+end
+local function pass(value: Pair): Pair return value end
+local function use(value: Pair): Pair return pass(value) end
+return use
+]]
+    )
+    refuses(
+        function()
+            program.compile(program.describe({input}, input.name), tagged.forVersion(8))
+        end,
+        "only plain record declarations are admitted"
+    )
+end
+
 function M.taggedModuleCompletionReturnsZeroOrOneValue()
     for _, source in ipairs({"", "return", "local value = 4"}) do
         local p = describe(source)

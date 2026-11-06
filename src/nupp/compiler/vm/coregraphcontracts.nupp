@@ -90,6 +90,8 @@ local function scalar(value: any, numeric: boolean, dynamic: boolean?): string
     -- used.
     if dynamic
         and (value.tag == "string" or value.tag == "typevar" or value.tag == "nominal" and value.declKind == "record" or value.tag == "array" or value.tag == "map" or value.tag == "table" or value.tag == "shape" or value.tag == "func" or value.tag == "userdata" or value.tag == "carray" or value.tag == "ptr" or value.tag == "ctype" or value.tag == "intersection" or value.tag == "typeobject" or value.tag == "nominal" and value.declKind == "interface" or value.tag == "never"
+        -- Thread protocols erase to the existing tagged scheduler value.
+        or value.tag == "thread" or value.tag == "protocolThread"
         -- Fixed-width numbers are integers and floats at run time.
         or value.tag == "int8"
         or value.tag == "int16"
@@ -415,14 +417,23 @@ function contracts.normalize(compiled: any, version: integer?): any
             and need(p.owners[module.chunk + 1], "module initializer is missing").kind == "module",
             "module initializer binding differs"
         )
-        local record = {name = text(module.name), path = text(module.path), chunk = integer(module.chunk, bounds.owners - 1)}
+        local record = {
+            name = text(module.name),
+            path = text(module.path),
+            chunk = integer(module.chunk, bounds.owners - 1)
+        }
         output.modules[index], modulesByOwner[module.chunk] = record, record
     end
     need(modulesByOwner[output.entry] ~= nil, "entry initializer is not cataloged")
     for index = 1, dense(p.owners, bounds.owners) do
         local owner = p.owners[index]
         need(v >= 7 or dense(owner.captures, 256) == 0, "captures are unsupported")
-        local record: any = {id = integer(owner.id, bounds.owners - 1), kind = owner.kind, graph = index - 1, effect = 0}
+        local record: any = {
+            id = integer(owner.id, bounds.owners - 1),
+            kind = owner.kind,
+            graph = index - 1,
+            effect = 0
+        }
         need(record.id == index - 1, "owner order differs")
         if owner.kind == "function" then
             record.parent = integer(owner.parent, bounds.owners - 1)

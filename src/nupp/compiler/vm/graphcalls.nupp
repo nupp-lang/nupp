@@ -151,6 +151,8 @@ invokeScalar = function(t: any): nil
         or t.tag == "shape"
         or t.tag == "func"
         or t.tag == "userdata"
+        -- Threads use the existing tagged scheduler representation.
+        or t.tag == "thread" or t.tag == "protocolThread"
         -- Fixed-width numbers are integers and floats at run time.
         or fixedwidths[t.tag] == true
         -- Storage and views of it are values on the core's heap.
