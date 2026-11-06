@@ -1,0 +1,249 @@
+module nupp.core.ticketunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const pages = require("nupp.runtime.core.pagemappings")
+const shared = require("nupp.runtime.core.sharedbacking")
+
+const MAXIMUM: uint64 = 0xffffffffffffffffULL
+const ARENA_BYTES: uint64 = 1048576ULL
+
+local function miss(ok: boolean): uint64
+    if ok then
+        return 0ULL
+    end
+    return 1ULL
+end
+
+export function basics(): uint64
+    local state = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local first = shared.TicketResult(0ULL)
+    local second = shared.TicketResult(0ULL)
+    local third = shared.TicketResult(0ULL)
+    @unsafe do
+        local block = shared.create(256ULL)
+        if block == nil then
+            error("ticket units: no block")
+        end
+        local out = state as pages.Scope*
+        local one = first as shared.TicketResult*
+        local two = second as shared.TicketResult*
+        local sub = third as shared.TicketResult*
+        local wrong = miss(shared.ticketacquire(one, block, 16ULL, 32ULL) == shared.TICKET_OK)
+        wrong = wrong + miss(shared.ticketacquire(two, block, 16ULL, 32ULL) == shared.TICKET_OK)
+        wrong = wrong + miss(shared.ticketacquire(sub, block, 24ULL, 8ULL) == shared.TICKET_OK)
+        wrong = wrong + miss(one.ticket ~= two.ticket and one.ticket ~= sub.ticket and two.ticket ~= sub.ticket)
+        wrong = wrong + miss(shared.ticketcount(block) == 3ULL and pages.sharedreferences(block) == 4ULL)
+        wrong = wrong + miss(shared.ticketoverlap(block, 0ULL, 16ULL) == shared.RANGE_CLEAR)
+        wrong = wrong + miss(shared.ticketoverlap(block, 48ULL, 16ULL) == shared.RANGE_CLEAR)
+        wrong = wrong + miss(shared.ticketoverlap(block, 23ULL, 2ULL) == shared.RANGE_OVERLAP)
+        wrong = wrong + miss(shared.ticketretain(one.ticket))
+        wrong = wrong + miss(shared.ticketrelease(out, one.ticket) == shared.RETAINED)
+        wrong = wrong + miss(shared.ticketcount(block) == 3ULL and pages.sharedreferences(block) == 4ULL)
+        wrong = wrong + miss(shared.ticketrelease(out, two.ticket) == shared.RELEASED)
+        two.ticket = 0ULL
+        wrong = wrong + miss(shared.ticketdrop(one.ticket) == shared.TICKET_LAST)
+        wrong = wrong + miss(shared.ticketcount(block) == 1ULL and pages.sharedreferences(block) == 3ULL)
+        wrong = wrong + miss(shared.ticketoverlap(block, 16ULL, 8ULL) == shared.RANGE_CLEAR)
+        wrong = wrong + miss(shared.ticketoverlap(block, 24ULL, 8ULL) == shared.RANGE_OVERLAP)
+        wrong = wrong + miss(shared.ticketoverlap(block, 32ULL, 16ULL) == shared.RANGE_CLEAR)
+        -- Still-mapped pending authority is not a live alias. Do not probe
+        -- arbitrary consumed addresses after their mappings are reclaimed.
+        wrong = wrong + miss(not shared.ticketretain(one.ticket) and shared.ticketdrop(one.ticket) == shared.INVALID)
+        wrong = wrong + miss(
+            shared.ticketfinish(native.pointer(one.ticket) as pages.Scope*, one.ticket) == shared.INVALID
+        )
+        wrong = wrong + miss(pages.sharedreferences(block) == 3ULL)
+        wrong = wrong + miss(shared.ticketfinish(out, one.ticket) == shared.RELEASED)
+        one.ticket = 0ULL
+        wrong = wrong + miss(shared.ticketrelease(out, sub.ticket) == shared.RELEASED)
+        sub.ticket = 0ULL
+        wrong = wrong + miss(shared.ticketcount(block) == 0ULL and pages.sharedreferences(block) == 1ULL)
+        wrong = wrong + miss(shared.ticketoverlap(block, 0ULL, 256ULL) == shared.RANGE_CLEAR)
+        wrong = wrong + miss(
+            not shared.ticketretain(one.ticket) and shared.ticketrelease(out, one.ticket) == shared.INVALID
+        )
+        wrong = wrong + miss(shared.releaselocal(out, block) == shared.RELEASED and out.status == 0ULL)
+        return wrong
+    end
+end
+
+export function refusals(): uint64
+    local state = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local result = shared.TicketResult(777ULL)
+    @unsafe do
+        local block = shared.create(256ULL)
+        if block == nil then
+            error("ticket units: no block")
+        end
+        local out = state as pages.Scope*
+        local r = result as shared.TicketResult*
+        local wrong = miss(
+            shared.ticketacquire(r, native.pointer(0ULL), 0ULL, 1ULL) == shared.TICKET_INVALID and r.ticket == 0ULL
+        )
+        r.ticket = 777ULL
+        wrong = wrong + miss(
+            shared.ticketacquire(r, block, MAXIMUM, 1ULL) == shared.TICKET_INVALID and r.ticket == 0ULL
+        )
+        wrong = wrong + miss(shared.ticketacquire(r, block, 1ULL, MAXIMUM) == shared.TICKET_INVALID)
+        wrong = wrong + miss(shared.ticketacquire(r, block, 0ULL, 0ULL) == shared.TICKET_INVALID)
+        wrong = wrong + miss(shared.ticketoverlap(block, 256ULL, 0ULL) == shared.RANGE_CLEAR)
+        wrong = wrong + miss(shared.ticketoverlap(block, 257ULL, 0ULL) == shared.RANGE_INVALID)
+        wrong = wrong + miss(shared.ticketoverlap(block, 1ULL, MAXIMUM) == shared.RANGE_INVALID)
+        wrong = wrong + miss(shared.ticketcount(block) == 0ULL and pages.sharedreferences(block) == 1ULL)
+        wrong = wrong + miss(pages.sharedcompare(block, 1ULL, MAXIMUM) == 1ULL)
+        wrong = wrong + miss(
+            shared.ticketacquire(r, block, 0ULL, 1ULL) == shared.TICKET_REFERENCES and r.ticket == 0ULL
+        )
+        wrong = wrong + miss(pages.sharedcompare(block, MAXIMUM, 1ULL) == MAXIMUM)
+        wrong = wrong + miss(shared.ticketacquire(r, block, 0ULL, 1ULL) == shared.TICKET_OK)
+        wrong = wrong + miss(pages.ticketcompare(r.ticket, 1ULL, MAXIMUM) == 1ULL)
+        wrong = wrong + miss(not shared.ticketretain(r.ticket) and pages.ticketreferences(r.ticket) == MAXIMUM)
+        wrong = wrong + miss(pages.ticketcompare(r.ticket, MAXIMUM, 1ULL) == MAXIMUM)
+        wrong = wrong + miss(shared.ticketrelease(out, r.ticket) == shared.RELEASED)
+        r.ticket = 0ULL
+        wrong = wrong + miss(shared.releaselocal(out, block) == shared.RELEASED)
+        return wrong
+    end
+end
+
+-- Exact quota and two ownership teardown orders. Metadata is physically
+-- unmap-reclaimed; no historical intervals survive a completed release.
+export function quota(ownerFirst: uint64): uint64
+    local state = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local result = shared.TicketResult(0ULL)
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local list = arena.alloc(a, shared.MAXIMUM_TICKETS * 8ULL, 8ULL)
+            if list == nil then
+                error("ticket units: no list")
+            end
+            local base = native.address(list)
+            local allocation = shared.create(64ULL)
+            if allocation == nil then
+                error("ticket units: no quota block")
+            end
+            local block = native.pointer(native.address(allocation))
+            local out = state as pages.Scope*
+            local r = result as shared.TicketResult*
+            local i: uint64 = 0ULL
+            while i < shared.MAXIMUM_TICKETS do
+                wrong = wrong + miss(shared.ticketacquire(r, block, i % 64ULL, 1ULL) == shared.TICKET_OK)
+                native.store64(native.pointer(base), native.index(i * 8ULL), r.ticket)
+                i = i + 1ULL
+            end
+            wrong = wrong + miss(shared.ticketcount(block) == shared.MAXIMUM_TICKETS)
+            wrong = wrong + miss(pages.sharedreferences(block) == shared.MAXIMUM_TICKETS + 1ULL)
+            r.ticket = 777ULL
+            wrong = wrong + miss(
+                shared.ticketacquire(r, block, 0ULL, 64ULL) == shared.TICKET_LIMIT and r.ticket == 0ULL
+            )
+            wrong = wrong + miss(pages.sharedreferences(block) == shared.MAXIMUM_TICKETS + 1ULL)
+            if ownerFirst ~= 0ULL then
+                wrong = wrong + miss(shared.releaselocal(out, block) == shared.RETAINED)
+            end
+            i = 0ULL
+            while i < shared.MAXIMUM_TICKETS do
+                local token = native.load64(native.pointer(base), native.index(i * 8ULL))
+                wrong = wrong + miss(shared.ticketrelease(out, token) == shared.RELEASED)
+                native.store64(native.pointer(base), native.index(i * 8ULL), 0ULL)
+                i = i + 1ULL
+            end
+            if ownerFirst == 0ULL then
+                wrong = wrong + miss(shared.ticketcount(block) == 0ULL and pages.sharedreferences(block) == 1ULL)
+                wrong = wrong + miss(shared.ticketoverlap(block, 0ULL, 64ULL) == shared.RANGE_CLEAR)
+                wrong = wrong + miss(shared.releaselocal(out, block) == shared.RELEASED)
+            end
+        end
+    end
+
+    return wrong
+end
+
+-- Publish a new disjoint ticket while an older detached capability still owns
+-- its block ref. An old completion must not remove the new rights. This is a
+-- deterministic protocol interleaving, not an actual worker-handoff proof.
+export function interleaving(): uint64
+    local state = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local first = shared.TicketResult(0ULL)
+    local second = shared.TicketResult(0ULL)
+    @unsafe do
+        local block = shared.create(128ULL)
+        if block == nil then
+            error("ticket units: no interleaving block")
+        end
+        local out = state as pages.Scope*
+        local one = first as shared.TicketResult*
+        local two = second as shared.TicketResult*
+        local wrong = miss(shared.ticketacquire(one, block, 0ULL, 32ULL) == shared.TICKET_OK)
+        wrong = wrong + miss(shared.ticketdrop(one.ticket) == shared.TICKET_LAST)
+        wrong = wrong + miss(shared.ticketacquire(two, block, 64ULL, 32ULL) == shared.TICKET_OK)
+        wrong = wrong + miss(shared.ticketfinish(out, one.ticket) == shared.RELEASED)
+        one.ticket = 0ULL
+        wrong = wrong + miss(shared.ticketcount(block) == 1ULL and pages.sharedreferences(block) == 2ULL)
+        wrong = wrong + miss(shared.ticketoverlap(block, 0ULL, 32ULL) == shared.RANGE_CLEAR)
+        wrong = wrong + miss(shared.ticketoverlap(block, 64ULL, 32ULL) == shared.RANGE_OVERLAP)
+        wrong = wrong + miss(shared.ticketrelease(out, two.ticket) == shared.RELEASED)
+        two.ticket = 0ULL
+        wrong = wrong + miss(shared.releaselocal(out, block) == shared.RELEASED)
+        return wrong
+    end
+end
+
+-- The C seam refuses the second one-page mapping, which is this control
+-- allocation. The caller's last reference and quota must survive unchanged.
+export function mapfailure(): uint64
+    local state = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local result = shared.TicketResult(777ULL)
+    @unsafe do
+        local block = shared.create(131ULL)
+        if block == nil then
+            error("ticket units: no map-fault block")
+        end
+        local out = state as pages.Scope*
+        local r = result as shared.TicketResult*
+        local wrong = miss(shared.ticketacquire(r, block, 0ULL, 41ULL) == shared.TICKET_MEMORY and r.ticket == 0ULL)
+        wrong = wrong + miss(pages.sharedreferences(block) == 1ULL and shared.ticketcount(block) == 0ULL)
+        wrong = wrong + miss(shared.ticketoverlap(block, 0ULL, 131ULL) == shared.RANGE_CLEAR)
+        wrong = wrong + miss(shared.releaselocal(out, block) == shared.RELEASED)
+        return wrong
+    end
+end
+
+-- Only cfg(test) faults terminal unmaps. Modes1/2/3 fault data/control/both;
+-- mode4 checks that all ownership is consumed before a real sticky error.
+export function terminal(mode: uint64): uint64
+    local state = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local result = shared.TicketResult(0ULL)
+    @unsafe do
+        local block = shared.create(131ULL)
+        if block == nil then
+            error("ticket units: no terminal-fault block")
+        end
+        native.store64(shared.bytes(block), 0, 0x44332211ULL)
+        local out = state as pages.Scope*
+        local r = result as shared.TicketResult*
+        local wrong = miss(shared.ticketacquire(r, block, 0ULL, 41ULL) == shared.TICKET_OK)
+        wrong = wrong + miss(shared.releaselocal(out, block) == shared.RETAINED)
+        local released = shared.ticketrelease(out, r.ticket)
+        r.ticket = 0ULL
+        local expected: uint64 = 0ULL
+        if mode == 2ULL then
+            expected = 23ULL
+        elseif mode ~= 0ULL then
+            expected = 22ULL
+        end
+        wrong = wrong + miss(out.status == expected)
+        if mode == 0ULL then
+            wrong = wrong + miss(released == shared.RELEASED)
+        else
+            wrong = wrong + miss(released == shared.FAILED)
+        end
+        if mode == 4ULL and wrong == 0ULL then
+            error("ticket units: consumed terminal failure")
+        end
+        return wrong
+    end
+end

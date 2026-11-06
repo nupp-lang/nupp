@@ -40,6 +40,24 @@ export struct SharedBacking
     capacity: uint64
     phase: uint64
     references: uint64
+    mutex: uint64
+    tickets: uint64
+    ticketcount: uint64
+end
+
+-- Separately mapped interval control; no node points into a managed heap.
+-- Only references is atomic. Links/count are protected by its block mutex;
+-- phase is owned by the last alias after detachment.
+export struct RangeTicket
+    block: uint64
+    offset: uint64
+    count: uint64
+    previous: uint64
+    next: uint64
+    references: uint64
+    phase: uint64
+    error: uint64
+    failed: uint64
 end
 
 export const SHARED_LIVE: uint64 = 1ULL
@@ -139,6 +157,9 @@ export function acquireshared(capacity: uint64): voidptr?
     native.store64(block, native.fieldOffset<SharedBacking>("capacity"), capacity)
     native.store64(block, native.fieldOffset<SharedBacking>("phase"), SHARED_LIVE)
     native.store64(block, native.fieldOffset<SharedBacking>("references"), 1ULL)
+    native.store64(block, native.fieldOffset<SharedBacking>("mutex"), 0ULL)
+    native.store64(block, native.fieldOffset<SharedBacking>("tickets"), 0ULL)
+    native.store64(block, native.fieldOffset<SharedBacking>("ticketcount"), 0ULL)
 
     return block
 end
@@ -151,6 +172,28 @@ end
 
 export function sharedcompare(block: voidptr, expected: uint64, replacement: uint64): uint64
     return os.atomiccas64(block, native.fieldOffset<SharedBacking>("references"), expected, replacement)
+end
+
+-- Existing SeqCst transport protects the private registry. Hold no mutex
+-- across allocation, callbacks, IO, suspension, or payload access. Every
+-- caller keeps an independent block reference through unlock.
+export function sharedlock(block: voidptr): nil
+    while os.atomiccas64(block, native.fieldOffset<SharedBacking>("mutex"), 0ULL, 1ULL) ~= 0ULL do
+    end
+end
+
+export function sharedunlock(block: voidptr): nil
+    local _ = os.atomiccas64(block, native.fieldOffset<SharedBacking>("mutex"), 1ULL, 0ULL)
+end
+
+-- A ticket token is its payload address, never its SharedBacking prefix.
+-- An active alias or unique pending-finalizer capability keeps it mapped.
+export function ticketreferences(ticket: uint64): uint64
+    return os.atomicload64(native.pointer(ticket), native.fieldOffset<RangeTicket>("references"))
+end
+
+export function ticketcompare(ticket: uint64, expected: uint64, replacement: uint64): uint64
+    return os.atomiccas64(native.pointer(ticket), native.fieldOffset<RangeTicket>("references"), expected, replacement)
 end
 
 -- Caller won references 1 -> 0 and alone owns the terminal operation.

@@ -213,6 +213,63 @@ local UNITS = {
 }
 
 UNITS[#UNITS + 1] = {
+    name = "ticketunits",
+    modules = {"ticketunits", "unitentry"},
+    entries = {
+        {"ticketunits", "basics", 0},
+        {"ticketunits", "refusals", 0},
+        {"ticketunits", "quota", 1},
+        {"ticketunits", "interleaving", 0},
+        {"ticketunits", "terminal", 1}
+    },
+    cases = function()
+        return {
+            {"basics", {}, 0},
+            {"refusals", {}, 0},
+            {"quota", {0}, 0},
+            {"quota", {1}, 0},
+            {"interleaving", {}, 0},
+            {"terminal", {0}, 0}
+        }
+    end
+}
+UNITS[#UNITS + 1] = {
+    name = "ticketcloseunits",
+    modules = {"ticketcloseunits", "unitentry"},
+    entries = {{"ticketcloseunits", "scopeclose", 2}},
+    cases = function()
+        local cases = {}
+        for _, stress in ipairs({0, 1, 2}) do
+            for _, first in ipairs({0, 1}) do
+                cases[#cases + 1] = {"scopeclose", {stress, first}, 0}
+            end
+        end
+
+        return cases
+    end
+}
+UNITS[#UNITS + 1] = {
+    name = "ticketproducer",
+    modules = {"ticketproducer", "unitentry"},
+    entries = {
+        {"ticketproducer", "produceblock", 0},
+        {"ticketproducer", "dispose", 1},
+        {"ticketproducer", "ticket", 1}
+    },
+    cases = function()
+        return {}
+    end
+}
+UNITS[#UNITS + 1] = {
+    name = "ticketfaultunits",
+    modules = {"ticketunits", "unitentry"},
+    entries = {{"ticketunits", "mapfailure", 0}, {"ticketunits", "terminal", 1}},
+    cases = function()
+        return {}
+    end
+}
+
+UNITS[#UNITS + 1] = {
     name = "longstringunits",
     modules = {"longstringunits", "unitentry"},
     entries = {

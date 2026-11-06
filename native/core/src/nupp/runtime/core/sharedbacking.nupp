@@ -81,3 +81,301 @@ export function releaselocal(status: pages.Scope*, block: voidptr): uint64
         return release(status as voidptr, block)
     end
 end
+
+-- Result is caller-owned, disjoint mapped storage, live through ticketacquire.
+-- Acquisition explicitly zeroes it before taking any external ownership.
+export struct TicketResult
+    ticket: uint64
+end
+
+export const TICKET_OK: uint64 = 0ULL
+export const TICKET_INVALID: uint64 = 1ULL
+export const TICKET_LIMIT: uint64 = 2ULL
+export const TICKET_MEMORY: uint64 = 3ULL
+export const TICKET_REFERENCES: uint64 = 4ULL
+export const MAXIMUM_TICKETS: uint64 = 4096ULL
+export const TICKET_LIVE: uint64 = 1ULL
+export const TICKET_DETACHED: uint64 = 2ULL
+export const TICKET_BLOCK_DONE: uint64 = 3ULL
+export const TICKET_LAST: uint64 = 4ULL
+export const RANGE_CLEAR: uint64 = 0ULL
+export const RANGE_OVERLAP: uint64 = 1ULL
+export const RANGE_INVALID: uint64 = 2ULL
+
+local function control(ticket: uint64): uint64
+    return ticket - native.sizeOf<pages.SharedBacking>()
+end
+
+-- Called with the block mutex. Counts include constructing reservations;
+-- only actual linked intervals contribute to overlap, never history.
+local function link(block: voidptr, ticket: uint64): nil
+    @unsafe do
+        local owner = native.pointer(native.address(block)) as pages.SharedBacking*
+        local node = native.pointer(ticket) as pages.RangeTicket*
+        node.previous = 0ULL
+        node.next = owner.tickets
+        if owner.tickets ~= 0ULL then
+            local next = native.pointer(owner.tickets) as pages.RangeTicket*
+            next.previous = ticket
+        end
+        owner.tickets = ticket
+    end
+end
+
+local function unlink(block: voidptr, ticket: uint64): nil
+    @unsafe do
+        local owner = native.pointer(native.address(block)) as pages.SharedBacking*
+        local node = native.pointer(ticket) as pages.RangeTicket*
+        if node.previous == 0ULL then
+            owner.tickets = node.next
+        else
+            local previous = native.pointer(node.previous) as pages.RangeTicket*
+            previous.next = node.next
+        end
+        if node.next ~= 0ULL then
+            local next = native.pointer(node.next) as pages.RangeTicket*
+            next.previous = node.previous
+        end
+        owner.ticketcount = owner.ticketcount - 1ULL
+        node.previous = 0ULL
+        node.next = 0ULL
+        node.phase = TICKET_DETACHED
+    end
+end
+
+-- Each logical ticket owns one block reference and one independent control
+-- mapping. Aliases share that ticket's interval; duplicate/subrange tickets
+-- have separate rights. There are no heap/header roots or ownership cycles.
+-- The 4096 limit covers active plus constructing tickets; pending finalizers
+-- and consumed failed mappings remain explicit caller-owned cleanup states.
+export function ticketacquire(result: TicketResult*, block: voidptr, offset: uint64, count: uint64): uint64
+    local state = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    @unsafe do
+        result.ticket = 0ULL
+        if native.address(block) == 0ULL then
+            return TICKET_INVALID
+        end
+        local extent = capacity(block)
+        if count == 0ULL or offset > extent or count > extent - offset then
+            return TICKET_INVALID
+        end
+        if not retain(block) then
+            return TICKET_REFERENCES
+        end
+        local status = state as pages.Scope*
+        pages.sharedlock(block)
+        local owner = native.pointer(native.address(block)) as pages.SharedBacking*
+        local full = owner.ticketcount >= MAXIMUM_TICKETS
+        if not full then
+            owner.ticketcount = owner.ticketcount + 1ULL
+        end
+        pages.sharedunlock(block)
+        local failure = TICKET_LIMIT
+        if not full then
+            local allocation = create(native.sizeOf<pages.RangeTicket>())
+            if allocation == nil then
+                pages.sharedlock(block)
+                owner.ticketcount = owner.ticketcount - 1ULL
+                pages.sharedunlock(block)
+                failure = TICKET_MEMORY
+            else
+                local ticket = native.address(bytes(allocation))
+                local node = native.pointer(ticket) as pages.RangeTicket*
+                node.block = native.address(block)
+                node.offset = offset
+                node.count = count
+                node.previous = 0ULL
+                node.next = 0ULL
+                node.references = 1ULL
+                node.phase = TICKET_LIVE
+                node.error = 0ULL
+                node.failed = 0ULL
+                pages.sharedlock(block)
+                link(block, ticket)
+                pages.sharedunlock(block)
+                result.ticket = ticket
+                return TICKET_OK
+            end
+        end
+        -- The caller still owns its independent reference. This temporary
+        -- reference is therefore nonlast and rollback cannot unmap.
+        if releaselocal(status, block) ~= RETAINED then
+            error("shared tickets: nonterminal rollback refused")
+        end
+        return failure
+    end
+end
+
+-- Requires an owned live alias. No arbitrary/stale freed-address validation
+-- is promised: callers clear a consumed token and never reuse its old value.
+export function ticketretain(ticket: uint64): boolean
+    if ticket == 0ULL then
+        return false
+    end
+    local before = pages.ticketreferences(ticket)
+    while before ~= 0ULL and before ~= MAXIMUM_REFERENCES do
+        local actual = pages.ticketcompare(ticket, before, before + 1ULL)
+        if actual == before then
+            return true
+        end
+        before = actual
+    end
+
+    return false
+end
+
+-- RETAINED consumes one nonlast alias. LAST transfers its last alias into
+-- unique mapped finalization authority, removes its exact interval, and
+-- allocates nothing. The caller must retain that token until finish consumes
+-- it; a second drop on a still-mapped pending token refuses without reading
+-- any reclaimed object. Registry readers carry no node borrow past unlock.
+export function ticketdrop(ticket: uint64): uint64
+    if ticket == 0ULL then
+        return INVALID
+    end
+    @unsafe do
+        local node = native.pointer(ticket) as pages.RangeTicket*
+        if node.phase ~= TICKET_LIVE then
+            return INVALID
+        end
+        local before = pages.ticketreferences(ticket)
+        while before ~= 0ULL do
+            local actual = pages.ticketcompare(ticket, before, before - 1ULL)
+            if actual == before then
+                if before > 1ULL then
+                    return RETAINED
+                end
+                local block = native.pointer(node.block)
+                pages.sharedlock(block)
+                unlink(block, ticket)
+                pages.sharedunlock(block)
+                return TICKET_LAST
+            end
+            before = actual
+        end
+        return INVALID
+    end
+end
+
+-- Requires the unique pending-finalizer capability from drop. Status is an
+-- exact, disjoint caller-owned Scope. INVALID retains pending authority;
+-- after a consumed block result, block0 records completion before any later
+-- control cleanup. First real terminal status survives a later cleanup.
+-- FAILED consumes this ticket despite the failed mapping staying retained;
+-- neither its token nor a released block may be read or retried afterward.
+export function ticketfinish(borrows status: pages.Scope*, ticket: uint64): uint64
+    local cleanup = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local out = cleanup as pages.Scope*
+        if ticket == 0ULL then
+            return INVALID
+        end
+        local node = native.pointer(ticket) as pages.RangeTicket*
+        if pages.ticketreferences(ticket) ~= 0ULL
+            or (node.phase ~= TICKET_DETACHED and node.phase ~= TICKET_BLOCK_DONE)
+        then
+            return INVALID
+        end
+        local allocation = native.pointer(control(ticket))
+        if not pages.sharedscopevalid(status as voidptr, allocation) then
+            return INVALID
+        end
+        local first = node.error
+        local failed = node.failed ~= 0ULL
+        if node.phase == TICKET_DETACHED then
+            local block = native.pointer(node.block)
+            if not pages.sharedscopevalid(status as voidptr, block) then
+                return INVALID
+            end
+            local released = releaselocal(out, block)
+            if released ~= RETAINED and released ~= RELEASED and released ~= FAILED then
+                return INVALID
+            end
+            if released ~= RETAINED then
+                status.status = out.status
+            end
+            node.block = 0ULL
+            node.phase = TICKET_BLOCK_DONE
+            if released == FAILED then
+                first = out.status
+                failed = true
+                node.error = first
+                node.failed = 1ULL
+            end
+        end
+        local result = releaselocal(out, allocation)
+        if result == INVALID then
+            return INVALID
+        end
+        if result ~= RELEASED and result ~= FAILED then
+            error("shared tickets: control ownership differs")
+        end
+        -- The control mapping may be gone. Read only independent status now.
+        if not failed then
+            first = out.status
+        end
+        status.status = first
+        if failed or result == FAILED then
+            return FAILED
+        end
+        return RELEASED
+    end
+end
+
+-- Convenience ownership step; INVALID leaves the same token as a pending
+-- finalizer when its last alias was already detached. No hidden scope escape.
+export function ticketrelease(borrows status: pages.Scope*, ticket: uint64): uint64
+    if ticket == 0ULL then
+        return INVALID
+    end
+    @unsafe do
+        local node = native.pointer(ticket) as pages.RangeTicket*
+        if node.phase == TICKET_LIVE then
+            local result = ticketdrop(ticket)
+            if result ~= TICKET_LAST then
+                return result
+            end
+        end
+        return ticketfinish(status, ticket)
+    end
+end
+
+export function ticketcount(block: voidptr): uint64
+    pages.sharedlock(block)
+    local count = native.load64(block, native.fieldOffset<pages.SharedBacking>("ticketcount"))
+    pages.sharedunlock(block)
+    return count
+end
+
+-- Observation at the registry's locked linearization point, not permission
+-- to write afterward. Future writer admission must serialize publication
+-- while allowing GC unlink; never hold this mutex through payload operations,
+-- raw leases, IO, callbacks or suspension. Only live exact intervals are read.
+export function ticketoverlap(block: voidptr, offset: uint64, count: uint64): uint64
+    if native.address(block) == 0ULL then
+        return RANGE_INVALID
+    end
+    local extent = capacity(block)
+    if offset > extent or count > extent - offset then
+        return RANGE_INVALID
+    end
+    if count == 0ULL then
+        return RANGE_CLEAR
+    end
+    pages.sharedlock(block)
+    local answer = RANGE_CLEAR
+    @unsafe do
+        local token = (native.pointer(native.address(block)) as pages.SharedBacking*).tickets
+        while token ~= 0ULL do
+            local node = native.pointer(token) as pages.RangeTicket*
+            if offset < node.offset + node.count and node.offset < offset + count then
+                answer = RANGE_OVERLAP
+                break
+            end
+            token = node.next
+        end
+    end
+    pages.sharedunlock(block)
+
+    return answer
+end

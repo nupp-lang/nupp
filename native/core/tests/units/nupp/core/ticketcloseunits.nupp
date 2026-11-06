@@ -1,0 +1,119 @@
+module nupp.core.ticketcloseunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const strings = require("nupp.runtime.core.corestrings")
+const shared = require("nupp.runtime.core.sharedbacking")
+const pages = require("nupp.runtime.core.pagemappings")
+const guestscope = require("nupp.runtime.core.guestscope")
+const guestentry = require("nupp.runtime.core.guestentry")
+const instances = require("nupp.runtime.core.instances")
+
+const ARENA_BYTES: uint64 = 67108864ULL
+
+local function miss(ok: boolean): uint64
+    if ok then
+        return 0ULL
+    end
+    return 1ULL
+end
+
+local function data(borrows a: arena.Arena*, count: uint64): uint64
+    @unsafe do
+        local raw = arena.alloc(a, count + 8ULL, 8ULL)
+        if raw == nil then
+            error("ticket close units: no source")
+        end
+        local base = native.address(raw)
+        local i: uint64 = 0ULL
+        while i < count + 8ULL do
+            -- Includes NUL bytes without depending on a terminator.
+            native.store8(native.pointer(base), native.index(i), i % 251ULL)
+            i = i + 1ULL
+        end
+
+        return base
+    end
+end
+
+export function scopeclose(stress: uint64, ticketFirst: uint64): uint64
+    @unsafe do
+        local state = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+        local result = shared.TicketResult(0ULL)
+        local wrong: uint64 = 0ULL
+        do
+            local a = arena.open(ARENA_BYTES)
+            local scratch = arena.alloc(a, 1048576ULL, 16ULL)
+            local slot = arena.alloc(a, native.sizeOf<guestentry.Storage>(), 16ULL)
+            local world = arena.alloc(a, native.sizeOf<instances.World>(), 16ULL)
+            if scratch == nil then
+                error("ticket close units: no scope scratch")
+            end
+            local scratchBase = native.address(scratch)
+            if slot == nil then
+                error("ticket close units: no slot")
+            end
+            local slotBase = native.address(slot)
+            if world == nil then
+                error("ticket close units: no world")
+            end
+            local worldBase = native.address(world)
+            local i: uint64 = 0ULL
+            while i < native.sizeOf<guestentry.Storage>() do
+                native.store64(native.pointer(slotBase), native.index(i), 0ULL)
+                i = i + 8ULL
+            end
+            i = 0ULL
+            while i < native.sizeOf<instances.World>() do
+                native.store64(native.pointer(worldBase), native.index(i), 0ULL)
+                i = i + 8ULL
+            end
+            local services = native.pointer(guestscope.prepare(native.pointer(scratchBase), 1048576ULL))
+            wrong = wrong + miss(native.address(services) ~= 0ULL)
+            wrong = wrong + miss(
+                guestscope.open(
+                    services,
+                    slotBase,
+                    native.sizeOf<guestentry.Storage>(),
+                    1ULL,
+                    0ULL,
+                    worldBase,
+                    stress
+                ) == 1ULL
+            )
+            @unsafe do
+                local h = native.pointer(
+                    native.load64(services, native.fieldOffset<guestscope.Services>("heap"))
+                ) as heap.Heap*
+                local input = data(a, 97ULL)
+                local text = strings.make(h, input, 97ULL)
+                local textHeader = native.pointer(text) as heap.Header*
+                local block = native.pointer(heap.corestringtail(textHeader).block)
+                wrong = wrong + miss(shared.retain(block) and pages.sharedreferences(block) == 2ULL)
+                local r = result as shared.TicketResult*
+                wrong = wrong + miss(shared.ticketacquire(r, block, 17ULL, 41ULL) == shared.TICKET_OK)
+                wrong = wrong + miss(pages.sharedreferences(block) == 3ULL)
+                if ticketFirst ~= 0ULL then
+                    wrong = wrong + miss(shared.ticketrelease(state as pages.Scope*, r.ticket) == shared.RELEASED)
+                    r.ticket = 0ULL
+                end
+                -- The heap string owns its existing independent block ref;
+                -- this fixture does not add a ticket to LongStringTail.
+                guestscope.close(services)
+                if ticketFirst == 0ULL then
+                    wrong = wrong + miss(pages.sharedreferences(block) == 2ULL)
+                    wrong = wrong + miss(shared.ticketoverlap(block, 17ULL, 41ULL) == shared.RANGE_OVERLAP)
+                    wrong = wrong + miss(shared.ticketrelease(state as pages.Scope*, r.ticket) == shared.RELEASED)
+                    r.ticket = 0ULL
+                end
+                wrong = wrong + miss(pages.sharedreferences(block) == 1ULL)
+                wrong = wrong + miss(native.word(native.load8(shared.bytes(block), 17)) == 17ULL)
+                wrong = wrong + miss(guestscope.finish(services) == 0ULL)
+                wrong = wrong + miss(shared.releaselocal(state as pages.Scope*, block) == shared.RELEASED)
+            end
+        end
+
+        return wrong
+    end
+end

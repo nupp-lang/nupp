@@ -1,0 +1,50 @@
+module nupp.core.ticketproducer
+
+const native = require("nupp.runtime.vm.intrinsics")
+const pages = require("nupp.runtime.core.pagemappings")
+const shared = require("nupp.runtime.core.sharedbacking")
+
+-- Test transport hands the independently owned capability to another real
+-- invocation only after this producer's service scope has closed.
+export function produceblock(): uint64
+    local allocation = shared.create(64ULL)
+    if allocation == nil then
+        error("ticket producer: block refused")
+    end
+
+    return native.address(allocation)
+end
+
+export function dispose(block: voidptr): uint64
+    local state = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local out = state as pages.Scope*
+        if shared.releaselocal(out, block) == shared.RETAINED and out.status == 0ULL then
+            return 1ULL
+        end
+        return 0ULL
+    end
+end
+
+export function ticket(detach: uint64): uint64
+    local state = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local result = shared.TicketResult(0ULL)
+    @unsafe do
+        local allocation = shared.create(64ULL)
+        if allocation == nil then
+            error("ticket producer: allocation refused")
+        end
+        local out = state as pages.Scope*
+        local r = result as shared.TicketResult*
+        if shared.ticketacquire(r, allocation, 0ULL, 1ULL) ~= shared.TICKET_OK then
+            error("ticket producer: acquire refused")
+        end
+        if shared.releaselocal(out, allocation) ~= shared.RETAINED then
+            error("ticket producer: creator reference differs")
+        end
+        if detach ~= 0ULL and shared.ticketdrop(r.ticket) ~= shared.TICKET_LAST then
+            error("ticket producer: detach refused")
+        end
+        return r.ticket
+    end
+end

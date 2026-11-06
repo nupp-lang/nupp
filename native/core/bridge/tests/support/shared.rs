@@ -8,13 +8,60 @@ static MAP_ATTEMPTS: AtomicU64 = AtomicU64::new(0);
 static ADDRESS: AtomicU64 = AtomicU64::new(0);
 static EXTENT: AtomicU64 = AtomicU64::new(0);
 static ATTEMPTS: AtomicU64 = AtomicU64::new(0);
-const PREFIX_BYTES: u64 = 40;
+static TICKET_FAULTS: AtomicU64 = AtomicU64::new(0);
+static TICKET_MAP_REFUSAL: AtomicBool = AtomicBool::new(false);
+static NODE_ADDRESS: AtomicU64 = AtomicU64::new(0);
+static NODE_EXTENT: AtomicU64 = AtomicU64::new(0);
+static NODE_ATTEMPTS: AtomicU64 = AtomicU64::new(0);
+const PREFIX_BYTES: u64 = 64;
+const TICKET_BYTES: u64 = 72;
+const TICKET_BLOCK_DONE: u64 = 3;
+const CONTROL_FAILURE: u64 = 23;
 const FIXTURE_CAPACITY: u64 = 131;
 const CONSUMED: u64 = 2;
 const FAILED: u64 = 3;
 const FAILURE: u64 = 22;
 
 unsafe extern "C" fn unmap(address: u64, bytes: u64) -> u64 {
+    let faults = TICKET_FAULTS.load(Ordering::SeqCst);
+    if faults != 0 && bytes >= PREFIX_BYTES {
+        // Test transport only inspects a still-owned terminal map. It never
+        // retries a consumed Nupp capability; Cleanup unmaps retained faults.
+        let prefix = address as *const u64;
+        let capacity = unsafe { prefix.add(2).read() };
+        let exact = unsafe {
+            prefix.read() == address
+                && prefix.add(1).read() == bytes
+                && prefix.add(3).read() == CONSUMED
+                && prefix.add(4).read() == 0
+        };
+        if exact && capacity == FIXTURE_CAPACITY && faults & 1 != 0 {
+            ADDRESS.store(address, Ordering::SeqCst);
+            EXTENT.store(bytes, Ordering::SeqCst);
+            ATTEMPTS.fetch_add(1, Ordering::SeqCst);
+            return FAILURE;
+        }
+        if exact && capacity == TICKET_BYTES && faults & 2 != 0 {
+            let node = unsafe { prefix.add((PREFIX_BYTES / 8) as usize) };
+            unsafe {
+                assert_eq!(node.read(), 0, "block consumed before control cleanup");
+                assert_eq!(node.add(5).read(), 0, "last alias consumed");
+                assert_eq!(
+                    node.add(6).read(),
+                    TICKET_BLOCK_DONE,
+                    "pending control-only phase"
+                );
+                if faults & 1 != 0 {
+                    assert_eq!(node.add(7).read(), FAILURE, "first errno retained");
+                    assert_eq!(node.add(8).read(), 1);
+                }
+            }
+            NODE_ADDRESS.store(address, Ordering::SeqCst);
+            NODE_EXTENT.store(bytes, Ordering::SeqCst);
+            NODE_ATTEMPTS.fetch_add(1, Ordering::SeqCst);
+            return CONTROL_FAILURE;
+        }
+    }
     if ENABLED.load(Ordering::SeqCst) && bytes >= PREFIX_BYTES {
         // Every imported unmap names a still-owned mapped extent. Only the
         // exact fixture's consumed shared prefix is faulted; ledger/entry
@@ -38,6 +85,12 @@ unsafe extern "C" fn unmap(address: u64, bytes: u64) -> u64 {
 }
 
 unsafe extern "C" fn map(bytes: u64) -> u64 {
+    if TICKET_MAP_REFUSAL.load(Ordering::SeqCst) && bytes == super::platform::page_size() {
+        let attempt = MAP_ATTEMPTS.fetch_add(1, Ordering::SeqCst);
+        if attempt == 1 {
+            return 0;
+        }
+    }
     if QUEUE_MAP_REFUSAL.load(Ordering::SeqCst) && bytes == super::platform::page_size() {
         MAP_ATTEMPTS.fetch_add(1, Ordering::SeqCst);
         return 0;
@@ -50,11 +103,14 @@ unsafe extern "C" fn map(bytes: u64) -> u64 {
 }
 
 pub(super) fn imports<const N: usize>(mut imports: [u64; N]) -> [u64; N] {
-    if ENABLED.load(Ordering::SeqCst) {
+    if ENABLED.load(Ordering::SeqCst) || TICKET_FAULTS.load(Ordering::SeqCst) != 0 {
         assert!(N > 1);
         imports[1] = unmap as *const () as u64;
     }
-    if MAP_REFUSAL.load(Ordering::SeqCst) || QUEUE_MAP_REFUSAL.load(Ordering::SeqCst) {
+    if MAP_REFUSAL.load(Ordering::SeqCst)
+        || QUEUE_MAP_REFUSAL.load(Ordering::SeqCst)
+        || TICKET_MAP_REFUSAL.load(Ordering::SeqCst)
+    {
         imports[0] = map as *const () as u64;
     }
     imports
@@ -63,6 +119,13 @@ pub(super) fn imports<const N: usize>(mut imports: [u64; N]) -> [u64; N] {
 struct Cleanup;
 impl Drop for Cleanup {
     fn drop(&mut self) {
+        TICKET_FAULTS.store(0, Ordering::SeqCst);
+        TICKET_MAP_REFUSAL.store(false, Ordering::SeqCst);
+        let node = NODE_ADDRESS.swap(0, Ordering::SeqCst);
+        let extent = NODE_EXTENT.swap(0, Ordering::SeqCst);
+        if node != 0 {
+            assert_eq!(unsafe { super::platform::unmap_pages(node, extent) }, 0);
+        }
         ENABLED.store(false, Ordering::SeqCst);
         MAP_REFUSAL.store(false, Ordering::SeqCst);
         QUEUE_MAP_REFUSAL.store(false, Ordering::SeqCst);
@@ -106,7 +169,7 @@ fn failed_shared_unmap_is_consumed_and_status_is_retained() {
     unsafe {
         assert_eq!(prefix.add(3).read(), FAILED);
         assert_eq!(prefix.add(4).read(), 0);
-        assert_eq!(prefix.add(5).read(), 0x44332211);
+        assert_eq!(prefix.add((PREFIX_BYTES / 8) as usize).read(), 0x44332211);
     }
 }
 
@@ -152,7 +215,7 @@ fn typed_local_status_preserves_real_failure_and_sticky_error() {
             unsafe {
                 assert_eq!(prefix.add(3).read(), FAILED);
                 assert_eq!(prefix.add(4).read(), 0);
-                assert_eq!(prefix.add(5).read(), 0x44332211);
+                assert_eq!(prefix.add((PREFIX_BYTES / 8) as usize).read(), 0x44332211);
             }
         }
         // Cleanup consumes only the test-retained failed mapping and never
@@ -223,5 +286,110 @@ fn long_string_failures_preserve_publication_and_drain_order() {
         assert_eq!(prefix.add(3).read(), FAILED);
         assert_eq!(prefix.add(4).read(), 0);
         assert_eq!(*(address as *const u8).add(PREFIX_BYTES as usize), 42);
+    }
+}
+
+#[test]
+#[ignore = "requires the exact emitted ticketfaultunits bundle"]
+fn ticket_refusals_and_terminal_cleanup_preserve_authority() {
+    let bundle = std::path::PathBuf::from(
+        std::env::var_os("CORE_TEST_TICKET_BUNDLE").expect("CORE_TEST_TICKET_BUNDLE"),
+    );
+    {
+        let _cleanup = Cleanup;
+        MAP_ATTEMPTS.store(0, Ordering::SeqCst);
+        TICKET_MAP_REFUSAL.store(true, Ordering::SeqCst);
+        let result = super::execute(&bundle, &[0]).expect("control map refusal");
+        TICKET_MAP_REFUSAL.store(false, Ordering::SeqCst);
+        assert_eq!(result, [0, 0], "last caller ref and quota survive refusal");
+        assert_eq!(MAP_ATTEMPTS.load(Ordering::SeqCst), 2);
+    }
+    for mode in 0..5 {
+        let _cleanup = Cleanup;
+        ATTEMPTS.store(0, Ordering::SeqCst);
+        NODE_ATTEMPTS.store(0, Ordering::SeqCst);
+        let faults = match mode {
+            1 => 1,
+            2 => 2,
+            3 | 4 => 3,
+            _ => 0,
+        };
+        TICKET_FAULTS.store(faults, Ordering::SeqCst);
+        let result = super::execute(&bundle, &[1, mode]).expect("ticket finalization");
+        TICKET_FAULTS.store(0, Ordering::SeqCst);
+        assert_eq!(
+            result,
+            if mode == 4 { [0, 1] } else { [0, 0] },
+            "mode{mode}"
+        );
+        assert_eq!(
+            ATTEMPTS.load(Ordering::SeqCst),
+            faults & 1,
+            "one data OS attempt"
+        );
+        assert_eq!(
+            NODE_ATTEMPTS.load(Ordering::SeqCst),
+            (faults >> 1) & 1,
+            "one control OS attempt"
+        );
+        for address in [
+            ADDRESS.load(Ordering::SeqCst),
+            NODE_ADDRESS.load(Ordering::SeqCst),
+        ] {
+            if address != 0 {
+                let prefix = address as *const u64;
+                unsafe {
+                    assert_eq!(prefix.add(3).read(), FAILED);
+                    assert_eq!(prefix.add(4).read(), 0);
+                    assert_eq!(prefix.add(5).read(), 0, "mutex released");
+                    assert_eq!(prefix.add(6).read(), 0, "no historical registry nodes");
+                    assert_eq!(prefix.add(7).read(), 0, "quota reclaimed");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires exact ticket producer and strict typed-policy bundles"]
+fn ticket_typed_clients_survive_real_producer_scope_close() {
+    let producer =
+        std::path::PathBuf::from(std::env::var_os("CORE_TEST_TICKET_PRODUCER").expect("producer"));
+    let directory = std::path::PathBuf::from(
+        std::env::var_os("CORE_TEST_TICKET_STRICT_DIR").expect("strict directory"),
+    );
+    let mode = std::env::var("CORE_TEST_TICKET_MODE").expect("mode");
+    let acquire = directory.join(format!("consumer-acquire-{mode}.bundle"));
+    let finish = directory.join(format!("consumer-finish-{mode}.bundle"));
+    let release = directory.join(format!("consumer-release-{mode}.bundle"));
+    let block = super::execute(&producer, &[0]).expect("produce block");
+    assert_eq!(block.len(), 2);
+    assert_ne!(block[0], 0);
+    assert_eq!(block[1], 0, "actual producer scope closed");
+    let ticket = super::execute(&acquire, &[0, block[0]]).expect("strict acquire");
+    assert_eq!(ticket.len(), 2);
+    assert_ne!(ticket[0], 0);
+    assert_eq!(ticket[1], 0, "strict acquisition scope closed");
+    assert_eq!(
+        super::execute(&producer, &[1, block[0]]).expect("drop creator"),
+        [1, 0],
+        "creator release is nonlast"
+    );
+    assert_eq!(
+        super::execute(&release, &[0, ticket[0]]).expect("strict release"),
+        [1, 0]
+    );
+    for (detached, consumer) in [(1, &finish), (0, &release)] {
+        let produced = super::execute(&producer, &[2, detached]).expect("produce ticket");
+        assert_eq!(produced.len(), 2);
+        assert_ne!(produced[0], 0);
+        assert_eq!(
+            produced[1], 0,
+            "ticket producer scope closed before consumer"
+        );
+        assert_eq!(
+            super::execute(consumer, &[0, produced[0]]).expect("strict consume"),
+            [1, 0]
+        );
     }
 }
