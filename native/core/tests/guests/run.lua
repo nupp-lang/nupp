@@ -160,6 +160,7 @@ local CASES = {
     {"modulesdynamic", 0x7FFF000000002B20},
     {"libraryvalues", 0x7FFF00000000003F},
     {"bytebuffer", 0x7FFF000000000003},
+    {"bufferstate", 0x7FFF000000000001},
     {"librarybasics", 0x7FFF00000000007F},
     {"cleanupfunctions", 0x7FFF000000000003},
     {"coreoperators", 0x7FFF0000000003FF},
@@ -341,6 +342,7 @@ local STRESS = {
     tasksscopes = true,
     threadsstacks = true,
     bytebuffer = true,
+    bufferstate = true,
     librarybasics = true,
     storagebasics = true,
     storageprovider = true,
@@ -574,6 +576,7 @@ local FIXTURES = {
     "catalog-system-info",
     "catalog-entropy",
     "catalog-entropy-failure",
+    "nupp/core/catalogbufferstate",
     "catalog-boolean",
     "catalog-nil",
     "catalog-live",
@@ -920,6 +923,7 @@ local function stage()
                 read(TESTS .. "/" .. fixture .. ".nupp")
             )
         end
+        write(base .. "/source/nupp/core/catalogbufferstate.nupp", read(TESTS .. "/nupp/core/catalogbufferstate.nupp"))
         -- A module under a root of its own, which a qualified path names.
         os.execute("mkdir -p " .. quote(base .. "/source/atlas"))
         write(base .. "/source/atlas/geometry.nupp", read(TESTS .. "/catalog-atlas-geometry.nupp"))

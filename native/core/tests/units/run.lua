@@ -91,6 +91,28 @@ end
 -- and cases of {function, arguments, expected result}.
 local UNITS = {
     {
+        name = "bufferviewunits",
+        modules = {
+            "nupp.core.bufferviewunits",
+            "unitentry",
+            "nupp.runtime.core.corestorage",
+            "nupp.runtime.core.corestrings",
+            "nupp.runtime.core.coretables"
+        },
+        paths = {
+            ["nupp.core.bufferviewunits"] = ROOT .. "/native/core/tests/units/nupp/core/bufferviewunits.nupp",
+            ["nupp.runtime.core.corestorage"] = ROOT .. "/native/core/src/nupp/runtime/core/corestorage.nupp",
+            ["nupp.runtime.core.corestrings"] = ROOT .. "/native/core/src/nupp/runtime/core/corestrings.nupp",
+            ["nupp.runtime.core.coretables"] = ROOT .. "/native/core/src/nupp/runtime/core/coretables.nupp"
+        },
+        include = "native/core/src",
+        entries = {{"nupp.core.bufferviewunits", "lifetime", 1}},
+        cases = function()
+            return {{"lifetime", {0}, 0}, {"lifetime", {1}, 0}}
+        end
+    },
+
+    {
         name = "bufferretirementlandingunits",
         modules = {"bufferretirementfaultunits", "longstringfaultunits", "bufferretiremententry", "releasequeueentry"},
         observeLanding = true,

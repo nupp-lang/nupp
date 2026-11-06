@@ -1,0 +1,95 @@
+module nupp.core.catalogbufferstate
+
+local span = require("binary.span")
+const Buffer = io.Buffer
+local initial = string.rep("a", 80)
+local b = Buffer.create(initial)
+local snapshot = b:tostring()
+local immutable = span.fromstring(snapshot)
+local pointer = immutable:ref()
+b:resize(40)
+b:put(string.rep("b", 40))
+@unsafe do
+    assert(snapshot == initial and pointer[0] == 97 and pointer[79] == 97)
+end
+assert(b:tostring() == string.rep("a", 40) .. string.rep("b", 40))
+b:reset()
+b:put("new")
+collectgarbage("collect")
+@unsafe do
+    assert(snapshot == initial and pointer[0] == 97 and pointer[79] == 97)
+end
+assert(b:tostring() == "new")
+
+local growth = Buffer.create(initial)
+growth:put(growth:span())
+assert(growth:tostring() == initial .. initial)
+local retained = growth:tostring()
+growth:resize(80)
+growth:put(growth:span())
+assert(retained == initial .. initial and growth:tostring() == retained)
+
+local shrink = Buffer.create(initial)
+local frozen = shrink:tostring()
+shrink:resize(0)
+shrink:resize(80)
+assert(frozen == initial and shrink:tostring() == string.rep("\0", 80))
+shrink:resize(0)
+shrink:put("after")
+assert(frozen == initial and shrink:tostring() == "after")
+local state = require("nupp.io.internal.bufferstate")
+local calls = require("nupp.runtime.storagecalls")
+
+local function refuses(borrows operation: function(): nil): nil
+    local okay, problem = pcall(operation)
+    assert(not okay and problem ~= nil)
+end
+
+local private = state.create(initial, 80)
+local before = calls.view(state.data(private), 1, 0, 80)
+local prepared, token = state.preparewrite(private, 80, 80)
+local narrower = calls.view(prepared, 1, 0, 1)
+refuses(function(): nil
+    state.admitwrite(private, token, narrower)
+end)
+state.admitwrite(private, token, prepared)
+calls.copy(prepared, before, 80)
+state.commitwrite(private, token, prepared, 80, 80)
+refuses(function(): nil
+    state.admitwrite(private, token, prepared)
+end)
+refuses(function(): nil
+    @unsafe do
+        assert(prepared[0] == 97)
+    end
+end)
+refuses(function(): nil
+    calls.fill(prepared, 1, 1)
+end)
+refuses(function(): nil
+    calls.text(before, 1)
+end)
+local fresh = calls.view(state.data(private), 1, 0, 80)
+local active, nexttoken = state.preparewrite(private, 0, 1)
+state.admitwrite(private, nexttoken, active)
+state.dropwrite(private, token)
+state.dropwrite(private, 0)
+calls.fill(active, 1, 90)
+refuses(function(): nil
+    state.commitwrite(private, nexttoken, active, 1, 1)
+end)
+state.commitwrite(private, nexttoken, active, 0, 1)
+assert(state.text(private, 0, 1) == "Z")
+refuses(function(): nil
+    calls.fill(state.data(private), 1, 1)
+end)
+local target = state.create("", 1)
+local destination, targettoken = state.preparewrite(target, 0, 1)
+state.admitwrite(target, targettoken, destination)
+refuses(function(): nil
+    calls.copy(destination, fresh, 1)
+end)
+state.dropwrite(target, targettoken)
+state.close(target)
+state.close(private)
+export = 1

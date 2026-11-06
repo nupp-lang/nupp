@@ -1,0 +1,336 @@
+module nupp.runtime.core.guestbuffer
+
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const storage = require("nupp.runtime.core.storage")
+const corestorage = require("nupp.runtime.core.corestorage")
+const strings = require("nupp.runtime.core.corestrings")
+const shared = require("nupp.runtime.core.sharedbacking")
+const ints = require("nupp.runtime.core.coreintegers")
+const tables = require("nupp.runtime.core.coretables")
+const guestscope = require("nupp.runtime.core.guestscope")
+const guestvalues = require("nupp.runtime.core.guestvalues")
+const librarycalls = require("nupp.runtime.core.librarycalls")
+
+const SHARE_MIN_FRACTION: uint64 = 4ULL
+const MAXIMUM: uint64 = 0xffffffffffffffffULL
+
+local function ownerargument(value: uint64): uint64
+    if not corestorage.isstorage(value) then
+        error("nupp: io.Buffer state expected")
+    end
+    @unsafe do
+        local owner = value & values.PAYLOAD
+        if (native.pointer(owner) as heap.Header*).kind as uint64 ~= heap.KIND_CORE_STORAGE
+            or corestorage.descriptor(owner).role ~= storage.BUFFER
+        then
+            error("nupp: io.Buffer state expected")
+        end
+        return owner
+    end
+end
+
+local function countargument(value: uint64, maximum: uint64): uint64
+    if not ints.isInteger(value) or native.index(ints.bitsOf(value)) < 0 or ints.bitsOf(value) > maximum then
+        error("nupp: io.Buffer count out of range")
+    end
+    return ints.bitsOf(value)
+end
+
+local function checkstatus(status: uint64): nil
+    if status == storage.NO_MEMORY then
+        error("nupp: io.Buffer backing allocation refused")
+    elseif status == storage.BUSY then
+        error("nupp: io.Buffer write lease is active")
+    elseif status == storage.CLEANUP_FAILED then
+        error("nupp: io.Buffer backing cleanup failed")
+    elseif status ~= storage.OK then
+        error("nupp: io.Buffer state is closed or write capability is stale")
+    end
+end
+
+-- Refresh even on partial publication/refusal. None of these steps collect;
+-- the caller's guest argument (or held constructor result) roots the owner.
+local function changed(h: heap.Heap*, owner: uint64, status: uint64): nil
+    local charged = corestorage.buffercharge(h, owner)
+    if status == storage.CLEANUP_FAILED then
+        storage.bufferack(corestorage.descriptor(owner))
+        error("nupp: io.Buffer backing cleanup failed")
+    end
+    checkstatus(status)
+    checkstatus(charged)
+end
+
+local function opened(owner: uint64): nil
+    @unsafe do
+        if corestorage.descriptor(owner).closed ~= 0ULL then
+            error("nupp: io.Buffer is closed")
+        end
+    end
+end
+
+local function create(ctx: voidptr, bytes: uint64, capacity: uint64): uint64
+    local source = strings.header(bytes)
+    if source == 0ULL then
+        error("nupp: io.Buffer initial bytes must be a string")
+    end
+    local size = strings.length(source)
+    local cap = countargument(capacity, storage.maximum())
+    if cap < size then
+        error("nupp: io.Buffer capacity is smaller than initial bytes")
+    end
+    @unsafe do
+        local h = guestvalues.guestheap(ctx)
+        local owner = corestorage.newbuffer(h, cap)
+        if owner == 0ULL then
+            error("not enough memory")
+        end
+        guestscope.hold(ctx, values.TAG_OBJ | owner)
+        local d = corestorage.descriptor(owner)
+        if size ~= 0ULL then
+            local status = storage.bufferstart(
+                d,
+                0ULL,
+                size,
+                native.pointer(0ULL) as storage.CopyStats*,
+                corestorage.bufferlimit(h, owner)
+            )
+            changed(h, owner, status)
+            corestorage.copybytes(d.base, strings.bytes(source), size)
+            changed(h, owner, storage.buffercommit(d, d.writer, 0ULL, size, size))
+        end
+        guestscope.release(ctx)
+        return values.TAG_OBJ | owner
+    end
+end
+
+local function prepare(ctx: voidptr, owner: uint64, offset: uint64, count: uint64, all: boolean): uint64
+    @unsafe do
+        local h = guestvalues.guestheap(ctx)
+        local d = corestorage.descriptor(owner)
+        if d.generation == MAXIMUM then
+            error("nupp: io.Buffer write generation exhausted")
+        end
+        local token = d.generation + 1ULL
+        -- The pack roots both prepared results before admission. Even a boxed
+        -- token and table backing are complete before common.bufferprepare.
+        local pack = guestscope.newTable(ctx)
+        guestscope.hold(ctx, values.TAG_OBJ | pack)
+        local view = corestorage.preparewrite(h, owner, offset, count, token)
+        if view == 0ULL then
+            error("nupp: io.Buffer write range out of bounds")
+        end
+        guestvalues.packput(h, pack, 1ULL, values.TAG_OBJ | view)
+        guestvalues.packput(h, pack, 2ULL, ints.make(h, token))
+        guestvalues.packput(h, pack, 0ULL, values.TAG_INTEGER | 2ULL)
+        tables.drain(h)
+        if d.generation ~= token - 1ULL or d.writer ~= 0ULL or d.closed ~= 0ULL then
+            error("nupp: io.Buffer changed while preparing a write lease")
+        end
+        local status = storage.bufferprepare(d, offset, count)
+        changed(h, owner, status)
+        -- Writer zero: caller publication and its barriers may still fail.
+        -- The fully initialized lease admits in a separate final call.
+        guestscope.release(ctx)
+        if all then
+            return values.TAG_OBJ | pack
+        end
+        return values.TAG_OBJ | view
+    end
+end
+
+local function admit(ctx: voidptr, owner: uint64, tokenvalue: uint64, prepared: uint64): uint64
+    if not ints.isInteger(tokenvalue) or not corestorage.isstorage(prepared) then
+        error("nupp: io.Buffer prepared write capability expected")
+    end
+    local token = ints.bitsOf(tokenvalue)
+    local view = prepared & values.PAYLOAD
+    if not corestorage.matchespreparation(view, owner, token) then
+        error("nupp: io.Buffer write preparation is stale or belongs to another buffer")
+    end
+    @unsafe do
+        local h = guestvalues.guestheap(ctx)
+        local status = storage.bufferadmit(
+            corestorage.descriptor(owner),
+            token,
+            corestorage.viewoffset(view),
+            corestorage.bytelength(view),
+            native.pointer(0ULL) as storage.CopyStats*,
+            corestorage.bufferlimit(h, owner)
+        )
+        if status == storage.OK then
+            corestorage.consumepreparation(view)
+            local charged = corestorage.buffercharge(h, owner)
+            if charged ~= storage.OK then
+                storage.bufferdrop(corestorage.descriptor(owner), token)
+                corestorage.buffercharge(h, owner)
+                checkstatus(charged)
+            end
+        else
+            changed(h, owner, status)
+        end
+        return values.NIL
+    end
+end
+
+local function commit(ctx: voidptr, owner: uint64, tokenvalue: uint64, prepared: uint64, usedvalue: uint64): uint64
+    @unsafe do
+        if not ints.isInteger(tokenvalue) then
+            error("nupp: io.Buffer write token must be an integer")
+        end
+        local token = ints.bitsOf(tokenvalue)
+        if not corestorage.isstorage(prepared) then
+            error("nupp: io.Buffer write capability expected")
+        end
+        local view = prepared & values.PAYLOAD
+        if not corestorage.matcheslease(view, owner, token) then
+            error("nupp: io.Buffer write capability is stale or belongs to another buffer")
+        end
+        local reserved = corestorage.bytelength(view)
+        local used = countargument(usedvalue, reserved)
+        local h = guestvalues.guestheap(ctx)
+        local status = storage.buffercommit(
+            corestorage.descriptor(owner),
+            token,
+            corestorage.viewoffset(view),
+            reserved,
+            used
+        )
+        changed(h, owner, status)
+        return values.NIL
+    end
+end
+
+local function text(ctx: voidptr, owner: uint64, offset: uint64, count: uint64): uint64
+    @unsafe do
+        local d = corestorage.descriptor(owner)
+        if d.writer ~= 0ULL then
+            error("nupp: io.Buffer write lease is active")
+        end
+        if offset > d.len or count > d.len - offset then
+            error("nupp: io.Buffer text range is outside initialized bytes")
+        end
+        local h = guestvalues.guestheap(ctx)
+        local made: uint64 = 0ULL
+        if count > values.INTERN_LIMIT
+            and d.block ~= 0ULL
+            and count >= (shared.capacity(native.pointer(d.block)) + SHARE_MIN_FRACTION - 1ULL) // SHARE_MIN_FRACTION
+        then
+            made = strings.fromshared(h, native.pointer(d.block), offset, count)
+            if made == 0ULL then
+                error("nupp: io.Buffer immutable range allocation refused")
+            end
+        else
+            made = strings.make(h, d.base + offset, count)
+        end
+        tables.drain(h)
+        return values.TAG_OBJ | made
+    end
+end
+
+local function resize(ctx: voidptr, owner: uint64, wanted: uint64): uint64
+    @unsafe do
+        local d = corestorage.descriptor(owner)
+        local h = guestvalues.guestheap(ctx)
+        if wanted <= d.len then
+            changed(h, owner, storage.buffertruncate(d, wanted))
+        else
+            local old = d.len
+            local count = wanted - old
+            changed(
+                h,
+                owner,
+                storage.bufferstart(
+                    d,
+                    old,
+                    count,
+                    native.pointer(0ULL) as storage.CopyStats*,
+                    corestorage.bufferlimit(h, owner)
+                )
+            )
+            corestorage.fillbytes(d.base + old, count, 0ULL)
+            changed(h, owner, storage.buffercommit(d, d.writer, old, count, count))
+        end
+        return values.NIL
+    end
+end
+
+export function call(ctx: voidptr, id: uint64, a: uint64, b: uint64, c: uint64, e: uint64): uint64
+    if id == librarycalls.BUFFER_CREATE then
+        return create(ctx, a, b)
+    elseif id == librarycalls.BUFFER_VIEWOFFSET then
+        if not corestorage.isstorage(a) then
+            error("nupp: io.Buffer write capability expected")
+        end
+        return ints.make(guestvalues.guestheap(ctx), corestorage.viewoffset(a & values.PAYLOAD))
+    end
+    local owner = ownerargument(a)
+    @unsafe do
+        local d = corestorage.descriptor(owner)
+        local h = guestvalues.guestheap(ctx)
+        if id == librarycalls.BUFFER_CLOSED then
+            if d.closed ~= 0ULL then
+                return values.TRUE
+            end
+            return values.FALSE
+        elseif id == librarycalls.BUFFER_DROP then
+            if ints.isInteger(b) then
+                storage.bufferdrop(d, ints.bitsOf(b))
+                changed(h, owner, storage.OK)
+            end
+            return values.NIL
+        elseif id == librarycalls.BUFFER_CLOSE then
+            changed(h, owner, storage.bufferclose(d))
+            return values.NIL
+        end
+        opened(owner)
+        if id == librarycalls.BUFFER_LENGTH then
+            return ints.make(h, d.len)
+        elseif id == librarycalls.BUFFER_CAPACITY then
+            return ints.make(h, d.cap)
+        elseif id == librarycalls.BUFFER_READ then
+            return ints.make(h, d.read)
+        elseif id == librarycalls.BUFFER_DATA then
+            return a
+        elseif id == librarycalls.BUFFER_SETREAD then
+            local position = countargument(b, d.len)
+            if position < d.read then
+                error("nupp: io.Buffer read position cannot move backwards")
+            end
+            changed(h, owner, storage.bufferconsume(d, position - d.read))
+        elseif id == librarycalls.BUFFER_RESERVE then
+            changed(
+                h,
+                owner,
+                storage.bufferreserve(
+                    d,
+                    countargument(b, storage.maximum()),
+                    native.pointer(0ULL) as storage.CopyStats*,
+                    corestorage.bufferlimit(h, owner)
+                )
+            )
+        elseif id == librarycalls.BUFFER_RESET then
+            changed(h, owner, storage.bufferreset(d))
+        elseif id == librarycalls.BUFFER_RESIZE then
+            return resize(ctx, owner, countargument(b, storage.maximum()))
+        elseif id == librarycalls.BUFFER_TEXT then
+            return text(ctx, owner, countargument(b, d.len), countargument(c, d.len))
+        elseif id == librarycalls.BUFFER_PREPARE or id == librarycalls.BUFFER_PREPARE_ALL then
+            return prepare(
+                ctx,
+                owner,
+                countargument(b, storage.maximum()),
+                countargument(c, storage.maximum()),
+                id == librarycalls.BUFFER_PREPARE_ALL
+            )
+        elseif id == librarycalls.BUFFER_ADMIT then
+            return admit(ctx, owner, b, c)
+        elseif id == librarycalls.BUFFER_COMMIT then
+            return commit(ctx, owner, b, c, e)
+        else
+            error("unknown core Buffer call")
+        end
+        return values.NIL
+    end
+end

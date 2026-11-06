@@ -1,0 +1,22 @@
+@!internal
+local record BufferCalls
+    create: function(bytes: string, capacity: integer): any
+    length: function(borrows state: any): integer
+    capacity: function(borrows state: any): integer
+    read: function(borrows state: any): integer
+    closed: function(borrows state: any): boolean
+    data: function(borrows state: any): uint8[?] borrows (state)
+    setread: function(borrows state: any, position: integer): nil
+    reserve: function(borrows state: any, minimum: integer): nil
+    reset: function(borrows state: any): nil
+    resize: function(borrows state: any, length: integer): nil
+    text: function(borrows state: any, offset: integer, count: integer): string
+    close: function(borrows state: any): nil
+    preparewrite: function(borrows state: any, offset: integer, count: integer): (uint8[?] borrows (state), integer)
+    admitwrite: function(borrows state: any, token: integer, borrows prepared: uint8[?]): nil
+    commitwrite: function(borrows state: any, token: integer, borrows prepared: uint8[?], used: integer): nil
+    dropwrite: function(borrows state: any, token: integer): nil
+    viewoffset: function(borrows prepared: uint8[?]): integer
+end
+local calls: BufferCalls
+return calls

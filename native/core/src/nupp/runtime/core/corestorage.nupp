@@ -25,11 +25,15 @@ const WORD_BYTES: uint64 = 8ULL
 const MAXIMUM: uint64 = 0xffffffffffffffffULL
 const MAX_OWNED_BLOCKS: uint64 = 2ULL
 const MAX_STORAGE_BYTES: uint64 = 0x0000ffffffffffffULL
+const MAX_GENERATION: uint64 = 0xffffffffffffffffULL
 
 -- Only the core uses this view payload; the shared VM SliceBody is unchanged.
 local struct View
     owner: uint64
     offset: uint64
+    generation: uint64
+    lease: uint64
+    prepared: uint64
 end
 
 -- Owner-only access for private core callers. Keep the owner rooted for this
@@ -170,6 +174,9 @@ export function elementcount(object: uint64): uint64
         end
         local d = descriptor(object)
 
+        if d.role == storage.BUFFER then
+            return d.cap // elementwidth(d.kind)
+        end
         return d.len // elementwidth(d.kind)
     end
 end
@@ -196,23 +203,110 @@ export function storagebase(object: uint64): uint64
     end
 end
 
--- Only mutable storage owners lend writable bytes. Views keep the ultimate
--- owner, so casting or slicing a string view cannot remove this restriction.
-export function iswritable(object: uint64): boolean
-    @unsafe do
-        local o = native.pointer(object) as heap.Header*
-        if o.kind as uint64 == heap.KIND_CORE_VIEW then
-            local view = native.pointer(object + heap.HEADER_BYTES) as View*
-            o = native.pointer(view.owner & values.PAYLOAD) as heap.Header*
-        end
-
-        return o.kind as uint64 == heap.KIND_CORE_STORAGE
-    end
-end
-
 -- The bytes object's elements span.
 export function bytelength(object: uint64): uint64
     return elementcount(object) * elementwidth(elementkind(object))
+end
+
+-- An owner is reached through at most one normalized view.
+export function ownerof(object: uint64): uint64
+    @unsafe do
+        local o = native.pointer(object) as heap.Header*
+        if o.kind as uint64 == heap.KIND_CORE_VIEW then
+            return (native.pointer(object + heap.HEADER_BYTES) as View*).owner & values.PAYLOAD
+        end
+        return object
+    end
+end
+
+export function viewoffset(object: uint64): uint64
+    @unsafe do
+        if (native.pointer(object) as heap.Header*).kind as uint64 == heap.KIND_CORE_VIEW then
+            return (native.pointer(object + heap.HEADER_BYTES) as View*).offset
+        end
+        return 0ULL
+    end
+end
+
+-- Buffer capacity permits deriving a view, not reading uninitialized bytes.
+-- An admitted lease alone lends writable bytes, until its exact token expires.
+export function readable(object: uint64, offset: uint64, count: uint64): boolean
+    @unsafe do
+        local available = bytelength(object)
+        if offset > available or count > available - offset then
+            return false
+        end
+        local owner = ownerof(object)
+        local o = native.pointer(owner) as heap.Header*
+        if o.kind as uint64 ~= heap.KIND_CORE_STORAGE then
+            return true
+        end
+        local d = descriptor(owner)
+        if d.role ~= storage.BUFFER then
+            return true
+        end
+        if d.closed ~= 0ULL then
+            return false
+        end
+        local absolute = offset
+        if object ~= owner then
+            local v = native.pointer(object + heap.HEADER_BYTES) as View*
+            if v.generation ~= d.generation then
+                return false
+            end
+            absolute = absolute + v.offset
+            if v.lease ~= 0ULL then
+                return v.lease == d.writer and v.lease == d.generation
+            end
+        end
+        return absolute <= d.len and count <= d.len - absolute
+    end
+end
+
+-- String views and unleased Buffer owners never lend writable bytes.
+export function iswritable(object: uint64): boolean
+    @unsafe do
+        local owner = ownerof(object)
+        if (native.pointer(owner) as heap.Header*).kind as uint64 ~= heap.KIND_CORE_STORAGE then
+            return false
+        end
+        local d = descriptor(owner)
+        if d.role ~= storage.BUFFER then
+            return true
+        end
+        if object == owner or d.closed ~= 0ULL then
+            return false
+        end
+        local v = native.pointer(object + heap.HEADER_BYTES) as View*
+        return v.lease ~= 0ULL and v.lease == d.writer and v.generation == d.generation
+    end
+end
+
+-- COPY alone may rebase the read capability immediately preceding this same
+-- owner's admission. Start preserves initialized bytes even when it relocates.
+-- This neither refreshes the source nor lends it to another destination.
+export function copyreadable(source: uint64, destination: uint64, count: uint64): boolean
+    if readable(source, 0ULL, count) then
+        return true
+    end
+    @unsafe do
+        if not iswritable(destination)
+            or (native.pointer(source) as heap.Header*).kind as uint64 ~= heap.KIND_CORE_VIEW
+            or ownerof(source) ~= ownerof(destination)
+        then
+            return false
+        end
+        local v = native.pointer(source + heap.HEADER_BYTES) as View*
+        local d = descriptor(ownerof(source))
+        if v.lease ~= 0ULL
+            or v.generation == MAX_GENERATION
+            or v.generation + 1ULL ~= d.writer
+            or count > bytelength(source)
+        then
+            return false
+        end
+        return v.offset <= d.len and count <= d.len - v.offset
+    end
 end
 
 -- The caller keeps source reachable across the allocating safepoint. A view
@@ -233,6 +327,8 @@ export function newview(h: heap.Heap*, source: uint64, kind: uint64, offset: uin
         end
         local owner = source
         local absolute = offset
+        local generation: uint64 = 0ULL
+        local lease: uint64 = 0ULL
         if from.kind as uint64 == heap.KIND_CORE_VIEW then
             local parent = native.pointer(source + heap.HEADER_BYTES) as View*
             owner = parent.owner & values.PAYLOAD
@@ -240,17 +336,88 @@ export function newview(h: heap.Heap*, source: uint64, kind: uint64, offset: uin
                 return 0ULL
             end
             absolute = parent.offset + offset
+            generation = parent.generation
+            lease = parent.lease
+        elseif from.kind as uint64 == heap.KIND_CORE_STORAGE then
+            generation = descriptor(source).generation
         end
         local o = collector.allocate(h, heap.KIND_CORE_VIEW, native.sizeOf<View>())
         local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as View*
         body.owner = values.TAG_OBJ | owner
         body.offset = absolute
+        body.generation = generation
+        body.lease = lease
+        body.prepared = 0ULL
         native.store32(o as voidptr, native.fieldOffset<heap.Header>("aux"), native.index(kind))
         o.auxPtr = 0ULL
         o.auxLen = n
         collector.initialized(h, o)
 
         return native.address(o as voidptr)
+    end
+end
+
+-- The owner stays rooted. This private future-capacity view is not usable until
+-- common.bufferadmit publishes its prepared token; failure leaves ordinary garbage.
+export function preparewrite(h: heap.Heap*, owner: uint64, offset: uint64, count: uint64, token: uint64): uint64
+    @unsafe do
+        if offset > storage.maximum() or count > storage.maximum() - offset then
+            return 0ULL
+        end
+        local o = collector.allocate(h, heap.KIND_CORE_VIEW, native.sizeOf<View>())
+        local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as View*
+        body.owner = values.TAG_OBJ | owner
+        body.offset = offset
+        body.generation = token
+        body.lease = token
+        body.prepared = 1ULL
+        native.store32(o as voidptr, native.fieldOffset<heap.Header>("aux"), native.index(UINT8))
+        o.auxPtr = 0ULL
+        o.auxLen = count
+        collector.initialized(h, o)
+        return native.address(o as voidptr)
+    end
+end
+
+-- Only the original preparation may admit its whole range. Derived views keep
+-- its generation/lease but cannot narrow admission while retaining wider rights.
+export function matchespreparation(object: uint64, owner: uint64, token: uint64): boolean
+    @unsafe do
+        if (native.pointer(object) as heap.Header*).kind as uint64 ~= heap.KIND_CORE_VIEW then
+            return false
+        end
+        local v = native.pointer(object + heap.HEADER_BYTES) as View*
+        local d = descriptor(owner)
+        return v.prepared == 1ULL
+            and v.owner == (values.TAG_OBJ | owner)
+            and token ~= 0ULL
+            and v.lease == token
+            and v.generation == token
+            and d.generation == token
+            and d.writer == 0ULL
+            and d.closed == 0ULL
+    end
+end
+
+-- The handler calls this immediately after successful numeric admission,
+-- before charging or raising. A raw scalar store cannot allocate or collect.
+export function consumepreparation(object: uint64): nil
+    @unsafe do
+        (native.pointer(object + heap.HEADER_BYTES) as View*).prepared = 0ULL
+    end
+end
+
+export function matcheslease(object: uint64, owner: uint64, token: uint64): boolean
+    @unsafe do
+        if (native.pointer(object) as heap.Header*).kind as uint64 ~= heap.KIND_CORE_VIEW then
+            return false
+        end
+        local v = native.pointer(object + heap.HEADER_BYTES) as View*
+        return v.owner == (values.TAG_OBJ | owner)
+            and v.lease == token
+            and v.generation == token
+            and token ~= 0ULL
+            and iswritable(object)
     end
 end
 
@@ -298,6 +465,28 @@ export function newstorage(h: heap.Heap*, kind: uint64, n: uint64): uint64
         o.auxPtr = address
         collector.initialized(h, o)
 
+        return native.address(o as voidptr)
+    end
+end
+
+export function newbuffer(h: heap.Heap*, capacity: uint64): uint64
+    @unsafe do
+        local o = collector.allocate(h, heap.KIND_CORE_STORAGE, 0ULL)
+        o.auxPtr = 0ULL
+        o.auxLen = 0ULL
+        local words = (native.sizeOf<storage.Storage>() + WORD_BYTES - 1ULL) // WORD_BYTES
+        local address = backing.wordBackingTake(h, words)
+        if address == 0ULL then
+            return 0ULL
+        end
+        local d = native.pointer(address) as storage.Storage*
+        storage.clear(d)
+        if storage.bufferinitialize(d, UINT8, capacity) ~= storage.OK then
+            backing.wordBackingRelease(address)
+            return 0ULL
+        end
+        o.auxPtr = address
+        collector.initialized(h, o)
         return native.address(o as voidptr)
     end
 end
@@ -518,7 +707,9 @@ end
 -- The element at `index` as a value, an integer that does not fit inline
 -- made on `h`. Answers values.TRUE when the index is outside the storage.
 export function readelement(h: heap.Heap*, object: uint64, index: uint64): uint64
-    if index >= elementcount(object) then
+    if index >= elementcount(object)
+        or not readable(object, index * elementwidth(elementkind(object)), elementwidth(elementkind(object)))
+    then
         return values.TRUE
     end
 

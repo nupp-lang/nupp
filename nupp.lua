@@ -420,6 +420,7 @@ for _, resource in ipairs({
     "src/nupp/io/http/messages.nupp",
     "src/nupp/io/internal/bounds.nupp",
     "src/nupp/io/internal/bytes.nupp",
+    "src/nupp/io/internal/bufferstate.nupp",
     "src/nupp/io/internal/ownedreader.nupp",
     "src/nupp/io/internal/scalars.nupp",
     "src/nupp/io/http/internal/transport.nupp",

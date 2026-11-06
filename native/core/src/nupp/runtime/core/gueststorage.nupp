@@ -49,6 +49,13 @@ export function storageget(ctx: voidptr, subject: uint64, key: uint64): uint64
     if index == NOINDEX then
         return values.TRUE
     end
+    if not corestorage.readable(
+        object,
+        index * corestorage.elementwidth(corestorage.elementkind(object)),
+        corestorage.elementwidth(corestorage.elementkind(object))
+    ) then
+        error("nupp: stale, closed or uninitialized Buffer read")
+    end
     @unsafe do
         local h = guestvalues.guestheap(ctx)
         local value = corestorage.readelement(h, object, index)
@@ -190,12 +197,12 @@ export function storagecall(ctx: voidptr, id: uint64, n: uint64, a: uint64, b: u
             local s = strings.header(b)
             local from: uint64 = 0ULL
             local available: uint64 = 0ULL
+            local source: uint64 = 0ULL
             if s ~= 0ULL then
                 from = (native.pointer(s) as heap.Header*).auxPtr
                 available = strings.length(s)
             else
-                local source = storageargument(ctx, b, 2ULL)
-                from = corestorage.storagebase(source)
+                source = storageargument(ctx, b, 2ULL)
                 available = corestorage.bytelength(source)
             end
             local limit = size
@@ -203,6 +210,12 @@ export function storagecall(ctx: voidptr, id: uint64, n: uint64, a: uint64, b: u
                 limit = available
             end
             local count = countargument(ctx, c, 3ULL, limit)
+            if source ~= 0ULL then
+                if not corestorage.copyreadable(source, object, count) then
+                    error("nupp: stale, closed or uninitialized Buffer copy source")
+                end
+                from = corestorage.storagebase(source)
+            end
             corestorage.copybytes(corestorage.storagebase(object), from, count)
             return values.NIL
         elseif id == librarycalls.STORAGE_FILL then
@@ -219,6 +232,9 @@ export function storagecall(ctx: voidptr, id: uint64, n: uint64, a: uint64, b: u
         end
         -- STORAGE_TEXT: the first `count` bytes as a string.
         local count = countargument(ctx, b, 2ULL, size)
+        if not corestorage.readable(object, 0ULL, count) then
+            error("nupp: stale, closed or uninitialized Buffer text")
+        end
         local made = strings.make(h, corestorage.storagebase(object), count)
         tables.drain(h)
         return values.TAG_OBJ | made

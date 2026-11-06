@@ -1,0 +1,86 @@
+@!internal
+module nupp.runtime.provider.heapbuffer
+
+local calls = require("nupp.runtime.buffercalls")
+
+export function create(bytes: string, advertisedCapacity: integer): any
+    return calls.create(bytes, advertisedCapacity)
+end
+
+export function length(borrows state: any): integer
+    return calls.length(state)
+end
+
+export function capacity(borrows state: any): integer
+    return calls.capacity(state)
+end
+
+export function read(borrows state: any): integer
+    return calls.read(state)
+end
+
+export function closed(borrows state: any): boolean
+    return calls.closed(state)
+end
+
+export function data(borrows state: any): uint8[?] borrows (state)
+    return calls.data(state)
+end
+
+export function setread(borrows state: any, position: integer): nil
+    return calls.setread(state, position)
+end
+
+export function reserve(borrows state: any, minimum: integer): nil
+    return calls.reserve(state, minimum)
+end
+
+export function reset(borrows state: any): nil
+    return calls.reset(state)
+end
+
+export function resize(borrows state: any, wanted: integer): nil
+    return calls.resize(state, wanted)
+end
+
+export function text(borrows state: any, offset: integer, count: integer): string
+    return calls.text(state, offset, count)
+end
+
+export function close(borrows state: any): nil
+    return calls.close(state)
+end
+
+export function preparewrite(borrows state: any, offset: integer, count: integer): (uint8[?] borrows (state), integer)
+    return calls.preparewrite(state, offset, count)
+end
+
+export function admitwrite(borrows state: any, token: integer, borrows prepared: uint8[?]): nil
+    return calls.admitwrite(state, token, prepared)
+end
+
+export function dropwrite(borrows state: any, token: integer): nil
+    return calls.dropwrite(state, token)
+end
+
+-- The core call derives the range from its prepared capability. The extra
+-- high-level logical offset must agree; it never grants additional rights.
+export function commitwrite(
+    borrows state: any,
+    token: integer,
+    borrows prepared: uint8[?],
+    offset: integer,
+    used: integer
+): nil
+    if offset ~= calls.viewoffset(prepared) then
+        error("nupp: io.Buffer write capability offset differs", 2)
+    end
+    calls.commitwrite(state, token, prepared, used)
+end
+
+export function bindput(state: any): any
+    return nil
+end
+
+export const textbuilder: any = nil
+export const textfinish: any = nil

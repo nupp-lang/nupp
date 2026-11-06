@@ -1,0 +1,171 @@
+module nupp.core.bufferviewunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const values = require("nupp.runtime.vm.values")
+const storage = require("nupp.runtime.core.storage")
+const core = require("nupp.runtime.core.corestorage")
+const strings = require("nupp.runtime.core.corestrings")
+const tables = require("nupp.runtime.core.coretables")
+
+const ARENA_BYTES: uint64 = 67108864ULL
+const WORD_BYTES: uint64 = 8ULL
+const ROOTS: uint64 = 14ULL
+const SAMPLE: uint64 = 83ULL
+
+local function miss(ok: boolean): uint64
+    if ok then
+        return 0ULL
+    end
+    return 1ULL
+end
+
+local function charge(h: heap.Heap*, owner: uint64, status: uint64): nil
+    if core.buffercharge(h, owner) ~= storage.OK or status ~= storage.OK then
+        error("buffer views: unexpected storage status")
+    end
+end
+
+export function lifetime(minor: uint64): uint64
+    local wrong: uint64 = 0ULL
+    local copies = storage.CopyStats(0ULL)
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            h.generational = collector.GENERATIONAL
+            local roots = arena.alloc(a, ROOTS * WORD_BYTES, WORD_BYTES)
+            if roots == nil then
+                error("buffer views: no root slots")
+            end
+            local r = native.address(roots)
+            local index: uint64 = 0ULL
+            while index < ROOTS do
+                native.store64(native.pointer(r), native.index(index * WORD_BYTES), values.NIL)
+                index = index + 1ULL
+            end
+            collector.register(h, r, ROOTS)
+            local owner = core.newbuffer(h, 64ULL)
+            native.store64(native.pointer(r), 0, values.TAG_OBJ | owner)
+            local d = core.descriptor(owner)
+            local stats = copies as storage.CopyStats*
+            wrong = wrong + miss(d.base == 0ULL and core.elementcount(owner) == 64ULL)
+            wrong = wrong + miss(not core.iswritable(owner) and not core.readable(owner, 0ULL, 1ULL))
+            local empty = core.newview(h, owner, core.UINT8, 0ULL, 64ULL)
+            native.store64(native.pointer(r), 8, values.TAG_OBJ | empty)
+            wrong = wrong + miss(core.readable(empty, 0ULL, 0ULL) and not core.readable(empty, 0ULL, 1ULL))
+            local lease = core.preparewrite(h, owner, 0ULL, 48ULL, 1ULL)
+            native.store64(native.pointer(r), 16, values.TAG_OBJ | lease)
+            charge(h, owner, storage.bufferprepare(d, 0ULL, 48ULL))
+            wrong = wrong + miss(core.matchespreparation(lease, owner, 1ULL) and not core.iswritable(lease))
+            local limited = core.newview(h, lease, core.UINT8, 0ULL, 1ULL)
+            native.store64(native.pointer(r), 24, values.TAG_OBJ | limited)
+            wrong = wrong + miss(not core.matchespreparation(limited, owner, 1ULL))
+            local admitted = storage.bufferadmit(d, 1ULL, 0ULL, 48ULL, stats, core.bufferlimit(h, owner))
+            if admitted == storage.OK then
+                core.consumepreparation(lease)
+            end
+            charge(h, owner, admitted)
+            wrong = wrong + miss(core.iswritable(lease) and core.matcheslease(lease, owner, 1ULL))
+            wrong = wrong + miss(core.writeelement(lease, 0ULL, SAMPLE) == 0ULL)
+            local nested = core.newview(h, lease, core.UINT8, 1ULL, 1ULL)
+            native.store64(native.pointer(r), 24, values.TAG_OBJ | nested)
+            wrong = wrong + miss(core.iswritable(nested) and core.viewoffset(nested) == 1ULL)
+            wrong = wrong + miss(core.writeelement(nested, 0ULL, 0ULL) == 0ULL)
+            local cast = core.newview(h, lease, core.UINT16, 0ULL, 24ULL)
+            native.store64(native.pointer(r), 96, values.TAG_OBJ | cast)
+            wrong = wrong + miss(core.iswritable(cast) and core.matcheslease(cast, owner, 1ULL))
+            charge(h, owner, storage.buffercommit(d, 1ULL, 0ULL, 48ULL, 48ULL))
+            wrong = wrong + miss(
+                not core.readable(lease, 0ULL, 1ULL)
+                and core.writeelement(nested, 0ULL, SAMPLE) == 1ULL
+                and not core.iswritable(cast)
+            )
+            wrong = wrong + miss(core.readable(owner, 0ULL, 48ULL) and not core.readable(owner, 48ULL, 1ULL))
+            local source = core.newview(h, owner, core.UINT8, 0ULL, 48ULL)
+            native.store64(native.pointer(r), 32, values.TAG_OBJ | source)
+            local snapshot = strings.fromshared(h, native.pointer(d.block), 0ULL, 48ULL)
+            native.store64(native.pointer(r), 40, values.TAG_OBJ | snapshot)
+            local base = strings.bytes(snapshot)
+            local immutable = core.newview(h, snapshot, core.UINT8, 0ULL, 48ULL)
+            native.store64(native.pointer(r), 104, values.TAG_OBJ | immutable)
+            local immutablebase = core.storagebase(immutable)
+            local second = core.preparewrite(h, owner, 48ULL, 48ULL, 2ULL)
+            native.store64(native.pointer(r), 48, values.TAG_OBJ | second)
+            charge(h, owner, storage.bufferstart(d, 48ULL, 48ULL, stats, core.bufferlimit(h, owner)))
+            wrong = wrong + miss(stats.bytes == 48ULL and d.base ~= base and d.len == 48ULL)
+            wrong = wrong + miss(not core.readable(source, 0ULL, 48ULL) and core.copyreadable(source, second, 48ULL))
+            core.copybytes(core.storagebase(second), core.storagebase(source), 48ULL)
+            charge(h, owner, storage.buffercommit(d, 2ULL, 48ULL, 48ULL, 48ULL))
+            wrong = wrong + miss(d.len == 96ULL and native.word(native.load8(native.pointer(d.base), 48)) == SAMPLE)
+            local current = core.newview(h, owner, core.UINT8, 0ULL, 96ULL)
+            native.store64(native.pointer(r), 56, values.TAG_OBJ | current)
+            local snapshot2 = strings.fromshared(h, native.pointer(d.block), 0ULL, 96ULL)
+            native.store64(native.pointer(r), 64, values.TAG_OBJ | snapshot2)
+            local third = core.preparewrite(h, owner, 0ULL, 1ULL, 3ULL)
+            native.store64(native.pointer(r), 72, values.TAG_OBJ | third)
+            charge(h, owner, storage.bufferstart(d, 0ULL, 1ULL, stats, core.bufferlimit(h, owner)))
+            wrong = wrong + miss(stats.bytes == 144ULL and core.copyreadable(current, third, 1ULL))
+            wrong = wrong + miss(
+                not core.copyreadable(source, third, 1ULL) and not core.copyreadable(second, third, 1ULL)
+            )
+            wrong = wrong + miss(core.writeelement(third, 0ULL, 1ULL) == 0ULL)
+            local other = core.newbuffer(h, 1ULL)
+            native.store64(native.pointer(r), 80, values.TAG_OBJ | other)
+            local otherlease = core.preparewrite(h, other, 0ULL, 1ULL, 1ULL)
+            native.store64(native.pointer(r), 88, values.TAG_OBJ | otherlease)
+            charge(h, other, storage.bufferstart(core.descriptor(other), 0ULL, 1ULL, stats, core.bufferlimit(h, other)))
+            wrong = wrong + miss(not core.copyreadable(current, otherlease, 1ULL))
+            storage.bufferdrop(core.descriptor(other), 1ULL)
+            charge(h, other, storage.OK)
+            charge(h, other, storage.bufferclose(core.descriptor(other)))
+            storage.bufferdrop(d, 2ULL)
+            charge(h, owner, storage.OK)
+            wrong = wrong + miss(core.iswritable(third) and d.writer == 3ULL)
+            storage.bufferdrop(d, 0ULL)
+            charge(h, owner, storage.OK)
+            wrong = wrong + miss(core.iswritable(third))
+            storage.bufferdrop(d, 3ULL)
+            charge(h, owner, storage.OK)
+            wrong = wrong + miss(not core.iswritable(third) and d.writer == 0ULL)
+            wrong = wrong + miss(native.word(native.load8(native.pointer(base), 0)) == SAMPLE)
+            charge(h, owner, storage.buffertruncate(d, 0ULL))
+            wrong = wrong + miss(not core.readable(owner, 0ULL, 1ULL))
+            charge(h, owner, storage.bufferreset(d))
+            index = 0ULL
+            while index < ROOTS do
+                if index ~= 5ULL and index ~= 8ULL and index ~= 13ULL then
+                    native.store64(native.pointer(r), native.index(index * WORD_BYTES), values.NIL)
+                end
+                index = index + 1ULL
+            end
+            if minor == 0ULL then
+                collector.fullCycle(h)
+                wrong = wrong + collector.checkOracle(h, true)
+            else
+                collector.minorcycle(h)
+                wrong = wrong + collector.checkOracle(h, false)
+            end
+            tables.drain(h)
+            wrong = wrong + miss(core.storagebase(immutable) == immutablebase and immutablebase == base)
+            wrong = wrong + miss(
+                strings.bytes(snapshot) == base and native.word(native.load8(native.pointer(base), 0)) == SAMPLE
+            )
+            wrong = wrong + miss(
+                strings.length(snapshot2) == 96ULL
+                and native.word(native.load8(native.pointer(strings.bytes(snapshot2)), 48)) == SAMPLE
+            )
+            native.store64(native.pointer(r), 104, values.NIL)
+            native.store64(native.pointer(r), 40, values.NIL)
+            native.store64(native.pointer(r), 64, values.NIL)
+            collector.fullCycle(h)
+            tables.drain(h)
+            heap.destroy(h)
+        end
+    end
+
+    return wrong
+end

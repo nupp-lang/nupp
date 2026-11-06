@@ -545,6 +545,23 @@ end
 local coreLibrary: {[string]: boolean} = {
     ["math.floor"] = true,
     ["math.f32.narrow"] = true,
+    ["buffercalls.create"] = true,
+    ["buffercalls.length"] = true,
+    ["buffercalls.capacity"] = true,
+    ["buffercalls.read"] = true,
+    ["buffercalls.closed"] = true,
+    ["buffercalls.data"] = true,
+    ["buffercalls.setread"] = true,
+    ["buffercalls.reserve"] = true,
+    ["buffercalls.reset"] = true,
+    ["buffercalls.resize"] = true,
+    ["buffercalls.text"] = true,
+    ["buffercalls.close"] = true,
+    ["buffercalls.preparewrite"] = true,
+    ["buffercalls.admitwrite"] = true,
+    ["buffercalls.commitwrite"] = true,
+    ["buffercalls.dropwrite"] = true,
+    ["buffercalls.viewoffset"] = true,
     ["storagecalls.allocate"] = true,
     ["storagecalls.allocbytes"] = true,
     ["storagecalls.view"] = true,
@@ -842,7 +859,11 @@ end
 -- nothing.
 local corecallmodules: {
     [string]: string
-} = {["nupp.runtime.storagecalls"] = "storagecalls", ["nupp.runtime.hostcalls"] = "hostcalls"}
+} = {
+    ["nupp.runtime.storagecalls"] = "storagecalls",
+    ["nupp.runtime.hostcalls"] = "hostcalls",
+    ["nupp.runtime.buffercalls"] = "buffercalls"
+}
 
 for name, short in pairs(corelibrary.callmodules()) do
     corecallmodules[name] = short
@@ -899,6 +920,7 @@ local coremodules: {
     ["nupp.vm.storagebinding"] = "nupp.runtime.provider.heapstorage",
     ["nupp.vm.cryptobinding"] = "nupp.runtime.provider.coreentropy",
     ["nupp.vm.systembinding"] = "nupp.runtime.provider.coresystem",
+    ["nupp.io.internal.bufferstate"] = "nupp.runtime.provider.heapbuffer",
     ["nupp.io.internal.nativebuffer"] = "nupp.runtime.provider.bufferfallback",
     ["nupp.array.internal.storage"] = "nupp.runtime.provider.arraystorage",
 }
@@ -1033,6 +1055,7 @@ end
 local packedlibrary: {
     [string]: boolean
 } = {
+    ["buffercalls.preparewrite"] = true,
     ["string.find"] = true,
     ["string.match"] = true,
     ["string.byte"] = true,

@@ -24,6 +24,7 @@ const guestnumbers = require("nupp.runtime.core.guestnumbers")
 const guesterrors = require("nupp.runtime.core.guesterrors")
 const guestlanding = require("nupp.runtime.core.guestlanding")
 const guestmeta = require("nupp.runtime.core.guestmeta")
+const guestbuffer = require("nupp.runtime.core.guestbuffer")
 
 -- One step of `for k, v in pairs(t)` over a state table {t, key, k, v}:
 -- advances key and stores the pair at 3 and 4. Answers true or false.
@@ -229,7 +230,9 @@ end
 -- (ERROR) is raised by its handler, which records where.
 export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint64, c: uint64, d: uint64): uint64
     guestscope.nameLibrary(ctx, librarycalls.libraryname(id))
-    if id == librarycalls.TOSTRING then
+    if id >= librarycalls.BUFFERS_FIRST and id <= librarycalls.BUFFERS_LAST then
+        return guestbuffer.call(ctx, id, a, b, c, d)
+    elseif id == librarycalls.TOSTRING then
         return guestvalues.tostring(ctx, a)
     elseif id == librarycalls.STRING_FORMAT then
         return gueststrings.format(ctx, count, a, b, c, d, 0ULL)

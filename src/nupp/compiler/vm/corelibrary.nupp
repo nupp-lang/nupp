@@ -258,6 +258,30 @@ local subjectrows: {Subject} = {
         }
     },
     {
+        name = "buffers",
+        range = true,
+        calls = {
+            {name = "BUFFER_CREATE", id = 130, call = "buffercalls.create", min = 2, max = 2},
+            {name = "BUFFER_LENGTH", id = 131, call = "buffercalls.length", min = 1, max = 1},
+            {name = "BUFFER_CAPACITY", id = 132, call = "buffercalls.capacity", min = 1, max = 1},
+            {name = "BUFFER_READ", id = 133, call = "buffercalls.read", min = 1, max = 1},
+            {name = "BUFFER_CLOSED", id = 134, call = "buffercalls.closed", min = 1, max = 1},
+            {name = "BUFFER_DATA", id = 135, call = "buffercalls.data", min = 1, max = 1},
+            {name = "BUFFER_SETREAD", id = 136, call = "buffercalls.setread", min = 2, max = 2},
+            {name = "BUFFER_RESERVE", id = 137, call = "buffercalls.reserve", min = 2, max = 2},
+            {name = "BUFFER_RESET", id = 138, call = "buffercalls.reset", min = 1, max = 1},
+            {name = "BUFFER_RESIZE", id = 139, call = "buffercalls.resize", min = 2, max = 2},
+            {name = "BUFFER_TEXT", id = 140, call = "buffercalls.text", min = 3, max = 3},
+            {name = "BUFFER_CLOSE", id = 141, call = "buffercalls.close", min = 1, max = 1},
+            {name = "BUFFER_PREPARE", id = 142, call = "buffercalls.preparewrite", min = 3, max = 3},
+            {name = "BUFFER_COMMIT", id = 143, call = "buffercalls.commitwrite", min = 4, max = 4},
+            {name = "BUFFER_DROP", id = 144, call = "buffercalls.dropwrite", min = 2, max = 2},
+            {name = "BUFFER_VIEWOFFSET", id = 145, call = "buffercalls.viewoffset", min = 1, max = 1},
+            {name = "BUFFER_PREPARE_ALL", id = 146, packs = "buffercalls.preparewrite"},
+            {name = "BUFFER_ADMIT", id = 147, call = "buffercalls.admitwrite", min = 3, max = 3}
+        }
+    },
+    {
         -- Full userdata (nupp.runtime.core.coreuserdata): a new one with its
         -- metatable and the value it carries, and that value.
         name = "userdata",
