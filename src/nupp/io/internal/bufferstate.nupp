@@ -1,0 +1,216 @@
+@!internal
+module nupp.io.internal.bufferstate
+
+local physical = require("nupp.runtime.storage")
+local fast = require("nupp.io.internal.nativebuffer")
+local bounds = require("nupp.io.internal.bounds")
+local SMALLEST: integer = 32
+local WRITE_TOKEN: integer = 1
+local fillBytes: function(borrows destination: any, integer, integer): nil = physical.fill as any
+local nativeBase: function(borrows buffer: any): uint8[?] = fast.base as any
+
+local record State
+    @private _native: any
+    @private _data: uint8[?]
+    @private _length: integer
+    @private _capacity: integer
+    @private _read: integer
+    @private _closed: boolean
+end
+
+export function create(bytes: string, advertisedCapacity: integer): any
+    local native: any = nil
+    local data: uint8[?]
+    if fast.new ~= nil then
+        native = fast.new(math.max(advertisedCapacity, SMALLEST))
+        native:put(bytes)
+        data = nativeBase(native)
+    else
+        data = physical.allocateBytes(math.max(advertisedCapacity, 1))
+        if #bytes > 0 then
+            physical.copy(data, bytes, #bytes)
+        end
+    end
+
+    return State(
+        _native = native,
+        _data = data,
+        _length = #bytes,
+        _capacity = advertisedCapacity,
+        _read = 0,
+        _closed = false
+    )
+end
+
+export function length(borrows state: any): integer
+    return (state as State)._length
+end
+
+export function capacity(borrows state: any): integer
+    local value = state as State
+    if value._native ~= nil then
+        local _, free = value._native:reserve(0)
+        return value._length + (free as integer)
+    end
+
+    return value._capacity
+end
+
+export function read(borrows state: any): integer
+    return (state as State)._read
+end
+
+export function closed(borrows state: any): boolean
+    return (state as State)._closed
+end
+
+export function setread(borrows state: any, position: integer): nil
+    local value = state as State
+    value._read = position
+end
+
+export function data(borrows state: any): uint8[?] borrows (state)
+    local value = state as State
+    if value._native ~= nil then
+        @unsafe do
+            value._data = nativeBase(value._native)
+        end
+    end
+
+    return value._data
+end
+
+export function reserve(borrows state: any, minimum: integer): nil
+    local value = state as State
+    if value._native ~= nil then
+        local _, free = value._native:reserve(math.max(0, minimum - value._length))
+        local _base = data(state)
+        value._capacity = value._length + (free as integer)
+        return
+    end
+    if minimum <= value._capacity then
+        return
+    end
+    local grown = value._capacity > bounds.MAX_EXACT_INTEGER / 2 and minimum or (value._capacity * 2) as integer
+    if grown < minimum then
+        grown = minimum
+    end
+    if grown < SMALLEST then
+        grown = SMALLEST
+    end
+    local replacement = physical.allocateBytes(grown)
+    if value._length > 0 then
+        physical.copy(replacement, value._data, value._length)
+    end
+    value._data = replacement
+    value._capacity = grown
+end
+
+export function reset(borrows state: any): nil
+    local value = state as State
+    if value._native ~= nil then
+        value._native:reset()
+    end
+    value._length = 0
+    value._read = 0
+end
+
+export function text(borrows state: any, offset: integer, count: integer): string
+    if count == 0 then
+        return ""
+    end
+    local value = state as State
+    if value._native ~= nil and offset == 0 and count == value._length then
+        return value._native:tostring() as string
+    end
+
+    @unsafe do
+        return physical.string((data(state) as uint8*) + offset, count)
+    end
+end
+
+-- The default adapter has no busy admission state. Its token is a private
+-- synchronous write marker; dropping token zero never changes another lease.
+-- Adapters with busy admission must prepare every fallible return value before
+-- publishing it, and preserve the caller's data until commit or drop.
+export function startwrite(borrows state: any, offset: integer, count: integer): (uint8[?] borrows (state), integer)
+    reserve(state, bounds.sum(offset, count, "io.Buffer range", 2))
+    @unsafe do
+        return ((data(state) as uint8*) + offset) as uint8[?], WRITE_TOKEN
+    end
+end
+
+export function commitwrite(
+    borrows state: any,
+    token: integer,
+    borrows prepared: uint8[?],
+    offset: integer,
+    used: integer
+): nil
+    if token ~= WRITE_TOKEN then
+        error("nupp: io.Buffer invalid write token", 2)
+    end
+    local value = state as State
+    bounds.opened(value._closed, "io.Buffer", 2)
+    if used > 0 then
+        if offset > value._length then
+            @unsafe do
+                local destination = data(state)
+                fillBytes((destination as uint8*) + value._length, offset - value._length, 0)
+            end
+        end
+        local ending = bounds.sum(offset, used, "io.Buffer range", 2)
+        if ending > value._length then
+            if value._native ~= nil then
+                value._native:commit(ending - value._length)
+            end
+            value._length = ending
+        end
+    end
+end
+
+export function dropwrite(borrows state: any, token: integer): nil
+    -- No pending state or logical length was published by startwrite.
+end
+
+export function resize(borrows state: any, wanted: integer): nil
+    local value = state as State
+    local old = value._length
+    if wanted > old then
+        local destination, token = startwrite(state, old, wanted - old)
+        @unsafe do
+            fillBytes(destination, wanted - old, 0)
+        end
+        commitwrite(state, token, destination, old, wanted - old)
+    elseif wanted < old then
+        if value._native ~= nil then
+            local bytes = text(state, 0, wanted)
+            value._native:reset():put(bytes)
+        end
+        value._length = wanted
+    end
+    value._read = math.min(value._read, wanted)
+end
+
+export function close(borrows state: any): nil
+    local value = state as State
+    value._closed = true
+    if value._native ~= nil then
+        value._native:free()
+        value._native = nil
+    end
+    value._length = 0
+    value._capacity = 0
+    value._read = 0
+    (value as any)._data = nil
+end
+
+export function bindput(state: any): any
+    if (state as State)._native ~= nil then
+        return fast.bind(state)
+    end
+    return nil
+end
+
+export const textbuilder: any = fast.new
+export const textfinish: any = fast.finish
