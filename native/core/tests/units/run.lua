@@ -595,6 +595,36 @@ local GMATCH = {
 }
 
 UNITS[#UNITS + 1] = {
+    name = "storagelifetimeunits",
+    modules = {"storagelifetimeunits", "unitentry", "nupp.runtime.core.corestorage", "nupp.runtime.core.coretables"},
+    paths = {
+        ["nupp.runtime.core.corestorage"] = ROOT .. "/native/core/src/nupp/runtime/core/corestorage.nupp",
+        ["nupp.runtime.core.coretables"] = ROOT .. "/native/core/src/nupp/runtime/core/coretables.nupp"
+    },
+    include = "native/core/src",
+    entries = {
+        {"storagelifetimeunits", "reclamation", 2},
+        {"storagelifetimeunits", "relocation", 1},
+        {"storagelifetimeunits", "typed", 1}
+    },
+    cases = function()
+        local cases = {
+            {"reclamation", {0, 0}, 255},
+            {"reclamation", {0, 1}, 255},
+            {"reclamation", {1, 0}, 255},
+            {"reclamation", {1, 1}, 255},
+            {"relocation", {0}, 1023},
+            {"relocation", {1}, 1023}
+        }
+        for kind = 1, 10 do
+            cases[#cases + 1] = {"typed", {kind}, 63}
+        end
+
+        return cases
+    end
+}
+
+UNITS[#UNITS + 1] = {
     name = "storageunits",
     modules = {"storageunits", "unitentry", "nupp.runtime.core.storage"},
     paths = {["nupp.runtime.core.storage"] = ROOT .. "/native/core/src/nupp/runtime/core/storage.nupp"},
