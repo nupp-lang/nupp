@@ -118,6 +118,10 @@ pub fn analyze(it: &Interp, count: usize) -> Option<Vec<ImageModule>> {
                 if let Some(m) = owner(fid).filter(|&m| m != module) { deps.insert(m.to_string()); }
             } else if it.is_stringish(c) {
                 out.push_str(&format!("const str {:?}\n", it.bytes_of(c)));
+            } else if let Some(wide) = crate::numeric::integer(c).filter(|_| c.as_obj().is_some()) {
+                // A boxed integer is a heap object: its bits, never its address,
+                // which moves from one run of the same image to the next.
+                out.push_str(&format!("const int {:#x}\n", wide.bits));
             } else {
                 out.push_str(&format!("const {:#x}\n", c.0));
             }

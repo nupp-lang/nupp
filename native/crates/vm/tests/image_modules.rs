@@ -229,3 +229,23 @@ fn the_digests_are_not_the_whole_image() {
     let whole = String::from_utf8(nupp_native_platform::cache_digest(text.as_bytes()).to_vec()).unwrap();
     assert!(ms.iter().all(|m| m.digest != whole && m.digest.len() == 32));
 }
+
+/// A module holding a wide integer constant, which the runtime boxes on the heap.
+fn wide(constant: &'static str) -> String {
+    let body = Box::leak(format!("const 0 int64 {constant}\nK 1 0\nRet 1").into_boxed_str());
+    image(&[F { module: "w", name: "w.value", header: "0 4 1 :v", body }, chunk("w", "NewTableN 1 0 0\nRet 1")], &[])
+}
+
+#[test]
+fn a_boxed_constant_digests_by_value_not_address() {
+    const WIDE: &str = "0x7fffffffffffffff";
+    let text = wide(WIDE);
+    // Two interpreters box the same constant at two addresses.
+    let first = load(&text);
+    let second = load(&text);
+    let count = text.lines().filter(|l| l.trim_start().starts_with("function ")).count();
+    let digest = |it: &Interp| find(&analyze(it, count).unwrap(), "w").digest.clone();
+    assert_eq!(digest(&first), digest(&second), "one image digests one way");
+    let other = load(&wide("0x7ffffffffffffffe"));
+    assert_ne!(digest(&first), digest(&other), "a different value is a different module");
+}
