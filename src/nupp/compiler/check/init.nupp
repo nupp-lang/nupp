@@ -869,6 +869,8 @@ end
 -- the same way as ordinary module exports: each method body qualifies exactly the slot
 -- it implements, even when another method has the same parameter and result types.
 local function finalizeNominalEffects(c: state.Checker)
+    local finalized: {[T.Nominal]: boolean} = {}
+
     local function matchingSurface(entry, surface, static: boolean): Type?
         if not surface then
             return nil
@@ -905,6 +907,7 @@ local function finalizeNominalEffects(c: state.Checker)
 
     for ownerType in pairs(c.nominalEffectOwners or {}) do
         local owner = ownerType as T.Nominal
+        finalized[owner] = true
         for name, entries in pairs(owner.methodDispatchEntries or {}) do
             local members, seen = {}, {}
             local surface = owner.byname[name]
@@ -938,6 +941,7 @@ local function finalizeNominalEffects(c: state.Checker)
     -- A `function M.Thing:method` declaration is not one of the inline dispatch
     -- entries above. Its exact owner and slot were retained while it was checked.
     for _, entry in ipairs(c.nominalEffectEntries or {}) do
+        finalized[entry.owner] = true
         local inlineEntries = entry.static and entry.owner.staticEntries and entry.owner.staticEntries[entry.member]
             or entry.owner.methodDispatchEntries and entry.owner.methodDispatchEntries[entry.member]
         if not inlineEntries or #inlineEntries == 0 then
@@ -948,6 +952,22 @@ local function finalizeNominalEffects(c: state.Checker)
             writes[entry.member] = qualified
             if entry.definition then
                 entry.definition.type = qualified
+            end
+        end
+    end
+
+    -- Applications reached while a declaration was being checked may still hold
+    -- its earlier callable surface. Revisit them only after every declaration
+    -- slot has its final effect, using the existing substitution/refresh walk.
+    -- An empty rebinding preserves member identity and every unrelated binder.
+    local refreshed: {[Type]: boolean} = {}
+    for owner in pairs(finalized) do
+        for _, members in ipairs({owner.byname, owner.writeByname, owner.staticByname, owner.staticWriteByname}) do
+            for _, member in pairs(members or {}) do
+                if not refreshed[member] then
+                    refreshed[member] = true
+                    generics.rebind(member, {})
+                end
             end
         end
     end
