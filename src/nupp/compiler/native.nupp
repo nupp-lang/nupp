@@ -760,7 +760,7 @@ local FEATURES: {[string]: native.Feature} = {
         "native.sharedbytes"
     ] = {
         name = "sharedbytes",
-        globals = {"io.Bytes.copy", "io.Bytes.readfile", "io.Buffer.freeze"},
+        globals = {"io.SharedBytes.copy", "io.SharedBytes.readfile", "io.Buffer.freeze"},
         host = "workers",
         binary = true,
         runtimeModule = "io.internal.sharedbytes",

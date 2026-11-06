@@ -46,7 +46,7 @@ local physical = require("nupp.runtime.storage")
 local spanStringValue: function(borrows source: const uint8[?], count: integer): string = physical.string as any
 
 --- The bytes a shared span addresses, without copying them twice.
-local function spanString(borrows source: span.ByteSpan): string
+local function spanString(borrows source: span.Span<uint8>): string
     const pointer = source:ref()
 
     return spanStringValue(pointer, #source)
@@ -347,7 +347,7 @@ local function writeAll(
     chosen: contract.Provider,
     handle: any,
     highWater: integer,
-    borrows bytes: string | span.ByteSpan
+    borrows bytes: string | span.Span<uint8>
 ): (boolean, string?)
     -- Built once. The wait does not vary with the piece being sent, and a
     -- closure built per iteration is what stops this loop compiling.
@@ -359,7 +359,7 @@ local function writeAll(
     if valueType(bytes) == "string" then
         length = #(bytes as string)
     else
-        local view = bytes as span.ByteSpan;
+        local view = bytes as span.Span<uint8>;
         length = #view
     end
     local at: integer = 1
@@ -379,7 +379,7 @@ local function writeAll(
         if valueType(bytes) == "string" then
             took, why = chosen:write(handle, (bytes as string):sub(at, at + taking - 1))
         else
-            local window = (bytes as span.ByteSpan):slice(at, at + taking - 1)
+            local window = (bytes as span.Span<uint8>):slice(at, at + taking - 1)
             local writeFrom = chosen.writespan
             if writeFrom ~= nil then
                 took, why = writeFrom(chosen, handle, window)
@@ -486,7 +486,7 @@ export record DirectionView is io.Reader, io.Writer
         return writeAll(self._provider, self._handle, self._highWater, bytes)
     end
 
-    function writespan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows source: span.Span<uint8>): (integer?, string?)
         if self._ended then
             return nil, "the writer is closed"
         end
@@ -710,7 +710,7 @@ export record Stream is io.Reader, io.Writer
     --- @param source bytes valid for the duration of the call
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
-    function writespan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows source: span.Span<uint8>): (integer?, string?)
         if self._closed then
             return nil, "the connection is closed"
         end

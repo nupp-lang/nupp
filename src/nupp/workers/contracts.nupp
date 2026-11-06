@@ -34,6 +34,24 @@ module nupp.workers.contracts
 
 const types = require("types")
 
+--- Returns child arguments after checking that no owner or borrow is handed off.
+@comptime
+export function Parameters(F: type): typepack
+    if types.kind(F) ~= "function" then
+        return types.error("a task must name a function type")
+    end
+    local described = types.describe(types.parameters(F))
+    for position, mode in ipairs(described.modes or {}) do
+        if mode ~= "plain" then
+            return types.error(
+                "argument " .. tostring(position) .. " is an owner or a borrow, which a child cannot be handed"
+            )
+        end
+    end
+
+    return types.parameters(F)
+end
+
 --- What may actually be submitted: a module member, or an outlined literal whose
 --- effectively-final captures can be copied to another lane. Exported so a task scope
 --- can hold its `work` to the same bound without linking this module.

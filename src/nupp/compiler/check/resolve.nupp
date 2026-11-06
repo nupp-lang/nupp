@@ -14,6 +14,7 @@ exists but is not visible here.
 module nupp.compiler.check.resolve
 
 local apiidentity = require("nupp.compiler.apiidentity")
+local builtinExtensions = require("nupp.compiler.builtinextensions")
 local T = require("nupp.compiler.types")
 local generics = require("nupp.compiler.types.generics")
 local consteval = require("nupp.compiler.types.consteval")
@@ -990,7 +991,17 @@ export function install(c: state.Checker): nil
                     local holder = c.lookupEntry(calleeParts[1])
                     if holder and holder.requiredModule then
                         moduleName = holder.requiredModule
+                    elseif builtinExtensions.has(moduleName) then
+                        local builtin = c.env.globals and c.env.globals[moduleName]
+                        if holder and builtin and holder.definition == builtin.definition then
+                            builtinExtensions.type(c, moduleName)
+                        end
                     end
+                end
+                local access = c.env.moduleAccess and c.env.moduleAccess(c.env, c.result.moduleName, moduleName)
+                if access and not c.opts.generatedSource then
+                    c.diag("NUPP2144", callee or node, access)
+                    return T.any
                 end
                 local exports = c.env.resolveModuleExports(c.env, moduleName)
                 helper = exports and exports.comptimeFunctions and exports.comptimeFunctions[member] or nil
@@ -1201,7 +1212,7 @@ export function install(c: state.Checker): nil
                 -- Declarations qualified by a table in this file bind under their whole
                 -- path, so `M.Point` resolves here before the prefix is read as a
                 -- module name.
-                if #names == 1 then
+                if #names >= 1 then
                     local key = moduleName .. "." .. typeName
                     local declared, declaredDef = c.lookupType(key)
                     if declared then

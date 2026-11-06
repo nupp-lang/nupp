@@ -14,7 +14,6 @@ module binary.span
 
 local source1 = require("nupp.mem.span")
 local source2 = require("nupp.mem.indexed")
-export type ByteSpan = source1.ByteSpan
 export type ByteWriteSpan = source1.ByteWriteSpan
 export type FixedSpan<T, const N: integer> = source1.FixedSpan<T, N>
 export type FixedWritable<T, const N: integer> = source1.FixedWritable<T, N>

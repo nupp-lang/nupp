@@ -103,7 +103,7 @@ return rows[1], rows[5]
         end
         local parsed = parser.parse(source, "simd-identity.nupp")
         test.eq(#parsed.errors, 0)
-        local diagnostics = checker.check(parsed, "simd-identity.nupp", env)
+        local diagnostics = checker.check(parsed, "simd-identity.nupp", env, {moduleName = "nupp.identity"})
         test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
         local listing = {}
         local image = program.image(parsed, "simd-identity", "simd-identity.nupp", listing)

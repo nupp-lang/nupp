@@ -2,6 +2,7 @@ const assert2 = require("assert")
 
 local standard = require("io")
 local http = require("io.http")
+local span = require("binary.span")
 local tests = {}
 
 function tests.uploadBodiesUseTheSharedReaderContract(): nil
@@ -39,45 +40,54 @@ function tests.byteWriterExclusivelyBorrowsAndAppendsToItsBuffer(): nil
     assert2(buffer:tostring() == "oldnew")
 end
 
-local record Queue is standard.ByteQueue
-    bytes: string
+local record CustomReader is standard.Reader
+    state: any
 
-    metamethod __len: function(self: Queue): integer
-    get: function(self: Queue, ...: integer?): string
+    function read(exclusive self, count: integer): (string?, string?)
+        local out = self.state.bytes:sub(1, count)
+        self.state.bytes = self.state.bytes:sub(#out + 1)
+        return out, nil
+    end
+
+    function readspan(exclusive self, exclusive destination: span.ByteWriteSpan): (integer?, string?)
+        local chunk = assert(self:read(#destination))
+        const bytes = span.fromstring(chunk)
+        for index = 1, #bytes do
+            destination[index] = bytes[index]
+        end
+
+        return #chunk, nil
+    end
+
+    function close(takes self): nil
+        self.state.closes = self.state.closes + 1
+    end
 end
 
-function Queue.__len(self: Queue): integer
-    return #self.bytes
-end
-
-function Queue.get(self: Queue, ...: integer?): string
-    local count = (...) or #self.bytes
-    local out = self.bytes:sub(1, count)
-    self.bytes = self.bytes:sub(#out + 1)
-    return out
-end
-
-function tests.byteQueuesAreStructuralSources(): nil
-    local queue = Queue(bytes = "abcdef")
-    local reader = standard.Reader.of(queue)
+function tests.customSourcesImplementReader(): nil
+    local state = {bytes = "abcdef", closes = 0}
+    local reader = CustomReader(state = state)
     assert2(reader:read(3) == "abc")
-    assert2(#queue.bytes == 3)
+    assert2(state.bytes == "def")
     assert2(reader:read(3) == "def")
-    assert2(#queue.bytes == 0)
+    assert2(state.bytes == "")
+    reader:close()
+    assert2(state.closes == 1)
 end
 
-function tests.scalarReadersAcceptStructuralQueues(): nil
-    local queue = Queue(bytes = "\1\2\3\4")
-    local reader = standard.Reader.of(queue):scalar()
-    assert2(reader:remaining() == 4)
+function tests.scalarReadersAcceptCustomReaders(): nil
+    local state = {bytes = "\1\2\3\4", closes = 0}
+    local reader = CustomReader(state = state):scalar()
+    assert2(reader:remaining() == nil)
     assert2(reader:readuint32() == 67305985)
-    assert2(reader:remaining() == 0)
-    assert2(#queue.bytes == 0)
+    assert2(state.bytes == "")
+    reader:close()
+    assert2(state.closes == 1)
 end
 
-function tests.structuralQueuesReadIntoBuffersAndWritableSpans(): nil
-    local queue = Queue(bytes = "abcdef")
-    local reader = standard.Reader.of(queue)
+function tests.customReadersFillBuffersAndWritableSpans(): nil
+    local state = {bytes = "abcdef", closes = 0}
+    local reader = CustomReader(state = state)
     local destination = standard.Buffer.create(8)
     assert2(reader:readinto(destination, 0, 3) == 3)
     local lease = destination:reserve(3)

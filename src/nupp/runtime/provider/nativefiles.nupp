@@ -64,11 +64,11 @@ local function positive(value: any, what: string, level: integer): integer
 end
 
 -- The frozen VM host takes strings; spans copy at this binding boundary.
-local function payload(borrows value: string | span.ByteSpan): string
+local function payload(borrows value: string | span.Span<uint8>): string
     if type(value) == "string" then
         return tostring(value)
     end
-    local source = value as span.ByteSpan
+    local source = value as span.Span<uint8>
     local pieces: {string} = {}
     for index = 1, #source do
         pieces[index] = string.char(source[index])
@@ -141,7 +141,7 @@ export record File is io.Reader, io.Writer
     end
 
     --- Writes a byte span at the cursor, answering how many bytes landed.
-    function writespan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows source: span.Span<uint8>): (integer?, string?)
         if self._closed then
             return nil, "the file is closed"
         end
@@ -388,17 +388,17 @@ export function read(path: string | paths.Path): (string?, string?)
 end
 
 --- Replaces a whole file.
-export function write(path: string | paths.Path, borrows bytes: string | span.ByteSpan): (boolean, string?)
+export function write(path: string | paths.Path, borrows bytes: string | span.Span<uint8>): (boolean, string?)
     return host.write(named(path, "path", 2), payload(bytes))
 end
 
 --- Appends to a file, creating it when missing.
-export function append(path: string | paths.Path, borrows bytes: string | span.ByteSpan): (boolean, string?)
+export function append(path: string | paths.Path, borrows bytes: string | span.Span<uint8>): (boolean, string?)
     return host.append(named(path, "path", 2), payload(bytes))
 end
 
 --- Replaces a whole file so a reader sees the old contents or the new.
-export function writeAtomic(path: string | paths.Path, borrows bytes: string | span.ByteSpan): (boolean, string?)
+export function writeAtomic(path: string | paths.Path, borrows bytes: string | span.Span<uint8>): (boolean, string?)
     return host.writeAtomic(named(path, "path", 2), payload(bytes))
 end
 

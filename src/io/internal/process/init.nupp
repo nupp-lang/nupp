@@ -92,16 +92,16 @@ local function positive(value: integer, what: string, level: integer): integer
     return value
 end
 
-local function spanString(borrows source: span.ByteSpan): string
+local function spanString(borrows source: span.Span<uint8>): string
     local pointer = source:ref()
     return spanStringValue(pointer, #source)
 end
 
-local function byteLength(borrows value: string | span.ByteSpan): integer
+local function byteLength(borrows value: string | span.Span<uint8>): integer
     if valueType(value) == "string" then
         return #(value as string)
     end
-    local view = value as span.ByteSpan
+    local view = value as span.Span<uint8>
 
     return #view
 end
@@ -358,7 +358,7 @@ record process.Writer is byteio.Writer
     --- Writes what the pipe will take without waiting. Returns how many bytes
     --- went, which may be none and may be fewer than offered.
     --- @raises string when the provider returns an invalid result
-    function offer(self, borrows data: string | span.ByteSpan): integer
+    function offer(self, borrows data: string | span.Span<uint8>): integer
         if self.closed or self.gone or byteLength(data) == 0 then
             return 0
         end
@@ -379,9 +379,9 @@ record process.Writer is byteio.Writer
         else
             local writeFrom = backend.writespan
             if writeFrom == nil then
-                sent, gone = backend:write(self.handle, spanString(data as span.ByteSpan))
+                sent, gone = backend:write(self.handle, spanString(data as span.Span<uint8>))
             else
-                sent, gone = writeFrom(backend, self.handle, data as span.ByteSpan)
+                sent, gone = writeFrom(backend, self.handle, data as span.Span<uint8>)
             end
         end
         if type(sent) ~= "number" or sent < 0 or sent > byteLength(data) or sent ~= math.floor(sent) then
@@ -414,7 +414,7 @@ record process.Writer is byteio.Writer
     --- @param deadline when to stop, in the monotonic clock's milliseconds
     --- @param stalltimeoutms how long the pipe may take nothing before giving up
     --- @return how many bytes went
-    function send(self, borrows data: string | span.ByteSpan, deadline: number?, stalltimeoutms: integer?): integer
+    function send(self, borrows data: string | span.Span<uint8>, deadline: number?, stalltimeoutms: integer?): integer
         if self.closed or self.gone then
             return 0
         end
@@ -438,7 +438,7 @@ record process.Writer is byteio.Writer
             if valueType(data) == "string" then
                 sent = sent + self:offer((data as string):sub(sent + 1))
             else
-                sent = sent + self:offer((data as span.ByteSpan):slice(sent + 1))
+                sent = sent + self:offer((data as span.Span<uint8>):slice(sent + 1))
             end
 
             -- Return after each piece, not only after the whole value, so a stall
@@ -501,7 +501,7 @@ record process.Writer is byteio.Writer
         return true
     end
 
-    function writespan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows source: span.Span<uint8>): (integer?, string?)
         if self.closed then
             return nil, "the process writer is closed"
         end
@@ -876,7 +876,7 @@ record process.Process is io.File, own.Affine<self._drop>
             elseif type(input) == "string" then
                 pending = input as string
             else
-                pending = spanString(input as span.ByteSpan)
+                pending = spanString(input as span.Span<uint8>)
             end
             local maximum = given.maxoutputbytes or 268435456
             if type(maximum) ~= "number" or maximum < 0 or maximum ~= math.floor(maximum) then

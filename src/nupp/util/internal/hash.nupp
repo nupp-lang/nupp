@@ -4,22 +4,22 @@ module nupp.util.internal.hash
 
 local valueType: function(borrows value: any): string = type as any
 
-const {type ByteSpan} = require("binary.span")
+const {type Span} = require("binary.span")
 const bit = require("bit")
 
-local function hashString(borrows bytes: string | ByteSpan): string
+local function hashString(borrows bytes: string | Span<uint8>): string
     local hi = 0xcbf29ce4
     local lo = 0x84222325
     local length: integer
     if valueType(bytes) == "string" then
         length = #(bytes as string)
     else
-        local view = bytes as ByteSpan;
+        local view = bytes as Span<uint8>;
         length = #view
     end
     for index = 1, length do
         local byte = valueType(bytes) == "string" and (bytes as string):byte(index)
-            or ((bytes as ByteSpan)[index] as integer)
+            or ((bytes as Span<uint8>)[index] as integer)
         lo = lo ~ byte
         local low = lo < 0 and lo + 4294967296 or lo
         local high = hi < 0 and hi + 4294967296 or hi
@@ -39,6 +39,6 @@ end
 --- @param value the bytes to hash
 --- @return the hash, as sixteen lowercase hexadecimal digits
 --- @export
-export function fnv1a64(borrows value: string | ByteSpan): string
+export function fnv1a64(borrows value: string | Span<uint8>): string
     return hashString(value)
 end

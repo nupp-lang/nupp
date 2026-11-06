@@ -22,7 +22,7 @@ local bus: events.MessageBus<integer> = events.MessageBus()
 local route: host.Route? = nil
 local session = host.Pump()
 
-local type Send = function(borrows packet: span.ByteSpan): nil
+local type Send = function(borrows packet: span.Span<uint8>): nil
 local type Tick = function(): number
 local sendPacket = host.bindsend<Send>("bench.packet", "latest")
 local nextFrame = host.bind<Tick>("bench.tick")

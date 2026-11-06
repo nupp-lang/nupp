@@ -1,7 +1,5 @@
---[[
-The `nupp` root retains legacy library module paths.
-Use the [standard library](docs/learn/runtime/data/standard-library.md)
-namespaces for typed storage, I/O, and tasks.
-]]
+@!internal
+
+-- Compiler implementation modules share this private package root.
 const nupp = {}
 return nupp

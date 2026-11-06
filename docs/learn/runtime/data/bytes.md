@@ -43,8 +43,8 @@ fields need separate contiguous columns. See
 [structure-of-arrays.md](structure-of-arrays.md) for that layout.
 
 `io.Reader` and `io.Writer` are stream contracts. `io.Reader.of` opens a string,
-span, buffer, immutable byte region, or byte queue; a buffer reader consumes
-its read cursor, while a span reader keeps its own position.
+span, buffer, or shared bytes. A buffer reader consumes its read cursor, while
+a span reader keeps its own position. Custom sources implement `io.Reader`.
 
 ```nupp
 local buffer = io.Buffer.create("abc")
@@ -57,7 +57,7 @@ assert(buffer:tostring() == "c")
 ## Borrowing and ownership
 
 A span retains its source and checks every index against its count.
-[](binary.span.fromstring) lends a read-only `ByteSpan`; `array:read()`
+[](binary.span.fromstring) lends a read-only `Span<uint8>`; `array:read()`
 lends `Span<T>`, and `array:write()` lends the affine `Writable<T>` wrapper
 around `WriteSpan<T>`. Functions receiving writable access name
 `exclusive bytes: binary.span.ByteWriteSpan` or
@@ -146,8 +146,8 @@ Borrowing a view does not make a string snapshot.
 | `binary.span.fromstring(text)` | No | Span retains the string |
 | `io.Reader.of(span)` | No at construction | Reader retains the span |
 | `io.Reader.of(region)` | No at construction | Reader retains the immutable region |
-| `Bytes:view()` and `Bytes:slice()` | No | View or region retains the block |
-| `Bytes:tostring()` | Yes | Result is an independent string |
+| `SharedBytes:view()` and `SharedBytes:slice()` | No | View or region retains the block |
+| `SharedBytes:tostring()` | Yes | Result is an independent string |
 | `buffer:freeze()` | Through a string into engine storage | Region retains engine storage |
 
 Appending copies the incoming bytes and can also move existing bytes when
@@ -156,7 +156,7 @@ pass span pointers to their native ABI; `read` still returns a string.
 
 ## Shared bytes between workers
 
-`io.Bytes` holds an immutable region of reference-counted engine storage.
+`io.SharedBytes` holds an immutable region of reference-counted engine storage.
 It crosses [worker boundaries](../concurrency/workers.md) without copying its
 payload and requires the engine host supplied by a stamped binary.
 
@@ -170,8 +170,8 @@ reader:close()
 ```
 
 `freeze` consumes the buffer and preserves only its unread bytes. An HTTP
-request can hold a `Bytes` region directly as its body.
+request can hold a `SharedBytes` region directly as its body.
 
-`io.Bytes` is transitional: it becomes `string` when workers can share long
+`io.SharedBytes` is transitional: it becomes `string` when workers can share long
 strings. Until then, keep it for shared immutable worker payloads and use
 ordinary strings for immutable bytes within one lane.

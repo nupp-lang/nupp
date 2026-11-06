@@ -131,6 +131,19 @@ return tostring(math.type(calculate(2))) .. "|" .. tostring(math.type(calculate(
     )
 end
 
+function M.workerSignaturePacksUseThePublicCoroutineNamespace()
+    clean(
+        [[
+local function accept(...: unpackof coroutine.Submitted(function(integer, string): nil)): nil
+end
+accept(7, "payload")
+local function spawn(...: unpackof coroutine.Parameters(function(string): nil)): nil end
+spawn("child")
+local values: table.Array.Token = table.Array.bytes(1)
+]]
+    )
+end
+
 function M.closedComptimeTypeFunctionsConstructTypes()
     clean(
         table.concat(
@@ -2788,8 +2801,7 @@ return simd.reducer.wrappingsum<uint32>(array.int32, 0)
 local array = table.Array
 local simd = require("simd")
 return simd.reducer.xorbits(array.float, 0)
-]]
-        )
+]])
             :match("NUPP%d+"),
         "NUPP2116"
     )

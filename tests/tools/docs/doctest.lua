@@ -1740,20 +1740,20 @@ function M.documentsBorrowedResultsWithoutRepeatingTheirSources()
             "--- Views a byte range.",
             "--- @param source The array backing the view.",
             "--- @return The checked view.",
-            "function view(borrows source: uint8[?]): ByteSpan borrows (source)",
-            "   return nil as ByteSpan",
+            "function view(borrows source: uint8[?]): Span<uint8> borrows (source)",
+            "   return nil as Span<uint8>",
             "end",
         },
         "\n"
     )
     local module = assert(doc.extract(source, "src/view.nupp", "view", {includePrivate = true}))
     local view = assert(module.items[1])
-    assert(view.signature == "function view(borrows source: uint8[?]): ByteSpan", view.signature)
-    assert(view.returns[1].type == "ByteSpan", view.returns[1].type)
+    assert(view.signature == "function view(borrows source: uint8[?]): Span<uint8>", view.signature)
+    assert(view.returns[1].type == "Span<uint8>", view.returns[1].type)
 
     local markdown = doc.markdown({module})
-    assert(markdown:find("function(borrows source: uint8[?]): ByteSpan", 1, true), markdown)
-    assert(not markdown:find("ByteSpan borrows (source)", 1, true), markdown)
+    assert(markdown:find("function(borrows source: uint8[?]): Span<uint8>", 1, true), markdown)
+    assert(not markdown:find("Span<uint8> borrows (source)", 1, true), markdown)
 end
 
 function M.documentsDeprecatedMigrationMetadata()
@@ -2179,9 +2179,9 @@ function M.hidesPrivateCleanupNamesFromSignatures()
             "end",
             "",
             "--- Byte sources.",
-            "record io.Bytes",
+            "record io.SharedBytes",
             "   --- Opens a reader over these bytes.",
-            "   newReader: function(self: Bytes): affine(Reader, __destroyReader)",
+            "   newReader: function(self: SharedBytes): affine(Reader, __destroyReader)",
             "end",
         },
         "\n"
@@ -2202,8 +2202,8 @@ function M.hidesPrivateCleanupNamesFromSignatures()
     assert(literal.signature:find('"affine(Reader, __destroyReader)"', 1, true), literal.signature)
     local longLiteral = assert(byName["io.longLiteral"], "the long literal function was not documented")
     assert(longLiteral.signature:find("[[affine(Reader, __destroyReader)]]", 1, true), longLiteral.signature)
-    local bytes = assert(byName["Bytes"], "the record was not documented")
-    assert(bytes.signature == "record io.Bytes", bytes.signature)
+    local bytes = assert(byName["SharedBytes"], "the record was not documented")
+    assert(bytes.signature == "record io.SharedBytes", bytes.signature)
     local newReader = assert(bytes.members[1], "the record's member was not documented")
     assert(newReader.type:find("affine(Reader, _)", 1, true), newReader.type)
     assert(not newReader.type:find("__destroyReader", 1, true), newReader.type)
@@ -3626,6 +3626,11 @@ function M.coroutineWorkerDocsRetainScopesAndTaskResultPacks()
     assert(task.await.type:find("unpackof types.results(F)", 1, true), task.await.type)
     assert(task.status.type:find('"cancelled"', 1, true), task.status.type)
     assert(items.Worker, "the sendable worker body type belongs to coroutine")
+    assert(items.Nullary and items.Parameters, "spawn signature types belong to coroutine")
+    assert(not scope.spawn.type:find("nupp.", 1, true), "spawn types must use their public names")
+    assert(items.Submitted and items.Submitted.comptimeKind == "function", "the signature helper belongs to coroutine")
+    assert(scope.work.type:find("Submitted(F)", 1, true), scope.work.type)
+    assert(not scope.work.type:find("nupp.", 1, true), "public work signatures must use their exported type names")
     assert(not modules["coroutine.workers"], "the retired worker module is absent")
     assert(not modules["nupp.tasks"] and not modules["nupp.workers.contracts"], "implementation modules stay private")
     os.execute("rm -rf '" .. dir .. "'")
@@ -3672,7 +3677,11 @@ function M.aRotatedCallSurfaceIsPrintedInCallOrder()
     end
     local spawn = assert(members["nupp.tasks.Scope.spawn"], "Scope:spawn is documented")
     assert(
-        spawn.type:find("(borrows self: nupp.tasks.Scope, ...: unpackof Parameters(F), takes body: F)", 1, true),
+        spawn.type:find(
+            "(borrows self: nupp.tasks.Scope, ...: unpackof nupp.workers.contracts.Parameters(F), takes body: F)",
+            1,
+            true
+        ),
         "the body comes after its arguments: " .. spawn.type
     )
     assert(
@@ -4121,7 +4130,6 @@ function M.affineAliasesLinkToTheGenericWrappedType()
         ] = [[
 module binary.span
 local source = require("internal.span")
-export type ByteSpan = source.ByteSpan
 export type Span<T> = source.Span<T>
 export type Writable<T> = source.Writable<T>
 ]],
@@ -4133,7 +4141,6 @@ module internal.span
 export interface Span<T>
     get: function(self: Span<T>, index: integer): T
 end
-export type ByteSpan = Span<uint8>
 export type Writable<T> = affine(Span<T>)
 ]],
     })
@@ -7163,7 +7170,12 @@ function M.everyPublishedModuleSaysWhatItIs()
     os.remove(output)
 
     local empty = {}
+    assert(
+        not require("testjson").encode(model.modules):find("](nupp.", 1, true),
+        "public documentation must link to public module names"
+    )
     for _, module in ipairs(model.modules) do
+        assert(module.name ~= "nupp" and not module.name:match("^nupp%."), "implementation modules must stay internal")
         if not module.namespace and module.text == "" and #module.items == 0 then
             empty[#empty + 1] = module.name .. " (" .. tostring(module.path) .. ")"
         end

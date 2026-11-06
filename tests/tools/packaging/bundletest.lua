@@ -198,7 +198,7 @@ function M.aStampedBinaryRunsStructuredTasksOnTheSharedScheduler()
             "nupp.lua"
         ] = [[
 return {include = {"src"}, build = {default = "app", targets = {app = {
-   kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",
+   kind = "binary", stub = "nupp", entries = {"nupp.internal.workerapp"}, outDir = "build",
 }}}}
 ]],
         [
@@ -307,9 +307,9 @@ export function echoSparse(value: Sparse): Sparse
     return value
 end
 
-const sharedbytes = io.Bytes
+const sharedbytes = io.SharedBytes
 
-export function firstByte(region: io.Bytes): integer
+export function firstByte(region: io.SharedBytes): integer
     return region:view(0, 1)[1]
 end
 
@@ -348,12 +348,14 @@ export function nested(shards: integer): integer
 end
 ]],
         [
-            "src/main.nupp"
+            "src/nupp/internal/workerapp.nupp"
         ] = [[
+module nupp.internal.workerapp
+
 const capture = require("capture")
 const jobs = require("jobs")
 const tasks = require("coroutine")
-const sharedbytes = io.Bytes
+const sharedbytes = io.SharedBytes
 
 local counter = require("counter")
 for index = 1, 100 do assert(counter.next() == index) end
@@ -742,7 +744,7 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
         [
             "src/main.nupp"
         ] = [[
-local function freeze(takes buffer: io.Buffer): io.Bytes
+local function freeze(takes buffer: io.Buffer): io.SharedBytes
     return buffer:freeze()
 end
 local function reader(): io.Reader

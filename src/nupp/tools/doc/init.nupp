@@ -489,10 +489,10 @@ local function loadModules(root, config, settings, requested)
     -- A qualified type declaration belongs to the module its name spells, even when
     -- the declaration lives in a different file. The prelude is the important case:
     -- `interface types.Debug` is written in the compiler's hidden declaration tree, but
-    -- readers should find it on `nupp`, not lose it with that implementation module.
+    -- readers should find it on `types`, not lose it with that implementation module.
     -- An `@namespace` field describes a nested module, so its nominal belongs on
-    -- that nested page rather than as a second declaration on
-    -- `nupp`. Move these after every source has been read so either destination can
+    -- that nested page rather than as a second declaration on its parent. Move these
+    -- after every source has been read so either destination can
     -- supply its prose and source path.
     local byName = {}
     for _, module in ipairs(modules) do

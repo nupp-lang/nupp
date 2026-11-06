@@ -1,6 +1,6 @@
 @!internal
 
---[[Engine-backed operations for the canonical io.Bytes declarations.
+--[[Engine-backed operations for the canonical io.SharedBytes declarations.
 
 A region's block is an immutable storage allocation the VM shares by
 reference: `copy` copies a string into one, and a region crossing into a worker carries
@@ -11,8 +11,8 @@ const assert2 = require("assert")
 
 local span = require("binary.span")
 local byteTypes = require("io.internal.bytestypes")
-export type Bytes = byteTypes.Bytes
-export const Bytes = byteTypes.Bytes
+export type SharedBytes = byteTypes.SharedBytes
+export const SharedBytes = byteTypes.SharedBytes
 local spanImplementation = require("nupp.mem.span")
 local files = require("nupp.vm.files")
 local storage: any = assert2(
@@ -23,7 +23,7 @@ local storage: any = assert2(
 local foreignByteSpan = rawget(
     spanImplementation as table,
     "__foreignByteSpan"
-) as @nosuspend function(any, any, integer, integer): span.ByteSpan
+) as @nosuspend function(any, any, integer, integer): span.Span<uint8>
 local foreignSpan = rawget(
     spanImplementation as table,
     "__foreignSpan"
@@ -45,15 +45,15 @@ local function newBlock(data: any): Block
     return Block(data = data, regions = setmetatable({}, {__mode = "v"}) as {[string]: any})
 end
 
-local function block(borrows value: Bytes): Block
+local function block(borrows value: SharedBytes): Block
     return getfield(value as table, "_handle") as Block
 end
 
-local function first(borrows value: Bytes): integer
+local function first(borrows value: SharedBytes): integer
     return getfield(value as table, "_first") as integer
 end
 
-local function length(borrows value: Bytes): integer
+local function length(borrows value: SharedBytes): integer
     return getfield(value as table, "_length") as integer
 end
 
@@ -72,19 +72,19 @@ end
 -- length; equal bytes in separate blocks are not equal. The VM gives records no
 -- `__eq`, so each block hands out one region per extent, kept while anything
 -- holds it, and identity is that equality.
-local function wrap(handle: Block, offset: integer, count: integer): Bytes
+local function wrap(handle: Block, offset: integer, count: integer): SharedBytes
     local key = offset .. ":" .. count
     local known = handle.regions[key]
     if known ~= nil then
-        return known as Bytes
+        return known as SharedBytes
     end
-    local region = {_handle = handle, _first = offset, _length = count} as Bytes
+    local region = {_handle = handle, _first = offset, _length = count} as SharedBytes
     handle.regions[key] = region
 
     return region
 end
 
-function Bytes:len(): integer
+function SharedBytes:len(): integer
     return length(self)
 end
 
@@ -96,7 +96,7 @@ local function inside(length: integer, offset: integer, count: integer): boolean
 end
 
 --- @raises string when the extent falls outside the region
-function Bytes:slice(offset: integer, count: integer): Bytes
+function SharedBytes:slice(offset: integer, count: integer): SharedBytes
     if not inside(length(self), offset, count) then
         error("nupp: a region slice is out of bounds", 2)
     end
@@ -105,7 +105,7 @@ function Bytes:slice(offset: integer, count: integer): Bytes
 end
 
 --- @raises string when the extent falls outside the region
-function Bytes:view(offset: integer?, count: integer?): span.ByteSpan
+function SharedBytes:view(offset: integer?, count: integer?): span.Span<uint8>
     local from = offset == nil and 0 or offset as integer
     local taking = count == nil and length(self) - from or count as integer
     if not inside(length(self), from, taking) then
@@ -116,7 +116,7 @@ function Bytes:view(offset: integer?, count: integer?): span.ByteSpan
 end
 
 --- @raises string when the region is not aligned or is not a whole number of elements
-function Bytes:viewas<T>(element: ctype<T>): span.Span<T>
+function SharedBytes:viewas<T>(element: ctype<T>): span.Span<T>
     local width = storage.sizeof(element) as integer
     local alignment = (element as any).alignment as integer
     local byteOffset = first(self) - 1
@@ -135,7 +135,7 @@ function Bytes:viewas<T>(element: ctype<T>): span.Span<T>
     end
 end
 
-function Bytes:tostring(): string
+function SharedBytes:tostring(): string
     local data = block(self).data
     local offset = first(self)
     if type(data) == "string" then
@@ -146,7 +146,7 @@ function Bytes:tostring(): string
 end
 
 --- Copies `text` into an engine-owned region.
-function Bytes.copy(text: string): Bytes
+function SharedBytes.copy(text: string): SharedBytes
     return wrap(newBlock(storage.share(text)), 1, #text)
 end
 
@@ -154,7 +154,7 @@ end
 --- @param path the native path of the file to read
 --- @return the region, or nil when the file cannot be opened, sized, or read
 --- @return why it could not be read, when unsuccessful
-function Bytes.readfile(path: string): (Bytes?, string?)
+function SharedBytes.readfile(path: string): (SharedBytes?, string?)
     local text, problem = files.read(path)
     if text == nil then
         return nil, tostring(problem)

@@ -26,7 +26,7 @@ local record Encoder is contract.Encoder
 
     function write(
         exclusive self,
-        borrows input: span.ByteSpan,
+        borrows input: span.Span<uint8>,
         exclusive output: span.ByteWriteSpan
     ): (integer?, integer?, integer?, string?)
         local consumed, written, status, problem = host.encoderWrite(self.handle, input, output)
@@ -65,7 +65,7 @@ local record Decoder is contract.Decoder
 
     function read(
         exclusive self,
-        borrows input: span.ByteSpan,
+        borrows input: span.Span<uint8>,
         exclusive output: span.ByteWriteSpan
     ): (integer?, integer?, integer?, string?)
         local consumed, written, status, problem = host.decoderRead(self.handle, input, output)

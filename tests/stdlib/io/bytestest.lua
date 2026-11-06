@@ -45,7 +45,7 @@ function M.beforeAll()
         end,
     }
     package.loaded[nativeName] = nativeBridge
-    bytes = require(moduleName).Bytes
+    bytes = require(moduleName).SharedBytes
 end
 
 function M.afterAll()
@@ -78,18 +78,18 @@ function M.publicFactoriesAndIOUseTheCanonicalBytesType()
     checked(
         [[
 local http = require("io.http")
-local function freeze(takes buffer: io.Buffer): io.Bytes
+local function freeze(takes buffer: io.Buffer): io.SharedBytes
     return buffer:freeze()
 end
 local function reader(): io.Reader
-    local region = io.Bytes.copy("payload")
+    local region = io.SharedBytes.copy("payload")
     return io.Reader.of(region)
 end
-local function request(region: io.Bytes): http.Request
+local function request(region: io.SharedBytes): http.Request
     return http.Request(url = assert(io.URI.of("https://example.com")), body = region)
 end
-const copy: function(string): io.Bytes = io.Bytes.copy
-const readfile: function(string): (io.Bytes?, string?) = io.Bytes.readfile
+const copy: function(string): io.SharedBytes = io.SharedBytes.copy
+const readfile: function(string): (io.SharedBytes?, string?) = io.SharedBytes.readfile
 return freeze, reader, request, copy, readfile
 ]]
     )
@@ -97,7 +97,7 @@ end
 
 function M.theRetiredBuilderIsUnavailable()
     local refused = false
-    for _, diagnostic in ipairs(diagnostics("return io.Bytes.Builder()")) do
+    for _, diagnostic in ipairs(diagnostics("return io.SharedBytes.Builder()")) do
         refused = refused or diagnostic.severity == "error"
     end
     assert(refused and bytes.Builder == nil, "io.Buffer replaces the public byte builder")
@@ -141,7 +141,7 @@ local function isolatedIO()
         {nupp = {}}
     )
 
-    return load("nupp.io.internal.bytes"), load(typesName).Bytes
+    return load("nupp.io.internal.bytes"), load(typesName).SharedBytes
 end
 
 function M.freezingConsumesOnlyTheUnreadBytes()
@@ -155,11 +155,11 @@ function M.freezingConsumesOnlyTheUnreadBytes()
 end
 
 function M.aRegionReaderRetainsItsSourceAndCopiesDirectlyIntoBuffers()
-    local ioBytes, Bytes = isolatedIO()
+    local ioBytes, SharedBytes = isolatedIO()
     local weak = setmetatable({}, {__mode = "v"})
 
     local function makeReader()
-        local region = Bytes.copy("abc\0def"):slice(1, 5)
+        local region = SharedBytes.copy("abc\0def"):slice(1, 5)
         weak[1] = region
         region.tostring = function()
             error("reading a region must not snapshot it as a string")
@@ -251,10 +251,10 @@ function M.loadingThePublicBytesTypeDoesNotInitializeTheEngine()
         },
         {nupp = {}, io = hostIo}
     )
-    local public = load("nupp.runtime.standardio").Bytes
-    assert(public == load(typesName).Bytes, "io exposes the canonical bytes record")
+    local public = load("nupp.runtime.standardio").SharedBytes
+    assert(public == load(typesName).SharedBytes, "io exposes the canonical bytes record")
     assert(type(public.copy) == "function" and public.Builder == nil)
-    assert(attempts == 0, "loading io.Bytes must not load its native bridge")
+    assert(attempts == 0, "loading io.SharedBytes must not load its native bridge")
 end
 
 local function withNativeBridge(loader, body)
@@ -293,12 +293,12 @@ function M.constructingBytesWithoutTheEngineReportsTheHostRequirement()
         return
     end
     withNativeBridge(nil, function()
-        local public = require(moduleName).Bytes
+        local public = require(moduleName).SharedBytes
         assert(type(public) == "table", "the type loads without an engine")
         local ok, problem = pcall(public.copy, "payload")
         assert(not ok)
         assert(
-            problem == "nupp: io.Bytes needs the Nupp engine host, which a stamped binary provides",
+            problem == "nupp: io.SharedBytes needs the Nupp engine host, which a stamped binary provides",
             tostring(problem)
         )
     end)
@@ -341,7 +341,7 @@ function M.nativeInitializationErrorsRetainTheirIdentity()
             error(marker, 0)
         end,
         function()
-            local public = require(moduleName).Bytes
+            local public = require(moduleName).SharedBytes
             assert(attempts == 0, "requiring the type must leave the native initializer untouched")
             local ok, problem = pcall(public.copy, "payload")
             assert(not ok and problem == marker, "native initialization failures must propagate unchanged")

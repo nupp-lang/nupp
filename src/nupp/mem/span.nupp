@@ -25,8 +25,8 @@ reach the raw pointer it holds. Indexing and slicing check that count first.
 ## Creating a shared span
 
 `fromcarray(source, count)` borrows a C array and records its logical element
-count. `fromstring(source)` creates the byte-specialized `ByteSpan`. Both keep
-their source rooted for the lifetime of the view.
+count. `fromstring(source)` returns `Span<uint8>`. Both keep their source
+rooted for the lifetime of the view.
 
 ```nupp
 local span = binary.span
@@ -714,10 +714,6 @@ function FixedWriteSpanImpl.drop<T, const N: integer>(takes self: FixedWriteSpan
     end
 end
 
---- The byte-specialized shared view, which is what `fromstring` returns.
---- @export
-type span.ByteSpan = span.Span<uint8>
-
 --- The byte-specialized write range.
 --- @export
 type span.ByteWriteSpan = span.WriteSpan<uint8>
@@ -733,18 +729,18 @@ type span.ByteWriteSpan = span.WriteSpan<uint8>
 --- @param source the string the view reads, rooted for the view's lifetime
 --- @return the byte view, borrowed from the string
 --- @export
-function span.fromString(borrows source: string): span.ByteSpan borrows (source)
+function span.fromString(borrows source: string): span.Span<uint8> borrows (source)
     local pointer = physical.borrowString(source)
-    return (SpanImpl(anchor = source, pointer = pointer as any, offset = 0, count = #source)) as span.ByteSpan
+    return (SpanImpl(anchor = source, pointer = pointer as any, offset = 0, count = #source)) as span.Span<uint8>
 end
 
--- Private constructor for engine-owned bytes: [](io.Bytes) reaches
+-- Private constructor for engine-owned bytes: [](io.SharedBytes) reaches
 -- it to lend a checked view over a region's storage, anchored on the region so
 -- the storage outlives every read. Only this module can construct the sealed
 -- implementation, which is why the hook lives here.
-local function foreignByteSpan(anchor: any, pointer: any, offset: integer, count: integer): span.ByteSpan
+local function foreignByteSpan(anchor: any, pointer: any, offset: integer, count: integer): span.Span<uint8>
     local typed = physical.castBytes(pointer)
-    return (SpanImpl(anchor = anchor, pointer = typed as any, offset = offset, count = count)) as span.ByteSpan
+    return (SpanImpl(anchor = anchor, pointer = typed as any, offset = offset, count = count)) as span.Span<uint8>
 end
 
 rawset(span as table, "__foreignByteSpan", foreignByteSpan)

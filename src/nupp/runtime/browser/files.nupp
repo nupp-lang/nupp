@@ -347,7 +347,7 @@ local record File is io.Reader, io.Writer
         return true, nil
     end
 
-    function writespan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows source: span.Span<uint8>): (integer?, string?)
         if self._closed then
             return nil, "the file is closed"
         end
@@ -536,7 +536,7 @@ local function wholeWrite(path: any, bytes: any, mode: messages.Mode): (boolean,
             error("nupp: io contents must be a string or byte span", 3)
         end
         local moved: integer?
-        moved, failure = file:writespan(bytes as span.ByteSpan)
+        moved, failure = file:writespan(bytes as span.Span<uint8>)
         wrote = moved ~= nil and moved == count
     end
     file:close()

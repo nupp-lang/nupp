@@ -578,7 +578,13 @@ end
 function M.standardLibraryRootsSharePrivateImplementationOnlyWithEachOther()
     withProject({["src/app/main.nupp"] = "module app.main\n"}, function(dir)
         local env = projectEnv(dir)
-        for _, consumer in ipairs({"nupp.tools.consumer", "serde.json", "binary.Digest", "coroutine.workers"}) do
+        for _, consumer in ipairs({
+            "nupp.tools.consumer",
+            "serde.json",
+            "binary.Digest",
+            "coroutine.workers",
+            "table"
+        }) do
             for _, implementation in ipairs({
                 "nupp.serde.internal.value",
                 "serde.internal.codec",
@@ -602,6 +608,28 @@ function M.standardLibraryRootsSharePrivateImplementationOnlyWithEachOther()
             env.moduleAccess(env, "serde.json", "library.internal.hidden"),
             "stdlib must not import another package's internals"
         )
+    end)
+end
+
+function M.theNuppImplementationRootIsInternalAcrossStandardRoots()
+    withProject({["src/app.nupp"] = "module app\n"}, function(dir)
+        local env = projectEnv(dir)
+        for _, name in ipairs({"nupp", "nupp.array", "nupp.tasks", "nupp.compiler.types", "nupp.workers.contracts"}) do
+            local reason = env.moduleAccess(env, "app", name)
+            assert(reason and reason:find("internal", 1, true), name)
+            testAssert.eq(env.moduleAccess(env, "coroutine", name), nil)
+        end
+        for _, name in ipairs({"table", "io", "coroutine", "simd", "binary.span", "io.http"}) do
+            testAssert.eq(env.moduleAccess(env, "app", name), nil)
+        end
+        local filename = dir .. "/src/app.nupp"
+        local source = [[
+module app
+local function consume(...: unpackof nupp.workers.contracts.Submitted(function(string): nil)): nil end
+]]
+        local diags = check.check(parser.parse(source, filename), filename, env)
+        local denied = diagnosticContaining(diags, "is internal to package namespace")
+        assert(denied and denied.code == "NUPP2144", "type-position calls must respect internal modules")
     end)
 end
 
@@ -660,13 +688,13 @@ end
 function M.privateParentFilesKeepPublicChildrenAndCanonicalTypeOwners()
     withProject(
         {
-            ["src/nupp/io.nupp"] = "@!internal\nmodule nupp.io\nexport record Token value: integer end\n",
-            ["src/nupp/io/child.nupp"] = "module nupp.io.child\nexport const answer: integer = 29\n",
+            ["src/library/model.nupp"] = "@!internal\nmodule library.model\nexport record Token value: integer end\n",
+            ["src/library/model/child.nupp"] = "module library.model.child\nexport const answer: integer = 29\n",
             [
-                "src/io/facade.nupp"
+                "src/library/facade.nupp"
             ] = [[
-module io.facade
-local implementation = require("nupp.io")
+module library.facade
+local implementation = require("library.model")
 export type Token = implementation.Token
 export const Token = implementation.Token
 ]],
@@ -674,8 +702,8 @@ export const Token = implementation.Token
                 "src/app.nupp"
             ] = [[
 module app
-local facade = require("io.facade")
-local process = require("nupp.io.child")
+local facade = require("library.facade")
+local process = require("library.model.child")
 export const token: facade.Token = facade.Token(value = process.answer)
 ]],
         },
@@ -685,20 +713,20 @@ export const token: facade.Token = facade.Token(value = process.answer)
             testAssert.eq(#index.registrationDiagnostics, 0)
             local code, problem = compile(dir .. "/src/app.nupp", env)
             assert(code, problem)
-            local origin = env.resolveModuleExports(env, "nupp.io")
-            local facade = env.resolveModuleExports(env, "io.facade")
+            local origin = env.resolveModuleExports(env, "library.model")
+            local facade = env.resolveModuleExports(env, "library.facade")
             testAssert.eq(facade.types.Token, origin.types.Token)
-            testAssert.eq(origin.types.Token.moduleName, "nupp.io")
+            testAssert.eq(origin.types.Token.moduleName, "library.model")
             for _, source in ipairs({
-                'module app\nlocal old = require("nupp.io")\n',
-                'module app\nlocal old = nupp.io.Token\n',
+                'module app\nlocal old = require("library.model")\n',
+                'module app\nlocal old = library.model.Token\n',
             }) do
                 local parsed = parser.parse(source, dir .. "/src/app.nupp")
                 local diags = check.check(parsed, dir .. "/src/app.nupp", env)
                 local denied = diagnosticContaining(diags, "is internal to package namespace")
                 assert(denied and denied.code == "NUPP2144")
             end
-            testAssert.eq(env.moduleAccess(env, "app", "nupp.io.child"), nil)
+            testAssert.eq(env.moduleAccess(env, "app", "library.model.child"), nil)
         end
     )
 end

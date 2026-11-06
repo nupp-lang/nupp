@@ -2932,7 +2932,7 @@ const io = require("io")
 local function copy(borrows source: io.Reader, exclusive target: io.Buffer): nil
     source:readinto(target, 0, 16)
 end
-local function write(exclusive target: io.Writer, borrows source: binary.span.ByteSpan): nil
+local function write(exclusive target: io.Writer, borrows source: binary.span.Span<uint8>): nil
     target:writespan(source)
 end
 ]]

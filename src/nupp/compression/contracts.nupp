@@ -14,7 +14,7 @@ its catalog key.
 ]]
 module nupp.compression.contracts
 
-local {type ByteSpan, type ByteWriteSpan} = require("binary.span")
+local {type Span, type ByteWriteSpan} = require("binary.span")
 
 --- Canonical native compression names and their ABI format identifiers.
 export const formatids: {@readonly [string]: integer} = {gzip = 1, zlib = 2, ["deflate-raw"] = 3}
@@ -40,7 +40,7 @@ export interface Encoder is own.Closeable
     --- input; `needoutput` fills the whole output span.
     write: function(
         exclusive self: Encoder,
-        borrows input: ByteSpan,
+        borrows input: Span<uint8>,
         exclusive output: ByteWriteSpan
     ): (integer?, integer?, integer?, string?)
 
@@ -62,7 +62,7 @@ export interface Decoder is own.Closeable
     --- input; `needoutput` fills the output; `finished` completes the stream.
     read: function(
         exclusive self: Decoder,
-        borrows input: ByteSpan,
+        borrows input: Span<uint8>,
         exclusive output: ByteWriteSpan
     ): (integer?, integer?, integer?, string?)
 

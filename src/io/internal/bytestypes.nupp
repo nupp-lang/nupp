@@ -4,9 +4,9 @@ Shared-byte regions retain immutable engine-owned storage.
 They require the Nupp engine host supplied by a stamped binary.
 
 ```nupp
-const Bytes = io.Bytes
+const SharedBytes = io.SharedBytes
 
-const region = Bytes.copy("hello, region")
+const region = SharedBytes.copy("hello, region")
 const hello = region:slice(0, 5)
 assert(hello:len() == 5 and hello:tostring() == "hello")
 ```
@@ -28,7 +28,7 @@ buffer:put("ABCDE", "!")
 assert(buffer:freeze():tostring() == "ABCDE!")
 ```
 
-`io.Bytes` is transitional. Shared long strings replace it when workers can
+`io.SharedBytes` is transitional. Shared long strings replace it when workers can
 share string storage; use strings for immutable bytes that stay in one lane.
 ]]
 module io.internal.bytestypes
@@ -48,40 +48,42 @@ end
 --- An immutable extent of an engine-owned block. Crossing a worker boundary
 --- moves a reference, never the bytes; reading happens in place through a
 --- borrowed byte view, and `tostring` is the one explicit copy into a Lua state.
-export record Bytes
+export record SharedBytes
     --- Copies text into immutable engine-owned bytes.
-    copy: function(text: string): Bytes
+    copy: function(text: string): SharedBytes
 
     --- Reads a whole file directly into immutable engine-owned bytes.
-    readfile: function(path: string): (Bytes?, string?)
+    readfile: function(path: string): (SharedBytes?, string?)
 
     @private _handle: any
     @private _first: integer
     @private _length: integer
 
     --- How many bytes the region holds.
-    len: @nosuspend function(Bytes): integer
+    len: @nosuspend function(SharedBytes): integer
 
     --- A zero-copy region over `count` bytes starting `offset` bytes into this one.
-    slice: function(Bytes, integer, integer): Bytes
+    slice: function(SharedBytes, integer, integer): SharedBytes
 
     --- A read-only borrowed view over `count` bytes starting `offset` bytes in,
     --- the whole region by default.
-    view: function(borrows self: Bytes, integer?, integer?): span.ByteSpan borrows (self)
+    view: function(borrows self: SharedBytes, integer?, integer?): span.Span<uint8> borrows (self)
 
     --- A checked zero-copy view of the complete region as physical elements.
-    viewas: function<T>(borrows self: Bytes, ctype<T>): span.Span<T> borrows (self)
+    viewas: function<T>(borrows self: SharedBytes, ctype<T>): span.Span<T> borrows (self)
 
     --- The region's bytes copied and interned as an ordinary string.
-    tostring: @nosuspend function(Bytes): string
+    tostring: @nosuspend function(SharedBytes): string
 end
 
-function Bytes.copy(text: string): Bytes
-    local create: function(string): Bytes = implementation("io.internal.sharedbytes").Bytes.copy
+function SharedBytes.copy(text: string): SharedBytes
+    local create: function(string): SharedBytes = implementation("io.internal.sharedbytes").SharedBytes.copy
     return create(text)
 end
 
-function Bytes.readfile(path: string): (Bytes?, string?)
-    local read: function(string): (Bytes?, string?) = implementation("io.internal.sharedbytes").Bytes.readfile
+function SharedBytes.readfile(path: string): (SharedBytes?, string?)
+    local read: function(
+        string
+    ): (SharedBytes?, string?) = implementation("io.internal.sharedbytes").SharedBytes.readfile
     return read(path)
 end

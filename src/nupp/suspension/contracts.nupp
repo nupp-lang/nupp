@@ -54,7 +54,7 @@ end
 --- A subscription may use an existing Source or create a scoped one.
 export record Context
     --- Registers a source associated with this subscription, as
-    --- [](nupp.suspension.contracts.Provider.source) registers one outside any.
+    --- [](coroutine.sus.source) registers one outside any.
     source: function(
         self: Context,
         name: string,

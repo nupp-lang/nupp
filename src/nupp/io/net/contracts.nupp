@@ -73,7 +73,7 @@ export interface Provider
     --- Accepted bytes may remain queued; pending reports their outstanding count.
     @readonly write: function(self: Provider, stream: any, bytes: string): (integer?, string?)
 
-    @readonly writespan: (function(self: Provider, stream: any, borrows source: span.ByteSpan): (integer?, string?))?
+    @readonly writespan: (function(self: Provider, stream: any, borrows source: span.Span<uint8>): (integer?, string?))?
 
     --- Returns bytes accepted for writing that have not yet drained.
     @readonly pending: function(self: Provider, stream: any): integer

@@ -95,9 +95,9 @@ owns the module. The owner is its first canonical segment: `paint` owns
 namespace, such as `app`, cannot statically require their internal modules or
 name their values or types through qualified paths (`NUPP2144`).
 
-The standard library is one package with several public roots. Its `nupp`,
-`serde`, and `binary` modules share private implementations; application
-modules cannot import those implementations.
+The standard library is one package with several public roots. Modules such as
+`serde`, `binary`, `io`, and `table` share private implementations under `nupp`;
+application modules cannot import those implementations.
 
 An `internal` segment and an underscored module basename also mark a module
 internal. On `init.nupp`, `@!internal` applies to the namespace and every
@@ -199,7 +199,7 @@ directly:
 ```nupp
 module app.read
 
-export function view(borrows text: string): binary.span.ByteSpan borrows (text)
+export function view(borrows text: string): binary.span.Span<uint8> borrows (text)
     return binary.span.fromstring(text)
 end
 ```
@@ -207,8 +207,8 @@ end
 The compiler resolves the longest registered module prefix. The remaining
 segments must be exported members; a miss is diagnosed rather than falling back
 to `any`. The facility is generic, so dependency roots such as
-`tecs.world.query.each(...)` work the same way as `nupp`. See [](binary.span)
-for the module the example names.
+`tecs.world.query.each(...)` work the same way as `binary.span`. See
+[](binary.span) for the module the example names.
 
 A lexical binding wins:
 

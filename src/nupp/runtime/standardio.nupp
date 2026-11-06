@@ -23,7 +23,7 @@ client.
 
 Buffers, views, readers, writers, and their adapters are owners. A factory that
 takes a reader or writer transfers its close obligation to the adapter; a
-factory that borrows a buffer or byte queue leaves that value with its caller.
+factory that borrows a buffer leaves that value with its caller.
 `close` consumes an owner. Types that expose `isreleased` report their state
 without changing it.
 
@@ -51,17 +51,17 @@ module nupp.runtime.standardio
 
 local immutable = require("io.internal.bytestypes")
 
---- Immutable engine-owned bytes, shared across worker lanes without copying.
+--- Immutable bytes shared across workers without copying.
 ---
 --- Slices retain the same allocation. Positions are zero-based byte offsets; `view` and
 --- `viewas` borrow storage, while `tostring` copies it into a Lua string. `copy`
 --- creates bytes from a string and `readfile` reads directly into storage.
 --- `Buffer:freeze()` consumes a buffer and copies its unread bytes into a region.
 --- These operations require the engine host supplied by a stamped binary.
---- `Bytes` becomes `string` when workers can share long-string storage.
-export type Bytes = immutable.Bytes
+--- `SharedBytes` becomes `string` when workers can share long-string storage.
+export type SharedBytes = immutable.SharedBytes
 
-export const Bytes = immutable.Bytes
+export const SharedBytes = immutable.SharedBytes
 
 local source1 = require("nupp.io")
 const {type Path as PathType} = require("io.internal.pathtypes")
@@ -209,7 +209,6 @@ end
 export type Buffer = source1.Buffer
 export const Buffer = source1.Buffer
 export type BufferWriteLease = source1.BufferWriteLease
-export type ByteQueue = source1.ByteQueue
 export type Error = source1.Error
 export type Lines = source1.Lines
 export type Reader = source1.Reader
@@ -569,7 +568,7 @@ end
 
 --- @internal
 export const value: table = do
-    original.Bytes = Bytes
+    original.SharedBytes = SharedBytes
     original.URI = URI
     original.validateuri = validateuri
     original.cwd = cwd

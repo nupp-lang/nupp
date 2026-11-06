@@ -46,7 +46,7 @@ export interface Provider
     @readonly write: function(Provider, any, string): (integer, boolean)
 
     @readonly readspan: (function(self: Provider, stream: any, exclusive destination: span.ByteWriteSpan): integer?)?
-    @readonly writespan: (function(self: Provider, stream: any, borrows source: span.ByteSpan): (integer, boolean))?
+    @readonly writespan: (function(self: Provider, stream: any, borrows source: span.Span<uint8>): (integer, boolean))?
 
     --- Releases a pipe handle; repeated release must be harmless.
     @readonly closestream: function(Provider, any): (boolean, string?)

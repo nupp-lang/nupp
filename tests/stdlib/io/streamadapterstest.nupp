@@ -3,7 +3,6 @@ const assert2 = require("assert")
 const {type Reader} = require("io")
 const {type Buffer} = require("io")
 const {type Writer} = require("io")
-const {type ByteQueue} = require("io")
 const io2 = require("io")
 
 local text = require("io")
@@ -104,7 +103,7 @@ local record ProbeWriter is Writer
         return true
     end
 
-    function writespan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows source: span.Span<uint8>): (integer?, string?)
         return #source
     end
 
@@ -119,41 +118,6 @@ local record ProbeWriter is Writer
     function close(takes self): nil
         self.state.closes = self.state.closes + 1
     end
-end
-
-local record BrokenQueue is ByteQueue
-    reported: integer
-    answer: string
-
-    metamethod __len: function(self: BrokenQueue): integer
-    get: function(self: BrokenQueue, ...: integer?): string
-end
-
-local record NamedQueue is ByteQueue
-    bytes: string
-    read: boolean
-
-    metamethod __len: function(self: NamedQueue): integer
-    get: function(self: NamedQueue, ...: integer?): string
-end
-
-function NamedQueue.__len(self: NamedQueue): integer
-    return #self.bytes
-end
-
-function NamedQueue.get(self: NamedQueue, ...: integer?): string
-    local count = (...) or #self.bytes
-    local out = self.bytes:sub(1, count)
-    self.bytes = self.bytes:sub(#out + 1)
-    return out
-end
-
-function BrokenQueue.__len(self: BrokenQueue): integer
-    return self.reported
-end
-
-function BrokenQueue.get(self: BrokenQueue, ...: integer?): string
-    return self.answer
 end
 
 function M.roundTripsEveryCScalar(): nil
@@ -348,20 +312,18 @@ function M.defaultAdaptersValidateBeforeConsumingAndMoveEverything(): nil
     assert2(state.closes == 1)
 end
 
-function M.scalarReadersHonorTheByteQueueContract(): nil
-    local named = NamedQueue(bytes = "xy", read = true)
-    local reader = io2.Reader.of(named):scalar()
-    assert2(reader:readbytes(1) == "x")
-    assert2(named.bytes == "y")
-
-    local broken = io2.Reader.of(BrokenQueue(reported = 2, answer = "xyz")):scalar()
-    local ok, reason = pcall(function(): nil
-        broken:readbytes(1)
-    end)
-    assert2(not ok and tostring(reason):find("wrong byte count", 1, true) ~= nil)
+function M.scalarReadersConsumeBuffersWithoutClosingThem(): nil
+    local buffer = io2.Buffer.create("xy")
+    do
+        local reader = buffer:reader():scalar()
+        assert2(reader:remaining() == 2)
+        assert2(reader:readbytes(1) == "x")
+        assert2(reader:remaining() == 1)
+    end
+    assert2(buffer:tostring() == "y")
 end
 
-function M.rejectsInvalidRangesAndMalformedByteQueues(): nil
+function M.rejectsInvalidRangesAndQueueAdapters(): nil
     local buffer = io2.Buffer.create("abc")
     assert2(
         not pcall(function(): nil
@@ -388,17 +350,17 @@ function M.rejectsInvalidRangesAndMalformedByteQueues(): nil
         end)
     )
 
-    local reader = io2.Reader.of(BrokenQueue(reported = 2, answer = "x"))
+    local queue = {
+        get = function(): string
+            return "x"
+        end
+    }
+    local open: any = rawget(io2.Reader as table, "of")
     local ok, reason = pcall(function(): nil
-        reader:read(2)
+        local reader = open(queue)
+        reader:close()
     end)
-    assert2(not ok and tostring(reason):find("wrong byte count", 1, true) ~= nil)
-
-    local negative = io2.Reader.of(BrokenQueue(reported = -1, answer = ""))
-    ok, reason = pcall(function(): nil
-        negative:read(1)
-    end)
-    assert2(not ok and tostring(reason):find("ByteQueue length", 1, true) ~= nil)
+    assert2(not ok and tostring(reason):find("io.Reader.of needs", 1, true) ~= nil)
 
     local scalar = io2.Reader.of("x"):scalar()
     ok, reason = pcall(function(): nil

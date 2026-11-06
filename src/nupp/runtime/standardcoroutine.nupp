@@ -81,6 +81,15 @@ end
 --- The returned [](coroutine.Task) represents its running job.
 export type Worker = workerContract.Worker
 
+--- Describes a task body that takes no arguments.
+export type Nullary = source1.Nullary
+
+--- Returns a child task's argument pack after validating ownership modes.
+export const Parameters = workerContract.Parameters
+
+--- Returns a worker function's argument pack after validating transfers.
+export const Submitted = workerContract.Submitted
+
 export type Cancellation = source1.Cancellation
 export type Scope = source1.Scope
 export type Status = source1.Status

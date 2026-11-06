@@ -13,7 +13,11 @@ local ROOTS = {
     -- at startup on the VM, so a read of `warn` loads it.
     warn = {module = "warn", direct = true},
     assert = {module = "assert", direct = true},
-    table = {module = "nupp.runtime.standardtable", members = {move = true, Pool = true, Array = true,}},
+    table = {
+        module = "nupp.runtime.standardtable",
+        members = {move = true, Pool = true, Array = true},
+        namespaces = {Array = "nupp.array.internal.api"},
+    },
     io = {
         module = "nupp.runtime.standardio",
         replace = {popen = true, open = true, lines = true, input = true, output = true},
@@ -21,7 +25,7 @@ local ROOTS = {
             URI = true,
             Path = true,
             Buffer = true,
-            Bytes = true,
+            SharedBytes = true,
             validateuri = true,
             cwd = true,
             sep = true,
@@ -39,6 +43,8 @@ local ROOTS = {
         module = "nupp.runtime.standardcoroutine",
         members = {
             Cancellation = true,
+            Submitted = true,
+            Parameters = true,
             Scope = true,
             scope = true,
             checkpoint = true,
@@ -267,6 +273,15 @@ function extensions.type(c: any, root: string): any
             if exports.typeDefs then
                 env.globalTypeDefs[root .. "." .. name] = exports.typeDefs[name]
             end
+        end
+    end
+    for name, moduleName in pairs(specification.namespaces or {}) do
+        local path = root .. "." .. name
+        local nested = env.resolveModuleExports and env.resolveModuleExports(env, moduleName)
+        published[path] = nested
+        for typeName, value in pairs(nested and nested.types or {}) do
+            env.globalTypes[path .. "." .. typeName] = value
+            env.globalTypeDefs[path .. "." .. typeName] = nested.typeDefs and nested.typeDefs[typeName]
         end
     end
     pending[root] = merged
