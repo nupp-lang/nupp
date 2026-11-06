@@ -5002,7 +5002,8 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(
         module:find(
             '<li class="nuppdoc-outline-section"><details open><summary>'
-            .. '<a href="#functions" title="Functions">Functions</a></summary><ol><li>'
+            .. '<a href="#functions" title="Functions">Functions</a></summary><ol>'
+            .. '<li class="nuppdoc-outline-function">'
             .. '<a href="#math.add" title="add">add</a>',
             1,
             true

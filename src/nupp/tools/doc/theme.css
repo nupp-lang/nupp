@@ -1830,23 +1830,8 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
         font-size: 1rem
     }
 
-    .nuppdoc-sidebar li>a,
-    .nuppdoc-sidebar summary {
-        display: flex;
-        align-items: center;
-        min-height: 44px
-    }
-
     .nuppdoc-sidebar summary {
         padding-right: 2rem
-    }
-
-    .nuppdoc-sidebar :is(.nuppdoc-sidebar-section, .nuppdoc-module-branch)>details>summary>a {
-        display: flex;
-        align-items: center;
-        flex: 1;
-        min-height: 44px;
-        padding: 0
     }
 
     .is-mobile-nav-open .nuppdoc-sidebar {
@@ -1894,6 +1879,16 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 @media(max-width:760px) {
     .nuppdoc-mobile-outline-toggle {
         display: grid
+    }
+
+    .nuppdoc-outline ol.nuppdoc-outline-columns {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        column-gap: 16px
+    }
+
+    .nuppdoc-outline-columns > li:not(.nuppdoc-outline-function) {
+        grid-column: 1 / -1
     }
 
     .nuppdoc-outline,

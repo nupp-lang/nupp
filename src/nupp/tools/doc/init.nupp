@@ -1780,7 +1780,12 @@ memberOutline = function(members: {extractMod.Member}?): {pageMod.Entry}?
     for _, member in ipairs(members or {}) do
         entries[
             #entries + 1
-        ] = pageMod.Entry(path = member.path, name = member.name, items = memberOutline(member.members))
+        ] = pageMod.Entry(
+            path = member.path,
+            name = member.name,
+            items = memberOutline(member.members),
+            column = member.isFunction
+        )
     end
 
     return #entries > 0 and entries or nil
@@ -1915,7 +1920,12 @@ local function renderSite(root, outDir, modules, title, settings, standardLibrar
                     for _, item in ipairs(group.items) do
                         entries[
                             #entries + 1
-                        ] = pageMod.Entry(path = item.path, name = item.name, items = memberOutline(item.members))
+                        ] = pageMod.Entry(
+                            path = item.path,
+                            name = item.name,
+                            items = memberOutline(item.members),
+                            column = item.kind == "function"
+                        )
                     end
                     items[
                         #items + 1
