@@ -45,7 +45,7 @@ end
 
 -- Initialization, cursor operations, idempotent release, and zeroed pool reuse.
 export function basics(kind: uint64): uint64
-    local state = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local state = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
     local copied = storage.CopyStats(0ULL)
     local answer: uint64 = 0ULL
     do
@@ -91,8 +91,8 @@ end
 -- Invalid extents and exhausted-arena backing refusal preserve every field and
 -- initialized byte. Exhaustion is bounded and deterministic, not an OS OOM probe.
 export function rollback(): uint64
-    local state = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
-    local other = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local state = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local other = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
     local copied = storage.CopyStats(0ULL)
     local answer: uint64 = 0ULL
     do
@@ -171,7 +171,7 @@ export function rollback(): uint64
 end
 
 export function overlap(direction: uint64): uint64
-    local state = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local state = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
     local copied = storage.CopyStats(0ULL)
     local answer: uint64 = 0ULL
     do
@@ -204,7 +204,7 @@ end
 -- Aliased appends both within capacity and across growth, with exact copy
 -- accounting when enabled and a real null stats pointer otherwise.
 export function aliased(grow: uint64, tracked: uint64): uint64
-    local state = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local state = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
     local copied = storage.CopyStats(0ULL)
     local answer: uint64 = 0ULL
     do

@@ -1,0 +1,98 @@
+module nupp.core.bufferstoragefaultunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const os = require("nupp.runtime.vm.os")
+const storage = require("nupp.runtime.core.storage")
+const pages = require("nupp.runtime.core.pagemappings")
+const MAXIMUM: uint64 = 0xffffffffffffffffULL
+const FIXTURE_CAPACITY: uint64 = 131ULL
+const FAILURE: uint64 = 22ULL
+
+local function miss(ok: boolean): uint64
+    if ok then
+        return 0ULL
+    end
+    return 1ULL
+end
+
+-- Actual imported map returns zero for this exact physical extent.
+export function maprefusal(): uint64
+    local descriptor = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local copies = storage.CopyStats(0ULL)
+    @unsafe do
+        local s = descriptor as storage.Storage*
+        local stats = copies as storage.CopyStats*
+        local capacity = 17ULL * os.pageSize() - native.sizeOf<pages.SharedBacking>()
+        local wrong = miss(storage.bufferinitialize(s, 1ULL, capacity) == storage.OK)
+        wrong = wrong + miss(storage.bufferstart(s, 0ULL, 1ULL, stats, MAXIMUM) == storage.NO_MEMORY)
+        wrong = wrong + miss(s.block == 0ULL and s.base == 0ULL and s.len == 0ULL and s.cap == capacity)
+        wrong = wrong + miss(s.generation == 0ULL and s.writer == 0ULL and s.pending == 0ULL and stats.bytes == 0ULL)
+        wrong = wrong + miss(storage.bufferclose(s) == storage.OK)
+        return wrong
+    end
+end
+
+-- Actual imported unmap consumes the old mapping and returns errno22. The
+-- new tuple survives; its predecessor is never retried or stored as pending.
+export function cleanup(): uint64
+    local descriptor = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local copies = storage.CopyStats(0ULL)
+    @unsafe do
+        local s = descriptor as storage.Storage*
+        local stats = copies as storage.CopyStats*
+        local wrong = miss(storage.bufferinitialize(s, 1ULL, FIXTURE_CAPACITY) == storage.OK)
+        if storage.bufferstart(s, 0ULL, 1ULL, stats, MAXIMUM) ~= storage.OK then
+            error("buffer faults: initial allocation")
+        end
+        native.store8(native.pointer(s.base), 0, 42ULL)
+        wrong = wrong + miss(storage.buffercommit(s, s.writer, 0ULL, 1ULL, 1ULL) == storage.OK)
+        local before = s.block
+        local generation = s.generation
+        wrong = wrong + miss(storage.bufferreserve(s, 300ULL, stats, MAXIMUM) == storage.CLEANUP_FAILED)
+        wrong = wrong + miss(s.block ~= before and s.pending == 0ULL and s.error == FAILURE)
+        wrong = wrong + miss(
+            s.cap == 300ULL and s.len == 1ULL and s.generation == generation + 1ULL and s.writer == 0ULL
+        )
+        wrong = wrong + miss(native.word(native.load8(native.pointer(s.base), 0)) == 42ULL and stats.bytes == 1ULL)
+        wrong = wrong + miss(storage.bufferfinish(s) == storage.OK and storage.bufferfinish(s) == storage.OK)
+        wrong = wrong + miss(
+            storage.bufferreset(s) == storage.OK and s.block == 0ULL and s.pending == 0ULL and s.error == FAILURE
+        )
+        wrong = wrong + miss(storage.bufferack(s) == FAILURE and s.error == 0ULL and storage.bufferack(s) == 0ULL)
+        wrong = wrong + miss(storage.bufferclose(s) == storage.OK and storage.bufferclose(s) == storage.OK)
+        return wrong
+    end
+end
+
+-- Corrupt only the test reference count to exercise a recoverable INVALID.
+-- Restoring that count returns the same still-owned cleanup authority.
+export function pending(): uint64
+    local descriptor = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local copies = storage.CopyStats(0ULL)
+    @unsafe do
+        local s = descriptor as storage.Storage*
+        local stats = copies as storage.CopyStats*
+        local wrong = miss(storage.bufferinitialize(s, 1ULL, FIXTURE_CAPACITY) == storage.OK)
+        if storage.bufferstart(s, 0ULL, 1ULL, stats, MAXIMUM) ~= storage.OK then
+            error("buffer faults: pending allocation")
+        end
+        native.store8(native.pointer(s.base), 0, 43ULL)
+        wrong = wrong + miss(storage.buffercommit(s, s.writer, 0ULL, 1ULL, 1ULL) == storage.OK)
+        local before = s.block
+        local generation = s.generation
+        wrong = wrong + miss(pages.sharedcompare(native.pointer(before), 1ULL, 0ULL) == 1ULL)
+        wrong = wrong + miss(storage.bufferreserve(s, 300ULL, stats, MAXIMUM) == storage.INVALID)
+        wrong = wrong + miss(s.block ~= before and s.pending == before and s.generation == generation + 1ULL)
+        wrong = wrong + miss(s.cap == 300ULL and s.len == 1ULL and s.writer == 0ULL and s.error == 0ULL)
+        wrong = wrong + miss(storage.bufferfinish(s) == storage.INVALID and s.pending == before)
+        wrong = wrong + miss(storage.bufferreset(s) == storage.INVALID and s.pending == before and s.len == 1ULL)
+        s.error = FAILURE
+        wrong = wrong + miss(storage.bufferack(s) == 0ULL and s.error == FAILURE)
+        wrong = wrong + miss(pages.sharedcompare(native.pointer(before), 0ULL, 1ULL) == 0ULL)
+        wrong = wrong + miss(storage.bufferfinish(s) == storage.OK and s.pending == 0ULL)
+        wrong = wrong + miss(storage.bufferack(s) == FAILURE and s.error == 0ULL)
+        wrong = wrong + miss(native.word(native.load8(native.pointer(s.base), 0)) == 43ULL)
+        wrong = wrong + miss(storage.bufferclose(s) == storage.OK)
+        return wrong
+    end
+end

@@ -218,11 +218,7 @@ export function newstorage(h: heap.Heap*, kind: uint64, n: uint64): uint64
             return 0ULL
         end
         local d = native.pointer(address) as storage.Storage*
-        d.base = 0ULL
-        d.len = 0ULL
-        d.cap = 0ULL
-        d.read = 0ULL
-        d.kind = 0ULL
+        storage.clear(d)
         local bytes = n * width
         if storage.initialize(h, d, kind, bytes, bytes) ~= storage.OK then
             backing.wordBackingRelease(address)

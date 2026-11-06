@@ -1,0 +1,229 @@
+module nupp.core.bufferstorageunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const storage = require("nupp.runtime.core.storage")
+const shared = require("nupp.runtime.core.sharedbacking")
+const pages = require("nupp.runtime.core.pagemappings")
+const MAXIMUM: uint64 = 0xffffffffffffffffULL
+
+local function miss(ok: boolean): uint64
+    if ok then
+        return 0ULL
+    end
+    return 1ULL
+end
+
+local function filled(s: storage.Storage*, count: uint64, stats: storage.CopyStats*): boolean
+    @unsafe do
+        if storage.bufferstart(s, 0ULL, count, stats, MAXIMUM) ~= storage.OK then
+            return false
+        end
+        local i: uint64 = 0ULL
+        while i < count do
+            native.store8(native.pointer(s.base), native.index(i), i + 1ULL)
+            i = i + 1ULL
+        end
+        return storage.buffercommit(s, s.writer, 0ULL, count, count) == storage.OK
+    end
+end
+
+export function cow(): uint64
+    local descriptor = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local copies = storage.CopyStats(0ULL)
+    local ticket = shared.TicketResult(0ULL)
+    local status = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local s = descriptor as storage.Storage*
+        local held = ticket as shared.TicketResult*
+        local stats = copies as storage.CopyStats*
+        local wrong = miss(storage.bufferinitialize(s, 1ULL, 512ULL) == storage.OK)
+        wrong = wrong + miss(s.base == 0ULL and s.block == 0ULL and s.cap == 512ULL)
+        if not filled(s, 200ULL, stats) then
+            error("buffer units: initial fill")
+        end
+        wrong = wrong + miss(storage.bufferconsume(s, 50ULL) == storage.OK)
+        local before = s.block
+        local oldbase = s.base
+        wrong = wrong + miss(
+            shared.ticketacquire(
+                ticket as shared.TicketResult*,
+                native.pointer(before),
+                0ULL,
+                200ULL
+            ) == shared.TICKET_OK
+        )
+        local generation = s.generation
+        wrong = wrong + miss(
+            storage.bufferstart(s, 0ULL, 1ULL, stats, shared.mapped(native.pointer(before))) == storage.NO_MEMORY
+        )
+        wrong = wrong + miss(
+            s.block == before and s.generation == generation and s.writer == 0ULL and stats.bytes == 0ULL
+        )
+        wrong = wrong + miss(storage.bufferstart(s, 0ULL, 1ULL, stats, MAXIMUM) == storage.OK)
+        wrong = wrong + miss(s.block ~= before and s.base ~= oldbase and stats.bytes == 200ULL)
+        wrong = wrong + miss(s.len == 200ULL and s.read == 50ULL and s.cap == 512ULL)
+        wrong = wrong + miss(native.word(native.load8(native.pointer(s.base), 199)) == 200ULL)
+        native.store8(native.pointer(s.base), 0, 255ULL)
+        wrong = wrong + miss(storage.buffercommit(s, s.writer, 0ULL, 1ULL, 1ULL) == storage.OK)
+        wrong = wrong + miss(native.word(native.load8(native.pointer(oldbase), 0)) == 1ULL)
+        wrong = wrong + miss(native.word(native.load8(native.pointer(oldbase), 199)) == 200ULL)
+        wrong = wrong + miss(native.word(native.load8(native.pointer(s.base), 200)) == 0ULL)
+        wrong = wrong + miss(shared.ticketrelease(status as pages.Scope*, held.ticket) == shared.RELEASED)
+        wrong = wrong + miss(storage.bufferclose(s) == storage.OK and storage.bufferclose(s) == storage.OK)
+        return wrong
+    end
+end
+
+export function admission(): uint64
+    local descriptor = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local copies = storage.CopyStats(0ULL)
+    local ticket = shared.TicketResult(0ULL)
+    local other = shared.TicketResult(0ULL)
+    local status = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local s = descriptor as storage.Storage*
+        local held = ticket as shared.TicketResult*
+        local stats = copies as storage.CopyStats*
+        local wrong = miss(storage.bufferinitialize(s, 1ULL, 128ULL) == storage.OK)
+        if not filled(s, 64ULL, stats) then
+            error("buffer units: admission fill")
+        end
+        local before = s.block
+        wrong = wrong + miss(
+            shared.ticketacquire(
+                ticket as shared.TicketResult*,
+                native.pointer(before),
+                0ULL,
+                16ULL
+            ) == shared.TICKET_OK
+        )
+        wrong = wrong + miss(storage.bufferstart(s, 64ULL, 16ULL, stats, MAXIMUM) == storage.OK)
+        local token = s.writer
+        wrong = wrong + miss(before == s.block and stats.bytes == 0ULL)
+        wrong = wrong + miss(
+            shared.ticketacquire(
+                other as shared.TicketResult*,
+                native.pointer(before),
+                96ULL,
+                1ULL
+            ) == shared.TICKET_BUSY
+        )
+        storage.bufferdrop(s, 0ULL)
+        storage.bufferdrop(s, token + 1ULL)
+        wrong = wrong + miss(s.writer == token)
+        wrong = wrong + miss(storage.bufferreserve(s, 256ULL, stats, MAXIMUM) == storage.BUSY)
+        wrong = wrong + miss(storage.bufferreset(s) == storage.BUSY and storage.bufferclose(s) == storage.BUSY)
+        wrong = wrong + miss(
+            storage.bufferconsume(s, 1ULL) == storage.BUSY and storage.buffertruncate(s, 1ULL) == storage.BUSY
+        )
+        wrong = wrong + miss(storage.buffercommit(s, token + 1ULL, 64ULL, 16ULL, 1ULL) == storage.INVALID)
+        wrong = wrong + miss(
+            storage.buffercommit(s, token, 64ULL, 16ULL, 17ULL) == storage.INVALID and s.writer == token
+        )
+        native.store8(native.pointer(s.base), 64, 88ULL)
+        wrong = wrong + miss(storage.buffercommit(s, token, 64ULL, 16ULL, 1ULL) == storage.OK and s.len == 65ULL)
+        wrong = wrong + miss(storage.bufferstart(s, 96ULL, 0ULL, stats, MAXIMUM) == storage.OK)
+        storage.bufferdrop(s, token)
+        wrong = wrong + miss(s.writer ~= 0ULL)
+        wrong = wrong + miss(storage.buffercommit(s, s.writer, 96ULL, 0ULL, 0ULL) == storage.OK and s.len == 65ULL)
+        wrong = wrong + miss(storage.bufferreset(s) == storage.OK)
+        wrong = wrong + miss(
+            s.block == 0ULL and s.base == 0ULL and s.cap == 128ULL and s.len == 0ULL and s.read == 0ULL
+        )
+        wrong = wrong + miss(storage.bufferstart(s, 0ULL, 1ULL, stats, MAXIMUM) == storage.OK and s.block ~= before)
+        native.store8(native.pointer(s.base), 0, 222ULL)
+        wrong = wrong + miss(storage.buffercommit(s, s.writer, 0ULL, 1ULL, 1ULL) == storage.OK)
+        wrong = wrong + miss(native.word(native.load8(shared.bytes(native.pointer(before)), 0)) == 1ULL)
+        wrong = wrong + miss(shared.ticketrelease(status as pages.Scope*, held.ticket) == shared.RELEASED)
+        wrong = wrong + miss(storage.bufferclose(s) == storage.OK)
+        return wrong
+    end
+end
+
+export function shrinkgap(): uint64
+    local descriptor = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local copies = storage.CopyStats(0ULL)
+    local ticket = shared.TicketResult(0ULL)
+    local status = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local s = descriptor as storage.Storage*
+        local held = ticket as shared.TicketResult*
+        local stats = copies as storage.CopyStats*
+        local wrong = miss(storage.bufferinitialize(s, 1ULL, 128ULL) == storage.OK)
+        if not filled(s, 100ULL, stats) then
+            error("buffer units: shrink fill")
+        end
+        local before = s.block
+        wrong = wrong + miss(
+            shared.ticketacquire(
+                ticket as shared.TicketResult*,
+                native.pointer(before),
+                80ULL,
+                20ULL
+            ) == shared.TICKET_OK
+        )
+        wrong = wrong + miss(storage.bufferconsume(s, 70ULL) == storage.OK)
+        wrong = wrong + miss(storage.buffertruncate(s, 50ULL) == storage.OK and s.read == 50ULL and s.block == before)
+        wrong = wrong + miss(storage.bufferstart(s, 70ULL, 1ULL, stats, MAXIMUM) == storage.OK and s.block == before)
+        native.store8(native.pointer(s.base), 70, 211ULL)
+        wrong = wrong + miss(storage.buffercommit(s, s.writer, 70ULL, 1ULL, 1ULL) == storage.OK and s.len == 71ULL)
+        local i: uint64 = 50ULL
+        while i < 70ULL do
+            wrong = wrong + miss(native.word(native.load8(native.pointer(s.base), native.index(i))) == 0ULL)
+            i = i + 1ULL
+        end
+        wrong = wrong + miss(storage.bufferstart(s, 90ULL, 1ULL, stats, MAXIMUM) == storage.OK and s.block ~= before)
+        wrong = wrong + miss(stats.bytes == 71ULL)
+        native.store8(native.pointer(s.base), 90, 212ULL)
+        wrong = wrong + miss(storage.buffercommit(s, s.writer, 90ULL, 1ULL, 1ULL) == storage.OK and s.len == 91ULL)
+        wrong = wrong + miss(native.word(native.load8(shared.bytes(native.pointer(before)), 80)) == 81ULL)
+        wrong = wrong + miss(shared.ticketrelease(status as pages.Scope*, held.ticket) == shared.RELEASED)
+        wrong = wrong + miss(storage.bufferclose(s) == storage.OK)
+        return wrong
+    end
+end
+
+export function growth(): uint64
+    local descriptor = storage.Storage(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local copies = storage.CopyStats(0ULL)
+    local ticket = shared.TicketResult(0ULL)
+    local status = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local s = descriptor as storage.Storage*
+        local held = ticket as shared.TicketResult*
+        local stats = copies as storage.CopyStats*
+        local wrong = miss(storage.bufferinitialize(s, 1ULL, 64ULL) == storage.OK)
+        if not filled(s, 16ULL, stats) then
+            error("buffer units: growth fill")
+        end
+        local before = s.block
+        wrong = wrong + miss(
+            shared.ticketacquire(
+                ticket as shared.TicketResult*,
+                native.pointer(before),
+                0ULL,
+                16ULL
+            ) == shared.TICKET_OK
+        )
+        wrong = wrong + miss(storage.bufferconsume(s, 8ULL) == storage.OK)
+        local generation = s.generation
+        wrong = wrong + miss(storage.bufferreserve(s, 128ULL, stats, MAXIMUM) == storage.OK)
+        wrong = wrong + miss(
+            s.block ~= before and stats.bytes == 16ULL and s.len == 16ULL and s.read == 8ULL and s.cap == 128ULL
+        )
+        wrong = wrong + miss(s.generation == generation + 1ULL and s.writer == 0ULL)
+        wrong = wrong + miss(shared.ticketrelease(status as pages.Scope*, held.ticket) == shared.RELEASED)
+        wrong = wrong + miss(storage.bufferreset(s) == storage.OK and s.block == 0ULL and s.cap == 128ULL)
+        wrong = wrong + miss(
+            storage.bufferreserve(s, 256ULL, stats, MAXIMUM) == storage.OK and s.block == 0ULL and s.cap == 256ULL
+        )
+        s.generation = MAXIMUM
+        wrong = wrong + miss(storage.bufferstart(s, 0ULL, 1ULL, stats, MAXIMUM) == storage.INVALID)
+        wrong = wrong + miss(storage.bufferreset(s) == storage.INVALID)
+        wrong = wrong + miss(storage.bufferreserve(s, 512ULL, stats, MAXIMUM) == storage.INVALID)
+        wrong = wrong + miss(s.block == 0ULL and s.len == 0ULL and s.cap == 256ULL and s.writer == 0ULL)
+        wrong = wrong + miss(storage.bufferclose(s) == storage.OK)
+        wrong = wrong + miss(storage.bufferstart(s, 0ULL, 1ULL, stats, MAXIMUM) == storage.INVALID)
+        return wrong
+    end
+end

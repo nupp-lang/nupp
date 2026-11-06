@@ -91,6 +91,58 @@ end
 -- and cases of {function, arguments, expected result}.
 local UNITS = {
     {
+        name = "bufferstoragefaultunits",
+        modules = {"nupp.core.bufferstoragefaultunits", "unitentry", "nupp.runtime.core.storage"},
+        paths = {
+            [
+                "nupp.core.bufferstoragefaultunits"
+            ] = ROOT .. "/native/core/tests/units/nupp/core/bufferstoragefaultunits.nupp",
+            ["nupp.runtime.core.storage"] = ROOT .. "/native/core/src/nupp/runtime/core/storage.nupp"
+        },
+        include = "native/core/src",
+        entries = {
+            {"nupp.core.bufferstoragefaultunits", "maprefusal", 0},
+            {"nupp.core.bufferstoragefaultunits", "cleanup", 0},
+            {"nupp.core.bufferstoragefaultunits", "pending", 0}
+        },
+        cases = function()
+            return {{"pending", {}, 0}}
+        end
+    },
+    {
+        name = "bufferstorageunits",
+        modules = {"nupp.core.bufferstorageunits", "unitentry", "nupp.runtime.core.storage"},
+        paths = {
+            ["nupp.core.bufferstorageunits"] = ROOT .. "/native/core/tests/units/nupp/core/bufferstorageunits.nupp",
+            ["nupp.runtime.core.storage"] = ROOT .. "/native/core/src/nupp/runtime/core/storage.nupp"
+        },
+        include = "native/core/src",
+        entries = {
+            {"nupp.core.bufferstorageunits", "cow", 0},
+            {"nupp.core.bufferstorageunits", "admission", 0},
+            {"nupp.core.bufferstorageunits", "shrinkgap", 0},
+            {"nupp.core.bufferstorageunits", "growth", 0}
+        },
+        cases = function()
+            return {{"cow", {}, 0}, {"admission", {}, 0}, {"shrinkgap", {}, 0}, {"growth", {}, 0}}
+        end
+    },
+
+    {
+        name = "writerunits",
+        modules = {"nupp.core.writerunits", "unitentry", "nupp.runtime.core.sharedbacking"},
+        paths = {
+            ["nupp.core.writerunits"] = ROOT .. "/native/core/tests/units/nupp/core/writerunits.nupp",
+            ["nupp.runtime.core.sharedbacking"] = ROOT .. "/native/core/src/nupp/runtime/core/sharedbacking.nupp"
+        },
+        include = "native/core/src",
+        entries = {{"nupp.core.writerunits", "admission", 0}},
+        cases = function()
+            return {{"admission", {}, 0}}
+        end
+    },
+
+    {
         name = "stringviewunits",
         modules = {
             "nupp.core.stringviewunits",

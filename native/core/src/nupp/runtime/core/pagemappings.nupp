@@ -43,6 +43,7 @@ export struct SharedBacking
     mutex: uint64
     tickets: uint64
     ticketcount: uint64
+    writer: uint64
 end
 
 -- Separately mapped interval control; no node points into a managed heap.
@@ -160,6 +161,7 @@ export function acquireshared(capacity: uint64): voidptr?
     native.store64(block, native.fieldOffset<SharedBacking>("mutex"), 0ULL)
     native.store64(block, native.fieldOffset<SharedBacking>("tickets"), 0ULL)
     native.store64(block, native.fieldOffset<SharedBacking>("ticketcount"), 0ULL)
+    native.store64(block, native.fieldOffset<SharedBacking>("writer"), 0ULL)
 
     return block
 end

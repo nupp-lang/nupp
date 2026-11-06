@@ -13,7 +13,7 @@ static TICKET_MAP_REFUSAL: AtomicBool = AtomicBool::new(false);
 static NODE_ADDRESS: AtomicU64 = AtomicU64::new(0);
 static NODE_EXTENT: AtomicU64 = AtomicU64::new(0);
 static NODE_ATTEMPTS: AtomicU64 = AtomicU64::new(0);
-const PREFIX_BYTES: u64 = 64;
+const PREFIX_BYTES: u64 = 72;
 const TICKET_BYTES: u64 = 72;
 const TICKET_BLOCK_DONE: u64 = 3;
 const CONTROL_FAILURE: u64 = 23;
@@ -449,6 +449,41 @@ fn string_ticket_ownership_survives_scope_close_and_terminal_faults() {
                     "first errno22 survives later23"
                 );
             }
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires the exact emitted bufferstoragefaultunits bundle"]
+fn buffer_copy_on_write_preserves_ownership_on_os_failures() {
+    let bundle = std::path::PathBuf::from(
+        std::env::var_os("CORE_TEST_BUFFER_BUNDLE").expect("CORE_TEST_BUFFER_BUNDLE"),
+    );
+    {
+        let _cleanup = Cleanup;
+        MAP_ATTEMPTS.store(0, Ordering::SeqCst);
+        MAP_REFUSAL.store(true, Ordering::SeqCst);
+        let output = super::execute(&bundle, &[0]).expect("buffer map refusal");
+        MAP_REFUSAL.store(false, Ordering::SeqCst);
+        assert_eq!(output, [0, 0], "refusal publishes no allocation or lease");
+        assert_eq!(MAP_ATTEMPTS.load(Ordering::SeqCst), 1);
+    }
+    {
+        let _cleanup = Cleanup;
+        ATTEMPTS.store(0, Ordering::SeqCst);
+        ENABLED.store(true, Ordering::SeqCst);
+        let output = super::execute(&bundle, &[1]).expect("buffer old backing cleanup");
+        ENABLED.store(false, Ordering::SeqCst);
+        assert_eq!(output, [0, 0], "fresh tuple survives consumed old backing failure");
+        assert_eq!(ATTEMPTS.load(Ordering::SeqCst), 1, "no retry after consumption");
+        let address = ADDRESS.load(Ordering::SeqCst);
+        assert_ne!(address, 0);
+        unsafe {
+            let prefix = address as *const u64;
+            assert_eq!(prefix.add(3).read(), FAILED);
+            assert_eq!(prefix.add(4).read(), 0);
+            assert_eq!(prefix.add(8).read(), 0, "writer ended before release");
+            assert_eq!(*(address as *const u8).add(PREFIX_BYTES as usize), 42);
         }
     }
 }

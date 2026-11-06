@@ -1,0 +1,56 @@
+module nupp.core.writerunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const pages = require("nupp.runtime.core.pagemappings")
+const shared = require("nupp.runtime.core.sharedbacking")
+
+local function miss(ok: boolean): uint64
+    if ok then
+        return 0ULL
+    end
+    return 1ULL
+end
+
+export function admission(): uint64
+    local state = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local first = shared.TicketResult(0ULL)
+    local second = shared.TicketResult(0ULL)
+    @unsafe do
+        local block = shared.create(256ULL)
+        if block == nil then
+            error("writer units: no block")
+        end
+        local status = state as pages.Scope*
+        local one = first as shared.TicketResult*
+        local two = second as shared.TicketResult*
+        local wrong = miss(shared.ticketacquire(one, block, 32ULL, 32ULL) == shared.TICKET_OK)
+        wrong = wrong + miss(shared.writebegin(block, 0ULL, 32ULL) == shared.WRITE_READY)
+        wrong = wrong + miss(shared.writebegin(block, 96ULL, 1ULL) == shared.WRITE_BUSY)
+        wrong = wrong + miss(shared.ticketoverlap(block, 32ULL, 1ULL) == shared.RANGE_OVERLAP)
+        wrong = wrong + miss(shared.ticketacquire(two, block, 96ULL, 1ULL) == shared.TICKET_BUSY)
+        wrong = wrong + miss(two.ticket == 0ULL and shared.ticketcount(block) == 1ULL)
+        wrong = wrong + miss(pages.sharedreferences(block) == 2ULL)
+        -- The physical mutex is free throughout payload work and retirement.
+        native.store8(shared.bytes(block), 0, 99ULL)
+        wrong = wrong + miss(shared.ticketrelease(status, one.ticket) == shared.RELEASED)
+        one.ticket = 0ULL
+        wrong = wrong + miss(shared.ticketcount(block) == 0ULL and pages.sharedreferences(block) == 1ULL)
+        wrong = wrong + miss(shared.releaselocal(status, block) == shared.INVALID)
+        wrong = wrong + miss(pages.sharedreferences(block) == 1ULL)
+        wrong = wrong + miss(shared.writeend(block) and not shared.writeend(block))
+        wrong = wrong + miss(shared.ticketacquire(two, block, 0ULL, 16ULL) == shared.TICKET_OK)
+        wrong = wrong + miss(shared.writebegin(block, 15ULL, 2ULL) == shared.WRITE_SHARED)
+        wrong = wrong + miss(shared.writebegin(block, 16ULL, 0ULL) == shared.WRITE_READY)
+        wrong = wrong + miss(shared.ticketrelease(status, two.ticket) == shared.RELEASED)
+        two.ticket = 0ULL
+        wrong = wrong + miss(shared.writeend(block))
+        wrong = wrong + miss(shared.writebegin(block, 257ULL, 0ULL) == shared.WRITE_INVALID)
+        wrong = wrong + miss(shared.writebegin(block, 256ULL, 1ULL) == shared.WRITE_INVALID)
+        wrong = wrong + miss(shared.writebegin(block, 256ULL, 0ULL) == shared.WRITE_READY)
+        wrong = wrong + miss(shared.writeend(block))
+        wrong = wrong + miss(shared.releaselocal(status, block) == shared.RELEASED and status.status == 0ULL)
+        wrong = wrong + miss(shared.writebegin(native.pointer(0ULL), 0ULL, 0ULL) == shared.WRITE_INVALID)
+        wrong = wrong + miss(not shared.writeend(native.pointer(0ULL)))
+        return wrong
+    end
+end

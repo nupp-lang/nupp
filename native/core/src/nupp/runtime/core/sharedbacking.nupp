@@ -58,6 +58,14 @@ export function release(statusScope: voidptr, block: voidptr): uint64
     end
     local before = pages.sharedreferences(block)
     while before ~= 0ULL do
+        if before == 1ULL then
+            pages.sharedlock(block)
+            local busy = native.load64(block, native.fieldOffset<pages.SharedBacking>("writer")) ~= 0ULL
+            pages.sharedunlock(block)
+            if busy then
+                return INVALID
+            end
+        end
         local actual = pages.sharedcompare(block, before, before - 1ULL)
         if actual == before then
             if before > 1ULL then
@@ -93,6 +101,7 @@ export const TICKET_INVALID: uint64 = 1ULL
 export const TICKET_LIMIT: uint64 = 2ULL
 export const TICKET_MEMORY: uint64 = 3ULL
 export const TICKET_REFERENCES: uint64 = 4ULL
+export const TICKET_BUSY: uint64 = 5ULL
 export const MAXIMUM_TICKETS: uint64 = 4096ULL
 export const TICKET_LIVE: uint64 = 1ULL
 export const TICKET_DETACHED: uint64 = 2ULL
@@ -101,6 +110,10 @@ export const TICKET_LAST: uint64 = 4ULL
 export const RANGE_CLEAR: uint64 = 0ULL
 export const RANGE_OVERLAP: uint64 = 1ULL
 export const RANGE_INVALID: uint64 = 2ULL
+export const WRITE_READY: uint64 = 0ULL
+export const WRITE_SHARED: uint64 = 1ULL
+export const WRITE_BUSY: uint64 = 2ULL
+export const WRITE_INVALID: uint64 = 3ULL
 
 local function control(ticket: uint64): uint64
     return ticket - native.sizeOf<pages.SharedBacking>()
@@ -165,13 +178,17 @@ export function ticketacquire(result: TicketResult*, block: voidptr, offset: uin
         local status = state as pages.Scope*
         pages.sharedlock(block)
         local owner = native.pointer(native.address(block)) as pages.SharedBacking*
+        local busy = owner.writer ~= 0ULL
         local full = owner.ticketcount >= MAXIMUM_TICKETS
-        if not full then
+        if not busy and not full then
             owner.ticketcount = owner.ticketcount + 1ULL
         end
         pages.sharedunlock(block)
         local failure = TICKET_LIMIT
-        if not full then
+        if busy then
+            failure = TICKET_BUSY
+        end
+        if not busy and not full then
             local allocation = create(native.sizeOf<pages.RangeTicket>())
             if allocation == nil then
                 pages.sharedlock(block)
@@ -347,10 +364,26 @@ export function ticketcount(block: voidptr): uint64
     return count
 end
 
--- Observation at the registry's locked linearization point, not permission
--- to write afterward. Future writer admission must serialize publication
--- while allowing GC unlink; never hold this mutex through payload operations,
--- raw leases, IO, callbacks or suspension. Only live exact intervals are read.
+-- Registry traversal requires the block mutex. No node borrow leaves it.
+local function overlaplocked(block: voidptr, offset: uint64, count: uint64): uint64
+    if count == 0ULL then
+        return RANGE_CLEAR
+    end
+    @unsafe do
+        local token = (native.pointer(native.address(block)) as pages.SharedBacking*).tickets
+        while token ~= 0ULL do
+            local node = native.pointer(token) as pages.RangeTicket*
+            if offset < node.offset + node.count and node.offset < offset + count then
+                return RANGE_OVERLAP
+            end
+            token = node.next
+        end
+    end
+
+    return RANGE_CLEAR
+end
+
+-- Observation only, never permission to write after unlocking.
 export function ticketoverlap(block: voidptr, offset: uint64, count: uint64): uint64
     if native.address(block) == 0ULL then
         return RANGE_INVALID
@@ -359,23 +392,57 @@ export function ticketoverlap(block: voidptr, offset: uint64, count: uint64): ui
     if offset > extent or count > extent - offset then
         return RANGE_INVALID
     end
-    if count == 0ULL then
-        return RANGE_CLEAR
+    pages.sharedlock(block)
+    local answer = overlaplocked(block, offset, count)
+    pages.sharedunlock(block)
+
+    return answer
+end
+
+-- Admit one logical writer while no live ticket overlaps its entire possible
+-- write range. Publication and ticket acquisition serialize under this mutex;
+-- the mutex is released before payload work, IO, callbacks or suspension.
+-- GC may still unlink tickets. The owner keeps its block reference until end.
+export function writebegin(block: voidptr, offset: uint64, count: uint64): uint64
+    if native.address(block) == 0ULL then
+        return WRITE_INVALID
+    end
+    local extent = capacity(block)
+    if offset > extent or count > extent - offset then
+        return WRITE_INVALID
     end
     pages.sharedlock(block)
-    local answer = RANGE_CLEAR
+    local answer = WRITE_READY
     @unsafe do
-        local token = (native.pointer(native.address(block)) as pages.SharedBacking*).tickets
-        while token ~= 0ULL do
-            local node = native.pointer(token) as pages.RangeTicket*
-            if offset < node.offset + node.count and node.offset < offset + count then
-                answer = RANGE_OVERLAP
-                break
-            end
-            token = node.next
+        local owner = native.pointer(native.address(block)) as pages.SharedBacking*
+        if owner.writer ~= 0ULL then
+            answer = WRITE_BUSY
+        elseif overlaplocked(block, offset, count) == RANGE_OVERLAP then
+            answer = WRITE_SHARED
+        else
+            owner.writer = 1ULL
         end
     end
     pages.sharedunlock(block)
 
     return answer
+end
+
+-- The one admitted writer owns this step; no reference is consumed here.
+export function writeend(block: voidptr): boolean
+    if native.address(block) == 0ULL then
+        return false
+    end
+    pages.sharedlock(block)
+    local ended = false
+    @unsafe do
+        local owner = native.pointer(native.address(block)) as pages.SharedBacking*
+        if owner.writer == 1ULL then
+            owner.writer = 0ULL
+            ended = true
+        end
+    end
+    pages.sharedunlock(block)
+
+    return ended
 end

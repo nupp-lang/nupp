@@ -350,11 +350,7 @@ export function createpacked(h: heap.Heap*, kind: uint64, capacity: uint64): uin
         local address = backing.wordBackingTake(h, words)
         if address ~= 0ULL then
             local d = native.pointer(address) as storage.Storage*
-            d.base = 0ULL
-            d.len = 0ULL
-            d.cap = 0ULL
-            d.read = 0ULL
-            d.kind = 0ULL
+            storage.clear(d)
             if storage.initialize(h, d, kind, 0ULL, 0ULL) == storage.OK then
                 tail.storage = address
                 o.aux = kind << KIND_SHIFT
