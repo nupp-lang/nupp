@@ -56,7 +56,30 @@ local osNames = {
     randomSeed = true,
     readInput = true,
     monotonicNanos = true,
-    sleepNanos = true
+    argument = true,
+    fileOpen = true,
+    fileRead = true,
+    fileWrite = true,
+    fileSeek = true,
+    fileClose = true,
+    errorText = true,
+    pollOpen = true,
+    pollArm = true,
+    pollWait = true,
+    pipeOpen = true,
+    poolStart = true,
+    poolSubmit = true,
+    poolTake = true,
+    poolFinish = true,
+    poolCancel = true,
+    sleepNanos = true,
+    processPipe = true,
+    processSpawn = true,
+    processWatch = true,
+    processUnwatch = true,
+    processReap = true,
+    processKill = true,
+    processExit = true
 }
 
 local function need(ok: any, message: string): any

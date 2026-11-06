@@ -1,0 +1,229 @@
+module nupp.runtime.core.guestvalues
+
+-- The values the core library's calls take and answer: their arguments
+-- checked as Lua checks them, numbers and strings made, and the state
+-- tables a call kept between steps read and written.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const context = require("nupp.runtime.core.context")
+const strings = require("nupp.runtime.core.corestrings")
+const tables = require("nupp.runtime.core.coretables")
+const guestscope = require("nupp.runtime.core.guestscope")
+const texts = require("nupp.runtime.core.guesttexts")
+const ints = require("nupp.runtime.core.coreintegers")
+const os = require("nupp.runtime.vm.os")
+const librarytexts = require("nupp.runtime.core.librarytexts")
+const guesterrors = require("nupp.runtime.core.guesterrors")
+
+export function intvalue(value: uint64): int64
+    local payload = value & values.PAYLOAD
+    if payload & 0x0000800000000000ULL ~= 0ULL then
+        payload = payload | 0xffff000000000000ULL
+    end
+
+    return native.index(payload)
+end
+
+export function guestheap(ctx: voidptr): heap.Heap*
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        return native.pointer(native.load64(services, native.fieldOffset<guestscope.Services>("heap"))) as heap.Heap*
+    end
+end
+
+-- Appends Lua's tostring of `value`: strings as they are, integers in
+-- decimal, booleans and nil by name, and tables, functions, threads and
+-- userdata by type and address. A __tostring is the caller's to call.
+export function appendtext(h: heap.Heap*, b: strings.Builder*, value: uint64): uint64
+    local s = strings.header(value)
+    if s ~= 0ULL then
+        return strings.appendString(h, b, s)
+    end
+    if ints.isInteger(value) then
+        return strings.appendInteger(h, b, native.index(ints.bitsOf(value)))
+    end
+    -- A float as Nupp writes one (Decision 13): the shorter exact text, which
+    -- the host writes whole ("5.0", "1e1").
+    if value & values.QNAN ~= values.QNAN or value == values.QNAN then
+        @unsafe do
+            if strings.reserve(h, b, 66ULL) ~= 0ULL then
+                return 1ULL
+            end
+            local at = b.base + b.length
+            local length = os.formatNumber(value, native.pointer(at), 64ULL)
+            if length < 0 or length > 64 then
+                return 1ULL
+            end
+            b.length = b.length + native.word(length)
+            return 0ULL
+        end
+    end
+    -- "true", "false" and "nil" as little-endian byte words.
+    if value == values.TRUE then
+        return strings.appendWord(h, b, 0x65757274ULL, 4ULL)
+    elseif value == values.FALSE then
+        return strings.appendWord(h, b, 0x65736c6166ULL, 5ULL)
+    elseif value == values.NIL then
+        return strings.appendWord(h, b, 0x6c696eULL, 3ULL)
+    end
+    if guesterrors.identified(value) then
+        return guesterrors.appendIdentity(h, b, value)
+    end
+    error("tostring of this value is not yet supported by the core")
+
+    return 1ULL
+end
+
+export function tostring(ctx: voidptr, value: uint64): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = guestheap(ctx)
+        if strings.header(value) ~= 0ULL then
+            return value
+        end
+        local builder = state as strings.Builder*
+        if appendtext(h, builder, value) ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
+        return values.TAG_OBJ | strings.finish(h, builder)
+    end
+end
+
+-- An integer argument as Lua reads one: an integer, or a float with an exact
+-- integer value; `absent` when the argument is nil.
+export function intarg(ctx: voidptr, value: uint64, absent: int64, position: uint64): int64
+    if value == values.NIL then
+        return absent
+    end
+    if ints.isInteger(value) then
+        return native.index(ints.bitsOf(value))
+    end
+    if value & values.QNAN ~= values.QNAN and ints.integralFloat(value) then
+        return native.index(ints.floatToBits(value))
+    end
+    if value & values.QNAN ~= values.QNAN then
+        texts.argumentError(ctx, position, 0ULL, librarytexts.TEXT_NO_INTEGER, value)
+    end
+    texts.argumentError(ctx, position, librarytexts.TEXT_NUMBER, 0ULL, value)
+
+    return absent
+end
+
+-- A number's float bits, or NIL bits for anything else.
+export function floatof(value: uint64): uint64
+    if ints.isInteger(value) then
+        return ints.toFloatBits(ints.bitsOf(value))
+    end
+    if value & values.QNAN ~= values.QNAN or value == values.QNAN then
+        return value
+    end
+
+    return values.NIL
+end
+
+-- A float result as a value: NaNs collapse to the one quiet NaN.
+export function floatvalue(bits: uint64): uint64
+    local x = native.fromBits(bits)
+    if x ~= x then
+        return values.QNAN
+    end
+
+    return bits
+end
+
+export function isfloat(value: uint64): boolean
+    return value & values.QNAN ~= values.QNAN or value == values.QNAN
+end
+
+-- The number a math function takes, raising as Lua does for anything else.
+export function numarg(ctx: voidptr, value: uint64, position: uint64): uint64
+    if not ints.isInteger(value) and not isfloat(value) then
+        texts.argumentError(ctx, position, librarytexts.TEXT_NUMBER, 0ULL, value)
+    end
+
+    return value
+end
+
+-- The string header of an argument, raising when it is not a string.
+export function strarg(ctx: voidptr, value: uint64, position: uint64): uint64
+    local s = strings.header(value)
+    -- A number is its text, as Lua's string arguments take one.
+    if s == 0ULL and (ints.isInteger(value) or floatof(value) ~= values.NIL) then
+        s = strings.header(tostring(ctx, value))
+    end
+    if s == 0ULL then
+        texts.argumentError(ctx, position, librarytexts.TEXT_STRING, 0ULL, value)
+    end
+
+    return s
+end
+
+-- Stores the `index`-th value of a pack under construction.
+export function packput(h: heap.Heap*, pack: uint64, index: uint64, value: uint64): nil
+    if value ~= values.NIL and tables.set(h, pack, values.TAG_INTEGER | index, value) == tables.NO_MEMORY then
+        error("not enough memory")
+    end
+end
+
+-- A finished pack of `n` values; with no pack, `single` is the answer.
+export function packed(h: heap.Heap*, pack: uint64, n: uint64, single: uint64): uint64
+    if pack == 0ULL then
+        return single
+    end
+    if tables.set(h, pack, values.TAG_INTEGER, values.TAG_INTEGER | n) == tables.NO_MEMORY then
+        error("not enough memory")
+    end
+    tables.drain(h)
+
+    return values.TAG_OBJ | pack
+end
+
+-- The heap kind of an object value, or 0 for an immediate.
+export function objkind(value: uint64): uint64
+    if value & values.TAG_MASK ~= values.TAG_OBJ then
+        return 0ULL
+    end
+    @unsafe do
+        return native.word(
+            native.load8(native.pointer(value & values.PAYLOAD), native.fieldOffset<heap.Header>("kind"))
+        )
+    end
+end
+
+-- The table a library argument names, raising as Lua does when it is not one.
+export function tablearg(ctx: voidptr, value: uint64, position: uint64): uint64
+    if objkind(value) ~= heap.KIND_TABLE then
+        texts.argumentError(ctx, position, librarytexts.TEXT_TABLE, 0ULL, value)
+    end
+
+    return value & values.PAYLOAD
+end
+
+export function storeat(h: heap.Heap*, t: uint64, index: int64, value: uint64): nil
+    if tables.set(h, t, values.TAG_INTEGER | native.word(index), value) == tables.NO_MEMORY then
+        error("not enough memory")
+    end
+end
+
+export function loadat(t: uint64, index: int64): uint64
+    return tables.get(t, values.TAG_INTEGER | native.word(index))
+end
+
+-- Where a sort or a gsub with a function replacement stands (its state's
+-- PENDING): running, waiting for the function's answer, or finished.
+export const RUNNING: int64 = 0
+export const WAITING: int64 = 1
+export const FINISHED: int64 = 2
+
+-- table.sort's state, a table keyed by the SORT layout (corelibrary): the
+-- list and comparator, the pair awaiting the comparator's answer and the
+-- answer, then where the merge sort stands.
+export function stateget(st: uint64, key: int64): int64
+    return native.index(loadat(st, key) & values.PAYLOAD)
+end
+
+export function stateput(h: heap.Heap*, st: uint64, key: int64, n: int64): nil
+    storeat(h, st, key, values.TAG_INTEGER | native.word(n))
+end

@@ -1,0 +1,171 @@
+module nupp.compiler.vm.coretexts
+
+-- The texts the core's library errors are built from, Lua 5.5's own, defined
+-- once with the id the runtime names each by. Library function names
+-- (NAME_) and the other texts (TEXT_) share one space. nupp.core.librarytextsgen
+-- writes the runtime's constants and the code that appends each text
+-- (native/core/src/nupp/runtime/core/librarytexts.nupp) from this table, which
+-- the native units harness holds to exactly what the generator writes; a core
+-- library call's `text` (corelibrary) names one of these.
+
+export type Text = {
+    name: string,
+    id: integer,
+    text: string
+}
+
+local texts: {Text} = {
+    {name = "TEXT_BAD", id = 1, text = "bad argument #"},
+    {name = "TEXT_TO", id = 2, text = " to '"},
+    {name = "TEXT_OPEN", id = 3, text = "' ("},
+    {name = "TEXT_CLOSE", id = 4, text = ")"},
+    {name = "TEXT_EXPECTED", id = 5, text = " expected, got "},
+    {name = "TEXT_NO_VALUE", id = 6, text = "no value"},
+    {name = "TEXT_STRING", id = 7, text = "string"},
+    {name = "TEXT_NUMBER", id = 8, text = "number"},
+    {name = "TEXT_TABLE", id = 9, text = "table"},
+    {name = "TEXT_REPLACEMENT_KINDS", id = 10, text = "string/function/table"},
+    {name = "TEXT_NO_INTEGER", id = 11, text = "number has no integer representation"},
+    {name = "TEXT_EMPTY_INTERVAL", id = 12, text = "interval is empty"},
+    {name = "TEXT_OUT_OF_BOUNDS", id = 13, text = "position out of bounds"},
+    {name = "TEXT_ZERO", id = 14, text = "zero"},
+    {name = "TEXT_VALUE_RANGE", id = 15, text = "value out of range"},
+    {name = "TEXT_INDEX_RANGE", id = 16, text = "index out of range"},
+    {name = "TEXT_TOO_MANY_MOVE", id = 17, text = "too many elements to move"},
+    {name = "TEXT_WRAP", id = 18, text = "destination wrap around"},
+    {name = "TEXT_VALUE_EXPECTED", id = 19, text = "value expected"},
+    {name = "TEXT_NO_LITERAL", id = 20, text = "value has no literal form"},
+    {name = "TEXT_INVALID_CONCAT", id = 21, text = "invalid value ("},
+    {name = "TEXT_IN_CONCAT", id = 22, text = " in table for 'concat'"},
+    {name = "TEXT_INVALID_REPLACEMENT", id = 23, text = "invalid replacement value (a "},
+    {name = "TEXT_CAPTURE_INDEX", id = 24, text = "invalid capture index %"},
+    {name = "TEXT_AT_INDEX", id = 25, text = ") at index "},
+    {name = "TEXT_PERCENT_USE", id = 26, text = "invalid use of '%' in replacement string"},
+    {name = "TEXT_UNFINISHED", id = 27, text = "unfinished capture"},
+    {name = "TEXT_UNPACK_MANY", id = 28, text = "too many results to unpack"},
+    {name = "TEXT_TOO_LARGE", id = 29, text = "resulting string too large"},
+    {name = "TEXT_WRONG_COUNT", id = 30, text = "wrong number of arguments"},
+    {name = "TEXT_CONVERSION", id = 31, text = "invalid conversion '"},
+    {name = "TEXT_TO_FORMAT", id = 32, text = "' to 'format'"},
+    {name = "TEXT_Q_MODIFIERS", id = 33, text = "specifier '%q' cannot have modifiers"},
+    {name = "TEXT_NEXT_KEY", id = 34, text = "invalid key to 'next'"},
+    {name = "TEXT_IDIV_ZERO", id = 35, text = "attempt to perform 'n//0'"},
+    {name = "NAME_TOSTRING", id = 36, text = "tostring"},
+    {name = "NAME_FORMAT", id = 37, text = "format"},
+    {name = "NAME_CONCAT", id = 38, text = "concat"},
+    {name = "NAME_GMATCH", id = 39, text = "gmatch"},
+    {name = "NAME_NEXT", id = 40, text = "next"},
+    {name = "NAME_TONUMBER", id = 41, text = "tonumber"},
+    {name = "NAME_GETENV", id = 42, text = "getenv"},
+    {name = "NAME_SUB", id = 43, text = "sub"},
+    {name = "NAME_BYTE", id = 44, text = "byte"},
+    {name = "NAME_CHAR", id = 45, text = "char"},
+    {name = "NAME_REP", id = 46, text = "rep"},
+    {name = "NAME_UPPER", id = 47, text = "upper"},
+    {name = "NAME_LOWER", id = 48, text = "lower"},
+    {name = "NAME_LEN", id = 49, text = "len"},
+    {name = "NAME_FIND", id = 50, text = "find"},
+    {name = "NAME_MATCH", id = 51, text = "match"},
+    {name = "NAME_SELECT", id = 52, text = "select"},
+    {name = "NAME_GSUB", id = 53, text = "gsub"},
+    {name = "NAME_SETMETATABLE", id = 54, text = "setmetatable"},
+    {name = "NAME_GETMETATABLE", id = 55, text = "getmetatable"},
+    {name = "NAME_RAWGET", id = 56, text = "rawget"},
+    {name = "NAME_RAWSET", id = 57, text = "rawset"},
+    {name = "NAME_TYPE", id = 58, text = "type"},
+    {name = "NAME_INSERT", id = 59, text = "insert"},
+    {name = "NAME_REMOVE", id = 60, text = "remove"},
+    {name = "NAME_UNPACK", id = 61, text = "unpack"},
+    {name = "NAME_ABS", id = 62, text = "abs"},
+    {name = "NAME_CEIL", id = 63, text = "ceil"},
+    {name = "NAME_MAX", id = 64, text = "max"},
+    {name = "NAME_MIN", id = 65, text = "min"},
+    {name = "NAME_TOINTEGER", id = 66, text = "tointeger"},
+    {name = "NAME_SQRT", id = 67, text = "sqrt"},
+    {name = "NAME_SORT", id = 68, text = "sort"},
+    {name = "NAME_PRINT", id = 69, text = "print"},
+    {name = "NAME_EXP", id = 70, text = "exp"},
+    {name = "NAME_LOG", id = 71, text = "log"},
+    {name = "NAME_SIN", id = 72, text = "sin"},
+    {name = "NAME_COS", id = 73, text = "cos"},
+    {name = "NAME_TAN", id = 74, text = "tan"},
+    {name = "NAME_ASIN", id = 75, text = "asin"},
+    {name = "NAME_ACOS", id = 76, text = "acos"},
+    {name = "NAME_ATAN", id = 77, text = "atan"},
+    {name = "NAME_FMOD", id = 78, text = "fmod"},
+    {name = "NAME_REVERSE", id = 79, text = "reverse"},
+    {name = "NAME_MOVE", id = 80, text = "move"},
+    {name = "NAME_RANDOM", id = 81, text = "random"},
+    {name = "NAME_RANDOMSEED", id = 82, text = "randomseed"},
+    {name = "TEXT_CALLING", id = 83, text = "calling '"},
+    {name = "TEXT_BAD_SELF", id = 84, text = "' on bad self ("},
+    {name = "TEXT_SUSPENDED", id = 85, text = "suspended"},
+    {name = "TEXT_RUNNING", id = 86, text = "running"},
+    {name = "TEXT_NORMAL", id = 87, text = "normal"},
+    {name = "TEXT_DEAD", id = 88, text = "dead"},
+    {name = "TEXT_RESUME_DEAD", id = 89, text = "cannot resume dead coroutine"},
+    {name = "TEXT_RESUME_ACTIVE", id = 90, text = "cannot resume non-suspended coroutine"},
+    {name = "TEXT_YIELD_OUTSIDE", id = 91, text = "attempt to yield from outside a coroutine"},
+    {name = "TEXT_COROUTINE", id = 92, text = "coroutine"},
+    {name = "NAME_CREATE", id = 93, text = "create"},
+    {name = "NAME_RESUME", id = 94, text = "resume"},
+    {name = "NAME_YIELD", id = 95, text = "yield"},
+    {name = "NAME_STATUS", id = 96, text = "status"},
+    {name = "NAME_WRAP", id = 97, text = "wrap"},
+    {name = "NAME_ISYIELDABLE", id = 98, text = "isyieldable"},
+    {name = "TEXT_FUNCTION", id = 99, text = "function"},
+    {name = "TEXT_CLOSE_MAIN", id = 100, text = "cannot close main thread"},
+    {name = "TEXT_CLOSE_NORMAL", id = 101, text = "cannot close a normal coroutine"},
+    {name = "NAME_CLOSE", id = 102, text = "close"},
+    {name = "TEXT_STACK_OVERFLOW", id = 104, text = "stack overflow"},
+    {name = "TEXT_LENGTH_INTEGER", id = 105, text = "object length is not an integer"},
+    {name = "TEXT_YIELD_ACROSS", id = 106, text = "attempt to yield across a C-call boundary"},
+    {name = "NAME_REQUIRE", id = 107, text = "require"},
+    {name = "TEXT_ASSERTION", id = 108, text = "assertion failed!"},
+    {name = "TEXT_NUMBER_EXPECTED", id = 109, text = "number expected"},
+    {name = "TEXT_STORAGE", id = 110, text = "storage"},
+    {name = "TEXT_BASE_RANGE", id = 111, text = "base out of range"},
+    {name = "TEXT_FOR_LIMIT", id = 112, text = "bad 'for' limit (number expected, got "},
+    {name = "TEXT_PROTECTED_TABLE", id = 113, text = "table has a protected metatable"},
+    {name = "NAME_FREEZE", id = 114, text = "freeze"},
+    {name = "NAME_ISFROZEN", id = 115, text = "isfrozen"},
+    {name = "TEXT_ALREADY_FROZEN", id = 116, text = "table is already frozen"},
+    {name = "TEXT_INVALID_OPTION", id = 117, text = "invalid option '"},
+    {name = "NAME_COLLECTGARBAGE", id = 118, text = "collectgarbage"},
+    {name = "TEXT_PARKED", id = 119, text = "parked"},
+    {name = "TEXT_RESUME_TASK", id = 120, text = "cannot resume a scheduled coroutine"},
+    -- What lua.c reports for an error object with no string form.
+    {name = "TEXT_ERROR_OBJECT", id = 121, text = "(error object is a "},
+    {name = "TEXT_OBJECT_VALUE", id = 122, text = " value"}
+}
+
+local byName: {[string]: Text} = {}
+
+-- Every id is one text's, and every name one id's.
+do
+    local taken: {[integer]: string} = {}
+    for _, entry in ipairs(texts) do
+        assert(entry.id >= 1, "core text id out of range: " .. entry.name)
+        assert(taken[entry.id] == nil, "core text id " .. entry.id .. " taken twice: " .. entry.name)
+        assert(byName[entry.name] == nil, "core text named twice: " .. entry.name)
+        assert(entry.name:match("^TEXT_") or entry.name:match("^NAME_"), "core text name prefix: " .. entry.name)
+        assert(#entry.text > 0, "empty core text: " .. entry.name)
+        taken[entry.id] = entry.name
+        byName[entry.name] = entry
+    end
+end
+
+-- A text's id, by its name; an unknown name is an error.
+export function id(name: string): integer
+    return assert(byName[name], "no core text " .. name).id
+end
+
+-- A copy of the texts, for the generator.
+export function all(): {Text}
+    local result = {}
+    for index, entry in ipairs(texts) do
+        result[index] = {name = entry.name, id = entry.id, text = entry.text}
+    end
+
+    return result
+end

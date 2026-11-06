@@ -6,6 +6,7 @@ local copies = require("nupp.compiler.vm.graphcopies")
 local bytecode = require("nupp.compiler.vm.corebytecode")
 local opcodes = require("nupp.compiler.vm.opcodes")
 local schema = require("nupp.compiler.vm.coregraphschema")
+local corelibrary = require("nupp.compiler.vm.corelibrary")
 local executable = {}
 local issued = setmetatable({}, {__mode = "k"})
 local bounds = schema.limits()
@@ -55,9 +56,6 @@ end
 -- of K, Require and GetUpval, and the target or library id that Closure and
 -- LibCall carry before their value operands.
 local immediateOperands: {[string]: integer} = {K = 1, Require = 1, GetUpval = 1, Closure = 1, LibCall = 1}
--- The library id of `require` (taggedprofile), which with a computed name
--- starts whichever module the name finds.
-local LIBRARY_REQUIRE: integer = 85
 
 -- Closed blocks keep every non-parameter value inside one block, so a slot is
 -- reused across blocks and, within a block, after the value's last use.
@@ -168,12 +166,12 @@ local function derive(g: any, catalog: any): any
             elseif op == "LibCall" then
                 maximumArguments = math.max(maximumArguments, #block.args[at] - 1) as integer
                 -- .., /, //, tostring and unary minus may call a metamethod.
-                local id = block.args[at][1]
-                if catalog.schema.version >= 8 and (id == 1 or id == 5 or id == 6 or id == 7 or id == 33) then
+                local id = corelibrary.split(block.args[at][1])
+                if catalog.schema.version >= 8 and corelibrary.meta(id) then
                     maximumArguments = math.max(maximumArguments, 3) as integer
                     metaCalls = true
                 end
-                if catalog.schema.version >= 8 and id == LIBRARY_REQUIRE then
+                if catalog.schema.version >= 8 and id == corelibrary.id("MODULE_REQUIRE") then
                     anyModule = true
                 elseif catalog.schema.version >= 8 then
                     -- Any other library function may call a function value
@@ -412,7 +410,14 @@ local function derive(g: any, catalog: any): any
                     for index = 2, #args do
                         emit({"Move", callBase + index - 1, physical(args[index])}, position)
                     end
-                    emit({"LibCall", physical(dst), args[1], callBase, #args - 1}, position)
+                    -- The id and its argument count, which carries the
+                    -- method-form flag.
+                    local id, method = corelibrary.split(args[1])
+                    local count = #args - 1
+                    if method then
+                        count += corelibrary.COUNT_METHOD_FORM
+                    end
+                    emit({"LibCall", physical(dst), id, callBase, count}, position)
                     yield nil
                 end
                 else -> error("core executable: unsupported graph operation " .. op, 0)

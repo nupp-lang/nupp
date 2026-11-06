@@ -1,0 +1,438 @@
+module nupp.compiler.vm.graphprune
+
+--- Passes over a verified graph: pruning transport values, dropping
+--- unreachable blocks, and finding the regions lowering lays out.
+local finalframe = require("nupp.compiler.vm.nativeframecontract")
+
+local graphsignatures = require("nupp.compiler.vm.graphsignatures")
+local classes = graphsignatures.classes
+local operandClass = graphsignatures.operandClass
+local parsed = graphsignatures.parsed
+local resultOffset = graphsignatures.resultOffset
+
+--- Removes the transported parameters no block uses downstream, with the
+--- values that only fed them. Nothing else is deleted: every instruction
+--- with a result keeps it, so an instruction that may fail still runs.
+export function prune(g: any): nil
+    finalframe.refuse(g, "pruning")
+    local used = {}
+    local blocks = g.blocks
+    local nparams = g.nparams
+    -- Instruction operands, terminator values and certificates are the roots.
+    for bi = 1, #blocks do
+        local b = blocks[bi]
+        local ops, allArgs = b.op, b.args
+        for i = 1, #ops do
+            local sig, args = parsed[ops[i]], allArgs[i]
+            for j = 1, #args do
+                if classes[operandClass(sig, j)] or operandClass(sig, j) == "a" then
+                    used[args[j]] = true
+                end
+            end
+        end
+        if b.term.value then
+            used[b.term.value] = true
+        end
+        for _, value in ipairs(b.term.values or {}) do
+            used[value] = true
+        end
+        if b.term.spread then
+            used[b.term.spread] = true
+        end
+        if b.term.kind == "invoke" then
+            used[b.term.callee] = true
+            for _, value in ipairs(b.term.results or {}) do
+                used[value] = true
+            end
+        end
+        if b.term.kind == "dispatch" or b.term.kind == "nativeTail" or b.term.kind == "invoke" then
+            for _, value in ipairs(b.term.args) do
+                used[value] = true
+            end
+        end
+    end
+    local certs = g.certificates
+    for i = 1, #certs do
+        used[certs[i].guard], used[certs[i].cursor], used[certs[i].span] = true, true, true
+    end
+    -- A used parameter makes every argument feeding it used. Edges are few,
+    -- so passes over them until nothing changes beat per-parameter lists.
+    local changed = true
+    while changed do
+        changed = false
+        for bi = 1, #blocks do
+            local term = blocks[bi].term
+            local offset = resultOffset(term)
+            local edges = term.edges
+            for ei = 1, #edges do
+                local e = edges[ei]
+                local params, args = blocks[e.target].params, e.args
+                for i = offset + 1, #params do
+                    local v = args[i - offset]
+                    if used[params[i]] and not used[v] then
+                        used[v] = true
+                        changed = true
+                    end
+                end
+            end
+        end
+    end
+    -- Surviving values are renumbered densely, the function parameters first
+    -- so they keep their ids. Each block records which of its parameter
+    -- positions survived so edge arguments compact to match.
+    local remap, types, slots, exactTypes, physicalTypes = {}, {}, {}, {}, {}
+    local count: integer = 0
+    local gTypes, gSlots = g.types, g.slots
+
+    local function keep(v: integer): integer
+        count = count + 1
+        remap[v], types[count], slots[count] = count, gTypes[v], gSlots[v]
+        if g.exactTypes ~= nil then
+            exactTypes[count] = g.exactTypes[v]
+        end
+        if g.nativePhysical then
+            physicalTypes[count] = g.nativePhysical.values[v]
+        end
+
+        return count
+    end
+
+    for i = 1, nparams do
+        keep(i)
+    end
+    for bi = 1, #blocks do
+        local b = blocks[bi]
+        local params, n, survived = b.params, 0, {}
+        for i = 1, #params do
+            local v = params[i]
+            local live = used[v] == true
+            survived[i] = live
+            if live then
+                n = n + 1
+                params[n] = keep(v)
+            end
+        end
+        for i = #params, n + 1, -1 do
+            params[i] = nil
+        end
+        b.survived = survived
+        b.keyNames, b.keyIndex = nil, nil
+        b.env, b.names, b.facts, b.held = nil, nil, nil, nil
+        local dst = b.dst
+        for i = 1, #dst do
+            local v = dst[i]
+            if v ~= 0 then
+                dst[i] = keep(v)
+            end
+        end
+    end
+    -- Operands, terminator values and edge arguments renumber in one pass;
+    -- edge arguments also compact to the parameters that survived.
+    for bi = 1, #blocks do
+        local b = blocks[bi]
+        local ops, allArgs = b.op, b.args
+        for i = 1, #ops do
+            local sig, args = parsed[ops[i]], allArgs[i]
+            for j = 1, #args do
+                if classes[operandClass(sig, j)] or operandClass(sig, j) == "a" then
+                    args[j] = assert(remap[args[j]])
+                end
+            end
+        end
+        local t = b.term
+        if t.value then
+            t.value = assert(remap[t.value])
+        end
+        for i = 1, #(t.values or {}) do
+            t.values[i] = assert(remap[t.values[i]])
+        end
+        t.spread = t.spread and assert(remap[t.spread]) or nil
+        local offset = resultOffset(t)
+        if t.kind == "invoke" then
+            t.callee = assert(remap[t.callee])
+            -- Removing the unused edge result changes only the consumer to
+            -- discard. The scalar call contract and every input remain.
+            t.result = t.result and remap[t.result] or nil
+            -- Several results keep their positions, so all of them survive.
+            if t.results then
+                for i = 1, #t.results do
+                    t.results[i] = assert(remap[t.results[i]])
+                end
+            end
+        end
+        if t.kind == "dispatch" or t.kind == "nativeTail" or t.kind == "invoke" then
+            for i = 1, #t.args do
+                t.args[i] = assert(remap[t.args[i]])
+            end
+        end
+        local edges = t.edges
+        for ei = 1, #edges do
+            local e = edges[ei]
+            local survived, args, n = blocks[e.target].survived, e.args, 0
+            for i = offset + 1, #survived do
+                if survived[i] then
+                    n = n + 1
+                    args[n] = assert(remap[args[i - offset]])
+                end
+            end
+            for i = #args, n + 1, -1 do
+                args[i] = nil
+            end
+        end
+    end
+    for bi = 1, #blocks do
+        blocks[bi].survived = nil
+    end
+    for i = 1, #certs do
+        local c = certs[i]
+        c.guard, c.cursor, c.span = assert(remap[c.guard]), assert(remap[c.cursor]), assert(remap[c.span])
+    end
+    if g.map then
+        g.map.index = assert(remap[g.map.index])
+        g.map.count = assert(remap[g.map.count])
+    end
+    g.types, g.slots = types, slots
+    if g.exactTypes ~= nil then
+        g.exactTypes = exactTypes
+    end
+    if g.nativePhysical then
+        g.nativePhysical.values = physicalTypes
+    end
+end
+
+--- Drops the blocks no path from the entry reaches, as after a loop whose
+--- body always leaves (`for _ in pairs(t) do return true end`), and the values
+--- only they defined. Blocks and values are renumbered densely in order, so
+--- the function parameters keep their ids; nothing reachable changes.
+export function dropUnreachable(g: any): nil
+    local blocks = g.blocks
+    local reached: {[integer]: boolean} = {[1] = true}
+    local order: {integer} = {1}
+    local at: integer = 1
+    while at <= #order do
+        local b = blocks[order[at]]
+        at += 1
+        for _, edge in ipairs(b.term and b.term.edges or {}) do
+            if not reached[edge.target] then
+                reached[edge.target] = true
+                order[#order + 1] = edge.target
+            end
+        end
+    end
+    if #order == #blocks then
+        return
+    end
+    local blockRemap: {[integer]: integer} = {}
+    local kept = {}
+    for index, b in ipairs(blocks) do
+        if reached[index] then
+            kept[#kept + 1] = b
+            blockRemap[index] = #kept
+        end
+    end
+    -- What the kept blocks define: their parameters and results.
+    local defined: {[integer]: boolean} = {}
+    for v = 1, g.nparams do
+        defined[v] = true
+    end
+    for _, b in ipairs(kept) do
+        for _, v in ipairs(b.params) do
+            defined[v] = true
+        end
+        for _, v in ipairs(b.dst) do
+            if v ~= 0 then
+                defined[v] = true
+            end
+        end
+    end
+    local remap: {[integer]: integer} = {}
+    local types, slots, exactTypes, physicalTypes = {}, {}, {}, {}
+    local count: integer = 0
+    for v = 1, #g.types do
+        if defined[v] then
+            count += 1
+            remap[v], types[count], slots[count] = count, g.types[v], g.slots[v]
+            if g.exactTypes ~= nil then
+                exactTypes[count] = g.exactTypes[v]
+            end
+            if g.nativePhysical then
+                physicalTypes[count] = g.nativePhysical.values[v]
+            end
+        end
+    end
+
+    local function value(v: integer): integer
+        local renumbered = remap[v]
+        assert(renumbered ~= nil, "a reachable block uses a value only an unreachable one defines")
+        return renumbered as integer
+    end
+
+    for index, b in ipairs(kept) do
+        b.id = index
+        for i, v in ipairs(b.params) do
+            b.params[i] = value(v)
+        end
+        for i, v in ipairs(b.dst) do
+            if v ~= 0 then
+                b.dst[i] = value(v)
+            end
+        end
+        for i, op in ipairs(b.op) do
+            local sig, args = parsed[op], b.args[i]
+            for j = 1, #args do
+                if classes[operandClass(sig, j)] or operandClass(sig, j) == "a" then
+                    args[j] = value(args[j])
+                end
+            end
+        end
+        local t = b.term
+        t.value = t.value and value(t.value) or nil
+        for i, v in ipairs(t.values or {}) do
+            t.values[i] = value(v)
+        end
+        t.spread = t.spread and value(t.spread) or nil
+        if t.kind == "invoke" then
+            t.callee = value(t.callee)
+            t.result = t.result and value(t.result) or nil
+            for i, v in ipairs(t.results or {}) do
+                t.results[i] = value(v)
+            end
+        end
+        if t.kind == "dispatch" or t.kind == "nativeTail" or t.kind == "invoke" then
+            for i, v in ipairs(t.args) do
+                t.args[i] = value(v)
+            end
+        end
+        for _, edge in ipairs(t.edges) do
+            edge.target = assert(blockRemap[edge.target])
+            for i, v in ipairs(edge.args) do
+                edge.args[i] = value(v)
+            end
+        end
+    end
+    for _, c in ipairs(g.certificates) do
+        c.guard, c.cursor, c.span = value(c.guard), value(c.cursor), value(c.span)
+    end
+    if g.map then
+        g.map.index, g.map.count = value(g.map.index), value(g.map.count)
+    end
+    g.blocks, g.types, g.slots = kept, types, slots
+    if g.exactTypes ~= nil then
+        g.exactTypes = exactTypes
+    end
+    if g.nativePhysical then
+        g.nativePhysical.values = physicalTypes
+    end
+end
+
+--- The region tree the frontend's annotations describe, as parallel columns:
+--- region `r` has `kinds[r]` ("body", "loop", "then" or "else"), `parents[r]`
+--- (0 at the root), `heads[r]` (the loop header or the branching block),
+--- `entries[r]` (the first block inside, 0 for an empty arm), `continues[r]`
+--- (a loop's continue block) and `merges[r]` (the block after it). Every
+--- block belongs to exactly one region, in `blockRegion`. A frontend annotates
+--- a loop header with `{kind = "loop", merge, continuing}` and a branching
+--- block with `{kind = "selection", merge}` (`"guard"` when one arm raises,
+--- `"clamp"` for a tail clamp, which the structured GPU walk does not take);
+--- an arm may end in a return or a raise instead of reaching the merge.
+--- Nothing is inferred: an unannotated
+--- branch, a block reached twice, or a block the tree never reaches is an
+--- error.
+--- @raises string when the annotations do not describe the graph.
+export function regions(g: any): any
+    local blocks = g.blocks
+    local kinds, parents, heads, entries, continues, merges = {"body"}, {0}, {1}, {1}, {0}, {0}
+    local blockRegion = {}
+
+    local function open(
+        kind: string,
+        parent: integer,
+        head: integer,
+        entry: integer,
+        continuing: integer,
+        merge: integer
+    ): integer
+        local r = #kinds + 1
+        kinds[
+            r
+        ], parents[r], heads[r], entries[r], continues[r], merges[r] = kind, parent, head, entry, continuing, merge
+
+        return r
+    end
+
+    local path
+    path = function(id: integer, stop: integer, region: integer): nil
+        while id ~= stop do
+            local b = blocks[id]
+            if not b then
+                error("invalid region block", 0)
+            end
+            if blockRegion[id] then
+                error("region crosses another region or has an unmarked cycle", 0)
+            end
+            blockRegion[id] = region
+            local t, r = b.term, b.region
+            if r and r.kind == "loop" then
+                if not (t.kind == "branch" and t.edges[2].target == r.merge) then
+                    error("loop exit differs from its merge", 0)
+                end
+                local continuing = blocks[r.continuing]
+                if not continuing then
+                    error("loop has no continue block", 0)
+                end
+                if not (continuing.term.kind == "jump" and continuing.term.edges[1].target == id) then
+                    error("invalid loop back edge", 0)
+                end
+                local loop = open("loop", region, id, t.edges[1].target, r.continuing, r.merge)
+                blockRegion[id] = loop
+                path(t.edges[1].target, r.continuing, loop)
+                if blockRegion[r.continuing] then
+                    error("continue block has another entry", 0)
+                end
+                blockRegion[r.continuing] = loop
+                id = r.merge
+            elseif t.kind == "branch" then
+                if not (
+                    r and (r.kind == "selection" or r.kind == "guard" or r.kind == "clamp") and blocks[r.merge]
+                ) then
+                    error("selection has no merge", 0)
+                end
+                local yes, no = t.edges[1].target, t.edges[2].target
+                local thenArm = open("then", region, id, yes == r.merge and 0 or yes, 0, r.merge)
+                path(yes, r.merge, thenArm)
+                local elseArm = open("else", region, id, no == r.merge and 0 or no, 0, r.merge)
+                path(no, r.merge, elseArm)
+                id = r.merge
+            else
+                if r then
+                    error("region on a non-branch", 0)
+                end
+                if t.kind == "jump" or t.kind == "park" or t.kind == "invoke" then
+                    id = t.edges[1].target
+                elseif t.kind == "switch" then
+                    error("switch regions are outside this slice", 0)
+                else
+                    -- A return or raise ends the path wherever it is.
+                    id = stop
+                end
+            end
+        end
+    end
+    path(1, 0, 1)
+    for i = 1, #blocks do
+        if not blockRegion[i] then
+            error("block outside the region tree", 0)
+        end
+    end
+
+    return {
+        kinds = kinds,
+        parents = parents,
+        heads = heads,
+        entries = entries,
+        continues = continues,
+        merges = merges,
+        blockRegion = blockRegion,
+        count = #kinds
+    }
+end

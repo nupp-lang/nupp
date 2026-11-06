@@ -1,0 +1,307 @@
+module nupp.compiler.vm.graphlower
+
+--- Lowering a verified graph to the VM's instruction stream.
+local graphcopies = require("nupp.compiler.vm.graphcopies")
+
+local physical = require("nupp.compiler.vm.nativephysical")
+local opcodes = require("nupp.compiler.vm.opcodes")
+local graphsignatures = require("nupp.compiler.vm.graphsignatures")
+local graphverify = require("nupp.compiler.vm.graphverify")
+local classes = graphsignatures.classes
+local parsed = graphsignatures.parsed
+
+local moves = {v = "Move", i = "IMov", f = "FMov", x = "VMov"}
+
+--- The executable stream the graph derives: slot layout from the hints,
+--- parallel edge copies through one scratch register per class, blocks laid
+--- out in order with the jump to the next block elided. The Rust loader
+--- derives the same stream from the image; this one is what inspection
+--- shows.
+--- @raises string when the graph does not verify, a float-returning function
+--- returns another class, or the slots exceed the register classes.
+export function lower(g: any): any
+    assert(g.native == nil, "native graph requires machine emission")
+    for _, block in ipairs(g.blocks) do
+        assert(not block.term or block.term.kind ~= "invoke", "invoke requires final-core call lowering")
+    end
+    graphverify.verify(g)
+    local code, starts, patches = {}, {}, {}
+    local lengthSlots = {}
+    local nparams, counts = g.nparams, g.counts
+    local types, slots = g.types, g.slots
+    local entryOps = g.blocks[1].op
+    for i = 1, #entryOps do
+        if entryOps[i] == "SpanLen" then
+            lengthSlots[g.blocks[1].args[i][1]] = slots[g.blocks[1].dst[i]]
+        end
+    end
+    -- Value-class registers: the parameters, the boxing scratch, then the
+    -- value slots and their copy scratch.
+    local valueBase = nparams + 2
+    -- The copy scratch is the unused base of the closure window. Captures
+    -- follow it, outside every SSA slot, so repeated sources and edge-copy
+    -- cycles cannot be overwritten by staging or by the closure result.
+    local captureBase, captureCount = valueBase + counts.v, 0
+    for _, block in ipairs(g.blocks) do
+        for at, op in ipairs(block.op) do
+            if op == "Closure" then
+                captureCount = math.max(captureCount, #block.args[at] - 1)
+            end
+        end
+    end
+    assert(captureBase + captureCount < 250, "graph register capacity")
+
+    local function physical(v: integer): any
+        local ty = types[v]
+        if ty == "v" then
+            return v <= nparams and v or valueBase + slots[v]
+        end
+
+        return slots[v]
+    end
+
+    local function scratch(ty: string): integer
+        return ty == "v" and valueBase + counts.v or counts[ty]
+    end
+
+    local function emit(...: any): integer
+        local instruction = {...}
+        opcodes.check(instruction)
+        code[#code + 1] = instruction
+        return #code
+    end
+
+    local function jump(target: integer): nil
+        patches[#patches + 1] = {at = emit("Jmp", 0), target = target}
+    end
+
+    -- Copies for one edge, class by class, in ascending destination order:
+    -- a copy whose destination no pending copy still reads goes first, and a
+    -- cycle breaks by moving one destination to the class's scratch slot.
+    local function copies(e: any, fallthrough: number?): nil
+        local targetParams = g.blocks[e.target].params
+        local order = {"v", "i", "f", "x"}
+        for ci = 1, 4 do
+            local ty = order[ci]
+            local destinations, sources = {}, {}
+            for i = 1, #targetParams do
+                local dst, src = targetParams[i], e.args[i]
+                if types[dst] == ty then
+                    destinations[#destinations + 1] = physical(dst)
+                    sources[#sources + 1] = physical(src)
+                end
+            end
+            for _, move in ipairs(graphcopies.schedule(destinations, sources, scratch(ty))) do
+                emit(moves[ty], move[1], move[2])
+            end
+        end
+        if e.target ~= fallthrough then
+            jump(e.target)
+        end
+    end
+
+    local positions = g.positions
+    local blocks = g.blocks
+    for bi = 1, #blocks do
+        local b = blocks[bi]
+        starts[b.id] = #code + 1
+        for i = 1, #b.op do
+            local op = b.op[i]
+            local sig = parsed[op]
+            local argClasses, args = sig.args, b.args[i]
+            local ins = {op}
+            local argAt = 0
+            for j = 1, sig.n + (sig.result ~= "-" and 1 or 0) do
+                if j == sig.resultAt then
+                    ins[#ins + 1] = physical(b.dst[i])
+                else
+                    argAt = argAt + 1
+                    local letter, arg = argClasses[argAt], args[argAt]
+                    if classes[letter] then
+                        ins[#ins + 1] = physical(arg)
+                    elseif letter == "w" then
+                        ins[#ins + 1] = valueBase + arg
+                    else
+                        ins[#ins + 1] = arg
+                    end
+                end
+            end
+            local from = #code + 1
+            if op == "Closure" then
+                for capture = 2, #args do
+                    emit("Move", captureBase + capture - 1, physical(args[capture]))
+                end
+                emit("NewClosure", physical(b.dst[i]), args[1], captureBase, #args - 1)
+            elseif op == "U32Add" or op == "U32Sub" then
+                emit(op == "U32Add" and "IAdd" or "ISub", ins[2], ins[3], ins[4])
+                emit("IMaskU32", ins[2], ins[2])
+            elseif op == "U32Load" or op == "U32Store" then
+                local store = op == "U32Store"
+                local param, index = ins[store and 2 or 3], ins[store and 3 or 4]
+                local one, vector = scratch("i"), scratch("x")
+                emit("IK", one, 1)
+                emit("SpanBounds", param, index, one, 4, store and 1 or 0)
+                if store then
+                    emit("VSplatN", vector, ins[4], 4)
+                    emit("SpanStore", param, index, vector, one, 4, 0, 1)
+                else
+                    emit("SpanLoad", vector, param, index, one, 4, 0, 1)
+                    emit("VExtractN", ins[2], vector, 4, 0)
+                end
+            elseif op == "SpanEqual" then
+                local flag = scratch("i")
+                emit("ICmpNe", flag, assert(lengthSlots[args[1]]), assert(lengthSlots[args[2]]))
+                emit("JmpIfIZero", flag, 1)
+                emit("Raise", ins[4])
+            elseif op == "VSplatI" then
+                ins[1] = "VSplatN"
+                code[#code + 1] = ins
+            elseif op == "VExtractI" then
+                ins[1] = "VExtractN"
+                code[#code + 1] = ins
+            else
+                code[#code + 1] = ins
+            end
+            local pos = b.pos[i]
+            if pos ~= 0 then
+                local line = positions[pos].line
+                for at = from, #code do
+                    code[at].line = line
+                end
+            end
+        end
+        local t = b.term
+        if t.kind == "jump" then
+            copies(t.edges[1], b.id + 1)
+        elseif t.kind == "branch" then
+            local test = types[t.value] == "v" and "JmpIfNot" or "JmpIfIZero"
+
+            local function same(e: any): boolean
+                local params = blocks[e.target].params
+                for i = 1, #params do
+                    if physical(params[i]) ~= physical(e.args[i]) then
+                        return false
+                    end
+                end
+
+                return true
+            end
+
+            local identity = same(t.edges[2])
+            if types[t.value] == "v"
+                and t.edges[1].target ~= b.id + 1
+                and t.edges[2].target == b.id + 1
+                and identity
+                and same(t.edges[1])
+            then
+                -- The false edge falls through: one jump on the true edge.
+                patches[
+                    #patches + 1
+                ] = {at = emit("JmpIf", physical(t.value), 0), target = t.edges[1].target, field = 3}
+            elseif identity then
+                patches[#patches + 1] = {at = emit(test, physical(t.value), 0), target = t.edges[2].target, field = 3}
+                copies(t.edges[1], b.id + 1)
+            else
+                local branch = emit(test, physical(t.value), 0)
+                copies(t.edges[1])
+                code[branch][3] = #code - branch
+                copies(t.edges[2], b.id + 1)
+            end
+        elseif t.kind == "switch" then
+            -- Each case lands on its own copies when they are not identity,
+            -- laid out after the switch; the table is patched to them.
+            local tables = g.tables or {}
+            g.tables = tables
+            local entry = {at = emit("Switch", physical(t.value), #tables), targets = {}}
+            tables[#tables + 1] = entry
+            local edges = t.edges
+            local trampolines = {}
+            for ei = 1, #edges do
+                local e = edges[ei]
+                local identity = true
+                local targetParams = blocks[e.target].params
+                for i = 1, #targetParams do
+                    identity = identity and physical(targetParams[i]) == physical(e.args[i])
+                end
+                if identity then
+                    entry.targets[ei] = {block = e.target}
+                else
+                    trampolines[#trampolines + 1] = ei
+                    entry.targets[ei] = {code = 0}
+                end
+            end
+            for ti = 1, #trampolines do
+                local ei = trampolines[ti]
+                entry.targets[ei].code = #code + 1
+                copies(edges[ei])
+            end
+        elseif t.kind == "raise" then
+            emit("Raise", t.constant)
+        elseif t.kind == "returns" then
+            emit("RetN", physical(t.value), t.count)
+        elseif t.kind == "park" then
+            local v = t.value
+            local reg = physical(v)
+            if types[v] == "f" then
+                reg = nparams + 1
+                emit("FBox", reg, physical(v))
+            end
+            -- The resume entry is the instruction after the park: the edge's
+            -- target starts there, or a jump reaches it.
+            copies(t.edges[1], t.edges[1].target)
+            emit("Park", reg)
+            if t.edges[1].target ~= b.id + 1 then
+                jump(t.edges[1].target)
+            end
+        elseif t.value then
+            local v = t.value
+            if g.ret == "f" then
+                if not (types[v] == "f") then
+                    error("float-returning function returns another class", 0)
+                end
+                emit("FRet", physical(v))
+            elseif types[v] == "f" then
+                emit("FBox", nparams + 1, physical(v))
+                emit("Ret", nparams + 1)
+            elseif types[v] == "i" then
+                emit("IBox", nparams + 1, physical(v))
+                emit("Ret", nparams + 1)
+            else
+                emit("Ret", physical(v))
+            end
+        else
+            emit("RetNil")
+        end
+    end
+    for pi = 1, #patches do
+        local p = patches[pi]
+        code[p.at][p.field or 2] = starts[p.target] - p.at - 1
+    end
+    local tables = {}
+    if g.tables then
+        for ti = 1, #g.tables do
+            local entry = g.tables[ti]
+            local offsets = {}
+            for ei = 1, #entry.targets do
+                local target = entry.targets[ei]
+                local at = target.block and starts[target.block] or target.code
+                offsets[ei] = at - entry.at - 1
+            end
+            tables[ti] = offsets
+        end
+        g.tables = nil
+    end
+    if not (counts.i < 239 and counts.f < 239 and counts.x < 249 and valueBase + counts.v < 250) then
+        error("graph register capacity", 0)
+    end
+
+    return {
+        code = code,
+        consts = g.constants,
+        tables = tables,
+        nregs = valueBase + (counts.v > 0 and counts.v + 1 or 0) + captureCount,
+        nfregs = math.max(counts.i, counts.f) + (g.map and 2 or 1),
+        nvregs = counts.x + 1,
+        graph = g
+    }
+end

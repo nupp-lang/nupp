@@ -27,6 +27,10 @@ const texts = require("nupp.runtime.core.guesttexts")
 const tables = require("nupp.runtime.core.coretables")
 const ints = require("nupp.runtime.core.coreintegers")
 const stacks = require("nupp.runtime.core.stacks")
+const librarycalls = require("nupp.runtime.core.librarycalls")
+const librarytexts = require("nupp.runtime.core.librarytexts")
+const guestlanding = require("nupp.runtime.core.guestlanding")
+const guestreplay = require("nupp.runtime.core.guestreplay")
 
 -- The body: heap.ThreadBody's words first, then the control only this
 -- module reads.
@@ -107,17 +111,6 @@ export const DRIVE_YIELDED: uint64 = 4ULL
 -- What resume answers: the thread runs; it cannot, and the resumer has its
 -- reason; it cannot, and its reason is raised; the frames are not as
 -- expected.
--- The coroutine library's LibCall ids. Resume and yield switch threads,
--- which the LibCall handler does itself; the rest are `call`'s.
-export const LIB_CREATE: uint64 = 75ULL
-export const LIB_RESUME: uint64 = 76ULL
-export const LIB_YIELD: uint64 = 77ULL
-export const LIB_STATUS: uint64 = 78ULL
-export const LIB_WRAP: uint64 = 79ULL
-export const LIB_RUNNING: uint64 = 80ULL
-export const LIB_ISYIELDABLE: uint64 = 81ULL
-export const LIB_CLOSE: uint64 = 82ULL
-
 export const SWITCHED: uint64 = 1ULL
 export const REFUSED: uint64 = 2ULL
 export const RAISED: uint64 = 3ULL
@@ -216,7 +209,7 @@ end
 -- them. `flags` adds FLAG_TASK for a task.
 export function create(ctx: voidptr, fn: uint64, bound: uint64, flags: uint64): uint64
     if target(fn) == 0ULL then
-        texts.argumentError(ctx, 1ULL, texts.TEXT_FUNCTION, 0ULL, fn)
+        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_FUNCTION, 0ULL, fn)
     end
     @unsafe do
         local h = native.pointer(heapof(ctx)) as heap.Heap*
@@ -272,7 +265,7 @@ end
 -- whose second holds the thread; calling it resumes the thread.
 export function wrap(ctx: voidptr, fn: uint64): uint64
     if target(fn) == 0ULL then
-        texts.argumentError(ctx, 1ULL, texts.TEXT_FUNCTION, 0ULL, fn)
+        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_FUNCTION, 0ULL, fn)
     end
     @unsafe do
         local h = native.pointer(heapof(ctx)) as heap.Heap*
@@ -371,22 +364,22 @@ end
 export function status(ctx: voidptr, value: uint64): uint64
     local t = bodyof(value)
     if t == 0ULL then
-        texts.argumentError(ctx, 1ULL, texts.TEXT_COROUTINE, 0ULL, value)
+        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_COROUTINE, 0ULL, value)
     end
     local state = native.load64(native.pointer(t), native.fieldOffset<Thread>("status"))
-    local text = texts.TEXT_DEAD
+    local text = librarytexts.TEXT_DEAD
     if state == FRESH or state == SUSPENDED then
-        text = texts.TEXT_SUSPENDED
+        text = librarytexts.TEXT_SUSPENDED
     elseif state == RUNNING then
-        text = texts.TEXT_RUNNING
+        text = librarytexts.TEXT_RUNNING
     elseif state == NORMAL then
-        text = texts.TEXT_NORMAL
+        text = librarytexts.TEXT_NORMAL
     elseif state == PARKED then
-        text = texts.TEXT_PARKED
+        text = librarytexts.TEXT_PARKED
     elseif state == MAIN then
-        text = texts.TEXT_NORMAL
+        text = librarytexts.TEXT_NORMAL
         if running(ctx) == 0ULL then
-            text = texts.TEXT_RUNNING
+            text = librarytexts.TEXT_RUNNING
         end
     end
 
@@ -410,7 +403,7 @@ end
 
 -- coroutine.isyieldable().
 export function yieldable(ctx: voidptr): uint64
-    if running(ctx) ~= 0ULL and not guestscope.crossing(ctx) then
+    if running(ctx) ~= 0ULL and not guestreplay.crossing(ctx) then
         return values.TRUE
     end
 
@@ -511,7 +504,7 @@ local function handover(ctx: voidptr, t: voidptr, result: uint64): nil
             native.fieldOffset<frames.Frame>("resumePC"),
             native.load64(frame, native.fieldOffset<frames.Frame>("resumePC")) - 1ULL
         )
-        guestscope.answered(ctx, native.address(t) - heap.HEADER_BYTES)
+        guestreplay.answered(ctx, native.address(t) - heap.HEADER_BYTES)
     end
 end
 
@@ -735,8 +728,8 @@ export function park(ctx: voidptr, frame: voidptr, pc: voidptr, slot: uint64): u
     if task == 0ULL then
         return REFUSED
     end
-    if guestscope.crossing(ctx) then
-        guestscope.raise(ctx, texts.textvalue(ctx, texts.TEXT_YIELD_ACROSS), 0ULL)
+    if guestreplay.crossing(ctx) then
+        guestscope.raise(ctx, texts.textvalue(ctx, librarytexts.TEXT_YIELD_ACROSS), 0ULL)
         return RAISED
     end
     local inner = running(ctx)
@@ -788,20 +781,20 @@ export function resume(
     local truth = (where >> 62ULL) & 1ULL
     local t = bodyof(value)
     if t == 0ULL then
-        texts.argumentError(ctx, 1ULL, texts.TEXT_COROUTINE, 0ULL, value)
+        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_COROUTINE, 0ULL, value)
     end
     local body = native.pointer(t)
     local state = native.load64(body, native.fieldOffset<Thread>("status"))
     local flags = native.load64(body, native.fieldOffset<Thread>("flags"))
     -- A task runs only when its scheduler runs it (Decision 18).
     if flags & FLAG_TASK ~= 0ULL and mode ~= MODE_DRIVE and state ~= DEAD then
-        guestscope.raise(ctx, texts.textvalue(ctx, texts.TEXT_RESUME_TASK), 1ULL)
+        guestscope.raise(ctx, texts.textvalue(ctx, librarytexts.TEXT_RESUME_TASK), 1ULL)
         return RAISED
     end
     if state ~= FRESH and state ~= SUSPENDED and (state ~= PARKED or mode ~= MODE_DRIVE) then
-        local text = texts.TEXT_RESUME_ACTIVE
+        local text = librarytexts.TEXT_RESUME_ACTIVE
         if state == DEAD then
-            text = texts.TEXT_RESUME_DEAD
+            text = librarytexts.TEXT_RESUME_DEAD
         end
         local reason = texts.textvalue(ctx, text)
         if mode ~= MODE_CALL then
@@ -863,13 +856,13 @@ end
 export function yield(ctx: voidptr, frame: voidptr, pc: voidptr, slot: uint64, args: uint64): uint64
     local thread = running(ctx)
     if thread == 0ULL then
-        guestscope.raise(ctx, texts.textvalue(ctx, texts.TEXT_YIELD_OUTSIDE), 0ULL)
+        guestscope.raise(ctx, texts.textvalue(ctx, librarytexts.TEXT_YIELD_OUTSIDE), 0ULL)
         return 0ULL
     end
     -- A metamethod a library call waits on cannot yield, as one a C
     -- function calls cannot in Lua.
-    if guestscope.crossing(ctx) then
-        guestscope.raise(ctx, texts.textvalue(ctx, texts.TEXT_YIELD_ACROSS), 0ULL)
+    if guestreplay.crossing(ctx) then
+        guestscope.raise(ctx, texts.textvalue(ctx, librarytexts.TEXT_YIELD_ACROSS), 0ULL)
         return 0ULL
     end
     local t = native.pointer(bodyof(thread))
@@ -901,7 +894,7 @@ local function retire(ctx: voidptr, thread: uint64, t: voidptr): uint64
         return 0ULL
     end
     switchout(ctx, thread, t, DEAD)
-    guestscope.replaydrop(ctx, thread)
+    guestreplay.replaydrop(ctx, thread)
     release(ctx, t)
 
     return 1ULL
@@ -1004,10 +997,10 @@ end
 -- resume's false and the error or raised again for a wrapped thread's call.
 -- Answers the pc to continue at, or 0 when the error ends the entry.
 export function recover(ctx: voidptr): uint64
-    local at = guestscope.recoverEntry(ctx)
-    while at == 0ULL and running(ctx) ~= 0ULL and guestscope.failing(ctx) == 1ULL do
+    local at = guestlanding.recoverEntry(ctx)
+    while at == 0ULL and running(ctx) ~= 0ULL and guestlanding.failing(ctx) == 1ULL do
         local value = guestscope.lastError(ctx)
-        guestscope.recovered(ctx)
+        guestlanding.recovered(ctx)
         local resumed = fail(ctx, value)
         if resumed == 0ULL then
             native.store64(ctx, context.STATUS, 4ULL)
@@ -1020,51 +1013,30 @@ export function recover(ctx: voidptr): uint64
         local frame = native.pointer(
             native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
         )
-        guestscope.reraise(
+        guestlanding.reraise(
             ctx,
             value,
             native.load64(frame, native.fieldOffset<frames.Frame>("functionId")),
             native.load64(frame, native.fieldOffset<frames.Frame>("resumePC")) - 1ULL
         )
-        at = guestscope.recoverEntry(ctx)
+        at = guestlanding.recoverEntry(ctx)
     end
 
     return at
-end
-
--- The name a coroutine library call's errors give it.
-export function libraryname(id: uint64): uint64
-    if id == LIB_CREATE then
-        return texts.NAME_CREATE
-    elseif id == LIB_RESUME then
-        return texts.NAME_RESUME
-    elseif id == LIB_YIELD then
-        return texts.NAME_YIELD
-    elseif id == LIB_STATUS then
-        return texts.NAME_STATUS
-    elseif id == LIB_WRAP then
-        return texts.NAME_WRAP
-    elseif id == LIB_RUNNING then
-        return texts.TEXT_RUNNING
-    elseif id == LIB_CLOSE then
-        return texts.NAME_CLOSE
-    end
-
-    return texts.NAME_ISYIELDABLE
 end
 
 -- The coroutine library calls that switch nothing: create, status, wrap,
 -- running (a pack) and isyieldable, with their argument `a` (and for
 -- create, `b`, the pack of arguments it binds, or nil).
 export function call(ctx: voidptr, id: uint64, a: uint64, b: uint64): uint64
-    if id == LIB_CREATE then
+    if id == librarycalls.COROUTINE_CREATE then
         -- create(f, ...): the arguments after f come as one pack.
         return create(ctx, a, native.chooseWord(b == values.NIL, 0ULL, b), 0ULL)
-    elseif id == LIB_STATUS then
+    elseif id == librarycalls.COROUTINE_STATUS then
         return status(ctx, a)
-    elseif id == LIB_WRAP then
+    elseif id == librarycalls.COROUTINE_WRAP then
         return wrap(ctx, a)
-    elseif id == LIB_RUNNING then
+    elseif id == librarycalls.COROUTINE_RUNNING then
         return current(ctx)
     end
 
@@ -1080,14 +1052,14 @@ end
 export function close(ctx: voidptr, frame: voidptr, pc: voidptr, value: uint64, slot: uint64): uint64
     local t = bodyof(value)
     if t == 0ULL then
-        texts.argumentError(ctx, 1ULL, texts.TEXT_COROUTINE, 0ULL, value)
+        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_COROUTINE, 0ULL, value)
     end
     local body = native.pointer(t)
     local state = native.load64(body, native.fieldOffset<Thread>("status"))
     if state == MAIN and running(ctx) == 0ULL then
-        texts.libraryError(ctx, texts.TEXT_CLOSE_MAIN)
+        texts.libraryError(ctx, librarytexts.TEXT_CLOSE_MAIN)
     elseif state == NORMAL or state == MAIN or state == PARKED then
-        texts.libraryError(ctx, texts.TEXT_CLOSE_NORMAL)
+        texts.libraryError(ctx, librarytexts.TEXT_CLOSE_NORMAL)
     elseif state == RUNNING then
         local scope = services(ctx)
         native.store64(scope, native.fieldOffset<guestscope.Services>("closing"), 1ULL)
@@ -1102,7 +1074,7 @@ export function close(ctx: voidptr, frame: voidptr, pc: voidptr, value: uint64, 
     local owners: uint64 = 0ULL
     local at = active
     while state == SUSPENDED and at ~= 0ULL do
-        owners = owners | guestscope.ownsaffine(ctx, at)
+        owners = owners | guestlanding.ownsaffine(ctx, at)
         at = native.load64(native.pointer(at), native.fieldOffset<frames.Frame>("previous"))
     end
     if state ~= SUSPENDED or owners == 0ULL then
@@ -1143,7 +1115,7 @@ export function close(ctx: voidptr, frame: voidptr, pc: voidptr, value: uint64, 
     native.store64(scope, native.fieldOffset<guestscope.Services>("lastError"), value)
     -- A yield in a function that owns affine values checks for a landed
     -- error after it: there the unwinding starts.
-    if guestscope.ownsaffine(ctx, active) == 1ULL then
+    if guestlanding.ownsaffine(ctx, active) == 1ULL then
         native.store64(scope, native.fieldOffset<guestscope.Services>("landed"), 1ULL)
         return SWITCHED
     end

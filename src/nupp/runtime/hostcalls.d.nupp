@@ -1,0 +1,17 @@
+@!internal
+
+--- What the native core's host answers about the program. A call of one is
+--- the core's own library call, and requiring this module loads nothing: it
+--- exists only on the core, for the library values written over it.
+local record hostcalls
+    --- The program's arguments as Lua's `arg` holds them: the program at 0,
+    --- then its arguments from 1, a new table each call.
+    arguments: function(): {[integer]: string}
+
+    --- Sets `cleanup` as the destructor of the affine types that name the
+    --- declaration whose checked cleanup key is `key`: what a body for that
+    --- declaration would set, for one only a declaration file holds.
+    setcleanup: function(key: string, cleanup: function(any): nil): nil
+end
+
+return hostcalls

@@ -15,15 +15,6 @@ const guestscope = require("nupp.runtime.core.guestscope")
 const tables = require("nupp.runtime.core.coretables")
 const stacks = require("nupp.runtime.core.stacks")
 
--- The LibCall a module with named exports makes as it starts: its export
--- table is published as its value before its body runs, so a module it
--- requires that requires it back sees the exports made so far.
-export const LIB_PUBLISH: uint64 = 84ULL
--- `require` of a name computed at run time, and the entry's registration of
--- the image's modules by name that it looks the name up in.
-export const LIB_REQUIRE: uint64 = 85ULL
-export const LIB_NAMES: uint64 = 86ULL
-
 local function services(ctx: voidptr): voidptr
     return native.loadPointer(ctx, context.SERVICE_SCOPE)
 end

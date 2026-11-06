@@ -149,6 +149,121 @@ export function sleepNanos(scope: voidptr, nanos: uint64): uint64
     return os.sleepNanos(nanos)
 end
 
+export function argument(scope: voidptr, index: uint64, out: voidptr, room: uint64): int64
+    local _ = scope
+    return os.argument(index, out, room)
+end
+
+export function fileOpen(scope: voidptr, path: voidptr, bytes: uint64, flags: uint64): int64
+    local _ = scope
+    return os.fileOpen(path, bytes, flags)
+end
+
+export function fileRead(scope: voidptr, fd: uint64, out: voidptr, room: uint64): int64
+    local _ = scope
+    return os.fileRead(fd, out, room)
+end
+
+export function fileWrite(scope: voidptr, fd: uint64, base: voidptr, bytes: uint64): int64
+    local _ = scope
+    return os.fileWrite(fd, base, bytes)
+end
+
+export function fileSeek(scope: voidptr, fd: uint64, offset: uint64, whence: uint64): int64
+    local _ = scope
+    return os.fileSeek(fd, offset, whence)
+end
+
+export function fileClose(scope: voidptr, fd: uint64): int64
+    local _ = scope
+    return os.fileClose(fd)
+end
+
+export function errorText(scope: voidptr, code: uint64, out: voidptr, room: uint64): int64
+    local _ = scope
+    return os.errorText(code, out, room)
+end
+
+export function pollOpen(scope: voidptr): int64
+    local _ = scope
+    return os.pollOpen()
+end
+
+export function pollArm(scope: voidptr, poller: uint64, fd: uint64, interest: uint64): int64
+    local _ = scope
+    return os.pollArm(poller, fd, interest)
+end
+
+export function pollWait(scope: voidptr, poller: uint64, nanos: uint64): int64
+    local _ = scope
+    return os.pollWait(poller, nanos)
+end
+
+export function pipeOpen(scope: voidptr): int64
+    local _ = scope
+    return os.pipeOpen()
+end
+
+export function poolStart(scope: voidptr, threads: uint64): int64
+    local _ = scope
+    return os.poolStart(threads)
+end
+
+export function poolSubmit(scope: voidptr, kind: uint64, word: uint64, base: voidptr, bytes: uint64): int64
+    local _ = scope
+    return os.poolSubmit(kind, word, base, bytes)
+end
+
+export function poolTake(scope: voidptr): int64
+    local _ = scope
+    return os.poolTake()
+end
+
+export function poolFinish(scope: voidptr, ticket: uint64, out: voidptr, room: uint64): int64
+    local _ = scope
+    return os.poolFinish(ticket, out, room)
+end
+
+export function poolCancel(scope: voidptr, ticket: uint64): int64
+    local _ = scope
+    return os.poolCancel(ticket)
+end
+
+export function processPipe(scope: voidptr, keep: uint64): int64
+    local _ = scope
+    return os.processPipe(keep)
+end
+
+export function processSpawn(scope: voidptr, spec: voidptr, bytes: uint64, flags: uint64): int64
+    local _ = scope
+    return os.processSpawn(spec, bytes, flags)
+end
+
+export function processWatch(scope: voidptr, poller: uint64, pid: uint64): int64
+    local _ = scope
+    return os.processWatch(poller, pid)
+end
+
+export function processUnwatch(scope: voidptr, poller: uint64, pid: uint64): int64
+    local _ = scope
+    return os.processUnwatch(poller, pid)
+end
+
+export function processReap(scope: voidptr, pid: uint64): int64
+    local _ = scope
+    return os.processReap(pid)
+end
+
+export function processKill(scope: voidptr, pid: uint64, signal: uint64): int64
+    local _ = scope
+    return os.processKill(pid, signal)
+end
+
+export function processExit(scope: voidptr, code: uint64): int64
+    local _ = scope
+    return os.processExit(code)
+end
+
 -- Root-registration close failure retains all backing. Entry must preserve
 -- this scope and ledger, never reset them or drain mappings under live roots.
 export function retain(scope: voidptr): nil

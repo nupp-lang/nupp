@@ -1,0 +1,133 @@
+module nupp.core.catalogreactordriver
+
+-- A minimal scheduler for the reactor's cases: tasks are coroutines this
+-- resumes in turn, a parked task yields to it, timers are a list kept in
+-- deadline order, and with nothing to run it waits in the reactor until the
+-- nearest deadline. A task parks from its own body, not from a coroutine it
+-- resumed. The core's scheduler takes this place; the reactor sees only the
+-- Parker either installs.
+const reactor = require("nupp.runtime.reactor")
+
+-- A task to resume, by its handle, and what it is resumed with.
+local record Ready
+    task: integer
+    value: any
+end
+
+local record Timer
+    at: number
+    task: integer
+end
+
+-- What a cancelled task is resumed with.
+local CANCELLED: {[string]: boolean} = {}
+
+-- The tasks' coroutines by handle, and the handle of the one running (0
+-- when none is).
+local bodies: {[integer]: any} = {}
+
+local lasttask: integer = 0
+local running: integer = 0
+local ready: {Ready} = {}
+local timers: {Timer} = {}
+
+local function waker(): reactor.Waker?
+    local task = running
+    if task == 0 then
+        return nil
+    end
+
+    return function(completion: reactor.Completion): nil
+        ready[#ready + 1] = new Ready(task = task, value = completion)
+    end
+end
+
+-- Yields to `run`, answering what the task is resumed with, or raising
+-- "cancelled" when it was cancelled.
+local function suspend(): any
+    local got: any = nil
+    @unsafe do
+        got = coroutine.yield()
+    end
+    if got == CANCELLED then
+        error("cancelled", 0)
+    end
+
+    return got
+end
+
+local function park(): reactor.Completion
+    return suspend() as reactor.Completion
+end
+
+reactor.install(new reactor.Parker(waker = waker, park = park))
+
+--- Starts `body` as a task, which runs when `run` next turns: its handle.
+export function spawn(body: function(): nil): integer
+    lasttask = lasttask + 1
+    bodies[lasttask] = coroutine.create(body)
+    ready[#ready + 1] = new Ready(task = lasttask, value = nil)
+
+    return lasttask
+end
+
+--- Parks the running task for `millis` milliseconds.
+export function sleep(millis: number): nil
+    if running == 0 then
+        error("sleep: not in a task", 2)
+    end
+    local at = os.monotonic() + millis
+    local index = #timers + 1
+    while index > 1 and timers[index - 1].at > at do
+        index = index - 1
+    end
+    table.insert(timers, index, new Timer(at = at, task = running))
+    suspend()
+end
+
+--- Cancels parked task `task`: its park raises "cancelled" when it next
+--- runs.
+export function cancel(task: integer): nil
+    for index, timer in ipairs(timers) do
+        if timer.task == task then
+            table.remove(timers, index)
+            break
+        end
+    end
+    ready[#ready + 1] = new Ready(task = task, value = CANCELLED)
+end
+
+--- Runs tasks until none can run, no timer is set and nothing is pending
+--- in the reactor. A task's error is raised here.
+export function run(): nil
+    while true do
+        while #ready > 0 do
+            local entry = table.remove(ready, 1)
+            local body = bodies[entry.task]
+            running = entry.task
+            local ok, problem = coroutine.resume(body, entry.value)
+            running = 0
+            if not ok then
+                error(problem, 0)
+            end
+            if coroutine.status(body) == "dead" then
+                bodies[entry.task] = nil
+            end
+        end
+        local now = os.monotonic()
+        while #timers > 0 and timers[1].at <= now do
+            local due = table.remove(timers, 1)
+            ready[#ready + 1] = new Ready(task = due.task, value = nil)
+        end
+        if #ready == 0 then
+            if #timers == 0 and reactor.pending() == 0 then
+                return
+            end
+            local deadline: number? = nil
+            if #timers > 0 then
+                deadline = timers[1].at
+            end
+            reactor.wait(deadline)
+        end
+    end
+end

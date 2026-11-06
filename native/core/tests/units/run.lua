@@ -4,6 +4,8 @@
 --
 --   cd native/core/tests/units && NUPP_COMPILER_ROOT=$PWD/../../../.. ../../../../bin/nupp run run.lua [normal|spill|all] [UNIT...]
 --
+-- `run.lua generate` rewrites the generated runtime files from their generators.
+--
 -- NUPP_CORE_BRIDGE selects a prebuilt bridge; otherwise cargo builds one.
 local runner = require("nupp.core.unitrunner")
 
@@ -15,7 +17,8 @@ local function cwd()
 end
 
 local HERE = debug.getinfo(1, "S").source:match("^@(/.*)/[^/]*$") or cwd()
-local ROOT = assert(os.getenv("NUPP_COMPILER_ROOT"), "set NUPP_COMPILER_ROOT to the checkout root")
+-- Another spelling of the root runs this again under its own (compilerroot).
+local ROOT = require("nupp.core.compilerroot").resolve(arg[0], arg)
 local BUILD = ROOT .. "/build/core-units"
 
 local function quote(value)
@@ -342,7 +345,11 @@ UNITS[#UNITS + 1] = {
         {"tableunits", "removal", 1},
         {"tableunits", "objectKeys", 1},
         {"tableunits", "survives", 1},
-        {"tableunits", "traversal", 1}
+        {"tableunits", "traversal", 1},
+        {"tableunits", "packedround", 1},
+        {"tableunits", "packedswitch", 2},
+        {"tableunits", "packedskip", 1},
+        {"tableunits", "packedboxes", 2}
     },
     cases = function()
         local cases = {}
@@ -361,6 +368,21 @@ UNITS[#UNITS + 1] = {
             local half = n * (n + 1) // 2
             local sum = (half - 3) + (half + 1000 * n - 1002) + (half - 3) + (half - 2)
             cases[#cases + 1] = {"traversal", {n}, (2 * n - 2) * 1000000000 + sum * 10 + 1}
+        end
+        -- Packed array parts: every kind round trips; each trigger switches or
+        -- keeps it; the collector visits none of a packed part; boxes made
+        -- as one switches survive, collecting at every allocation or not.
+        for _, n in ipairs({3, 100, 5000}) do
+            cases[#cases + 1] = {"packedround", {n}, 11}
+            for trigger = 0, 5 do
+                local same = trigger == 1 and n - 3 or n - 2
+                cases[#cases + 1] = {"packedswitch", {trigger, n}, (trigger <= 3 and 1000 or 0) + same}
+            end
+            cases[#cases + 1] = {"packedskip", {n}, n + 1}
+        end
+        for _, n in ipairs({1, 40, 300}) do
+            cases[#cases + 1] = {"packedboxes", {n, 0}, 1}
+            cases[#cases + 1] = {"packedboxes", {n, 1}, 1}
         end
 
         return cases
@@ -480,6 +502,28 @@ local function pack(text, words)
     return result
 end
 
+-- Error texts the core reports, and whether each names the command line
+-- already: what nupp.tools.cli.error's `message` decides, checked here with
+-- its own patterns.
+local NAMED = {
+    "nupp: no benchmark named x",
+    "nupp:",
+    "nupp",
+    "boom",
+    "a.lua:2: boom",
+    "a.lua:12: nupp: failed",
+    "a.lua:: nupp: x",
+    "a.lua:2:nupp: x",
+    "x\na.lua:2: nupp: y",
+    "a:b:3: nupp: z",
+    " nupp: x",
+    ""
+}
+
+local function namedExpected(text)
+    return (text:find("^nupp:") or text:find("^[^\n]-:%d+: nupp:")) and 1 or 0
+end
+
 -- What lstrlib's gmatch_aux yields, measured as the unit does: matches
 -- times a million, matched bytes times a hundred, plus captures seen.
 local function gmatchExpected(subject, pattern)
@@ -518,13 +562,20 @@ local GMATCH = {
 
 UNITS[#UNITS + 1] = {
     name = "stringunits",
-    modules = {"stringunits", "unitentry", "nupp.runtime.core.corestrings", "nupp.runtime.core.corepattern"},
+    modules = {
+        "stringunits",
+        "unitentry",
+        "nupp.runtime.core.corestrings",
+        "nupp.runtime.core.corepattern",
+        "nupp.runtime.core.reportprefix"
+    },
     paths = {
         ["nupp.runtime.core.corestrings"] = ROOT .. "/native/core/src/nupp/runtime/core/corestrings.nupp",
-        ["nupp.runtime.core.corepattern"] = ROOT .. "/native/core/src/nupp/runtime/core/corepattern.nupp"
+        ["nupp.runtime.core.corepattern"] = ROOT .. "/native/core/src/nupp/runtime/core/corepattern.nupp",
+        ["nupp.runtime.core.reportprefix"] = ROOT .. "/native/core/src/nupp/runtime/core/reportprefix.nupp"
     },
     include = "native/core/src",
-    entries = {{"stringunits", "basics", 3}, {"stringunits", "gmatch", 6}},
+    entries = {{"stringunits", "basics", 3}, {"stringunits", "gmatch", 6}, {"stringunits", "named", 4}},
     cases = function()
         local cases = {{"basics", {pack("abc", 1)[1], pack("ab", 1)[1], pack("c", 1)[1]}, 15}}
         for _, case in ipairs(GMATCH) do
@@ -532,6 +583,10 @@ UNITS[#UNITS + 1] = {
             cases[
                 #cases + 1
             ] = {"gmatch", {s[1], s[2], s[3], p[1], p[2], #case[1] | (#case[2] << 8)}, gmatchExpected(case[1], case[2])}
+        end
+        for _, text in ipairs(NAMED) do
+            local w = pack(text, 3)
+            cases[#cases + 1] = {"named", {w[1], w[2], w[3], #text}, namedExpected(text)}
         end
 
         return cases
@@ -626,27 +681,82 @@ for index = 2, #arg do
     only[arg[index]] = true
 end
 
-os.execute("mkdir -p " .. quote(BUILD))
-local modes = (arg[1] and arg[1] ~= "all") and {arg[1]} or {"normal", "spill"}
-local tool = bridge()
-local failures, passed = 0, 0
 -- The raw loader's policies are generated from the graph schema and its
--- bounds: each committed file stays exactly what its generator writes.
+-- bounds, and the core library's call and text ids from their one tables:
+-- each committed file stays exactly what its generator writes.
 -- Each generator by a literal require: the core reaches no module by a
 -- computed name (toollayeringtest).
-for _, pair in ipairs({
+local GENERATED = {
     {require("nupp.core.rawwiregen"), "rawwire", "nupp.core.rawwiregen"},
     {require("nupp.core.rawshapegen"), "rawroles", "nupp.core.rawshapegen"},
     {require("nupp.core.rawcataloggen"), "rawcatalogpolicy", "nupp.core.rawcataloggen"},
     {require("nupp.core.rawbudgetgen"), "rawbudgetpolicy", "nupp.core.rawbudgetgen"},
-    {require("nupp.core.rawsemanticgen"), "rawsemanticpolicy", "nupp.core.rawsemanticgen"}
-}) do
+    {require("nupp.core.rawsemanticgen"), "rawsemanticpolicy", "nupp.core.rawsemanticgen"},
+    {require("nupp.core.librarycallsgen"), "librarycalls", "nupp.core.librarycallsgen"},
+    {require("nupp.core.librarylayoutsgen"), "librarylayouts", "nupp.core.librarylayoutsgen"},
+    {require("nupp.core.librarytextsgen"), "librarytexts", "nupp.core.librarytextsgen"}
+}
+
+-- `run.lua generate` writes every generated file and stops.
+if arg[1] == "generate" then
+    for _, pair in ipairs(GENERATED) do
+        write(ROOT .. "/native/core/src/nupp/runtime/core/" .. pair[2] .. ".nupp", pair[1].source())
+        print("wrote " .. pair[2])
+    end
+    os.exit(0)
+end
+
+os.execute("mkdir -p " .. quote(BUILD))
+local modes = (arg[1] and arg[1] ~= "all") and {arg[1]} or {"normal", "spill"}
+local tool = bridge()
+local failures, passed = 0, 0
+for _, pair in ipairs(GENERATED) do
     local path = ROOT .. "/native/core/src/nupp/runtime/core/" .. pair[2] .. ".nupp"
     if read(path) == pair[1].source() then
         passed = passed + 1
     else
         failures = failures + 1
         print("FAIL generated " .. pair[2] .. ": differs from " .. pair[3] .. ".source()")
+    end
+end
+-- No two library calls share an id, nor two texts, and every text a call
+-- names is one; the tables assert as much as they load, and this says so
+-- by name when one does not.
+do
+    local corelibrary = require("nupp.compiler.vm.corelibrary")
+    local coretexts = require("nupp.compiler.vm.coretexts")
+    local function unique(space, rows)
+        local ids, names, problem = {}, {}, nil
+        for _, row in ipairs(rows) do
+            if ids[row.id] then
+                problem = ("%s and %s share %s id %d"):format(ids[row.id], row.name, space, row.id)
+            elseif names[row.name] then
+                problem = ("%s names two %s ids"):format(row.name, space)
+            end
+            ids[row.id], names[row.name] = row.name, true
+        end
+        return problem, names
+    end
+    local calls = {}
+    for _, subject in ipairs(corelibrary.subjects()) do
+        for _, call in ipairs(subject.calls) do
+            calls[#calls + 1] = call
+        end
+    end
+    local callProblem = unique("library call", calls)
+    local textProblem, texts = unique("text", coretexts.all())
+    for _, call in ipairs(calls) do
+        if call.text and not texts[call.text] then
+            textProblem = call.name .. " names no text " .. call.text
+        end
+    end
+    for _, problem in ipairs({callProblem or false, textProblem or false}) do
+        if problem then
+            failures = failures + 1
+            print("FAIL library ids: " .. problem)
+        else
+            passed = passed + 1
+        end
     end
 end
 for _, unit in ipairs(UNITS) do

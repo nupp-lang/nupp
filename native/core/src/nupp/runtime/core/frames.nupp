@@ -150,6 +150,9 @@ export const MODULE_DESTINATION: uint64 = 7ULL
 -- caller takes its first result as a call's, and runs the library call
 -- again with it.
 export const LIBRARY_DESTINATION: uint64 = 8ULL
+-- A __tostring the entry calls on an error no protected call took
+-- (`guestreport`): its first result ends the entry, which reports it.
+export const REPORT_DESTINATION: uint64 = 9ULL
 -- The most results a caller frame may want from one call.
 export const MAX_RESULTS: uint64 = 16ULL
 
@@ -632,12 +635,15 @@ local function initializeFrame(
     native.store64(child, native.fieldOffset<Frame>("reservationBytes"), bytes)
     native.store64(child, native.fieldOffset<Frame>("child"), 0ULL)
     native.store64(child, native.fieldOffset<Frame>("phase"), 0ULL)
+    -- No live mark: the fields one at a time, not a loop, on every call.
     local childMark = native.offset(child, native.fieldOffset<Frame>("childMark"))
-    local at: uint64 = 0ULL
-    while at < native.sizeOf<arena.Mark>() do
-        native.store64(childMark, native.index(at), 0ULL)
-        at = at + 8ULL
-    end
+    native.store64(childMark, native.fieldOffset<arena.Mark>("owner"), 0ULL)
+    native.store64(childMark, native.fieldOffset<arena.Mark>("serial"), 0ULL)
+    native.store64(childMark, native.fieldOffset<arena.Mark>("previous"), 0ULL)
+    native.store64(childMark, native.fieldOffset<arena.Mark>("before"), 0ULL)
+    native.store64(childMark, native.fieldOffset<arena.Mark>("finish"), 0ULL)
+    native.store64(childMark, native.fieldOffset<arena.Mark>("payload"), 0ULL)
+    native.store64(childMark, native.fieldOffset<arena.Mark>("bytes"), 0ULL)
     local slots = native.loadPointer(child, native.fieldOffset<Frame>("values"))
     local nv = native.load64(child, native.fieldOffset<Frame>("valueCount"))
     local i: uint64 = 0ULL
@@ -654,14 +660,14 @@ end
 -- holds the top frame. Answers 1, or 0 with nothing written.
 local function reserveChild(state: voidptr, bytes: uint64, mark: voidptr): uint64
     local segment = native.loadPointer(state, native.fieldOffset<State>("segment"))
-    if arena.reserve(segment, bytes, 16ULL, mark) == 1ULL then
+    if arena.push(segment, bytes, mark) == 1ULL then
         return 1ULL
     end
     if native.load64(segment, native.fieldOffset<Chunk>("tag")) ~= CHUNK then
         return 0ULL
     end
     local above = native.load64(segment, native.fieldOffset<Chunk>("above"))
-    if above == 0ULL or arena.reserve(native.pointer(above), bytes, 16ULL, mark) == 0ULL then
+    if above == 0ULL or arena.push(native.pointer(above), bytes, mark) == 0ULL then
         return 0ULL
     end
     native.store64(state, native.fieldOffset<State>("segment"), above)
@@ -697,13 +703,9 @@ export function prepareFixed(
     resultSlot: uint64,
     plan: voidptr
 ): uint64
-    if validState(state) == 0ULL
-        or validFrame(state, caller) == 0ULL
-        or describe(info, plan, 0ULL) == 0ULL
-        or stableMetadata(state, info, plan) == 0ULL
-    then
-        return 0ULL
-    end
+    -- `info` and `plan` are catalog rows, checked once when the catalog was
+    -- admitted (planFixed), and `caller` is the active frame, which only
+    -- these services create: a call checks neither again.
     if native.load64(state, native.fieldOffset<State>("active")) ~= native.address(caller)
         or native.load64(caller, native.fieldOffset<Frame>("phase")) ~= ACTIVE
         or native.load64(caller, native.fieldOffset<Frame>("child")) ~= 0ULL
@@ -718,18 +720,6 @@ export function prepareFixed(
     end
     local count = native.load64(caller, native.fieldOffset<Frame>("valueCount"))
     if resultSlot >= count or argumentBase >= count or supplied > count - argumentBase - 1ULL then
-        return 0ULL
-    end
-    local callerBytes = native.load64(caller, native.fieldOffset<Frame>("reservationBytes"))
-    if overlaps(native.address(info), native.sizeOf<FunctionInfo>(), native.address(caller), callerBytes)
-        or overlaps(native.address(plan), native.sizeOf<WindowPlan>(), native.address(caller), callerBytes)
-        or overlaps(
-            native.load64(info, native.fieldOffset<FunctionInfo>("code")),
-            native.load64(info, native.fieldOffset<FunctionInfo>("instructionCount")) * 16ULL,
-            native.address(caller),
-            callerBytes
-        )
-    then
         return 0ULL
     end
     local mark = native.offset(caller, native.fieldOffset<Frame>("childMark"))
@@ -763,79 +753,29 @@ export function prepareFixed(
     return payload
 end
 
+-- Frames are made only by these services from admitted catalog rows, so a
+-- transition checks how they are linked, not their layout.
 local function linked(state: voidptr, parent: voidptr, child: voidptr): uint64
-    if validState(state) == 0ULL or validFrame(state, parent) == 0ULL or validFrame(state, child) == 0ULL then
-        return 0ULL
-    end
-    if native.address(parent) == native.address(child)
+    if native.address(parent) == 0ULL
+        or native.address(parent) == native.address(child)
         or native.load64(child, native.fieldOffset<Frame>("previous")) ~= native.address(parent)
         or native.load64(parent, native.fieldOffset<Frame>("child")) ~= native.address(child)
-    then
-        return 0ULL
-    end
-    if native.load64(child, native.fieldOffset<Frame>("resultKind")) ~= CALLER_DESTINATION
-        and native.load64(child, native.fieldOffset<Frame>("resultKind")) ~= PROTECTED_DESTINATION
-        and native.load64(child, native.fieldOffset<Frame>("resultKind")) ~= TRUTH_DESTINATION
-        and native.load64(child, native.fieldOffset<Frame>("resultKind")) ~= PACK_DESTINATION
-        and native.load64(child, native.fieldOffset<Frame>("resultKind")) ~= MODULE_DESTINATION
-        and native.load64(child, native.fieldOffset<Frame>("resultKind")) ~= LIBRARY_DESTINATION
-        or native.load64(child, native.fieldOffset<Frame>("resultOwner")) ~= native.address(parent)
-        or native.load64(child, native.fieldOffset<Frame>("resultCount")) == 0ULL
-        or native.load64(child, native.fieldOffset<Frame>("resultCount")) > MAX_RESULTS
-    then
-        return 0ULL
-    end
-    -- Every wanted result lands inside the caller's value window.
-    if native.load64(
-        child,
-        native.fieldOffset<Frame>("resultSlot")
-    ) + native.load64(
-        child,
-        native.fieldOffset<Frame>("resultCount")
-    ) > native.load64(parent, native.fieldOffset<Frame>("valueCount")) then
-        return 0ULL
-    end
-    if native.load64(child, native.fieldOffset<Frame>("cleanupCursor")) ~= 0ULL
         or native.load64(child, native.fieldOffset<Frame>("child")) ~= 0ULL
-        or native.load64(child, native.fieldOffset<Frame>("dataMark")) ~= 0ULL
-        or native.load64(child, native.fieldOffset<Frame>("spillMark")) ~= 0ULL
     then
         return 0ULL
     end
-    local mark = native.offset(parent, native.fieldOffset<Frame>("childMark"))
-    local segment = native.loadPointer(state, native.fieldOffset<State>("segment"))
-    if native.load64(child, native.fieldOffset<Frame>("frameMark")) ~= native.address(mark)
-        or arena.canRelease(segment, mark) == 0ULL
-    then
-        return 0ULL
-    end
-    if native.load64(mark, native.fieldOffset<arena.Mark>("payload")) ~= native.address(child)
-        or native.load64(
-            mark,
-            native.fieldOffset<arena.Mark>("bytes")
-        ) ~= native.load64(child, native.fieldOffset<Frame>("reservationBytes"))
-    then
-        return 0ULL
-    end
-    local base = native.load64(segment, native.fieldOffset<arena.Segment>("base"))
-    local limit = native.load64(segment, native.fieldOffset<arena.Segment>("limit"))
-    local parentAddress = native.address(parent)
-    local parentBytes = native.load64(parent, native.fieldOffset<Frame>("reservationBytes"))
-    local info = native.loadPointer(child, native.fieldOffset<Frame>("functionInfo"))
-    local plan = native.loadPointer(child, native.fieldOffset<Frame>("windowPlan"))
-    if overlaps(native.address(info), native.sizeOf<FunctionInfo>(), parentAddress, parentBytes)
-        or overlaps(native.address(plan), native.sizeOf<WindowPlan>(), parentAddress, parentBytes)
-        or overlaps(
-            native.load64(info, native.fieldOffset<FunctionInfo>("code")),
-            native.load64(info, native.fieldOffset<FunctionInfo>("instructionCount")) * 16ULL,
-            parentAddress,
-            parentBytes
-        )
-    then
-        return 0ULL
-    end
-    if overlaps(parentAddress, parentBytes, base, limit - base)
-        and parentAddress + parentBytes > native.load64(mark, native.fieldOffset<arena.Mark>("before"))
+
+    return 1ULL
+end
+
+-- 1 when `child` is the active frame's prepared, unpublished child.
+local function prepared(state: voidptr, child: voidptr): uint64
+    local active = native.load64(state, native.fieldOffset<State>("active"))
+    if native.address(child) == 0ULL
+        or active == 0ULL
+        or native.load64(child, native.fieldOffset<Frame>("phase")) ~= PREPARED
+        or native.load64(child, native.fieldOffset<Frame>("previous")) ~= active
+        or native.load64(native.pointer(active), native.fieldOffset<Frame>("child")) ~= native.address(child)
     then
         return 0ULL
     end
@@ -904,9 +844,6 @@ end
 -- owns mapped metadata and retains the helper arena outside the released span.
 -- No callback, collection, work-budget or cancellation check occurs here.
 export function abortActive(state: voidptr, callee: voidptr): uint64
-    if validState(state) == 0ULL or validFrame(state, callee) == 0ULL then
-        return 0ULL
-    end
     local parent = native.loadPointer(callee, native.fieldOffset<Frame>("previous"))
     if linked(state, parent, callee) == 0ULL then
         return 0ULL
@@ -943,9 +880,6 @@ end
 
 -- The caller frame a linked, active callee may return into, or zero.
 local function returnTarget(state: voidptr, callee: voidptr): uint64
-    if validState(state) == 0ULL or validFrame(state, callee) == 0ULL then
-        return 0ULL
-    end
     local parent = native.loadPointer(callee, native.fieldOffset<Frame>("previous"))
     if linked(state, parent, callee) == 0ULL then
         return 0ULL
@@ -971,7 +905,7 @@ end
 local function retire(state: voidptr, parent: voidptr, count: uint64): uint64
     local segment = native.loadPointer(state, native.fieldOffset<State>("segment"))
     local mark = native.offset(parent, native.fieldOffset<Frame>("childMark"))
-    if arena.release(segment, mark) == 0ULL then
+    if arena.pop(segment, mark) == 0ULL then
         return 0ULL
     end
     settle(state, segment)
@@ -1062,13 +996,12 @@ end
 
 -- How many results a prepared child's caller wants; one unless set.
 export function wantResults(state: voidptr, child: voidptr, count: uint64): uint64
-    if validState(state) == 0ULL or validFrame(state, child) == 0ULL then
+    if prepared(state, child) == 0ULL then
         return 0ULL
     end
     local parent = native.loadPointer(child, native.fieldOffset<Frame>("previous"))
     if count == 0ULL
         or count > MAX_RESULTS
-        or native.load64(child, native.fieldOffset<Frame>("phase")) ~= PREPARED
         or native.load64(
             child,
             native.fieldOffset<Frame>("resultSlot")
@@ -1535,6 +1468,7 @@ export function rootRangeCount(
                 and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= PACK_DESTINATION
                 and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= MODULE_DESTINATION
                 and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= LIBRARY_DESTINATION
+                and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= REPORT_DESTINATION
                 or native.load64(frame, native.fieldOffset<Frame>("resultOwner")) ~= previous
                 or native.load64(
                     frame,
@@ -1630,10 +1564,7 @@ end
 -- Marks a prepared child as a protected call's (pcall).
 -- Marks a prepared child as a comparison metamethod's (TRUTH_DESTINATION).
 export function truth(state: voidptr, child: voidptr): uint64
-    if validState(state) == 0ULL
-        or validFrame(state, child) == 0ULL
-        or native.load64(child, native.fieldOffset<Frame>("phase")) ~= PREPARED
-    then
+    if prepared(state, child) == 0ULL then
         return 0ULL
     end
     native.store64(child, native.fieldOffset<Frame>("resultKind"), TRUTH_DESTINATION)
@@ -1643,10 +1574,7 @@ end
 
 -- Marks a prepared child as a required module's chunk.
 export function moduleresult(state: voidptr, child: voidptr): uint64
-    if validState(state) == 0ULL
-        or validFrame(state, child) == 0ULL
-        or native.load64(child, native.fieldOffset<Frame>("phase")) ~= PREPARED
-    then
+    if prepared(state, child) == 0ULL then
         return 0ULL
     end
     native.store64(child, native.fieldOffset<Frame>("resultKind"), MODULE_DESTINATION)
@@ -1656,10 +1584,7 @@ end
 
 -- Marks a prepared child as a metamethod a library call waits on.
 export function libraryresult(state: voidptr, child: voidptr): uint64
-    if validState(state) == 0ULL
-        or validFrame(state, child) == 0ULL
-        or native.load64(child, native.fieldOffset<Frame>("phase")) ~= PREPARED
-    then
+    if prepared(state, child) == 0ULL then
         return 0ULL
     end
     native.store64(child, native.fieldOffset<Frame>("resultKind"), LIBRARY_DESTINATION)
@@ -1667,12 +1592,19 @@ export function libraryresult(state: voidptr, child: voidptr): uint64
     return 1ULL
 end
 
+-- Marks a prepared child as the __tostring an error's report waits on.
+export function reportresult(state: voidptr, child: voidptr): uint64
+    if prepared(state, child) == 0ULL then
+        return 0ULL
+    end
+    native.store64(child, native.fieldOffset<Frame>("resultKind"), REPORT_DESTINATION)
+
+    return 1ULL
+end
+
 -- Marks a prepared child as one whose caller takes all its results as a pack.
 export function packResults(state: voidptr, child: voidptr): uint64
-    if validState(state) == 0ULL
-        or validFrame(state, child) == 0ULL
-        or native.load64(child, native.fieldOffset<Frame>("phase")) ~= PREPARED
-    then
+    if prepared(state, child) == 0ULL then
         return 0ULL
     end
     native.store64(child, native.fieldOffset<Frame>("resultKind"), PACK_DESTINATION)
@@ -1681,10 +1613,7 @@ export function packResults(state: voidptr, child: voidptr): uint64
 end
 
 export function protect(state: voidptr, child: voidptr): uint64
-    if validState(state) == 0ULL
-        or validFrame(state, child) == 0ULL
-        or native.load64(child, native.fieldOffset<Frame>("phase")) ~= PREPARED
-    then
+    if prepared(state, child) == 0ULL then
         return 0ULL
     end
     native.store64(child, native.fieldOffset<Frame>("resultKind"), PROTECTED_DESTINATION)

@@ -19,12 +19,20 @@ const threads = require("nupp.runtime.core.threads")
 const tasks = require("nupp.runtime.core.tasks")
 const guestio = require("nupp.runtime.core.guestio")
 const basics = require("nupp.runtime.core.guestbasics")
-const widths = require("nupp.runtime.core.guestwidths")
 const numbers = require("nupp.runtime.core.guestnumbers")
-const bitops = require("nupp.runtime.core.guestbits")
 const corestorage = require("nupp.runtime.core.corestorage")
 const modules = require("nupp.runtime.core.modules")
 const texts = require("nupp.runtime.core.guesttexts")
+const librarycalls = require("nupp.runtime.core.librarycalls")
+const librarylayouts = require("nupp.runtime.core.librarylayouts")
+const librarytexts = require("nupp.runtime.core.librarytexts")
+const guesttables = require("nupp.runtime.core.guesttables")
+const gueststorage = require("nupp.runtime.core.gueststorage")
+const guesterrors = require("nupp.runtime.core.guesterrors")
+const guestmeta = require("nupp.runtime.core.guestmeta")
+const guestreplay = require("nupp.runtime.core.guestreplay")
+const guestarith = require("nupp.runtime.core.guestarith")
+const uncaught = require("nupp.runtime.core.guestuncaught")
 
 -- The closed checked producer binds these program/slot reads to corebytecode's
 -- canonical opcode recipes and its retained complete graph-derived byte stream.
@@ -141,273 +149,6 @@ export function Require(
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
 
--- Dynamic numbers: binary64 floats and signed 48-bit integer immediates.
--- Integer results that need a canonical integer object refuse with RESOURCE
--- until the core has one; they never round or wrap into a wrong value.
--- Because every integer here is an immediate, converting one to binary64 is
--- exact, so mixed arithmetic and comparison through floats is Lua's exact
--- result. Boxed integers will need the exact mixed algorithms.
-const ADD: uint64 = 0ULL
-const SUB: uint64 = 1ULL
-const MUL: uint64 = 2ULL
-const MOD: uint64 = 3ULL
-const HIGH16: uint64 = 0xffff000000000000ULL
-const SIGN48: uint64 = 0x0000800000000000ULL
-const HIGH17: uint64 = 0xffff800000000000ULL
-const SIGN64: uint64 = 0x8000000000000000ULL
-
--- Non-number words report why arithmetic produced no value: TRUE for an
--- operand that is not a number, NIL for an unrepresentable integer, and
--- FALSE for integer modulo by zero.
-local function integerWord(value: uint64): boolean
-    return value & HIGH16 == values.TAG_INTEGER
-end
-
-local function floatWord(value: uint64): boolean
-    return value & values.QNAN ~= values.QNAN or value == values.QNAN
-end
-
-local function integerBits(value: uint64): uint64
-    local payload = value & values.PAYLOAD
-    return native.chooseWord(payload & SIGN48 ~= 0ULL, payload | HIGH16, payload)
-end
-
-local function integerValue(bits: uint64): uint64
-    local high = bits & HIGH17
-    if high == 0ULL or high == HIGH17 then
-        return values.TAG_INTEGER | (bits & values.PAYLOAD)
-    end
-
-    return values.NIL
-end
-
--- Leaves pass floats as IEEE bits; float values stay inside one function.
-local function doubleBits(value: uint64): uint64
-    if integerWord(value) then
-        return native.bits(native.toFloat(native.index(integerBits(value))))
-    end
-    return value
-end
-
-local function floatValue(bits: uint64): uint64
-    return native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits)
-end
-
--- C fmod: the exact remainder with the dividend's sign, by shift-and-subtract
--- on the significands (the musl algorithm). Exponents are signed because a
--- subnormal's normalized exponent falls below zero.
-local function fmod(ux: uint64, uy: uint64): uint64
-    local x = native.fromBits(ux)
-    local y = native.fromBits(uy)
-    local ex = native.index((ux >> 52) & 0x7ffULL)
-    local ey = native.index((uy >> 52) & 0x7ffULL)
-    local sx = ux & SIGN64
-    if uy << 1 == 0ULL or y ~= y or ex == 0x7ffLL then
-        return native.bits((x * y) / (x * y))
-    end
-    if ux << 1 <= uy << 1 then
-        if ux << 1 == uy << 1 then
-            return ux & SIGN64
-        end
-        return ux
-    end
-    local mx = ux
-    if ex == 0LL then
-        local probe = mx << 12
-        while probe >> 63 == 0ULL do
-            ex = ex - 1LL
-            probe = probe << 1
-        end
-        mx = mx << native.word(1LL - ex)
-    else
-        mx = (mx & 0x000fffffffffffffULL) | 0x0010000000000000ULL
-    end
-    local my = uy
-    if ey == 0LL then
-        local probe = my << 12
-        while probe >> 63 == 0ULL do
-            ey = ey - 1LL
-            probe = probe << 1
-        end
-        my = my << native.word(1LL - ey)
-    else
-        my = (my & 0x000fffffffffffffULL) | 0x0010000000000000ULL
-    end
-    while ex > ey do
-        local difference = mx - my
-        if difference >> 63 == 0ULL then
-            if difference == 0ULL then
-                return ux & SIGN64
-            end
-            mx = difference
-        end
-        mx = mx << 1
-        ex = ex - 1LL
-    end
-    local difference = mx - my
-    if difference >> 63 == 0ULL then
-        if difference == 0ULL then
-            return ux & SIGN64
-        end
-        mx = difference
-    end
-    while mx >> 52 == 0ULL do
-        mx = mx << 1
-        ex = ex - 1LL
-    end
-    if ex > 0LL then
-        mx = (mx - 0x0010000000000000ULL) | (native.word(ex) << 52)
-    else
-        mx = mx >> native.word(1LL - ex)
-    end
-
-    return mx | sx
-end
-
--- Lua's floor modulo for immediates: truncated remainder by magnitudes, then
--- moved to the divisor's sign. A zero divisor is an error, not a value.
-local function integerModulo(a: uint64, b: uint64): uint64
-    if b == 0ULL then
-        return values.FALSE
-    end
-    local negativeA = a & SIGN64 ~= 0ULL
-    local negativeB = b & SIGN64 ~= 0ULL
-    local magnitudeA = native.chooseWord(negativeA, 0ULL - a, a)
-    local magnitudeB = native.chooseWord(negativeB, 0ULL - b, b)
-    local remainder = magnitudeA - (magnitudeA // magnitudeB) * magnitudeB
-    local m = native.chooseWord(negativeA, 0ULL - remainder, remainder)
-    if m ~= 0ULL and negativeA ~= negativeB then
-        m = m + b
-    end
-
-    return integerValue(m)
-end
-
-local function arithmetic(operation: uint64, left: uint64, right: uint64): uint64
-    -- A boxed integer operand takes the wide path (NIL), as does an integer
-    -- result outside the immediates.
-    if wide.boxed(left) or wide.boxed(right) then
-        return values.NIL
-    end
-    local leftInteger = integerWord(left)
-    local rightInteger = integerWord(right)
-    if not (leftInteger or floatWord(left)) or not (rightInteger or floatWord(right)) then
-        return values.TRUE
-    end
-    if leftInteger and rightInteger then
-        local a = integerBits(left)
-        local b = integerBits(right)
-        if operation == ADD then
-            return integerValue(a + b)
-        elseif operation == SUB then
-            return integerValue(a - b)
-        elseif operation == MUL then
-            return integerValue(a * b)
-        end
-        return integerModulo(a, b)
-    end
-    local x = native.fromBits(doubleBits(left))
-    local y = native.fromBits(doubleBits(right))
-    if operation == ADD then
-        return floatValue(native.bits(x + y))
-    elseif operation == SUB then
-        return floatValue(native.bits(x - y))
-    elseif operation == MUL then
-        return floatValue(native.bits(x * y))
-    end
-    -- Lua's float modulo: fmod moved to the divisor's sign. The native
-    -- profile has no float literals, so zero is spelled by its bits.
-    local zero = native.fromBits(0ULL)
-    local m = native.fromBits(fmod(native.bits(x), native.bits(y)))
-    if m > zero then
-        if y < zero then
-            m = m + y
-        end
-    elseif m < zero and y ~= m then
-        if y > zero then
-            m = m + y
-        end
-    end
-
-    return floatValue(native.bits(m))
-end
-
--- The wide path of arithmetic: integers wider than the immediates wrap in
--- int64 and are boxed; a boxed integer meeting a float becomes its float.
--- Answers as arithmetic does (TRUE not a number, FALSE modulo by zero).
-local function wideResult(ctx: voidptr, operation: uint64, left: uint64, right: uint64): uint64
-    if wide.isInteger(left) and wide.isInteger(right) then
-        if operation == MOD and wide.bitsOf(right) == 0ULL then
-            return values.FALSE
-        end
-        return guestscope.integer(ctx, wide.arithmetic(operation, wide.bitsOf(left), wide.bitsOf(right)))
-    end
-    local x = left
-    local y = right
-    if wide.boxed(x) then
-        x = wide.toFloatBits(wide.bitsOf(x))
-    end
-    if wide.boxed(y) then
-        y = wide.toFloatBits(wide.bitsOf(y))
-    end
-
-    return arithmetic(operation, x, y)
-end
-
--- Comparisons with a boxed integer: 1 true, 0 false, 2 not numbers.
-local function wideOrder(orEqual: boolean, left: uint64, right: uint64): uint64
-    local li = wide.isInteger(left)
-    local ri = wide.isInteger(right)
-    if li and ri then
-        local a = native.index(wide.bitsOf(left))
-        local b = native.index(wide.bitsOf(right))
-        if orEqual then
-            return native.asWord(a <= b)
-        end
-        return native.asWord(a < b)
-    end
-    if li and floatWord(right) then
-        return native.asWord(wide.intFloatLess(wide.bitsOf(left), doubleBits(right), orEqual))
-    end
-    if ri and floatWord(left) then
-        return native.asWord(wide.floatIntLess(doubleBits(left), wide.bitsOf(right), orEqual))
-    end
-
-    return 2ULL
-end
-
--- Comparisons of two strings, byte by byte: 1 true, 0 false, 2 not strings.
-local function stringOrder(orEqual: boolean, left: uint64, right: uint64): uint64
-    local a = strings.header(left)
-    local b = strings.header(right)
-    if a == 0ULL or b == 0ULL then
-        return 2ULL
-    end
-
-    return native.asWord(strings.less(a, b, orEqual))
-end
-
--- 1 for true, 0 for false, 2 for an operand that is not a number.
-local function order(orEqual: boolean, left: uint64, right: uint64): uint64
-    local leftInteger = integerWord(left)
-    local rightInteger = integerWord(right)
-    if not (leftInteger or floatWord(left)) or not (rightInteger or floatWord(right)) then
-        return 2ULL
-    end
-    if leftInteger and rightInteger then
-        local a = native.index(integerBits(left))
-        local b = native.index(integerBits(right))
-        return native.asWord(a < b or orEqual and a == b)
-    end
-    local x = native.fromBits(doubleBits(left))
-    local y = native.fromBits(doubleBits(right))
-    if orEqual then
-        return native.asWord(x <= y)
-    end
-
-    return native.asWord(x < y)
-end
-
 -- The header of a table value, or zero.
 local function tableHeader(value: uint64): uint64
     if value & values.TAG_MASK ~= values.TAG_OBJ then
@@ -419,33 +160,6 @@ local function tableHeader(value: uint64): uint64
     end
 
     return value & values.PAYLOAD
-end
-
--- Lua equality for scalars: numbers by value (NaN unequal, signed zeros
--- equal, integers and floats exact), Booleans and nil by identity. 1 or 0.
-local function equal(left: uint64, right: uint64): uint64
-    -- Boxed integers are interned: equal ones are one object. Only a float can
-    -- equal a boxed integer without being it.
-    if wide.boxed(left) and floatWord(right) then
-        return native.asWord(wide.intFloatEqual(wide.bitsOf(left), doubleBits(right)))
-    end
-    if wide.boxed(right) and floatWord(left) then
-        return native.asWord(wide.intFloatEqual(wide.bitsOf(right), doubleBits(left)))
-    end
-    local leftInteger = integerWord(left)
-    local rightInteger = integerWord(right)
-    local leftNumber = leftInteger or floatWord(left)
-    local rightNumber = rightInteger or floatWord(right)
-    if leftInteger and rightInteger then
-        return native.asWord(left == right)
-    end
-    if leftNumber and rightNumber then
-        local x = native.fromBits(doubleBits(left))
-        local y = native.fromBits(doubleBits(right))
-        return native.asWord(x == y)
-    end
-
-    return native.asWord(left == right)
 end
 
 export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
@@ -468,13 +182,13 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
-    local result = arithmetic(ADD, left, right)
+    local result = guestarith.arithmetic(guestarith.ADD, left, right)
     if result == values.NIL then
-        result = wideResult(ctx, ADD, left, right)
+        result = guestarith.wideresult(ctx, guestarith.ADD, left, right)
     end
     -- Storage plus a count of elements is a view from there on.
     if result == values.TRUE and corestorage.isstorage(left) then
-        local view = basics.storageoffset(ctx, left, right)
+        local view = gueststorage.storageoffset(ctx, left, right)
         if view == values.TRUE then
             ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
             return native.fail()
@@ -490,7 +204,7 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     -- Arithmetic on a non-number calls a table operand's metamethod, or is a
     -- guest error, as Lua raises one.
     if result == values.TRUE then
-        local callee = guestscope.binaryMeta(ctx, guestscope.META_ADD, left, right)
+        local callee = guestmeta.binaryMeta(ctx, guestmeta.META_ADD, left, right)
         if callee ~= 0ULL then
             local top = native.index(count - 4ULL)
             slots.writeValue(frame, regs, top, callee)
@@ -508,7 +222,7 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
             access.refresh(s, current, ctx)
             return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
         end
-        guestscope.fault(ctx, guestscope.FAULT_ARITH, left, right)
+        guesterrors.fault(ctx, guestscope.FAULT_ARITH, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -517,7 +231,7 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     if result == values.FALSE then
-        guestscope.fault(ctx, guestscope.FAULT_MODZERO, left, right)
+        guesterrors.fault(ctx, guestscope.FAULT_MODZERO, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -551,14 +265,14 @@ export function Sub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
-    local result = arithmetic(SUB, left, right)
+    local result = guestarith.arithmetic(guestarith.SUB, left, right)
     if result == values.NIL then
-        result = wideResult(ctx, SUB, left, right)
+        result = guestarith.wideresult(ctx, guestarith.SUB, left, right)
     end
     -- Arithmetic on a non-number calls a table operand's metamethod, or is a
     -- guest error, as Lua raises one.
     if result == values.TRUE then
-        local callee = guestscope.binaryMeta(ctx, guestscope.META_SUB, left, right)
+        local callee = guestmeta.binaryMeta(ctx, guestmeta.META_SUB, left, right)
         if callee ~= 0ULL then
             local top = native.index(count - 4ULL)
             slots.writeValue(frame, regs, top, callee)
@@ -576,7 +290,7 @@ export function Sub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
             access.refresh(s, current, ctx)
             return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
         end
-        guestscope.fault(ctx, guestscope.FAULT_ARITH, left, right)
+        guesterrors.fault(ctx, guestscope.FAULT_ARITH, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -585,7 +299,7 @@ export function Sub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     if result == values.FALSE then
-        guestscope.fault(ctx, guestscope.FAULT_MODZERO, left, right)
+        guesterrors.fault(ctx, guestscope.FAULT_MODZERO, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -619,14 +333,14 @@ export function Mul(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
-    local result = arithmetic(MUL, left, right)
+    local result = guestarith.arithmetic(guestarith.MUL, left, right)
     if result == values.NIL then
-        result = wideResult(ctx, MUL, left, right)
+        result = guestarith.wideresult(ctx, guestarith.MUL, left, right)
     end
     -- Arithmetic on a non-number calls a table operand's metamethod, or is a
     -- guest error, as Lua raises one.
     if result == values.TRUE then
-        local callee = guestscope.binaryMeta(ctx, guestscope.META_MUL, left, right)
+        local callee = guestmeta.binaryMeta(ctx, guestmeta.META_MUL, left, right)
         if callee ~= 0ULL then
             local top = native.index(count - 4ULL)
             slots.writeValue(frame, regs, top, callee)
@@ -644,7 +358,7 @@ export function Mul(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
             access.refresh(s, current, ctx)
             return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
         end
-        guestscope.fault(ctx, guestscope.FAULT_ARITH, left, right)
+        guesterrors.fault(ctx, guestscope.FAULT_ARITH, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -653,7 +367,7 @@ export function Mul(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     if result == values.FALSE then
-        guestscope.fault(ctx, guestscope.FAULT_MODZERO, left, right)
+        guesterrors.fault(ctx, guestscope.FAULT_MODZERO, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -687,14 +401,14 @@ export function Mod(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
-    local result = arithmetic(MOD, left, right)
+    local result = guestarith.arithmetic(guestarith.MOD, left, right)
     if result == values.NIL then
-        result = wideResult(ctx, MOD, left, right)
+        result = guestarith.wideresult(ctx, guestarith.MOD, left, right)
     end
     -- Arithmetic on a non-number calls a table operand's metamethod, or is a
     -- guest error, as Lua raises one.
     if result == values.TRUE then
-        local callee = guestscope.binaryMeta(ctx, guestscope.META_MOD, left, right)
+        local callee = guestmeta.binaryMeta(ctx, guestmeta.META_MOD, left, right)
         if callee ~= 0ULL then
             local top = native.index(count - 4ULL)
             slots.writeValue(frame, regs, top, callee)
@@ -712,7 +426,7 @@ export function Mod(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
             access.refresh(s, current, ctx)
             return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
         end
-        guestscope.fault(ctx, guestscope.FAULT_ARITH, left, right)
+        guesterrors.fault(ctx, guestscope.FAULT_ARITH, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -721,7 +435,7 @@ export function Mod(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     if result == values.FALSE then
-        guestscope.fault(ctx, guestscope.FAULT_MODZERO, left, right)
+        guesterrors.fault(ctx, guestscope.FAULT_MODZERO, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -755,16 +469,16 @@ export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
         return native.fail()
     end
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
-    local result = order(false, left, right)
+    local result = guestarith.compare(false, left, right)
     if result > 1ULL then
-        result = wideOrder(false, left, right)
+        result = guestarith.wideorder(false, left, right)
     end
     if result > 1ULL then
-        result = stringOrder(false, left, right)
+        result = guestarith.strorder(false, left, right)
     end
     if result > 1ULL then
         -- A table operand's __lt decides, as a boolean.
-        local callee = guestscope.binaryMeta(ctx, guestscope.META_LT, left, right)
+        local callee = guestmeta.binaryMeta(ctx, guestmeta.META_LT, left, right)
         if callee ~= 0ULL then
             local top = native.index(count - 4ULL)
             slots.writeValue(frame, regs, top, callee)
@@ -782,7 +496,7 @@ export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
             access.refresh(s, current, ctx)
             return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
         end
-        guestscope.fault(ctx, guestscope.FAULT_COMPARE, left, right)
+        guesterrors.fault(ctx, guestscope.FAULT_COMPARE, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -816,16 +530,16 @@ export function Le(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
         return native.fail()
     end
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
-    local result = order(true, left, right)
+    local result = guestarith.compare(true, left, right)
     if result > 1ULL then
-        result = wideOrder(true, left, right)
+        result = guestarith.wideorder(true, left, right)
     end
     if result > 1ULL then
-        result = stringOrder(true, left, right)
+        result = guestarith.strorder(true, left, right)
     end
     if result > 1ULL then
         -- A table operand's __le decides, as a boolean.
-        local callee = guestscope.binaryMeta(ctx, guestscope.META_LE, left, right)
+        local callee = guestmeta.binaryMeta(ctx, guestmeta.META_LE, left, right)
         if callee ~= 0ULL then
             local top = native.index(count - 4ULL)
             slots.writeValue(frame, regs, top, callee)
@@ -843,7 +557,7 @@ export function Le(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
             access.refresh(s, current, ctx)
             return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
         end
-        guestscope.fault(ctx, guestscope.FAULT_COMPARE, left, right)
+        guesterrors.fault(ctx, guestscope.FAULT_COMPARE, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -877,10 +591,10 @@ export function Eq(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
         return native.fail()
     end
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
-    local result = equal(left, right)
+    local result = guestarith.equal(left, right)
     -- Two distinct tables are equal when an __eq of theirs says so.
     if result ~= 1ULL and tableHeader(left) ~= 0ULL and tableHeader(right) ~= 0ULL then
-        local callee = guestscope.binaryMeta(ctx, guestscope.META_EQ, left, right)
+        local callee = guestmeta.binaryMeta(ctx, guestmeta.META_EQ, left, right)
         if callee ~= 0ULL then
             local top = native.index(count - 4ULL)
             slots.writeValue(frame, regs, top, callee)
@@ -1248,7 +962,11 @@ export function GetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
     local header = tableHeader(slots.readValue(frame, regs, object))
     if header == 0ULL and corestorage.isstorage(slots.readValue(frame, regs, object)) then
         -- Storage's element at a zero-based index.
-        local element = basics.storageget(ctx, slots.readValue(frame, regs, object), slots.readValue(frame, regs, key))
+        local element = gueststorage.storageget(
+            ctx,
+            slots.readValue(frame, regs, object),
+            slots.readValue(frame, regs, key)
+        )
         if element == values.TRUE then
             ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
             return native.fail()
@@ -1263,22 +981,22 @@ export function GetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
     end
     if header == 0ULL then
         -- A thread's fields are its shared metatable's (`co:status()`).
-        header = guestscope.threadIndex(ctx, slots.readValue(frame, regs, object))
+        header = guestmeta.threadIndex(ctx, slots.readValue(frame, regs, object))
     end
     if header == 0ULL then
-        guestscope.fault(ctx, guestscope.FAULT_INDEX, slots.readValue(frame, regs, object), values.NIL)
+        guesterrors.fault(ctx, guestscope.FAULT_INDEX, slots.readValue(frame, regs, object), values.NIL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
     local keyValue = slots.readValue(frame, regs, key)
-    local value = guestscope.tableGet(ctx, header, keyValue)
-    local callee = guestscope.takeMeta(ctx)
+    local value = guestmeta.tableGet(ctx, header, keyValue)
+    local callee = guestmeta.takeMeta(ctx)
     if callee ~= 0ULL then
         -- An __index function: called with the table and the key from the
         -- top of the call window, its result landing in dst.
         local top = native.index(count - 4ULL)
         slots.writeValue(frame, regs, top, callee)
-        slots.writeValue(frame, regs, top + 1, guestscope.metaSelf(ctx))
+        slots.writeValue(frame, regs, top + 1, guestmeta.metaSelf(ctx))
         slots.writeValue(frame, regs, top + 2, keyValue)
         if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst), 0ULL) ~= 1ULL then
             return native.fail()
@@ -1320,7 +1038,7 @@ export function SetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
     end
     local header = tableHeader(slots.readValue(frame, regs, object))
     if header == 0ULL and corestorage.isstorage(slots.readValue(frame, regs, object)) then
-        if basics.storageset(
+        if gueststorage.storageset(
             ctx,
             slots.readValue(frame, regs, object),
             slots.readValue(frame, regs, key),
@@ -1337,24 +1055,19 @@ export function SetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
     end
     if header == 0ULL then
-        guestscope.fault(ctx, guestscope.FAULT_INDEX, slots.readValue(frame, regs, object), values.NIL)
+        guesterrors.fault(ctx, guestscope.FAULT_INDEX, slots.readValue(frame, regs, object), values.NIL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
-    local status = guestscope.tableSet(
-        ctx,
-        header,
-        slots.readValue(frame, regs, key),
-        slots.readValue(frame, regs, src)
-    )
-    if status == guestscope.META_PENDING then
+    local status = guestmeta.tableSet(ctx, header, slots.readValue(frame, regs, key), slots.readValue(frame, regs, src))
+    if status == guestmeta.META_PENDING then
         -- A __newindex function: called with the table, key and value from
         -- the top of the call window; its result is dropped.
         local top = native.index(count - 4ULL)
         local keyValue = slots.readValue(frame, regs, key)
         local item = slots.readValue(frame, regs, src)
-        slots.writeValue(frame, regs, top, guestscope.takeMeta(ctx))
-        slots.writeValue(frame, regs, top + 1, guestscope.metaSelf(ctx))
+        slots.writeValue(frame, regs, top, guestmeta.takeMeta(ctx))
+        slots.writeValue(frame, regs, top + 1, guestmeta.metaSelf(ctx))
         slots.writeValue(frame, regs, top + 2, keyValue)
         slots.writeValue(frame, regs, top + 3, item)
         if ops.metaCall(ctx, frame, pc, 3ULL, count - 1ULL, 0ULL) ~= 1ULL then
@@ -1369,13 +1082,13 @@ export function SetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         access.refresh(s, current, ctx)
         return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
     end
-    if status == guestscope.READONLY then
-        guestscope.fault(ctx, guestscope.FAULT_READONLY, values.NIL, values.NIL)
+    if status == guestmeta.READONLY then
+        guesterrors.fault(ctx, guestscope.FAULT_READONLY, values.NIL, values.NIL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
     if status == tables.BAD_KEY then
-        guestscope.fault(ctx, guestscope.FAULT_KEY, slots.readValue(frame, regs, key), values.NIL)
+        guesterrors.fault(ctx, guestscope.FAULT_KEY, slots.readValue(frame, regs, key), values.NIL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -1409,7 +1122,7 @@ export function Len(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     local size: uint64 = 0ULL
     if header ~= 0ULL then
         -- A table whose metatable has __len answers what it returns.
-        local callee = guestscope.binaryMeta(ctx, guestscope.META_LEN, value, values.NIL)
+        local callee = guestmeta.binaryMeta(ctx, guestmeta.META_LEN, value, values.NIL)
         if callee ~= 0ULL then
             local top = native.index(count - 4ULL)
             slots.writeValue(frame, regs, top, callee)
@@ -1431,7 +1144,7 @@ export function Len(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     else
         local text = strings.header(value)
         if text == 0ULL then
-            guestscope.fault(ctx, guestscope.FAULT_LENGTH, value, values.NIL)
+            guesterrors.fault(ctx, guestscope.FAULT_LENGTH, value, values.NIL)
             ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
             return native.fail()
         end
@@ -1514,13 +1227,17 @@ export function LibCall(
         return native.fail()
     end
     local dst = program.readByte(pc, 1)
-    -- The id's high bit marks a call in method form, for its errors.
-    local encoded = native.word(program.readByte(pc, 2))
-    local libraryId = encoded & 127ULL
-    local base = program.readByte(pc, 3)
-    local count = program.readByte(pc, 4)
+    local base = program.readByte(pc, 2)
+    -- The argument count carries the method-form flag, for the call's errors.
+    local counted = native.word(program.readByte(pc, 3))
+    local count = counted & librarylayouts.COUNT_MASK
+    local libraryId = native.word(program.readSigned32(pc, 4))
     local valueCount = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
-    if native.word(dst) >= valueCount or count < 1 or count > 4 or native.word(base + count) >= valueCount then
+    if native.word(dst) >= valueCount
+        or count < 1ULL
+        or count > librarylayouts.ARGUMENTS
+        or native.word(base) + count >= valueCount
+    then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -1528,38 +1245,38 @@ export function LibCall(
     local b = values.NIL
     local c = values.NIL
     local d = values.NIL
-    if count >= 2 then
+    if count >= 2ULL then
         b = slots.readValue(frame, regs, base + 2)
     end
-    if count >= 3 then
+    if count >= 3ULL then
         c = slots.readValue(frame, regs, base + 3)
     end
-    if count >= 4 then
+    if count >= 4ULL then
         d = slots.readValue(frame, regs, base + 4)
     end
     -- .., /, //, tostring and unary minus on a table with the metamethod
     -- call it, its answer landing in dst.
     local which: uint64 = 0ULL
     local word = libraryId
-    if word == guestlib.CONCAT2 then
-        which = guestscope.META_CONCAT
-    elseif word == guestlib.DIVIDE then
-        which = guestscope.META_DIV
-    elseif word == guestlib.FLOOR_DIVIDE then
-        which = guestscope.META_IDIV
-    elseif word == guestlib.POW then
-        which = guestscope.META_POW
-    elseif word == guestlib.TOSTRING then
-        which = guestscope.META_TOSTRING
-    elseif word == guestlib.UNM then
-        which = guestscope.META_UNM
+    if word == librarycalls.CONCAT2 then
+        which = guestmeta.META_CONCAT
+    elseif word == librarycalls.DIVIDE then
+        which = guestmeta.META_DIV
+    elseif word == librarycalls.FLOOR_DIVIDE then
+        which = guestmeta.META_IDIV
+    elseif word == librarycalls.POW then
+        which = guestmeta.META_POW
+    elseif word == librarycalls.TOSTRING then
+        which = guestmeta.META_TOSTRING
+    elseif word == librarycalls.UNM then
+        which = guestmeta.META_UNM
     end
     if which ~= 0ULL then
         local second = b
-        if word == guestlib.TOSTRING or word == guestlib.UNM then
+        if word == librarycalls.TOSTRING or word == librarycalls.UNM then
             second = a
         end
-        local callee = guestscope.binaryMeta(ctx, which, a, second)
+        local callee = guestmeta.binaryMeta(ctx, which, a, second)
         if callee ~= 0ULL then
             local top = native.index(valueCount - 4ULL)
             slots.writeValue(frame, regs, top, callee)
@@ -1580,14 +1297,14 @@ export function LibCall(
     end
     -- error(value [, level]) fails the entry here, so the failure records
     -- the pc the message's position names.
-    if libraryId == guestlib.RERAISE then
+    if libraryId == librarycalls.RERAISE then
         guestscope.raise(ctx, guestscope.lastError(ctx), 0ULL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
-    if libraryId == guestlib.ERROR then
+    if libraryId == librarycalls.ERROR then
         local level: uint64 = 1ULL
-        if count >= 2 then
+        if count >= 2ULL then
             level = guestlib.errorLevel(b)
         end
         guestscope.raise(ctx, a, level)
@@ -1595,8 +1312,8 @@ export function LibCall(
         return native.fail()
     end
     -- rawequal(a, b): equality without __eq.
-    if libraryId == basics.LIB_RAWEQUAL then
-        if equal(a, b) == 1ULL then
+    if libraryId == librarycalls.RAWEQUAL then
+        if guestarith.equal(a, b) == 1ULL then
             slots.writeValue(frame, regs, dst, values.TRUE)
         else
             slots.writeValue(frame, regs, dst, values.FALSE)
@@ -1610,11 +1327,11 @@ export function LibCall(
     end
     -- assert(v [, message]): v when it holds; else the message, or
     -- "assertion failed!" for none, raised without a position as Lua's is.
-    if libraryId == basics.LIB_ASSERT then
+    if libraryId == librarycalls.ASSERT then
         if a == values.NIL or a == values.FALSE then
             local message = b
-            if count < 2 or b == values.NIL then
-                message = texts.textvalue(ctx, texts.TEXT_ASSERTION)
+            if count < 2ULL or b == values.NIL then
+                message = texts.textvalue(ctx, librarytexts.TEXT_ASSERTION)
             end
             guestscope.raise(ctx, message, 0ULL)
             ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
@@ -1628,13 +1345,15 @@ export function LibCall(
         end
         return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
     end
-    guestscope.librarySite(ctx, frame, pc, native.word(count), encoded >> 7ULL)
+    guestscope.librarySite(ctx, frame, pc, count, counted >> librarylayouts.METHOD_SHIFT)
     -- The coroutine library. Resume and yield switch threads: the context
     -- then runs the other thread, from its active frame.
-    if libraryId >= threads.LIB_CREATE and libraryId <= threads.LIB_CLOSE or libraryId == tasks.LIB_TASKS then
-        guestscope.nameLibrary(ctx, threads.libraryname(libraryId))
+    if libraryId >= librarycalls.COROUTINES_FIRST and libraryId <= librarycalls.COROUTINES_LAST
+        or libraryId == librarycalls.TASKS
+    then
+        guestscope.nameLibrary(ctx, librarycalls.libraryname(libraryId))
         local switched = true
-        if libraryId == threads.LIB_CLOSE and threads.istask(a) and tasks.closer(ctx) ~= 0ULL then
+        if libraryId == librarycalls.COROUTINE_CLOSE and threads.istask(a) and tasks.closer(ctx) ~= 0ULL then
             -- Closing a task asks its scheduler: cancellation requested, its
             -- cleanups waited for, Lua's results.
             guestscope.libraryReturned(ctx)
@@ -1644,7 +1363,7 @@ export function LibCall(
             if ops.metaCall(ctx, frame, pc, 1ULL, native.word(dst), 0ULL) ~= 1ULL then
                 return native.fail()
             end
-        elseif libraryId == tasks.LIB_TASKS then
+        elseif libraryId == librarycalls.TASKS then
             -- The scheduler's primitives: running and parking switch threads.
             local op = wide.bitsOf(a)
             local answer = tasks.switching(ctx, frame, pc, op, b, c, native.word(dst))
@@ -1658,7 +1377,7 @@ export function LibCall(
                 slots.writeValue(frame, regs, dst, tasks.answer(ctx, op, b, c))
                 switched = false
             end
-        elseif libraryId == threads.LIB_CLOSE then
+        elseif libraryId == librarycalls.COROUTINE_CLOSE then
             -- Closing a suspended thread with cleanups runs it to unwind.
             local answer = threads.close(ctx, frame, pc, a, native.word(dst))
             if answer == threads.UNWIND then
@@ -1669,10 +1388,10 @@ export function LibCall(
                 return native.fail()
             end
             switched = answer == threads.SWITCHED
-        elseif libraryId ~= threads.LIB_RESUME and libraryId ~= threads.LIB_YIELD then
+        elseif libraryId ~= librarycalls.COROUTINE_RESUME and libraryId ~= librarycalls.COROUTINE_YIELD then
             slots.writeValue(frame, regs, dst, threads.call(ctx, libraryId, a, b))
             switched = false
-        elseif libraryId == threads.LIB_RESUME then
+        elseif libraryId == librarycalls.COROUTINE_RESUME then
             local answer = threads.resume(ctx, frame, pc, a, b, threads.MODE_PACK, native.word(dst) | (1ULL << 32ULL))
             if answer == threads.RAISED then
                 ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
@@ -1707,10 +1426,10 @@ export function LibCall(
     end
     -- `require` of a computed name: the module the image holds by it, as a
     -- static require of it answers or starts it.
-    if libraryId == modules.LIB_REQUIRE then
-        guestscope.nameLibrary(ctx, texts.NAME_REQUIRE)
+    if libraryId == librarycalls.MODULE_REQUIRE then
+        guestscope.nameLibrary(ctx, librarytexts.NAME_REQUIRE)
         if strings.header(a) == 0ULL then
-            texts.argumentError(ctx, 1ULL, texts.TEXT_STRING, 0ULL, a)
+            texts.argumentError(ctx, 1ULL, librarytexts.TEXT_STRING, 0ULL, a)
         end
         local found = modules.named(ctx, a)
         if found == 0ULL then
@@ -1746,86 +1465,107 @@ export function LibCall(
         end
         return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
     end
-    if libraryId == guestio.LIB_WRITE then
-        slots.writeValue(frame, regs, dst, guestio.write(ctx, a))
-    elseif libraryId >= widths.LIB_NARROW and libraryId <= widths.LIB_I32WRAP then
-        slots.writeValue(frame, regs, dst, widths.call(ctx, libraryId, a))
-    elseif libraryId >= bitops.LIB_BAND and libraryId <= bitops.LIB_BNOT then
-        slots.writeValue(frame, regs, dst, bitops.bitcall(ctx, libraryId, a, b))
-    elseif libraryId == numbers.LIB_FOR_LIMIT then
+    if libraryId == librarycalls.HOST_FILES then
+        slots.writeValue(frame, regs, dst, guestio.files(ctx, a, b, c, d))
+    elseif libraryId == librarycalls.OS_MONOTONIC then
+        slots.writeValue(frame, regs, dst, guestio.monotonic())
+    elseif libraryId == librarycalls.COLLECTGARBAGE then
+        slots.writeValue(frame, regs, dst, guestio.collectgarbage(ctx, a))
+    elseif libraryId == librarycalls.HOST_ARGUMENTS then
+        slots.writeValue(frame, regs, dst, guestio.arguments(ctx))
+    elseif libraryId >= librarycalls.WIDTHS_FIRST and libraryId <= librarycalls.WIDTHS_LAST then
+        slots.writeValue(frame, regs, dst, numbers.widthcall(ctx, libraryId, a))
+    elseif libraryId >= librarycalls.BITS_FIRST and libraryId <= librarycalls.BITS_LAST then
+        slots.writeValue(frame, regs, dst, numbers.bitcall(ctx, libraryId, a, b))
+    elseif libraryId == librarycalls.FOR_LIMIT then
         slots.writeValue(frame, regs, dst, numbers.forlimit(ctx, a))
-    elseif libraryId == numbers.LIB_TONUMBER_BASE then
+    elseif libraryId == librarycalls.TONUMBER_BASE then
         slots.writeValue(frame, regs, dst, numbers.tonumberbase(ctx, a, b))
-    elseif libraryId == basics.LIB_ALLOCBYTES then
-        slots.writeValue(frame, regs, dst, basics.allocate(ctx, values.TAG_INTEGER | corestorage.UINT8, a))
-    elseif libraryId == basics.LIB_ALLOCATE then
-        slots.writeValue(frame, regs, dst, basics.allocate(ctx, a, b))
-    elseif libraryId == basics.LIB_CLEANUPSET then
+    elseif libraryId == librarycalls.STORAGE_ALLOCBYTES then
+        slots.writeValue(frame, regs, dst, gueststorage.allocate(ctx, values.TAG_INTEGER | corestorage.UINT8, a))
+    elseif libraryId == librarycalls.STORAGE_ALLOCATE then
+        slots.writeValue(frame, regs, dst, gueststorage.allocate(ctx, a, b))
+    elseif libraryId == librarycalls.TABLE_NEWARRAY then
+        slots.writeValue(
+            frame,
+            regs,
+            dst,
+            values.TAG_OBJ | guestscope.newpacked(ctx, a & values.PAYLOAD, b & values.PAYLOAD)
+        )
+    elseif libraryId == librarycalls.TABLE_PACKEDKIND then
+        local packed: uint64 = 0ULL
+        if tableHeader(a) ~= 0ULL then
+            packed = tables.packedkind(tableHeader(a))
+        end
+        slots.writeValue(frame, regs, dst, values.TAG_INTEGER | packed)
+    elseif libraryId == librarycalls.CLEANUP_SET then
         slots.writeValue(frame, regs, dst, basics.cleanupset(ctx, a, b))
-    elseif libraryId == basics.LIB_CLEANUPGET then
+    elseif libraryId == librarycalls.CLEANUP_GET then
         slots.writeValue(frame, regs, dst, basics.cleanupget(ctx, a))
-    elseif libraryId >= basics.LIB_VIEW and libraryId <= basics.LIB_CAST then
-        slots.writeValue(frame, regs, dst, basics.storagecall(ctx, libraryId, native.word(count), a, b, c, d))
-    elseif libraryId == basics.LIB_NEXT or libraryId == basics.LIB_NEXT_ALL then
-        guestscope.nameLibrary(ctx, texts.NAME_NEXT)
+    elseif libraryId == librarycalls.PROTECTED_COUNT then
+        slots.writeValue(frame, regs, dst, basics.protectedcount(ctx, a, b))
+    elseif libraryId >= librarycalls.VIEWS_FIRST and libraryId <= librarycalls.VIEWS_LAST then
+        slots.writeValue(frame, regs, dst, gueststorage.storagecall(ctx, libraryId, count, a, b, c, d))
+    elseif libraryId == librarycalls.NEXT or libraryId == librarycalls.NEXT_ALL then
+        guestscope.nameLibrary(ctx, librarytexts.NAME_NEXT)
         local after = values.NIL
-        if count >= 2 then
+        if count >= 2ULL then
             after = b
         end
-        slots.writeValue(frame, regs, dst, basics.rawnext(ctx, a, after, libraryId == basics.LIB_NEXT_ALL))
-    elseif libraryId == modules.LIB_NAMES then
+        slots.writeValue(frame, regs, dst, basics.rawnext(ctx, a, after, libraryId == librarycalls.NEXT_ALL))
+    elseif libraryId == librarycalls.MODULE_NAMES then
         modules.register(ctx, a)
         slots.writeValue(frame, regs, dst, values.NIL)
-    elseif libraryId == modules.LIB_PUBLISH then
+    elseif libraryId == librarycalls.MODULE_PUBLISH then
         modules.store(ctx, native.load64(frame, native.fieldOffset<frames.Frame>("functionId")), a)
         slots.writeValue(frame, regs, dst, a)
     else
         -- The table library over a table with a metatable runs in replay
-        -- (guestscope.replaybegin): a function __index, __newindex or __len
+        -- (guestreplay.replaybegin): a function __index, __newindex or __len
         -- it reaches is called here, and the call runs again once it answers.
-        local replay: uint64 = 0ULL
-        if guestlib.replays(libraryId) then
-            replay = guestscope.replaybegin(
+        local replay = guestreplay.REPLAY_NONE
+        if guesttables.replays(libraryId) then
+            replay = guestreplay.replaybegin(
                 ctx,
                 frame,
                 slots.readValue(frame, regs, dst),
-                guestlib.reachesmeta(libraryId, a, b)
+                guesttables.reachesmeta(libraryId, a, b)
             )
         end
         -- Run again, its arguments are its entry's: the metamethod's staging
         -- overwrote the frame's.
-        if replay == 2ULL then
-            guestscope.replaykeep(ctx, a, b, c, d)
-            guestscope.replaysave(ctx, guestlib.stepstate(ctx, libraryId, a))
-            guestlib.copystate(ctx, libraryId, a, guestscope.replaysaved(ctx))
-        elseif replay == 1ULL then
-            a = guestscope.replayarg(ctx, 0ULL)
-            b = guestscope.replayarg(ctx, 1ULL)
-            c = guestscope.replayarg(ctx, 2ULL)
-            d = guestscope.replayarg(ctx, 3ULL)
-            guestlib.copystate(ctx, libraryId, guestscope.replaysaved(ctx), a)
+        if replay == guestreplay.REPLAY_START then
+            guestreplay.replaykeep(ctx, a, b, c, d)
+            guestreplay.replaysave(ctx, guesttables.stepstate(ctx, libraryId, a))
+            guesttables.copystate(ctx, libraryId, a, guestreplay.replaysaved(ctx))
+        elseif replay == guestreplay.REPLAY_AGAIN then
+            a = guestreplay.replayarg(ctx, 0ULL)
+            b = guestreplay.replayarg(ctx, 1ULL)
+            c = guestreplay.replayarg(ctx, 2ULL)
+            d = guestreplay.replayarg(ctx, 3ULL)
+            guesttables.copystate(ctx, libraryId, guestreplay.replaysaved(ctx), a)
         end
-        local result = guestlib.call(ctx, libraryId, native.word(count), a, b, c, d)
+        local result = guestlib.call(ctx, libraryId, count, a, b, c, d)
         guestscope.libraryReturned(ctx)
         local kind: uint64 = 0ULL
-        if replay ~= 0ULL then
-            kind = guestscope.replayend(ctx)
+        if replay ~= guestreplay.REPLAY_NONE then
+            kind = guestreplay.replayend(ctx)
         end
         if kind ~= 0ULL then
             local top = native.index(valueCount - 4ULL)
-            slots.writeValue(frame, regs, top, guestscope.takeMeta(ctx))
-            slots.writeValue(frame, regs, top + 1, guestscope.metaSelf(ctx))
-            slots.writeValue(frame, regs, top + 2, guestscope.replaykey(ctx))
+            slots.writeValue(frame, regs, top, guestmeta.takeMeta(ctx))
+            slots.writeValue(frame, regs, top + 1, guestmeta.metaSelf(ctx))
+            slots.writeValue(frame, regs, top + 2, guestreplay.replaykey(ctx))
             local nargs: uint64 = 2ULL
-            if kind == guestscope.ACCESS_SET then
-                slots.writeValue(frame, regs, top + 3, guestscope.replayvalue(ctx))
+            if kind == guestreplay.ACCESS_SET then
+                slots.writeValue(frame, regs, top + 3, guestreplay.replayvalue(ctx))
                 nargs = 3ULL
             end
             local child = ops.libraryCall(ctx, frame, pc, nargs, native.word(dst))
             if child == 0ULL then
                 return native.fail()
             end
-            guestscope.replaywait(ctx, child)
+            guestreplay.replaywait(ctx, child)
             local s = native.pointer(ops.state(ctx))
             local current = native.pointer(access.active(s))
             local currentValues = native.pointer(access.values(s, current))
@@ -1942,7 +1682,7 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
     if ops.uncallable(ctx, callee) == 1ULL then
         -- A table with __call is called through it, the table first: the
         -- arguments move up a slot and __call takes the callee's place.
-        local handler = guestscope.binaryMeta(ctx, guestscope.META_CALL, callee, values.NIL)
+        local handler = guestmeta.binaryMeta(ctx, guestmeta.META_CALL, callee, values.NIL)
         local first = native.word(base)
         if handler ~= 0ULL
             and first + native.word(nargs) + 1ULL < native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
@@ -2013,7 +1753,7 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
             access.refresh(s, current, ctx)
             return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
         end
-        guestscope.fault(ctx, guestscope.FAULT_CALL, callee, values.NIL)
+        guesterrors.fault(ctx, guestscope.FAULT_CALL, callee, values.NIL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -2058,12 +1798,15 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
-    local current = native.pointer(access.active(s))
-    local currentValues = native.pointer(access.values(s, current))
-    local currentIntegers = native.pointer(access.integers(s, current))
-    local currentFloats = native.pointer(access.floats(s, current))
-    local currentPC = native.pointer(access.pc(s, current))
-    access.refresh(s, current, ctx)
+    -- The frame now active, read as frameaccess reads it.
+    local current = native.loadPointer(s, native.fieldOffset<frames.State>("active"))
+    local currentValues = native.loadPointer(current, native.fieldOffset<frames.Frame>("values"))
+    local currentIntegers = native.loadPointer(current, native.fieldOffset<frames.Frame>("integers"))
+    local currentFloats = native.loadPointer(current, native.fieldOffset<frames.Frame>("floats"))
+    local currentCode = native.load64(current, native.fieldOffset<frames.Frame>("code"))
+    local resumeIndex = native.load64(current, native.fieldOffset<frames.Frame>("resumePC"))
+    local currentPC = native.pointer(currentCode + (resumeIndex << ops.INSTRUCTION_SHIFT))
+    native.store64(ctx, context.CODE_START, currentCode)
 
     return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
 end
@@ -2108,6 +1851,11 @@ export function Ret(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         access.refresh(resumer, current, ctx)
         return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
     end
+    -- The __tostring an error's report waits on: its answer ends the entry.
+    if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.REPORT_DESTINATION then
+        uncaught.answered(ctx, value)
+        return native.fail()
+    end
     if ops.root(ctx, frame) == 1ULL then
         -- The root result outlives the guest heap, so it must be an immediate:
         -- a table, string or boxed integer cannot be published.
@@ -2135,19 +1883,22 @@ export function Ret(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     end
     -- A metamethod a library call waits on: that call runs again next.
     if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.LIBRARY_DESTINATION then
-        guestscope.answered(ctx, native.address(frame))
+        guestreplay.answered(ctx, native.address(frame))
     end
     local returned = frames.returnScalar(s, frame, value)
     if returned ~= 1ULL then
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
-    local current = native.pointer(access.active(s))
-    local currentValues = native.pointer(access.values(s, current))
-    local currentIntegers = native.pointer(access.integers(s, current))
-    local currentFloats = native.pointer(access.floats(s, current))
-    local currentPC = native.pointer(access.pc(s, current))
-    access.refresh(s, current, ctx)
+    -- The frame now active, read as frameaccess reads it.
+    local current = native.loadPointer(s, native.fieldOffset<frames.State>("active"))
+    local currentValues = native.loadPointer(current, native.fieldOffset<frames.Frame>("values"))
+    local currentIntegers = native.loadPointer(current, native.fieldOffset<frames.Frame>("integers"))
+    local currentFloats = native.loadPointer(current, native.fieldOffset<frames.Frame>("floats"))
+    local currentCode = native.load64(current, native.fieldOffset<frames.Frame>("code"))
+    local resumeIndex = native.load64(current, native.fieldOffset<frames.Frame>("resumePC"))
+    local currentPC = native.pointer(currentCode + (resumeIndex << ops.INSTRUCTION_SHIFT))
+    native.store64(ctx, context.CODE_START, currentCode)
 
     return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
 end
@@ -2196,6 +1947,11 @@ export function RetN(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
         access.refresh(resumer, current, ctx)
         return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
     end
+    -- The __tostring an error's report waits on: its answer ends the entry.
+    if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.REPORT_DESTINATION then
+        uncaught.answered(ctx, value)
+        return native.fail()
+    end
     if ops.root(ctx, frame) == 1ULL then
         if value & values.TAG_MASK == values.TAG_OBJ then
             ops.fail(ctx, frame, pc, ops.RESOURCE)
@@ -2213,7 +1969,7 @@ export function RetN(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
     end
     -- A metamethod a library call waits on: that call runs again next.
     if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.LIBRARY_DESTINATION then
-        guestscope.answered(ctx, native.address(frame))
+        guestreplay.answered(ctx, native.address(frame))
     end
     if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.PACK_DESTINATION then
         -- A caller taking every result as one pack gets them in a pack.
@@ -2236,12 +1992,15 @@ export function RetN(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
-    local current = native.pointer(access.active(s))
-    local currentValues = native.pointer(access.values(s, current))
-    local currentIntegers = native.pointer(access.integers(s, current))
-    local currentFloats = native.pointer(access.floats(s, current))
-    local currentPC = native.pointer(access.pc(s, current))
-    access.refresh(s, current, ctx)
+    -- The frame now active, read as frameaccess reads it.
+    local current = native.loadPointer(s, native.fieldOffset<frames.State>("active"))
+    local currentValues = native.loadPointer(current, native.fieldOffset<frames.Frame>("values"))
+    local currentIntegers = native.loadPointer(current, native.fieldOffset<frames.Frame>("integers"))
+    local currentFloats = native.loadPointer(current, native.fieldOffset<frames.Frame>("floats"))
+    local currentCode = native.load64(current, native.fieldOffset<frames.Frame>("code"))
+    local resumeIndex = native.load64(current, native.fieldOffset<frames.Frame>("resumePC"))
+    local currentPC = native.pointer(currentCode + (resumeIndex << ops.INSTRUCTION_SHIFT))
+    native.store64(ctx, context.CODE_START, currentCode)
 
     return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
 end
@@ -2336,7 +2095,7 @@ export function CallV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         return native.dispatch(activePC, activeValues, activeIntegers, activeFloats, ctx, active)
     end
     if ops.uncallable(ctx, callee) == 1ULL then
-        guestscope.fault(ctx, guestscope.FAULT_CALL, callee, values.NIL)
+        guesterrors.fault(ctx, guestscope.FAULT_CALL, callee, values.NIL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -2381,12 +2140,15 @@ export function CallV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
-    local current = native.pointer(access.active(s))
-    local currentValues = native.pointer(access.values(s, current))
-    local currentIntegers = native.pointer(access.integers(s, current))
-    local currentFloats = native.pointer(access.floats(s, current))
-    local currentPC = native.pointer(access.pc(s, current))
-    access.refresh(s, current, ctx)
+    -- The frame now active, read as frameaccess reads it.
+    local current = native.loadPointer(s, native.fieldOffset<frames.State>("active"))
+    local currentValues = native.loadPointer(current, native.fieldOffset<frames.Frame>("values"))
+    local currentIntegers = native.loadPointer(current, native.fieldOffset<frames.Frame>("integers"))
+    local currentFloats = native.loadPointer(current, native.fieldOffset<frames.Frame>("floats"))
+    local currentCode = native.load64(current, native.fieldOffset<frames.Frame>("code"))
+    local resumeIndex = native.load64(current, native.fieldOffset<frames.Frame>("resumePC"))
+    local currentPC = native.pointer(currentCode + (resumeIndex << ops.INSTRUCTION_SHIFT))
+    native.store64(ctx, context.CODE_START, currentCode)
 
     return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
 end
@@ -2467,6 +2229,11 @@ export function RetV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
     end
     local s = native.pointer(ops.state(ctx))
     ops.checkpoint(ctx, frame, pc)
+    -- The __tostring an error's report waits on: its answer ends the entry.
+    if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.REPORT_DESTINATION then
+        uncaught.answered(ctx, value)
+        return native.fail()
+    end
     if ops.root(ctx, frame) == 1ULL then
         if value & values.TAG_MASK == values.TAG_OBJ then
             ops.fail(ctx, frame, pc, ops.RESOURCE)
@@ -2483,26 +2250,29 @@ export function RetV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
     end
     -- A metamethod a library call waits on: that call runs again next.
     if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.LIBRARY_DESTINATION then
-        guestscope.answered(ctx, native.address(frame))
+        guestreplay.answered(ctx, native.address(frame))
     end
     local returned = frames.returnValues(s, frame, native.offset(regs, native.index(native.word(src) * 8ULL)), count)
     if returned ~= 1ULL then
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
-    local current = native.pointer(access.active(s))
-    local currentValues = native.pointer(access.values(s, current))
-    local currentIntegers = native.pointer(access.integers(s, current))
-    local currentFloats = native.pointer(access.floats(s, current))
-    local currentPC = native.pointer(access.pc(s, current))
-    access.refresh(s, current, ctx)
+    -- The frame now active, read as frameaccess reads it.
+    local current = native.loadPointer(s, native.fieldOffset<frames.State>("active"))
+    local currentValues = native.loadPointer(current, native.fieldOffset<frames.Frame>("values"))
+    local currentIntegers = native.loadPointer(current, native.fieldOffset<frames.Frame>("integers"))
+    local currentFloats = native.loadPointer(current, native.fieldOffset<frames.Frame>("floats"))
+    local currentCode = native.load64(current, native.fieldOffset<frames.Frame>("code"))
+    local resumeIndex = native.load64(current, native.fieldOffset<frames.Frame>("resumePC"))
+    local currentPC = native.pointer(currentCode + (resumeIndex << ops.INSTRUCTION_SHIFT))
+    native.store64(ctx, context.CODE_START, currentCode)
 
     return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
 end
 
 -- pcall(f, ...) (core-only): CallK whose child is a protected call. Its caller
 -- gets true before its results, or false and the error when an error unwinds
--- to it (guestscope.recoverEntry).
+-- to it (guestlanding.recoverEntry).
 export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
     if ops.charge(ctx, frame, pc) ~= 1ULL then
         return native.fail()
@@ -2610,12 +2380,15 @@ export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
-    local current = native.pointer(access.active(s))
-    local currentValues = native.pointer(access.values(s, current))
-    local currentIntegers = native.pointer(access.integers(s, current))
-    local currentFloats = native.pointer(access.floats(s, current))
-    local currentPC = native.pointer(access.pc(s, current))
-    access.refresh(s, current, ctx)
+    -- The frame now active, read as frameaccess reads it.
+    local current = native.loadPointer(s, native.fieldOffset<frames.State>("active"))
+    local currentValues = native.loadPointer(current, native.fieldOffset<frames.Frame>("values"))
+    local currentIntegers = native.loadPointer(current, native.fieldOffset<frames.Frame>("integers"))
+    local currentFloats = native.loadPointer(current, native.fieldOffset<frames.Frame>("floats"))
+    local currentCode = native.load64(current, native.fieldOffset<frames.Frame>("code"))
+    local resumeIndex = native.load64(current, native.fieldOffset<frames.Frame>("resumePC"))
+    local currentPC = native.pointer(currentCode + (resumeIndex << ops.INSTRUCTION_SHIFT))
+    native.store64(ctx, context.CODE_START, currentCode)
 
     return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
 end
@@ -2691,9 +2464,18 @@ export function Destroy(
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
+    local owned = slots.readValue(frame, regs, value)
+    -- An optional owner holding nil has nothing to destroy.
+    if owned == values.NIL then
+        local after = ops.branch(ctx, frame, pc, 0)
+        if after == 0ULL then
+            ops.fail(ctx, frame, pc, ops.INVALID)
+            return native.fail()
+        end
+        return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
+    end
     local top = native.index(count - 4ULL)
     local destructor = slots.readValue(frame, regs, callee)
-    local owned = slots.readValue(frame, regs, value)
     slots.writeValue(frame, regs, top, destructor)
     slots.writeValue(frame, regs, top + 1, owned)
     if ops.metaCall(ctx, frame, pc, 1ULL, count - 1ULL, 0ULL) ~= 1ULL then

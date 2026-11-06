@@ -1,0 +1,227 @@
+@!internal
+
+--[[
+Lua 5.5's `io` library on the native core, over its file handles
+(`nupp.runtime.luastreams`): `io.open` with Lua's modes, results and
+errors; `io.read`, `io.write`, `io.lines`, `io.close`, `io.input`,
+`io.output` and `io.type`; the standard files; and `io.popen`, whose
+handle is a process's (`nupp.runtime.luaprocess`).
+
+The handles of `io.open` are affine (Decision 12): one that leaves its
+owner's scope unclosed is closed by the prelude's `__nuppCloseFile`, which
+this module sets.
+]]
+module nupp.runtime.luaio
+
+const files = require("nupp.runtime.files")
+const hostcalls = require("nupp.runtime.hostcalls")
+const luaargs = require("nupp.runtime.luaargs")
+const streams = require("nupp.runtime.luastreams")
+const luaprocess = require("nupp.runtime.luaprocess")
+
+local type Handle = streams.Handle
+
+local stringarg = luaargs.stringarg
+local argerror = luaargs.argerror
+local newhandle = streams.newhandle
+local failure = streams.failure
+local openstream = streams.openstream
+local closestream = streams.closestream
+local readformats = streams.readformats
+local writevalues = streams.writevalues
+local lineiterator = streams.lineiterator
+local lineformats = streams.lineformats
+
+local stdin = newhandle(files.STDIN, true, "full")
+local stdout = newhandle(files.STDOUT, true, "full")
+-- C's standard error is unbuffered.
+local stderr = newhandle(files.STDERR, true, "no")
+
+-- The default files io.read and io.write use.
+local input: any = stdin
+local output: any = stdout
+
+-- The access each Lua mode asks for, `b` aside.
+local ACCESS: {
+    [string]: integer
+} = {
+    r = files.READING,
+    w = files.WRITING + files.CREATING + files.TRUNCATING,
+    a = files.APPENDING + files.CREATING,
+    ["r+"] = files.READING + files.WRITING,
+    ["w+"] = files.READING + files.WRITING + files.CREATING + files.TRUNCATING,
+    ["a+"] = files.READING + files.APPENDING + files.CREATING
+}
+
+-- Opens `filename` in Lua `mode`: the handle, or Lua's failure results.
+local function openfile(filename: string, mode: string): (any, string?, integer?)
+    local access = ACCESS[(string.gsub(mode, "b", ""))] as integer
+    local done = files.open(filename, access)
+    if done.code ~= 0 then
+        return failure(done.code, filename)
+    end
+
+    return newhandle(done.value, false, "full")
+end
+
+-- Opens `filename` or raises Lua's error for it, at `level` past the
+-- caller, as Lua's opencheck.
+local function opencheck(filename: string, mode: string, level: integer): any
+    local handle, _, code = openfile(filename, mode)
+    if handle == nil then
+        error(("cannot open file '%s' (%s)"):format(filename, files.reason(code as integer)), level + 1)
+    end
+
+    return handle
+end
+
+local function open(filename: any, mode: any): (any, string?, integer?)
+    local name = stringarg(filename, nil, 1, "open", 2)
+    local how = stringarg(mode, "r", 2, "open", 2)
+    if string.match(how, "^[rwa]%+?b*$") == nil then
+        argerror(2, "open", "invalid mode", 2)
+    end
+
+    return openfile(name, how)
+end
+
+local function close(...: any): (boolean?, string?, integer?)
+    local file: any = output
+    if select("#", ...) > 0 then
+        file = select(1, ...)
+    end
+    local s = openstream(file, 1, "close", 2)
+    if luaprocess.isprocess(file) then
+        return (file as any):close()
+    end
+
+    return closestream(s)
+end
+
+local function read(...: any): ...any
+    local s = (input as Handle).stream
+    if s.closed then
+        error("default input file is closed", 2)
+    end
+
+    return readformats(s, 1, "read", 2, ...)
+end
+
+local function write(...: any): ...any
+    local s = streams.writer(output)
+    if s.closed then
+        error("default output file is closed", 2)
+    end
+
+    return writevalues(output, s, 1, "write", 2, ...)
+end
+
+local function flush(): (boolean?, string?, integer?)
+    if streams.writer(output).closed then
+        error("default output file is closed", 2)
+    end
+
+    return true
+end
+
+local function lines(filename: any, ...: any): ...any
+    if filename == nil then
+        local s = openstream(input, 1, "lines", 2)
+        local formats, count = lineformats(2, 2, ...)
+        return lineiterator(s, false, formats, count)
+    end
+    local name = stringarg(filename, nil, 1, "lines", 2)
+    local handle = opencheck(name, "r", 2)
+    local formats, count = lineformats(2, 2, ...)
+
+    return lineiterator((handle as Handle).stream, true, formats, count), nil, nil, handle
+end
+
+-- Sets or answers a default file, as Lua's g_iofile: a name is opened in
+-- `mode`, and a handle must be open.
+local function defaultfile(name: string, mode: string, current: any, ...: any): any
+    if select("#", ...) == 0 or select(1, ...) == nil then
+        return current
+    end
+    local file: any = select(1, ...)
+    if type(file) == "string" or type(file) == "number" then
+        return opencheck(tostring(file), mode, 3)
+    end
+    openstream(file, 1, name, 3)
+
+    return file
+end
+
+local function inputfile(...: any): any
+    input = defaultfile("input", "r", input, ...)
+
+    return input
+end
+
+local function outputfile(...: any): any
+    output = defaultfile("output", "w", output, ...)
+
+    return output
+end
+
+local function filetype(...: any): string?
+    if select("#", ...) == 0 then
+        argerror(1, "type", "value expected", 2)
+    end
+    local value: any = select(1, ...)
+    if not streams.isfile(value) then
+        return nil
+    end
+    if (value as Handle).stream.closed then
+        return "closed file"
+    end
+
+    return "file"
+end
+
+-- Temporary files are not the core's yet.
+local function tmpfile(...: any): nil
+    error("'tmpfile' not supported", 2)
+end
+
+local library: {
+    [string]: any
+} = {
+    open = open,
+    close = close,
+    flush = flush,
+    read = read,
+    write = write,
+    lines = lines,
+    input = inputfile,
+    output = outputfile,
+    type = filetype,
+    popen = luaprocess.popen,
+    tmpfile = tmpfile,
+    stdin = stdin,
+    stdout = stdout,
+    stderr = stderr
+}
+
+-- The prelude's `__nuppCloseFile`: what an `io.open` handle's owner runs
+-- when it leaves scope with the file still open.
+local function closefile(handle: any): nil
+    local s = (handle as Handle).stream
+    if s.closed then
+        return
+    end
+    local ok, reason: (boolean?, string?) = nil, nil
+    if luaprocess.isprocess(handle) then
+        ok, reason = (handle as any):close()
+    else
+        ok, reason = closestream(s)
+    end
+    if not ok then
+        error(reason or "the file could not be closed", 0)
+    end
+end
+
+hostcalls.setcleanup("nupp:lua.d.nupp#__nuppCloseFile", closefile)
+
+--- The library values this module carries by name: `io` itself.
+export const functions: {[string]: any} = {io = library}

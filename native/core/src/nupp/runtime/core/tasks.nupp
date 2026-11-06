@@ -14,29 +14,10 @@ const context = require("nupp.runtime.core.context")
 const guestscope = require("nupp.runtime.core.guestscope")
 const ints = require("nupp.runtime.core.coreintegers")
 const threads = require("nupp.runtime.core.threads")
+const librarylayouts = require("nupp.runtime.core.librarylayouts")
 
--- The library call's id: the compiler lowers `taskcalls.op` to it
--- (`nupp.compiler.vm.taggedprofile`'s LIB_TASKS).
-export const LIB_TASKS: uint64 = 127ULL
-
--- A task calling `f` with the arguments of a pack, not yet run.
-export const TASK_NEW: uint64 = 1ULL
--- Runs a task until it returns, fails, parks or yields (MODE_DRIVE).
-export const TASK_RUN: uint64 = 2ULL
--- Parks the running task, answering what its driver runs it again with;
--- false at once where no task runs.
-export const TASK_PARK: uint64 = 3ULL
--- The task the running thread belongs to, or nil.
-export const TASK_CURRENT: uint64 = 4ULL
--- A task's record, and setting it.
-export const TASK_DATA: uint64 = 5ULL
-export const TASK_SETDATA: uint64 = 6ULL
--- The monotonic clock in milliseconds.
-export const TASK_NOW: uint64 = 7ULL
--- Waits this many milliseconds: the scheduler's wait with no I/O sources.
-export const TASK_SLEEP: uint64 = 8ULL
--- Installs the threads' shared metatable and the function closing a task.
-export const TASK_INSTALL: uint64 = 9ULL
+-- The call is librarycalls.TASKS; its operations, librarylayouts' TASK_ ones,
+-- are numbered once in nupp.compiler.vm.corelibrary.
 
 -- A million, as a float's bits: nanoseconds in a millisecond.
 const MILLION: uint64 = 0x412e848000000000ULL
@@ -58,10 +39,10 @@ export function switching(
     c: uint64,
     slot: uint64
 ): uint64
-    if op == TASK_RUN then
+    if op == librarylayouts.TASK_RUN then
         -- What happened comes back as a pack.
         return threads.resume(ctx, frame, pc, b, c, threads.MODE_DRIVE, slot | (1ULL << 32ULL))
-    elseif op == TASK_PARK then
+    elseif op == librarylayouts.TASK_PARK then
         return threads.park(ctx, frame, pc, slot)
     end
 
@@ -70,26 +51,26 @@ end
 
 -- The value of an operation that switched nothing.
 export function answer(ctx: voidptr, op: uint64, b: uint64, c: uint64): uint64
-    if op == TASK_NEW then
+    if op == librarylayouts.TASK_NEW then
         -- `c` is the pack of the arguments the body starts with.
         return threads.create(ctx, b, c, threads.FLAG_TASK)
-    elseif op == TASK_PARK then
+    elseif op == librarylayouts.TASK_PARK then
         -- No task runs: the scheduler's caller waits itself.
         return values.FALSE
-    elseif op == TASK_CURRENT then
+    elseif op == librarylayouts.TASK_CURRENT then
         local task = threads.currenttask(ctx)
         if task == 0ULL then
             return values.NIL
         end
         return task
-    elseif op == TASK_DATA then
+    elseif op == librarylayouts.TASK_DATA then
         return threads.taskdata(b)
-    elseif op == TASK_SETDATA then
+    elseif op == librarylayouts.TASK_SETDATA then
         threads.setdata(ctx, b, c)
         return values.NIL
-    elseif op == TASK_NOW then
+    elseif op == librarylayouts.TASK_NOW then
         return native.bits(native.unsignedFloat(os.monotonicNanos()) / native.fromBits(MILLION))
-    elseif op == TASK_SLEEP then
+    elseif op == librarylayouts.TASK_SLEEP then
         local milliseconds = native.fromBits(b)
         if ints.isInteger(b) then
             milliseconds = native.fromBits(ints.toFloatBits(ints.bitsOf(b)))
@@ -98,7 +79,7 @@ export function answer(ctx: voidptr, op: uint64, b: uint64, c: uint64): uint64
             local _ = os.sleepNanos(native.unsignedInt(milliseconds * native.fromBits(MILLION)))
         end
         return values.NIL
-    elseif op == TASK_INSTALL then
+    elseif op == librarylayouts.TASK_INSTALL then
         -- Kept where the collector reaches them.
         native.store64(services(ctx), native.fieldOffset<guestscope.Services>("threadmeta"), b)
         native.store64(services(ctx), native.fieldOffset<guestscope.Services>("closetask"), c)

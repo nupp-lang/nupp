@@ -1,0 +1,438 @@
+@!internal
+
+--[[
+The native core's process layer (Decision 8): every child process starts
+here, under Lua's `os.execute` and `io.popen`.
+
+- A child starts through posix_spawn with the arguments, environment,
+  directory and standard streams it is given, in a process group of its own
+  that it leads, so a kill reaches every process it started. Its signal
+  mask is empty and SIGPIPE is back at its default.
+- A piped stream is a pipe whose child end blocks, as programs expect of
+  their standard streams, and whose end here is nonblocking and a readiness
+  source of the reactor: a read or write on it parks the calling task, or
+  drives the loop, like any other pipe's.
+- Its exit is a reactor operation, completed when the poller reports it
+  (kqueue's process filter, a pidfd under epoll): "exit" and the exit
+  status, or "signal" and the signal's number, never 128 plus a signal
+  folded into one integer. A wait parks the calling task; a task cancelled
+  while it waits cancels the wait, and the child goes on.
+]]
+module nupp.runtime.processes
+
+const processcalls = require("nupp.runtime.processcalls")
+const reactor = require("nupp.runtime.reactor")
+const files = require("nupp.runtime.files")
+
+--- What becomes of one of a child's standard streams: this program's own,
+--- a pipe to this program, the null device, or (standard error only)
+--- wherever standard output goes.
+export const INHERIT = 0
+
+export const PIPE = 1
+export const NULL = 2
+export const MERGE = 3
+
+--- Signals, numbered alike on macOS and Linux.
+export const SIGINT = 2
+
+export const SIGKILL = 9
+export const SIGTERM = 15
+
+--- The shell a command line runs in, as C's system and popen run it.
+export const SHELL = "/bin/sh"
+
+-- A spawn's description (processcalls.spawn): entries of a tag and text,
+-- each ended by a NUL, and the spawn's flags.
+const PROGRAM = "x"
+
+const ARGUMENT = "a"
+const ENVIRONMENT = "e"
+const DIRECTORY = "d"
+const ENDENTRY = "\0"
+const STREAMTAGS: {string} = {"0", "1", "2"}
+const SEARCH = 1
+const GIVEN = 2
+const OVERLAY = 4
+
+-- Which end of a child's pipe this program keeps (processcalls.pipe).
+const KEEPREAD = 0
+
+const KEEPWRITE = 1
+
+-- A pipe is its read end below bit 32 and its write end above.
+const ENDBITS = 32
+
+const READEND = 0xffffffff
+
+-- The child's standard streams, by their place in its descriptor table.
+const STDIN = 1
+
+const STDOUT = 2
+const STDERR = 3
+
+const NULLDEVICE = "/dev/null"
+
+-- The bytes a read of a child's output asks for at a time.
+const CHUNK = 65536
+
+--- What to start, and how.
+export type Options = {
+    --- The program's arguments, its name first.
+    arguments: {string},
+
+    --- The program to run, when it is not the first argument.
+    program: string?,
+
+    --- Whether a program that names no directory is looked up on PATH; it
+    --- is by default.
+    search: boolean?,
+
+    --- Environment entries, "NAME=value" each: the child's whole
+    --- environment, or with `overlay` set entries over this program's own;
+    --- nil for this program's own.
+    environment: {string}?,
+
+    overlay: boolean?,
+
+    --- The directory the child starts in; nil for this program's.
+    directory: string?,
+
+    --- What becomes of each standard stream: INHERIT (the default), PIPE,
+    --- NULL or MERGE.
+    stdin: integer?,
+
+    stdout: integer?,
+    stderr: integer?
+}
+
+--- How a child ended: "exit" and its exit status, or "signal" and the
+--- number of the signal that ended it.
+export type Exit = {
+    reason: string,
+    code: integer
+}
+
+--- A started child: its process id, which is also its process group's;
+--- this program's ends of its piped streams, -1 for one not piped or closed
+--- since; and how it ended, once a wait has seen it.
+export type Process = {
+    id: integer,
+    stdin: integer,
+    stdout: integer,
+    stderr: integer,
+    exit: Exit?
+}
+
+-- One entry of a spawn's description.
+local function entry(tag: string, text: string): string
+    return tag .. text .. ENDENTRY
+end
+
+--- Starts a child as `options` describes: the process, or nil and the
+--- system's error number. Its piped streams' ends here are readiness
+--- sources of the reactor, which `close` closes.
+export function spawn(options: Options): (Process?, integer)
+    local parts: {string} = {}
+    if options.program ~= nil then
+        parts[#parts + 1] = entry(PROGRAM, options.program as string)
+    end
+    for _, argument in ipairs(options.arguments) do
+        parts[#parts + 1] = entry(ARGUMENT, argument)
+    end
+    local flags = options.search == false and 0 or SEARCH
+    if options.environment ~= nil then
+        flags = flags | (options.overlay == true and OVERLAY or GIVEN)
+        for _, setting in ipairs(options.environment as {string}) do
+            parts[#parts + 1] = entry(ENVIRONMENT, setting)
+        end
+    end
+    if options.directory ~= nil then
+        parts[#parts + 1] = entry(DIRECTORY, options.directory as string)
+    end
+
+    -- The child's descriptors, this program's ends, and what this call
+    -- opened for the child alone, closed once it has started.
+    local child: {integer} = {-1, -1, -1}
+    local kept: {integer} = {-1, -1, -1}
+    local opened: {integer} = {}
+    local failed: integer = 0
+    local null: integer = -1
+    local modes: {integer} = {options.stdin or INHERIT, options.stdout or INHERIT, options.stderr or INHERIT}
+    for stream = STDIN, STDERR do
+        local mode = modes[stream]
+        if failed ~= 0 or mode == INHERIT then
+            -- Nothing to set up.
+        elseif mode == PIPE then
+            local ends = processcalls.pipe(stream == STDIN and KEEPWRITE or KEEPREAD)
+            if ends < 0 then
+                failed = -ends
+            else
+                local reader, writer = ends & READEND, ends >> ENDBITS
+                if stream == STDIN then
+                    child[stream], kept[stream] = reader, writer
+                else
+                    child[stream], kept[stream] = writer, reader
+                end
+                opened[#opened + 1] = child[stream]
+            end
+        elseif mode == NULL then
+            if null < 0 then
+                local done = files.open(NULLDEVICE, files.READING | files.WRITING)
+                if done.code ~= 0 then
+                    failed = done.code
+                else
+                    null = done.value
+                    opened[#opened + 1] = null
+                end
+            end
+            child[stream] = null
+        elseif mode == MERGE and stream == STDERR then
+            child[stream] = child[STDOUT] >= 0 and child[STDOUT] or files.STDOUT
+        else
+            error("processes: no stream mode " .. tostring(mode) .. " for stream " .. tostring(stream - 1), 2)
+        end
+    end
+    for stream = STDIN, STDERR do
+        if child[stream] >= 0 then
+            parts[#parts + 1] = entry(STREAMTAGS[stream], tostring(child[stream]))
+        end
+    end
+    local id: integer = -1
+    if failed == 0 then
+        id = processcalls.spawn(table.concat(parts), flags)
+        if id < 0 then
+            failed = -id
+        end
+    end
+    for _, descriptor in ipairs(opened) do
+        files.close(descriptor)
+    end
+    if failed ~= 0 then
+        for _, descriptor in ipairs(kept) do
+            if descriptor >= 0 then
+                files.close(descriptor)
+            end
+        end
+        return nil, failed
+    end
+    for _, descriptor in ipairs(kept) do
+        if descriptor >= 0 then
+            reactor.watch(descriptor)
+        end
+    end
+
+    local process: Process = {id = id, stdin = kept[STDIN], stdout = kept[STDOUT], stderr = kept[STDERR]}
+
+    return process, 0
+end
+
+--- Starts `command` in the shell, as C's system and popen do, its standard
+--- input and output as `stdin` and `stdout` say: the process, or nil and the
+--- system's error number.
+export function shell(command: string, stdin: integer, stdout: integer): (Process?, integer)
+    return spawn({arguments = {"sh", "-c", command}, program = SHELL, search = false, stdin = stdin, stdout = stdout})
+end
+
+-- How `process` ended, from its exit's completion: kept on the process, so
+-- later waits answer it at once.
+local function settle(process: Process, done: reactor.Completion): Exit
+    if process.exit ~= nil then
+        return process.exit as Exit
+    end
+    if done.value < 0 then
+        error("processes: cannot wait for process " .. tostring(process.id) .. ": " .. files.reason(done.code), 3)
+    end
+    local exit: Exit = {reason = done.reason, code = done.code}
+    process.exit = exit
+
+    return exit
+end
+
+local function exitoperation(process: Process): reactor.Operation
+    return reactor.exiting(process.id)
+end
+
+--- Waits for `process` to end and answers how it did. The calling task parks
+--- until then; where nothing can park it, this drives the reactor. A task
+--- cancelled while it waits raises, and the child goes on.
+export function wait(process: Process): Exit
+    if process.exit ~= nil then
+        return process.exit as Exit
+    end
+
+    return settle(process, reactor.await(exitoperation(process)))
+end
+
+--- Submits a wait for `process` to end, whose outcome is handed to `done`
+--- from a later `reactor.wait`: its operation's id, which `reactor.cancel`
+--- takes.
+export function onexit(process: Process, done: function(Exit): nil): integer
+    return reactor.submit(exitoperation(process), function(completion: reactor.Completion): nil
+        done(settle(process, completion))
+    end)
+end
+
+--- Whether `process` is still running: false once it has ended, which a
+--- wait then answers at once.
+export function running(process: Process): boolean
+    if process.exit ~= nil then
+        return false
+    end
+    local done = reactor.status(process.id)
+    if done == nil then
+        return true
+    end
+    settle(process, done as reactor.Completion)
+
+    return false
+end
+
+--- Sends `signal` (SIGTERM by default) to `process` and every process in
+--- its group: 0, or the system's error number (ESRCH once all are gone).
+export function kill(process: Process, signal: integer?): integer
+    local status = processcalls.kill(process.id, signal or SIGTERM)
+    if status < 0 then
+        return -status
+    end
+
+    return 0
+end
+
+--- Closes this program's ends of `process`'s pipes that are still open.
+export function close(process: Process): nil
+    if process.stdin >= 0 then
+        files.close(process.stdin)
+        process.stdin = -1
+    end
+    if process.stdout >= 0 then
+        files.close(process.stdout)
+        process.stdout = -1
+    end
+    if process.stderr >= 0 then
+        files.close(process.stderr)
+        process.stderr = -1
+    end
+end
+
+--- Writes `input` to `process`'s piped standard input and closes it, while
+--- reading its piped standard output and error to their ends, then waits for
+--- it to end: what it wrote to each, and how it ended. None of these waits
+--- on another, so a child that fills one pipe while this program would be
+--- writing or reading another cannot stall them both. The pipes are closed
+--- after.
+export function communicate(process: Process, input: string?): (string, string, Exit)
+    local out: {string} = {}
+    local err: {string} = {}
+    local ended = reactor.suspend(function(resume: reactor.Waker): function(): nil
+        -- The operations in flight, by stream, and the exit's.
+        local live: {[integer]: integer} = {}
+        local left = 0
+        local exit: reactor.Completion? = nil
+
+        local function finish(): nil
+            if left == 0 and exit ~= nil then
+                resume(exit as reactor.Completion)
+            end
+        end
+
+        local function reading(stream: integer, descriptor: integer, into: {string}): nil
+            if descriptor < 0 then
+                return
+            end
+            left = left + 1
+            local operation = reactor.reading(descriptor, CHUNK)
+            local step: function(reactor.Completion): nil
+            step = function(done: reactor.Completion): nil
+                if done.code ~= 0 or done.text == "" then
+                    live[stream] = nil
+                    left = left - 1
+                    finish()
+                    return
+                end
+                into[#into + 1] = done.text
+                live[stream] = reactor.submit(operation, step)
+            end
+            live[stream] = reactor.submit(operation, step)
+        end
+
+        local function closeinput(): nil
+            if process.stdin >= 0 then
+                files.close(process.stdin)
+                process.stdin = -1
+            end
+        end
+
+        local text = input or ""
+        if process.stdin >= 0 and #text > 0 then
+            left = left + 1
+            local step: function(reactor.Completion): nil
+
+            local function write(first: integer): nil
+                live[
+                    STDIN
+                ] = reactor.submit(reactor.writing(process.stdin, text, first), function(done: reactor.Completion): nil
+                    step(done)
+                end)
+            end
+
+            local at: integer = 1
+            step = function(done: reactor.Completion): nil
+                -- A child that stops reading takes no more: the rest is
+                -- dropped, as a write to a closed pipe drops it.
+                if done.value > 0 then
+                    at = at + done.value
+                end
+                if done.code ~= 0 or done.value <= 0 or at > #text then
+                    live[STDIN] = nil
+                    closeinput()
+                    left = left - 1
+                    finish()
+                    return
+                end
+                write(at)
+            end
+            write(1)
+        else
+            closeinput()
+        end
+        reading(STDOUT, process.stdout, out)
+        reading(STDERR, process.stderr, err)
+        live[0] = reactor.submit(exitoperation(process), function(done: reactor.Completion): nil
+            live[0] = nil
+            exit = done
+            finish()
+        end)
+
+        return function(): nil
+            for _, id in pairs(live) do
+                reactor.cancel(id)
+            end
+        end
+    end)
+    close(process)
+
+    return table.concat(out), table.concat(err), settle(process, ended)
+end
+
+--- Lua's results for how a child ended, as `os.execute` and a popen file's
+--- `close` give them: true or nil, "exit" or "signal", and the code.
+export function results(exit: Exit): (boolean?, string, integer)
+    if exit.reason == "exit" and exit.code == 0 then
+        return true, exit.reason, exit.code
+    end
+
+    return nil, exit.reason, exit.code
+end
+
+--- Whether the shell runs commands, as C's system(NULL) answers: whether it
+--- runs one that exits at once.
+export function hasshell(): boolean
+    local child, _ = shell("exit 0", INHERIT, INHERIT)
+    if child == nil then
+        return false
+    end
+    local exit = wait(child as Process)
+
+    return exit.reason == "exit" and exit.code == 0
+end

@@ -1,0 +1,73 @@
+module nupp.runtime.core.reportprefix
+
+-- Whether an error's text names the command line already, as
+-- nupp.tools.cli.error's `message` decides it: the text starts with
+-- `nupp:`, or its first line starts with a position, `chunk:line: nupp:`.
+-- Such a text is reported as it is; any other gets `nupp: ` in front.
+const native = require("nupp.runtime.vm.intrinsics")
+
+-- "nupp:", and the ": nupp:" after a position's line, as little-endian
+-- byte words.
+const NAME: uint64 = 0x3a7070756eULL
+const NAME_BYTES: uint64 = 5ULL
+const AFTER_LINE: uint64 = 0x3a7070756e203aULL
+const AFTER_LINE_BYTES: uint64 = 7ULL
+const COLON: uint64 = 58ULL
+const NEWLINE: uint64 = 10ULL
+const ZERO: uint64 = 48ULL
+const NINE: uint64 = 57ULL
+const BYTE_MASK: uint64 = 255ULL
+const BYTE_BITS: uint64 = 8ULL
+
+local function byte(base: uint64, at: uint64): uint64
+    @unsafe do
+        return native.word(native.load8(native.pointer(base), native.index(at)))
+    end
+end
+
+-- Whether the low `count` bytes of `word`, least significant first, are
+-- the `length` bytes at `base` from `at`.
+local function spells(base: uint64, length: uint64, at: uint64, word: uint64, count: uint64): boolean
+    if at > length or length - at < count then
+        return false
+    end
+    local i: uint64 = 0ULL
+    while i < count do
+        if byte(base, at + i) ~= (word >> (i * BYTE_BITS)) & BYTE_MASK then
+            return false
+        end
+        i = i + 1ULL
+    end
+
+    return true
+end
+
+local function digit(value: uint64): boolean
+    return value >= ZERO and value <= NINE
+end
+
+-- Whether the `length` bytes at `base` name the command line already.
+export function present(base: uint64, length: uint64): boolean
+    if spells(base, length, 0ULL, NAME, NAME_BYTES) then
+        return true
+    end
+    local i: uint64 = 0ULL
+    while i < length do
+        local b = byte(base, i)
+        if b == NEWLINE then
+            return false
+        end
+        if b == COLON then
+            local j = i + 1ULL
+            while j < length and digit(byte(base, j)) do
+                j = j + 1ULL
+            end
+            if j > i + 1ULL and spells(base, length, j, AFTER_LINE, AFTER_LINE_BYTES) then
+                return true
+            end
+        end
+        i = i + 1ULL
+    end
+
+    return false
+end

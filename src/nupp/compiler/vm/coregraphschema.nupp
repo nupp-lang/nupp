@@ -1,6 +1,6 @@
 module nupp.compiler.vm.coregraphschema
 
-local graph = require("nupp.compiler.vm.graph")
+local graphsignatures = require("nupp.compiler.vm.graphsignatures")
 local opcodes = require("nupp.compiler.vm.opcodes")
 local schema = {}
 
@@ -224,8 +224,8 @@ function schema.describe(version: integer?): any
         runtimeChecks = {calleeOwner = true, scalarArguments = true, scalarResult = true}
     }
     for index, policy in ipairs(policies) do
-        local signature = assert(graph.signatures[policy.name], "missing canonical graph signature")
-        assert(graph.signatureText[policy.name] == policy.signature, "canonical graph signature changed")
+        local signature = assert(graphsignatures.parsed[policy.name], "missing canonical graph signature")
+        assert(graphsignatures.signatures[policy.name] == policy.signature, "canonical graph signature changed")
         assert(not signature.terminator, "operation became a terminator")
         local ordinary = opcodes.describe(policy.name)
         if ordinary then
@@ -238,7 +238,7 @@ function schema.describe(version: integer?): any
         ] = {
             id = index - 1,
             name = policy.name,
-            signature = graph.signatureText[policy.name],
+            signature = graphsignatures.signatures[policy.name],
             args = copyArray(signature.args),
             result = signature.result,
             resultAt = signature.resultAt,

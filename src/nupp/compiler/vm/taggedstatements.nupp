@@ -1,0 +1,450 @@
+module nupp.compiler.vm.taggedstatements
+
+-- Statements in the tagged profile: binary operators, checked conditions,
+-- numeric loops, and the cleanup protocol of a function owning affine
+-- values.
+local graph = require("nupp.compiler.vm.graph")
+local corelibrary = require("nupp.compiler.vm.corelibrary")
+local taggedvalues = require("nupp.compiler.vm.taggedvalues")
+local taggedcalls = require("nupp.compiler.vm.taggedcalls")
+local arithmetic = taggedvalues.arithmetic
+local catalog = taggedvalues.catalog
+local cleanupGraphs = taggedvalues.cleanupGraphs
+local integerType = taggedvalues.integerType
+local invoke = taggedcalls.invoke
+local libraryCall = taggedcalls.libraryCall
+local need = taggedvalues.need
+local numberType = taggedvalues.numberType
+local numericType = taggedvalues.numericType
+local ordering = taggedvalues.ordering
+local pool = taggedvalues.pool
+local scalarType = taggedvalues.scalarType
+local typeKind = taggedvalues.typeKind
+
+-- Before v6 only float addition and less-than are admitted. v6 admits the
+-- dynamic numeric operators over checked integer, float or number operands;
+-- `a > b` evaluates both operands in order and then compares as `b < a`.
+export function binary(ctx: any, node: any, expected: string?, version: integer): integer
+    local operation = node.op.text
+    need(expected == nil or expected == "tagged", "tagged result required")
+    -- From v8 `..`, `/`, `//` and the bitwise operators are core library
+    -- calls (gueststrings, guestnumbers).
+    local library = version >= 8
+        and ({
+            [".."] = corelibrary.id("CONCAT2"),
+            ["/"] = corelibrary.id("DIVIDE"),
+            ["//"] = corelibrary.id("FLOOR_DIVIDE"),
+            ["^"] = corelibrary.id("POW"),
+            ["&"] = corelibrary.id("BAND"),
+            ["|"] = corelibrary.id("BOR"),
+            ["~"] = corelibrary.id("BXOR"),
+            ["<<"] = corelibrary.id("SHL"),
+            [">>"] = corelibrary.id("SHR"),
+        })[operation]
+    if library then
+        return libraryCall(ctx, node, library, {node.lhs, node.rhs})
+    end
+    -- From v8 `a ~= b` is `not (a == b)`.
+    if operation == "~=" and version >= 8 then
+        local operands = ctx.operands({node.lhs, node.rhs}, {"tagged", "tagged"})
+        if operands == nil then
+            return nil as any
+        end
+        local equal = ctx.emit(node, "Eq", operands, "tagged")
+        return ctx.emit(node, "Not", {equal}, "tagged")
+    end
+    local admits = version >= 6 and numericType or numberType
+    local op = arithmetic[operation] or ordering[operation]
+    need(
+        version >= 6 and op ~= nil or operation == "+" or operation == "<",
+        version >= 6 and "unsupported numeric operator" or "only number addition is admitted"
+    )
+    if arithmetic[operation] then
+        need(version >= 8 or admits(node.inferredType), "number result required")
+    else
+        need(typeKind(node.inferredType) == "boolean", "boolean result required")
+    end
+    if operation == "==" then
+        -- Equality compares any checked scalars: numbers exactly, Booleans
+        -- and nil by identity.
+        admits = function(t: any): boolean
+            return numericType(t) or scalarType(t)
+        end
+    end
+    -- From v8 operands may be dynamic values; the handlers check them.
+    if version < 8 then
+        need(admits(node.lhs.inferredType), "left number required")
+        need(admits(node.rhs.inferredType), "right number required")
+    end
+    local operands = ctx.operands({node.lhs, node.rhs}, {"tagged", "tagged"})
+    if operands == nil then
+        return nil as any
+    end
+    if operation == ">" or operation == ">=" then
+        operands = {operands[2], operands[1]}
+    end
+
+    return ctx.emit(node, op, operands, "tagged")
+end
+
+local function booleanCondition(t: any): boolean
+    while t and (t.tag == "literal" or t.tag == "const" or t.tag == "constrained") do
+        t = t.tag == "const" and t.inner or t.base
+    end
+    if t and t.tag == "union" and #t.members > 0 then
+        for _, member in ipairs(t.members) do
+            if not booleanCondition(member) then
+                return false
+            end
+        end
+        return true
+    end
+
+    return t ~= nil and t.tag == "boolean"
+end
+
+export function checkStatement(ctx: any, stat: any, version: integer): nil
+    if stat.kind == "ifStmt" then
+        for _, clause in ipairs(stat.clauses) do
+            need(not clause.binding, "binding conditions are unsupported")
+            need(version >= 8 or booleanCondition(clause.cond.inferredType), "if condition requires a checked Boolean")
+        end
+    elseif stat.kind == "whileStmt" and version == 5 then
+        need(
+            stat.cond.kind == "binop" and stat.cond.op.text == "<" and booleanCondition(stat.cond.inferredType),
+            "loop condition requires checked numeric less-than"
+        )
+    elseif (stat.kind == "whileStmt" or stat.kind == "repeatStmt") and version >= 6 then
+        need(version >= 8 or booleanCondition(stat.cond.inferredType), "loop condition requires a checked Boolean")
+    end
+    local loopControl = stat.kind == "breakStmt" or stat.kind == "continueStmt" or stat.kind == "repeatStmt"
+    need(
+        (version >= 5 or stat.kind ~= "whileStmt")
+        and (version >= 6 or stat.kind ~= "fornumStmt" and not loopControl)
+        and (version >= 8 or stat.kind ~= "forinStmt"),
+        "control flow is outside lexical construction"
+    )
+    need(not stat.comptimeFunction and not stat.comptimeTok, "compile-time declarations are unsupported")
+end
+
+local function stepSign(ctx: any, stat: any): integer
+    if stat.step == nil then
+        return 1
+    end
+    local constant = catalog(ctx).byNode[stat.step]
+    -- A dynamic step needs the runtime zero-step error and a runtime
+    -- direction; both wait for guest errors.
+    need(
+        constant and (constant.kind == "int64" or constant.kind == "num"),
+        "numeric for step must be a numeric literal"
+    )
+    local value = need(tonumber(constant.text), "numeric for step literal")
+    need(value == value and value ~= 0, "'for' step is zero")
+
+    return value > 0 and 1 or -1
+end
+
+-- Lua's integer mode depends on the initial value and the step, never the
+-- limit; any other combination runs in floating point. Controls whose
+-- subtype is only known at run time are refused until math.type exists.
+export function numericFor(ctx: any, stat: any): any
+    local sign = stepSign(ctx, stat)
+    local startType = stat.start.inferredType
+    local integerMode = integerType(startType) and (stat.step == nil or integerType(stat.step.inferredType))
+    need(
+        integerMode or numberType(startType) and typeKind(startType) == "float64",
+        "numeric for needs a statically integer or float initial value"
+    )
+    -- A limit of no static number type is checked as the loop starts.
+    local dynamicLimit = typeKind(stat.stop.inferredType) == "any"
+    need(dynamicLimit or numericType(stat.stop.inferredType), "numeric for limit must be a number")
+    local nodes = {stat.start, stat.stop}
+    if stat.step then
+        nodes[3] = stat.step
+    end
+    local kinds = {}
+    for index in ipairs(nodes) do
+        kinds[index] = "tagged"
+    end
+    local values = ctx.operands(nodes, kinds)
+    if values == nil then
+        return nil
+    end
+    if dynamicLimit then
+        local start = ctx.hold(values[1])
+        local step = values[3] and ctx.hold(values[3]) or nil
+        values[2] = ctx.emit(stat, "LibCall", {corelibrary.id("FOR_LIMIT"), values[2]}, "tagged")
+        values[1] = ctx.readHeld(start)
+        ctx.release(start)
+        if step then
+            values[3] = ctx.readHeld(step)
+            ctx.release(step)
+        end
+    end
+    if stat.step == nil then
+        values[3] = ctx.emit(stat, "K", {pool(ctx, "int64", "1")}, "tagged")
+    end
+    if values[1] <= ctx.g.nparams then
+        values[1] = ctx.emit(stat, "Move", {values[1]}, "tagged")
+    end
+
+    -- Integer mode compares the counter with the limit exactly. A descending
+    -- loop continues while not counter < limit, which also runs on toward the
+    -- minimum integer for a NaN limit, as Lua's limit clipping does. A float
+    -- loop's guard is "not past the limit", so NaN controls run it once.
+    local function compare(c: any, node: any, counter: integer, limit: integer): (integer, boolean)
+        if sign > 0 then
+            return c.emit(node, "Le", {counter, limit}, "tagged"), false
+        elseif integerMode then
+            return c.emit(node, "Lt", {counter, limit}, "tagged"), true
+        end
+
+        return c.emit(node, "Le", {limit, counter}, "tagged"), false
+    end
+
+    return {
+        values = values,
+        first = function(c: any, node: any, v: any): (integer, boolean)
+            if integerMode then
+                return compare(c, node, v[1], v[2])
+            end
+            return c.emit(node, "Lt", sign > 0 and {v[2], v[1]} or {v[1], v[2]}, "tagged"), true
+        end,
+        test = function(c: any, node: any, v: any): (integer, boolean)
+            return compare(c, node, v[1], v[2])
+        end,
+        advance = function(c: any, node: any, v: any): (integer, integer?)
+            local advanced = c.emit(node, "Add", {v[1], v[3]}, "tagged")
+            if not integerMode then
+                return advanced, nil
+            end
+            -- Integer counters wrap at 64 bits; a wrapped sum ends the loop.
+            local wrapped = c.emit(node, "Lt", sign > 0 and {advanced, v[1]} or {v[1], advanced}, "tagged")
+
+            return advanced, wrapped
+        end
+    }
+end
+
+local function always(ctx: any, node: any): integer
+    return ctx.emit(node, "K", {pool(ctx, "true", "")}, "tagged") as integer
+end
+
+-- The profile a function that owns affine values is built with: the
+-- common cleanup protocol (functiongraph), its terminals called through
+-- Destroy, which reaches each destructor through the table its record's name
+-- holds. Returns stage at most one value.
+export function cleanupProfile(base: any): any
+    local profile = {}
+    for name, member in pairs(base) do
+        profile[name] = member
+    end
+    profile.forOwner = nil
+    profile.initialize = function(owner: any, options: any): any
+        local g = base.initialize(owner, options)
+        cleanupGraphs[g] = true
+        return g
+    end
+    profile.initializeModule = function(owner: any, options: any): any
+        local g = base.initializeModule(owner, options)
+        cleanupGraphs[g] = true
+        return g
+    end
+    profile.cleanupFlag = function(ctx: any, node: any, value: boolean): integer
+        return ctx.emit(node, "K", {pool(ctx, value and "true" or "false", "")}, "tagged") as integer
+    end
+    profile.cleanupPlan = function(ctx: any, site: any, t: any, chain: any): any
+        local inner = t and t.tag == "affine" and t.inner
+        local origin = inner and (inner.origin or inner)
+        local declaration = origin and origin.deriveDeclaration
+        local tokens = catalog(ctx).cleanupTokens[site]
+        -- A method cleanup (`close`) is looked up on the value as it is
+        -- destroyed, whatever implements it.
+        local dynamic = false
+        for _, item in ipairs(chain) do
+            dynamic = dynamic or item.kind == "method"
+        end
+        if dynamic then
+            local names = {}
+            for _, item in ipairs(chain) do
+                need(item.kind == "method", "a method cleanup chain mixes in a function")
+                names[#names + 1] = item.name
+            end
+            return {names = names}
+        end
+        -- Cleanups that are not the record's own methods are functions read
+        -- from the core's registry by key.
+        local methods = declaration ~= nil and declaration.kind == "recordDecl" and declaration.name ~= nil
+        for _, item in ipairs(chain) do
+            local record = tostring(item.name):match("^(.-)%.[%w_]+$")
+            methods = methods and record == declaration.name.text
+        end
+        if not methods then
+            local keys = {}
+            for _, item in ipairs(chain) do
+                keys[#keys + 1] = need(item.key, "a cleanup function lacks its key")
+            end
+            return {keys = keys}
+        end
+        local token = need(tokens and declaration and tokens[declaration], "cleanup site lacks its record reference")
+        local methods = {}
+        for _, item in ipairs(chain) do
+            local record, method = tostring(item.name):match("^(.-)%.([%w_]+)$")
+            need(method and record == declaration.name.text, "only a record's own method cleans it up")
+            methods[#methods + 1] = method
+        end
+
+        return {token = token, methods = methods}
+    end
+    profile.cleanupAllowed = always
+    -- After owners are destroyed: false once when a destructor raised, its
+    -- error landed here, which the failure path then raises, as Lua raises an
+    -- error a __close raises on the way out.
+    profile.cleanupStatus = function(ctx: any, node: any): integer
+        local none = ctx.emit(node, "Nil", {}, "tagged")
+        return ctx.emit(node, "LibCall", {corelibrary.id("LANDED"), none}, "tagged") as integer
+    end
+    profile.cleanupRun = function(ctx: any, node: any, plan: any, value: integer, reason: string): nil
+        local held = ctx.hold(value)
+        if plan.names then
+            for index = #plan.names, 1, -1 do
+                local key = ctx.emit(node, "K", {pool(ctx, "str", plan.names[index])}, "tagged")
+                local callee = ctx.emit(node, "GetIdx", {ctx.readHeld(held), key}, "tagged")
+                ctx.emit(node, "Destroy", {callee, ctx.readHeld(held)}, nil)
+            end
+            ctx.release(held)
+            return
+        end
+        if plan.keys then
+            for index = #plan.keys, 1, -1 do
+                local key = ctx.emit(node, "K", {pool(ctx, "str", plan.keys[index])}, "tagged")
+                local callee = ctx.emit(node, "LibCall", {corelibrary.id("CLEANUP_GET"), key}, "tagged")
+                ctx.emit(node, "Destroy", {callee, ctx.readHeld(held)}, nil)
+            end
+            ctx.release(held)
+            return
+        end
+        for index = #plan.methods, 1, -1 do
+            local class = plan.token.foreign
+                and ctx.emit(node, "LibCall", {corelibrary.id("GETMETATABLE"), ctx.readHeld(held)}, "tagged")
+                or ctx.expression({kind = "name", token = plan.token, plan.token}, "tagged")
+            local key = ctx.emit(node, "K", {pool(ctx, "str", plan.methods[index])}, "tagged")
+            local callee = ctx.emit(node, "GetIdx", {class, key}, "tagged")
+            ctx.emit(node, "Destroy", {callee, ctx.readHeld(held)}, nil)
+        end
+        ctx.release(held)
+    end
+    -- Unreachable while every status is true; a failure still has to end its
+    -- block, so it raises.
+    -- The landed error goes on, as it was, once the owners are destroyed.
+    profile.failure = function(ctx: any, node: any): nil
+        local none = ctx.emit(node, "Nil", {}, "tagged")
+        -- A destructor that raised on the way here landed its error, which
+        -- is the one raised now: the mark goes with it.
+        ctx.emit(node, "LibCall", {corelibrary.id("LANDED"), none}, "tagged")
+        ctx.emit(node, "LibCall", {corelibrary.id("RERAISE"), none}, "tagged")
+        ctx.block.term = {kind = "return", value = none, edges = {}, pos = ctx.position(node)}
+        ctx.block = nil
+    end
+    -- Every value a return gives, staged before the owners are destroyed: a
+    -- `...`, an open call or a call last giving more than one spread, the
+    -- pack staged last.
+    profile.stageReturn = function(ctx: any, node: any, falling: boolean): any
+        -- A module with named exports answers its export table.
+        if falling and ctx.exports then
+            return {values = {ctx.readHeld(ctx.exports)}}
+        end
+        local exprs = not falling and node.exprs or {}
+        if #exprs == 0 then
+            return {values = {}}
+        end
+        local last = exprs[#exprs]
+        local declared: integer = ctx.fn.signature and #ctx.fn.signature.rets or 1
+        local open = ctx.fn.signature and ctx.fn.signature.retPack and ctx.fn.signature.retPack.tail ~= nil
+        local spreads = last.kind == "vararg" or open and graph.expandsResults(last)
+        local expands = not spreads and declared > #exprs and graph.expandsResults(last)
+        local fixed, kinds = {}, {}
+        for index, expr in ipairs(exprs) do
+            if index < #exprs or not spreads and not expands then
+                fixed[#fixed + 1], kinds[#kinds + 1] = expr, "tagged"
+            end
+        end
+        need(#fixed <= 16, "a return gives at most sixteen results")
+        local values = {}
+        if #fixed > 0 then
+            values = ctx.operands(fixed, kinds)
+            if values == nil then
+                return nil
+            end
+        end
+        if spreads or expands then
+            local held = {}
+            for index, value in ipairs(values) do
+                held[index] = ctx.hold(value)
+            end
+            local tail: any = nil
+            if last.kind == "vararg" then
+                tail = ctx.varargPack()
+            elseif spreads then
+                tail = invoke(ctx, last, true, true, nil, true)
+            else
+                tail = base.callResults(ctx, last, declared - #exprs + 1)
+            end
+            for index, handle in ipairs(held) do
+                values[index] = ctx.readHeld(handle)
+                ctx.release(handle)
+            end
+            if tail == nil or ctx.block == nil then
+                return nil
+            end
+            if spreads then
+                values[#values + 1] = tail
+                need(#values <= 17, "a return gives at most sixteen results")
+                return {values = values, spread = true}
+            end
+            for _, value in ipairs(tail) do
+                values[#values + 1] = value
+            end
+            need(#values <= 16, "a return gives at most sixteen results")
+        end
+
+        return {values = values}
+    end
+    profile.rootReturn = function(ctx: any, node: any, stage: any, held: any): any
+        return {}
+    end
+    profile.rootBacking = function(ctx: any, node: any, roots: any): {any}
+        return {}
+    end
+    profile.closeReturnRoots = function(ctx: any, node: any, plan: any, reason: string): integer
+        return always(ctx, node)
+    end
+    profile.retainRootBacking = function(ctx: any, node: any, plan: any): nil
+    end
+    profile.finishReturn = function(ctx: any, node: any, stage: any, values: any, roots: any): nil
+        if stage.spread then
+            -- The pack staged last spreads after the fixed values.
+            local pack = values[#values]
+            local fixed = {}
+            for index = 1, #values - 1 do
+                fixed[index] = values[index]
+            end
+            ctx.block.term = {
+                kind = "return",
+                value = fixed[1] or pack,
+                values = #fixed > 0 and fixed or nil,
+                spread = pack,
+                edges = {},
+                pos = ctx.position(node)
+            }
+        elseif #values > 1 then
+            ctx.block.term = {kind = "return", value = values[1], values = values, edges = {}, pos = ctx.position(node)}
+        else
+            local value = values[1] or ctx.emit(node, "Nil", {}, "tagged")
+            ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(node)}
+        end
+        ctx.block = nil
+    end
+
+    return profile
+end

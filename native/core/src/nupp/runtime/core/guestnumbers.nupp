@@ -1,7 +1,10 @@
 module nupp.runtime.core.guestnumbers
 
--- Lua's tonumber with a base: a string of digits in that base, read as an
--- integer.
+-- Numbers in the core library: tonumber, with a base too, a numeric for's
+-- limit, the math library and the arithmetic operators that may meet a
+-- metamethod, Lua's bitwise operators on 64-bit integers, and the
+-- fixed-width math the prelude adds to Lua's: binary32 rounding
+-- (`math.f32`) and 32-bit integer wrapping (`math.u32`, `math.i32`).
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const values = require("nupp.runtime.vm.values")
@@ -9,20 +12,490 @@ const context = require("nupp.runtime.core.context")
 const ints = require("nupp.runtime.core.coreintegers")
 const strings = require("nupp.runtime.core.corestrings")
 const guestscope = require("nupp.runtime.core.guestscope")
-const guestlib = require("nupp.runtime.core.guestlib")
 const texts = require("nupp.runtime.core.guesttexts")
+const librarytexts = require("nupp.runtime.core.librarytexts")
+const tables = require("nupp.runtime.core.coretables")
+const os = require("nupp.runtime.vm.os")
+const guestvalues = require("nupp.runtime.core.guestvalues")
+const librarycalls = require("nupp.runtime.core.librarycalls")
+const corestorage = require("nupp.runtime.core.corestorage")
 
--- tonumber(s, base).
-export const LIB_TONUMBER_BASE: uint64 = 106ULL
--- A numeric for's limit whose type is known only at run time.
-export const LIB_FOR_LIMIT: uint64 = 113ULL
+-- Lua's unary minus of a number: integers wrap, floats change sign.
+export function negate(ctx: voidptr, a: uint64): uint64
+    if ints.isInteger(a) then
+        return guestscope.integer(ctx, 0ULL - ints.bitsOf(a))
+    end
+    local x = guestvalues.floatof(a)
+    if x == values.NIL then
+        texts.faultError(ctx, guestscope.FAULT_ARITH, a, a)
+    end
+
+    -- Times -1.0 (its bits, since a leaf has no unary minus), as Lua negates.
+
+    return guestvalues.floatvalue(native.bits(native.fromBits(x) * native.fromBits(0xbff0000000000000ULL)))
+end
+
+-- An integral float as the integer it equals when one does, else nil.
+export function integral(ctx: voidptr, value: uint64): uint64
+    if ints.isInteger(value) then
+        return value
+    end
+    if guestvalues.isfloat(value) and ints.integralFloat(value) then
+        return guestscope.integer(ctx, ints.floatToBits(value))
+    end
+
+    return values.NIL
+end
+
+-- math.abs: integers wrap at the minimum, as Lua's do.
+export function mathAbs(ctx: voidptr, a: uint64): uint64
+    guestvalues.numarg(ctx, a, 1ULL)
+    if ints.isInteger(a) then
+        local bits = ints.bitsOf(a)
+        if bits >> 63ULL == 1ULL then
+            return guestscope.integer(ctx, 0ULL - bits)
+        end
+        return a
+    end
+
+    return guestvalues.floatvalue(a & 0x7fffffffffffffffULL)
+end
+
+-- math.ceil: an integer when the result fits one, else the float.
+export function mathCeil(ctx: voidptr, a: uint64): uint64
+    guestvalues.numarg(ctx, a, 1ULL)
+    if ints.isInteger(a) then
+        return a
+    end
+    local minusOne = native.fromBits(0xbff0000000000000ULL)
+    local ceiled = guestvalues.floatvalue(native.bits(native.floor(native.fromBits(a) * minusOne) * minusOne))
+    local exact = integral(ctx, ceiled)
+    if exact ~= values.NIL then
+        return exact
+    end
+
+    return ceiled
+end
+
+-- a < b for two numbers: exact between integers, through floats otherwise.
+local function numberLess(a: uint64, b: uint64): boolean
+    if ints.isInteger(a) and ints.isInteger(b) then
+        return native.index(ints.bitsOf(a)) < native.index(ints.bitsOf(b))
+    end
+
+    return native.fromBits(guestvalues.floatof(a)) < native.fromBits(guestvalues.floatof(b))
+end
+
+-- math.max and math.min over one to four numbers: the first extreme one, as
+-- given (an integer stays one).
+export function mathExtreme(
+    ctx: voidptr,
+    count: uint64,
+    a: uint64,
+    b: uint64,
+    c: uint64,
+    d: uint64,
+    largest: boolean
+): uint64
+    if count == 0ULL then
+        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_NUMBER, 0ULL, values.NIL)
+    end
+    local best = guestvalues.numarg(ctx, a, 1ULL)
+    local i: uint64 = 2ULL
+    while i <= count do
+        local next = b
+        if i == 3ULL then
+            next = c
+        elseif i == 4ULL then
+            next = d
+        end
+        guestvalues.numarg(ctx, next, i)
+        if largest and numberLess(best, next) or not largest and numberLess(next, best) then
+            best = next
+        end
+        i = i + 1ULL
+    end
+
+    return best
+end
+
+-- math.type: "integer", "float", or nil for anything else.
+export function mathType(ctx: voidptr, a: uint64): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        if not ints.isInteger(a) and not guestvalues.isfloat(a) then
+            return values.NIL
+        end
+        local h = guestvalues.guestheap(ctx)
+        local builder = state as strings.Builder*
+        local refused: uint64 = 0ULL
+        if ints.isInteger(a) then
+            refused = strings.appendWord(h, builder, 0x72656765746e69ULL, 7ULL)
+        else
+            refused = strings.appendWord(h, builder, 0x74616f6c66ULL, 5ULL)
+        end
+        if refused ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
+        local s = strings.finish(h, builder)
+        tables.drain(h)
+        return values.TAG_OBJ | s
+    end
+end
+
+-- Lua's /: always float.
+export function divide(ctx: voidptr, a: uint64, b: uint64): uint64
+    local x = guestvalues.floatof(a)
+    local y = guestvalues.floatof(b)
+    if x == values.NIL or y == values.NIL then
+        texts.faultError(ctx, guestscope.FAULT_ARITH, a, b)
+    end
+
+    return guestvalues.floatvalue(native.bits(native.fromBits(x) / native.fromBits(y)))
+end
+
+-- Lua's //: floor division, integer for integers (raising for zero) and
+-- float otherwise.
+export function floorDivide(ctx: voidptr, a: uint64, b: uint64): uint64
+    if ints.isInteger(a) and ints.isInteger(b) then
+        local x = native.index(ints.bitsOf(a))
+        local y = native.index(ints.bitsOf(b))
+        if y == 0 then
+            texts.libraryError(ctx, librarytexts.TEXT_IDIV_ZERO)
+        end
+        if y == -1 then
+            return guestscope.integer(ctx, 0ULL - native.word(x))
+        end
+        return guestscope.integer(ctx, native.word(x // y))
+    end
+    local x = guestvalues.floatof(a)
+    local y = guestvalues.floatof(b)
+    if x == values.NIL or y == values.NIL then
+        texts.faultError(ctx, guestscope.FAULT_ARITH, a, b)
+    end
+
+    return guestvalues.floatvalue(native.bits(native.floor(native.fromBits(x) / native.fromBits(y))))
+end
+
+local function space(c: uint64): boolean
+    return c == 32ULL or (c >= 9ULL and c <= 13ULL)
+end
+
+local function hexDigit(c: uint64): uint64
+    if c >= 48ULL and c <= 57ULL then
+        return c - 48ULL
+    elseif c >= 97ULL and c <= 102ULL then
+        return c - 87ULL
+    elseif c >= 65ULL and c <= 70ULL then
+        return c - 55ULL
+    end
+
+    return 16ULL
+end
+
+-- Lua's tonumber: numbers as they are; strings by l_str2int (optional sign,
+-- decimal or wrapping hexadecimal, surrounding space); nil for any other
+-- value or text that is not a numeral. Other text, a decimal past int64
+-- included, is read as a float by C's strtod through the host.
+export function tonumber(ctx: voidptr, value: uint64): uint64
+    local cell = new strings.Builder(0ULL, 0ULL, 0ULL)
+    if ints.isInteger(value) or guestvalues.floatof(value) ~= values.NIL then
+        return value
+    end
+    local s = strings.header(value)
+    if s == 0ULL then
+        if value == values.NIL then
+            texts.argumentError(ctx, 1ULL, 0ULL, librarytexts.TEXT_VALUE_EXPECTED, values.NIL)
+        end
+        return values.NIL
+    end
+    @unsafe do
+        local p = strings.bytes(s)
+        local finish = p + strings.length(s)
+        while p < finish and space(native.word(native.load8(native.pointer(p), 0))) do
+            p = p + 1ULL
+        end
+        local negative = false
+        if p < finish and native.word(native.load8(native.pointer(p), 0)) == 45ULL then
+            negative = true
+            p = p + 1ULL
+        end
+        local bits: uint64 = 0ULL
+        local digits: uint64 = 0ULL
+        local overflow = false
+        local hex = p + 1ULL < finish
+            and native.word(native.load8(native.pointer(p), 0)) == 48ULL
+            and (native.word(native.load8(native.pointer(p), 1)) | 32ULL) == 120ULL
+        if hex then
+            p = p + 2ULL
+            while p < finish and hexDigit(native.word(native.load8(native.pointer(p), 0))) < 16ULL do
+                bits = bits * 16ULL + hexDigit(native.word(native.load8(native.pointer(p), 0)))
+                digits = digits + 1ULL
+                p = p + 1ULL
+            end
+        else
+            while p < finish do
+                local c = native.word(native.load8(native.pointer(p), 0))
+                if c < 48ULL or c > 57ULL then
+                    break
+                end
+                local d = c - 48ULL
+                -- Past 2^63 - 1 (2^63 when negative) is a float numeral.
+                local last: uint64 = 7ULL
+                if negative then
+                    last = 8ULL
+                end
+                if bits > 922337203685477580ULL or (bits == 922337203685477580ULL and d > last) then
+                    overflow = true
+                end
+                bits = bits * 10ULL + d
+                digits = digits + 1ULL
+                p = p + 1ULL
+            end
+        end
+        local numeral = digits > 0ULL and not overflow
+        while p < finish and space(native.word(native.load8(native.pointer(p), 0))) do
+            p = p + 1ULL
+        end
+        if numeral and p == finish then
+            if negative then
+                bits = 0ULL - bits
+            end
+            return ints.make(guestvalues.guestheap(ctx), bits)
+        end
+        -- Otherwise a float numeral by C's strtod, as Lua's l_str2d reads one;
+        -- like it, text holding an n or N (inf, nan) is refused first.
+        local q = strings.bytes(s)
+        while q < finish do
+            if native.word(native.load8(native.pointer(q), 0)) | 32ULL == 110ULL then
+                return values.NIL
+            end
+            q = q + 1ULL
+        end
+        -- The bits land in a builder's word backing.
+        local slot = cell as strings.Builder*
+        if strings.reserve(guestvalues.guestheap(ctx), slot, 8ULL) ~= 0ULL then
+            error("not enough memory")
+        end
+        local parsed = os.parseNumber(native.pointer(strings.bytes(s)), strings.length(s), native.pointer(slot.base))
+        local bits = native.load64(native.pointer(slot.base), 0)
+        strings.release(slot)
+        if parsed ~= 1 then
+            return values.NIL
+        end
+
+        return guestvalues.floatvalue(bits)
+    end
+end
+
+-- C's math functions, by os.mathFunction's numbering.
+const C_POW: uint64 = 0ULL
+export const C_EXP: uint64 = 1ULL
+const C_LOG: uint64 = 2ULL
+const C_LOG2: uint64 = 3ULL
+const C_LOG10: uint64 = 4ULL
+export const C_SIN: uint64 = 5ULL
+export const C_COS: uint64 = 6ULL
+export const C_TAN: uint64 = 7ULL
+export const C_ASIN: uint64 = 8ULL
+export const C_ACOS: uint64 = 9ULL
+export const C_ATAN2: uint64 = 10ULL
+const C_FMOD: uint64 = 11ULL
+
+-- C's math function `op` of the numbers a and b, as a float.
+export function hostMath(op: uint64, a: uint64, b: uint64): uint64
+    return guestvalues.floatvalue(os.mathFunction(op, guestvalues.floatof(a), guestvalues.floatof(b)))
+end
+
+-- a ^ b: always a float, by C's pow.
+export function power(ctx: voidptr, a: uint64, b: uint64): uint64
+    if guestvalues.floatof(a) == values.NIL or guestvalues.floatof(b) == values.NIL then
+        texts.faultError(ctx, guestscope.FAULT_ARITH, a, b)
+    end
+
+    return hostMath(C_POW, a, b)
+end
+
+-- math.log(x [, base]): base 2 and 10 by their own functions, any other as
+-- a quotient of natural logarithms.
+export function mathLog(ctx: voidptr, count: uint64, x: uint64, base: uint64): uint64
+    local value = guestvalues.numarg(ctx, x, 1ULL)
+    if count < 2ULL then
+        return hostMath(C_LOG, value, value)
+    end
+    -- 2.0 and 10.0 by their bits.
+    local b = guestvalues.floatof(guestvalues.numarg(ctx, base, 2ULL))
+    if b == 0x4000000000000000ULL then
+        return hostMath(C_LOG2, value, value)
+    elseif b == 0x4024000000000000ULL then
+        return hostMath(C_LOG10, value, value)
+    end
+    local numerator = native.fromBits(os.mathFunction(C_LOG, guestvalues.floatof(value), 0ULL))
+    local denominator = native.fromBits(os.mathFunction(C_LOG, guestvalues.floatof(base), 0ULL))
+
+    return guestvalues.floatvalue(native.bits(numerator / denominator))
+end
+
+-- math.fmod(a, b): for integers, the remainder of truncated division (an
+-- error for zero); otherwise C's fmod.
+export function mathFmod(ctx: voidptr, a: uint64, b: uint64): uint64
+    local x = guestvalues.numarg(ctx, a, 1ULL)
+    local y = guestvalues.numarg(ctx, b, 2ULL)
+    if ints.isInteger(x) and ints.isInteger(y) then
+        local n = ints.bitsOf(x)
+        local d = ints.bitsOf(y)
+        if d == 0ULL then
+            texts.argumentError(ctx, 2ULL, 0ULL, librarytexts.TEXT_ZERO, b)
+        end
+        local negative = native.index(n) < 0
+        local magnitude = n
+        if negative then
+            magnitude = 0ULL - n
+        end
+        local divisor = d
+        if native.index(d) < 0 then
+            divisor = 0ULL - d
+        end
+        local r = magnitude % divisor
+        if negative then
+            r = 0ULL - r
+        end
+        return guestscope.integer(ctx, r)
+    end
+
+    return hostMath(C_FMOD, x, y)
+end
+
+-- math.random's four words of state, in the services.
+local function randomBase(ctx: voidptr): uint64
+    @unsafe do
+        return native.address(
+            native.offset(
+                native.loadPointer(ctx, context.SERVICE_SCOPE),
+                native.fieldOffset<guestscope.Services>("random0")
+            )
+        )
+    end
+end
+
+local function rotateLeft(x: uint64, n: uint64): uint64
+    return (x << n) | (x >> (64ULL - n))
+end
+
+-- xoshiro256**, as Lua 5.5 draws: the next value, advancing the state.
+local function nextRandom(state: uint64): uint64
+    @unsafe do
+        local s = native.pointer(state)
+        local s0 = native.load64(s, 0)
+        local s1 = native.load64(s, 8)
+        local s2 = native.load64(s, 16) ~ s0
+        local s3 = native.load64(s, 24) ~ s1
+        local result = rotateLeft(s1 * 5ULL, 7ULL) * 9ULL
+        native.store64(s, 0, s0 ~ s3)
+        native.store64(s, 8, s1 ~ s2)
+        native.store64(s, 16, s2 ~ (s1 << 17ULL))
+        native.store64(s, 24, rotateLeft(s3, 45ULL))
+        return result
+    end
+end
+
+-- Lua's setseed: the two seeds, 0xff so the state is never zero, and
+-- sixteen draws discarded to spread them.
+local function seedRandom(state: uint64, n1: uint64, n2: uint64): nil
+    @unsafe do
+        local s = native.pointer(state)
+        native.store64(s, 0, n1)
+        native.store64(s, 8, 0xffULL)
+        native.store64(s, 16, n2)
+        native.store64(s, 24, 0ULL)
+        local i: int64 = 0
+        while i < 16 do
+            nextRandom(state)
+            i = i + 1
+        end
+    end
+end
+
+-- The state, seeded from the host on first use as Lua seeds at startup.
+local function randomState(ctx: voidptr): uint64
+    @unsafe do
+        local state = randomBase(ctx)
+        local s = native.pointer(state)
+        if native.load64(s, 0) | native.load64(s, 8) | native.load64(s, 16) | native.load64(s, 24) == 0ULL then
+            seedRandom(state, os.randomSeed(), 0ULL)
+        end
+        return state
+    end
+end
+
+-- Lua's project: `ran` into [0, n], uniformly, drawing again while the
+-- smallest all-ones mask covering n leaves it above n.
+local function project(s: uint64, ran: uint64, n: uint64): uint64
+    local lim = n
+    local sh: uint64 = 1ULL
+    while lim & (lim + 1ULL) ~= 0ULL do
+        lim = lim | (lim >> sh)
+        sh = sh * 2ULL
+    end
+    local value = ran & lim
+    while value > n do
+        value = nextRandom(s) & lim
+    end
+
+    return value
+end
+
+-- math.random(): a float in [0, 1) from the top 53 bits; (m): an integer in
+-- [1, m], or any integer for 0; (m, n): an integer in [m, n].
+export function mathRandom(ctx: voidptr, count: uint64, a: uint64, b: uint64): uint64
+    local s = randomState(ctx)
+    local rv = nextRandom(s)
+    if count == 0ULL then
+        local scaled = native.fromBits(ints.toFloatBits(rv >> 11ULL)) * native.fromBits(0x3ca0000000000000ULL)
+        return guestvalues.floatvalue(native.bits(scaled))
+    end
+    local low: int64 = 1
+    local up: int64 = 0
+    if count == 1ULL then
+        up = guestvalues.intarg(ctx, a, 0, 1ULL)
+        if up == 0 then
+            return guestscope.integer(ctx, rv)
+        end
+    else
+        low = guestvalues.intarg(ctx, a, 0, 1ULL)
+        up = guestvalues.intarg(ctx, b, 0, 2ULL)
+    end
+    if low > up then
+        texts.argumentError(ctx, 1ULL, 0ULL, librarytexts.TEXT_EMPTY_INTERVAL, a)
+    end
+
+    return guestscope.integer(ctx, project(s, rv, native.word(up) - native.word(low)) + native.word(low))
+end
+
+-- math.randomseed([n1 [, n2]]): seeds the state, from the host and a draw
+-- when no seed is given; answers the first seed.
+export function mathRandomseed(ctx: voidptr, count: uint64, a: uint64, b: uint64): uint64
+    local n1: uint64 = 0ULL
+    local n2: uint64 = 0ULL
+    if count == 0ULL then
+        n1 = os.randomSeed()
+        n2 = nextRandom(randomState(ctx))
+    else
+        n1 = native.word(guestvalues.intarg(ctx, a, 0, 1ULL))
+        n2 = native.word(guestvalues.intarg(ctx, b, 0, 2ULL))
+    end
+    seedRandom(randomBase(ctx), n1, n2)
+
+    return guestscope.integer(ctx, n1)
+end
 
 -- A numeric for's limit as a number: a number as it is, a numeral string
 -- converted, as Lua's forlimit does; anything else raises as Lua 5.5 does.
 export function forlimit(ctx: voidptr, value: uint64): uint64
     local number = values.NIL
     if value ~= values.NIL then
-        number = guestlib.tonumber(ctx, value)
+        number = tonumber(ctx, value)
     end
     if number == values.NIL then
         texts.forLimitError(ctx, value)
@@ -54,16 +527,16 @@ end
 export function tonumberbase(ctx: voidptr, value: uint64, base: uint64): uint64
     -- A nil base is the one-value form.
     if base == values.NIL then
-        return guestlib.tonumber(ctx, value)
+        return tonumber(ctx, value)
     end
-    guestscope.nameLibrary(ctx, texts.NAME_TONUMBER)
-    local radix = native.word(guestlib.integerArgument(ctx, base, 0, 2ULL))
+    guestscope.nameLibrary(ctx, librarytexts.NAME_TONUMBER)
+    local radix = native.word(guestvalues.intarg(ctx, base, 0, 2ULL))
     local s = strings.header(value)
     if s == 0ULL then
-        texts.argumentError(ctx, 1ULL, texts.TEXT_STRING, 0ULL, value)
+        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_STRING, 0ULL, value)
     end
     if radix < 2ULL or radix > 36ULL then
-        texts.argumentError(ctx, 2ULL, 0ULL, texts.TEXT_BASE_RANGE, base)
+        texts.argumentError(ctx, 2ULL, 0ULL, librarytexts.TEXT_BASE_RANGE, base)
     end
     @unsafe do
         local p = strings.bytes(s)
@@ -108,5 +581,95 @@ export function tonumberbase(ctx: voidptr, value: uint64, base: uint64): uint64
         local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
         local h = native.pointer(native.load64(services, native.fieldOffset<guestscope.Services>("heap"))) as heap.Heap*
         return ints.make(h, bits)
+    end
+end
+
+-- Lua's bitwise operators on 64-bit integers: `&`, `|`, `~`, `<<`, `>>` and
+-- unary `~`. A float operand with an exact integer value takes part as that
+-- integer; any other float, and any value that is not a number, is an error.
+local function bitnumber(value: uint64): boolean
+    return ints.isInteger(value) or value & values.QNAN ~= values.QNAN or value == values.QNAN
+end
+
+local function bitconvertible(value: uint64): boolean
+    return ints.isInteger(value) or value & values.QNAN ~= values.QNAN and ints.integralFloat(value)
+end
+
+-- A convertible value's integer bits.
+local function bitsof(value: uint64): uint64
+    if ints.isInteger(value) then
+        return ints.bitsOf(value)
+    end
+
+    return ints.floatToBits(value)
+end
+
+-- `x` shifted left by `n` bits, right when `n` is negative; 64 or more
+-- either way shifts every bit out.
+local function shiftleft(x: uint64, n: int64): uint64
+    if n <= -64 or n >= 64 then
+        return 0ULL
+    elseif n >= 0 then
+        return x << native.word(n)
+    end
+
+    return x >> native.word(0 - n)
+end
+
+-- The operation `id` makes of `a` and `b` (`b` unused for `~a`).
+export function bitcall(ctx: voidptr, id: uint64, a: uint64, b: uint64): uint64
+    -- `~a` is Lua's operation on a and a.
+    local right = b
+    if id == librarycalls.BNOT then
+        right = a
+    end
+    -- Two numbers fail for want of an integer value; otherwise the first
+    -- operand that is not a number is named.
+    if not bitconvertible(a) or not bitconvertible(right) then
+        if bitnumber(a) and bitnumber(right) then
+            texts.faultError(ctx, guestscope.FAULT_NOINT, a, right)
+        end
+        texts.faultError(ctx, guestscope.FAULT_BITWISE, a, right)
+    end
+    local x = bitsof(a)
+    local y = bitsof(right)
+    local result: uint64 = 0ULL
+    if id == librarycalls.BAND then
+        result = x & y
+    elseif id == librarycalls.BOR then
+        result = x | y
+    elseif id == librarycalls.BXOR then
+        result = x ~ y
+    elseif id == librarycalls.SHL then
+        result = shiftleft(x, native.index(y))
+    elseif id == librarycalls.SHR then
+        result = shiftleft(x, 0 - native.index(y))
+    else
+        result = x ~ 0xffffffffffffffffULL
+    end
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local h = native.pointer(native.load64(services, native.fieldOffset<guestscope.Services>("heap"))) as heap.Heap*
+        return ints.make(h, result)
+    end
+end
+
+-- The fixed-width call `id` (math.f32.narrow, math.u32.wrap or
+-- math.i32.wrap) of `a`.
+export function widthcall(ctx: voidptr, id: uint64, a: uint64): uint64
+    if id == librarycalls.MATH_F32_NARROW then
+        return guestvalues.floatvalue(corestorage.narrow(guestvalues.floatof(guestvalues.numarg(ctx, a, 1ULL))))
+    end
+    if a == values.NIL then
+        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_NUMBER, 0ULL, a)
+    end
+    local low = native.word(guestvalues.intarg(ctx, a, 0, 1ULL)) & 0xffffffffULL
+    if id == librarycalls.MATH_I32_WRAP and low >= 0x80000000ULL then
+        low = low | 0xffffffff00000000ULL
+    end
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local h = native.pointer(native.load64(services, native.fieldOffset<guestscope.Services>("heap"))) as heap.Heap*
+        return ints.make(h, low)
     end
 end

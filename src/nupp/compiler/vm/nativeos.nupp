@@ -18,12 +18,55 @@ local definitions = {
     randomSeed = {slot = 8, params = {}, result = "uint64", cResult = "uint64"},
     readInput = {slot = 9, params = {"voidptr", "uint64"}, result = "int64", cResult = "int64"},
     monotonicNanos = {slot = 10, params = {}, result = "uint64", cResult = "uint64"},
-    sleepNanos = {slot = 11, params = {"uint64"}, result = "uint64", cResult = "uint64"}
+    argument = {slot = 11, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    fileOpen = {slot = 12, params = {"voidptr", "uint64", "uint64"}, result = "int64", cResult = "int64"},
+    fileRead = {slot = 13, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    fileWrite = {slot = 14, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    fileSeek = {slot = 15, params = {"uint64", "uint64", "uint64"}, result = "int64", cResult = "int64"},
+    fileClose = {slot = 16, params = {"uint64"}, result = "int64", cResult = "int64"},
+    errorText = {slot = 17, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    pollOpen = {slot = 18, params = {}, result = "int64", cResult = "int64"},
+    pollArm = {slot = 19, params = {"uint64", "uint64", "uint64"}, result = "int64", cResult = "int64"},
+    pollWait = {slot = 20, params = {"uint64", "uint64"}, result = "int64", cResult = "int64"},
+    pipeOpen = {slot = 21, params = {}, result = "int64", cResult = "int64"},
+    poolStart = {slot = 22, params = {"uint64"}, result = "int64", cResult = "int64"},
+    poolSubmit = {slot = 23, params = {"uint64", "uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    poolTake = {slot = 24, params = {}, result = "int64", cResult = "int64"},
+    poolFinish = {slot = 25, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    poolCancel = {slot = 26, params = {"uint64"}, result = "int64", cResult = "int64"},
+    sleepNanos = {slot = 27, params = {"uint64"}, result = "uint64", cResult = "uint64"},
+    processPipe = {slot = 28, params = {"uint64"}, result = "int64", cResult = "int64"},
+    processSpawn = {slot = 29, params = {"voidptr", "uint64", "uint64"}, result = "int64", cResult = "int64"},
+    processWatch = {slot = 30, params = {"uint64", "uint64"}, result = "int64", cResult = "int64"},
+    processUnwatch = {slot = 31, params = {"uint64", "uint64"}, result = "int64", cResult = "int64"},
+    processReap = {slot = 32, params = {"uint64"}, result = "int64", cResult = "int64"},
+    processKill = {slot = 33, params = {"uint64", "uint64"}, result = "int64", cResult = "int64"},
+    processExit = {slot = 34, params = {"uint64"}, result = "int64", cResult = "int64"}
 }
 
 local function need(value: any, message: string): any
     assert(value, "native OS: " .. message)
     return value
+end
+
+-- How many imports the bridge passes: the slots run 0 to one less, each
+-- one import's. A shim refuses a bridge whose table is not this long, and
+-- the linker an import index past it.
+local importCount: integer = 0
+do
+    local taken: {[integer]: string} = {}
+    for name, spec in pairs(definitions) do
+        need(taken[spec.slot] == nil, "OS import slot taken twice: " .. name)
+        taken[spec.slot] = name
+        importCount += 1
+    end
+    for slot = 0, importCount - 1 do
+        need(taken[slot] ~= nil, "OS import slots have a gap")
+    end
+end
+
+function os.importCount(): integer
+    return importCount
 end
 
 local function same(actual: any, expected: any): nil

@@ -1,0 +1,127 @@
+@!internal
+
+--[[
+The native core's file layer: files as descriptors, and every operation on
+one a `reactor.Operation` that is submitted and answered by a
+`reactor.Completion`. Nothing above this layer makes a system call; Lua's
+`io` (`nupp.runtime.luaio`) is written over it.
+
+Where an operation goes is the layer's one decision. A read or write on a
+readiness source (a pipe the reactor made, say) waits in the reactor for
+its descriptor to be ready. An open, read or write on a regular file goes
+to the blocking-work pool when the caller is a task that can park, which
+then waits there while others run; where nothing can park the caller, the
+system call is made on the calling thread, as it returns, since waiting on
+the pool would only block the same thread for longer. Seeks and closes do
+not wait. Callers see only `submit` and the completion.
+]]
+module nupp.runtime.files
+
+const filecalls = require("nupp.runtime.filecalls")
+const reactor = require("nupp.runtime.reactor")
+
+--- The access an open asks for, added together.
+export const READING = 1
+
+export const WRITING = 2
+export const CREATING = 4
+export const TRUNCATING = 8
+export const APPENDING = 16
+
+--- Where a seek's offset counts from.
+export const FROMSTART = 0
+
+export const FROMHERE = 1
+export const FROMEND = 2
+
+--- The descriptors a program starts with.
+export const STDIN = 0
+
+export const STDOUT = 1
+export const STDERR = 2
+
+local function answer(result: integer): reactor.Completion
+    if result < 0 then
+        return new reactor.Completion(value = -1, code = -result)
+    end
+
+    return new reactor.Completion(value = result)
+end
+
+-- Completes `operation` on the calling thread, as its system call returns.
+local function complete(operation: reactor.Operation): reactor.Completion
+    local kind = operation.kind
+    if kind == reactor.READ then
+        local read = filecalls.read(operation.descriptor, operation.count)
+        if type(read) == "string" then
+            return new reactor.Completion(value = 0, text = read as string)
+        end
+        return answer(read as integer)
+    elseif kind == reactor.OPEN then
+        return answer(filecalls.open(operation.path, operation.flags))
+    elseif kind == reactor.WRITE then
+        return answer(filecalls.write(operation.descriptor, operation.text, operation.first))
+    elseif kind == reactor.SEEK then
+        return answer(filecalls.seek(operation.descriptor, operation.offset, operation.whence))
+    elseif kind == reactor.CLOSE then
+        return answer(filecalls.close(operation.descriptor))
+    end
+    error("files: no operation of kind " .. tostring(kind), 2)
+end
+
+--- Submits `operation` and answers what it completed with. The operation
+--- has completed when this returns: a task that waited for it parked here
+--- while others ran.
+--- @param operation what to do
+--- @return its completion
+export function submit(operation: reactor.Operation): reactor.Completion
+    local kind = operation.kind
+    if kind == reactor.CLOSE then
+        reactor.forget(operation.descriptor)
+    elseif kind ~= reactor.SEEK
+        and (reactor.pollable(operation.descriptor) and kind ~= reactor.OPEN or reactor.parks())
+    then
+        return reactor.await(operation)
+    end
+
+    return complete(operation)
+end
+
+--- Opens the file at `path` with the access `flags` asks for (`READING`
+--- and the rest, added together); a file it creates gets mode 0666, less
+--- the umask.
+--- @return the completion, whose value is the descriptor
+export function open(path: string, flags: integer): reactor.Completion
+    return submit(new reactor.Operation(kind = reactor.OPEN, path = path, flags = flags))
+end
+
+--- Reads at most `count` bytes from `descriptor`.
+--- @return the completion, whose text is the bytes read
+export function read(descriptor: integer, count: integer): reactor.Completion
+    return submit(new reactor.Operation(kind = reactor.READ, descriptor = descriptor, count = count))
+end
+
+--- Writes `text`, from its byte `first`, to `descriptor`: one write, which
+--- may take fewer bytes than it is given.
+--- @return the completion, whose value is the count written
+export function write(descriptor: integer, text: string, first: integer): reactor.Completion
+    return submit(new reactor.Operation(kind = reactor.WRITE, descriptor = descriptor, text = text, first = first))
+end
+
+--- Moves `descriptor` to `offset` from `whence` (`FROMSTART`, `FROMHERE` or
+--- `FROMEND`).
+--- @return the completion, whose value is the new position
+export function seek(descriptor: integer, offset: integer, whence: integer): reactor.Completion
+    return submit(new reactor.Operation(kind = reactor.SEEK, descriptor = descriptor, offset = offset, whence = whence))
+end
+
+--- Closes `descriptor`, which is gone even when the completion says it
+--- failed.
+export function close(descriptor: integer): reactor.Completion
+    return submit(new reactor.Operation(kind = reactor.CLOSE, descriptor = descriptor))
+end
+
+--- The system's text for error number `code`, as C's strerror gives it.
+export function reason(code: integer): string
+    return filecalls.reason(code)
+end

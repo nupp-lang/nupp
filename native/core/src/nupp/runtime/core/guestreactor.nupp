@@ -1,0 +1,121 @@
+module nupp.runtime.core.guestreactor
+
+-- The reactor's calls a program reaches through the file calls' LibCall
+-- (HOST_FILES), from REACTOR_FIRST to REACTOR_LAST (librarylayouts): the
+-- poller's (pollcalls.d.nupp) and the blocking-work pool's
+-- (poolcalls.d.nupp), each answering what the bridge's call did. The one
+-- table (nupp.compiler.vm.corelibrary) numbers them.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const os = require("nupp.runtime.vm.os")
+const context = require("nupp.runtime.core.context")
+const strings = require("nupp.runtime.core.corestrings")
+const ints = require("nupp.runtime.core.coreintegers")
+const guestscope = require("nupp.runtime.core.guestscope")
+const librarylayouts = require("nupp.runtime.core.librarylayouts")
+
+-- What a pool job is, as the bridge numbers them.
+const JOB_OPEN: uint64 = 1ULL
+const JOB_READ: uint64 = 2ULL
+const JOB_WRITE: uint64 = 3ULL
+
+local function heapOf(ctx: voidptr): heap.Heap*
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        return native.pointer(native.load64(services, native.fieldOffset<guestscope.Services>("heap"))) as heap.Heap*
+    end
+end
+
+-- The int64 bits of an integer argument. The reactor passes checked
+-- integers; anything else is its mistake.
+local function integerOf(value: uint64): uint64
+    if not ints.isInteger(value) then
+        error("reactor calls: an integer argument was expected")
+    end
+
+    return ints.bitsOf(value)
+end
+
+-- The header of a string argument.
+local function stringOf(value: uint64): uint64
+    local s = strings.header(value)
+    if s == 0ULL then
+        error("reactor calls: a string argument was expected")
+    end
+
+    return s
+end
+
+-- Collects the taken pool job `ticket`: the bytes its read read as a new
+-- string, at most `room` of them, or the negated error number it answered.
+local function finishText(ctx: voidptr, ticket: uint64, room: uint64): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = heapOf(ctx)
+        local builder = state as strings.Builder*
+        local wanted = room
+        if wanted == 0ULL then
+            wanted = 1ULL
+        end
+        if strings.reserve(h, builder, wanted) ~= 0ULL then
+            error("not enough memory")
+        end
+        local count = os.poolFinish(ticket, native.pointer(builder.base), room)
+        if count < 0 then
+            strings.release(builder)
+            return ints.make(h, native.word(count))
+        end
+        builder.length = native.word(count)
+        return values.TAG_OBJ | strings.finish(h, builder)
+    end
+end
+
+-- Reactor operation `operation` with its arguments a, b and c.
+export function call(ctx: voidptr, operation: uint64, a: uint64, b: uint64, c: uint64): uint64
+    @unsafe do
+        local h = heapOf(ctx)
+        if operation == librarylayouts.POLL_OPEN then
+            return ints.make(h, native.word(os.pollOpen()))
+        elseif operation == librarylayouts.POLL_ARM then
+            return ints.make(h, native.word(os.pollArm(integerOf(a), integerOf(b), integerOf(c))))
+        elseif operation == librarylayouts.POLL_WAIT then
+            return ints.make(h, native.word(os.pollWait(integerOf(a), integerOf(b))))
+        elseif operation == librarylayouts.POLL_PIPE then
+            return ints.make(h, native.word(os.pipeOpen()))
+        elseif operation == librarylayouts.POOL_START then
+            return ints.make(h, native.word(os.poolStart(integerOf(a))))
+        elseif operation == librarylayouts.POOL_OPEN then
+            local s = stringOf(a)
+            return ints.make(
+                h,
+                native.word(os.poolSubmit(JOB_OPEN, integerOf(b), native.pointer(strings.bytes(s)), strings.length(s)))
+            )
+        elseif operation == librarylayouts.POOL_READ then
+            return ints.make(h, native.word(os.poolSubmit(JOB_READ, integerOf(a), native.pointer(0ULL), integerOf(b))))
+        elseif operation == librarylayouts.POOL_WRITE then
+            local s = stringOf(b)
+            local first = integerOf(c)
+            local length = strings.length(s)
+            if first < 1ULL or first > length + 1ULL then
+                error("reactor calls: a write starts past its text")
+            end
+            local base = native.pointer(strings.bytes(s) + first - 1ULL)
+            return ints.make(h, native.word(os.poolSubmit(JOB_WRITE, integerOf(a), base, length - (first - 1ULL))))
+        elseif operation == librarylayouts.POOL_TAKE then
+            return ints.make(h, native.word(os.poolTake()))
+        elseif operation == librarylayouts.POOL_FINISH then
+            -- A negative room collects a job that read nothing: its answer.
+            local room = integerOf(b)
+            if room >> 63ULL ~= 0ULL then
+                return ints.make(h, native.word(os.poolFinish(integerOf(a), native.pointer(0ULL), 0ULL)))
+            end
+            return finishText(ctx, integerOf(a), room)
+        elseif operation == librarylayouts.POOL_CANCEL then
+            return ints.make(h, native.word(os.poolCancel(integerOf(a))))
+        end
+    end
+    error("reactor calls: no such operation")
+
+    return values.NIL
+end

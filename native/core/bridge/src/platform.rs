@@ -171,6 +171,38 @@ pub unsafe extern "C" fn environment(name: u64, name_bytes: u64, out: u64, room:
     value.len() as u64
 }
 
+/// The program's arguments, the bundle first: set once, before the entry runs.
+pub static ARGUMENTS: std::sync::OnceLock<Vec<std::ffi::OsString>> = std::sync::OnceLock::new();
+
+/// Copies the program argument at `index` (0 the program, then its arguments
+/// in order) into `out`, at most `room` bytes: its whole length, or -1 past
+/// the last. The guest's `arg` table.
+pub unsafe extern "C" fn argument(index: u64, out: u64, room: u64) -> u64 {
+    use std::os::unix::ffi::OsStrExt;
+    let Some(value) = ARGUMENTS
+        .get()
+        .and_then(|all| usize::try_from(index).ok().and_then(|at| all.get(at)))
+    else {
+        return u64::MAX;
+    };
+    let bytes = value.as_bytes();
+    if out != 0 {
+        let count = bytes.len().min(room as usize);
+        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), out as *mut u8, count) };
+    }
+    bytes.len() as u64
+}
+
+/// A monotonic clock in nanoseconds, from an unspecified origin. The guest's
+/// `os.monotonic`.
+pub extern "C" fn monotonic_nanos() -> u64 {
+    static ORIGIN: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    ORIGIN
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_nanos() as u64
+}
+
 unsafe extern "C" {
     fn snprintf(
         out: *mut std::ffi::c_char,
@@ -386,14 +418,6 @@ pub unsafe extern "C" fn random_seed() -> u64 {
         .unwrap_or(0);
     let local = 0u8;
     clock ^ (&local as *const u8 as u64).rotate_left(32) ^ u64::from(std::process::id())
-}
-
-/// A monotonic clock in nanoseconds since the bridge first read it: the
-/// scheduler's timers.
-pub extern "C" fn monotonic_nanos() -> u64 {
-    use std::sync::OnceLock;
-    static START: OnceLock<std::time::Instant> = OnceLock::new();
-    START.get_or_init(std::time::Instant::now).elapsed().as_nanos() as u64
 }
 
 /// Sleeps `nanos` nanoseconds: the scheduler's wait while only its timers

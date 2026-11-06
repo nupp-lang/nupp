@@ -394,6 +394,30 @@ function M.plainGenericsEraseInInvokeContracts()
     assert(#contract.signature.rets == 1 and contract.signature.rets[1].tag == "typevar")
 end
 
+-- A function calling itself names its owner by definition. Where the checker
+-- typed that call `any` -- results the body infers, no annotations at all --
+-- the owner's signature is the call's; a declared one, `...` included, types
+-- the call itself.
+function M.aSelfCallIsCheckedThroughItsOwnersSignature()
+    for _, source in ipairs({
+        "local function target(n: integer) if n == 0 then return 0 end return target(n - 1) + 1 end; return 1",
+        "local function target(n) if n == 0 then return 0 end return target(n - 1) + 1 end; return 1",
+    }) do
+        local owner, call = checked(source, true)
+        assert(call.calleeType.tag == "any", source)
+        local contract = graph.invokeContract(owner, call)
+        assert(contract.callSignature == owner.signature, source)
+    end
+    local owner, call = checked(
+        "local function target(n: integer, ...: integer): (integer, integer) "
+            .. "if n == 0 then return select('#', ...), 0 end return target(n - 1, n, ...) end; return 1",
+        true
+    )
+    assert(call.calleeType.tag == "func" and call.calleeType.vararg)
+    local contract = graph.invokeContract(owner, call)
+    assert(contract.callSignature == call.calleeType and #contract.signature.rets == 2)
+end
+
 function M.nativeGraphsAndFrozenConsumersExplicitlyRefuse()
     local g, entry = fixture()
     local native = graph.newNative({"voidptr", "voidptr", "voidptr"}, "uint64", "leaf")

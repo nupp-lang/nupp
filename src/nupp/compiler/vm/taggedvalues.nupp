@@ -1,0 +1,277 @@
+module nupp.compiler.vm.taggedvalues
+
+-- What the tagged profile's lowering reads of checked values: the catalog
+-- of checked declarations, constants pooled, record slots, and which
+-- checked types are numbers, integers or arrays that pack.
+local corelibrary = require("nupp.compiler.vm.corelibrary")
+
+-- The graphs built with the cleanup protocol (a graph carries no extra
+-- fields), whose calls report ownership moves to it.
+export const cleanupGraphs: {[any]: boolean} = setmetatable({}, {__mode = "k"})
+
+-- After a call in a function that owns affine values: when an error landed
+-- here, the failure path destroys the owners and raises it again.
+export function landed(ctx: any, node: any, result: any): any
+    if not cleanupGraphs[ctx.g] or ctx.block == nil then
+        return result
+    end
+    local none = ctx.emit(node, "Nil", {}, "tagged")
+    local status = ctx.emit(node, "LibCall", {corelibrary.id("LANDED"), none}, "tagged")
+    if type(result) == "table" then
+        local held = {}
+        for index, value in ipairs(result) do
+            held[index] = ctx.hold(value)
+        end
+        ctx.afterCall(node, nil, status)
+        local values = {}
+        for index, handle in ipairs(held) do
+            values[index] = ctx.readHeld(handle)
+            ctx.release(handle)
+        end
+        return values
+    end
+
+    return ctx.afterCall(node, result, status)
+end
+
+export function need(ok: any, message: string): any
+    assert(ok, "tagged graph: " .. message)
+    return ok
+end
+
+export function catalog(ctx: any): any
+    local p = need(ctx.options.program, "checked program catalog required")
+    need(p.owners[ctx.fn.id + 1] == ctx.fn, "foreign checked owner")
+    return p
+end
+
+export function binding(ctx: any, key: any): any
+    return need(catalog(ctx).byDefinition[key], "missing checked lexical declaration")
+end
+
+-- A borrowing capture moves nothing: the closure reads the owner as any
+-- capture reads its value. A taking one needs the closure to own it.
+export function ordinaryCaptures(owner: any): nil
+    for _, item in ipairs(owner.captures) do
+        need(
+            item.mode == "value" or item.mode == "cell" or item.mode == "borrow",
+            "taking captures require ownership cleanup and lifetime lowering"
+        )
+    end
+end
+
+-- What `type` answers for the values of a primitive type a test names.
+export const typeNames: {
+    [string]: string
+} = {
+    string = "string",
+    number = "number",
+    boolean = "boolean",
+    table = "table",
+    thread = "thread",
+    userdata = "userdata",
+    float32 = "number",
+    float64 = "number",
+    ["function"] = "function"
+}
+
+-- The nominal record type behind a checked type, or nil.
+export function recordOrigin(t: any): any
+    -- Ownership qualifiers (affine, borrowed, pinned) wrap the record type.
+    while t
+        and (t.tag == "const" or t.tag == "literal" or t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned") do
+        t = t.tag == "literal" and t.base or t.inner
+    end
+    local origin = t and (t.origin or t)
+    if origin and origin.tag == "nominal" and origin.declKind == "record" and origin.fieldOrder then
+        return origin
+    end
+
+    return nil
+end
+
+-- The record behind a checked type when the program declares it, whose
+-- instances keep fields in slots. A record a declaration file describes is
+-- a table the host or Lua code makes, keyed by its field names.
+local function ownrecord(ctx: any, t: any): any
+    local origin = recordOrigin(t)
+    if origin and catalog(ctx).recordDecls[origin.deriveDeclaration] then
+        return origin
+    end
+
+    return nil
+end
+
+-- A record field's key: its position in the declaration order.
+export function recordSlot(origin: any, name: string?): integer?
+    if origin == nil or name == nil then
+        return nil
+    end
+    for index, field in ipairs(origin.fieldOrder) do
+        if field == name then
+            return index
+        end
+    end
+
+    return nil
+end
+
+-- A field's slot in a value of type `t`: its record's, or, for a union of
+-- records, the slot every member gives it when they all agree.
+export function fieldSlot(ctx: any, t: any, name: string?): integer?
+    local slot = recordSlot(ownrecord(ctx, t), name)
+    while slot == nil and t and (t.tag == "literal" or t.tag == "const") do
+        t = t.tag == "literal" and t.base or t.inner
+    end
+    if slot ~= nil or not t or t.tag ~= "union" or #(t.members or {}) == 0 then
+        return slot
+    end
+    for _, member in ipairs(t.members) do
+        local found = recordSlot(ownrecord(ctx, member), name)
+        if found == nil or slot ~= nil and found ~= slot then
+            return nil
+        end
+        slot = found
+    end
+
+    return slot
+end
+
+export function pool(ctx: any, kind: string, value: any): integer
+    local index = #ctx.g.constants
+    ctx.g.constants[index + 1] = {kind = kind, value = value}
+    return index
+end
+
+-- A library function taken as a value: `nupp.runtime.libraryvalues`'s
+-- function under its name, the module required as any is.
+export function libraryValue(ctx: any, node: any): integer?
+    local site = catalog(ctx).requireByNode[node]
+    if not site or not site.library then
+        return nil
+    end
+    need(site.owner == ctx.fn.id, "foreign library value")
+    local loaded = ctx.emit(node, "Require", {pool(ctx, "str", site.module)}, "tagged")
+    local functionsKey = ctx.emit(node, "K", {pool(ctx, "str", "functions")}, "tagged")
+    local functions = ctx.emit(node, "GetIdx", {loaded, functionsKey}, "tagged")
+    local key = ctx.emit(node, "K", {pool(ctx, "str", site.library)}, "tagged")
+
+    return ctx.emit(node, "GetIdx", {functions, key}, "tagged")
+end
+
+-- Ownership qualifiers (affine, borrowed, pinned) wrap the type a value
+-- has at run time, as `const` does.
+export function typeKind(t: any): string
+    while t
+        and (t.tag == "literal" or t.tag == "const" or t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned") do
+        t = t.tag == "literal" and t.base or t.inner
+    end
+
+    return t and t.tag or "missing"
+end
+
+-- The packed kind of the array a table constructor makes, by its checked
+-- type or, for one written empty, the type it is made for; nil when the
+-- type is not an array of a packable element (`{number}` holds two
+-- subtypes, and an optional element holds nil).
+export function packedkind(node: any): integer?
+    local t = node.inferredType
+    if typeKind(t) ~= "array" then
+        t = node.expectedResult
+    end
+    if typeKind(t) ~= "array" then
+        return nil
+    end
+    while t.tag == "literal" or t.tag == "const" do
+        t = t.tag == "literal" and t.base or t.inner
+    end
+
+    -- The kinds of packed table array parts (coretables, corelibrary).
+
+    return corelibrary.packedkind(typeKind(t.elem))
+end
+
+-- Whether a value of type `t` is an interface's: a table its fields are
+-- read from by name.
+export function interfacetype(t: any): boolean
+    while t
+        and (t.tag == "literal" or t.tag == "const" or t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned") do
+        t = t.tag == "literal" and t.base or t.inner
+    end
+
+    return t ~= nil and t.tag == "nominal" and t.declKind == "interface"
+end
+
+-- The kinds of value whose fields are string keys rather than record slots.
+const KEYED_KINDS: {[string]: boolean} = {
+    table = true,
+    map = true,
+    array = true,
+    shape = true,
+    typeobject = true,
+    -- A declaration's value: `R.f` holds its methods, `R.Nested` a nested
+    -- record's table.
+    metatable = true,
+    any = true,
+    typevar = true
+}
+
+-- Whether a field of a value of type `t` is its string key: a plain table's,
+-- a declaration's, an interface's, or one read through a record's name.
+export function keyedByName(t: any): boolean
+    return KEYED_KINDS[typeKind(t)] == true or interfacetype(t) or recordOrigin(t) ~= nil
+end
+
+-- Fixed widths are integers and floats at run time; uint64 is not, since
+-- past 2^63 its order is not int64's.
+local narrowIntegers: {
+    [string]: boolean
+} = {int64 = true, int8 = true, int16 = true, int32 = true, uint8 = true, uint16 = true, uint32 = true,}
+
+export function numberType(t: any): boolean
+    local kind = typeKind(t)
+    return kind == "number" or kind == "float64" or kind == "float32"
+end
+
+export function integerType(t: any): boolean
+    while t and (t.tag == "literal" or t.tag == "const") do
+        t = t.tag == "literal" and t.base or t.inner
+    end
+    -- A union of integers (`1 | 2`, a choice between two) is an integer.
+    if t and t.tag == "union" and #(t.members or {}) > 0 then
+        for _, member in ipairs(t.members) do
+            if not integerType(member) then
+                return false
+            end
+        end
+        return true
+    end
+
+    return narrowIntegers[typeKind(t)] == true
+end
+
+export function numericType(t: any): boolean
+    while t and (t.tag == "literal" or t.tag == "const") do
+        t = t.tag == "literal" and t.base or t.inner
+    end
+    -- A union of numbers (`integer | number`) is a number either way.
+    if t and t.tag == "union" and #(t.members or {}) > 0 then
+        for _, member in ipairs(t.members) do
+            if not numericType(member) then
+                return false
+            end
+        end
+        return true
+    end
+
+    return numberType(t) or integerType(t)
+end
+
+export const arithmetic = {["+"] = "Add", ["-"] = "Sub", ["*"] = "Mul", ["%"] = "Mod"}
+
+export const ordering = {["<"] = "Lt", ["<="] = "Le", [">"] = "Lt", [">="] = "Le", ["=="] = "Eq"}
+
+export function scalarType(t: any): boolean
+    local kind = typeKind(t)
+    return kind == "boolean" or kind == "nil"
+end

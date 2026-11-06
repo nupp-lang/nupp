@@ -1,0 +1,898 @@
+module nupp.compiler.vm.taggedcalls
+
+-- Calls in the tagged profile: invokes of checked functions and methods,
+-- record construction, protected calls, ownership intrinsics, and the core's
+-- library calls (corelibrary), the ones that step through a function value
+-- included.
+local graph = require("nupp.compiler.vm.graph")
+local graphimage = require("nupp.compiler.vm.graphimage")
+local corelibrary = require("nupp.compiler.vm.corelibrary")
+local taggedvalues = require("nupp.compiler.vm.taggedvalues")
+local catalog = taggedvalues.catalog
+local cleanupGraphs = taggedvalues.cleanupGraphs
+local landed = taggedvalues.landed
+local need = taggedvalues.need
+local pool = taggedvalues.pool
+local recordSlot = taggedvalues.recordSlot
+
+-- The core library call answering `library` with one result
+-- (corelibrary): its id and the argument counts admitted, self included.
+export function stringSpec(library: string?): {integer}?
+    local call = corelibrary.single(library)
+    if call == nil then
+        return nil
+    end
+
+    return {call.id, call.min as integer, call.max as integer}
+end
+
+-- The coroutine calls answering a pack, which coroutinepack makes.
+export const coroutinepacked: {
+    [string]: boolean
+} = {["coroutine.resume"] = true, ["coroutine.yield"] = true, ["coroutine.running"] = true, ["coroutine.close"] = true}
+
+-- The core library call answering every result of `library` as a pack.
+export function packSpec(library: string?): integer?
+    return corelibrary.packed(library)
+end
+
+local gsubWith: function(any, any, any, boolean): integer
+
+local packedCall: function(any, any, any, integer): integer
+
+local protectedpack: function(any, any): integer?
+
+-- Whether `expr` is pcall or xpcall: a list that takes all of its results
+-- takes true and its function's, or false and the error.
+local function protectedcall(expr: any): boolean
+    local library = expr ~= nil and expr.kind == "call" and graph.coreLibraryCall(expr) or nil
+
+    return library == "pcall" or library == "xpcall"
+end
+
+-- A core library call (guestlib): its arguments staged as values.
+export function libraryCall(ctx: any, node: any, id: integer, arguments: any): integer
+    -- gsub with a function replacement calls it, so it is a loop.
+    if (id == corelibrary.id("STRING_GSUB") or id == corelibrary.id("STRING_GSUB_ALL"))
+        and graph.callbackArgument(node) ~= nil
+    then
+        return gsubWith(ctx, node, arguments, id == corelibrary.id("STRING_GSUB_ALL"))
+    end
+    -- string.format and table.move past four arguments, or spreading a
+    -- `...` or a call's results last, take the rest packed.
+    local last = arguments[#arguments]
+    local format = id == corelibrary.id("STRING_FORMAT")
+    if (format or id == corelibrary.id("TABLE_MOVE"))
+        and (
+            #arguments > corelibrary.ARGUMENTS
+            or #arguments > 1 and (last.kind == "vararg" or graph.expandsResults(last))
+        )
+    then
+        return packedCall(
+            ctx,
+            node,
+            arguments,
+            format and corelibrary.id("STRING_FORMAT_PACK") or corelibrary.id("TABLE_MOVE_PACK")
+        )
+    end
+    need(#arguments >= 1 and #arguments <= corelibrary.ARGUMENTS, "core library calls take one to four arguments")
+    need(arguments[#arguments].kind ~= "vararg", "a library call cannot spread `...` yet")
+    local kinds = {}
+    for index = 1, #arguments do
+        kinds[index] = "tagged"
+    end
+    local operands = ctx.operands(arguments, kinds)
+    if operands == nil then
+        return nil as any
+    end
+    -- A call in method form (`s:rep(n)`) says so, so its errors count
+    -- arguments from the one after self, as Lua's do.
+    table.insert(operands, 1, corelibrary.immediate(id, node.kind == "methodCall"))
+
+    -- A function that owns affine values lands an error the library raises
+    -- here as it lands one from a call.
+
+    return landed(ctx, node, ctx.emit(node, "LibCall", operands, "tagged")) as integer
+end
+
+export function requireSite(ctx: any, node: any): any
+    local item = need(catalog(ctx).requireByNode[node], "only checked static require calls are supported")
+    need(item.owner == ctx.fn.id and node.runtimeLoader == "require", "foreign require callsite")
+    need(
+        type(item.module) == "string" and (item.target ~= nil or item.typeOnly or item.corecalls),
+        "dynamic or missing require target is unsupported: " .. tostring(item.module)
+    )
+
+    return item
+end
+
+-- A checked call. With `count`, it keeps that many results and answers them
+-- as a list.
+-- With `open`, it keeps every result as one pack.
+export function invoke(
+    ctx: any,
+    node: any,
+    keepResult: boolean,
+    dynamic: boolean?,
+    count: integer?,
+    open: boolean?
+): any
+    -- A library call with several results is open already: its pack.
+    if open and graph.packedcall(node) then
+        return librarypack(ctx, node)
+    end
+    local p = catalog(ctx)
+    local site = need(
+        p.callByNode[node],
+        "ordinary call lacks checked callsite DEBUG " .. tostring(
+            node.kind
+        ) .. " " .. tostring(
+            node.obj and node.obj.token and node.obj.token.text
+        ) .. " " .. tostring(
+            node.obj and node.obj.name and node.obj.name.text
+        ) .. " line " .. tostring(
+            node.obj and node.obj.token and node.obj.token.line
+        ) .. " " .. tostring(graph.coreLibraryCall(node)) .. " open " .. tostring(open)
+    )
+    need(site.owner == ctx.fn.id, "callsite belongs to another owner")
+    local target = ctx.callee(node)
+    local contract
+    if target == nil and dynamic then
+        -- From v8 a call through a function value is resolved when it runs.
+        need(p.functionsByDefinition[site.definition] == nil, "dynamic call names a declaration")
+        contract = graph.dynamicInvokeContract(node, count)
+    else
+        need(target, "call requires a stable checked declaration")
+        need(
+            p.owners[target.id + 1] == target and p.functionsByDefinition[site.definition] == target,
+            "call target belongs to another catalog"
+        )
+        contract = graph.invokeContract(target, node)
+    end
+    -- The declaration supplies an expected contract, never the runtime callee.
+    -- Evaluate that callee before any argument, and retain its snapshot across
+    -- every nested call. Runtime FunctionInfo authentication remains pending.
+    local callee = ctx.hold(ctx.expression(node.obj, "tagged"))
+    -- A `...` last spreads its whole pack after the fixed arguments, and so
+    -- does a call last that gives other than one result.
+    local exprs = node.args.exprs
+    local spreads = #exprs > 0 and exprs[#exprs].kind == "vararg"
+    local expands = #exprs > 0 and not spreads and (graph.expandsResults(exprs[#exprs]) or protectedcall(exprs[#exprs]))
+    local fixed, kinds = {}, {}
+    for index, expr in ipairs(exprs) do
+        if index < #exprs or not spreads and not expands then
+            fixed[#fixed + 1], kinds[#kinds + 1] = expr, "tagged"
+        end
+    end
+    local args = ctx.operands(fixed, kinds)
+    -- Parameters the call leaves off are nil, as Lua passes them.
+    if args ~= nil and not spreads and not expands and graph.omits(contract.callSignature, #args) then
+        while #args < #contract.callSignature.params do
+            args[#args + 1] = ctx.emit(node, "Nil", {}, "tagged")
+        end
+    end
+    local pack = spreads and ctx.varargPack() or nil
+    if expands and args ~= nil then
+        local held = {}
+        for index, arg in ipairs(args) do
+            held[index] = ctx.hold(arg)
+        end
+        if protectedcall(exprs[#exprs]) then
+            pack = protectedpack(ctx, exprs[#exprs])
+        else
+            pack = invoke(ctx, exprs[#exprs], true, true, nil, true)
+        end
+        for index, handle in ipairs(held) do
+            args[index] = ctx.readHeld(handle)
+            ctx.release(handle)
+        end
+        if pack == nil or ctx.block == nil then
+            ctx.release(callee)
+            return nil
+        end
+    end
+    local value = ctx.readHeld(callee)
+    ctx.release(callee)
+    if cleanupGraphs[ctx.g] and node.kind == "call" then
+        ctx.beforeCall(node)
+    end
+    if count then
+        return landed(ctx, node, ctx.invokeMany(node, value, args, contract, count, pack))
+    end
+
+    return landed(ctx, node, ctx.invoke(node, value, args, contract, keepResult, pack, open))
+end
+
+-- A field's default, which the checker keeps as its closed value: an
+-- integer, float, string, Boolean, an explicit `nil`, or a table of those,
+-- built fresh for each construction.
+
+export function defaultConstant(ctx: any, node: any, value: any): integer
+    if type(value) == "table" then
+        local keys = {}
+        for key in pairs(value) do
+            keys[#keys + 1] = key
+        end
+        -- Integer keys first in order, then names, so the build is the same
+        -- every compile.
+        table.sort(keys, function(a: any, b: any): boolean
+            if type(a) ~= type(b) then
+                return type(a) == "number"
+            end
+            return a < b
+        end)
+        local held = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
+        for _, key in ipairs(keys) do
+            local item = ctx.hold(defaultConstant(ctx, node, value[key]))
+            local slot = type(key) == "string" and ctx.emit(node, "K", {pool(ctx, "str", key)}, "tagged")
+                or ctx.emit(
+                    node,
+                    "K",
+                    {
+                        pool(
+                            ctx,
+                            "int64",
+                            tostring(
+                                need(
+                                    math.type(key) == "integer" and key,
+                                    "a table default key is not an integer or name"
+                                )
+                            )
+                        )
+                    },
+                    "tagged"
+                )
+            ctx.emit(node, "SetIdx", {ctx.readHeld(held), slot, ctx.readHeld(item)}, nil)
+            ctx.release(item)
+        end
+        local result = ctx.readHeld(held)
+        ctx.release(held)
+        return result as integer
+    end
+    if value == nil then
+        return ctx.emit(node, "Nil", {}, "tagged") as integer
+    elseif type(value) == "string" then
+        return ctx.emit(node, "K", {pool(ctx, "str", value)}, "tagged") as integer
+    elseif type(value) == "boolean" then
+        return ctx.emit(node, "K", {pool(ctx, value and "true" or "false", "")}, "tagged") as integer
+    end
+    if math.type(value) == "float" then
+        return ctx.emit(node, "K", {pool(ctx, "num", graphimage.floatBytes(value as number))}, "tagged") as integer
+    end
+    need(
+        math.type(value) == "integer",
+        "only integer, float, string, Boolean and table field defaults are admitted, got " .. type(value)
+    )
+
+    return ctx.emit(node, "K", {pool(ctx, "int64", tostring(value))}, "tagged") as integer
+end
+
+-- `R(...)` with a constructor: a fresh instance with R's field
+-- defaults, then R's constructor called with it first (from the table R's
+-- name holds); the instance is the value.
+export function construct(ctx: any, node: any, origin: any): any
+    local p = catalog(ctx)
+    local call = node.call
+    local site = need(p.callByNode[call], "construction lacks its checked callsite")
+    need(site.construct and site.owner == ctx.fn.id, "construction callsite belongs to another owner")
+    local target = need(p.functionsByDefinition[site.definition], "construction lacks its constructor")
+    local contract = graph.constructContract(target, call)
+    local class = site.classExpr and ctx.expression(site.classExpr, "tagged")
+        or ctx.expression({kind = "name", token = site.classToken, site.classToken}, "tagged")
+    if class == nil then
+        return nil
+    end
+    local heldClass = ctx.hold(class)
+    local name = "\0new" .. tostring(call.constructorEntry.index)
+    local key = ctx.emit(node, "K", {pool(ctx, "str", name)}, "tagged")
+    local callee = ctx.hold(ctx.emit(node, "GetIdx", {ctx.readHeld(heldClass), key}, "tagged"))
+    local instance = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
+    ctx.emit(
+        node,
+        "LibCall",
+        {corelibrary.id("SETMETATABLE"), ctx.readHeld(instance), ctx.readHeld(heldClass)},
+        "tagged"
+    )
+    ctx.release(heldClass)
+    for _, field in ipairs(origin.fieldOrder or {}) do
+        local default = origin.fieldDefaults and origin.fieldDefaults[field]
+        if default then
+            local value = defaultConstant(ctx, node, default.value)
+            local slot = need(recordSlot(origin, field), "record field is not declared")
+            local slotKey = ctx.emit(node, "K", {pool(ctx, "int64", tostring(slot))}, "tagged")
+            ctx.emit(node, "SetIdx", {ctx.readHeld(instance), slotKey, value}, nil)
+        end
+    end
+    local exprs, kinds = {}, {}
+    for _, argument in ipairs(call.args and call.args.exprs or {}) do
+        need(argument.kind ~= "vararg", "a constructor call cannot spread `...` yet")
+        exprs[#exprs + 1], kinds[#kinds + 1] = argument, "tagged"
+    end
+    local args = ctx.operands(exprs, kinds)
+    if args == nil then
+        return nil
+    end
+    local first: integer = ctx.readHeld(instance)
+    table.insert(args, 1, first)
+    local value = ctx.readHeld(callee)
+    ctx.release(callee)
+    ctx.invoke(call, value, args, contract, false)
+    local result = ctx.readHeld(instance)
+    ctx.release(instance)
+
+    return result
+end
+
+-- pcall(f, ...): f called as a protected call, its results after true, or
+-- false and the error. With `count`, it keeps that many results.
+-- xpcall(f, handler, ...) is the same call with its handler, evaluated
+-- second and carried last among the arguments, answering in the error's
+-- place.
+export function invokeProtected(ctx: any, node: any, keepResult: boolean, count: integer?): any
+    local p = catalog(ctx)
+    local site = need(p.callByNode[node], "pcall lacks checked callsite")
+    need(site.protected and site.owner == ctx.fn.id, "pcall callsite belongs to another owner")
+    local exprs = node.args.exprs or {}
+    need(#exprs >= 1, "pcall takes a function")
+    local contract = graph.protectedInvokeContract(node)
+    local callee = ctx.expression(exprs[1], "tagged")
+    if callee == nil then
+        return nil
+    end
+    local held = ctx.hold(callee)
+    local handled = graph.coreLibraryCall(node) == "xpcall"
+    need(not handled or #exprs >= 2, "xpcall takes a function and a message handler")
+    local rest, kinds = {}, {}
+    for index = 2, #exprs do
+        need(exprs[index].kind ~= "vararg", "pcall cannot spread `...` yet")
+        rest[#rest + 1], kinds[#kinds + 1] = exprs[index], "tagged"
+    end
+    local operands = ctx.operands(rest, kinds)
+    local value = ctx.readHeld(held)
+    ctx.release(held)
+    if operands == nil then
+        return nil
+    end
+    local args = operands
+    if handled then
+        args = {}
+        for index = 2, #operands do
+            args[#args + 1] = operands[index]
+        end
+    end
+    -- Parameters the call leaves off are nil, as Lua passes them.
+    if graph.omits(contract.callSignature, #args) then
+        while #args < #contract.callSignature.params do
+            args[#args + 1] = ctx.emit(node, "Nil", {}, "tagged")
+        end
+    end
+    if handled then
+        args[#args + 1] = operands[1]
+    end
+    -- A protected call takes errors, but not a closing coroutine's
+    -- unwinding, which lands here when this function owns affine values.
+    if count then
+        return landed(ctx, node, ctx.invokeMany(node, value, args, contract, count))
+    end
+
+    return landed(ctx, node, ctx.invoke(node, value, args, contract, keepResult))
+end
+
+-- All of protected call `node`'s results as one pack, the count at key 0:
+-- true and its function's results, or false and the error. The call keeps
+-- as many as the larger needs; the count is the success's until the status
+-- says otherwise.
+protectedpack = function(ctx: any, node: any): integer?
+    local called = graph.protectedInvokeContract(node).callSignature
+    local results = called and called.retPack
+    need(
+        results ~= nil and results.tail == nil,
+        "a protected call whose function's results are open cannot spread them yet"
+    )
+    -- A function declared to return nil returns nothing.
+    local head = results.head
+    local none = #head == 1 and head[1].tag == "nil"
+    local count = none and 1 or 1 + #head
+    local values = invokeProtected(ctx, node, true, math.max(2, count))
+    if values == nil or ctx.block == nil then
+        return nil
+    end
+    local pack = ctx.emit(node, "NewTable", {}, "tagged")
+    for index, value in ipairs(values) do
+        local key = ctx.emit(node, "K", {pool(ctx, "int64", tostring(index))}, "tagged")
+        ctx.emit(node, "SetIdx", {pack, key, value}, nil)
+    end
+    local zero = ctx.emit(node, "K", {pool(ctx, "int64", "0")}, "tagged")
+    ctx.emit(node, "SetIdx", {pack, zero, ctx.emit(node, "K", {pool(ctx, "int64", tostring(count))}, "tagged")}, nil)
+    local status = ctx.emit(node, "K", {pool(ctx, "int64", "1")}, "tagged")
+    ctx.emit(node, "LibCall", {corelibrary.id("PROTECTED_COUNT"), pack, status}, "tagged")
+
+    return pack
+end
+
+-- table.sort(t, f): a merge sort the sort step advances until it needs f's
+-- answer, which a call of f here gives it. The step leaves the state table
+-- {t, f, a, b, answer, ...} asking whether a sorts before b, and answers
+-- false once t is sorted.
+export function sortWith(ctx: any, node: any): integer
+    local p = catalog(ctx)
+    local site = need(p.callByNode[node], "table.sort lacks its comparator's callsite")
+    need(site.field and site.owner == ctx.fn.id, "comparator callsite belongs to another owner")
+    local operands = ctx.operands(node.args.exprs, {"tagged", "tagged"})
+    if operands == nil then
+        return nil as any
+    end
+    local state = ctx.hold(
+        ctx.emit(node, "LibCall", {corelibrary.id("TABLE_SORT_BEGIN"), operands[1], operands[2]}, "tagged")
+    )
+    local contract = graph.callbackInvokeContract(node, 2)
+    ctx.loop(
+        node,
+        function(c: any, n: any): integer
+            return c.emit(n, "LibCall", {corelibrary.id("TABLE_SORT_STEP"), c.readHeld(state)}, "tagged")
+        end,
+        function(c: any, n: any): nil
+            local fields = {}
+            for index = corelibrary.key("SORT", "LESS"), corelibrary.key("SORT", "B") do
+                local key = c.emit(n, "K", {pool(c, "int64", tostring(index))}, "tagged")
+                fields[index] = c.emit(n, "GetIdx", {c.readHeld(state), key}, "tagged")
+            end
+            if cleanupGraphs[c.g] then
+                c.beforeCall(n)
+            end
+            local answer = landed(
+                c,
+                n,
+                c.invoke(
+                    n,
+                    fields[corelibrary.key("SORT", "LESS")],
+                    {fields[corelibrary.key("SORT", "A")], fields[corelibrary.key("SORT", "B")]},
+                    contract,
+                    true
+                )
+            )
+            if c.block == nil then
+                return
+            end
+            local key = c.emit(n, "K", {pool(c, "int64", tostring(corelibrary.key("SORT", "ANSWER")))}, "tagged")
+            c.emit(n, "SetIdx", {c.readHeld(state), key, answer}, nil)
+        end
+    )
+    ctx.release(state)
+    if ctx.block == nil then
+        return nil as any
+    end
+
+    return ctx.emit(node, "Nil", {}, "tagged") as integer
+end
+
+-- A library call `id` with its first argument and the rest in a pack, the
+-- count at key 0: string.format with more than three values, table.move
+-- with a destination.
+-- Whether a value of type `t` may have a metatable: anything but a string,
+-- number, Boolean or nil.
+local function mayhavemeta(t: any): boolean
+    while t and (t.tag == "const" or t.tag == "literal") do
+        t = t.tag == "literal" and t.base or t.inner
+    end
+    if t == nil then
+        return true
+    end
+    local tag = t.tag
+
+    return not (
+        tag == "string" or tag == "number" or tag == "int64" or tag == "float64" or tag == "boolean" or tag == "nil"
+    )
+end
+
+-- The values of `exprs` as one pack, the count at key 0: a `...` or a call
+-- giving other than one result last gives them all. With `texts`, each fixed
+-- value that may have a metatable is its tostring, its __tostring called.
+export function valuespack(ctx: any, node: any, exprs: any, texts: boolean?): integer
+    local last = exprs[#exprs]
+    local tail = last ~= nil and (last.kind == "vararg" or graph.expandsResults(last) or protectedcall(last))
+    local fixed, kinds = {}, {}
+    for index, expr in ipairs(exprs) do
+        if index < #exprs or not tail then
+            fixed[#fixed + 1], kinds[#kinds + 1] = expr, "tagged"
+        end
+    end
+    local operands = {}
+    if #fixed > 0 then
+        operands = ctx.operands(fixed, kinds)
+        if operands == nil then
+            return nil as any
+        end
+    end
+    if texts then
+        for index, operand in ipairs(operands) do
+            if mayhavemeta(fixed[index].inferredType) then
+                operands[index] = ctx.emit(node, "LibCall", {corelibrary.id("TOSTRING"), operand}, "tagged")
+            end
+        end
+    end
+    local pack = ctx.emit(node, "NewTable", {}, "tagged")
+    for index, operand in ipairs(operands) do
+        local key = ctx.emit(node, "K", {pool(ctx, "int64", tostring(index))}, "tagged")
+        ctx.emit(node, "SetIdx", {pack, key, operand}, nil)
+    end
+    if tail then
+        local held = ctx.hold(pack)
+        local values: integer? = nil
+        if last.kind == "vararg" then
+            values = ctx.varargPack()
+        elseif protectedcall(last) then
+            values = protectedpack(ctx, last)
+        else
+            values = invoke(ctx, last, true, true, nil, true)
+        end
+        if values == nil or ctx.block == nil then
+            ctx.release(held)
+            return nil as any
+        end
+        local start = ctx.emit(node, "K", {pool(ctx, "int64", tostring(#operands + 1))}, "tagged")
+        local counted = ctx.emit(node, "K", {pool(ctx, "true", "")}, "tagged")
+        ctx.emit(node, "LibCall", {corelibrary.id("PACK_APPEND"), ctx.readHeld(held), values, start, counted}, "tagged")
+        pack = ctx.readHeld(held)
+        ctx.release(held)
+    else
+        local zero = ctx.emit(node, "K", {pool(ctx, "int64", "0")}, "tagged")
+        local count = ctx.emit(node, "K", {pool(ctx, "int64", tostring(#operands))}, "tagged")
+        ctx.emit(node, "SetIdx", {pack, zero, count}, nil)
+    end
+
+    return pack
+end
+
+-- A library call's first argument and the rest of them as one pack.
+packedCall = function(ctx: any, node: any, arguments: any, id: integer): integer
+    local first = ctx.expression(arguments[1], "tagged")
+    if first == nil then
+        return nil as any
+    end
+    local held = ctx.hold(first)
+    local rest = {}
+    for index = 2, #arguments do
+        rest[#rest + 1] = arguments[index]
+    end
+    local pack = valuespack(ctx, node, rest)
+    if pack == nil or ctx.block == nil then
+        ctx.release(held)
+        return nil as any
+    end
+    local value = ctx.emit(node, "LibCall", {id, ctx.readHeld(held), pack}, "tagged")
+    ctx.release(held)
+
+    return value as integer
+end
+
+-- print(...): its values in a pack, written as one line.
+-- An ownership intrinsic's `count` values: a transfer's, the value it
+-- moves; `partition`'s, its two parts. The ownership is the checker's.
+export function ownership(ctx: any, node: any, count: integer): {integer}?
+    local operation = node.ownershipIntrinsic
+    local args = node.args and node.args.exprs or {}
+    -- A `drop` runs its owner's cleanups now; with none it ends its
+    -- value's life. Either way it is nil.
+    if operation == "drop" then
+        if next(node.ownerCleanups or {}) ~= nil then
+            need(ctx.dropOwner ~= nil and ctx.dropOwner(node), "drop of an owner this function does not hold")
+            if ctx.block == nil then
+                return nil
+            end
+        elseif args[1] and ctx.expression(args[1], "tagged") == nil then
+            return nil
+        end
+        local results = {}
+        for index = 1, count do
+            results[index] = ctx.emit(node, "Nil", {}, "tagged")
+        end
+        return results
+    end
+    local sources = operation == "partition" and {args[2], args[3]} or {operation == "region" and args[2] or args[1]}
+    local present, kinds = {}, {}
+    for index = 1, math.min(count, #sources) do
+        if sources[index] then
+            present[#present + 1], kinds[#kinds + 1] = sources[index], "tagged"
+        end
+    end
+    local operands = #present > 0 and ctx.operands(present, kinds) or {}
+    if operands == nil then
+        return nil
+    end
+    local results, at = {}, 0
+    for index = 1, count do
+        if index <= #sources and sources[index] then
+            at = at + 1
+            results[index] = operands[at]
+        else
+            results[index] = ctx.emit(node, "Nil", {}, "tagged")
+        end
+    end
+
+    return results
+end
+
+export function printValues(ctx: any, node: any): integer
+    local pack = valuespack(ctx, node, node.args.exprs or {}, true)
+    if pack == nil then
+        return nil as any
+    end
+
+    return ctx.emit(node, "LibCall", {corelibrary.id("PRINT"), pack}, "tagged") as integer
+end
+
+-- A call's arguments, its receiver first in method form (`co:resume(x)`).
+local function callexprs(node: any): {any}
+    local exprs = node.args.exprs or {}
+    if node.kind ~= "methodCall" then
+        return exprs
+    end
+    local all = {node.obj}
+    for _, expr in ipairs(exprs) do
+        all[#all + 1] = expr
+    end
+
+    return all
+end
+
+-- coroutine.resume(co, ...), coroutine.yield(...) and coroutine.running():
+-- each answers its results as one pack, and resume and yield take their
+-- values as one.
+export function coroutinepack(ctx: any, node: any): integer
+    local library = graph.coreLibraryCall(node)
+    local exprs = callexprs(node)
+    if library == "coroutine.running" then
+        need(#exprs == 0, "coroutine.running takes no arguments")
+        local none = ctx.emit(node, "Nil", {}, "tagged")
+        return ctx.emit(node, "LibCall", {corelibrary.id("COROUTINE_RUNNING"), none}, "tagged") as integer
+    elseif library == "coroutine.yield" then
+        local pack = valuespack(ctx, node, exprs)
+        if pack == nil then
+            return nil as any
+        end
+        -- In a function that owns affine values a closing coroutine's
+        -- unwinding lands at its yield, as an error lands at a call.
+        if cleanupGraphs[ctx.g] then
+            local held = ctx.hold(pack)
+            ctx.beforeCall(node)
+            pack = ctx.readHeld(held)
+            ctx.release(held)
+        end
+        return landed(
+            ctx,
+            node,
+            ctx.emit(node, "LibCall", {corelibrary.id("COROUTINE_YIELD"), pack}, "tagged")
+        ) as integer
+    elseif library == "coroutine.close" then
+        need(#exprs == 1, "coroutine.close takes a coroutine")
+        local thread = ctx.expression(exprs[1], "tagged")
+        if thread == nil then
+            return nil as any
+        end
+        return ctx.emit(node, "LibCall", {corelibrary.id("COROUTINE_CLOSE"), thread}, "tagged") as integer
+    end
+    need(#exprs >= 1, "coroutine.resume takes a coroutine")
+    local thread = ctx.expression(exprs[1], "tagged")
+    if thread == nil then
+        return nil as any
+    end
+    local held = ctx.hold(thread)
+    local rest = {}
+    for index = 2, #exprs do
+        rest[#rest + 1] = exprs[index]
+    end
+    local pack = valuespack(ctx, node, rest)
+    if pack == nil then
+        ctx.release(held)
+        return nil as any
+    end
+    local value = ctx.readHeld(held)
+    ctx.release(held)
+
+    return ctx.emit(node, "LibCall", {corelibrary.id("COROUTINE_RESUME"), value, pack}, "tagged") as integer
+end
+
+-- A library call with several results, as the pack of them: a string
+-- library call's or table.unpack's pack form, or a coroutine call.
+export function librarypack(ctx: any, node: any): integer?
+    local library = graph.coreLibraryCall(node)
+    if coroutinepacked[library or ""] then
+        return coroutinepack(ctx, node)
+    end
+    local spec: {integer} = need(stringSpec(library), "string library call")
+    local arguments = {}
+    if node.kind == "methodCall" then
+        arguments[1] = node.obj
+    end
+    for _, argument in ipairs(node.args.exprs or {}) do
+        arguments[#arguments + 1] = argument
+    end
+    need(#arguments >= spec[2] and #arguments <= spec[3], tostring(library) .. " argument count is not admitted")
+
+    return libraryCall(ctx, node, need(packSpec(library), "library call with one result"), arguments)
+end
+
+-- string.gsub(s, p, f [, n]): the gsub step advances to each match and
+-- leaves its captures as a pack, f is called with them, and its answer
+-- replaces the match. The finished string comes alone or, with `all`, in a
+-- pack with the count.
+gsubWith = function(ctx: any, node: any, arguments: any, all: boolean): integer
+    local p = catalog(ctx)
+    local site = need(p.callByNode[node], "gsub lacks its function's callsite")
+    need(site.field and site.owner == ctx.fn.id, "gsub callsite belongs to another owner")
+    need(#arguments == 3 or #arguments == 4, "gsub takes a subject, pattern, function and an optional count")
+    local kinds = {}
+    for index = 1, #arguments do
+        kinds[index] = "tagged"
+    end
+    local operands = ctx.operands(arguments, kinds)
+    if operands == nil then
+        return nil as any
+    end
+    table.insert(operands, 1, corelibrary.id("STRING_GSUB_BEGIN"))
+    local state = ctx.hold(ctx.emit(node, "LibCall", operands, "tagged"))
+    local contract = graph.callbackInvokeContract(node, 0, true)
+    ctx.loop(
+        node,
+        function(c: any, n: any): integer
+            return c.emit(n, "LibCall", {corelibrary.id("STRING_GSUB_STEP"), c.readHeld(state)}, "tagged")
+        end,
+        function(c: any, n: any): nil
+            local fnKey = c.emit(n, "K", {pool(c, "int64", tostring(corelibrary.key("GSUB", "FUNCTION")))}, "tagged")
+            local fn = c.emit(n, "GetIdx", {c.readHeld(state), fnKey}, "tagged")
+            local packKey = c.emit(n, "K", {pool(c, "int64", tostring(corelibrary.key("GSUB", "CAPTURES")))}, "tagged")
+            local captures = c.emit(n, "GetIdx", {c.readHeld(state), packKey}, "tagged")
+            if cleanupGraphs[c.g] then
+                c.beforeCall(n)
+            end
+            local answer = landed(c, n, c.invoke(n, fn, {}, contract, true, captures))
+            if c.block == nil then
+                return
+            end
+            local key = c.emit(n, "K", {pool(c, "int64", tostring(corelibrary.key("GSUB", "ANSWER")))}, "tagged")
+            c.emit(n, "SetIdx", {c.readHeld(state), key, answer}, nil)
+        end
+    )
+    local finished = ctx.readHeld(state)
+    ctx.release(state)
+    if ctx.block == nil then
+        return nil as any
+    end
+
+    return ctx.emit(
+        node,
+        "LibCall",
+        {all and corelibrary.id("STRING_GSUB_FINISH_ALL") or corelibrary.id("STRING_GSUB_FINISH"), finished},
+        "tagged"
+    ) as integer
+end
+
+-- A record method call, `c:m(...)`: the method is loaded from the table the
+-- record's name holds and called with the receiver first. With `count`, it
+-- keeps that many results and answers them as a list.
+export function invokeMethod(ctx: any, node: any, keepResult: boolean, count: integer?): any
+    local p = catalog(ctx)
+    local site = need(p.callByNode[node], "method call lacks checked callsite")
+    need(site.method and site.owner == ctx.fn.id, "method callsite belongs to another owner")
+    local contract
+    if site.dynamic then
+        contract = graph.dynamicmethodcontract(node, count)
+    else
+        local target = need(p.functionsByDefinition[site.definition], "method call lacks its checked method")
+        contract = graph.invokeContract(target, node)
+    end
+    -- A `...` last spreads its whole pack after the other arguments.
+    local arguments = node.args.exprs or {}
+    local spreads = #arguments > 0 and arguments[#arguments].kind == "vararg"
+    local exprs, kinds = {node.obj}, {"tagged"}
+    for index, argument in ipairs(arguments) do
+        need(argument.kind ~= "vararg" or index == #arguments, "`...` spreads only last")
+        if not (spreads and index == #arguments) then
+            exprs[#exprs + 1], kinds[#kinds + 1] = argument, "tagged"
+        end
+    end
+    -- The overload the checker selected has a member of its own.
+    local member = node.trailingCallableMember or node.overloadMember or node.name.text
+    local value: integer = 0
+    local args: any = nil
+    if site.dynamic then
+        -- The method the receiver answers for its name.
+        local receiver = ctx.expression(node.obj, "tagged")
+        if receiver == nil then
+            return nil
+        end
+        local heldReceiver = ctx.hold(receiver)
+        local key = ctx.emit(node, "K", {pool(ctx, "str", member)}, "tagged")
+        local callee = ctx.hold(ctx.emit(node, "GetIdx", {ctx.readHeld(heldReceiver), key}, "tagged"))
+        table.remove(exprs, 1)
+        table.remove(kinds, 1)
+        local rest = ctx.operands(exprs, kinds)
+        value = ctx.readHeld(callee)
+        ctx.release(callee)
+        local first = ctx.readHeld(heldReceiver)
+        ctx.release(heldReceiver)
+        if rest == nil then
+            return nil
+        end
+        args = {first}
+        for _, item in ipairs(rest) do
+            args[#args + 1] = item
+        end
+    elseif site.metatable then
+        -- Another module's record: its table is the receiver's metatable.
+        local receiver = ctx.expression(node.obj, "tagged")
+        if receiver == nil then
+            return nil
+        end
+        local heldReceiver = ctx.hold(receiver)
+        local class = ctx.emit(node, "LibCall", {corelibrary.id("GETMETATABLE"), ctx.readHeld(heldReceiver)}, "tagged")
+        local key = ctx.emit(node, "K", {pool(ctx, "str", member)}, "tagged")
+        local callee = ctx.hold(ctx.emit(node, "GetIdx", {class, key}, "tagged"))
+        table.remove(exprs, 1)
+        table.remove(kinds, 1)
+        local rest = ctx.operands(exprs, kinds)
+        value = ctx.readHeld(callee)
+        ctx.release(callee)
+        local first = ctx.readHeld(heldReceiver)
+        ctx.release(heldReceiver)
+        if rest == nil then
+            return nil
+        end
+        args = {first}
+        for _, item in ipairs(rest) do
+            args[#args + 1] = item
+        end
+    else
+        local class = ctx.expression({kind = "name", token = site.classToken, site.classToken}, "tagged")
+        if class == nil then
+            return nil
+        end
+        local heldClass = ctx.hold(class)
+        local key = ctx.emit(node, "K", {pool(ctx, "str", member)}, "tagged")
+        local callee = ctx.hold(ctx.emit(node, "GetIdx", {ctx.readHeld(heldClass), key}, "tagged"))
+        ctx.release(heldClass)
+        args = ctx.operands(exprs, kinds)
+        value = ctx.readHeld(callee)
+        ctx.release(callee)
+        if args == nil then
+            return nil
+        end
+    end
+    -- Parameters the call leaves off are nil, as Lua passes them; the
+    -- method's function type leaves out its receiver. A dynamic call's
+    -- signature is made from its own arguments.
+    local called = contract.callSignature
+    if not site.dynamic
+        and not spreads
+        and type(called) == "table"
+        and called.params
+        and graph.omits(called, #args - 1)
+    then
+        while #args - 1 < #called.params do
+            args[#args + 1] = ctx.emit(node, "Nil", {}, "tagged")
+        end
+    end
+    local pack = spreads and ctx.varargPack() or nil
+    -- In a function that owns affine values a method call moves what it
+    -- takes, and an error lands at it, as at any call.
+    if cleanupGraphs[ctx.g] then
+        local held = ctx.hold(value)
+        local heldArgs = {}
+        for index, arg in ipairs(args) do
+            heldArgs[index] = ctx.hold(arg)
+        end
+        ctx.beforeCall(node)
+        value = ctx.readHeld(held)
+        ctx.release(held)
+        for index, handle in ipairs(heldArgs) do
+            args[index] = ctx.readHeld(handle)
+            ctx.release(handle)
+        end
+    end
+    if count then
+        return landed(ctx, node, ctx.invokeMany(node, value, args, contract, count, pack))
+    end
+
+    return landed(ctx, node, ctx.invoke(node, value, args, contract, keepResult, pack))
+end

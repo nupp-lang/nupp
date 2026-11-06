@@ -1,0 +1,189 @@
+module nupp.core.catalogprocesslayer
+
+-- The core's process layer over the reactor: exits and signals kept apart,
+-- argument vectors, environments and directories, streams piped, merged and
+-- sent to the null device, input and both outputs far past a pipe's size
+-- exchanged without deadlock, many children waited for at once with no
+-- scheduler, waits parked under a minimal one, a cancelled wait, and a kill
+-- that ends the whole tree a child started. Each check is a bit of the
+-- score.
+const processes = require("nupp.runtime.processes")
+const reactor = require("nupp.runtime.reactor")
+const files = require("nupp.runtime.files")
+const driver = require("nupp.core.catalogreactordriver")
+
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+local function run(options: processes.Options): processes.Process
+    local child, code = processes.spawn(options)
+    if child == nil then
+        error("spawn failed: " .. files.reason(code))
+    end
+
+    return child as processes.Process
+end
+
+local function shell(command: string): processes.Process
+    return run({arguments = {"sh", "-c", command}})
+end
+
+-- An exit's status and a signal's number, apart.
+do
+    local exited = processes.wait(shell("exit 7"))
+    check(exited.reason == "exit" and exited.code == 7)
+    local signalled = processes.wait(shell("kill -TERM $$"))
+    check(signalled.reason == "signal" and signalled.code == 15)
+    local results = {processes.results(signalled)}
+    check(results[1] == nil and results[2] == "signal" and results[3] == 15)
+    local fine = {processes.results(processes.wait(shell("true")))}
+    check(fine[1] == true and fine[2] == "exit" and fine[3] == 0)
+end
+
+-- A program not found, on PATH or by its path.
+do
+    local missing, code = processes.spawn({arguments = {"no-such-program-anywhere"}})
+    check(missing == nil and code == 2)
+    local absent, why = processes.spawn({arguments = {"/no/such/program"}, search = false})
+    check(absent == nil and why == 2)
+end
+
+-- An argument vector without a shell, its directory and environment, the
+-- environment given whole or set over this one.
+do
+    local child = run({arguments = {"printf", "%s|%s|", "two words", "$HOME"}, stdout = processes.PIPE})
+    local out, _, exit = processes.communicate(child, nil)
+    check(out == "two words|$HOME|" and exit.code == 0)
+    local placed = run({
+        arguments = {"sh", "-c", "printf '%s:%s:%s' \"$PWD\" \"$ONLY\" \"${NUPP_GUEST_PROBE:-none}\""},
+        directory = "/",
+        environment = {"ONLY=given"},
+        stdout = processes.PIPE
+    })
+    local text = processes.communicate(placed, nil)
+    check(text == "/:given:none")
+    local overlaid = run({
+        arguments = {"sh", "-c", "printf '%s:%s' \"$ONLY\" \"$NUPP_GUEST_PROBE\""},
+        environment = {"ONLY=over"},
+        overlay = true,
+        stdout = processes.PIPE
+    })
+    check(processes.communicate(overlaid, nil) == "over:core-environment")
+end
+
+-- Standard error merged into standard output, and the null device.
+do
+    local merged = run({
+        arguments = {"sh", "-c", "printf out; printf err >&2"},
+        stdout = processes.PIPE,
+        stderr = processes.MERGE
+    })
+    local out, err = processes.communicate(merged, nil)
+    check(out == "outerr" and err == "")
+    local quiet = run({arguments = {"cat"}, stdin = processes.NULL, stdout = processes.PIPE})
+    local nothing, _, exit = processes.communicate(quiet, nil)
+    check(nothing == "" and exit.code == 0)
+end
+
+-- Input and both outputs far past what a pipe holds, at once: the child
+-- echoes its input and writes as much to its error before it ends.
+do
+    local big = string.rep("0123456789abcdef", 65536)
+    local child = run({
+        arguments = {"sh", "-c", "cat; head -c 600000 /dev/zero >&2"},
+        stdin = processes.PIPE,
+        stdout = processes.PIPE,
+        stderr = processes.PIPE
+    })
+    local out, err, exit = processes.communicate(child, big)
+    check(out == big and #err == 600000 and exit.code == 0)
+    check(child.stdin < 0 and child.stdout < 0 and child.stderr < 0)
+end
+
+-- Many children waited for at once, with no scheduler: each wait's outcome
+-- is handed over from the reactor's own waits.
+do
+    local count = 24
+    local codes: {[integer]: integer} = {}
+    for index = 1, count do
+        local child = shell("sleep 0.0" .. tostring(index % 5) .. "; exit " .. tostring(index))
+        processes.onexit(child, function(exit: processes.Exit): nil
+            codes[index] = exit.code
+        end)
+    end
+    check(reactor.pending() == count)
+    while reactor.pending() > 0 do
+        reactor.wait(nil)
+    end
+    local all = true
+    for index = 1, count do
+        all = all and codes[index] == index
+    end
+    check(all)
+end
+
+-- Waits parked under a scheduler: every task waits before any child ends,
+-- and each hears its own child.
+do
+    local log: {string} = {}
+    for index = 1, 4 do
+        driver.spawn(function(): nil
+            local child = shell("sleep 0.1; exit " .. tostring(index))
+            log[#log + 1] = "wait"
+            local exit = processes.wait(child)
+            log[#log + 1] = "exit " .. tostring(exit.code)
+        end)
+    end
+    driver.run()
+    check(#log == 8 and log[1] == "wait" and log[4] == "wait" and log[5] ~= "wait")
+    local heard: {string} = {}
+    for index = 5, 8 do
+        heard[#heard + 1] = log[index]
+    end
+    table.sort(heard)
+    check(table.concat(heard, ",") == "exit 1,exit 2,exit 3,exit 4")
+end
+
+-- A cancelled wait raises in its task and leaves nothing pending; the child
+-- goes on, and a later wait hears it.
+do
+    local child = shell("sleep 0.2; exit 6")
+    local outcome = ""
+    local waiter = driver.spawn(function(): nil
+        local ok, problem = pcall(processes.wait, child)
+        outcome = ok and "waited" or tostring(problem)
+    end)
+    driver.spawn(function(): nil
+        driver.sleep(20)
+        driver.cancel(waiter)
+    end)
+    driver.run()
+    check(outcome == "cancelled" and reactor.pending() == 0 and processes.running(child))
+    local exit = processes.wait(child)
+    check(exit.code == 6 and not processes.running(child))
+end
+
+-- A kill ends the child and what it started: the pipe the shell's own
+-- child holds ends too, long before that child would have.
+do
+    local child = run({arguments = {"sh", "-c", "sleep 30 & echo started; wait"}, stdout = processes.PIPE})
+    local began = os.monotonic()
+    check(files.read(child.stdout, 64).text == "started\n")
+    check(processes.kill(child, processes.SIGKILL) == 0)
+    local exit = processes.wait(child)
+    check(exit.reason == "signal" and exit.code == 9)
+    local ended = files.read(child.stdout, 64)
+    check(ended.text == "" and ended.code == 0 and os.monotonic() - began < 10000)
+    processes.close(child)
+    local sleeper = shell("sleep 30")
+    check(processes.kill(sleeper, nil) == 0 and processes.wait(sleeper).code == 15)
+end
+
+export = score

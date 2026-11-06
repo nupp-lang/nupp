@@ -1,0 +1,699 @@
+module nupp.compiler.vm.graphverify
+
+--- The closed-block graph's verifier: each block's operations, operands,
+--- classes and edges, and a guest graph's structure.
+local frameverify = require("nupp.compiler.vm.frameverify")
+
+local finalframe = require("nupp.compiler.vm.nativeframecontract")
+local physical = require("nupp.compiler.vm.nativephysical")
+local nativeos = require("nupp.compiler.vm.nativeos")
+local service = require("nupp.compiler.vm.nativeservice")
+local graphsignatures = require("nupp.compiler.vm.graphsignatures")
+local graphnative = require("nupp.compiler.vm.graphnative")
+local graphcalls = require("nupp.compiler.vm.graphcalls")
+local classes = graphsignatures.classes
+local declarationSource = graphnative.declarationSource
+local dense = graphsignatures.dense
+local checkcontract = graphcalls.checkcontract
+local lowered = graphsignatures.lowered
+local nativeClasses = graphsignatures.nativeClasses
+local nativeContract = graphnative.nativeContract
+local nativeOnly = graphsignatures.nativeOnly
+local operandClass = graphsignatures.operandClass
+local operationArity = graphsignatures.operationArity
+local parsed = graphsignatures.parsed
+local resultOffset = graphsignatures.resultOffset
+local verifyNativeOperation = graphnative.verifyNativeOperation
+
+local edgeCounts = {
+    invoke = 1,
+    jump = 1,
+    branch = 2,
+    ["return"] = 0,
+    returns = 0,
+    raise = 0,
+    park = 1,
+    dispatch = 0,
+    nativeTail = 0,
+    nativeFail = 0
+}
+
+local function verifyGraph(g: any, invokeArity: any): nil
+    local blocks, types, slots, counts = g.blocks, g.types, g.slots, g.counts
+    if not (#blocks > 0 and #blocks <= 100000 and #types == #slots) then
+        error("assertion failed", 0)
+    end
+    local nparams = g.nparams
+    if not (nparams >= 0 and nparams < 240 and nparams % 1 == 0 and #types >= nparams) then
+        error("assertion failed", 0)
+    end
+    local native = g.native ~= nil
+    local physicalOwner = physical.graphOwner(g)
+    if g.nativePhysical then
+        assert(native and type(g.nativePhysical.values) == "table", "native physical sidecars require native graph")
+        -- Handler/managed admission must first model these accesses in frameverify.
+        assert(g.native.abi == "leaf", "physical graphs require leaf ABI")
+        physical.validateContext(g.nativePhysical.context)
+        for value, descriptor in pairs(g.nativePhysical.values) do
+            assert(
+                type(value) == "number" and value % 1 == 0 and value >= 1 and value <= #types,
+                "physical invalid value is unsupported"
+            )
+            physical.validate(descriptor)
+            if #descriptor.ownership ~= 0 then
+                local signature, matched = g.nativePhysical.signature, physical.dependent(descriptor)
+                if physicalOwner then
+                    matched = physical.qualifiedGraphValue(g, descriptor)
+                else
+                    assert(signature, "qualified graph value requires original checked owner or signature")
+                    assert(
+                        not require("nupp.compiler.vm.nativeunit").contains(signature.owner),
+                        "qualified unit graph requires original checked owner"
+                    )
+                    if descriptor.checkedType.tag == "affine" then
+                        matched = physical.affineValue(signature.owner, descriptor)
+                    end
+                    for index, parameter in ipairs(signature.params) do
+                        if parameter
+                            and physical.borrowingParameter(signature, index)
+                            and physical.same(descriptor, parameter)
+                        then
+                            matched = true
+                        end
+                    end
+                end
+                assert(matched, "borrowed graph value differs from checked parameter")
+            end
+            assert(
+                descriptor.context == g.nativePhysical.context
+                and descriptor.machineKind == "voidptr"
+                and g.exactTypes[value] == "voidptr",
+                "physical value type/context differs"
+            )
+        end
+    end
+    if g.nativePhysical and g.nativePhysical.signature then
+        local signature = g.nativePhysical.signature
+        physical.validateSignature(signature)
+        assert(
+            signature.context == g.nativePhysical.context
+            and #signature.params == (g.nativeService and service.sourceCount(g.nativeService) or nparams)
+            and g.source
+            and signature.owner.scope.path == g.source.path
+            and signature.owner.scope.name == g.source.module
+            and signature.owner.name == g.source.name,
+            "physical graph signature owner/context differs"
+        )
+        for index, descriptor in ipairs(signature.params) do
+            local actual = g.nativePhysical.values[index]
+            assert(
+                descriptor == false and actual == nil
+                or descriptor and actual and physical.sameValue(descriptor, actual),
+                "physical entry parameter differs"
+            )
+        end
+    elseif g.nativePhysical then
+        for value in pairs(g.nativePhysical.values) do
+            assert(value > nparams, "physical parameter requires checked signature")
+        end
+    end
+    if g.exactTypes ~= nil and not native then
+        assert(type(g.exactTypes) == "table" and #g.exactTypes == #types, "missing graph exact types")
+        for index, kind in ipairs(g.exactTypes) do
+            assert(
+                nativeClasses[kind] == types[index] or kind == "boolean" and types[index] == "v",
+                "invalid graph exact type"
+            )
+        end
+    end
+    if native then
+        local signature = g.native
+        assert(
+            type(signature) == "table"
+            and (
+                signature.result == "uint64"
+                or signature.abi == "leaf"
+                and (
+                    signature.result == "int64"
+                    or signature.result == "boolean"
+                    or signature.result == "nil"
+                    or signature.result == "voidptr"
+                )
+            ),
+            "invalid native result signature"
+        )
+        if signature.abi == "handler" then
+            assert(#signature.params == 6 and nparams == 6, "invalid native handler signature")
+            for i = 1, 6 do
+                assert(signature.params[i] == "voidptr", "native handler parameter kind")
+            end
+        elseif signature.abi == "support" then
+            assert(
+                nparams >= 2
+                and #signature.params == nparams
+                and signature.params[1] == "voidptr"
+                and signature.params[2] == "voidptr",
+                "invalid native support signature"
+            )
+            for _, kind in ipairs(signature.params) do
+                assert(nativeClasses[kind] ~= nil, "native support exact parameter kind")
+            end
+        else
+            assert(
+                signature.abi == "leaf" and (nparams >= 1 or g.nativeService ~= nil) and nparams <= 8,
+                "invalid native leaf signature"
+            )
+            assert(#signature.params == nparams, "native leaf parameter count")
+            for _, kind in ipairs(signature.params) do
+                assert(
+                    kind == "voidptr" or kind == "int64" or kind == "uint64" or kind == "boolean",
+                    "native leaf parameter kind"
+                )
+            end
+        end
+        assert(type(g.exactTypes) == "table" and #g.exactTypes == #types, "missing native exact types")
+        for i = 1, #types do
+            assert(nativeClasses[g.exactTypes[i]] == types[i], "invalid native exact type")
+            if g.exactTypes[i] == "int32" or g.exactTypes[i] == "uint32" then
+                assert(g.nativePhysical, "projected physical integers require checked physical context")
+            end
+        end
+        for i = 1, nparams do
+            assert(signature.params[i] == g.exactTypes[i], "native entry parameter kind")
+        end
+        assert(#g.certificates == 0, "native certificate transport is outside the leaf profile")
+    end
+    -- Count all incoming edges, including unreachable predecessors. An invoke
+    -- result is defined only by its dedicated continuation's first parameter.
+    local incoming, hasInvoke = {}, false
+    for _, block in ipairs(blocks) do
+        hasInvoke = hasInvoke or block.term and block.term.kind == "invoke"
+    end
+    if hasInvoke then
+        dense(blocks)
+        for _, block in ipairs(blocks) do
+            assert(block.term, "unterminated graph block")
+            dense(block.term.edges)
+            for _, edge in ipairs(block.term.edges) do
+                assert(
+                    type(edge) == "table"
+                    and type(edge.target) == "number"
+                    and edge.target >= 1
+                    and edge.target <= #blocks
+                    and edge.target % 1 == 0,
+                    "bad invoke graph edge"
+                )
+                dense(edge.args)
+                incoming[edge.target] = (incoming[edge.target] or 0) + 1
+            end
+        end
+    end
+    local defined = {}
+    -- Per block: the values usable here (its parameters and earlier results)
+    -- and the slot hints taken, keyed by class so classes never collide.
+    local localValues, occupied = {}, {}
+    local classBase = {v = 0, i = 1000000, f = 2000000, x = 3000000}
+
+    local function valueId(v: any): boolean
+        return type(v) == "number" and v >= 1 and v <= #types and v % 1 == 0
+    end
+
+    local function define(v: any): nil
+        if not valueId(v) then
+            error("graph value id outside dense table", 0)
+        end
+        local ty, slot = types[v], slots[v]
+        if not (ty and not defined[v]) then
+            error("duplicate graph definition", 0)
+        end
+        if not (counts[ty] and slot >= 0 and slot % 1 == 0 and slot < counts[ty]) then
+            error("assertion failed", 0)
+        end
+        local key = classBase[ty] + slot
+        if occupied[key] then
+            error("overlapping graph slot hints", 0)
+        end
+        occupied[key] = true
+        defined[v], localValues[v] = true, true
+    end
+
+    for i = 1, nparams do
+        if not (
+            native and types[i] == "i" and slots[i] == i - 1 or not native and types[i] == "v" and slots[i] == i
+        ) then
+            error("function parameters are the first value ids", 0)
+        end
+        defined[i] = true
+    end
+
+    local function usable(v: any): boolean
+        return valueId(v) and (localValues[v] == true or v <= nparams)
+    end
+
+    local ncerts = #g.certificates
+    local localContracts, localCount, localBytes = {}, 0, 0
+    for index = 1, #blocks do
+        local b = blocks[index]
+        local ops, dsts, allArgs, params, certs = b.op, b.dst, b.args, b.params, b.cert
+        if not (b.id == index and #ops == #dsts and #ops == #allArgs and #ops == #b.pos and #ops == #certs) then
+            error("assertion failed", 0)
+        end
+        localValues, occupied = {}, {}
+        local constants = {}
+        for i = 1, #params do
+            if not (params[i] > nparams) then
+                error("function parameters are not block parameters", 0)
+            end
+            define(params[i])
+        end
+        if index == 1 and #params > 0 then
+            error("entry parameters come from the frame", 0)
+        end
+        for i = 1, #ops do
+            local sig = assert(parsed[ops[i]], "unknown graph operation")
+            local args, argClasses = allArgs[i], sig.args
+            if not operationArity(sig, args) then
+                error("graph operation arity", 0)
+            end
+            if sig.terminator then
+                error("terminator opcode inside a block", 0)
+            end
+            if ops[i] == "Closure" then
+                assert(not native, "closure construction requires a guest graph")
+                graphsignatures.closureTarget(ops[i], args)
+            end
+            if not native then
+                assert(not nativeOnly[ops[i]], "native operation requires a native graph")
+            end
+            for j = 1, #args do
+                local ty = operandClass(sig, j)
+                if classes[ty] or ty == "a" then
+                    local v = args[j]
+                    if not (usable(v)) then
+                        error(
+                            "graph use outside its closed block: value " .. tostring(
+                                v
+                            ) .. " in block " .. index .. " by " .. ops[i],
+                            0
+                        )
+                    end
+                    if not (ty == "a" or types[v] == ty) then
+                        error(
+                            "graph value class mismatch: value " .. tostring(
+                                v
+                            ) .. " in block " .. index .. " by " .. ops[i],
+                            0
+                        )
+                    end
+                end
+            end
+            if not (certs[i] >= 0 and certs[i] <= ncerts) then
+                error("certificate outside the table", 0)
+            end
+            local result = sig.result
+            if native and sig.variadic and args[1].result == "nil" then
+                result = "-"
+            end
+            if result ~= "-" then
+                if not (
+                    native and types[dsts[i]] == nativeClasses[g.exactTypes[dsts[i]]]
+                    or not native and types[dsts[i]] == lowered[result]
+                ) then
+                    error("assertion failed", 0)
+                end
+                define(dsts[i])
+            elseif not (dsts[i] == 0) then
+                error("assertion failed", 0)
+            end
+            if native then
+                assert(
+                    b.pos[i] >= 0 and b.pos[i] % 1 == 0 and b.pos[i] <= #g.positions,
+                    "native source position outside table"
+                )
+                verifyNativeOperation(g, ops[i], args, dsts[i], constants)
+                if ops[i] == "NativeConstant" then
+                    constants[dsts[i]] = args[1]
+                elseif ops[i] == "NativeLocal" then
+                    local contract = args[1]
+                    assert(
+                        index == 1 and not localContracts[contract],
+                        "physical local requires unique entry construction"
+                    )
+                    localContracts[contract] = true
+                    localCount, localBytes = localCount
+                        + 1, localBytes
+                        + contract.layout.size
+                        + contract.layout.alignment
+                        - 1
+                    assert(localCount <= 64 and localBytes <= 65536, "physical local arena extent exceeds bound")
+                end
+            end
+        end
+        local t = assert(b.term, "unterminated graph block")
+        local kind = t.kind
+        local edges = t.edges
+        if native then
+            local pos = t.pos or 0
+            assert(pos >= 0 and pos % 1 == 0 and pos <= #g.positions, "native terminator source position outside table")
+        end
+        if kind == "invoke" then
+            assert(not native, "invoke requires a guest graph")
+            nativeContract(t, {
+                kind = true,
+                callee = true,
+                args = true,
+                contract = true,
+                result = true,
+                results = true,
+                spread = true,
+                open = true,
+                edges = true,
+                pos = true
+            })
+            assert(t.open == nil or t.open == true and t.results == nil, "an open invoke keeps one pack")
+            local arity = invokeArity(t, index)
+            dense(t.args)
+            assert(#t.args == arity, "invoke must retain every evaluated argument")
+            assert(usable(t.callee) and types[t.callee] == "v", "invoke callee must be usable tagged SSA")
+            assert(
+                t.spread == nil or usable(t.spread) and types[t.spread] == "v",
+                "invoke spread must be usable tagged SSA"
+            )
+            for _, value in ipairs(t.args) do
+                assert(usable(value) and types[value] == "v", "invoke argument must be usable tagged SSA")
+            end
+            assert(#edges == 1, "invoke requires one continuation")
+            local continuation = blocks[edges[1].target]
+            assert(
+                continuation and continuation.id ~= 1 and incoming[continuation.id] == 1,
+                "invoke continuation must have one predecessor"
+            )
+            dense(continuation.params)
+            if t.result ~= nil then
+                assert(
+                    valueId(t.result) and types[t.result] == "v" and continuation.params[1] == t.result,
+                    "invoke result must be the first tagged continuation parameter"
+                )
+                assert(not usable(t.result), "invoke result cannot be defined before its continuation")
+            end
+            if t.results ~= nil then
+                dense(t.results)
+                assert(#t.results >= 1 and #t.results <= 16 and t.results[1] == t.result, "invoke results")
+                for i, value in ipairs(t.results) do
+                    assert(
+                        valueId(value) and types[value] == "v" and continuation.params[i] == value,
+                        "invoke results must lead the tagged continuation parameters"
+                    )
+                end
+            end
+            local pos = t.pos or 0
+            assert(
+                type(pos) == "number" and pos >= 0 and pos % 1 == 0 and pos <= #g.positions,
+                "invoke source position outside table"
+            )
+        elseif kind == "dispatch" then
+            assert(
+                native
+                and (g.native.abi == "handler" or g.native.abi == "support")
+                and type(t.args) == "table"
+                and #t.args == 6,
+                "invalid native dispatch"
+            )
+            for i = 1, 6 do
+                assert(usable(t.args[i]) and g.exactTypes[t.args[i]] == "voidptr", "native dispatch operand kind")
+                local descriptor = g.nativePhysical and g.nativePhysical.values[t.args[i]]
+                assert(
+                    not descriptor or descriptor.pointee == nil and not physical.localOrigin(descriptor),
+                    "typed pointer dispatch is unsupported"
+                )
+            end
+            local pos = t.pos or 0
+            assert(pos >= 0 and pos % 1 == 0 and pos <= #g.positions, "native dispatch source position outside table")
+        elseif kind == "nativeTail" then
+            assert(
+                native and (g.native.abi == "handler" or g.native.abi == "support"),
+                "native tail transfer requires a managed graph"
+            )
+            local declaration = t.callee
+            nativeContract(declaration, {
+                moduleName = true,
+                name = true,
+                params = true,
+                result = true,
+                abi = true,
+                effects = true,
+                source = true
+            })
+            declarationSource(declaration)
+            assert(declaration.abi == "support" and declaration.result == "uint64", "native tail support ABI mismatch")
+            assert(
+                type(declaration.params) == "table"
+                and #declaration.params >= 2
+                and type(t.args) == "table"
+                and #t.args == #declaration.params,
+                "native tail argument count"
+            )
+            for index, parameter in ipairs(declaration.params) do
+                local descriptor = g.nativePhysical and g.nativePhysical.values[t.args[index]]
+                assert(
+                    not descriptor or descriptor.pointee == nil and not physical.localOrigin(descriptor),
+                    "typed pointer tail call is unsupported"
+                )
+                assert(
+                    nativeClasses[parameter] and usable(t.args[index]) and g.exactTypes[t.args[index]] == parameter,
+                    "native tail operand kind"
+                )
+            end
+            assert(
+                declaration.params[1] == "voidptr"
+                and declaration.params[2] == "voidptr"
+                and t.args[1] == 1
+                and t.args[2] == (g.native.abi == "handler" and 5 or 2),
+                "native tail changes original pc/context identity"
+            )
+            local effects = declaration.effects
+            nativeContract(effects, {mayCollect = true, mayPark = true, mayRaise = true, pure = true})
+            assert(
+                effects.mayCollect == true
+                and effects.mayPark == true
+                and effects.mayRaise == true
+                and effects.pure == false,
+                "native tail requires conservative managed effects"
+            )
+        elseif kind == "nativeFail" then
+            assert(
+                native
+                and (
+                    g.native.abi == "handler"
+                    or g.native.abi == "support"
+                    or g.native.abi == "leaf" and service.isFailure(g, t)
+                )
+                and t.args == nil
+                and t.value == nil,
+                "native failure exit requires a handler graph and carries no values"
+            )
+        elseif native and kind == "branch" then
+            assert(usable(t.value) and g.exactTypes[t.value] == "boolean", "native branch requires a boolean condition")
+        elseif native and kind == "return" then
+            assert(g.native.abi == "leaf", "native handler cannot return a scalar")
+            local descriptor = t.value and g.nativePhysical and g.nativePhysical.values[t.value]
+            assert(
+                not descriptor or not physical.localOrigin(descriptor),
+                "physical local address cannot escape through return"
+            )
+            assert(
+                g.native.result == "nil" and t.value == nil
+                or g.native.result ~= "nil" and usable(t.value) and g.exactTypes[t.value] == g.native.result,
+                "native leaf return kind"
+            )
+            if g.nativePhysical then
+                local signature = g.nativePhysical.signature
+                local expected = signature and signature.result
+                local actual = t.value and g.nativePhysical.values[t.value]
+                assert(
+                    expected == nil and (actual == nil or g.native.result == "voidptr" and physical.rawReturn(actual))
+                    or expected and actual and physical.returnValue(signature, actual),
+                    "physical return descriptor differs"
+                )
+            end
+        elseif native and kind ~= "jump" then
+            error("native graph requires a jump, branch, dispatch or leaf return", 0)
+        elseif kind == "branch" then
+            if not (usable(t.value) and (types[t.value] == "i" or types[t.value] == "v")) then
+                error("graph branch condition", 0)
+            end
+        elseif kind == "switch" then
+            if not (usable(t.value) and types[t.value] == "i") then
+                error("graph switch index", 0)
+            end
+            if not (#edges >= 1) then
+                error("switch without a default edge", 0)
+            end
+        elseif kind == "return" then
+            if t.value then
+                if not (
+                    usable(t.value) and (types[t.value] == "f" or types[t.value] == "v" or types[t.value] == "i")
+                ) then
+                    error("graph return value", 0)
+                end
+            end
+            for _, value in ipairs(t.values or {}) do
+                if not (usable(value) and types[value] == "v") then
+                    error("graph return values", 0)
+                end
+            end
+            if t.spread ~= nil and not (usable(t.spread) and types[t.spread] == "v") then
+                error("graph return spread", 0)
+            end
+        elseif kind == "park" then
+            if not (usable(t.value) and (types[t.value] == "f" or types[t.value] == "v")) then
+                error("graph park value", 0)
+            end
+        elseif kind == "returns" then
+            if not (t.value and usable(t.value) and types[t.value] == "v" and type(t.count) == "number") then
+                error("graph returns window", 0)
+            end
+        elseif kind == "raise" then
+            if not (t.constant >= 0 and t.constant < #g.constants) then
+                error("raise constant outside the pool", 0)
+            end
+        elseif kind ~= "jump" then
+            error("unknown terminator", 0)
+        end
+        if kind ~= "switch" then
+            if not (#edges == edgeCounts[kind]) then
+                error("assertion failed", 0)
+            end
+        end
+        for ei = 1, #edges do
+            local e = edges[ei]
+            if not (type(e.target) == "number" and e.target >= 1 and e.target <= #blocks and e.target % 1 == 0) then
+                error("bad graph target", 0)
+            end
+            local target = assert(blocks[e.target], "bad graph target")
+            local args, targetParams = e.args, target.params
+            local offset = resultOffset(t)
+            if not (e.target ~= 1 and #args + offset == #targetParams) then
+                error("bad graph edge arity", 0)
+            end
+            for i = 1, #args do
+                local v = args[i]
+                if not (usable(v)) then
+                    error(
+                        "graph use outside its closed block: value " .. tostring(
+                            v
+                        ) .. " on the edge from block " .. index .. " to " .. e.target,
+                        0
+                    )
+                end
+                if not (types[v] == types[targetParams[i + offset]]) then
+                    error(
+                        "graph value class mismatch: value " .. tostring(
+                            v
+                        ) .. " on the edge from block " .. index .. " to " .. e.target,
+                        0
+                    )
+                end
+                if g.exactTypes ~= nil then
+                    assert(g.exactTypes[v] == g.exactTypes[targetParams[i + offset]], "graph edge exact kind mismatch")
+
+                end
+            end
+        end
+    end
+    for v = 1, #types do
+        if not (defined[v]) then
+            error("undefined graph value", 0)
+        end
+    end
+    if g.nativePhysical then
+        physical.verifyTransport(g)
+        physical.verifyViews(g)
+    end
+    local final = finalframe.verify(g)
+    -- Test builds are tested, not proven (runtime plan, "Direction").
+    if native and g.native.abi ~= "leaf" and not final and not service.isUnitModule(g.source and g.source.module) then
+        frameverify.verify(g)
+    end
+    local certs = g.certificates
+    for i = 1, #certs do
+        local c = certs[i]
+        if not (types[c.guard] == "i" and types[c.cursor] == "i" and types[c.span] == "i") then
+            error("certificate cites values outside the integer class", 0)
+        end
+    end
+end
+
+export function verify(g: any): nil
+    verifyGraph(g, function(term: any, index: integer): integer
+        checkcontract(term.contract)
+        -- A library call's callback takes the values the library supplies, and
+        -- a generic `for`'s iterator its state and control.
+        if term.contract.callback or term.contract.iterator then
+            return term.contract.given
+        end
+        -- A spread `...` last is the term's pack, not one of its arguments; a
+        -- method call's receiver is its first one.
+        local count: integer = #term.contract.call.args.exprs
+        if term.spread then
+            count -= 1
+        end
+        if term.contract.call.kind == "methodCall" or term.contract.construct then
+            count += 1
+        end
+        -- pcall's first argument is the callee.
+        if term.contract.protected then
+            count -= 1
+        end
+        -- Parameters a call leaves off are passed as nil. A declared
+        -- method's function type leaves out its receiver; a dynamic one's
+        -- signature is the call's own. xpcall's handler follows the callee's
+        -- arguments.
+        local method = term.contract.call.kind == "methodCall"
+        local handler: integer = term.contract.protected and term.contract.handled == true and 1 or 0
+        if (term.contract.call.kind == "call" or method and not term.contract.dynamic)
+            and not term.spread
+            and not term.contract.construct
+            and graphcalls.omits(term.contract.callSignature, (method and count - 1 or count) - handler)
+        then
+            count = #term.contract.callSignature.params + (method and 1 or 0) + handler
+        end
+
+        return count
+    end)
+    if g.native then
+        nativeos.verifyStores(g);
+        service.verifyScope(g)
+    end
+
+end
+
+-- Structural SSA validation only. Numeric arities do not prove checked source,
+-- catalog membership, effects, or executable admission. Those remain separate.
+export function verifyGuestStructure(g: any, arities: any): nil
+    assert(
+        g.native == nil and g.nativePhysical == nil and g.exactTypes == nil,
+        "guest structure cannot admit native or physical sidecars"
+    )
+    dense(arities)
+    assert(#arities == #g.blocks, "guest structure requires one arity per block")
+    for index, block in ipairs(g.blocks) do
+        local arity = arities[index]
+        if block.term and block.term.kind == "invoke" then
+            assert(
+                type(arity) == "number" and arity >= 0 and arity < 240 and arity % 1 == 0,
+                "invalid numeric invoke arity"
+            )
+            local id = block.term.contract
+            assert(
+                type(id) == "number" and id >= 0 and id < 1048576 and id % 1 == 0,
+                "guest structure requires numeric contract IDs"
+            )
+        else
+            assert(arity == 4294967295, "non-invoke block must have absent arity")
+        end
+    end
+    verifyGraph(g, function(term: any, index: integer): integer
+        return arities[index]
+    end)
+end

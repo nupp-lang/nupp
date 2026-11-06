@@ -1,0 +1,1287 @@
+module nupp.compiler.vm.graphcalls
+
+--- Calls in the graph: the checked signature and effects contract each
+--- invoke keeps, and which calls are the core's library calls.
+local corelibrary = require("nupp.compiler.vm.corelibrary")
+
+local graphsignatures = require("nupp.compiler.vm.graphsignatures")
+local graphnative = require("nupp.compiler.vm.graphnative")
+local dense = graphsignatures.dense
+local nativeContract = graphnative.nativeContract
+
+-- Whether a call giving `given` arguments leaves off only parameters that
+-- admit nil, which Lua then passes: `f()` of `f(size: integer?)`.
+export function omits(called: any, given: integer): boolean
+    if given >= #called.params then
+        return false
+    end
+    for index = given + 1, #called.params do
+        local t = called.params[index]
+        while t and (t.tag == "const" or t.tag == "literal") do
+            t = t.tag == "literal" and t.base or t.inner
+        end
+        if not (t and (t.tag == "nil" or t.tag == "any" or t.tag == "unknown" or t.tag == "union" and t.hasNil)) then
+            return false
+        end
+    end
+
+    return true
+end
+
+-- The fixed-width number types, which pass as values.
+local fixedwidths: {
+    [string]: boolean
+} = {int8 = true, int16 = true, int32 = true, uint8 = true, uint16 = true, uint32 = true, uint64 = true, float32 = true}
+
+-- The call whose contract is being checked, and the module it is in, for
+-- a refusal to name.
+local checkingcall: any = nil
+
+local checkingpath: string? = nil
+
+export function checking(path: string?): nil
+    checkingpath = path
+end
+
+local function checkingat(): string
+    local node = checkingcall
+    while type(node) == "table" and node.kind ~= nil and node.line == nil do
+        node = node.obj or node[1]
+    end
+    local token = type(node) == "table" and (node.token or node.name or node) or nil
+    if type(token) ~= "table" or token.line == nil then
+        return ""
+    end
+
+    return " in the call at " .. tostring(checkingpath) .. ":" .. tostring(token.line)
+end
+
+local invokeScalar: function(any): nil
+
+-- The signature a call to `owner` is checked through. A function calling
+-- itself is typed `any` inside its own body when the checker has no
+-- signature for it before the body is checked: a generic one, one whose
+-- results the body infers, one with modes or a named or generic `...`. The
+-- call names its function by definition, so the owner's signature is the
+-- call's.
+local function callsignatureof(owner: any, call: any): any
+    local called = call.calleeType or call.signatureType
+    if type(called) == "table" and called.tag == "any" and owner.signature then
+        return owner.signature
+    end
+
+    return called
+end
+
+-- The reference types a value of which passes tagged, however instantiated.
+local referenceTags: {
+    [string]: boolean
+} = {
+    nominal = true,
+    typevar = true,
+    array = true,
+    map = true,
+    table = true,
+    shape = true,
+    func = true,
+    userdata = true,
+    intersection = true,
+    typeobject = true,
+    any = true,
+    unknown = true,
+}
+
+-- Whether a generic callee's declared parameter and the call's instantiated
+-- one pass the same way: a type parameter takes whatever it is instantiated
+-- to, and two reference types are both a tagged value.
+local sameValue: function(any, any): boolean
+
+sameValue = function(declared: any, instantiated: any): boolean
+    local function bare(t: any): any
+        while t and (t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned" or t.tag == "const") do
+            t = t.inner
+        end
+        return t
+    end
+
+    declared, instantiated = bare(declared), bare(instantiated)
+    if declared == nil or instantiated == nil then
+        return false
+    elseif declared == instantiated then
+        return true
+    end
+    -- A union passes as each of its members does, member for member.
+    if declared.tag == "union" and instantiated.tag == "union" then
+        if #declared.members ~= #instantiated.members then
+            return false
+        end
+        for index, member in ipairs(declared.members) do
+            if not sameValue(member, instantiated.members[index]) then
+                return false
+            end
+        end
+        return true
+    end
+
+    return declared.tag == "typevar" or referenceTags[declared.tag] == true and referenceTags[instantiated.tag] == true
+end
+
+invokeScalar = function(t: any): nil
+    -- An owned value passes as the value it owns; its cleanup is the
+    -- graph's, not the call's.
+    while t
+        and (t.tag == "literal" or t.tag == "const" or t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned") do
+        t = t.tag == "literal" and t.base or t.inner
+    end
+    -- A union of admitted types (integer | number, say) passes as a value.
+    if t and t.tag == "union" and #t.members > 0 then
+        for _, member in ipairs(t.members) do
+            invokeScalar(member)
+        end
+        return
+    end
+    assert(
+        t
+        and (t.tag == "int64" or t.tag == "number" or t.tag == "float64" or t.tag == "boolean" or t.tag == "string" or t.tag == "nil"
+        -- Tables and functions pass as values; core graph contracts admit
+        -- them from profile v8.
+        or t.tag == "array"
+        or t.tag == "map"
+        or t.tag == "table"
+        or t.tag == "shape"
+        or t.tag == "func"
+        or t.tag == "userdata"
+        -- Fixed-width numbers are integers and floats at run time.
+        or fixedwidths[t.tag] == true
+        -- Storage and views of it are values on the core's heap.
+        or t.tag == "carray" or t.tag == "ptr" or t.tag == "ctype" or t.tag == "intersection" or t.tag == "typeobject"
+        -- A metatable (what `setmetatable` answers its table as) is a table.
+        or t.tag == "metatable" or t.tag == "nominal" and t.declKind == "interface"
+        -- A function that never returns gives no value to check.
+        or t.tag == "never"
+        -- A plain type parameter erases to a value, as does a type a
+        -- generic computes (a const parameter's `N`), and a record is a table.
+        or t.tag == "typevar" or t.tag == "neutral" or t.tag == "nominal" and t.declKind == "record"
+        -- `any` and `unknown` are values checked where they are used.
+        or t.tag == "any" or t.tag == "unknown"),
+        "invoke requires a checked scalar type, got " .. tostring(t and t.tag) .. checkingat()
+    )
+end
+
+-- `resultsIgnored`: a constructor's results, which its construction drops, may
+-- be open.
+local function invokeSignature(signature: any, resultsIgnored: boolean?): nil
+    assert(
+        type(signature) == "table" and signature.tag == "func",
+        "invoke requires a checked function signature, got " .. tostring(
+            type(signature) == "table" and signature.tag or signature
+        ) .. checkingat()
+    )
+    -- What a coroutine body yields and resumes with (`yieldPack`,
+    -- `resumePack`) is a static protocol; at run time the values pass as
+    -- packs, which the core does not check against it.
+    -- A function that never returns (`noreturn`) is called as any is: its
+    -- error unwinds past the call.
+    assert(
+        not signature.foreign and not signature.comptimeOnly,
+        "invoke of a foreign or compile-time signature is outside the guest subset"
+    )
+    -- A typed `...` is a homogeneous tail; its values pass in a pack. A
+    -- generic one (`...: A...`) erases to values, as plain generics do, and
+    -- so does one a type computes (`...: unpackof F(T)`, string.format's).
+    local tail = signature.paramPack and signature.paramPack.tail
+    if signature.vararg then
+        assert(
+            tail
+            and (
+                tail.kind == "homogeneous"
+                or tail.kind == "generic"
+                or tail.kind == "unknown"
+                or tail.kind == "computed"
+            )
+            -- A borrowed `...` stays its caller's: a static fact.
+            and (tail.mode == nil or tail.mode == "borrows") and not signature.paramPack.alternatives,
+            "invoke signature is outside the scalar guest subset"
+        )
+        if tail.kind == "homogeneous" then
+            invokeScalar(tail.type)
+        end
+    end
+    -- Plain type parameters and packs erase: their values pass as dynamic
+    -- values, as const parameters do: they are types the body cannot read.
+    -- What a result preserves of, borrows from or partitions out of its
+    -- parameters is a static ownership fact the collected guest heap has no
+    -- use for.
+    -- A borrowed result is what its source keeps alive, a static fact: at
+    -- run time it is a value, which the collector keeps alive itself.
+    -- Open results (`R...`) are as many as the caller keeps.
+    for _, pack in ipairs(resultsIgnored and {signature.paramPack} or {signature.paramPack, signature.retPack}) do
+        assert(
+            type(pack) == "table"
+            and (not pack.tail or pack == signature.paramPack and signature.vararg or pack == signature.retPack)
+            and not pack.alternatives,
+            "invoke requires closed parameter and result packs"
+        )
+        dense(pack.head)
+        dense(pack.modes)
+        assert(#pack.modes == #pack.head, "invoke pack modes differ")
+        for index, t in ipairs(pack.head) do
+            -- A scoped callback cannot escape, and a borrowed argument stays
+            -- its caller's; at run time each passes as a value.
+            assert(
+                pack.modes[index] == "plain"
+                or pack.modes[index] == "scoped" and t and t.tag == "func"
+                or (pack.modes[index] == "borrows" or pack.modes[index] == "takes" or pack.modes[index] == "exclusive")
+                and pack == signature.paramPack,
+                "invoke ownership mode is unsupported: " .. tostring(pack.modes[index])
+            )
+            invokeScalar(t)
+        end
+    end
+    dense(signature.params)
+    assert(#signature.paramPack.head == #signature.params, "invoke parameter pack arity differs")
+    if not resultsIgnored then
+        dense(signature.rets)
+        -- None is a function that returns nothing: a caller keeping one
+        -- reads nil, and one taking them all takes none. An unannotated
+        -- function's are open, any number of values.
+        local open = signature.retPack.tail ~= nil and #signature.retPack.head == 0
+        assert(
+            (#signature.retPack.head == #signature.rets or open) and #signature.rets <= 16,
+            "invoke requires at most sixteen checked scalar results"
+        )
+        if not open then
+            for index, t in ipairs(signature.rets) do
+                assert(signature.retPack.head[index] == t, "invoke result pack identity differs")
+            end
+        end
+    end
+    for index, t in ipairs(signature.params) do
+        assert(signature.paramPack.head[index] == t, "invoke parameter pack identity differs")
+    end
+end
+
+-- The signatures calls through `any` values are checked against, one per
+-- call so a contract's identity check finds it.
+local anySignatures: {[any]: any} = setmetatable({}, {__mode = "k"})
+
+-- A dynamic method call's signature: the receiver and its arguments in, as
+-- many values out as it keeps, all `any`.
+local methodsignatures: {[any]: any} = setmetatable({}, {__mode = "k"})
+
+export function checkcontract(contract: any): nil
+    checkingcall = contract.call
+    if contract.dynamic then
+        nativeContract(contract, {
+            dynamic = true,
+            method = true,
+            call = true,
+            callSignature = true,
+            effects = true,
+            protected = true,
+            handled = true,
+            callback = true,
+            given = true,
+            spread = true,
+            iterator = true
+        })
+        local call, called = contract.call, contract.callSignature
+        -- A method the program has no body for, `b:put(x)` on a declared
+        -- type: read from the receiver and called with it first.
+        if contract.method then
+            assert(
+                type(call) == "table"
+                and call.kind == "methodCall"
+                and methodsignatures[call] == called
+                and not call.scalarIntrinsic
+                and not call.ownershipIntrinsic
+                and not call.runtimeLoader,
+                "dynamic method identity differs"
+            )
+            invokeSignature(called)
+            assert(call.args and call.args.kind == "args", "invoke requires explicit positional arguments")
+            dense(call.args.exprs)
+            local spreads = #call.args.exprs > 0 and call.args.exprs[#call.args.exprs].kind == "vararg"
+            assert(
+                #call.args.exprs + 1 == #called.params + (spreads and 1 or 0) and (called.vararg == true) == spreads,
+                "dynamic method arity differs"
+            )
+            for index, argument in ipairs(call.args.exprs) do
+                if not (spreads and index == #call.args.exprs) then
+                    invokeScalar(argument.inferredType)
+                end
+            end
+            assert(
+                contract.effects.mayCollect == true
+                and contract.effects.mayRaise == true
+                and contract.effects.mayPark == false
+                and contract.effects.pure == false,
+                "invoke requires conservative scalar guest effects"
+            )
+            return
+        end
+        -- A generic `for` calling its iterator: the state and the control
+        -- in, as many values out as it names, checked as a call through
+        -- `any` is.
+        if contract.iterator then
+            assert(
+                type(call) == "table"
+                and call.kind == "forinStmt"
+                and genericiterator(call)
+                and anySignatures[call] == called
+                and contract.given == 2,
+                "iterator invoke identity differs"
+            )
+            invokeSignature(called)
+            assert(
+                contract.effects.mayCollect == true
+                and contract.effects.mayRaise == true
+                and contract.effects.mayPark == false
+                and contract.effects.pure == false,
+                "invoke requires conservative scalar guest effects"
+            )
+            return
+        end
+        -- A library call's callback: the argument it calls, with the values
+        -- the library supplies.
+        local callback = contract.callback
+        local argument = callback and call.args and call.args.exprs[callback]
+        -- pcall(f, ...): the callee is the first argument, and the rest are its
+        -- arguments.
+        local protected = contract.protected == true
+        -- xpcall's second argument is its message handler.
+        local offset = protected and (contract.handled == true and 2 or 1) or 0
+        assert(
+            type(call) == "table"
+            and (call.kind == "call" or callback and call.kind == "methodCall")
+            and (
+                protected
+                and call.args
+                and call.args.exprs[1]
+                and (call.args.exprs[1].inferredType == called or anySignatures[call] == called)
+                or callback and argument and argument.inferredType == called
+                or not protected and not callback and (call.calleeType == called or anySignatures[call] == called)
+            )
+            and not call.scalarIntrinsic
+            and not call.ownershipIntrinsic
+            and not call.runtimeLoader,
+            "dynamic invoke call identity differs"
+        )
+        invokeSignature(called)
+        assert(call.args and call.args.kind == "args", "invoke requires explicit positional arguments")
+        dense(call.args.exprs)
+        local given = #call.args.exprs - offset
+        if callback then
+            assert(
+                contract.spread == true and contract.given == 0
+                or type(contract.given) == "number"
+                and contract.given % 1 == 0
+                and (contract.given == #called.params or called.vararg and contract.given > #called.params),
+                "callback arity differs"
+            )
+            assert(
+                contract.effects.mayCollect == true
+                and contract.effects.mayRaise == true
+                and contract.effects.mayPark == false
+                and contract.effects.pure == false,
+                "invoke requires conservative scalar guest effects"
+            )
+            return
+        end
+        assert(
+            given == #called.params
+            or called.vararg and given > #called.params
+            or given > 0 and spreadsLast(call)
+            or omits(called, given),
+            "invoke checked call arity differs"
+        )
+        for index, argument in ipairs(call.args.exprs) do
+            if index > offset and argument.kind ~= "vararg" then
+                invokeScalar(argument.inferredType)
+            end
+        end
+        assert(
+            contract.effects.mayCollect == true
+            and contract.effects.mayRaise == true
+            and contract.effects.mayPark == false
+            and contract.effects.pure == false,
+            "invoke requires conservative scalar guest effects"
+        )
+        return
+    end
+    nativeContract(contract, {
+        owner = true,
+        body = true,
+        definition = true,
+        signature = true,
+        call = true,
+        callSignature = true,
+        summary = true,
+        effects = true,
+        construct = true
+    })
+    local owner, call = contract.owner, contract.call
+    assert(
+        type(owner) == "table"
+        and owner.kind == "function"
+        and owner.node
+        and owner.scope
+        and owner.node.body == contract.body
+        and owner.body == contract.body
+        and owner.signature == contract.signature
+        and owner.body.signatureType == contract.signature,
+        "invoke checked body identity differs"
+    )
+    -- A coroutine's yield switches threads on the core (`threads`), so a
+    -- body that yields is called as any is; an external effect is refused.
+    local summary = contract.summary
+    assert(
+        type(summary) == "table" and owner.body.effectSummary == summary and summary.external == false,
+        "invoke requires a proven body summary"
+    )
+    local definition = contract.definition
+    assert(
+        type(definition) == "table"
+        and owner.definition == definition
+        and definition.token
+        and definition.token.definition == definition
+        and not definition.reassigned
+        and not definition.runtimeLoader
+        and not definition.scalarIntrinsic,
+        "invoke checked declaration identity differs"
+    )
+    -- A method call names its method by definition and passes its receiver
+    -- first.
+    local method = type(call) == "table" and call.kind == "methodCall"
+    -- A construction calls its constructor, named by its synthetic definition,
+    -- with the instance first, through the constructor's signature.
+    local construct = contract.construct == true
+    assert(
+        type(call) == "table"
+        and (
+            construct
+            and call.kind == "call"
+            and call.constructorEntry
+            and call.constructorEntry.declaration == owner.node
+            and owner.node.coreDefinition == definition
+            and call.signatureType == contract.callSignature
+            or not construct
+            and (
+                call.kind == "call" and call.obj and call.obj.kind == "name" and call.obj.token.definition == definition
+                or method and call.name and call.name.definition == definition
+            )
+            and callsignatureof(owner, call) == contract.callSignature
+        )
+        and not call.cdefCall
+        and not call.scalarIntrinsic
+        and not call.ownershipIntrinsic
+        and not call.affineClosureCall
+        and not call.runtimeLoader,
+        "invoke checked call identity differs" .. checkingat()
+    )
+    invokeSignature(contract.signature, construct)
+    invokeSignature(contract.callSignature)
+    local signature, called = contract.signature, contract.callSignature
+    -- A construction answers its instance whatever the constructor returns.
+    assert(
+        #signature.params == #called.params
+        and (construct or signature.rets[1] == called.rets[1] or sameValue(signature.rets[1], called.rets[1])),
+        "invoke checked call signature differs: "
+        .. #signature.params
+        .. " and "
+        .. #called.params
+        .. " parameters, results "
+        .. tostring(
+            signature.rets[1] and signature.rets[1].tag
+        ) .. " and " .. tostring(called.rets[1] and called.rets[1].tag) .. checkingat()
+    )
+    for index, t in ipairs(signature.params) do
+        assert(
+            t == called.params[index] or sameValue(t, called.params[index]),
+            "invoke checked parameter identity differs: " .. tostring(
+                t and t.tag
+            ) .. " and " .. tostring(called.params[index] and called.params[index].tag) .. checkingat()
+        )
+    end
+    assert(call.args and call.args.kind == "args", "invoke requires explicit positional arguments")
+    dense(call.args.exprs)
+    -- A method's function type leaves out its receiver, on both sides.
+    assert(
+        #call.args.exprs == #called.params
+        or called.vararg and #call.args.exprs > #called.params
+        or #call.args.exprs > 0 and spreadsLast(call)
+        or omits(called, #call.args.exprs),
+        "invoke checked call arity differs"
+    )
+    for index, argument in ipairs(call.args.exprs) do
+        -- A `...` last spreads its pack; its values are checked by the callee.
+        local spread = argument.kind == "vararg" and index == #call.args.exprs
+        if not spread then
+            invokeScalar(argument.inferredType)
+        end
+        assert(
+            (argument.kind ~= "vararg" or spread) and argument.kind ~= "namedArg" and argument.kind ~= "pluckArg",
+            "invoke argument expansion is unsupported"
+        )
+    end
+    nativeContract(contract.effects, {mayCollect = true, mayRaise = true, mayPark = true, pure = true})
+    assert(
+        contract.effects.mayCollect == true
+        and contract.effects.mayRaise == true
+        and contract.effects.mayPark == false
+        and contract.effects.pure == false,
+        "invoke requires conservative scalar guest effects"
+    )
+end
+
+-- A call through a function value: no known callee, the call's checked
+-- function type and the same conservative effects. The callee is resolved,
+-- and its signature checked, when the call runs. Core functions never
+-- suspend, so the value's unknown body cannot either.
+-- The library function a call names, when the final core implements it as
+-- an operation: `math.floor` on the prelude's `math`. Otherwise nil.
+local coreLibrary: {[string]: boolean} = {
+    ["math.floor"] = true,
+    ["math.f32.narrow"] = true,
+    ["storagecalls.allocate"] = true,
+    ["storagecalls.allocbytes"] = true,
+    ["storagecalls.view"] = true,
+    ["storagecalls.cast"] = true,
+    ["storagecalls.copy"] = true,
+    ["storagecalls.fill"] = true,
+    ["storagecalls.text"] = true,
+    ["storagecalls.fromstring"] = true,
+    ["storagecalls.elements"] = true,
+    ["storagecalls.elementkind"] = true,
+    ["storagecalls.packedkind"] = true,
+    ["math.u32.wrap"] = true,
+    ["math.i32.wrap"] = true,
+    assert = true,
+    rawequal = true,
+    next = true,
+    tostring = true,
+    tonumber = true,
+    select = true,
+    ["os.getenv"] = true,
+    ["os.monotonic"] = true,
+    collectgarbage = true,
+    ["hostcalls.arguments"] = true,
+    ["hostcalls.setcleanup"] = true,
+    pcall = true,
+    xpcall = true,
+    error = true,
+    setmetatable = true,
+    getmetatable = true,
+    type = true,
+    ["math.abs"] = true,
+    ["math.ceil"] = true,
+    ["math.max"] = true,
+    ["math.min"] = true,
+    ["math.tointeger"] = true,
+    ["math.type"] = true,
+    ["math.sqrt"] = true,
+    ["math.exp"] = true,
+    ["math.log"] = true,
+    ["math.sin"] = true,
+    ["math.cos"] = true,
+    ["math.tan"] = true,
+    ["math.asin"] = true,
+    ["math.acos"] = true,
+    ["math.atan"] = true,
+    ["math.fmod"] = true,
+    ["math.random"] = true,
+    ["math.randomseed"] = true,
+    rawget = true,
+    rawset = true,
+    ["table.concat"] = true,
+    ["table.insert"] = true,
+    ["table.remove"] = true,
+    ["table.unpack"] = true,
+    ["table.sort"] = true,
+    ["table.move"] = true,
+    ["table.freeze"] = true,
+    ["table.isfrozen"] = true,
+    ["string.reverse"] = true,
+    print = true,
+    ["string.format"] = true,
+    ["string.gmatch"] = true,
+    ["string.sub"] = true,
+    ["string.byte"] = true,
+    ["string.char"] = true,
+    ["string.rep"] = true,
+    ["string.upper"] = true,
+    ["string.lower"] = true,
+    ["string.len"] = true,
+    ["string.find"] = true,
+    ["string.match"] = true,
+    ["string.gsub"] = true,
+    ["coroutine.create"] = true,
+    ["coroutine.resume"] = true,
+    ["coroutine.yield"] = true,
+    ["coroutine.status"] = true,
+    ["coroutine.wrap"] = true,
+    ["coroutine.running"] = true,
+    ["coroutine.isyieldable"] = true,
+    ["coroutine.close"] = true,
+    -- `require` of a computed name, or through `_G`.
+    ["require.dynamic"] = true
+}
+
+-- The file operations (the file calls and the reactor's) are core library
+-- calls too.
+for _, group in ipairs(corelibrary.groups()) do
+    for _, operation in ipairs(group.operations) do
+        coreLibrary[operation.library] = true
+    end
+end
+
+local function preludeName(node: any): boolean
+    local definition = node and node.kind == "name" and node.token and node.token.definition
+    return type(definition) == "table" and definition.filename == "nupp:lua.d.nupp"
+end
+
+-- The library functions `nupp.runtime.libraryvalues` carries, which a name
+-- of one taken as a value (not called) reads.
+local libraryValues: {
+    [string]: boolean
+} = {
+    _G = true,
+    _VERSION = true,
+    math = true,
+    string = true,
+    table = true,
+    next = true,
+    pairs = true,
+    select = true,
+    ["string.char"] = true,
+    ["string.find"] = true,
+    ["string.match"] = true,
+    ["string.sub"] = true,
+    ["string.rep"] = true,
+    ["string.format"] = true,
+    ["string.gsub"] = true,
+    ["table.concat"] = true,
+    ["table.insert"] = true,
+    ["math.type"] = true,
+    ["math.max"] = true,
+    ["math.min"] = true,
+    ["math.tointeger"] = true,
+    package = true,
+    require = true,
+    tostring = true,
+    tonumber = true,
+    type = true,
+    error = true,
+    rawget = true,
+    rawset = true,
+    setmetatable = true,
+    getmetatable = true,
+    ["math.floor"] = true,
+    ["math.ceil"] = true,
+    ["math.abs"] = true,
+    ["math.sqrt"] = true,
+    ["string.upper"] = true,
+    ["string.lower"] = true,
+    ["string.len"] = true,
+    ["string.reverse"] = true,
+    ["string.byte"] = true,
+    ["os.getenv"] = true,
+    debug = true,
+    io = true,
+    os = true
+}
+
+-- The library name `node` reads when it names a library function, `tostring`
+-- or `string.upper`, outside the callee of a call the core makes itself.
+-- The task surface (Decision 18), which the scheduler written in Nupp
+-- (`nupp.runtime.scheduler`) carries as values under these names.
+const schedulerValues: {
+    [string]: boolean
+} = {
+    ["coroutine.scope"] = true,
+    ["coroutine.checkpoint"] = true,
+    ["coroutine.deadline"] = true,
+    ["coroutine.iscancelled"] = true,
+    ["coroutine.sleep"] = true,
+    ["coroutine.sleepuntil"] = true
+}
+
+export function libraryValue(node: any): string?
+    local name: string? = nil
+    if node and node.kind == "name" and preludeName(node) then
+        name = node.token.text
+    elseif node and node.kind == "dotIndex" and node.name and preludeName(node.obj) then
+        name = node.obj.token.text .. "." .. node.name.text
+    end
+
+    return name and (libraryValues[name] or schedulerValues[name]) and name or nil
+end
+
+-- The module whose `functions` carries library value `name`: Lua's `io` and
+-- `os`, the libraries themselves, are `nupp.runtime.luaio` and
+-- `nupp.runtime.luaos`; the task surface is the scheduler's; the others are
+-- `nupp.runtime.libraryvalues`.
+export function libraryModule(name: string): string
+    if name == "io" then
+        return "nupp.runtime.luaio"
+    elseif name == "os" then
+        return "nupp.runtime.luaos"
+    elseif schedulerValues[name] then
+        return "nupp.runtime.scheduler"
+    end
+
+    return "nupp.runtime.libraryvalues"
+end
+
+-- Whether an unchecked tree uses the task surface (`coroutine.scope` and
+-- its kin): a builder reads it to carry `nupp.runtime.scheduler`.
+export function mayUseScheduler(root: any): boolean
+    local found = false
+    local walk: function(any): nil
+    walk = function(node: any): nil
+        if found or type(node) ~= "table" then
+            return
+        end
+        if node.kind == "dotIndex"
+            and node.name
+            and node.obj
+            and node.obj.kind == "name"
+            and node.obj.token
+            and schedulerValues[node.obj.token.text .. "." .. node.name.text]
+        then
+            found = true
+            return
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+    walk(root)
+
+    return found
+end
+
+-- Whether an unchecked tree may read Lua's `io`: a name spelled `io`
+-- anywhere, `io.open(...)` and `io.cli` alike. A builder reads it to carry
+-- `nupp.runtime.luaio`; carrying it needlessly costs nothing.
+export function mayUseIo(root: any): boolean
+    local found = false
+    local walk: function(any): nil
+    walk = function(node: any): nil
+        if found or type(node) ~= "table" then
+            return
+        end
+        if node.kind == "name" and node.token and node.token.text == "io" then
+            found = true
+            return
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+    walk(root)
+
+    return found
+end
+
+-- Whether an unchecked tree may take a library function as a value: a name
+-- or field spelled as one, outside a call's callee. A builder reads it to
+-- carry `nupp.runtime.libraryvalues`; carrying it needlessly costs nothing.
+export function mayTakeLibraryValue(root: any): boolean
+    local found = false
+    local walk: function(any, boolean): nil
+    walk = function(node: any, callee: boolean): nil
+        if found or type(node) ~= "table" then
+            return
+        end
+        if not callee then
+            if node.kind == "name" and node.token and libraryValues[node.token.text] then
+                found = true
+                return
+            end
+            if node.kind == "dotIndex"
+                and node.name
+                and node.obj
+                and node.obj.kind == "name"
+                and node.obj.token
+                and libraryValues[node.obj.token.text .. "." .. node.name.text]
+            then
+                found = true
+                return
+            end
+        end
+        -- `math.floor` reads a field of the library, not the library table.
+        if node.kind == "dotIndex" and node.obj and node.obj.kind == "name" then
+            return
+        end
+        for _, child in ipairs(node) do
+            walk(child, (node.kind == "call" or node.kind == "methodCall") and child == node.obj)
+        end
+    end
+    walk(root, false)
+
+    return found
+end
+
+-- The declaration modules whose functions the core implements as library
+-- calls: a call of one is that call, and requiring the module loads
+-- nothing.
+local corecallmodules: {
+    [string]: string
+} = {["nupp.runtime.storagecalls"] = "storagecalls", ["nupp.runtime.hostcalls"] = "hostcalls"}
+
+for name, short in pairs(corelibrary.callmodules()) do
+    corecallmodules[name] = short
+end
+
+export function corecallmodule(name: string?): boolean
+    return name ~= nil and corecallmodules[name] ~= nil
+end
+
+-- Whether a statement is a comptime helper the checker ran while compiling,
+-- or the `@comptime` pragma before one: the program never sees it, as the
+-- VM's lowering leaves it out.
+export function erased(node: any): boolean
+    local kind = node.kind
+    if kind == "pragmaStmt" and node.name and node.name.text == "comptime" and node.stat then
+        local target = node.stat
+        while target.kind == "exportStmt" and target.stat do
+            target = target.stat
+        end
+        return erased(target)
+    end
+
+    return (kind == "localStmt" or kind == "localFuncStmt" or kind == "funcStmt")
+        and (node.comptimeFunction ~= nil or node.comptimeTok ~= nil)
+end
+
+-- The image module the core answers a host module's `require` with: the
+-- portable FIFO buffer for `string.buffer`, until the heap's byte objects
+-- carry one, the portable BitOp library for `bit`, and storage on the guest
+-- heap for the VM's FFI storage. Any other name is its own.
+local coremodules: {
+    [string]: string
+} = {
+    ["string.buffer"] = "nupp.runtime.provider.tablebuffer",
+    bit = "nupp.runtime.provider.scalarbitops",
+    ["nupp.vm.storagebinding"] = "nupp.runtime.provider.heapstorage"
+}
+
+export function coremodule(name: string): string
+    return coremodules[name] or name
+end
+
+-- A `require` whose module the checker could not name: of a computed name,
+-- or of any name through `_G`. The core looks it up among the image's.
+export function dynamicRequire(call: any): boolean
+    local obj = call and call.kind == "call" and call.obj
+    if not obj or call.typeOnlyRequire then
+        return false
+    end
+    if call.runtimeLoader == "require" then
+        return call.requiredModule == nil
+    end
+
+    return obj.kind == "dotIndex"
+        and obj.name ~= nil
+        and obj.name.text == "require"
+        and preludeName(obj.obj)
+        and obj.obj.token.text == "_G"
+end
+
+local function stringType(t: any): boolean
+    while t and (t.tag == "const" or t.tag == "literal") do
+        t = t.tag == "const" and t.inner or t.base
+    end
+    return t ~= nil and t.tag == "string"
+end
+
+-- Whether `t` is a thread's type, whose methods are the coroutine
+-- library's (Decision 18: the threads' metatable's __index is `coroutine`).
+local function threadType(t: any): boolean
+    while t and (t.tag == "const" or t.tag == "affine" or t.tag == "borrowed") do
+        t = t.inner
+    end
+    return t ~= nil and (t.tag == "thread" or t.tag == "protocolThread")
+end
+
+-- The coroutine library functions a thread answers as methods on the core.
+const threadMethods: {[string]: boolean} = {resume = true, status = true, close = true}
+
+-- The library constants the core folds: `math.huge` and its kin, by name.
+local coreConstants: {
+    [string]: boolean
+} = {["math.huge"] = true, ["math.pi"] = true, ["math.maxinteger"] = true, ["math.mininteger"] = true}
+
+--- The library constant a field read names (`math.pi`), or nil.
+export function coreLibraryField(node: any): string?
+    if node and node.kind == "dotIndex" and node.name and preludeName(node.obj) then
+        local name = node.obj.token.text .. "." .. node.name.text
+        return coreConstants[name] and name or nil
+    end
+
+    return nil
+end
+
+export function coreLibraryCall(call: any): string?
+    if dynamicRequire(call) then
+        return "require.dynamic"
+    end
+    local name
+    if call and call.kind == "methodCall" and call.name and stringType(call.obj and call.obj.inferredType) then
+        name = "string." .. call.name.text
+    elseif call
+        and call.kind == "methodCall"
+        and call.name
+        and threadMethods[call.name.text]
+        and threadType(call.obj and call.obj.inferredType)
+    then
+        name = "coroutine." .. call.name.text
+    elseif call and call.kind == "call" and preludeName(call.obj) then
+        name = call.obj.token.text
+    elseif call
+        and call.kind == "call"
+        and call.obj
+        and call.obj.kind == "dotIndex"
+        and call.obj.name
+        and preludeName(call.obj.obj)
+    then
+        name = call.obj.obj.token.text .. "." .. call.obj.name.text
+    elseif call
+        and call.kind == "call"
+        and call.obj
+        and call.obj.kind == "dotIndex"
+        and call.obj.name
+        and call.obj.obj
+        and call.obj.obj.kind == "dotIndex"
+        and call.obj.obj.name
+        and preludeName(call.obj.obj.obj)
+    then
+        -- A library's nested table: `math.f32.narrow`.
+        name = call.obj.obj.obj.token.text .. "." .. call.obj.obj.name.text .. "." .. call.obj.name.text
+    elseif call
+        and call.kind == "call"
+        and call.obj
+        and call.obj.kind == "dotIndex"
+        and call.obj.name
+        and call.obj.obj
+        and call.obj.obj.kind == "name"
+        and call.obj.obj.token
+        and call.obj.obj.token.definition
+        and corecallmodules[call.obj.obj.token.definition.requiredModule or ""] ~= nil
+    then
+        -- A core call module's function: `calls.allocbytes(n)`.
+        name = tostring(corecallmodules[call.obj.obj.token.definition.requiredModule]) .. "." .. call.obj.name.text
+    elseif call and call.kind == "call" and call.obj and call.obj.namespacePath == "math.random" then
+        -- `math.random` is also a standard module path, which the checker
+        -- resolves as one: its root is then not the prelude's name.
+        name = "math.random"
+    end
+    -- The prelude's `unpack` is `table.unpack`.
+    if name == "unpack" then
+        name = "table.unpack"
+    end
+
+    return name and coreLibrary[name] and name or nil
+end
+
+-- The library calls with several results, which answer them as a pack.
+local packedlibrary: {
+    [string]: boolean
+} = {
+    ["string.find"] = true,
+    ["string.match"] = true,
+    ["string.byte"] = true,
+    ["string.gsub"] = true,
+    ["table.unpack"] = true,
+    next = true,
+    ["coroutine.resume"] = true,
+    ["coroutine.yield"] = true,
+    ["coroutine.running"] = true,
+    ["coroutine.close"] = true
+}
+
+--- Whether `expr` is a library call with several results.
+export function packedcall(expr: any): boolean
+    if expr == nil or expr.kind ~= "call" and expr.kind ~= "methodCall" then
+        return false
+    end
+    local library = coreLibraryCall(expr)
+
+    return library ~= nil and packedlibrary[library] == true
+end
+
+-- The signature a call through an `any` value is checked against: its
+-- arguments and `count` results, all `any`.
+local function anySignature(call: any, count: integer, skipped: integer?): any
+    local held = anySignatures[call]
+    if held and #held.rets == count then
+        return held
+    end
+    -- pcall's own arguments (`skipped`) come before the callee's.
+    local params, modes = {}, {}
+    for index = 1, #(call.args and call.args.exprs or {}) - (skipped or 0) do
+        params[index], modes[index] = {tag = "any"}, "plain"
+    end
+    local rets, retModes = {}, {}
+    for index = 1, count do
+        rets[index], retModes[index] = {tag = "any"}, "plain"
+    end
+    local signature = {
+        tag = "func",
+        params = params,
+        paramPack = {head = params, modes = modes},
+        rets = rets,
+        retPack = {head = rets, modes = retModes}
+    }
+    anySignatures[call] = signature
+
+    return signature
+end
+
+-- Whether a function type's results are one of several packs, as a wrapped
+-- coroutine's are (what it yields, or what it returns): its calls are
+-- checked as calls through `any` are.
+local function alternativeresults(called: any): boolean
+    return called.tag == "func" and called.retPack ~= nil and called.retPack.alternatives ~= nil
+end
+
+-- Whether a generic `for` calls its iterator: any but the forms the profile
+-- lowers itself, `ipairs(t)`, `pairs(t)` and `s:gmatch(p)`.
+export function genericiterator(stat: any): boolean
+    local source = stat.exprs and stat.exprs[1]
+    if source == nil then
+        return false
+    end
+    if #stat.exprs == 1
+        and source.kind == "call"
+        and (source.resolvedGlobal == "ipairs" or source.resolvedGlobal == "pairs")
+    then
+        return false
+    end
+
+    return not (#stat.exprs == 1 and coreLibraryCall(source) == "string.gmatch")
+end
+
+-- The contract of a generic `for`'s call of its iterator, keeping `count`
+-- results: two values in, all `any`.
+export function iteratorcontract(stat: any, count: integer): any
+    local held = anySignatures[stat]
+    if held == nil or #held.rets ~= count then
+        local params, modes = {{tag = "any"}, {tag = "any"}}, {"plain", "plain"}
+        local rets, retModes = {}, {}
+        for index = 1, count do
+            rets[index], retModes[index] = {tag = "any"}, "plain"
+        end
+        held = {
+            tag = "func",
+            params = params,
+            paramPack = {head = params, modes = modes},
+            rets = rets,
+            retPack = {head = rets, modes = retModes}
+        }
+        anySignatures[stat] = held
+    end
+    local contract = {
+        dynamic = true,
+        iterator = true,
+        given = 2,
+        call = stat,
+        callSignature = held,
+        effects = {mayCollect = true, mayRaise = true, mayPark = false, pure = false}
+    }
+    checkcontract(contract)
+
+    return contract
+end
+
+-- `count`: the results the call keeps, which a call through `any` declares.
+export function dynamicmethodcontract(call: any, count: integer?): any
+    local signature = methodsignatures[call]
+    if signature == nil or #signature.rets ~= (count or 1) then
+        -- A `...` last passes its values after the others, as a variadic
+        -- callee takes them.
+        local exprs = call.args and call.args.exprs or {}
+        local spreads = #exprs > 0 and exprs[#exprs].kind == "vararg"
+        local params, modes = {{tag = "any"}}, {"plain"}
+        for index = 1, #exprs - (spreads and 1 or 0) do
+            params[index + 1], modes[index + 1] = {tag = "any"}, "plain"
+        end
+        local rets, retModes = {}, {}
+        for index = 1, count or 1 do
+            rets[index], retModes[index] = {tag = "any"}, "plain"
+        end
+        signature = {
+            tag = "func",
+            params = params,
+            vararg = spreads or nil,
+            paramPack = {
+                head = params,
+                modes = modes,
+                tail = spreads and {kind = "unknown", type = {tag = "any"}} or nil
+            },
+            rets = rets,
+            retPack = {head = rets, modes = retModes}
+        }
+        methodsignatures[call] = signature
+    end
+    local contract = {
+        dynamic = true,
+        method = true,
+        call = call,
+        callSignature = signature,
+        effects = {mayCollect = true, mayRaise = true, mayPark = false, pure = false}
+    }
+    checkcontract(contract)
+
+    return contract
+end
+
+export function dynamicInvokeContract(call: any, count: integer?): any
+    -- A call through `any`, or through a value its metatable's __call makes
+    -- callable, is checked against the call itself.
+    local called = call.calleeType
+    if called and (called.tag ~= "func" or alternativeresults(called)) then
+        called = anySignature(call, count or 1)
+    end
+    local contract = {
+        dynamic = true,
+        call = call,
+        callSignature = called,
+        effects = {mayCollect = true, mayRaise = true, mayPark = false, pure = false}
+    }
+    checkcontract(contract)
+
+    return contract
+end
+
+-- Whether a call last in a list gives other than exactly one result, a fixed
+-- count or an open one: then the list takes them all, as a pack.
+export function expandsResults(expr: any): boolean
+    -- A library call with several results gives them all, as Lua's do.
+    if packedcall(expr) then
+        return true
+    end
+    if expr == nil or expr.kind ~= "call" or expr.runtimeLoader ~= nil or coreLibraryCall(expr) ~= nil then
+        return false
+    end
+    local called = expr.calleeType
+    if called ~= nil and alternativeresults(called) then
+        return true
+    end
+    if called == nil or called.tag ~= "func" then
+        -- Through `any`, as many as the callee gives.
+        return called ~= nil and called.tag == "any"
+    end
+    local pack = called.retPack
+
+    return pack ~= nil and (pack.tail ~= nil or #pack.head ~= 1)
+end
+
+-- Whether a call's last argument spreads a pack: `...`, or a call whose
+-- results it takes all of, pcall's and xpcall's among them.
+export function spreadsLast(call: any): boolean
+    local exprs = call.args and call.args.exprs or {}
+    local last = exprs[#exprs]
+    local library = last ~= nil and last.kind == "call" and coreLibraryCall(last) or nil
+
+    return last ~= nil and (last.kind == "vararg" or expandsResults(last) or library == "pcall" or library == "xpcall")
+end
+
+-- The argument a library call calls back, by its index among the call's
+-- arguments: table.sort's comparator, or string.gsub's replacement when it
+-- is a function. Nil for any other call.
+export function callbackArgument(call: any): integer?
+    local library = coreLibraryCall(call)
+    local exprs = call and call.args and call.args.exprs
+    if library == "table.sort" and exprs and #exprs == 2 then
+        return 2
+    end
+    if library == "string.gsub" and exprs then
+        local index = call.kind == "methodCall" and 2 or 3
+        local replacement = exprs[index]
+        local t = replacement and replacement.inferredType
+        if t and t.tag == "func" then
+            return index
+        end
+    end
+
+    return nil
+end
+
+-- The contract of a library call's call of its callback with `given` values,
+-- or with `spread` a pack of them.
+export function callbackInvokeContract(call: any, given: integer, spread: boolean?): any
+    local argument = callbackArgument(call)
+    assert(argument ~= nil, "call takes no callback")
+    local contract = {
+        dynamic = true,
+        callback = argument,
+        given = given,
+        spread = spread == true or nil,
+        call = call,
+        callSignature = call.args.exprs[argument].inferredType,
+        effects = {mayCollect = true, mayRaise = true, mayPark = false, pure = false}
+    }
+    checkcontract(contract)
+
+    return contract
+end
+
+-- The contract of `pcall(f, ...)`'s call of f, through f's checked type;
+-- for `xpcall(f, handler, ...)` too, handled.
+export function protectedInvokeContract(call: any): any
+    local callee = call.args and call.args.exprs and call.args.exprs[1]
+    local handled = coreLibraryCall(call) == "xpcall"
+    -- A callee through `any`, or one whose results are alternatives (a
+    -- wrapped coroutine's), is checked against the call itself.
+    local called = callee and callee.inferredType
+    if called and (called.tag ~= "func" or alternativeresults(called)) then
+        called = anySignature(call, 1, handled and 2 or 1)
+    end
+    local contract = {
+        dynamic = true,
+        protected = true,
+        handled = handled or nil,
+        call = call,
+        callSignature = called,
+        effects = {mayCollect = true, mayRaise = true, mayPark = false, pure = false}
+    }
+    checkcontract(contract)
+
+    return contract
+end
+
+-- The contract of `R(...)`'s call of R's constructor `owner`.
+export function constructContract(owner: any, call: any): any
+    local contract = {
+        owner = owner,
+        body = owner.body,
+        definition = owner.definition,
+        signature = owner.signature,
+        call = call,
+        callSignature = call.signatureType,
+        summary = owner.body.effectSummary,
+        effects = {mayCollect = true, mayRaise = true, mayPark = false, pure = false},
+        construct = true
+    }
+    checkcontract(contract)
+
+    return contract
+end
+
+export function invokeContract(owner: any, call: any): any
+    local contract = {
+        owner = owner,
+        body = owner.body,
+        definition = owner.definition,
+        signature = owner.signature,
+        call = call,
+        callSignature = callsignatureof(owner, call),
+        summary = owner.body.effectSummary,
+        effects = {mayCollect = true, mayRaise = true, mayPark = false, pure = false}
+    }
+    checkcontract(contract)
+
+    return contract
+end

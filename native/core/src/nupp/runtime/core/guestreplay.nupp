@@ -1,0 +1,418 @@
+module nupp.runtime.core.guestreplay
+
+-- Replay: a library call over a table with a metatable runs from the start
+-- again once a metamethod it waited on answers, its log of earlier answers
+-- read back in order; and the table reads, writes and lengths that go
+-- through it.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const context = require("nupp.runtime.core.context")
+const values = require("nupp.runtime.vm.values")
+const tables = require("nupp.runtime.core.coretables")
+const frames = require("nupp.runtime.core.frames")
+const access = require("nupp.runtime.core.frameaccess")
+const guestscope = require("nupp.runtime.core.guestscope")
+const guestmeta = require("nupp.runtime.core.guestmeta")
+
+-- A library call that reaches a function __index, __newindex or __len
+-- (the table library's, as Lua 5.5's calls them) cannot call it itself: it
+-- stops, its handler calls the metamethod, and the call runs again from the
+-- start once that answers. A log of what each of its table accesses
+-- answered lets each run replay the accesses made so far, in order and
+-- without making them again, and go on to the next.
+--
+-- `replays` is a stack of the calls running so, from key 1 (its depth at
+-- key 0), ENTRY_WORDS keys each: the log (its length at key 0), the frame
+-- of the metamethod waited on (nil while none is), the thread whose call it
+-- is (false for the main one), the kind of access waiting, and the call's
+-- four arguments, which the metamethod's staging overwrites in its frame.
+const ENTRY_WORDS: uint64 = 9ULL
+const ENTRY_LOG: uint64 = 1ULL
+const ENTRY_CHILD: uint64 = 2ULL
+const ENTRY_THREAD: uint64 = 3ULL
+const ENTRY_KIND: uint64 = 4ULL
+const ENTRY_ARGS: uint64 = 5ULL
+const ENTRY_STATE: uint64 = 9ULL
+export const ACCESS_GET: uint64 = 1ULL
+export const ACCESS_SET: uint64 = 2ULL
+export const ACCESS_LENGTH: uint64 = 3ULL
+
+local function keyof(depth: uint64, field: uint64): uint64
+    return values.TAG_INTEGER | ((depth - 1ULL) * ENTRY_WORDS + field)
+end
+
+local function countof(t: uint64): uint64
+    local n = tables.get(t, values.TAG_INTEGER)
+    if n == values.NIL then
+        return 0ULL
+    end
+
+    return n & values.PAYLOAD
+end
+
+local function setkey(ctx: voidptr, t: uint64, key: uint64, value: uint64): nil
+    @unsafe do
+        local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
+        if tables.set(h, t, key, value) == tables.NO_MEMORY then
+            error("not enough memory")
+        end
+        tables.drain(h)
+    end
+end
+
+local function framevalue(frame: uint64): uint64
+    return values.TAG_INTEGER | (frame & values.PAYLOAD)
+end
+
+local function threadvalue(ctx: voidptr): uint64
+    local running = native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("running"))
+    if running == 0ULL then
+        return values.FALSE
+    end
+
+    return running
+end
+
+-- Whether entry `depth` waits on a metamethod `frame` runs inside, in the
+-- running thread: a call that stopped and was never run again has none.
+local function waiting(ctx: voidptr, stack: uint64, depth: uint64, frame: uint64): boolean
+    local child = tables.get(stack, keyof(depth, ENTRY_CHILD))
+    if child == values.NIL or tables.get(stack, keyof(depth, ENTRY_THREAD)) ~= threadvalue(ctx) then
+        return false
+    end
+    local f = frame
+    while f ~= 0ULL do
+        if framevalue(f) == child then
+            return true
+        end
+        f = native.load64(native.pointer(f), native.fieldOffset<frames.Frame>("previous"))
+    end
+
+    return false
+end
+
+-- Drops entry `depth` and every one above it.
+local function truncate(ctx: voidptr, stack: uint64, depth: uint64): nil
+    local top = countof(stack)
+    while top >= depth and top >= 1ULL do
+        local field: uint64 = 1ULL
+        while field <= ENTRY_WORDS do
+            setkey(ctx, stack, keyof(top, field), values.NIL)
+            field = field + 1ULL
+        end
+        top = top - 1ULL
+    end
+    setkey(ctx, stack, values.TAG_INTEGER, values.TAG_INTEGER | top)
+end
+
+-- Drops the entries on top that no longer wait: one an error left behind,
+-- or whose metamethod's frame is gone. Another thread's are kept: the
+-- threads that resumed this one wait under them, and a thread's death
+-- releases its own (`replaydrop`).
+local function prune(ctx: voidptr, stack: uint64, frame: uint64): nil
+    local depth = countof(stack)
+    while depth >= 1ULL do
+        local thread = tables.get(stack, keyof(depth, ENTRY_THREAD))
+        local child = tables.get(stack, keyof(depth, ENTRY_CHILD))
+        if child ~= values.NIL and (thread ~= threadvalue(ctx) or waiting(ctx, stack, depth, frame)) then
+            break
+        end
+        depth = depth - 1ULL
+    end
+    truncate(ctx, stack, depth + 1ULL)
+end
+
+-- How a table library call runs (replaybegin): with no log; again, a
+-- metamethod it waited on having answered; or in replay from the start.
+export const REPLAY_NONE: uint64 = 0ULL
+export const REPLAY_AGAIN: uint64 = 1ULL
+export const REPLAY_START: uint64 = 2ULL
+
+-- Starts a table library call at `frame`: answers REPLAY_START when it runs
+-- in replay from the start, as a call over a table with a metatable does (its
+-- arguments to be kept, `replaykeep`); REPLAY_AGAIN when it runs again, a
+-- metamethod it waited on having answered `answer` (its arguments then are
+-- `replayarg`'s); REPLAY_NONE when it needs no log.
+export function replaybegin(ctx: voidptr, frame: voidptr, answer: uint64, hasmeta: boolean): uint64
+    @unsafe do
+        local scope = guestscope.scopeof(ctx)
+        local child = native.load64(scope, native.fieldOffset<guestscope.Services>("libraryanswer"))
+        native.store64(scope, native.fieldOffset<guestscope.Services>("libraryanswer"), 0ULL)
+        native.store64(scope, native.fieldOffset<guestscope.Services>("replay"), 0ULL)
+        native.store64(scope, native.fieldOffset<guestscope.Services>("replaycursor"), 0ULL)
+        native.store64(scope, native.fieldOffset<guestscope.Services>("replaysuspend"), 0ULL)
+        if child == 0ULL and not hasmeta then
+            return REPLAY_NONE
+        end
+        local stackvalue = native.load64(scope, native.fieldOffset<guestscope.Services>("replays"))
+        if stackvalue == 0ULL then
+            stackvalue = values.TAG_OBJ | guestscope.newTable(ctx)
+            native.store64(scope, native.fieldOffset<guestscope.Services>("replays"), stackvalue)
+        end
+        local stack = stackvalue & values.PAYLOAD
+        if child ~= 0ULL then
+            -- The entry waiting on this metamethod is the nearest the top:
+            -- any above it were left by errors its metamethod caught.
+            local depth = countof(stack)
+            while depth >= 1ULL and tables.get(stack, keyof(depth, ENTRY_CHILD)) ~= framevalue(child) do
+                depth = depth - 1ULL
+            end
+            if depth == 0ULL then
+                error("a library call's metamethod answered no waiting call")
+            end
+            truncate(ctx, stack, depth + 1ULL)
+            local log = tables.get(stack, keyof(depth, ENTRY_LOG)) & values.PAYLOAD
+            local logged = answer
+            if tables.get(stack, keyof(depth, ENTRY_KIND)) == (values.TAG_INTEGER | ACCESS_SET) then
+                logged = values.TRUE
+            end
+            local n = countof(log) + 1ULL
+            setkey(ctx, log, values.TAG_INTEGER | n, logged)
+            setkey(ctx, log, values.TAG_INTEGER, values.TAG_INTEGER | n)
+            setkey(ctx, stack, keyof(depth, ENTRY_CHILD), values.NIL)
+            native.store64(scope, native.fieldOffset<guestscope.Services>("replay"), log)
+            return REPLAY_AGAIN
+        end
+        prune(ctx, stack, native.address(frame))
+        -- Each key is made before the log, so storing it allocates nothing
+        -- while the log is not yet reachable.
+        local depth = countof(stack) + 1ULL
+        setkey(ctx, stack, keyof(depth, ENTRY_LOG), values.TRUE)
+        setkey(ctx, stack, keyof(depth, ENTRY_THREAD), threadvalue(ctx))
+        setkey(ctx, stack, keyof(depth, ENTRY_KIND), values.TAG_INTEGER)
+        setkey(ctx, stack, keyof(depth, ENTRY_STATE), values.TRUE)
+        setkey(ctx, stack, values.TAG_INTEGER, values.TAG_INTEGER | depth)
+        local log = guestscope.newTable(ctx)
+        setkey(ctx, stack, keyof(depth, ENTRY_LOG), values.TAG_OBJ | log)
+        native.store64(scope, native.fieldOffset<guestscope.Services>("replay"), log)
+
+        return REPLAY_START
+    end
+end
+
+-- Keeps the arguments of the library call replaybegin started from the
+-- start, which its frame holds meanwhile.
+export function replaykeep(ctx: voidptr, a: uint64, b: uint64, c: uint64, d: uint64): nil
+    local stack = native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("replays"))
+        & values.PAYLOAD
+    local depth = countof(stack)
+    setkey(ctx, stack, keyof(depth, ENTRY_ARGS), a)
+    setkey(ctx, stack, keyof(depth, ENTRY_ARGS + 1ULL), b)
+    setkey(ctx, stack, keyof(depth, ENTRY_ARGS + 2ULL), c)
+    setkey(ctx, stack, keyof(depth, ENTRY_ARGS + 3ULL), d)
+end
+
+-- Ends a run that replaybegin started: answers the kind of access it
+-- stopped at, its entry kept to wait on the metamethod, or 0 when it
+-- finished and its entry is dropped.
+export function replayend(ctx: voidptr): uint64
+    @unsafe do
+        local scope = guestscope.scopeof(ctx)
+        native.store64(scope, native.fieldOffset<guestscope.Services>("replay"), 0ULL)
+        local stack = native.load64(scope, native.fieldOffset<guestscope.Services>("replays")) & values.PAYLOAD
+        local depth = countof(stack)
+        if native.load64(scope, native.fieldOffset<guestscope.Services>("replaysuspend")) == 0ULL then
+            truncate(ctx, stack, depth)
+            return 0ULL
+        end
+        native.store64(scope, native.fieldOffset<guestscope.Services>("replaysuspend"), 0ULL)
+        local kind = native.load64(scope, native.fieldOffset<guestscope.Services>("replaykind"))
+        setkey(ctx, stack, keyof(depth, ENTRY_KIND), values.TAG_INTEGER | kind)
+
+        return kind
+    end
+end
+
+-- The state a library call's step started from (guestlib.stepstate), kept
+-- in its entry, and read back for a rerun.
+export function replaysave(ctx: voidptr, saved: uint64): nil
+    local stack = native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("replays"))
+        & values.PAYLOAD
+    setkey(ctx, stack, keyof(countof(stack), ENTRY_STATE), saved)
+end
+
+export function replaysaved(ctx: voidptr): uint64
+    local stack = native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("replays"))
+        & values.PAYLOAD
+
+    return tables.get(stack, keyof(countof(stack), ENTRY_STATE))
+end
+
+-- Argument `index` (0 to 3) of the library call running in replay.
+export function replayarg(ctx: voidptr, index: uint64): uint64
+    local stack = native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("replays"))
+        & values.PAYLOAD
+
+    return tables.get(stack, keyof(countof(stack), ENTRY_ARGS + index))
+end
+
+-- The key and value of the access a run stopped at.
+export function replaykey(ctx: voidptr): uint64
+    return native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("replaykey"))
+end
+
+export function replayvalue(ctx: voidptr): uint64
+    return native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("replayvalue"))
+end
+
+-- Notes the frame of the metamethod the top entry now waits on.
+export function replaywait(ctx: voidptr, child: uint64): nil
+    local stack = native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("replays"))
+        & values.PAYLOAD
+    setkey(ctx, stack, keyof(countof(stack), ENTRY_CHILD), framevalue(child))
+end
+
+-- A metamethod frame a library call waits on returns: the next handler,
+-- that call run again, takes its answer.
+export function answered(ctx: voidptr, child: uint64): nil
+    native.store64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("libraryanswer"), child)
+end
+
+-- A thread died: the calls of its that waited never will.
+export function replaydrop(ctx: voidptr, thread: uint64): nil
+    local stackvalue = native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("replays"))
+    if stackvalue == 0ULL then
+        return
+    end
+    local stack = stackvalue & values.PAYLOAD
+    local depth = countof(stack)
+    while depth >= 1ULL do
+        if tables.get(stack, keyof(depth, ENTRY_THREAD)) == thread then
+            setkey(ctx, stack, keyof(depth, ENTRY_CHILD), values.NIL)
+        end
+        depth = depth - 1ULL
+    end
+end
+
+-- Whether a library call of the running thread waits on a metamethod the
+-- active frame runs inside: a yield there would cross it, as Lua's would a
+-- C call.
+export function crossing(ctx: voidptr): boolean
+    local stackvalue = native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("replays"))
+    if stackvalue == 0ULL then
+        return false
+    end
+    local stack = stackvalue & values.PAYLOAD
+    local frame = access.active(native.loadPointer(ctx, context.STATE))
+    local depth = countof(stack)
+    while depth >= 1ULL do
+        if waiting(ctx, stack, depth, frame) then
+            return true
+        end
+        depth = depth - 1ULL
+    end
+
+    return false
+end
+
+-- Whether the run in replay stopped for a metamethod; the library call
+-- then returns at once, its answer unused.
+export function suspended(ctx: voidptr): boolean
+    return native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("replaysuspend")) ~= 0ULL
+end
+
+local function stop(ctx: voidptr, kind: uint64, key: uint64, value: uint64): uint64
+    local scope = guestscope.scopeof(ctx)
+    native.store64(scope, native.fieldOffset<guestscope.Services>("replaysuspend"), 1ULL)
+    native.store64(scope, native.fieldOffset<guestscope.Services>("replaykind"), kind)
+    native.store64(scope, native.fieldOffset<guestscope.Services>("replaykey"), key)
+    native.store64(scope, native.fieldOffset<guestscope.Services>("replayvalue"), value)
+
+    return values.NIL
+end
+
+-- An access of the run in replay: the log's answer while it has one, else
+-- the access made and logged, or a stop for its metamethod.
+local function replayed(ctx: voidptr, kind: uint64, t: uint64, key: uint64, value: uint64): uint64
+    local scope = guestscope.scopeof(ctx)
+    if native.load64(scope, native.fieldOffset<guestscope.Services>("replaysuspend")) ~= 0ULL then
+        return values.NIL
+    end
+    local log = native.load64(scope, native.fieldOffset<guestscope.Services>("replay"))
+    local cursor = native.load64(scope, native.fieldOffset<guestscope.Services>("replaycursor")) + 1ULL
+    if cursor <= countof(log) then
+        native.store64(scope, native.fieldOffset<guestscope.Services>("replaycursor"), cursor)
+        return tables.get(log, values.TAG_INTEGER | cursor)
+    end
+    local answer = values.TRUE
+    if kind == ACCESS_GET then
+        answer = guestmeta.tableGet(ctx, t, key)
+        if native.load64(scope, native.fieldOffset<guestscope.Services>("metaCallee")) ~= 0ULL then
+            return stop(ctx, kind, key, values.NIL)
+        end
+    elseif kind == ACCESS_SET then
+        local status = guestmeta.tableSet(ctx, t, key, value)
+        if status == guestmeta.META_PENDING then
+            return stop(ctx, kind, key, value)
+        end
+        if status == guestmeta.READONLY then
+            guestmeta.readonly(ctx)
+        end
+        if status == tables.NO_MEMORY then
+            error("not enough memory")
+        end
+    else
+        local len = guestmeta.metaField(ctx, t, guestmeta.META_LEN)
+        if len ~= values.NIL then
+            guestmeta.pend(ctx, len, t)
+            return stop(ctx, kind, values.TAG_OBJ | t, values.NIL)
+        end
+        answer = values.TAG_INTEGER | tables.length(t)
+    end
+    setkey(ctx, log, values.TAG_INTEGER | cursor, answer)
+    setkey(ctx, log, values.TAG_INTEGER, values.TAG_INTEGER | cursor)
+    native.store64(scope, native.fieldOffset<guestscope.Services>("replaycursor"), cursor)
+
+    return answer
+end
+
+-- t[index] as the table library reads it, through `__index` as Lua 5.5's
+-- does; in replay (`replaybegin`) a function `__index` is called.
+export function geti(ctx: voidptr, t: uint64, index: int64): uint64
+    local key = values.TAG_INTEGER | native.word(index)
+    if native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("replay")) ~= 0ULL then
+        return replayed(ctx, ACCESS_GET, t, key, values.NIL)
+    end
+    if tables.meta(t) == values.NIL then
+        return tables.get(t, key)
+    end
+    local value = guestmeta.tableGet(ctx, t, key)
+    if guestmeta.takeMeta(ctx) ~= 0ULL then
+        error("a function __index outside a table library call")
+    end
+
+    return value
+end
+
+-- t[index] = value as the table library stores it, through `__newindex`.
+export function seti(ctx: voidptr, t: uint64, index: int64, value: uint64): nil
+    local key = values.TAG_INTEGER | native.word(index)
+    if native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("replay")) ~= 0ULL then
+        replayed(ctx, ACCESS_SET, t, key, value)
+        return
+    end
+    local status = guestmeta.tableSet(ctx, t, key, value)
+    if status == guestmeta.META_PENDING then
+        guestmeta.takeMeta(ctx)
+        error("a function __newindex outside a table library call")
+    end
+    if status == guestmeta.READONLY then
+        guestmeta.readonly(ctx)
+    end
+    if status == tables.NO_MEMORY then
+        error("not enough memory")
+    end
+end
+
+-- #t as the table library takes it, through `__len` as Lua 5.5's luaL_len
+-- does: an integer value, or whatever __len answered.
+export function leni(ctx: voidptr, t: uint64): uint64
+    if native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("replay")) ~= 0ULL then
+        return replayed(ctx, ACCESS_LENGTH, t, values.NIL, values.NIL)
+    end
+    if guestmeta.metaField(ctx, t, guestmeta.META_LEN) ~= values.NIL then
+        error("a __len outside a table library call")
+    end
+
+    return values.TAG_INTEGER | tables.length(t)
+end

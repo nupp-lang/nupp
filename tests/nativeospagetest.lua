@@ -167,8 +167,8 @@ end
 function M.unknownOSMembersAndUnownedUnmapStayRefused()
     fixture(
         [[
-export function clock(dummy: uint64): uint64
-    return os.monotonicNanos()
+export function advise(base: voidptr, bytes: uint64): nil
+    os.advisePages(base, bytes, 0)
 end
 export function discard(base: voidptr, bytes: uint64): nil
     os.unmapPages(base, bytes)
@@ -177,7 +177,7 @@ end
         function(_, functions)
             refuses(
                 function()
-                    nativeos.call(functions.clock, callOf(functions.clock))
+                    nativeos.call(functions.advise, functions.advise.body.body.stats[1].expr)
                 end,
                 "unsupported OS import"
             )

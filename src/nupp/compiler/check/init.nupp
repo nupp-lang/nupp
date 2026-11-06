@@ -1867,8 +1867,11 @@ function checkMod.check(
         end
         -- The table a declaration attaches to reads as a namespace, the same as any
         -- other reference to the module it stands for.
+        -- Its definition is the binding it names, the table a backend stores
+        -- the declaration's value in.
         for _, qualifier in ipairs(stat.qualifiers or {}) do
-            c.markToken(qualifier, nil, nil, "namespace")
+            local entry = c.lookupEntry(qualifier.text)
+            c.markToken(qualifier, entry and entry.definition or nil, entry and entry.t or nil, "namespace")
         end
         c.bindType(key, t, stat.name)
         -- The name a reader writes is the whole path, which is what an editor should be

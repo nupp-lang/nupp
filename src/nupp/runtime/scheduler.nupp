@@ -13,23 +13,15 @@ Whoever waits drives: a task that waits parks, and its driver runs the next
 runnable one; the main thread's own stack (and any coroutine it resumed) has
 no driver above it, so its wait runs the scheduler in place until it is
 woken. Timers are a deadline heap here; with nothing runnable the scheduler
-waits until the nearest deadline. A program's image carries this module when
-it uses the task surface (`coroutine.scope` and its kin), which the core
-reads from `functions`.
+waits in the reactor (`nupp.runtime.reactor`) until the nearest deadline or
+an I/O completion, so parked I/O and timers share one loop: the reactor's
+Parker is this scheduler's park, and its waker wakes the task like any
+wait. A program's image carries this module when it uses the task surface
+(`coroutine.scope` and its kin), which the core reads from `functions`.
 ]]
 
 local calls = require("nupp.runtime.taskcalls")
-
--- The primitives' codes (`taskcalls.op`).
-const NEW = 1
-const RUN = 2
-const PARK = 3
-const CURRENT = 4
-const DATA = 5
-const SETDATA = 6
-const NOW = 7
-const SLEEP = 8
-const INSTALL = 9
+local reactor = require("nupp.runtime.reactor")
 
 -- What a run of a task answers first.
 const RETURNED = 1
@@ -174,11 +166,16 @@ local function fire(entry: any): nil
     end
 end
 
--- The scheduler's wait while nothing can run: the reactor plugs in here, its
--- wait taking I/O completions too with the nearest deadline as its timeout.
--- With no I/O sources yet it is the bridge's sleep.
+-- The scheduler's wait while nothing can run: the reactor's, taking I/O
+-- completions too with the nearest deadline as its timeout, once any I/O is
+-- pending; with none, the bridge's sleep. Both clocks are the monotonic one
+-- in milliseconds.
 local function wait(milliseconds: number): nil
-    calls.op(SLEEP, milliseconds, nil)
+    if reactor.pending() > 0 then
+        reactor.wait((calls.now() as number) + milliseconds)
+    else
+        calls.sleep(milliseconds)
+    end
 end
 
 local runone: function(any): nil
@@ -200,13 +197,18 @@ local function step(): nil
         poptimer()
     end
     if #timers == 0 then
+        -- Only I/O can wake a task now: the reactor waits for it.
+        if reactor.pending() > 0 then
+            reactor.wait(nil)
+            return
+        end
         error("nupp: nothing can wake this wait: every task is parked", 0)
     end
-    local now = calls.op(NOW, nil, nil) as number
+    local now = calls.now() as number
     local at = timers[1].at as number
     if at > now then
         wait(at - now)
-        now = calls.op(NOW, nil, nil) as number
+        now = calls.now() as number
     end
     while #timers > 0 and timers[1].at <= now do
         local entry = poptimer()
@@ -221,12 +223,12 @@ end
 ----------------------------------------------------------------------------
 
 local function current(): any
-    local thread = calls.op(CURRENT, nil, nil)
+    local thread = calls.current()
     if thread == nil then
         return nil
     end
 
-    return calls.op(DATA, thread, nil)
+    return calls.data(thread)
 end
 
 -- Waits until `arm`'s waiter is woken, answering what it was woken with.
@@ -242,7 +244,7 @@ local function park(arm: function(any): nil, shielded: boolean): any
         local waiter = {record = record, ticket = record.ticket}
         arm(waiter)
         record.status = "parked"
-        local value = calls.op(PARK, nil, nil)
+        local value = calls.park()
         record.status = "running"
         if record.requested and not shielded then
             error(record.cancelled, 0)
@@ -268,7 +270,7 @@ local function sleepuntil(deadline: number): nil
 end
 
 local function sleep(milliseconds: number): nil
-    sleepuntil((calls.op(NOW, nil, nil) as number) + milliseconds)
+    sleepuntil((calls.now() as number) + milliseconds)
 end
 
 ----------------------------------------------------------------------------
@@ -346,7 +348,7 @@ runone = function(record: any): nil
     end
     record.started = true
     record.status = "running"
-    local answer = calls.op(RUN, record.thread, value)
+    local answer = calls.run(record.thread, value)
     local code = answer[1]
     if code == RETURNED then
         settle(record, "done", answer)
@@ -423,7 +425,7 @@ local function open(limit: integer?, timeoutms: number?): any
     local owner = current()
     local deadline: number? = nil
     if timeoutms ~= nil then
-        deadline = (calls.op(NOW, nil, nil) as number) + timeoutms
+        deadline = (calls.now() as number) + timeoutms
     end
     -- A scope inside another takes the earlier deadline.
     local outer: any = nil
@@ -478,7 +480,7 @@ local function start(scope: any, name: any, body: any, arguments: any): any
             false
         )
     end
-    local thread = calls.op(NEW, body, arguments)
+    local thread = calls.new(body, arguments)
     local record = {
         thread = thread,
         scope = scope,
@@ -492,7 +494,7 @@ local function start(scope: any, name: any, body: any, arguments: any): any
         queued = false,
         index = #scope.children + 1
     }
-    calls.op(SETDATA, thread, record)
+    calls.setdata(thread, record)
     scope.children[record.index] = record
     scope.live = scope.live + 1
     if scope.cancellation ~= nil then
@@ -572,7 +574,7 @@ end
 ----------------------------------------------------------------------------
 
 local function taskof(thread: any): any
-    local record = calls.op(DATA, thread, nil)
+    local record = calls.data(thread)
     if record == nil then
         error("nupp: not a task", 3)
     end
@@ -683,7 +685,46 @@ local function deadline(): number?
     return nil
 end
 
-calls.op(INSTALL, {__index = methods}, closetask)
+calls.install({__index = methods}, closetask)
+
+-- The reactor's side of a task's wait (`reactor.Parker`): its waker, made
+-- before the operation is submitted, wakes the park that follows it, or
+-- keeps a completion that came first for that park to answer at once.
+local arming: any = nil
+
+local function iowaker(): reactor.Waker?
+    if current() == nil then
+        return nil
+    end
+    local box: any = {waiter = nil, done = false, value = nil}
+    arming = box
+
+    return function(completion: any): nil
+        if box.waiter ~= nil then
+            wake(box.waiter, completion)
+        else
+            box.done = true
+            box.value = completion
+        end
+    end
+end
+
+local function iopark(): reactor.Completion
+    local box = arming
+    arming = nil
+    if box.done then
+        return box.value
+    end
+
+    return park(
+        function(waiter: any): nil
+            box.waiter = waiter
+        end,
+        false
+    )
+end
+
+reactor.install(new reactor.Parker(waker = iowaker, park = iopark))
 
 export const functions: {
     [string]: any

@@ -25,7 +25,8 @@ local function cwd()
 end
 
 local HERE = debug.getinfo(1, "S").source:match("^@(/.*)/[^/]*$") or cwd()
-local ROOT = assert(os.getenv("NUPP_COMPILER_ROOT"), "set NUPP_COMPILER_ROOT to the checkout root")
+-- Another spelling of the root runs this again under its own (compilerroot).
+local ROOT = require("nupp.core.compilerroot").resolve(arg[0], arg)
 local OUT = ROOT .. "/build/core-guests"
 local TESTS = ROOT .. "/native/core/tests"
 -- The guest runtime is built through the service catalog and the unit code
@@ -51,7 +52,12 @@ local SCALED = {
 }
 -- The environment every bridge and guard run sees, which environmentRead
 -- reads back; the long value needs a second copy past the first 256 bytes.
-local GUEST_ENV = "NUPP_GUEST_PROBE=core-environment NUPP_GUEST_SCALE=3 NUPP_GUEST_LONG=" .. string.rep("x", 300) .. " "
+local GUEST_ENV = "NUPP_GUEST_PROBE=core-environment NUPP_GUEST_SCALE=3 NUPP_GUEST_LONG="
+    .. string.rep("x", 300)
+    .. " NUPP_GUEST_TEMP="
+    .. OUT
+    .. "/temp"
+    .. " "
 
 local CASES = {
     {"boolean", 0x7FFB000000000000},
@@ -165,14 +171,50 @@ local CASES = {
     {"modulesqualified", 0x7FFF0000000000E6},
     {"callsoverflow", 0x7FFF000000000003},
     {"tablesfrozen", 0x7FFF000000000FFF},
+    -- Packed array parts (runtime Decision 15): kinds, switches, the table
+    -- library and the collector; then what Lua sees of them, as a checksum.
+    {"tablespacked", 0x7FFF0000000007FF},
+    {"tablespackedsemantics", 0x7FFF00000DEDBD01},
     {"serdejson", 0x7FFF000000000003},
     {"modulesretry", 0x7FFF00000000007F},
     {"errorsruntime", 0x7FFF00000000001F},
+    {"hostlibrary", 0x7FFF0000000000FF},
+    {"benchforms", 0x7FFF00000000003F},
+    {"iofiles", 0x7FFF07FFFFFFFFFF},
+    {"iostandard", 0x7FFF00000000000F},
+    {"reactorpipes", 0x7FFF00000007FFFF},
+    {"reactorfiles", 0x7FFF000000001FFF},
+    -- Parked I/O and timers in the scheduler's one loop.
+    {"tasksreactor", 0x7FFF00000000001F},
+    {"processexecute", 0x7FFF000000001FFF},
+    {"processpopen", 0x7FFF00001FFFFFFF},
+    {"processhandle", 0x7FFF000001FFFFFF},
+    {"processlayer", 0x7FFF000000FFFFFF},
+    -- os.exit(3): the program ends there, publishing nothing (EXITS).
+    {"processexit", 0},
+    -- An error no protected call takes: reported on standard error, and
+    -- the program ends with status 1, publishing nothing (EXITS).
+    {"errorsuncaught", 0},
+    -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
+    -- debug.bench), measuring fib: its record is checked (OUTPUT); the
+    -- entry exports nothing.
+    {"benchworkloads", 0x7FF9000000000000},
     -- 600 functions, past the 256 owners the graph schema once admitted.
     {"functionsmany", 0x7FFF00000002C04C},
     -- Recursion to 150,000 frames and an overflow at 200,000 (7 * 10^6 +
     -- the deepest call, 199,999).
     {"callsdeep", 0x7FFF0000006DDCFF},
+    -- Forty calls through a function value in one function, run directly
+    -- and in a coroutine that yields at each; recursion with results and
+    -- extra arguments; a deep error caught (850,001 * 8 + every check, 7).
+    {"callsmany", 0x7FFF00000067C28F},
+    -- Pattern anchors in find, match, gmatch and gsub, and where `^` and `$`
+    -- are literal.
+    {"stringsanchors", 0x7FFF0005D99B5B1C},
+    -- Recursive local functions called by name: declared, inferred and
+    -- unannotated, variadic with several results, nested, mutually recursive
+    -- and through a forward-declared local (255 * 10^6 + 1,617).
+    {"callsrecursive", 0x7FFF00000F330411},
     -- 260 modules whose chunk depths sum to 4,421 frames: every one ran.
     {"modulesmany", 0x7FFB000000000000}
 }
@@ -185,17 +227,63 @@ local OUTPUT = {
     callsExpand = "1\t2\nx\t1\t2\n",
     outputwrite = "hello 42 1.5\n3.0 -0.0 9.223372036854776e18\nab\nx7\np\n",
     libraryspread = "1\t2\t3\n3\t3\n97\t98\t99\n2\t3\ntrue\t1\t2\n",
-    moduleslazy = "main start\nshapes loading\ncounter loading\nmain required\n"
+    moduleslazy = "main start\nshapes loading\ncounter loading\nmain required\n",
+    iostandard = "a1 b\t2.5\ne\nc\n1\ttrue\t7\tx\nfalse\tboom\ntail\ttrue\nw\n",
+    processexit = "before exit\nprinted\t1\n"
 }
--- Heap-using cases that also run with a whole collection at every
--- allocation. records and strings allocate per iteration, which makes their
--- full-scale workloads quadratic there; stringsBasic and tablesBasic stand in.
+-- The bench entry's record, which holds times: its shape and fib(20)'s
+-- checksum (SETUP) are what is checked, not what it measured.
+OUTPUT.benchworkloads = function(printed)
+    local ok, record = pcall(json.decodevalue, printed)
+    local case = ok and type(record) == "table" and type(record.cases) == "table" and record.cases[1]
+    if type(case) ~= "table" or #record.cases ~= 1 or type(record.schema) ~= "number" then
+        return false
+    end
+    local samples = case.samplesMs
+    if type(samples) ~= "table" or #samples ~= case.rounds then
+        return false
+    end
+    for _, sample in ipairs(samples) do
+        if type(sample) ~= "number" or sample < 0 then
+            return false
+        end
+    end
+
+    return case.name == "fib"
+        and case.kind == "case"
+        and case.n == 1
+        and case.rounds == 7
+        and case.checksum == "6765"
+        and type(case.medianMs) == "number"
+end
+
+-- The uncaught error's report names its chunk as the core does: a long
+-- path, shortened as Lua shortens one.
+OUTPUT.errorsuncaught = function(printed)
+    return printed:find("^before error\nprinted\t1\nnupp: [^\n]*catalogerrorsuncaught%.nupp:12: boom\n$") ~= nil
+end
+
+-- Whether `printed` is what case `name` prints.
+local function printedAs(name, printed)
+    local expected = OUTPUT[name]
+    if type(expected) == "function" then
+        return expected(printed)
+    end
+
+    return printed == (expected or "")
+end
+-- Heap-using cases that also run with a collection at every allocation, and
+-- with interleaved incremental collection. Full cycles under stress are
+-- spaced by a share of what lives, so the full-scale workloads stay linear;
+-- records and strings, at seconds a run there, run so in normal mode alone.
 local STRESS = {
     callsNumeric = true,
     workloadFib = true,
     tablesBasic = true,
     workloadClosures = true,
     workloadTables = true,
+    workloadRecords = "normal",
+    workloadStrings = "normal",
     stringsBasic = true,
     integersWide = true,
     threadsbasic = true,
@@ -224,12 +312,53 @@ local STRESS = {
     ownerreinit = true,
     coreforms = true,
     tablesfrozen = true,
+    tablespacked = true,
+    tablespackedsemantics = true,
     serdejson = true,
     functionsmany = true,
     callsdeep = true,
+    callsmany = true,
+    stringsanchors = true,
+    callsrecursive = true,
+    callsResults = true,
+    callsVariadic = true,
+    callsSpread = true,
+    callsProtected = true,
+    callsXpcall = true,
+    recordsaffineraise = true,
     modulesretry = true,
-    errorsruntime = true
+    errorsruntime = true,
+    hostlibrary = true,
+    benchforms = true,
+    iofiles = true,
+    iostandard = true,
+    reactorpipes = true,
+    reactorfiles = true,
+    tasksreactor = true,
+    processexecute = true,
+    processpopen = true,
+    processhandle = true,
+    processlayer = true,
+    processexit = true,
+    errorsuncaught = true
 }
+-- Shell statements a case's runs start with: the io and pool cases may hold
+-- 64 descriptors, so a handle left open, or opened by a cancelled pool job,
+-- would exhaust them; the bench entry measures fib(20), BENCH_SCALE adding to
+-- 29.
+local SETUP = {
+    iofiles = "ulimit -n 64; ",
+    reactorfiles = "ulimit -n 64; ",
+    processpopen = "ulimit -n 64; ",
+    processlayer = "ulimit -n 64; ",
+    benchworkloads = "export BENCH_SCALE=-9; "
+}
+-- The program arguments a case is run with, after the bridge's own.
+-- The bench entry measures one case, writes its record as JSON on standard
+-- output, and writes the record file it always writes nowhere.
+local ARGUMENTS = {hostlibrary = "alpha beta", benchworkloads = "--case fib --json --out /dev/null"}
+-- Cases whose program the core refuses to compile, and what it says.
+local REFUSED = {}
 -- What stress cases see in place of their full size under collection at
 -- every allocation and interleaved collection, which keeps every freed
 -- object as a tombstone: there a collection runs between any two
@@ -317,8 +446,69 @@ local NUMERIC = {
     modulesdynamic = "catalog-modules-dynamic",
     libraryvalues = "catalog-library-values",
     callsoverflow = "catalog-calls-overflow",
+    callsmany = "catalog-calls-many",
+    stringsanchors = "catalog-strings-anchors",
+    callsrecursive = "catalog-calls-recursive",
     modulesretry = "catalog-modules-retry",
-    errorsruntime = "catalog-errors-runtime"
+    errorsruntime = "catalog-errors-runtime",
+    tablespackedsemantics = "catalog-tables-packed-semantics",
+    iofiles = "catalog-io-files",
+    iostandard = "catalog-io-standard",
+    processexecute = "catalog-process-execute",
+    processpopen = "catalog-process-popen"
+}
+-- The status a program ends with when an error no protected call takes
+-- ends it, as the command line's: the bridge exits so once the program has
+-- reported the error.
+local RAISED = 1
+-- Cases whose program ends through os.exit, or an error no protected call
+-- takes, with this status, publishing no result: their bridge runs are
+-- checked for the status and what they printed, output and errors
+-- together, and their twins against reference Lua the same way; the ABI
+-- guard, which runs the entry inside a test, is not run.
+local EXITS = {processexit = 3, errorsuncaught = RAISED}
+local EXITTWINS = {processexit = "catalog-process-exit"}
+-- What a printed text must match: exactly this string, or this function's
+-- test of it.
+local function matches(expected, printed)
+    if type(expected) == "function" then
+        return expected(printed)
+    end
+
+    return printed == expected
+end
+-- Whether `printed` is the uncaught error's output with `report` last, a
+-- Lua pattern.
+local function reported(report)
+    return function(printed)
+        return printed:find("^before error\nprinted\t1\n" .. report .. "\n$") ~= nil
+    end
+end
+-- Further runs of a case's program, with these arguments, that an error no
+-- protected call takes ends: each ends with status RAISED, publishes
+-- nothing and prints this (matches). The bench entry asked for a case it
+-- does not have reports it as `nupp bench` does. The uncaught error's
+-- objects are shown by their __tostring as lua.c's message handler shows
+-- them, its "(error object is a table value)" for an answer that is no
+-- string and the __tostring's own error for one it raises, and values with
+-- no string form as the VM shows them.
+local RAISES = {
+    benchworkloads = {{"--case '^fib$' --json --out /dev/null", "nupp: no benchmark named ^fib$\n"}},
+    errorsuncaught = {
+        {"tostring", reported("nupp: custom text")},
+        {"nonstring", reported("nupp: %(error object is a table value%)")},
+        {"raising", reported("nupp: [^\n]*catalogerrorsuncaught%.nupp:42: inner")},
+        {"named", reported("nupp: already named")},
+        {"table", reported("nupp: table: 0x%x+")},
+        {"nil", reported("nupp: nil")}
+    }
+}
+-- The twins that run commands: the reference interpreter they run under is
+-- built with LUA_USE_POSIX (see `posixreference`).
+local POSIXTWINS = {
+    ["catalog-process-execute"] = true,
+    ["catalog-process-popen"] = true,
+    ["catalog-process-exit"] = true
 }
 local FIXTURES = {
     "catalog-boolean",
@@ -629,9 +819,25 @@ local function stage()
             "catalog-storage-basics",
             "catalog-storage-provider",
             "catalog-tables-frozen",
+            "catalog-tables-packed",
+            "catalog-tables-packed-semantics",
+            "catalog-host-library",
+            "catalog-output-write",
+            "catalog-io-files",
+            "catalog-io-standard",
+            "catalog-reactor-driver",
+            "catalog-reactor-pipes",
+            "catalog-reactor-files",
             "catalog-tasks-basic",
             "catalog-tasks-cancel",
-            "catalog-tasks-scopes"
+            "catalog-tasks-scopes",
+            "catalog-tasks-reactor",
+            "catalog-process-execute",
+            "catalog-process-popen",
+            "catalog-process-handle",
+            "catalog-process-exit",
+            "catalog-errors-uncaught",
+            "catalog-process-layer"
         }) do
             write(
                 base .. "/source/nupp/core/" .. fixture:gsub("-", "") .. ".nupp",
@@ -656,9 +862,41 @@ local function stage()
     end
 end
 
+-- The reference interpreter `lua` names, rebuilt from its own sources with
+-- LUA_USE_POSIX (`make posix`) under OUT, once: the oracle's is built
+-- generic, where popen raises and os.execute answers raw wait statuses.
+local posixbuilt = {}
+local function posixreference(lua)
+    if posixbuilt[lua] then
+        return posixbuilt[lua]
+    end
+    local source = assert(lua:match("^(.*)/src/lua$"), "reference Lua is not a source tree's src/lua: " .. lua)
+    local tree = OUT .. "/lua-posix"
+    local built = tree .. "/src/lua"
+    local version = OUT .. "/lua-posix.source"
+    if read(version) ~= source or not read(built) then
+        local status, output = shell(
+            ("rm -rf %s && cp -R %s %s && cd %s/src && make clean > /dev/null && make posix"):format(
+                quote(tree),
+                quote(source),
+                quote(tree),
+                quote(tree)
+            )
+        )
+        assert(status == 0, "POSIX reference Lua build failed: " .. output)
+        write(version, source)
+    end
+    posixbuilt[lua] = built
+
+    return built
+end
+
 -- Reference Lua 5.5 results for the numeric fixtures, as NaN-boxed words. A
 -- sibling .lua file is a hand-written twin for fixtures Lua cannot parse.
 local function oracle(lua, fixture)
+    if POSIXTWINS[fixture] then
+        lua = posixreference(lua)
+    end
     local twin = read(TESTS .. "/" .. fixture .. ".lua")
     local source = twin
     if not source then
@@ -909,6 +1147,8 @@ local function main()
     if not os.getenv("NUPP_GUEST_SHARD") then
         functionsmany()
         modulesmany()
+        -- And the directory the io cases write their files in, afresh.
+        os.execute("rm -rf " .. quote(OUT .. "/temp") .. " && mkdir -p " .. quote(OUT .. "/temp"))
     end
     -- The cases named, in the order named, or every case.
     local selectedCases = {}
@@ -945,6 +1185,14 @@ local function main()
             else
                 check(observed == expected, ("oracle %s: %s"):format(name, tostring(observed)))
             end
+        end
+        -- The twins that end through os.exit: their status and output.
+        for name, fixture in pairs(EXITTWINS) do
+            local status, printed = shell(
+                GUEST_ENV .. quote(posixreference(lua)) .. " " .. quote(TESTS .. "/" .. fixture .. ".lua")
+            )
+            check(status == EXITS[name], ("oracle %s status %s"):format(name, tostring(status)))
+            check(printedAs(name, printed), "oracle " .. name .. " printed output")
         end
     end
     -- Library names and texts share one id space in guesttexts: an id two
@@ -993,9 +1241,13 @@ local function main()
     local function bridgeRun(label, bundle, input, output, expectedStatus, environment, after)
         local kind = label:match(" (%a+)") or "bridge"
         local phase = label:match("^audit") and "audit bridge" or ("bridge " .. kind)
+        local arguments = ARGUMENTS[label:match("^(%w+)")]
         defer(
             phase,
-            (environment or GUEST_ENV) .. ("%s %s %s %s"):format(quote(bridge), quote(bundle), quote(input), quote(output)),
+            (SETUP[label:match("^(%w+)")] or "")
+            .. (environment or GUEST_ENV)
+            .. ("%s %s %s %s"):format(quote(bridge), quote(bundle), quote(input), quote(output))
+            .. (arguments and " " .. arguments or ""),
             function(status, printed)
                 check((status == 0) == (expectedStatus == 0), label .. " bridge status")
                 if after then
@@ -1009,9 +1261,13 @@ local function main()
         if QUICK or HEAVY[label:match("^(%w+)")] then
             return
         end
-        local env = GUEST_ENV .. (
+        local env = (SETUP[label:match("^(%w+)")] or "") .. GUEST_ENV .. (
             "CORE_TEST_BUNDLE=%s CORE_TEST_INPUT=%s CORE_TEST_HIGH_WATER=%d "
         ):format(quote(bundle), quote(input), highWater)
+        local arguments = ARGUMENTS[label:match("^(%w+)")]
+        if arguments then
+            env = env .. "CORE_TEST_ARGUMENTS=" .. quote(arguments) .. " "
+        end
         local test = "abi::generated_entry_preserves_c_abi_and_output"
         if status then
             env = env .. "CORE_TEST_STATUS=" .. status .. " "
@@ -1040,7 +1296,17 @@ local function main()
 
     for _, case in ipairs(selectedCases) do
         local name, expectedWord = case[1], case[2]
-        for _, mode in ipairs({"normal", "spill"}) do
+        if REFUSED[name] then
+            timing.case, timing.phase = name, "select"
+            local began = os.time()
+            local compiled, problem = pcall(guestbuild.program, name)
+            account(os.time() - began)
+            check(
+                not compiled and tostring(problem):find(REFUSED[name]) ~= nil,
+                name .. " refusal: " .. tostring(problem)
+            )
+        end
+        for _, mode in ipairs(REFUSED[name] and {} or {"normal", "spill"}) do
             local label = name .. "-" .. mode
             timing.case = name
             local selected = selection(name, mode)
@@ -1062,9 +1328,67 @@ local function main()
             check(version == (profile >= 3 and profile or modules), label .. " descriptor version")
             local bundle = OUT .. "/" .. label .. ".bundle"
             write(bundle, bundleBytes)
+            -- Each in every collection mode the case runs in.
+            local modes = {{"", empty}}
+            if RAISES[name] and UNITS and STRESS[name] then
+                local stress = OUT .. "/" .. label .. "-raises-stress.bin"
+                write(stress, u64(-1) .. u64(0) .. u64(1))
+                local stepped = OUT .. "/" .. label .. "-raises-interleaved.bin"
+                write(stepped, u64(-1) .. u64(0) .. u64(2))
+                modes[#modes + 1] = {" stress", stress}
+                modes[#modes + 1] = {" interleaved", stepped}
+            end
+            for index, raise in ipairs(RAISES[name] or {}) do
+                for _, run in ipairs(modes) do
+                    local output = OUT .. "/" .. label .. "-raises" .. index .. run[1]:gsub(" ", "-") .. ".out"
+                    local raised = ("%s%s raises (%s)"):format(label, run[1], raise[1])
+                    write(output, sentinel)
+                    defer(
+                        "bridge raise",
+                        (SETUP[name] or "")
+                        .. GUEST_ENV
+                        .. ("%s %s %s %s %s"):format(quote(bridge), quote(bundle), quote(run[2]), quote(output), raise[1]),
+                        function(status, printed)
+                            check(status == RAISED, ("%s: exit status %s"):format(raised, tostring(status)))
+                            check(matches(raise[2], printed), raised .. ": printed " .. printed)
+                            check(read(output) == sentinel, raised .. ": published nothing")
+                        end
+                    )
+                end
+            end
             if STATUS[name] then
                 refuses(label, bundle, empty)
                 guarded(label, bundle, empty, highWater, nil, STATUS[name])
+            elseif EXITS[name] then
+                -- It ends through os.exit: its status and what it printed,
+                -- in each collection mode, and no result published.
+                local runs = {{"", empty}}
+                if UNITS and STRESS[name] then
+                    local stress = OUT .. "/" .. label .. "-stress.bin"
+                    write(stress, u64(-1) .. u64(0) .. u64(1))
+                    local stepped = OUT .. "/" .. label .. "-interleaved.bin"
+                    write(stepped, u64(-1) .. u64(0) .. u64(2))
+                    runs[#runs + 1] = {" stress", stress}
+                    runs[#runs + 1] = {" interleaved", stepped}
+                end
+                for _, run in ipairs(runs) do
+                    local output = OUT .. "/" .. label .. run[1]:gsub(" ", "-") .. ".out"
+                    write(output, sentinel)
+                    defer(
+                        "bridge exit",
+                        (SETUP[name] or "") .. GUEST_ENV .. ("%s %s %s %s"):format(
+                            quote(bridge),
+                            quote(bundle),
+                            quote(run[2]),
+                            quote(output)
+                        ),
+                        function(status, printed)
+                            check(status == EXITS[name], ("%s%s exit status %s"):format(label, run[1], tostring(status)))
+                            check(printedAs(name, printed), label .. run[1] .. " printed output")
+                            check(read(output) == sentinel, label .. run[1] .. " published nothing")
+                        end
+                    )
+                end
             else
                 local expected = OUT .. "/" .. label .. ".expected"
                 write(expected, u64(expectedWord))
@@ -1072,11 +1396,11 @@ local function main()
                 os.remove(output)
                 bridgeRun(label, bundle, empty, output, 0, nil, function(printed)
                     check(read(output) == u64(expectedWord), ("%s result %016x"):format(label, expectedWord))
-                    check(printed == (OUTPUT[name] or ""), label .. " printed output")
+                    check(printedAs(name, printed), label .. " printed output")
                 end)
                 guarded(label, bundle, empty, highWater, expected)
-                -- The same result with a whole collection at every allocation.
-                if STRESS[name] and UNITS then
+                -- The same result with a collection at every allocation.
+                if UNITS and (STRESS[name] == true or STRESS[name] == mode) then
                     local input = OUT .. "/" .. label .. "-stress.bin"
                     write(input, u64(-1) .. u64(0) .. u64(1))
                     local stressed = OUT .. "/" .. label .. "-stress.out"
@@ -1084,7 +1408,7 @@ local function main()
                     local environment = STRESS_ENV[name] and GUEST_ENV .. STRESS_ENV[name]
                     bridgeRun(label .. " stress", bundle, input, stressed, 0, environment, function(again)
                         check(
-                            again == (OUTPUT[name] or ""),
+                            printedAs(name, again),
                             label .. " printed output under collect-at-every-allocation"
                         )
                         check(read(stressed) == u64(expectedWord), label .. " result under collect-at-every-allocation")
@@ -1097,7 +1421,7 @@ local function main()
                     os.remove(steppedOut)
                     bridgeRun(label .. " interleaved", bundle, stepped, steppedOut, 0, environment, function(printedStepped)
                         check(
-                            printedStepped == (OUTPUT[name] or ""),
+                            printedAs(name, printedStepped),
                             label .. " printed output under interleaved collection"
                         )
                         check(read(steppedOut) == u64(expectedWord), label .. " result under interleaved collection")
