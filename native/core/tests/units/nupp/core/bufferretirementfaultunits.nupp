@@ -1,0 +1,106 @@
+module nupp.core.bufferretirementfaultunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const weak = require("nupp.runtime.vm.gcweak")
+const corestorage = require("nupp.runtime.core.corestorage")
+const storage = require("nupp.runtime.core.storage")
+const pages = require("nupp.runtime.core.pagemappings")
+const tables = require("nupp.runtime.core.coretables")
+const servicescope = require("nupp.runtime.core.servicescope")
+const fixture = require("nupp.core.longstringfaultunits")
+
+const CURRENT: uint64 = 32ULL
+const TARGET: uint64 = 40ULL
+const OTHER: uint64 = 48ULL
+const DESCRIPTOR: uint64 = 56ULL
+const QUEUED: uint64 = 72ULL
+const ACK: uint64 = 88ULL
+
+local function must(ok: boolean): nil
+    if not ok then
+        error("buffer retirement fault: setup refused")
+    end
+end
+
+local function owner(h: heap.Heap*, capacity: uint64): uint64
+    local object = corestorage.newstorage(h, corestorage.UINT8, 0ULL)
+    must(object ~= 0ULL)
+    @unsafe do
+        local d = corestorage.descriptor(object)
+        must(d.base == 0ULL and d.len == 0ULL and d.cap == 0ULL)
+        storage.clear(d)
+        must(storage.bufferinitialize(d, corestorage.UINT8, capacity) == storage.OK)
+    end
+
+    return object
+end
+
+-- Modes0/1 abandon an active writer;2 refuses its final block release;
+-- 3 fails an old pending release before closing current;4 then refuses current;
+-- 5 acknowledges a live predecessor failure before normal GC cleanup.
+export function failure(scope: uint64, mode: uint64): uint64
+    @unsafe do
+        local h = native.pointer(fixture.prepare(scope, mode)) as heap.Heap*
+        local out = native.pointer(scope)
+        local extra = native.sizeOf<servicescope.ServiceScope>()
+        local other = owner(h, 0ULL)
+        local target = owner(h, 131ULL)
+        local d = corestorage.descriptor(target)
+        must(
+            storage.bufferstart(
+                d,
+                0ULL,
+                1ULL,
+                native.pointer(0ULL) as storage.CopyStats*,
+                corestorage.bufferlimit(h, target)
+            ) == storage.OK
+        )
+        must(corestorage.buffercharge(h, target) == storage.OK)
+        native.store8(native.pointer(d.base), 0, 42ULL)
+        native.store64(out, native.index(extra + ACK), 0ULL)
+        if mode >= 2ULL then
+            must(storage.buffercommit(d, d.writer, 0ULL, 1ULL, 1ULL) == storage.OK)
+        end
+        if mode == 3ULL or mode == 4ULL then
+            local previous = d.block
+            must(pages.sharedcompare(native.pointer(previous), 1ULL, 0ULL) == 1ULL)
+            must(
+                storage.bufferreserve(
+                    d,
+                    300ULL,
+                    native.pointer(0ULL) as storage.CopyStats*,
+                    corestorage.bufferlimit(h, target)
+                ) == storage.INVALID
+            )
+            must(corestorage.buffercharge(h, target) == storage.OK)
+            must(d.pending == previous and d.block ~= previous)
+            must(pages.sharedcompare(native.pointer(previous), 0ULL, 1ULL) == 0ULL)
+        elseif mode == 5ULL then
+            must(
+                storage.bufferreserve(
+                    d,
+                    300ULL,
+                    native.pointer(0ULL) as storage.CopyStats*,
+                    corestorage.bufferlimit(h, target)
+                ) == storage.CLEANUP_FAILED
+            )
+            must(corestorage.buffercharge(h, target) == storage.OK)
+            local errno = storage.bufferack(d)
+            must(errno == 22ULL and d.error == 0ULL)
+            native.store64(out, native.index(extra + ACK), errno)
+        end
+        native.store64(out, native.index(extra + CURRENT), d.block)
+        native.store64(out, native.index(extra + TARGET), target)
+        native.store64(out, native.index(extra + OTHER), other)
+        native.store64(out, native.index(extra + DESCRIPTOR), native.address(d as voidptr))
+        if mode == 2ULL or mode == 4ULL then
+            must(pages.sharedcompare(native.pointer(d.block), 1ULL, 0ULL) == 1ULL)
+        end
+        weak.release(h, native.pointer(other) as heap.Header*)
+        weak.release(h, native.pointer(target) as heap.Header*)
+        native.store64(out, native.index(extra + QUEUED), h.released.count)
+        tables.drain(h)
+        return 0ULL
+    end
+end

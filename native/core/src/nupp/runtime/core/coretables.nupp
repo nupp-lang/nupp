@@ -147,7 +147,12 @@ export function drain(h: heap.Heap*): nil
                     packedrelease(o)
                 end
             elseif o.aux as uint64 == heap.KIND_CORE_STORAGE then
-                corestorage.releasestorage(o)
+                local status = corestorage.releasestorage(o)
+                if status ~= storage.OK and status ~= storage.CLEANUP_FAILED then
+                    -- A refusal still owns its descriptor and pending block.
+                    error("core Buffer: backing release refused")
+                end
+                failed = status == storage.CLEANUP_FAILED
             elseif o.aux as uint64 == heap.KIND_THREAD then
                 local thread = native.pointer(address + heap.HEADER_BYTES) as heap.ThreadBody*
                 if thread.pages ~= 0ULL then
@@ -160,7 +165,7 @@ export function drain(h: heap.Heap*): nil
             if failed then
                 -- The consumed reference cannot be retried. Other retirements
                 -- stay queued, and the independent failed mapping stays mapped.
-                error("core strings: shared release failed")
+                error("core: shared release failed")
             end
         end
     end

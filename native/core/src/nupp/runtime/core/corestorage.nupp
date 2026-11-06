@@ -19,8 +19,11 @@ const backing = require("nupp.runtime.vm.backing")
 const values = require("nupp.runtime.vm.values")
 const ints = require("nupp.runtime.core.coreintegers")
 const storage = require("nupp.runtime.core.storage")
+const shared = require("nupp.runtime.core.sharedbacking")
 
 const WORD_BYTES: uint64 = 8ULL
+const MAXIMUM: uint64 = 0xffffffffffffffffULL
+const MAX_OWNED_BLOCKS: uint64 = 2ULL
 const MAX_STORAGE_BYTES: uint64 = 0x0000ffffffffffffULL
 
 -- Only the core uses this view payload; the shared VM SliceBody is unchanged.
@@ -35,6 +38,74 @@ end
 export function descriptor(object: uint64): storage.Storage*
     @unsafe do
         return native.pointer((native.pointer(object) as heap.Header*).auxPtr) as storage.Storage*
+    end
+end
+
+-- The same heap owns this rooted live owner throughout limit, the common
+-- operation, and charge. None of those steps may collect or call guest code.
+-- A bound includes both current and pending references: a predecessor release
+-- can refuse after the new tuple is already published.
+export function bufferlimit(h: heap.Heap*, object: uint64): uint64
+    if object == 0ULL then
+        return 0ULL
+    end
+    @unsafe do
+        local o = native.pointer(object) as heap.Header*
+        if o.kind as uint64 ~= heap.KIND_CORE_STORAGE or o.auxPtr == 0ULL or o.auxLen > h.liveBytes then
+            return 0ULL
+        end
+        local live = MAXIMUM - (h.liveBytes - o.auxLen)
+        local debt = MAXIMUM
+        if h.debt > o.auxLen then
+            debt = MAXIMUM - (h.debt - o.auxLen)
+        end
+        if live < debt then
+            return live
+        end
+        return debt
+    end
+end
+
+-- Refresh after every mutating status, including a consumed cleanup failure.
+-- Current and pending pointers each carry a still-owned reference; a consumed
+-- mapping is never read here. Pooled generic owners retain a zero charge.
+export function buffercharge(h: heap.Heap*, object: uint64): uint64
+    if object == 0ULL then
+        return storage.INVALID
+    end
+    @unsafe do
+        local o = native.pointer(object) as heap.Header*
+        if o.kind as uint64 ~= heap.KIND_CORE_STORAGE or o.auxPtr == 0ULL or o.auxLen > h.liveBytes then
+            return storage.INVALID
+        end
+        local d = descriptor(object)
+        local charge: uint64 = 0ULL
+        if d.mode == storage.SHARED and d.role == storage.BUFFER then
+            if d.block ~= 0ULL then
+                charge = shared.mapped(native.pointer(d.block))
+                if charge == 0ULL then
+                    return storage.INVALID
+                end
+            end
+            if d.pending ~= 0ULL then
+                if d.pending == d.block then
+                    return storage.INVALID
+                end
+                local pending = shared.mapped(native.pointer(d.pending))
+                if pending == 0ULL or pending > MAXIMUM - charge then
+                    return storage.INVALID
+                end
+                charge = charge + pending
+            end
+        elseif d.mode ~= storage.POOLED or d.role ~= storage.GENERIC or d.block ~= 0ULL or d.pending ~= 0ULL then
+            return storage.INVALID
+        end
+        if charge > bufferlimit(h, object) then
+            return storage.INVALID
+        end
+        heap.accountResize(h, o.auxLen, charge)
+        o.auxLen = charge
+        return storage.OK
     end
 end
 
@@ -231,16 +302,56 @@ export function newstorage(h: heap.Heap*, kind: uint64, n: uint64): uint64
     end
 end
 
--- Retirement overwrites Header.aux with the old heap kind. Only auxPtr is
--- needed here. Clearing it makes repeated release before recycle harmless.
-export function releasestorage(o: heap.Header*): nil
+-- Retired core Buffer owners have exclusive terminal authority: every managed
+-- lease that could use their writer is unreachable. Live close keeps BUSY.
+-- INVALID/BUSY retain the descriptor and queue authority. A consumed failure
+-- may finish only the pending predecessor, so close the remaining current
+-- block before freeing the descriptor. There are at most two owned blocks.
+export function releasestorage(o: heap.Header*): uint64
     @unsafe do
         local address = o.auxPtr
-        if address ~= 0ULL then
-            storage.release(native.pointer(address) as storage.Storage*)
-            backing.wordBackingRelease(address)
-            o.auxPtr = 0ULL
+        if address == 0ULL then
+            return storage.OK
         end
+        local d = native.pointer(address) as storage.Storage*
+        if d.mode == storage.SHARED and d.role == storage.BUFFER then
+            if o.kind as uint64 ~= heap.KIND_FREED or o.aux as uint64 ~= heap.KIND_CORE_STORAGE then
+                return storage.INVALID
+            end
+            if d.writer ~= 0ULL then
+                storage.bufferdrop(d, d.writer)
+                if d.writer ~= 0ULL then
+                    return storage.BUSY
+                end
+            end
+            local attempt: uint64 = 0ULL
+            while attempt < MAX_OWNED_BLOCKS do
+                local status = storage.bufferclose(d)
+                if status ~= storage.OK and status ~= storage.CLEANUP_FAILED then
+                    return status
+                end
+                if d.closed ~= 0ULL and d.block == 0ULL and d.pending == 0ULL and d.writer == 0ULL then
+                    local failed = d.error ~= 0ULL or status == storage.CLEANUP_FAILED
+                    o.auxPtr = 0ULL
+                    backing.wordBackingRelease(address)
+                    if failed then
+                        return storage.CLEANUP_FAILED
+                    end
+                    return storage.OK
+                end
+                if status ~= storage.CLEANUP_FAILED then
+                    return storage.INVALID
+                end
+                attempt = attempt + 1ULL
+            end
+            return storage.INVALID
+        elseif d.mode ~= storage.POOLED or d.role ~= storage.GENERIC then
+            return storage.INVALID
+        end
+        storage.release(d)
+        backing.wordBackingRelease(address)
+        o.auxPtr = 0ULL
+        return storage.OK
     end
 end
 

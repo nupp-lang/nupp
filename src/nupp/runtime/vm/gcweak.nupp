@@ -273,6 +273,13 @@ export function release(h: heap.Heap*, o: heap.Header*): nil
                 local charge = tail.charge
                 tail.charge = 0ULL
                 heap.accountResize(h, charge, 0ULL)
+            elseif o.kind as uint64 == heap.KIND_CORE_STORAGE then
+                -- Only core owners use auxLen for external mapped charge.
+                -- Snapshot it before retire overwrites aux; retries do not
+                -- subtract the retired charge a second time.
+                local charge = o.auxLen
+                o.auxLen = 0ULL
+                heap.accountResize(h, charge, 0ULL)
             end
             heap.retire(h, o)
             heap.wordsPush(h.released, native.address(o as voidptr))

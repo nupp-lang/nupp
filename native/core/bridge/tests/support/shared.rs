@@ -487,3 +487,44 @@ fn buffer_copy_on_write_preserves_ownership_on_os_failures() {
         }
     }
 }
+
+#[test]
+#[ignore = "requires the exact emitted bufferretirementfaultunits bundle"]
+fn buffer_retirement_preserves_pending_ownership_and_error_acknowledgment() {
+    let bundle = std::path::PathBuf::from(
+        std::env::var_os("CORE_TEST_BUFFER_RETIREMENT_BUNDLE").expect("retirement bundle"),
+    );
+    for mode in 0..6 {
+        let _cleanup = Cleanup;
+        ATTEMPTS.store(0, Ordering::SeqCst);
+        let failing = matches!(mode, 1 | 3 | 4 | 5);
+        ENABLED.store(failing, Ordering::SeqCst);
+        let result = super::execute(&bundle, &[0, 0, mode]).expect("Buffer retirement");
+        ENABLED.store(false, Ordering::SeqCst);
+        assert_eq!(
+            result,
+            [255, 0],
+            "mode{mode}: queue/ownership/ack and actual scope close"
+        );
+        assert_eq!(
+            ATTEMPTS.load(Ordering::SeqCst),
+            u64::from(failing),
+            "exactly one consumed failure"
+        );
+        if failing {
+            let address = ADDRESS.load(Ordering::SeqCst);
+            assert_ne!(address, 0);
+            unsafe {
+                let prefix = address as *const u64;
+                assert_eq!(prefix.add(3).read(), FAILED);
+                assert_eq!(prefix.add(4).read(), 0);
+                assert_eq!(
+                    prefix.add(8).read(),
+                    0,
+                    "writer ended before terminal release"
+                );
+                assert_eq!(*(address as *const u8).add(PREFIX_BYTES as usize), 42);
+            }
+        }
+    }
+}

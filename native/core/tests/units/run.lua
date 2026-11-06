@@ -91,6 +91,41 @@ end
 -- and cases of {function, arguments, expected result}.
 local UNITS = {
     {
+        name = "bufferretirementlandingunits",
+        modules = {"bufferretirementfaultunits", "longstringfaultunits", "bufferretiremententry", "releasequeueentry"},
+        observeLanding = true,
+        observerEntry = "nupp.core.bufferretiremententry",
+        entries = {{"bufferretirementfaultunits", "failure", 2}},
+        cases = function()
+            return {{"failure", {0, 0}, 255}, {"failure", {0, 2}, 255}}
+        end
+    },
+    {
+        name = "bufferretirementfaultunits",
+        modules = {"bufferretirementfaultunits", "longstringfaultunits", "bufferretiremententry", "releasequeueentry"},
+        observeLanding = true,
+        observerEntry = "nupp.core.bufferretiremententry",
+        entries = {{"bufferretirementfaultunits", "failure", 2}},
+        cases = function()
+            return {}
+        end
+    },
+    {
+        name = "bufferretirementunits",
+        modules = {"bufferretirementunits", "unitentry"},
+        entries = {{"bufferretirementunits", "accounting", 0}, {"bufferretirementunits", "reclamation", 3}},
+        cases = function()
+            local cases = {{"accounting", {}, 0}}
+            for minor = 0, 1 do
+                cases[#cases + 1] = {"reclamation", {1, minor, 0}, 0}
+                cases[#cases + 1] = {"reclamation", {0, minor, 0}, 0}
+                cases[#cases + 1] = {"reclamation", {0, minor, 1}, 0}
+            end
+
+            return cases
+        end
+    },
+    {
         name = "bufferstoragefaultunits",
         modules = {"nupp.core.bufferstoragefaultunits", "unitentry", "nupp.runtime.core.storage"},
         paths = {

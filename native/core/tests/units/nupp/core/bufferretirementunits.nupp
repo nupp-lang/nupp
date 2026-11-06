@@ -1,0 +1,201 @@
+module nupp.core.bufferretirementunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const backing = require("nupp.runtime.vm.backing")
+const values = require("nupp.runtime.vm.values")
+const corestorage = require("nupp.runtime.core.corestorage")
+const storage = require("nupp.runtime.core.storage")
+const tables = require("nupp.runtime.core.coretables")
+const shared = require("nupp.runtime.core.sharedbacking")
+const pages = require("nupp.runtime.core.pagemappings")
+
+const ARENA_BYTES: uint64 = 67108864ULL
+const MAXIMUM: uint64 = 0xffffffffffffffffULL
+
+local function miss(ok: boolean): uint64
+    if ok then
+        return 0ULL
+    end
+    return 1ULL
+end
+
+-- Test-only conversion of an empty pooled owner. No pooled data exists, and
+-- the descriptor remains owned by the same managed header throughout.
+local function owner(h: heap.Heap*): uint64
+    local object = corestorage.newstorage(h, corestorage.UINT8, 0ULL)
+    if object == 0ULL then
+        error("buffer retirement: no owner")
+    end
+    @unsafe do
+        local d = corestorage.descriptor(object)
+        if d.base ~= 0ULL or d.len ~= 0ULL or d.cap ~= 0ULL then
+            error("buffer retirement: pooled owner is not empty")
+        end
+        storage.clear(d)
+        if storage.bufferinitialize(d, corestorage.UINT8, 128ULL) ~= storage.OK then
+            error("buffer retirement: initialization refused")
+        end
+    end
+
+    return object
+end
+
+export function accounting(): uint64
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local object = owner(h)
+            local o = native.pointer(object) as heap.Header*
+            local d = corestorage.descriptor(object)
+            local live = h.liveBytes
+            local debt = h.debt
+            h.debt = MAXIMUM
+            wrong = wrong + miss(corestorage.bufferlimit(h, object) == 0ULL)
+            wrong = wrong + miss(
+                storage.bufferstart(
+                    d,
+                    0ULL,
+                    97ULL,
+                    native.pointer(0ULL) as storage.CopyStats*,
+                    0ULL
+                ) == storage.NO_MEMORY
+            )
+            wrong = wrong + miss(d.block == 0ULL and d.pending == 0ULL and d.generation == 0ULL and d.cap == 128ULL)
+            wrong = wrong + miss(corestorage.buffercharge(h, object) == storage.OK)
+            wrong = wrong + miss(h.liveBytes == live and h.debt == MAXIMUM and o.auxLen == 0ULL)
+            h.debt = debt
+            wrong = wrong + miss(
+                storage.bufferstart(
+                    d,
+                    0ULL,
+                    97ULL,
+                    native.pointer(0ULL) as storage.CopyStats*,
+                    corestorage.bufferlimit(h, object)
+                ) == storage.OK
+            )
+            wrong = wrong + miss(corestorage.buffercharge(h, object) == storage.OK)
+            local mapped = shared.mapped(native.pointer(d.block))
+            wrong = wrong + miss(o.auxLen == mapped and h.liveBytes == live + mapped and h.debt == debt + mapped)
+            wrong = wrong + miss(storage.buffercommit(d, d.writer, 0ULL, 97ULL, 97ULL) == storage.OK)
+            wrong = wrong + miss(corestorage.buffercharge(h, object) == storage.OK and o.auxLen == mapped)
+            -- A post-publication refusal can leave a second independent owned
+            -- reference pending. Preflight that exact ownership before taking it.
+            local extra = pages.sharedextent(256ULL)
+            local limit = corestorage.bufferlimit(h, object)
+            if extra == 0ULL or mapped > limit or extra > limit - mapped then
+                error("buffer retirement: no pending budget")
+            end
+            local pending = shared.create(256ULL)
+            if pending == nil then
+                error("buffer retirement: no pending block")
+            end
+            d.pending = native.address(pending)
+            wrong = wrong + miss(corestorage.buffercharge(h, object) == storage.OK)
+            wrong = wrong + miss(o.auxLen == mapped + extra and h.liveBytes == live + mapped + extra)
+            wrong = wrong + miss(storage.bufferfinish(d) == storage.OK)
+            wrong = wrong + miss(corestorage.buffercharge(h, object) == storage.OK)
+            wrong = wrong + miss(o.auxLen == mapped and h.liveBytes == live + mapped)
+            wrong = wrong + miss(storage.bufferreset(d) == storage.OK)
+            wrong = wrong + miss(corestorage.buffercharge(h, object) == storage.OK)
+            wrong = wrong + miss(o.auxLen == 0ULL and h.liveBytes == live and d.cap == 128ULL and d.base == 0ULL)
+            collector.fullCycle(h)
+            tables.drain(h)
+            wrong = wrong + miss(h.liveBytes == 0ULL and h.liveCount == 0ULL)
+            heap.destroy(h)
+        end
+    end
+
+    return wrong
+end
+
+local function collect(h: heap.Heap*, minor: uint64): uint64
+    if minor == 0ULL then
+        collector.fullCycle(h)
+        return collector.checkOracle(h, true)
+    end
+    collector.minorcycle(h)
+
+    return collector.checkOracle(h, false)
+end
+
+export function reclamation(empty: uint64, minor: uint64, active: uint64): uint64
+    local status = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = collector.GENERATIONAL
+            h.automatic = false
+            local slot = arena.alloc(a, 8ULL, 8ULL)
+            if slot == nil then
+                error("buffer retirement: no root")
+            end
+            native.store64(slot, 0, values.NIL)
+            collector.register(h, native.address(slot), 1ULL)
+            local object = owner(h)
+            local o = native.pointer(object) as heap.Header*
+            native.store64(slot, 0, values.TAG_OBJ | object)
+            local d = corestorage.descriptor(object)
+            local address = native.address(d as voidptr)
+            local block: uint64 = 0ULL
+            if empty == 0ULL then
+                wrong = wrong + miss(
+                    storage.bufferstart(
+                        d,
+                        0ULL,
+                        97ULL,
+                        native.pointer(0ULL) as storage.CopyStats*,
+                        corestorage.bufferlimit(h, object)
+                    ) == storage.OK
+                )
+                wrong = wrong + miss(corestorage.buffercharge(h, object) == storage.OK)
+                block = d.block
+                wrong = wrong + miss(shared.retain(native.pointer(block)))
+                if active == 0ULL then
+                    wrong = wrong + miss(storage.buffercommit(d, d.writer, 0ULL, 97ULL, 97ULL) == storage.OK)
+                else
+                    wrong = wrong + miss(storage.bufferclose(d) == storage.BUSY)
+                end
+                wrong = wrong + miss(corestorage.buffercharge(h, object) == storage.OK)
+            end
+            wrong = wrong + miss(corestorage.releasestorage(o) == storage.INVALID)
+            wrong = wrong + collect(h, minor)
+            wrong = wrong + miss(heap.isLiveSlot(h, object) and h.released.count == 0ULL)
+            native.store64(slot, 0, values.NIL)
+            wrong = wrong + collect(h, minor)
+            wrong = wrong + miss(
+                o.kind as uint64 == heap.KIND_FREED
+                and o.aux as uint64 == heap.KIND_CORE_STORAGE
+                and o.auxLen == 0ULL
+                and o.auxPtr == address
+                and h.liveBytes == 0ULL
+                and h.liveCount == 0ULL
+                and h.released.count == 1ULL
+            )
+            tables.drain(h)
+            wrong = wrong + miss(not heap.isLiveSlot(h, object) and h.released.count == 0ULL)
+            local words = (native.sizeOf<storage.Storage>() + 7ULL) // 8ULL
+            local first = backing.wordBackingTake(h, words)
+            local second = backing.wordBackingTake(h, words)
+            wrong = wrong + miss(first == address and second ~= 0ULL and second ~= first)
+            if block ~= 0ULL then
+                local observer = native.pointer(block)
+                wrong = wrong + miss(pages.sharedreferences(observer) == 1ULL)
+                wrong = wrong + miss(native.load64(observer, native.fieldOffset<pages.SharedBacking>("writer")) == 0ULL)
+                wrong = wrong + miss(shared.releaselocal(status as pages.Scope*, observer) == shared.RELEASED)
+            end
+            backing.wordBackingRelease(first)
+            backing.wordBackingRelease(second)
+            heap.destroy(h)
+        end
+    end
+
+    return wrong
+end

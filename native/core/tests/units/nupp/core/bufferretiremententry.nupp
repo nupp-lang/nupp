@@ -1,0 +1,110 @@
+module nupp.core.bufferretiremententry
+
+const native = require("nupp.runtime.vm.intrinsics")
+const os = require("nupp.runtime.vm.os")
+const heap = require("nupp.runtime.vm.heap")
+const backing = require("nupp.runtime.vm.backing")
+const corestorage = require("nupp.runtime.core.corestorage")
+const storage = require("nupp.runtime.core.storage")
+const pages = require("nupp.runtime.core.pagemappings")
+const tables = require("nupp.runtime.core.coretables")
+const servicescope = require("nupp.runtime.core.servicescope")
+const entry = require("nupp.core.releasequeueentry")
+
+const CURRENT: uint64 = 32ULL
+const TARGET: uint64 = 40ULL
+const OTHER: uint64 = 48ULL
+const DESCRIPTOR: uint64 = 56ULL
+const QUEUED: uint64 = 72ULL
+const ACK: uint64 = 88ULL
+
+export function prepare(base: voidptr, bytes: uint64): uint64
+    return entry.prepare(base, bytes)
+end
+
+local function bit(ok: boolean, flag: uint64): uint64
+    if ok then
+        return flag
+    end
+    return 0ULL
+end
+
+-- Failing native frames have returned. Only this test entry clears the sticky
+-- error, inspects retained authority and restores deliberate ref corruption.
+export function finish(scope: voidptr): uint64
+    @unsafe do
+        local failure = native.load64(scope, native.fieldOffset<servicescope.ServiceScope>("error"))
+        native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("error"), 0ULL)
+        local extra = native.sizeOf<servicescope.ServiceScope>()
+        local h = native.pointer(native.load64(scope, native.index(extra))) as heap.Heap*
+        local mode = native.load64(scope, native.index(extra + 24ULL))
+        local target = native.pointer(native.load64(scope, native.index(extra + TARGET))) as heap.Header*
+        local other = native.load64(scope, native.index(extra + OTHER))
+        local address = native.load64(scope, native.index(extra + DESCRIPTOR))
+        local pending = mode == 2ULL or mode == 4ULL
+        local normal = mode == 0ULL or mode == 5ULL
+        local answer = bit((normal and failure == 0ULL) or (not normal and failure == 1ULL), 1ULL)
+        answer = answer | bit(h.liveCount == 0ULL and h.liveBytes == 0ULL and target.auxLen == 0ULL, 2ULL)
+        answer = answer | bit(native.load64(scope, native.index(extra + QUEUED)) == 2ULL, 4ULL)
+        local words = (native.sizeOf<storage.Storage>() + 7ULL) // 8ULL
+        local first = backing.wordBackingTake(h, words)
+        local second = backing.wordBackingTake(h, words)
+        if pending then
+            local d = native.pointer(address) as storage.Storage*
+            local block = native.load64(scope, native.index(extra + CURRENT))
+            answer = answer
+                | bit(
+                    h.released.count == 2ULL and heap.wordAt(h.released, 1ULL) == native.address(target as voidptr),
+                    8ULL
+                )
+            answer = answer
+                | bit(
+                    target.auxPtr == address
+                    and d.block == 0ULL
+                    and d.pending == block
+                    and d.closed == 1ULL
+                    and d.writer == 0ULL
+                    and first ~= address
+                    and second ~= address,
+                    16ULL
+                )
+            answer = answer | bit((mode == 2ULL and d.error == 0ULL) or (mode == 4ULL and d.error == 22ULL), 32ULL)
+            if pages.sharedcompare(native.pointer(block), 0ULL, 1ULL) ~= 0ULL then
+                error("buffer retirement observer: restore refused")
+            end
+            local status = corestorage.releasestorage(target)
+            -- This entry explicitly receives the retry's terminal status;
+            -- the production drain surfaces that same status after popping.
+            if (mode == 2ULL and status ~= storage.OK)
+                or (mode == 4ULL and status ~= storage.CLEANUP_FAILED)
+                or target.auxPtr ~= 0ULL
+            then
+                error("buffer retirement observer: retry failed")
+            end
+        else
+            answer = answer
+                | bit(
+                    (normal and h.released.count == 0ULL)
+                    or (not normal and h.released.count == 1ULL and heap.wordAt(h.released, 0ULL) == other),
+                    8ULL
+                )
+            answer = answer
+                | bit(
+                    first ~= 0ULL and second ~= 0ULL and first ~= second and (first == address or second == address),
+                    16ULL
+                )
+            answer = answer | bit(mode ~= 5ULL or native.load64(scope, native.index(extra + ACK)) == 22ULL, 32ULL)
+        end
+        backing.wordBackingRelease(first)
+        backing.wordBackingRelease(second)
+        tables.drain(h)
+        answer = answer | bit(h.released.count == 0ULL, 64ULL)
+        heap.destroy(h)
+        os.unmapPages(
+            native.pointer(native.load64(scope, native.index(extra + 8ULL))),
+            native.load64(scope, native.index(extra + 16ULL))
+        )
+        answer = answer | bit(servicescope.close(scope) == 1ULL, 128ULL)
+        return answer
+    end
+end
