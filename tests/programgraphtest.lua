@@ -1404,6 +1404,30 @@ export const value: table = {Buffer = Buffer}
     return program.describe(inputs, consumer.name), consumer, dependency
 end
 
+function M.legacyBuiltinFieldsAndIntrinsicCallsDoNotLoadUnusedExtensions()
+    for _, source in ipairs({"return io.type, os.clock", 'return os.getenv("NUPP_GUEST_TEST_UNSET")'}) do
+        local described, consumer = builtinProjectionFixture(source, true)
+        local inputs = {}
+        for _, module in ipairs(described.modules) do
+            if module.name == consumer.name
+                or source:find("io.type", 1, true)
+                and (module.name == "nupp.runtime.luaio" or module.name == "nupp.runtime.luaos")
+            then
+                inputs[#inputs + 1] = {name = module.name, path = module.path, parsed = module.parsed, diagnostics = {}}
+            end
+        end
+        local p = program.describe(inputs, consumer.name)
+        for _, site in ipairs(p.requires) do
+            test.eq(site.builtin, nil)
+            assert(site.module == "nupp.runtime.luaio" or site.module == "nupp.runtime.luaos")
+        end
+        test.eq(#p.requires, source:find("io.type", 1, true) and 2 or 0)
+        test.eq(p.qualifiedLoads[p.entry], nil)
+        test.eq(program.verify(p), true)
+        assert(require("nupp.compiler.vm.coregraphcontracts").normalize(program.compile(p, tagged.forVersion(8)), 8))
+    end
+end
+
 function M.checkedBuiltinTablesProjectTheirValueBeforeLegacyLibraryRouting()
     local p, consumer, dependency = builtinProjectionFixture(
         [[

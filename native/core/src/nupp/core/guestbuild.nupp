@@ -513,7 +513,7 @@ end
 
 -- The modules a checked tree loads: its requires, its qualified paths, and
 -- the names its source says it requires dynamically.
-local function requiredmodules(root: any, source: string): ({string}, {[string]: boolean})
+local function requiredmodules(root: any, source: string, follow: boolean): ({string}, {[string]: boolean})
     local found: {string} = {}
     local dynamic: {[string]: boolean} = {}
     local walk: function(any): nil
@@ -551,10 +551,12 @@ local function requiredmodules(root: any, source: string): ({string}, {[string]:
         end
     end
     walk(root)
-    for list in source:gmatch("@requires%-dynamically ([%w%._, ]+)") do
-        for name in list:gmatch("[%w%._]+") do
-            found[#found + 1] = name
-            dynamic[name] = true
+    if follow then
+        for list in source:gmatch("@requires%-dynamically ([%w%._, ]+)") do
+            for name in list:gmatch("[%w%._]+") do
+                found[#found + 1] = name
+                dynamic[name] = true
+            end
         end
     end
 
@@ -781,8 +783,10 @@ local function compileProgram(caseName: string, fixture: string, version: intege
         else
             modules[#modules + 1] = module
         end
-        if follow then
-            local required, dynamic = requiredmodules(parsed.root or parsed, source)
+        do
+            -- Checked value dependencies are mandatory in every profile. Only
+            -- optional dynamic discovery depends on the case following sources.
+            local required, dynamic = requiredmodules(parsed.root or parsed, source, follow)
             for _, name in ipairs(required) do
                 local library = librarypath(root, name)
                 if library and (not dynamic[name] or portable(root, library)) then
