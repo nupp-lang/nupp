@@ -1205,6 +1205,21 @@ local function takeSlot(h: Heap*, class: uint64): uint64
     end
 end
 
+-- Every live header may eventually need the released-object queue. Establish
+-- capacity >= liveCount + released.count + 1 before publishing another header.
+-- Retirement exchanges one live count for one queued count, while reclaim or
+-- drain lowers the sum. Queue append therefore never maps during cleanup.
+-- Reserve here while allocation may still fail; never in retire/release.
+local function reservereleased(h: Heap*): nil
+    @unsafe do
+        local queued = h.released.count
+        if queued >= MAX_WORDS or h.liveCount >= MAX_WORDS - queued then
+            error("heap: released queue extent overflows")
+        end
+        wordsreserve(h.released, h.liveCount + queued + 1ULL)
+    end
+end
+
 --- Allocates an object of `kind` with `inlineBytes` of payload and answers
 --- its header, colored for where the collector stands. Nothing collects
 --- here: the collector's `allocate` runs its safepoint first. The payload is
@@ -1214,6 +1229,7 @@ export function allocRaw(h: Heap*, kind: uint64, inlineBytes: uint64): Header*
         error("heap: object extent exceeds its header")
     end
     @unsafe do
+        reservereleased(h)
         -- The young list has room before the object exists, so listing it
         -- maps nothing between its allocation and its return.
         local listed = h.generational ~= 0ULL

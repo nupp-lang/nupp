@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 static ENABLED: AtomicBool = AtomicBool::new(false);
 static MAP_REFUSAL: AtomicBool = AtomicBool::new(false);
+static QUEUE_MAP_REFUSAL: AtomicBool = AtomicBool::new(false);
 static MAP_ATTEMPTS: AtomicU64 = AtomicU64::new(0);
 static ADDRESS: AtomicU64 = AtomicU64::new(0);
 static EXTENT: AtomicU64 = AtomicU64::new(0);
@@ -37,6 +38,10 @@ unsafe extern "C" fn unmap(address: u64, bytes: u64) -> u64 {
 }
 
 unsafe extern "C" fn map(bytes: u64) -> u64 {
+    if QUEUE_MAP_REFUSAL.load(Ordering::SeqCst) && bytes == super::platform::page_size() {
+        MAP_ATTEMPTS.fetch_add(1, Ordering::SeqCst);
+        return 0;
+    }
     if MAP_REFUSAL.load(Ordering::SeqCst) && bytes == 17 * super::platform::page_size() {
         MAP_ATTEMPTS.fetch_add(1, Ordering::SeqCst);
         return 0;
@@ -49,7 +54,7 @@ pub(super) fn imports<const N: usize>(mut imports: [u64; N]) -> [u64; N] {
         assert!(N > 1);
         imports[1] = unmap as *const () as u64;
     }
-    if MAP_REFUSAL.load(Ordering::SeqCst) {
+    if MAP_REFUSAL.load(Ordering::SeqCst) || QUEUE_MAP_REFUSAL.load(Ordering::SeqCst) {
         imports[0] = map as *const () as u64;
     }
     imports
@@ -60,6 +65,7 @@ impl Drop for Cleanup {
     fn drop(&mut self) {
         ENABLED.store(false, Ordering::SeqCst);
         MAP_REFUSAL.store(false, Ordering::SeqCst);
+        QUEUE_MAP_REFUSAL.store(false, Ordering::SeqCst);
         let address = ADDRESS.swap(0, Ordering::SeqCst);
         let extent = EXTENT.swap(0, Ordering::SeqCst);
         if address != 0 {
@@ -152,4 +158,27 @@ fn typed_local_status_preserves_real_failure_and_sticky_error() {
         // Cleanup consumes only the test-retained failed mapping and never
         // retries the Nupp terminal. It runs before the next producer.
     }
+}
+
+#[test]
+#[ignore = "requires the exact emitted releasequeuelandingunits bundle"]
+fn release_queue_map_refusal_leaves_no_published_header() {
+    let bundle = std::path::PathBuf::from(
+        std::env::var_os("CORE_TEST_RELEASE_QUEUE_BUNDLE").expect("CORE_TEST_RELEASE_QUEUE_BUNDLE"),
+    );
+    let _cleanup = Cleanup;
+    MAP_ATTEMPTS.store(0, Ordering::SeqCst);
+    QUEUE_MAP_REFUSAL.store(true, Ordering::SeqCst);
+    let output = super::execute(&bundle, &[0, 0, 2]).expect("invoke queue NULL-map fixture");
+    QUEUE_MAP_REFUSAL.store(false, Ordering::SeqCst);
+    assert_eq!(
+        MAP_ATTEMPTS.load(Ordering::SeqCst),
+        1,
+        "one exact first-page attempt"
+    );
+    assert_eq!(
+        output,
+        [127, 0],
+        "observer verifies unchanged publication state, restored counts and actual scope close"
+    );
 }

@@ -183,6 +183,25 @@ local UNITS = {
 }
 
 UNITS[#UNITS + 1] = {
+    name = "releasequeueunits",
+    modules = {"releasequeueunits", "unitentry"},
+    entries = {{"releasequeueunits", "backlog", 1}},
+    cases = function()
+        return {{"backlog", {1}, 0}, {"backlog", {17}, 0}, {"backlog", {700}, 0}}
+    end
+}
+UNITS[#UNITS + 1] = {
+    name = "releasequeuelandingunits",
+    modules = {"releasequeueunits", "releasequeueentry"},
+    observeLanding = true,
+    observerEntry = "releasequeueentry",
+    entries = {{"releasequeueunits", "refusal", 2}},
+    cases = function()
+        return {{"refusal", {0, 0}, 127}, {"refusal", {0, 1}, 127}}
+    end
+}
+
+UNITS[#UNITS + 1] = {
     name = "sharedbackingunits",
     modules = {"sharedbackingunits", "unitentry"},
     entries = {{"sharedbackingunits", "basics", 1}, {"sharedbackingunits", "refusals", 0}},
@@ -993,7 +1012,8 @@ for _, unit in ipairs(UNITS) do
                 mode,
                 ROOT .. "/build/core-unit-cache",
                 unit.observeLanding,
-                unit.sharedhandoff
+                unit.sharedhandoff,
+                unit.observerEntry
             )
             if ok then
                 break

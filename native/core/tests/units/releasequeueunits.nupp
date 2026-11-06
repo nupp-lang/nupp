@@ -1,0 +1,121 @@
+module releasequeueunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const weak = require("nupp.runtime.vm.gcweak")
+const os = require("nupp.runtime.vm.os")
+const servicescope = require("nupp.runtime.core.servicescope")
+
+const ARENA_BYTES: uint64 = 1048576ULL
+const MAX_WORDS: uint64 = 0x1fffffffffffffffULL
+
+local function miss(ok: boolean): uint64
+    if ok then
+        return 0ULL
+    end
+    return 1ULL
+end
+
+-- Opaque userdata headers isolate queue accounting: release owns the header,
+-- and no userdata operation or child scan reads an absent external payload.
+-- Backlog plus further allocation must reserve the sum, not just liveCount.
+export function backlog(count: uint64): uint64
+    local state = heap.Words(0ULL, 0ULL, 0ULL)
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local made = state as heap.Words*
+            local i: uint64 = 0ULL
+            while i < count do
+                heap.wordsPush(made, native.address(heap.allocRaw(h, heap.KIND_USERDATA, 0ULL) as voidptr))
+                wrong = wrong + miss(h.released.capacity >= h.liveCount + h.released.count)
+                i = i + 1ULL
+            end
+            i = 0ULL
+            while i < count // 2ULL do
+                weak.release(h, native.pointer(heap.wordAt(made, i)) as heap.Header*)
+                i = i + 1ULL
+            end
+            i = 0ULL
+            while i < count do
+                heap.wordsPush(made, native.address(heap.allocRaw(h, heap.KIND_USERDATA, 0ULL) as voidptr))
+                wrong = wrong + miss(h.released.capacity >= h.liveCount + h.released.count)
+                i = i + 1ULL
+            end
+            local capacity = h.released.capacity
+            local base = h.released.base
+            i = count // 2ULL
+            while i < made.count do
+                weak.release(h, native.pointer(heap.wordAt(made, i)) as heap.Header*)
+                wrong = wrong + miss(h.released.capacity == capacity and h.released.base == base)
+                i = i + 1ULL
+            end
+            wrong = wrong + miss(h.liveCount == 0ULL and h.released.count == count * 2ULL)
+            wrong = wrong + miss(h.stats.allocated == count * 2ULL and h.stats.freed == count * 2ULL)
+            while h.released.count > 0ULL do
+                local address = weak.nextReleased(h)
+                weak.recycleReleased(h, address)
+            end
+            local reused = heap.allocRaw(h, heap.KIND_USERDATA, 0ULL)
+            wrong = wrong + miss(native.address(reused as voidptr) == heap.wordAt(made, 0ULL))
+            wrong = wrong + miss(h.released.capacity == capacity and h.released.base == base)
+            heap.reclaim(h, reused)
+            wrong = wrong + miss(h.liveCount == 0ULL and h.released.count == 0ULL)
+            heap.wordsRelease(made)
+            heap.destroy(h)
+        end
+    end
+
+    return wrong
+end
+
+-- The observer owns this mapped heap after the failing native stack returns.
+-- mode0 overflows the live+queued bound; mode1 refuses page rounding; mode2
+-- is the cfg(test) bridge's exact first-page NULL map, with no forged counts.
+export function refusal(scopeAddress: uint64, mode: uint64): uint64
+    local raw = os.mapPages(ARENA_BYTES)
+    if raw == nil then
+        error("release queue units: setup mapping refused")
+    end
+    @unsafe do
+        local scope = native.pointer(scopeAddress)
+        local extra = native.sizeOf<servicescope.ServiceScope>()
+        native.store64(scope, native.index(extra + 8ULL), native.address(raw))
+        native.store64(scope, native.index(extra + 16ULL), ARENA_BYTES)
+        local metadata = (native.sizeOf<arena.Chunk>() + native.alignmentOf<arena.Arena>() - 1ULL)
+            & ~(native.alignmentOf<arena.Arena>() - 1ULL)
+        local header = (metadata + native.sizeOf<arena.Arena>() + 15ULL) & ~15ULL
+        local chunk = raw as arena.Chunk*
+        local a = native.offset(raw, native.index(metadata)) as arena.Arena*
+        chunk.previous = nil
+        chunk.bytes = ARENA_BYTES
+        a.chunk = chunk
+        a.cursor = native.address(raw) + header
+        a.limit = native.address(raw) + ARENA_BYTES
+        a.chunkBytes = ARENA_BYTES
+        a.growable = false
+        local h = heap.create(a)
+        h.automatic = false
+        native.store64(scope, native.index(extra), native.address(h as voidptr))
+        native.store64(scope, native.index(extra + 24ULL), h.liveCount)
+        native.store64(scope, native.index(extra + 32ULL), h.released.count)
+        native.store64(scope, native.index(extra + 40ULL), h.released.capacity)
+        native.store64(scope, native.index(extra + 48ULL), h.released.base)
+        native.store64(scope, native.index(extra + 56ULL), h.stats.allocated)
+        native.store64(scope, native.index(extra + 64ULL), h.liveBytes)
+        native.store64(scope, native.index(extra + 72ULL), h.debt)
+        native.store64(scope, native.index(extra + 80ULL), h.young.count)
+        if mode == 0ULL then
+            h.liveCount = MAX_WORDS
+        elseif mode == 1ULL then
+            h.liveCount = MAX_WORDS - 1ULL
+        end
+        native.store64(scope, native.index(extra + 88ULL), h.liveCount)
+        local o = heap.allocRaw(h, heap.KIND_USERDATA, 0ULL)
+        return native.address(o as voidptr)
+    end
+end

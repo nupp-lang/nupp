@@ -1,0 +1,86 @@
+module releasequeueentry
+
+const native = require("nupp.runtime.vm.intrinsics")
+const pages = require("nupp.runtime.core.pagemappings")
+const servicescope = require("nupp.runtime.core.servicescope")
+const heap = require("nupp.runtime.vm.heap")
+const os = require("nupp.runtime.vm.os")
+
+const LEDGER: uint64 = 256ULL
+const RECORDS: uint64 = 256ULL
+const OBSERVER_BYTES: uint64 = 96ULL
+
+export function prepare(base: voidptr, bytes: uint64): uint64
+    local recordBytes = RECORDS * native.sizeOf<pages.Mapping>()
+    local scopeOffset = LEDGER + recordBytes
+    if bytes < scopeOffset + native.sizeOf<servicescope.ServiceScope>() + OBSERVER_BYTES then
+        return 0ULL
+    end
+    local records = native.offset(base, native.index(LEDGER))
+    if pages.initialize(base, LEDGER, records, recordBytes, RECORDS) ~= 1ULL then
+        return 0ULL
+    end
+    local scope = native.offset(base, native.index(scopeOffset))
+    if servicescope.initialize(scope, native.sizeOf<servicescope.ServiceScope>(), base, LEDGER) ~= 1ULL then
+        return 0ULL
+    end
+
+    return native.address(scope)
+end
+
+local function bit(ok: boolean, flag: uint64): uint64
+    if ok then
+        return flag
+    end
+    return 0ULL
+end
+
+-- Inspect first, restore the deliberate fixture corruption, then tear down
+-- only after all failing native frames have returned. No test clears a live
+-- production failure to continue its operation.
+export function finish(scope: voidptr): uint64
+    local failure = native.load64(scope, native.fieldOffset<servicescope.ServiceScope>("error"))
+    native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("error"), 0ULL)
+    local answer = bit(failure == 1ULL, 1ULL)
+    local extra = native.sizeOf<servicescope.ServiceScope>()
+    local address = native.load64(scope, native.index(extra))
+    @unsafe do
+        if address ~= 0ULL then
+            local h = native.pointer(address) as heap.Heap*
+            answer = answer | bit(h.liveCount == native.load64(scope, native.index(extra + 88ULL)), 2ULL)
+            answer = answer
+                | bit(
+                    h.released.count == native.load64(scope, native.index(extra + 32ULL))
+                    and h.released.capacity == native.load64(scope, native.index(extra + 40ULL))
+                    and h.released.base == native.load64(scope, native.index(extra + 48ULL)),
+                    4ULL
+                )
+            answer = answer
+                | bit(
+                    h.stats.allocated == native.load64(scope, native.index(extra + 56ULL))
+                    and h.liveBytes == native.load64(scope, native.index(extra + 64ULL))
+                    and h.debt == native.load64(scope, native.index(extra + 72ULL)),
+                    8ULL
+                )
+            answer = answer
+                | bit(
+                    h.young.count == native.load64(scope, native.index(extra + 80ULL))
+                    and h.chunks.count == 0ULL
+                    and h.large.count == 0ULL,
+                    16ULL
+                )
+            h.liveCount = native.load64(scope, native.index(extra + 24ULL))
+            h.released.count = native.load64(scope, native.index(extra + 32ULL))
+            answer = answer | bit(h.liveCount == 0ULL and h.released.count == 0ULL, 32ULL)
+            heap.destroy(h)
+        end
+    end
+    local base = native.load64(scope, native.index(extra + 8ULL))
+    local bytes = native.load64(scope, native.index(extra + 16ULL))
+    if base ~= 0ULL then
+        os.unmapPages(native.pointer(base), bytes)
+    end
+    answer = answer | bit(servicescope.close(scope) == 1ULL, 64ULL)
+
+    return answer
+end

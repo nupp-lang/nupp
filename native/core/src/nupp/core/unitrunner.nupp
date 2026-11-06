@@ -277,7 +277,8 @@ function runner.build(
     mode: string,
     cacheDirectory: string?,
     observeLanding: boolean?,
-    sharedhandoff: boolean?
+    sharedhandoff: boolean?,
+    observerEntry: string?
 ): any
     assert(not (observeLanding and sharedhandoff), "unit lifecycle modes are exclusive")
     local started = now()
@@ -287,7 +288,8 @@ function runner.build(
         timings[#timings + 1] = {name = name, seconds = now() - started}
     end
 
-    local entryModule = observeLanding and "builderentry" or "unitentry"
+    assert(not observerEntry or observeLanding, "observer entry requires landing lifecycle")
+    local entryModule = observerEntry or (observeLanding and "builderentry" or "unitentry")
     local roots = {{entryModule, "prepare"}, {entryModule, "finish"}}
     for _, entry in ipairs(entries) do
         roots[#roots + 1] = {entry[1], entry[2]}
