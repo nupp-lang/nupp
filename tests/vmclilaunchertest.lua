@@ -168,8 +168,8 @@ function M.aSourceEditRebuildsBeforeTheCommandRuns()
     assert(out:find("RAN gen1 check", 1, true), "the command did not run the rebuilt generation: " .. out)
     assert(builds(dir) == 1, "one edit, one build")
     assert(
-        readFile(dir .. "/builds.log"):find("build --seed pinned --no-aot", 1, true),
-        "the rebuild lowers with the pinned one"
+        readFile(dir .. "/builds.log"):find("build --seed vm --no-aot", 1, true),
+        "the rebuild lowers with the installed generation"
     )
     out = ran(dir, "check")
     assert(out:find("RAN gen1 check", 1, true) and builds(dir) == 1, "a current generation was rebuilt: " .. out)
@@ -237,6 +237,31 @@ function M.anEditDuringARebuildIsBuiltNextTime()
     assert(builds(dir) == 1, readFile(dir .. "/first.txt"))
     local out = ran(dir, "check")
     assert(builds(dir) == 2, "the edit made during the first build was never built: " .. out)
+    assert(out:find("RAN gen2 check", 1, true), out)
+    remove(dir)
+end
+
+-- A failed rebuild is remembered from the moment it started, so an edit made
+-- while it ran is a reason to try again.
+function M.anEditDuringAFailedRebuildIsBuiltNextTime()
+    local dir, plant = plantedTree()
+    plant("fail-build", "")
+    edit(dir)
+    capture(
+        (
+            [[
+        cd '%s'
+        %s FAKE_BUILD_SECONDS=2 ./bin/nupp check > first.txt 2>&1 &
+        sleep 1
+        printf -- '-- during\n' >> src/compiler.nupp
+        wait
+    ]]
+        ):format(dir, ENV)
+    )
+    assert(builds(dir) == 1 and readFile(dir .. "/first.txt"):find("did not build", 1, true))
+    os.remove(dir .. "/fail-build")
+    local out = ran(dir, "check")
+    assert(builds(dir) == 2, "the edit made during the failed build was never built: " .. out)
     assert(out:find("RAN gen2 check", 1, true), out)
     remove(dir)
 end
@@ -330,6 +355,7 @@ digest = lambda name: hashlib.sha256((package / name).read_bytes()).hexdigest()
     local selected = readFile(dir .. "/.nupp/vm-cli/current"):match("%x+")
     local receipt = json.decodevalue(readFile(dir .. "/.nupp/vm-cli/" .. selected .. "/receipt.json"))
     receipt.sourceAtInstall = before.sourceNow
+    receipt.sourceRead = "install"
     plant(".nupp/vm-cli/" .. selected .. "/receipt.json", json.encodevalue(receipt))
 
     local function current()

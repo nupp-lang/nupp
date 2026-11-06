@@ -62,13 +62,13 @@ fi
 # The installed VM compiler is rebuilt when its sources change, the way build/
 # is below: a compiler source newer than `.nupp/vm-cli/stamp`, which every
 # install leaves with the time its build started, means the generation has not
-# seen that edit. The rebuild reuses what earlier emits lowered for every module
-# nothing it read has changed (`nupp.tools.vm.emitcache`), lowering with the
-# generation that cache was filled by (`scripts/vm-cli build --seed pinned`; an
-# explicit `scripts/vm-cli build` moves the pin to the installed one). It
-# installs an interpreter-only runtime and links the image's compiled code into
-# a runtime in the background, which replaces that one when it is done
-# (NUPP_VM_AUTO_LINK=0 skips it).
+# seen that edit. The installed generation lowers the rebuild
+# (`scripts/vm-cli build --seed vm`), reusing what an earlier emit lowered for
+# every module nothing it read has changed -- when that emit lowered with the
+# same code on the same interpreter (`nupp.tools.vm.emitcache`). It installs an
+# interpreter-only runtime and links the image's compiled code into a runtime in
+# the background, which replaces that one when it is done (NUPP_VM_AUTO_LINK=0
+# skips it).
 #
 # One rebuild at a time per checkout, under a lock directory holding the
 # builder's pid; a command that finds it held waits, and then runs what that
@@ -104,15 +104,17 @@ vm_cli_is_current() {
 }
 
 # Every file is newer than the stamp in a fresh worktree seeded with a generation,
-# yet that generation may have been built from exactly these sources. Asked only
-# once the times say stale; a match refreshes the stamp so the next command does
-# not ask again.
+# yet that generation may have been built from exactly these sources: the ones
+# its build fingerprinted before reading any, so an edit made while it ran is not
+# among them. Asked only once the times say stale; a match refreshes the stamp,
+# to the moment before the sources were read, so the next command does not ask
+# again.
 vm_cli_content_current() {
-    python3 "$ROOT/scripts/vm-cli" current >/dev/null 2>&1 || return 1
-    : > "$VM_CLI/stamp"
+    python3 "$ROOT/scripts/vm-cli" current --refresh-stamp >/dev/null 2>&1
 }
 
-# A rebuild of these very sources already failed.
+# A rebuild of these very sources already failed: `failed` carries the time
+# that rebuild started, so an edit made while it ran is newer.
 vm_cli_failed_unchanged() {
     [ -f "$VM_CLI/failed" ] && ! vm_sources_newer_than "$VM_CLI/failed"
 }
@@ -175,8 +177,9 @@ vm_cli_rebuild() {
     fi
     vm_notice "compiler sources changed, rebuilding the VM compiler"
     started=$(date +%s)
-    if python3 "$ROOT/scripts/vm-cli" build --seed pinned --no-aot > "$VM_CLI/rebuild.log" 2>&1; then
-        rm -f "$VM_CLI/failed"
+    : > "$VM_CLI/.rebuild-started"
+    if python3 "$ROOT/scripts/vm-cli" build --seed vm --no-aot > "$VM_CLI/rebuild.log" 2>&1; then
+        rm -f "$VM_CLI/failed" "$VM_CLI/.rebuild-started"
         # The emit's own account of what it reused, when it kept a cache.
         reused=$(sed -n 's/^vm emit: \([0-9]* modules* lowered, [0-9]* replayed\).*/: \1/p' \
             "$VM_CLI/rebuild.log" | tail -n 1)
@@ -185,7 +188,7 @@ vm_cli_rebuild() {
             nohup python3 "$ROOT/scripts/vm-cli" link > "$VM_CLI/link.log" 2>&1 < /dev/null &
         fi
     else
-        : > "$VM_CLI/failed"
+        mv -f "$VM_CLI/.rebuild-started" "$VM_CLI/failed" 2>/dev/null || : > "$VM_CLI/failed"
         echo "nupp: the VM compiler did not build; running the last one that did" >&2
         tail -n 20 "$VM_CLI/rebuild.log" | sed 's/^/  /' >&2
         echo "  (the whole log is $VM_CLI/rebuild.log)" >&2
@@ -214,6 +217,12 @@ if [ -z "${NUPP_VM_CLI_IMAGE:-}" ] && [ -e "$ROOT/.nupp/vm-cli/current" ]; then
     fi
     NUPP_VM_CLI_IMAGE="$VM_PACKAGE/compiler.image"
     NUPP_VM_BINARY="$VM_PACKAGE/runtime"
+    # The interpreter that runtime computes with, which keys what its emits keep
+    # (`fingerprint.runtimeIdentity`); a generation installed before it was
+    # recorded names none.
+    NUPP_VM_RUNTIME_ID=
+    [ -f "$VM_PACKAGE/runtime-identity" ] && read -r NUPP_VM_RUNTIME_ID < "$VM_PACKAGE/runtime-identity"
+    export NUPP_VM_RUNTIME_ID
     # The packaged CLI disables JIT; heap-frame cleanup uses Rust dispatch. AOT remains
     # available when the supplied runtime contains it.
     NO_JIT=1
@@ -252,13 +261,6 @@ if [ -n "${NUPP_VM_CLI_IMAGE:-}" ]; then
     NUPP_VM_BINARY=$VM_RUNTIME
     NUPP_VM_CLI_ENTRY=nupp.tools.vm.root
     export NUPP_COMPILER_ROOT SIMD_INTERPRET NUPP_VM_BINARY NUPP_VM_CLI_ENTRY
-    # Tests check the sources under test: a program a test builds is lowered
-    # by this compiler, not the pinned emitter generation, which trails it by
-    # a rebuild to keep program caches warm (`nupp.tools.build.package`).
-    if [ "${1:-}" = test ]; then
-        NUPP_VM_PROGRAM_IN_PROCESS=${NUPP_VM_PROGRAM_IN_PROCESS:-1}
-        export NUPP_VM_PROGRAM_IN_PROCESS
-    fi
     exec "$VM_RUNTIME" exec "$NUPP_VM_CLI_IMAGE" "$NUPP_VM_CLI_ENTRY" "$@"
 fi
 # Nothing above found or built a compiler: no VM CLI is installed, and no stage

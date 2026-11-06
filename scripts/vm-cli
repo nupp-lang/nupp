@@ -16,6 +16,22 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGES = ROOT / ".nupp/vm-cli"
 FORMAT = "nupp-vm-cli-1"
+# How a receipt's source fingerprint was taken. Only these say which sources a
+# generation is current for; a receipt with neither predates the distinction,
+# recorded the sources as they were when its build ended, and is not trusted.
+SOURCE_READ_AT_BUILD_START = "build-start"
+SOURCE_READ_AT_INSTALL = "install"
+TRUSTED_SOURCE_READINGS = (SOURCE_READ_AT_BUILD_START, SOURCE_READ_AT_INSTALL)
+SOURCE_PROVENANCE = {
+    SOURCE_READ_AT_BUILD_START: "Source state when the build that made these artifacts began reading its sources.",
+    SOURCE_READ_AT_INSTALL: "Source state at installation, not a claim that supplied artifacts were built from it.",
+}
+# The file in a generation naming the interpreter its runtime computes with,
+# and the variable an emit is told it in (`fingerprint.runtimeIdentity`).
+RUNTIME_IDENTITY_FILE = "runtime-identity"
+RUNTIME_IDENTITY_VARIABLE = "NUPP_VM_RUNTIME_ID"
+# Emit cache trees an older vm-cli kept, one per executing image.
+LEGACY_CACHE_TREES = ("compilers",)
 
 
 def digest(path):
@@ -76,6 +92,15 @@ def validate_files(package, receipt):
         raise ValueError("VM CLI runtime is not executable")
 
 
+def pending_stamp():
+    """A stamp carrying this moment, to put in place once what it vouches for is
+    known."""
+    PACKAGES.mkdir(parents=True, exist_ok=True)
+    handle, pending = tempfile.mkstemp(prefix=".stamp-", dir=PACKAGES)
+    os.close(handle)
+    return pending
+
+
 def write_stamp(pending=None):
     """Mark the selected generation as built from the sources as they were when
     `pending` was made (now, without one). The launcher rebuilds when a compiler
@@ -85,10 +110,18 @@ def write_stamp(pending=None):
     if pending is not None and Path(pending).exists():
         os.replace(pending, target)
     else:
-        handle, fresh = tempfile.mkstemp(prefix=".stamp-", dir=PACKAGES)
-        os.close(handle)
-        os.replace(fresh, target)
+        os.replace(pending_stamp(), target)
     (PACKAGES / "failed").unlink(missing_ok=True)
+
+
+def runtime_identity(package):
+    """The interpreter the generation `package` computes with: what its emits
+    are keyed by beside the image's own code."""
+    try:
+        named = (package / RUNTIME_IDENTITY_FILE).read_text().strip()
+    except OSError:
+        named = ""
+    return named or digest(package / "runtime")
 
 
 def move_into_place(stage, package):
@@ -111,6 +144,10 @@ def move_into_place(stage, package):
 
 
 def install(args):
+    """Validate a runtime and image, install them as a generation and select it.
+    A build hands in `source`, the fingerprint it took before reading anything,
+    and the interpreter its runtime computes with; a bare installation records
+    the sources as they are now and the runtime's own digest."""
     runtime, image = args.runtime.resolve(strict=True), args.image.resolve(strict=True)
     if not os.access(runtime, os.X_OK):
         raise ValueError("runtime is not executable")
@@ -127,13 +164,21 @@ def install(args):
         shutil.copyfile(runtime, stage / "runtime")
         (stage / "runtime").chmod(0o755)
         shutil.copyfile(image, stage / "compiler.image")
+        source = getattr(args, "source", None)
+        reading = getattr(args, "source_reading", None) or SOURCE_READ_AT_INSTALL
+        if source is None:
+            source, reading = source_state(), SOURCE_READ_AT_INSTALL
+        runtime_digest = digest(stage / "runtime")
+        identity = getattr(args, "runtime_identity", None) or runtime_digest
         receipt = {
             "format": FORMAT,
-            "runtimeSha256": digest(stage / "runtime"),
+            "runtimeSha256": runtime_digest,
             "imageSha256": digest(stage / "compiler.image"),
+            "runtimeIdentity": identity,
             "installedFrom": {"runtime": str(runtime), "image": str(image)},
-            "sourceAtInstall": source_state(),
-            "sourceProvenance": "Source state at installation, not a claim that supplied artifacts were built from it.",
+            "sourceAtInstall": source,
+            "sourceRead": reading,
+            "sourceProvenance": SOURCE_PROVENANCE[reading],
             "execution": "JIT disabled during validation; supplied matching-image AOT remains enabled",
             "linked": bool(getattr(args, "linked", False)),
             "validation": ["image verifier", "full root CLI --help"],
@@ -155,6 +200,7 @@ def install(args):
                               sort_keys=True, separators=(",", ":")).encode()
         generation = hashlib.sha256(material).hexdigest()
         (stage / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
+        (stage / RUNTIME_IDENTITY_FILE).write_text(identity + "\n")
         (stage / "format").write_text(FORMAT + "\n")
         package = PACKAGES / generation
         reused = package.exists()
@@ -173,6 +219,7 @@ def install(args):
             # refreshes only its installation provenance, using the same source
             # snapshot the staged receipt took before validation.
             os.replace(stage / "receipt.json", package / "receipt.json")
+            os.replace(stage / RUNTIME_IDENTITY_FILE, package / RUNTIME_IDENTITY_FILE)
         # Readers see a complete generation with an atomic installation receipt.
         # Existing children retain their absolute runtime and image paths.
         handle, pending = tempfile.mkstemp(prefix=".current-", dir=PACKAGES)
@@ -187,16 +234,33 @@ def install(args):
     print(package)
 
 
-def current(_args):
-    """Exit 0 when the selected generation was installed from exactly these sources:
+def recorded_source(receipt):
+    """The fingerprint a receipt says its generation is current for, or None
+    when it does not say in a way that can be trusted."""
+    if receipt.get("sourceRead") not in TRUSTED_SOURCE_READINGS:
+        return None
+    return receipt.get("sourceAtInstall", {}).get("fingerprint")
+
+
+def current(args):
+    """Exit 0 when the selected generation was built from exactly these sources:
     a fresh worktree seeded with it is then current although every file in it is
-    newer than the stamp, and the launcher needs no rebuild."""
-    package = selected()
-    receipt = json.loads((package / "receipt.json").read_text())
-    validate_files(package, receipt)
-    now = source_state()["fingerprint"]
-    recorded = receipt.get("sourceAtInstall", {}).get("fingerprint")
-    sys.exit(0 if now is not None and now == recorded else 1)
+    newer than the stamp, and the launcher needs no rebuild. With
+    `--refresh-stamp` a match also moves the stamp to the moment before the
+    sources were read, so an edit made while they are is still newer."""
+    pending = pending_stamp() if getattr(args, "refresh_stamp", False) else None
+    try:
+        package = selected()
+        receipt = json.loads((package / "receipt.json").read_text())
+        validate_files(package, receipt)
+        now = source_state()["fingerprint"]
+        matches = now is not None and now == recorded_source(receipt)
+        if matches and pending is not None:
+            os.replace(pending, PACKAGES / "stamp")
+    finally:
+        if pending is not None:
+            Path(pending).unlink(missing_ok=True)
+    sys.exit(0 if matches else 1)
 
 
 def status():
@@ -204,10 +268,10 @@ def status():
     receipt = json.loads((package / "receipt.json").read_text())
     validate_files(package, receipt)
     current = source_state()
-    recorded = receipt["sourceAtInstall"]
+    recorded = recorded_source(receipt)
     print(json.dumps({
         "package": str(package), "receipt": receipt,
-        "sourceChangedSinceInstall": None if current["fingerprint"] is None else current["fingerprint"] != recorded["fingerprint"],
+        "sourceChangedSinceInstall": None if current["fingerprint"] is None else current["fingerprint"] != recorded,
         "sourceNow": current,
         "policy": "bin/nupp rebuilds and installs a new generation when a compiler source is newer than .nupp/vm-cli/stamp.",
     }, indent=2))
@@ -265,30 +329,12 @@ def generation_dir(generation):
     return None
 
 
-def pinned():
-    """The generation auto rebuilds lower with: the one whose lowering the emit
-    cache holds. Rebuilding with each new generation instead would start the
-    cache cold whenever the checker or the lowering changed, which is every
-    second rebuild of somebody working on them."""
-    try:
-        return generation_dir((PACKAGES / "emitter").read_text().strip())
-    except OSError:
-        return None
-
-
-def pin(package):
-    handle, pending = tempfile.mkstemp(prefix=".emitter-", dir=PACKAGES)
-    with os.fdopen(handle, "w") as target:
-        target.write((package.name if package else "") + "\n")
-    os.replace(pending, PACKAGES / "emitter")
-
-
 def prune():
     """Remove generations nothing selects that have not been touched for a day. A
     command started under an older generation keeps running from its directory,
     so one is only removed once no command could plausibly still hold it."""
     keep_seconds = float(os.environ.get("NUPP_VM_CLI_KEEP_SECONDS", 86400))
-    keep = {p.name for p in (selected(), pinned()) if p is not None}
+    keep = {selected().name}
     now = time.time()
     for package in PACKAGES.iterdir():
         if package.name in keep or not generation_dir(package.name):
@@ -306,40 +352,48 @@ def emit_with(package, image, env):
     functions compiled in when it was linked."""
     run_step([str(package / "runtime"), "run", str(package / "compiler.image"), "nupp.tools.vm.project", "emit",
               str(ROOT), "nupp.tools.vm.root", root_extras(), "--output", str(image)],
-             emission_environment(package / "compiler.image", env), "VM-hosted root emit")
+             emission_environment(runtime_identity(package), env), "VM-hosted root emit")
 
 
-def emission_environment(image, env):
-    """A lowering cache belongs to its exact executing compiler image."""
-    selected_env = dict(env)
-    cache = selected_env.get("NUPP_VM_EMIT_CACHE")
-    if cache:
-        selected_env["NUPP_VM_EMIT_CACHE"] = str(Path(cache) / "compilers" / digest(image))
-    return selected_env
+def emission_environment(identity, env):
+    """What an emit on the interpreter `identity` is told about it. The emit
+    cache keys what it keeps by the code doing the lowering, which the image
+    names, and by this, which it cannot see (`fingerprint.runtimeIdentity`):
+    lowering run by one compiler generation is never replayed by another
+    unless both compute with the same code."""
+    return dict(env, **{RUNTIME_IDENTITY_VARIABLE: identity})
+
+
+def prune_emit_cache(cache):
+    """An older vm-cli kept a tree per executing image and never removed one."""
+    for name in LEGACY_CACHE_TREES:
+        shutil.rmtree(Path(cache) / name, ignore_errors=True)
 
 
 def build(args):
     """Emit the root CLI image from this checkout, link its compiled code into a
     runtime, and install the pair. The image is lowered by the installed VM CLI
-    when there is one (`--seed vm`), by the generation the emit cache was filled
-    by (`--seed pinned`, what the launcher's automatic rebuild asks for), or by
-    a verified execution seed (`scripts/toolchain stage0-seed`), then once more
-    by what that lowered."""
+    when there is one (`--seed vm`, which the launcher's automatic rebuild asks
+    for), or by a verified execution seed (`scripts/toolchain stage0-seed`),
+    then once more by what that lowered.
+
+    The generation installed is current for the sources as they were before
+    this build read any of them: the stamp carries that moment, so an edit made
+    while it runs is newer, and the fingerprint is taken just after it, so that
+    edit is not in what the receipt vouches for either."""
     out = ROOT / "build/vm-cli"
     out.mkdir(parents=True, exist_ok=True)
     target = ROOT / "build/rust/target"
     image = out / "compiler.image"
     image.unlink(missing_ok=True)
-    # What the sources looked like when this build started: an edit made while
-    # it runs is newer, so the launcher builds again.
-    PACKAGES.mkdir(parents=True, exist_ok=True)
-    handle, stamp = tempfile.mkstemp(prefix=".stamp-", dir=PACKAGES)
-    os.close(handle)
-    args.stamp = stamp
+    args.stamp = pending_stamp()
+    args.source, args.source_reading = source_state(), SOURCE_READ_AT_BUILD_START
     try:
         build_from(args, out, target, image)
     finally:
-        Path(stamp).unlink(missing_ok=True)
+        Path(args.stamp).unlink(missing_ok=True)
+    if source_state()["fingerprint"] != args.source["fingerprint"]:
+        print("vm-cli: sources changed while this build read them; the next command rebuilds", file=sys.stderr)
 
 
 def execution_seed():
@@ -373,41 +427,30 @@ def build_from(args, out, target, image):
     cached = {"NUPP_VM_EMIT_CACHE": str(cache) if cache else ""}
     installed = (PACKAGES / "current").exists()
     seed = args.seed or ("vm" if installed else "image")
-    if seed == "pinned" and not installed:
+    if seed == "vm" and not installed:
         seed = "image"
+    if cache:
+        prune_emit_cache(cache)
     env = dict(os.environ, NO_JIT="1", NUPP_COMPILER_ROOT=str(ROOT), **cached)
     for name in ("GC_STRESS", "GC_INTERLEAVE", "GC_ORACLE", "GC_QUARANTINE", "NUPP_VM_CLI_IMAGE", "NUPP_VM_BINARY"):
         env.pop(name, None)
-    if seed in ("vm", "pinned"):
-        emitter = (pinned() if seed == "pinned" else None) or selected()
+    if seed == "vm":
         try:
-            emit_with(emitter, image, env)
+            emit_with(selected(), image, env)
         except ValueError:
-            # An older compiler may not read what the sources now say; the newest
-            # one is the next best thing, and the stage zero, which the pin keeps
-            # able to read them, the last.
-            emitter = None
-            if (pinned() if seed == "pinned" else None) not in (None, selected()):
-                print("vm-cli: the pinned compiler could not lower these sources; using the installed one",
-                      file=sys.stderr)
-                try:
-                    emit_with(selected(), image, env)
-                    emitter = selected()
-                except ValueError:
-                    pass
-            if emitter is None:
-                print("vm-cli: the installed compiler could not lower these sources; starting from the stage zero",
-                      file=sys.stderr)
-                seed = "image"
-        if emitter is not None and (seed == "vm" or pinned() is None or emitter != pinned()):
-            pin(emitter)
+            # An older compiler may not read what the sources now say; the stage
+            # zero, which `scripts/toolchain.pins` keeps able to read them, is what
+            # is left.
+            print("vm-cli: the installed compiler could not lower these sources; starting from the stage zero",
+                  file=sys.stderr)
+            seed = "image"
     if seed == "image":
         pair = execution_seed()
         seed_image = pair / "compiler.image"
         runner = pair / "runtime"
         run_step([str(runner), "run", str(seed_image), "nupp.tools.vm.project", "emit", str(ROOT),
                   "nupp.tools.vm.root", root_extras(), "--output", str(image)],
-                 emission_environment(seed_image, execution_environment(cache)), "seed root emit")
+                 emission_environment(digest(runner), execution_environment(cache)), "seed root emit")
         # A pinned image is an older compiler: what it lowers is these sources
         # as its lowerer spells them. One more pass lowers them with their own
         # lowerer, which is the image the fixpoint verifies.
@@ -415,14 +458,13 @@ def build_from(args, out, target, image):
         image.replace(first)
         run_step([str(runner), "run", str(first), "nupp.tools.vm.project", "emit", str(ROOT),
                   "nupp.tools.vm.root", root_extras(), "--output", str(image)],
-                 emission_environment(first, execution_environment(cache)), "self-hosting root emit")
+                 emission_environment(digest(runner), execution_environment(cache)), "self-hosting root emit")
         first.unlink()
     if not image.is_file():
         raise ValueError("the root emit wrote no image")
-    if seed == "image":
-        # A compiler from elsewhere filled the cache; the next automatic rebuild
-        # pins what this one installs.
-        (PACKAGES / "emitter").unlink(missing_ok=True)
+    # An older vm-cli pinned the generation its automatic rebuilds lowered with,
+    # and lowered programs with it too (`nupp.tools.build.package`).
+    (PACKAGES / "emitter").unlink(missing_ok=True)
     args.linked = not args.no_aot
     if args.no_aot:
         pair = execution_seed()
@@ -487,22 +529,22 @@ def native_runtime_object(runner, image, out, target, glue=None):
 
 def lowering_image(out, target, cache):
     """A small image holding the lowering, emitted from these sources by the
-    generation the CLI is lowered by (whose emit cache an edit to the lowering
-    leaves warm), else the installed compiler, or by the pinned stage zero on a
-    plain runtime when nothing is installed. Answers the image's path."""
+    installed compiler, or by the pinned stage zero on a plain runtime when
+    nothing is installed or the installed one cannot. Answers the image's
+    path."""
     out.mkdir(parents=True, exist_ok=True)
     image = out / "lower.image"
     image.unlink(missing_ok=True)
     env = compiler_environment(cache)
     installed = (PACKAGES / "current").exists()
-    candidates = []
-    if installed:
-        candidates = [p for p in dict.fromkeys((pinned(), selected())) if p is not None]
+    candidates = [selected()] if installed else []
+    if cache:
+        prune_emit_cache(cache)
     def emit(package, env):
         runner, compiler = package / "runtime", package / "compiler.image"
         run_step([str(runner), "run", str(compiler), "nupp.tools.vm.project", "emit", str(ROOT),
                   "nupp.compiler.clif.lower", LOWERING_EXTRAS, "src", "--output", str(image)],
-                 emission_environment(compiler, env), "emit of the lowering image")
+                 emission_environment(runtime_identity(package), env), "emit of the lowering image")
     for package in candidates:
         try:
             emit(package, env)
@@ -679,7 +721,9 @@ def link(args):
                     print("vm-cli: a newer generation was installed while linking; linking that", file=sys.stderr)
                     continue
                 # The linked runtime runs the same image, so it is as current as
-                # the interpreter it replaces: the stamp carries over unchanged.
+                # the interpreter it replaces: the stamp, the sources the receipt
+                # vouches for and the interpreter it computes with carry over
+                # unchanged.
                 keep = None
                 stamp = PACKAGES / "stamp"
                 if stamp.exists():
@@ -687,10 +731,12 @@ def link(args):
                     os.close(handle)
                     shutil.copystat(stamp, keep)
                 args.runtime, args.image, args.stamp, args.linked = out / "runtime", image, keep, True
+                args.runtime_identity = runtime_identity(package)
+                args.source, args.source_reading = receipt.get("sourceAtInstall"), receipt.get("sourceRead")
+                if args.source_reading not in TRUSTED_SOURCE_READINGS:
+                    # Nothing trustworthy to carry: say so rather than vouch now.
+                    args.source, args.source_reading = {"revision": None, "fingerprint": None}, SOURCE_READ_AT_INSTALL
                 install(args)
-                # The emit cache's compiler is this image too, now faster to run.
-                if pinned() == package:
-                    pin(selected())
     finally:
         shutil.rmtree(lock, ignore_errors=True)
 
@@ -703,9 +749,10 @@ def main():
     command.add_argument("--image", type=Path, required=True)
     command.add_argument("--linked", action="store_true", help="the runtime has this image's functions compiled in")
     commands.add_parser("status", help="verify installed artifacts and report source changes since installation")
-    commands.add_parser("current", help="exit 0 when the selected generation was built from exactly these sources")
+    command = commands.add_parser("current", help="exit 0 when the selected generation was built from exactly these sources")
+    command.add_argument("--refresh-stamp", action="store_true", help="on a match, move .nupp/vm-cli/stamp to before the sources were read")
     command = commands.add_parser("build", help="emit, link and install a VM CLI from this checkout's sources")
-    command.add_argument("--seed", choices=["vm", "pinned", "image"], help="compiler that lowers the image (default: installed VM CLI, else verified execution seed; pinned: the generation the emit cache was filled by)")
+    command.add_argument("--seed", choices=["vm", "image"], help="compiler that lowers the image (default: installed VM CLI, else verified execution seed)")
     command.add_argument("--no-aot", action="store_true", help="install an interpreter-only runtime instead of linking compiled code")
     command.add_argument("--cache", type=Path, help="where emits keep per-module lowering (default: build/vm-cli/emit-cache)")
     command.add_argument("--no-cache", action="store_true", help="lower every module from source and keep nothing")

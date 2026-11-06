@@ -987,6 +987,24 @@ function fingerprint.declarationFingerprint(
     return answer
 end
 
+--- The variable naming the interpreter a VM compiler runs on.
+const RUNTIME_IDENTITY_VARIABLE = "NUPP_VM_RUNTIME_ID"
+
+--- The identity of the interpreter running this compiler, or "" when nothing
+--- named one.
+---
+--- What a lowering comes out as is decided by the code that lowers, which an
+--- image's digests name, and by the interpreter executing that code: the
+--- Nupp-authored core moves under the same image. The running process cannot
+--- digest its own runtime the way it names its image, and the one it would
+--- digest is the wrong answer anyway -- linking a generation's compiled code
+--- into its runtime changes the bytes and not what it computes. So the caller
+--- that chose the runtime names it: `bin/nupp` from the installed generation,
+--- and `scripts/vm-cli` for each emit it starts.
+function fingerprint.runtimeIdentity(): string
+    return os.getenv(RUNTIME_IDENTITY_VARIABLE) or ""
+end
+
 fingerprint.hashFile = hashFile
 fingerprint.hashFiles = hashFiles
 fingerprint.toolFingerprint = toolFingerprint

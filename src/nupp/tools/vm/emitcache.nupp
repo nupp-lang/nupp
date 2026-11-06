@@ -35,9 +35,13 @@ that requires it.
 
 The stamp is everything outside the key that lowering depends on: the
 subsystem of the compiler that checks and lowers (`nupp.tools.vm.project` and
-what it requires), the declarations it carries, the manifest's value, the
-search roots, the layout target. Like every store this is plain data, never
-load-bearing: a miss lowers from source, which is what an emit did before.
+what it requires, as the running image holds it), the interpreter running
+that code (`fingerprint.runtimeIdentity`), the declarations it carries, the
+manifest's value, the search roots, the layout target. So a compiler
+generation never replays what another one lowered unless both lower with the
+same code on the same interpreter, and then they share it. Like every store
+this is plain data, never load-bearing: a miss lowers from source, which is
+what an emit did before.
 ]]
 
 local fs = require("nupp.compiler.fs")
@@ -51,7 +55,7 @@ local T = require("nupp.compiler.types")
 local emitcache = {}
 
 --- Bumped when what is kept changes shape or meaning.
-const FORMAT = "vm-root-emit/1"
+const FORMAT = "vm-root-emit/2"
 
 --- Variables that make an emit report or stub as it goes. A replay would skip the
 --- report, so an emit asked for one keeps nothing.
@@ -281,6 +285,7 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
             {
                 FORMAT,
                 fingerprint.subsystemFingerprint({"nupp.tools.vm.project"}, dir, digest),
+                fingerprint.runtimeIdentity(),
                 fingerprint.declarationFingerprint(digest),
                 table.concat(configText),
                 table.concat(env.roots or {}, "\1"),
@@ -296,8 +301,12 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
         recorded = indexStore.value.modules
     end
 
-    -- NUPP_VM_RELINK_TRACE says why a module is lowered again.
+    -- NUPP_VM_RELINK_TRACE says why a module is lowered again, and which
+    -- compiler's lowering this emit reads.
     local tracing = os.getenv("NUPP_VM_RELINK_TRACE") ~= nil
+    if tracing then
+        io.stderr:write("emitcache: lowering identity ", stamp, "\n")
+    end
 
     local function trace(name: string, why: string): nil
         if tracing then

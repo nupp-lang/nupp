@@ -309,6 +309,57 @@ function M.renumberingEverythingAfterAnEditStillReplays()
     remove(dir)
 end
 
+-- Runs `run` with `fingerprint[field]` replaced by what `answer` makes of it:
+-- how a case stands in for an emit by another compiler generation.
+local function withFingerprint(field, answer, run)
+    local fingerprint = require("nupp.compiler.project.fingerprint")
+    local original = fingerprint[field]
+    fingerprint[field] = answer(original)
+    local ok, image, stats = pcall(run)
+    fingerprint[field] = original
+    assert(ok, image)
+
+    return image, stats
+end
+
+local function otherLoweringCode(original)
+    return function(...)
+        return original(...) .. "+an edited lowering"
+    end
+end
+
+local function otherInterpreter()
+    return function()
+        return "another interpreter"
+    end
+end
+
+-- A generation whose lowering code differs, or whose interpreter does, lowers
+-- from nothing: what another generation lowered is never replayed. The one that
+-- filled the cache still finds all of it, unchanged sources being the hit.
+function M.anotherGenerationsLoweringIsNeverReplayed()
+    local dir = tempProject()
+    local expected = scratch(dir)
+    local _, cold = cached(dir)
+    local function emit()
+        return cached(dir)
+    end
+
+    local image, stats = withFingerprint("subsystemFingerprint", otherLoweringCode, emit)
+    same(expected, image, "other lowering code")
+    assert(stats.replayed == 0, "another compiler's lowering was replayed: " .. stats.replayed)
+    assert(stats.lowered == cold.lowered, "and not everything was lowered again: " .. stats.lowered)
+
+    image, stats = cached(dir)
+    same(expected, image, "the first compiler again")
+    assert(stats.lowered == 0 and stats.replayed == cold.lowered, "the first compiler lost what it kept")
+
+    image, stats = withFingerprint("runtimeIdentity", otherInterpreter, emit)
+    same(expected, image, "another interpreter")
+    assert(stats.replayed == 0, "another interpreter's lowering was replayed: " .. stats.replayed)
+    remove(dir)
+end
+
 -- Anything wrong with what was kept costs a lowering and nothing else.
 function M.aDamagedFragmentIsLoweredAgain()
     local dir = tempProject()

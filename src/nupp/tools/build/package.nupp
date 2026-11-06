@@ -147,7 +147,9 @@ end
 --- `fingerprint.graphFingerprint`: on the VM the digest of the image the running
 --- compiler started from, which the runtime answers without reading the image
 --- file again, and which is the compiler that actually lowers here even when
---- `NUPP_VM_CLI_IMAGE` names another or nothing.
+--- `NUPP_VM_CLI_IMAGE` names another or nothing. Beside it is the interpreter
+--- running that image (`fingerprint.runtimeIdentity`), which the image's digest
+--- does not cover.
 local function programKey(mainName: string, embedded: string?, modules: {[string]: any}?, coverage: boolean): string?
     local compilerRoot = require("nupp.compiler.project.env").compilerRoot()
     if modules == nil or compilerRoot == nil then
@@ -155,7 +157,15 @@ local function programKey(mainName: string, embedded: string?, modules: {[string
     end
     local fingerprint = require("nupp.compiler.project.fingerprint")
     local digest = fingerprint.contentDigest(true)
-    local parts: {string} = {"vm-program/3", mainName, digest(embedded or ""), fingerprint.graphFingerprint(digest)}
+    local parts: {
+        string
+    } = {
+        "vm-program/4",
+        mainName,
+        digest(embedded or ""),
+        fingerprint.graphFingerprint(digest),
+        fingerprint.runtimeIdentity(),
+    }
     -- An instrumented image is a different program; an ordinary key is unchanged.
     if coverage then
         parts[#parts + 1] = "coverage"
@@ -177,119 +187,6 @@ local function programKey(mainName: string, embedded: string?, modules: {[string
     end
 
     return digest(table.concat(parts, "\n"))
-end
-
--- The runtime and compiler image of the generation `scripts/vm-cli` lowers the
--- CLI with (its pinned emitter), or nil when there is none or it is the
--- running one.
-local function emitterGeneration(compilerRoot: string): (string?, string?)
-    local name = (readFile(join(compilerRoot, ".nupp/vm-cli/emitter")) or ""):match("^(%x+)%s*$")
-    if name == nil then
-        return nil, nil
-    end
-    local dir = join(compilerRoot, ".nupp/vm-cli/" .. name)
-    local runtime, image = join(dir, "runtime"), join(dir, "compiler.image")
-    local running = os.getenv("NUPP_VM_CLI_IMAGE")
-    if not fs.exists(runtime)
-        or not fs.exists(image)
-        or running == nil
-        or fs.canonical(running) == fs.canonical(image)
-    then
-        return nil, nil
-    end
-
-    return runtime, image
-end
-
--- A program lowered by the running compiler starts its emit cache cold after
--- every change to the lowering, which is every rebuild of somebody working on
--- it: minutes for one that carries the compiler. The CLI is lowered by a
--- pinned generation for that reason (`scripts/vm-cli`), so a program is too,
--- in that generation's own process and cache. Answers nil when it cannot be
--- (no such generation, or one that predates `project.programRequest` or cannot
--- check these sources), and the running compiler lowers it. The request is
--- passed in files beside `base`; a generation that refused is not asked again.
-local function emitterProgram(
-    base: string,
-    root: string,
-    config: table,
-    mainName: string,
-    embedded: string?,
-    modules: {[string]: any}?,
-    cacheDir: string?,
-    seeded: {string}?
-): (string?, {string}?)
-    local compilerRoot = require("nupp.compiler.project.env").compilerRoot()
-    if compilerRoot == nil or os.getenv("NUPP_VM_PROGRAM_IN_PROCESS") then
-        return nil, nil
-    end
-    local runtime, image = emitterGeneration(compilerRoot as string)
-    if runtime == nil or image == nil then
-        return nil, nil
-    end
-    local refused = base .. ".emitter-refused"
-    if readFile(refused) == image then
-        return nil, nil
-    end
-    local project = require("nupp.tools.vm.project")
-    local request = base .. ".request"
-    local output = request .. ".image"
-    local written = pcall(function(): nil
-        local value = require("nupp.compiler.project.store").openValue(request, project.PROGRAM_REQUEST)
-        value.set({
-            root = root,
-            config = config,
-            entry = mainName,
-            embedded = embedded,
-            modules = modules,
-            cacheDir = cacheDir,
-            seeded = seeded,
-        })
-        value.save()
-    end)
-    os.remove(output)
-    os.remove(request .. ".facilities")
-    local code = written
-        and process.run(
-            {
-                runtime as string,
-                "run",
-                image as string,
-                "nupp.tools.vm.project",
-                "programRequest",
-                request,
-                "--output",
-                output,
-            },
-            {env = {NUPP_COMPILER_ROOT = compilerRoot as string}}
-        )
-        or 1
-    local lowered = code == 0 and readFile(output) or nil
-    local kept = code == 0 and readFile(request .. ".facilities") or nil
-    os.remove(request)
-    os.remove(output)
-    os.remove(request .. ".facilities")
-    if lowered == nil or kept == nil then
-        io.stderr:write("nupp: the pinned emitter could not lower the program; lowering it here\n")
-        writeFile(refused, image as string)
-        -- The running generation lowers these sources (it was built from
-        -- them), so it becomes the pin: the next CLI rebuild starts its cache
-        -- once, and programs are lowered by it from then on.
-        local generation = (os.getenv("NUPP_VM_CLI_IMAGE") or ""):match("/%.nupp/vm%-cli/(%x+)/compiler%.image$")
-        if generation then
-            local pin = join(compilerRoot as string, ".nupp/vm-cli/emitter")
-            if writeFile(pin .. ".new", generation .. "\n") then
-                os.rename(pin .. ".new", pin)
-            end
-        end
-        return nil, nil
-    end
-    local facilities: {string} = {}
-    for facility in (kept as string):gmatch("[^\n]+") do
-        facilities[#facilities + 1] = facility
-    end
-
-    return lowered, facilities
 end
 
 local function programPayload(
@@ -399,32 +296,17 @@ local function programPayload(
         end
         os.remove(record)
     end
-    local ok: boolean, image: any, facilities: any = true, nil, nil
-    if coverage == nil then
-        image, facilities = emitterProgram(
-            cached,
-            root,
-            config as table,
-            mainName,
-            embedded,
-            modules,
-            seeded and cached .. "-emitter-emit" or nil,
-            seeded
-        )
-    end
-    if image == nil then
-        ok, image, facilities = pcall(
-            require("nupp.tools.vm.project").program,
-            root,
-            config as table,
-            mainName,
-            embedded,
-            coverage,
-            modules,
-            seeded and emitDir or nil,
-            seeded
-        )
-    end
+    local ok: boolean, image: any, facilities: any = pcall(
+        require("nupp.tools.vm.project").program,
+        root,
+        config as table,
+        mainName,
+        embedded,
+        coverage,
+        modules,
+        seeded and emitDir or nil,
+        seeded
+    )
     if not ok then
         return nil, tostring(image)
     end

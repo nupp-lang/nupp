@@ -505,32 +505,6 @@ function project.program(
     return image, facilities
 end
 
---- The stamp of a program request (`project.programRequest`).
-project.PROGRAM_REQUEST = "vm-program-request/1"
-
---- `project.program` for a build that lowers its program in another
---- generation's compiler (`nupp.tools.build.package`): the arguments are read
---- from the value store at `path`, the facilities are written beside it, and
---- the image is the answer.
---- @raises string when the request cannot be read or the program lowered.
-function project.programRequest(path: string): string
-    local request: any = require("nupp.compiler.project.store").openValue(path, project.PROGRAM_REQUEST).value
-    assert(type(request) == "table", "unreadable program request " .. path)
-    local image, facilities = project.program(
-        request.root,
-        request.config,
-        request.entry,
-        request.embedded,
-        nil,
-        request.modules,
-        request.cacheDir,
-        request.seeded
-    )
-    assert(fs.writeFile(path .. ".facilities", table.concat(facilities, "\n") .. "\n"))
-
-    return image
-end
-
 --- Inspect the VM instructions emitted for one checked source file: its
 --- functions with each instruction's source line, and the image text those
 --- functions occupy. `text`, when given, is lowered in place of the file's

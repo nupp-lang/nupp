@@ -2570,7 +2570,7 @@ the time its build *started* (an installation older than that has its
 edit, and the command rebuilds before it runs:
 
 ```sh
-python3 scripts/vm-cli build --seed pinned --no-aot   # what the launcher runs
+python3 scripts/vm-cli build --seed vm --no-aot   # what the launcher runs
 ```
 
 - **One rebuild per checkout.** It runs under `.nupp/vm-cli-build.lock`, a
@@ -2584,23 +2584,32 @@ python3 scripts/vm-cli build --seed pinned --no-aot   # what the launcher runs
   worker and child command a compiler starts, which inherit it),
   `NUPP_ENGINE=luajit`, `NUPP_VM_AUTO_REBUILD=0`, help, and `__` worker
   commands.
-- **The emitter is pinned.** The rebuild lowers with the generation whose
-  lowering the emit cache holds (`.nupp/vm-cli/emitter`), not the newest one: a
-  generation built after an edit to the checker or the lowering has a
-  different stamp, and lowering with it would start the cache cold on every
-  second rebuild of somebody working on them. That is the same one-pass
-  semantics `--seed vm` always had, with an older seed. An explicit
-  `scripts/vm-cli build` moves the pin to the installed generation, a pinned
-  generation that cannot lower the sources falls back to the installed one,
-  and `nupp fixpoint` remains the self-hosting check.
+- **The installed generation lowers.** The rebuild is one pass with the newest
+  generation, a generation that cannot lower the sources falls back to the
+  stage zero, and `nupp fixpoint` remains the self-hosting check. (Until
+  2026-11-05 the rebuild lowered with a pinned older generation, to keep the
+  emit cache warm; that compiler never saw a lowering change, so a merge that
+  needed one -- `math.Xoshiro128` from the VM's `math` namespace -- built and
+  ran until an explicit `--seed vm` build.) The emit cache stays warm across
+  generations by its stamp instead: the image's own digests of the lowering
+  code and the interpreter running it (the receipt's `runtimeIdentity`, which
+  a link carries over). An edit outside what `nupp.tools.vm.project` reaches
+  leaves both alone; an edit inside it is lowered by the next generation from
+  nothing, once.
+- **The receipt vouches for what the build read.** `sourceAtInstall` is the
+  fingerprint the build took before reading any source (`sourceRead`), and
+  `scripts/vm-cli current` trusts only a receipt that says how it was taken.
+  An edit made while a build runs is newer than the stamp and missing from
+  the fingerprint, so the next command rebuilds; one fingerprinted at the end
+  of the build had a stale generation report itself current.
 - **Interpreter first, linked in the background.** The rebuild installs an
   interpreter-only runtime, then starts `scripts/vm-cli link`
   (NUPP_VM_AUTO_LINK=0 skips it), which compiles the image's functions into a
   runtime in its own Cargo target directory and installs that pair under the
   build lock -- only while that generation is still the selected one; if a
   newer one was installed meanwhile it links that instead.
-- **Old generations are pruned** after a day, except the selected and pinned
-  ones; a generation is immutable and a running command keeps reading its own.
+- **Old generations are pruned** after a day, except the selected one; a
+  generation is immutable and a running command keeps reading its own.
 
 
 
