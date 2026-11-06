@@ -4145,6 +4145,20 @@ function lower.emit(
             )
     end
 
+    local function functionCleanupReference(f: Fn, cleanup, into: integer?): integer
+        local origin = cleanup.key:match("^(.-)#")
+        local _, class = f:lookup(cleanup.name:match("^[^.]+") or cleanup.name)
+        -- A generic terminal can retain its canonical export name without a
+        -- lexical binding. Its declaring module already registered the callback.
+        if (origin == currentModule or origin == resolve(currentModule)) and class ~= nil then
+            return exprAs(f, cleanupReference(cleanup.name), "v", into)
+        end
+        local callback = into or f:reg()
+        f:op("GetField", callback, cleanupRegistry(f), f:const("str", cleanup.key))
+
+        return callback
+    end
+
     deferCleanup = function(f: Fn, value, cleanup, guard)
         if guard and cleanup.kind ~= "field" then
             local copy = f:reg()
@@ -4167,15 +4181,7 @@ function lower.emit(
             f:op("K", callback, f:const("builtin", "file.close"))
             f:op("Defer", value, callback)
         elseif cleanup.kind == "function" then
-            local origin = cleanup.key:match("^(.-)#")
-            local callback
-            if origin == currentModule or origin == resolve(currentModule) then
-                callback = exprAs(f, cleanupReference(cleanup.name), "v")
-            else
-                local registry = cleanupRegistry(f)
-                callback = f:reg()
-                f:op("GetField", callback, registry, f:const("str", cleanup.key))
-            end
+            local callback = functionCleanupReference(f, cleanup)
             f:op("Defer", value, callback)
         elseif cleanup.kind == "field" then
             -- An absent optional owner has no fields to close.
@@ -4222,12 +4228,7 @@ function lower.emit(
         elseif cleanup.kind == "function" and cleanup.key == "nupp:lua.d.nupp#__nuppCloseFile" then
             f:op("K", callback, f:const("builtin", "file.close"))
         elseif cleanup.kind == "function" then
-            local origin = cleanup.key:match("^(.-)#")
-            if origin == currentModule or origin == resolve(currentModule) then
-                exprAs(f, cleanupReference(cleanup.name), "v", callback)
-            else
-                f:op("GetField", callback, cleanupRegistry(f), f:const("str", cleanup.key))
-            end
+            functionCleanupReference(f, cleanup, callback)
         else
             error("unsupported affine cleanup " .. tostring(cleanup.kind))
         end
