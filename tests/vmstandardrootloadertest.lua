@@ -92,7 +92,7 @@ end
 @comptime local function Items(Element: type): type
     return types.array(Element)
 end
-local store = require("types").newstore()
+local store = require("types").Store.create()
 return type(store)
 ]]
     local env = environment.new(ROOT, {cache = false})
