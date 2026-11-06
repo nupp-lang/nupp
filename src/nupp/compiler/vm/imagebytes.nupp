@@ -1,0 +1,119 @@
+module nupp.compiler.vm.imagebytes
+
+local imagebytes = {}
+local two32 = 4294967296
+
+local function wordbytes(n: number): string
+    return string.char(n % 256, math.floor(n / 256) % 256, math.floor(n / 65536) % 256, math.floor(n / 16777216) % 256)
+end
+
+local function varint(n: number): string
+    local shifted = (n + 1) % two32
+    if shifted < 128 then
+        return string.char(shifted)
+    end
+    local bytes: {string} = {}
+    while shifted >= 128 do
+        bytes[#bytes + 1] = string.char(shifted % 128 + 128)
+        shifted = math.floor(shifted / 128)
+    end
+    bytes[#bytes + 1] = string.char(shifted)
+
+    return table.concat(bytes)
+end
+
+--- The eight little-endian bytes of an integer-valued number in two's
+--- complement; `-1` is eight 0xff bytes.
+--- @raises string when the number is not an exactly representable integer.
+local function widebytes(n: number): string
+    if not (n % 1 == 0 and n > -9007199254740992 and n < 9007199254740992) then
+        error("wide literal outside the exact integer range", 0)
+    end
+    local lo = n % two32
+    local hi = math.floor(n / two32) % two32
+
+    return wordbytes(lo) .. wordbytes(hi)
+end
+
+--- The eight little-endian two's-complement bytes of a 64-bit integer spelled
+--- in decimal or `0x` hexadecimal, with an optional sign, computed exactly in
+--- sixteen-bit limbs: the lowering spells wide literals as text because a
+--- binary64 number cannot hold every one.
+--- @raises string when the text is not an integer or needs more than 64 bits.
+local function widetextbytes(text: string): string
+    local negative = text:sub(1, 1) == "-"
+    local digits = text:gsub("^[-+]", "")
+    local base = 10
+    if digits:match("^0[xX]") then
+        base, digits = 16, digits:sub(3)
+    end
+    if digits == "" then
+        error("wide literal is not an integer: " .. text, 0)
+    end
+    local limbs: {number} = {0, 0, 0, 0}
+    for ch in digits:gmatch(".") do
+        local d = tonumber(ch, base)
+        if d == nil then
+            error("wide literal is not an integer: " .. text, 0)
+        end
+        local carry = d as number
+        for i = 1, 4 do
+            local v = limbs[i] * base + carry
+            limbs[i] = v % 65536
+            carry = math.floor(v / 65536)
+        end
+        if carry ~= 0 then
+            error("wide literal needs more than 64 bits: " .. text, 0)
+        end
+    end
+    if negative then
+        local carry = 1
+        for i = 1, 4 do
+            local v = 65535 - limbs[i] + carry
+            limbs[i] = v % 65536
+            carry = math.floor(v / 65536)
+        end
+    end
+    local bytes: {string} = {}
+    for i = 1, 4 do
+        bytes[#bytes + 1] = string.char(limbs[i] % 256, math.floor(limbs[i] / 256))
+    end
+
+    return table.concat(bytes)
+end
+
+--- The eight little-endian bytes of a binary64 number.
+local function floatbytes(x: number): string
+    if x ~= x then
+        return wordbytes(0) .. wordbytes(2146959360)
+    end
+    local sign = 0
+    if x < 0 or (x == 0 and 1 / x < 0) then
+        sign, x = 1, -x
+    end
+    local exponent, mantissa = 0, 0
+    if x == math.huge then
+        exponent = 2047
+    elseif x ~= 0 then
+        local m, e = math.frexp(x)
+        -- x = m * 2^e with m in [0.5, 1): the leading one is at 2^(e - 1).
+        if e - 1 + 1023 <= 0 then
+            mantissa = x / 2 ^ -1074
+        else
+            exponent = e - 1 + 1023
+            mantissa = (m * 2 - 1) * 4503599627370496
+        end
+    end
+    local lo = mantissa % two32
+    local hi = math.floor(mantissa / two32) + exponent * 1048576 + sign * 2147483648
+
+    return wordbytes(lo) .. wordbytes(hi)
+end
+
+imagebytes.wordbytes = wordbytes
+imagebytes.varint = varint
+imagebytes.widebytes = widebytes
+imagebytes.widetextbytes = widetextbytes
+imagebytes.floatbytes = floatbytes
+
+export = imagebytes
