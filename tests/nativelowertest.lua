@@ -323,6 +323,53 @@ function M.scalarFunctionsLowerAndRunAsPythonWouldCompute()
     check(compileFixture("scalars"), SCALARS)
 end
 
+function M.sameNamedFunctionsKeepTheirModuleIdentity()
+    local dir = tempDirectory()
+    local base = dir .. "/nupp/test/linkernames/"
+    local first, second, entry = base .. "first.nupp", base .. "second.nupp", base .. "entry.nupp"
+    write(first, [[module nupp.test.linkernames.first
+local function value(): int64
+    return 11LL
+end
+export function answer(): int64
+    return value() + 1LL
+end
+]])
+    write(second, [[module nupp.test.linkernames.second
+local function value(): int64
+    return 20LL
+end
+export function answer(): int64
+    return value() + 2LL
+end
+]])
+    write(entry, [[module nupp.test.linkernames.entry
+const first = require("nupp.test.linkernames.first")
+const second = require("nupp.test.linkernames.second")
+export function probe(): int64
+    return first.answer() * 100LL + second.answer()
+end
+]])
+    local ok, problem = pcall(function()
+        for _, paths in ipairs({{entry, first, second}, {second, first, entry}}) do
+            local text = lower.compile(ROOT, paths, {include = {dir, "src"}})
+            local symbols = {}
+            local count = 0
+            for symbol in text:gmatch("function %%([%w_]+)%(") do
+                assert(not symbols[symbol], "duplicate native function: " .. symbol)
+                symbols[symbol] = true
+                count = count + 1
+            end
+            assert(count == 5, text)
+            local path = dir .. "/modules.clif"
+            write(path, text)
+            assert(run(path, "probe", {}) == "1222")
+        end
+    end)
+    os.remove(dir, true)
+    assert(ok, problem)
+end
+
 function M.structFieldsLowerAtTheCompilersLayoutOffsets()
     check(compileFixture("structs"), STRUCTS)
 end

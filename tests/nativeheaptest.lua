@@ -82,7 +82,7 @@ local function compileFixture(name, runtimeModules)
         end
     end
     if seen.collector then
-        for _, module in ipairs({"childwalk", "objectwalk", "objecttable", "backing"}) do
+        for _, module in ipairs({"childwalk", "objectwalk", "objecttable", "backing", "gcfinal"}) do
             if not seen[module] then
                 selected[#selected + 1] = module
                 seen[module] = true

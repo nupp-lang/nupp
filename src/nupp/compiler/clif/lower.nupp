@@ -477,6 +477,7 @@ local intrinsicIdentity = {
 -- whose functions its body names.
 local record Fn
     name: string
+    symbol: string
     node: any
     body: any
     scope: any
@@ -529,7 +530,7 @@ end
 local function compileDirectFunction(fn: Fn, options: any): string
     local body = fn.body
     need(not body.varargParam and not body.generics and not body.captureTakes, "plain function required")
-    local name = fn.name
+    local name = fn.symbol
     local modules: {[string]: Scope} = options.modules
     -- The module whose functions a name resolves in: the function's own, or
     -- the helper's while a helper from another module is inlined.
@@ -661,7 +662,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
         if nativegraph.isLeaf(target) or options.allocator and allocatorModule(target.scope.name) then
             signature = signature .. " tail"
         end
-        local ref = declareFunction(target.name, declareSignature(signature))
+        local ref = declareFunction(target.symbol, declareSignature(signature))
         known = {ref = ref, target = target}
         callees[target] = known
 
@@ -1822,7 +1823,10 @@ local function compileDirectFunction(fn: Fn, options: any): string
             types[i] = machine(kind)
         end
         types[#types + 1] = "i64"
-        local ref = declareFunction(target.name, declareSignature("(" .. table.concat(types, ", ") .. ") -> i64 tail"))
+        local ref = declareFunction(
+            target.symbol,
+            declareSignature("(" .. table.concat(types, ", ") .. ") -> i64 tail")
+        )
         supports[target] = ref
 
         return ref
@@ -2338,6 +2342,7 @@ local function describe(fnName: string, node: any, body: any, scope: Scope, hand
 
     return Fn(
         name = fnName,
+        symbol = fnName,
         node = node,
         body = body,
         scope = scope,
@@ -2494,10 +2499,9 @@ function lower.compile(root: string, paths: {string}, options: any?): string
             )
         end
     end
-    -- Every compiled function is one CLIF function, so the names of what
-    -- compiles must be unique across the set.
+    -- Checked module identities remain separate from linker symbols.
     local compiled: {Fn} = {}
-    local seen = {}
+    local counts: {[string]: integer} = {}
     for _, scope in ipairs(scopes) do
         for _, fnName in ipairs(scope.order) do
             local fn = scope.functions[fnName] as Fn
@@ -2507,13 +2511,20 @@ function lower.compile(root: string, paths: {string}, options: any?): string
                 or fn.isSupport
                 or nativegraph.admits(fn)
             then
-                need(seen[fnName] == nil, "function " .. fnName .. " compiled from two modules")
-                seen[fnName] = true
+                counts[fnName] = (counts[fnName] or 0) + 1
                 compiled[#compiled + 1] = fn
             end
         end
     end
     need(#compiled > 0, "no functions")
+    local symbols = {}
+    for index, fn in ipairs(compiled) do
+        if counts[fn.name] > 1 then
+            fn.symbol = "__nupp_module_" .. tostring(index) .. "_" .. fn.name
+        end
+        need(not symbols[fn.symbol], "native symbol collision: " .. fn.symbol)
+        symbols[fn.symbol] = true
+    end
     local functionOptions = {
         handlers = handlers,
         layout = handlers and layouts(settings.layouts as string) or nil,
@@ -2530,13 +2541,13 @@ function lower.compile(root: string, paths: {string}, options: any?): string
             graph.prune(g)
             graph.verify(g)
             text[index] = clifgraph.emit(g, {
-                name = fn.name,
+                name = fn.symbol,
                 layout = functionOptions.layout,
                 helperModules = functionOptions.helperModules,
                 modules = functionOptions.modules
             })
         elseif handlers and allocatorModule(fn.scope.name) then
-            allocatorNames[#allocatorNames + 1] = fn.name
+            allocatorNames[#allocatorNames + 1] = fn.symbol
             text[index] = compileDirectFunction(fn, {
                 handlers = false,
                 allocator = true,

@@ -126,7 +126,7 @@ function emitter.emit(g: any, options: any): string
             params[index] = machineKinds[kind]
         end
         params[#params + 1] = "i64"
-        local symbol = declaration.name
+        local symbol = target.symbol or declaration.name
         local signature = "(" .. table.concat(params, ", ") .. ") -> i64 tail"
         local known = imports[symbol]
         if known then
@@ -236,7 +236,9 @@ function emitter.emit(g: any, options: any): string
             _ = switch op do
                 case "NativeLeafCall" -> do
                     local declaration = args[1]
-                    local symbol = declaration.name
+                    local home = options.modules and options.modules[declaration.moduleName]
+                    local target = home and home.functions and home.functions[declaration.name]
+                    local symbol = target and target.symbol or declaration.name
                     local types, words = {}, {}
                     for index = 1, #declaration.params do
                         types[index] = "i64"
