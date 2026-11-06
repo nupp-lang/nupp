@@ -1,0 +1,1783 @@
+{
+  "baseline": "6d245946f97df706d175c36d7b288e74f0edbd8e",
+  "runs": [
+    {
+      "label": "before",
+      "revision": "6d245946f97df706d175c36d7b288e74f0edbd8e",
+      "rows": [
+        {
+          "name": "self-build",
+          "command": [
+            "build",
+            "--target",
+            "compiler",
+            "--output",
+            "$WORKTREE/build/byte-types-measure/before/compiler",
+            "--json"
+          ],
+          "seconds": 38.634489542000004,
+          "exit": 0,
+          "bytes": 105039,
+          "sha256": "5d40c879d5d152a04ceb2fab0d4eb9d1c0536bccdaa61dce307c6c3f02b3e420",
+          "timing": {
+            "compiledModules": 463,
+            "optimizerFacts": {
+              "consumed": 9452,
+              "families": {
+                "callableEffects": 1636,
+                "callableRelations": 1636,
+                "identity": 135,
+                "inlineEligibility": 906,
+                "traceFindings": 135,
+                "traceProfileId": 340
+              },
+              "produced": 4788,
+              "selectionChangedModules": 0,
+              "selectorMs": 348.5499999999995,
+              "unique": 4788
+            },
+            "parallel": {
+              "batches": 15,
+              "mode": "serial-fallback",
+              "reason": "parallel worker recursively checked src/nupp/compiler/runtime/reflect.nupp [paths src/nupp/tools/build/progress.nupp; worker said ]",
+              "retries": 0,
+              "workers": 6
+            },
+            "phases": [
+              {
+                "durationMs": 24668.615478515625,
+                "name": "check"
+              },
+              {
+                "durationMs": 8949.187255859375,
+                "name": "generate"
+              },
+              {
+                "durationMs": 2096.35302734375,
+                "name": "parallel build"
+              },
+              {
+                "durationMs": 922.284912109375,
+                "name": "native"
+              },
+              {
+                "durationMs": 791.879150390625,
+                "name": "write"
+              },
+              {
+                "durationMs": 438.107177734375,
+                "name": "other"
+              },
+              {
+                "durationMs": 379.96484375,
+                "name": "resolve"
+              },
+              {
+                "durationMs": 61.84033203125,
+                "name": "scan"
+              },
+              {
+                "durationMs": 26.97900390625,
+                "name": "persist"
+              }
+            ],
+            "reusedModules": 0,
+            "slowest": [
+              {
+                "durationMs": 2111.72509765625,
+                "module": "nupp.compiler.lua.gen"
+              },
+              {
+                "durationMs": 1976.544921875,
+                "module": "nupp.compiler.types.generics"
+              },
+              {
+                "durationMs": 1506.62548828125,
+                "module": "nupp.compiler.aot.lower"
+              },
+              {
+                "durationMs": 656.272705078125,
+                "module": "nupp.compiler.aot.verify"
+              },
+              {
+                "durationMs": 652.52197265625,
+                "module": "nupp.compiler.syntax.parser"
+              }
+            ],
+            "specializedBodies": 0,
+            "totalMs": 38335.873046875
+          },
+          "ok": true
+        },
+        {
+          "name": "aot-ir",
+          "command": [
+            "aot",
+            "--emit",
+            "ir",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.4994981250000023,
+          "exit": 0,
+          "bytes": 1402,
+          "sha256": "e36325a9ced64792c49105cdba8a8dd7e0b1b147a5e0a8955f7c7d3e41ced86c"
+        },
+        {
+          "name": "aot-ir",
+          "command": [
+            "aot",
+            "--emit",
+            "ir",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.5235879169999933,
+          "exit": 0,
+          "bytes": 1402,
+          "sha256": "e36325a9ced64792c49105cdba8a8dd7e0b1b147a5e0a8955f7c7d3e41ced86c"
+        },
+        {
+          "name": "aot-ir",
+          "command": [
+            "aot",
+            "--emit",
+            "ir",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.5093738750000014,
+          "exit": 0,
+          "bytes": 1402,
+          "sha256": "e36325a9ced64792c49105cdba8a8dd7e0b1b147a5e0a8955f7c7d3e41ced86c"
+        },
+        {
+          "name": "aot-llvm",
+          "command": [
+            "aot",
+            "--emit",
+            "llvm",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.4542957080000036,
+          "exit": 0,
+          "bytes": 5260,
+          "sha256": "511521f2aaf4734250d4dc22561dbf74401a6c65c8d21596f310757f7afe01cb"
+        },
+        {
+          "name": "aot-llvm",
+          "command": [
+            "aot",
+            "--emit",
+            "llvm",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.4461101659999969,
+          "exit": 0,
+          "bytes": 5260,
+          "sha256": "511521f2aaf4734250d4dc22561dbf74401a6c65c8d21596f310757f7afe01cb"
+        },
+        {
+          "name": "aot-llvm",
+          "command": [
+            "aot",
+            "--emit",
+            "llvm",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.4536837079999998,
+          "exit": 0,
+          "bytes": 5260,
+          "sha256": "511521f2aaf4734250d4dc22561dbf74401a6c65c8d21596f310757f7afe01cb"
+        }
+      ]
+    },
+    {
+      "label": "after",
+      "revision": "6d245946f97df706d175c36d7b288e74f0edbd8e",
+      "rows": [
+        {
+          "name": "self-build",
+          "command": [
+            "build",
+            "--target",
+            "compiler",
+            "--output",
+            "$WORKTREE/build/byte-types-measure/after/compiler",
+            "--json"
+          ],
+          "seconds": 56.022705167,
+          "exit": 0,
+          "bytes": 104393,
+          "sha256": "e7a8a92d7ca15a34c7b5008b5ee445915438c4dc7baaf1b10a930c6bf29d82ba",
+          "timing": {
+            "compiledModules": 464,
+            "optimizerFacts": {
+              "consumed": 9452,
+              "families": {
+                "callableEffects": 1636,
+                "callableRelations": 1636,
+                "identity": 135,
+                "inlineEligibility": 906,
+                "traceFindings": 135,
+                "traceProfileId": 340
+              },
+              "produced": 4788,
+              "selectionChangedModules": 0,
+              "selectorMs": 407.51900000000063,
+              "unique": 4788
+            },
+            "parallel": {
+              "batches": 36,
+              "mode": "serial-fallback",
+              "reason": "parallel worker recursively checked src/nupp/compiler/runtime/reflect.nupp [paths src/nupp/tools/build/progress.nupp; worker said ]",
+              "retries": 0,
+              "workers": 6
+            },
+            "phases": [
+              {
+                "durationMs": 35455.608154296875,
+                "name": "check"
+              },
+              {
+                "durationMs": 13182.60107421875,
+                "name": "generate"
+              },
+              {
+                "durationMs": 3761.1728515625,
+                "name": "parallel build"
+              },
+              {
+                "durationMs": 1298.19091796875,
+                "name": "native"
+              },
+              {
+                "durationMs": 783.634033203125,
+                "name": "write"
+              },
+              {
+                "durationMs": 638.28515625,
+                "name": "other"
+              },
+              {
+                "durationMs": 450.7109375,
+                "name": "resolve"
+              },
+              {
+                "durationMs": 81.885009765625,
+                "name": "scan"
+              },
+              {
+                "durationMs": 31.55712890625,
+                "name": "persist"
+              }
+            ],
+            "reusedModules": 0,
+            "slowest": [
+              {
+                "durationMs": 3158.46484375,
+                "module": "nupp.compiler.types.generics"
+              },
+              {
+                "durationMs": 2528.90771484375,
+                "module": "nupp.compiler.lua.gen"
+              },
+              {
+                "durationMs": 1979.6708984375,
+                "module": "nupp.compiler.aot.lower"
+              },
+              {
+                "durationMs": 1125.5927734375,
+                "module": "nupp.compiler.syntax.parser"
+              },
+              {
+                "durationMs": 966.515380859375,
+                "module": "nupp.compiler.check.callexpr"
+              }
+            ],
+            "specializedBodies": 0,
+            "totalMs": 55684.10009765625
+          },
+          "ok": true
+        },
+        {
+          "name": "aot-ir",
+          "command": [
+            "aot",
+            "--emit",
+            "ir",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.9106224579999989,
+          "exit": 0,
+          "bytes": 1402,
+          "sha256": "e36325a9ced64792c49105cdba8a8dd7e0b1b147a5e0a8955f7c7d3e41ced86c"
+        },
+        {
+          "name": "aot-ir",
+          "command": [
+            "aot",
+            "--emit",
+            "ir",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.9479656669999983,
+          "exit": 0,
+          "bytes": 1402,
+          "sha256": "e36325a9ced64792c49105cdba8a8dd7e0b1b147a5e0a8955f7c7d3e41ced86c"
+        },
+        {
+          "name": "aot-ir",
+          "command": [
+            "aot",
+            "--emit",
+            "ir",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.8775774160000012,
+          "exit": 0,
+          "bytes": 1402,
+          "sha256": "e36325a9ced64792c49105cdba8a8dd7e0b1b147a5e0a8955f7c7d3e41ced86c"
+        },
+        {
+          "name": "aot-llvm",
+          "command": [
+            "aot",
+            "--emit",
+            "llvm",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 2.034006333999997,
+          "exit": 0,
+          "bytes": 5260,
+          "sha256": "511521f2aaf4734250d4dc22561dbf74401a6c65c8d21596f310757f7afe01cb"
+        },
+        {
+          "name": "aot-llvm",
+          "command": [
+            "aot",
+            "--emit",
+            "llvm",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 2.0900392080000003,
+          "exit": 0,
+          "bytes": 5260,
+          "sha256": "511521f2aaf4734250d4dc22561dbf74401a6c65c8d21596f310757f7afe01cb"
+        },
+        {
+          "name": "aot-llvm",
+          "command": [
+            "aot",
+            "--emit",
+            "llvm",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 2.169710000000009,
+          "exit": 0,
+          "bytes": 5260,
+          "sha256": "511521f2aaf4734250d4dc22561dbf74401a6c65c8d21596f310757f7afe01cb"
+        }
+      ]
+    },
+    {
+      "label": "fast-after",
+      "revision": "6d245946f97df706d175c36d7b288e74f0edbd8e",
+      "rows": [
+        {
+          "name": "self-build",
+          "command": [
+            "build",
+            "--target",
+            "compiler",
+            "--output",
+            "$WORKTREE/build/byte-types-measure/fast-after/compiler",
+            "--json"
+          ],
+          "seconds": 58.184194291999994,
+          "exit": 0,
+          "bytes": 108591,
+          "sha256": "d03a00d96be9295ba4479cb33b8ddfea89a7a771e19d555a4258c99ae004f449",
+          "timing": {
+            "compiledModules": 465,
+            "optimizerFacts": {
+              "consumed": 9453,
+              "families": {
+                "callableEffects": 1638,
+                "callableRelations": 1638,
+                "identity": 135,
+                "inlineEligibility": 907,
+                "traceFindings": 135,
+                "traceProfileId": 340
+              },
+              "produced": 4793,
+              "selectionChangedModules": 0,
+              "selectorMs": 383.92100000000084,
+              "unique": 4793
+            },
+            "parallel": {
+              "batches": 34,
+              "mode": "serial-fallback",
+              "reason": "parallel worker recursively checked src/nupp/compiler/runtime/reflect.nupp [paths src/nupp/tools/build/progress.nupp; worker said ]",
+              "retries": 0,
+              "workers": 6
+            },
+            "phases": [
+              {
+                "durationMs": 36247.026123046875,
+                "name": "check"
+              },
+              {
+                "durationMs": 14228.93505859375,
+                "name": "generate"
+              },
+              {
+                "durationMs": 4129.14013671875,
+                "name": "parallel build"
+              },
+              {
+                "durationMs": 1309.259033203125,
+                "name": "native"
+              },
+              {
+                "durationMs": 769.52001953125,
+                "name": "write"
+              },
+              {
+                "durationMs": 631.794189453125,
+                "name": "other"
+              },
+              {
+                "durationMs": 427.921875,
+                "name": "resolve"
+              },
+              {
+                "durationMs": 86.408935546875,
+                "name": "scan"
+              },
+              {
+                "durationMs": 31.5859375,
+                "name": "persist"
+              }
+            ],
+            "reusedModules": 0,
+            "slowest": [
+              {
+                "durationMs": 3184.7890625,
+                "module": "nupp.compiler.types.generics"
+              },
+              {
+                "durationMs": 2141.563720703125,
+                "module": "nupp.compiler.aot.lower"
+              },
+              {
+                "durationMs": 2022.035888671875,
+                "module": "nupp.compiler.lua.gen"
+              },
+              {
+                "durationMs": 1095.135986328125,
+                "module": "nupp.tools.doc.extract"
+              },
+              {
+                "durationMs": 1093.04736328125,
+                "module": "nupp.compiler.syntax.parser"
+              }
+            ],
+            "specializedBodies": 0,
+            "totalMs": 57861.898193359375
+          },
+          "ok": true
+        },
+        {
+          "name": "aot-ir",
+          "command": [
+            "aot",
+            "--emit",
+            "ir",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.9786082080000043,
+          "exit": 0,
+          "bytes": 1402,
+          "sha256": "e36325a9ced64792c49105cdba8a8dd7e0b1b147a5e0a8955f7c7d3e41ced86c"
+        },
+        {
+          "name": "aot-ir",
+          "command": [
+            "aot",
+            "--emit",
+            "ir",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 2.062427624999998,
+          "exit": 0,
+          "bytes": 1402,
+          "sha256": "e36325a9ced64792c49105cdba8a8dd7e0b1b147a5e0a8955f7c7d3e41ced86c"
+        },
+        {
+          "name": "aot-ir",
+          "command": [
+            "aot",
+            "--emit",
+            "ir",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.9095032500000002,
+          "exit": 0,
+          "bytes": 1402,
+          "sha256": "e36325a9ced64792c49105cdba8a8dd7e0b1b147a5e0a8955f7c7d3e41ced86c"
+        },
+        {
+          "name": "aot-llvm",
+          "command": [
+            "aot",
+            "--emit",
+            "llvm",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 2.0030702500000075,
+          "exit": 0,
+          "bytes": 5260,
+          "sha256": "511521f2aaf4734250d4dc22561dbf74401a6c65c8d21596f310757f7afe01cb"
+        },
+        {
+          "name": "aot-llvm",
+          "command": [
+            "aot",
+            "--emit",
+            "llvm",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 2.1694245829999943,
+          "exit": 0,
+          "bytes": 5260,
+          "sha256": "511521f2aaf4734250d4dc22561dbf74401a6c65c8d21596f310757f7afe01cb"
+        },
+        {
+          "name": "aot-llvm",
+          "command": [
+            "aot",
+            "--emit",
+            "llvm",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 2.0476124999999996,
+          "exit": 0,
+          "bytes": 5260,
+          "sha256": "511521f2aaf4734250d4dc22561dbf74401a6c65c8d21596f310757f7afe01cb"
+        }
+      ]
+    },
+    {
+      "label": "final-after",
+      "revision": "6d245946f97df706d175c36d7b288e74f0edbd8e",
+      "rows": [
+        {
+          "name": "self-build",
+          "command": [
+            "build",
+            "--target",
+            "compiler",
+            "--output",
+            "$WORKTREE/build/byte-types-measure/final-after/compiler",
+            "--json"
+          ],
+          "seconds": 54.832575750000004,
+          "exit": 0,
+          "bytes": 109329,
+          "sha256": "828dd00c103d73b83ddd09c77197e9636501ee0b0cda99073090cea51b62fe01",
+          "timing": {
+            "compiledModules": 465,
+            "optimizerFacts": {
+              "consumed": 9453,
+              "families": {
+                "callableEffects": 1638,
+                "callableRelations": 1638,
+                "identity": 135,
+                "inlineEligibility": 907,
+                "traceFindings": 135,
+                "traceProfileId": 340
+              },
+              "produced": 4793,
+              "selectionChangedModules": 0,
+              "selectorMs": 447.6699999999951,
+              "unique": 4793
+            },
+            "parallel": {
+              "batches": 31,
+              "mode": "serial-fallback",
+              "reason": "parallel worker recursively checked src/nupp/compiler/runtime/reflect.nupp [paths src/nupp/tools/build/progress.nupp; worker said ]",
+              "retries": 0,
+              "workers": 6
+            },
+            "phases": [
+              {
+                "durationMs": 34542.45751953125,
+                "name": "check"
+              },
+              {
+                "durationMs": 12287.658935546875,
+                "name": "generate"
+              },
+              {
+                "durationMs": 4106.98193359375,
+                "name": "parallel build"
+              },
+              {
+                "durationMs": 1319.156982421875,
+                "name": "native"
+              },
+              {
+                "durationMs": 828.276123046875,
+                "name": "write"
+              },
+              {
+                "durationMs": 530.829833984375,
+                "name": "other"
+              },
+              {
+                "durationMs": 498.422607421875,
+                "name": "resolve"
+              },
+              {
+                "durationMs": 89.98095703125,
+                "name": "scan"
+              },
+              {
+                "durationMs": 45.322021484375,
+                "name": "persist"
+              }
+            ],
+            "reusedModules": 0,
+            "slowest": [
+              {
+                "durationMs": 3193.007080078125,
+                "module": "nupp.compiler.lua.gen"
+              },
+              {
+                "durationMs": 2735.306884765625,
+                "module": "nupp.compiler.types.generics"
+              },
+              {
+                "durationMs": 1884.0771484375,
+                "module": "nupp.compiler.aot.lower"
+              },
+              {
+                "durationMs": 1007.592041015625,
+                "module": "nupp.compiler.check.calls"
+              },
+              {
+                "durationMs": 957.1640625,
+                "module": "nupp.compiler.aot.verify"
+              }
+            ],
+            "specializedBodies": 0,
+            "totalMs": 54249.821044921875
+          },
+          "ok": true
+        },
+        {
+          "name": "aot-ir",
+          "command": [
+            "aot",
+            "--emit",
+            "ir",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 2.067542500000002,
+          "exit": 0,
+          "bytes": 1402,
+          "sha256": "e36325a9ced64792c49105cdba8a8dd7e0b1b147a5e0a8955f7c7d3e41ced86c"
+        },
+        {
+          "name": "aot-ir",
+          "command": [
+            "aot",
+            "--emit",
+            "ir",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.893876083000002,
+          "exit": 0,
+          "bytes": 1402,
+          "sha256": "e36325a9ced64792c49105cdba8a8dd7e0b1b147a5e0a8955f7c7d3e41ced86c"
+        },
+        {
+          "name": "aot-ir",
+          "command": [
+            "aot",
+            "--emit",
+            "ir",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.885217708000006,
+          "exit": 0,
+          "bytes": 1402,
+          "sha256": "e36325a9ced64792c49105cdba8a8dd7e0b1b147a5e0a8955f7c7d3e41ced86c"
+        },
+        {
+          "name": "aot-llvm",
+          "command": [
+            "aot",
+            "--emit",
+            "llvm",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.8243595419999963,
+          "exit": 0,
+          "bytes": 5260,
+          "sha256": "511521f2aaf4734250d4dc22561dbf74401a6c65c8d21596f310757f7afe01cb"
+        },
+        {
+          "name": "aot-llvm",
+          "command": [
+            "aot",
+            "--emit",
+            "llvm",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.8222695420000008,
+          "exit": 0,
+          "bytes": 5260,
+          "sha256": "511521f2aaf4734250d4dc22561dbf74401a6c65c8d21596f310757f7afe01cb"
+        },
+        {
+          "name": "aot-llvm",
+          "command": [
+            "aot",
+            "--emit",
+            "llvm",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.891581957999989,
+          "exit": 0,
+          "bytes": 5260,
+          "sha256": "511521f2aaf4734250d4dc22561dbf74401a6c65c8d21596f310757f7afe01cb"
+        }
+      ]
+    },
+    {
+      "label": "late-before",
+      "revision": "6d245946f97df706d175c36d7b288e74f0edbd8e",
+      "rows": [
+        {
+          "name": "self-build",
+          "command": [
+            "build",
+            "--target",
+            "compiler",
+            "--output",
+            "$BASELINE/build/byte-types-measure/late-before/compiler",
+            "--json"
+          ],
+          "seconds": 167.250858083,
+          "exit": 0,
+          "bytes": 111953,
+          "sha256": "c61e349d66659d0219a7d06df36c89c3951b21350d3fc7cfeeffa81a9bea4df1",
+          "timing": {
+            "compiledModules": 463,
+            "optimizerFacts": {
+              "consumed": 9452,
+              "families": {
+                "callableEffects": 1636,
+                "callableRelations": 1636,
+                "identity": 135,
+                "inlineEligibility": 906,
+                "traceFindings": 135,
+                "traceProfileId": 340
+              },
+              "produced": 4788,
+              "selectionChangedModules": 0,
+              "selectorMs": 419.1900000000004,
+              "unique": 4788
+            },
+            "parallel": {
+              "batches": 15,
+              "mode": "serial-fallback",
+              "reason": "parallel worker recursively checked src/nupp/compiler/runtime/reflect.nupp [paths src/nupp/tools/build/progress.nupp; worker said ]",
+              "retries": 0,
+              "workers": 6
+            },
+            "phases": [
+              {
+                "durationMs": 31189.360107421875,
+                "name": "check"
+              },
+              {
+                "durationMs": 12840.296875,
+                "name": "generate"
+              },
+              {
+                "durationMs": 2307.096923828125,
+                "name": "parallel build"
+              },
+              {
+                "durationMs": 1332.214111328125,
+                "name": "native"
+              },
+              {
+                "durationMs": 757.77783203125,
+                "name": "write"
+              },
+              {
+                "durationMs": 467.172119140625,
+                "name": "resolve"
+              },
+              {
+                "durationMs": 452.744873046875,
+                "name": "other"
+              },
+              {
+                "durationMs": 89.470947265625,
+                "name": "scan"
+              },
+              {
+                "durationMs": 50.468017578125,
+                "name": "persist"
+              }
+            ],
+            "reusedModules": 0,
+            "slowest": [
+              {
+                "durationMs": 2732.19189453125,
+                "module": "nupp.compiler.types.generics"
+              },
+              {
+                "durationMs": 2461.962158203125,
+                "module": "nupp.compiler.aot.lower"
+              },
+              {
+                "durationMs": 2000.99609375,
+                "module": "nupp.compiler.lua.gen"
+              },
+              {
+                "durationMs": 1028.087158203125,
+                "module": "nupp.compiler.syntax.parser"
+              },
+              {
+                "durationMs": 806.888671875,
+                "module": "nupp.compiler.check.callexpr"
+              }
+            ],
+            "specializedBodies": 0,
+            "totalMs": 49486.971923828125
+          },
+          "ok": true
+        },
+        {
+          "name": "aot-ir",
+          "command": [
+            "aot",
+            "--emit",
+            "ir",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.9865023330000042,
+          "exit": 0,
+          "bytes": 1402,
+          "sha256": "e36325a9ced64792c49105cdba8a8dd7e0b1b147a5e0a8955f7c7d3e41ced86c"
+        },
+        {
+          "name": "aot-ir",
+          "command": [
+            "aot",
+            "--emit",
+            "ir",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.8825643340000227,
+          "exit": 0,
+          "bytes": 1402,
+          "sha256": "e36325a9ced64792c49105cdba8a8dd7e0b1b147a5e0a8955f7c7d3e41ced86c"
+        },
+        {
+          "name": "aot-ir",
+          "command": [
+            "aot",
+            "--emit",
+            "ir",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.7859548750000158,
+          "exit": 0,
+          "bytes": 1402,
+          "sha256": "e36325a9ced64792c49105cdba8a8dd7e0b1b147a5e0a8955f7c7d3e41ced86c"
+        },
+        {
+          "name": "aot-llvm",
+          "command": [
+            "aot",
+            "--emit",
+            "llvm",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.8414780840000162,
+          "exit": 0,
+          "bytes": 5260,
+          "sha256": "511521f2aaf4734250d4dc22561dbf74401a6c65c8d21596f310757f7afe01cb"
+        },
+        {
+          "name": "aot-llvm",
+          "command": [
+            "aot",
+            "--emit",
+            "llvm",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.7543278750000013,
+          "exit": 0,
+          "bytes": 5260,
+          "sha256": "511521f2aaf4734250d4dc22561dbf74401a6c65c8d21596f310757f7afe01cb"
+        },
+        {
+          "name": "aot-llvm",
+          "command": [
+            "aot",
+            "--emit",
+            "llvm",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.7313293750000014,
+          "exit": 0,
+          "bytes": 5260,
+          "sha256": "511521f2aaf4734250d4dc22561dbf74401a6c65c8d21596f310757f7afe01cb"
+        }
+      ]
+    },
+    {
+      "label": "late-after",
+      "revision": "6d245946f97df706d175c36d7b288e74f0edbd8e",
+      "rows": [
+        {
+          "name": "self-build",
+          "command": [
+            "build",
+            "--target",
+            "compiler",
+            "--output",
+            "$WORKTREE/build/byte-types-measure/late-after/compiler",
+            "--json"
+          ],
+          "seconds": 53.182290125,
+          "exit": 0,
+          "bytes": 108525,
+          "sha256": "88d3c71a0eb39fedde9e3d9e8349c8e4b94bb20af246925e212698b1294aa2d0",
+          "timing": {
+            "compiledModules": 465,
+            "optimizerFacts": {
+              "consumed": 9453,
+              "families": {
+                "callableEffects": 1638,
+                "callableRelations": 1638,
+                "identity": 135,
+                "inlineEligibility": 907,
+                "traceFindings": 135,
+                "traceProfileId": 340
+              },
+              "produced": 4793,
+              "selectionChangedModules": 0,
+              "selectorMs": 370.44699999999864,
+              "unique": 4793
+            },
+            "parallel": {
+              "batches": 33,
+              "mode": "serial-fallback",
+              "reason": "parallel worker recursively checked src/nupp/compiler/runtime/reflect.nupp [paths src/nupp/compiler/diagnostics.nupp; worker said ]",
+              "retries": 0,
+              "workers": 6
+            },
+            "phases": [
+              {
+                "durationMs": 33061.849853515625,
+                "name": "check"
+              },
+              {
+                "durationMs": 12078.368408203125,
+                "name": "generate"
+              },
+              {
+                "durationMs": 3466.5341796875,
+                "name": "parallel build"
+              },
+              {
+                "durationMs": 1714.760009765625,
+                "name": "write"
+              },
+              {
+                "durationMs": 1277.008056640625,
+                "name": "native"
+              },
+              {
+                "durationMs": 504.7060546875,
+                "name": "other"
+              },
+              {
+                "durationMs": 415.229736328125,
+                "name": "resolve"
+              },
+              {
+                "durationMs": 86.478759765625,
+                "name": "scan"
+              },
+              {
+                "durationMs": 62.85693359375,
+                "name": "persist"
+              }
+            ],
+            "reusedModules": 0,
+            "slowest": [
+              {
+                "durationMs": 3021.07080078125,
+                "module": "nupp.compiler.types.generics"
+              },
+              {
+                "durationMs": 2459.498046875,
+                "module": "nupp.compiler.lua.gen"
+              },
+              {
+                "durationMs": 2241.93212890625,
+                "module": "nupp.compiler.aot.lower"
+              },
+              {
+                "durationMs": 873.01806640625,
+                "module": "nupp.compiler.syntax.parser"
+              },
+              {
+                "durationMs": 659.223876953125,
+                "module": "nupp.compiler.aot.verify"
+              }
+            ],
+            "specializedBodies": 0,
+            "totalMs": 52668.779052734375
+          },
+          "ok": true
+        },
+        {
+          "name": "aot-ir",
+          "command": [
+            "aot",
+            "--emit",
+            "ir",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.8572129170000053,
+          "exit": 0,
+          "bytes": 1402,
+          "sha256": "e36325a9ced64792c49105cdba8a8dd7e0b1b147a5e0a8955f7c7d3e41ced86c"
+        },
+        {
+          "name": "aot-ir",
+          "command": [
+            "aot",
+            "--emit",
+            "ir",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.8416167909999999,
+          "exit": 0,
+          "bytes": 1402,
+          "sha256": "e36325a9ced64792c49105cdba8a8dd7e0b1b147a5e0a8955f7c7d3e41ced86c"
+        },
+        {
+          "name": "aot-ir",
+          "command": [
+            "aot",
+            "--emit",
+            "ir",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.795263792,
+          "exit": 0,
+          "bytes": 1402,
+          "sha256": "e36325a9ced64792c49105cdba8a8dd7e0b1b147a5e0a8955f7c7d3e41ced86c"
+        },
+        {
+          "name": "aot-llvm",
+          "command": [
+            "aot",
+            "--emit",
+            "llvm",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.8439615829999951,
+          "exit": 0,
+          "bytes": 5260,
+          "sha256": "511521f2aaf4734250d4dc22561dbf74401a6c65c8d21596f310757f7afe01cb"
+        },
+        {
+          "name": "aot-llvm",
+          "command": [
+            "aot",
+            "--emit",
+            "llvm",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.8786224170000025,
+          "exit": 0,
+          "bytes": 5260,
+          "sha256": "511521f2aaf4734250d4dc22561dbf74401a6c65c8d21596f310757f7afe01cb"
+        },
+        {
+          "name": "aot-llvm",
+          "command": [
+            "aot",
+            "--emit",
+            "llvm",
+            "--function",
+            "advance",
+            "bench/span-range-lowering/aot.nupp"
+          ],
+          "seconds": 1.8426592079999935,
+          "exit": 0,
+          "bytes": 5260,
+          "sha256": "511521f2aaf4734250d4dc22561dbf74401a6c65c8d21596f310757f7afe01cb"
+        }
+      ]
+    }
+  ],
+  "pairedSelfBuilds": [
+    {
+      "variant": "before",
+      "iteration": 0,
+      "wallSeconds": 44.017139959,
+      "cpuSeconds": 48.930596,
+      "exit": 0,
+      "ok": true,
+      "timing": {
+        "compiledModules": 465,
+        "optimizerFacts": {
+          "consumed": 9453,
+          "families": {
+            "callableEffects": 1638,
+            "callableRelations": 1638,
+            "identity": 135,
+            "inlineEligibility": 907,
+            "traceFindings": 135,
+            "traceProfileId": 340
+          },
+          "produced": 4793,
+          "selectionChangedModules": 0,
+          "selectorMs": 348.63199999999847,
+          "unique": 4793
+        },
+        "parallel": {
+          "batches": 15,
+          "mode": "serial-fallback",
+          "reason": "parallel worker recursively checked src/nupp/compiler/runtime/reflect.nupp [paths src/nupp/tools/build/progress.nupp; worker said ]",
+          "retries": 0,
+          "workers": 6
+        },
+        "phases": [
+          {
+            "durationMs": 29029.66845703125,
+            "name": "check"
+          },
+          {
+            "durationMs": 9892.442626953125,
+            "name": "generate"
+          },
+          {
+            "durationMs": 1878.630126953125,
+            "name": "parallel build"
+          },
+          {
+            "durationMs": 1060.739013671875,
+            "name": "native"
+          },
+          {
+            "durationMs": 724.216064453125,
+            "name": "write"
+          },
+          {
+            "durationMs": 439.160888671875,
+            "name": "other"
+          },
+          {
+            "durationMs": 383.430908203125,
+            "name": "resolve"
+          },
+          {
+            "durationMs": 77.182861328125,
+            "name": "scan"
+          },
+          {
+            "durationMs": 41.010009765625,
+            "name": "persist"
+          }
+        ],
+        "reusedModules": 0,
+        "slowest": [
+          {
+            "durationMs": 2801.817138671875,
+            "module": "nupp.compiler.lua.gen"
+          },
+          {
+            "durationMs": 2184.853759765625,
+            "module": "nupp.compiler.types.generics"
+          },
+          {
+            "durationMs": 1504.82568359375,
+            "module": "nupp.compiler.aot.lower"
+          },
+          {
+            "durationMs": 1401.220947265625,
+            "module": "nupp.compiler.syntax.parser"
+          },
+          {
+            "durationMs": 936.65283203125,
+            "module": "nupp.compiler.check.calls"
+          }
+        ],
+        "specializedBodies": 0,
+        "totalMs": 43527.763916015625
+      }
+    },
+    {
+      "variant": "current",
+      "iteration": 1,
+      "wallSeconds": 42.647538790999995,
+      "cpuSeconds": 50.380974,
+      "exit": 0,
+      "ok": true,
+      "timing": {
+        "compiledModules": 465,
+        "optimizerFacts": {
+          "consumed": 9453,
+          "families": {
+            "callableEffects": 1638,
+            "callableRelations": 1638,
+            "identity": 135,
+            "inlineEligibility": 907,
+            "traceFindings": 135,
+            "traceProfileId": 340
+          },
+          "produced": 4793,
+          "selectionChangedModules": 0,
+          "selectorMs": 336.6630000000015,
+          "unique": 4793
+        },
+        "parallel": {
+          "batches": 15,
+          "mode": "serial-fallback",
+          "reason": "parallel worker recursively checked src/nupp/compiler/runtime/reflect.nupp [paths src/nupp/tools/build/progress.nupp; worker said ]",
+          "retries": 0,
+          "workers": 6
+        },
+        "phases": [
+          {
+            "durationMs": 26156.477294921875,
+            "name": "check"
+          },
+          {
+            "durationMs": 11422.584228515625,
+            "name": "generate"
+          },
+          {
+            "durationMs": 1885.675048828125,
+            "name": "parallel build"
+          },
+          {
+            "durationMs": 1196.423828125,
+            "name": "native"
+          },
+          {
+            "durationMs": 686.005126953125,
+            "name": "write"
+          },
+          {
+            "durationMs": 468.256103515625,
+            "name": "other"
+          },
+          {
+            "durationMs": 374.79248046875,
+            "name": "resolve"
+          },
+          {
+            "durationMs": 89.51806640625,
+            "name": "scan"
+          },
+          {
+            "durationMs": 63.6279296875,
+            "name": "persist"
+          }
+        ],
+        "reusedModules": 0,
+        "slowest": [
+          {
+            "durationMs": 2292.798828125,
+            "module": "nupp.compiler.types.generics"
+          },
+          {
+            "durationMs": 1825.707763671875,
+            "module": "nupp.compiler.lua.gen"
+          },
+          {
+            "durationMs": 1604.693359375,
+            "module": "nupp.compiler.aot.lower"
+          },
+          {
+            "durationMs": 1117.853271484375,
+            "module": "nupp.tools.cli.lsp"
+          },
+          {
+            "durationMs": 801.77197265625,
+            "module": "nupp.compiler.syntax.parser"
+          }
+        ],
+        "specializedBodies": 0,
+        "totalMs": 42343.698974609375
+      }
+    },
+    {
+      "variant": "nofree",
+      "iteration": 2,
+      "wallSeconds": 43.96993483300001,
+      "cpuSeconds": 52.949875999999996,
+      "exit": 0,
+      "ok": true,
+      "timing": {
+        "compiledModules": 465,
+        "optimizerFacts": {
+          "consumed": 9453,
+          "families": {
+            "callableEffects": 1638,
+            "callableRelations": 1638,
+            "identity": 135,
+            "inlineEligibility": 907,
+            "traceFindings": 135,
+            "traceProfileId": 340
+          },
+          "produced": 4793,
+          "selectionChangedModules": 0,
+          "selectorMs": 341.26900000000046,
+          "unique": 4793
+        },
+        "parallel": {
+          "batches": 15,
+          "mode": "serial-fallback",
+          "reason": "parallel worker recursively checked src/nupp/compiler/runtime/reflect.nupp [paths src/nupp/tools/build/progress.nupp; worker said ]",
+          "retries": 0,
+          "workers": 6
+        },
+        "phases": [
+          {
+            "durationMs": 26767.19091796875,
+            "name": "check"
+          },
+          {
+            "durationMs": 11230.34765625,
+            "name": "generate"
+          },
+          {
+            "durationMs": 2201.7001953125,
+            "name": "parallel build"
+          },
+          {
+            "durationMs": 1205.715087890625,
+            "name": "native"
+          },
+          {
+            "durationMs": 940.760986328125,
+            "name": "write"
+          },
+          {
+            "durationMs": 521.23779296875,
+            "name": "other"
+          },
+          {
+            "durationMs": 379.215087890625,
+            "name": "resolve"
+          },
+          {
+            "durationMs": 88.47509765625,
+            "name": "scan"
+          },
+          {
+            "durationMs": 69.511962890625,
+            "name": "persist"
+          }
+        ],
+        "reusedModules": 0,
+        "slowest": [
+          {
+            "durationMs": 3569.940185546875,
+            "module": "nupp.compiler.lua.gen"
+          },
+          {
+            "durationMs": 2206.994873046875,
+            "module": "nupp.compiler.types.generics"
+          },
+          {
+            "durationMs": 1656.2890625,
+            "module": "nupp.compiler.aot.lower"
+          },
+          {
+            "durationMs": 647.85498046875,
+            "module": "nupp.compiler.check"
+          },
+          {
+            "durationMs": 645.19873046875,
+            "module": "nupp.compiler.aot.verify"
+          }
+        ],
+        "specializedBodies": 0,
+        "totalMs": 43405.0439453125
+      }
+    },
+    {
+      "variant": "nofree",
+      "iteration": 3,
+      "wallSeconds": 41.579392125,
+      "cpuSeconds": 51.057894000000005,
+      "exit": 0,
+      "ok": true,
+      "timing": {
+        "compiledModules": 465,
+        "optimizerFacts": {
+          "consumed": 9453,
+          "families": {
+            "callableEffects": 1638,
+            "callableRelations": 1638,
+            "identity": 135,
+            "inlineEligibility": 907,
+            "traceFindings": 135,
+            "traceProfileId": 340
+          },
+          "produced": 4793,
+          "selectionChangedModules": 0,
+          "selectorMs": 326.6399999999976,
+          "unique": 4793
+        },
+        "parallel": {
+          "batches": 15,
+          "mode": "serial-fallback",
+          "reason": "parallel worker recursively checked src/nupp/compiler/runtime/reflect.nupp [paths src/nupp/tools/build/progress.nupp; worker said ]",
+          "retries": 0,
+          "workers": 6
+        },
+        "phases": [
+          {
+            "durationMs": 27168.737548828125,
+            "name": "check"
+          },
+          {
+            "durationMs": 9176.886474609375,
+            "name": "generate"
+          },
+          {
+            "durationMs": 2210.505859375,
+            "name": "parallel build"
+          },
+          {
+            "durationMs": 970.6689453125,
+            "name": "native"
+          },
+          {
+            "durationMs": 695.947021484375,
+            "name": "write"
+          },
+          {
+            "durationMs": 545.20703125,
+            "name": "other"
+          },
+          {
+            "durationMs": 366.3955078125,
+            "name": "resolve"
+          },
+          {
+            "durationMs": 64.001708984375,
+            "name": "scan"
+          },
+          {
+            "durationMs": 30.544921875,
+            "name": "persist"
+          }
+        ],
+        "reusedModules": 0,
+        "slowest": [
+          {
+            "durationMs": 2673.95703125,
+            "module": "nupp.compiler.types.generics"
+          },
+          {
+            "durationMs": 2340.982177734375,
+            "module": "nupp.compiler.lua.gen"
+          },
+          {
+            "durationMs": 1559.958740234375,
+            "module": "nupp.compiler.aot.lower"
+          },
+          {
+            "durationMs": 907.208984375,
+            "module": "nupp.compiler.check.calls"
+          },
+          {
+            "durationMs": 758.549072265625,
+            "module": "nupp.compiler.types"
+          }
+        ],
+        "specializedBodies": 0,
+        "totalMs": 41229.513916015625
+      }
+    },
+    {
+      "variant": "current",
+      "iteration": 4,
+      "wallSeconds": 38.528068625,
+      "cpuSeconds": 48.029740000000004,
+      "exit": 0,
+      "ok": true,
+      "timing": {
+        "compiledModules": 465,
+        "optimizerFacts": {
+          "consumed": 9453,
+          "families": {
+            "callableEffects": 1638,
+            "callableRelations": 1638,
+            "identity": 135,
+            "inlineEligibility": 907,
+            "traceFindings": 135,
+            "traceProfileId": 340
+          },
+          "produced": 4793,
+          "selectionChangedModules": 0,
+          "selectorMs": 336.91799999999716,
+          "unique": 4793
+        },
+        "parallel": {
+          "batches": 15,
+          "mode": "serial-fallback",
+          "reason": "parallel worker recursively checked src/nupp/compiler/runtime/reflect.nupp [paths src/nupp/tools/build/progress.nupp; worker said ]",
+          "retries": 0,
+          "workers": 6
+        },
+        "phases": [
+          {
+            "durationMs": 23275.96923828125,
+            "name": "check"
+          },
+          {
+            "durationMs": 10032.7041015625,
+            "name": "generate"
+          },
+          {
+            "durationMs": 2141.047119140625,
+            "name": "parallel build"
+          },
+          {
+            "durationMs": 1177.077880859375,
+            "name": "native"
+          },
+          {
+            "durationMs": 712.321044921875,
+            "name": "write"
+          },
+          {
+            "durationMs": 444.7470703125,
+            "name": "other"
+          },
+          {
+            "durationMs": 371.251953125,
+            "name": "resolve"
+          },
+          {
+            "durationMs": 70.1396484375,
+            "name": "scan"
+          },
+          {
+            "durationMs": 31.800048828125,
+            "name": "persist"
+          }
+        ],
+        "reusedModules": 0,
+        "slowest": [
+          {
+            "durationMs": 1978.75439453125,
+            "module": "nupp.compiler.types.generics"
+          },
+          {
+            "durationMs": 1840.15087890625,
+            "module": "nupp.compiler.lua.gen"
+          },
+          {
+            "durationMs": 1357.9638671875,
+            "module": "nupp.compiler.aot.lower"
+          },
+          {
+            "durationMs": 697.326904296875,
+            "module": "nupp.compiler.aot.verify"
+          },
+          {
+            "durationMs": 566.049072265625,
+            "module": "nupp.compiler.syntax.parser"
+          }
+        ],
+        "specializedBodies": 0,
+        "totalMs": 38257.319091796875
+      }
+    },
+    {
+      "variant": "before",
+      "iteration": 5,
+      "wallSeconds": 48.412915416999994,
+      "cpuSeconds": 58.085308,
+      "exit": 0,
+      "ok": true,
+      "timing": {
+        "compiledModules": 465,
+        "optimizerFacts": {
+          "consumed": 9453,
+          "families": {
+            "callableEffects": 1638,
+            "callableRelations": 1638,
+            "identity": 135,
+            "inlineEligibility": 907,
+            "traceFindings": 135,
+            "traceProfileId": 340
+          },
+          "produced": 4793,
+          "selectionChangedModules": 0,
+          "selectorMs": 342.7870000000013,
+          "unique": 4793
+        },
+        "parallel": {
+          "batches": 15,
+          "mode": "serial-fallback",
+          "reason": "parallel worker recursively checked src/nupp/compiler/runtime/reflect.nupp [paths src/nupp/tools/build/progress.nupp; worker said ]",
+          "retries": 0,
+          "workers": 6
+        },
+        "phases": [
+          {
+            "durationMs": 30073.670166015625,
+            "name": "check"
+          },
+          {
+            "durationMs": 11625.4423828125,
+            "name": "generate"
+          },
+          {
+            "durationMs": 2295.6201171875,
+            "name": "parallel build"
+          },
+          {
+            "durationMs": 1927.7421875,
+            "name": "write"
+          },
+          {
+            "durationMs": 1179.1240234375,
+            "name": "native"
+          },
+          {
+            "durationMs": 494.9189453125,
+            "name": "other"
+          },
+          {
+            "durationMs": 384.10009765625,
+            "name": "resolve"
+          },
+          {
+            "durationMs": 85.483154296875,
+            "name": "scan"
+          },
+          {
+            "durationMs": 49.012939453125,
+            "name": "persist"
+          }
+        ],
+        "reusedModules": 0,
+        "slowest": [
+          {
+            "durationMs": 2705.6318359375,
+            "module": "nupp.compiler.types.generics"
+          },
+          {
+            "durationMs": 2127.716064453125,
+            "module": "nupp.compiler.lua.gen"
+          },
+          {
+            "durationMs": 2041.05908203125,
+            "module": "nupp.compiler.aot.lower"
+          },
+          {
+            "durationMs": 810.126220703125,
+            "module": "nupp.compiler.syntax.parser"
+          },
+          {
+            "durationMs": 654.85986328125,
+            "module": "nupp.compiler.cinterop.importc"
+          }
+        ],
+        "specializedBodies": 0,
+        "totalMs": 48115.52197265625
+      }
+    }
+  ]
+}

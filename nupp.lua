@@ -146,10 +146,6 @@ local RESOURCES = {
         source = "src/nupp/runtime/provider/nativegpu.nupp",
         output = "nupp/compiler/nupp/runtime/provider/nativegpu.nupp"
     },
-    {
-        source = "src/nupp/runtime/provider/nativebuffer.nupp",
-        output = "nupp/compiler/nupp/runtime/provider/nativebuffer.nupp"
-    },
     {source = "src/nupp/runtime/bitops.nupp", output = "nupp/compiler/nupp/runtime/bitops.nupp"},
     {source = "src/nupp/gpu/api.nupp", output = "nupp/compiler/nupp/gpu/api.nupp"},
     {source = "src/nupp/gpu/types.nupp", output = "nupp/compiler/nupp/gpu/types.nupp"},
@@ -178,10 +174,8 @@ local RESOURCES = {
         source = "src/nupp/serde/internal/valuebuilder.nupp",
         output = "nupp/compiler/nupp/serde/internal/valuebuilder.nupp"
     },
-    {source = "src/nupp/heap.nupp", output = "nupp/compiler/nupp/heap.nupp"},
     {source = "src/io/internal/bytestypes.nupp", output = "nupp/compiler/io/internal/bytestypes.nupp"},
     {source = "src/io/internal/sharedbytes.nupp", output = "nupp/compiler/io/internal/sharedbytes.nupp"},
-    {source = "src/nupp/soa.nupp", output = "nupp/compiler/nupp/soa.nupp"},
     {
         source = "src/nupp/serde/internal/json/values.nupp",
         output = "nupp/compiler/nupp/serde/internal/json/values.nupp"
@@ -240,6 +234,8 @@ local RESOURCES = {
     {source = "src/serde/adapters.nupp", output = "nupp/compiler/serde/adapters.nupp"},
     {source = "src/serde/codec.nupp", output = "nupp/compiler/serde/codec.nupp"},
     {source = "src/nupp/serde/internal/identity.lua", output = "nupp/compiler/nupp/serde/internal/identity.lua"},
+    {source = "src/nupp/serde/internal/binarycodec.lua", output = "nupp/compiler/nupp/serde/internal/binarycodec.lua"},
+    {source = "src/nupp/io/internal/nativebuffer.lua", output = "nupp/compiler/nupp/io/internal/nativebuffer.lua"},
     {source = "src/serde/document.nupp", output = "nupp/compiler/serde/document.nupp"},
     {source = "src/serde/json/init.nupp", output = "nupp/compiler/serde/json/init.nupp"},
     {
@@ -307,6 +303,9 @@ local RESOURCES = {
         source = "src/nupp/runtime/provider/tablestruct.nupp",
         output = "nupp/compiler/nupp/runtime/provider/tablestruct.nupp",
     },
+    {source = "src/nupp/array/internal/layout.nupp", output = "nupp/compiler/nupp/array/internal/layout.nupp"},
+    {source = "src/nupp/array/internal/storage.lua", output = "nupp/compiler/nupp/array/internal/storage.lua"},
+    {source = "src/nupp/array/internal/api.nupp", output = "nupp/compiler/nupp/array/internal/api.nupp"},
     {source = "src/nupp/array.nupp", output = "nupp/compiler/nupp/array.nupp"},
     {source = "src/nupp/util/internal/pool.nupp", output = "nupp/compiler/nupp/util/internal/pool.nupp"},
     {source = "src/events.nupp", output = "nupp/compiler/events.nupp"},
@@ -447,7 +446,6 @@ for _, resource in ipairs({
     "src/nupp/runtime/browser/workers.nupp",
     "src/nupp/runtime/provider/lunajson.nupp",
     "src/nupp/runtime/provider/scalarbitops.nupp",
-    "src/nupp/runtime/provider/tablebuffer.nupp",
     "src/nupp/runtime/storage.nupp",
     "src/nupp/runtime/managed.nupp",
     "src/nupp/runtime/vendor/lunajson/decoder.lua",

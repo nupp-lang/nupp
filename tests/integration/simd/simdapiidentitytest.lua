@@ -70,12 +70,12 @@ function M.callAliasesKeepSemanticIdentityAndShadowing()
 end
 
 local SCALE = [[
-local array = require("nupp.array")
+local array = table.Array
 local span = require("binary.span")
 local lanes = require(%q)
 @aot
-local function scale(exclusive values: span.WriteSpan<float>, factor: float): nil
-    local species = lanes.species(array.float64)
+local function scale(exclusive values: span.WriteSpan<number>, factor: number): nil
+    local species = lanes.species(array.number)
     for at, active in species:over(#values) do
         species:store(values, at, species:load(values, at, active) * factor, active)
     end
@@ -90,7 +90,7 @@ function M.importAndGlobalRootKeepNativeVectorLoopOperations()
             "simd"
         )
             .. [[
-const values = array.scalar(array.float64, 5)
+const values = array.scalar(array.number, 5)
 do local rows = values:write() ;
     for index = 1, 5 do rows[index] = index end
     scale(rows, 2.0)
@@ -239,7 +239,7 @@ local function checkedSimd(source, env)
 end
 
 local CASE_KERNEL = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 @aot
 local function fold(): number
@@ -254,7 +254,7 @@ end
 @aot
 local function horizontal(): (int32, integer)
     local integers = assert(simd.species(array.int32, 4))
-    local floats = assert(simd.species(array.float64, 4))
+    local floats = assert(simd.species(array.number, 4))
     local total: int32 = simd.horizontal.wrappingsum(integers:splat(3))
     local at: integer = simd.horizontal.propagatingargmax(floats:splat(2.0))
     return total, at
@@ -297,11 +297,11 @@ end
 
 function M.lowercaseSimdContractsKeepRefusalsAndMethodCase()
     local source = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 @aot
 local function invalid(): number
-    local floats = assert(simd.species(array.float64, 4))
+    local floats = assert(simd.species(array.number, 4))
     return simd.horizontal.wrappingsum(floats:splat(1.0))
 end
 ]]

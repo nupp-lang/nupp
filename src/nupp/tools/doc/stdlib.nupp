@@ -71,7 +71,6 @@ local SOURCES: {
     Source(file = "/decls/lua.d.nupp"),
     Source(file = "/decls/prelude.d.nupp"),
     Source(file = "/decls/ffi.d.nupp", required = "ffi"),
-    Source(file = "/decls/stringbuffer.d.nupp", required = "string.buffer"),
     Source(file = "/decls/jit/util.d.nupp", required = "jit.util"),
     Source(file = "/decls/jit/profile.d.nupp", required = "jit.profile"),
     Source(file = "/decls/jit/zone.d.nupp", required = "jit.zone"),

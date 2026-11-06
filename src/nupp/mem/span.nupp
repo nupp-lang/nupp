@@ -167,6 +167,36 @@ module nupp.mem.span
 
 local physical = require("nupp.runtime.storage")
 local span = {}
+local {type Layout} = require("nupp.array.internal.layout")
+const _ARRAY_STORAGE_REQUIRES = "@requires-dynamically nupp.array.internal.storage"
+local arrayStorage: any = nil
+
+local function storageImplementation(name: string): any
+    if arrayStorage == nil then
+        arrayStorage = require(name)
+    end
+    return arrayStorage
+end
+
+local function rowValue<T>(element: ctype<T>, layout: Layout, columns: {any}, index: integer): T
+    local read: function(
+        ctype<T>,
+        Layout,
+        {any},
+        integer
+    ): T = storageImplementation("nupp.array.internal.storage").row as any
+
+    return read(element, layout, columns, index)
+end
+
+local function copyElements(borrows destination: any, borrows source: any, count: integer): nil
+    local copy: function(
+        borrows destination: any,
+        borrows source: any,
+        count: integer
+    ): nil = storageImplementation("nupp.array.internal.storage").copyelements as any
+    copy(destination, source, count)
+end
 
 --- The consuming operation shared by every writable span representation.
 sealed interface span.WriteToken
@@ -189,9 +219,10 @@ end
 --- A checked, shared view over contiguous elements. Only this module can declare an
 --- implementation, so the contract is proof that `ref()` and `count` agree.
 --- @export
-sealed interface span.Span<T>
-    metamethod __len: function(self: Span<T>): integer
-    metamethod __index: function(self: Span<T>, index: integer): T
+sealed interface span.Span<T, const Layout: string = "packed">
+    @readonly storagekind: Layout
+    metamethod __len: function(self: Span<T, Layout>): integer
+    metamethod __index: function(self: Span<T, Layout>, index: integer): T
 
     --- Returns a subspan, inclusive at both ends and borrowed from this one.
     ---
@@ -203,18 +234,20 @@ sealed interface span.Span<T>
     --- const middle = values:slice(2, 3)
     --- assert(#middle == 2)
     --- ```
-    slice: function(self: Span<T>, first: integer, last: integer?): Span<T> borrows (self)
+    slice: function(self: Span<T, Layout>, first: integer, last: integer?): Span<T, Layout> borrows (self)
 
     --- Returns the checked range as a const pointer and count, for a native
     --- call.
     ---
     --- The pointer borrows this span, so it cannot outlive the view that proved
-    --- its bounds. This is the one supported way out to C.
-    ref: function(self: Span<T>): (const T[?] borrows (self), integer)
+    --- its bounds. Columnar row spans have no contiguous pointer and raise;
+    --- project one column before passing it to C.
+    ref: function(self: Span<T, Layout>): (const T[?] borrows (self), integer)
 end
 
---- The sole runtime representation of a dynamic shared span.
+--- Packed representation of a dynamic shared span.
 local record SpanImpl<T> is span.Span<T>
+    @readonly storagekind: "packed" = "packed"
     @private @readonly anchor: any
     @private @readonly pointer: const T[?] borrows (anchor)
     @private @readonly offset: integer
@@ -268,6 +301,7 @@ end
 
 --- The sole runtime representation of a fixed shared span.
 local record FixedSpanImpl<T, const N: integer> is span.FixedSpan<T, N>
+    @readonly storagekind: "packed" = "packed"
     @private @readonly anchor: any
     @private @readonly pointer: const T[?] borrows (anchor)
     @private @readonly offset: integer
@@ -311,50 +345,51 @@ end
 --- The representation is private so only this module can assert how the children
 --- relate to their anchor.
 --- @export
-record span.WriteSplit<T>
+record span.WriteSplit<T, const Layout: string = "packed">
     @private @readonly anchor: any
 
     --- The first `mid` elements, writable independently of `right`.
-    @readonly left: span.WriteSpan<T> borrows (anchor)
+    @readonly left: span.WriteSpan<T, Layout> borrows (anchor)
 
     --- Everything after them, writable independently of `left`.
-    @readonly right: span.WriteSpan<T> borrows (anchor)
+    @readonly right: span.WriteSpan<T, Layout> borrows (anchor)
 end
 
 --- An affine checked write range. Its live token keeps the source under an
 --- incompatible-borrow barrier until `drop` or scope exit consumes it. Only
 --- this module can declare an implementation.
 --- @export
-sealed interface span.WriteSpan<T> is span.WriteToken
-    metamethod __len: function(self: WriteSpan<T>): integer
-    metamethod __index: function(borrows self: WriteSpan<T>, index: integer): T
-    metamethod __newindex: function(exclusive self: WriteSpan<T>, index: integer, value: T): nil
+sealed interface span.WriteSpan<T, const Layout: string = "packed"> is span.WriteToken
+    @readonly storagekind: Layout
+    metamethod __len: function(self: WriteSpan<T, Layout>): integer
+    metamethod __index: function(borrows self: WriteSpan<T, Layout>, index: integer): T
+    metamethod __newindex: function(exclusive self: WriteSpan<T, Layout>, index: integer, value: T): nil
 
     --- Ends this write range, releasing the barrier on its source.
-    drop: @nosuspend function(takes self: WriteSpan<T>): nil
+    drop: @nosuspend function(takes self: WriteSpan<T, Layout>): nil
 
     --- Returns the checked range as a mutable pointer and count, for a native
     --- call.
     ---
     --- The pointer borrows this range, so the barrier on the source outlives the
     --- call that was handed it.
-    ref: function(exclusive self: WriteSpan<T>): (T[?] borrows (self), integer)
+    ref: function(exclusive self: WriteSpan<T, Layout>): (T[?] borrows (self), integer)
 
     --- Downgrades this writer to a shared view for the lifetime of the result.
     ---
     --- The writer is borrowed rather than spent, so it comes back when the shared
     --- view ends.
-    shared: function(borrows self: WriteSpan<T>): span.Span<T> borrows (self)
+    shared: function(borrows self: WriteSpan<T, Layout>): span.Span<T, Layout> borrows (self)
 
     --- Returns an affine writable subrange, inclusive at both ends.
     ---
     --- The child borrows this range, so the parent is unusable until the child is
     --- dropped. Two disjoint children at once is what `splitat` is for.
     slice: function(
-        exclusive self: WriteSpan<T>,
+        exclusive self: WriteSpan<T, Layout>,
         first: integer,
         last: integer?
-    ): affine(span.WriteSpan<T>, span.destroyWriteSpan) borrows (self)
+    ): affine(span.WriteSpan<T, Layout>, span.destroyWriteSpan) borrows (self)
 
     --- Partitions this range at a zero-based boundary count.
     ---
@@ -368,7 +403,17 @@ sealed interface span.WriteSpan<T> is span.WriteToken
     --- split.right[1] = 22 as int32
     --- ```
     @partition(left, right)
-    splitat: function(exclusive self: WriteSpan<T>, mid: integer): span.WriteSplit<T> borrows (self)
+    splitat: function(exclusive self: WriteSpan<T, Layout>, mid: integer): span.WriteSplit<T, Layout> borrows (self)
+
+    --- Copies a checked element range, including overlapping ranges.
+    copyfrom: function(
+        exclusive self: WriteSpan<T, Layout>,
+        targetfirst: integer,
+        borrows source: span.Span<T, Layout>,
+        sourcefirst: integer,
+        count: integer
+    ): nil
+
 end
 
 --- A writable span whose exact element count is part of its static type.
@@ -380,7 +425,7 @@ end
 
 --- An affine dynamic writable span.
 --- @export
-type span.Writable<T> = affine(span.WriteSpan<T>, span.destroyWriteSpan)
+type span.Writable<T, const Layout: string = "packed"> = affine(span.WriteSpan<T, Layout>, span.destroyWriteSpan)
 
 --- An affine fixed-width writable span.
 --- @export
@@ -388,6 +433,7 @@ type span.FixedWritable<T, const N: integer> = affine(span.FixedWriteSpan<T, N>,
 
 --- The sole runtime representation of a dynamic writable span.
 local record WriteSpanImpl<T> is span.WriteSpan<T>
+    @readonly storagekind: "packed" = "packed"
     @private @readonly anchor: any
     @private @readonly pointer: T[?] borrows (anchor)
     @private @readonly offset: integer
@@ -440,7 +486,37 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
         end
     end
 
-    --- Downgrades this writer to a shared view for the lifetime of the result.
+    --- Copies a bounded element range.
+    --- @raises string when either range lies outside its view
+    function copyfrom(
+        exclusive self,
+        targetfirst: integer,
+        borrows source: span.Span<T>,
+        sourcefirst: integer,
+        count: integer
+    ): nil
+        if count % 1 ~= 0
+            or targetfirst % 1 ~= 0
+            or sourcefirst % 1 ~= 0
+            or count < 0
+            or targetfirst < 1
+            or sourcefirst < 1
+            or targetfirst - 1 > (self.count as integer) - count
+            or sourcefirst - 1 > #source - count
+        then
+            error("nupp: span copy range is out of bounds", 2)
+        end
+        if count == 0 then
+            return
+        end
+        do
+            local input = source:slice(sourcefirst, sourcefirst + count - 1)
+            local output = self:slice(targetfirst, targetfirst + count - 1)
+            copyElements(output:ref(), input:ref(), count)
+            own.drop(output)
+        end
+    end
+
     function shared(borrows self: WriteSpanImpl<T>): span.Span<T> borrows (self)
         return SpanImpl(
             anchor = self,
@@ -496,6 +572,7 @@ end
 
 --- The sole runtime representation of a fixed writable span.
 local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N>
+    @readonly storagekind: "packed" = "packed"
     @private @readonly anchor: any
     @private @readonly pointer: T[?] borrows (anchor)
     @private @readonly offset: integer
@@ -541,6 +618,35 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
             end
             local pointer = (self.pointer as T*) + self.offset
             return borrowFrom(pointer as T[?], self), self.count as integer
+        end
+    end
+
+    function copyfrom(
+        exclusive self,
+        targetfirst: integer,
+        borrows source: span.Span<T>,
+        sourcefirst: integer,
+        count: integer
+    ): nil
+        if count % 1 ~= 0
+            or targetfirst % 1 ~= 0
+            or sourcefirst % 1 ~= 0
+            or count < 0
+            or targetfirst < 1
+            or sourcefirst < 1
+            or targetfirst - 1 > (self.count as integer) - count
+            or sourcefirst - 1 > #source - count
+        then
+            error("nupp: span copy range is out of bounds", 2)
+        end
+        if count == 0 then
+            return
+        end
+        do
+            local input = source:slice(sourcefirst, sourcefirst + count - 1)
+            local output = self:slice(targetfirst, targetfirst + count - 1)
+            copyElements(output:ref(), input:ref(), count)
+            own.drop(output)
         end
     end
 
@@ -642,6 +748,18 @@ local function foreignByteSpan(anchor: any, pointer: any, offset: integer, count
 end
 
 rawset(span as table, "__foreignByteSpan", foreignByteSpan)
+
+-- Storage owners lend writable bytes with the owner, not the cast pointer,
+-- as the GC anchor. Borrow checking enforces the same lifetime statically.
+local function foreignByteWriteSpan(
+    borrows anchor: any,
+    pointer: any,
+    count: integer
+): span.Writable<uint8> borrows (anchor)
+    return WriteSpanImpl(anchor = anchor, pointer = pointer as any, offset = 0, count = count) as span.WriteSpan<uint8>
+end
+
+rawset(span as table, "__foreignByteWriteSpan", foreignByteWriteSpan)
 
 -- Standard-library storage owners use this private constructor only after
 -- validating byte alignment and extent against the supplied physical type.
@@ -761,6 +879,262 @@ function span.writeFixedCarray<T, const N: integer>(
         FixedWriteSpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)
     ) as span.FixedWriteSpan<T, N>
 end
+
+local function rowIndex(offset: integer, count: integer, index: integer): integer
+    if index % 1 ~= 0 or index < 1 or index > count then
+        error("nupp: SoA row index out of bounds", 2)
+    end
+    return offset + index - 1
+end
+
+local record ColumnSpanImpl<T> is span.Span<T, "columnar">
+    @readonly storagekind: "columnar" = "columnar"
+    @private @readonly anchor: any
+    @private @readonly element: ctype<T>
+    @private @readonly layout: Layout
+    @private @readonly columns: {any}
+    @private @readonly offset: integer
+    @readonly count: integer
+
+    function ref(borrows self): (const T[?] borrows (self), integer)
+        error("nupp: a columnar span has no contiguous pointer", 2)
+    end
+
+    function checkedIndex(self, index: integer): integer
+        return rowIndex(self.offset, self.count, index)
+    end
+
+    function get(self, index: integer): T
+        return rowValue(self.element, self.layout, self.columns, self:checkedIndex(index))
+    end
+
+    function getField(self, index: integer, ordinal: integer): any
+        local physical = self:checkedIndex(index)
+        if ordinal % 1 ~= 0 or ordinal < 1 or ordinal > #self.columns then
+            error("nupp: SoA field index out of bounds", 2)
+        end
+
+        return (self.columns[ordinal] as {[integer]: any})[physical]
+    end
+
+    function slice(self, first: integer, last: integer?): span.Span<T, "columnar"> borrows (self)
+        local finish = last or self.count
+        if first % 1 ~= 0 or finish % 1 ~= 0 or first < 1 or finish < first - 1 or finish > self.count then
+            error("nupp: SoA slice out of bounds", 2)
+        end
+
+        return ColumnSpanImpl(
+            anchor = self,
+            element = self.element,
+            layout = self.layout,
+            columns = self.columns,
+            offset = self.offset + first - 1,
+            count = finish - first + 1
+        ) as span.Span<T, "columnar">
+    end
+
+    function fieldBySlot(borrows self, ordinal: integer): span.Span<any> borrows (self)
+        local pointer = (self.columns[ordinal] as any) + self.offset
+        @unsafe do
+            local rooted = borrowFrom(pointer as voidptr, self)
+            return span.fromCarray(rooted as any, self.count)
+        end
+    end
+end
+
+local record ColumnWriteSpanImpl<T> is span.WriteSpan<T, "columnar">
+    @readonly storagekind: "columnar" = "columnar"
+    @private @readonly anchor: any
+    @private @readonly element: ctype<T>
+    @private @readonly layout: Layout
+    @private @readonly columns: {any}
+    @private @readonly offset: integer
+    @readonly count: integer
+
+    function ref(exclusive self): (T[?] borrows (self), integer)
+        error("nupp: a columnar span has no contiguous pointer", 2)
+    end
+
+    function checkedIndex(self, index: integer): integer
+        return rowIndex(self.offset, self.count, index)
+    end
+
+    function get(self, index: integer): T
+        return rowValue(self.element, self.layout, self.columns, self:checkedIndex(index))
+    end
+
+    function getField(self, index: integer, ordinal: integer): any
+        local physical = self:checkedIndex(index)
+        if ordinal % 1 ~= 0 or ordinal < 1 or ordinal > #self.columns then
+            error("nupp: SoA field index out of bounds", 2)
+        end
+
+        return (self.columns[ordinal] as {[integer]: any})[physical]
+    end
+
+    function set(exclusive self, index: integer, value: T): nil
+        local physical = self:checkedIndex(index)
+        for ordinal, field in ipairs(self.layout.fields) do
+            (self.columns[ordinal] as {[integer]: any})[physical] = (value as any)[field.name]
+        end
+    end
+
+    function setField(exclusive self, index: integer, ordinal: integer, value: any): nil
+        local physical = self:checkedIndex(index)
+        if ordinal % 1 ~= 0 or ordinal < 1 or ordinal > #self.columns then
+            error("nupp: SoA field index out of bounds", 2)
+        end
+        (self.columns[ordinal] as {[integer]: any})[physical] = value
+    end
+
+    function fieldBySlot(exclusive self, ordinal: integer): span.Writable<any> borrows (self)
+        local pointer = (self.columns[ordinal] as any) + self.offset
+        @unsafe do
+            local rooted = borrowFrom(pointer as voidptr, self)
+            return span.writeCarray(rooted as any, self.count)
+        end
+    end
+
+    function shared(self): span.Span<T, "columnar"> borrows (self)
+        return ColumnSpanImpl(
+            anchor = self,
+            element = self.element,
+            layout = self.layout,
+            columns = self.columns,
+            offset = self.offset,
+            count = self.count
+        ) as span.Span<T, "columnar">
+    end
+
+    --- Copies complete rows field-by-field. Every range is checked before the first
+    --- byte moves, and the implementation performs one contiguous copy per column.
+    --- @raises string when either requested row range is outside its view
+    function copyfrom(
+        exclusive self,
+        targetfirst: integer,
+        borrows source: span.Span<T, "columnar">,
+        sourcefirst: integer,
+        count: integer
+    ): nil
+        if count % 1 ~= 0
+            or targetfirst % 1 ~= 0
+            or sourcefirst % 1 ~= 0
+            or count < 0
+            or targetfirst < 1
+            or sourcefirst < 1
+            or targetfirst - 1 > (self.count as integer) - count
+            or sourcefirst - 1 > #source - count
+        then
+            error("nupp: SoA copy range is out of bounds", 2)
+        end
+        if count == 0 then
+            return
+        end
+        local other = source as any
+        for ordinal, field in ipairs(self.layout.fields) do
+            local destination = (self.columns[ordinal] as any) + self.offset + targetfirst - 1
+            local input = (other.columns[ordinal] as any) + other.offset + sourcefirst - 1
+            copyElements(destination, input, count)
+        end
+    end
+
+    function slice(exclusive self, first: integer, last: integer?): span.Writable<T, "columnar"> borrows (self)
+        local finish = last or self.count
+        if first % 1 ~= 0 or finish % 1 ~= 0 or first < 1 or finish < first - 1 or finish > self.count then
+            error("nupp: SoA slice out of bounds", 2)
+        end
+
+        return ColumnWriteSpanImpl(
+            anchor = self,
+            element = self.element,
+            layout = self.layout,
+            columns = self.columns,
+            offset = self.offset + first - 1,
+            count = finish - first + 1
+        ) as span.WriteSpan<T, "columnar">
+    end
+
+    function splitat(exclusive self, mid: integer): span.WriteSplit<T, "columnar"> borrows (self)
+        if mid % 1 ~= 0 or mid < 0 or mid > self.count then
+            error("nupp: columnar split out of bounds", 2)
+        end
+        return span.WriteSplit(
+            anchor = self,
+            left = ColumnWriteSpanImpl(
+                anchor = self,
+                element = self.element,
+                layout = self.layout,
+                columns = self.columns,
+                offset = self.offset,
+                count = mid
+            ) as span.WriteSpan<T, "columnar">,
+            right = ColumnWriteSpanImpl(
+                anchor = self,
+                element = self.element,
+                layout = self.layout,
+                columns = self.columns,
+                offset = self.offset + mid,
+                count = self.count - mid
+            ) as span.WriteSpan<T, "columnar">
+        )
+    end
+
+    drop: @nosuspend function(takes self: ColumnWriteSpanImpl<T>): nil
+end
+
+function ColumnWriteSpanImpl.drop<T>(takes self: ColumnWriteSpanImpl<T>): nil
+    @nosuspend do
+        local _raw = @unsafe own.release(self)
+    end
+end
+
+local function arrayRead<T>(borrows anchor: any, pointer: any, count: integer): span.Span<T> borrows (anchor)
+    return SpanImpl(anchor = anchor, pointer = pointer, offset = 0, count = count) as span.Span<T>
+end
+
+local function arrayWrite<T>(borrows anchor: any, pointer: any, count: integer): span.Writable<T> borrows (anchor)
+    return WriteSpanImpl(anchor = anchor, pointer = pointer, offset = 0, count = count) as span.WriteSpan<T>
+end
+
+rawset(span as table, "__arrayRead", arrayRead)
+rawset(span as table, "__arrayWrite", arrayWrite)
+
+local function columnRead<T>(
+    borrows anchor: any,
+    element: ctype<T>,
+    layout: Layout,
+    columns: {any},
+    count: integer
+): span.Span<T, "columnar"> borrows (anchor)
+    return ColumnSpanImpl(
+        anchor = anchor,
+        element = element,
+        layout = layout,
+        columns = columns,
+        offset = 0,
+        count = count
+    ) as span.Span<T, "columnar">
+end
+
+local function columnWrite<T>(
+    borrows anchor: any,
+    element: ctype<T>,
+    layout: Layout,
+    columns: {any},
+    count: integer
+): span.Writable<T, "columnar"> borrows (anchor)
+    return ColumnWriteSpanImpl(
+        anchor = anchor,
+        element = element,
+        layout = layout,
+        columns = columns,
+        offset = 0,
+        count = count
+    ) as span.WriteSpan<T, "columnar">
+end
+
+rawset(span as table, "__columnRead", columnRead)
+rawset(span as table, "__columnWrite", columnWrite)
 
 -- Private reader for [](os.host) providers, which receive arguments as `any`
 -- and must tell a shared span from every other value without a checked type.

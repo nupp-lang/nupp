@@ -15,7 +15,7 @@ The independent decoder and encoder factories require neither FFI nor the `io`
 library. Lunajson handles JSON syntax, numbers, and escaping. This adapter
 validates UTF-8 and supplies Nupp's array/object markers, projection, verified
 fragments, and the writer backed by the shared
-[](string.buffer.Buffer) contract.
+[](io.Buffer) contract.
 
 Import through [](serde.json). The facade retains this provider's functions
 and marker objects for the lifetime of the loaded module. Markers and verified
@@ -26,7 +26,7 @@ return the original table and preserve its ownership.
 Native serde compilation hooks are optional and are not supplied here. Portable
 encoding and decoding remain available without a native parser artifact.
 ]]
-const {type Buffer} = require("string.buffer")
+const {type Buffer} = require("nupp.io.internal.bytes")
 
 local newDecoder = require(
     "nupp.runtime.vendor.lunajson.decoder"
@@ -226,7 +226,9 @@ function json.isArray(value: any): boolean
 end
 
 local function project(value: any, shape: any, nullValue: any?): any
-    if shape == true then
+    if shape == false then
+        return nil
+    elseif shape == true then
         return value
     end
     if type(shape) ~= "table" then

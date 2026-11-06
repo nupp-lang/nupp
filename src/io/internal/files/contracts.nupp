@@ -70,9 +70,9 @@ export interface Provider
     @readonly list: function(path: any): (Entries?, string?)
     @readonly glob: function(pattern: string): ({paths.Path}?, string?)
     @readonly read: function(path: any): (string?, string?)
-    @readonly write: function(path: any, borrows bytes: string | io.ByteView): (boolean, string?)
-    @readonly append: function(path: any, borrows bytes: string | io.ByteView): (boolean, string?)
-    @readonly writeAtomic: function(path: any, borrows bytes: string | io.ByteView): (boolean, string?)
+    @readonly write: function(path: any, borrows bytes: string | binary.span.ByteSpan): (boolean, string?)
+    @readonly append: function(path: any, borrows bytes: string | binary.span.ByteSpan): (boolean, string?)
+    @readonly writeAtomic: function(path: any, borrows bytes: string | binary.span.ByteSpan): (boolean, string?)
     @readonly copy: function(from: any, to: any): (boolean, string?)
     @readonly pendingTransfers: function(): integer
     @readonly open: function(path: any, mode: messages.Mode?): (affine(File?), string?)

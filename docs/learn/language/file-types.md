@@ -91,10 +91,10 @@ may be a global the program sets at run time. See
 ## Declaration files
 
 A `.d.nupp` file describes an interface somebody else implements, and may
-write `any` where that is the type the interface actually has. The
-`string.buffer` `encode(v: any): string` does take any value, and no annotation written here
-changes what the implementation accepts. A declaration file cannot
-declare a source module.
+write `any` where that is the type the interface actually has. A foreign
+`encode(v: any): string` does take any Lua value, and no
+annotation written here changes what that implementation accepts. A declaration
+file cannot declare a source module.
 
 ## Constructs that aren't erased
 

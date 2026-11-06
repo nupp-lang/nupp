@@ -48,14 +48,14 @@ binds buffers in parameter order, and dispatches scalar uniforms separately:
 
 ```nupp:fragment
 local kernels = require("kernels")
-local array = nupp.array
+local array = table.Array
 
-local source = array.scalar(array.float32, 1024)
-local result = array.scalar(array.float32, 1024)
+local source = array.scalar(array.float, 1024)
+local result = array.scalar(array.float, 1024)
 
 local context = io.gpu.open()
-local input = context:buffer(array.float32, 1024)
-local output = context:buffer(array.float32, 1024)
+local input = context:buffer(array.float, 1024)
+local output = context:buffer(array.float, 1024)
 local kernel = kernels.scale:compile(context)
 do
     local binding = kernel:bind(output, input)

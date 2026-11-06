@@ -3,8 +3,7 @@
 --[[Engine-backed operations for the canonical io.Bytes declarations.
 
 A region's block is an immutable storage allocation the VM shares by
-reference: `copy` copies the string into one, `freeze` turns the builder's
-storage into one without copying, and a region crossing into a worker carries
+reference: `copy` copies a string into one, and a region crossing into a worker carries
 the same block, whatever its size.]]
 module io.internal.sharedbytes
 
@@ -164,116 +163,11 @@ function Bytes.readfile(path: string): (Bytes?, string?)
     return wrap(newBlock(storage.share(text)), 1, #(text as string)), nil
 end
 
--- A builder's growable storage: `length` bytes committed, `reserved` lent to an
--- open writer, nothing once frozen or dropped.
-local record Growing
-    bytes: any
-    capacity: integer
-    length: integer
-    reserved: integer?
+-- Private transport hooks use the VM's shared block wrapper.
+export function regionparts(region: any): (any, integer, integer)
+    return region._handle, region._first, region._length
 end
 
--- Makes room for `needed` committed bytes, doubling so appends stay linear.
-local function ensure(growing: Growing, needed: integer): nil
-    if needed <= growing.capacity then
-        return
-    end
-    local capacity = math.max(needed, growing.capacity * 2, 64)
-    local grown = storage.allocbytes(capacity)
-    if growing.length > 0 then
-        storage.copy(grown, growing.bytes, growing.length)
-    end
-    growing.bytes = grown
-    growing.capacity = capacity
-end
-
-local function growingOf(borrows builder: Bytes.Builder): Growing?
-    return getfield(builder as table, "_handle") as Growing?
-end
-
-local function live(borrows builder: Bytes.Builder, level: integer): Growing
-    local growing = growingOf(builder)
-    if growing == nil or growing.bytes == nil then
-        error("nupp: a region builder was already frozen", level + 1)
-    end
-
-    return growing as Growing
-end
-
---- @raises string when a reservation is open
-function Bytes.Builder:append(chunk: string): nil
-    local growing = live(self, 2)
-    if growing.reserved ~= nil then
-        error("nupp: a region builder has an open reservation", 2)
-    end
-    local count = #chunk
-    if count == 0 then
-        return
-    end
-    ensure(growing, growing.length + count)
-    storage.copy(advance(growing.bytes, growing.length), storage.borrowstring(chunk), count)
-    growing.length = growing.length + count
-end
-
---- @raises string when count is not a nonnegative integer or a reservation is
----     already open
-function Bytes.Builder:reserve(count: integer): span.Writable<uint8>
-    if count < 0 or count ~= math.floor(count) then
-        error("nupp: a region reservation must be a nonnegative integer", 2)
-    end
-    local growing = live(self, 2)
-    if growing.reserved ~= nil then
-        error("nupp: a region builder already has an open reservation", 2)
-    end
-    ensure(growing, growing.length + count)
-    growing.reserved = count
-
-    local window = advance(growing.bytes, growing.length)
-
-    return span.writecarray(window as uint8[?], count)
-end
-
---- @raises string when `written` is not a nonnegative integer, no reservation
----     is open, or `written` exceeds it
-function Bytes.Builder:commit(written: integer): nil
-    if written < 0 or written ~= math.floor(written) then
-        error("nupp: a region commit must be a nonnegative integer", 2)
-    end
-    local growing = growingOf(self)
-    local reserved = growing and growing.reserved
-    if growing == nil or reserved == nil or written > reserved then
-        error("nupp: a commit does not match the builder's open reservation", 2)
-    end
-    growing.length = growing.length + written
-    growing.reserved = nil
-end
-
---- @raises string when the builder was already frozen or a reservation is open,
----     because sealing would silently drop bytes a producer may have written
-function Bytes.Builder.freeze(takes self: Bytes.Builder): Bytes
-    -- Sealing spends the builder: its storage becomes the region's block, and
-    -- the builder's own terminal has nothing left to release.
-    local builder = @unsafe own.release(self)
-    local growing = live(builder, 2)
-    if growing.reserved ~= nil then
-        error("nupp: a region builder has an open reservation", 2)
-    end
-    local frozen = newBlock(storage.share(growing.bytes or storage.allocbytes(0)))
-    local count = growing.length
-    growing.bytes = nil
-
-    return wrap(frozen, 1, count)
-end
-
-function Bytes.Builder.drop(takes self: Bytes.Builder): nil
-    local builder = @unsafe own.release(self)
-    local growing = growingOf(builder)
-    if growing ~= nil then
-        growing.bytes = nil
-    end
-end
-
---- Opens an empty builder.
-export function builderhandle(): any
-    return Growing(bytes = storage.allocbytes(0), capacity = 0, length = 0, reserved = nil)
+export function regionfromparts(handle: any, first: integer, length: integer): any
+    return wrap(handle as Block, first, length)
 end

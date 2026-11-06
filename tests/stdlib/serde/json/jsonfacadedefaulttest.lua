@@ -64,23 +64,6 @@ function M.anOrdinaryJsonRequireLoadsLunajsonAndNoAotDecoder()
     assert(not output:find("LOADED ", 1, true), "ordinary JSON use loaded an AOT-only module: " .. output)
 end
 
-function M.schemaFreeJsonDoesNotLoadTheNativeBufferProvider()
-    local output = runScript(
-        [[
-        package.preload["nupp.runtime.provider.nativebuffer"] = function()
-            error("schema-free JSON loaded the native buffer provider")
-        end
-        local json = require("serde.json")
-        local bytes = json.encodevalue({answer = 42})
-        local value, reason = json.decodevalue(bytes)
-        assert(reason == nil and value.answer == 42)
-        assert(package.loaded["nupp.runtime.provider.nativebuffer"] == nil)
-        print("done")
-    ]]
-    )
-    assert(output:match("^done%s+__exit__:0%s*$"), output)
-end
-
 function M.valueBuildingWithoutByteViewsDoesNotLoadStorage()
     local output = runScript(
         [[
@@ -100,7 +83,7 @@ function M.scalarFusedDecodingAndSpeciesWitnessesDoNotLoadStorage()
         [[
         package.preload["nupp.mem.span"] = function() error("unexpected span import") end
         package.preload["nupp.runtime.storage"] = function() error("unexpected storage import") end
-        local array, simd = require("nupp.array"), require("simd")
+        local array, simd = require("nupp.runtime.standardtable").Array, require("simd")
         for _, name in ipairs({"uint8", "int8", "uint16", "int16", "uint32", "int32", "uint64", "int64", "float", "number"}) do
             assert(simd.vectors(array[name]) == nil)
         end

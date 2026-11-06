@@ -403,7 +403,7 @@ local record Reader is io.Reader
     @private refill: function(self: Reader): (boolean?, string?)
     @private account: function(self: Reader, consumed: integer, written: integer): string?
 
-    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readspan(exclusive self, exclusive destination: span.ByteWriteSpan): (integer?, string?)
         local destinationLength: integer
         do
             local output = destination as span.ByteWriteSpan
@@ -524,7 +524,7 @@ local record Reader is io.Reader
             error("nupp: compression Reader:readinto offset must be a non-negative integer", 2)
         end
         local wanted = positive(count, DEFAULT_WORKSPACE, "compression Reader:readinto count")
-        local lease = destination:reservewrite(from as integer, wanted)
+        local lease = require("nupp.io.internal.bytes").reserveAt(destination, from as integer, wanted)
         local written: integer?
         local reason: string?
         do
@@ -683,7 +683,7 @@ export record CompressionFormat
     function compress(self, borrows bytes: span.ByteSpan, options: CompressionWriterOptions?): string
         local destination = io.Buffer.create()
         self:compress(bytes, destination, options)
-        local answer = destination:getstring()
+        local answer = destination:tostring()
         destination:close()
 
         return answer
@@ -730,7 +730,7 @@ export record CompressionFormat
     function decompress(self, borrows bytes: span.ByteSpan, options: CompressionReaderOptions?): string
         local destination = io.Buffer.create()
         self:decompress(bytes, destination, options)
-        local answer = destination:getstring()
+        local answer = destination:tostring()
         destination:close()
 
         return answer

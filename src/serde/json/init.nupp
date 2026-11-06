@@ -125,7 +125,7 @@ local writers = require("nupp.serde.internal.json.writer")
 local documents = require("nupp.serde.internal.json.document")
 local syntax = require("nupp.serde.internal.json.syntax")
 local json = require("nupp.serde.internal.json.values")
-const {type Buffer} = require("string.buffer")
+const {type Buffer} = require("nupp.io.internal.bytes")
 local contexts = require("nupp.serde.internal.context")
 local errors = require("nupp.serde.internal.errors")
 local extensions = require("nupp.serde.internal.json.extensions")
@@ -177,7 +177,7 @@ local record Write<T, M is core.Member> is WriteOperation<T>
     end
 
     function encode(self, borrows value: T): string
-        local buffer = require("string.buffer").new()
+        local buffer = require("nupp.io.internal.bytes").newBuffer()
         self:append(value, buffer)
         return buffer:tostring()
     end
@@ -381,7 +381,7 @@ local record Cached is Codec
     end
 
     function decodebuffer<T>(self, binding: core.Binding<T>, exclusive input: io.Buffer, context: core.Context?): T
-        return self:reading(binding):read(input:getstring(), context)
+        return self:reading(binding):read(input:tostring(), context)
     end
 
     function clear(self): nil
@@ -564,7 +564,7 @@ end
 --- json.writevalue(serde.binding(Tag), Tag(name = "x"), writer)
 --- writer:endarray()
 --- writer:close()
---- assert(buffer:getstring() == '[{"name":"x"}]')
+--- assert(buffer:tostring() == '[{"name":"x"}]')
 --- ```
 ---
 --- @param binding the value's binding
@@ -636,7 +636,7 @@ export type JSONEncodable = json.JSONEncodable
 --- local writer = serde.json.Writer.of(out)
 --- writer:startobject():key("ok"):write(true):endobject()
 --- writer:close()
---- assert(out:getstring() == [[{"ok":true}]])
+--- assert(out:tostring() == [[{"ok":true}]])
 --- ```
 --- @export
 export interface Writer is json.Writer
@@ -647,7 +647,7 @@ export interface Writer is json.Writer
     --- local writer = serde.json.Writer.of(out)
     --- writer:write(true)
     --- writer:close()
-    --- assert(out:getstring() == "true")
+    --- assert(out:tostring() == "true")
     --- ```
     --- @param out the output storage borrowed until the writer closes
     --- @param nullvalue the value to encode as JSON null

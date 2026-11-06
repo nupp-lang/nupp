@@ -33,12 +33,12 @@ function M.nullDropsOrUsesTheSuppliedValue()
 end
 
 -- The public writer appends to an io.Buffer; a provider's own writer to a
--- string.buffer.
+-- io.Buffer.
 local function outputFor(provider, prefix)
     if provider == json then
         return require("io").Buffer.create(prefix)
     end
-    local output = require("string.buffer").new()
+    local output = require("io").Buffer.create()
     if prefix ~= nil then
         output:put(prefix)
     end
@@ -47,10 +47,6 @@ local function outputFor(provider, prefix)
 end
 
 local function textOf(output)
-    if output.getstring ~= nil then
-        return output:getstring()
-    end
-
     return output:tostring()
 end
 
@@ -191,7 +187,7 @@ end
 
 function M.failedWritesLeaveTheWriterAtItsPriorPosition()
     for _, provider in ipairs({require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot"),}) do
-        local output = require("string.buffer").new()
+        local output = require("io").Buffer.create()
         local writer = provider.newwriter(output)
         writer:startarray():write(1)
         assert(
@@ -217,7 +213,7 @@ function M.portableEncodingRejectsInvalidUtf8Everywhere()
     assert(not pcall(writer.key, writer, "\255"), "the writer accepted an invalid UTF-8 key")
     writer:key("valid"):write(1):endobject()
     writer:close()
-    assert(output:getstring() == [[{"valid":1}]], "a rejected key changed the writer")
+    assert(output:tostring() == [[{"valid":1}]], "a rejected key changed the writer")
 end
 
 function M.arrayMarkersRequireEveryConsecutiveIndex()
@@ -258,7 +254,7 @@ function M.providersPreserveWriterTransitionsAndArrayIdentity()
             "json.asarray needs a table"
         )
 
-        local output = require("string.buffer").new()
+        local output = require("io").Buffer.create()
         local writer = provider.newwriter(output)
         writer:startobject()
         rejected(
@@ -450,6 +446,16 @@ function M.duplicateMemberNamesAreRefusedByEveryProvider()
         test.eq(value[1].a, 1, name)
         test.eq(value[4].a, 3, name)
         test.eq(provider.decode('{"a":{"a":{"a":1}}}').a.a.a, 1, name)
+    end
+end
+
+function M.falsePullShapesDropValues()
+    for _, provider in ipairs({json, require("nupp.runtime.provider.lunajson")}) do
+        local empty = provider.pull("[1,2,3]", provider.arrayof(false))
+        local encode = provider == json and provider.encodevalue or provider.encode
+        assert(encode(empty) == "[]")
+        local object = provider.pull('{"keep":1,"drop":2}', {keep = true, drop = false})
+        assert(object.keep == 1 and object.drop == nil)
     end
 end
 

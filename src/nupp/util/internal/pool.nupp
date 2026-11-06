@@ -26,6 +26,9 @@ work on every backend; struct pools require C storage.
 ]]
 module nupp.util.internal.pool
 
+-- Struct pages are selected at their call site; record pools need no storage.
+const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
+
 -- Whether a caller's count is a nonnegative integer. The value is read
 -- untyped: integer-typed arithmetic refuses a fractional or non-finite
 -- operand with its own error before this check could name the argument.
@@ -267,3 +270,6 @@ end
 export function new<T>(witness: Type<T>, size: integer?): Pool<T>
     return Pool<T>(witness, size)
 end
+
+-- Keep the host member available when the constructor is projected directly.
+rawset(rawget(_G, "table") as table, "Pool", Pool)

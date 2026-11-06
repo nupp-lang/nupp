@@ -1,4 +1,4 @@
--- A fixed species: `simd.species(array.float32, 4)` is four lanes wherever the
+-- A fixed species: `simd.species(array.float, 4)` is four lanes wherever the
 -- kernel runs. `species:over` visits a span N lanes at a time under a real tail
 -- mask, every operator and method works lane by lane, and reducers, horizontals
 -- and `simd.transpose` fold the lanes. The kernels here are compiled and run,
@@ -14,7 +14,7 @@ local env = envMod.new(HERE .. "/..")
 local M = {}
 
 local PRELUDE = [[
-local array = require("nupp.array")
+local array = table.Array
 local span = require("binary.span")
 local simd = require("simd")
 ]]
@@ -34,7 +34,7 @@ function M.aFixedSpeciesIsItsLanesAndOverVisitsChunksUnderATailMask()
         .. [[
 @aot
 local function scale(exclusive output: span.WriteSpan<float32>, borrows input: span.Span<float32>, factor: float32): (number, number, number)
-    local species = simd.species(array.float32, 4)
+    local species = simd.species(array.float, 4)
     local chunks: integer = 0
     local lastActive: integer = 0
     for at, active in species:over(#input) do
@@ -45,8 +45,8 @@ local function scale(exclusive output: span.WriteSpan<float32>, borrows input: s
     return species.lanes, chunks, lastActive
 end
 return function(n: integer): (number, number, number, number, number)
-    const values = array.scalar(array.float32, n)
-    const scaled = array.scalar(array.float32, n)
+    const values = array.scalar(array.float, n)
+    const scaled = array.scalar(array.float, n)
     do local w = values:write() ;
         for i = 1, n do
             w[i] = i * 0.25
@@ -237,7 +237,7 @@ function M.reducersTakeFixedVectorContributionsLaneByLane()
         .. [[
 @aot
 local function fold(borrows values: span.Span<float64>, borrows counts: span.Span<int32>): {number}
-    local s = simd.species(array.float64, 4)
+    local s = simd.species(array.number, 4)
     local sum = simd.reducer.orderedsum(0.0)
     local pairwise = simd.reducer.pairwisesum(0.0)
     local big = simd.reducer.count()
@@ -273,7 +273,7 @@ local function fold(borrows values: span.Span<float64>, borrows counts: span.Spa
     return out
 end
 return function(): {number}
-    const values = array.scalar(array.float64, 10)
+    const values = array.scalar(array.number, 10)
     const counts = array.scalar(array.int32, 10)
     local given = {5, 3, 9, 1, 7, 2, 8, 6, 4, 10}
     do local w = values:write() ;
@@ -309,7 +309,7 @@ function M.horizontalsFoldTheLanesUnderTheirContracts()
         .. [[
 @aot
 local function fold(): {number}
-    local f = simd.species(array.float32, 4)
+    local f = simd.species(array.float, 4)
     local v = f:iota(1.5, 1.0)
     local i = simd.species(array.int32, 4)
     local w = i:splat(-3):insert(1, 7):insert(3, 5)
@@ -455,7 +455,7 @@ local function probe(
     borrows data: span.Span<float32>,
     borrows bytes: span.Span<uint8>
 ): {number}
-    local f = simd.species(array.float32, 4)
+    local f = simd.species(array.float, 4)
     local i = simd.species(array.int32, 4)
     local answers: {number} = {}
     local a, b = f:loadpairs(data, 1)
@@ -487,8 +487,8 @@ local function probe(
     return answers
 end
 return function(): ({number}, {number})
-    const data = array.scalar(array.float32, 12)
-    const out = array.scalar(array.float32, 12)
+    const data = array.scalar(array.float, 12)
+    const out = array.scalar(array.float, 12)
     do local w = data:write() ;
         for i = 1, 12 do
             w[i] = i
@@ -560,8 +560,8 @@ local struct Particle
     tail: simd.Vector<float32, simd.Fixed<3>>
 end
 return function(): ({number}, {number})
-    local s = simd.species(array.float32, 4)
-    local t = simd.species(array.float32, 3)
+    local s = simd.species(array.float, 4)
+    local t = simd.species(array.float, 3)
     const particles = array.newarray(Particle(), 2)
     do local w = particles:write() ;
         w[1] = Particle(1.5, s:splat(2.0), t:iota(7.0, 1.0))

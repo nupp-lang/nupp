@@ -29,7 +29,7 @@ module nupp.compiler.project.store
 local nativeBuffer: any = rawget(_G, "__nupp_plain_codec")
 local loaded = nativeBuffer ~= nil
 if not loaded then
-    loaded, nativeBuffer = pcall(require, "string.buffer")
+    loaded, nativeBuffer = pcall(require, "nupp.serde.internal.binarycodec")
 end
 
 local function unavailable(): never

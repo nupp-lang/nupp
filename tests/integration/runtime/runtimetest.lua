@@ -494,7 +494,7 @@ local out = io.Buffer.create()
 local writer = serde.json.Writer.of(out)
 require("serde.json").writevalue(serde.binding(Outer), value, writer)
 writer:close()
-print(out:getstring())
+print(out:tostring())
 ]],
             [
                 "src/runtime_derive_models.nupp"

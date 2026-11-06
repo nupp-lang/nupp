@@ -1,8 +1,8 @@
 @!internal
 
 --[[
-`table` provides sequence operations and reusable pools of record and struct
-instances. Use `Pool` when a hot path repeatedly acquires instances of the
+`table` provides sequence operations, typed arrays, and reusable pools of
+record and struct instances. Use `Pool` when a hot path repeatedly acquires instances of the
 same declared type.
 
 ```nupp
@@ -28,6 +28,14 @@ record pools remain available on every backend.
 module nupp.runtime.standardtable
 
 local pool = require("nupp.util.internal.pool")
+local arrays = require("nupp.array")
+
+--- Mutable typed elements in packed or columnar storage.
+---
+--- See [bytes.md](docs/learn/runtime/data/bytes.md) for managed and owned arrays.
+export type Array<T, const Layout: string = "packed"> = arrays.Array<T, Layout>
+
+export const Array = require("nupp.array.internal.api")
 
 --- A pool of instances of a record or struct declaration.
 export type Pool<T> = pool.Pool<T>
@@ -94,9 +102,11 @@ local function move(source: any, first: any, last: any, target: any, destination
 end
 
 -- Keep a host implementation and its identity whenever one already exists.
+
 --- @internal
 export function install(host: table): table
     rawset(host, "Pool", Pool)
+    rawset(host, "Array", Array)
     if rawget(host, "move") == nil then
         rawset(host, "move", move)
     end

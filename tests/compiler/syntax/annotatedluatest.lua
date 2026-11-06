@@ -460,7 +460,7 @@ local buffer = io.Buffer.create()
 local writer = syntax.Writer.of(buffer)
 assert(user):writeJSON(writer)
 writer:close()
-assert(buffer:getstring() == '{"user_name":"Ada"}')
+assert(buffer:tostring() == '{"user_name":"Ada"}')
 assert(user:debug():find("Ada", 1, true))
 ]]
     local plan, problem = migrate.plan(source, "serialization-migration.nupp", nil, sharedEnv())

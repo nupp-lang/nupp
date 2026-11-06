@@ -1,49 +1,49 @@
 local spike = require("serde_spike")
+local output = require("io").Buffer.create()
 
 for _, suffix in ipairs({"Small", "Medium", "Nested"}) do
-   local previous = spike["legacyDebug" .. suffix]()
-   assert(spike["derivedDebug" .. suffix]() == previous,
-      "derived Debug changed the " .. suffix .. " output")
-   assert(spike["preparedDebug" .. suffix]() == previous,
-      "prepared Debug changed the " .. suffix .. " output")
-   assert(spike["bufferedDebug" .. suffix]() == #previous,
-      "buffered Debug changed the " .. suffix .. " output length")
+    local previous = spike["legacyDebug" .. suffix]()
+    assert(spike["derivedDebug" .. suffix]() == previous, "derived Debug changed the " .. suffix .. " output")
+    assert(spike["preparedDebug" .. suffix]() == previous, "prepared Debug changed the " .. suffix .. " output")
+    assert(
+        spike["bufferedDebug" .. suffix](output) == #previous,
+        "buffered Debug changed the " .. suffix .. " output length"
+    )
 end
 
 local small = spike.smallJson()
 for _, name in ipairs({
-   "currentEncodeSmall",
-   "directEncodeSmall",
-   "serdeEncodeSmall",
-   "genericEncodeSmall",
-   "dynamicEncodeSmall",
-   "nativeEncodeSmall",
-   "nativeDynamicEncodeSmall",
-   "preparedEncodeSmall",
+    "currentEncodeSmall",
+    "directEncodeSmall",
+    "serdeEncodeSmall",
+    "genericEncodeSmall",
+    "dynamicEncodeSmall",
+    "nativeEncodeSmall",
+    "nativeDynamicEncodeSmall",
+    "preparedEncodeSmall",
 }) do
-   assert(spike[name]() == small, name .. " produced different JSON")
+    assert(spike[name]() == small, name .. " produced different JSON")
 end
 local smallDocument = require("simdjson_bench_native").decode(spike.documentEncodeSmall())
 assert(smallDocument.id == 41 and smallDocument.active and smallDocument.name == "Ada")
-assert(spike.preparedWriteSmall() == #small)
+assert(spike.preparedWriteSmall(output) == #small)
 
 local medium = spike.mediumJson()
 for _, name in ipairs({
-   "currentEncodeMedium",
-   "serdeEncodeMedium",
-   "genericEncodeMedium",
-   "dynamicEncodeMedium",
-   "nativeEncodeMedium",
-   "nativeDynamicEncodeMedium",
-   "preparedEncodeMedium",
+    "currentEncodeMedium",
+    "serdeEncodeMedium",
+    "genericEncodeMedium",
+    "dynamicEncodeMedium",
+    "nativeEncodeMedium",
+    "nativeDynamicEncodeMedium",
+    "preparedEncodeMedium",
 }) do
-   assert(spike[name]() == medium, name .. " produced different JSON")
+    assert(spike[name]() == medium, name .. " produced different JSON")
 end
 local mediumDocument = require("simdjson_bench_native").decode(spike.documentEncodeMedium())
 assert(mediumDocument.id == 41 and mediumDocument.owner == "example-owner")
-assert(spike.preparedWriteMedium() == #medium)
-assert(spike.preparedEncodeConstantMedium() == medium,
-   "constant-field record changed the twelve-field JSON")
+assert(spike.preparedWriteMedium(output) == #medium)
+assert(spike.preparedEncodeConstantMedium() == medium, "constant-field record changed the twelve-field JSON")
 
 assert(spike.currentDecodeSmall().id == 41)
 assert(spike.documentDecodeSmall().id == 41)
@@ -64,12 +64,18 @@ assert(spike.nativeDecodeMediumUnknown().owner == "example-owner")
 assert(spike.preparedDecodeMediumUnknown().owner == "example-owner")
 
 for _, name in ipairs({"preparedDecodeNested", "preparedDecodeNestedBuffer"}) do
-   local nested = spike[name]()
-   assert(nested.id == 41, name .. " changed the root record")
-   assert(nested.child.label == "primary" and nested.child.scores[3] == 3,
-      name .. " changed the nested record")
-   assert(nested.children[2].label == "second" and nested.children[2].scores[1] == 6,
-      name .. " changed the record array")
-   assert(nested.labels.region == "us-east-1" and nested.labels.owner == "example",
-      name .. " changed the map")
+    local input = name:find("Buffer", 1, true) and require("io").Buffer.create(spike.nestedJson()) or nil
+    local nested = spike[name](input)
+    if input then
+        input:close()
+    end
+    assert(nested.id == 41, name .. " changed the root record")
+    assert(nested.child.label == "primary" and nested.child.scores[3] == 3, name .. " changed the nested record")
+    assert(
+        nested.children[2].label == "second" and nested.children[2].scores[1] == 6,
+        name .. " changed the record array"
+    )
+    assert(nested.labels.region == "us-east-1" and nested.labels.owner == "example", name .. " changed the map")
 end
+
+output:close()

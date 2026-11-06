@@ -31,9 +31,14 @@ export record ChecksumFormat
     --- Computes a complete value and closes its context.
     --- @param bytes raw message bytes
     --- @return the unsigned checksum value
-    function compute(self, bytes: string): uint64
+    function compute(self, borrows bytes: string | ByteSpan): uint64
         local value: Checksum = self:create()
-        value:write(bytes)
+        if type(bytes) == "string" then
+            value:write(tostring(bytes))
+        else
+            value:writespan(bytes as ByteSpan)
+        end
+
         return value:value()
     end
 end

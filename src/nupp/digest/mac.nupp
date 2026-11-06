@@ -1,6 +1,8 @@
 @!internal
 module nupp.digest.mac
 
+local {type ByteSpan} = require("binary.span")
+
 local catalog = require("nupp.digest.internal.catalog")
 
 const _PROVIDER_REQUIRES = "@requires-dynamically nupp.runtime.provider.mac"
@@ -35,9 +37,14 @@ export record MacFormat
     --- @param key raw authentication key bytes
     --- @param bytes raw message bytes
     --- @return raw authentication tag bytes
-    function compute(self, key: string, bytes: string): string
+    function compute(self, key: string, borrows bytes: string | ByteSpan): string
         local value: Mac = self:create(key)
-        value:write(bytes)
+        if type(bytes) == "string" then
+            value:write(tostring(bytes))
+        else
+            value:writespan(bytes as ByteSpan)
+        end
+
         return value:digest()
     end
 
@@ -45,9 +52,14 @@ export record MacFormat
     --- @param key raw authentication key bytes
     --- @param bytes raw message bytes
     --- @return lowercase hexadecimal authentication tag text
-    function computehex(self, key: string, bytes: string): string
+    function computehex(self, key: string, borrows bytes: string | ByteSpan): string
         local value: Mac = self:create(key)
-        value:write(bytes)
+        if type(bytes) == "string" then
+            value:write(tostring(bytes))
+        else
+            value:writespan(bytes as ByteSpan)
+        end
+
         return value:hexdigest()
     end
 end

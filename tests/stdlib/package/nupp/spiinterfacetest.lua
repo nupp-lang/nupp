@@ -74,7 +74,7 @@ local io = require("io")
 local function copy(borrows response: contracts.Response): nil
 local destination = io.Buffer.create()
 response.body:readinto(destination, 0, 8)
-local lease = destination:reservewrite(0, 8)
+local lease = destination:reserve(8)
 local output = lease:span()
 response.body:readspan(output)
 own.drop(output)
@@ -120,9 +120,6 @@ function M.bundledAliasesShareStagedNominalTypes()
     os.remove(dir)
     assert(fs.mkdir(dir .. "/src/string"))
     assert(fs.writeFile(dir .. "/nupp.lua", 'return {include = {"src"}}'))
-    local declaration = assert(require("nupp.compiler.bundled").source("/decls/stringbuffer.d.nupp"))
-    local typePath = dir .. "/src/string/buffer.d.nupp"
-    assert(fs.writeFile(typePath, declaration))
     assert(fs.mkdir(dir .. "/src/nupp/test"))
     local main = dir .. "/src/nupp/test/aliases.nupp"
     assert(
@@ -130,9 +127,9 @@ function M.bundledAliasesShareStagedNominalTypes()
             main,
             [[
 module nupp.test.aliases
-local {type Buffer} = require("string.buffer")
+local {type Buffer} = require("io")
 local contracts = require("serde.json.internal.contracts")
-local function writer(exclusive out: string.buffer.Buffer, nullValue: any?): any
+local function writer(exclusive out: io.Buffer, nullValue: any?): any
     out:put("value")
     return nil
 end
@@ -155,7 +152,7 @@ print(checked, canonical)
         checked(graph)
         graph.persist()
         checked(incremental.new(dir))
-        graph.changeDocument(typePath, declaration .. "\n")
+        graph.changeDocument(main, assert(fs.readFile(main)) .. "\n")
         checked(graph)
     end)
     os.remove(dir, true)
@@ -282,26 +279,6 @@ return marked.text
     os.remove(dir, true)
     if not ok then
         error(problem, 0)
-    end
-end
-
-function M.portableBufferMatchesNativeFifoOperations()
-    local implementations = {
-        require("nupp.runtime.provider.tablebuffer"),
-        require("nupp.runtime.provider.nativebuffer"),
-    }
-    for _, implementation in ipairs(implementations) do
-        local value = implementation.new()
-        assert(value:put("a", 12) == value)
-        assert(value:putf("%02d", 3) == value)
-        assert(#value == 5 and value:tostring() == "a1203")
-        local first, second = value:get(1, 2)
-        assert(first == "a" and second == "12")
-        assert(value:skip(1) == value and value:get() == "3")
-        assert(value:set("x\0yz") == value)
-        assert(value:reset() == value and #value == 0)
-        value:put("again")
-        assert(value:free() == value and #value == 0)
     end
 end
 

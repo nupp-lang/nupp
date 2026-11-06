@@ -4,7 +4,7 @@ module io.internal.process.types
 
 const {type Path} = require("io.internal.files.path")
 const {type Buffer, type Error} = require("nupp.io")
-const {type ByteView} = require("nupp.io")
+const {type ByteSpan} = require("binary.span")
 
 export type StreamMode = "pipe" | "inherit" | "null"
 
@@ -48,7 +48,7 @@ export type CommunicateOptions = {
     --- Complete standard input.
     ---
     --- Omitted input sends EOF immediately.
-    input: (string | Buffer | ByteView)?,
+    input: (string | ByteSpan)?,
 
     --- Maximum stdout and stderr bytes together.
     ---

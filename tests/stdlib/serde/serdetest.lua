@@ -358,15 +358,15 @@ local record User id: integer end
 local binding = serde.binding(User)
 local buffer = io.Buffer.create("prefix:")
 json.encodeinto(binding, User(id = 7), buffer)
-local first = buffer:getstring()
-buffer:clear()
+local first = buffer:tostring()
+buffer:reset()
 local writer = json.Writer.of(buffer)
 writer:startarray()
 json.writevalue(binding, User(id = 8), writer)
 json.writevalue(binding, User(id = 9), writer)
 writer:endarray()
 writer:close()
-return {first = first, embedded = buffer:getstring()}
+return {first = first, embedded = buffer:tostring()}
 ]]
     )
     assert(result.first == 'prefix:{"id":7}' and result.embedded == '[{"id":8},{"id":9}]')

@@ -287,6 +287,11 @@ record http.Client is contracts.Client
         local upload: string? = nil
         if type(body) == "string" then
             upload = body as string
+        elseif body ~= nil
+            and type((body as any).viewas) == "function"
+            and type((body as any).tostring) == "function"
+        then
+            upload = (body as any):tostring() as string
         elseif body is messages.ReaderBody then
             if body.len ~= nil then
                 whole(body.len, "reader body length", 0)
@@ -387,7 +392,7 @@ record http.Client is contracts.Client
             return nil, privateIo.toError(headersProblem)
         end
         local storage = io.Buffer.create(bodyBytes)
-        local lease = storage:reservewrite(0, bodyBytes)
+        local lease = require("nupp.io.internal.bytes").reserveAt(storage, 0, bodyBytes)
         do
             local output = lease:span()
             do

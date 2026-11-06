@@ -642,12 +642,7 @@ export function install(c: state.Checker): nil
                 or origin.name == "WriteSplit"
             )
         )
-            or (
-                origin.moduleName == "nupp.soa"
-                and (origin.name == "Array" or origin.name == "Span" or origin.name == "WriteSpan")
-            )
-            or origin.moduleName == "nupp.heap" and origin.name == "Array"
-            or (origin.moduleName == "nupp.array" and origin.name == "Scalar")
+            or (origin.moduleName == "nupp.array" and (origin.name == "Scalar" or origin.name == "Array"))
             or isGpuBuffer
             or (
                 apiidentity.canonical(origin.moduleName or "") == "simd"

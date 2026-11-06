@@ -20,6 +20,8 @@ Process cleanup must remain valid after cancellation, kill, and partial spawn.
 ]]
 module io.internal.process.contracts
 
+local span = require("binary.span")
+
 local {type SpawnOptions, type Exit, type Interest} = require("io.internal.process.types")
 
 export interface Provider
@@ -42,6 +44,9 @@ export interface Provider
     --- Returns accepted bytes and whether the pipe is gone.
     --- Zero bytes with false means backpressure; true means the pipe is closed.
     @readonly write: function(Provider, any, string): (integer, boolean)
+
+    @readonly readspan: (function(self: Provider, stream: any, exclusive destination: span.ByteWriteSpan): integer?)?
+    @readonly writespan: (function(self: Provider, stream: any, borrows source: span.ByteSpan): (integer, boolean))?
 
     --- Releases a pipe handle; repeated release must be harmless.
     @readonly closestream: function(Provider, any): (boolean, string?)

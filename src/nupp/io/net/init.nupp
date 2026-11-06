@@ -27,6 +27,8 @@ out under.
 ]]
 module nupp.io.net
 
+local valueType: function(borrows value: any): string = type as any
+
 const assert2 = require("assert")
 
 local target = require("nupp.runtime.target")
@@ -215,8 +217,14 @@ end
 --- The source carries both a poll and a wait, so a host with its own loop drives
 --- the reactor from its frame and a command-line program blocks in it. Neither
 --- spelling appears at a call site: a caller writes the read it wanted.
-local function await(operation: string, ready: function(): boolean, abandon: (function(): nil)?): nil
-    if ready() then
+local function await(operation: string, borrows ready: function(): boolean, abandon: (function(): nil)?): nil
+    -- The suspension contract unregisters its sources before returning or raising.
+    -- Keep the actual closure and its captured span roots; only the scheduler's
+    -- temporary callback registration lies outside lexical borrow tracking.
+    local held = require("nupp.io.internal.bytes").waitCallback(ready)
+    local state = @unsafe own.release(held)
+    local pollReady = state.callback
+    if pollReady() then
         return
     end
     const chosen = provider
@@ -229,7 +237,7 @@ local function await(operation: string, ready: function(): boolean, abandon: (fu
             50,
             function(): integer
                 chosen:run(0)
-                if not resumed and ready() then
+                if not resumed and pollReady() then
                     resumed = true
                     resume(true)
 
@@ -289,20 +297,73 @@ local function readOnce(chosen: contract.Provider, handle: any, wanted: integer)
     return chunk or ""
 end
 
+local function readSpanOnce(
+    chosen: contract.Provider,
+    handle: any,
+    exclusive destination: span.ByteWriteSpan
+): (integer?, string?)
+    local wanted = positive(#destination, "net readspan destination length", 2)
+    local readInto = chosen.readspan
+    if readInto == nil then
+        local chunk, why = readOnce(chosen, handle, wanted)
+        if chunk == nil then
+            return nil, why
+        end
+        local input = span.fromstring(chunk)
+        for index = 1, #chunk do
+            destination[index] = input[index]
+        end
+        return #chunk
+    end
+    local landed: integer = 0
+    local failure: string? = nil
+    await("nupp.io.net read", function(): boolean
+        local got, why = readInto(chosen, handle, destination)
+        if got == nil then
+            failure = why or "the connection failed";
+            return true
+        end
+        if got < 0 or got > wanted or got % 1 ~= 0 then
+            failure = "the network provider returned an invalid read count";
+            return true
+        end
+        landed = got
+
+        return got > 0 or chosen:ended(handle)
+    end)
+    if failure ~= nil then
+        return nil, failure
+    end
+
+    return landed
+end
+
 --- Writes everything, in pieces that fit beneath the send bound.
 ---
 --- The bound governs how much is queued at one time and not how much may be
 --- sent, so an input larger than it proceeds rather than waiting for room it
 --- will never have.
-local function writeAll(chosen: contract.Provider, handle: any, highWater: integer, bytes: string): (boolean, string?)
+local function writeAll(
+    chosen: contract.Provider,
+    handle: any,
+    highWater: integer,
+    borrows bytes: string | span.ByteSpan
+): (boolean, string?)
     -- Built once. The wait does not vary with the piece being sent, and a
     -- closure built per iteration is what stops this loop compiling.
     local waitingBelow = highWater
     const hasRoom = function(): boolean
         return chosen:pending(handle) < waitingBelow
     end
-    local at = 1
-    while at <= #bytes do
+    local length: integer
+    if valueType(bytes) == "string" then
+        length = #(bytes as string)
+    else
+        local view = bytes as span.ByteSpan;
+        length = #view
+    end
+    local at: integer = 1
+    while at <= length do
         local room = highWater - chosen:pending(handle)
         if room < 1 then
             waitingBelow = highWater
@@ -312,8 +373,20 @@ local function writeAll(chosen: contract.Provider, handle: any, highWater: integ
                 room = 1
             end
         end
-        const taking = math.min(room, #bytes - at + 1) as integer
-        const took, why = chosen:write(handle, bytes:sub(at, at + taking - 1))
+        const taking = math.min(room, length - at + 1) as integer
+        local took: integer? = nil
+        local why: string? = nil
+        if valueType(bytes) == "string" then
+            took, why = chosen:write(handle, (bytes as string):sub(at, at + taking - 1))
+        else
+            local window = (bytes as span.ByteSpan):slice(at, at + taking - 1)
+            local writeFrom = chosen.writespan
+            if writeFrom ~= nil then
+                took, why = writeFrom(chosen, handle, window)
+            else
+                took, why = chosen:write(handle, spanString(window))
+            end
+        end
         if took == nil then
             return false, why
         end
@@ -391,18 +464,15 @@ export record DirectionView is io.Reader, io.Writer
     end
 
     --- @raises string when the destination is empty
-    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
-        const wanted = positive(#destination, "net.DirectionView readSpan destination length", 2)
-        const chunk, why = self:read(wanted)
-        if chunk == nil then
-            return nil, why
+    function readspan(exclusive self, exclusive destination: span.ByteWriteSpan): (integer?, string?)
+        if self._ended then
+            return nil, "the reader is closed"
         end
-        const input = span.fromstring(chunk)
-        for index = 1, #chunk do
-            destination[index] = input[index]
+        if self._writing then
+            return nil, "the view is write-only"
         end
 
-        return #chunk as integer
+        return readSpanOnce(self._provider, self._handle, destination)
     end
 
     function write(exclusive self, bytes: string): (boolean, string?)
@@ -417,13 +487,18 @@ export record DirectionView is io.Reader, io.Writer
     end
 
     function writespan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
-        const bytes = spanString(source)
-        const wrote, why = self:write(bytes)
+        if self._ended then
+            return nil, "the writer is closed"
+        end
+        if not self._writing then
+            return nil, "the view is read-only"
+        end
+        local wrote, why = writeAll(self._provider, self._handle, self._highWater, source)
         if not wrote then
             return nil, why
         end
 
-        return #bytes as integer
+        return #source
     end
 
     --- Waits until nothing this view wrote is still held by the platform.
@@ -603,18 +678,11 @@ export record Stream is io.Reader, io.Writer
     --- @return how many bytes were read, or nil when the connection is closed
     --- @return why it could not read, when unsuccessful
     --- @raises string when the destination is empty
-    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
-        const wanted = positive(#destination, "net.Stream readSpan destination length", 2)
-        const chunk, why = self:read(wanted)
-        if chunk == nil then
-            return nil, why
+    function readspan(exclusive self, exclusive destination: span.ByteWriteSpan): (integer?, string?)
+        if self._closed then
+            return nil, "the connection is closed"
         end
-        const input = span.fromstring(chunk)
-        for index = 1, #chunk do
-            destination[index] = input[index]
-        end
-
-        return #chunk as integer
+        return readSpanOnce(self._provider, self._handle, destination)
     end
 
     --- Appends bytes, waiting where the send queue is already at its maximum.
@@ -643,13 +711,18 @@ export record Stream is io.Reader, io.Writer
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
     function writespan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
-        const bytes = spanString(source)
-        const wrote, why = self:write(bytes)
+        if self._closed then
+            return nil, "the connection is closed"
+        end
+        if self._shutdown then
+            return nil, "the sending half is closed"
+        end
+        local wrote, why = writeAll(self._provider, self._handle, self._highWater, source)
         if not wrote then
             return nil, why
         end
 
-        return #bytes as integer
+        return #source
     end
 
     --- Waits until nothing this connection accepted is still held here.
@@ -914,7 +987,7 @@ export record Datagram is own.Closeable
         const landed = #(bytes or "") as integer
         if landed > 0 then
             const input = span.fromstring(bytes or "")
-            const lease = destination:reservewrite(0, landed)
+            const lease = require("nupp.io.internal.bytes").reserveAt(destination, 0, landed)
             do
                 const output = lease:span()
                 for index = 1, landed do

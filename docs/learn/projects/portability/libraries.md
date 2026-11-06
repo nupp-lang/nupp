@@ -5,7 +5,7 @@ selected target by the build, so a library is written once for every host.
 
 ## LuaJIT library modules
 
-The VM provides `bit`, `require("string.buffer")`, and `table.new` and
+The VM provides `bit`, `table.new`, and
 `table.clear` on the `table` library. The checker also declares `ffi` and the
 `jit.*` modules, which are LuaJIT facilities the VM does not have: requiring one
 fails at run time.
@@ -22,9 +22,9 @@ and layout arithmetic remain ordinary modules.
 
 Storage and struct operations use private runtime contracts. Their layouts and
 scalar codecs agree with the representation compiled into the program.
-[](string.buffer) owns the canonical FIFO `Buffer` type on native and browser
-hosts. Its pointer and serialization operations retain their native
-representation and lifetime requirements.
+[](io.Buffer) owns growable FIFO byte storage on native and browser hosts.
+Borrowed spans retain its storage for the duration of their loan. Serialization
+belongs to [](serde).
 
 Each GPU context retains its device methods. CPU workgroups and tensor layout
 operations are ordinary code. HTTP clients are created with

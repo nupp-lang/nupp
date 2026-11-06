@@ -1,0 +1,6 @@
+@!internal
+module nupp.runtime.provider.bufferfallback
+
+-- Missing private fast-path hooks select io.Buffer's checked storage path.
+local fallback: any = {}
+export = fallback

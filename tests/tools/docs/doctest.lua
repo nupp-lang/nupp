@@ -118,6 +118,34 @@ function M.moduleDocumentationKeepsNamespaceTagsAttached()
     assert(projections[1].text == "Public description.", projections[1].text)
 end
 
+function M.explicitPublicNamespacesSurvivePrivateSourceDirectories()
+    local dir = tempProject({
+        [
+            "src/engine/internal/arrays.nupp"
+        ] = [=[
+@!internal
+--[[Public array factories.]]
+--- @namespace table.Array
+module engine.internal.arrays
+
+--- Creates a byte array.
+export function bytes(count: integer): integer
+    return count
+end
+
+local function hidden(): nil end
+]=],
+    })
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "markdown", output = "api.md"}) == 0)
+    local api = readFile(dir .. "/api.md")
+    assert(api:find('<a id="table.Array"></a>', 1, true), api)
+    assert(api:find('<a id="table.Array.bytes"></a>', 1, true), api)
+    assert(api:find("Public array factories.", 1, true), api)
+    assert(not api:find('id="engine.internal', 1, true), api)
+    assert(not api:find('id="table.Array.hidden', 1, true), api)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.moduleDocumentationDoesNotConsumeFollowingComments()
     -- This deliberately misplaced block is an implementation comment.
     local source = "module example\n" .. "--[[Implementation note.]]\nexport const value = 1\n"
@@ -2494,15 +2522,8 @@ function M.standardIOApiHasCompleteDocumentation()
         [
             "src/nupp/io.nupp"
         ] = {
-            types = {
-                Buffer = true,
-                ByteView = true,
-                Reader = true,
-                Writer = true,
-                ScalarReader = true,
-                ScalarWriter = true,
-            },
-            functions = {newBuffer = true, newStringReader = true,},
+            types = {Buffer = true, Reader = true, Writer = true, ScalarReader = true, ScalarWriter = true,},
+            functions = {},
         },
         [
             "src/io/internal/pathtypes.nupp"
@@ -4741,6 +4762,7 @@ function M.siteMatchesTheNuppdocPageModel()
         ["docs/details.md"] = "# Details\n\nA deeper reference.\n\n" .. "<<< @docs/snippet.abnf\n",
         ["docs/snippet.abnf"] = 'rule = "literal" / other\n',
         ["src/math.nupp"] = SOURCE,
+        ["src/zconfig.d.nupp"] = NESTED_DECLARATIONS,
         [
             "src/engine/init.nupp"
         ] = table.concat(
@@ -4932,7 +4954,7 @@ function M.siteMatchesTheNuppdocPageModel()
             .. '<a href="#types" title="Types">Types</a></summary><ol>'
             .. '<li class="nuppdoc-outline-section"><details><summary>'
             .. '<a href="#math.Point" title="Point">Point</a></summary><ol>'
-            .. '<li><a href="#math.Point.x" title="x">x</a></li>',
+            .. '<li class="nuppdoc-outline-flow"><a href="#math.Point.x" title="x">x</a></li>',
             1,
             true
         ),
@@ -4941,7 +4963,8 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(
         module:find(
             '<li class="nuppdoc-outline-section"><details open><summary>'
-            .. '<a href="#functions" title="Functions">Functions</a></summary><ol><li>'
+            .. '<a href="#functions" title="Functions">Functions</a></summary><ol>'
+            .. '<li class="nuppdoc-outline-flow">'
             .. '<a href="#math.add" title="add">add</a>',
             1,
             true
@@ -4949,6 +4972,23 @@ function M.siteMatchesTheNuppdocPageModel()
         module
     )
     assert(module:find('id="nuppdoc-outline" aria-label="On this page"', 1, true), module)
+    local config = readFile(dir .. "/site/modules/zconfig/index.html")
+    local configOutline = assert(config:match('<aside class="nuppdoc%-outline"(.-)</aside>'))
+    assert(
+        configOutline:find('<a href="#zconfig.Config.Settings" title="Settings">Settings</a></summary><ol>', 1, true),
+        configOutline
+    )
+    for _, name in ipairs({"enabled", "apply"}) do
+        assert(
+            configOutline:find(
+                '<li class="nuppdoc-outline-flow"><a href="#zconfig.Config.Settings.' .. name .. '"',
+                1,
+                true
+            ),
+            configOutline
+        )
+    end
+    assert(configOutline:find('<li><a href="#zconfig.Config.Settings.Value"', 1, true), configOutline)
     local outline = assert(module:match('<aside class="nuppdoc%-outline"(.-)</aside>'))
     assert(outline:find('href="#functions"', 1, true) < outline:find('href="#types"', 1, true), outline)
     local moduleMarkdown = readFile(dir .. "/site/modules/math.md")
@@ -6169,7 +6209,7 @@ function M.builtinNavigationKeepsEveryDeclaredGlobalAndLibrary()
     for _, library in ipairs(shapes) do
         assert(libraries[library.name], "missing library " .. library.name)
     end
-    for _, name in ipairs({"ffi", "string.buffer", "jit.util", "jit.profile", "jit.zone", "jit.vmdef"}) do
+    for _, name in ipairs({"ffi", "jit.util", "jit.profile", "jit.zone", "jit.vmdef"}) do
         assert(libraries[name], "missing required builtin " .. name)
     end
     for _, name in ipairs({
@@ -6302,7 +6342,7 @@ function M.builtinNavigationMergesOwnedRootsAndOpensCurrentBranch()
         local _, count = api:gsub('data%-module="' .. name .. '"', '')
         assert(count == 1, name .. " has " .. count .. " roots")
     end
-    for _, name in ipairs({"string.buffer", "jit.util", "jit.profile", "jit.zone", "jit.vmdef"}) do
+    for _, name in ipairs({"jit.util", "jit.profile", "jit.zone", "jit.vmdef"}) do
         assert(api:find('data-module="' .. name .. '"', 1, true), "missing nested builtin " .. name)
     end
     assert(api:find('>functions</a>', 1, true), "global functions need their own group")
@@ -6516,7 +6556,7 @@ end
     end
     assert(globalAssert and globalAssert.lua, "callable globals with named function types need Lua identity")
 
-    assert(modules.ffi and modules["string.buffer"] and modules["jit.vmdef"])
+    assert(modules.ffi and not modules["string.buffer"] and modules["jit.vmdef"])
     assert(not modules.re and not modules.lpeg and not modules.number)
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -6984,14 +7024,13 @@ function M.ioPublicPageKeepsStorageAndScalarContracts()
     for _, public in ipairs({
         "readspan",
         "writespan",
-        "reservewrite",
+        "Buffer.reserve",
         "readinto",
         "readuint32",
         "Reader.scalar",
         "Writer.scalar",
         "Buffer.reader",
         "Buffer.writer",
-        "ByteView.reader",
         "ScalarStream",
         "Reader.lines"
     }) do

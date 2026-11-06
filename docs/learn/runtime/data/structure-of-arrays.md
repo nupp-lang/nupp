@@ -4,19 +4,20 @@ order: 170
 
 # Structure-of-arrays storage
 
-`nupp.soa` stores every top-level field of a reified struct in its own
-contiguous column. Reach for it when a loop walks one or two fields of many
-rows and the ordinary array-of-structures layout brings the rest along.
+`table.Array` with the `"columnar"` layout stores each top-level struct field
+in its own contiguous column. Reach for it when a loop walks one or two fields
+of many rows and the ordinary array-of-structures layout brings the rest along.
 
 ```nupp
-local soa = nupp.soa
+local soa = table.Array
+
 
 local struct Position
     x: float32
     velocity: float32
 end
 
-local positions = soa.alloc(ffi.typeof<Position>(), 128)
+local positions = soa.alloc(ffi.typeof<Position>(), 128, "columnar")
 local rows = positions:write()
 for index = 1, #rows do
     rows[index] = Position(0, 1)
@@ -29,12 +30,13 @@ assert(rows[1].x == 1)
 
 ## Containers select the layout
 
-A struct keeps its ordinary C-compatible array-of-structures layout. Only an
-`soa.Array<T>` splits its fields, so the same `T` can be an ordinary value,
+A struct keeps its ordinary C-compatible array-of-structures layout. Only a
+`table.Array<T, "columnar">` splits its fields, so the same `T` can be an ordinary
+value,
 passed through [C interop](../c-interop/index.md), or stored in either layout.
 
 ```text
-Position[3]                 soa.Array<Position>(3)
+Position[3]                 table.Array<Position, "columnar">(3)
 
 [x0 velocity0]              x         [x0  x1  x2]
 [x1 velocity1]              velocity  [v0  v1  v2]
@@ -81,7 +83,7 @@ local struct Particle
     dy: float32
 end
 
-local particles = soa.alloc(ffi.typeof<Particle>(), 2)
+local particles = soa.alloc(ffi.typeof<Particle>(), 2, "columnar")
 do
     local rows = particles:write()
     rows[1] = Particle(1, 2, 3, 4)
@@ -152,7 +154,7 @@ A row slice preserves the column layout and adjusts the logical row offset. Its
 indexes start at one, like the parent view.
 
 ```nupp:fragment
-local samples = soa.alloc(ffi.typeof<Position>(), 3)
+local samples = soa.alloc(ffi.typeof<Position>(), 3, "columnar")
 do
     local rows = samples:write()
     local middle = rows:slice(2, 2)
@@ -174,8 +176,8 @@ created.
 both ranges before moving bytes, then performs one contiguous copy per field.
 
 ```nupp:fragment
-local source = soa.alloc(ffi.typeof<Particle>(), 2)
-local target = soa.alloc(ffi.typeof<Particle>(), 4)
+local source = soa.alloc(ffi.typeof<Particle>(), 2, "columnar")
+local target = soa.alloc(ffi.typeof<Particle>(), 4, "columnar")
 
 do
     local rows = source:write()
@@ -256,18 +258,18 @@ kernel admits.
 
 ### Native AOT row views
 
-A native CPU `@aot` kernel accepts `borrows rows: soa.Span<T>` for reads or
-`exclusive rows: soa.WriteToken & soa.WriteSpan<T>` for writes. Indexed scalar
+A native CPU `@aot` kernel accepts `borrows rows: span.Span<T, "columnar">` for reads or
+`exclusive rows: span.WriteSpan<T, "columnar">` for writes. Indexed scalar
 fields address the original columns, including when the caller passes a slice.
 The private native call receives column pointers and a row count; entry and
 exit copy no row payloads.
 
 ```nupp:fragment
-local array = nupp.array
+local array = table.Array
 
 @aot
-local function advance(exclusive rows: soa.WriteToken & soa.WriteSpan<Particle>, dt: float32): nil
-    local species = simd.species(array.float32)
+local function advance(exclusive rows: span.WriteSpan<Particle, "columnar">, dt: float): nil
+    local species = simd.species(array.float)
     for at, active in species:over(#rows) do
         local x = species:load(rows, at, "x", active)
         local dx = species:load(rows, at, "dx", active)
@@ -294,7 +296,7 @@ their existing span entry forms remain available.
 
 ## Snapshots and ECS storage
 
-`nupp.soa` supplies storage mechanics, not a general storage interface or a
+`table.Array` supplies storage mechanics, not a general storage interface or a
 snapshot format. An ECS remains responsible for capacity, archetype movement,
 dirty state, component policy, and schema migration.
 

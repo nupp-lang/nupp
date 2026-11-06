@@ -1,171 +1,14 @@
 --[[
-`binary.span` gives a C array a rooted, one-based, bounds-checked view. A
-shared `Span<T>` reads contiguous elements; a writable span adds exclusive
-access and an [affine lifetime](docs/learn/runtime/ownership/index.md), so the pointer
-cannot outlive or overlap its owner.
+Borrowed spans provide rooted, bounds-checked access to typed elements.
+See [bytes.md](docs/learn/runtime/data/bytes.md) for storage, ownership, index
+bases, and copies.
 
 ```nupp
 local span = binary.span
-
-const text = "hello"
-const bytes = span.fromstring(text)
-assert(#bytes == 5)
+local text = "hello"
+local bytes = span.fromstring(text)
+assert(#bytes == 5 and bytes[1] == 104)
 ```
-
-Use spans at checked boundaries. Direct indexing through a pointer or
-variable-length C array remains an [`unsafe`
-operation](docs/learn/runtime/ownership/index.md#unsafe-representation-boundaries).
-
-`Span<T>` is a sealed contract over a private implementation that keeps an
-element count beside a rooted pointer, so public code can neither forge one nor
-reach the raw pointer it holds. Indexing and slicing check that count first.
-
-## Creating a shared span
-
-`fromcarray(source, count)` borrows a C array and records its logical element
-count. `fromstring(source)` creates the byte-specialized `ByteSpan`. Both keep
-their source rooted for the lifetime of the view.
-
-```nupp
-local span = binary.span
-
-local struct Point
-    x: float
-    y: float
-end
-
-const storage = carray(Point, 4)
-const points = span.fromcarray(storage, 4)
-assert(#points == 4)
-assert(points[1].x == 0)
-```
-
-Indexes start at one. `view[index]` raises unless the index is an integer from
-`1` through `#view`, so NaN and a fraction are refused like any other bad index.
-`slice(first, last)` includes both endpoints and borrows the parent; omitting
-`last` extends through the end. An empty slice uses `first, first - 1`.
-
-`fromfixedcarray(source, count)` returns `FixedSpan<T, N>` when the array and
-literal count carry the same static `N`. It satisfies `Span<T>`, while
-preserving the exact count for checks and generated code.
-
-## Writable spans
-
-`writecarray` returns the affine alias `Writable<T>`. Its underlying
-`WriteSpan<T>` contract is what a function accepting exclusive access names:
-
-```nupp
-local span = binary.span
-local indexed = binary.span
-
-local struct Point
-    x: float
-    y: float
-end
-
-local function clear(exclusive points: span.WriteSpan<Point>): nil
-    const view = points
-    const indexes = indexed.range(1, #view, view)
-    for index = indexes.first, indexes.last do
-        view[index] = Point(0, 0)
-    end
-end
-
-local storage = carray(Point, 4)
-const points = span.writecarray(storage, 4)
-clear(points)
-own.drop(points)
-```
-
-Whole-element and direct field assignments write through the checked indexed
-place. `shared()` downgrades the writer to a shared view for the returned
-view's lifetime.
-
-A writable span is affine because it represents exclusive access rather than
-owned memory. Dropping it, explicitly or at scope exit, ends that access; it
-does not free or copy the source array. `writefixedcarray` and
-`FixedWritable<T, N>` preserve a static count in the same way as their shared
-counterparts.
-
-Asking one array for a shared span while a writer over it is live reports
-`NUPP2607`, and so does the reverse.
-
-## Slices and partitions
-
-`WriteSpan.slice(first, last)` creates one affine child writer. The parent
-remains blocked until the child is dropped, preventing a write through the
-parent from overlapping the slice.
-
-`splitat(mid)` partitions a writer into audited, non-overlapping left and right
-regions. `mid` is the number of elements in the left region, so zero gives an
-empty left side and `count` gives an empty right side. Both children retain the
-parent as their root.
-
-Use a slice for one subrange and `splitat` when two disjoint writable regions
-must be live together. Unknown indexes and bounds otherwise conservatively
-overlap.
-
-## Shared range for several spans
-
-`indexed.range(first, last, ...)` checks one inclusive range against every
-trusted Span or [SoA view](docs/learn/runtime/data/structure-of-arrays.md) and
-returns a record whose `first` and `last` are ordinary integers:
-
-```nupp
-local span = binary.span
-local indexed = binary.span
-
-local struct Value
-    n: integer
-end
-
-local function dot(
-    borrows left: span.Span<Value>,
-    borrows right: span.Span<Value>
-): integer
-    const first = left
-    const second = right
-    const indexes = indexed.range(1, #first, first, second)
-
-    local total: integer = 0
-    for index = indexes.first, indexes.last do
-        total = total + first[index].n * second[index].n
-    end
-
-    return total
-end
-
-const storage = carray(Value, 4)
-const values = span.fromcarray(storage, 4)
-print(dot(values, values))
-```
-
-At least one span is required. Empty ranges use the same `first, first - 1`
-convention as slices. The typed borrowed vararg passes each original span
-directly and allocates no container or interface wrapper. The checker accepts
-only trusted view descriptors; the runtime reads each view's private count
-without changing its representation.
-
-When the bounds and spans are const-bound in the same function, the successful
-range check proves matching indexed reads and writes non-raising inside
-the dominated numeric loop. This proof is part of checking at every optimization
-level: it is what permits those calls inside `@noraise` code.
-
-See [`OPT-6`](docs/learn/performance/index.md#opt-6-indexed-views) for how that
-proof is spent at `-O1`, as direct FFI element access and virtual slices that
-allocate no wrapper.
-
-## Passing a span to C
-
-`ref()` returns the rooted pointer and logical count for a handwritten native
-wrapper. Shared spans return a `const T[?]`; writable spans require exclusive
-access and return `T[?]`. The returned pointer borrows the span, so it cannot
-escape independently.
-
-A declarative C binding can use
-[`countedBy(count)`](docs/learn/runtime/c-interop/index.md#counted-pointer-adapters)
-instead. Its checked call surface accepts spans, verifies shared counts, and
-projects the physical pointer and count arguments automatically.
 ]]
 module binary.span
 
@@ -176,10 +19,10 @@ export type ByteWriteSpan = source1.ByteWriteSpan
 export type FixedSpan<T, const N: integer> = source1.FixedSpan<T, N>
 export type FixedWritable<T, const N: integer> = source1.FixedWritable<T, N>
 export type FixedWriteSpan<T, const N: integer> = source1.FixedWriteSpan<T, N>
-export type Span<T> = source1.Span<T>
-export type Writable<T> = source1.Writable<T>
-export type WriteSpan<T> = source1.WriteSpan<T>
-export type WriteSplit<T> = source1.WriteSplit<T>
+export type Span<T, const Layout: string = "packed"> = source1.Span<T, Layout>
+export type Writable<T, const Layout: string = "packed"> = source1.Writable<T, Layout>
+export type WriteSpan<T, const Layout: string = "packed"> = source1.WriteSpan<T, Layout>
+export type WriteSplit<T, const Layout: string = "packed"> = source1.WriteSplit<T, Layout>
 export type WriteToken = source1.WriteToken
 export type Range = source2.Range
 export const WriteSplit = source1.WriteSplit

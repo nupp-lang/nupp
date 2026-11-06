@@ -63,9 +63,9 @@ if expectedAdapter then
 end
 io.write(("GPU driver: %s\n"):format(driver))
 io.stdout:flush()
-local cBuffer = context:buffer(require("nupp.array").float32, m * n)
-local aBuffer = context:buffer(require("nupp.array").float32, m * k)
-local bBuffer = context:buffer(require("nupp.array").float32, k * n)
+local cBuffer = context:buffer(require("nupp.runtime.standardtable").Array.float, m * n)
+local aBuffer = context:buffer(require("nupp.runtime.standardtable").Array.float, m * k)
+local bBuffer = context:buffer(require("nupp.runtime.standardtable").Array.float, k * n)
 local kernel = generated.gemm:compile(context)
 local invocation = kernel:bind(cBuffer, aBuffer, bBuffer)
 

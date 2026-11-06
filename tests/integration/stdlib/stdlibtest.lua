@@ -100,14 +100,14 @@ end
 -- `own.drop` runs it early without adding a public `drop` on each resource.
 local FORMER_DROP_OWNERS = {
     "local owner = io.Buffer.create('bytes')",
-    "local source = io.Buffer.create('bytes')\nlocal owner = source:view()",
+    "local source = io.Buffer.create('bytes')\nlocal owner = source:reader()",
     "local owner = io.Reader.of('abcd'):scalar()",
     "local destination = io.Buffer.create(); local owner = destination:writer():scalar()",
     "local owner = io.Reader.of('one'):lines()",
     "local owner = assert(io.open('input.bin'))",
     "local owner = assert(os.mktemp())",
-    "local owner = nupp.heap.alloc(ffi.typeof<int32>(), 4)",
-    "local struct Row\n    x: int32\nend\nlocal owner = nupp.soa.alloc(ffi.typeof<Row>(), 4)",
+    "local owner = table.Array.alloc(ffi.typeof<int32>(), 4)",
+    "local struct Row\n    x: int32\nend\nlocal owner = table.Array.alloc(ffi.typeof<Row>(), 4)",
 }
 
 function M.everyStandardOwnerClosesThroughOwnDropAlone()
@@ -158,15 +158,15 @@ end
 
 -- An invalid argument raises with the prefix every other standard module uses.
 function M.memAndUtilRefusalsCarryTheLibraryPrefix()
-    local array = require("nupp.array")
+    local array = require("nupp.runtime.standardtable").Array
     local spans = require("binary.span")
     for label, refused in pairs({
         heap = function()
             -- The count is refused before the element type is read.
-            require("nupp.heap").alloc(nil, -1)
+            require("nupp.runtime.standardtable").Array.alloc(nil, -1)
         end,
         bytes = function()
-            require("nupp.array").bytes(-1)
+            require("nupp.runtime.standardtable").Array.bytes(-1)
         end,
         span = function()
             spans.fromcarray(array.scalar(array.int32, 1).pointer, -1)
@@ -184,7 +184,6 @@ end
 function M.formerResultClosesAnswerNothing()
     local io = require("io")
     local buffer = io.Buffer.create("abc")
-    testAssert.eq(select("#", buffer:view():close()), 0, "ByteView:close answers nothing")
     testAssert.eq(select("#", io.Reader.of("abcd"):scalar():close()), 0, "ScalarReader:close answers nothing")
     testAssert.eq(select("#", buffer:writer():scalar():close()), 0, "a borrowing ScalarWriter answers nothing")
     testAssert.eq(buffer:isreleased(), false, "a borrowing scalar writer leaves its buffer open")
@@ -228,7 +227,7 @@ end
 function M.wasmViewsLowerThroughTheOpaqueCheckedSurface()
     local source = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local struct Sample
    value: float
 end
@@ -1000,7 +999,7 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
         testAssert.eq(response:headers()["x-test"], "one, two", "headers returns a fresh mapping")
         local destination = require("io").Buffer.create()
         testAssert.eq(response.body:readinto(destination, 0, 2), 2)
-        testAssert.eq(destination:getstring(), "ab")
+        testAssert.eq(destination:tostring(), "ab")
         testAssert.eq(response.body:read(3), "c", "the returned response owns a live ordinary reader")
         response:close()
         local bytes, closed = response.body:read(1)
@@ -1027,7 +1026,7 @@ function M.browserGpuValidatesHostHandlesAndReleasesContextResources()
     }
     local browser = require("helpers.providerstate").browserGpu(host)
     local context = browser.open()
-    local element = require("nupp.array").uint32
+    local element = require("nupp.runtime.standardtable").Array.uint32
     for _, malformed in ipairs({false, {}, {buffer = 0}, {buffer = 1.5}, {buffer = 4294967296}}) do
         returned = malformed
         local ok, problem = pcall(context.buffer, context, element, 1)
@@ -1138,7 +1137,7 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
     }
     local cancelledBrowser = require("helpers.providerstate").browserGpu(cancelledHost)
     local cancelledContext = cancelledBrowser.open()
-    local element = require("nupp.array").uint32
+    local element = require("nupp.runtime.standardtable").Array.uint32
     local buffered, bufferProblem = pcall(cancelledContext.buffer, cancelledContext, element, 1)
     assert(not buffered and bufferProblem == "cancelled buffer", tostring(bufferProblem))
     local compiled, kernelProblem = pcall(
@@ -1190,13 +1189,13 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
     }
     local browser = require("helpers.providerstate").browserGpu(host, memory)
     local context = browser.open()
-    element = require("nupp.array").uint32
+    element = require("nupp.runtime.standardtable").Array.uint32
     local input = context:buffer(element, 1)
     local output = context:buffer(element, 1)
-    local source = require("nupp.array").scalar(element, 1)
+    local source = require("nupp.runtime.standardtable").Array.scalar(element, 1)
     local seed = source:write()
     seed:set(1, 7)
-    local destination = require("nupp.array").scalar(element, 1)
+    local destination = require("nupp.runtime.standardtable").Array.scalar(element, 1)
 
     failure = "runtime-upload"
     local uploaded, uploadProblem = pcall(context.upload, context, input, source:read())
@@ -1623,11 +1622,17 @@ function M.portableFeatureRuntimesAreReachable()
         local feature = native.feature(effect)
         if feature.portableRuntime then
             seen = seen + 1
-            assert(feature.runtimeModule ~= nil, effect .. " says portableRuntime with no runtime module to compile")
-            assert(
-                surface.reachable(browser, feature.runtimeModule),
-                feature.runtimeModule .. " is unreachable in the browser"
-            )
+            if feature.runtimeModule ~= nil then
+                assert(
+                    surface.reachable(browser, feature.runtimeModule),
+                    feature.runtimeModule .. " is unreachable in the browser"
+                )
+            else
+                assert(#feature.requires > 0, effect .. " has neither a runtime module nor dependencies")
+                for _, dependency in ipairs(feature.requires) do
+                    assert(native.feature(dependency), effect .. " has an unknown dependency")
+                end
+            end
         end
     end
     assert(seen > 0, "some feature runtime is available in the browser")
@@ -2072,17 +2077,12 @@ function M.compilerProvidedPureLibraries()
         [[
       local io = require("io")
       local buffer = io.Buffer.create("hello")
-      do
-          local writer = buffer:writer()
-          assert(writer:write("world"))
-      end
-      assert(buffer:getstring() == "world")
-      do
-          local view = buffer:view()
-          local viewReader = view:reader()
-          assert(not pcall(function() viewReader:read(0) end))
-          assert(viewReader:read(1) == "w")
-      end
+      local writer = buffer:reset():writer()
+      assert(writer:write("world"))
+      assert(buffer:tostring() == "world")
+      local viewReader = io.Reader.of(buffer:span())
+      assert(not pcall(function() viewReader:read(0) end))
+      assert(viewReader:read(1) == "w")
       local reader = buffer:reader()
       assert(reader:read(3) == "wor")
       assert(reader:read(8) == "ld")
@@ -2137,7 +2137,7 @@ function M.bitsetsReachTheCheckedModule()
     assert(set:count() == 12)
     assert(set:nextsetbit(0) == 5)
 
-    local array = require("nupp.array")
+    local array = require("nupp.runtime.standardtable").Array
     local target = array.scalar(array.int32, 4)
     local written, resume = set:positionsinto(target.pointer, 4, 0)
     assert(written == 4, "positionsinto filled the destination")
@@ -2321,12 +2321,13 @@ function M.bufferAppendsInAmortizedConstantTime()
     end
     assert(buffer:len() == 6400000, "every write landed")
     assert(buffer:capacity() >= buffer:len(), "capacity covers the length")
-    assert(buffer:getstring(6399936, 64) == piece, "the last write is intact")
-    buffer:clear()
+    assert(buffer:readstring(6399936, 64) == piece, "the last write is intact")
+    buffer:reset()
     assert(buffer:len() == 0 and buffer:capacity() >= 6400000, "clearing keeps the reserved bytes")
-    buffer:setstring("tail", 6)
+    buffer:resize(10)
+    buffer:writestring(6, "tail")
     assert(
-        buffer:getstring() == string.char(0):rep(6) .. "tail",
+        buffer:tostring() == string.char(0):rep(6) .. "tail",
         "a gap past the length reads as zeros, not as stale bytes"
     )
 end
@@ -2379,16 +2380,16 @@ function M.theJsonModuleLoadsItsNuppProviderOnRequire()
         local writer = json.Writer.of(buffer)
         writer:startobject():key(name):write(json.verified("4.20e1")):endobject()
         writer:close()
-        assert(buffer:getstring() == [[{"quoted\"key":4.20e1}]])
+        assert(buffer:tostring() == [[{"quoted\"key":4.20e1}]])
 
         local partial = require("io").Buffer.create()
         local streaming = json.Writer.of(partial)
         streaming:startarray():write(1)
         streaming:flush()
-        assert(partial:getstring() == "[1", "flush publishes an incomplete batch")
+        assert(partial:tostring() == "[1", "flush publishes an incomplete batch")
         streaming:write(json.verified("2")):endarray()
         streaming:close()
-        assert(partial:getstring() == "[1,2]", "close publishes the completed root")
+        assert(partial:tostring() == "[1,2]", "close publishes the completed root")
         assert(not pcall(streaming.write, streaming, 3), "a closed writer stays stale")
 
         local incomplete = json.Writer.of(require("io").Buffer.create())
@@ -2504,14 +2505,14 @@ function M.utf8WalkingPreservesEveryByteBoundary()
     end
 end
 
-function M.utf8ByteViewsAndBudgetsMatchStrings()
+function M.utf8ByteSpansAndBudgetsMatchStrings()
     local utf8 = require("utf8")
     local buffer = require("io").Buffer.create("A\xe2\x82\xacZ")
-    local view = buffer:view()
+    local view = buffer:span()
     testAssert.eq(utf8.len(view), 3, "byte-view length")
     testAssert.eq(utf8.isvalid(view), true, "byte-view validation")
     testAssert.eq(utf8.validprefixlen(view, 4), 4, "byte-view prefix")
-    view:close()
+    view = nil
     buffer:close()
 
     testAssert.eq(utf8.validprefixlen("A", -1), 0, "a negative budget is empty")
@@ -2721,153 +2722,43 @@ function M.tableLibrary()
     testAssert.eq((diagsOf("table.clear = function() end")), "NUPP2009:1")
 end
 
-function M.stringBufferModule()
+function M.profileSessionProtocolPreservesItsReportType()
     assertClean(
         table.concat(
             {
-                "local buffer = require('string.buffer')",
-                "local b = buffer.new()",
-                "b:put('a', 1):put('b')",
-                "local s: string = b:tostring()",
-                "local joined: string = b .. 'x'",
-                "local size: integer = #b",
-            },
-            "\n"
-        )
-    )
-    testAssert.eq(
-        (
-            diagsOf(
-                table.concat(
-                    {"local buffer = require('string.buffer')", "local b = buffer.new()", "b:putt('x')",},
-                    "\n"
-                )
-            )
-        ),
-        "NUPP2004:3"
-    )
-    testAssert.eq(
-        (
-            diagsOf(
-                table.concat({"local buffer = require('string.buffer')", "local n: number = buffer.encode({})",}, "\n")
-            )
-        ),
-        "NUPP2001:2"
-    )
-end
-
-function M.stringBufferTypeIsNameable()
-    assertClean(
-        table.concat(
-            {
-                "local buffer = require('string.buffer')",
-                "local function render(out: buffer.Buffer): buffer.Buffer borrows (out)",
-                "   return out:putf('%d', 1)",
+                "local profile = require('debug.profile')",
+                "local function finish<S is profile.Session>(borrows session: S): S.Report",
+                "   return session:stop()",
                 "end",
-                "local b = buffer.new(64)",
-                "local s: string = render(b):tostring()",
+                "do local sampling = profile.sample() ;",
+                "   local sample: profile.SampleReport = finish(sampling)",
+                "end",
+                "do local tracing = profile.trace() ;",
+                "   local trace: profile.TraceReport = finish(tracing)",
+                "end",
             },
             "\n"
         )
     )
+
     testAssert.eq(
         (
             diagsOf(
                 table.concat(
                     {
-                        "local buffer = require('string.buffer')",
-                        "local b: buffer.Buffer = buffer.new()",
-                        "local n: number = b",
+                        "local profile = require('debug.profile')",
+                        "local function finish<S is profile.Session>(borrows session: S): S.Report",
+                        "   return session:stop()",
+                        "end",
+                        "do local sampling = profile.sample() ;",
+                        "   local wrong: profile.TraceReport = finish(sampling)",
+                        "end",
                     },
                     "\n"
                 )
             )
         ),
-        "NUPP2001:3"
-    )
-end
-
-function M.stringBufferCoversTheWholeApi()
-    assertClean(
-        table.concat(
-            {
-                "local buffer = require('string.buffer')",
-                "local b = buffer.new(64, {dict = {'k'}})",
-                "b:reset():put('a', 1):putf('%s', 'x'):skip(1)",
-                "b:set('abc')",
-                "b:encode({1})",
-                "local decoded = b:decode()",
-                "do",
-                "   local ptr, len = b:reserve(8)",
-                "end",
-                "b:commit(0)",
-                "do",
-                "   local base, size = b:ref()",
-                "   local n: integer = #b",
-                "   local all: string = b:tostring()",
-                "end",
-                "local text: string = b:get(1)",
-                "b:free()",
-                "local encoded: string = buffer.encode(decoded)",
-                "local back = buffer.decode(encoded)",
-                "local ffi = require('ffi')",
-                "b:putcdata(ffi.new('uint8_t[4]'), 4)",
-            },
-            "\n"
-        )
-    )
-end
-
-function M.stringBufferBorrowBlocksInvalidation()
-    testAssert.eq(
-        (
-            diagsOf(
-                table.concat(
-                    {
-                        "local buffer = require('string.buffer')",
-                        "local b = buffer.new()",
-                        "local base, size = b:ref()",
-                        "b:reset()",
-                        "print(size)",
-                    },
-                    "\n"
-                )
-            )
-        ),
-        "NUPP2607:4"
-    )
-end
-
-function M.stringBufferPointersBecomeCheckedSpans()
-    assertClean(
-        table.concat(
-            {
-                "local buffer = require('string.buffer')",
-                "local spans = require(\"binary.span\")",
-                "local b = buffer.new()",
-                "local available: integer = 0",
-                "do",
-                "   local ptr, reserved = b:reserve(64)",
-                "   available = reserved",
-                "   do",
-                "      local writable = spans.writecarray(ptr, reserved as integer)",
-                "      writable[1] = 65",
-                "      own.drop(writable)",
-                "   end",
-                "end",
-                "b:commit(1)",
-                "local len: integer = 0",
-                "do",
-                "   local base, readable = b:ref()",
-                "   len = readable",
-                "   local view = spans.fromcarray(base, readable as integer)",
-                "   local first: integer = view[1]",
-                "end",
-                "b:skip(len)",
-                "local total: integer = available + len",
-            },
-            "\n"
-        )
+        "NUPP2001:6"
     )
 end
 
@@ -3080,14 +2971,14 @@ end
 function M.ioCanonicalStorageMembersHaveNoPrecedingRuntimeAliases()
     local storage = io.Buffer.create("abcd")
     for _, names in ipairs({
-        {"getString", "getstring"},
-        {"setString", "setstring"},
+        {"getString", "tostring"},
+        {"setString", "writestring"},
         {"newReader", "reader"},
         {"newreader", "reader"},
         {"newWriter", "writer"},
         {"newwriter", "writer"},
-        {"reserveWrite", "reservewrite"},
-        {"readSpan", "readspan"},
+        {"reserveWrite", "reserve"},
+        {"readSpan", "span"},
         {"isReleased", "isreleased"},
         {"ensureCapacity", "ensure"},
         {"ensurecapacity", "ensure"},
@@ -3095,10 +2986,13 @@ function M.ioCanonicalStorageMembersHaveNoPrecedingRuntimeAliases()
         testAssert.eq(type(storage[names[2]]), "function", names[2])
         testAssert.eq(storage[names[1]], nil, "the preceding IO storage member is absent")
     end
+    for _, removed in ipairs({"getstring", "setstring", "reservewrite", "readspan", "view", "clear"}) do
+        testAssert.eq(storage[removed], nil, removed .. " was retired")
+    end
     storage:ensure(64)
     testAssert.eq(storage:len(), 4)
     assert(storage:capacity() >= 64)
-    testAssert.eq(storage:getstring(), "abcd")
+    testAssert.eq(storage:tostring(), "abcd")
     storage:close()
     local scalar = io.Reader.of(string.char(1, 0, 0, 0)):scalar()
     testAssert.eq(type(scalar.readuint32), "function")

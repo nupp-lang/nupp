@@ -117,7 +117,12 @@ export function install(
             return T.any
         end
 
-        return generics.instantiate(declaration, {[declaration.typeParams[1]] = element})
+        local map: {[any]: any} = {[declaration.typeParams[1]] = element}
+        if declaration.constParams and declaration.constParams[1] then
+            map[declaration.constParams[1]] = T.constLiteral("string", "packed")
+        end
+
+        return generics.instantiate(declaration, map)
     end
 
     handlers.cdefStruct = function(stat: cst.CdefStruct)

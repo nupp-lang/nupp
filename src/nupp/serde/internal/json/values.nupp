@@ -122,7 +122,7 @@ external models.
 ]==]
 module nupp.serde.internal.json.values
 
-const {type Buffer} = require("string.buffer")
+const {type Buffer} = require("nupp.io.internal.bytes")
 
 const native = require("nupp.codec.json.provider")
 
@@ -167,7 +167,7 @@ export type JSONEncodable = contracts.JSONEncodable
 --- local writer = serde.json.Writer.of(out)
 --- writer:startobject():key("ok"):write(true):endobject()
 --- writer:close()
---- assert(out:getstring() == [[{"ok":true}]])
+--- assert(out:tostring() == [[{"ok":true}]])
 --- ```
 --- @export
 export type Writer = contracts.Writer
@@ -463,26 +463,15 @@ export function verifiedString(text: string): EncodedString
     return native.verifiedstring(text) as EncodedString
 end
 
---- Creates an incremental JSON writer over a staging `string.buffer`, which is
---- what the codec encodes through before handing bytes to a caller.
---- @param out the staging buffer receiving bytes as operations complete
+--- Creates an incremental JSON writer over an exclusively borrowed byte buffer.
+--- @param out the buffer receiving bytes as operations complete
 --- @param nullvalue an additional value treated as JSON null
---- @return a new writer
-export function newWriter(exclusive out: Buffer, nullvalue: any?): Writer
+--- @return the writer, borrowed from its destination
+export function newWriter(exclusive out: Buffer, nullvalue: any?): affine(Writer) borrows (out)
     if nullvalue == nil then
-        return WriterImpl(raw = native.newwriter(out), anchor = nil)
+        return WriterImpl(raw = native.newwriter(out), anchor = out)
     end
-    return WriterImpl(raw = native.newwriter(out, nullvalue), anchor = nil)
-end
-
--- Appends each batch the writer publishes to the caller's byte buffer.
-local record BufferSink
-    @private @readonly target: any
-
-    function put(self, text: string): nil
-        local target = self.target
-        target:setstring(text, target:len())
-    end
+    return WriterImpl(raw = native.newwriter(out, nullvalue), anchor = out)
 end
 
 --- Creates an incremental JSON writer that appends to an [](io.Buffer).
@@ -492,19 +481,12 @@ end
 --- local writer = serde.json.Writer.of(out)
 --- writer:startobject():key("id"):write(41):endobject()
 --- writer:close()
---- assert(out:getstring() == [[{"id":41}]])
+--- assert(out:tostring() == [[{"id":41}]])
 --- ```
 --- @param out the buffer receiving bytes as operations complete
 --- @param nullvalue an additional value treated as JSON null
 --- @return a new writer
-export function newBufferWriter(exclusive out: any, nullvalue: any?): affine(Writer) borrows (out)
-    const sink = BufferSink(target = out)
-    if nullvalue == nil then
-        return WriterImpl(raw = native.newwriter(sink as any), anchor = out)
-    end
-
-    return WriterImpl(raw = native.newwriter(sink as any, nullvalue), anchor = out)
-end
+export const newBufferWriter = newWriter
 
 --- Creates a schema-driven JSON codec with an immutable wire profile.
 --- Sentinel that decodes from and encodes as JSON null.

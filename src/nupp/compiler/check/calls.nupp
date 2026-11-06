@@ -1472,6 +1472,25 @@ export function install(c: state.Checker): Ops
             end
         end
         if declarationCall then
+            local origin = (calleeT.origin or calleeT) as T.Nominal
+            if origin.moduleName == "nupp.util.internal.pool"
+                and origin.name == "Pool"
+                and c.result.moduleName ~= origin.moduleName
+            then
+                local witness = args[1] and rawType(c.infer(args[1])) or nil
+                local element = witness
+                    and (witness.tag == "typeobject" or witness.tag == "ctype")
+                    and rawType(witness.of)
+                    or nil
+                if not element or element.tag ~= "nominal" or element.declKind ~= "record" then
+                    node.compilerFeatureEffect = "runtime.structpool"
+                    if c.recordEffect then
+                        c.recordEffect("runtime.structpool")
+                    end
+                end
+            end
+        end
+        if declarationCall then
             node.construction = true
             local affineValues = {}
             local deferredAffineRoots: {[string]: {

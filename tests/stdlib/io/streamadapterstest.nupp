@@ -6,7 +6,7 @@ const {type Writer} = require("io")
 const {type ByteQueue} = require("io")
 const io2 = require("io")
 
-local text = require("string.buffer")
+local text = require("io")
 local span = require("binary.span")
 
 local M = {}
@@ -37,7 +37,7 @@ local record ProbeReader is Reader
         return ""
     end
 
-    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readspan(exclusive self, exclusive destination: span.ByteWriteSpan): (integer?, string?)
         return 0
     end
 
@@ -75,8 +75,17 @@ local record PlainReader is Reader
         return out
     end
 
-    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
-        return 0
+    function readspan(exclusive self, exclusive destination: span.ByteWriteSpan): (integer?, string?)
+        local chunk, why = self:read(#destination)
+        if chunk == nil then
+            return nil, why
+        end
+        const bytes = span.fromstring(chunk)
+        for index = 1, #bytes do
+            destination[index] = bytes[index]
+        end
+
+        return #chunk
     end
 
     function close(takes self): nil
@@ -189,14 +198,14 @@ function M.movesRawBytesAndTracksTheCursor(): nil
 end
 
 function M.continuesAtTheByteWritersCurrentPosition(): nil
-    local destination = io2.Buffer.create("head")
+    local destination = io2.Buffer.create()
     do
         local bytes = destination:writer()
         assert2(bytes:write("head"))
         local writer = bytes:scalar()
         assert2(writer:writebytes(":"):writeuint8(33) == writer)
     end
-    assert2(destination:getstring() == "head:!")
+    assert2(destination:tostring() == "head:!")
 end
 
 function M.writesThroughSomebodyElsesWriter(): nil
@@ -204,7 +213,7 @@ function M.writesThroughSomebodyElsesWriter(): nil
     local writer = (destination:writer()):scalar()
     writer:writeuint16(513)
     assert2(writer:flush())
-    assert2(destination:getstring() == "\1\2")
+    assert2(destination:tostring() == "\1\2")
 end
 
 function M.readsThroughAnyReader(): nil
@@ -215,27 +224,29 @@ function M.readsThroughAnyReader(): nil
     assert2(reader:atend())
 end
 
-function M.readsAStringBufferInPlace(): nil
-    local queue = text.new()
+function M.bufferReadersConsumeInPlace(): nil
+    local queue = text.Buffer.create()
     queue:put("head:")
     queue:put("!")
 
-    local reader = io2.Reader.of(queue):scalar()
+    local reader = queue:reader():scalar()
     assert2(reader:remaining() == 6)
     assert2(reader:readbytes(5) == "head:")
-    assert2(queue:tostring() == "!")
+    assert2(reader:remaining() == 1)
     assert2(reader:readuint8() == 33)
     assert2(reader:atend())
+    reader:close()
+    assert2(queue:tostring() == "")
 end
 
 function M.bridgesAStringBufferIntoTheReaderContract(): nil
-    local queue = text.new()
+    local queue = text.Buffer.create()
     queue:put("payload")
 
     local destination = io2.Buffer.create()
-    local reader = io2.Reader.of(queue)
+    local reader = queue:reader()
     assert2(reader:transferto(destination:writer()) == 7)
-    assert2(destination:getstring() == "payload")
+    assert2(destination:tostring() == "payload")
     assert2(reader:read(8) == "")
 end
 
@@ -252,7 +263,7 @@ end
 function M.bufferWriteLeasesCommitAtomically(): nil
     local destination = io2.Buffer.create("head")
     do
-        local lease = destination:reservewrite(4, 4)
+        local lease = destination:reserve(4)
         do
             local output = lease:span()
             output[1] = 65
@@ -262,14 +273,14 @@ function M.bufferWriteLeasesCommitAtomically(): nil
         end
         lease:commit(2)
     end
-    assert2(destination:getstring() == "headAB")
+    assert2(destination:tostring() == "headAB")
 
     do
-        local aborted = destination:reservewrite(10, 2)
+        local aborted = destination:reserve(2)
         local output = aborted:span()
         output[1] = 88
     end
-    assert2(destination:getstring() == "headAB")
+    assert2(destination:tostring() == "headAB")
 end
 
 function M.readerCountsArePositiveAndEofDoesNotGrowBuffers(): nil
@@ -281,9 +292,9 @@ function M.readerCountsArePositiveAndEofDoesNotGrowBuffers(): nil
     )
     local destination = io2.Buffer.create("kept")
     assert2(reader:readinto(destination, 4, 1) == 1)
-    assert2(destination:getstring() == "keptx")
+    assert2(destination:tostring() == "keptx")
     assert2(reader:readinto(destination, 20, 1) == 0)
-    assert2(destination:getstring() == "keptx")
+    assert2(destination:tostring() == "keptx")
     assert2(
         not pcall(function(): nil
             local other = io2.Buffer.create()
@@ -311,7 +322,7 @@ function M.defaultAdaptersValidateBeforeConsumingAndMoveEverything(): nil
     assert2(state.taken == 0, "a malformed call consumed input")
 
     assert2(reader:readinto(destination, 2, 3) == 3)
-    assert2(destination:getstring() == "xyabc")
+    assert2(destination:tostring() == "xyabc")
     assert2(destination:len() == 5, "only what arrived is reserved")
 
     local sink = io2.Buffer.create()
@@ -320,7 +331,7 @@ function M.defaultAdaptersValidateBeforeConsumingAndMoveEverything(): nil
         assert2(reader:transferto(writer) == 3)
         writer:close()
     end
-    assert2(sink:getstring() == "def")
+    assert2(sink:tostring() == "def")
     assert2(reader:readinto(destination, 0, 4) == 0, "the end reads as zero")
 
     state.failure = "gone"
@@ -354,12 +365,12 @@ function M.rejectsInvalidRangesAndMalformedByteQueues(): nil
     local buffer = io2.Buffer.create("abc")
     assert2(
         not pcall(function(): nil
-            buffer:setstring("x", false as any)
+            buffer:writestring(false as any, "x")
         end)
     )
     assert2(
         not pcall(function(): nil
-            local lease = buffer:reservewrite(9007199254740991, 1)
+            local lease = buffer:reserve(9007199254740991)
             own.drop(lease)
         end)
     )

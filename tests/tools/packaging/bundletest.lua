@@ -313,9 +313,9 @@ export function firstByte(region: io.Bytes): integer
     return region:view(0, 1)[1]
 end
 
-const heap = require("nupp.heap")
+const heap = table.Array
 
-export function stamp(takes frame: heap.Array<uint8>, value: integer): affine(heap.Array<uint8>, heap.destroyarray)
+export function stamp(takes frame: affine(table.Array<uint8>, table.Array.destroy), value: integer): affine(table.Array<uint8>, heap.destroy)
     local writable = frame:write()
     writable[1] = value % 256
     own.drop(writable)
@@ -323,7 +323,7 @@ export function stamp(takes frame: heap.Array<uint8>, value: integer): affine(he
     return frame
 end
 
-export function total(takes values: heap.Array<int32>): integer
+export function total(takes values: affine(table.Array<int32>, table.Array.destroy)): integer
     local sum: integer = 0
     do
         local readable = values:read()
@@ -331,7 +331,7 @@ export function total(takes values: heap.Array<int32>): integer
             sum = sum + readable[index]
         end
     end
-    values:close()
+    own.drop(values)
 
     return sum
 end
@@ -477,7 +477,7 @@ local copied, copyProblem = pcall(function(): nil
 end)
 print(copied, tostring(copyProblem):find("has a metatable", 1, true) ~= nil)
 
-const heap = require("nupp.heap")
+const heap = table.Array
 
 local frame = heap.alloc(ffi.typeof<uint8>(), 64)
 do local scope = tasks.scope() ;
@@ -502,7 +502,7 @@ do local scope = tasks.scope() ;
 end
 
 local dynamicShared = sharedbytes as any
-assert(dynamicShared.newBuilder == nil and dynamicShared.readFile == nil)
+assert(dynamicShared.Builder == nil and dynamicShared.newBuilder == nil and dynamicShared.readFile == nil)
 assert(dynamicShared.__regionParts == nil and dynamicShared.__regionFromParts == nil)
 local loaded, readProblem = sharedbytes.readfile("shared-bytes.bin")
 if loaded == nil then error(readProblem or "shared byte file failed") end
@@ -510,14 +510,15 @@ assert(loaded:len() == 13 and loaded:tostring() == "engine\0bytes\255")
 local absent, missingReason = sharedbytes.readfile("missing-shared-bytes.bin")
 assert(absent == nil and type(missingReason) == "string")
 
-local builder = sharedbytes.Builder()
-do local writer = builder:reserve(3) ;
+local builder = io.Buffer.create()
+local lease = builder:reserve(3)
+do local writer = lease:span() ;
     writer[1] = 104
     writer[2] = 105
     writer[3] = 33
 end
-builder:commit(2)
-builder:append("!")
+lease:commit(2)
+builder:put("!")
 print(builder:freeze():tostring())
 ]],
         [
@@ -728,6 +729,43 @@ end
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.bufferFreezeSelectsTheEngineAndFeedsReaders()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[
+return {include = {"src"}, build = {default = "app", targets = {app = {
+   kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",
+   payloadOutput = "build/app.payload.lua",
+}}}}
+]],
+        [
+            "src/main.nupp"
+        ] = [[
+local function freeze(takes buffer: io.Buffer): io.Bytes
+    return buffer:freeze()
+end
+local function reader(): io.Reader
+    local buffer = io.Buffer.create("skipabc\0def")
+    buffer:skip(4)
+    return io.Reader.of(freeze(buffer))
+end
+local input = reader()
+local output = io.Buffer.create()
+assert(input:readinto(output, 0, 7) == 7)
+assert(output:tostring() == "abc\0def")
+input:close()
+local region = output:freeze()
+print(region:tostring() == "abc\0def")
+]],
+    })
+    local built, builtOk = run(dir, "'" .. NUPP .. "' build")
+    assert(builtOk, "the byte I/O binary builds: " .. built)
+    local output, ranOk = run(dir, "./build/app")
+    assert(ranOk and output == "true\n", "buffer freezing selects and uses engine storage: " .. output)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- The task-scopes guide's fork inside a spawned child, with more items than
 -- slots, run for real. Every slot held by a child waiting on the worker task it
 -- forked used to deadlock the scope ("a task cannot complete: no readiness
@@ -801,13 +839,13 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
         ] = [[
 module jobs
 
-const heap = require("nupp.heap")
+const heap = table.Array
 
 export function square(value: integer): integer
     return value * value
 end
 
-export function stamp(takes frame: heap.Array<uint8>, value: integer): affine(heap.Array<uint8>, heap.destroyarray)
+export function stamp(takes frame: affine(table.Array<uint8>, table.Array.destroy), value: integer): affine(table.Array<uint8>, heap.destroy)
     local writable = frame:write()
     writable[1] = value % 256
     own.drop(writable)
@@ -818,7 +856,7 @@ end
         [
             "src/nupp/internal/scopeobserver.nupp"
         ] = [[
-const heap = require("nupp.heap")
+const heap = table.Array
 const jobs = require("jobs")
 const tasks = require("coroutine")
 

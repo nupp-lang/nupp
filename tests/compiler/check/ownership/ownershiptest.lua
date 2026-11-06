@@ -2041,7 +2041,7 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
     assertClean(
         table.concat(
             {
-                "local heap = require('nupp.heap')",
+                "local heap = table.Array",
                 "local values = heap.alloc(ffi.typeof<int32>(), 1000000)",
                 "print(values.count)",
                 "do",
@@ -2062,7 +2062,7 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
         codes(
             table.concat(
                 {
-                    "local heap = require('nupp.heap')",
+                    "local heap = table.Array",
                     "local values = heap.alloc(ffi.typeof<int32>(), 4)",
                     "local readable = values:read()",
                     "local writable = values:write()",
@@ -2079,7 +2079,7 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
         codes(
             table.concat(
                 {
-                    "local heap = require('nupp.heap')",
+                    "local heap = table.Array",
                     "local values = heap.alloc(ffi.typeof<int32>(), 4)",
                     "local writable = values:write()",
                     "local readable = values:read()",
@@ -2096,14 +2096,14 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
         codes(
             table.concat(
                 {
-                    "local heap = require('nupp.heap')",
+                    "local heap = table.Array",
                     "local values = heap.alloc(ffi.typeof<int32>(), 4)",
                     "print(values.pointer)",
                 },
                 "\n"
             )
         ),
-        "NUPP2209",
+        "NUPP2004",
         "an array's allocation pointer is private"
     )
 end
@@ -2111,7 +2111,7 @@ end
 function M.heapArraysPreserveCountsAndCleanUpAtRuntime()
     local source = table.concat(
         {
-            "local heap = require('nupp.heap')",
+            "local heap = table.Array",
             "local function exercise(count: integer): (integer, int32)",
             "   local values = heap.alloc(ffi.typeof<int32>(), count)",
             "   if count > 0 then",
@@ -2128,15 +2128,15 @@ function M.heapArraysPreserveCountsAndCleanUpAtRuntime()
             "local one, value = exercise(1)",
             "local negative = pcall(function()",
             "   local values = heap.alloc(ffi.typeof<int32>(), -1)",
-            "   values:close()",
+            "   own.drop(values)",
             "end)",
             "local overflow = pcall(function()",
             "   local values = heap.alloc(ffi.typeof<int32>(), 9007199254740991 as integer)",
-            "   values:close()",
+            "   own.drop(values)",
             "end)",
             "local fractional = pcall(function()",
             "   local values = heap.alloc(ffi.typeof<int32>(), 1.5 as any)",
-            "   values:close()",
+            "   own.drop(values)",
             "end)",
             "local unwound = pcall(function()",
             "   local values = heap.alloc(ffi.typeof<int32>(), 2)",
@@ -2270,7 +2270,7 @@ end
 function M.writeSpanPartitionsKeepCountsOffsetsAndBoundsAtRuntime()
     local source = table.concat(
         {
-            "local heap = require('nupp.heap')",
+            "local heap = table.Array",
             "local function exercise(mid: integer): (integer, integer, int32, int32)",
             "   local values = heap.alloc(ffi.typeof<int32>(), 4)",
             "   local leftCount: integer = -1 as integer",
@@ -2326,7 +2326,7 @@ function M.tecsShapedColumnsPartitionIntoCheckedNativeKernelInputs()
     assertClean(
         table.concat(
             {
-                "local heap = require('nupp.heap')",
+                "local heap = table.Array",
                 "cdef struct Transform2D",
                 "   x: float",
                 "   y: float",
@@ -8273,14 +8273,15 @@ end
 
 function M.columnPointerReborrowsKeepTheirAncestorsAndRejectSiblings()
     local prelude = [[
-local soa = require("nupp.soa")
+local soa = table.Array
+local span = require("binary.span")
 local struct Particle
     x: float
     y: float
 end
 cdef function update(exclusive x: float*, exclusive y: float*)
 cdef function one(exclusive x: float*)
-local particles = soa.alloc(ffi.typeof<Particle>(), 2)
+local particles = soa.alloc(ffi.typeof<Particle>(), 2, "columnar")
 local rows = particles:write()
 local xs = rows.x
 local ys = rows.y
@@ -8707,14 +8708,17 @@ function M.consumingScalarAdaptersKeepTheirBuffersAlive()
     end
 end
 
-function M.scalarReadersCanOwnIndependentBufferSnapshots()
-    assertClean(
-        [[
+function M.scalarReadersCannotEscapeBorrowedBuffers()
+    testAssert.eq(
+        codes(
+            [[
 local function snapshot(): affine(io.ScalarReader)
     local buffer = io.Buffer.create()
     return buffer:reader():scalar()
 end
 ]]
+        ),
+        "NUPP2608"
     )
 end
 

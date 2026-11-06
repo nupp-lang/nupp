@@ -32,3 +32,8 @@ src/nupp/serde/internal/identity.lua text eol=lf
 # The runtime's built-in opcode table, embedded with `include_str!` and held
 # byte-equal to what the compiler emits.
 native/crates/vm/src/opcodes.table text eol=lf
+
+# Authored Lua helpers are embedded byte-for-byte in the compiler.
+src/nupp/serde/internal/binarycodec.lua text eol=lf
+src/nupp/io/internal/nativebuffer.lua text eol=lf
+src/nupp/array/internal/storage.lua text eol=lf

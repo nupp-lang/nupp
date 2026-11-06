@@ -320,7 +320,7 @@ rows[
     note = "worker counts newlines in a copied string"
 }
 
-const heap = require("nupp.heap")
+const heap = table.Array
 
 local small = heap.alloc(ffi.typeof<uint8>(), 4096)
 do

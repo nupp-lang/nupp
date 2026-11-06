@@ -1891,8 +1891,22 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         end
         local soaExport = node.kind == "call" and callee and callee.exactCallExport or nil
         if soaExport
-            and soaExport.module == "nupp.soa"
-            and (soaExport.member == "allocate" or soaExport.member == "alloc" or soaExport.member == "layoutof")
+            and (
+                soaExport.module == "nupp.array"
+                or soaExport.module == "nupp.array.internal.api"
+                or soaExport.module == "nupp.runtime.standardtable"
+                or soaExport.module == "table"
+            )
+            and (
+                soaExport.member == "layoutof"
+                or soaExport.member == "Array.layoutof"
+                or (
+                    (soaExport.member == "alloc" or soaExport.member == "Array.alloc")
+                    and argExprs[3]
+                    and rawType(c.infer(argExprs[3])).tag == "literal"
+                    and (rawType(c.infer(argExprs[3])) as T.Literal).constant == "columnar"
+                )
+            )
         then
             local witness = argExprs[1] and rawType(c.infer(argExprs[1])) or nil
             local subject = witness and witness.tag == "ctype" and witness.of or nil
@@ -1902,7 +1916,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 local spec = soaLayoutSpec(c, subject, argExprs[1] or node)
                 if spec then
                     node.soaLayout = spec
-                    node.soaOperation = soaExport.member == "alloc" and "allocate" or soaExport.member
+                    node.soaOperation = soaExport.member:match("alloc$") and "allocate" or "layoutof"
                 end
             end
         end
@@ -2085,22 +2099,6 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             -- o:m(...) desugars to m(o, ...): drop the self parameter
             local methodType = callable and specializeReceiver(mt, ot) or mt
             local nominal = rawReceiver.tag == "nominal" and rawReceiver as T.Nominal or nil
-            if not nominal and rawReceiver.tag == "intersection" then
-                for _, candidate in ipairs(rawReceiver.members) do
-                    if candidate.tag == "nominal" then
-                        local candidateNominal = candidate as T.Nominal
-                        local candidateOrigin = (candidateNominal.origin or candidateNominal) as T.Nominal
-                        if (
-                            candidateOrigin.moduleName or candidateNominal.moduleName or candidateOrigin.sealedModule
-                        ) == "nupp.soa"
-                            and candidateOrigin.name == "WriteSpan"
-                        then
-                            nominal = candidateNominal
-                            break
-                        end
-                    end
-                end
-            end
             local origin = nominal and ((nominal.origin or nominal) as T.Nominal) or nil
             local spanElement = nil
             if nominal and origin and origin.moduleName == "nupp.mem.span" and nominal.typeArgs then
@@ -2191,6 +2189,14 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
             end
             local indexedProducer = callable and indexedViews.methodProducer(rawReceiver, member.text, first) or nil
+            if indexedProducer
+                and indexedProducer.kind == "buffer"
+                and node.args
+                and node.args.kind == "args"
+                and #((node.args as cst.Args).exprs or {}) > 0
+            then
+                indexedProducer = nil
+            end
             if indexedProducer then
                 node.indexedViewProducer = {producer = indexedProducer, source = receiver,}
             end

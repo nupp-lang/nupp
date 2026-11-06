@@ -633,7 +633,7 @@ For a larger or explicitly native-owned array, use the malloc-backed standard
 library allocation and give it bounds immediately:
 
 ```nupp
-local heap = nupp.heap
+local heap = table.Array
 
 local values = heap.alloc(ffi.typeof<int32>(), 1000000)
 local writable = values:write()

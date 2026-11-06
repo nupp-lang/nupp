@@ -1,28 +1,27 @@
---[[
-Managed contiguous arrays hold one scalar or struct type.
-Their shared and writable views use the checked [](binary.span) interface.
-
-```nupp
-const array = nupp.array
-
-const values = array.scalar(array.uint32, 4)
-const writable = values:write()
-
-writable[1] = 42
-own.drop(writable)
-
-print(values:read()[1])
-```
-
-The array retains its storage through the managed allocator. It is not an
-affine allocation and has no `close` operation; leaving a lexical scope does
-not promise immediate reclamation. Views retain their backing storage, and
-every index is checked against the count the view carries. For explicitly
-owned malloc-backed storage, see [](nupp.heap).
-]]
+@!internal
 module nupp.array
 
-const {type Span, type Writable, type ByteSpan} = require("binary.span")
+local {type Span, type Writable, type WriteSpan} = require("nupp.mem.span")
+local {type Layout as ColumnLayout} = require("nupp.array.internal.layout")
+local layoutFacts = require("nupp.array.internal.layout")
+const _STORAGE_REQUIRES = "@requires-dynamically nupp.array.internal.storage"
+local nativeStorage: any = nil
+
+local function storage(): any
+    if nativeStorage == nil then
+        nativeStorage = require("nupp.array.internal.storage")
+    end
+    return nativeStorage
+end
+
+local spanModule: any = nil
+
+local function views(): any
+    if spanModule == nil then
+        spanModule = require("nupp.mem.span")
+    end
+    return spanModule
+end
 
 -- Element witnesses name a representation without loading its allocator.
 -- Species queries remain ordinary values even on hosts without native storage.
@@ -49,64 +48,221 @@ export const uint32 = Scalar(_elementType = nil as uint32, physical = "uint32")
 export const int32 = Scalar(_elementType = nil as int32, physical = "int32")
 export const uint64 = Scalar(_elementType = nil as uint64, physical = "uint64")
 export const int64 = Scalar(_elementType = nil as int64, physical = "int64")
-export const float32 = Scalar(_elementType = nil as float32, physical = "float")
-export const float64 = Scalar(_elementType = nil as float64, physical = "number")
+export const float = Scalar(_elementType = nil as float32, physical = "float")
+export const number = Scalar(_elementType = nil as float64, physical = "number")
 
-export record Array<T>
-    @private @readonly pointer: T[?]
+-- A sealed marker lets one terminal consume every element/layout instantiation.
+export sealed interface ArrayToken
+end
+
+export function destroyarray<T is ArrayToken>(takes array: T): nil
+    @nosuspend do
+        local state = (@unsafe own.release(array)) as any
+        if state.closed then
+            return
+        end
+        state.closed = true
+        if state.allocation ~= nil then
+            local dispose: @nosuspend function(borrows allocation: any): nil = state.dispose as any
+            dispose(state.allocation)
+        end
+        state.pointer = nil
+        state.columns = {}
+        state.allocation = nil
+    end
+end
+
+--- Mutable typed elements with checked shared and writable spans.
+export sealed interface Array<T, const Layout: string = "packed"> is ArrayToken
     @readonly count: integer
-    read: function(borrows self: Array<T>): Span<T> borrows (self)
-    write: function(exclusive self: Array<T>): Writable<T> borrows (self)
+    @readonly storagekind: Layout
+    @readonly fingerprint: string
+    read: function(borrows self: Array<T, Layout>): Span<T, Layout> borrows (self)
+    write: function(exclusive self: Array<T, Layout>): Writable<T, Layout> borrows (self)
 end
 
-function Array.read<T>(borrows self: Array<T>): Span<T> borrows (self)
-    return require("binary.span").fromcarray(self.pointer, self.count)
+local record ArrayImpl<T, const Kind: string> is Array<T, Kind>
+    @private pointer: T[?]
+    @private @readonly element: any
+    @private @readonly descriptor: ColumnLayout?
+    @private columns: {any}
+    @private allocation: any
+    @private @readonly dispose: any
+    @private closed: boolean
+    @readonly count: integer
+    @readonly storagekind: Kind
+    @readonly fingerprint: string
+
+    function read(borrows self): Span<T, Kind> borrows (self)
+        if self.closed then
+            error("nupp: array is closed", 2)
+        end
+        if self.storagekind == "columnar" then
+            local create: function(
+                borrows anchor: any,
+                element: any,
+                descriptor: ColumnLayout,
+                columns: {any},
+                count: integer
+            ): Span<T, "columnar"> borrows (anchor) = views().__columnRead as any
+            return create(
+                self,
+                self.element,
+                self.descriptor as ColumnLayout,
+                self.columns,
+                self.count
+            ) as Span<T, Kind>
+        end
+        local create: function(
+            borrows anchor: any,
+            pointer: any,
+            count: integer
+        ): Span<T> borrows (anchor) = views().__arrayRead as any
+
+        return create(self, self.pointer, self.count) as Span<T, Kind>
+    end
+
+    function write(exclusive self): Writable<T, Kind> borrows (self)
+        if self.closed then
+            error("nupp: array is closed", 2)
+        end
+        if self.storagekind == "columnar" then
+            local create: function(
+                borrows anchor: any,
+                element: any,
+                descriptor: ColumnLayout,
+                columns: {any},
+                count: integer
+            ): Writable<T, "columnar"> borrows (anchor) = views().__columnWrite as any
+            return create(
+                self,
+                self.element,
+                self.descriptor as ColumnLayout,
+                self.columns,
+                self.count
+            ) as WriteSpan<T, Kind>
+        end
+        local create: function(
+            borrows anchor: any,
+            pointer: any,
+            count: integer
+        ): Writable<T> borrows (anchor) = views().__arrayWrite as any
+
+        return create(self, self.pointer, self.count) as WriteSpan<T, Kind>
+    end
 end
 
-function Array.write<T>(exclusive self: Array<T>): Writable<T> borrows (self)
-    return require("binary.span").writecarray(self.pointer, self.count)
-end
-
---- Allocates zeroed storage with the struct witness's physical layout.
---- @raises string when count is not a nonnegative integer or exceeds the
----     target's storage limit
 export function newarray<T>(takes witness: T, count: integer): Array<T>
-    local storage = require("nupp.runtime.storage")
+    local physical = require("nupp.runtime.storage")
     local raw = @unsafe own.release(witness)
-    local element = storage.descriptor(raw)
-    return Array(pointer = storage.allocateArray(element, count) as T[?], count = count) as Array<T>
-end
-
---- Allocates zeroed storage for the selected scalar element type.
---- @raises string when count is not a nonnegative integer or exceeds the
----     target's storage limit
-export function scalar<T>(borrows witness: Scalar<T>, count: integer): Array<T>
-    local storage = require("nupp.runtime.storage")
-    return Array(
-        pointer = storage.allocateArray(storage.scalar(witness.physical), count) as T[?],
-        count = count
+    local element = physical.descriptor(raw)
+    return ArrayImpl(
+        pointer = physical.allocateArray(element, count) as T[?],
+        element = nil,
+        descriptor = nil,
+        columns = {},
+        allocation = nil,
+        dispose = nil,
+        closed = false,
+        count = count,
+        storagekind = "packed",
+        fingerprint = ""
     ) as Array<T>
 end
 
---- Owned bytes, with the same checked view vocabulary as scalar arrays.
-export record Bytes
-    @private @readonly pointer: uint8[?]
-    @readonly count: integer
+export function scalar<T>(borrows witness: Scalar<T>, count: integer): Array<T>
+    local physical = require("nupp.runtime.storage")
+    return ArrayImpl(
+        pointer = physical.allocateArray(physical.scalar(witness.physical), count) as T[?],
+        element = nil,
+        descriptor = nil,
+        columns = {},
+        allocation = nil,
+        dispose = nil,
+        closed = false,
+        count = count,
+        storagekind = "packed",
+        fingerprint = ""
+    ) as Array<T>
+end
 
-    function read(borrows self): ByteSpan borrows (self)
-        return require("binary.span").fromcarray(self.pointer, self.count)
-    end
-
-    function write(exclusive self): Writable<uint8> borrows (self)
-        return require("binary.span").writecarray(self.pointer, self.count)
+-- Infer the narrow element through its existing storage witness for the seed.
+local function byteAllocator<T>(witness: Scalar<T>): function(integer): Array<T>
+    return function(count: integer): Array<T>
+        return scalar(witness, count)
     end
 end
 
---- Allocates zeroed bytes without treating the storage-only uint8 as a value type.
---- @raises string when count is not a nonnegative integer
-export function bytes(count: integer): Bytes
-    if count < 0 or count ~= math.floor(count) then
-        error("nupp: byte array count must be a non-negative integer", 2)
+export const bytes = byteAllocator(uint8)
+
+local function allocPacked<T>(element: ctype<T>, count: integer, layout: string?): affine(Array<T>, destroyarray)
+    if layout ~= nil and layout ~= "packed" then
+        error("nupp: columnar allocation requires compiler lowering", 2)
     end
-    return Bytes(pointer = require("nupp.runtime.storage").allocateBytes(count), count = count)
+    local provider = storage()
+    local data = provider.packed(element, count)
+
+    return ArrayImpl(
+        pointer = data.pointer as T[?],
+        element = element,
+        descriptor = nil,
+        columns = {},
+        allocation = data,
+        dispose = provider.dispose,
+        closed = false,
+        count = count,
+        storagekind = "packed",
+        fingerprint = ""
+    ) as Array<T>
+end
+
+export const alloc: function<T>(ctype<T>, integer): affine(Array<T>, destroyarray)
+    & function<T>(ctype<T>, integer, "packed"): affine(Array<T>, destroyarray)
+    & function<T>(ctype<T>, integer, "columnar"): affine(Array<T, "columnar">, destroyarray) = allocPacked as any
+
+--- Compiler lowering target for the columnar layout option.
+export function _allocateColumns<T>(
+    element: ctype<T>,
+    count: integer,
+    rawLayout: table
+): affine(Array<T, "columnar">, destroyarray)
+    local descriptor = layoutFacts._layout(rawLayout)
+    local provider = storage()
+    local data = provider.columns(element, count, descriptor)
+    return ArrayImpl(
+        pointer = (nil as any) as T[?],
+        element = element,
+        descriptor = descriptor,
+        columns = data.columns as {any},
+        allocation = data,
+        dispose = provider.dispose,
+        closed = false,
+        count = count,
+        storagekind = "columnar",
+        fingerprint = descriptor.fingerprint
+    ) as Array<T, "columnar">
+end
+
+export function layoutof<T>(element: ctype<T>): ColumnLayout
+    error("nupp: Array.layoutof requires compiler lowering", 2)
+end
+
+export const _layout = layoutFacts._layout
+export const __arrayMetatable: any = ArrayImpl
+
+-- Private worker hooks initialize the native pointer vocabulary only on demand.
+export function __heapArrayMovable(value: any): integer?
+    return storage().movable(value)
+end
+
+export function __heapArrayParts(value: any): (string?, integer?, integer?)
+    return storage().parts(value)
+end
+
+export function __heapArrayFromParts(pointer: any, count: integer, tag: integer): any
+    return storage().fromparts(pointer, count, tag, __arrayMetatable)
+end
+
+export function __heapArrayFree(pointer: any): nil
+    storage().freeparts(pointer)
 end

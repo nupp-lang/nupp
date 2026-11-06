@@ -422,11 +422,11 @@ function M.compoundSoAFieldsKeepTheirOriginalRowIndex()
     assert(
         run(
             [[
-local soa = require("nupp.soa")
+local Array = table.Array
 local struct Row
     value: float64
 end
-local owner = soa.alloc(ffi.typeof<Row>(), 2)
+local owner = Array.alloc(ffi.typeof<Row>(), 2, "columnar")
 local answer = false
 do local rows = owner:write() ;
     rows[1].value = 2.0

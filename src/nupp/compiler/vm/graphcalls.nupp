@@ -885,15 +885,14 @@ export function hoistedFunctionName(stat: any): any
 end
 
 -- The image module the core answers a host module's `require` with: the
--- portable FIFO buffer for `string.buffer`, until the heap's byte objects
--- carry one, the portable BitOp library for `bit`, and storage on the guest
--- heap for the VM's FFI storage. Any other name is its own.
+-- portable BitOp library for `bit`, storage on the guest heap, and the
+-- checked buffer fallback instead of LuaJIT's pointer fast path.
 local coremodules: {
     [string]: string
 } = {
-    ["string.buffer"] = "nupp.runtime.provider.tablebuffer",
     bit = "nupp.runtime.provider.scalarbitops",
-    ["nupp.vm.storagebinding"] = "nupp.runtime.provider.heapstorage"
+    ["nupp.vm.storagebinding"] = "nupp.runtime.provider.heapstorage",
+    ["nupp.io.internal.nativebuffer"] = "nupp.runtime.provider.bufferfallback",
 }
 
 export function coremodule(name: string): string

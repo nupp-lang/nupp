@@ -62,13 +62,18 @@ export function countText(value: string): integer
     return count
 end
 
-const heap = require("nupp.heap")
+const heap = table.Array
 
-export function bounce(takes frame: heap.Array<uint8>): affine(heap.Array<uint8>, heap.destroyarray)
+export function bounce(
+    takes frame: affine(table.Array<uint8>, table.Array.destroy)
+): affine(table.Array<uint8>, heap.destroy)
     return frame
 end
 
-export function bump(takes frame: heap.Array<uint8>, seed: integer): affine(heap.Array<uint8>, heap.destroyarray)
+export function bump(
+    takes frame: affine(table.Array<uint8>, table.Array.destroy),
+    seed: integer
+): affine(table.Array<uint8>, heap.destroy)
     local writable = frame:write()
     writable[1] = seed % 256
     own.drop(writable)

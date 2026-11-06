@@ -305,10 +305,10 @@ end
 --- @param bytes the byte string or view to write
 --- @return whether the file was replaced
 --- @return the failure, when unsuccessful
-export function writeatomic(path: Path, borrows bytes: string | io.ByteView): (boolean, io.Error?)
+export function writeatomic(path: Path, borrows bytes: string | binary.span.ByteSpan): (boolean, io.Error?)
     local write = filesystem().writeatomic as function(
         path: Path,
-        borrows bytes: string | io.ByteView
+        borrows bytes: string | binary.span.ByteSpan
     ): (boolean, io.Error?)
 
     return write(path, bytes)

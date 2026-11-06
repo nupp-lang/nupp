@@ -10,6 +10,8 @@ See `docs/learn/runtime/ownership/borrowing.md`.
 ]]
 module nupp.compiler.check.ownership
 
+local apiidentity = require("nupp.compiler.apiidentity")
+local builtinExtensions = require("nupp.compiler.builtinextensions")
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")
 local cst = require("nupp.compiler.syntax.cst")
@@ -321,8 +323,8 @@ export function install(c: state.Checker): Ops
         end
         if direct then
             -- A member of the module's own export namespace registers under the
-            -- name importers can reconstruct: the export member. `heap.destroyArray`
-            -- inside nupp.heap and `heap.destroyArray` through a require of it
+            -- name importers can reconstruct: the export member. `arrays.destroyarray`
+            -- inside nupp.array and `arrays.destroyarray` through a require of it
             -- must mint one key, or the declaring module registers a terminal no
             -- other module's drop can find.
             local ownName, ownMember = name:match("^(.*)%.([^.]*)$")
@@ -330,6 +332,38 @@ export function install(c: state.Checker): Ops
                 return {t = direct.t, definition = direct.definition, canonicalName = ownMember}
             end
             return direct
+        end
+        local publicPath = apiidentity.sourcePath(c, name)
+        local root, suffix = nil, nil
+        if publicPath then
+            root, suffix = publicPath:match("^([^.]+)%.(.+)$")
+        end
+        local implementation = root and builtinExtensions.implementation(c.env, root) or nil
+        if implementation and suffix and c.env and c.env.resolveModuleExports then
+            local exports = c.env.resolveModuleExports(c.env, implementation)
+            local value, definition = nil, nil
+            for part in suffix:gmatch("[^.]+") do
+                if exports then
+                    value = exports.values and exports.values[part]
+                    definition = exports.valueDefs and exports.valueDefs[part]
+                else
+                    value, definition = c.fieldType(value, part)
+                end
+                if not value then
+                    break
+                end
+                local imported = definition and definition.requiredModule
+                exports = imported and c.env.resolveModuleExports(c.env, imported) or nil
+            end
+            local exact = definition and definition.exactCallExport or nil
+            if value and exact then
+                local originals = c.env.resolveModuleExports(c.env, exact.module)
+                local original = originals and originals.values and originals.values[exact.member]
+                local declared = originals and originals.valueDefs and originals.valueDefs[exact.member]
+                if original and declared then
+                    return {t = original, definition = declared, canonicalName = exact.member}
+                end
+            end
         end
         local ownerName, member = name:match("^(.*)%.([^.]*)$")
         local owner = ownerName and c.lookupType(ownerName) or nil

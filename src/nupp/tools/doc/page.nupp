@@ -82,6 +82,7 @@ export record Entry
     name: string
     path: string
     items: {Entry}?
+    flow: boolean?
 end
 
 -- A `public`-relative asset path is served from the site root, so it needs the page's
@@ -393,7 +394,7 @@ outlineEntries = function(items: {Entry}, depth: integer): string
             out[#out + 1] = outlineEntries(children, depth + 1)
             out[#out + 1] = "</ol></details></li>"
         else
-            out[#out + 1] = "<li>" .. link .. "</li>"
+            out[#out + 1] = (item.flow and '<li class="nuppdoc-outline-flow">' or "<li>") .. link .. "</li>"
         end
     end
 

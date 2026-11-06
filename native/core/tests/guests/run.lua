@@ -156,8 +156,7 @@ local CASES = {
     {"modulescycle", 0x7FFF000000000017},
     {"modulesdynamic", 0x7FFF000000002B20},
     {"libraryvalues", 0x7FFF00000000003F},
-    {"textbuffer", 0x7FFF0000000007FF},
-    {"stringbuffer", 0x7FFF000000000003},
+    {"bytebuffer", 0x7FFF000000000003},
     {"librarybasics", 0x7FFF00000000007F},
     {"cleanupfunctions", 0x7FFF000000000003},
     {"coreoperators", 0x7FFF0000000003FF},
@@ -237,7 +236,6 @@ local CASES = {
 -- What the cases that print write to the host's output, as Lua 5.5 writes it
 -- but for floats, which print the shorter exact text (Decision 13).
 local OUTPUT = {
-    textbuffer = "shown\n",
     outputPrint = "hello\t42\t1.5\ttrue\tnil\tfalse\n\nxxx\t3\t-0.0\t1e100\t9007199254740992.0\n"
     .. "line\t1\nline\t2\nline\t3\n",
     callsExpand = "1\t2\nx\t1\t2\n",
@@ -336,8 +334,7 @@ local STRESS = {
     taskscancel = true,
     tasksscopes = true,
     threadsstacks = true,
-    textbuffer = true,
-    stringbuffer = true,
+    bytebuffer = true,
     librarybasics = true,
     storagebasics = true,
     storageprovider = true,
@@ -863,8 +860,7 @@ local function stage()
             "catalog-modules-faulty",
             "catalog-modules-retry",
             "catalog-library-values",
-            "catalog-text-buffer",
-            "catalog-string-buffer",
+            "catalog-byte-buffer",
             "catalog-library-basics",
             "catalog-cleanup-functions",
             "catalog-serde-json",

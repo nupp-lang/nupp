@@ -66,7 +66,7 @@ local record JsonSerializer is Serializer
 
     function finish(self): string
         self.writer:close()
-        return self.out:getstring()
+        return self.out:tostring()
     end
 end
 
@@ -139,6 +139,7 @@ legacyDebugValue = function(value: any, spec: any, state: any): string
         return string.format("%q", value)
     elseif spec.kind == "nil"
         or spec.kind == "bool"
+        or spec.kind == "boolean"
         or spec.kind == "number"
         or spec.kind == "integer"
         or spec.kind == "float"
@@ -311,14 +312,6 @@ local preparedMedium = serde.binding(Medium, serde.Options(unknownmembers = "ign
 local preparedConstantMedium = serde.binding(ConstantMedium, serde.Options(unknownmembers = "ignore"))
 local preparedDebugSmall = rendering.binding(Small)
 local preparedDebugMedium = rendering.binding(Medium)
--- One output buffer reused across iterations; each case borrows it through a managed
--- alias.
-local preparedOutput = own.manage(io.Buffer.create()):alias()
-
-local function withOutput(use: function(exclusive output: io.Buffer): integer): integer
-    return (preparedOutput:withexclusive(use)) as integer
-end
-
 local scalarString = {kind = "string"}
 local scalarInteger = {kind = "integer"}
 local scalarNumber = {kind = "number"}
@@ -413,12 +406,10 @@ function m.preparedDebugSmall(): string
     return rendering.render(preparedDebugSmall, smallValue)
 end
 
-function m.bufferedDebugSmall(): integer
-    return withOutput(function(exclusive output: io.Buffer): integer
-        output:clear()
-        rendering.write(preparedDebugSmall, smallValue, output)
-        return output:len()
-    end)
+function m.bufferedDebugSmall(exclusive output: io.Buffer): integer
+    output:reset()
+    rendering.write(preparedDebugSmall, smallValue, output)
+    return output:len()
 end
 
 function m.legacyDebugMedium(): string
@@ -433,12 +424,10 @@ function m.preparedDebugMedium(): string
     return rendering.render(preparedDebugMedium, mediumValue)
 end
 
-function m.bufferedDebugMedium(): integer
-    return withOutput(function(exclusive output: io.Buffer): integer
-        output:clear()
-        rendering.write(preparedDebugMedium, mediumValue, output)
-        return output:len()
-    end)
+function m.bufferedDebugMedium(exclusive output: io.Buffer): integer
+    output:reset()
+    rendering.write(preparedDebugMedium, mediumValue, output)
+    return output:len()
 end
 
 function m.legacyDebugNested(): string
@@ -453,12 +442,10 @@ function m.preparedDebugNested(): string
     return rendering.render(preparedDebugNested, nestedValue)
 end
 
-function m.bufferedDebugNested(): integer
-    return withOutput(function(exclusive output: io.Buffer): integer
-        output:clear()
-        rendering.write(preparedDebugNested, nestedValue, output)
-        return output:len()
-    end)
+function m.bufferedDebugNested(exclusive output: io.Buffer): integer
+    output:reset()
+    rendering.write(preparedDebugNested, nestedValue, output)
+    return output:len()
 end
 
 -- The public embedding path, with a caller-owned syntax writer.
@@ -468,7 +455,7 @@ local function embeddedEncode<T>(binding: serde.Binding<T>, value: T): string
     productionCodec:writevalue(binding, value, writer)
     writer:close()
 
-    return out:getstring()
+    return out:tostring()
 end
 
 function m.currentEncodeSmall(): string
@@ -488,7 +475,7 @@ function m.directEncodeSmall(): string
     target.writer:endobject()
     target.writer:close()
 
-    return target.out:getstring()
+    return target.out:tostring()
 end
 
 function m.serdeEncodeSmall(): string
@@ -517,35 +504,29 @@ function m.preparedEncodeSmall(): string
     return productionCodec:encode(preparedSmall, smallValue)
 end
 
-function m.preparedWriteSmall(): integer
-    return withOutput(function(exclusive output: io.Buffer): integer
-        output:clear()
-        productionCodec:encodeinto(preparedSmall, smallValue, output)
-        return output:len()
-    end)
+function m.preparedWriteSmall(exclusive output: io.Buffer): integer
+    output:reset()
+    productionCodec:encodeinto(preparedSmall, smallValue, output)
+    return output:len()
 end
 
-function m.preparedWriterSmall(): integer
-    return withOutput(function(exclusive output: io.Buffer): integer
-        output:clear()
-        local writer = json.Writer.of(output)
-        productionCodec:writevalue(preparedSmall, smallValue, writer)
-        writer:close()
+function m.preparedWriterSmall(exclusive output: io.Buffer): integer
+    output:reset()
+    local writer = json.Writer.of(output)
+    productionCodec:writevalue(preparedSmall, smallValue, writer)
+    writer:close()
 
-        return output:len()
-    end)
+    return output:len()
 end
 
 function m.coldPreparedEncodeSmall(): string
     return typedJSON.codec():encode(serde.binding(Small, serde.Options(unknownmembers = "ignore")), smallValue)
 end
 
-function m.preparedCopiedWriteSmall(): integer
-    return withOutput(function(exclusive output: io.Buffer): integer
-        output:clear()
-        output:setstring(productionCodec:encode(preparedSmall, smallValue), output:len())
-        return output:len()
-    end)
+function m.preparedCopiedWriteSmall(exclusive output: io.Buffer): integer
+    output:reset()
+    output:put(productionCodec:encode(preparedSmall, smallValue))
+    return output:len()
 end
 
 function m.currentEncodeMedium(): string
@@ -586,20 +567,16 @@ function m.preparedEncodeConstantMedium(): string
     return productionCodec:encode(preparedConstantMedium, constantMediumValue)
 end
 
-function m.preparedWriteMedium(): integer
-    return withOutput(function(exclusive output: io.Buffer): integer
-        output:clear()
-        productionCodec:encodeinto(preparedMedium, mediumValue, output)
-        return output:len()
-    end)
+function m.preparedWriteMedium(exclusive output: io.Buffer): integer
+    output:reset()
+    productionCodec:encodeinto(preparedMedium, mediumValue, output)
+    return output:len()
 end
 
-function m.preparedCopiedWriteMedium(): integer
-    return withOutput(function(exclusive output: io.Buffer): integer
-        output:clear()
-        output:setstring(productionCodec:encode(preparedMedium, mediumValue), output:len())
-        return output:len()
-    end)
+function m.preparedCopiedWriteMedium(exclusive output: io.Buffer): integer
+    output:reset()
+    output:put(productionCodec:encode(preparedMedium, mediumValue))
+    return output:len()
 end
 
 function m.currentEncodePayload4KiB(): string
@@ -610,20 +587,16 @@ function m.preparedEncodePayload4KiB(): string
     return productionCodec:encode(preparedPayload, payload4KiB)
 end
 
-function m.preparedCopiedWritePayload4KiB(): integer
-    return withOutput(function(exclusive output: io.Buffer): integer
-        output:clear()
-        output:setstring(productionCodec:encode(preparedPayload, payload4KiB), output:len())
-        return output:len()
-    end)
+function m.preparedCopiedWritePayload4KiB(exclusive output: io.Buffer): integer
+    output:reset()
+    output:put(productionCodec:encode(preparedPayload, payload4KiB))
+    return output:len()
 end
 
-function m.preparedWritePayload4KiB(): integer
-    return withOutput(function(exclusive output: io.Buffer): integer
-        output:clear()
-        productionCodec:encodeinto(preparedPayload, payload4KiB, output)
-        return output:len()
-    end)
+function m.preparedWritePayload4KiB(exclusive output: io.Buffer): integer
+    output:reset()
+    productionCodec:encodeinto(preparedPayload, payload4KiB, output)
+    return output:len()
 end
 
 function m.currentEncodePayload64KiB(): string
@@ -634,31 +607,25 @@ function m.preparedEncodePayload64KiB(): string
     return productionCodec:encode(preparedPayload, payload64KiB)
 end
 
-function m.preparedCopiedWritePayload64KiB(): integer
-    return withOutput(function(exclusive output: io.Buffer): integer
-        output:clear()
-        output:setstring(productionCodec:encode(preparedPayload, payload64KiB), output:len())
-        return output:len()
-    end)
+function m.preparedCopiedWritePayload64KiB(exclusive output: io.Buffer): integer
+    output:reset()
+    output:put(productionCodec:encode(preparedPayload, payload64KiB))
+    return output:len()
 end
 
-function m.preparedWritePayload64KiB(): integer
-    return withOutput(function(exclusive output: io.Buffer): integer
-        output:clear()
-        productionCodec:encodeinto(preparedPayload, payload64KiB, output)
-        return output:len()
-    end)
+function m.preparedWritePayload64KiB(exclusive output: io.Buffer): integer
+    output:reset()
+    productionCodec:encodeinto(preparedPayload, payload64KiB, output)
+    return output:len()
 end
 
-function m.preparedWriterPayload64KiB(): integer
-    return withOutput(function(exclusive output: io.Buffer): integer
-        output:clear()
-        local writer = json.Writer.of(output)
-        productionCodec:writevalue(preparedPayload, payload64KiB, writer)
-        writer:close()
+function m.preparedWriterPayload64KiB(exclusive output: io.Buffer): integer
+    output:reset()
+    local writer = json.Writer.of(output)
+    productionCodec:writevalue(preparedPayload, payload64KiB, writer)
+    writer:close()
 
-        return output:len()
-    end)
+    return output:len()
 end
 
 function m.currentEncodeNested(): string
@@ -669,23 +636,19 @@ function m.preparedEncodeNested(): string
     return productionCodec:encode(preparedNested, nestedValue)
 end
 
-function m.preparedWriteNested(): integer
-    return withOutput(function(exclusive output: io.Buffer): integer
-        output:clear()
-        productionCodec:encodeinto(preparedNested, nestedValue, output)
-        return output:len()
-    end)
+function m.preparedWriteNested(exclusive output: io.Buffer): integer
+    output:reset()
+    productionCodec:encodeinto(preparedNested, nestedValue, output)
+    return output:len()
 end
 
-function m.preparedWriterNested(): integer
-    return withOutput(function(exclusive output: io.Buffer): integer
-        output:clear()
-        local writer = json.Writer.of(output)
-        productionCodec:writevalue(preparedNested, nestedValue, writer)
-        writer:close()
+function m.preparedWriterNested(exclusive output: io.Buffer): integer
+    output:reset()
+    local writer = json.Writer.of(output)
+    productionCodec:writevalue(preparedNested, nestedValue, writer)
+    writer:close()
 
-        return output:len()
-    end)
+    return output:len()
 end
 
 function m.currentDecodeNested(): NestedEnvelope
@@ -698,18 +661,9 @@ function m.preparedDecodeNested(): NestedEnvelope
     return assert2(productionCodec:decode(preparedNested, nestedJson))
 end
 
-local text = require("string.buffer")
 local smallJson = m.nativeEncodeSmall()
 local mediumJson = m.nativeEncodeMedium()
 local payload64KiBJson = productionCodec:encode(preparedPayload, payload64KiB)
-local smallInput = text.new()
-smallInput:put(smallJson)
-local mediumInput = text.new()
-mediumInput:put(mediumJson)
-local nestedInput = text.new()
-nestedInput:put(nestedJson)
-local payload64KiBInput = text.new()
-payload64KiBInput:put(payload64KiBJson)
 local mediumReverseJson = [[{"cached":true,"retries":3,"owner":"example-owner","ratio":0.625,"version":7,"enabled":false,"region":"us-east-1","score":98.25,"count":1701,"name":"Ada","active":true,"id":41}]]
 local mediumUnknownJson = [[{"ignored":{"nested":[1,2,3]},"id":41,"active":true,"name":"Ada","count":1701,"score":98.25,"region":"us-east-1","enabled":false,"version":7,"ratio":0.625,"owner":"example-owner","retries":3,"cached":true}]]
 
@@ -733,8 +687,8 @@ function m.preparedDecodeSmall(): Small
     return assert2(productionCodec:decode(preparedSmall, smallJson))
 end
 
-function m.preparedDecodeSmallBuffer(): Small
-    return assert2(productionCodec:decode(preparedSmall, smallInput:tostring()))
+function m.preparedDecodeSmallBuffer(borrows input: io.Buffer): Small
+    return assert2(productionCodec:decode(preparedSmall, input:tostring()))
 end
 
 function m.currentDecodeMedium(): Medium
@@ -757,12 +711,12 @@ function m.preparedDecodeMedium(): Medium
     return assert2(productionCodec:decode(preparedMedium, mediumJson))
 end
 
-function m.preparedDecodeMediumBuffer(): Medium
-    return assert2(productionCodec:decode(preparedMedium, mediumInput:tostring()))
+function m.preparedDecodeMediumBuffer(borrows input: io.Buffer): Medium
+    return assert2(productionCodec:decode(preparedMedium, input:tostring()))
 end
 
-function m.preparedDecodeNestedBuffer(): NestedEnvelope
-    return assert2(productionCodec:decode(preparedNested, nestedInput:tostring()))
+function m.preparedDecodeNestedBuffer(borrows input: io.Buffer): NestedEnvelope
+    return assert2(productionCodec:decode(preparedNested, input:tostring()))
 end
 
 function m.currentDecodePayload64KiB(): Payload
@@ -773,8 +727,8 @@ function m.preparedDecodePayload64KiB(): Payload
     return assert2(productionCodec:decode(preparedPayload, payload64KiBJson))
 end
 
-function m.preparedDecodePayload64KiBBuffer(): Payload
-    return assert2(productionCodec:decode(preparedPayload, payload64KiBInput:tostring()))
+function m.preparedDecodePayload64KiBBuffer(borrows input: io.Buffer): Payload
+    return assert2(productionCodec:decode(preparedPayload, input:tostring()))
 end
 
 function m.nativeDecodeMediumReverse(): Medium
@@ -807,6 +761,14 @@ end
 
 function m.mediumJson(): string
     return mediumJson
+end
+
+function m.nestedJson(): string
+    return nestedJson
+end
+
+function m.payload64KiBJson(): string
+    return payload64KiBJson
 end
 
 return m

@@ -5,7 +5,7 @@ module nupp.runtime.browser.workercodec
 --
 -- A lane is a separate Web Worker with its own LuaJIT guest, so the same rule the
 -- native scheduler enforces holds here: arguments, captures and results cross as copies
--- and heap identity never does. The native scheduler reaches `string.buffer` for that;
+-- and heap identity never does. The native scheduler reaches `io.Buffer` for that;
 -- this module instead writes one self-describing byte string that the JavaScript pool
 -- relays without reading, which keeps the framing's meaning in Nupp rather than spread
 -- across the host.

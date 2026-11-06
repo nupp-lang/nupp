@@ -61,9 +61,9 @@ end
 -- NaN and a fraction, and leave the storage as it was.
 function M.nanAndFractionalIndexesAreRefused()
     local source = [[
-local array = require("nupp.array")
+local array = table.Array
 local Probe = {}
-function Probe.storage(): array.Array<int32>
+function Probe.storage(): table.Array<int32>
     const owned = array.scalar(array.int32, 4)
     const values = owned:write()
     for at = 1, 4 do
@@ -72,24 +72,24 @@ function Probe.storage(): array.Array<int32>
     own.drop(values)
     return owned
 end
-function Probe.element(borrows storage: array.Array<int32>, at: integer): int32
+function Probe.element(borrows storage: table.Array<int32>, at: integer): int32
     return storage:read()[at]
 end
-function Probe.writeTail(exclusive storage: array.Array<int32>, index: integer): nil
+function Probe.writeTail(exclusive storage: table.Array<int32>, index: integer): nil
     const values = storage:write()
     const tail = values:slice(3, 4)
     tail[index] = 99
     own.drop(tail)
     own.drop(values)
 end
-function Probe.writeSlice(exclusive storage: array.Array<int32>, index: integer): nil
+function Probe.writeSlice(exclusive storage: table.Array<int32>, index: integer): nil
     const values = storage:write()
     const part = values:slice(index, 4)
     part[1] = 99
     own.drop(part)
     own.drop(values)
 end
-function Probe.split(exclusive storage: array.Array<int32>, index: integer): nil
+function Probe.split(exclusive storage: table.Array<int32>, index: integer): nil
     const values = storage:write()
     do
         const parts = values:splitat(index)
@@ -97,16 +97,16 @@ function Probe.split(exclusive storage: array.Array<int32>, index: integer): nil
     end
     own.drop(values)
 end
-function Probe.readTail(borrows storage: array.Array<int32>, index: integer): int32
+function Probe.readTail(borrows storage: table.Array<int32>, index: integer): int32
     const values = storage:read()
     const tail = values:slice(3, 4)
     return tail[index]
 end
-function Probe.sliceFirst(borrows storage: array.Array<int32>, index: integer): integer
+function Probe.sliceFirst(borrows storage: table.Array<int32>, index: integer): integer
     const values = storage:read()
     return #values:slice(index, 4)
 end
-function Probe.sliceLast(borrows storage: array.Array<int32>, index: integer): integer
+function Probe.sliceLast(borrows storage: table.Array<int32>, index: integer): integer
     const values = storage:read()
     return #values:slice(1, index)
 end
@@ -196,6 +196,42 @@ function M.privateArtifactsRejectWideAndMultilineLiterals()
             assert(artifact.reason, "wide and multiline literals keep their original checked body")
         end
     end
+end
+
+function M.bufferLengthUsesItsCheckedCountOnLua51()
+    local code = compile([[local buffer = io.Buffer.create()
+buffer:put("abc")
+return #buffer
+]])
+    assert(code:find("(buffer):len()", 1, true), code)
+end
+
+function M.bufferViewsRefreshTheirPointerAndPreserveTheReadCursor()
+    local code, _, original = compile(
+        [[local b = io.Buffer.create("skip:abc")
+b:skip(5)
+const bytes = b:span()
+local total: integer = 0
+for index = 1, #bytes do total += bytes[index] as integer end
+return total
+]]
+    )
+    assert(code:find(":_spanroot()", 1, true), code)
+    assert(code:find("._data[", 1, true) and code:find("._read", 1, true), code)
+    assert(assert(loadstring(original))() == 294)
+end
+
+function M.managedArrayViewsUseTheSameContiguousLowering()
+    local code = compile(
+        [[local array = table.Array
+local values = array.scalar(array.int32, 3)
+const rows = values:read()
+local total = 0 as int32
+for index = 1, #rows do total += rows[index] end
+return total
+]]
+    )
+    assert(code:find(".pointer[", 1, true), code)
 end
 
 return M

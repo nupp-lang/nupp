@@ -178,6 +178,7 @@ export type Module = {
     text: string,
     items: {Item},
     documentationInternal: boolean?,
+    namespaceProjection: boolean?,
     imports: {[string]: string}?,
     moduleLocal: string?,
 
@@ -2610,6 +2611,7 @@ export function extract(source: string, path: string?, name: string, opts: Optio
         local projection = extract(source, path, namespace, {includePrivate = false})
         if projection then
             projection.documentationInternal = nil
+            projection.namespaceProjection = true
             local localName = projection.moduleLocal
 
             local function publicName(text: string): string

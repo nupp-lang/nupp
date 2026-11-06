@@ -1,8 +1,8 @@
-module nupp.core.catalogstringbuffer
+module nupp.core.catalogbytebuffer
 
-const buffer = require("string.buffer")
+const Buffer = io.Buffer
 
-local b = buffer.new()
+local b = Buffer.create()
 b:put("a", 1):put("b")
 local score = 0
 if b:tostring() == "a1b" then

@@ -13,7 +13,7 @@ local ROOTS = {
     -- at startup on the VM, so a read of `warn` loads it.
     warn = {module = "warn", direct = true},
     assert = {module = "assert", direct = true},
-    table = {module = "nupp.runtime.standardtable", members = {move = true, Pool = true,}},
+    table = {module = "nupp.runtime.standardtable", members = {move = true, Pool = true, Array = true,}},
     io = {
         module = "nupp.runtime.standardio",
         replace = {popen = true, open = true, lines = true, input = true, output = true},

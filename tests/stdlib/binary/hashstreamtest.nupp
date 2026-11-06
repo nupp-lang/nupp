@@ -3,7 +3,7 @@ local digest = binary.digest
 local mac = binary.mac
 local checksum = binary.checksum
 local io = require("io")
-local array = require("nupp.array")
+local array = table.Array
 local span = require("binary.span")
 local test = require("assert")
 local M = {}
@@ -32,16 +32,18 @@ function M.descriptorsAreReusableAndDoNotRetainMacKeys(): nil
     test(keyed:computehex("first key", "message") == first)
 end
 
-function M.publishedFnv1a64VectorsAndByteViews(): nil
+function M.publishedFnv1a64VectorsAndByteSpans(): nil
     test(binary.fnv1a64("") == "cbf29ce484222325")
     test(binary.fnv1a64("a") == "af63dc4c8601ec8c")
     test(binary.fnv1a64("foobar") == "85944171f73967e8")
     test(binary.fnv1a64("a\0b\255c") == "3e5746fc83766ddc")
 
     local bytes = io.Buffer.create("\0\1\127\128\255")
-    local view = bytes:view()
+    local view = bytes:span()
     test(binary.fnv1a64(view) == "a5bcd1d1065f84b6")
-    test(binary.fnv1a64(view) == "a5bcd1d1065f84b6")
+    test(digest("sha256"):computehex(view) == digest("sha256"):computehex("\0\1\127\128\255"))
+    test(checksum("crc32"):compute(view) == checksum("crc32"):compute("\0\1\127\128\255"))
+    test(mac("hmac-sha256"):computehex("key", view) == mac("hmac-sha256"):computehex("key", "\0\1\127\128\255"))
 end
 
 function M.publishedDigestVectors(): nil

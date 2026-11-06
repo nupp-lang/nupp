@@ -678,4 +678,38 @@ function M.aClientNeedsNoOptionsTable()
     session:close()
 end
 
+function M.sessionsExchangeCheckedSpans()
+    local listener, clientSock, serverSock = sockets()
+    local server = assert(tls.tlsserver(serverSock, {certificate = CERT, privatekey = KEY}))
+    local client = assert(tls.tlsclient(clientSock, {hostname = "localhost", authority = CERT}))
+    local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
+    assert(clientDone, clientWhy);
+    assert(serverDone, serverWhy)
+    local buffers = require("io").Buffer
+    local payload = buffers.create("encrypted spans")
+    assert(client:writespan(payload:span()) == 15)
+    assert(client:flush())
+    local result = buffers.create()
+    local lease = result:reserve(15)
+    local output = lease:span()
+    local total = 0
+    while total < 15 do
+        local rest = output:slice(total + 1)
+        local got, why = server:readspan(rest)
+        rest:drop()
+        assert(got and got > 0, why)
+        total = total + got
+    end
+    output:drop();
+    lease:commit(total)
+    assert(result:tostring() == "encrypted spans")
+    client:close();
+    server:close()
+    clientSock:close();
+    serverSock:close();
+    listener:close()
+    payload:close();
+    result:close()
+end
+
 return M

@@ -29,7 +29,7 @@ end
 local M = {}
 
 function M.roundTripsBinaryPayloads()
-    assert(protocol.available, "LuaJIT provides string.buffer")
+    assert(protocol.available, "LuaJIT provides binary serialization")
     local value = {bytes = "before\0after\255\\xFF", list = {"a", "b", "c"}, nested = {answer = 42, enabled = true},}
     local decoded, problem = protocol.decode(protocol.encode(value))
     assert(decoded, problem)

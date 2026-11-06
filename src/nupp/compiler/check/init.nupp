@@ -248,7 +248,7 @@ end
 --- Every Nupp source file is. A plain `.lua` file is plain Lua and was never making a
 --- claim: a name it does not declare may be a global somebody else set. A `.d.nupp`
 --- describes an interface somebody else implements, and `any` is frequently the type
---- it really has -- `string.buffer`'s `encode(v: any): string` really does take any
+--- it really has -- a foreign `encode(v: any): string` really does take any
 --- Lua value, and no annotation this project writes changes what LuaJIT accepts.
 function checkMod.strictByDefault(filename: string?): boolean
     if not filename then

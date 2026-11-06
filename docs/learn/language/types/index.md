@@ -127,8 +127,8 @@ for:
 
 A `.lua` file is held to neither, since an unknown name there may be a global
 the program sets at run time. A `.d.nupp` file may write `any` where the
-interface it describes has it: `string.buffer.encode(v: any): string` really
-does take any value. See [File types](../file-types.md) for what
+interface it describes has it: a foreign `encode(v: any): string`
+really does take any Lua value. See [File types](../file-types.md) for what
 each extension holds.
 
 ## Escape hatches

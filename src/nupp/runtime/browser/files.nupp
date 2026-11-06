@@ -265,7 +265,7 @@ local record File is io.Reader, io.Writer
         end
         local wanted = math.min(positive(count, "File:read count", 2), READ_SIZE)
         local destination = io.Buffer.create(wanted)
-        local lease = destination:reservewrite(0, wanted)
+        local lease = require("nupp.io.internal.bytes").reserveAt(destination, 0, wanted)
         local got: integer?
         local reason: string?
         do
@@ -278,10 +278,10 @@ local record File is io.Reader, io.Writer
             return nil, reason
         end
 
-        return destination:getstring(), nil
+        return destination:tostring(), nil
     end
 
-    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readspan(exclusive self, exclusive destination: span.ByteWriteSpan): (integer?, string?)
         if self._closed then
             return nil, "the file is closed"
         end
@@ -314,7 +314,7 @@ local record File is io.Reader, io.Writer
     ): (integer?, string?)
         local from = counted(offset or 0, "File:readinto offset", 2)
         local wanted = math.min(positive(count or READ_SIZE, "File:readinto count", 2), READ_SIZE)
-        local lease = destination:reservewrite(from, wanted)
+        local lease = require("nupp.io.internal.bytes").reserveAt(destination, from, wanted)
         local got: integer?
         local reason: string?
         do
@@ -517,10 +517,6 @@ export function read(path: any): (string?, string?)
 end
 
 local function wholeWrite(path: any, bytes: any, mode: messages.Mode): (boolean, string?)
-    if type(bytes) ~= "string" and (type(bytes) ~= "table" or bytes.getstring == nil) then
-        error("nupp: io contents must be bytes or a byte view", 3)
-    end
-    local text = type(bytes) == "string" and bytes or bytes:getstring()
     pending = pending + 1
     local opened, reason = open(path, mode)
     if opened == nil then
@@ -528,7 +524,21 @@ local function wholeWrite(path: any, bytes: any, mode: messages.Mode): (boolean,
         return false, reason
     end
     local file = opened as File
-    local wrote, failure = file:write(text)
+    local wrote: boolean
+    local failure: string?
+    if type(bytes) == "string" then
+        wrote, failure = file:write(bytes as string)
+    else
+        local _, count = (require("nupp.mem.span") as any).__sharedRef(bytes)
+        if count == nil then
+            file:close()
+            pending = pending - 1
+            error("nupp: io contents must be a string or byte span", 3)
+        end
+        local moved: integer?
+        moved, failure = file:writespan(bytes as span.ByteSpan)
+        wrote = moved ~= nil and moved == count
+    end
     file:close()
     pending = pending - 1
 

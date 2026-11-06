@@ -2,14 +2,25 @@
 binary.Digest; for error-detection checksums use binary.Checksum.]]
 module nupp.util.internal.hash
 
-const {type ByteView} = require("io")
+local valueType: function(borrows value: any): string = type as any
+
+const {type ByteSpan} = require("binary.span")
 const bit = require("bit")
 
-local function hashString(borrows bytes: string): string
+local function hashString(borrows bytes: string | ByteSpan): string
     local hi = 0xcbf29ce4
     local lo = 0x84222325
-    for index = 1, #bytes do
-        lo = lo ~ bytes:byte(index)
+    local length: integer
+    if valueType(bytes) == "string" then
+        length = #(bytes as string)
+    else
+        local view = bytes as ByteSpan;
+        length = #view
+    end
+    for index = 1, length do
+        local byte = valueType(bytes) == "string" and (bytes as string):byte(index)
+            or ((bytes as ByteSpan)[index] as integer)
+        lo = lo ~ byte
         local low = lo < 0 and lo + 4294967296 or lo
         local high = hi < 0 and hi + 4294967296 or hi
         local product = low * 435
@@ -28,10 +39,6 @@ end
 --- @param value the bytes to hash
 --- @return the hash, as sixteen lowercase hexadecimal digits
 --- @export
-export function fnv1a64(borrows value: string | ByteView): string
-    if type(value) == "string" then
-        return hashString(value as string)
-    end
-
-    return hashString((value as ByteView):getstring())
+export function fnv1a64(borrows value: string | ByteSpan): string
+    return hashString(value)
 end

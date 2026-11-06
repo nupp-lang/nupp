@@ -48,7 +48,7 @@ Scope exit closes an unfinished digest context.
 ```nupp
 local rolling = binary.digest("sha256"):create()
 rolling:write("payload")
-local bytes = nupp.array.bytes(rolling:digestsize())
+local bytes = table.Array.bytes(rolling:digestsize())
 local output = bytes:write()
 local written: integer = rolling:digest(output)
 assert(written == 32)

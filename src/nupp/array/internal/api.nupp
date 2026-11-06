@@ -1,0 +1,59 @@
+@!internal
+--[[
+Typed arrays keep their count with their storage and lend checked spans.
+Managed factories return ordinary arrays; `alloc` returns an affine array.
+
+```nupp
+local Array = table.Array
+local values = Array.scalar(Array.int32, 4)
+local write = values:write()
+write[1] = 42 as int32
+own.drop(write)
+assert(values:read()[1] == 42)
+```
+
+See [bytes.md](docs/learn/runtime/data/bytes.md) for ownership, spans, and copies.
+]]
+
+--- @namespace table.Array
+module nupp.array.internal.api
+
+local current = require("nupp.array")
+local layouts = require("nupp.array.internal.layout")
+export type Scalar<T> = current.Scalar<T>
+export type Layout = layouts.Layout
+export type FieldLayout = layouts.FieldLayout
+export type SegmentLayout = layouts.SegmentLayout
+export type InstanceLayout = layouts.InstanceLayout
+
+--- Allocates zeroed managed storage with the struct value's layout.
+export const newarray = current.newarray
+
+--- Allocates zeroed managed storage for a scalar representation witness.
+export const scalar = current.scalar
+
+--- Allocates a zeroed managed byte array.
+export const bytes = current.bytes
+
+--- Allocates owned storage for a C element type.
+---
+--- The default layout is `"packed"`; `"columnar"` stores a struct's fields in
+--- separate columns. The result carries `destroy` as its affine cleanup.
+export const alloc = current.alloc
+
+--- Consumes the array and drops any owned allocation.
+export const destroy = current.destroyarray
+
+--- Reflects the columnar layout of a reified struct without allocating storage.
+export const layoutof = current.layoutof
+
+export const uint8 = current.uint8
+export const int8 = current.int8
+export const uint16 = current.uint16
+export const int16 = current.int16
+export const uint32 = current.uint32
+export const int32 = current.int32
+export const uint64 = current.uint64
+export const int64 = current.int64
+export const float = current.float
+export const number = current.number

@@ -17,8 +17,8 @@ print(#digest, math.lerp(10, 20, 0.25))
 
 Compiler intrinsics live in their subject namespaces, such as `types`, `simd`,
 and `own`. The compiler selects their implementations from the members checked
-source reaches. Typed storage uses [](nupp.array), [](nupp.heap) and
-[](nupp.soa); [](string.buffer) owns FIFO byte buffers.
+source reaches. Typed storage uses [](table.Array); [](io.Buffer) owns growable
+byte buffers. See [bytes.md](bytes.md) for storage, spans, ownership, and copies.
 
 Nupp-authored libraries outside that surface are ordinary declared modules on
 disk. A qualified module path loads one only when the source uses it:
@@ -81,8 +81,8 @@ intrinsic namespaces and the declared modules:
 - [](debug.log) owns leveled logging over a swappable destination.
 - [](math) owns scalar and two-dimensional vector helpers.
 - [](binary.span) owns rooted, bounds-checked shared and writable C array views.
-- [`nupp.soa`](structure-of-arrays.md) stores every top-level field of a
-  reified struct in its own column.
+- [](table.Array) holds mutable typed elements, with packed and
+  [columnar](structure-of-arrays.md) layouts.
 - [](io.gpu) owns resident buffers, generated kernel dispatches, and tensor views.
   [](io.gpu.Layout) provides checked layout transformations.
 - [](os.randombytes) provides cryptographically secure random bytes.
@@ -127,15 +127,15 @@ SHA-256 needs none: it is Nupp rather than a native provider.
 The build binds each builtin service to the implementation for the target's
 host, native or browser.
 
-Runtime implementation contracts are private. The public surface does not expose
-the JSON provider module, a provider's own handles, or native pointers. Those are
-implementation details, so application code keeps the same Nupp API when a
-provider changes.
+Runtime implementation contracts are private. Explicit C interop APIs,
+including borrowed span pointer operations, retain their own target and lifetime
+requirements.
+
 
 ## Byte positions
 
 Storage offsets count from zero; element indexes count from one. Storage is a
-[](io.Buffer), a [](io.ByteView), a
+[](io.Buffer), an
 [](io.Bytes) or an open file: a range in one is
 a zero-based offset and a count, because an offset names a distance from the
 beginning and maps directly onto a native byte range. An element view, a
@@ -153,10 +153,9 @@ raise instead of returning a failure value.
 
 A result declared `affine(...)` has a cleanup obligation: its local scope drops
 it, and `own.drop` ends its lifetime early. Other values have different storage
-lifetimes. `nupp.array` and struct pool pages use managed storage; shared-byte
-regions retain engine references; `string.buffer.Buffer` provides `free` to
-discard retained capacity. None of those APIs promises automatic cleanup merely
-because a local leaves scope.
+lifetimes. `table.Array` and struct pool pages use managed storage; shared-byte
+regions retain engine references. `io.Buffer` is affine and releases its
+storage when its owner is dropped.
 
 A writer that buffers output reports delivery failures through `flush`. Check
 that result before closing when delivery matters. See

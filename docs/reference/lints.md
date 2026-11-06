@@ -384,7 +384,8 @@ runtime. A struct has a fixed layout, and an instance stops being a table.
 | Operation | On a record | On a struct |
 | --- | --- | --- |
 | `type(v)` | `"table"` | `"cdata"` |
-| `string.buffer.encode(v)` | encodes | raises |
+| `pairs(v)` | iterates fields | needs a `__pairs` metamethod |
+| a table-walking serializer | works | sees no keys |
 
 A struct that has to cross a serialization boundary needs a conversion written
 for it.

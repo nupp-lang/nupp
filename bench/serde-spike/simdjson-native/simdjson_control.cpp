@@ -906,20 +906,30 @@ static void appendToBuffer(
     lua_getfield(L, bufferIndex, "reserve");
     lua_pushvalue(L, bufferIndex);
     lua_pushinteger(L, static_cast<lua_Integer>(bytes.size()));
-    lua_call(L, 2, 2);
+    lua_call(L, 2, 1);
+    const int lease = lua_gettop(L);
+    lua_getfield(L, lease, "span");
+    lua_pushvalue(L, lease);
+    lua_call(L, 1, 1);
+    const int writable = lua_gettop(L);
+    lua_getfield(L, writable, "ref");
+    lua_pushvalue(L, writable);
+    lua_call(L, 1, 2);
     const void *storage = lua_topointer(L, -2);
-    if (storage == nullptr) {
-        luaL_error(L, "string.buffer.Buffer.reserve() returned no storage");
+    if (storage == nullptr || luaL_checknumber(L, -1) < bytes.size()) {
+        luaL_error(L, "io.Buffer lease returned too little storage");
     }
     char *destination = *static_cast<char *const *>(storage);
     std::memcpy(destination, bytes.data(), bytes.size());
     lua_pop(L, 2);
-
-    lua_getfield(L, bufferIndex, "commit");
-    lua_pushvalue(L, bufferIndex);
+    lua_getfield(L, writable, "drop");
+    lua_pushvalue(L, writable);
+    lua_call(L, 1, 0);
+    lua_getfield(L, lease, "commit");
+    lua_pushvalue(L, lease);
     lua_pushinteger(L, static_cast<lua_Integer>(bytes.size()));
-    lua_call(L, 2, 1);
-    lua_pop(L, 1);
+    lua_call(L, 2, 0);
+    lua_pop(L, 2);
 }
 
 static void appendToWriterBuffer(
@@ -1497,7 +1507,7 @@ static int luaVerifiedString(lua_State *L) {
 
 static int luaNewWriter(lua_State *L) {
     if (!hasRegisteredMetatable(L, 1, &BUFFER_METATABLE_KEY)) {
-        return luaL_argerror(L, 1, "string.buffer.Buffer expected");
+        return luaL_argerror(L, 1, "io.Buffer expected");
     }
     void *storage = lua_newuserdata(L, sizeof(luaWriter));
     auto *writer = new (storage) luaWriter{};
@@ -1556,12 +1566,14 @@ static void installBufferMetatable(lua_State *L) {
     lua_pop(L, 1);
 
     lua_getglobal(L, "require");
-    lua_pushliteral(L, "string.buffer");
+    lua_pushliteral(L, "io");
     lua_call(L, 1, 1);
-    lua_getfield(L, -1, "new");
+    lua_getfield(L, -1, "Buffer");
+    lua_getfield(L, -1, "create");
+    lua_remove(L, -2);
     lua_call(L, 0, 1);
     if (!lua_getmetatable(L, -1)) {
-        luaL_error(L, "string.buffer.new() returned a value without a metatable");
+        luaL_error(L, "io.Buffer.create() returned a value without a metatable");
     }
     lua_pushlightuserdata(L, &BUFFER_METATABLE_KEY);
     lua_pushvalue(L, -2);

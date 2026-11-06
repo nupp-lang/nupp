@@ -108,7 +108,7 @@ function M.smallInlineRequestsUseThePooledPublicPath()
     local response, reason = client:send({url = endpoint("/echo"), method = "POST", body = payload,})
     assert(response, reason)
     local output = readAll(response.body, #payload)
-    test.eq(output:getstring(), payload)
+    test.eq(output:tostring(), payload)
     test.eq(response.body:read(1), "")
     response:close()
     output:close()
@@ -129,11 +129,11 @@ function M.buffersViewsAndFilesKeepTheirConcreteUploadPaths()
     local client = ready()
     local payload = string.rep("concrete-", 8192)
     local buffer = buffers.Buffer.create(payload)
-    for _, body in ipairs({buffer, buffer:view(0, buffer:len())}) do
+    for _, body in ipairs({buffer, buffer:span()}) do
         local response, reason = client:send({url = endpoint("/echo"), method = "POST", body = body,})
         assert(response, reason)
         local echoed = readAll(response.body, 32768)
-        test.eq(echoed:getstring(), payload)
+        test.eq(echoed:tostring(), payload)
         echoed:close()
         response:close()
     end
@@ -150,7 +150,7 @@ function M.buffersViewsAndFilesKeepTheirConcreteUploadPaths()
     })
     assert(response, reason)
     local echoed = readAll(response.body, 32768)
-    test.eq(echoed:getstring(), payload)
+    test.eq(echoed:tostring(), payload)
     echoed:close()
     response:close()
     client:close()
@@ -277,7 +277,9 @@ function M.aCancelledStreamingUploadReleasesItsReaderAndTransfer()
         readinto = function(_self, destination, offset, count)
             calls = calls + 1
             local length = math.min(count, 64 * 1024)
-            destination:setstring(string.rep("u", length), offset)
+            destination:resize(offset + length);
+            destination:writestring(offset, string.rep("u", length))
+
             return length
         end,
         read = function()
@@ -330,7 +332,7 @@ function M.genericReadersAndLargeDownloadsStayProgressive()
     })
     assert(response, reason)
     local echoed = readAll(response.body, 32768)
-    test.eq(echoed:getstring(), payload)
+    test.eq(echoed:tostring(), payload)
     response:close()
     echoed:close()
 
@@ -348,8 +350,8 @@ function M.genericReadersAndLargeDownloadsStayProgressive()
     test.eq(copied, 4 * 1024 * 1024)
     writer:close()
     test.eq(downloaded:len(), 4 * 1024 * 1024)
-    test.eq(downloaded:getstring(0, 16), "0123456789abcdef")
-    test.eq(downloaded:getstring(downloaded:len() - 16, 16), "0123456789abcdef")
+    test.eq(downloaded:readstring(0, 16), "0123456789abcdef")
+    test.eq(downloaded:readstring(downloaded:len() - 16, 16), "0123456789abcdef")
     response:close()
     downloaded:close()
     test.eq(client:pending(), 0)
@@ -392,7 +394,8 @@ function M.shortReaderChunksUseTheWholeByteBoundedUploadWindow()
             if at > #payload then
                 return 0
             end
-            destination:setstring(payload:sub(at, at), offset)
+            destination:resize(offset + 1);
+            destination:writestring(offset, payload:sub(at, at))
             at = at + 1
 
             return 1
@@ -417,7 +420,7 @@ function M.shortReaderChunksUseTheWholeByteBoundedUploadWindow()
     })
     assert(response, reason)
     local echoed = readAll(response.body, 32768)
-    test.eq(echoed:getstring(), payload)
+    test.eq(echoed:tostring(), payload)
     echoed:close()
     response:close()
     client:close()
@@ -474,7 +477,8 @@ function M.anEarlyResponseStopsReadingTheRequestBody()
             if length <= 0 then
                 return 0
             end
-            destination:setstring(string.rep("x", length), offset)
+            destination:resize(offset + length);
+            destination:writestring(offset, string.rep("x", length))
 
             return length
         end,

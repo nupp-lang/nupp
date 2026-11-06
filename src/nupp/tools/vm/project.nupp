@@ -68,7 +68,6 @@ local FACILITIES: {
 local VM_PROVIDERS: {
     [string]: boolean
 } = {
-    ["nupp.runtime.provider.nativebuffer"] = true,
     ["nupp.runtime.provider.nativecompression"] = true,
     ["nupp.runtime.provider.nativefiles"] = true,
     ["nupp.runtime.provider.nativegpu"] = true,
@@ -585,7 +584,7 @@ project.ROOT_EXTRAS = "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler
     .. "nupp.runtime.standardos,"
     .. "nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,"
     .. "nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess,"
-    .. "nupp.runtime.provider.nativebuffer,nupp.runtime.provider.nativecompression,"
+    .. "nupp.runtime.provider.nativecompression,"
     .. "nupp.runtime.provider.nativefiles,nupp.runtime.provider.nativegpu,nupp.runtime.provider.nativehost,"
     .. "nupp.runtime.provider.nativenet,nupp.runtime.provider.nativepath,"
     .. "nupp.runtime.provider.nativetime,nupp.runtime.provider.nativetls,"

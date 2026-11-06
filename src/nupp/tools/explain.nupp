@@ -138,8 +138,8 @@ local ENTRIES: {any} = {
         rule = "A private field is representation available only while checking the "
         .. "canonical module that declares its record. Expose a public method when "
         .. "another module needs an operation without revealing that representation.",
-        wrong = "local h = require('nupp.heap')\nlocal a = h.alloc(ffi.typeof<int32>(), 1)\nreturn a.pointer\n",
-        right = "local h = require('nupp.heap')\nlocal a = h.alloc(ffi.typeof<int32>(), 1)\nreturn a:read()[1]\n",
+        wrong = "local function inspect(bytes: io.Bytes): any\n    return bytes._handle\nend\nreturn inspect\n",
+        right = "local function inspect(bytes: io.Bytes): string\n    return bytes:tostring()\nend\nreturn inspect\n",
         related = {"NUPP2004", "NUPP2202"},
         docs = "docs/learn/language/types/records-and-structs.md#private-fields",
     },
@@ -1613,14 +1613,14 @@ ENTRIES[
     .. "local function twice(value: simd.Vector<float32, simd.Preferred>): simd.Vector<float32, simd.Preferred>\n"
     .. "    return value + value\nend\n\n"
     .. "local function fromLua(): simd.Vector<float32, simd.Preferred>\n"
-    .. "    local species = simd.species(array.float32)\n    return twice(species:splat(1.0))\nend\n\n"
+    .. "    local species = simd.species(array.float)\n    return twice(species:splat(1.0))\nend\n\n"
     .. "return {twice = twice, fromLua = fromLua}\n",
-    right = "local array = require(\"nupp.array\")\nlocal span = require(\"binary.span\")\n"
+    right = "local array = table.Array\nlocal span = require(\"binary.span\")\n"
     .. "local simd = require(\"simd\")\n\n@aot\n"
     .. "local function twice(value: simd.Vector<float32, simd.Preferred>): simd.Vector<float32, simd.Preferred>\n"
     .. "    return value + value\nend\n\n@aot\n"
     .. "local function apply(exclusive output: span.WriteSpan<float32>, borrows input: span.Span<float32>): nil\n"
-    .. "    assert(#output == #input, \"length mismatch\")\n    local species = simd.species(array.float32)\n"
+    .. "    assert(#output == #input, \"length mismatch\")\n    local species = simd.species(array.float)\n"
     .. "    for at, active in species:over(#input) do\n"
     .. "        species:store(output, at, twice(species:load(input, at, active)), active)\n    end\nend\n\n"
     .. "return {twice = twice, apply = apply}\n",
@@ -2059,8 +2059,8 @@ ENTRIES[
     code = "NUPP2403",
     summary = "An SoA allocation or column projection has no resolved stored field",
     rule = "Structure-of-arrays storage accepts only a reified struct whose top-level fields have fixed C storage; a record, union, interface, GC-managed field, owned field, borrowed field, or variable-size field is not SoA-eligible. A row view's dot or literal bracket projection must likewise name one such stored field of that struct, not a dynamic name or an unknown one.",
-    wrong = "local soa = require(\"nupp.soa\")\nlocal ffi = require(\"ffi\")\n\nlocal rows = soa.alloc(ffi.typeof<int32>(), 4)\nreturn rows\n",
-    right = "local soa = require(\"nupp.soa\")\nlocal ffi = require(\"ffi\")\n\nlocal struct Point\n    x: float\n    y: float\nend\n\nlocal rows = soa.alloc(ffi.typeof<Point>(), 4)\nrows:close()\n",
+    wrong = "local soa = table.Array\nlocal ffi = require(\"ffi\")\n\nlocal rows = soa.alloc(ffi.typeof<int32>(), 4, \"columnar\")\nreturn rows\n",
+    right = "local soa = table.Array\nlocal ffi = require(\"ffi\")\n\nlocal struct Point\n    x: float\n    y: float\nend\n\nlocal rows = soa.alloc(ffi.typeof<Point>(), 4, \"columnar\")\nown.drop(rows)\n",
     related = {"NUPP2402", "NUPP2009"},
     docs = "docs/reference/diagnostics.md#nupp2403",
 }

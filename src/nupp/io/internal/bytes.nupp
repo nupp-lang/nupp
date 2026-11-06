@@ -2,8 +2,23 @@
 
 module nupp.io.internal.bytes
 
+local immutable = require("io.internal.bytestypes")
 local physical = require("nupp.runtime.storage")
 local span = require("binary.span")
+local fast = require("nupp.io.internal.nativebuffer")
+-- Raw storage stays private; every lent view retains the buffer as its anchor.
+local nativeBase: function(borrows buffer: any): uint8[?] = fast.base as any
+local foreignRead: function(
+    borrows owner: any,
+    pointer: any,
+    integer,
+    integer
+): span.ByteSpan borrows (owner) = (require("nupp.mem.span") as any).__foreignByteSpan
+local foreignWrite: function(
+    borrows owner: any,
+    pointer: any,
+    integer
+): span.Writable<uint8> borrows (owner) = (require("nupp.mem.span") as any).__foreignByteWriteSpan
 
 local SMALLEST = 32
 local DEFAULT_READ = 65536
@@ -260,7 +275,7 @@ export interface ScalarWriter is own.Closeable
     --- @param value the number to write
     --- @return this writer
     function writeuint8(borrows self, value: uint32): ScalarWriter borrows (self)
-        self:writebytes(physical.encodeUint8(value))
+        self:writebytes(physical.encodeUint8(math.u32.wrap(value)))
 
         return self
     end
@@ -270,7 +285,7 @@ export interface ScalarWriter is own.Closeable
     --- @param value the number to write
     --- @return this writer
     function writeint8(borrows self, value: int32): ScalarWriter borrows (self)
-        self:writebytes(physical.encodeInt8(value))
+        self:writebytes(physical.encodeInt8(math.i32.wrap(value)))
 
         return self
     end
@@ -280,7 +295,7 @@ export interface ScalarWriter is own.Closeable
     --- @param value the number to write
     --- @return this writer
     function writeuint16(borrows self, value: uint32): ScalarWriter borrows (self)
-        self:writebytes(physical.encodeUint16(value))
+        self:writebytes(physical.encodeUint16(math.u32.wrap(value)))
 
         return self
     end
@@ -290,7 +305,7 @@ export interface ScalarWriter is own.Closeable
     --- @param value the number to write
     --- @return this writer
     function writeint16(borrows self, value: int32): ScalarWriter borrows (self)
-        self:writebytes(physical.encodeInt16(value))
+        self:writebytes(physical.encodeInt16(math.i32.wrap(value)))
 
         return self
     end
@@ -383,7 +398,9 @@ end
 ----------------------------------------------------------------------------
 
 local readSource: function(source: string | ByteQueue): Reader
-local readBorrowed: function(borrows source: Buffer | ByteView): Reader
+local readBuffer: function(exclusive source: Buffer): affine(Reader) borrows (source)
+local readSpan: function(borrows source: span.ByteSpan): affine(Reader) borrows (source)
+local readBytes: function(source: immutable.Bytes): Reader
 local writeBuffer: function(exclusive destination: Buffer): affine(Writer) borrows (destination)
 local createBuffer: function(initial: integer | string?): affine(Buffer)
 
@@ -394,7 +411,7 @@ local createBuffer: function(initial: integer | string?): affine(Buffer)
 --- against the contract fills any of them.
 --- @export
 export interface Writer is own.Closeable
-    --- Clears and exclusively borrows a buffer as a byte sink.
+    --- Exclusively borrows a buffer as an appending byte sink.
     function of(exclusive destination: Buffer): affine(Writer) borrows (destination)
         return writeBuffer(destination)
     end
@@ -490,9 +507,19 @@ export interface Reader is own.Closeable
         return readSource(source)
     end
 
-    --- Copies a buffer or view into an independent reader snapshot.
-    function of(borrows source: Buffer | ByteView): Reader
-        return readBorrowed(source)
+    --- Exclusively borrows a buffer and consumes its unread bytes.
+    function of(exclusive source: Buffer): affine(Reader) borrows (source)
+        return readBuffer(source)
+    end
+
+    --- Borrows a span without copying its bytes.
+    function of(borrows source: span.ByteSpan): affine(Reader) borrows (source)
+        return readSpan(source)
+    end
+
+    --- Retains immutable engine bytes without making a string snapshot.
+    function of(source: immutable.Bytes): Reader
+        return readBytes(source)
     end
 
     --- Reads up to `count` bytes.
@@ -510,13 +537,13 @@ export interface Reader is own.Closeable
     --- @param destination the positive-sized range to fill
     --- @return how many bytes were read, or nil when the reader is closed
     --- @return why it could not read, when unsuccessful
-    readspan: function(exclusive self: Reader, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    readspan: function(exclusive self: Reader, exclusive destination: span.ByteWriteSpan): (integer?, string?)
 
     --- Reads into a buffer.
     ---
     --- A zero answer is the end. The offset and count are checked before anything
-    --- is read, so a malformed call consumes no input. This default reads through
-    --- `read` and copies; a reader that can fill the buffer directly overrides it.
+    --- is read, so a malformed call consumes no input. This default reserves a
+    --- destination span and calls `readspan` to fill it.
     --- @param self this reader
     --- @param destination the buffer to write into
     --- @param offset where in the destination to start, or the beginning
@@ -620,8 +647,10 @@ end
 -- because they name the records. The types are the contract either way.
 local reserve: function(borrows self: Buffer, minimum: integer): nil
 local bytesAt: function(borrows self: Buffer, offset: integer, count: integer): string
+local syncNative: function(borrows self: Buffer): nil
 local newReaderOver: function(bytes: string): Reader
 local newWriterOver: function(borrows buffer: Buffer): affine(Writer) borrows (buffer)
+local newBufferReader: function(exclusive buffer: Buffer): affine(Reader) borrows (buffer)
 
 --- A queue of bytes something else is filling, which a reader may be opened over
 --- without owning it.
@@ -677,63 +706,6 @@ local function takeAllQueue(source: ByteQueue, count: integer): string
     return chunk
 end
 
---- A snapshot of bytes that cannot be written through.
---- @export
-export sealed interface ByteView is own.Closeable
-    len: function(borrows self: ByteView): integer
-    getstring: function(borrows self: ByteView): string
-    readspan: function(borrows self: ByteView): span.ByteSpan borrows (self)
-    reader: function(self: ByteView): Reader
-    view: function(self: ByteView, offset: integer?, count: integer?): affine(ByteView)
-    isreleased: function(self: ByteView): boolean
-    close: @nosuspend function(takes self: ByteView): nil
-end
-
--- Declared after the view it answers, so that its result carries the view's own
--- `close` rather than a transfer-only obligation, and defined below.
-local newView: function(bytes: string): affine(ByteView)
-
-----------------------------------------------------------------------------
--- Views and buffers
-----------------------------------------------------------------------------
-
-local record Snapshot is ByteView
-    @private _bytes: string
-    @private _closed: boolean
-
-    close: @nosuspend function(takes self: Snapshot): nil
-
-    function len(borrows self): integer
-        opened(self._closed, "io.ByteView", 2)
-        return #self._bytes
-    end
-
-    function getstring(borrows self): string
-        opened(self._closed, "io.ByteView", 2)
-        return self._bytes
-    end
-
-    function readspan(borrows self): span.ByteSpan borrows (self)
-        opened(self._closed, "io.ByteView", 2)
-        return span.fromstring(self._bytes)
-    end
-
-    function reader(self): Reader
-        opened(self._closed, "io.ByteView", 2)
-        return newReaderOver(self._bytes)
-    end
-
-    function view(self, offset: integer?, count: integer?): affine(ByteView)
-        opened(self._closed, "io.ByteView", 2)
-        local from, taking = range(#self._bytes, offset, count, "io.ByteView", 2)
-        return newView(self._bytes:sub(from + 1, from + taking))
-    end
-
-    function isreleased(self): boolean
-        return self._closed
-    end
-end
-
 --- An exclusive prepared region of a buffer. Its span may be written, then the
 --- lease is committed with the number of bytes that actually landed. Dropping a
 --- lease aborts it without changing the buffer's logical length.
@@ -744,6 +716,22 @@ export sealed interface BufferWriteLease
     commit: function(takes self: BufferWriteLease, written: integer): nil
 end
 
+local function bigEndian(bytes: string): string
+    if physical.encodeUint16(1):byte(1) == 1 then
+        return bytes:reverse()
+    end
+    return bytes
+end
+
+local function littleEndian(bytes: string): string
+    if physical.encodeUint16(1):byte(1) ~= 1 then
+        return bytes:reverse()
+    end
+    return bytes
+end
+
+local writeAt: function(exclusive self: Buffer, bytes: string, offset: integer?): nil
+
 --- Growable byte storage whose pointer and logical length never escape separately.
 --- @export
 export sealed interface Buffer is own.Closeable
@@ -752,25 +740,306 @@ export sealed interface Buffer is own.Closeable
         return createBuffer(initial)
     end
 
+    metamethod __len: function(borrows self: Buffer): integer
+    metamethod __tostring: function(borrows self: Buffer): string
     len: function(borrows self: Buffer): integer
+    reset: function(exclusive self: Buffer): Buffer borrows (self)
+    put: function(exclusive self: Buffer, borrows ...: any): Buffer borrows (self)
+    putf: function(exclusive self: Buffer, format: string, ...: any): Buffer borrows (self)
+    get: function(exclusive self: Buffer, count: integer?): string
+    skip: function(exclusive self: Buffer, count: integer): Buffer borrows (self)
+    tostring: function(borrows self: Buffer): string
+
+    --- Consumes this buffer and returns its unread bytes as an immutable region.
+    ---
+    --- LuaJIT copies the bytes through a string into engine storage.
+    function freeze(takes self: Buffer): immutable.Bytes
+        local result = immutable.Bytes.copy(self:tostring())
+        self:close()
+        return result
+    end
+
+    span: function(borrows self: Buffer, first: integer?, last: integer?): span.ByteSpan borrows (self)
+    reserve: function(exclusive self: Buffer, count: integer): affine(BufferWriteLease, destroyLease) borrows (self)
     capacity: function(borrows self: Buffer): integer
-    clear: function(exclusive self: Buffer): nil
     ensure: function(exclusive self: Buffer, minimum: integer): nil
     resize: function(exclusive self: Buffer, len: integer): nil
-    getstring: function(borrows self: Buffer, offset: integer?, count: integer?): string
-    setstring: function(exclusive self: Buffer, bytes: string, offset: integer?): nil
-    readspan: function(borrows self: Buffer): span.ByteSpan borrows (self)
-    reservewrite: function(
-        exclusive self: Buffer,
-        offset: integer,
-        count: integer
-    ): affine(BufferWriteLease, destroyLease) borrows (self)
-    view: function(self: Buffer, offset: integer?, count: integer?): affine(ByteView)
-    reader: function(self: Buffer): Reader
+
+    --- Reads a i8 value at a zero-based byte offset.
+    function readi8(borrows self, offset: integer): integer
+        return physical.decodeInt8(self:readstring(offset, 1)) as integer
+    end
+
+    --- Writes a i8 value within the existing byte extent.
+    function writei8(exclusive self, offset: integer, value: integer): nil
+        self:readstring(offset, 1)
+        writeAt(self, physical.encodeInt8(math.i32.wrap(value)), offset)
+    end
+
+    --- Reads a u8 value at a zero-based byte offset.
+    function readu8(borrows self, offset: integer): integer
+        return physical.decodeUint8(self:readstring(offset, 1)) as integer
+    end
+
+    --- Writes a u8 value within the existing byte extent.
+    function writeu8(exclusive self, offset: integer, value: integer): nil
+        self:readstring(offset, 1)
+        writeAt(self, physical.encodeUint8(math.u32.wrap(value)), offset)
+    end
+
+    --- Reads a i16 value at a zero-based byte offset.
+    function readi16(borrows self, offset: integer): integer
+        return physical.decodeInt16(littleEndian(self:readstring(offset, 2))) as integer
+    end
+
+    --- Writes a i16 value within the existing byte extent.
+    function writei16(exclusive self, offset: integer, value: integer): nil
+        self:readstring(offset, 2)
+        writeAt(self, littleEndian(physical.encodeInt16(math.i32.wrap(value))), offset)
+    end
+
+    --- Reads a i16 value at a zero-based byte offset.
+    function readi16be(borrows self, offset: integer): integer
+        return physical.decodeInt16(bigEndian(self:readstring(offset, 2))) as integer
+    end
+
+    --- Writes a i16 value within the existing byte extent.
+    function writei16be(exclusive self, offset: integer, value: integer): nil
+        self:readstring(offset, 2)
+        writeAt(self, bigEndian(physical.encodeInt16(math.i32.wrap(value))), offset)
+    end
+
+    --- Reads a u16 value at a zero-based byte offset.
+    function readu16(borrows self, offset: integer): integer
+        return physical.decodeUint16(littleEndian(self:readstring(offset, 2))) as integer
+    end
+
+    --- Writes a u16 value within the existing byte extent.
+    function writeu16(exclusive self, offset: integer, value: integer): nil
+        self:readstring(offset, 2)
+        writeAt(self, littleEndian(physical.encodeUint16(math.u32.wrap(value))), offset)
+    end
+
+    --- Reads a u16 value at a zero-based byte offset.
+    function readu16be(borrows self, offset: integer): integer
+        return physical.decodeUint16(bigEndian(self:readstring(offset, 2))) as integer
+    end
+
+    --- Writes a u16 value within the existing byte extent.
+    function writeu16be(exclusive self, offset: integer, value: integer): nil
+        self:readstring(offset, 2)
+        writeAt(self, bigEndian(physical.encodeUint16(math.u32.wrap(value))), offset)
+    end
+
+    --- Reads a i32 value at a zero-based byte offset.
+    function readi32(borrows self, offset: integer): int32
+        return math.i32.wrap(physical.decodeInt32(littleEndian(self:readstring(offset, 4))) as integer)
+    end
+
+    --- Writes a i32 value within the existing byte extent.
+    function writei32(exclusive self, offset: integer, value: int32): nil
+        self:readstring(offset, 4)
+        writeAt(self, littleEndian(physical.encodeInt32(value)), offset)
+    end
+
+    --- Reads a i32 value at a zero-based byte offset.
+    function readi32be(borrows self, offset: integer): int32
+        return math.i32.wrap(physical.decodeInt32(bigEndian(self:readstring(offset, 4))) as integer)
+    end
+
+    --- Writes a i32 value within the existing byte extent.
+    function writei32be(exclusive self, offset: integer, value: int32): nil
+        self:readstring(offset, 4)
+        writeAt(self, bigEndian(physical.encodeInt32(value)), offset)
+    end
+
+    --- Reads a u32 value at a zero-based byte offset.
+    function readu32(borrows self, offset: integer): uint32
+        return math.u32.wrap(physical.decodeUint32(littleEndian(self:readstring(offset, 4))) as integer)
+    end
+
+    --- Writes a u32 value within the existing byte extent.
+    function writeu32(exclusive self, offset: integer, value: uint32): nil
+        self:readstring(offset, 4)
+        writeAt(self, littleEndian(physical.encodeUint32(value)), offset)
+    end
+
+    --- Reads a u32 value at a zero-based byte offset.
+    function readu32be(borrows self, offset: integer): uint32
+        return math.u32.wrap(physical.decodeUint32(bigEndian(self:readstring(offset, 4))) as integer)
+    end
+
+    --- Writes a u32 value within the existing byte extent.
+    function writeu32be(exclusive self, offset: integer, value: uint32): nil
+        self:readstring(offset, 4)
+        writeAt(self, bigEndian(physical.encodeUint32(value)), offset)
+    end
+
+    --- Reads a i64 value at a zero-based byte offset.
+    function readi64(borrows self, offset: integer): int64
+        return physical.decodeInt64(littleEndian(self:readstring(offset, 8))) as int64
+    end
+
+    --- Writes a i64 value within the existing byte extent.
+    function writei64(exclusive self, offset: integer, value: int64): nil
+        self:readstring(offset, 8)
+        writeAt(self, littleEndian(physical.encodeInt64(value)), offset)
+    end
+
+    --- Reads a i64 value at a zero-based byte offset.
+    function readi64be(borrows self, offset: integer): int64
+        return physical.decodeInt64(bigEndian(self:readstring(offset, 8))) as int64
+    end
+
+    --- Writes a i64 value within the existing byte extent.
+    function writei64be(exclusive self, offset: integer, value: int64): nil
+        self:readstring(offset, 8)
+        writeAt(self, bigEndian(physical.encodeInt64(value)), offset)
+    end
+
+    --- Reads a u64 value at a zero-based byte offset.
+    function readu64(borrows self, offset: integer): uint64
+        return physical.decodeUint64(littleEndian(self:readstring(offset, 8))) as uint64
+    end
+
+    --- Writes a u64 value within the existing byte extent.
+    function writeu64(exclusive self, offset: integer, value: uint64): nil
+        self:readstring(offset, 8)
+        writeAt(self, littleEndian(physical.encodeUint64(value)), offset)
+    end
+
+    --- Reads a u64 value at a zero-based byte offset.
+    function readu64be(borrows self, offset: integer): uint64
+        return physical.decodeUint64(bigEndian(self:readstring(offset, 8))) as uint64
+    end
+
+    --- Writes a u64 value within the existing byte extent.
+    function writeu64be(exclusive self, offset: integer, value: uint64): nil
+        self:readstring(offset, 8)
+        writeAt(self, bigEndian(physical.encodeUint64(value)), offset)
+    end
+
+    --- Reads a f32 value at a zero-based byte offset.
+    function readf32(borrows self, offset: integer): number
+        return physical.decodeFloat32(littleEndian(self:readstring(offset, 4))) as number
+    end
+
+    --- Writes a f32 value within the existing byte extent.
+    function writef32(exclusive self, offset: integer, value: number): nil
+        self:readstring(offset, 4)
+        writeAt(self, littleEndian(physical.encodeFloat32(value)), offset)
+    end
+
+    --- Reads a f32 value at a zero-based byte offset.
+    function readf32be(borrows self, offset: integer): number
+        return physical.decodeFloat32(bigEndian(self:readstring(offset, 4))) as number
+    end
+
+    --- Writes a f32 value within the existing byte extent.
+    function writef32be(exclusive self, offset: integer, value: number): nil
+        self:readstring(offset, 4)
+        writeAt(self, bigEndian(physical.encodeFloat32(value)), offset)
+    end
+
+    --- Reads a f64 value at a zero-based byte offset.
+    function readf64(borrows self, offset: integer): number
+        return physical.decodeFloat64(littleEndian(self:readstring(offset, 8))) as number
+    end
+
+    --- Writes a f64 value within the existing byte extent.
+    function writef64(exclusive self, offset: integer, value: number): nil
+        self:readstring(offset, 8)
+        writeAt(self, littleEndian(physical.encodeFloat64(value)), offset)
+    end
+
+    --- Reads a f64 value at a zero-based byte offset.
+    function readf64be(borrows self, offset: integer): number
+        return physical.decodeFloat64(bigEndian(self:readstring(offset, 8))) as number
+    end
+
+    --- Writes a f64 value within the existing byte extent.
+    function writef64be(exclusive self, offset: integer, value: number): nil
+        self:readstring(offset, 8)
+        writeAt(self, bigEndian(physical.encodeFloat64(value)), offset)
+    end
+
+    --- Copies a checked byte range, including overlapping ranges.
+    function copy(exclusive self, offset: integer, borrows source: Buffer, first: integer?, count: integer?): nil
+        local bytes = source:readstring(first or 0, count)
+        self:readstring(offset, #bytes)
+        writeAt(self, bytes, offset)
+    end
+
+    --- Fills a checked byte range with a byte value.
+    --- @raises string when the value is not a byte or the range is invalid
+    function fill(exclusive self, offset: integer, value: integer, count: integer?): nil
+        if value % 1 ~= 0 or value < 0 or value > 255 then
+            error("nupp: buffer fill value must be a byte", 2)
+        end
+        local bytes = self:readstring(offset, count)
+        writeAt(self, string.rep(string.char(value), #bytes), offset)
+    end
+
+    --- Reads bytes at a zero-based storage offset.
+    readstring: function(borrows self: Buffer, offset: integer, count: integer?): string
+
+    --- Writes bytes within the existing storage extent.
+    function writestring(exclusive self, offset: integer, bytes: string): nil
+        self:readstring(offset, #bytes)
+        writeAt(self, bytes, offset)
+    end
+
+    --- Reads up to 32 bits, with the low bit at the lowest bit offset.
+    --- @raises string when the bit range is invalid
+    function readbits(borrows self, offset: integer, count: integer): integer
+        local first = integer_(offset, "io.Buffer bit offset", 2)
+        local width = integer_(count, "io.Buffer bit count", 2)
+        if width > 32 then
+            error("nupp: buffer bit count exceeds 32", 2)
+        end
+        local extent = self:len() * 8
+        range(extent, first, width, "io.Buffer bit range", 2)
+        local result: integer = 0
+        for index = 0, width - 1 do
+            local position = sizeSum(first, index, "io.Buffer bit range", 2)
+            local byte = self:readu8(position // 8)
+            result = (result + ((byte // (2 ^ (position % 8))) % 2) * (2 ^ index)) as integer
+        end
+
+        return result
+    end
+
+    --- Writes up to 32 bits without changing adjacent bits.
+    --- @raises string when the bit range or value is invalid
+    function writebits(exclusive self, offset: integer, count: integer, value: integer): nil
+        local first = integer_(offset, "io.Buffer bit offset", 2)
+        local width = integer_(count, "io.Buffer bit count", 2)
+        if width > 32 or value < 0 or value % 1 ~= 0 or value >= 2 ^ width then
+            error("nupp: buffer bit value is out of bounds", 2)
+        end
+        self:readbits(first, width)
+        for index = 0, width - 1 do
+            local position = first + index
+            local at = position // 8
+            local mask = 2 ^ (position % 8)
+            local byte = self:readu8(at)
+            local old = (byte // mask) % 2
+            local bitValue = (value // (2 ^ index)) % 2
+            self:writeu8(at, (byte + (bitValue - old) * mask) as integer)
+        end
+    end
+
+    reader: function(exclusive self: Buffer): affine(Reader) borrows (self)
     writer: function(exclusive self: Buffer): affine(Writer) borrows (self)
     isreleased: function(borrows self: Buffer): boolean
     close: @nosuspend function(takes self: Buffer): nil
 end
+
+local reserveAt_: function(
+    exclusive buffer: Buffer,
+    offset: integer,
+    count: integer
+): affine(BufferWriteLease, destroyLease) borrows (buffer)
 
 local newWriteLease: function(
     borrows buffer: Buffer,
@@ -779,26 +1048,126 @@ local newWriteLease: function(
 ): affine(BufferWriteLease, destroyLease) borrows (buffer)
 
 local record HeapBuffer is Buffer
+    @private _native: any
     @private _data: uint8[?]
     @private _length: integer
     @private _capacity: integer
+    @private _read: integer
     @private _closed: boolean
 
     close: @nosuspend function(takes self: HeapBuffer): nil
+    metamethod __len: function(borrows self: HeapBuffer): integer
+    metamethod __tostring: function(borrows self: HeapBuffer): string
 
     function len(borrows self): integer
         opened(self._closed, "io.Buffer", 2)
-        return self._length
+        return self._length - self._read
+    end
+
+    function reset(exclusive self): Buffer borrows (self)
+        opened(self._closed, "io.Buffer", 2)
+        if self._native ~= nil then
+            self._native:reset()
+        end
+        self._length = 0
+        self._read = 0
+
+        return self
+    end
+
+    function tostring(borrows self): string
+        opened(self._closed, "io.Buffer", 2)
+        if self._native ~= nil and self._read == 0 then
+            return self._native:tostring() as string
+        end
+
+        return bytesAt(self, self._read, self._length - self._read)
+    end
+
+    function get(exclusive self, count: integer?): string
+        opened(self._closed, "io.Buffer", 2)
+        local available = self._length - self._read
+        local taking = count == nil and available or math.min(integer_(count, "io.Buffer get count", 2), available)
+        local result = bytesAt(self, self._read, taking)
+        self._read = self._read + taking
+
+        return result
+    end
+
+    function skip(exclusive self, count: integer): Buffer borrows (self)
+        opened(self._closed, "io.Buffer", 2)
+        self._read = self._read + math.min(integer_(count, "io.Buffer skip count", 2), self._length - self._read)
+        return self
+    end
+
+    function put(exclusive self, borrows ...: any): Buffer borrows (self)
+        opened(self._closed, "io.Buffer", 2)
+        for index = 1, select("#", ...) do
+            local value = select(index, ...)
+            if type(value) == "string" or type(value) == "number" then
+                writeAt(self, tostring(value), self._length)
+            elseif (value as any).tostring ~= nil then
+                writeAt(self, (value as Buffer):tostring(), self._length)
+            else
+                local source = value as span.ByteSpan
+                local count = #source
+                reserve(self, sizeSum(self._length, count, "io.Buffer append", 2))
+                @unsafe do
+                    local root = borrowFrom(self._data as voidptr, self)
+                    local destination = (root as uint8*) + self._length
+                    physical.copy(destination, source:ref(), count)
+                end
+                self._length = self._length + count
+            end
+        end
+
+        return self
+    end
+
+    function putf(exclusive self, format: string, ...: any): Buffer borrows (self)
+        self:put(string.format(format, ...))
+        return self
+    end
+
+    -- Trusted compiler entry: refresh a native pointer before virtualizing a span.
+    function _spanroot(borrows self): Buffer borrows (self)
+        opened(self._closed, "io.Buffer", 2)
+        syncNative(self)
+        return self
+    end
+
+    function span(borrows self, first: integer?, last: integer?): span.ByteSpan borrows (self)
+        opened(self._closed, "io.Buffer", 2)
+        syncNative(self)
+        local start = first or 1
+        local finish = last or (self._length - self._read)
+        if start % 1 ~= 0
+            or finish % 1 ~= 0
+            or start < 1
+            or finish < start - 1
+            or finish > self._length - self._read
+        then
+            error("nupp: buffer span out of bounds", 2)
+        end
+
+        return foreignRead(self, self._data, self._read + start - 1, finish - start + 1)
+    end
+
+    function reserve(exclusive self, count: integer): affine(BufferWriteLease, destroyLease) borrows (self)
+        opened(self._closed, "io.Buffer", 2)
+        local available = integer_(count, "io.Buffer reserve count", 2)
+        reserve(self, sizeSum(self._length, available, "io.Buffer reservation", 2))
+        return newWriteLease(self, self._length, available)
     end
 
     function capacity(borrows self): integer
         opened(self._closed, "io.Buffer", 2)
-        return self._capacity
-    end
+        if self._native ~= nil then
+            local _, free = self._native:reserve(0)
+            return self._length + (free as integer)
+        end
 
-    function clear(exclusive self): nil
-        opened(self._closed, "io.Buffer", 2)
-        self._length = 0
+        return self._capacity
     end
 
     function ensure(exclusive self, minimum: integer): nil
@@ -816,77 +1185,65 @@ local record HeapBuffer is Buffer
                 physical.fill((root as uint8*) + self._length, wanted - self._length, 0)
             end
         end
+        if self._native ~= nil then
+            if wanted > self._length then
+                self._native:commit(wanted - self._length)
+            elseif wanted < self._length then
+                local bytes = bytesAt(self, 0, wanted)
+                self._native:reset():put(bytes)
+            end
+        end
         self._length = wanted
+        self._read = math.min(self._read, wanted)
     end
 
-    function getstring(borrows self, offset: integer?, count: integer?): string
+    function readstring(borrows self, offset: integer, count: integer?): string
         opened(self._closed, "io.Buffer", 2)
         local from, taking = range(self._length, offset, count, "io.Buffer", 2)
         return bytesAt(self, from, taking)
     end
 
-    function setstring(exclusive self, bytes: string, offset: integer?): nil
+    function reader(exclusive self): affine(Reader) borrows (self)
         opened(self._closed, "io.Buffer", 2)
-        if type(bytes) ~= "string" then
-            error("nupp: io.Buffer bytes must be a string", 2)
-        end
-        local from = integer_(offset == nil and 0 or offset, "io.Buffer offset", 2)
-        local ending = sizeSum(from, #bytes, "io.Buffer range", 2)
-        reserve(self, ending)
-        if from > self._length then
-            @unsafe do
-                local root = borrowFrom(self._data as voidptr, self)
-                physical.fill((root as uint8*) + self._length, from - self._length, 0)
-            end
-        end
-        if #bytes > 0 then
-            @unsafe do
-                local root = borrowFrom(self._data as voidptr, self)
-                physical.copy((root as uint8*) + from, bytes, #bytes)
-            end
-        end
-        if ending > self._length then
-            self._length = ending
-        end
-    end
-
-    function readspan(borrows self): span.ByteSpan borrows (self)
-        opened(self._closed, "io.Buffer", 2)
-        return span.fromcarray(self._data, self._length)
-    end
-
-    function reservewrite(
-        exclusive self,
-        offset: integer,
-        count: integer
-    ): affine(BufferWriteLease, destroyLease) borrows (self)
-        opened(self._closed, "io.Buffer", 2)
-        local from = integer_(offset, "io.Buffer write offset", 2)
-        local available = integer_(count, "io.Buffer write count", 2)
-        reserve(self, sizeSum(from, available, "io.Buffer write range", 2))
-
-        return newWriteLease(self, from, available)
-    end
-
-    function view(self, offset: integer?, count: integer?): affine(ByteView)
-        opened(self._closed, "io.Buffer", 2)
-        local from, taking = range(self._length, offset, count, "io.Buffer", 2)
-        return newView(bytesAt(self, from, taking))
-    end
-
-    function reader(self): Reader
-        opened(self._closed, "io.Buffer", 2)
-        return newReaderOver(bytesAt(self, 0, self._length))
+        return newBufferReader(self)
     end
 
     function writer(exclusive self): affine(Writer) borrows (self)
         opened(self._closed, "io.Buffer", 2)
-        self:clear()
         return newWriterOver(self)
     end
 
     function isreleased(borrows self): boolean
         return self._closed
+    end
+end
+
+writeAt = function(exclusive buffer: Buffer, bytes: string, offset: integer?): nil
+    local self = buffer as any
+    opened(self._closed, "io.Buffer", 2)
+    if type(bytes) ~= "string" then
+        error("nupp: io.Buffer bytes must be a string", 2)
+    end
+    local from = integer_(offset == nil and 0 or offset, "io.Buffer offset", 2)
+    local ending = sizeSum(from, #bytes, "io.Buffer range", 2)
+    reserve(self, ending)
+    if from > self._length then
+        @unsafe do
+            local root = borrowFrom(self._data as voidptr, self)
+            physical.fill((root as uint8*) + (self._length as integer), from - (self._length as integer), 0)
+        end
+    end
+    if #bytes > 0 then
+        @unsafe do
+            local root = borrowFrom(self._data as voidptr, self)
+            physical.copy((root as uint8*) + from, bytes, #bytes)
+        end
+    end
+    if ending > self._length then
+        if self._native ~= nil then
+            self._native:commit(ending - self._length)
+        end
+        self._length = ending
     end
 end
 
@@ -900,7 +1257,7 @@ local record WriteLease is BufferWriteLease
     drop: @nosuspend function(takes self: WriteLease): nil
 
     function span(exclusive self): span.Writable<uint8> borrows (self)
-        return span.writecarray(self.pointer, self.count)
+        return foreignWrite(self, self.pointer, self.count)
     end
 
     function commit(takes self, written: integer): nil
@@ -924,6 +1281,9 @@ local record WriteLease is BufferWriteLease
             end
             local ending = raw.offset + used
             if ending > target._length then
+                if target._native ~= nil then
+                    target._native:commit(ending - target._length)
+                end
                 target._length = ending
             end
         end
@@ -974,7 +1334,7 @@ local record BufferWriter is Writer
         end
         -- The writer already owns the exclusive buffer borrow. A string can use
         -- its bulk overwrite path directly without building temporary views.
-        (state as Buffer):setstring(bytes, self._at)
+        writeAt(state as Buffer, bytes, self._at)
         self._at = sizeSum(self._at, #bytes, "Writer position", 2)
 
         return true, nil
@@ -1050,6 +1410,66 @@ local function copyString(
     end
 end
 
+local spanText: function(borrows source: const uint8[?], count: integer): string = physical.string as any
+
+-- A Bytes source is a retained immutable value; a Span source carries its
+-- caller's borrow. The reader uses one implementation for both.
+local function heldSpan(borrows source: any): span.ByteSpan borrows (source)
+    if source.view ~= nil and source.viewas ~= nil then
+        return (source as immutable.Bytes):view()
+    end
+    return source as span.ByteSpan
+end
+
+local record SpanReader is Reader
+    @private _source: any
+    @private _at: integer
+    @private _closed: boolean
+
+    function read(exclusive self, count: integer): (string?, string?)
+        if self._closed then
+            return nil, "the reader is closed"
+        end
+        local wanted = positive(count, "Reader:read count", 2)
+        local source = heldSpan(self._source)
+        local taking = math.min(wanted, #source - self._at) as integer
+        if taking == 0 then
+            return ""
+        end
+        local window = source:slice(self._at + 1, self._at + taking)
+        local bytes = spanText(window:ref(), #window)
+        self._at = self._at + taking
+
+        return bytes
+    end
+
+    function readspan(exclusive self, exclusive destination: span.ByteWriteSpan): (integer?, string?)
+        if self._closed then
+            return nil, "the reader is closed"
+        end
+        local wanted = positive(#destination, "Reader:readspan destination length", 2)
+        local source = heldSpan(self._source)
+        local taking = math.min(wanted, #source - self._at) as integer
+        if taking > 0 then
+            @unsafe do
+                local pointer = source:ref()
+                physical.copy(destination:ref(), (pointer as const uint8*) + self._at, taking)
+            end
+            self._at = self._at + taking
+        end
+
+        return taking
+    end
+
+    close: @nosuspend function(takes self: SpanReader): nil
+end
+
+function SpanReader.close(takes self: SpanReader): nil
+    local state = @unsafe own.release(self)
+    state._closed = true
+    state._source = nil
+end
+
 local record StringReader is Reader
     --- Spends the reader; defined after the record, so `close` can reach it.
     drop: function(takes self: StringReader): nil
@@ -1083,7 +1503,7 @@ local record StringReader is Reader
         return out, nil
     end
 
-    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readspan(exclusive self, exclusive destination: span.ByteWriteSpan): (integer?, string?)
         if self._closed then
             return nil, "the reader is closed"
         end
@@ -1121,7 +1541,7 @@ local record StringReader is Reader
             return 0, nil
         end
         local taking = math.min(wanted, #bytes - at + 1) as integer
-        local lease = destination:reservewrite(from, wanted)
+        local lease = reserveAt_(destination, from, wanted)
         do
             local output = lease:span()
             copyString(output, bytes, at - 1, taking)
@@ -1159,10 +1579,19 @@ local record StringReader is Reader
     close: @nosuspend function(takes self: StringReader): nil
 end
 
+local function copyBufferSpan(exclusive buffer: Buffer, exclusive destination: span.ByteWriteSpan, count: integer): nil
+    do
+        local input = buffer:span(1, count)
+        physical.copy(destination:ref(), input:ref(), count)
+    end
+    buffer:skip(count)
+end
+
 --- A reader over anything answering `get`.
 --- @export
 local record QueueReader is Reader
     _source: any
+    _buffer: boolean
     _closed: boolean
 
     --- Reads up to `count` bytes from the queue.
@@ -1185,7 +1614,7 @@ local record QueueReader is Reader
         return takeQueue(source, math.min(wanted, have) as integer), nil
     end
 
-    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readspan(exclusive self, exclusive destination: span.ByteWriteSpan): (integer?, string?)
         if self._closed then
             return nil, "the reader is closed"
         end
@@ -1200,8 +1629,12 @@ local record QueueReader is Reader
             return 0, nil
         end
         local taking = math.min(wanted, have) as integer
-        local chunk = takeQueue(source, taking)
-        copyString(destination, chunk, 0, taking)
+        if self._buffer then
+            copyBufferSpan(self._source as Buffer, destination, taking)
+        else
+            local chunk = takeQueue(source, taking)
+            copyString(destination, chunk, 0, taking)
+        end
 
         return taking, nil
     end
@@ -1223,11 +1656,10 @@ local record QueueReader is Reader
             return 0, nil
         end
         local taking = math.min(wanted, have) as integer
-        local chunk = takeQueue(source, taking)
-        local lease = destination:reservewrite(from, wanted)
+        local lease = reserveAt_(destination, from, wanted)
         do
             local output = lease:span()
-            copyString(output, chunk, 0, taking)
+            self:readspan(output)
             own.drop(output)
         end
         lease:commit(taking)
@@ -1267,17 +1699,24 @@ end
 -- Closing
 ----------------------------------------------------------------------------
 
-function Snapshot.close(takes self: Snapshot): nil
-    local state = @unsafe own.release(self)
-    state._closed = true
-    state._bytes = ""
+function HeapBuffer.__len(borrows self: HeapBuffer): integer
+    return self:len()
+end
+
+function HeapBuffer.__tostring(borrows self: HeapBuffer): string
+    return self:tostring()
 end
 
 function HeapBuffer.close(takes self: HeapBuffer): nil
     local state = @unsafe own.release(self)
     state._closed = true
+    if state._native ~= nil then
+        state._native:free();
+        state._native = nil
+    end
     state._length = 0
     state._capacity = 0
+    state._read = 0
     -- A spent buffer must not keep its allocation alive through retained metadata.
     (state as any)._data = nil
 end
@@ -1312,6 +1751,12 @@ end
 -- Doubling, with a floor, so appending one byte at a time stays linear overall.
 reserve = function(borrows self: Buffer, minimum: integer): nil
     local state = self as any
+    if state._native ~= nil then
+        local _, free = state._native:reserve(math.max(0, minimum - state._length))
+        syncNative(self)
+        state._capacity = state._length + free
+        return
+    end
     if minimum <= state._capacity then
         return
     end
@@ -1330,16 +1775,23 @@ reserve = function(borrows self: Buffer, minimum: integer): nil
     state._capacity = capacity
 end
 
+syncNative = function(borrows self: Buffer): nil
+    local state = self as any
+    if state._native ~= nil then
+        @unsafe do
+            state._data = nativeBase(state._native)
+        end
+    end
+end
+
 bytesAt = function(borrows self: Buffer, offset: integer, count: integer): string
     if count == 0 then
         return ""
     end
 
-    return physical.string((self as any)._data + offset, count)
-end
+    syncNative(self)
 
-newView = function(bytes: string): affine(ByteView)
-    return Snapshot(_bytes = bytes, _closed = false)
+    return physical.string((self as any)._data + offset, count)
 end
 
 --- Returns a finite byte count for the built-in reader representations.
@@ -1347,6 +1799,8 @@ end
 export function readerRemaining(borrows source: Reader): integer?
     if source is StringReader then
         return #source._bytes - source._at + 1
+    elseif source is SpanReader then
+        return #heldSpan(source._source) - source._at
     elseif source is QueueReader then
         return queueLength(source._source as ByteQueue)
     end
@@ -1358,8 +1812,12 @@ newReaderOver = function(bytes: string): Reader
     return StringReader(_bytes = bytes, _at = 1, _closed = false)
 end
 
+newBufferReader = function(exclusive buffer: Buffer): affine(Reader) borrows (buffer)
+    return QueueReader(_source = buffer as any, _buffer = true, _closed = false)
+end
+
 newWriterOver = function(borrows buffer: Buffer): affine(Writer) borrows (buffer)
-    return BufferWriter(anchor = buffer, _buffer = buffer, _at = 0, _closed = false)
+    return BufferWriter(anchor = buffer, _buffer = buffer, _at = (buffer as any)._length, _closed = false)
 end
 
 ----------------------------------------------------------------------------
@@ -1380,6 +1838,48 @@ local function queueLike(value: any): boolean
     else
         return false
     end
+end
+
+-- Lua 5.1 table length ignores __len. A private userdata facade preserves the
+-- public length operation for plain Lua as well as checked source.
+local bufferProxyStates: any = setmetatable({}, {__mode = "k"})
+local bufferProxyFactory: any = rawget(_G, "newproxy")
+local bufferProxyPrototype: any = nil
+local bufferProxyMetatable: any = nil
+local bufferLengthProbe: any = setmetatable({}, {
+    __len = function(): integer
+        return 1
+    end
+})
+if #bufferLengthProbe ~= 1 and type(bufferProxyFactory) == "function" then
+    bufferProxyPrototype = bufferProxyFactory(true)
+    bufferProxyMetatable = getmetatable(bufferProxyPrototype) as any
+    bufferProxyMetatable.__index = function(self: any, name: string): any
+        return bufferProxyStates[self][name]
+    end
+    bufferProxyMetatable.__newindex = function(self: any, name: string, value: any): nil
+        bufferProxyStates[self][name] = value
+    end
+    bufferProxyMetatable.__len = function(self: any): integer
+        return bufferProxyStates[self]:len() as integer
+    end
+    bufferProxyMetatable.__tostring = function(self: any): string
+        return bufferProxyStates[self]:tostring() as string
+    end
+end
+
+local function bufferFacade(takes state: HeapBuffer): affine(Buffer)
+    local raw = @unsafe own.release(state)
+    if raw._native ~= nil then
+        (raw as any).put = fast.bind(raw)
+    end
+    if bufferProxyPrototype ~= nil then
+        local proxy = bufferProxyFactory(bufferProxyPrototype)
+        bufferProxyStates[proxy] = raw
+        return @unsafe own.adopt<affine(Buffer)>(proxy)
+    end
+
+    return @unsafe own.adopt<affine(Buffer)>(raw)
 end
 
 --- Creates a buffer, optionally over starting bytes or a starting capacity.
@@ -1406,15 +1906,36 @@ export function newBuffer(initial: integer | string?): affine(Buffer)
     end
     local bytes = type(initial) == "string" and initial as string or ""
     local capacity = type(initial) == "number" and integer_(initial, "io.Buffer.create capacity", 2) or #bytes
-    local data = physical.allocateBytes(math.max(capacity, 1))
-    if #bytes > 0 then
-        physical.copy(data, bytes, #bytes)
+    local native: any = nil
+    local data: uint8[?]
+    if fast.new ~= nil then
+        native = fast.new(math.max(capacity, SMALLEST))
+        native:put(bytes)
+        data = nativeBase(native)
+    else
+        data = physical.allocateBytes(math.max(capacity, 1))
+        if #bytes > 0 then
+            physical.copy(data, bytes, #bytes)
+        end
     end
 
-    return HeapBuffer(_data = data, _length = #bytes, _capacity = capacity, _closed = false)
+    return bufferFacade(
+        HeapBuffer(_native = native, _data = data, _length = #bytes, _capacity = capacity, _read = 0, _closed = false)
+    )
 end
 
 createBuffer = newBuffer
+
+-- Compiler-owned text accumulation uses the same storage implementation without
+-- constructing the public ownership facade for a nonescaping builder.
+local function finishText(takes buffer: affine(Buffer)): string
+    local text = buffer:tostring()
+    buffer:close()
+    return text
+end
+
+rawset(Buffer, "__textBuilder", fast.new or newBuffer)
+rawset(Buffer, "__textFinish", fast.finish or finishText)
 
 --- Opens a reader over bytes held as a string.
 ---
@@ -1456,34 +1977,49 @@ export function newQueueReader(source: ByteQueue): Reader
         error("nupp: io.Reader.of needs a byte queue", 2)
     end
 
-    return QueueReader(_source = source, _closed = false)
+    return QueueReader(_source = source, _buffer = false, _closed = false)
 end
 
--- Both buffer and view inputs are copied into an independent snapshot.
-local function openReader(source: any): Reader
+local function newSpanReader(borrows source: span.ByteSpan): affine(Reader) borrows (source)
+    return SpanReader(_source = source, _at = 0, _closed = false)
+end
+
+local function newBytesReader(source: immutable.Bytes): Reader
+    return SpanReader(_source = source, _at = 0, _closed = false)
+end
+
+local function openReader(source: any): any
     if type(source) == "string" then
-        return newStringReader(source as string)
-    elseif queueLike(source) then
-        return newQueueReader(source as ByteQueue)
+        return (newStringReader as any)(source)
+    elseif source.view ~= nil and source.viewas ~= nil then
+        return (newBytesReader as any)(source)
+    elseif source.span ~= nil and source.reserve ~= nil then
+        return (newBufferReader as any)(source)
     end
-
-    return newReaderOver(source:getstring() as string)
+    local _, count = (require("nupp.mem.span") as any).__sharedRef(source)
+    if count ~= nil then
+        return (newSpanReader as any)(source)
+    elseif queueLike(source) then
+        return (newQueueReader as any)(source)
+    end
+    error("nupp: io.Reader.of needs a string, buffer, Bytes, byte span, or queue", 2)
 end
 
---- Opens a byte reader over a string, queue, buffer, or view.
----
---- Buffers and views are copied into independent snapshots. A queue remains
---- live and is drained as the reader advances; closing leaves the queue open.
+--- Opens a byte reader, retaining the source's borrow when needed.
 export const newReader: function(source: string | ByteQueue): Reader
-    & function(borrows source: Buffer | ByteView): Reader = openReader as any
+    & function(exclusive source: Buffer): affine(Reader) borrows (source)
+    & function(borrows source: span.ByteSpan): affine(Reader) borrows (source)
+    & function(source: immutable.Bytes): Reader = openReader as any
 
 readSource = openReader as any
-readBorrowed = openReader as any
+readBuffer = openReader as any
+readSpan = openReader as any
+readBytes = openReader as any
 -- Checked overloads retain their distinct borrow contracts; Lua and stored
 -- references use the same implementation and runtime source discrimination.
 rawset(Reader, "of", openReader)
 
---- Opens a byte writer that clears and exclusively borrows a buffer.
+--- Opens a byte writer that appends and exclusively borrows a buffer.
 export function newWriter(exclusive destination: Buffer): affine(Writer) borrows (destination)
     return destination:writer()
 end
@@ -1646,8 +2182,7 @@ makeLines = function(takes source: Reader, limit: integer?): affine(Lines)
     return LineReader(_source = source, _held = "", _at = 0, _limit = bound, _closed = false, _ended = false)
 end
 
--- The default `readinto`: checked before reading, so a malformed call consumes no
--- input. Level 4 names whoever called `readinto`.
+-- Validate the destination range before asking the source for any bytes.
 readThrough = function(
     exclusive source: Reader,
     exclusive destination: Buffer,
@@ -1656,26 +2191,21 @@ readThrough = function(
 ): (integer?, string?)
     const from = integer_(offset or 0, "Reader:readinto offset", 4)
     const wanted = positive(count or DEFAULT_READ, "Reader:readinto count", 4)
-    sizeSum(from, wanted, "Reader:readinto range", 4)
-    const chunk, why = source:read(wanted)
-    if chunk == nil then
-        return nil, why
+    const lease = reserveAt_(destination, from, wanted)
+    local landed: integer?
+    local reason: string?
+    do
+        const output = lease:span()
+        landed, reason = source:readspan(output)
+        own.drop(output)
     end
-    const landed = #chunk as integer
-    if landed > 0 then
-        const input = span.fromstring(chunk)
-        const lease = destination:reservewrite(from, landed)
-        do
-            const output = lease:span()
-            for index = 1, landed do
-                output[index] = input[index]
-            end
-            own.drop(output)
-        end
-        lease:commit(landed)
+    if landed == nil then
+        own.drop(lease)
+        return nil, reason
     end
+    lease:commit(landed)
 
-    return landed, nil
+    return landed
 end
 
 -- The default `transferto`.
@@ -1696,4 +2226,37 @@ transferThrough = function(exclusive source: Reader, exclusive destination: Writ
         end
         moved = moved + (#chunk as integer)
     end
+end
+
+--- Reserves a checked positional write for stream implementations.
+reserveAt_ = function(
+    exclusive buffer: Buffer,
+    offset: integer,
+    count: integer
+): affine(BufferWriteLease, destroyLease) borrows (buffer)
+    local state = buffer as any
+    opened(state._closed, "io.Buffer", 2)
+    local from = integer_(offset, "io.Buffer write offset", 2)
+    local available = integer_(count, "io.Buffer write count", 2)
+    reserve(buffer, sizeSum(from, available, "io.Buffer write range", 2))
+
+    return newWriteLease(buffer, from, available)
+end
+
+export const reserveAt = reserveAt_
+
+-- A scheduler registration temporarily retains a closure over an existing loan.
+-- The wait ends the registration on success, failure, and cancellation. The box
+-- keeps the complete closure alive across that registration, including its roots.
+export record WaitCallback is own.Closeable
+    @readonly callback: function(): boolean
+    close: @nosuspend function(takes self: WaitCallback): nil
+end
+
+function WaitCallback.close(takes self: WaitCallback): nil
+    local _raw = @unsafe own.release(self)
+end
+
+export function waitCallback(borrows callback: function(): boolean): affine(WaitCallback) borrows (callback)
+    return WaitCallback(callback = callback)
 end

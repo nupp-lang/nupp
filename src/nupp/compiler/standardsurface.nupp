@@ -99,7 +99,7 @@ local MODULES: {[string]: {
     ["utf8"] = {kind = "common"},
     ["nupp.text.regex"] = {kind = "common"},
     ["nupp.text.internal.regexhost"] = {kind = "common"},
-    ["nupp.derive"] = facility("runtime", "runtime.text_buffer"),
+    ["nupp.derive"] = facility("runtime", "runtime.io_internal_bytes"),
     ["io.cli"] = {kind = "common"},
     ["nupp.runtime.standardio"] = {kind = "common"},
     ["nupp.cli.internal.optparser"] = {kind = "common"},
@@ -143,11 +143,9 @@ local MODULES: {[string]: {
     ["nupp.compiler.runtime.extensions"] = {kind = "compiler"},
     ["nupp.compiler.runtime.math"] = {kind = "compiler"},
     ["nupp.compiler.runtime.reflect"] = {kind = "compiler"},
-    ["nupp.heap"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.mem.indexed"] = {kind = "unavailable", capability = "cstorage"},
     ["io.internal.bytestypes"] = {kind = "common"},
     ["io.internal.sharedbytes"] = {kind = "unavailable", capability = "cinterop"},
-    ["nupp.soa"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.mem.span"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.runtime.native"] = {kind = "unavailable", capability = "cinterop"},
     ["debug.bench"] = {kind = "unavailable", capability = "cinterop"},
@@ -189,10 +187,7 @@ export function supports(moduleName: string, host: string?): boolean
     if BROWSER_IMPLEMENTATIONS[moduleName] then
         return selectedHost == "browser"
     end
-    if moduleName == "nupp.runtime.provider.nativebuffer"
-        or moduleName == "nupp.runtime.provider.nativestorage"
-        or moduleName == "bit"
-    then
+    if moduleName == "nupp.runtime.provider.nativestorage" or moduleName == "bit" then
         return true
     end
     if selectedHost == "browser" then

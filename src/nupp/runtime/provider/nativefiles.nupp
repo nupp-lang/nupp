@@ -63,15 +63,18 @@ local function positive(value: any, what: string, level: integer): integer
     return answer
 end
 
---- @raises string when value is neither bytes nor a byte view
-local function payload(borrows value: string | io.ByteView, what: string, level: integer): string
+-- The frozen VM host takes strings; spans copy at this binding boundary.
+local function payload(borrows value: string | span.ByteSpan): string
     if type(value) == "string" then
         return tostring(value)
     end
-    if type(value) == "table" and (value as io.ByteView).getstring ~= nil then
-        return (value as io.ByteView):getstring()
+    local source = value as span.ByteSpan
+    local pieces: {string} = {}
+    for index = 1, #source do
+        pieces[index] = string.char(source[index])
     end
-    error("nupp: io " .. what .. " must be bytes or a byte view", level)
+
+    return table.concat(pieces)
 end
 
 export record File is io.Reader, io.Writer
@@ -97,7 +100,7 @@ export record File is io.Reader, io.Writer
 
     --- Reads into a writable byte span, answering how many bytes landed.
     --- @raises string when the destination is empty
-    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readspan(exclusive self, exclusive destination: span.ByteWriteSpan): (integer?, string?)
         if self._closed then
             return nil, "the file is closed"
         end
@@ -146,12 +149,8 @@ export record File is io.Reader, io.Writer
         if count == 0 then
             return 0, nil
         end
-        local parts: {string} = {}
-        for index = 1, count do
-            parts[index] = string.char(source[index])
-        end
 
-        return host.fileWrite(self._handle, table.concat(parts))
+        return host.fileWrite(self._handle, payload(source))
     end
 
     --- Returns the file's byte length without moving its cursor.
@@ -389,18 +388,18 @@ export function read(path: string | paths.Path): (string?, string?)
 end
 
 --- Replaces a whole file.
-export function write(path: string | paths.Path, borrows bytes: string | io.ByteView): (boolean, string?)
-    return host.write(named(path, "path", 2), payload(bytes, "bytes", 2))
+export function write(path: string | paths.Path, borrows bytes: string | span.ByteSpan): (boolean, string?)
+    return host.write(named(path, "path", 2), payload(bytes))
 end
 
 --- Appends to a file, creating it when missing.
-export function append(path: string | paths.Path, borrows bytes: string | io.ByteView): (boolean, string?)
-    return host.append(named(path, "path", 2), payload(bytes, "bytes", 2))
+export function append(path: string | paths.Path, borrows bytes: string | span.ByteSpan): (boolean, string?)
+    return host.append(named(path, "path", 2), payload(bytes))
 end
 
 --- Replaces a whole file so a reader sees the old contents or the new.
-export function writeAtomic(path: string | paths.Path, borrows bytes: string | io.ByteView): (boolean, string?)
-    return host.writeAtomic(named(path, "path", 2), payload(bytes, "bytes", 2))
+export function writeAtomic(path: string | paths.Path, borrows bytes: string | span.ByteSpan): (boolean, string?)
+    return host.writeAtomic(named(path, "path", 2), payload(bytes))
 end
 
 --- Copies a file.

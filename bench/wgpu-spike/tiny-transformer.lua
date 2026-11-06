@@ -76,11 +76,11 @@ transformer.mixCpu(
 )
 
 local context = gpu.open()
-local inputBuffer = context:tensor(require("nupp.array").float32, {tokens, width})
-local qWeightsBuffer = context:tensor(require("nupp.array").float32, {width, width})
-local kWeightsBuffer = context:tensor(require("nupp.array").float32, {width, width})
-local vWeightsBuffer = context:tensor(require("nupp.array").float32, {width, width})
-local workspace = context:tensor(require("nupp.array").float32, {6, elements})
+local inputBuffer = context:tensor(require("nupp.runtime.standardtable").Array.float, {tokens, width})
+local qWeightsBuffer = context:tensor(require("nupp.runtime.standardtable").Array.float, {width, width})
+local kWeightsBuffer = context:tensor(require("nupp.runtime.standardtable").Array.float, {width, width})
+local vWeightsBuffer = context:tensor(require("nupp.runtime.standardtable").Array.float, {width, width})
+local workspace = context:tensor(require("nupp.runtime.standardtable").Array.float, {6, elements})
 local qView = workspace:subview({0, 0}, {1, elements})
 local kView = workspace:subview({1, 0}, {1, elements})
 local vView = workspace:subview({2, 0}, {1, elements})
@@ -106,7 +106,7 @@ assert(
 )
 assert(
     not pcall(function()
-        context:tensor(require("nupp.array").float32, {tokens, 0})
+        context:tensor(require("nupp.runtime.standardtable").Array.float, {tokens, 0})
     end),
     "a zero-stride broadcasting shape was admitted"
 )

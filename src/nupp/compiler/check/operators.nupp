@@ -400,6 +400,10 @@ export function install(c: state.Checker): state.ExprHandlers
             return wide and t or T.integer
         elseif op == "#" then
             local view = indexedViews.describe(t)
+            if indexedViews.unknownLayout(t) then
+                c.diag("NUPP2403", node, "indexed spans require a concrete packed or columnar layout")
+                return T.integer
+            end
             if view then
                 local receiverDefinition = operand.kind == "name" and operand.token and operand.token.definition or nil
                 node.indexedLength = {
@@ -408,6 +412,12 @@ export function install(c: state.Checker): state.ExprHandlers
                     receiverDefinition = receiverDefinition,
                 }
                 return view.fixedCount or T.integer
+            end
+            local raw = T.unwrapOwnership(t)
+            local nominal = raw as T.Nominal
+            local origin = raw.tag == "nominal" and ((nominal.origin or nominal) as T.Nominal) or nil
+            if origin and origin.moduleName == "nupp.io.internal.bytes" and origin.name == "Buffer" then
+                (node as any).bufferLength = true
             end
             local mm = c.metamethodOf(t, "__len")
             if mm then

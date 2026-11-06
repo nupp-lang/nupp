@@ -5,10 +5,8 @@ local testAssert = require("assert")
 -- `loadBundled` discards a declaration that produces any diagnostic, and
 -- strictness was inherited from the project's manifest -- so `strict = true`, which
 -- is the setting a careful project turns on, made every consumer re-judge nupp's
--- own declarations under a rule they were not written to. `string.buffer` fails
--- it: `put` takes `...: any`, which strict reports on an exported function. The
--- module then resolved to `unknown`, every use of it was silently untyped, and
--- nothing was reported about any of it.
+-- own declarations under a rule they were not written to. Foreign declarations
+-- can legitimately accept any; strict consumers must still receive their types.
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("helpers.fragment")
 local envMod = require("nupp.compiler.project.env")
@@ -33,14 +31,13 @@ end
 -- Every module the compiler ships a declaration for.
 local BUNDLED = {
     "ffi",
-    "string.buffer",
     "jit.util",
     "jit.profile",
     "jit.zone",
     "jit.vmdef",
     "nupp.mem.span",
-    "nupp.heap",
     "nupp.array",
+    "nupp.array.internal.api",
     "nupp.util.internal.pool",
     "nupp.util.internal.structpool",
     "io.internal.sharedbytes",
@@ -564,8 +561,8 @@ function M.stringBufferKeepsItsMembersUnderStrict()
     local env = strictEnv()
     local result = parser.parse(
         [[
-const sb = require("string.buffer")
-const b = sb.new()
+const sb = require("io")
+const b = sb.Buffer.create()
 b:put("x")
 return b:tostring()
 ]],
@@ -636,7 +633,7 @@ function M.aTreeInSyncReportsNothingStale()
     -- The risk this carries is the false positive: it would nag on every command in
     -- every checkout, which is worse than the error it explains.
     local bundled = require("nupp.compiler.bundled")
-    for _, relative in ipairs({"/decls/prelude.d.nupp", "/decls/stringbuffer.d.nupp", "/nupp/mem/span.nupp",}) do
+    for _, relative in ipairs({"/decls/prelude.d.nupp", "/nupp/mem/span.nupp",}) do
         assert(bundled.source(relative), "the compiler carries " .. relative)
     end
     local stale = bundled.staleDeclarations()
@@ -942,6 +939,21 @@ function M.retiredUtilRootIsNotCarriedButItsPrivateOwnersRemain()
     testAssert.eq(binary.types.Bitset, bitset.types.Bitset)
     testAssert.eq(binary.values.WORD_BITS, nil)
     testAssert.eq(bitset.values.WORD_BITS, nil)
+end
+
+function M.bootstrapFilesystemAdaptersKeepCurrentPrivateTypes()
+    local environment = envMod.new(ROOT)
+    local prior = assert(environment.resolveModuleExports(environment, "io.files.internal.contracts"))
+    local current = assert(environment.resolveModuleExports(environment, "io.internal.files.contracts"))
+    testAssert.eq(T.unwrapOwnership(prior.types.File), T.unwrapOwnership(current.types.File))
+    testAssert.eq(prior.types.Provider, current.types.Provider)
+    testAssert.eq(T.unwrapOwnership(prior.types.TemporaryPath), T.unwrapOwnership(current.types.TemporaryPath))
+    local tree = parser.parse('return require("io.files")', "bootstrap-adapter-consumer.nupp")
+    local refused = false
+    for _, diagnostic in ipairs(check.check(tree, "bootstrap-adapter-consumer.nupp", environment)) do
+        refused = refused or diagnostic.code == "NUPP2144"
+    end
+    assert(refused, "the bootstrap path must remain private")
 end
 
 return M

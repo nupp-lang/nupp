@@ -8,31 +8,35 @@ function tests.uploadBodiesUseTheSharedReaderContract(): nil
     local body = http.reader(standard.Reader.of("abcdef"), 6)
     local destination = standard.Buffer.create()
     assert2(body.reader:readinto(destination, 0, 3) == 3)
-    assert2(destination:getstring() == "abc")
+    assert2(destination:tostring() == "abc")
     assert2(body.reader:read(3) == "def")
     body:close()
 end
 
-function tests.byteReadersSnapshotBuffersAndViews(): nil
+function tests.byteReadersBorrowBuffersAndSpans(): nil
     local buffer = standard.Buffer.create("before")
-    local view = buffer:view()
-    local fromBuffer = standard.Reader.of(buffer)
-    local fromView = standard.Reader.of(view)
-    buffer:clear()
-    buffer:close()
-    view:close()
-    assert2(fromBuffer:read(6) == "before")
-    assert2(fromView:read(6) == "before")
+    do
+        local reader = standard.Reader.of(buffer)
+        assert2(reader:read(2) == "be")
+    end
+    assert2(buffer:tostring() == "fore")
+    do
+        local view = buffer:span()
+        local reader = standard.Reader.of(view)
+        assert2(reader:read(4) == "fore")
+    end
+    assert2(buffer:tostring() == "fore")
+    buffer:reset()
 end
 
-function tests.byteWriterExclusivelyBorrowsAndClearsItsBuffer(): nil
+function tests.byteWriterExclusivelyBorrowsAndAppendsToItsBuffer(): nil
     local buffer = standard.Buffer.create("old")
     do
         local writer = standard.Writer.of(buffer)
         assert2(writer:write("new"))
         assert2(writer:flush())
     end
-    assert2(buffer:getstring() == "new")
+    assert2(buffer:tostring() == "oldnew")
 end
 
 local record Queue is standard.ByteQueue
@@ -76,28 +80,28 @@ function tests.structuralQueuesReadIntoBuffersAndWritableSpans(): nil
     local reader = standard.Reader.of(queue)
     local destination = standard.Buffer.create(8)
     assert2(reader:readinto(destination, 0, 3) == 3)
-    local lease = destination:reservewrite(3, 3)
+    local lease = destination:reserve(3)
     do
         local output = lease:span()
         assert2(reader:readspan(output) == 3)
         own.drop(output)
     end
     lease:commit(3)
-    assert2(destination:getstring() == "abcdef")
+    assert2(destination:tostring() == "abcdef")
     assert2(reader:read(1) == "")
 end
 
 function tests.stringReadersFillWritableSpans(): nil
     local reader = standard.Reader.of("abc")
     local destination = standard.Buffer.create(3)
-    local lease = destination:reservewrite(0, 3)
+    local lease = destination:reserve(3)
     do
         local output = lease:span()
         assert2(reader:readspan(output) == 3)
         own.drop(output)
     end
     lease:commit(3)
-    assert2(destination:getstring() == "abc")
+    assert2(destination:tostring() == "abc")
 end
 
 function tests.linesKeepTerminatorsAndFinalFragments(): nil
@@ -107,6 +111,65 @@ function tests.linesKeepTerminatorsAndFinalFragments(): nil
     assert2(lines:read() == "last")
     assert2(lines:read() == nil)
     lines:close()
+end
+
+function tests.buffersAppendConsumeAndBorrow(): nil
+    local buffer = standard.Buffer.create(4)
+    buffer:put("ab", 12)
+    buffer:putf("-%02d", 3)
+    assert2(buffer:tostring() == "ab12-03")
+    assert2(tostring(buffer) == "ab12-03")
+    assert2(#buffer == 7)
+    assert2(buffer:get(2) == "ab")
+    buffer:skip(1)
+    assert2(buffer:tostring() == "2-03")
+    do
+        local bytes = buffer:span(2, 3)
+        assert2(#bytes == 2 and bytes[1] == 45 and bytes[2] == 48)
+    end
+    do
+        local writer = buffer:writer()
+        assert2(writer:write("!"))
+    end
+    assert2(buffer:get() == "2-03!")
+    assert2(buffer:len() == 0)
+    buffer:reset():put("new")
+    assert2(buffer:get(99) == "new")
+end
+
+function tests.bufferReservationsCommitOnlyWrittenBytes(): nil
+    local buffer = standard.Buffer.create("a")
+    do
+        local lease = buffer:reserve(3)
+        do
+            local bytes = lease:span()
+            bytes[1] = 98
+            bytes[2] = 99
+        end
+        lease:commit(2)
+    end
+    assert2(buffer:tostring() == "abc")
+    do
+        local lease = buffer:reserve(2)
+        local bytes = lease:span()
+        bytes[1] = 120
+    end
+    assert2(buffer:tostring() == "abc")
+end
+
+function tests.bufferScalarRangesAndEndianAreExplicit(): nil
+    local buffer = standard.Buffer.create()
+    buffer:resize(16)
+    buffer:writeu16be(0, 0x1234)
+    assert2(buffer:readstring(0, 2) == "\18\52")
+    assert2(buffer:readu16be(0) == 0x1234)
+    buffer:writef64be(4, 1.5)
+    assert2(buffer:readf64be(4) == 1.5)
+    buffer:writebits(15, 12, 0xabc)
+    assert2(buffer:readbits(15, 12) == 0xabc)
+    assert2(buffer:readu8(0) == 0x12)
+    buffer:fill(12, 255, 4)
+    assert2(buffer:readstring(12, 4) == string.rep("\255", 4))
 end
 
 return tests

@@ -18,7 +18,7 @@ export record Descriptor
 end
 
 export record Producer
-    kind: 'carray' | 'fixed-carray' | 'string' | 'heap' | 'soa'
+    kind: 'carray' | 'fixed-carray' | 'string' | 'heap' | 'soa' | 'buffer'
     descriptor: Descriptor
 end
 
@@ -50,15 +50,25 @@ export function describe(t: Type): Descriptor?
     if (moduleName == "nupp.mem.span")
         and (name == "Span" or name == "FixedSpan" or name == "WriteSpan" or name == "FixedWriteSpan")
     then
+        local layout = nominal.constArgs and nominal.constArgs[1] or nil
+        if (name == "Span" or name == "WriteSpan")
+            and layout
+            and (layout.tag ~= "constLiteral" or (layout.value ~= "packed" and layout.value ~= "columnar"))
+        then
+            return nil
+        end
         return Descriptor(
-            adapter = "span",
+            adapter = (name == "Span" or name == "WriteSpan")
+            and layout
+            and layout.tag == "constLiteral"
+            and layout.value == "columnar"
+            and "soa"
+            or "span",
             element = element,
             writable = name == "WriteSpan" or name == "FixedWriteSpan",
             fixedCount = (name == "FixedSpan" or name == "FixedWriteSpan") and args[2] or nil,
             nominal = nominal
         )
-    elseif moduleName == "nupp.soa" and (name == "Span" or name == "WriteSpan") then
-        return Descriptor(adapter = "soa", element = element, writable = name == "WriteSpan", nominal = nominal)
     end
 
     return nil
@@ -85,7 +95,9 @@ export function spanElement(t: Type): Type?
         return nil
     end
 
-    return nominal.typeArgs and nominal.typeArgs[1] or nil
+    local descriptor = describe(t)
+
+    return descriptor and descriptor.adapter == "span" and descriptor.element or nil
 end
 
 local SPAN_PRODUCERS: {
@@ -133,14 +145,19 @@ export function methodProducer(receiver: Type, member: string, result: Type): Pr
     local nominal = raw as T.Nominal
     local origin = (nominal.origin or nominal) as T.Nominal
     local moduleName = origin.moduleName or nominal.moduleName or origin.sealedModule
-    if origin.name ~= "Array" or (member ~= "read" and member ~= "write") then
-        return nil
-    end
-    local kind: 'carray' | 'fixed-carray' | 'string' | 'heap' | 'soa'
-    if moduleName == "nupp.heap" then
-        kind = "heap"
-    elseif moduleName == "nupp.soa" then
-        kind = "soa"
+    local kind: 'carray' | 'fixed-carray' | 'string' | 'heap' | 'soa' | 'buffer'
+    if moduleName == "nupp.io.internal.bytes" and origin.name == "Buffer" and member == "span" then
+        kind = "buffer"
+    elseif origin.name == "Array" and (member == "read" or member == "write") then
+        if moduleName == "nupp.array" then
+            local view = describe(result)
+            if not view then
+                return nil
+            end
+            kind = view.adapter == "soa" and "soa" or "heap"
+        else
+            return nil
+        end
     else
         return nil
     end
@@ -150,4 +167,19 @@ export function methodProducer(receiver: Type, member: string, result: Type): Pr
     end
 
     return Producer(kind = kind, descriptor = descriptor)
+end
+
+--- A layout parameter must be concrete before an indexed operation can select its ABI.
+export function unknownLayout(t: Type): boolean
+    local raw = T.unwrapOwnership(t)
+    if raw.tag ~= "nominal" then
+        return false
+    end
+    local nominal = raw as T.Nominal
+    local origin = (nominal.origin or nominal) as T.Nominal
+    if origin.moduleName ~= "nupp.mem.span" or (origin.name ~= "Span" and origin.name ~= "WriteSpan") then
+        return false
+    end
+
+    return describe(t) == nil
 end

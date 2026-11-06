@@ -48,7 +48,7 @@ end
 -- An int32 and a uint32 are the same Lua number, so the witness alone decides
 -- which way a 32-bit fold wraps.
 function M.theElementWitnessDecidesHowAnIntegerReducerWraps()
-    local array = require("nupp.array")
+    local array = require("nupp.runtime.standardtable").Array
     local signed = simd.reducer.wrappingsum(array.int32, 2147483647)
     local unsigned = simd.reducer.wrappingsum(array.uint32, 2147483647)
     signed:add(1)
@@ -58,7 +58,7 @@ function M.theElementWitnessDecidesHowAnIntegerReducerWraps()
     local wide = simd.reducer.wrappingproduct(array.uint64, 4294967296ULL)
     wide:add(4294967296ULL)
     test.eq(wide:value(), 0ULL, "uint64 wraps modulo 2^64")
-    local ok, problem = pcall(simd.reducer.orbits, array.float32, 0)
+    local ok, problem = pcall(simd.reducer.orbits, array.float, 0)
     test.eq(ok, false, "a float witness names no integer reducer")
     assert(tostring(problem):find("array witness", 1, true), tostring(problem))
 end
@@ -67,17 +67,17 @@ end
 -- every operation rounds as `math.f32` rounds, and the seed is rounded
 -- on the way in.
 function M.theFloatWitnessRoundsEveryOperationToBinary32()
-    local array = require("nupp.array")
+    local array = require("nupp.runtime.standardtable").Array
     local mathLibrary = {}
     require("nupp.compiler.runtime.math").install(mathLibrary)
     local f32 = mathLibrary.f32
     local wide = simd.reducer.orderedsum(0.1)
-    local narrow = simd.reducer.orderedsum(array.float32, 0.1)
+    local narrow = simd.reducer.orderedsum(array.float, 0.1)
     wide:add(0.2)
     narrow:add(0.2)
     test.eq(wide:value(), 0.1 + 0.2, "a number sum is binary64")
     test.eq(narrow:value(), f32.add(f32.narrow(0.1), 0.2), "a float sum rounds after every addition")
-    local tree = simd.reducer.pairwisesum(array.float32, 16777216.0)
+    local tree = simd.reducer.pairwisesum(array.float, 16777216.0)
     tree:add(1.0)
     tree:add(1.0)
     tree:add(1.0)
@@ -85,10 +85,10 @@ function M.theFloatWitnessRoundsEveryOperationToBinary32()
     -- left node rounds back to 2^24 and whose root is then 2^24 + 2, where an
     -- ordered binary32 sum would round every step back to 2^24.
     test.eq(tree:value(), 16777218.0, "a float pairwise tree rounds at every node")
-    local dot = simd.reducer.ordereddot(array.float32, 0.0)
+    local dot = simd.reducer.ordereddot(array.float, 0.0)
     dot:add(0.1, 0.1)
     test.eq(dot:value(), f32.add(0.0, f32.mul(f32.narrow(0.1), f32.narrow(0.1))), "a float dot rounds its product")
-    local low = simd.reducer.propagatingmin(array.float32, 0.1)
+    local low = simd.reducer.propagatingmin(array.float, 0.1)
     low:add(0.2)
     test.eq(low:value(), f32.narrow(0.1), "an extremum keeps the rounded seed")
     local ok, problem = pcall(simd.reducer.orderedsum, array.int32, 0)
@@ -100,7 +100,7 @@ end
 -- value and a mask a boolean: `false` contributes nothing, and an arg
 -- extremum still counts it as a position.
 function M.aBooleanMaskSkipsTheContributionAsOrdinaryLua()
-    local array = require("nupp.array")
+    local array = require("nupp.runtime.standardtable").Array
     local total = simd.reducer.orderedsum(0.0)
     total:add(1.0, false)
     total:add(2.0, true)

@@ -101,7 +101,7 @@ narrower stored view exists yet.
 Indexers take the same capabilities, in shapes, interfaces, and records:
 
 ```nupp
-local interface ByteView
+local interface ReadableBytes
     @readonly [integer]: uint8
 end
 

@@ -367,7 +367,10 @@ input {
 
 .nuppdoc-sidebar a[aria-current="page"],
 .nuppdoc-outline a:hover {
-    color: var(--nuppdoc-accent);
+    color: var(--nuppdoc-accent)
+}
+
+.nuppdoc-sidebar a[aria-current="page"] {
     font-weight: 650
 }
 
@@ -1816,23 +1819,8 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
         font-size: 1rem
     }
 
-    .nuppdoc-sidebar li>a,
-    .nuppdoc-sidebar summary {
-        display: flex;
-        align-items: center;
-        min-height: 44px
-    }
-
     .nuppdoc-sidebar summary {
         padding-right: 2rem
-    }
-
-    .nuppdoc-sidebar :is(.nuppdoc-sidebar-section, .nuppdoc-module-branch)>details>summary>a {
-        display: flex;
-        align-items: center;
-        flex: 1;
-        min-height: 44px;
-        padding: 0
     }
 
     .is-mobile-nav-open .nuppdoc-sidebar {
@@ -1880,6 +1868,27 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 @media(max-width:760px) {
     .nuppdoc-mobile-outline-toggle {
         display: grid
+    }
+
+    .nuppdoc-outline ol:has(> .nuppdoc-outline-flow) {
+        display: flex;
+        flex-wrap: wrap;
+        padding-left: 1rem;
+        column-gap: 1.1rem
+    }
+
+    .nuppdoc-outline ol:has(> .nuppdoc-outline-flow) > li:not(.nuppdoc-outline-flow) {
+        flex-basis: 100%
+    }
+
+    .nuppdoc-outline-flow {
+        max-width: 100%
+    }
+
+    .nuppdoc-outline-flow > a {
+        padding-block: .176rem;
+        overflow-wrap: anywhere;
+        white-space: normal
     }
 
     .nuppdoc-outline,

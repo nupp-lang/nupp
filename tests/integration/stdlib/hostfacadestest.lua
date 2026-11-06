@@ -454,7 +454,7 @@ end
 function M.moduleStagingDistinguishesTheHostFromTheVm()
     local surface = require("nupp.compiler.standardsurface")
     local expectations = {
-        {"nupp.runtime.provider.nativebuffer", true, true},
+        {"nupp.io.internal.nativebuffer", true, true},
         {"nupp.runtime.provider.nativestorage", true, true},
         {"bit", true, true},
         {"nupp.runtime.provider.nativetime", true, false},

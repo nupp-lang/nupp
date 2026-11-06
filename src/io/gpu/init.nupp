@@ -9,12 +9,12 @@ downloads only enqueue commands; `synchronize()` is the explicit CPU boundary.
 raises when none can.
 
 ```nupp:fragment
-local array = nupp.array
+local array = table.Array
 local kernels = require("kernels")
 
 local context = io.gpu.open()
-local input = context:buffer(array.float32, 1024)
-local output = context:buffer(array.float32, 1024)
+local input = context:buffer(array.float, 1024)
+local output = context:buffer(array.float, 1024)
 local kernel = kernels.scale:compile(context)
 do
     local scale = kernel:bind(output, input)

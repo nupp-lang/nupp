@@ -38,7 +38,7 @@ local record MemoryReader is Reader
         return bytes, nil
     end
 
-    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readspan(exclusive self, exclusive destination: span.ByteWriteSpan): (integer?, string?)
         if self._closed then
             return nil, "the reader is closed"
         end
@@ -73,7 +73,7 @@ local record MemoryReader is Reader
         if taking == 0 then
             return 0, nil
         end
-        local lease = destination:reservewrite(from, wanted)
+        local lease = require("nupp.io.internal.bytes").reserveAt(destination, from, wanted)
         do
             local output = lease:span()
             local _read, _reason = self:readspan(output)
