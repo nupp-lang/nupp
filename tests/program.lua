@@ -40,7 +40,11 @@ local function installSourceModules(loadImage)
     end
     sourceModules = true
     local compile = require("nupp.tools.cli.compile")
-    local env = require("nupp.compiler.project.env").new(".")
+    local envMod = require("nupp.compiler.project.env")
+    local env = envMod.new(".")
+    local root = envMod.compilerRoot() or "."
+    table.insert(env.roots, 1, root .. "/native/crates/vm/lib")
+    table.insert(env.roots, 1, root .. "/native/crates/vm/decls")
     require("nupp.compiler.runtime").install(
         env,
         function(modulePath, e, name, source)

@@ -361,6 +361,49 @@ end
     assert(ok, problem)
 end
 
+function M.warmInterfacesKeepCheckedConstDefaultsAfterAConsumerEdit()
+    local dir = tempProject()
+    write(
+        dir .. "/src/provider.nupp",
+        [[
+module provider
+export type Label<T, const Layout: string = "packed"> = Layout
+export record Box<T, const Layout: string = "packed">
+    value: T
+    layout: Layout
+end
+]]
+    )
+
+    local function consumer(value)
+        return [[
+module consumer
+local provider = require("provider")
+export function label(value: provider.Label<number>): provider.Label<number>
+    return value
+end
+export function read(box: provider.Box<number>): number
+    return box.value + ]]
+            .. value
+            .. [[
+
+end
+]]
+    end
+
+    write(dir .. "/src/consumer.nupp", consumer("1"))
+    local ok, problem = pcall(function()
+        project.emitCached(dir, "consumer", "", "src", dir .. "/cache")
+        write(dir .. "/src/consumer.nupp", consumer("2"))
+        local expected = project.emit(dir, "consumer", "", "src")
+        local image = project.emitCached(dir, "consumer", "", "src", dir .. "/cache")
+        assert(emitcache.last.stats.restored > 0, "the unchanged provider interface was not restored")
+        same(expected, image, "checked const defaults after consumer edit")
+    end)
+    remove(dir)
+    assert(ok, problem)
+end
+
 function M.aCachedEmitWritesWhatAnEmitFromNothingWrites()
     local dir = tempProject()
     local expected = scratch(dir)

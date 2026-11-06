@@ -350,7 +350,7 @@ function M.aVectorProgramRunsFromItsBinary()
     writeFile(
         dir .. "/src/main.nupp",
         [[
-local array = require("nupp.array")
+local array = table.Array
 local span = require("binary.span")
 local simd = require("simd")
 

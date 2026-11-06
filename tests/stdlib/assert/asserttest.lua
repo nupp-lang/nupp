@@ -109,13 +109,15 @@ function M.usesNativeLeafEqualityAndRefusesUnorderedKeys()
     end)
     test.matches(nanError, "value%.value")
 
-    -- A userdata leaf compares by identity: a string buffer is one on every host.
-    local buffer = require("string.buffer")
-    local pattern = buffer.new()
+    -- A Buffer leaf compares by identity on every host.
+    local buffer = require("io").Buffer
+    local pattern, other = buffer.create(), buffer.create()
     test.deepeq({pattern = pattern}, {pattern = pattern})
     local patternError = test.raises(function()
-        test.deepeq({pattern = buffer.new()}, {pattern = buffer.new()})
+        test.deepeq({pattern = pattern}, {pattern = other})
     end)
+    pattern:close()
+    other:close()
     test.matches(patternError, "value%.pattern")
 
     local key = {}

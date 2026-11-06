@@ -1,5 +1,8 @@
 -- VM arrays retain managed storage owners instead of native malloc pointers.
-local _DYNAMIC_REQUIRES = "@requires-dynamically nupp.runtime.storage"
+local _DYNAMIC_REQUIRES = [[
+@requires-dynamically nupp.runtime.storage
+@requires-dynamically nupp.vm.arraylayout
+]]
 local storageModule = table.concat({"nupp", "runtime", "storage"}, ".")
 local physical = require(storageModule)
 local M = {}

@@ -19,7 +19,7 @@ local generics = require("nupp.compiler.types.generics")
 local reflection = require("nupp.compiler.reflection")
 local T = require("nupp.compiler.types")
 
-export const SCHEMA = 8
+export const SCHEMA = 9
 
 --- What `interfaceimage.encode` is told about the run it encodes for.
 export type EncodeOptions = {
@@ -176,8 +176,24 @@ local function arenaName(): string
     return "image-" .. processToken .. "-" .. tostring(nextArena)
 end
 
+local function literalDefault(value: any): any?
+    if type(value) ~= "table" or value.kind ~= "tliteral" or type(value.token) ~= "table" then
+        return nil
+    end
+    local token = value.token
+    if type(token.text) ~= "string"
+        or not (token.kind == "string" or token.kind == "number" or token.kind == "true" or token.kind == "false")
+        or value.negated ~= nil and type(value.negated) ~= "boolean"
+        or value.negated == true and token.kind ~= "number"
+    then
+        return nil
+    end
+
+    return {kind = "tliteral", token = copyToken(token), negated = value.negated == true}
+end
+
 --- The positions of a defaults list, dense, so a reader never stops at a hole.
-local function encodeDefaults(values: any, intern: function(any): integer?): {any}
+local function encodeDefaults(values: any, intern: function(any): integer?): ({any}?, string?)
     local count: integer = 0
     for position in pairs(values or {}) do
         if type(position) == "number" and position > count then
@@ -187,6 +203,7 @@ local function encodeDefaults(values: any, intern: function(any): integer?): {an
     local encoded: {any} = {}
     for position = 1, count do
         local value = values[position]
+        local literal = literalDefault(value)
         if type(value) == "table" and value.tag == "pack" then
             encoded[position] = {kind = "typepack", value = intern(value)}
         elseif type(value) == "table"
@@ -195,12 +212,16 @@ local function encodeDefaults(values: any, intern: function(any): integer?): {an
             encoded[position] = {kind = "const", value = intern(value)}
         elseif type(value) == "table" and value.tag then
             encoded[position] = {kind = "type", value = intern(value)}
-        else
+        elseif literal then
+            encoded[position] = {kind = "literal", token = literal.token, negated = literal.negated}
+        elseif value == nil then
             encoded[position] = {kind = "none"}
+        else
+            return nil, "module interface has an unsupported generic default"
         end
     end
 
-    return encoded
+    return encoded, nil
 end
 
 --- Bounds beside their parameters, with 0 where a parameter has none.
@@ -316,6 +337,13 @@ export function encode(semantics: {[string]: any}, options: EncodeOptions?): (an
     end
 
     local rootTuple = T.tuple(roots)
+    local defaultProblem: string? = nil
+
+    local function defaults(values: any, intern: function(any): integer?): {any}
+        local encoded, problem = encodeDefaults(values, intern)
+        defaultProblem = defaultProblem or problem
+        return encoded or {}
+    end
 
     local function reference(t: any, intern: function(any): integer?): any?
         local origin = t ~= rootTuple and origins and origins[t] or nil
@@ -443,7 +471,7 @@ export function encode(semantics: {[string]: any}, options: EncodeOptions?): (an
             out.selfType = intern(t.selfType)
             out.predicate = t.predicate
             out.hasParamDefaults = t.paramDefaults ~= nil
-            out.paramDefaults = encodeDefaults(t.paramDefaults, intern)
+            out.paramDefaults = defaults(t.paramDefaults, intern)
             out.hasInheritedDefaults = t.inheritedDefaults ~= nil
             out.inheritedDefaults = {}
             for _, name in ipairs(sortedNames(t.inheritedDefaults)) do
@@ -572,7 +600,7 @@ export function encode(semantics: {[string]: any}, options: EncodeOptions?): (an
             end
         elseif tag == "genericAlias" then
             out.typeBounds = encodeBounds(t.typeParams, t.typeBounds, intern)
-            out.parameterDefaults = encodeDefaults(t.paramDefaults, intern)
+            out.parameterDefaults = defaults(t.paramDefaults, intern)
         elseif tag == "neutral" then
             out.operation = t.op
             if t.op == "comptimeCall" then
@@ -636,6 +664,9 @@ export function encode(semantics: {[string]: any}, options: EncodeOptions?): (an
     end
 
     local rootIndex, nodes, sources = reflection.graph(rootTuple, {reference = reference, extend = extend})
+    if defaultProblem then
+        return nil, defaultProblem
+    end
     local tuple = nodes[rootIndex or 0]
     if type(tuple) ~= "table" or tuple.kind ~= "tuple" or type(tuple.members) ~= "table" then
         return nil, "module interface root is not a tuple"
@@ -827,8 +858,16 @@ export function decode(image: any, options: DecodeOptions?): (any?, string?)
         local list = encoded or {}
         for position = 1, #list do
             local entry = list[position]
-            if entry.kind ~= "none" then
+            if entry.kind == "literal" then
+                local literal = literalDefault({kind = "tliteral", token = entry.token, negated = entry.negated})
+                if not literal then
+                    error("module interface has a malformed literal default", 0)
+                end
+                values[position] = literal
+            elseif entry.kind == "type" or entry.kind == "const" or entry.kind == "typepack" then
                 values[position] = edge(entry.value)
+            elseif entry.kind ~= "none" then
+                error("module interface has an unsupported generic default", 0)
             end
         end
 

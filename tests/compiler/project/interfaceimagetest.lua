@@ -721,6 +721,73 @@ function M.keepsDefaultsAfterAHole()
     testAssert.eq(got.paramDefaults[2], T.string, "default after a hole")
 end
 
+function M.checkedConstDefaultsSurviveInterfaceTransport()
+    local parser = require("nupp.compiler.syntax.parser")
+    local check = require("helpers.fragment")
+    local envMod = require("nupp.compiler.project.env")
+    local env = envMod.new(HERE .. "/..", {cache = false})
+    local path = "/project/producer.nupp"
+    local parsed = parser.parse(
+        [[
+module producer
+export type Label<T, const Layout: string = "pa\x63ked"> = Layout
+export type Count<T, const N: integer = -3> = N
+export type Flag<T, const Enabled: boolean = false> = Enabled
+export record Box<T, const Layout: string = "packed">
+    value: T
+    layout: Layout
+end
+]],
+        path
+    )
+    testAssert.eq(#parsed.errors, 0, "producer syntax")
+    local diagnostics, moduleType, exports = check.check(parsed, path, env, {moduleName = "producer"})
+    testAssert.eq(#diagnostics, 0, "producer diagnostics")
+    local semantics = {producer = {interface = {type = moduleType}, exports = exports, path = path}}
+    local image = assert(encode(semantics))
+    local decoded = assert(interfaceimage.decode(image)).producer
+    local resolve = env.resolveModuleExports
+    env.resolveModuleExports = function(self, name)
+        return name == "producer" and decoded.exports or resolve(self, name)
+    end
+    local consumer = parser.parse(
+        [[
+local producer = require("producer")
+local function use(
+    label: producer.Label<number>,
+    count: producer.Count<number>,
+    flag: producer.Flag<number>,
+    box: producer.Box<number>
+): ("packed", -3, false, "packed")
+    return label, count, flag, box.layout
+end
+return use
+]],
+        "/project/consumer.nupp"
+    )
+    testAssert.eq(#consumer.errors, 0, "consumer syntax")
+    local consumerDiagnostics = check.check(consumer, "/project/consumer.nupp", env)
+    for _, diagnostic in ipairs(consumerDiagnostics) do
+        assert(diagnostic.severity == "warning", diagnostic.code .. ": " .. diagnostic.msg)
+    end
+    image.schema = interfaceimage.SCHEMA - 1
+    assert(interfaceimage.decode(image) == nil, "lossy older interface schema was accepted")
+end
+
+function M.refusesUnsupportedWrittenDefaults()
+    local parser = require("nupp.compiler.syntax.parser")
+    local check = require("helpers.fragment")
+    local env = require("nupp.compiler.project.env").new(HERE .. "/..", {cache = false})
+    local path = "/project/producer.nupp"
+    local parsed = parser.parse("module producer\nexport type Pair<T, U = T> = U", path)
+    testAssert.eq(#parsed.errors, 0, "producer syntax")
+    local diagnostics, moduleType, exports = check.check(parsed, path, env, {moduleName = "producer"})
+    testAssert.eq(#diagnostics, 0, "producer diagnostics")
+    local image, problem = encode({producer = {interface = {type = moduleType}, exports = exports, path = path}})
+    testAssert.eq(image, nil, "an unsupported default refuses the whole interface")
+    assert(problem:find("unsupported generic default", 1, true), problem)
+end
+
 function M.keepsTransportStateOutOfThePublicDescriptor()
     local parser = require("nupp.compiler.syntax.parser")
     local program = require("program")

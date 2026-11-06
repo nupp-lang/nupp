@@ -218,11 +218,18 @@ end
 function M.floatingStorageWitnessesHaveExactPhysicalTypes()
     local parsed = checked(
         [[
-local array = require("nupp.array")
-local narrow: array.Scalar<float32> = array.float32
-local wide: array.Scalar<float64> = array.float64
+local array = table.Array
+local span = require("binary.span")
+local narrow = array.float
+local wide = array.number
+local function fillwide(exclusive values: span.WriteSpan<float64>): nil
+    values[1], values[2], values[3] = -0.0, math.huge, 0.0 / 0.0
+end
+local function fillnarrow(exclusive values: span.WriteSpan<float32>): nil
+    values[1] = 0.1
+end
 local exposed: any = array
-assert(exposed.float == nil and exposed.number == nil)
+assert(exposed.float32 == nil and exposed.float64 == nil)
 local simd = require("simd")
 local sum = simd.reducer.orderedsum(1)
 local total: float64 = sum:value()
@@ -238,7 +245,7 @@ assert(math.type(lane) == "float" and lane == 1.0)
 do
     const values = array.scalar(wide, 3)
     const writable = values:write()
-    writable[1], writable[2], writable[3] = -0.0, math.huge, 0.0 / 0.0
+    fillwide(writable)
     own.drop(writable)
     const readable = values:read()
     assert(math.type(readable[1]) == "float" and 1.0 / readable[1] == -math.huge)
@@ -247,7 +254,7 @@ end
 do
     const values = array.scalar(narrow, 1)
     const writable = values:write()
-    writable[1] = 0.1
+    fillnarrow(writable)
     own.drop(writable)
     const readable = values:read()
     assert(readable[1] == math.f32.narrow(0.1))

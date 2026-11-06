@@ -29,7 +29,7 @@ local function explicitMap(
     if #output ~= #input then
         error("length mismatch", 2)
     end
-    local species = assert2(simd.species(array.float64, 4))
+    local species = assert2(simd.species(array.number, 4))
     local cursor: uint32 = 0
     while cursor + species.lanes <= #input do
         species:store(output, cursor + 1, species:load(input, cursor + 1) * scale + bias)
@@ -62,7 +62,7 @@ local function explicitRefine(exclusive output: span.WriteSpan<float64>, borrows
     if #output ~= #input then
         error("length mismatch", 2)
     end
-    local species = assert2(simd.species(array.float64, 4))
+    local species = assert2(simd.species(array.number, 4))
     local cursor: uint32 = 0
     while cursor + species.lanes <= #input do
         local value = species:load(input, cursor + 1)
@@ -108,7 +108,7 @@ local function explicitOrdered(borrows left: span.Span<float64>, borrows right: 
     if #left ~= #right then
         error("length mismatch", 2)
     end
-    local species = assert2(simd.species(array.float64, 4))
+    local species = assert2(simd.species(array.number, 4))
     local result = simd.reducer.ordereddot(0.0)
     do
         local cursor: uint32 = 0
@@ -143,7 +143,7 @@ local function explicitPairwise(borrows left: span.Span<float64>, borrows right:
     if #left ~= #right then
         error("length mismatch", 2)
     end
-    local species = assert2(simd.species(array.float64, 4))
+    local species = assert2(simd.species(array.number, 4))
     local result = simd.reducer.pairwisedot(0.0)
     do
         local cursor: uint32 = 0
@@ -178,7 +178,7 @@ local function explicitAlgebraic(borrows left: span.Span<float64>, borrows right
     if #left ~= #right then
         error("length mismatch", 2)
     end
-    local species = assert2(simd.species(array.float64, 4))
+    local species = assert2(simd.species(array.number, 4))
     local accumulator = species:splat(0.0)
     local cursor: uint32 = 0
     while cursor + species.lanes <= #left and cursor + species.lanes <= #right do
