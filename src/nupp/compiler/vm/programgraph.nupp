@@ -557,6 +557,27 @@ function program.describe(modules: {any}, entryModule: string): any
     local currentChunk: any = nil
     local loaded: {[any]: {[string]: boolean}} = {}
 
+    -- A hidden require of `module` that chunk `owner` makes as it starts,
+    -- before its own body (ahead of the others when `first`), positioned at
+    -- `token`.
+    local function eagerLoad(owner: any, module: any, token: any, first: boolean): nil
+        local load = {kind = "qualifiedLoad", qualifiedModule = module.name, token}
+        local eager = {
+            id = #p.requires,
+            owner = owner.id,
+            node = load,
+            module = module.name,
+            typeOnly = false,
+            target = module.chunk,
+            qualified = true,
+            eager = true
+        }
+        p.requires[#p.requires + 1], p.requireByNode[load] = eager, eager
+        local loads = p.qualifiedLoads[owner.id] or {}
+        p.qualifiedLoads[owner.id] = loads
+        table.insert(loads, first and 1 or #loads + 1, eager)
+    end
+
     local collect: function(any, any): nil
     collect = function(node: any, owner: any): nil
         if cst.isToken(node) or typeSyntax[node.kind] or graph.erased(node) then
@@ -612,20 +633,7 @@ function program.describe(modules: {any}, entryModule: string): any
                 loaded[currentChunk] = seen
                 if not seen[node.qualifiedModule] then
                     seen[node.qualifiedModule] = true
-                    local load = {kind = "qualifiedLoad", qualifiedModule = node.qualifiedModule, root.token}
-                    local eager = {
-                        id = #p.requires,
-                        owner = currentChunk.id,
-                        node = load,
-                        module = node.qualifiedModule,
-                        typeOnly = false,
-                        target = qualified.chunk,
-                        qualified = true,
-                        eager = true
-                    }
-                    p.requires[#p.requires + 1], p.requireByNode[load] = eager, eager
-                    p.qualifiedLoads[currentChunk.id] = p.qualifiedLoads[currentChunk.id] or {}
-                    table.insert(p.qualifiedLoads[currentChunk.id], eager)
+                    eagerLoad(currentChunk, qualified, root.token, false)
                 end
                 return
             end
@@ -996,6 +1004,14 @@ function program.describe(modules: {any}, entryModule: string): any
         currentChunk = p.owners[module.chunk + 1]
         collect(module.parsed.root, currentChunk)
     end
+    -- An image carrying the module behind `warn` and the finalizers loads it
+    -- as its entry starts, so it is installed before any finalizer runs: one
+    -- eager require, as a qualified path's.
+    local warns = moduleNames[graph.WARN_MODULE]
+    local entry = p.modules[#p.modules]
+    if warns and entry and warns ~= entry then
+        eagerLoad(p.owners[entry.chunk + 1], warns, cst.firstToken(entry.parsed.root), true)
+    end
     -- Capture ownership mode is independent of its transported representation.
     -- Only shared mutable bindings and recursive declaration self-references
     -- require a cell; a recursive const function still needs publication after
@@ -1275,10 +1291,11 @@ function program.verify(p: any): boolean
             )
         elseif item.field then
             need(
-                (
-                    node.kind == "call" and node.obj.kind ~= "name"
-                    or node.kind == "methodCall" and graph.callbackArgument(node) ~= nil
-                )
+                (node.kind == "call" and node.obj.kind ~= "name"
+                -- A library function called by its name through its value.
+                or node.kind == "call" and graph.libraryValue(node.obj) ~= nil
+                or node.kind == "methodCall"
+                and graph.callbackArgument(node) ~= nil)
                 and p.callByNode[node] == item
                 and item.definition == nil
                 and not node.runtimeLoader

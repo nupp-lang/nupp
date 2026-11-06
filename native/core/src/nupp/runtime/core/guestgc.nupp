@@ -33,6 +33,8 @@ const guestvalues = require("nupp.runtime.core.guestvalues")
 const texts = require("nupp.runtime.core.guesttexts")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 const finalizers = require("nupp.runtime.core.guestfinalizers")
+const guestmeta = require("nupp.runtime.core.guestmeta")
+const librarylayouts = require("nupp.runtime.core.librarylayouts")
 
 -- What `collect` answers when finalizers run before the call answers: an
 -- object value (values.TAG_OBJ) with no object, which no answer is.
@@ -342,6 +344,25 @@ export function call(ctx: voidptr, frame: voidptr, pc: voidptr, opt: uint64, a: 
     native.store64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("gcanswer"), answer)
 
     return PENDING
+end
+
+-- The collector's calls under `nupp.runtime.luawarn` (gccalls.d.nupp):
+-- installing the function finalizers run through, and the __gc of a
+-- table's metatable, read past __metatable as Lua's GCTM reads it.
+export function calls(ctx: voidptr, operation: uint64, a: uint64): uint64
+    if operation == librarylayouts.GC_INSTALL then
+        native.store64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("finalcall"), a)
+        return values.NIL
+    end
+    if guestvalues.objkind(a) ~= heap.KIND_TABLE then
+        return values.NIL
+    end
+    local mt = tables.meta(a & values.PAYLOAD)
+    if guestvalues.objkind(mt) ~= heap.KIND_TABLE then
+        return values.NIL
+    end
+
+    return tables.get(mt & values.PAYLOAD, guestmeta.metaKey(ctx, guestmeta.META_GC))
 end
 
 -- The answer `call` kept, let go of.

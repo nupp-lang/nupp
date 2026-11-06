@@ -1,0 +1,18 @@
+@!internal
+
+--- The collector's calls under the native core's finalizers and `warn`. A
+--- call of one is the core's own library call, and requiring this module
+--- loads nothing: it exists only on the core, for `nupp.runtime.luawarn`.
+local record gccalls
+    --- Makes `finalize` the function the runtime calls each pending
+    --- finalizer through, with its table: it calls the table's `__gc` as
+    --- Lua's `lua_call` would and warns when that raises.
+    install: function(finalize: function(table: any): nil): nil
+
+    --- The `__gc` of `table`'s metatable, read past any `__metatable`, or
+    --- nil when it has none.
+    handler: function(table: any): any
+end
+
+local calls: gccalls
+return calls

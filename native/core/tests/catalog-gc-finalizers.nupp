@@ -9,7 +9,8 @@ module nupp.core.cataloggcfinalizers
 -- set on it again; a weak value naming it is gone when its finalizer runs,
 -- and a weak key naming it stays until a later collection. A finalizer's
 -- error is warned of and the others still run; inside one collectgarbage
--- answers nil and nothing yields across it.
+-- answers nil and nothing yields across it. Any callable is a finalizer: a
+-- table with __call and a wrapped coroutine's function too.
 local function count(t: any): integer
     local n: integer = 0
     for _ in pairs(t) do
@@ -20,24 +21,29 @@ local function count(t: any): integer
 end
 
 local log: any = {}
-local seen: any = {rescued = 0, after = 0}
+local seen: any = {rescued = 0, after = 0, called = 0}
 
--- Five tables, held together, then marked in order once they are made.
+-- Five tables, held together, and their metatables, then marked in order
+-- with nothing allocated between, so no collection runs while one is in a
+-- register and not the others.
 local function make(holder: any): nil
     local objects: any = {}
+    local metatables: any = {}
     for i = 1, 5 do
         objects[i] = {}
+        metatables[i] = {
+            __gc = function(): nil
+                log[#log + 1] = i
+            end
+        }
     end
     holder.objects = objects
+    holder.metatables = metatables
 end
 
 local function mark(holder: any): nil
     for i = 1, 5 do
-        setmetatable(holder.objects[i], {
-            __gc = function(): nil
-                log[#log + 1] = i
-            end
-        })
+        setmetatable(holder.objects[i], holder.metatables[i])
     end
 end
 
@@ -102,6 +108,21 @@ local function failing(): nil
         __gc = function(): nil
             error("boom")
         end
+    })
+end
+
+-- A table with __call and a wrapped coroutine's function as __gc.
+local function callables(): nil
+    local callee: any = setmetatable({}, {
+        __call = function(self: any, o: any): nil
+            seen.called = seen.called + 1
+        end
+    })
+    setmetatable({}, {__gc = callee})
+    setmetatable({}, {
+        __gc = coroutine.wrap(function(o: any): nil
+            seen.wrapped = true
+        end)
     })
 end
 
@@ -179,5 +200,10 @@ end
 collectgarbage()
 if seen.rescued == 3 then
     score = score + 256
+end
+callables()
+collectgarbage()
+if seen.called == 1 and seen.wrapped == true then
+    score = score + 512
 end
 export = score

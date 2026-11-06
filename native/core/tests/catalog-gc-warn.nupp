@@ -1,0 +1,36 @@
+module nupp.core.cataloggcwarn
+
+-- `warn` as Lua 5.5 and main's `debug.log` both have it: its arguments,
+-- strings or numbers, are joined into one warning; a single "@off" or "@on"
+-- turns warnings off or on, any other single control is ignored, and one
+-- starting with "@" among others is text; anything else raises, naming the
+-- argument. Lua's lua.c starts with warnings off and the core with them on,
+-- so this turns them on first. What it warns is checked as printed.
+local function raises(text: string, f: function(): nil): boolean
+    local ok, problem = pcall(f)
+    return not ok and string.find(tostring(problem), text, 1, true) ~= nil
+end
+
+local truth: any = true
+local list: any = {}
+local number: any = 42
+local score = 0
+warn("@on")
+warn("joined ", "text ", number as string)
+warn("@off")
+warn("hidden")
+warn("@on")
+warn("@unknown")
+warn("@not", " a control")
+if raises("bad argument #1 to 'warn' (string expected, got boolean)", function(): nil
+    warn(truth as string)
+end) then
+    score = score + 1
+end
+if raises("bad argument #2 to 'warn' (string expected, got table)", function(): nil
+    warn("a", list as string)
+end) then
+    score = score + 2
+end
+score = score + 4
+export = score

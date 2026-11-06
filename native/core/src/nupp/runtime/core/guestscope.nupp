@@ -24,8 +24,8 @@ const instances = require("nupp.runtime.core.instances")
 const stacks = require("nupp.runtime.core.stacks")
 
 -- The Services fields the collector roots, from `running` through
--- `gcanswer`.
-const ROOTED_FIELDS: uint64 = 11ULL
+-- `finalcall`.
+const ROOTED_FIELDS: uint64 = 12ULL
 
 -- heap.storageviews' value for the guest heap.
 const STORAGE_VIEWS: uint64 = 1ULL
@@ -109,6 +109,9 @@ export struct Services
     -- What collectgarbage answers, kept while the finalizers it let run
     -- run (`guestgc`).
     gcanswer: uint64
+    -- The function finalizers run through, once `nupp.runtime.luawarn`
+    -- installs it (`guestgc`), or 0.
+    finalcall: uint64
     -- 1 while coroutine.close unwinds a suspended thread: its error lands at
     -- every frame that owns affine values, and no protected call takes it.
     closing: uint64
@@ -320,6 +323,7 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("threadmeta"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("closetask"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("gcanswer"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("finalcall"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("closing"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replay"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replaycursor"), 0ULL)

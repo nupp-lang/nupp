@@ -390,6 +390,17 @@ local grouprows: {Group} = {
         }
     },
     {
+        -- The collector's: the function finalizers run through, and a
+        -- table's `__gc` read past `__metatable` (nupp.runtime.luawarn).
+        name = "GC",
+        call = "HOST_FILES",
+        modules = {"gccalls"},
+        operations = {
+            {name = "GC_INSTALL", library = "gccalls.install", operation = 26, arguments = 1},
+            {name = "GC_HANDLER", library = "gccalls.handler", operation = 27, arguments = 1}
+        }
+    },
+    {
         -- The scheduler's primitives (nupp.runtime.taskcalls), which the
         -- TASKS call takes: a task of a function and the pack of its
         -- arguments; running one until it returns, fails, parks or yields,

@@ -8,7 +8,8 @@
 -- set on it again; a weak value naming it is gone when its finalizer runs,
 -- and a weak key naming it stays until a later collection. A finalizer's
 -- error is warned of and the others still run; inside one collectgarbage
--- answers nil and nothing yields across it.
+-- answers nil and nothing yields across it. Any callable is a finalizer: a
+-- table with __call and a wrapped coroutine's function too.
 local function count(t)
     local n = 0
     for _ in pairs(t) do
@@ -18,24 +19,29 @@ local function count(t)
 end
 
 local log = {}
-local seen = {rescued = 0, after = 0}
+local seen = {rescued = 0, after = 0, called = 0}
 
--- Five tables, held together, then marked in order once they are made.
+-- Five tables, held together, and their metatables, then marked in order
+-- with nothing allocated between, so no collection runs while one is in a
+-- register and not the others.
 local function make(holder)
     local objects = {}
+    local metatables = {}
     for i = 1, 5 do
         objects[i] = {}
+        metatables[i] = {
+            __gc = function()
+                log[#log + 1] = i
+            end
+        }
     end
     holder.objects = objects
+    holder.metatables = metatables
 end
 
 local function mark(holder)
     for i = 1, 5 do
-        setmetatable(holder.objects[i], {
-            __gc = function()
-                log[#log + 1] = i
-            end
-        })
+        setmetatable(holder.objects[i], holder.metatables[i])
     end
 end
 
@@ -99,6 +105,21 @@ local function failing()
         __gc = function()
             error("boom")
         end
+    })
+end
+
+-- A table with __call and a wrapped coroutine's function as __gc.
+local function callables()
+    local callee = setmetatable({}, {
+        __call = function(self, o)
+            seen.called = seen.called + 1
+        end
+    })
+    setmetatable({}, {__gc = callee})
+    setmetatable({}, {
+        __gc = coroutine.wrap(function(o)
+            seen.wrapped = true
+        end)
     })
 end
 
@@ -176,5 +197,10 @@ end
 collectgarbage()
 if seen.rescued == 3 then
     score = score + 256
+end
+callables()
+collectgarbage()
+if seen.called == 1 and seen.wrapped == true then
+    score = score + 512
 end
 return score
