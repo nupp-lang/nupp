@@ -259,6 +259,26 @@ function M.nestingTooDeepIsASyntaxError()
     testAssert.eq(parser.parse(blocks).errors[1].code, "NUPP1005", "blocks are bounded too")
 end
 
+-- A fresh host has its platform's initial stack, independent of the runner's
+-- worker stack. Exercise that entry without rebuilding or packaging a program.
+function M.freshHostStackReachesTheParserNestingGuard()
+    local runtime, image = os.getenv("NUPP_VM_BINARY"), os.getenv("NUPP_VM_CLI_IMAGE")
+    testAssert.suite.requirecapability("vm-hosted-cli", runtime ~= nil and image ~= nil)
+    local process = require("io.internal.process")
+    local depth = 5000
+    local source = "return " .. ("("):rep(depth) .. "1" .. (")"):rep(depth) .. "\n"
+    local child, problem = process.spawn({runtime, "run", image, "nupp.compiler.syntax.parser", "parse", source}, {
+        stdin = "null",
+        timeoutms = 10000,
+    })
+    assert(child, problem)
+    local result, failed = child:communicate({maxoutputbytes = 1048576})
+    child:close()
+    assert(result, failed)
+    assert(result:succeeded(), "the fresh parser host failed: " .. result.erroroutput)
+    testAssert.eq(result.output, "record\n")
+end
+
 function M.fileInnerAnnotationsAreRecorded()
     local result = parser.parse("@!internal\n@!nofmt\nlocal x=1\n")
     testAssert.eq(#result.errors, 0, "inner annotations parse")
