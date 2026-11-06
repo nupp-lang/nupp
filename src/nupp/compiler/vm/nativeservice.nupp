@@ -2,7 +2,8 @@ module nupp.compiler.vm.nativeservice
 
 local unit = require("nupp.compiler.vm.nativeunit")
 local layout = require("nupp.compiler.targetlayout")
-local service = {}
+const MAX_OWNERS: integer = 2048
+local service = {MAX_OWNERS = MAX_OWNERS}
 local scopedCalls: any = setmetatable({}, {__mode = "k"})
 local heapUses: any = setmetatable({}, {__mode = "k"})
 local ownerCatalogs: any = setmetatable({}, {__mode = "k"})
@@ -207,7 +208,7 @@ local function catalog(entry: any, roots: any, review: any): any
         )
         local item = state.owners[owner]
         if not item then
-            need(#state.order < 1024, "service owner limit")
+            need(#state.order < MAX_OWNERS, "service owner limit")
             local signature = {}
             item = {
                 owner = owner,

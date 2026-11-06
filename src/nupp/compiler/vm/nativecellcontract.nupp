@@ -28,7 +28,7 @@ function contract.hasManaged(g: any, resolved: any): boolean
         cursor = cursor + 1
         do
             count += 1
-            need(count <= 1024, "service closure bound")
+            need(count <= service.MAX_OWNERS, "service closure bound")
             service.verifyScope(current)
             local signature = current.nativePhysical and current.nativePhysical.signature
             if signature and signature.managed then
