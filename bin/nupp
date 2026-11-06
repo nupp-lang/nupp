@@ -65,10 +65,9 @@ fi
 # seen that edit. The installed generation lowers the rebuild
 # (`scripts/vm-cli build --seed vm`), reusing what an earlier emit lowered for
 # every module nothing it read has changed -- when that emit lowered with the
-# same code on the same interpreter (`nupp.tools.vm.emitcache`). It installs an
-# interpreter-only runtime and links the image's compiled code into a runtime in
-# the background, which replaces that one when it is done (NUPP_VM_AUTO_LINK=0
-# skips it).
+# same code on the same interpreter (`nupp.tools.vm.emitcache`). The previous
+# linked generation stays selected until its linked replacement is ready.
+# NUPP_VM_AUTO_LINK=0 explicitly selects an interpreter-only rebuild.
 #
 # One rebuild at a time per checkout, under a lock directory holding the
 # builder's pid; a command that finds it held waits, and then runs what that
@@ -178,15 +177,14 @@ vm_cli_rebuild() {
     vm_notice "compiler sources changed, rebuilding the VM compiler"
     started=$(date +%s)
     : > "$VM_CLI/.rebuild-started"
-    if python3 "$ROOT/scripts/vm-cli" build --seed vm --no-aot > "$VM_CLI/rebuild.log" 2>&1; then
+    no_aot=
+    [ "${NUPP_VM_AUTO_LINK:-1}" != 0 ] || no_aot=--no-aot
+    if python3 "$ROOT/scripts/vm-cli" build --seed vm $no_aot > "$VM_CLI/rebuild.log" 2>&1; then
         rm -f "$VM_CLI/failed" "$VM_CLI/.rebuild-started"
         # The emit's own account of what it reused, when it kept a cache.
         reused=$(sed -n 's/^vm emit: \([0-9]* modules* lowered, [0-9]* replayed\).*/: \1/p' \
             "$VM_CLI/rebuild.log" | tail -n 1)
         vm_notice "rebuilt the VM compiler in $(($(date +%s) - started))s$reused"
-        if [ "${NUPP_VM_AUTO_LINK:-1}" != 0 ]; then
-            nohup python3 "$ROOT/scripts/vm-cli" link > "$VM_CLI/link.log" 2>&1 < /dev/null &
-        fi
     else
         mv -f "$VM_CLI/.rebuild-started" "$VM_CLI/failed" 2>/dev/null || : > "$VM_CLI/failed"
         echo "nupp: the VM compiler did not build; running the last one that did" >&2

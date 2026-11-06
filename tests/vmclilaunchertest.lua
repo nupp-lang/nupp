@@ -176,6 +176,18 @@ function M.aSourceEditRebuildsBeforeTheCommandRuns()
     remove(dir)
 end
 
+function M.aDefaultRebuildPublishesTheLinkedReplacement()
+    local dir = plantedTree()
+    edit(dir)
+    local out = ran(dir, "check", "NUPP_VM_AUTO_LINK=1")
+    assert(out:find("RAN gen1 check", 1, true), out)
+    local commands = assert(readFile(dir .. "/builds.log"))
+    assert(commands:find("build --seed vm\n", 1, true), "the replacement was not built with its compiled code")
+    assert(not commands:find("--no-aot", 1, true), "an interpreter-only generation was published")
+    assert(not commands:find("link\n", 1, true), "linking was deferred until after publication")
+    remove(dir)
+end
+
 function M.concurrentCommandsShareOneRebuild()
     local dir = plantedTree()
     edit(dir)

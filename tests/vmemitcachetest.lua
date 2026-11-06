@@ -195,6 +195,86 @@ end
 
 local M = {}
 
+function M.aCompletedEnvironmentCheckIsLoweredOnlyOnce()
+    local check = require("nupp.compiler.check")
+    local original = check.check
+    local counts = {}
+    check.check = function(parsed, path, env, options)
+        if path:match("/src/shapes%.nupp$") then
+            counts[#counts + 1] = options and options.moduleName or false
+        end
+        return original(parsed, path, env, options)
+    end
+    local dir = tempProject()
+    local ok, problem = pcall(function()
+        local image, stats = cached(dir)
+        assert(stats.adopted > 0, "no completed environment check was used by lowering")
+        assert(#counts == 1 and counts[1] == "shapes", "shapes was checked again for lowering")
+        check.check = original
+        same(scratch(dir), image, "one check")
+    end)
+    check.check = original
+    remove(dir)
+    assert(ok, problem)
+end
+
+function M.adoptionRefusesIncompleteOrDifferentSourceChecks()
+    local envMod = require("nupp.compiler.project.env")
+    local fs = require("nupp.compiler.fs")
+    local dir = tempProject()
+    local config = {include = {"src"}}
+    local env = envMod.new(dir, {cache = false, config = config})
+    local session = emitcache.open(dir .. "/cache", env, config)
+    local ok, problem = pcall(function()
+        assert(envMod.resolveModule(env, "shapes"))
+        local path = fs.normalize(dir .. "/src/shapes.nupp")
+        local record = assert(env.loadedPaths[path])
+        assert(session.checkedTree("shapes", dir .. "/src/b.nupp") == nil, "a different file was adopted")
+        record.inProgress = true
+        assert(session.checkedTree("shapes", path) == nil, "an incomplete check was adopted")
+        record.inProgress = false
+        record.compatDiagnostics = {{severity = "error"}}
+        assert(session.checkedTree("shapes", path) == nil, "a check with errors was adopted")
+        record.compatDiagnostics = {}
+        write(path, SHAPES .. "\n")
+        assert(session.checkedTree("shapes", path) == nil, "a check of different bytes was adopted")
+        write(path, SHAPES)
+        local tree = session.checkedTree("shapes", path)
+        assert(tree == record.result.root, "a completed source-identical tree was not adopted")
+        assert(session.checkedTree("shapes", path) == nil, "a tree already given to lowering was adopted again")
+    end)
+    session.abandon()
+    remove(dir)
+    assert(ok, problem)
+end
+
+function M.aRequireCycleIsCheckedAgainAfterItsInterfacesComplete()
+    local envMod = require("nupp.compiler.project.env")
+    local dir = tempProject()
+    write(dir .. "/src/cyclea.nupp", [[
+module cyclea
+local b = require("cycleb")
+export function value(): number return b.value() end
+]])
+    write(dir .. "/src/cycleb.nupp", [[
+module cycleb
+local a = require("cyclea")
+export function value(): number return 1 end
+export function again(): number return a.value() end
+]])
+    local config = {include = {"src"}}
+    local env = envMod.new(dir, {cache = false, config = config})
+    local session = emitcache.open(dir .. "/cache", env, config)
+    local ok, problem = pcall(function()
+        assert(envMod.resolveModule(env, "cyclea"))
+        assert(session.checkedTree("cycleb", dir .. "/src/cycleb.nupp") == nil, "the recursive edge was adopted")
+        assert(session.checkedTree("cyclea", dir .. "/src/cyclea.nupp") == nil, "a reader of that edge was adopted")
+    end)
+    session.abandon()
+    remove(dir)
+    assert(ok, problem)
+end
+
 function M.aCachedEmitWritesWhatAnEmitFromNothingWrites()
     local dir = tempProject()
     local expected = scratch(dir)

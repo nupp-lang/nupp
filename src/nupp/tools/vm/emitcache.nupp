@@ -279,7 +279,8 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
     }
     self.stats = stats
     emitcache.last = self
-    -- Where the time goes, when NUPP_VM_EMIT_PROFILE asks (`nupp.tools.vm.emitprofile`).
+    -- Where the time goes, when NUPP_VM_EMIT_PROFILE asks
+    -- (`nupp.tools.vm.emitprofile`).
     local profile: any = emitprofile.open()
     self.profile = profile
 
@@ -410,8 +411,10 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
             end
             -- A check that saw another module half checked (a require cycle) saw
             -- less than a later check of the same module would.
-            if frame and name ~= frame.name and type(record) == "table" and (record as any).inProgress then
-                frame.partial = true
+            if frame and type(record) == "table" and (record as any).inProgress then
+                for _, pending in ipairs(frames) do
+                    pending.partial = true
+                end
             end
 
             return record
@@ -497,7 +500,8 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
             reads = {},
         }
         frames[#frames + 1] = frame
-        local timed = profile and profile.enter(frame.environment and "environment check" or "lowering check", frame.name)
+        local timed = profile
+            and profile.enter(frame.environment and "environment check" or "lowering check", frame.name)
         local ok, diags, moduleType, exports, extra = pcall(original, parsed, path, checkEnv, opts)
         frames[#frames] = nil
         if timed then
@@ -516,18 +520,6 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
             checked[frame.name] = frame
         else
             lowered[frame.name] = frame
-            -- An environment check inside a require cycle saw a member half
-            -- checked, so the interface it recorded is not the one a check that
-            -- finds them all complete, as the next emit's will, records. This
-            -- check is made once they are.
-            local partial = checked[frame.name]
-            if partial and partial.partial then
-                local encoding = profile and profile.enter("interface encoding", frame.name)
-                partial.iface, partial.image = interfaceOf(frame.name, path, moduleType, exports)
-                if encoding then
-                    profile.leave(encoding)
-                end
-            end
         end
 
         return diags, moduleType, exports, extra
@@ -873,7 +865,7 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
     --- produce; the environment's check then stands as the one lowering read.
     function self.checkedTree(name: string, path: string): any
         local frame = checked[name]
-        if not frame or frame.partial or lowered[name] then
+        if not frame or frame.partial or lowered[name] or fs.normalize(frame.path) ~= fs.normalize(path) then
             return nil
         end
         local record: any = env.loadedPaths[frame.path]
