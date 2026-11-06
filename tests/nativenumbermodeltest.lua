@@ -184,11 +184,10 @@ end
 function M.numericConsumersKeepIntegerIndicesAndCounts()
     local parsed = checked(
         [[
-local random = require("math.random")
 local binary = require("binary")
 local json = require("serde.json")
 local codec = require("serde.codec")
-local generator = random.Xoshiro128(12345)
+local generator = math.Xoshiro128(12345)
 for _ = 1, 32 do
     local index: integer = generator:integer(1, 10)
     assert(index >= 1 and index <= 10 and math.type(index) == "integer")
