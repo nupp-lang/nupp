@@ -533,3 +533,75 @@ export function storageowners(minorFirst: uint64): uint64
 
     return answer
 end
+
+-- A packed-only table owns backing even without a general array or hash.
+-- Empty ordinary tables still reclaim directly. Drain returns packed backing
+-- once; a second drain cannot hand the same block to two live borrowers.
+export function packedowners(minorFirst: uint64): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = collector.GENERATIONAL
+            h.automatic = false
+            local roots = rootsIn(a, h, 2ULL)
+            local packed = tables.createpacked(h, corestorage.UINT8, 16ULL)
+            local empty = tables.create(h)
+            setRoot(roots, 0ULL, values.TAG_OBJ | packed)
+            setRoot(roots, 1ULL, values.TAG_OBJ | empty)
+            tables.set(h, packed, int(1ULL), int(42ULL))
+            local o = native.pointer(packed) as heap.Header*
+            local body = native.pointer(packed + heap.HEADER_BYTES) as heap.TableBody*
+            local descriptor = native.pointer(
+                packed + heap.HEADER_BYTES + native.sizeOf<heap.TableBody>()
+            ) as heap.ValueArray*
+            local base = descriptor.base
+            local words = (descriptor.capacity + 7ULL) // 8ULL
+            local isolated = tables.packedkind(packed) == corestorage.UINT8
+                and base ~= 0ULL
+                and body.arrayPtr == 0ULL
+                and body.hashPtr == 0ULL
+                and o.auxPtr == 0ULL
+                and o.auxLen == 0ULL
+            local wrong: uint64 = 0ULL
+            if minorFirst ~= 0ULL then
+                wrong = minor(h)
+            else
+                wrong = full(h)
+            end
+            local kept = alive(h, packed)
+                and alive(h, empty)
+                and tables.get(packed, int(1ULL)) == int(42ULL)
+                and descriptor.base == base
+            setRoot(roots, 0ULL, values.NIL)
+            setRoot(roots, 1ULL, values.NIL)
+            collector.fullCycle(h)
+            wrong = wrong + collector.checkOracle(h, true)
+            local dead = not alive(h, packed) and not alive(h, empty)
+            local retired = h.released.count == 1ULL and o.aux as uint64 == heap.KIND_TABLE
+            tables.drain(h)
+            local drained = h.released.count == 0ULL
+            local first = backing.wordBackingTake(h, words)
+            local reused = first == base
+            tables.drain(h)
+            local second = backing.wordBackingTake(h, words)
+            local once = first ~= 0ULL and second ~= 0ULL and first ~= second
+            backing.wordBackingRelease(first)
+            backing.wordBackingRelease(second)
+            answer = bit(
+                isolated,
+                1ULL
+            ) + bit(
+                kept,
+                2ULL
+            ) + bit(
+                dead,
+                4ULL
+            ) + bit(retired, 8ULL) + bit(drained, 16ULL) + bit(reused, 32ULL) + bit(once, 64ULL) + wrong * WRONG
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end

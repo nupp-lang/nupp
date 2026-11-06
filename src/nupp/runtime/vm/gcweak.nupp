@@ -230,7 +230,18 @@ local function owns(o: heap.Header*): boolean
         local body = native.address(o as voidptr) + heap.HEADER_BYTES
         if kind == heap.KIND_TABLE then
             local t = native.pointer(body) as heap.TableBody*
-            return t.arrayPtr ~= 0 or t.hashPtr ~= 0
+            if t.arrayPtr ~= 0 or t.hashPtr ~= 0 then
+                return true
+            end
+            -- Packed core tables append their owned backing descriptor. The
+            -- requested extent excludes ordinary tables and slot padding.
+            if (
+                o.size as uint64
+            ) >= heap.HEADER_BYTES + native.sizeOf<heap.TableBody>() + native.sizeOf<heap.ValueArray>() then
+                local packed = native.pointer(body + native.sizeOf<heap.TableBody>()) as heap.ValueArray*
+                return packed.base ~= 0
+            end
+            return false
         elseif kind == heap.KIND_RECORD then
             local tail = native.pointer(o.auxPtr + o.auxLen * 8) as heap.RecordTail*
             return tail.arrayPtr ~= 0 or tail.extra ~= 0
