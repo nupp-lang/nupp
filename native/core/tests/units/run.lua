@@ -17,7 +17,8 @@ local function cwd()
 end
 
 local HERE = debug.getinfo(1, "S").source:match("^@(/.*)/[^/]*$") or cwd()
-local ROOT = assert(os.getenv("NUPP_COMPILER_ROOT"), "set NUPP_COMPILER_ROOT to the checkout root")
+-- Another spelling of the root runs this again under its own (compilerroot).
+local ROOT = require("nupp.core.compilerroot").resolve(arg[0], arg)
 local BUILD = ROOT .. "/build/core-units"
 
 local function quote(value)

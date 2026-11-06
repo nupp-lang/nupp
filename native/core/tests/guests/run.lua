@@ -25,7 +25,8 @@ local function cwd()
 end
 
 local HERE = debug.getinfo(1, "S").source:match("^@(/.*)/[^/]*$") or cwd()
-local ROOT = assert(os.getenv("NUPP_COMPILER_ROOT"), "set NUPP_COMPILER_ROOT to the checkout root")
+-- Another spelling of the root runs this again under its own (compilerroot).
+local ROOT = require("nupp.core.compilerroot").resolve(arg[0], arg)
 local OUT = ROOT .. "/build/core-guests"
 local TESTS = ROOT .. "/native/core/tests"
 -- The guest runtime is built through the service catalog and the unit code
