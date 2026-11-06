@@ -25,6 +25,7 @@ local elements = {
     float32 = 8,
     float64 = 9
 }
+const WITNESS_TYPES = {float = "float32", number = "float64"}
 local widths = {[0] = 1, [1] = 1, [2] = 2, [3] = 2, [4] = 4, [5] = 4, [6] = 8, [7] = 8, [8] = 4, [9] = 8}
 local scalars = {
     uint32 = "u32",
@@ -593,8 +594,10 @@ function frontend.build(body: any, mapMode: boolean?): any
                 local lanes = literal(args[2]) or 16 / widths[kind]
                 need(lanes >= 2 and lanes <= 64 and lanes % 1 == 0, "species width")
                 local witness = identity(args[1])
-                need(witness and witness:sub(1, 11) == "nupp.array.", "checked storage witness")
-                need(elements[witness:sub(12)] == kind, "matching storage witness")
+                local witnessName = witness
+                    and (witness:match("^nupp%.array%.([%w_]+)$") or witness:match("^table%.Array%.([%w_]+)$"))
+                need(witnessName ~= nil, "checked storage witness")
+                need(elements[WITNESS_TYPES[witnessName] or witnessName] == kind, "matching storage witness")
                 seenVector = true
                 return shape("species", kind, lanes)
             elseif id == "simd.horizontal.algebraicSum" or id == "simd.horizontal.algebraicsum" then

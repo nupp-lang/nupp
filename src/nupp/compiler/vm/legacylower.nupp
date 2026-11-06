@@ -23,6 +23,8 @@ lower.pathMapper = nil as(function(path: string): string?)?
 const graphemit = require("nupp.compiler.vm.legacyemit")
 const construction = require("nupp.compiler.vm.construction")
 const apiidentity = require("nupp.compiler.apiidentity")
+const indexedViews = require("nupp.compiler.types.indexedviews")
+const T = require("nupp.compiler.types")
 const MATH_EXTENSION_MEMBERS = {
     -- Installed on the host table by `nupp.runtime.standardmath`.
     Xoshiro128 = true,
@@ -853,7 +855,7 @@ function lower.emit(
         return dst
     end
 
-    local expr, block, stmt, stmtReclaim, defineFunction, markCaptures, callInto, emitClosure, emitIs, openSpill, emitCall, emitSafeCall, deferCleanup, rearmCleanup, registerCleanups
+    local expr, block, stmt, stmtReclaim, defineFunction, markCaptures, callInto, emitClosure, emitIs, openSpill, emitCall, emitSafeCall, deferCleanup, rearmCleanup, registerCleanups, soaAccess
     local queueModule
     -- Expression kinds that write their destination only after every read of
     -- their operands, so the destination may be a register the operands name.
@@ -1494,6 +1496,10 @@ function lower.emit(
                 args[#args + 1] = exprAs(f, operand, "v")
             end
         end
+        if ty.column then
+            args[2] = soaAccess(f, "fieldBySlot", {kind = "vmRegister", reg = args[2]}, {ty.column}, nil)
+            table.remove(args, 4)
+        end
         local base = f:reg()
         for _, value in ipairs(args) do
             local r = f:reg()
@@ -1571,6 +1577,48 @@ function lower.emit(
         if ty then
             operation = tokText(node.name)
             operation = SIMD_METHOD_OPERATIONS[operation] or operation
+            if (operation == "load" or operation == "store") and args[1] then
+                local view = indexedViews.describe(args[1].inferredType)
+                local field = args[3] and T.unwrapOwnership(args[3].inferredType)
+                if view and view.adapter == "soa" then
+                    assert(
+                        field and field.tag == "literal" and field.base == T.string,
+                        "VM column SIMD requires a static field name"
+                    )
+                    local raw = T.unwrapOwnership(view.element)
+                    assert(raw.tag == "nominal" and raw.declKind == "struct", "VM column SIMD requires a stored struct")
+                    local element = raw as T.Nominal
+                    local fieldName = (field as T.Literal).constant as string
+                    local ordinal
+                    for position, name in ipairs(element.fieldOrder or {}) do
+                        if name == fieldName then
+                            ordinal = position
+                            break
+                        end
+                    end
+                    assert(ordinal, "VM column SIMD field is not stored by the row")
+                    local fieldType = element.byname and element.byname[fieldName]
+                    assert(
+                        fieldType and T.unwrapOwnership(fieldType).tag == ty.element,
+                        "VM column SIMD field differs from its species"
+                    )
+                    assert(operation ~= "store" or view.writable, "VM column SIMD store requires a writable row view")
+                    ty.column = ordinal
+                    local token = args[3].token
+                    if token then
+                        token.soaColumn = {
+                            identity = element.name .. "." .. fieldName,
+                            ordinal = ordinal,
+                            access = operation == "store" and "read-write" or "read-only"
+                        }
+                    end
+                elseif view
+                    and field
+                    and (field.tag == "string" or field.tag == "literal" and field.base == T.string)
+                then
+                    error("VM packed field SIMD is not supported", 0)
+                end
+            end
             if operation == "over" then
                 assert(#args == 1, "SIMD over requires one count")
                 simdIterator(f, node, ty, dst)
@@ -2284,7 +2332,7 @@ function lower.emit(
     -- SoA row views have no Lua metatable either: a row, a row's field and a
     -- projected column are checked methods of the VM's `nupp.soa` view,
     -- which owns the columns. `receiver` is the view, `arguments` its operands.
-    local function soaAccess(f: Fn, method, receiver, arguments, value, dst)
+    soaAccess = function(f: Fn, method, receiver, arguments, value, dst)
         dst = dst or f:reg()
         -- The call reads its operands from consecutive registers, so all of them
         -- are claimed before any operand's own temporaries are.
