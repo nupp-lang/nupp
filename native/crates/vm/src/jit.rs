@@ -425,7 +425,7 @@ impl Compiler<JITModule> {
 impl Compiler<ObjectModule> {
     pub fn new_object() -> Self {
         let mut fb = settings::builder();
-        fb.set("opt_level", &std::env::var("JIT_OPT").unwrap_or_else(|_| "none".to_string())).unwrap();
+        fb.set("opt_level", &std::env::var("JIT_OPT").unwrap_or_else(|_| "speed".to_string())).unwrap();
         fb.set("enable_verifier", "true").unwrap();
         fb.set("use_colocated_libcalls", "false").unwrap();
         fb.set("is_pic", "true").unwrap();
