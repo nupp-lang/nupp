@@ -28,6 +28,11 @@ export function capacity(block: voidptr): uint64
     return native.load64(block, native.fieldOffset<pages.SharedBacking>("capacity"))
 end
 
+-- Immutable physical extent, readable only while the caller owns a reference.
+export function mapped(block: voidptr): uint64
+    return native.load64(block, native.fieldOffset<pages.SharedBacking>("mapped"))
+end
+
 export function retain(block: voidptr): boolean
     if native.address(block) == 0ULL then
         return false

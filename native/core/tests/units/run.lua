@@ -183,6 +183,79 @@ local UNITS = {
 }
 
 UNITS[#UNITS + 1] = {
+    name = "longstringunits",
+    modules = {"longstringunits", "unitentry"},
+    entries = {
+        {"longstringunits", "representation", 1},
+        {"longstringunits", "sharing", 1},
+        {"longstringunits", "lifetime", 1},
+        {"longstringunits", "keys", 1}
+    },
+    cases = function()
+        return {
+            {"representation", {31}, 0},
+            {"representation", {40}, 0},
+            {"representation", {41}, 0},
+            {"representation", {97}, 0},
+            {"representation", {40000}, 0},
+            {"sharing", {41}, 0},
+            {"sharing", {4097}, 0},
+            {"lifetime", {0}, 0},
+            {"lifetime", {1}, 0},
+            {"keys", {0}, 0},
+            {"keys", {1}, 0}
+        }
+    end
+}
+
+UNITS[#UNITS + 1] = {
+    name = "longstringweakunits",
+    modules = {"longstringunits", "unitentry"},
+    entries = {{"longstringunits", "weakstrings", 2}},
+    cases = function()
+        return {
+            {"weakstrings", {0, 1}, 0},
+            {"weakstrings", {0, 2}, 0},
+            {"weakstrings", {0, 3}, 0},
+            {"weakstrings", {1, 1}, 0},
+            {"weakstrings", {1, 2}, 0},
+            {"weakstrings", {1, 3}, 0}
+        }
+    end
+}
+
+UNITS[#UNITS + 1] = {
+    name = "longstringscopeunits",
+    modules = {"longstringunits", "unitentry"},
+    entries = {{"longstringunits", "scopeclose", 1}},
+    cases = function()
+        return {{"scopeclose", {0}, 0}, {"scopeclose", {1}, 0}, {"scopeclose", {2}, 0}}
+    end
+}
+
+UNITS[#UNITS + 1] = {
+    name = "longstringlandingunits",
+    modules = {"longstringfaultunits", "longstringentry", "releasequeueentry"},
+    observeLanding = true,
+    observerEntry = "nupp.core.longstringentry",
+    entries = {{"longstringfaultunits", "failure", 2}},
+    cases = function()
+        return {{"failure", {0, 0}, 135}, {"failure", {0, 1}, 159}, {"failure", {0, 4}, 255}}
+    end
+}
+UNITS[#UNITS + 1] = {
+    name = "longstringfaultunits",
+    modules = {"longstringfaultunits", "longstringentry", "releasequeueentry"},
+    observeLanding = true,
+    observerEntry = "nupp.core.longstringentry",
+    entries = {{"longstringfaultunits", "failure", 2}},
+    -- Only the test bridge injects exact map/unmap failures.
+    cases = function()
+        return {}
+    end
+}
+
+UNITS[#UNITS + 1] = {
     name = "releasequeueunits",
     modules = {"releasequeueunits", "unitentry"},
     entries = {{"releasequeueunits", "backlog", 1}},

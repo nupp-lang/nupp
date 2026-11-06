@@ -1,0 +1,352 @@
+module nupp.core.longstringunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const values = require("nupp.runtime.vm.values")
+const strings = require("nupp.runtime.core.corestrings")
+const arithmetic = require("nupp.runtime.core.guestarith")
+const tables = require("nupp.runtime.core.coretables")
+const shared = require("nupp.runtime.core.sharedbacking")
+const pages = require("nupp.runtime.core.pagemappings")
+const storage = require("nupp.runtime.core.storage")
+const guestscope = require("nupp.runtime.core.guestscope")
+const guestentry = require("nupp.runtime.core.guestentry")
+const instances = require("nupp.runtime.core.instances")
+
+const ARENA_BYTES: uint64 = 67108864ULL
+const MAXIMUM: uint64 = 0xffffffffffffffffULL
+
+local function miss(ok: boolean): uint64
+    if ok then
+        return 0ULL
+    end
+    return 1ULL
+end
+
+local function data(borrows a: arena.Arena*, count: uint64): uint64
+    @unsafe do
+        local raw = arena.alloc(a, count + 8ULL, 8ULL)
+        if raw == nil then
+            error("long string units: no source")
+        end
+        local base = native.address(raw)
+        local i: uint64 = 0ULL
+        while i < count + 8ULL do
+            -- Includes NUL bytes without depending on a terminator.
+            native.store8(native.pointer(base), native.index(i), i % 251ULL)
+            i = i + 1ULL
+        end
+
+        return base
+    end
+end
+
+local function finish(h: heap.Heap*): nil
+    collector.fullCycle(h)
+    tables.drain(h)
+    heap.destroy(h)
+end
+
+export function representation(count: uint64): uint64
+    local measured = storage.CopyStats(0ULL)
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local input = data(a, count)
+            local stats = measured as storage.CopyStats*
+            local first = strings.makecounted(h, input, count, stats)
+            local second = strings.makecounted(h, input, count, stats)
+            local o = native.pointer(first) as heap.Header*
+            wrong = wrong + miss(strings.length(first) == count and strings.equal(first, second))
+            wrong = wrong + miss(arithmetic.equal(values.TAG_OBJ | first, values.TAG_OBJ | second) == 1ULL)
+            wrong = wrong + miss(not strings.less(first, second, false) and strings.less(first, second, true))
+            wrong = wrong + miss(
+                native.word(native.load8(native.pointer(strings.bytes(first)), native.index(count))) == 0ULL
+            )
+            if count <= values.INTERN_LIMIT then
+                wrong = wrong + miss(first == second and stats.bytes == count)
+                wrong = wrong + miss(not heap.corestringexternal(o) and (o.flags as uint64) & heap.F_INTERNED ~= 0ULL)
+            else
+                wrong = wrong + miss(first ~= second and stats.bytes == count * 2ULL)
+                wrong = wrong + miss(heap.corestringexternal(o) and o.size as uint64 == heap.corestringextent())
+                local tail = heap.corestringtail(o)
+                wrong = wrong + miss(tail.hashReady == 0ULL and tail.offset == 0ULL)
+                wrong = wrong + miss(tail.charge == pages.sharedextent(count + 1ULL))
+                local shorter = strings.make(h, input, count - 1ULL)
+                wrong = wrong + miss(not strings.equal(first, shorter) and tail.hashReady == 0ULL)
+                strings.prepare(values.TAG_OBJ | first)
+                local hash = native.load64(native.pointer(first + heap.HEADER_BYTES), 0)
+                wrong = wrong + miss(tail.hashReady == 1ULL)
+                strings.prepare(values.TAG_OBJ | first)
+                wrong = wrong + miss(hash == native.load64(native.pointer(first + heap.HEADER_BYTES), 0))
+                -- A ready hash of zero is distinct from an unprepared hash.
+                native.store64(native.pointer(first + heap.HEADER_BYTES), 0, 0ULL)
+                strings.prepare(values.TAG_OBJ | first)
+                wrong = wrong + miss(native.load64(native.pointer(first + heap.HEADER_BYTES), 0) == 0ULL)
+                native.store64(native.pointer(first + heap.HEADER_BYTES), 0, hash)
+                strings.prepare(values.TAG_OBJ | second)
+                wrong = wrong + miss(strings.equal(first, second))
+                -- Equal hashes do not establish equality for different bytes.
+                local changed = strings.make(h, input + 1ULL, count)
+                local different = native.pointer(changed) as heap.Header*
+                native.store64(native.pointer(changed + heap.HEADER_BYTES), 0, hash)
+                heap.corestringtail(different).hashReady = 1ULL
+                wrong = wrong + miss(not strings.equal(first, changed))
+                wrong = wrong + miss(arithmetic.equal(values.TAG_OBJ | first, values.TAG_OBJ | changed) == 0ULL)
+            end
+            finish(h)
+        end
+    end
+
+    return wrong
+end
+
+export function sharing(count: uint64): uint64
+    local state = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local block = shared.create(count + 80ULL)
+            if block == nil then
+                error("long string units: no shared block")
+            end
+            local input = data(a, count + 80ULL)
+            storage.copy(
+                native.address(shared.bytes(block)),
+                input,
+                count + 80ULL,
+                native.pointer(0ULL) as storage.CopyStats*
+            )
+            local mapped = shared.mapped(block)
+            local first = strings.fromshared(h, block, 7ULL, count)
+            local second = strings.fromshared(h, block, 7ULL, count)
+            wrong = wrong + miss(first ~= 0ULL and second ~= 0ULL and first ~= second)
+            wrong = wrong + miss(strings.equal(first, second) and pages.sharedreferences(block) == 3ULL)
+            wrong = wrong + miss(strings.bytes(first) == native.address(shared.bytes(block)) + 7ULL)
+            local firstHeader = native.pointer(first) as heap.Header*
+            wrong = wrong + miss(heap.corestringtail(firstHeader).charge == mapped)
+            wrong = wrong + miss(h.liveBytes == 2ULL * (heap.corestringextent() + mapped))
+            wrong = wrong + miss(strings.fromshared(h, block, MAXIMUM, count) == 0ULL)
+            wrong = wrong + miss(
+                strings.fromshared(h, block, 1ULL, MAXIMUM) == 0ULL and pages.sharedreferences(block) == 3ULL
+            )
+            -- Retain refusal leaves the caller's reference and an empty header.
+            wrong = wrong + miss(pages.sharedcompare(block, 3ULL, MAXIMUM) == 3ULL)
+            wrong = wrong + miss(strings.fromshared(h, block, 7ULL, count) == 0ULL)
+            wrong = wrong + miss(pages.sharedcompare(block, MAXIMUM, 3ULL) == MAXIMUM)
+            collector.fullCycle(h)
+            wrong = wrong + miss(h.liveBytes == 0ULL and h.released.count == 2ULL)
+            wrong = wrong + miss(heap.corestringexternal(native.pointer(first) as heap.Header*))
+            tables.drain(h)
+            wrong = wrong + miss(pages.sharedreferences(block) == 1ULL and h.released.count == 0ULL)
+            tables.drain(h)
+            wrong = wrong + miss(pages.sharedreferences(block) == 1ULL)
+            wrong = wrong + miss(shared.releaselocal(state as pages.Scope*, block) == shared.RELEASED)
+            heap.destroy(h)
+        end
+    end
+
+    return wrong
+end
+
+export function lifetime(minor: uint64): uint64
+    local state = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local builder = strings.Builder(0ULL, 0ULL)
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = collector.GENERATIONAL
+            h.automatic = false
+            local input = data(a, 97ULL)
+            local first = strings.make(h, input, 97ULL)
+            local firstHeader = native.pointer(first) as heap.Header*
+            local block = native.pointer(heap.corestringtail(firstHeader).block)
+            wrong = wrong + miss(shared.retain(block))
+            local root = collector.handleRegister(h, values.TAG_OBJ | first)
+            if minor ~= 0ULL then
+                collector.minorcycle(h)
+            else
+                collector.fullCycle(h)
+            end
+            tables.drain(h)
+            wrong = wrong + miss(heap.isLiveSlot(h, first) and pages.sharedreferences(block) == 2ULL)
+            -- The builder's source string is independently rooted while open
+            -- allocates its managed owner, and its handle protects finish.
+            do
+                local guard = strings.open(h, builder as strings.Builder*)
+                local b = builder as strings.Builder*
+                wrong = wrong + strings.append(h, b, strings.bytes(first), strings.length(first))
+                h.stress = true
+                local result = strings.finish(h, b)
+                h.stress = false
+                wrong = wrong + miss(strings.equal(first, result) and result ~= first and b.handle == 0ULL)
+            end
+            collector.handleRelease(h, root)
+            collector.fullCycle(h)
+            tables.drain(h)
+            wrong = wrong + miss(h.liveCount == 0ULL and h.liveBytes == 0ULL and pages.sharedreferences(block) == 1ULL)
+            wrong = wrong + miss(shared.releaselocal(state as pages.Scope*, block) == shared.RELEASED)
+            heap.destroy(h)
+        end
+    end
+
+    return wrong
+end
+
+export function keys(minor: uint64): uint64
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = collector.GENERATIONAL
+            h.automatic = false
+            local input = data(a, 97ULL)
+            local table = tables.create(h)
+            local key = strings.make(h, input, 97ULL)
+            local query = strings.make(h, input, 97ULL)
+            local rootTable = collector.handleRegister(h, values.TAG_OBJ | table)
+            local rootQuery = collector.handleRegister(h, values.TAG_OBJ | query)
+            local tagged = values.TAG_OBJ | key
+            local equal = values.TAG_OBJ | query
+            wrong = wrong + tables.set(h, table, tagged, values.FALSE)
+            wrong = wrong + tables.set(h, table, equal, values.TRUE)
+            wrong = wrong + miss(
+                tables.get(table, equal) == values.TRUE and tables.nextKey(table, values.NIL) == tagged
+            )
+            wrong = wrong + tables.set(h, table, equal, values.NIL)
+            wrong = wrong + miss(tables.nextKey(table, equal) == values.NIL)
+            if minor ~= 0ULL then
+                collector.minorcycle(h)
+            else
+                collector.fullCycle(h)
+            end
+            tables.drain(h)
+            wrong = wrong + miss(not heap.isLiveSlot(h, key) and heap.isLiveSlot(h, query))
+            wrong = wrong + miss(tables.get(table, equal) == values.NIL and tables.nextKey(table, equal) == values.TRUE)
+            wrong = wrong + tables.set(h, table, equal, values.TRUE)
+            wrong = wrong + miss(tables.get(table, equal) == values.TRUE and tables.nextKey(table, values.NIL) == equal)
+            collector.handleRelease(h, rootTable)
+            collector.handleRelease(h, rootQuery)
+            finish(h)
+        end
+    end
+
+    return wrong
+end
+
+-- Create the real Services heap, retain a raw allocation independently, then
+-- run actual guestscope.close. No handles/ranges are cleared by the fixture.
+export function scopeclose(stress: uint64): uint64
+    @unsafe do
+        local state = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+        local wrong: uint64 = 0ULL
+        do
+            local a = arena.open(ARENA_BYTES)
+            local scratch = arena.alloc(a, 1048576ULL, 16ULL)
+            local slot = arena.alloc(a, native.sizeOf<guestentry.Storage>(), 16ULL)
+            local world = arena.alloc(a, native.sizeOf<instances.World>(), 16ULL)
+            if scratch == nil then
+                error("long string units: no scope scratch")
+            end
+            local scratchBase = native.address(scratch)
+            if slot == nil then
+                error("long string units: no slot")
+            end
+            local slotBase = native.address(slot)
+            if world == nil then
+                error("long string units: no world")
+            end
+            local worldBase = native.address(world)
+            local i: uint64 = 0ULL
+            while i < native.sizeOf<guestentry.Storage>() do
+                native.store64(native.pointer(slotBase), native.index(i), 0ULL)
+                i = i + 8ULL
+            end
+            i = 0ULL
+            while i < native.sizeOf<instances.World>() do
+                native.store64(native.pointer(worldBase), native.index(i), 0ULL)
+                i = i + 8ULL
+            end
+            local services = native.pointer(guestscope.prepare(native.pointer(scratchBase), 1048576ULL))
+            wrong = wrong + miss(native.address(services) ~= 0ULL)
+            wrong = wrong + miss(
+                guestscope.open(
+                    services,
+                    slotBase,
+                    native.sizeOf<guestentry.Storage>(),
+                    1ULL,
+                    0ULL,
+                    worldBase,
+                    stress
+                ) == 1ULL
+            )
+            @unsafe do
+                local h = native.pointer(
+                    native.load64(services, native.fieldOffset<guestscope.Services>("heap"))
+                ) as heap.Heap*
+                local input = data(a, 97ULL)
+                local text = strings.make(h, input, 97ULL)
+                local textHeader = native.pointer(text) as heap.Header*
+                local block = native.pointer(heap.corestringtail(textHeader).block)
+                wrong = wrong + miss(shared.retain(block) and pages.sharedreferences(block) == 2ULL)
+                guestscope.close(services)
+                wrong = wrong + miss(pages.sharedreferences(block) == 1ULL)
+                wrong = wrong + miss(native.word(native.load8(shared.bytes(block), 17)) == 17ULL)
+                wrong = wrong + miss(guestscope.finish(services) == 0ULL)
+                wrong = wrong + miss(shared.releaselocal(state as pages.Scope*, block) == shared.RELEASED)
+            end
+        end
+
+        return wrong
+    end
+end
+
+-- Lua treats string keys and values as values, even in weak tables. Their
+-- out-of-line backing must follow that unchanged full/minor liveness rule.
+export function weakstrings(minor: uint64, mode: uint64): uint64
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = collector.GENERATIONAL
+            h.automatic = false
+            local input = data(a, 98ULL)
+            local table = tables.create(h)
+            local key = strings.make(h, input, 97ULL)
+            local value = strings.make(h, input, 98ULL)
+            local root = collector.handleRegister(h, values.TAG_OBJ | table)
+            collector.weakmode(h, native.pointer(table) as heap.Header*, mode)
+            wrong = wrong + tables.set(h, table, values.TAG_OBJ | key, values.TAG_OBJ | value)
+            if minor ~= 0ULL then
+                collector.minorcycle(h)
+            else
+                collector.fullCycle(h)
+            end
+            tables.drain(h)
+            wrong = wrong + miss(heap.isLiveSlot(h, key) and heap.isLiveSlot(h, value))
+            local query = strings.make(h, input, 97ULL)
+            wrong = wrong + miss(tables.get(table, values.TAG_OBJ | query) == values.TAG_OBJ | value)
+            local o = native.pointer(value) as heap.Header*
+            wrong = wrong + miss(heap.corestringtail(o).hashReady == 0ULL)
+            collector.handleRelease(h, root)
+            collector.fullCycle(h)
+            tables.drain(h)
+            wrong = wrong + miss(h.liveCount == 0ULL and h.liveBytes == 0ULL)
+            heap.destroy(h)
+        end
+    end
+
+    return wrong
+end

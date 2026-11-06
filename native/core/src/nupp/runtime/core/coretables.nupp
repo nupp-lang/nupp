@@ -36,6 +36,9 @@ const backing = require("nupp.runtime.vm.backing")
 const ints = require("nupp.runtime.core.coreintegers")
 const corestorage = require("nupp.runtime.core.corestorage")
 const storage = require("nupp.runtime.core.storage")
+const strings = require("nupp.runtime.core.corestrings")
+const shared = require("nupp.runtime.core.sharedbacking")
+const pages = require("nupp.runtime.core.pagemappings")
 
 export const OK: uint64 = 0ULL
 export const BAD_KEY: uint64 = 1ULL
@@ -103,12 +106,24 @@ end
 -- coroutine's frame pages first. Every allocating guest leaf calls this after its
 -- collector work.
 export function drain(h: heap.Heap*): nil
+    local state = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
     @unsafe do
+        local status = state as pages.Scope*
         while h.released.count > 0ULL do
-            local address = heap.wordsPop(h.released)
+            local address = heap.wordAt(h.released, h.released.count - 1ULL)
+            local failed: boolean = false
             local o = native.pointer(address) as heap.Header*
             -- The sweep already retired it: its former kind is in aux.
-            if o.aux as uint64 == heap.KIND_TABLE then
+            if o.aux as uint64 == heap.KIND_STR and heap.corestringexternal(o) then
+                local tail = heap.corestringtail(o)
+                local result = shared.releaselocal(status, native.pointer(tail.block))
+                if result ~= shared.RETAINED and result ~= shared.RELEASED and result ~= shared.FAILED then
+                    -- No reference was consumed: retain this queue entry.
+                    error("core strings: shared release refused")
+                end
+                tail.block = 0ULL
+                failed = result == shared.FAILED
+            elseif o.aux as uint64 == heap.KIND_TABLE then
                 local a = arrayOf(o)
                 if a.base ~= 0ULL then
                     arrays.arrayRelease(a)
@@ -132,7 +147,13 @@ export function drain(h: heap.Heap*): nil
                     thread.pages = 0ULL
                 end
             end
+            local _ = heap.wordsPop(h.released)
             heap.recycle(h, o)
+            if failed then
+                -- The consumed reference cannot be retried. Other retirements
+                -- stay queued, and the independent failed mapping stays mapped.
+                error("core strings: shared release failed")
+            end
         end
     end
 end
@@ -391,6 +412,7 @@ end
 -- The value at `key`, nil when absent. A packed table's wide integer
 -- element is boxed here, which can collect.
 export function get(table: uint64, key: uint64): uint64
+    strings.prepare(key)
     @unsafe do
         local o = native.pointer(table) as heap.Header*
         local index = position(key)
@@ -503,6 +525,7 @@ export function set(h: heap.Heap*, table: uint64, raw: uint64, value: uint64): u
     if admissible(key) == 0ULL then
         return BAD_KEY
     end
+    strings.prepare(key)
     @unsafe do
         local o = native.pointer(table) as heap.Header*
         local kind = packedkind(table)
@@ -582,6 +605,7 @@ end
 -- order, then the hash part in insertion order, skipping removed entries.
 -- Answers nil at the end, and TRUE (never a key) when `key` is not present.
 export function nextKey(table: uint64, key: uint64): uint64
+    strings.prepare(key)
     @unsafe do
         local o = native.pointer(table) as heap.Header*
         local a = arrayOf(o)

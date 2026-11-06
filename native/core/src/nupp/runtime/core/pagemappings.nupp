@@ -105,10 +105,9 @@ export function sharedscopevalid(statusScope: voidptr, block: voidptr): boolean
         )
 end
 
--- This exact constructor owns the unjournaled mapping before publication.
--- Map refusal is nil. All initialization after map is nonallocating and
--- cannot raise, collect, suspend, or call guest code.
-export function acquireshared(capacity: uint64): voidptr?
+-- The exact immutable mapping charge, checked before acquiring any reference.
+-- Zero refuses geometry; page slack and the independent prefix are included.
+export function sharedextent(capacity: uint64): uint64
     local prefix = native.sizeOf<SharedBacking>()
     local page = os.pageSize()
     if page == 0ULL
@@ -117,9 +116,20 @@ export function acquireshared(capacity: uint64): voidptr?
         or capacity > LIMIT - prefix
         or capacity + prefix > LIMIT - (page - 1ULL)
     then
+        return 0ULL
+    end
+
+    return (capacity + prefix + page - 1ULL) & ~(page - 1ULL)
+end
+
+-- This exact constructor owns the unjournaled mapping before publication.
+-- Map refusal is nil. All initialization after map is nonallocating and
+-- cannot raise, collect, suspend, or call guest code.
+export function acquireshared(capacity: uint64): voidptr?
+    local mapped = sharedextent(capacity)
+    if mapped == 0ULL then
         return nil
     end
-    local mapped = (capacity + prefix + page - 1ULL) & ~(page - 1ULL)
     local block = os.mapPages(mapped)
     if block == nil then
         return nil

@@ -1,0 +1,96 @@
+module nupp.core.longstringfaultunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const os = require("nupp.runtime.vm.os")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const gcweak = require("nupp.runtime.vm.gcweak")
+const strings = require("nupp.runtime.core.corestrings")
+const tables = require("nupp.runtime.core.coretables")
+const pages = require("nupp.runtime.core.pagemappings")
+const servicescope = require("nupp.runtime.core.servicescope")
+
+const MAPPED: uint64 = 16777216ULL
+const MAXIMUM: uint64 = 0xffffffffffffffffULL
+
+-- A non-affine mapped test heap survives the failing native frames. Its entry
+-- observer tears it down only after all those frames have returned.
+local function prepare(scope: uint64, mode: uint64): uint64
+    local raw = os.mapPages(MAPPED)
+    if raw == nil then
+        error("long string fault units: mapping refused")
+    end
+    @unsafe do
+        local out = native.pointer(scope)
+        local extra = native.sizeOf<servicescope.ServiceScope>()
+        native.store64(out, native.index(extra + 8ULL), native.address(raw))
+        native.store64(out, native.index(extra + 16ULL), MAPPED)
+        native.store64(out, native.index(extra + 24ULL), mode)
+        native.store64(out, native.index(extra + 32ULL), 0ULL)
+        native.store64(out, native.index(extra + 40ULL), 0ULL)
+        native.store64(out, native.index(extra + 48ULL), 0ULL)
+        native.store64(out, native.index(extra + 56ULL), 0ULL)
+        local metadata = (native.sizeOf<arena.Chunk>() + native.alignmentOf<arena.Arena>() - 1ULL)
+            & ~(native.alignmentOf<arena.Arena>() - 1ULL)
+        local header = (metadata + native.sizeOf<arena.Arena>() + 15ULL) & ~15ULL
+        local chunk = raw as arena.Chunk*
+        local a = native.offset(raw, native.index(metadata)) as arena.Arena*
+        chunk.previous = nil
+        chunk.bytes = MAPPED
+        a.chunk = chunk
+        a.cursor = native.address(raw) + header
+        a.limit = native.address(raw) + MAPPED
+        a.chunkBytes = MAPPED
+        a.growable = false
+        native.store64(out, native.index(extra + 64ULL), native.address(a as voidptr))
+        local h = heap.create(a)
+        h.automatic = false
+        native.store64(out, native.index(extra), native.address(h as voidptr))
+        return native.address(h as voidptr)
+    end
+end
+
+-- 0 count overflow, 1 accounting overflow, 2 exact test-only map refusal,
+-- 3 exact test-only final-unmap failure, 4 corrupted zero-ref refusal.
+export function failure(scopeAddress: uint64, mode: uint64): uint64
+    @unsafe do
+        local h = native.pointer(prepare(scopeAddress, mode)) as heap.Heap*
+        local out = native.pointer(scopeAddress)
+        local extra = native.sizeOf<servicescope.ServiceScope>()
+        if mode == 0ULL then
+            return strings.make(h, 0ULL, MAXIMUM)
+        elseif mode == 1ULL then
+            h.debt = MAXIMUM - heap.corestringextent()
+            return strings.make(h, 0ULL, 41ULL)
+        elseif mode == 2ULL then
+            -- The C test refuses precisely this shared mapping, before copy.
+            return strings.make(h, 0ULL, os.pageSize() * 16ULL - 1ULL)
+        end
+        local a = native.pointer(native.load64(out, native.index(extra + 64ULL))) as arena.Arena*
+        local source = arena.alloc(a, 136ULL, 8ULL)
+        if source == nil then
+            error("long string fault units: no source")
+        end
+        local base = native.address(source)
+        local i: uint64 = 0ULL
+        while i < 136ULL do
+            native.store8(native.pointer(base), native.index(i), 42ULL)
+            i = i + 1ULL
+        end
+        local other = strings.make(h, base, 97ULL)
+        local target = strings.make(h, base, 130ULL)
+        local o = native.pointer(target) as heap.Header*
+        local block = heap.corestringtail(o).block
+        native.store64(out, native.index(extra + 32ULL), block)
+        native.store64(out, native.index(extra + 40ULL), target)
+        native.store64(out, native.index(extra + 48ULL), other)
+        gcweak.release(h, native.pointer(other) as heap.Header*)
+        gcweak.release(h, o)
+        native.store64(out, native.index(extra + 56ULL), h.released.count)
+        if mode == 4ULL then
+            local _ = pages.sharedcompare(native.pointer(block), 1ULL, 0ULL)
+        end
+        tables.drain(h)
+        return 0ULL
+    end
+end

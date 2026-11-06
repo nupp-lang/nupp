@@ -301,5 +301,11 @@ export function equal(left: uint64, right: uint64): uint64
         return native.asWord(x == y)
     end
 
+    local a = strings.header(left)
+    local b = strings.header(right)
+    if a ~= 0ULL and b ~= 0ULL then
+        return native.asWord(strings.equal(a, b))
+    end
+
     return native.asWord(left == right)
 end

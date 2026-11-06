@@ -246,6 +246,8 @@ local function owns(o: heap.Header*): boolean
                 return packed.storage ~= 0
             end
             return false
+        elseif kind == heap.KIND_STR and heap.corestringexternal(o) then
+            return true
         elseif kind == heap.KIND_RECORD then
             local tail = native.pointer(o.auxPtr + o.auxLen * 8) as heap.RecordTail*
             return tail.arrayPtr ~= 0 or tail.extra ~= 0
@@ -266,6 +268,12 @@ export function release(h: heap.Heap*, o: heap.Header*): nil
     weakindex.weakErase(h, o)
     @unsafe do
         if owns(o) then
+            if o.kind as uint64 == heap.KIND_STR and heap.corestringexternal(o) then
+                local tail = heap.corestringtail(o)
+                local charge = tail.charge
+                tail.charge = 0ULL
+                heap.accountResize(h, charge, 0ULL)
+            end
             heap.retire(h, o)
             heap.wordsPush(h.released, native.address(o as voidptr))
         else

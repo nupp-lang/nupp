@@ -131,6 +131,44 @@ export struct StringBody
     hash: uint64
 end
 
+-- Core-only immutable string metadata after the frozen StringBody. Its current
+-- requested extent is derived below, not a permanent shared-VM ABI. The block
+-- owns one independent reference; charge is its mapped extent while live.
+export struct CoreStringTail
+    block: uint64
+    offset: uint64
+    hashReady: uint64
+    charge: uint64
+end
+
+export function corestringextent(): uint64
+    local requested = native.sizeOf<Header>() + native.sizeOf<StringBody>() + native.sizeOf<CoreStringTail>()
+    return requested
+end
+
+-- Callers establish live KIND_STR or retired former KIND_STR separately.
+-- Requested size, unlike slot padding, survives retire. Inline length>40
+-- needs at least Header+StringBody+42 bytes, larger than this private tail.
+export function corestringexternal(o: Header*): boolean
+    @unsafe do
+        return o.auxLen > values.INTERN_LIMIT
+            and (o.flags as uint64) & F_INTERNED == 0ULL
+            and (o.size as uint64) == corestringextent()
+    end
+end
+
+-- The header owner stays rooted until this stable tail borrow ends.
+export function corestringtail(borrows o: Header*): CoreStringTail* borrows (o)
+    @unsafe do
+        return borrowFrom(
+            native.pointer(
+                native.address(o as voidptr) + native.sizeOf<Header>() + native.sizeOf<StringBody>()
+            ) as CoreStringTail*,
+            o
+        )
+    end
+end
+
 export struct SliceBody
     source: uint64
     offset: uint32

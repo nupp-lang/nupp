@@ -1,8 +1,8 @@
 module nupp.runtime.core.corestrings
 
--- Lua strings on the guest heap: KIND_STR objects whose bytes follow a
--- StringBody inline, NUL-terminated. Every string is interned, so equal
--- strings are one object: they compare, and key tables, by identity.
+-- Lua strings retain the frozen KIND_STR/auxPtr/auxLen byte projection.
+-- Short strings are inline and interned; long strings own an independent
+-- immutable shared allocation and cache their range's hash only when needed.
 --
 -- Callers keep the sources of a new string reachable: building one may run
 -- collector steps.
@@ -13,6 +13,11 @@ const values = require("nupp.runtime.vm.values")
 const weakindex = require("nupp.runtime.vm.weakindex")
 const corestorage = require("nupp.runtime.core.corestorage")
 const storage = require("nupp.runtime.core.storage")
+const shared = require("nupp.runtime.core.sharedbacking")
+const pages = require("nupp.runtime.core.pagemappings")
+const objecthash = require("nupp.runtime.vm.objecthash")
+
+const MAXIMUM: uint64 = 0xffffffffffffffffULL
 
 -- A lexical handle roots one managed byte-storage owner. The common descriptor
 -- is authoritative; no backing pointer or byte counts are duplicated here.
@@ -78,25 +83,118 @@ local function prefix(): uint64
     return native.sizeOf<heap.Header>() + native.sizeOf<heap.StringBody>()
 end
 
--- The interned string of `count` bytes at `bytes`; answers its header address.
-export function make(h: heap.Heap*, bytes: uint64, count: uint64): uint64
+-- Allocate before acquiring external ownership. An unsuccessful constructor
+-- leaves auxLen0 and an empty tail, so ordinary GC reclaims the unused header.
+local function emptylong(h: heap.Heap*): uint64
     @unsafe do
-        local found = weakindex.weakStringLookup(h, native.pointer(bytes), count, h.phase, h.stats.cycles)
-        if found ~= 0ULL then
-            return found
+        local payload = heap.corestringextent() - native.sizeOf<heap.Header>()
+        local o = collector.allocate(h, heap.KIND_STR, payload)
+        local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES)
+        local at: uint64 = 0ULL
+        while at < payload do
+            native.store64(body, native.index(at), 0ULL)
+            at = at + 8ULL
         end
-        local o = collector.allocate(h, heap.KIND_STR, native.sizeOf<heap.StringBody>() + count + 1ULL)
-        local base = native.address(o as voidptr) + prefix()
-        storage.copy(base, bytes, count, native.pointer(0ULL) as storage.CopyStats*)
-        native.store8(native.pointer(base), native.index(count), 0ULL)
-        o.auxPtr = base
-        o.auxLen = count
-        if weakindex.weakInsert(h, o) ~= 0ULL then
-            error("core strings: the intern table refused a string")
-        end
-
         return native.address(o as voidptr)
     end
+end
+
+-- Collector charge is deliberately per header, not unique physical bytes/RSS.
+-- Run after the collecting header allocation, before any map or retain.
+local function chargefits(h: heap.Heap*, charge: uint64): boolean
+    return @unsafe charge ~= 0ULL and charge <= MAXIMUM - h.liveBytes and charge <= MAXIMUM - h.debt
+end
+
+-- All fields and the charge become visible without collecting or failing.
+local function publish(
+    h: heap.Heap*,
+    o: heap.Header*,
+    block: voidptr,
+    offset: uint64,
+    count: uint64,
+    charge: uint64
+): uint64
+    @unsafe do
+        local tail = heap.corestringtail(o)
+        tail.block = native.address(block)
+        tail.offset = offset
+        tail.hashReady = 0ULL
+        tail.charge = charge
+        o.auxPtr = native.address(shared.bytes(block)) + offset
+        o.auxLen = count
+        heap.accountResize(h, 0ULL, charge)
+        return native.address(o as voidptr)
+    end
+end
+
+-- A counted private constructor shares the production copy routine. Sources
+-- remain rooted across the sole safepoint, before copying or mapping starts.
+export function makecounted(h: heap.Heap*, bytes: uint64, count: uint64, stats: storage.CopyStats*): uint64
+    @unsafe do
+        if count <= values.INTERN_LIMIT then
+            local found = weakindex.weakStringLookup(h, native.pointer(bytes), count, h.phase, h.stats.cycles)
+            if found ~= 0ULL then
+                return found
+            end
+            local o = collector.allocate(h, heap.KIND_STR, native.sizeOf<heap.StringBody>() + count + 1ULL)
+            local base = native.address(o as voidptr) + prefix()
+            storage.copy(base, bytes, count, stats)
+            native.store8(native.pointer(base), native.index(count), 0ULL)
+            o.auxPtr = base
+            o.auxLen = count
+            if weakindex.weakInsert(h, o) ~= 0ULL then
+                error("core strings: the intern table refused a string")
+            end
+            return native.address(o as voidptr)
+        end
+        if count == MAXIMUM then
+            error("core strings: string extent overflows")
+        end
+        local capacity = count + 1ULL
+        local charge = pages.sharedextent(capacity)
+        if charge == 0ULL then
+            error("core strings: string extent overflows")
+        end
+        local o = native.pointer(emptylong(h)) as heap.Header*
+        if not chargefits(h, charge) then
+            error("core strings: string accounting overflows")
+        end
+        local block = shared.create(capacity)
+        if block == nil then
+            error("not enough memory")
+        end
+        local base = native.address(shared.bytes(block))
+        storage.copy(base, bytes, count, stats)
+        native.store8(native.pointer(base), native.index(count), 0ULL)
+        return publish(h, o, block, 0ULL, count, charge)
+    end
+end
+
+export function make(h: heap.Heap*, bytes: uint64, count: uint64): uint64
+    return makecounted(h, bytes, count, native.pointer(0ULL) as storage.CopyStats*)
+end
+
+-- The caller owns an active reference to immutable bytes throughout allocation.
+-- Invalid bounds/accounting/retain leave it untouched; short ranges copy/intern.
+-- Long ranges need not end at a NUL byte. No mutable Buffer sharing is enabled.
+export function fromshared(h: heap.Heap*, block: voidptr, offset: uint64, count: uint64): uint64
+    if native.address(block) == 0ULL then
+        return 0ULL
+    end
+    local capacity = shared.capacity(block)
+    if offset > capacity or count > capacity - offset then
+        return 0ULL
+    end
+    if count <= values.INTERN_LIMIT then
+        return make(h, native.address(shared.bytes(block)) + offset, count)
+    end
+    local charge = shared.mapped(block)
+    local o = native.pointer(emptylong(h)) as heap.Header*
+    if not chargefits(h, charge) or not shared.retain(block) then
+        return 0ULL
+    end
+
+    return publish(h, o, block, offset, count, charge)
 end
 
 -- The header of a string value, or zero.
@@ -118,6 +216,72 @@ end
 
 export function bytes(s: uint64): uint64
     return native.load64(native.pointer(s), native.fieldOffset<heap.Header>("auxPtr"))
+end
+
+-- Hash preparation precedes every readonly table probe. Existing inline strings
+-- keep the prepared hash supplied by weakInsert or their explicit constructor.
+export function prepare(key: uint64): nil
+    @unsafe do
+        local address = header(key)
+        if address == 0ULL then
+            return
+        end
+        local o = native.pointer(address) as heap.Header*
+        if heap.corestringexternal(o) then
+            local tail = heap.corestringtail(o)
+            if tail.hashReady == 0ULL then
+                local hash = objecthash.stringHash(native.pointer(o.auxPtr), o.auxLen, 0ULL)
+                native.store64(
+                    native.pointer(address + heap.HEADER_BYTES),
+                    native.fieldOffset<heap.StringBody>("hash"),
+                    hash
+                )
+                tail.hashReady = 1ULL
+            end
+        end
+    end
+end
+
+local function hashready(address: uint64): boolean
+    @unsafe do
+        local o = native.pointer(address) as heap.Header*
+        if (o.flags as uint64) & heap.F_INTERNED ~= 0ULL then
+            return true
+        end
+        return heap.corestringexternal(o) and heap.corestringtail(o).hashReady ~= 0ULL
+    end
+end
+
+-- Equality does not force hashing. A known hash only rejects; bytes decide
+-- collisions, and length is checked before either hash or payload scans.
+export function equal(a: uint64, b: uint64): boolean
+    if a == b then
+        return true
+    end
+    local count = length(a)
+    if count ~= length(b) then
+        return false
+    end
+    if hashready(a)
+        and hashready(b)
+        and native.load64(
+            native.pointer(a + heap.HEADER_BYTES),
+            native.fieldOffset<heap.StringBody>("hash")
+        ) ~= native.load64(native.pointer(b + heap.HEADER_BYTES), native.fieldOffset<heap.StringBody>("hash"))
+    then
+        return false
+    end
+    local x = bytes(a)
+    local y = bytes(b)
+    local i: uint64 = 0ULL
+    while i < count do
+        if native.load8(native.pointer(x), native.index(i)) ~= native.load8(native.pointer(y), native.index(i)) then
+            return false
+        end
+        i = i + 1ULL
+    end
+
+    return true
 end
 
 -- Whether string a sorts before string b (or equals it, with `orEqual`),
@@ -249,7 +413,7 @@ export function appendInteger(h: heap.Heap*, borrows b: Builder*, value: int64):
     end
 end
 
--- The builder's bytes as an interned string; the builder is released.
+-- The builder stays rooted through copying, then its handle is released.
 export function finish(h: heap.Heap*, borrows b: Builder*): uint64
     @unsafe do
         local s = make(h, descriptor(b).base, descriptor(b).len)
@@ -258,7 +422,7 @@ export function finish(h: heap.Heap*, borrows b: Builder*): uint64
     end
 end
 
--- a .. b as an interned string.
+-- a .. b as immutable bytes, using the same counted constructor.
 export function concat(h: heap.Heap*, a: uint64, b: uint64): uint64
     @unsafe do
         local state = Builder(0ULL, 0ULL)

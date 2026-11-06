@@ -182,3 +182,46 @@ fn release_queue_map_refusal_leaves_no_published_header() {
         "observer verifies unchanged publication state, restored counts and actual scope close"
     );
 }
+
+#[test]
+#[ignore = "requires the exact emitted longstringfaultunits bundle"]
+fn long_string_failures_preserve_publication_and_drain_order() {
+    let bundle = std::path::PathBuf::from(
+        std::env::var_os("CORE_TEST_LONG_STRING_BUNDLE").expect("CORE_TEST_LONG_STRING_BUNDLE"),
+    );
+    ADDRESS.store(0, Ordering::SeqCst);
+    EXTENT.store(0, Ordering::SeqCst);
+    ATTEMPTS.store(0, Ordering::SeqCst);
+    MAP_ATTEMPTS.store(0, Ordering::SeqCst);
+    let _cleanup = Cleanup;
+    MAP_REFUSAL.store(true, Ordering::SeqCst);
+    let refused = super::execute(&bundle, &[0, 0, 2]).expect("long string map refusal");
+    MAP_REFUSAL.store(false, Ordering::SeqCst);
+    assert_eq!(
+        refused,
+        [159, 0],
+        "empty header reclaimed, actual scope closed"
+    );
+    assert_eq!(MAP_ATTEMPTS.load(Ordering::SeqCst), 1);
+    ENABLED.store(true, Ordering::SeqCst);
+    let failed = super::execute(&bundle, &[0, 0, 3]).expect("long string unmap failure");
+    ENABLED.store(false, Ordering::SeqCst);
+    assert_eq!(
+        failed,
+        [255, 0],
+        "consumed header popped before error; remaining entry drained"
+    );
+    assert_eq!(
+        ATTEMPTS.load(Ordering::SeqCst),
+        1,
+        "no retry after consumed failure"
+    );
+    let address = ADDRESS.load(Ordering::SeqCst);
+    assert_ne!(address, 0);
+    let prefix = address as *const u64;
+    unsafe {
+        assert_eq!(prefix.add(3).read(), FAILED);
+        assert_eq!(prefix.add(4).read(), 0);
+        assert_eq!(*(address as *const u8).add(PREFIX_BYTES as usize), 42);
+    }
+}
