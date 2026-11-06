@@ -632,6 +632,12 @@ UNITS[#UNITS + 1] = {
 local WORKLOADS = {"fib", "loops", "tables", "strings", "records", "closures"}
 
 local function vmPackage()
+    local runtime = os.getenv("NUPP_VM_BINARY") or ""
+    local image = os.getenv("NUPP_VM_CLI_IMAGE") or ""
+    if runtime ~= "" or image ~= "" then
+        assert(runtime ~= "" and image ~= "", "heap replay requires both NUPP_VM_BINARY and NUPP_VM_CLI_IMAGE")
+        return runtime, image
+    end
     local generation = read(ROOT .. "/.nupp/vm-cli/current"):gsub("%s+$", "")
     local package = ROOT .. "/.nupp/vm-cli/" .. generation
 
