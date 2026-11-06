@@ -1870,25 +1870,14 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
         display: grid
     }
 
-    .nuppdoc-outline ol:has(> .nuppdoc-outline-flow) {
-        display: flex;
-        flex-wrap: wrap;
-        padding-left: 1rem;
-        column-gap: 1.1rem
+    .nuppdoc-outline ol.nuppdoc-outline-columns {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        column-gap: 16px
     }
 
-    .nuppdoc-outline ol:has(> .nuppdoc-outline-flow) > li:not(.nuppdoc-outline-flow) {
-        flex-basis: 100%
-    }
-
-    .nuppdoc-outline-flow {
-        max-width: 100%
-    }
-
-    .nuppdoc-outline-flow > a {
-        padding-block: .176rem;
-        overflow-wrap: anywhere;
-        white-space: normal
+    .nuppdoc-outline-columns > li:not(.nuppdoc-outline-function) {
+        grid-column: 1 / -1
     }
 
     .nuppdoc-outline,
