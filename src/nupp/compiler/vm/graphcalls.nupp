@@ -855,6 +855,26 @@ export function erased(node: any): boolean
         and (node.comptimeFunction ~= nil or node.comptimeTok ~= nil)
 end
 
+-- The name a module-level statement exports a function under, which the
+-- checker hoists to the top of its module, or nil for any other statement.
+export function hoistedFunctionName(stat: any): any
+    if stat.kind ~= "exportStmt" or not stat.stat then
+        return nil
+    end
+    local declared = stat.stat
+    if declared.kind == "localFuncStmt" then
+        return declared.name
+    elseif declared.kind == "funcStmt"
+        and declared.name
+        and declared.name.base
+        and #(declared.name.parts or {}) <= 1
+    then
+        return declared.name.base
+    end
+
+    return nil
+end
+
 -- The image module the core answers a host module's `require` with: the
 -- portable FIFO buffer for `string.buffer`, until the heap's byte objects
 -- carry one, the portable BitOp library for `bit`, and storage on the guest

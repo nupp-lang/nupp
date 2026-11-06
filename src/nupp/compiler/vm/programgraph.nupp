@@ -87,7 +87,10 @@ local function storagePlan(p: any): any
             -- A record's methods may name the record, whose table holds them:
             -- its binding is a cell made before them, as a local function's is.
             local ownRecord = p.recordMembers[owner.node] == b.definition
-            if b.mode == "cell" or item.recursive or ownRecord then
+            -- An exported function may be captured before its statement runs:
+            -- a cell made as the module starts holds it from then on.
+            local hoisted = p.hoistedFunctions[b.definition] == true
+            if b.mode == "cell" or item.recursive or ownRecord or hoisted then
                 storage[b.definition] = "cell"
             end
         end
@@ -240,6 +243,9 @@ function program.describe(modules: {any}, entryModule: string): any
         -- The definition of the record each method or constructor written in
         -- a record body belongs to, by its node.
         recordMembers = {},
+        -- The definitions of the functions a module exports, which the checker
+        -- hoists: a closure made above the declaration may already name one.
+        hoistedFunctions = {},
         byDefinition = {},
         functionsByDefinition = {},
         byBody = {},
@@ -274,7 +280,12 @@ function program.describe(modules: {any}, entryModule: string): any
         p.byBody[owner.body] = owner
         for _, block in ipairs(parsed.root.blocks) do
             for _, stat in ipairs(block.stats or {}) do
-                topLevel[stat.kind == "exportStmt" and stat.stat or stat] = true
+                local declared = stat.kind == "exportStmt" and stat.stat or stat
+                topLevel[declared] = true
+                local name = graph.hoistedFunctionName(stat)
+                if name and name.definition then
+                    p.hoistedFunctions[name.definition] = true
+                end
             end
         end
         local module = {name = input.name, path = input.path, chunk = owner.id, parsed = parsed}
@@ -442,6 +453,28 @@ function program.describe(modules: {any}, entryModule: string): any
                 not definition.lexical or p.byDefinition[definition] ~= nil or erasedDefinitions[definition],
                 "checked declaration outside ordered syntax is unsupported"
             )
+        end
+    end
+    -- The checker names an exported function a call reaches before its
+    -- statement by the definition it hoisted, which the statement then
+    -- replaces. Such a call names the function the statement declares.
+    local hoistedReferences: function(any): nil
+    hoistedReferences = function(node: any): nil
+        if cst.isToken(node) then
+            local definition = node.definition
+            local declared = definition and definition.token and definition.token.definition
+            if declared ~= definition and p.hoistedFunctions[declared] and p.byDefinition[definition] == nil then
+                node.definition = declared
+            end
+            return
+        end
+        for _, child in ipairs(node) do
+            hoistedReferences(child)
+        end
+    end
+    if next(p.hoistedFunctions) ~= nil then
+        for _, module in ipairs(p.modules) do
+            hoistedReferences(module.parsed.root)
         end
     end
 

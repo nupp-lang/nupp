@@ -176,7 +176,12 @@ end
 
 function tagged.writeBinding(ctx: any, node: any, key: any, previous: integer, value: integer): integer
     local b = binding(ctx, key)
-    need(not b.definition.constant or node.kind == "localFuncStmt", "assignment to immutable declaration")
+    -- A function statement fills the cell made for it before its closure, a
+    -- recursive local or a hoisted export.
+    need(
+        not b.definition.constant or node.kind == "localFuncStmt" or node.kind == "funcStmt",
+        "assignment to immutable declaration"
+    )
     if b.storage == "cell" then
         ctx.emit(node, "SetCell", {previous, value}, nil)
         return previous

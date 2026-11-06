@@ -184,6 +184,7 @@ export const mayUseScheduler = graphcalls.mayUseScheduler
 export const mayTakeLibraryValue = graphcalls.mayTakeLibraryValue
 export const corecallmodule = graphcalls.corecallmodule
 export const erased = graphcalls.erased
+export const hoistedFunctionName = graphcalls.hoistedFunctionName
 export const coremodule = graphcalls.coremodule
 export const dynamicRequire = graphcalls.dynamicRequire
 export const coreLibraryField = graphcalls.coreLibraryField
