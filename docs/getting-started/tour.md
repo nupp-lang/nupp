@@ -16,7 +16,7 @@ local record Point
 end
 
 local function scale(p: Point, k: number): Point
-    return new Point(x = p.x * k, y = p.y * k)
+    return Point(x = p.x * k, y = p.y * k)
 end
 ```
 
@@ -69,11 +69,11 @@ end
 Construction is by name, because field order in a table is not meaningful:
 
 ```nupp:fragment
-local p = new Point(x = 3, y = 4)
+local p = Point(x = 3, y = 4)
 print(p:length())
 ```
 
-`new Point(...)` builds an object with `Point`'s nominal shape: the fixed set of
+`Point(...)` builds an object with `Point`'s nominal shape: the fixed set of
 slots every instance has, which is also what lets `p is Point` answer at run
 time. See
 [records](../learn/language/types/records-and-structs.md#records) for constructors, field defaults,
@@ -95,7 +95,7 @@ A struct binding is never nil and zero-initializes, so a bare declaration is com
 on its own:
 
 ```nupp:fragment
-local a = new Vec2(1.0, 2.0)
+local a = Vec2(1.0, 2.0)
 local b: Vec2
 ```
 
@@ -119,7 +119,7 @@ local record Tagged
     weight: number
 end
 
-local n: Named = new Tagged(name = "t", weight = 1)
+local n: Named = Tagged(name = "t", weight = 1)
 ```
 
 An `is` clause does two further things. It inherits the parent's members, and it
@@ -299,7 +299,7 @@ local function closeSession(takes session: Session): nil
 end
 
 local function openSession(): affine(Session, closeSession)
-    return new Session(closed = false)
+    return Session(closed = false)
 end
 ```
 
@@ -327,7 +327,7 @@ standard library. A suspension-aware operation is an ordinary call with an
 ordinary result:
 
 ```nupp
-local child = assert(io.popen({args = {"cc", "--version"}}))
+local child = assert(io.popen({"cc", "--version"}))
 local result = assert(child:communicate())
 print(result.output)
 child:close()
@@ -399,10 +399,3 @@ nupp explain NUPP2119
 
 Each shares one parse, one type checker, and one incremental engine, so the
 editor and the build never disagree about what your code means.
-
-::: seealso
-- [tooling.md](../learn/tooling/index.md) for the guided version of that list
-- [file-types.md](../learn/language/file-types.md) for how `.lua` and `.nupp`
-  files share a project
-- [overview.md](../learn/language/types/index.md) for the type system as a whole
-:::

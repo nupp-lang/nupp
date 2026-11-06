@@ -1,0 +1,806 @@
+@!internal
+module nupp.compression
+
+const assert2 = require("assert")
+
+local target = require("nupp.runtime.target")
+
+const _PROVIDER_REQUIRES = "@requires-dynamically nupp.runtime.provider.nativecompression"
+
+const io = require("nupp.io")
+const span = require("binary.span")
+const storage = require("nupp.runtime.storage")
+const provider = require("nupp.compression.contracts")
+
+local DEFAULT_WORKSPACE: integer = 65536
+local DEFAULT_MAX_OUTPUT: integer = 67108864
+local RATIO_ALLOWANCE: integer = 1024
+local MAX_EXACT_INTEGER = 9007199254740991
+
+--- Options in the `gzip` block passed to a compression writer.
+export interface GzipWriterOptions
+    --- Compression level from zero through nine; six by default.
+    level: integer?
+end
+
+--- Options in the `zlib` block passed to a compression writer.
+export interface ZlibWriterOptions
+    --- Compression level from zero through nine; six by default.
+    level: integer?
+end
+
+--- Options in the `deflateraw` block passed to a compression writer.
+export interface DeflateRawWriterOptions
+    --- Compression level from zero through nine; six by default.
+    level: integer?
+end
+
+--- Options in the `gzip` block passed to a decompression reader.
+export interface GzipReaderOptions
+    --- Whether to decode concatenated gzip members; true by default.
+    concatenatedmembers: boolean?
+end
+
+--- Common compression-writer policy.
+export interface CompressionWriterOptions
+    --- Provider workspace in bytes; 65536 by default.
+    workspacebytes: integer?
+
+    --- Gzip-specific options, accepted only by the gzip descriptor.
+    gzip: GzipWriterOptions?
+
+    --- Zlib-specific options, accepted only by the zlib descriptor.
+    zlib: ZlibWriterOptions?
+
+    --- Raw-DEFLATE-specific options, accepted only by the deflate-raw descriptor.
+    deflateraw: DeflateRawWriterOptions?
+end
+
+--- Common decompression-reader policy.
+export interface CompressionReaderOptions
+    --- Provider workspace in bytes; 65536 by default.
+    workspacebytes: integer?
+
+    --- Most decompressed bytes to produce; 64 MiB by default.
+    maxoutputbytes: integer?
+
+    --- Maximum output-to-input ratio after a 1 KiB input allowance.
+    maxexpansionratio: number?
+
+    --- Explicitly removes the default output cap.
+    unbounded: boolean?
+
+    --- Gzip-specific options, accepted only by the gzip descriptor.
+    gzip: GzipReaderOptions?
+end
+
+local function positive(value: any, fallback: integer, what: string): integer
+    local answer: any = value == nil and fallback or value
+    if type(answer) ~= "number" or answer < 1 or answer > MAX_EXACT_INTEGER or answer ~= math.floor(answer) then
+        error("nupp: " .. what .. " must be a positive integer", 3)
+    end
+
+    return answer as integer
+end
+
+local function settings(options: any, what: string): {[string]: any}
+    if options == nil then
+        return {}
+    end
+    if type(options) ~= "table" then
+        error("nupp: compression " .. what .. " options must be a table", 3)
+    end
+
+    return options as {[string]: any}
+end
+
+local function validProgress(value: any, maximum: integer): boolean
+    return type(value) == "number" and value >= 0 and value <= maximum and value == math.floor(value)
+end
+
+local function needsOutput(status: integer, written: integer, capacity: integer): boolean
+    return status ~= provider.needoutput or written == capacity
+end
+
+local function optionKey(name: string): string
+    return name == "deflate-raw" and "deflateraw" or name
+end
+
+local function validateKeys(options: provider.FormatOptions?, allowed: {[string]: boolean}, what: string): nil
+    if options == nil then
+        return
+    end
+    for name in pairs(options) do
+        if not allowed[name] then
+            error("nupp: unknown " .. what .. " option " .. name, 3)
+        end
+    end
+end
+
+local function formatOptions(
+    settings: any,
+    name: string,
+    kind: string,
+    common: {[string]: boolean}
+): provider.FormatOptions?
+    local expected = optionKey(name)
+    local selected: any
+    for key, value in pairs(settings as {[string]: any}) do
+        if not common[key] then
+            if key ~= expected then
+                error("nupp: " .. key .. " " .. kind .. " options cannot configure " .. name, 3)
+            elseif type(value) ~= "table" then
+                error("nupp: " .. expected .. " " .. kind .. " options must be a table", 3)
+            end
+            selected = value
+        end
+    end
+
+    return selected as provider.FormatOptions?
+end
+
+local WRITER_COMMON: {[string]: boolean} = {workspacebytes = true}
+local READER_COMMON: {
+    [string]: boolean
+} = {workspacebytes = true, maxoutputbytes = true, maxexpansionratio = true, unbounded = true,}
+
+local function encoderOptions(settings: CompressionWriterOptions, name: string): provider.FormatOptions?
+    local options = formatOptions(settings, name, "writer", WRITER_COMMON)
+    if name == "gzip" or name == "zlib" or name == "deflate-raw" then
+        validateKeys(options, {level = true}, optionKey(name) .. " writer")
+        local level = options ~= nil and options.level or 6
+        if type(level) ~= "number" or level < 0 or level > 9 or level ~= math.floor(level) then
+            error("nupp: compression level must be an integer from zero through nine", 3)
+        end
+    end
+
+    return options
+end
+
+local function decoderOptions(settings: CompressionReaderOptions, name: string): provider.FormatOptions?
+    local options = formatOptions(settings, name, "reader", READER_COMMON)
+    if name == "gzip" then
+        validateKeys(options, {concatenatedmembers = true}, "gzip reader")
+        local concatenatedMembers = options ~= nil and options.concatenatedmembers or nil
+        if concatenatedMembers ~= nil and type(concatenatedMembers) ~= "boolean" then
+            error("nupp: gzip concatenatedmembers must be a boolean", 3)
+        end
+    elseif name == "zlib" or name == "deflate-raw" then
+        validateKeys(options, {}, optionKey(name) .. " reader")
+    end
+
+    return options
+end
+
+local function closeBoth(takes first: own.Closeable, takes second: own.Closeable): nil
+    local firstOk, firstFailure = pcall(function(): nil takes (first)
+        first:close()
+    end)
+    local secondOk, secondFailure = pcall(function(): nil takes (second)
+        second:close()
+    end)
+    if not firstOk then
+        if not secondOk then
+            error(tostring(firstFailure) .. " (suppressed 1 cleanup failure)", 0)
+        end
+        error(firstFailure, 0)
+    elseif not secondOk then
+        error(secondFailure, 0)
+    end
+end
+
+local interface OwnedPair is own.Closeable
+    state: affine(provider.Encoder)
+    destination: affine(io.Writer)
+end
+
+local record PairOwner is OwnedPair
+    state: affine(provider.Encoder)
+    destination: affine(io.Writer)
+
+    function close(takes self): nil
+        closeBoth(self.state, self.destination)
+    end
+end
+
+--- An ordinary writer whose consuming `finish` emits the final trailer.
+export interface CompressionWriter is io.Writer
+    --- Aborts an unfinished stream and raises after releasing owned resources.
+    --- @raises string whenever the stream was not consumed by `finish`
+    close: @nosuspend function(takes self: CompressionWriter): nil
+
+    --- Completes the stream, flushes and closes the owned destination.
+    finish: function(takes self: CompressionWriter): (boolean, string?)
+end
+
+local record Writer is CompressionWriter
+    @private state: affine(provider.Encoder)
+    @private destination: affine(io.Writer)
+    @private output: uint8[?]
+    @private capacity: integer
+
+    @private drain: function(exclusive self: Writer, count: integer): (boolean, string?)
+    @private abort: @nosuspend function(takes self: Writer): nil
+
+    function write(exclusive self, bytes: string): (boolean, string?)
+        local input = span.fromstring(bytes)
+        local written, reason = self:writespan(input)
+        if written == nil or written ~= #bytes then
+            return false, reason or "compression writer accepted only part of the input"
+        end
+
+        return true, nil
+    end
+
+    function writespan(exclusive self, borrows input: span.ByteSpan): (integer?, string?)
+        local at: integer = 1
+        while at <= #input do
+            local remaining = input:slice(at, #input)
+            local output = span.writecarray(self.output, self.capacity)
+            local consumed, written, status, reason = self.state:write(remaining, output)
+            own.drop(output)
+            if consumed == nil or written == nil or status == nil then
+                return nil, reason
+            end
+            if not validProgress(consumed, #remaining)
+                or not validProgress(written, self.capacity)
+                or (status ~= provider.needinput and status ~= provider.needoutput)
+                or (status == provider.needinput and consumed ~= #remaining)
+                or not needsOutput(status, written, self.capacity)
+            then
+                return nil, "compression provider reported invalid progress"
+            end
+            local ok, why = self:drain(written)
+            if not ok then
+                return nil, why
+            end
+            if consumed == 0 and written == 0 then
+                return nil, "compression provider made no progress"
+            end
+            at = at + consumed
+        end
+
+        return #input, nil
+    end
+
+    function flush(self): (boolean, string?)
+        while true do
+            local output = span.writecarray(self.output, self.capacity)
+            local written, status, reason = self.state:flush(output)
+            own.drop(output)
+            if written == nil or status == nil then
+                return false, reason
+            end
+            if not validProgress(written, self.capacity)
+                or (status ~= provider.needinput and status ~= provider.needoutput)
+                or not needsOutput(status, written, self.capacity)
+            then
+                return false, "compression provider reported invalid progress"
+            end
+            local ok, why = self:drain(written)
+            if not ok then
+                return false, why
+            end
+            if status == provider.needinput then
+                return self.destination:flush()
+            end
+            if written == 0 then
+                return false, "compression provider made no flush progress"
+            end
+        end
+    end
+
+    function finish(takes self): (boolean, string?)
+        local output, capacity = self.output, self.capacity
+        do
+            local owner = PairOwner(state = self.state, destination = self.destination)
+            while true do
+                local writable = span.writecarray(output, capacity)
+                local written, status, reason = owner.state:finish(writable)
+                own.drop(writable)
+                if written == nil or status == nil then
+                    return false, reason
+                end
+                if not validProgress(written, capacity)
+                    or (status ~= provider.needoutput and status ~= provider.finished)
+                    or not needsOutput(status, written, capacity)
+                then
+                    return false, "compression provider reported invalid progress"
+                end
+                if written > 0 then
+                    local bytes = span.fromcarray(output, written)
+                    local at: integer = 1
+                    while at <= written do
+                        local remaining = bytes:slice(at, written)
+                        local moved, why = owner.destination:writespan(remaining)
+                        if moved == nil then
+                            return false, why
+                        end
+                        if moved < 1 or moved > #remaining then
+                            return false, "destination writer made invalid progress"
+                        end
+                        at = at + moved
+                    end
+                end
+                if status == provider.finished then
+                    local ok, why = owner.destination:flush()
+                    return ok, why
+                end
+                if written == 0 then
+                    return false, "compression provider made no finish progress"
+                end
+            end
+        end
+    end
+
+    function close(takes self): nil
+        closeBoth(self.state, self.destination)
+        error("nupp: compression writer was closed without finish", 2)
+    end
+
+end
+
+function Writer.drain(exclusive self: Writer, count: integer): (boolean, string?)
+    if count == 0 then
+        return true, nil
+    end
+    local bytes = span.fromcarray(self.output, count)
+    local at: integer = 1
+    while at <= count do
+        local remaining = bytes:slice(at, count)
+        local written, reason = self.destination:writespan(remaining)
+        if written == nil then
+            return false, reason
+        end
+        if written < 1 or written > #remaining then
+            return false, "destination writer made invalid progress"
+        end
+        at = at + written
+    end
+
+    return true, nil
+end
+
+function Writer.abort(takes self: Writer): nil
+    closeBoth(self.state, self.destination)
+end
+
+local function makeWriter(
+    implementation: provider.Format,
+    name: string,
+    takes destination: io.Writer,
+    options: CompressionWriterOptions?
+): Writer
+    local configured = settings(options, "writer")
+    local capacity = positive(configured.workspacebytes, DEFAULT_WORKSPACE, "compression workspacebytes")
+    local formatSettings = encoderOptions(configured as CompressionWriterOptions, name)
+    return Writer(
+        state = implementation:createencoder(formatSettings),
+        destination = destination,
+        output = storage.allocateBytes(capacity),
+        capacity = capacity
+    )
+end
+
+local record Reader is io.Reader
+    @private state: affine(provider.Decoder)
+    @private source: affine(io.Reader)
+    @private input: uint8[?]
+    @private capacity: integer
+    @private inputAt: integer
+    @private inputLength: integer
+    @private inputTotal: integer
+    @private outputTotal: integer
+    @private maxOutputBytes: integer?
+    @private maxExpansionRatio: number?
+    @private streamFinished: boolean
+    @private ended: boolean
+
+    function close(takes self): nil
+        closeBoth(self.state, self.source)
+    end
+
+    @private refill: function(self: Reader): (boolean?, string?)
+    @private account: function(self: Reader, consumed: integer, written: integer): string?
+
+    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+        local destinationLength: integer
+        do
+            local output = destination as span.ByteWriteSpan
+            destinationLength = #output
+        end
+        if destinationLength < 1 then
+            error("nupp: compression Reader:readspan destination must be positive", 2)
+        end
+        if self.ended then
+            return 0, nil
+        end
+        while true do
+            if self.streamFinished then
+                local hasInput, why = self:refill()
+                if hasInput == nil then
+                    return nil, why
+                elseif hasInput then
+                    return nil, "compressed stream has trailing bytes"
+                end
+                self.ended = true
+                return 0, nil
+            end
+
+            if self.inputAt > self.inputLength then
+                local hasInput, why = self:refill()
+                if hasInput == nil then
+                    return nil, why
+                end
+                if not hasInput then
+                    local written, status, reason = self.state:finishinput(destination)
+                    if written == nil or status == nil then
+                        return nil, reason
+                    end
+                    if not validProgress(written, destinationLength)
+                        or (
+                            status ~= provider.needinput
+                            and status ~= provider.needoutput
+                            and status ~= provider.finished
+                        )
+                        or not needsOutput(status, written, destinationLength)
+                    then
+                        return nil, "compression provider reported invalid progress"
+                    end
+                    local limitFailure = self:account(0, written)
+                    if limitFailure ~= nil then
+                        return nil, limitFailure
+                    end
+                    if status == provider.needinput then
+                        return nil, "compressed stream ended before its trailer"
+                    end
+                    self.streamFinished = status == provider.finished
+                    if written > 0 then
+                        return written, nil
+                    end
+                    if status == provider.needoutput then
+                        return nil, "compression provider made no progress"
+                    end
+                    self.ended = true
+                    return 0, nil
+                end
+            end
+
+            local all = span.fromcarray(self.input, self.inputLength)
+            local input = all:slice(self.inputAt, self.inputLength)
+            local consumed, written, status, reason = self.state:read(input, destination)
+            if consumed == nil or written == nil or status == nil then
+                return nil, reason
+            end
+            if not validProgress(consumed, #input)
+                or not validProgress(written, destinationLength)
+                or (status ~= provider.needinput and status ~= provider.needoutput and status ~= provider.finished)
+                or (status == provider.needinput and consumed ~= #input)
+                or not needsOutput(status, written, destinationLength)
+            then
+                return nil, "compression provider reported invalid progress"
+            end
+            self.inputAt = self.inputAt + consumed
+            local limitFailure = self:account(consumed, written)
+            if limitFailure ~= nil then
+                return nil, limitFailure
+            end
+            if status == provider.finished then
+                if self.inputAt <= self.inputLength then
+                    return nil, "compressed stream has trailing bytes"
+                end
+                self.streamFinished = true
+            end
+            if written > 0 then
+                return written, nil
+            end
+            if consumed == 0 then
+                return nil, "compression provider made no progress"
+            end
+        end
+    end
+
+    function read(exclusive self, count: integer): (string?, string?)
+        local wanted = positive(count, count, "compression Reader:read count")
+        local output = storage.allocateBytes(wanted)
+        local writable = span.writecarray(output, wanted)
+        local written, reason = self:readspan(writable)
+        own.drop(writable)
+        if written == nil then
+            return nil, reason
+        end
+
+        return storage.string(output, written), nil
+    end
+
+    function readinto(
+        exclusive self,
+        exclusive destination: io.Buffer,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
+        local from: any = offset == nil and 0 or offset
+        if type(from) ~= "number" or from < 0 or from > MAX_EXACT_INTEGER or from ~= math.floor(from) then
+            error("nupp: compression Reader:readinto offset must be a non-negative integer", 2)
+        end
+        local wanted = positive(count, DEFAULT_WORKSPACE, "compression Reader:readinto count")
+        local lease = destination:reservewrite(from as integer, wanted)
+        local written: integer?
+        local reason: string?
+        do
+            local output = lease:span()
+            written, reason = self:readspan(output)
+            own.drop(output)
+        end
+        if written == nil then
+            own.drop(lease)
+            return nil, reason
+        end
+        lease:commit(written)
+
+        return written, nil
+    end
+
+    function transferto(exclusive self, exclusive destination: io.Writer): (integer?, string?)
+        local output = storage.allocateBytes(self.capacity)
+        local total: integer = 0
+        while true do
+            local writable = span.writecarray(output, self.capacity)
+            local read, reason = self:readspan(writable)
+            own.drop(writable)
+            if read == nil then
+                return nil, reason
+            elseif read == 0 then
+                return total, nil
+            end
+            local bytes = span.fromcarray(output, read)
+            local at: integer = 1
+            while at <= read do
+                local remaining = bytes:slice(at, read)
+                local written, why = destination:writespan(remaining)
+                if written == nil then
+                    return nil, why
+                end
+                if written < 1 or written > #remaining then
+                    return nil, "destination writer made invalid progress"
+                end
+                at = at + written
+            end
+            total = total + read
+        end
+    end
+end
+
+function Reader.refill(self: Reader): (boolean?, string?)
+    local writable = span.writecarray(self.input, self.capacity)
+    local count, reason = self.source:readspan(writable)
+    own.drop(writable)
+    if count == nil then
+        return nil, reason
+    end
+    if not validProgress(count, self.capacity) then
+        return nil, "source reader reported invalid progress"
+    end
+    self.inputAt = 1
+    self.inputLength = count
+
+    return count > 0, nil
+end
+
+function Reader.account(self: Reader, consumed: integer, written: integer): string?
+    self.inputTotal = self.inputTotal + consumed
+    self.outputTotal = self.outputTotal + written
+    if self.maxOutputBytes ~= nil and self.outputTotal > self.maxOutputBytes then
+        return "decompressed output exceeds maxoutputbytes"
+    end
+    local ratioInput = math.max(self.inputTotal, RATIO_ALLOWANCE)
+    if self.maxExpansionRatio ~= nil and self.outputTotal > ratioInput * self.maxExpansionRatio then
+        return "decompressed output exceeds maxexpansionratio"
+    end
+
+    return nil
+end
+
+--- Retained compression format descriptor.
+export record CompressionFormat
+    --- Canonical format name.
+    @readonly name: string
+
+    @private implementation: provider.Format
+
+    --- Wraps and owns a reader, validating the stream before EOF.
+    --- @raises string when options are invalid or a format block does not match
+    function reader(self, takes source: io.Reader, options: CompressionReaderOptions?): io.Reader
+        local configured = settings(options, "reader")
+        local capacity = positive(configured.workspacebytes, DEFAULT_WORKSPACE, "compression workspacebytes")
+        if configured.unbounded ~= nil and type(configured.unbounded) ~= "boolean" then
+            error("nupp: compression unbounded must be a boolean", 2)
+        end
+        if configured.unbounded and configured.maxoutputbytes ~= nil then
+            error("nupp: CompressionReaderOptions cannot set both unbounded and maxoutputbytes", 2)
+        end
+        local maximum: integer? = configured.unbounded and nil
+            or positive(configured.maxoutputbytes, DEFAULT_MAX_OUTPUT, "compression maxoutputbytes")
+        local ratio = configured.maxexpansionratio
+        if ratio ~= nil and (type(ratio) ~= "number" or ratio <= 0 or ratio >= math.huge or ratio ~= ratio) then
+            error("nupp: compression maxexpansionratio must be positive and finite", 2)
+        end
+        local formatSettings = decoderOptions(configured as CompressionReaderOptions, self.name)
+
+        return Reader(
+            state = self.implementation:createdecoder(formatSettings),
+            source = source,
+            input = storage.allocateBytes(capacity),
+            capacity = capacity,
+            inputAt = 1,
+            inputLength = 0,
+            inputTotal = 0,
+            outputTotal = 0,
+            maxOutputBytes = maximum,
+            maxExpansionRatio = ratio as number?,
+            streamFinished = false,
+            ended = false
+        )
+    end
+
+    --- Wraps and owns a writer. Consume the result with `finish()`.
+    --- @raises string when options are invalid or a format block does not match
+    function writer(self, takes destination: io.Writer, options: CompressionWriterOptions?): CompressionWriter
+        return makeWriter(self.implementation, self.name, destination, options)
+    end
+
+    --- Compresses a borrowed span into a destination buffer.
+    --- @raises string when options are invalid or compression fails
+    function compress(
+        self,
+        borrows bytes: span.ByteSpan,
+        exclusive destination: io.Buffer,
+        options: CompressionWriterOptions?
+    ): nil
+        local sink = destination:writer()
+        local compressed = makeWriter(self.implementation, self.name, sink, options)
+        local written, reason = compressed:writespan(bytes)
+        if written == nil then
+            compressed:abort()
+            error(reason or "compression failed", 2)
+        end
+        local ok
+        ok, reason = compressed:finish()
+        if not ok then
+            error(reason or "compression failed", 2)
+        end
+    end
+
+    --- Compresses a string into a destination buffer.
+    --- @raises string when options are invalid or compression fails
+    function compress(self, bytes: string, exclusive destination: io.Buffer, options: CompressionWriterOptions?): nil
+        local input = span.fromstring(bytes)
+        self:compress(input, destination, options)
+    end
+
+    --- Compresses a borrowed span into a new string.
+    --- @raises string when options are invalid or compression fails
+    function compress(self, borrows bytes: span.ByteSpan, options: CompressionWriterOptions?): string
+        local destination = io.Buffer.create()
+        self:compress(bytes, destination, options)
+        local answer = destination:getstring()
+        destination:close()
+
+        return answer
+    end
+
+    --- Compresses a string into a new string.
+    --- @raises string when options are invalid or compression fails
+    function compress(self, bytes: string, options: CompressionWriterOptions?): string
+        local input = span.fromstring(bytes)
+        return self:compress(input, options)
+    end
+
+    --- Decompresses a borrowed span into a destination buffer.
+    --- @raises string when options are invalid, the stream is invalid or a limit is
+    ---     exceeded
+    function decompress(
+        self,
+        borrows bytes: span.ByteSpan,
+        exclusive destination: io.Buffer,
+        options: CompressionReaderOptions?
+    ): nil
+        local source = io.Reader.of(storage.string(bytes:ref(), #bytes))
+        local reader = self:reader(source, options)
+        local writer = destination:writer()
+        local _, reason = reader:transferto(writer)
+        reader:close()
+        writer:close()
+        if reason ~= nil then
+            error(reason, 2)
+        end
+    end
+
+    --- Decompresses a string into a destination buffer.
+    --- @raises string when options are invalid, the stream is invalid or a limit is
+    ---     exceeded
+    function decompress(self, bytes: string, exclusive destination: io.Buffer, options: CompressionReaderOptions?): nil
+        local input = span.fromstring(bytes)
+        self:decompress(input, destination, options)
+    end
+
+    --- Decompresses a borrowed span into a new string with a 64 MiB default cap.
+    --- @raises string when options are invalid, the stream is invalid or a limit is
+    ---     exceeded
+    function decompress(self, borrows bytes: span.ByteSpan, options: CompressionReaderOptions?): string
+        local destination = io.Buffer.create()
+        self:decompress(bytes, destination, options)
+        local answer = destination:getstring()
+        destination:close()
+
+        return answer
+    end
+
+    --- Decompresses a string into a new string with a 64 MiB default cap.
+    --- @raises string when options are invalid, the stream is invalid or a limit is
+    ---     exceeded
+    function decompress(self, bytes: string, options: CompressionReaderOptions?): string
+        local input = span.fromstring(bytes)
+        return self:decompress(input, options)
+    end
+end
+
+local function validate(selected: provider.Provider): nil
+    for name, implementation in pairs(selected.formats) do
+        if type(name) ~= "string"
+            or name == ""
+            or type(implementation) ~= "table"
+            or implementation.name ~= name
+            or type(implementation.createencoder) ~= "function"
+            or type(implementation.createdecoder) ~= "function"
+            or WRITER_COMMON[name]
+            or READER_COMMON[name]
+        then
+            error("invalid compression format descriptor " .. tostring(name), 2)
+        end
+    end
+end
+
+local available: {[string]: CompressionFormat} = {}
+local initialized = false
+
+local function initialize(providerName: string): nil
+    if initialized then
+        return
+    end
+    assert2(target.host == "native", "binary.compress: no implementation is available")
+    local selected = _G.require(providerName) as provider.Provider
+    validate(selected)
+    for name, implementation in pairs(selected.formats) do
+        available[name] = CompressionFormat(name = name, implementation = implementation)
+    end
+    initialized = true
+end
+
+--- Acquires a retained format descriptor or raises when unavailable.
+--- @param name canonical compression format name
+--- @return the retained format descriptor
+--- @raises string when the format is unavailable on this target
+export function compress(name: string): CompressionFormat
+    initialize("nupp.runtime.provider.nativecompression")
+    local found = available[name]
+    if found == nil then
+        error("unknown compression format " .. name, 2)
+    end
+
+    return found
+end
+
+--- Lists canonical names available on this target without loading native state.
+--- @return available canonical names in ascending order
+export function formats(): {string}
+    local result: {string} = {}
+    if target.host == "native" then
+        for name in pairs(provider.formatids) do
+            result[#result + 1] = name
+        end
+        table.sort(result)
+    end
+
+    return result
+end

@@ -4,6 +4,7 @@ const assert2 = require("assert")
 
 local physical = require("nupp.compiler.vm.nativephysical")
 local cst = require("nupp.compiler.syntax.cst")
+local construction = require("nupp.compiler.vm.construction")
 local unit = {}
 local owners: any = setmetatable({}, {__mode = "k"})
 local options: any = setmetatable({}, {__mode = "k"})
@@ -44,7 +45,6 @@ local function occurrences(body: any): any
             ordinal = ordinal,
             inferredType = node.inferredType,
             ownershipIntrinsic = node.ownershipIntrinsic,
-            isNew = node.isNew,
             structConstruct = node.structConstruct,
             constructorCall = node.constructorCall,
             constructorEntry = node.constructorEntry
@@ -660,25 +660,23 @@ function unit.borrowFrom(fn: any, call: any): boolean
     return true
 end
 
--- A plain struct constructor is lowered through its newExpr parent, not an
--- ordinary call edge. Physical localRecipe retains layout/storage admission.
+-- A plain struct constructor `S(...)` is lowered through its construction
+-- wrapper, not an ordinary call edge. Physical localRecipe
+-- retains layout/storage admission.
 function unit.localConstructionChild(fn: any, call: any): boolean
     unit.occurrence(fn, call)
     local held = owners[fn]
     local saved = held.occurrences[call]
     need(
-        call.isNew == saved.isNew
-        and call.structConstruct == saved.structConstruct
+        call.structConstruct == saved.structConstruct
         and call.constructorCall == saved.constructorCall
         and call.constructorEntry == saved.constructorEntry,
         "checked construction call changed"
     )
-    if saved.isNew ~= true then
+    if not construction.bare(call) then
         return false
     end
-    local parent = saved.parent
-    unit.occurrence(fn, parent)
-    local checked = held.occurrences[parent].inferredType
+    local parent, checked = construction.of(call), saved.inferredType
     need(
         parent.kind == "newExpr"
         and parent.call == call

@@ -181,7 +181,7 @@ local FIXTURE = table.concat(
         "end",
         "",
         "export function run(): string",
-        "    local counter = new Counter(count = 0)",
+        "    local counter = Counter(count = 0)",
         "    local parts: {string} = {}",
         "    for n = -1, 3 do",
         "        counter:bump()",

@@ -200,9 +200,13 @@ export function define(layout: any, methods: table): any
     -- declaration. The portable declaration resolves the same names the same way.
     setmetatable(fixed, {
         __call = function(_, ...)
+            if methods.__new then
+                return methods.__new(fixed, ...)
+            end
             return fixed:of(...)
         end,
         __index = methods.__index,
+        __metatable = "Nupp declaration",
     })
 
     return fixed

@@ -36,7 +36,7 @@ function generator.create<T>(body: function(emit: function(T): nil): nil): affin
         end)
     end)
 
-    return new generator.Generator<T>(thread = thread)
+    return generator.Generator<T>(thread = thread)
 end
 
 export = generator

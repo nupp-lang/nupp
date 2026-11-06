@@ -90,7 +90,7 @@ local struct PointerMove
 end
 
 const WINDOW = 1
-local input: events.MessageBus<integer> = events.newbus()
+local input: events.MessageBus<integer> = events.MessageBus()
 input:observe(WINDOW, PointerMove, |move| -> print(move.x, move.y), "cursor")
 local route = host.route("app.pointer.move", PointerMove, input, WINDOW, "dropoldest", 64)
 ```
@@ -107,15 +107,9 @@ is what an event's fields hold; bytes travel on a call.
 A kind is two or more dot-separated segments of letters, digits, `_` and `-`,
 such as `tecs.image.decode`. Names under `nupp.` are reserved for the runtime.
 
-::: seealso
-- [suspension.md](docs/learn/runtime/concurrency/suspension.md) for what a wait
-  does under a handler
-- [host.md](docs/learn/runtime/host.md) for the guide
-:::
-
 ## Host-owned loops
 
-`newpump` creates a driver that runs one operation at a time for an application that embeds
+`Pump()` creates a driver that runs one operation at a time for an application that embeds
 the runtime and owns its own loop. Reach for it from the exports such an
 application calls, so that an operation which waits -- on a [](os.host)
 request, a timer, the network -- parks instead of blocking the call that
@@ -130,7 +124,7 @@ that pass.
 ```nupp:fragment
 local host = os.host
 
-local session = host.newpump()
+local session = host.Pump()
 
 export function frame(dt: number): host.Pump.State
     if session:parked() then
@@ -157,7 +151,6 @@ local provider: contracts.HostProvider = require("nupp.runtime.bindings.host")
 local suspension = require("coroutine.sus")
 local suspensionHost = require("coroutine.sus.host")
 local suspensionContract = require("nupp.suspension.contracts")
-local cancellation = require("coroutine.sus.cancellation")
 -- A plain thread rather than the VM's owned one: the pump keeps its parked
 -- task in a field across calls, which an affine thread cannot be stored in.
 local coroutines = require("nupp.suspension.internal.coroutines")
@@ -335,7 +328,7 @@ export function route<E is events.Emittable>(
     if selected ~= "latest" and selected ~= "dropoldest" then
         error("nupp: an inbound host stream cannot block the host; route it latest or dropoldest", 2)
     end
-    local emit = events.emit as any
+    local emit = bus.emit as any
 
     local function deliver(...: any): nil
         emit(bus, address, event, ...)
@@ -343,7 +336,7 @@ export function route<E is events.Emittable>(
 
     local stop, dropped = provider.route(checked, selected, checkedLimit(limit), deliver)
 
-    return new Route(stop = stop, droppedCount = dropped)
+    return Route(stop = stop, droppedCount = dropped)
 end
 
 local type PumpState = "parked" | "continue" | "stopped"
@@ -381,6 +374,40 @@ end
 
 --- Runs one parked operation at a time for a host-owned loop.
 export record Pump
+    constructor(self)
+        self.active = nil
+        self.result = nil
+        self.failure = nil
+        local pump = self
+        self.handler = suspensionContract.Handler(
+            park = function(_: suspensionContract.Handler, waiting: suspensionContract.Waiting, _: function(): nil): nil
+                local task = assert(coroutine.running())
+
+                local function wake(): nil
+                    -- Another driver may poll the same sources. Resume now, inside
+                    -- the pass that settled the wait, so a one-shot source is
+                    -- released before anything can poll it a second time.
+                    resumeTask(pump, task)
+                end
+
+                while not waiting:ready() do
+                    waiting:onresume(wake)
+                    if not waiting:ready() then
+                        local keepRunning = coroutine.yield()
+                        if keepRunning == false then
+                            error(suspension.newcancellation("os.host.Pump", "the host stopped while it was parked"), 0)
+                        end
+                    end
+                end
+            end,
+            canpark = function(_: suspensionContract.Handler): boolean
+                return true
+            end,
+            shutdown = function(_: suspensionContract.Handler): nil
+            end
+        )
+    end
+
     --- What a `start` or `poll` left the operation doing.
     type State = "parked" | "continue" | "stopped"
 
@@ -449,38 +476,4 @@ export record Pump
         self.result = nil
         self.failure = nil
     end
-end
-
---- Creates an idle pump.
-export function newpump(): Pump
-    local pump = new Pump(handler = nil as any, active = nil, result = nil, failure = nil)
-    pump.handler = new suspensionContract.Handler(
-        park = function(_: suspensionContract.Handler, waiting: suspensionContract.Waiting, _: function(): nil): nil
-            local task = assert(coroutine.running())
-
-            local function wake(): nil
-                -- Another driver may poll the same sources. Resume now, inside
-                -- the pass that settled the wait, so a one-shot source is
-                -- released before anything can poll it a second time.
-                resumeTask(pump, task)
-            end
-
-            while not waiting:ready() do
-                waiting:onresume(wake)
-                if not waiting:ready() then
-                    local keepRunning = coroutine.yield()
-                    if keepRunning == false then
-                        error(cancellation.create("os.host.Pump", "the host stopped while it was parked"), 0)
-                    end
-                end
-            end
-        end,
-        canpark = function(_: suspensionContract.Handler): boolean
-            return true
-        end,
-        shutdown = function(_: suspensionContract.Handler): nil
-        end
-    )
-
-    return pump
 end

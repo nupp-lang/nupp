@@ -2,7 +2,8 @@
 
 --[[
 Lua's file handles on the native core, over its file layer
-(`nupp.runtime.files`): the stream under each handle, its methods (`read`
+(`nupp.runtime.files`): the stream under each handle, a full userdata
+with the `FILE*` metatable (`hostcalls.userdata`), its methods (`read`
 in every format, `write`, `lines`, `seek`, `setvbuf`, `flush` and
 `close`), and Lua's results and errors for them. `nupp.runtime.luaio` is
 the library over them, and `nupp.runtime.luaprocess` a process's handle.
@@ -18,6 +19,7 @@ module nupp.runtime.luastreams
 
 const files = require("nupp.runtime.files")
 const luaargs = require("nupp.runtime.luaargs")
+const hostcalls = require("nupp.runtime.hostcalls")
 
 -- The bytes a read asks the file for at a time, as stdio's buffer holds.
 const BUFFER = 4096
@@ -61,8 +63,9 @@ export record Stream
 
 end
 
---- A file handle: the stream it reads, and the one it writes when that is
---- another (a process's standard input).
+--- A file handle's state: the stream it reads, and the one it writes when
+--- that is another (a process's standard input). The handle itself is a full
+--- userdata (`hostcalls.userdata`) with a file metatable, carrying this.
 export type Handle = {
     stream: Stream,
     writer: Stream?
@@ -85,12 +88,17 @@ end
 
 --- Whether `value` is a file handle.
 export function isfile(value: any): boolean
-    return type(value) == "table" and filemetas[getmetatable(value)] == true
+    return type(value) == "userdata" and filemetas[getmetatable(value)] == true
+end
+
+--- The state file handle `handle` carries.
+export function state(handle: any): Handle
+    return hostcalls.uservalue(handle) as Handle
 end
 
 --- The stream a handle writes.
 export function writer(handle: any): Stream
-    local h = handle as Handle
+    local h = state(handle)
     return h.writer or h.stream
 end
 
@@ -106,7 +114,7 @@ export function streamof(value: any, position: integer, name: string, level: int
         argerror(position, name, "FILE* expected, got " .. typename(value), level + 1)
     end
 
-    return (value as Handle).stream
+    return state(value).stream
 end
 
 --- streamof for a file that must be open, as Lua's tofile.
@@ -119,10 +127,17 @@ export function openstream(value: any, position: integer, name: string, level: i
     return s
 end
 
-export function newhandle(descriptor: integer, standard: boolean, mode: string): any
-    local s = new Stream(descriptor = descriptor, standard = standard, mode = mode)
+--- A new file handle over `descriptor`, with metatable `m` (a plain file's
+--- by default).
+export function newhandle(descriptor: integer, standard: boolean, mode: string, m: {[string]: any}?): any
+    local s = Stream(descriptor = descriptor, standard = standard, mode = mode)
 
-    return setmetatable({stream = s}, meta)
+    return hostcalls.userdata(m or meta, {stream = s})
+end
+
+--- A file handle over stream `s`, with metatable `m`.
+export function wrap(s: Stream, m: {[string]: any}): any
+    return hostcalls.userdata(m, {stream = s})
 end
 
 --- Lua's failure results for error number `code`, its text after `prefix`.
@@ -582,7 +597,7 @@ methods.close = function(self: any): (boolean?, string?, integer?)
 end
 
 meta.__tostring = function(self: any): string
-    local s = (self as Handle).stream
+    local s = state(self).stream
     if s.closed then
         return "file (closed)"
     end

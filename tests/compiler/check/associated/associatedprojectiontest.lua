@@ -322,9 +322,9 @@ function M.theMotivatingShapeResolvesThroughConcreteComponents()
         "      return nil as any",
         "   end",
         "end",
-        "local arch = new Archetype()",
-        "local health = new Health(componentId = 2)",
-        "local position = new Position(componentId = 1, x = 0)"
+        "local arch = Archetype()",
+        "local health = Health(componentId = 2)",
+        "local position = Position(componentId = 1, x = 0)"
     )
     clean(
         world .. src(
@@ -356,7 +356,7 @@ function M.anInterfaceTypedComponentStaysOpaque()
             "      return nil as any",
             "   end",
             "end",
-            "local arch = new Archetype()",
+            "local arch = Archetype()",
             "local health: ScalarComponent<number> = nil as any",
             "local raw: {number} = arch:get(health)",
             "return raw"
@@ -403,9 +403,9 @@ local SCALAR = src(
     "      return nil as any",
     "   end",
     "end",
-    "local arch = new Archetype()",
+    "local arch = Archetype()",
     "local health: ScalarComponent<number> = nil as any",
-    "local position = new Position(componentId = 1, x = 0)"
+    "local position = Position(componentId = 1, x = 0)"
 )
 
 function M.theInterfaceTypedMotivatingCaseResolves()
@@ -573,9 +573,9 @@ function M.theDocumentedBaseDefaultAndDerivedFixedPatternHolds()
         "      return nil as any",
         "   end",
         "end",
-        "local archetype = new Archetype()",
+        "local archetype = Archetype()",
         "local health: ScalarComponent<number> = nil as any",
-        "local position = new Position(componentId = 1, x = 0)"
+        "local position = Position(componentId = 1, x = 0)"
     )
     -- the default hands a container component itself, without it being edited
     clean(pattern .. src("local held: {Position} = archetype:column(position)", "return held"))

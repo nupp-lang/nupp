@@ -87,7 +87,7 @@ local function managedOwnership(): boolean
     end
 
     local function open(value: integer): affine(Resource, closeResource)
-        return new Resource(value = value)
+        return Resource(value = value)
     end
 
     local owner = own.manage(open(1))
@@ -129,7 +129,7 @@ local function managedOwnership(): boolean
 end
 
 function derived.run(): integer
-    assert2((new constructed.Item(41)).value == 42)
+    assert2((constructed.Item(41)).value == 42)
     assert2(shadowing())
     assert2(string.char(tonumber("65") as integer) == "A")
     local success, letter = pcall(string.char, tonumber("66") as integer)
@@ -144,9 +144,9 @@ function derived.run(): integer
     setmetatable(overlay, nil)
     overlay.answer = 44
     assert2(rawget(overlay, "answer") == 44)
-    assert2((new Constructed(40)).value == 42)
-    assert2((new Constructed(39)).value == 42)
-    assert2((new derived.Counter(42)).value == 42)
+    assert2((Constructed(40)).value == 42)
+    assert2((Constructed(39)).value == 42)
+    assert2((derived.Counter(42)).value == 42)
     local decoded, problem = json.decodevalue(json.encodevalue({present = 42, absent = nil}))
     assert2(decoded and problem == nil and decoded.present == 42 and decoded.absent == nil)
     local controls = string.char(0, 1, 2, 8, 9, 10, 12, 13, 31) .. '\\"'
@@ -160,7 +160,7 @@ function derived.run(): integer
         return |value: integer| -> add(value)
     end
     assert2(nested()(2) == 42)
-    local counter = new derived.Counter(value = 41)
+    local counter = derived.Counter(value = 41)
     assert2(counter:advance() == 42)
     assert2(loaded(require("nupp.derive")))
     local first, second = imported()

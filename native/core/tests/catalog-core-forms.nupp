@@ -15,7 +15,7 @@ end
 local type Held = affine(Token, release)
 
 local function hold(n: integer): Held
-    return @unsafe own.adopt<Held>(new Token(n = n))
+    return @unsafe own.adopt<Held>(Token(n = n))
 end
 
 -- A const parameter is a type: the function takes its value as any other.
@@ -94,7 +94,7 @@ local record Adder
         return self.base + a + (b or 0)
     end
 end
-local adder = new Adder(base = 100)
+local adder = Adder(base = 100)
 if adder:add(1) == 101 and adder:add(1, 2) == 103 then
     score = score + 64
 end

@@ -54,7 +54,7 @@ local function familyOf<A is Named>(borrows value: A): string
     return value.family
 end
 
-if familyOf(new Tag(family = "f", label = "l")) == "f" then
+if familyOf(Tag(family = "f", label = "l")) == "f" then
     score = score + 4
 end
 
@@ -69,7 +69,7 @@ function shapes.Point:sum(): number
     return self.x + self.y
 end
 
-local point = new shapes.Point(x = 3, y = 4)
+local point = shapes.Point(x = 3, y = 4)
 if point:sum() == 7 and getmetatable(point) == shapes.Point then
     score = score + 8
 end
@@ -80,7 +80,7 @@ record shapes.Pair
 end
 
 -- pairs names the fields; a copy given the record's metatable keeps its own.
-local pair = new shapes.Pair(x = 3, y = 4)
+local pair = shapes.Pair(x = 3, y = 4)
 local seen: {[string]: number} = {}
 local count = 0
 for key, value in pairs(pair as any) do

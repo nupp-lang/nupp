@@ -135,6 +135,10 @@ export const STORAGE_CAST: uint64 = 103ULL
 export const VIEWS_FIRST: uint64 = 96ULL
 export const VIEWS_LAST: uint64 = 103ULL
 
+-- userdata
+export const USERDATA_NEW: uint64 = 124ULL
+export const USERDATA_VALUE: uint64 = 125ULL
+
 -- cleanups
 export const CLEANUP_SET: uint64 = 104ULL
 export const CLEANUP_GET: uint64 = 105ULL

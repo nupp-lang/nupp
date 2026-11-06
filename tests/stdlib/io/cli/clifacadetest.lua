@@ -18,10 +18,6 @@ function M.theCliModuleKeepsTerminalAndArgumentHelpersTogether()
     for _, name in ipairs({
         "style",
         "table",
-        "writetable",
-        "cell",
-        "paintedcell",
-        "annotatedcell",
         "severity",
         "setcolormode",
         "withcolormode",
@@ -31,6 +27,25 @@ function M.theCliModuleKeepsTerminalAndArgumentHelpersTogether()
     }) do
         test.eq(type(terminal[name]), "function", name)
         test.eq(original[name], nil, name)
+    end
+    for _, name in ipairs({"writetable", "cell", "paintedcell", "annotatedcell"}) do
+        test.eq(terminal[name], nil, "retired root helper " .. name)
+    end
+    local output = terminal.table(io.stdout)
+    for _, name in ipairs({
+        "column",
+        "row",
+        "cell",
+        "style",
+        "headings",
+        "gap",
+        "indent",
+        "width",
+        "clear",
+        "tostring",
+        "write"
+    }) do
+        test.eq(type(output[name]), "function", "table method " .. name)
     end
 end
 

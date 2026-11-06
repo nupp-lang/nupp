@@ -113,7 +113,7 @@ function M.genericForChecksIteratorInputsAndNextControl()
                 "local record Counter",
                 "   metamethod __call: function(self, state: integer, previous: integer): integer?",
                 "end",
-                "for value in new Counter(), 1, 0 do print(value) end",
+                "for value in Counter(), 1, 0 do print(value) end",
             },
             "\n"
         )
@@ -1011,7 +1011,7 @@ local record R
         coroutine.yield(1)
     end
 end
-local r = new R()
+local r = R()
 local function worker(): nil
     r:outer()
 end

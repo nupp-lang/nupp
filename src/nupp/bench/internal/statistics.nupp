@@ -263,7 +263,7 @@ function statistics.medianInterval(values: {number}): statistics.Interval?
     end
     local sorted = statistics.sorted(values)
 
-    return new statistics.Interval(
+    return statistics.Interval(
         low = sorted[k],
         upper = sorted[n - k + 1],
         k = k,
@@ -283,7 +283,7 @@ end
 --- see every sample without being moved by the far ones.
 function statistics.outliers(values: {number}): statistics.Outliers
     if #values == 0 then
-        return new statistics.Outliers(severe = 0, maxRatio = 1.0, lowFence = 0.0, upperFence = 0.0)
+        return statistics.Outliers(severe = 0, maxRatio = 1.0, lowFence = 0.0, upperFence = 0.0)
     end
     local sorted = statistics.sorted(values)
     local lowerQuartile = statistics.quantile(sorted, 0.25)
@@ -306,7 +306,7 @@ function statistics.outliers(values: {number}): statistics.Outliers
         end
     end
 
-    return new statistics.Outliers(severe = severe, maxRatio = worst, lowFence = lowFence, upperFence = upperFence)
+    return statistics.Outliers(severe = severe, maxRatio = worst, lowFence = lowFence, upperFence = upperFence)
 end
 
 --- The fraction of samples lying within `tolerance` of the median, as a fraction.
@@ -408,12 +408,12 @@ end
 --- to do with either process's behavior.
 function statistics.trend(series: {number}): statistics.Trend
     if #series < TREND_MIN_SAMPLES then
-        return new statistics.Trend(verdict = "unknown", tau = 0.0, pValue = 1.0, drift = 0.0, blocks = 0)
+        return statistics.Trend(verdict = "unknown", tau = 0.0, pValue = 1.0, drift = 0.0, blocks = 0)
     end
     local reduced = blockMedians(series)
     local n = #reduced
     if n < 4 then
-        return new statistics.Trend(verdict = "unknown", tau = 0.0, pValue = 1.0, drift = 0.0, blocks = n as integer)
+        return statistics.Trend(verdict = "unknown", tau = 0.0, pValue = 1.0, drift = 0.0, blocks = n as integer)
     end
     -- The level at each end, taken as a quarter of the blocks so one unlucky block
     -- cannot decide the magnitude.
@@ -459,7 +459,7 @@ function statistics.trend(series: {number}): statistics.Trend
     local detected = pValue < statistics.ALPHA and math.abs(drift) >= statistics.TREND_MIN_DRIFT
     local verdict = detected and "trend" or "no-trend-detected"
 
-    return new statistics.Trend(verdict = verdict, tau = tau, pValue = pValue, drift = drift, blocks = n as integer)
+    return statistics.Trend(verdict = verdict, tau = tau, pValue = pValue, drift = drift, blocks = n as integer)
 end
 
 ----------------------------------------------------------------------------
@@ -545,7 +545,7 @@ function statistics.pairedShift(differences: {number}): statistics.Interval?
         return nil
     end
 
-    return new statistics.Interval(
+    return statistics.Interval(
         low = averages[best],
         upper = averages[total - best + 1],
         k = best,
@@ -700,7 +700,7 @@ function statistics.unpairedShift(candidate: {number}, baseline: {number}): (num
         return estimate, nil
     end
 
-    return estimate, new statistics.Interval(
+    return estimate, statistics.Interval(
         low = sorted[assert(math.tointeger(lowIndex))],
         upper = sorted[assert(math.tointeger(upperIndex))],
         k = assert(math.tointeger(lowIndex)),

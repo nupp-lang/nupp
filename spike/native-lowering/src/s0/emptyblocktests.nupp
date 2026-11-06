@@ -104,8 +104,8 @@ export function prepare(directory: string, digest: string): string
                 local result = oracle.run(
                     f,
                     {1, 42},
-                    new oracle.Memory(bytes = {}, stackBase = 0),
-                    new oracle.Hooks(call = nil, fma64 = nil),
+                    oracle.Memory(bytes = {}, stackBase = 0),
+                    oracle.Hooks(call = nil, fma64 = nil),
                     50
                 )
                 assert(result.status == oracle.FUEL, "cycle oracle must not terminate")

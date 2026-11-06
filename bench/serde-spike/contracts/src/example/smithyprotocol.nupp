@@ -13,13 +13,13 @@ local function route(member: smithy.Member): routing.Route
     assert(header == nil or query == nil, "conflicting HTTP member locations")
     assert(stream == nil or header == nil and query == nil, "stream cannot be a parameter")
     if header ~= nil then
-        return new routing.Route(location = "header", name = header:string())
+        return routing.Route(location = "header", name = header:string())
     elseif query ~= nil then
-        return new routing.Route(location = "query", name = query:string())
+        return routing.Route(location = "query", name = query:string())
     elseif stream ~= nil then
-        return new routing.Route(location = "stream", name = member.name)
+        return routing.Route(location = "stream", name = member.name)
     else
-        return new routing.Route(location = "body", name = member.name)
+        return routing.Route(location = "body", name = member.name)
     end
 end
 
@@ -40,7 +40,7 @@ local record ParameterFactory is routing.Factory
             "foreign Smithy request"
         )
 
-        return new Parameters<M>(shape = self.shape)
+        return Parameters<M>(shape = self.shape)
     end
 end
 
@@ -73,14 +73,14 @@ local record BodyFactory is plans.PolicyFactory
             return selected
         end
 
-        return new Body<M>(base = selected)
+        return Body<M>(base = selected)
     end
 end
 
 export function parameters(shape: smithy.Shape): routing.Factory
-    return new ParameterFactory(shape = shape)
+    return ParameterFactory(shape = shape)
 end
 
 export function body(base: plans.PolicyFactory): plans.PolicyFactory
-    return new BodyFactory(base = base)
+    return BodyFactory(base = base)
 end

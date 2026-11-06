@@ -17,7 +17,8 @@ local function cwd()
 end
 
 local HERE = debug.getinfo(1, "S").source:match("^@(/.*)/[^/]*$") or cwd()
-local ROOT = assert(os.getenv("NUPP_COMPILER_ROOT"), "set NUPP_COMPILER_ROOT to the checkout root")
+-- Another spelling of the root runs this again under its own (compilerroot).
+local ROOT = require("nupp.core.compilerroot").resolve(arg[0], arg)
 local BUILD = ROOT .. "/build/core-units"
 
 local function quote(value)
@@ -486,6 +487,35 @@ UNITS[#UNITS + 1] = {
     end
 }
 
+-- Weak tables and finalizers (gcweak, gcfinal): ephemeron chains,
+-- resurrection in full and minor collections, a carded table taking a weak
+-- mode, a frozen weak table, and storage views as weak values.
+UNITS[#UNITS + 1] = {
+    name = "weakunits",
+    modules = {"weakunits", "unitentry", "nupp.runtime.core.coretables"},
+    paths = {["nupp.runtime.core.coretables"] = ROOT .. "/native/core/src/nupp/runtime/core/coretables.nupp"},
+    include = "native/core/src",
+    entries = {
+        {"weakunits", "ephemerons", 1},
+        {"weakunits", "resurrection", 1},
+        {"weakunits", "cardsweak", 1},
+        {"weakunits", "frozenweak", 0},
+        {"weakunits", "views", 1}
+    },
+    cases = function()
+        return {
+            {"ephemerons", {1}, 15},
+            {"ephemerons", {50}, 15},
+            {"resurrection", {0}, 127},
+            {"resurrection", {1}, 127},
+            {"cardsweak", {1000}, 63},
+            {"frozenweak", {}, 31},
+            {"views", {1}, 1},
+            {"views", {0}, 0}
+        }
+    end
+}
+
 -- Strings as little-endian words, for unit inputs.
 local function pack(text, words)
     local result = {}
@@ -499,6 +529,28 @@ local function pack(text, words)
     end
 
     return result
+end
+
+-- Error texts the core reports, and whether each names the command line
+-- already: what nupp.tools.cli.error's `message` decides, checked here with
+-- its own patterns.
+local NAMED = {
+    "nupp: no benchmark named x",
+    "nupp:",
+    "nupp",
+    "boom",
+    "a.lua:2: boom",
+    "a.lua:12: nupp: failed",
+    "a.lua:: nupp: x",
+    "a.lua:2:nupp: x",
+    "x\na.lua:2: nupp: y",
+    "a:b:3: nupp: z",
+    " nupp: x",
+    ""
+}
+
+local function namedExpected(text)
+    return (text:find("^nupp:") or text:find("^[^\n]-:%d+: nupp:")) and 1 or 0
 end
 
 -- What lstrlib's gmatch_aux yields, measured as the unit does: matches
@@ -539,13 +591,20 @@ local GMATCH = {
 
 UNITS[#UNITS + 1] = {
     name = "stringunits",
-    modules = {"stringunits", "unitentry", "nupp.runtime.core.corestrings", "nupp.runtime.core.corepattern"},
+    modules = {
+        "stringunits",
+        "unitentry",
+        "nupp.runtime.core.corestrings",
+        "nupp.runtime.core.corepattern",
+        "nupp.runtime.core.reportprefix"
+    },
     paths = {
         ["nupp.runtime.core.corestrings"] = ROOT .. "/native/core/src/nupp/runtime/core/corestrings.nupp",
-        ["nupp.runtime.core.corepattern"] = ROOT .. "/native/core/src/nupp/runtime/core/corepattern.nupp"
+        ["nupp.runtime.core.corepattern"] = ROOT .. "/native/core/src/nupp/runtime/core/corepattern.nupp",
+        ["nupp.runtime.core.reportprefix"] = ROOT .. "/native/core/src/nupp/runtime/core/reportprefix.nupp"
     },
     include = "native/core/src",
-    entries = {{"stringunits", "basics", 3}, {"stringunits", "gmatch", 6}},
+    entries = {{"stringunits", "basics", 3}, {"stringunits", "gmatch", 6}, {"stringunits", "named", 4}},
     cases = function()
         local cases = {{"basics", {pack("abc", 1)[1], pack("ab", 1)[1], pack("c", 1)[1]}, 15}}
         for _, case in ipairs(GMATCH) do
@@ -553,6 +612,10 @@ UNITS[#UNITS + 1] = {
             cases[
                 #cases + 1
             ] = {"gmatch", {s[1], s[2], s[3], p[1], p[2], #case[1] | (#case[2] << 8)}, gmatchExpected(case[1], case[2])}
+        end
+        for _, text in ipairs(NAMED) do
+            local w = pack(text, 3)
+            cases[#cases + 1] = {"named", {w[1], w[2], w[3], #text}, namedExpected(text)}
         end
 
         return cases

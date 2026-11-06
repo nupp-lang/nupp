@@ -58,21 +58,21 @@ function artifact.build(g: any, symbol: string): (artifact.Artifact?, string?)
     local exactCounts: {[string]: boolean} = {}
     for _, p in ipairs(abi.readonly) do
         local name = g.parameters[p].name
-        readonly[#readonly + 1] = new artifact.Param(name = name, kind = "read_span", type = "uint32")
+        readonly[#readonly + 1] = artifact.Param(name = name, kind = "read_span", type = "uint32")
         exactCounts[name] = true
     end
     for _, p in ipairs(abi.writable) do
         local name = g.parameters[p].name
-        writable[#writable + 1] = new artifact.Param(name = name, kind = "write_span", type = "uint32")
+        writable[#writable + 1] = artifact.Param(name = name, kind = "write_span", type = "uint32")
         exactCounts[name] = true
     end
     for _, p in ipairs(abi.uniforms) do
-        uniforms[#uniforms + 1] = new artifact.Param(name = g.parameters[p].name, kind = "uniform", type = "uint32")
+        uniforms[#uniforms + 1] = artifact.Param(name = g.parameters[p].name, kind = "uniform", type = "uint32")
     end
     local shader = wgsl.emit(g, entrypoint, abi)
     local binary = spirv.emit(g, entrypoint, abi)
 
-    return new artifact.Artifact(
+    return artifact.Artifact(
         spirv = binary,
         wgsl = shader,
         entrypoint = entrypoint,

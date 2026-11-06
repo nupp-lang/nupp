@@ -39,32 +39,55 @@ Transfers remain dense; layout-aware kernels consume the explicit metadata.
 ]]
 module io.gpu
 
-local api = require("nupp.gpu.api")
-local implementation = require("nupp.gpu.types")
-local contract = require("nupp.gpu.contracts")
-local provider: contract.Provider = require("nupp.runtime.bindings.gpu")
-local operations = require("nupp.gpu.operations")
-local tensorlayout = require("io.gpu.layout")
+local {
+    type Buffer as ApiBuffer,
+    type Shared as ApiShared,
+    type Phases as ApiPhases,
+    type Context as ApiContext
+} = require("nupp.gpu.api")
+local limits = require("nupp.gpu.limits")
+local {type Provider} = require("nupp.gpu.contracts")
+local tensorlayout = require("nupp.gpu.layout")
+
+local providerName = "nupp.runtime.bindings.gpu"
+
+local function provider(): Provider
+    return _G.require(providerName) as Provider
+end
 
 export type Layout = tensorlayout.Layout
 export const Layout = tensorlayout.Layout
-export type Buffer<T> = api.Buffer<T>
-export type Shared<T> = api.Shared<T>
-export type Phases = api.Phases
-export type Context = api.Context
-export const portableworkgroupthreads = implementation.PORTABLE_WORKGROUP_THREADS
-export const portablescratchbytes = implementation.PORTABLE_SCRATCH_BYTES
-export const workgroups: function(
-    groups: uint32,
-    size: uint32,
-    scoped controller: function(uint32, api.Phases): nil
-): nil = operations.workgroups
+export type Buffer<T> = ApiBuffer<T>
+export type Shared<T> = ApiShared<T>
+export type Phases = ApiPhases
+export type Context = ApiContext
+export const portableworkgroupthreads = limits.PORTABLE_WORKGROUP_THREADS
+export const portablescratchbytes = limits.PORTABLE_SCRATCH_BYTES
+
+--- Executes uniformly ordered workgroup phases on the CPU.
+--- @raises string when size is outside the portable workgroup limit
+export function workgroups(groups: uint32, size: uint32, scoped controller: function(uint32, ApiPhases): nil): nil
+    local groupSize = size as integer
+    if groupSize < 1 or groupSize > portableworkgroupthreads then
+        error("nupp: GPU workgroup size exceeds the portable limit", 2)
+    end
+    local operationsName = "nupp.gpu.operations"
+    local operations = _G.require(operationsName) as {phases: function(integer): ApiPhases}
+    local phases = operations.phases(groupSize)
+    for groupIndex = 0, (groups as integer) - 1 do
+        controller(math.u32.wrap(groupIndex), phases)
+    end
+end
 
 --- Reports whether the selected provider can open a compute device now.
 ---
 --- `open` raises when none can, so ask this first where a program has another
 --- way to run. Checking availability opens and closes a device.
-export const available: function(): boolean = provider.available
+export function available(): boolean
+    return provider().available()
+end
 
 --- Opens a compute device through the selected provider.
-export const open: function(): api.Context = provider.open
+export function open(): ApiContext
+    return provider().open()
+end

@@ -26,6 +26,7 @@ const {type Target} = require("nupp.compiler.analysis")
 local apiidentity = require("nupp.compiler.apiidentity")
 local builtinExtensions = require("nupp.compiler.builtinextensions")
 local T = require("nupp.compiler.types")
+local moduleSurface = require("nupp.compiler.check.modulesurface")
 local relations = require("nupp.compiler.types.relations")
 local consteval = require("nupp.compiler.types.consteval")
 local lints = require("nupp.compiler.lints")
@@ -1121,7 +1122,7 @@ function checkMod.check(
         moduleExports = opts and opts.initialExports
         or {types = {}, typeDefs = {}, values = {}, valueDefs = {}, comptimeFunctions = {}, callGuarantees = {},},
         seenDefinitions = {},
-        scope = new state.Scope(
+        scope = state.Scope(
             vars = {},
             types = {},
             packTypes = {},
@@ -1485,7 +1486,7 @@ function checkMod.check(
     -- there is enough; the stack keeps nested scopes independent, and an inner capture
     -- is recorded for every enclosing scope it also escapes.
     c.pushScope = function()
-        c.scope = new state.Scope(
+        c.scope = state.Scope(
             vars = {},
             types = {},
             packTypes = {},
@@ -1775,7 +1776,7 @@ function checkMod.check(
                 def.kind = kind
             end
         end
-        local entry = new state.Binding(
+        local entry = state.Binding(
             t = t,
             ann = annotated ~= nil and annotated or old and old.ann or false,
             constant = constant == true or (tok == nil and old and old.constant) or false,
@@ -2708,8 +2709,8 @@ function checkMod.check(
     end
 
     --- @param carriesValue whether the declaration puts something on the export table
-    ---   at run time. An interface or a type alias does not, which is what makes it
-    ---   the one kind of export that composes with a named module value.
+    ---   at run time. Erased interfaces and type aliases can also accompany a
+    ---   named module value.
     local function exportValue(nameTok, t, definition, value, constant, carriesValue)
         if not nameTok then
             return
@@ -2794,18 +2795,7 @@ function checkMod.check(
                 and not c.moduleLocalAnnotated
                 and exportedLocal == c.moduleLocal
             then
-                local fields = {}
-                for name, ft in pairs(c.moduleFields) do
-                    if c.moduleFieldConst[name] then
-                        fields[#fields + 1] = {name = name, read = ft}
-                    else
-                        fields[#fields + 1] = {name = name, type = ft}
-                    end
-                end
-                if #fields > 0 then
-                    c.moduleType = T.shape(fields, nil, nil, true)
-                    c.moduleTypeFromFields = true
-                end
+                moduleSurface.update(c)
             end
             return
         end
@@ -2826,13 +2816,18 @@ function checkMod.check(
             local t = stat.resolvedType
             c.privateExport.exported(stat.name, "types")
             if stat.kind == "recordDecl" and t then
-                -- The same two kinds code generation writes onto the table. An
-                -- interface reaches here as a record declaration too, and is erased.
-                local carriesValue = stat.declKind == "record" or stat.declKind == "struct"
+                -- Match the declaration namespaces code generation exports.
+                local carriesValue = stat.declKind == "record"
+                    or stat.declKind == "struct"
+                    or stat.declKind == "interface"
+                    and (next(t.defaultEntries or {}) ~= nil or next(t.staticByname or {}) ~= nil)
                 -- A record's value is its witness, the `Type<R>` its own scope binds,
                 -- so a consumer reaching it through the module holds what a `Type<T>`
                 -- directed API takes. Struct ctypes carry the same witness type.
-                local published = carriesValue and not stat.isAnnotationDefinition and T.typeObject(t) or t
+                local published = t
+                if not stat.isAnnotationDefinition then
+                    published = stat.declKind == "interface" and T.metatable(t) or T.typeObject(t)
+                end
                 exportValue(stat.name, published, stat.name and stat.name.definition, stat, true, carriesValue)
             end
             return
@@ -3079,6 +3074,10 @@ function checkMod.check(
                 n.deriveClaimsComplete = nil
                 n.deriveClaimedContracts = nil
                 c.beginNominal(n)
+                -- An overload checked earlier in the file mints its runtime member
+                -- from this declaration's module, and every checker has to mint the
+                -- same one, whether or not the body is installed yet.
+                n.hoistedModule = c.result.moduleName
                 if decl.declKind == "interface" and decl.sealedTok then
                     n.sealedModule = c.result.moduleName or c.filename
                 end
@@ -3170,7 +3169,7 @@ function checkMod.check(
                     if aliased then
                         c.pushScope()
                         for name, module in pairs(hoisted.bound) do
-                            c.scope.vars[name] = new state.Binding(t = T.any, requiredModule = module or nil)
+                            c.scope.vars[name] = state.Binding(t = T.any, requiredModule = module or nil)
                         end
                     end
                     local nested = #hoisted.owners > 0
@@ -3241,11 +3240,11 @@ function checkMod.check(
             local outer = c.scope
             local vars: {[string]: state.Binding} = {}
             for name, module in pairs(earlier) do
-                vars[name] = new state.Binding(t = T.any, requiredModule = module or nil)
+                vars[name] = state.Binding(t = T.any, requiredModule = module or nil)
             end
             local types: {[string]: Type} = setmetatable({}, {__index = selectedField("types")})
             local typeDefs: {[string]: any} = setmetatable({}, {__index = selectedField("typeDefs")})
-            c.scope = new state.Scope(
+            c.scope = state.Scope(
                 vars = vars,
                 types = types,
                 packTypes = {},

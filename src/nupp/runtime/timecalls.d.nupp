@@ -1,0 +1,33 @@
+@!internal
+
+--- The clocks and calendar under the native core's `os` library, as its
+--- host answers them. A call of one is the core's own library call, and
+--- requiring this module loads nothing: it exists only on the core, for
+--- `nupp.runtime.luatime`. Broken-down times are C's `struct tm` fields in
+--- its order, from seconds to the daylight-saving flag, as C keeps them
+--- (the month and the days of the week and year from 0, the year less
+--- 1900, the flag negative when unknown).
+local record timecalls
+    --- The wall clock in whole seconds since the epoch, C's time(NULL).
+    now: function(): integer
+
+    --- The processor time this process has used, in seconds, as C's clock()
+    --- over CLOCKS_PER_SEC.
+    clock: function(): number
+
+    --- Time `t` broken down, in UTC when `utc` is 1 and else local time: its
+    --- nine fields, or nil when the system cannot represent it.
+    parts: function(t: integer, utc: integer): {integer}?
+
+    --- C's mktime of the nine `fields`, which it sets normalized: the time,
+    --- or -1 when the system cannot represent it.
+    make: function(fields: {integer}): integer
+
+    --- strftime of the one conversion `spec` (`%` and Lua's option) for `t`
+    --- broken down as `parts` breaks it: its text, or nil when the system
+    --- cannot represent `t`.
+    format: function(t: integer, utc: integer, spec: string): string?
+end
+
+local calls: timecalls
+return calls

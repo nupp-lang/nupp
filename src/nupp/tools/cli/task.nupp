@@ -15,7 +15,7 @@ running.
 ]]
 module nupp.tools.cli.task
 
-const terminal2 = require("io.cli")
+const tables = require("nupp.cli.internal.tablebuilder")
 
 const terminal = require("io.cli")
 
@@ -190,7 +190,7 @@ local function list(name: string?, format: string?): integer
     end
     -- `kind` earns its column: the listing is build targets and configured actions
     -- together, and which one a name is decides what running it does.
-    local rows: {{terminal.Cell}} = {}
+    local output = tables.newtable(io.stdout):style(style):column("task"):column("kind"):column("description")
     local kindColors: {
         [string]: function(string): string
     } = {
@@ -204,28 +204,13 @@ local function list(name: string?, format: string?): integer
         task = style.gray,
     }
     for _, task in ipairs(info.tasks) do
-        local name: terminal.Cell
-        if task.default then
-            name = terminal2.annotatedcell(task.name, " (default)", style.strong)
-        else
-            name = terminal2.paintedcell(task.name, style.strong)
-        end
-        rows[
-            #rows + 1
-        ] = {
-            name,
-            terminal2.paintedcell(tostring(task.kind or ""), kindColors[task.kind or ""] or style.faint),
-            terminal.cell(task.description or ""),
-        }
+        local note = task.default and " (default)" or nil
+        output:row()
+            :cell(task.name, style.strong, note)
+            :cell(tostring(task.kind or ""), kindColors[task.kind or ""] or style.faint)
+            :cell(task.description or "")
     end
-    terminal2.writetable(
-        io.stdout,
-        {
-            columns = {{heading = "task"}, {heading = "kind"}, {heading = "description"}},
-            rows = rows,
-            style = style,
-        } as terminal.TableOptions
-    )
+    output:write()
 
     return 0
 end

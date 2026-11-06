@@ -1,13 +1,15 @@
 module stringunits
 
--- Core strings (nupp.runtime.core.corestrings) and Lua patterns
--- (nupp.runtime.core.corepattern) on the owned backend. Strings come in as
+-- Core strings (nupp.runtime.core.corestrings), Lua patterns
+-- (nupp.runtime.core.corepattern) and the error report's prefix rule
+-- (nupp.runtime.core.reportprefix) on the owned backend. Strings come in as
 -- packed little-endian input words.
 const native = require("nupp.runtime.vm.intrinsics")
 const arena = require("nupp.runtime.vm.arena")
 const heap = require("nupp.runtime.vm.heap")
 const strings = require("nupp.runtime.core.corestrings")
 const patterns = require("nupp.runtime.core.corepattern")
+const reportprefix = require("nupp.runtime.core.reportprefix")
 
 -- `count` bytes from up to three packed words, interned.
 local function unpack3(
@@ -37,7 +39,7 @@ end
 -- 1 the same bytes intern to one string, 2 "ab" .. "c" is "abc", 4 the
 -- decimal text of -1234567 and 0 builds "-12345670", 8 lengths agree.
 export function basics(abc: uint64, ab: uint64, c: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     local answer: uint64 = 0ULL
     do
         local a = arena.open(16777216ULL)
@@ -75,7 +77,7 @@ end
 -- same scan as lstrlib's gmatch_aux. Answers matches times a million, plus
 -- the matched bytes times a hundred, plus the captures seen.
 export function gmatch(s1: uint64, s2: uint64, s3: uint64, p1: uint64, p2: uint64, lengths: uint64): uint64
-    local state = new patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local state = patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
     local answer: uint64 = 0ULL
     do
         local a = arena.open(16777216ULL)
@@ -116,6 +118,30 @@ export function gmatch(s1: uint64, s2: uint64, s3: uint64, p1: uint64, p2: uint6
             patterns.release(ms)
             answer = count * 1000000ULL + matched * 100ULL + captured
             heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- Whether up to 24 bytes, packed in three words, name the command line
+-- already (nupp.runtime.core.reportprefix): 1 when they do, else 0.
+export function named(w1: uint64, w2: uint64, w3: uint64, count: uint64): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(16777216ULL)
+        @unsafe do
+            local raw = arena.alloc(a, 24ULL, 8ULL)
+            if raw == nil then
+                error("string units: no room")
+            end
+            local base = native.address(raw)
+            native.store64(native.pointer(base), 0, w1)
+            native.store64(native.pointer(base), 8, w2)
+            native.store64(native.pointer(base), 16, w3)
+            if reportprefix.present(base, count) then
+                answer = 1ULL
+            end
         end
     end
 

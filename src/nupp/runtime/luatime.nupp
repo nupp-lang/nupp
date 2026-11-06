@@ -1,0 +1,244 @@
+@!internal
+
+--[[
+Lua 5.5's clock and calendar functions of `os` on the native core, over its
+host's clocks and C's broken-down time (`nupp.runtime.timecalls`):
+`os.clock`, `os.time` with and without a table, `os.date` in every format
+Lua accepts, "*t" and "!" for UTC among them, and `os.difftime`, with Lua's
+results and errors. `nupp.runtime.luaos` carries them in `os`.
+
+Each conversion of a `os.date` format is checked here, as Lua's checkoption
+checks it, and written by the host's strftime, so the texts are the
+platform's, as Lua's are.
+]]
+module nupp.runtime.luatime
+
+const timecalls = require("nupp.runtime.timecalls")
+const luaargs = require("nupp.runtime.luaargs")
+
+local argerror = luaargs.argerror
+local integerarg = luaargs.integerarg
+local typename = luaargs.typename
+
+-- The fields of a broken-down time, in C's `struct tm` order.
+const SEC: integer = 1
+
+const MIN: integer = 2
+const HOUR: integer = 3
+const DAY: integer = 4
+const MONTH: integer = 5
+const YEAR: integer = 6
+const WDAY: integer = 7
+const YDAY: integer = 8
+const ISDST: integer = 9
+
+-- What C counts from where Lua counts from 1, and the years from 1900.
+const FROMONE: integer = 1
+
+const FROM1900: integer = 1900
+
+-- The range of a C int, which every field must stay within.
+const INTMAX: integer = 2147483647
+
+const INTMIN: integer = -2147483648
+
+-- The flag `timecalls` takes for UTC, and for local time.
+const UTC: integer = 1
+
+const LOCAL: integer = 0
+
+-- What mktime and time answer when they fail.
+const FAILED: integer = -1
+
+-- The conversions strftime is given, as Lua's LUA_STRFTIMEOPTIONS lists
+-- C99's: one byte, or two after `E` or `O`.
+const SINGLE = "aAbBcCdDeFgGhHIjmMnprRStTuUVwWxXyYzZ%"
+
+const AFTERE = "cCxXyY"
+const AFTERO = "deHImMSuUVwWy"
+
+-- The processor time the program has used, in seconds.
+export function clock(): number
+    return timecalls.clock()
+end
+
+-- A field of the table os.time reads, as Lua's getfield: an integer (or a
+-- value that converts to one) less `delta`, `default` when it is absent,
+-- or Lua's error when there is no default, it is not an integer or it is
+-- out of a C int's range.
+local function field(fields: any, key: string, default: integer?, delta: integer): integer
+    local value: any = (fields as {[string]: any})[key]
+    local number: integer? = nil
+    if math.type(value) == "integer" then
+        number = value as integer
+    elseif math.type(value) == "float" then
+        number = math.tointeger(value as number)
+    elseif type(value) == "string" then
+        local converted = tonumber(value as string)
+        if converted ~= nil then
+            number = math.tointeger(converted)
+        end
+    end
+    if number == nil then
+        if value ~= nil then
+            error(("field '%s' is not an integer"):format(key), 3)
+        elseif default == nil then
+            error(("field '%s' missing in date table"):format(key), 3)
+        end
+        return default as integer
+    end
+    local n = number as integer
+    if not (n >= 0 and n - delta <= INTMAX or n < 0 and INTMIN + delta <= n) then
+        error(("field '%s' is out-of-bound"):format(key), 3)
+    end
+
+    return n - delta
+end
+
+-- The daylight-saving flag of the table os.time reads: -1 when absent.
+local function flag(fields: any): integer
+    local value: any = (fields as {[string]: any}).isdst
+    if value == nil then
+        return -1
+    end
+
+    return (value ~= false) and 1 or 0
+end
+
+-- Sets the fields of a broken-down time in `fields`, as Lua's setallfields:
+-- the daylight-saving flag only when it is known.
+local function setfields(fields: any, parts: {integer}): nil
+    local t = fields as {[string]: any}
+    t.year = parts[YEAR] + FROM1900
+    t.month = parts[MONTH] + FROMONE
+    t.day = parts[DAY]
+    t.hour = parts[HOUR]
+    t.min = parts[MIN]
+    t.sec = parts[SEC]
+    t.yday = parts[YDAY] + FROMONE
+    t.wday = parts[WDAY] + FROMONE
+    if parts[ISDST] >= 0 then
+        t.isdst = parts[ISDST] > 0
+    end
+end
+
+-- The current time, or the time the table `fields` describes, whose fields
+-- it then sets normalized, as Lua's os_time.
+export function time(fields: any): integer
+    local t: integer = 0
+    if fields == nil then
+        t = timecalls.now()
+    else
+        if type(fields) ~= "table" then
+            argerror(1, "time", "table expected, got " .. typename(fields), 2)
+        end
+        local parts: {integer} = {0, 0, 0, 0, 0, 0, 0, 0, 0}
+        parts[YEAR] = field(fields, "year", nil, FROM1900)
+        parts[MONTH] = field(fields, "month", nil, FROMONE)
+        parts[DAY] = field(fields, "day", nil, 0)
+        parts[HOUR] = field(fields, "hour", 12, 0)
+        parts[MIN] = field(fields, "min", 0, 0)
+        parts[SEC] = field(fields, "sec", 0, 0)
+        parts[ISDST] = flag(fields)
+        t = timecalls.make(parts)
+        setfields(fields, parts)
+    end
+    if t == FAILED then
+        error("time result cannot be represented in this installation", 2)
+    end
+
+    return t
+end
+
+-- The conversion at the start of `rest`, the text after a `%`: its option,
+-- or Lua's error naming the whole rest, as Lua's checkoption.
+local function option(rest: string): string
+    local first = string.sub(rest, 1, 1)
+    if #first == 1 and string.find(SINGLE, first, 1, true) ~= nil then
+        return first
+    end
+    local second = string.sub(rest, 2, 2)
+    if #second == 1
+        and (
+            first == "E" and string.find(AFTERE, second, 1, true) ~= nil
+            or first == "O" and string.find(AFTERO, second, 1, true) ~= nil
+        )
+    then
+        return first .. second
+    end
+    -- Lua's message reads the rest as a C string, up to a NUL.
+    local stop = string.find(rest, "\0", 1, true)
+    local shown = stop == nil and rest or string.sub(rest, 1, (stop as integer) - 1)
+    argerror(1, "date", "invalid conversion specifier '%" .. shown .. "'", 3)
+
+    return ""
+end
+
+-- A time argument, as Lua's l_checktime: an integer, or Lua's error.
+local function timearg(count: integer, value: any, position: integer, name: string, level: integer): integer
+    if position > count then
+        argerror(position, name, "number expected, got no value", level + 1)
+    end
+
+    return integerarg(value, position, name, level + 1)
+end
+
+-- Time `t` (now by default) as `format` ("%c" by default) writes it, or as
+-- a table of its fields for "*t"; a leading "!" in UTC.
+export function date(...: any): any
+    local format: any = select(1, ...)
+    local at: any = select(2, ...)
+    local text = luaargs.stringarg(format, "%c", 1, "date", 2)
+    local t: integer = 0
+    if at == nil then
+        t = timecalls.now()
+    else
+        t = integerarg(at, 2, "date", 2)
+    end
+    local utc = LOCAL
+    if string.sub(text, 1, 1) == "!" then
+        utc = UTC
+        text = string.sub(text, 2)
+    end
+    local parts = timecalls.parts(t, utc)
+    if parts == nil then
+        error("date result cannot be represented in this installation", 2)
+    end
+    if text == "*t" then
+        local fields: {[string]: any} = {}
+        setfields(fields, parts as {integer})
+        return fields
+    end
+    local pieces: {string} = {}
+    local index: integer = 1
+    while index <= #text do
+        local stop = string.find(text, "%", index, true)
+        if stop == nil then
+            pieces[#pieces + 1] = string.sub(text, index)
+            break
+        end
+        local percent = stop as integer
+        pieces[#pieces + 1] = string.sub(text, index, percent - 1)
+        local chosen = option(string.sub(text, percent + 1))
+        pieces[#pieces + 1] = timecalls.format(t, utc, "%" .. chosen) or ""
+        index = percent + 1 + #chosen
+    end
+
+    return table.concat(pieces)
+end
+
+-- The seconds from `t1` to `t2`, as a float.
+export function difftime(...: any): number
+    local count = select("#", ...)
+    local a: any = select(1, ...)
+    local b: any = select(2, ...)
+    local t2 = timearg(count, a, 1, "difftime", 2)
+    local t1 = timearg(count, b, 2, "difftime", 2)
+    local difference = t2 - t1
+    -- A difference that wraps is taken in floats, as C's difftime does.
+    if (t2 >= 0) ~= (t1 >= 0) and (difference >= 0) ~= (t2 >= 0) then
+        return (t2 + 0.0) - (t1 + 0.0)
+    end
+
+    return difference + 0.0
+end

@@ -41,6 +41,33 @@ Document sync is full text. Inlay hints, go to implementation, call hierarchy
 and type hierarchy have no handler, and an unknown request is answered
 `method not found` (-32601).
 
+## Duplicate code
+
+The custom `nupp/duplicates` request runs the same audit as
+[`nupp duplicates`](../../reference/cli.md#duplicates) over workspace project
+sources and open document buffers. It runs on demand and supports request
+cancellation; it does not add diagnostics on every edit.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "nupp/duplicates",
+  "params": {
+    "options": {"minTokens": 80, "minLines": 8, "mode": "renamed"}
+  }
+}
+```
+
+The server advertises `experimental.nuppDuplicates: true`. The result has the
+CLI report shape, with an additional `location` on each occurrence containing
+its URI and standard zero-based UTF-16 LSP range. The report's original `range`
+remains one-based bytes. Options use camelCase names: `ignoreLiterals`,
+`minTokens`, `minLines`, `maxGroups`, and `budget`, plus `mode`.
+
+This request is available to LSP clients; it is not an automatic refactoring
+or a built-in editor code action.
+
 ## Direct module exports
 
 The **Convert module table to direct exports** action replaces a plain local
@@ -324,12 +351,3 @@ operations only where a diagnostic does not say enough:
 4. Use `nupp lsp inspect`, `definition`, and `references` when more semantic
    context is needed.
 5. Re-check after each edit group, and run `nupp test` before committing.
-
-::: seealso
-- [editors.md](editors.md) for the Visual Studio Code and Claude Code clients
-  that start this server
-- [cli.md](../../reference/cli.md#lsp) for every option and a worked example of
-  each operation
-- [diagnostics.md](../../reference/diagnostics.md) for the codes an editor shows
-  and what each one means
-:::

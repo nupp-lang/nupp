@@ -38,7 +38,7 @@ function M.finalStandardRootsUseTheExistingCompilerSourceLoader()
             end
         end,
         function(loaders)
-            for _, name in ipairs({"types", "own", "utf8", "io.files", "binary.digest"}) do
+            for _, name in ipairs({"types", "own", "utf8", "io.internal.files", "nupp.digest.digest"}) do
                 local loader = loaders[#loaders](name)
                 test.eq(type(loader), "function", name)
                 test.eq(loader(), marker, name)
@@ -113,19 +113,19 @@ function M.coldExternalProjectsRetainDeclaredStandardLibraryTypes()
             dir .. "/src/coldlibraries.nupp",
             [[
 module coldlibraries
-const digest = require("binary.digest")
-const compression = require("binary.compress")
+const gzip = binary.compress("gzip")
 local main = {}
 function main.run(): integer
+    assert(gzip ~= nil)
     local facts = os.info()
     assert(facts.pointerbits == 32 or facts.pointerbits == 64)
     assert(facts.parallelism >= 1)
-    local bytes = io.newbuffer("abc")
+    local bytes = io.Buffer.create("abc")
     local reader: io.Reader = bytes:reader()
     assert(reader:read(3) == "abc")
-    local algorithm = digest.algorithm("sha256")
+    local algorithm = binary.digest("sha256")
     assert(algorithm.digestsize == 32)
-    local context = algorithm:newdigest()
+    local context = algorithm:create()
     context:write("abc")
     assert(context:hexdigest() == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
     return 42

@@ -194,16 +194,16 @@ local record Point
     y: integer
 end
 
-local p = new Point(1, 2)
+local p = Point(1, 2)
 
 return p
 ```
 
 ```text [nupp check output]
 src/positional-record-construction.nupp:6:15: warning: NUPP2512 positional-record-construction: record Point is constructed by field order
- 6 | local p = new Point(1, 2)
+ 6 | local p = Point(1, 2)
    |               ^~~~~
-help: write new Point(field = value, ...) to name the fields
+help: write Point(field = value, ...) to name the fields
 ```
 :::
 
@@ -644,7 +644,7 @@ does.
 **1. Declare it** in the `lints.all` registry in `src/nupp/compiler/lints.nupp`:
 
 ```nupp:fragment
-new lints.Lint(
+lints.Lint(
     name = "missing-require", code = "NUPP2120",
     category = "correctness", level = "error",
     summary = "a project module is used without being required"
@@ -698,10 +698,3 @@ differs wants an LSP session in `tests/tools/lsp/lsptest.lua`.
 
 Assert the `severity` as well as the code. A lint that reports at the wrong
 level is a lint that fails the wrong builds.
-
-::: seealso
-- [diagnostics.md](diagnostics.md) for every code the compiler reports, lint or
-  not
-- [`@allow`](../api.md#annotation-allow) for the lint suppression contract
-- [cli.md](cli.md#lints) for `nupp lints` and its JSON output
-:::

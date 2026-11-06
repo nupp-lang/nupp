@@ -104,6 +104,7 @@ local CASES: {[string]: {
     recordsAffineErrors = {fixture = "catalog-records-affine-errors", version = 8},
     recordsaffineraise = {fixture = "catalog-records-affine-raise", version = 8},
     recordsdynamic = {fixture = "catalog-records-dynamic", version = 8},
+    recordscallable = {fixture = "catalog-records-callable", version = 8, modules = {"catalog-modules-boxes"}},
     tablesSort = {fixture = "catalog-tables-sort", version = 8},
     stringsGsubFunction = {fixture = "catalog-strings-gsubfn", version = 8},
     stringsQuoted = {fixture = "catalog-strings-quoted", version = 8},
@@ -178,6 +179,7 @@ local CASES: {[string]: {
         modules = {"catalog-modules-tally", "catalog-modules-faulty"}
     },
     errorsruntime = {fixture = "catalog-errors-runtime", version = 8},
+    errorsuncaught = {fixture = "catalog-errors-uncaught", version = 8},
     tablesfrozen = {fixture = "catalog-tables-frozen", version = 8},
     tablespacked = {fixture = "catalog-tables-packed", version = 8},
     tablespackedsemantics = {fixture = "catalog-tables-packed-semantics", version = 8},
@@ -207,12 +209,24 @@ local CASES: {[string]: {
     processpopen = {fixture = "catalog-process-popen", version = 8},
     processhandle = {fixture = "catalog-process-handle", version = 8},
     processexit = {fixture = "catalog-process-exit", version = 8},
+    gcweak = {fixture = "catalog-gc-weak", version = 8},
+    gcfinalizers = {fixture = "catalog-gc-finalizers", version = 8},
+    gcoptions = {fixture = "catalog-gc-options", version = 8},
+    gcend = {fixture = "catalog-gc-end", version = 8},
+    gcexit = {fixture = "catalog-gc-exit", version = 8},
+    gcwarn = {fixture = "catalog-gc-warn", version = 8},
+    gcraise = {fixture = "catalog-gc-raise", version = 8},
     processlayer = {
         fixture = "catalog-process-layer",
         version = 8,
         modules = {"catalog-reactor-driver"},
         follow = true
     },
+    -- Lua's os clock and calendar; its calls on file names with io.tmpfile;
+    -- and main's recursive os.remove and io.Path arguments.
+    ostime = {fixture = "catalog-os-time", version = 8},
+    osfiles = {fixture = "catalog-os-files", version = 8},
+    osremove = {fixture = "catalog-os-remove", version = 8},
     -- The bench harness's own entry: the bench/vm workloads under debug.bench.
     benchworkloads = {
         fixture = "bench/vm/workloads.bench",
@@ -351,7 +365,7 @@ local function runtime(mode: string, cacheDirectory: string?, audited: boolean):
     for _, name in ipairs({"prepare", "open", "close", "finish"}) do
         roots[#roots + 1] = {"nupp.runtime.core.guestscope", name}
     end
-    roots[#roots + 1] = {"nupp.runtime.core.threads", "recover"}
+    roots[#roots + 1] = {"nupp.runtime.core.guestuncaught", "recover"}
     if audited then
         fixtures[
             #fixtures + 1
@@ -431,6 +445,10 @@ local function libraryModule(name: string): boolean
     return name:sub(1, 4) == "src/" or name:find("/src/", 1, true) ~= nil
 end
 
+-- The namespace of the VM's host modules, which the core answers only where
+-- `graph.coremodule` maps one.
+const VM_HOST_PREFIX = "nupp.vm."
+
 -- The library module under `src/` that module `name` loads from on the
 -- core, or nil when none does: a declaration file, or a host module the
 -- core does not answer.
@@ -454,6 +472,13 @@ local function librarypath(root: string, name: string): string?
     end
 
     return nil
+end
+
+-- Whether a source may call `warn` or set a `__gc`: a builder reads it to
+-- carry `nupp.runtime.luawarn`, which gives both their Nupp side. A word
+-- anywhere counts; carrying it needlessly costs a module that loads first.
+local function readswarn(source: string): boolean
+    return source:find("__gc", 1, true) ~= nil or source:find("%f[%w_]warn%f[^%w_]") ~= nil
 end
 
 -- The `os` functions the core calls itself, which need no library carried.
@@ -493,8 +518,9 @@ end
 
 -- The modules a checked tree loads: its requires, its qualified paths, and
 -- the names its source says it requires dynamically.
-local function requiredmodules(root: any, source: string): {string}
+local function requiredmodules(root: any, source: string): ({string}, {[string]: boolean})
     local found: {string} = {}
+    local dynamic: {[string]: boolean} = {}
     local walk: function(any): nil
     walk = function(node: any): nil
         if type(node) ~= "table" then
@@ -529,10 +555,41 @@ local function requiredmodules(root: any, source: string): {string}
     for list in source:gmatch("@requires%-dynamically ([%w%._, ]+)") do
         for name in list:gmatch("[%w%._]+") do
             found[#found + 1] = name
+            dynamic[name] = true
         end
     end
 
-    return found
+    return found, dynamic
+end
+
+-- Whether a library module can run on the core: one that requires a VM host
+-- module the core does not answer, itself or through what it requires
+-- (`nupp.vm.compression` behind the native compression provider), is the
+-- VM's alone. A module reaches the program only dynamically that way,
+-- through the provider a facade selects at run time.
+local function portable(root: string, library: string, seen: {[string]: boolean}?): boolean
+    local visited = seen or {}
+    if visited[library] then
+        return true
+    end
+    visited[library] = true
+    local graph: any = require("nupp.compiler.vm.graph")
+    local source = read(root .. "/" .. library .. (library:sub(-4) == ".lua" and "" or ".nupp"))
+    for name in source:gmatch("require%(%s*[\"']([%w%._]+)[\"']%s*%)") do
+        local found = librarypath(root, name)
+        if found ~= nil then
+            if not portable(root, found, visited) then
+                return false
+            end
+        elseif name:sub(1, #VM_HOST_PREFIX) == VM_HOST_PREFIX
+            and graph.coremodule(name) == name
+            and not graph.corecallmodule(name)
+        then
+            return false
+        end
+    end
+
+    return true
 end
 
 local function modulePath(root: string, name: string): string
@@ -608,11 +665,16 @@ local function compileProgram(caseName: string, fixture: string, version: intege
         end
         -- One that reads Lua's `io` or `os` carries the core's, over its
         -- process and file layers and the reactor beneath them.
-        local usesio, usesos = false, false
+        local usesio, usesos, useswarn = false, false, false
         for _, name in ipairs(names) do
-            local tree = parser.parse(read(modulePath(root, name)), modulePath(root, name)).root
+            local source = read(modulePath(root, name))
+            local tree = parser.parse(source, modulePath(root, name)).root
             usesio = usesio or graph.mayUseIo(tree)
             usesos = usesos or readsos(tree)
+            useswarn = useswarn or readswarn(source)
+        end
+        if useswarn then
+            table.insert(names, #names, "src/nupp/runtime/luawarn")
         end
         if usesio or usesos then
             -- Named as following a require names them, so a program that
@@ -628,6 +690,7 @@ local function compileProgram(caseName: string, fixture: string, version: intege
             table.insert(names, #names, "src/nupp/runtime/luaio")
         end
         if usesos then
+            table.insert(names, #names, "src/nupp/runtime/luatime")
             table.insert(names, #names, "src/nupp/runtime/luaos")
         end
         -- A program using the task surface carries the scheduler.
@@ -712,9 +775,10 @@ local function compileProgram(caseName: string, fixture: string, version: intege
             modules[#modules + 1] = module
         end
         if follow then
-            for _, required in ipairs(requiredmodules(parsed.root or parsed, source)) do
-                local library = librarypath(root, required)
-                if library and not carried[library] then
+            local required, dynamic = requiredmodules(parsed.root or parsed, source)
+            for _, name in ipairs(required) do
+                local library = librarypath(root, name)
+                if library and not carried[library] and (not dynamic[name] or portable(root, library)) then
                     carried[library] = true
                     queue[#queue + 1] = library
                 end
@@ -740,6 +804,11 @@ local function compileProgram(caseName: string, fixture: string, version: intege
             if not carried[luaos] and readsos(parser.parse(source, path).root) then
                 carried[luaos] = true
                 queue[#queue + 1] = luaos
+            end
+            local luawarn = "src/nupp/runtime/luawarn"
+            if not carried[luawarn] and readswarn(source) then
+                carried[luawarn] = true
+                queue[#queue + 1] = luawarn
             end
         end
     end

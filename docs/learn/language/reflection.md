@@ -97,7 +97,7 @@ local record User
 end
 
 local witness: Type<User> = User
-local user: User = new User(id = 7, name = "ada")
+local user: User = User(id = 7, name = "ada")
 
 assert(witness == User)
 assert(User ~= user)
@@ -120,7 +120,7 @@ local record User
     name: string
 end
 local binding = serde.binding(User)
-local text = json.encode(binding, new User(id = 7, name = "Ada"))
+local text = json.encode(binding, User(id = 7, name = "Ada"))
 assert(json.decode(binding, text).name == "Ada")
 ```
 
@@ -189,34 +189,3 @@ non-record codec input is refused. See [Opaque
 results materialize at a
 declaration](comptime.md#opaque-results-materialize-at-a-declaration) for the
 rule that governs where the result may land.
-
-## FAQ
-
-### Does reflection add metadata to every record?
-
-No. A record gets a runtime blueprint only when the program calls `reflect()` on
-it or derives something that needs one, and the descriptor is built on the first
-call rather than at declaration. See [Runtime reflection](#runtime-reflection)
-for what the registry costs.
-
-### Should a generator reflect at comptime or at runtime?
-
-Reflect at comptime when the result is code or a validation that can be decided
-while compiling, and at runtime when the program has a value in hand and needs
-its declaration. Comptime descriptors are target-independent and leave nothing
-behind; runtime descriptors are cached per record and carry the extension cache.
-
-### Can reflection report a struct's memory layout?
-
-No. Reflection reads declared meaning, so a field's offset is not one of its
-results. Use `types.sizeof`, `types.alignof`, `types.offsetof`, and `soa.layoutof`,
-which report against the build's `layoutTarget`.
-
-::: seealso
-- [comptime.md](comptime.md) for the blocks and type functions that consume
-  comptime descriptors
-- [derives.md](../../reference/derives.md) for the derives built on runtime
-  descriptors
-- [records.md](types/records-and-structs.md#names-hold-their-table) for the type
-  witness in the type system
-:::

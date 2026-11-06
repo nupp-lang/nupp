@@ -50,7 +50,7 @@ export function describe(t: Type): Descriptor?
     if (moduleName == "nupp.mem.span")
         and (name == "Span" or name == "FixedSpan" or name == "WriteSpan" or name == "FixedWriteSpan")
     then
-        return new Descriptor(
+        return Descriptor(
             adapter = "span",
             element = element,
             writable = name == "WriteSpan" or name == "FixedWriteSpan",
@@ -58,7 +58,7 @@ export function describe(t: Type): Descriptor?
             nominal = nominal
         )
     elseif moduleName == "nupp.soa" and (name == "Span" or name == "WriteSpan") then
-        return new Descriptor(adapter = "soa", element = element, writable = name == "WriteSpan", nominal = nominal)
+        return Descriptor(adapter = "soa", element = element, writable = name == "WriteSpan", nominal = nominal)
     end
 
     return nil
@@ -119,7 +119,7 @@ export function exportProducer(moduleName: string, member: string, result: Type)
         return nil
     end
 
-    return new Producer(kind = kind, descriptor = descriptor)
+    return Producer(kind = kind, descriptor = descriptor)
 end
 
 --- Describes root views borrowed from the sealed standard owners. Returning a
@@ -149,5 +149,5 @@ export function methodProducer(receiver: Type, member: string, result: Type): Pr
         return nil
     end
 
-    return new Producer(kind = kind, descriptor = descriptor)
+    return Producer(kind = kind, descriptor = descriptor)
 end

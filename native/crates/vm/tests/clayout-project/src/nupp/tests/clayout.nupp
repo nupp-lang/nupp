@@ -176,7 +176,7 @@ local function bitfields(): nil
     equal(layoutof(clayout_marks).size, tonumber(clayout_marks_size()), "23 one-bit flags")
 
     -- The VM writes, C reads.
-    const f = new clayout_flags()
+    const f = clayout_flags()
     f.offset = 123456
     f.missing = true
     f.break_op = true
@@ -202,7 +202,7 @@ local function bitfields(): nil
     equal(f.delta, -8, "one past it wraps negative")
 
     -- C writes, the VM reads.
-    const g = new clayout_flags()
+    const g = clayout_flags()
     clayout_flags_set(g, 3, 1)
     clayout_flags_set(g, 6, 31)
     clayout_flags_set(g, 7, -8)
@@ -215,7 +215,7 @@ local function bitfields(): nil
     equal(tonumber(g.wide), 0xffffffffff, "a forty-bit field")
     equal(tonumber(g.span), -524288, "a signed 64-bit-unit bitfield")
 
-    const m = new clayout_marks()
+    const m = clayout_marks()
     m.f1 = true
     m.f9 = true
     m.f23 = true
@@ -236,9 +236,9 @@ local function mixed(): nil
     end
     equal(layout.fields[6].ctype, "clayout_node *", "a pointer keeps its pointee in its spelling")
 
-    const m = new clayout_mixed()
-    const first = new clayout_node(nil, 1)
-    const second = new clayout_node(nil, 2)
+    const m = clayout_mixed()
+    const first = clayout_node(nil, 1)
+    const second = clayout_node(nil, 2)
     first.next = second
     @unsafe do
         m.head = first
@@ -269,11 +269,11 @@ local function mixed(): nil
     equal(m.callback, doubler, "a callback field reads back its retained callback")
 
     -- A copy carries what its pointer fields refer to.
-    const copy = new clayout_mixed()
+    const copy = clayout_mixed()
     copy.inner = m.inner
-    const holder = new clayout_node(nil, 5)
+    const holder = clayout_node(nil, 5)
     holder.next = first
-    const moved = new clayout_node(nil, 0)
+    const moved = clayout_node(nil, 0)
     moved.next = holder.next
     @unsafe do
         const followed = moved.next
@@ -326,7 +326,7 @@ local function counted(): nil
         tostring(problem)
     )
 
-    const items = array.newarray(new clayout_inner(), 3)
+    const items = array.newarray(clayout_inner(), 3)
     do
         local w = items:write();
         for i = 1, 3 do
@@ -378,7 +378,7 @@ local function outputs(): nil
 end
 
 local function byValue(): nil
-    const v = new clayout_value()
+    const v = clayout_value()
     v.i = 41
     equal(clayout_value_int(v), 41, "a union by value")
     const h = clayout_hfa_make(1.5, 2.5)
@@ -389,7 +389,7 @@ local function byValue(): nil
     t.tag = 2
     t.value.i = 9
     equal(clayout_tagged_read(t), 9, "and passed by value")
-    const f = new clayout_flags()
+    const f = clayout_flags()
     f.mode = 3
     f.level = 4
     f.delta = -1
@@ -397,7 +397,7 @@ local function byValue(): nil
 end
 
 local function variadic(): nil
-    const buffer = new clayout_text()
+    const buffer = clayout_text()
     const text = buffer.bytes
     const written = clayout_format(text, 64, "%s %g %.1f %d", "x", 7, 2.5, true)
     equal(written, 9, "a variadic call's extra arguments reach C promoted")
@@ -406,17 +406,17 @@ local function variadic(): nil
 end
 
 local function generic(): nil
-    const node = new clayout_node(nil, 9)
-    const ref = new Ref<clayout_node>(nil, 21)
+    const node = clayout_node(nil, 9)
+    const ref = Ref<clayout_node>(nil, 21)
     ref.target = node
     equal(ref:counted(), 42, "an instance's fields and its declaration's methods")
     @unsafe do
         const target = ref.target
         assert2(target ~= nil and target.value == 9, "a generic pointer field")
     end
-    const other = new Ref<clayout_inner>(nil, 1)
+    const other = Ref<clayout_inner>(nil, 1)
     equal(other.count, 1, "another instance of the same declaration")
-    const holder = new Holder()
+    const holder = Holder()
     holder.nodes = ref
     holder.tag = 3
     equal(holder.nodes.count, 21, "instances nest by value")
@@ -429,8 +429,8 @@ function test.nodeValue(node: clayout_node): int32
 end
 
 local function sent(): nil
-    const first = new clayout_node(nil, 1)
-    const second = new clayout_node(nil, 2)
+    const first = clayout_node(nil, 1)
+    const second = clayout_node(nil, 2)
     first.next = second
     -- A struct whose pointer field is set holds a process address, which
     -- another VM cannot keep.

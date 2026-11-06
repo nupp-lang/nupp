@@ -23,7 +23,7 @@ local function closeRes(takes r: Res): nil
 end
 
 local function open(name: string): affine(Res, closeRes)
-    return new Res(name = name)
+    return Res(name = name)
 end
 
 local function consume(takes r: affine(Res, closeRes)): nil
@@ -99,7 +99,7 @@ end)
 show("raise", tostring(ok) .. ":" .. flush(), "false:raised")
 
 do
-    local h = new Handle(label = "h")
+    local h = Handle(label = "h")
 end
 show("closeable", flush(), "close h")
 

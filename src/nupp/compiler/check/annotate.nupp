@@ -68,7 +68,7 @@ export function install(c: state.Checker): Ops
         if not collect(expr) or not names[1] then
             return nil
         end
-        local node = new cst.Tname(kind = "tname", base = names[1])
+        local node = cst.Tname(kind = "tname", base = names[1])
         for _, token in ipairs(names) do
             node[#node + 1] = token
         end

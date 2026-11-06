@@ -202,6 +202,26 @@ export function interfacetype(t: any): boolean
     return t ~= nil and t.tag == "nominal" and t.declKind == "interface"
 end
 
+-- The kinds of value whose fields are string keys rather than record slots.
+const KEYED_KINDS: {[string]: boolean} = {
+    table = true,
+    map = true,
+    array = true,
+    shape = true,
+    typeobject = true,
+    -- A declaration's value: `R.f` holds its methods, `R.Nested` a nested
+    -- record's table.
+    metatable = true,
+    any = true,
+    typevar = true
+}
+
+-- Whether a field of a value of type `t` is its string key: a plain table's,
+-- a declaration's, an interface's, or one read through a record's name.
+export function keyedByName(t: any): boolean
+    return KEYED_KINDS[typeKind(t)] == true or interfacetype(t) or recordOrigin(t) ~= nil
+end
+
 -- Fixed widths are integers and floats at run time; uint64 is not, since
 -- past 2^63 its order is not int64's.
 local narrowIntegers: {

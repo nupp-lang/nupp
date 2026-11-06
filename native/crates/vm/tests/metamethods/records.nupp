@@ -18,19 +18,19 @@ local record V
 end
 
 function V.__add(a: V, b: V): V
-    return new V(x = a.x + b.x, y = a.y + b.y)
+    return V(x = a.x + b.x, y = a.y + b.y)
 end
 
 function V.__sub(a: V, b: V): V
-    return new V(x = a.x - b.x, y = a.y - b.y)
+    return V(x = a.x - b.x, y = a.y - b.y)
 end
 
 function V.__mul(a: V, k: number): V
-    return new V(x = a.x * k, y = a.y * k)
+    return V(x = a.x * k, y = a.y * k)
 end
 
 function V.__unm(a: V): V
-    return new V(x = -a.x, y = -a.y)
+    return V(x = -a.x, y = -a.y)
 end
 
 function V.__eq(a: V, b: V): boolean
@@ -59,22 +59,22 @@ end
 
 function M.main(): string
     local lines: {string} = {}
-    local a = new V(x = 1, y = 2)
-    local b = new V(x = 3, y = 4)
+    local a = V(x = 1, y = 2)
+    local b = V(x = 3, y = 4)
     local c = a + b
     lines[#lines + 1] = tostring(c)
     lines[#lines + 1] = tostring(b - a)
     lines[#lines + 1] = tostring(a * 3)
     lines[#lines + 1] = tostring(-a)
-    lines[#lines + 1] = tostring(a == new V(x = 1, y = 2)) .. " " .. tostring(a ~= b) .. " " .. tostring(a == b)
+    lines[#lines + 1] = tostring(a == V(x = 1, y = 2)) .. " " .. tostring(a ~= b) .. " " .. tostring(a == b)
     lines[#lines + 1] = tostring(a < b) .. " " .. tostring(b <= a) .. " " .. tostring(a >= b)
     lines[#lines + 1] = a .. "!"
     lines[#lines + 1] = tostring(a(10))
-    local total = new V(x = 0, y = 0)
+    local total = V(x = 0, y = 0)
     local same = 0
     for i = 1, 1000 do
         total = total + a * 2
-        if total == new V(x = 2 * i, y = 4 * i) then
+        if total == V(x = 2 * i, y = 4 * i) then
             same = same + 1
         end
     end

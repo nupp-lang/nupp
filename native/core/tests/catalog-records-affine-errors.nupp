@@ -28,13 +28,13 @@ local function risky(n: integer): integer
 end
 
 local function guarded(n: integer): integer
-    local f = new File(n)
+    local f = File(n)
     local r = risky(n)
     return r + f.id
 end
 
 local function nested(n: integer): integer
-    local outer = new File(7)
+    local outer = File(7)
     return guarded(n)
 end
 

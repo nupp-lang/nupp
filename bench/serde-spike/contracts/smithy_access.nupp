@@ -43,12 +43,12 @@ local record Builder is own.Closeable
 end
 local record Construction is structures.Construction<Request, Builder>
     function begin(self): Builder
-        return new Builder()
+        return Builder()
     end
 
     function finish(self, takes state: Builder): Request
         local owned: Builder = state
-        local value = new Request(
+        local value = Request(
             name = assert2(owned.name),
             token = assert2(owned.token),
             created = assert2(owned.created),
@@ -111,9 +111,7 @@ local fields: {structures.Field<Request, Builder, smithy.Member>} = {
         false
     )
 }
-local typed = new core.Bound<Request, smithy.Member>(
-    adapter = structures.structure(root, fields, new Construction(), nil, nil)
-)
+local typed = core.Bound<Request, smithy.Member>(adapter = structures.structure(root, fields, Construction(), nil, nil))
 local layout = indexed.layout(root)
 local nameSlot = layout:add(name, textName, false)
 local tokenSlot = layout:add(token, textToken, false)

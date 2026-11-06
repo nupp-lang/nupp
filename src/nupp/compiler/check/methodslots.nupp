@@ -111,7 +111,10 @@ fingerprint = function(t: any, binders: any, active: any): string
         out = "nominal(" .. tostring(
             t.declKind
         ) .. ":" .. tostring(
-            origin.runtimePath or origin.moduleName and (origin.moduleName .. "." .. origin.name) or origin.name
+            origin.runtimePath
+            or origin.moduleName and (origin.moduleName .. "." .. origin.name)
+            or origin.hoistedModule and (origin.hoistedModule .. "." .. origin.name)
+            or origin.name
         ) .. "<" .. table.concat(arguments, ",") .. ">)"
     elseif tag == "array" or tag == "ptr" or tag == "const" then
         out = tag .. "(" .. fingerprint(t.elem or t.inner, binders, active) .. ")"

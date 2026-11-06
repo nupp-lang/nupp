@@ -6,7 +6,9 @@
 
 #![forbid(unsafe_code)]
 
-use nupp_native_net::{Read as NetRead, Stream, Write as NetWrite};
+use nupp_native_net::Stream;
+/// A session read and write answer exactly what the connection beneath them does.
+pub use nupp_native_net::{Read, Write};
 use ring::digest::{Context as Digest, SHA256};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::crypto::{CryptoProvider, WebPkiSupportedAlgorithms};
@@ -41,22 +43,6 @@ pub struct ServerOptions<'a> {
     pub certificate: &'a [u8],
     pub private_key: &'a [u8],
     pub protocols: &'a [Vec<u8>],
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub enum Read {
-    Data(Vec<u8>),
-    Pending,
-    Eof,
-    Failed(String),
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub enum Write {
-    Accepted(usize),
-    Pending,
-    Closed,
-    Failed(String),
 }
 
 #[derive(Debug)]
@@ -660,16 +646,16 @@ impl State {
             if self.connection.wants_read() {
                 if self.inbound.is_empty() && !self.transport_eof {
                     match stream.try_read(TLS_READ_CHUNK) {
-                        NetRead::Data(bytes) => self.inbound.extend(bytes),
-                        NetRead::Pending => {}
-                        NetRead::Eof => {
+                        Read::Data(bytes) => self.inbound.extend(bytes),
+                        Read::Pending => {}
+                        Read::Eof => {
                             let mut input = Cursor::new(&[]);
                             self.connection.read_tls(&mut input).map_err(|error| {
                                 self.failed(format!("could not finish TLS input: {error}"))
                             })?;
                             self.transport_eof = true;
                         }
-                        NetRead::Failed(error) => {
+                        Read::Failed(error) => {
                             return Err(self.failed(format!("the TLS transport failed: {error}")));
                         }
                     }
@@ -718,15 +704,15 @@ impl State {
         if !self.pending_tls.is_empty() {
             let pending = self.pending_tls.make_contiguous();
             match stream.try_write(pending) {
-                NetWrite::Accepted(count) => {
+                Write::Accepted(count) => {
                     self.pending_tls.drain(..count);
                     progressed = count != 0;
                 }
-                NetWrite::Pending => return Ok(false),
-                NetWrite::Closed => {
+                Write::Pending => return Ok(false),
+                Write::Closed => {
                     return Err(self.failed("the TLS transport is closed".to_owned()));
                 }
-                NetWrite::Failed(error) => {
+                Write::Failed(error) => {
                     return Err(self.failed(format!("could not write TLS records: {error}")));
                 }
             }

@@ -184,7 +184,7 @@ function guest.parse(text: string): guest.Fn
         elseif head == "function" then
             need(fn == nil, "one function per text")
             local nf = (tonumber(parts[6] or "1") or 1) as integer
-            fn = new guest.Fn(
+            fn = guest.Fn(
                 name = parts[2],
                 fid = need(tonumber(parts[3]), "function id") as integer,
                 nparams = need(tonumber(parts[4]), "parameter count") as integer,
@@ -211,13 +211,13 @@ function guest.parse(text: string): guest.Fn
             local kind = parts[3]
             local constant: guest.Constant
             if kind == "word" then
-                constant = new guest.Constant(kind = "word", text = parts[4])
+                constant = guest.Constant(kind = "word", text = parts[4])
             elseif kind == "num" then
-                constant = new guest.Constant(kind = "num", text = parts[4])
+                constant = guest.Constant(kind = "num", text = parts[4])
             elseif kind == "nil" or kind == "true" or kind == "false" then
-                constant = new guest.Constant(kind = kind, text = "")
+                constant = guest.Constant(kind = kind, text = "")
             else
-                constant = new guest.Constant(kind = "opaque", text = kind)
+                constant = guest.Constant(kind = "opaque", text = kind)
             end
             f.consts[#f.consts + 1] = constant
         elseif head == "vectors" then
@@ -254,7 +254,7 @@ function guest.parse(text: string): guest.Fn
             for index = 2, #parts do
                 operands[index - 1] = parts[index]
             end
-            f.code[#f.code + 1] = new guest.Instruction(name = head, operands = operands, pc = pc)
+            f.code[#f.code + 1] = guest.Instruction(name = head, operands = operands, pc = pc)
             pc = pc + 1
         end
     end
@@ -620,7 +620,7 @@ local function liveness(fn: guest.Fn): guest.Liveness
         return live
     end
 
-    return new guest.Liveness(
+    return guest.Liveness(
         liveAt = liveAt,
         defs = function(pc: integer): {[integer]: boolean}
             return defsAt[pc + 1]

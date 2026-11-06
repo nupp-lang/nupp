@@ -3,6 +3,7 @@ module nupp.compiler.vm.programgraph
 local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
 local graph = require("nupp.compiler.vm.graph")
+local construction = require("nupp.compiler.vm.construction")
 local opcodes = require("nupp.compiler.vm.opcodes")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local graphemit = require("nupp.compiler.vm.graphemit")
@@ -86,7 +87,10 @@ local function storagePlan(p: any): any
             -- A record's methods may name the record, whose table holds them:
             -- its binding is a cell made before them, as a local function's is.
             local ownRecord = p.recordMembers[owner.node] == b.definition
-            if b.mode == "cell" or item.recursive or ownRecord then
+            -- An exported function may be captured before its statement runs:
+            -- a cell made as the module starts holds it from then on.
+            local hoisted = p.hoistedFunctions[b.definition] == true
+            if b.mode == "cell" or item.recursive or ownRecord or hoisted then
                 storage[b.definition] = "cell"
             end
         end
@@ -239,6 +243,9 @@ function program.describe(modules: {any}, entryModule: string): any
         -- The definition of the record each method or constructor written in
         -- a record body belongs to, by its node.
         recordMembers = {},
+        -- The definitions of the functions a module exports, which the checker
+        -- hoists: a closure made above the declaration may already name one.
+        hoistedFunctions = {},
         byDefinition = {},
         functionsByDefinition = {},
         byBody = {},
@@ -273,7 +280,12 @@ function program.describe(modules: {any}, entryModule: string): any
         p.byBody[owner.body] = owner
         for _, block in ipairs(parsed.root.blocks) do
             for _, stat in ipairs(block.stats or {}) do
-                topLevel[stat.kind == "exportStmt" and stat.stat or stat] = true
+                local declared = stat.kind == "exportStmt" and stat.stat or stat
+                topLevel[declared] = true
+                local name = graph.hoistedFunctionName(stat)
+                if name and name.definition then
+                    p.hoistedFunctions[name.definition] = true
+                end
             end
         end
         local module = {name = input.name, path = input.path, chunk = owner.id, parsed = parsed}
@@ -443,6 +455,28 @@ function program.describe(modules: {any}, entryModule: string): any
             )
         end
     end
+    -- The checker names an exported function a call reaches before its
+    -- statement by the definition it hoisted, which the statement then
+    -- replaces. Such a call names the function the statement declares.
+    local hoistedReferences: function(any): nil
+    hoistedReferences = function(node: any): nil
+        if cst.isToken(node) then
+            local definition = node.definition
+            local declared = definition and definition.token and definition.token.definition
+            if declared ~= definition and p.hoistedFunctions[declared] and p.byDefinition[definition] == nil then
+                node.definition = declared
+            end
+            return
+        end
+        for _, child in ipairs(node) do
+            hoistedReferences(child)
+        end
+    end
+    if next(p.hoistedFunctions) ~= nil then
+        for _, module in ipairs(p.modules) do
+            hoistedReferences(module.parsed.root)
+        end
+    end
 
     for _, b in ipairs(p.bindings) do
         local required = b.definition.requiredModule
@@ -557,6 +591,27 @@ function program.describe(modules: {any}, entryModule: string): any
     local currentChunk: any = nil
     local loaded: {[any]: {[string]: boolean}} = {}
 
+    -- A hidden require of `module` that chunk `owner` makes as it starts,
+    -- before its own body (ahead of the others when `first`), positioned at
+    -- `token`.
+    local function eagerLoad(owner: any, module: any, token: any, first: boolean): nil
+        local load = {kind = "qualifiedLoad", qualifiedModule = module.name, token}
+        local eager = {
+            id = #p.requires,
+            owner = owner.id,
+            node = load,
+            module = module.name,
+            typeOnly = false,
+            target = module.chunk,
+            qualified = true,
+            eager = true
+        }
+        p.requires[#p.requires + 1], p.requireByNode[load] = eager, eager
+        local loads = p.qualifiedLoads[owner.id] or {}
+        p.qualifiedLoads[owner.id] = loads
+        table.insert(loads, first and 1 or #loads + 1, eager)
+    end
+
     local collect: function(any, any): nil
     collect = function(node: any, owner: any): nil
         if cst.isToken(node) or typeSyntax[node.kind] or graph.erased(node) then
@@ -612,20 +667,7 @@ function program.describe(modules: {any}, entryModule: string): any
                 loaded[currentChunk] = seen
                 if not seen[node.qualifiedModule] then
                     seen[node.qualifiedModule] = true
-                    local load = {kind = "qualifiedLoad", qualifiedModule = node.qualifiedModule, root.token}
-                    local eager = {
-                        id = #p.requires,
-                        owner = currentChunk.id,
-                        node = load,
-                        module = node.qualifiedModule,
-                        typeOnly = false,
-                        target = qualified.chunk,
-                        qualified = true,
-                        eager = true
-                    }
-                    p.requires[#p.requires + 1], p.requireByNode[load] = eager, eager
-                    p.qualifiedLoads[currentChunk.id] = p.qualifiedLoads[currentChunk.id] or {}
-                    table.insert(p.qualifiedLoads[currentChunk.id], eager)
+                    eagerLoad(currentChunk, qualified, root.token, false)
                 end
                 return
             end
@@ -756,21 +798,23 @@ function program.describe(modules: {any}, entryModule: string): any
         then
             cleanupToken(node, node.ownerType, cst.firstToken(node))
         end
-        -- `new R(...)` of a plain record builds its value in place, so the
+        -- `R(...)` is lowered through its construction wrapper.
+        local built = construction.of(node)
+        -- `R(...)` of a plain record builds its value in place, so the
         -- record's name is a type use there, not a read of its runtime value.
-        if node.kind == "newExpr" and node.call and node.call.recordFields and not node.call.constructorEntry then
-            loopForms[node.call] = true
+        if built and built.call.recordFields and not built.call.constructorEntry then
+            loopForms[built.call] = true
             -- Construction reads the record's table, its instances' metatable:
             -- by its name, or through the module that declares it.
-            if node.call.obj and node.call.obj.kind == "name" then
-                reference(node.call.obj.token, owner)
-            elseif node.call.obj then
-                collect(node.call.obj, owner)
+            if built.call.obj and built.call.obj.kind == "name" then
+                reference(built.call.obj.token, owner)
+            elseif built.call.obj then
+                collect(built.call.obj, owner)
             end
         end
-        -- `new R(...)` with a constructor calls it, the fresh instance first,
+        -- `R(...)` with a constructor calls it, the fresh instance first,
         -- through the table R's name holds.
-        local entry = node.kind == "newExpr" and node.call and node.call.constructorEntry
+        local entry = built and built.call.constructorEntry
         local declaration = entry and entry.declaration
         local foreignRecord = declaration
             and declaration.coreDefinition
@@ -778,23 +822,23 @@ function program.describe(modules: {any}, entryModule: string): any
             and inlineRecords[declaration].definition.filename ~= owner.scope.path
         if foreignRecord then
             -- A record another module declares is that module's export:
-            -- `new m.R(...)` reads R's table through m's, which the caller
+            -- `m.R(...)` reads R's table through m's, which the caller
             -- references as it does any value.
             need(
-                node.call.obj and node.call.obj.kind ~= "name",
+                built.call.obj and built.call.obj.kind ~= "name",
                 "another module's record is constructed through its module"
             )
             local item = {
                 id = #p.calls,
                 owner = owner.id,
-                node = node.call,
+                node = built.call,
                 definition = declaration.coreDefinition,
                 construct = true,
-                classExpr = node.call.obj
+                classExpr = built.call.obj
             }
-            p.calls[#p.calls + 1], p.callByNode[node.call] = item, item
-            loopForms[node.call] = true
-            collect(node.call.obj, owner)
+            p.calls[#p.calls + 1], p.callByNode[built.call] = item, item
+            loopForms[built.call] = true
+            collect(built.call.obj, owner)
         elseif declaration and declaration.coreDefinition and inlineRecords[declaration] then
             local base = inlineRecords[declaration]
             local classToken: any = {
@@ -810,13 +854,13 @@ function program.describe(modules: {any}, entryModule: string): any
             local item = {
                 id = #p.calls,
                 owner = owner.id,
-                node = node.call,
+                node = built.call,
                 definition = declaration.coreDefinition,
                 construct = true,
                 classToken = classToken
             }
-            p.calls[#p.calls + 1], p.callByNode[node.call] = item, item
-            loopForms[node.call] = true
+            p.calls[#p.calls + 1], p.callByNode[built.call] = item, item
+            loopForms[built.call] = true
         end
         if node.kind == "name" then
             reference(node.token, owner)
@@ -995,6 +1039,14 @@ function program.describe(modules: {any}, entryModule: string): any
     for _, module in ipairs(p.modules) do
         currentChunk = p.owners[module.chunk + 1]
         collect(module.parsed.root, currentChunk)
+    end
+    -- An image carrying the module behind `warn` and the finalizers loads it
+    -- as its entry starts, so it is installed before any finalizer runs: one
+    -- eager require, as a qualified path's.
+    local warns = moduleNames[graph.WARN_MODULE]
+    local entry = p.modules[#p.modules]
+    if warns and entry and warns ~= entry then
+        eagerLoad(p.owners[entry.chunk + 1], warns, cst.firstToken(entry.parsed.root), true)
     end
     -- Capture ownership mode is independent of its transported representation.
     -- Only shared mutable bindings and recursive declaration self-references
@@ -1275,10 +1327,11 @@ function program.verify(p: any): boolean
             )
         elseif item.field then
             need(
-                (
-                    node.kind == "call" and node.obj.kind ~= "name"
-                    or node.kind == "methodCall" and graph.callbackArgument(node) ~= nil
-                )
+                (node.kind == "call" and node.obj.kind ~= "name"
+                -- A library function called by its name through its value.
+                or node.kind == "call" and graph.libraryValue(node.obj) ~= nil
+                or node.kind == "methodCall"
+                and graph.callbackArgument(node) ~= nil)
                 and p.callByNode[node] == item
                 and item.definition == nil
                 and not node.runtimeLoader

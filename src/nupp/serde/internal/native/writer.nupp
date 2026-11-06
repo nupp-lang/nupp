@@ -1,6 +1,7 @@
 module nupp.serde.internal.native.writer
 
 local core = require("nupp.serde.internal.value")
+local aggregates = require("nupp.serde.internal.aggregate")
 local documents = require("nupp.serde.internal.document")
 local numbers = require("nupp.serde.internal.numbers")
 local json = require("nupp.serde.internal.json.values")
@@ -24,7 +25,7 @@ local fromContents: function<D>(
     depth: integer,
     budget: Budget
 ): Value
-local record Output<M is core.Member> is core.Writer<M>
+local record Output<M is core.Member> is aggregates.Writer<M>
     @readonly frames: {Frame} = {}
     @readonly depth: integer
     @readonly budget: Budget
@@ -139,32 +140,12 @@ local record Output<M is core.Member> is core.Writer<M>
     ): nil
         self:live()
         assert(self.depth + #self.frames < 128, "native persistence nesting limit exceeded")
-        local frame = new Frame(kind = kind, value = {kind})
+        local frame = Frame(kind = kind, value = {kind})
         self.frames[#self.frames + 1] = frame
         emit:apply(source, self)
         assert(size == nil or size == frame.count, "wrong native aggregate size")
         self.frames[#self.frames] = nil
         self:put(member, frame.value)
-    end
-
-    function writestruct<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
-        self:aggregate(member, "structure", nil, source, emit)
-    end
-
-    function writeunion<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
-        self:aggregate(member, "union", 1, source, emit)
-    end
-
-    function writelist<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
-        self:aggregate(member, "list", size, source, emit)
-    end
-
-    function writetuple<S>(exclusive self, member: M, size: integer, borrows source: S, emit: core.Members<M, S>): nil
-        self:aggregate(member, "tuple", size, source, emit)
-    end
-
-    function writemap<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
-        self:aggregate(member, "map", size, source, emit)
     end
 
     function writeentry<K, V>(
@@ -205,11 +186,17 @@ local record Output<M is core.Member> is core.Writer<M>
         frame.count += 1
     end
 end
+Output.writestruct = aggregates.Writer.writestruct
+Output.writeunion = aggregates.Writer.writeunion
+Output.writelist = aggregates.Writer.writelist
+Output.writetuple = aggregates.Writer.writetuple
+Output.writemap = aggregates.Writer.writemap
+
 local record Capture<T> is core.Consumer<T, T, Value>
     @readonly depth: integer
     @readonly budget: Budget
     function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows value: T): Value
-        local writer = new Output<M>(depth = self.depth, budget = self.budget)
+        local writer = Output<M>(depth = self.depth, budget = self.budget)
         adapter:write(value, writer)
         assert(#writer.frames == 0, "unfinished native aggregate")
         local result = assert(writer.result, "binding did not emit a value")
@@ -219,8 +206,8 @@ local record Capture<T> is core.Consumer<T, T, Value>
 end
 fromContents = function<D>(adapter: core.DocumentAdapter<D>, borrows value: D, depth: integer, budget: Budget): Value
     assert(depth <= 128, "native persistence nesting limit exceeded")
-    return adapter:contents():accept(new Capture<D>(depth = depth, budget = budget), value)
+    return adapter:contents():accept(Capture<D>(depth = depth, budget = budget), value)
 end
 export function value<T>(binding: core.Binding<T>, borrows value: T): Value
-    return binding:accept(new Capture<T>(depth = 0, budget = new Budget()), value)
+    return binding:accept(Capture<T>(depth = 0, budget = Budget()), value)
 end

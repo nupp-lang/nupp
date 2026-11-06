@@ -51,7 +51,7 @@ end
 -- only root candidates need the separate live-slot check.
 export function scanStrong(h: heap.Heap*, o: heap.Header*): uint64
     @unsafe do
-        local state = new childwalk.Cursor(0ULL, 0ULL, values.NIL)
+        local state = childwalk.Cursor(0ULL, 0ULL, values.NIL)
         local cursor = state as childwalk.Cursor*
         local children = 0ULL
         while childwalk.childNext(o, cursor) ~= 0ULL do

@@ -1,6 +1,6 @@
 module nupp.core.catalogrecordsconstructors
 
--- Record constructors: `new R(...)` makes the instance with R's field
+-- Record constructors: `R(...)` makes the instance with R's field
 -- defaults, runs R's constructor on it and is that instance; a constructor
 -- may capture what is in scope, and the instance's methods work as usual.
 local made: integer = 0
@@ -30,8 +30,8 @@ local record Pair
     end
 end
 
-local c = new Counter(5)
+local c = Counter(5)
 c:bump()
-local d = new Counter(1)
-local p = new Pair(3, 4)
+local d = Counter(1)
+local p = Pair(3, 4)
 export = c.count * 10000 + p.a * 1000 + p.b + made * 100000 + d.count

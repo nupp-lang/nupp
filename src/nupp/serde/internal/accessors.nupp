@@ -354,7 +354,7 @@ export record Access<T is own.Copyable>
     ---     is the one `constructionerror` returns
     function begin(self): Builder<T>
         assert2(self.constructionProblem == nil, self.constructionProblem)
-        return new Builder<T>(owner = self.owner, info = self.info, values = {}, present = {})
+        return Builder<T>(owner = self.owner, info = self.info, values = {}, present = {})
     end
 
     --- Returns why the declaration cannot be constructed through this access.
@@ -455,7 +455,7 @@ create = function<T is own.Copyable>(target: Type<T>, info: types.reflect.Info, 
         if entry.stored and entry.readable then
             fields[
                 #fields + 1
-            ] = new Field(
+            ] = Field(
                 name = entry.name,
                 annotations = entry.annotations or {},
                 index = #fields + 1,
@@ -485,7 +485,7 @@ create = function<T is own.Copyable>(target: Type<T>, info: types.reflect.Info, 
             end
             parameters[
                 index
-            ] = new Parameter(
+            ] = Parameter(
                 name = entry.name,
                 index = index,
                 typeindex = entry.type,
@@ -525,7 +525,7 @@ create = function<T is own.Copyable>(target: Type<T>, info: types.reflect.Info, 
     end
 
     visit(index)
-    local result = new Access<T>(
+    local result = Access<T>(
         info = info,
         typeindex = index,
         fields = fields,

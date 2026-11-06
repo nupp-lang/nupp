@@ -27,7 +27,7 @@ SOURCE_PROVENANCE = {
     SOURCE_READ_AT_INSTALL: "Source state at installation, not a claim that supplied artifacts were built from it.",
 }
 # The file in a generation naming the interpreter its runtime computes with,
-# and the variable an emit is told it in (`fingerprint.runtimeIdentity`).
+# and the variable an emit is told it in (`fingerprint.runtimeidentity`).
 RUNTIME_IDENTITY_FILE = "runtime-identity"
 RUNTIME_IDENTITY_VARIABLE = "NUPP_VM_RUNTIME_ID"
 # Emit cache trees an older vm-cli kept, one per executing image.
@@ -358,7 +358,7 @@ def emit_with(package, image, env):
 def emission_environment(identity, env):
     """What an emit on the interpreter `identity` is told about it. The emit
     cache keys what it keeps by the code doing the lowering, which the image
-    names, and by this, which it cannot see (`fingerprint.runtimeIdentity`):
+    names, and by this, which it cannot see (`fingerprint.runtimeidentity`):
     lowering run by one compiler generation is never replayed by another
     unless both compute with the same code."""
     return dict(env, **{RUNTIME_IDENTITY_VARIABLE: identity})

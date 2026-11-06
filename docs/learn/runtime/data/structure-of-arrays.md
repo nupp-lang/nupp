@@ -19,7 +19,7 @@ end
 local positions = soa.alloc(ffi.typeof<Position>(), 128)
 local rows = positions:write()
 for index = 1, #rows do
-    rows[index] = new Position(0, 1)
+    rows[index] = Position(0, 1)
 end
 for index = 1, #rows do
     rows[index].x += rows[index].velocity
@@ -84,7 +84,7 @@ end
 local particles = soa.alloc(ffi.typeof<Particle>(), 2)
 do
     local rows = particles:write()
-    rows[1] = new Particle(1, 2, 3, 4)
+    rows[1] = Particle(1, 2, 3, 4)
     rows[2].x = 10
     rows[2].y = 20
 end
@@ -179,8 +179,8 @@ local target = soa.alloc(ffi.typeof<Particle>(), 4)
 
 do
     local rows = source:write()
-    rows[1] = new Particle(1, 2, 3, 4)
-    rows[2] = new Particle(5, 6, 7, 8)
+    rows[1] = Particle(1, 2, 3, 4)
+    rows[2] = Particle(5, 6, 7, 8)
 end
 
 do
@@ -317,31 +317,3 @@ fields, owned fields, borrowed fields, or variable-size fields.
 The container exposes no column pointer, byte offset, or `void **` descriptor
 to checked code. Column spans provide typed contiguous access when a system
 needs one column directly.
-
-## FAQ
-
-### Does SoA storage change a struct's C layout?
-
-No. The container selects the layout, so `Position` passed to C keeps its
-canonical field order and `soa.Array<Position>` splits the same declaration
-into columns. See [Containers select the
-layout](#containers-select-the-layout) for the two layouts side by side.
-
-### How does a column reach a C function?
-
-Project it with `rows.name`, or `rows["name"]` when the name collides with a
-view member, and pass the resulting span. It is the only typed contiguous
-handle on a column. The container itself never yields a column pointer. See
-[](binary.span) for the span operations a C boundary uses.
-
-### Can a record be stored in an SoA array?
-
-No. A record is a table, so it has no fixed C storage to split into columns,
-and `soa.alloc` reports one. Store a reified `struct`
-instead, and see [Limits](#limits) for the other field types the container
-refuses.
-
-::: seealso
-- [](binary.span) for the views `field` projects
-- [reflection.md](../../language/reflection.md) for the comptime description of a struct
-:::

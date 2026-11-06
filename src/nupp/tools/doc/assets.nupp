@@ -50,8 +50,7 @@ local SCRIPT = [[
         if (!sidebar || !current) return;
         for (let node = current.parentElement; node && node !== sidebar;
             node = node.parentElement) {
-            if (node.tagName === "DETAILS" && !node.open &&
-                !node.querySelector(":scope > summary")?.contains(current)) return;
+            if (node.tagName === "DETAILS") node.open = true;
         }
         const sidebarRect = sidebar.getBoundingClientRect();
         const currentRect = current.getBoundingClientRect();

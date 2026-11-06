@@ -38,6 +38,7 @@ const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const values = require("nupp.runtime.vm.values")
 const weak = require("nupp.runtime.vm.gcweak")
+const final = require("nupp.runtime.vm.gcfinal")
 const marking = require("nupp.runtime.vm.marking")
 const childwalk = require("nupp.runtime.vm.childwalk")
 const objectwalk = require("nupp.runtime.vm.objectwalk")
@@ -240,7 +241,7 @@ end
 --- Visits every child in the canonical object order.
 export function eachChild(h: heap.Heap*, o: heap.Header*, stack: heap.Words*?): nil
     @unsafe do
-        local state = new childwalk.Cursor(0ULL, 0ULL, values.NIL)
+        local state = childwalk.Cursor(0ULL, 0ULL, values.NIL)
         local cursor = state as childwalk.Cursor*
         while childwalk.childNext(o, cursor) ~= 0ULL do
             if childwalk.candidate(o, cursor) then
@@ -259,11 +260,7 @@ local function scanObject(h: heap.Heap*, o: heap.Header*): nil
     @unsafe do
         h.stats.scanned = h.stats.scanned + 1
         if o.kind as uint64 == heap.KIND_TABLE and (o.aux as uint64) & weak.WEAK_MODES ~= 0 then
-            local mode = (o.aux as uint64) & weak.WEAK_MODES
-            if h.minor ~= 0ULL then
-                mode = mode | weak.WEAK_MINOR
-            end
-            weak.weakCycleScan(h, o, mode)
+            weak.weakCycleScan(h, o, weak.scanmode(h, o))
         else
             marking.scanStrong(h, o)
         end
@@ -367,6 +364,7 @@ local function walkRoots(h: heap.Heap*, constants: boolean, stack: heap.Words*?)
         rootRanges(h, h.ranges, stack)
         rootRun(h, h.handles.base, h.handles.count, stack)
         rootRun(h, h.scope.base, h.scope.count, stack)
+        rootRun(h, final.rootbase(h), final.count(h), stack)
         local i: uint64 = 0
         while i < h.tasks.count do
             rootFrames(h, native.pointer(heap.wordAt(h.tasks, i)) as Task*, stack)
@@ -797,6 +795,27 @@ export function freeze(h: heap.Heap*, o: heap.Header*): nil
     end
 end
 
+--- Sets table `o`'s weak mode (`gcweak`'s WEAK_KEYS and WEAK_VALUES, as
+--- its metatable's `__mode` says), keeping the rest of `aux`. A weak table
+--- carries no cards, so a carded one gives its record up and, while old, is
+--- remembered instead: the next minor collection still reaches the young
+--- objects its dirty cards stood for. A mode set while marking applies from
+--- the next cycle, as one changed in Lua after its table was traversed.
+export function weakmode(h: heap.Heap*, o: heap.Header*, mode: uint64): nil
+    @unsafe do
+        if o.kind as uint64 ~= heap.KIND_TABLE or (o.aux as uint64) & weak.WEAK_MODES == mode then
+            return
+        end
+        if mode ~= 0ULL and flagsof(o) & heap.F_CARDS ~= 0ULL then
+            cardsrelease(h, o)
+            if recording(h, o) then
+                remember(h, o)
+            end
+        end
+        o.aux = ((o.aux as uint64) & ~weak.WEAK_MODES) | (mode & weak.WEAK_MODES)
+    end
+end
+
 --- An object whose words changed without the barrier, as a coroutine's
 --- frames do while it runs: while marking, a black one is gray again, so
 --- its words are scanned once more.
@@ -844,7 +863,7 @@ end
 --- Sweeps up to `work` objects; answers whether the sweep finished.
 local function sweepSome(h: heap.Heap*, work: uint64): boolean
     @unsafe do
-        local state = new objectwalk.Cursor(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+        local state = objectwalk.Cursor(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
         local result = state as objectwalk.Cursor*
         local left = work
         while left > 0ULL do
@@ -860,6 +879,40 @@ local function sweepSome(h: heap.Heap*, work: uint64): boolean
         end
         return objectwalk.sweepFinished(h) ~= 0ULL
     end
+end
+
+--- Drains the gray stack and revisits the weak tables scanned, until
+--- neither grays anything more.
+local function converge(h: heap.Heap*): nil
+    @unsafe do
+        while true do
+            local gray = heap.grayPop(h)
+            if gray ~= 0ULL then
+                scanObject(h, native.pointer(gray) as heap.Header*)
+            elseif not weak.propagate(h) then
+                break
+            end
+        end
+    end
+end
+
+--- The end of marking, as Lua's atomic phase orders it: weak values naming
+--- dead objects are cleared, the dead tables marked for finalization become
+--- pending and are marked again with everything they reach (`gcfinal`),
+--- then weak keys naming dead objects are cleared, and the values of the
+--- weak tables only that marking reached. So a finalizer finds no weak
+--- value naming what it resurrects, and an entry keyed by it stays until a
+--- collection after the finalizer has run.
+local function atomic(h: heap.Heap*): nil
+    local scanned = weak.scanned(h)
+    weak.clearSides(h, 0ULL, scanned, weak.WEAK_VALUES)
+    if final.separate(h) then
+        converge(h)
+    end
+    local reached = weak.scanned(h)
+    weak.clearSides(h, 0ULL, reached, weak.WEAK_KEYS)
+    weak.clearSides(h, scanned, reached, weak.WEAK_VALUES)
+    weak.weakCycleReset(h)
 end
 
 --- Marks with up to `budget` gray objects (4.6): when none remain the
@@ -885,7 +938,7 @@ local function markSome(h: heap.Heap*, budget: uint64): uint64
                 break
             end
         end
-        weak.clear(h)
+        atomic(h)
         h.phase = heap.PHASE_SWEEPING
         h.marking = 0
         objectwalk.sweepBegin(h, h.stats.cycles)
@@ -976,7 +1029,7 @@ end
 local function rememberscan(h: heap.Heap*, o: heap.Header*): nil
     @unsafe do
         if o.kind as uint64 == heap.KIND_TABLE and (o.aux as uint64) & weak.WEAK_MODES ~= 0ULL then
-            weak.weakCycleScan(h, o, ((o.aux as uint64) & weak.WEAK_MODES) | weak.WEAK_MINOR)
+            weak.weakCycleScan(h, o, weak.scanmode(h, o))
         else
             marking.scanStrong(h, o)
         end
@@ -988,7 +1041,7 @@ end
 --- next minor collection still has to reach through it.
 local function holdsfresh(o: heap.Header*): boolean
     @unsafe do
-        local state = new childwalk.Cursor(0ULL, 0ULL, values.NIL)
+        local state = childwalk.Cursor(0ULL, 0ULL, values.NIL)
         local cursor = state as childwalk.Cursor*
         while childwalk.childNext(o, cursor) ~= 0ULL do
             if fresh(cursor.value) then
@@ -1218,8 +1271,9 @@ end
 
 --- A minor collection (Decision 20), whole: the young objects the roots,
 --- the remembered objects and the dirty cards reach are marked, weak
---- entries naming dead young objects are cleared, and the young list is
---- swept. It runs only between full cycles.
+--- entries naming dead young objects are cleared, dead young tables marked
+--- for finalization become pending, and the young list is swept. It runs
+--- only between full cycles.
 export function minorcycle(h: heap.Heap*): nil
     @unsafe do
         if h.generational == 0ULL or h.phase ~= heap.PHASE_IDLE then
@@ -1236,15 +1290,8 @@ export function minorcycle(h: heap.Heap*): nil
             rememberscan(h, native.pointer(heap.wordAt(h.remembered, i)) as heap.Header*)
             i = i + 1ULL
         end
-        while true do
-            local gray = heap.grayPop(h)
-            if gray ~= 0ULL then
-                scanObject(h, native.pointer(gray) as heap.Header*)
-            elseif not weak.propagate(h) then
-                break
-            end
-        end
-        weak.clear(h)
+        converge(h)
+        atomic(h)
         rememberkeep(h)
         cardkeep(h)
         sweepyoung(h)
@@ -1316,6 +1363,14 @@ end
 -- ---- safepoints
 -- ------------------------------------------------------------------------
 
+--- Whether safepoints run minor collections: generations are kept and the
+--- program has not asked for Lua's incremental mode.
+local function minors(h: heap.Heap*): boolean
+    @unsafe do
+        return h.generational ~= 0ULL and h.incremental == 0ULL
+    end
+end
+
 --- Where collection may run (4.4): pays allocation debt with marking or
 --- sweeping work; under stress a whole cycle every time; interleaved, one
 --- small step, with the oracle at every cycle's end (4.8: safety after the
@@ -1335,7 +1390,7 @@ export function safepoint(h: heap.Heap*): nil
             return
         end
         if h.stress then
-            if h.generational ~= 0ULL
+            if minors(h)
                 and h.phase == heap.PHASE_IDLE
                 and (h.sincefull < STRESS_MINORS or h.sincefull < h.liveCount // STRESS_SHARE)
             then
@@ -1353,7 +1408,7 @@ export function safepoint(h: heap.Heap*): nil
         end
         if h.interleave then
             if h.phase == heap.PHASE_IDLE then
-                if h.generational ~= 0ULL and h.sincefull < INTERLEAVED_MINORS then
+                if minors(h) and h.sincefull < INTERLEAVED_MINORS then
                     minorcycle(h)
                     if h.oracle then
                         checkOracle(h, false)
@@ -1370,7 +1425,7 @@ export function safepoint(h: heap.Heap*): nil
             end
             return
         end
-        if h.generational ~= 0ULL and h.phase == heap.PHASE_IDLE then
+        if minors(h) and h.phase == heap.PHASE_IDLE then
             local allowance = h.genbase // 5ULL
             if allowance < MINOR_FLOOR then
                 allowance = MINOR_FLOOR

@@ -25,7 +25,7 @@ local struct Vector
     end
 
     function __add(other: Vector): Vector
-        return new Vector(self.x + other.x, self.y + other.y)
+        return Vector(self.x + other.x, self.y + other.y)
     end
 end
 
@@ -111,11 +111,11 @@ function test.run(): number
     assert(strlen("physical") == 8ULL)
     assert(memcmp("same", "same", 4ULL) == 0)
     assert(memcmp("abc", "abd", 3ULL) < 0)
-    local initialized = new Overlay(42)
+    local initialized = Overlay(42)
     assert(initialized.word == 42)
-    local pair = new CPair(3, 9)
+    local pair = CPair(3, 9)
     assert(pair.left + pair.right == 12)
-    local overlay = new Overlay()
+    local overlay = Overlay()
     overlay.word = 0x01020304
     assert(overlay.bytes[0] == 4 and overlay.bytes[3] == 1)
     overlay.bytes[1] = 9
@@ -125,10 +125,10 @@ function test.run(): number
     overlays[0] = overlay
     overlay.word = 0
     assert(overlays[0].word == 0x01020904)
-    local vector = new Vector(3, 4)
+    local vector = Vector(3, 4)
     assert(type(Vector) == "cdata" and type(vector) == "cdata")
     assert(type(Overlay) == "cdata" and type(overlay) == "cdata")
-    local holder = new Holder(vector)
+    local holder = Holder(vector)
     assert(rawequal(holder.value, vector))
     local holderWitness: any = Holder
     holderWitness.__len = function(value: any): number
@@ -161,7 +161,7 @@ function test.run(): number
     end
     assert(#vector == 8)
     dynamicWitness.__len = originalLength
-    local sum = addDynamic(vector, new Vector(2, 3))
+    local sum = addDynamic(vector, Vector(2, 3))
     assert(sum.x == 5 and sum.y == 7)
     bump(vector)
     assert(vector.x == 4)
@@ -180,7 +180,7 @@ function test.run(): number
     assert(fake.x == 42 and readX(redirected as Vector) == 42)
     writeX(redirected as Vector, "unchanged value" as any)
     assert(fake.x == "unchanged value")
-    local other = new Other(10, 20)
+    local other = Other(10, 20)
     bump((other as any) as Vector)
     assert(other.x == 11)
     local alias = vector
@@ -232,7 +232,7 @@ function test.run(): number
     assert(readX(vector) ~= readX(vector))
     vector.x = 4
 
-    local body = new Body()
+    local body = Body()
     body.position = vector
     vector.x = 99
     assert(body.position.x == 4)
@@ -279,11 +279,11 @@ function test.run(): number
     )
     assert(
         not pcall(function()
-            dynamicRows[0] = new Other(1, 2)
+            dynamicRows[0] = Other(1, 2)
         end)
     )
 
-    local numeric = new Numeric()
+    local numeric = Numeric()
     local dynamicNumber: any = numeric
     dynamicNumber.narrow = 255
     dynamicNumber.byte = -1
@@ -309,9 +309,9 @@ function test.run(): number
     assert(incrementUnsigned(fakeNumeric as Numeric) == 2ULL)
     numeric.fraction = -0.0
     assert(1 / numeric.fraction == -math.huge)
-    local constructed = new Constructed(1.5)
+    local constructed = Constructed(1.5)
     assert(constructed.x == 3 and constructed.y == 2 and type(constructed) == "cdata")
-    local defaults = new Defaults()
+    local defaults = Defaults()
     assert(defaults.x == 3 and defaults.y == 4)
 
     local dynamicBody: any = body

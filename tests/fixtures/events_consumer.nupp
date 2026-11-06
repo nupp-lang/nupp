@@ -23,14 +23,14 @@ local struct Contact
     impulse: float32
 end
 
-local bus: events.MessageBus<integer> = events.newbus()
+local bus: events.MessageBus<integer> = events.MessageBus()
 local seen: {string} = {}
 
 bus:observe(
     7,
     Damage,
     |event| -> do
-        seen[#seen + 1] = ("damage %s %s %s %d"):format(event.amount, event.source, event.kind, bus.observers.count)
+        seen[#seen + 1] = ("damage %s %s %s %d"):format(event.amount, event.source, event.kind, bus:count())
         event.amount = event.amount + 1
     end,
     "first"
@@ -51,7 +51,7 @@ bus:emit(8, Damage, amount = 1, source = 1)
 bus:emit(7, Heal, amount = 4)
 bus:emit(7, Heal, amount = 5)
 bus:emit(0, Contact, 1.5, 2.5, 0.25)
-local held = new Damage(amount = 99, source = 4)
+local held = Damage(amount = 99, source = 4)
 bus:deliver(7, Damage, held)
 seen[#seen + 1] = tostring(bus:stop(7, Damage, "first"))
 bus:emit(7, Damage, amount = 2, source = 2)
@@ -60,11 +60,5 @@ seen[
     #seen + 1
 ] = (
     "%s %d %d %s %d"
-):format(
-    tostring(bus:contains(7, Damage)),
-    events.id(Damage),
-    events.id(Contact),
-    events.name(Heal),
-    bus.observers.count
-)
+):format(tostring(bus:contains(7, Damage)), events.id(Damage), events.id(Contact), events.name(Heal), bus:count())
 print(table.concat(seen, "\n"))

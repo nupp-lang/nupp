@@ -67,7 +67,7 @@ local function clear(exclusive points: span.WriteSpan<Point>): nil
     const view = points
     const indexes = indexed.range(1, #view, view)
     for index = indexes.first, indexes.last do
-        view[index] = new Point(0, 0)
+        view[index] = Point(0, 0)
     end
 end
 
@@ -166,14 +166,6 @@ A declarative C binding can use
 [`countedBy(count)`](docs/learn/runtime/c-interop/index.md#counted-pointer-adapters)
 instead. Its checked call surface accepts spans, verifies shared counts, and
 projects the physical pointer and count arguments automatically.
-
-::: seealso
-- [ownership.md](docs/learn/runtime/ownership/index.md) for what makes a writable span
-  affine and when its access ends
-- [c-interop.md](docs/learn/runtime/c-interop/index.md) for the boundary `ref` and
-  `countedBy` sit on
-:::
-
 ]]
 module binary.span
 

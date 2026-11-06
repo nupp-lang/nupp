@@ -25,7 +25,8 @@ local function cwd()
 end
 
 local HERE = debug.getinfo(1, "S").source:match("^@(/.*)/[^/]*$") or cwd()
-local ROOT = assert(os.getenv("NUPP_COMPILER_ROOT"), "set NUPP_COMPILER_ROOT to the checkout root")
+-- Another spelling of the root runs this again under its own (compilerroot).
+local ROOT = require("nupp.core.compilerroot").resolve(arg[0], arg)
 local OUT = ROOT .. "/build/core-guests"
 local TESTS = ROOT .. "/native/core/tests"
 -- The guest runtime is built through the service catalog and the unit code
@@ -51,12 +52,10 @@ local SCALED = {
 }
 -- The environment every bridge and guard run sees, which environmentRead
 -- reads back; the long value needs a second copy past the first 256 bytes.
-local GUEST_ENV = "NUPP_GUEST_PROBE=core-environment NUPP_GUEST_SCALE=3 NUPP_GUEST_LONG="
-    .. string.rep("x", 300)
-    .. " NUPP_GUEST_TEMP="
-    .. OUT
-    .. "/temp"
-    .. " "
+local GUEST_ENV = "NUPP_GUEST_PROBE=core-environment NUPP_GUEST_SCALE=3 NUPP_GUEST_LONG=" .. string.rep(
+    "x",
+    300
+) .. " NUPP_GUEST_TEMP=" .. OUT .. "/temp" .. " "
 
 local CASES = {
     {"boolean", 0x7FFB000000000000},
@@ -116,6 +115,7 @@ local CASES = {
     {"recordsAffineErrors", 0x7FFF00000632F03D},
     {"recordsaffineraise", 0x7FFF000000025642},
     {"recordsdynamic", 0x7FFF0000002F2854},
+    {"recordscallable", 0x7FFF0000073A889B},
     {"tablesSort", 0x7FFF000000560C7F},
     {"stringsGsubFunction", 0x7FFF00000000003F},
     {"stringsQuoted", 0x7FFF00000000003F},
@@ -178,18 +178,39 @@ local CASES = {
     {"errorsruntime", 0x7FFF00000000001F},
     {"hostlibrary", 0x7FFF0000000000FF},
     {"benchforms", 0x7FFF00000000003F},
-    {"iofiles", 0x7FFF07FFFFFFFFFF},
+    {"iofiles", 0x7FFF3FFFFFFFFFFF},
     {"iostandard", 0x7FFF00000000000F},
     {"reactorpipes", 0x7FFF00000007FFFF},
     {"reactorfiles", 0x7FFF000000001FFF},
     -- Parked I/O and timers in the scheduler's one loop.
     {"tasksreactor", 0x7FFF00000000001F},
     {"processexecute", 0x7FFF000000001FFF},
-    {"processpopen", 0x7FFF00001FFFFFFF},
+    {"processpopen", 0x7FFF00003FFFFFFF},
     {"processhandle", 0x7FFF000001FFFFFF},
     {"processlayer", 0x7FFF000000FFFFFF},
     -- os.exit(3): the program ends there, publishing nothing (EXITS).
     {"processexit", 0},
+    -- Weak tables, finalizers and collectgarbage's options as Lua 5.5 has
+    -- them; every marked table finalized at the program's end and at
+    -- os.exit(4, true), which publishes nothing (EXITS).
+    {"gcweak", 0x7FFF0000000001FF},
+    {"gcfinalizers", 0x7FFF0000000003FF},
+    {"gcoptions", 0x7FFF000000007FFF},
+    {"gcend", 0x7FFF000000000005},
+    {"gcexit", 0},
+    -- warn's contract; an error no protected call takes reported, then
+    -- every marked table finalized (EXITS).
+    {"gcwarn", 0x7FFF000000000007},
+    {"gcraise", 0},
+    -- An error no protected call takes: reported on standard error, and
+    -- the program ends with status 1, publishing nothing (EXITS).
+    {"errorsuncaught", 0},
+    -- Lua's clock and calendar (os.time, os.date, os.clock, os.difftime);
+    -- os.remove, os.rename, os.tmpname, os.setlocale and io.tmpfile; and
+    -- main's recursive os.remove and io.Path arguments.
+    {"ostime", 0x7FFF00003FFFFFFF},
+    {"osfiles", 0x7FFF00000003FFFF},
+    {"osremove", 0x7FFF000000001FFF},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
@@ -218,13 +239,16 @@ local CASES = {
 local OUTPUT = {
     textbuffer = "shown\n",
     outputPrint = "hello\t42\t1.5\ttrue\tnil\tfalse\n\nxxx\t3\t-0.0\t1e100\t9007199254740992.0\n"
-        .. "line\t1\nline\t2\nline\t3\n",
+    .. "line\t1\nline\t2\nline\t3\n",
     callsExpand = "1\t2\nx\t1\t2\n",
     outputwrite = "hello 42 1.5\n3.0 -0.0 9.223372036854776e18\nab\nx7\np\n",
     libraryspread = "1\t2\t3\n3\t3\n97\t98\t99\n2\t3\ntrue\t1\t2\n",
     moduleslazy = "main start\nshapes loading\ncounter loading\nmain required\n",
     iostandard = "a1 b\t2.5\ne\nc\n1\ttrue\t7\tx\nfalse\tboom\ntail\ttrue\nw\n",
-    processexit = "before exit\nprinted\t1\n"
+    processexit = "before exit\nprinted\t1\n",
+    gcend = "dropped\nend\t3\nend\t2\nend\t1\n",
+    gcexit = "exiting\nclosed\t2\nclosed\t1\n",
+    gcwarn = "warn warn: joined text 42\nwarn warn: @not a control\n"
 }
 -- The bench entry's record, which holds times: its shape and fib(20)'s
 -- checksum (SETUP) are what is checked, not what it measured.
@@ -252,6 +276,27 @@ OUTPUT.benchworkloads = function(printed)
         and type(case.medianMs) == "number"
 end
 
+-- The uncaught error's report names its chunk as the core does: a long
+-- path, shortened as Lua shortens one.
+OUTPUT.errorsuncaught = function(printed)
+    return printed:find("^before error\nprinted\t1\nnupp: [^\n]*catalogerrorsuncaught%.nupp:12: boom\n$") ~= nil
+end
+
+-- The finalizers' failures, warned of as Lua's luaE_warnerror words them,
+-- each on a line as `log` starts a warning: one raised, and a __gc that is
+-- no function.
+OUTPUT.gcfinalizers = function(printed)
+    return printed:find(
+        "^warn warn: error in __gc %([^\n]*catalog%-?gc%-?finalizers%.nupp:109: boom%)\n"
+        .. "warn warn: error in __gc %(attempt to call a boolean value %(metamethod '__gc'%)%)\n$"
+    ) ~= nil
+end
+
+-- The report comes first, then the finalizers, newest first.
+OUTPUT.gcraise = function(printed)
+    return printed:find("^raising\nnupp: [^\n]*catalog%-?gc%-?raise%.nupp:20: boom\nclosed\t2\nclosed\t1\n$") ~= nil
+end
+
 -- Whether `printed` is what case `name` prints.
 local function printedAs(name, printed)
     local expected = OUTPUT[name]
@@ -261,6 +306,7 @@ local function printedAs(name, printed)
 
     return printed == (expected or "")
 end
+
 -- Heap-using cases that also run with a collection at every allocation, and
 -- with interleaved incremental collection. Full cycles under stress are
 -- spaced by a share of what lives, so the full-scale workloads stay linear;
@@ -328,7 +374,18 @@ local STRESS = {
     processpopen = true,
     processhandle = true,
     processlayer = true,
-    processexit = true
+    processexit = true,
+    gcweak = true,
+    gcfinalizers = true,
+    gcoptions = true,
+    gcend = true,
+    gcexit = true,
+    gcwarn = true,
+    gcraise = true,
+    errorsuncaught = true,
+    ostime = true,
+    osfiles = true,
+    osremove = true
 }
 -- Shell statements a case's runs start with: the io and pool cases may hold
 -- 64 descriptors, so a handle left open, or opened by a cancelled pool job,
@@ -398,6 +455,7 @@ local NUMERIC = {
     recordsAffineErrors = "catalog-records-affine-errors",
     recordsaffineraise = "catalog-records-affine-raise",
     recordsdynamic = "catalog-records-dynamic",
+    recordscallable = "catalog-records-callable",
     tablesSort = "catalog-tables-sort",
     stringsGsubFunction = "catalog-strings-gsubfn",
     stringsQuoted = "catalog-strings-quoted",
@@ -442,20 +500,71 @@ local NUMERIC = {
     iofiles = "catalog-io-files",
     iostandard = "catalog-io-standard",
     processexecute = "catalog-process-execute",
-    processpopen = "catalog-process-popen"
+    processpopen = "catalog-process-popen",
+    gcweak = "catalog-gc-weak",
+    gcfinalizers = "catalog-gc-finalizers",
+    gcoptions = "catalog-gc-options",
+    gcwarn = "catalog-gc-warn",
+    ostime = "catalog-os-time",
+    osfiles = "catalog-os-files"
 }
--- Cases whose program ends through os.exit with this status, publishing no
--- result: their bridge runs are checked for the status and what they
--- printed, and their twins against reference Lua the same way; the ABI
+-- The status a program ends with when an error no protected call takes
+-- ends it, as the command line's: the bridge exits so once the program has
+-- reported the error.
+local RAISED = 1
+-- Cases whose program ends through os.exit, or an error no protected call
+-- takes, with this status, publishing no result: their bridge runs are
+-- checked for the status and what they printed, output and errors
+-- together, and their twins against reference Lua the same way; the ABI
 -- guard, which runs the entry inside a test, is not run.
-local EXITS = {processexit = 3}
-local EXITTWINS = {processexit = "catalog-process-exit"}
+local EXITS = {processexit = 3, errorsuncaught = RAISED, gcexit = 4, gcraise = RAISED}
+local EXITTWINS = {processexit = "catalog-process-exit", gcexit = "catalog-gc-exit"}
+
+-- What a printed text must match: exactly this string, or this function's
+-- test of it.
+local function matches(expected, printed)
+    if type(expected) == "function" then
+        return expected(printed)
+    end
+
+    return printed == expected
+end
+
+-- Whether `printed` is the uncaught error's output with `report` last, a
+-- Lua pattern.
+local function reported(report)
+    return function(printed)
+        return printed:find("^before error\nprinted\t1\n" .. report .. "\n$") ~= nil
+    end
+end
+
+-- Further runs of a case's program, with these arguments, that an error no
+-- protected call takes ends: each ends with status RAISED, publishes
+-- nothing and prints this (matches). The bench entry asked for a case it
+-- does not have reports it as `nupp bench` does. The uncaught error's
+-- objects are shown by their __tostring as lua.c's message handler shows
+-- them, its "(error object is a table value)" for an answer that is no
+-- string and the __tostring's own error for one it raises, and values with
+-- no string form as the VM shows them.
+local RAISES = {
+    benchworkloads = {{"--case '^fib$' --json --out /dev/null", "nupp: no benchmark named ^fib$\n"}},
+    errorsuncaught = {
+        {"tostring", reported("nupp: custom text")},
+        {"nonstring", reported("nupp: %(error object is a table value%)")},
+        {"raising", reported("nupp: [^\n]*catalogerrorsuncaught%.nupp:42: inner")},
+        {"named", reported("nupp: already named")},
+        {"table", reported("nupp: table: 0x%x+")},
+        {"nil", reported("nupp: nil")}
+    }
+}
 -- The twins that run commands: the reference interpreter they run under is
 -- built with LUA_USE_POSIX (see `posixreference`).
 local POSIXTWINS = {
     ["catalog-process-execute"] = true,
     ["catalog-process-popen"] = true,
-    ["catalog-process-exit"] = true
+    ["catalog-process-exit"] = true,
+    -- os.tmpname: mkstemp under /tmp, where the generic build calls tmpnam.
+    ["catalog-os-files"] = true
 }
 local FIXTURES = {
     "catalog-boolean",
@@ -522,6 +631,7 @@ local function shell(command)
     local output = pipe:read("*a")
     pipe:close()
     account(os.time() - began)
+
     return tonumber(output:match("__exit__:(%d+)%s*$")), (output:gsub("__exit__:%d+%s*$", ""))
 end
 
@@ -556,7 +666,9 @@ local function defer(phase, command, done)
         os.execute("rm -rf " .. quote(directory) .. " && mkdir -p " .. quote(directory))
         os.execute("mkfifo " .. quote(directory .. "/queue"))
         os.execute(
-            ("(xargs -P %d -n 1 sh < %s > %s 2>&1; echo $? > %s) < /dev/null > /dev/null 2>&1 &"):format(
+            (
+                "(xargs -P %d -n 1 sh < %s > %s 2>&1; echo $? > %s) < /dev/null > /dev/null 2>&1 &"
+            ):format(
                 JOBS,
                 quote(directory .. "/queue"),
                 quote(directory .. "/pool.log"),
@@ -569,12 +681,9 @@ local function defer(phase, command, done)
     local base = directory .. "/" .. #queue
     local file = assert(io.open(base .. ".sh", "wb"))
     file:write(
-        "began=$(date +%s)\n{ "
-        .. command
-        .. "\n} > "
-        .. quote(base .. ".out")
-        .. " 2>&1\n"
-        .. "echo $? $began $(date +%s) > " .. quote(base .. ".status") .. "\n"
+        "began=$(date +%s)\n{ " .. command .. "\n} > " .. quote(
+            base .. ".out"
+        ) .. " 2>&1\n" .. "echo $? $began $(date +%s) > " .. quote(base .. ".status") .. "\n"
     )
     file:close()
     pool.writer:write(base .. ".sh\n")
@@ -744,6 +853,7 @@ local function stage()
             "catalog-modules-pattern",
             "catalog-modules-boxes",
             "catalog-modules-records",
+            "catalog-records-callable",
             "catalog-modules-ping",
             "catalog-modules-pong",
             "catalog-modules-cycle",
@@ -782,7 +892,18 @@ local function stage()
             "catalog-process-popen",
             "catalog-process-handle",
             "catalog-process-exit",
-            "catalog-process-layer"
+            "catalog-errors-uncaught",
+            "catalog-process-layer",
+            "catalog-gc-weak",
+            "catalog-gc-finalizers",
+            "catalog-gc-options",
+            "catalog-gc-end",
+            "catalog-gc-exit",
+            "catalog-gc-warn",
+            "catalog-gc-raise",
+            "catalog-os-time",
+            "catalog-os-files",
+            "catalog-os-remove"
         }) do
             write(
                 base .. "/source/nupp/core/" .. fixture:gsub("-", "") .. ".nupp",
@@ -811,6 +932,7 @@ end
 -- LUA_USE_POSIX (`make posix`) under OUT, once: the oracle's is built
 -- generic, where popen raises and os.execute answers raw wait statuses.
 local posixbuilt = {}
+
 local function posixreference(lua)
     if posixbuilt[lua] then
         return posixbuilt[lua]
@@ -821,12 +943,9 @@ local function posixreference(lua)
     local version = OUT .. "/lua-posix.source"
     if read(version) ~= source or not read(built) then
         local status, output = shell(
-            ("rm -rf %s && cp -R %s %s && cd %s/src && make clean > /dev/null && make posix"):format(
-                quote(tree),
-                quote(source),
-                quote(tree),
-                quote(tree)
-            )
+            (
+                "rm -rf %s && cp -R %s %s && cd %s/src && make clean > /dev/null && make posix"
+            ):format(quote(tree), quote(source), quote(tree), quote(tree))
         )
         assert(status == 0, "POSIX reference Lua build failed: " .. output)
         write(version, source)
@@ -926,11 +1045,11 @@ local function functionsmany()
         for k = 1, 100 do
             local number = block * 100 + k
             local inner = k == 1 and "x" or ("f" .. (k - 1) .. "(x)")
-            lines[#lines + 1] = ("    local function f%d(x: integer): integer\n        return %s + %d\n    end"):format(
-                k,
-                inner,
-                number
-            )
+            lines[
+                #lines + 1
+            ] = (
+                "    local function f%d(x: integer): integer\n        return %s + %d\n    end"
+            ):format(k, inner, number)
         end
         lines[#lines + 1] = "    total = total + f100(0)"
         lines[#lines + 1] = "end"
@@ -947,6 +1066,7 @@ end
 -- depth is that bound. Each source is staged where the guest project reads
 -- it as well.
 local MANY_DEPTH = 18
+
 local function modulesmany()
     local staged = ROOT .. "/build/core-guest-programs/source/nupp/core"
     os.execute("mkdir -p " .. quote(OUT .. "/generated") .. " " .. quote(staged))
@@ -1015,6 +1135,7 @@ local function shards(selectedCases, bridge, guard)
         if ca ~= cb then
             return ca > cb
         end
+
         return a < b
     end)
     local load, members = {}, {}
@@ -1025,10 +1146,12 @@ local function shards(selectedCases, bridge, guard)
     for name in pairs(audited) do
         load[1] = load[1] + (cost["audit " .. name] or 10)
     end
+
     local function place(index, name)
         members[index][#members[index] + 1] = name
         load[index] = load[index] + (cost[name] or 1)
     end
+
     for _, name in ipairs(order) do
         if audited[name] then
             place(1, name)
@@ -1049,7 +1172,9 @@ local function shards(selectedCases, bridge, guard)
     local commands = {}
     for index = 1, count do
         local log = ("%s/shard-%d.log"):format(OUT, index)
-        commands[index] = (
+        commands[
+            index
+        ] = (
             "NUPP_GUEST_SHARD=%d/%d NUPP_GUEST_AUDITS=%s NUPP_GUEST_BRIDGE=%s NUPP_GUEST_GUARD=%s NUPP_GUEST_JOBS=%d %s run run.lua %s > %s 2>&1 &"
         ):format(
             index,
@@ -1143,9 +1268,9 @@ local function main()
     -- Library names and texts share one id space in guesttexts: an id two
     -- of them claim prints the one in place of the other.
     local claimed = {}
-    for name, id in (shard and "" or read(ROOT .. "/native/core/src/nupp/runtime/core/guesttexts.nupp")):gmatch(
-        "export const ([%u_]+): uint64 = (%d+)ULL"
-    ) do
+    for name, id in (
+        shard and "" or read(ROOT .. "/native/core/src/nupp/runtime/core/guesttexts.nupp")
+    ):gmatch("export const ([%u_]+): uint64 = (%d+)ULL") do
         check(claimed[id] == nil, ("text id %s is both %s and %s"):format(id, tostring(claimed[id]), name))
         claimed[id] = name
     end
@@ -1164,6 +1289,7 @@ local function main()
     -- the cases before it go on.
     local selections = {}
     local selectedSeconds = 0
+
     local function selection(name, mode)
         local began = os.time()
         timing.phase, timing.case = "select", name
@@ -1176,8 +1302,10 @@ local function main()
         end
         account(os.time() - began)
         selectedSeconds = selectedSeconds + os.time() - began
+
         return selections[name .. "-" .. mode]
     end
+
     local empty = OUT .. "/empty.bin"
     write(empty, "")
 
@@ -1189,10 +1317,18 @@ local function main()
         local arguments = ARGUMENTS[label:match("^(%w+)")]
         defer(
             phase,
-            (SETUP[label:match("^(%w+)")] or "")
-            .. (environment or GUEST_ENV)
-            .. ("%s %s %s %s"):format(quote(bridge), quote(bundle), quote(input), quote(output))
-            .. (arguments and " " .. arguments or ""),
+            (
+                SETUP[label:match("^(%w+)")] or ""
+            ) .. (
+                environment or GUEST_ENV
+            ) .. (
+                "%s %s %s %s"
+            ):format(
+                quote(bridge),
+                quote(bundle),
+                quote(input),
+                quote(output)
+            ) .. (arguments and " " .. arguments or ""),
             function(status, printed)
                 check((status == 0) == (expectedStatus == 0), label .. " bridge status")
                 if after then
@@ -1206,7 +1342,9 @@ local function main()
         if QUICK or HEAVY[label:match("^(%w+)")] then
             return
         end
-        local env = (SETUP[label:match("^(%w+)")] or "") .. GUEST_ENV .. (
+        local env = (
+            SETUP[label:match("^(%w+)")] or ""
+        ) .. GUEST_ENV .. (
             "CORE_TEST_BUNDLE=%s CORE_TEST_INPUT=%s CORE_TEST_HIGH_WATER=%d "
         ):format(quote(bundle), quote(input), highWater)
         local arguments = ARGUMENTS[label:match("^(%w+)")]
@@ -1273,6 +1411,36 @@ local function main()
             check(version == (profile >= 3 and profile or modules), label .. " descriptor version")
             local bundle = OUT .. "/" .. label .. ".bundle"
             write(bundle, bundleBytes)
+            -- Each in every collection mode the case runs in.
+            local modes = {{"", empty}}
+            if RAISES[name] and UNITS and STRESS[name] then
+                local stress = OUT .. "/" .. label .. "-raises-stress.bin"
+                write(stress, u64(-1) .. u64(0) .. u64(1))
+                local stepped = OUT .. "/" .. label .. "-raises-interleaved.bin"
+                write(stepped, u64(-1) .. u64(0) .. u64(2))
+                modes[#modes + 1] = {" stress", stress}
+                modes[#modes + 1] = {" interleaved", stepped}
+            end
+            for index, raise in ipairs(RAISES[name] or {}) do
+                for _, run in ipairs(modes) do
+                    local output = OUT .. "/" .. label .. "-raises" .. index .. run[1]:gsub(" ", "-") .. ".out"
+                    local raised = ("%s%s raises (%s)"):format(label, run[1], raise[1])
+                    write(output, sentinel)
+                    defer(
+                        "bridge raise",
+                        (
+                            SETUP[name] or ""
+                        ) .. GUEST_ENV .. (
+                            "%s %s %s %s %s"
+                        ):format(quote(bridge), quote(bundle), quote(run[2]), quote(output), raise[1]),
+                        function(status, printed)
+                            check(status == RAISED, ("%s: exit status %s"):format(raised, tostring(status)))
+                            check(matches(raise[2], printed), raised .. ": printed " .. printed)
+                            check(read(output) == sentinel, raised .. ": published nothing")
+                        end
+                    )
+                end
+            end
             if STATUS[name] then
                 refuses(label, bundle, empty)
                 guarded(label, bundle, empty, highWater, nil, STATUS[name])
@@ -1293,14 +1461,16 @@ local function main()
                     write(output, sentinel)
                     defer(
                         "bridge exit",
-                        (SETUP[name] or "") .. GUEST_ENV .. ("%s %s %s %s"):format(
-                            quote(bridge),
-                            quote(bundle),
-                            quote(run[2]),
-                            quote(output)
-                        ),
+                        (
+                            SETUP[name] or ""
+                        ) .. GUEST_ENV .. (
+                            "%s %s %s %s"
+                        ):format(quote(bridge), quote(bundle), quote(run[2]), quote(output)),
                         function(status, printed)
-                            check(status == EXITS[name], ("%s%s exit status %s"):format(label, run[1], tostring(status)))
+                            check(
+                                status == EXITS[name],
+                                ("%s%s exit status %s"):format(label, run[1], tostring(status))
+                            )
                             check(printedAs(name, printed), label .. run[1] .. " printed output")
                             check(read(output) == sentinel, label .. run[1] .. " published nothing")
                         end
@@ -1324,10 +1494,7 @@ local function main()
                     os.remove(stressed)
                     local environment = STRESS_ENV[name] and GUEST_ENV .. STRESS_ENV[name]
                     bridgeRun(label .. " stress", bundle, input, stressed, 0, environment, function(again)
-                        check(
-                            printedAs(name, again),
-                            label .. " printed output under collect-at-every-allocation"
-                        )
+                        check(printedAs(name, again), label .. " printed output under collect-at-every-allocation")
                         check(read(stressed) == u64(expectedWord), label .. " result under collect-at-every-allocation")
                     end)
                     -- And with interleaved incremental collection, the
@@ -1336,11 +1503,10 @@ local function main()
                     write(stepped, u64(-1) .. u64(0) .. u64(2))
                     local steppedOut = OUT .. "/" .. label .. "-interleaved.out"
                     os.remove(steppedOut)
-                    bridgeRun(label .. " interleaved", bundle, stepped, steppedOut, 0, environment, function(printedStepped)
-                        check(
-                            printedAs(name, printedStepped),
-                            label .. " printed output under interleaved collection"
-                        )
+                    bridgeRun(label .. " interleaved", bundle, stepped, steppedOut, 0, environment, function(
+                        printedStepped
+                    )
+                        check(printedAs(name, printedStepped), label .. " printed output under interleaved collection")
                         check(read(steppedOut) == u64(expectedWord), label .. " result under interleaved collection")
                     end)
                 end
@@ -1359,7 +1525,10 @@ local function main()
                         "CORE_TEST_BUNDLE=%s CORE_TEST_INPUT=%s CORE_TEST_HIGH_WATER=0 %s --ignored --exact abi::generated_entry_refuses_short_regions --test-threads=1"
                     ):format(quote(bundle), quote(empty), quote(guard)),
                     function(_, short)
-                        check(short:find("1 passed; 0 failed; 0 ignored;", 1, true) ~= nil, label .. " short regions refused")
+                        check(
+                            short:find("1 passed; 0 failed; 0 ignored;", 1, true) ~= nil,
+                            label .. " short regions refused"
+                        )
                     end
                 )
                 local body = selected.programs[#selected.programs]
@@ -1536,6 +1705,7 @@ local function main()
         os.execute("mkdir -p " .. quote(OUT .. "/costs"))
         write(OUT .. "/costs/" .. shard:match("^(%d+)"), table.concat(costs, "\n") .. "\n")
     end
+
     local function summary(title, map, limit)
         local names = {}
         for key in pairs(map) do
@@ -1549,6 +1719,7 @@ local function main()
             print(("  %8.1fs  %s"):format(map[names[index]], names[index]))
         end
     end
+
     summary("seconds by phase", timing.phases, 100)
     summary("slowest cases", timing.cases, 12)
     summary("processor seconds in selection", guestbuild.timings, 100)

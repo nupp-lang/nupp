@@ -42,6 +42,10 @@ local RESOURCES = {
     {source = "src/own.nupp", output = "nupp/compiler/own.nupp"},
     {source = "src/nupp/runtime/contracts.nupp", output = "nupp/compiler/nupp/runtime/contracts.nupp"},
     {source = "src/serde/json/internal/contracts.nupp", output = "nupp/compiler/serde/json/internal/contracts.nupp"},
+    {
+        source = "src/nupp/codec/json/internal/writerprotocol.nupp",
+        output = "nupp/compiler/nupp/codec/json/internal/writerprotocol.nupp"
+    },
     {source = "src/nupp/codec/json/number.nupp", output = "nupp/compiler/nupp/codec/json/number.nupp"},
     {source = "src/io/internal/contracts.nupp", output = "nupp/compiler/io/internal/contracts.nupp"},
     {source = "src/nupp/compiler/targetbindings.nupp", output = "nupp/compiler/nupp/compiler/targetbindings.nupp"},
@@ -66,7 +70,7 @@ local RESOURCES = {
     {source = "src/nupp/cli/internal/decode.nupp", output = "nupp/compiler/nupp/cli/internal/decode.nupp"},
     {source = "src/nupp/cli/internal/terminal.nupp", output = "nupp/compiler/nupp/cli/internal/terminal.nupp"},
     {source = "src/nupp/cli/internal/terminalhost.nupp", output = "nupp/compiler/nupp/cli/internal/terminalhost.nupp"},
-    {source = "src/nupp/cli/internal/table.nupp", output = "nupp/compiler/nupp/cli/internal/table.nupp"},
+    {source = "src/nupp/cli/internal/tablebuilder.nupp", output = "nupp/compiler/nupp/cli/internal/tablebuilder.nupp"},
     {source = "src/nupp/cli/internal/application.nupp", output = "nupp/compiler/nupp/cli/internal/application.nupp"},
     {source = "src/nupp/runtime/workersprovider.nupp", output = "nupp/compiler/nupp/runtime/workersprovider.nupp"},
     {source = "src/nupp/runtime/uuidprovider.nupp", output = "nupp/compiler/nupp/runtime/uuidprovider.nupp"},
@@ -74,14 +78,18 @@ local RESOURCES = {
     {source = "src/nupp/runtime/timeprovider.nupp", output = "nupp/compiler/nupp/runtime/timeprovider.nupp"},
     {source = "src/nupp/runtime/structvalue.nupp", output = "nupp/compiler/nupp/runtime/structvalue.nupp"},
     {source = "src/nupp/workers/contracts.nupp", output = "nupp/compiler/nupp/workers/contracts.nupp"},
+    {source = "src/nupp/workers/internal/support.nupp", output = "nupp/compiler/nupp/workers/internal/support.nupp"},
     {source = "src/nupp/suspension/contracts.nupp", output = "nupp/compiler/nupp/suspension/contracts.nupp"},
     {source = "src/nupp/suspension/selected.nupp", output = "nupp/compiler/nupp/suspension/selected.nupp"},
+    {source = "src/io/internal/fileformat.nupp", output = "nupp/compiler/io/internal/fileformat.nupp"},
+    {source = "src/io/internal/fileviews.nupp", output = "nupp/compiler/io/internal/fileviews.nupp"},
+    {source = "src/io/internal/portablefile.nupp", output = "nupp/compiler/io/internal/portablefile.nupp"},
     {source = "src/io/internal/process/contracts.nupp", output = "nupp/compiler/io/internal/process/contracts.nupp"},
     {source = "src/nupp/io/net/contracts.nupp", output = "nupp/compiler/nupp/io/net/contracts.nupp"},
     {source = "src/nupp/io/http/contracts.nupp", output = "nupp/compiler/nupp/io/http/contracts.nupp"},
-    {source = "src/io/files/internal/contracts.nupp", output = "nupp/compiler/io/files/internal/contracts.nupp"},
-    {source = "src/io/files/messages.nupp", output = "nupp/compiler/io/files/messages.nupp"},
-    {source = "src/io/files/internal/path.nupp", output = "nupp/compiler/io/files/internal/path.nupp"},
+    {source = "src/io/internal/files/contracts.nupp", output = "nupp/compiler/io/internal/files/contracts.nupp"},
+    {source = "src/io/internal/files/messages.nupp", output = "nupp/compiler/io/internal/files/messages.nupp"},
+    {source = "src/io/internal/files/path.nupp", output = "nupp/compiler/io/internal/files/path.nupp"},
     {source = "src/nupp/gpu/contracts.nupp", output = "nupp/compiler/nupp/gpu/contracts.nupp"},
     {source = "src/nupp/suspension/cancellation.nupp", output = "nupp/compiler/nupp/suspension/cancellation.nupp"},
     {source = "src/binary/_representation.nupp", output = "nupp/compiler/binary/_representation.nupp"},
@@ -159,8 +167,6 @@ local RESOURCES = {
     {source = "src/nupp/mem/indexed.nupp", output = "nupp/compiler/nupp/mem/indexed.nupp"},
     {source = "src/nupp/mem/span.nupp", output = "nupp/compiler/nupp/mem/span.nupp"},
     {source = "src/io/gpu/init.nupp", output = "nupp/compiler/io/gpu/init.nupp"},
-    {source = "src/io/gpu/layout.nupp", output = "nupp/compiler/io/gpu/layout.nupp"},
-    {source = "src/math/random.nupp", output = "nupp/compiler/math/random.nupp"},
     {source = "src/math/internal/random.nupp", output = "nupp/compiler/math/internal/random.nupp"},
     {source = "src/binary/init.nupp", output = "nupp/compiler/binary/init.nupp"},
     {source = "src/nupp/runtime/entropy.nupp", output = "nupp/compiler/nupp/runtime/entropy.nupp"},
@@ -216,6 +222,8 @@ local RESOURCES = {
         output = "nupp/compiler/nupp/serde/internal/json/defaults.nupp"
     },
     {source = "src/nupp/serde/internal/document.nupp", output = "nupp/compiler/nupp/serde/internal/document.nupp"},
+    {source = "src/nupp/serde/internal/readplan.nupp", output = "nupp/compiler/nupp/serde/internal/readplan.nupp"},
+    {source = "src/nupp/serde/internal/aggregate.nupp", output = "nupp/compiler/nupp/serde/internal/aggregate.nupp"},
     {
         source = "src/nupp/serde/internal/documentcodec.nupp",
         output = "nupp/compiler/nupp/serde/internal/documentcodec.nupp"
@@ -306,8 +314,16 @@ local RESOURCES = {
     {source = "src/nupp/text/regex.nupp", output = "nupp/compiler/nupp/text/regex.nupp"},
     {source = "src/nupp/text/internal/regexhost.nupp", output = "nupp/compiler/nupp/text/internal/regexhost.nupp"},
     {source = "src/nupp/runtime/native.nupp", output = "nupp/compiler/nupp/runtime/native.nupp"},
-    {source = "src/binary/digest/init.nupp", output = "nupp/compiler/binary/digest/init.nupp"},
-    {source = "src/binary/mac/internal/contracts.nupp", output = "nupp/compiler/binary/mac/internal/contracts.nupp"},
+    {source = "src/nupp/digest/checksum.nupp", output = "nupp/compiler/nupp/digest/checksum.nupp"},
+    {source = "src/nupp/digest/digest.nupp", output = "nupp/compiler/nupp/digest/digest.nupp"},
+    {source = "src/nupp/digest/mac.nupp", output = "nupp/compiler/nupp/digest/mac.nupp"},
+    {source = "src/nupp/util/internal/encoding.nupp", output = "nupp/compiler/nupp/util/internal/encoding.nupp"},
+    {source = "src/nupp/gpu/layout.nupp", output = "nupp/compiler/nupp/gpu/layout.nupp"},
+    {source = "src/nupp/gpu/limits.nupp", output = "nupp/compiler/nupp/gpu/limits.nupp"},
+    {
+        source = "src/nupp/digest/internal/macprovider.nupp",
+        output = "nupp/compiler/nupp/digest/internal/macprovider.nupp"
+    },
     {source = "src/nupp/runtime/provider/digest.nupp", output = "nupp/compiler/nupp/runtime/provider/digest.nupp"},
     {source = "src/nupp/runtime/provider/checksum.nupp", output = "nupp/compiler/nupp/runtime/provider/checksum.nupp"},
     {source = "src/nupp/runtime/provider/mac.nupp", output = "nupp/compiler/nupp/runtime/provider/mac.nupp"},
@@ -320,17 +336,18 @@ local RESOURCES = {
         output = "nupp/compiler/nupp/runtime/provider/nativesystem.nupp"
     },
     {
-        source = "src/binary/digest/internal/contracts.nupp",
-        output = "nupp/compiler/binary/digest/internal/contracts.nupp"
+        source = "src/nupp/digest/internal/digestprovider.nupp",
+        output = "nupp/compiler/nupp/digest/internal/digestprovider.nupp"
     },
+    {source = "src/nupp/digest/internal/contracts.nupp", output = "nupp/compiler/nupp/digest/internal/contracts.nupp"},
+    {source = "src/nupp/digest/internal/catalog.nupp", output = "nupp/compiler/nupp/digest/internal/catalog.nupp"},
     {source = "src/nupp/digest/internal/context.nupp", output = "nupp/compiler/nupp/digest/internal/context.nupp"},
     {source = "src/nupp/digest/internal/builtin.nupp", output = "nupp/compiler/nupp/digest/internal/builtin.nupp"},
     {source = "src/nupp/digest/internal/words.nupp", output = "nupp/compiler/nupp/digest/internal/words.nupp"},
     {source = "src/nupp/digest/internal/constants.nupp", output = "nupp/compiler/nupp/digest/internal/constants.nupp"},
-    {source = "src/binary/checksum/init.nupp", output = "nupp/compiler/binary/checksum/init.nupp"},
     {
-        source = "src/binary/checksum/internal/contracts.nupp",
-        output = "nupp/compiler/binary/checksum/internal/contracts.nupp"
+        source = "src/nupp/digest/internal/checksumprovider.nupp",
+        output = "nupp/compiler/nupp/digest/internal/checksumprovider.nupp"
     },
     {source = "src/nupp/checksum/internal/builtin.nupp", output = "nupp/compiler/nupp/checksum/internal/builtin.nupp"},
     {
@@ -338,12 +355,8 @@ local RESOURCES = {
         output = "nupp/compiler/nupp/runtime/provider/nativecrc.nupp"
     },
     {source = "src/nupp/runtime/browser/crc.nupp", output = "nupp/compiler/nupp/runtime/browser/crc.nupp"},
-    {source = "src/binary/mac/init.nupp", output = "nupp/compiler/binary/mac/init.nupp"},
-    {source = "src/binary/compress/init.nupp", output = "nupp/compiler/binary/compress/init.nupp"},
-    {
-        source = "src/binary/compress/internal/contracts.nupp",
-        output = "nupp/compiler/binary/compress/internal/contracts.nupp"
-    },
+    {source = "src/nupp/compression.nupp", output = "nupp/compiler/nupp/compression.nupp"},
+    {source = "src/nupp/compression/contracts.nupp", output = "nupp/compiler/nupp/compression/contracts.nupp"},
     {
         source = "src/nupp/runtime/provider/nativecompression.nupp",
         output = "nupp/compiler/nupp/runtime/provider/nativecompression.nupp"
@@ -351,6 +364,7 @@ local RESOURCES = {
     {source = "src/nupp/util/internal/hash.nupp", output = "nupp/compiler/nupp/util/internal/hash.nupp"},
     {source = "src/nupp/util/internal/uuid.nupp", output = "nupp/compiler/nupp/util/internal/uuid.nupp"},
     {source = "src/nupp/runtime/system.nupp", output = "nupp/compiler/nupp/runtime/system.nupp"},
+    {source = "src/nupp/runtime/systeminfo.nupp", output = "nupp/compiler/nupp/runtime/systeminfo.nupp"},
     {source = "src/os/host.nupp", output = "nupp/compiler/os/host.nupp"},
     {
         source = "src/nupp/runtime/provider/nativehost.nupp",
@@ -359,12 +373,14 @@ local RESOURCES = {
     {source = "src/nupp/runtime/browser/system.nupp", output = "nupp/compiler/nupp/runtime/browser/system.nupp"},
     {source = "src/nupp/util/internal/bitset.nupp", output = "nupp/compiler/nupp/util/internal/bitset.nupp"},
     {source = "src/nupp/util/internal/store.nupp", output = "nupp/compiler/nupp/util/internal/store.nupp"},
+    {source = "src/io/internal/boundedcache.nupp", output = "nupp/compiler/io/internal/boundedcache.nupp"},
     {source = "src/io/internal/path.nupp", output = "nupp/compiler/io/internal/path.nupp"},
+    {source = "src/io/internal/pathtypes.nupp", output = "nupp/compiler/io/internal/pathtypes.nupp"},
     {source = "src/nupp/io/path/provider.nupp", output = "nupp/compiler/nupp/io/path/provider.nupp"},
     {source = "src/nupp/io/path/pathtext.nupp", output = "nupp/compiler/nupp/io/path/pathtext.nupp"},
     {source = "src/io/internal/uritypes.nupp", output = "nupp/compiler/io/internal/uritypes.nupp"},
     {source = "src/io/internal/uri.nupp", output = "nupp/compiler/io/internal/uri.nupp"},
-    {source = "src/io/files/init.nupp", output = "nupp/compiler/io/files/init.nupp"},
+    {source = "src/io/internal/files/init.nupp", output = "nupp/compiler/io/internal/files/init.nupp"},
     {source = "src/nupp/io.nupp", output = "nupp/compiler/nupp/io.nupp"},
     {source = "src/debug/log.nupp", output = "nupp/compiler/debug/log.nupp"},
     {source = "src/nupp/foreign.nupp", output = "nupp/compiler/nupp/foreign.nupp"},
@@ -384,10 +400,8 @@ local RESOURCES = {
     {source = "src/nupp/workers/native.d.nupp", output = "nupp/compiler/nupp/workers/native.d.nupp"},
 
     {source = "src/binary/span.nupp", output = "nupp/compiler/binary/span.nupp"},
-    {source = "src/coroutine/sus/cancellation.nupp", output = "nupp/compiler/coroutine/sus/cancellation.nupp"},
     {source = "src/coroutine/sus/host.nupp", output = "nupp/compiler/coroutine/sus/host.nupp"},
     {source = "src/coroutine/sus/init.nupp", output = "nupp/compiler/coroutine/sus/init.nupp"},
-    {source = "src/coroutine/workers/init.nupp", output = "nupp/compiler/coroutine/workers/init.nupp"},
     {source = "src/io/http/init.nupp", output = "nupp/compiler/io/http/init.nupp"},
     {source = "src/io/net/init.nupp", output = "nupp/compiler/io/net/init.nupp"},
     {source = "src/io/net/internal/contracts.nupp", output = "nupp/compiler/io/net/internal/contracts.nupp"},

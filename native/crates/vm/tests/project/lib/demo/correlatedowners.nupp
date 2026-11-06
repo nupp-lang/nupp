@@ -13,7 +13,7 @@ local function acquire(fail: boolean): affine(Resource, close)
     if fail then
         error("acquisition failed")
     end
-    return new Resource(value = 42)
+    return Resource(value = 42)
 end
 
 local function attempt(fail: boolean): nil

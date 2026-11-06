@@ -19,7 +19,7 @@ const guestscope = require("nupp.runtime.core.guestscope")
 -- no known line, answers the message as it is. pcall has no line, so a
 -- level past a protected call's own frame names nothing.
 export function positioned(ctx: voidptr, message: uint64, level: uint64, failedOwner: uint64, failedPc: uint64): uint64
-    local state0 = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state0 = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local s = strings.header(message)
         if s == 0ULL or level == 0ULL then
@@ -250,7 +250,7 @@ end
 
 -- type(v): the name of a value's type, as an interned string.
 export function typeName(ctx: voidptr, value: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
         local builder = state as strings.Builder*
@@ -302,7 +302,7 @@ end
 -- The message a handler's guest error carries, as Lua words it (without the
 -- variable Lua names after it), or "runtime error" when no fault was noted.
 export function runtimeError(ctx: voidptr): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
         local kind = native.load64(services, native.fieldOffset<guestscope.Services>("fault"))

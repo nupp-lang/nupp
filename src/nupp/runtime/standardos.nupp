@@ -1,8 +1,9 @@
 @!internal
 
 --[[
-`os` provides process operations, system facts, clocks, and UUIDs.
-Its clocks return milliseconds and distinguish elapsed time from calendar time.
+`os` provides the filesystem, process operations, system facts, clocks, and
+UUIDs. Its clocks return milliseconds and distinguish elapsed time from calendar
+time.
 
 ```nupp
 local facts = os.info()
@@ -11,64 +12,413 @@ print(os.monotonic())
 ```
 
 See [system services](docs/learn/runtime/system.md) for facts, clocks, and UUIDs.
+
+## The filesystem
+
+A path argument is a string or an [](io.Path) on a native host. Browser
+programs accept only paths derived from [](os.appdir), whose private storage
+identity stays with the path through supported operations. An operation that
+fails because of the environment returns nil or false with an [](io.Error), and
+a malformed argument raises at the call site.
+
+```nupp:fragment
+local kind, size, modified, readonly, err = os.stat("nupp.lua")
+assert(kind, err)
+print(kind, size, modified, readonly)
+```
+
+`stat` follows symbolic links. Pass `nofollow = true` to describe the link itself.
+`size` is a byte count, `modified` is milliseconds since the Unix epoch, the unit
+[](os.walltime) returns in, and `readonly` is the platform's write refusal
+rather than a permission model. A failure answers nil in the first four
+positions and the error last.
+
+`exists` answers `true` or `false`, and nil with an error when the lookup cannot
+tell, such as a refused permission. Checking first does not stop another program
+changing the answer, so attempt the operation itself when you can.
+
+`list` iterates a directory's children in the platform's order. Each kind
+describes the entry itself, so a link reads as `symlink`. It raises when the
+directory cannot be read, the way `io.lines` does for a file:
+
+```nupp:fragment
+for name, kind in os.list("src") do
+    print(kind, name)
+end
+```
+
+`glob` expands a pattern into sorted paths: `*` and `?` stay within one path
+component, `[abc]` and `[!abc]` select characters, and `**` crosses directories.
+
+`mktemp` and `mktempdir` create a uniquely named file or directory and return an
+[owner](docs/learn/runtime/ownership/index.md) that removes it on close unless
+`persist` moves it into place first:
+
+```nupp:fragment
+local scratch = assert(os.mktemp(nil, ".json"))
+do
+    local file = assert(io.open(scratch:path(), "wb"))
+    assert(file:write(encoded))
+end
+assert(scratch:persist("out/report.json"))
+```
+
+An app's own storage comes from `appdir` after `setappid`. Configuration, data
+and cache are always three distinct directories, so clearing one with a
+recursive `os.remove` never reaches another. Browser app storage lives in the
+Origin Private File System and stays evictable unless `persiststorage` succeeds.
 ]]
 
 --- @namespace os
 module nupp.runtime.standardos
 
-local system = require("nupp.runtime.system")
-local clocks = require("nupp.runtime.clocks").selected
+local systeminfo = require("nupp.runtime.systeminfo")
+local clocks = require("nupp.runtime.timeprovider").provider
 local entropy = require("nupp.runtime.entropy")
+const {
+    type FileKind as FileKindType,
+    type AppDir as AppDirType,
+    type FsCaps as FsCapsType,
+} = require("io.internal.files.messages")
+const {type Path as PathType} = require("io.internal.files.path")
+const {type TemporaryPath as TemporaryPathType} = require("io.internal.files.contracts")
+
+local host: any = rawget(_G, "os")
+local luaRemove = host.remove
+local luaRename = host.rename
+
+local function missingClock(): never
+    error("nupp.time: no clock provider is available", 2)
+end
+
+--- Returns a filename for a temporary file that the caller removes explicitly.
+---
+--- On POSIX systems, this also creates an empty file to reserve the name.
+--- Use `io.tmpfile` for an owned handle or `os.mktemp` for an owned path.
+--- @return the temporary filename
+@deprecated(reason = "temporary filenames require manual cleanup", replacement = "io.tmpfile or os.mktemp")
+export const tmpname: function(): string = host.tmpname
+
+const _FILES_REQUIRES = "@requires-dynamically nupp.runtime.bindings.files"
+const _FILESYSTEM_REQUIRES = "@requires-dynamically io.internal.files"
+
+--- A native path string or [](io.Path), or an app path from `appdir`.
+export type Path = PathType
+
+--- The kind of filesystem object a path names.
+export type FileKind = FileKindType
+
+--- One of an app's three storage roots.
+export type AppDir = AppDirType
+
+--- The filesystem guarantees the selected provider supplies.
+export type FsCaps = FsCapsType
+
+--- A created temporary path, removed when its owner closes unless persisted.
+export type TemporaryPath = TemporaryPathType
+
+local function filename(value: any, position: integer): any
+    if type(value) == "table" then
+        if type(value.tostring) ~= "function" then
+            error("bad argument #" .. tostring(position) .. " (path or string expected)", 3)
+        end
+        return value:tostring()
+    end
+
+    return value
+end
+
+local function implementation(name: string): any
+    local ok, value = pcall(require, name)
+    if not ok then
+        error(value, 0)
+    end
+
+    return value
+end
+
+--- Removes a file, symbolic link, or directory.
+---
+--- Native hosts accept strings and `io.Path` values. Browser hosts accept
+--- application paths and refuse raw paths. A populated directory
+--- requires `recursive = true`; symbolic links are removed without following
+--- their targets. Without that flag, native calls retain Lua's behavior.
+---
+--- @param path the path to remove
+--- @param recursive whether to remove a directory's contents
+--- @return true on success, or nil on failure
+--- @return a failure reason, when unsuccessful
+--- @return the native error code, when supplied by Lua
+export function remove(path: Path, recursive: boolean?): (boolean?, string?, number?)
+    if recursive ~= nil and type(recursive) ~= "boolean" then
+        error("bad argument #2 to 'remove' (recursive must be a boolean)", 2)
+    end
+    if rawget(_G, "__nuppBrowser") ~= nil or recursive == true then
+        local removed, reason = implementation("nupp.runtime.bindings.files").remove(path, recursive)
+        if not removed then
+            return nil, reason
+        end
+        return true
+    end
+
+    return luaRemove(filename(path, 1))
+end
+
+--- Renames a file or directory, replacing the destination when supported.
+---
+--- Native hosts accept strings and `io.Path` values in either position and
+--- retain Lua's success and error returns. Browser hosts accept app-owned
+--- paths but currently return an unsupported-operation reason.
+---
+--- @param from the source path
+--- @param to the destination path
+--- @return true on success, or nil on failure
+--- @return a failure reason, when unsuccessful
+--- @return the native error code, when supplied by Lua
+export function rename(from: Path, to: Path): (boolean?, string?, number?)
+    if rawget(_G, "__nuppBrowser") ~= nil then
+        local renamed, reason = implementation("nupp.runtime.bindings.files").rename(from, to)
+        if not renamed then
+            return nil, reason
+        end
+        return true
+    end
+
+    return luaRename(filename(from, 1), filename(to, 2))
+end
+
+-- The filesystem implementation loads on the first call that needs it, so a
+-- program that only reads the clock carries none of it.
+local function filesystem(): any
+    return implementation("io.internal.files")
+end
+
+--- Reports whether a path resolves, following symbolic links.
+---
+--- A refused permission or another lookup failure is nil with an error rather
+--- than `false`, so a missing file is never confused with one that could not be
+--- checked.
+--- @param path the path to test
+--- @return whether it resolves, or nil when the lookup failed
+--- @return the failure, when unsuccessful
+export function exists(path: Path): (boolean?, io.Error?)
+    return filesystem().exists(path)
+end
+
+--- Describes what a path refers to.
+---
+--- Symbolic links are followed unless `nofollow` is true.
+---
+--- ```nupp:fragment
+--- local kind, size, modified, readonly, err = os.stat("nupp.lua")
+--- assert(kind == "file", err)
+--- ```
+--- @param path the path to describe
+--- @param nofollow whether to describe the link itself, false by default
+--- @return its kind, or nil on failure
+--- @return its byte size, zero for a directory
+--- @return its modification time in milliseconds since the Unix epoch
+--- @return whether the platform refuses writes to it
+--- @return the failure, when unsuccessful
+export function stat(path: Path, nofollow: boolean?): (FileKind?, integer?, number?, boolean?, io.Error?)
+    if nofollow ~= nil and type(nofollow) ~= "boolean" then
+        error("bad argument #2 to 'stat' (boolean expected)", 2)
+    end
+    return filesystem().stat(path, nofollow)
+end
+
+--- Reads a symbolic link's target without resolving it.
+--- @param path the link to read
+--- @return its target, or nil on failure
+--- @return the failure, when unsuccessful
+export function readlink(path: Path): (io.Path?, io.Error?)
+    return filesystem().readlink(path)
+end
+
+--- Creates a directory and every missing parent. An existing directory succeeds.
+--- @param path the directory to create
+--- @return whether the directory exists afterward
+--- @return the failure, when unsuccessful
+export function mkdir(path: Path): (boolean, io.Error?)
+    return filesystem().mkdir(path)
+end
+
+--- Iterates a directory's immediate children in the platform's order.
+---
+--- Each name has no directory part, and each kind describes the entry itself, so a
+--- link reads as `symlink`. The directory is read in batches and closed when the
+--- loop runs out; a loop that stops early leaves it open until it is collected, as
+--- `io.lines` leaves its file.
+---
+--- ```nupp:fragment
+--- for name, kind in os.list("src") do
+---     print(kind, name)
+--- end
+--- ```
+--- @param dir the directory to list
+--- @return an iterator over each child's name and kind
+--- @raises string when the directory cannot be read
+export function list(dir: Path): function(): (string?, FileKind)
+    local entries, reason = filesystem().list(dir)
+    if entries == nil then
+        error(reason, 2)
+    end
+
+    return entries
+end
+
+--- Expands a native filesystem pattern into sorted paths.
+---
+--- `*` and `?` match within one path component, `[abc]` and `[!abc]` select
+--- characters, and `**` crosses directories. No match is an empty list.
+--- @param pattern the pattern to expand
+--- @return the matching paths, or nil on failure
+--- @return the failure, when unsuccessful
+export function glob(pattern: string): ({io.Path}?, io.Error?)
+    return filesystem().glob(pattern)
+end
+
+--- Copies a file over another.
+--- @param from the source file
+--- @param to the destination file
+--- @return whether the file was copied
+--- @return the failure, when unsuccessful
+export function copy(from: Path, to: Path): (boolean, io.Error?)
+    return filesystem().copy(from, to)
+end
+
+--- Creates a symbolic link.
+--- @param target what the link points at
+--- @param link where to create the link
+--- @param kind whether a Windows link names a file or a directory; ignored elsewhere
+--- @return whether the link was created
+--- @return the failure, when unsuccessful
+export function symlink(target: Path, link: Path, kind: ("file" | "directory")?): (boolean, io.Error?)
+    return filesystem().symlink(target, link, kind)
+end
+
+--- Replaces a file's contents so a reader sees either the old bytes or the new.
+---
+--- The bytes go to a temporary beside the destination, which is then renamed over
+--- it. A failed write removes the temporary and leaves the destination as it was.
+--- @param path the destination file
+--- @param bytes the byte string or view to write
+--- @return whether the file was replaced
+--- @return the failure, when unsuccessful
+export function writeatomic(path: Path, borrows bytes: string | io.ByteView): (boolean, io.Error?)
+    local write = filesystem().writeatomic as function(
+        path: Path,
+        borrows bytes: string | io.ByteView
+    ): (boolean, io.Error?)
+
+    return write(path, bytes)
+end
+
+--- Creates a uniquely named empty file and returns its owner.
+---
+--- Closing the owner removes the file; `persist` moves it into place instead.
+--- @param prefix a separator-free fragment before the generated part of the name
+--- @param suffix a separator-free fragment after it, such as an extension
+--- @param dir the directory to create it in, defaulting to the platform's
+--- @return the owner, or nil on failure
+--- @return the failure, when unsuccessful
+export function mktemp(prefix: string?, suffix: string?, dir: Path?): (affine(TemporaryPath?), io.Error?)
+    return filesystem().mktemp(prefix, suffix, dir)
+end
+
+--- Creates a uniquely named empty directory and returns its owner.
+---
+--- Closing the owner removes the directory and its contents; `persist` moves it
+--- into place instead.
+--- @param prefix a separator-free fragment before the generated part of the name
+--- @param suffix a separator-free fragment after it
+--- @param dir the directory to create it in, defaulting to the platform's
+--- @return the owner, or nil on failure
+--- @return the failure, when unsuccessful
+export function mktempdir(prefix: string?, suffix: string?, dir: Path?): (affine(TemporaryPath?), io.Error?)
+    return filesystem().mktempdir(prefix, suffix, dir)
+end
+
+--- Selects the app id that names this app's storage roots.
+--- @param organization the organization component
+--- @param app the app component
+--- @return nil after selecting the app id
+--- @raises string when a component is not a portable name
+export function setappid(organization: string, app: string): nil
+    filesystem().setappid(organization, app)
+end
+
+--- Returns the selected app id, or nil values before one is set.
+--- @return the organization component
+--- @return the app component
+export function appid(): (string?, string?)
+    return filesystem().appid()
+end
+
+--- Resolves and creates one of this app's storage roots.
+---
+--- ```nupp:fragment
+--- os.setappid("example", "notes")
+--- local data = assert(os.appdir("data"))
+--- local file = assert(io.open(data:join("notes.txt"), "w"))
+--- ```
+--- The returned [](io.Path) retains its storage identity when joined or renamed.
+--- Components must be portable names, and `parent` stops at this root. Browser
+--- paths cannot be canonicalized; rebuilding a path from its text grants no
+--- storage access.
+--- @param which `config`, `data` or `cache`
+--- @return the root, or nil on failure
+--- @return the failure, when unsuccessful
+export function appdir(which: AppDir): (io.Path?, io.Error?)
+    return filesystem().appdir(which)
+end
+
+--- Requests that browser storage not be evicted. Native storage is never evicted,
+--- so a native call succeeds without doing anything.
+--- @return whether persistence is guaranteed
+--- @return the failure, when unsuccessful
+export function persiststorage(): (boolean, io.Error?)
+    return filesystem().persiststorage()
+end
 
 --- Calendar fields returned by `os.date("*t")`.
 export type DateFields = os.DateFields
 
---- The executing ABI and the available parallelism at the time of a query.
-export record Info
-    @readonly platform: string
-    @readonly arch: string
-    @readonly endianness: "little" | "big"
-    @readonly pointerbits: integer
-    @readonly parallelism: integer
-end
+--- Cached, immutable facts and capabilities of the executing runtime.
+export type Info = systeminfo.Info
 
---- Returns the executing ABI's facts and current available parallelism.
+--- Returns the runtime's shared, immutable system report.
+---
+--- Parallelism and filesystem capabilities are resolved on first access and
+--- cached. Reading another field initializes neither query.
+--- @return the system report, with filesystem capabilities under `fs`
 export function info(): Info
-    return new Info(
-        platform = system.platform,
-        arch = system.architecture,
-        endianness = system.endianness,
-        pointerbits = system.pointerBits,
-        parallelism = system.availableParallelism()
-    )
+    return systeminfo.get()
 end
 
 --- Returns monotonic milliseconds with the host's unspecified origin.
-export const monotonic: function(): number = clocks.now
+--- @return the elapsed milliseconds
+export const monotonic: function(): number = clocks and clocks.now or missingClock
 
 --- Returns milliseconds since the Unix epoch.
-export const walltime: function(): number = clocks.walltime
+--- @return the calendar milliseconds
+export const walltime: function(): number = clocks and clocks.walltime or missingClock
 
 const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.util.internal.uuid"
 
 -- UUID features carry the helper; clocks and system facts do not need it.
-local function uuidImplementation(name: string): any
-    local ok, implementation = pcall(require, name)
-    if not ok then
-        error(implementation, 0)
+
+--- Generates a random version 4 or time-ordered version 7 UUID.
+--- @param version the UUID version, either 4 or 7
+--- @return the UUID in its canonical lowercase, hyphenated text form
+--- @raises string when the version is invalid or the host service fails
+export function uuid(version: 4 | 7): string
+    if version == 4 then
+        return implementation("nupp.util.internal.uuid").uuid4()
+    elseif version == 7 then
+        return implementation("nupp.util.internal.uuid").uuid7()
     end
-
-    return implementation
-end
-
---- Generates a random version 4 UUID using the retained host service.
-export function uuid4(): string
-    return uuidImplementation("nupp.util.internal.uuid").uuid4()
-end
-
---- Generates a time-ordered version 7 UUID using the retained host service.
-export function uuid7(): string
-    return uuidImplementation("nupp.util.internal.uuid").uuid7()
+    error("nupp: UUID version must be 4 or 7", 2)
 end
 
 --- Returns cryptographically secure random bytes from the selected host.
@@ -81,11 +431,29 @@ export const randombytes = entropy.randombytes
 --- @internal
 export const value: table = do
     local original = rawget(_G, "os") as any
+    original.remove = remove
+    original.rename = rename
+    original.exists = exists
+    original.stat = stat
+    original.readlink = readlink
+    original.mkdir = mkdir
+    original.list = list
+    original.glob = glob
+    original.copy = copy
+    original.symlink = symlink
+    original.writeatomic = writeatomic
+    original.mktemp = mktemp
+    original.mktempdir = mktempdir
+    original.setappid = setappid
+    original.appid = appid
+    original.appdir = appdir
+    original.persiststorage = persiststorage
     original.info = info
     original.monotonic = monotonic
     original.walltime = walltime
-    original.uuid4 = uuid4
-    original.uuid7 = uuid7
+    original.uuid = uuid
+    original.uuid4 = nil
+    original.uuid7 = nil
     original.randombytes = randombytes
     yield original
 end

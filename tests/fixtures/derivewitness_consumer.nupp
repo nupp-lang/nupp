@@ -5,7 +5,7 @@ local witness = require("tests.fixtures.derivewitness")
 local record Command
 end
 
-local command = new Command()
+local command = Command()
 assert(command:witness() == witness.CompletionProvider)
 
 @derive(witness.derive)
@@ -14,7 +14,7 @@ local record FieldCommand
     pattern: string
 end
 
-local fieldCommand = new FieldCommand(pattern = "*.nupp")
+local fieldCommand = FieldCommand(pattern = "*.nupp")
 assert(fieldCommand:witness() == witness.CompletionProvider)
 
 return true

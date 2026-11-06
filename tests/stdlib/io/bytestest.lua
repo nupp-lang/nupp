@@ -31,8 +31,8 @@ local function freeze(takes builder: io.Bytes.Builder): io.Bytes
 end
 const copy: function(string): io.Bytes = io.Bytes.copy
 const readfile: function(string): (io.Bytes?, string?) = io.Bytes.readfile
-const newbuilder: function(): affine(io.Bytes.Builder) = io.Bytes.newbuilder
-return freeze, copy, readfile, newbuilder
+const Builder: Type<io.Bytes.Builder> = io.Bytes.Builder
+return freeze, copy, readfile, Builder
 ]]
     )
 end
@@ -63,13 +63,13 @@ function M.emptyRegionsKeepEngineBlockIdentity()
 end
 
 function M.builderCountsRemainExactAtThePublicBoundary()
-    local reserve = bytes.newbuilder()
+    local reserve = bytes.Builder()
     assert(
         not pcall(function()
             reserve:reserve(1.5)
         end)
     )
-    local commit = bytes.newbuilder()
+    local commit = bytes.Builder()
     assert(
         not pcall(function()
             commit:commit(1.5)
@@ -78,7 +78,7 @@ function M.builderCountsRemainExactAtThePublicBoundary()
 end
 
 function M.droppingAnUnfrozenBuilderLeavesNothingToFreeze()
-    local builder = bytes.newbuilder()
+    local builder = bytes.Builder()
     builder:append("abc")
     builder:drop()
     assert(not pcall(builder.freeze, builder), "a dropped builder cannot be frozen")

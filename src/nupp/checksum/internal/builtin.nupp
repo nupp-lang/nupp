@@ -6,7 +6,7 @@ crc-fast without retaining them; value reads the saved non-consuming snapshot.
 ]]
 module nupp.checksum.internal.builtin
 
-local provider = require("binary.checksum.internal.contracts")
+const provider = require("nupp.digest.internal.checksumprovider")
 local span = require("nupp.mem.span")
 local crc = require("nupp.vm.crc")
 
@@ -53,24 +53,24 @@ local record Algorithm is provider.Algorithm
 
     function create(self): provider.State
         if self.id == 0 then
-            return new AdlerState(high = 0, low = 1)
+            return AdlerState(high = 0, low = 1)
         end
         const empty = ""
         local bytes = span.fromString(empty)
         local state, snapshot = crc.update(self.id, nil, bytes:ref(), 0)
 
-        return new CrcState(id = self.id, state = state, snapshot = snapshot)
+        return CrcState(id = self.id, state = state, snapshot = snapshot)
     end
 end
 
 const ALGORITHMS: {
     [string]: provider.Algorithm
 } = {
-    adler32 = new Algorithm(name = "adler32", width = 32, id = 0),
-    crc32 = new Algorithm(name = "crc32", width = 32, id = 1),
-    crc32c = new Algorithm(name = "crc32c", width = 32, id = 2),
-    ["crc64-ecma"] = new Algorithm(name = "crc64-ecma", width = 64, id = 3),
-    crc64nvme = new Algorithm(name = "crc64nvme", width = 64, id = 4),
+    adler32 = Algorithm(name = "adler32", width = 32, id = 0),
+    crc32 = Algorithm(name = "crc32", width = 32, id = 1),
+    crc32c = Algorithm(name = "crc32c", width = 32, id = 2),
+    ["crc64-ecma"] = Algorithm(name = "crc64-ecma", width = 64, id = 3),
+    crc64nvme = Algorithm(name = "crc64nvme", width = 64, id = 4),
 }
 
 export function lookup(name: string): provider.Algorithm?

@@ -47,7 +47,7 @@ record shapes.Box<T>
 end
 
 function shapes.make(x: number, y: number): shapes.Point
-    return new shapes.Point(x = x, y = y)
+    return shapes.Point(x = x, y = y)
 end
 
 function shapes.length(p: shapes.Point): number
@@ -55,7 +55,7 @@ function shapes.length(p: shapes.Point): number
 end
 
 function shapes.box(value: number): shapes.Box<number>
-    return new shapes.Box<number>(value = value)
+    return shapes.Box<number>(value = value)
 end
 
 export = shapes
@@ -74,8 +74,8 @@ local record Step
 end
 
 function a.walk(n: number): number
-    local first = new Step(at = shapes.make(n, 1), next = nil)
-    local second = new Step(at = shapes.make(1, n), next = first)
+    local first = Step(at = shapes.make(n, 1), next = nil)
+    local second = Step(at = shapes.make(1, n), next = first)
     local total = 0
     local step: Step? = second
     while step do
@@ -412,7 +412,7 @@ function M.anExportedRecordEditReachesItsImporters()
     local dir = tempProject()
     cached(dir)
     local edited = SHAPES:gsub("    x: number\n    y: number\n", "    tag: string\n    x: number\n    y: number\n")
-        :gsub("new shapes%.Point%(x = x, y = y%)", 'new shapes.Point(tag = "p", x = x, y = y)')
+        :gsub("shapes%.Point%(x = x, y = y%)", 'shapes.Point(tag = "p", x = x, y = y)')
     write(dir .. "/src/shapes.nupp", edited)
     local image, stats = cached(dir)
     same(scratch(dir), image, "record edit")
@@ -464,7 +464,7 @@ function M.renumberingEverythingAfterAnEditStillReplays()
     local edited = SHAPES:gsub(
         "function shapes%.length",
         "local record Extra\n    note: string\nend\n\nlocal function extra(): Extra\n"
-        .. '    local make = function(): Extra\n        return new Extra(note = "x")\n    end\n'
+        .. '    local make = function(): Extra\n        return Extra(note = "x")\n    end\n'
         .. "    return make()\nend\n\nlocal EXTRA = extra()\n\nfunction shapes.length"
     )
     write(dir .. "/src/shapes.nupp", edited)
@@ -521,7 +521,7 @@ function M.anotherGenerationsLoweringIsNeverReplayed()
     same(expected, image, "the first compiler again")
     assert(stats.lowered == 0 and stats.replayed == cold.lowered, "the first compiler lost what it kept")
 
-    image, stats = withFingerprint("runtimeIdentity", otherInterpreter, emit)
+    image, stats = withFingerprint("runtimeidentity", otherInterpreter, emit)
     same(expected, image, "another interpreter")
     assert(stats.replayed == 0, "another interpreter's lowering was replayed: " .. stats.replayed)
     remove(dir)
@@ -614,7 +614,7 @@ function main.isOther(value: any): boolean
     return value is physical.Other
 end
 function main.start(): boolean
-    local packet = new physical.Packet(0, false, nil)
+    local packet = physical.Packet(0, false, nil)
     if not main.isPacket(packet) or main.isOther(packet) then
         return false
     end

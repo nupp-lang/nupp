@@ -5,27 +5,27 @@ local record Member is core.Member
     @readonly name: string
     @readonly index: integer?
 end
-local list = new Member(name = "items")
-local attribute = new Member(name = "attributeId")
-local scalar = new Member(name = "elementId")
-local absent = new Member(name = "absent")
+local list = Member(name = "items")
+local attribute = Member(name = "attributeId")
+local scalar = Member(name = "elementId")
+local absent = Member(name = "absent")
 local mappings = {
-    new assembly.Mapping<Member>(
+    assembly.Mapping<Member>(
         member = list,
         repeated = true,
-        field = new xml.Field(namespaceUri = "urn:known", localName = "item", role = "element")
+        field = xml.Field(namespaceUri = "urn:known", localName = "item", role = "element")
     ),
-    new assembly.Mapping<Member>(
+    assembly.Mapping<Member>(
         member = attribute,
-        field = new xml.Field(namespaceUri = "urn:known", localName = "id", role = "attribute")
+        field = xml.Field(namespaceUri = "urn:known", localName = "id", role = "attribute")
     ),
-    new assembly.Mapping<Member>(
+    assembly.Mapping<Member>(
         member = scalar,
-        field = new xml.Field(namespaceUri = "urn:known", localName = "id", role = "element")
+        field = xml.Field(namespaceUri = "urn:known", localName = "id", role = "element")
     ),
-    new assembly.Mapping<Member>(
+    assembly.Mapping<Member>(
         member = absent,
-        field = new xml.Field(namespaceUri = "urn:known", localName = "absent", role = "element")
+        field = xml.Field(namespaceUri = "urn:known", localName = "absent", role = "element")
     )
 }
 local record State
@@ -50,8 +50,8 @@ local record Consumer is assembly.Consumer<Member, State>
 end
 
 local function decode(bytes: string): State
-    local state = new State()
-    assembly.read(assembly.parse(bytes), mappings, state, new Consumer())
+    local state = State()
+    assembly.read(assembly.parse(bytes), mappings, state, Consumer())
     return state
 end
 

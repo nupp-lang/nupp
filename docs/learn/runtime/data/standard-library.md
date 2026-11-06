@@ -6,10 +6,10 @@ order: 180
 
 Nupp's standard library provides types, text, data formats, I/O, and application
 tools. Its APIs live in builtin tables such as `math` and in declared modules
-such as `binary.digest`.
+such as `binary`.
 
 ```nupp
-local digest = binary.digest.hexdigest("sha256", "payload")
+local digest = binary.digest("sha256"):computehex("payload")
 print(#digest, math.lerp(10, 20, 0.25))
 ```
 
@@ -60,12 +60,12 @@ intrinsic namespaces and the declared modules:
 - [](serde) binds application types to reusable serialization schemas.
 - [](binary.Bitset) is a growable set of bit positions. [](table.Pool) leases
   cleared records or zero-filled struct rows of one declaration;
-  [](table.newpool) creates one. Released instances become reusable immediately,
+  [](table.Pool) creates one. Released instances become reusable immediately,
   and an idle pool resets without discarding its allocations.
-- [](types.Store) is a bag of values indexed by the typed keys [](types.newkey)
+- [](types.Store) is a bag of values indexed by the typed keys [](types.Key)
   creates.
 - `os.info()` reports execution platform, architecture, endianness, pointer
-  width and available parallelism. `os.uuid4()` and `os.uuid7()` generate
+  width and available parallelism. `os.uuid(4)` and `os.uuid(7)` generate
   identifiers; `os.monotonic()` and `os.walltime()` read the host clocks. See
   [System services](../system.md) for their contracts.
 - [](os.host) asks whatever runs the program, a page or an embedding
@@ -75,7 +75,7 @@ intrinsic namespaces and the declared modules:
 - [](io) owns byte buffers, readers, writers, and typed scalar reads and writes
   over them. [](io.Bytes) shares immutable engine storage across workers and
   lends byte views without copying.
-- [](io.files) owns filesystem metadata and directories.
+- [](os) owns the filesystem: metadata, directories, links, temporary paths, and app storage roots.
 - [](io.net) owns listeners, plain connections, and TLS sessions.
 - [](io) models filesystem paths and resource identifiers.
 - [](debug.log) owns leveled logging over a swappable destination.
@@ -84,12 +84,12 @@ intrinsic namespaces and the declared modules:
 - [`nupp.soa`](structure-of-arrays.md) stores every top-level field of a
   reified struct in its own column.
 - [](io.gpu) owns resident buffers, generated kernel dispatches, and tensor views.
-  [](io.gpu.layout) owns the checked layout algebra.
+  [](io.gpu.Layout) provides checked layout transformations.
 - [](os.randombytes) provides cryptographically secure random bytes.
-  [](math.random) owns deterministic pseudo-random sequences with explicit,
+  [](math.Xoshiro128) owns deterministic pseudo-random sequences with explicit,
   serializable state.
 - [](coroutine.suspend) waits for a callback result. [](coroutine) owns
-  application task scopes, and [](coroutine.workers) provides isolated worker
+  application task scopes, and [](coroutine.Scope.work) provides isolated worker
   lanes. [](coroutine.sus) registers and polls readiness sources.
   [](coroutine.sus.host) is the other side of waiting: what a host
   installs to decide which coroutine runs while something is parked.
@@ -113,8 +113,8 @@ A member's implementation is emitted only when checked source resolves that
 member, and an alias stays as precise as the name it came from:
 
 ```nupp
-const uuid4 = os.uuid4
-print(uuid4()) -- selects UUID support
+const uuid = os.uuid
+print(uuid(4))
 ```
 
 A `binary` target's runtime links a native facility, such as compression or
@@ -161,31 +161,3 @@ because a local leaves scope.
 A writer that buffers output reports delivery failures through `flush`. Check
 that result before closing when delivery matters. See
 [ownership.md](../ownership/index.md) for affine ownership and borrowing.
-
-## FAQ
-
-### Does an intrinsic need a `require`?
-
-No. Use builtin APIs directly, such as `types.sizeof`, `debug.log.info`, or
-`binary.span.fromstring`. The compiler resolves the qualified name and inserts
-any required module load. See [Intrinsics and declared
-modules](#intrinsics-and-declared-modules) for the distinction.
-
-### Does an unused facility cost anything in the built program?
-
-No adapter is emitted for a member no checked source resolves, and a binary's
-runtime links no facility its image does not reach. See [Selection follows
-use](#selection-follows-use) for what counts as a use.
-
-### Can a buffer offset be passed to a Lua string function?
-
-Not directly. A buffer offset counts from zero and a Lua string position counts
-from one, so the two differ by one on every call. Convert at the boundary, and
-see [Byte positions](#byte-positions) for which convention an API uses.
-
-::: seealso
-- [](io) for buffers, readers, writers, and byte views
-- [ownership.md](../ownership/index.md) for the affine results these modules return
-- [build.md](../../projects/build.md#native-facilities) for the native
-  facilities a binary links
-:::

@@ -17,5 +17,5 @@ export record Box
 end
 
 export function square(n: integer): Box
-    return new Box(n, n)
+    return Box(n, n)
 end

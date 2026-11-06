@@ -22,7 +22,7 @@ export record Budget
     function step(self, path: string): nil
         self.values += 1
         if self.values > 1000000 then
-            error(new errors.Error(code = "limit", message = "value limit exceeded", path = path, cause = nil), 0)
+            error(errors.Error(code = "limit", message = "value limit exceeded", path = path, cause = nil), 0)
         end
     end
 end

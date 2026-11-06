@@ -17,7 +17,7 @@ local record Sink is Closer
 end
 
 local function open(n: integer): Sink
-    return new Sink(n = n)
+    return Sink(n = n)
 end
 
 local record Left
@@ -63,7 +63,7 @@ end)
 if not ok and closed == 111 then
     score = score + 4
 end
-if weight(new Left(n = 3)) == 3 and weight(new Right(n = 3)) == 6 then
+if weight(Left(n = 3)) == 3 and weight(Right(n = 3)) == 6 then
     score = score + 8
 end
 if depth("x", 4) == 4 then

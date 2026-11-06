@@ -121,7 +121,7 @@ end
 
 -- math.type: "integer", "float", or nil for anything else.
 export function mathType(ctx: voidptr, a: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         if not ints.isInteger(a) and not guestvalues.isfloat(a) then
             return values.NIL
@@ -199,7 +199,7 @@ end
 -- value or text that is not a numeral. Other text, a decimal past int64
 -- included, is read as a float by C's strtod through the host.
 export function tonumber(ctx: voidptr, value: uint64): uint64
-    local cell = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local cell = strings.Builder(0ULL, 0ULL, 0ULL)
     if ints.isInteger(value) or guestvalues.floatof(value) ~= values.NIL then
         return value
     end

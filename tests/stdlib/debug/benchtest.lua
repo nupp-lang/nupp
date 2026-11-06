@@ -11,7 +11,7 @@ local parser = require("nupp.compiler.syntax.parser")
 local check = require("helpers.fragment")
 local envMod = require("nupp.compiler.project.env")
 local json = require("testjson")
-local files = require("io.files")
+local files = require("io.internal.files")
 
 local HERE = require("helpers.paths").tests
 local env = envMod.new(HERE .. "/..")
@@ -181,7 +181,7 @@ function M.formatsSuiteAllocationAsBytesPerRepresentedOperation()
                 suite = "copy",
                 casename = "block",
                 variant = "base",
-                baselinevariant = "base",
+                baseline = "base",
             },
         },
     })
@@ -234,10 +234,10 @@ function M.replicatedTableReportsAttainedCoverage()
                     suite = "map",
                     casename = "lookup",
                     variant = "table",
-                    baselinevariant = "table",
+                    baseline = "table",
                     intervallowms = 0.0000038,
                     intervalhighms = 0.0000043,
-                    intervalcoverage = 0.978515625,
+                    coverage = 0.978515625,
                 },
             },
         },
@@ -266,8 +266,8 @@ function M.withheldIntervalIsNamedInTheTable()
                     suite = "map",
                     casename = "lookup",
                     variant = "table",
-                    baselinevariant = "table",
-                    intervalwithheld = "trend-warning",
+                    baseline = "table",
+                    withheld = "trend-warning",
                 },
             },
         },
@@ -288,7 +288,7 @@ function M.formatsComparativeSuitesWithBaselineRatios()
                 suite = "map",
                 casename = "lookup",
                 variant = "table",
-                baselinevariant = "table",
+                baseline = "table",
                 parameters = {size = 100},
             },
             {
@@ -299,7 +299,7 @@ function M.formatsComparativeSuitesWithBaselineRatios()
                 suite = "map",
                 casename = "lookup",
                 variant = "array",
-                baselinevariant = "table",
+                baseline = "table",
                 parameters = {size = 100},
             },
             {
@@ -310,7 +310,7 @@ function M.formatsComparativeSuitesWithBaselineRatios()
                 suite = "map",
                 casename = "lookup",
                 variant = "table",
-                baselinevariant = "table",
+                baseline = "table",
                 parameters = {size = 200},
             },
             {
@@ -321,7 +321,7 @@ function M.formatsComparativeSuitesWithBaselineRatios()
                 suite = "map",
                 casename = "lookup",
                 variant = "array",
-                baselinevariant = "table",
+                baseline = "table",
                 parameters = {size = 200},
             },
             {
@@ -332,7 +332,7 @@ function M.formatsComparativeSuitesWithBaselineRatios()
                 suite = "map",
                 casename = "insert",
                 variant = "table",
-                baselinevariant = "table",
+                baseline = "table",
                 parameters = {size = 100},
             },
             {
@@ -343,7 +343,7 @@ function M.formatsComparativeSuitesWithBaselineRatios()
                 suite = "map",
                 casename = "insert",
                 variant = "array",
-                baselinevariant = "table",
+                baseline = "table",
                 parameters = {size = 100},
             },
         },
@@ -359,7 +359,7 @@ function M.formatsComparativeSuitesWithBaselineRatios()
         "each workload names its winner against the runner-up\n" .. rendered
     )
     assert(rendered:find("Geometric mean", 1, true) == nil, "geometric means are opt-in\n" .. rendered)
-    local geometric = bench.format(record, {geometricmean = true})
+    local geometric = bench.format(record, {geomean = true})
     assert(
         geometric:find("Geometric mean: map %(vs table%)") ~= nil and geometric:find("array%s+1%.189x") ~= nil,
         "the summary weights parameter expansions within their logical case\n" .. geometric
@@ -829,10 +829,10 @@ function M.aBaselineWithASchemaThisVersionCannotReadIsRefused()
     local bench = require("debug.bench")
     testAssert.eq(bench.schema, 5, "records are written at schema 5")
     for _, schema in ipairs({2, 3, 4, 5}) do
-        local document, refused = bench.decodebaseline(('{"schema":%d,"cases":[]}'):format(schema), "b.json")
+        local document, refused = bench.decode(('{"schema":%d,"cases":[]}'):format(schema), "b.json")
         assert(document ~= nil and refused == nil, "schema " .. schema .. " reads as a baseline")
     end
-    local _, older = bench.decodebaseline('{"schema":2,"cases":[]}', "b.json", 3)
+    local _, older = bench.decode('{"schema":2,"cases":[]}', "b.json", 3)
     assert(older ~= nil and older:find("has schema 2", 1, true) ~= nil, "a reader's oldest schema holds")
     for text, expected in pairs({
         ['{"schema":6,"cases":[]}'] = "nupp: baseline b.json has schema 6; this bench reads schema 5, and 2 through 4",
@@ -841,7 +841,7 @@ function M.aBaselineWithASchemaThisVersionCannotReadIsRefused()
         ['[1, 2]'] = "nupp: baseline b.json is not a bench record",
         ["not json"] = "is not a bench record",
     }) do
-        local document, refused = bench.decodebaseline(text, "b.json")
+        local document, refused = bench.decode(text, "b.json")
         testAssert.eq(document, nil, text .. " was read as a baseline")
         assert(refused ~= nil and refused:find(expected, 1, true) ~= nil, tostring(refused))
     end
@@ -963,24 +963,24 @@ end
 function M.finalBenchNamesRetireTheOldPublicKeys()
     local bench = require("debug.bench")
     testAssert.eq(bench.schema, 5)
-    testAssert.eq(bench.oldestbaselineschema, 2)
+    testAssert.eq(bench.oldest, 2)
     testAssert.eq(rawget(bench, "SCHEMA"), nil)
     testAssert.eq(rawget(bench, "OLDEST_BASELINE_SCHEMA"), nil)
     compile(
         [[
 local bench = debug.bench
-local measurement = new bench.Measurement(name = "x", kind = "case", medianms = 1.25, samplesms = {1.25})
+local measurement = bench.Measurement(name = "x", kind = "case", medianms = 1.25, samplesms = {1.25})
 local options: debug.bench.SuiteOptions = {
-    name = "x", variants = {}, cases = {}, baselinevariant = "base",
-    warmupiterations = 1, sampleiterations = 2, minsamples = 3,
-    mindurationms = 4, maxsamples = 5, maxdurationms = 6
+    name = "x", variants = {}, cases = {}, baseline = "base",
+    warmup = 1, batch = 2, minsamples = 3,
+    minms = 4, maxsamples = 5, maxms = 6
 }
-local format: debug.bench.FormatOptions = {geometricmean = true}
+local format: debug.bench.FormatOptions = {geomean = true}
 local frames = bench.frames("typed-only", budgetms = 16, count = 1)
 bench.keep(measurement.medianms)
 bench.keep(frames.budgetms)
-bench.keep(options.sampleiterations)
-bench.keep(format.geometricmean)
+bench.keep(options.batch)
+bench.keep(format.geomean)
 ]]
     )
 end
@@ -1013,7 +1013,7 @@ function M.schema4AdaptersTranslateOnlyMeasurementSlots()
     }
     local public = recordio.read(wire)
     testAssert.eq(public.cases[1].medianms, 1.25, "milliseconds retain their units")
-    testAssert.eq(public.cases[1].operationsperinvocation, 7)
+    testAssert.eq(public.cases[1].opspercall, 7)
     testAssert.eq(public.cases[1].medianMs, nil, "the old key is not a public alias")
     testAssert.eq(public.benchmarks[1].summary.samplesms[2], 2)
     testAssert.eq(public.benchmarks[1].forks[1].measurement.casename, "case")
@@ -1022,13 +1022,13 @@ function M.schema4AdaptersTranslateOnlyMeasurementSlots()
     assert(public.cases[1].extension == payload, "unknown payloads are not recursively renamed")
     testAssert.eq(payload.medianMs, "user value", "input objects are not mutated")
     testAssert.deepeq(recordio.write(public), wire, "schema4 keeps its original keys")
-    local decoded = assert(bench.decodebaseline(json.encode(wire), "schema4.json"))
+    local decoded = assert(bench.decode(json.encode(wire), "schema4.json"))
     testAssert.eq(decoded.cases[1].medianms, 1.25)
     testAssert.eq(decoded.cases[1].medianMs, nil)
     testAssert.deepeq(recordio.write(decoded), codec.decodevalue(json.encode(wire)))
     for schema = 2, 3 do
         local legacy = {schema = schema, cases = {{name = "x", medianSec = 2}}}
-        local accepted = assert(bench.decodebaseline(json.encode(legacy), "old.json"))
+        local accepted = assert(bench.decode(json.encode(legacy), "old.json"))
         testAssert.eq(accepted.cases[1].medianms, nil, "older seconds are not relabeled milliseconds")
         testAssert.eq(accepted.cases[1].medianSec, 2)
     end

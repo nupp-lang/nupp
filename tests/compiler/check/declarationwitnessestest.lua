@@ -34,8 +34,8 @@ function suite.interfaceWitnessesPreserveNominalCapabilities()
 
     rejected("local wrong: Type<Managed> = Native", "concrete witness mismatch")
     rejected("local wrong: Type<Value> = Other", "unclaimed interface")
-    rejected("local wrong: Type<Value> = new Managed()", "managed instance is not a witness")
-    rejected("local wrong: Type<Value> = new Native(0)", "native instance is not a witness")
+    rejected("local wrong: Type<Value> = Managed()", "managed instance is not a witness")
+    rejected("local wrong: Type<Value> = Native(0)", "native instance is not a witness")
 end
 
 function suite.annotationSourcesNormalizeEquivalentPaths()

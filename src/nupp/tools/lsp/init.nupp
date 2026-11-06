@@ -664,7 +664,7 @@ export function newSession(rootDir: string?, emit: function(any), host: Host?): 
                 -- Which compiled artifacts this server can produce. A client reads
                 -- this rather than asking for one to find out, so a server built
                 -- before a kind existed says so instead of erroring.
-                experimental = {nuppArtifacts = wire.array(artifactsMod.KINDS)},
+                experimental = {nuppArtifacts = wire.array(artifactsMod.KINDS), nuppDuplicates = true},
             },
             serverInfo = {name = "nupp-lsp", version = "0.1"},
         })
@@ -981,6 +981,68 @@ export function newSession(rootDir: string?, emit: function(any), host: Host?): 
         return "opaque"
     end
 
+    handlers["nupp/duplicates"] = function(id, params)
+        local duplicates = require("nupp.tools.duplicates")
+        local options, problem = duplicates.options(params and params.options)
+        if not options then
+            send({jsonrpc = "2.0", id = id, error = {code = -32602, message = problem}})
+            return
+        end
+
+        local function checkpoint()
+            if host then
+                host.pump()
+                if host.cancelled() then
+                    error(host.cancellation)
+                end
+            end
+        end
+
+        local sources, byPath = {}, {}
+
+        local function add(path, source)
+            path = fs.canonical(path)
+            if path:match("%.nupp$") and not path:match("%.d%.nupp$") and not byPath[path] then
+                local entry = {file = path, text = source}
+                sources[#sources + 1], byPath[path] = entry, entry
+            end
+        end
+
+        for _, entry in ipairs(s.roots) do
+            checkpoint()
+            local graph = graphFor(entry)
+            for _, path in ipairs(envMod.listSourceFiles(graph.env)) do
+                checkpoint()
+                add(path, graph.fileText(path))
+            end
+        end
+        for uri, doc in pairs(s.documents) do
+            local path = fs.canonical(uriToPath(uri))
+            add(path, doc.text)
+            if byPath[path] then
+                byPath[path].text, byPath[path].uri = doc.text, uri
+            end
+        end
+        local report = duplicates.scan(sources, options, checkpoint)
+        report.groups, report.diagnostics = wire.array(report.groups), wire.array(report.diagnostics)
+        for _, diagnostic in ipairs(report.diagnostics) do
+            diagnostic.fixes, diagnostic.notes, diagnostic.related = wire.array(
+                diagnostic.fixes
+            ), wire.array(diagnostic.notes), wire.array(diagnostic.related)
+        end
+        for _, group in ipairs(report.groups) do
+            group.occurrences = wire.array(group.occurrences)
+            for _, occurrence in ipairs(group.occurrences) do
+                local range = occurrence.range
+                occurrence.location = {
+                    uri = byPath[occurrence.file].uri or pathToUri(occurrence.file),
+                    range = spanRange(byPath[occurrence.file].text, range.start.offset, range["end"].offset),
+                }
+            end
+        end
+        respond(id, report)
+    end
+
     handlers["nupp/inspect"] = function(id, params)
         local _, doc, tok, offset = symbolAt(params)
         if not tok then
@@ -1094,7 +1156,11 @@ export function newSession(rootDir: string?, emit: function(any), host: Host?): 
             respond(id, json.NULL);
             return
         end
-        local ft = call.signatureType
+        local ft = require("nupp.compiler.constructors").signatureAt(call)
+        if not ft or ft.tag ~= "func" then
+            respond(id, json.NULL)
+            return
+        end
         local candidates = call.overloadCandidates or {ft}
         local name = "call"
         if call.kind == "methodCall" and call.name then
@@ -2020,13 +2086,13 @@ export function run(rootDir: string?): integer
     end
     -- A checkout's launcher is a shell script, which Windows cannot start.
     local relayArgs = require("nupp.compiler.process").isolatedArguments({executable, "__lsp-reader"})
-    local relayOptions: ChildOptions = {args = relayArgs, stdin = "inherit", stdout = "pipe", stderr = "inherit",}
+    local relayOptions: ChildOptions = {stdin = "inherit", stdout = "pipe", stderr = "inherit",}
     -- The relay lives in a managed cell rather than in this frame, because it is
     -- read from two places: the loop below, and `pump`, which the session keeps in
     -- `host` and calls from inside long work. A closure over a borrow of an owner
     -- held here could not be stored there; an alias is copyable and checks the cell
     -- at each use instead.
-    local spawned, spawnProblem = process.popen(relayOptions)
+    local spawned, spawnProblem = process.popen(relayArgs, relayOptions)
     if spawned == nil then
         io.stderr:write("nupp-lsp: cannot start the input relay: " .. tostring(spawnProblem) .. "\n")
         return 1

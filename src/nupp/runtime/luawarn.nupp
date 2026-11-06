@@ -1,0 +1,115 @@
+@!internal
+
+--[[
+Lua's global `warn` on the native core, with the contract main's `debug.log`
+gives the global it provides at startup (runtime Decision 12): its arguments,
+strings or numbers, are joined; a single "@on" or "@off" turns warnings on or
+off and any other single control is ignored; warnings start on; each is a
+line on standard error as `log`'s default formatter writes a warning from
+module "warn", "warn warn: " and the text. `debug.log` itself does not build
+on the core yet, so the line has no time stamp, and its sink and formatter do
+not reach it.
+
+The finalizers run through `finalize` too, which this module installs as it
+loads: the table's `__gc`, read as Lua reads it, is called as `lua_call` would
+call it, any callable, and when it raises, or is no function, the warning is
+Lua's luaE_warnerror's, "error in __gc (...)". A program that names `warn` or
+`__gc` carries this module, loaded as its entry starts.
+]]
+module nupp.runtime.luawarn
+
+const gccalls = require("nupp.runtime.gccalls")
+const filecalls = require("nupp.runtime.filecalls")
+
+-- Standard error's descriptor, and the line's start, a warning's level
+-- and module as `log` writes them.
+const STDERR = 2
+
+const PREFIX = "warn warn: "
+
+local enabled = true
+
+local function argument(value: any, index: integer): string
+    if type(value) == "string" then
+        return value
+    elseif type(value) == "number" then
+        return tostring(value)
+    end
+    error(("bad argument #%d to 'warn' (string expected, got %s)"):format(index, type(value)), 3)
+end
+
+-- Writes `text` to standard error, as far as it takes it.
+local function write(text: string): nil
+    local first: integer = 1
+    while first <= #text do
+        local wrote = filecalls.write(STDERR, text, first)
+        if wrote <= 0 then
+            return
+        end
+        first = first + wrote
+    end
+end
+
+-- Emits `message` when warnings are on.
+local function emit(message: string): nil
+    if enabled then
+        write(PREFIX .. message .. "\n")
+    end
+end
+
+local function warn(message: any, ...: any): nil
+    local parts = {argument(message, 1)}
+    for index = 1, select("#", ...) do
+        parts[index + 1] = argument(select(index, ...), index + 1)
+    end
+    if #parts == 1 and string.sub(parts[1], 1, 1) == "@" then
+        if parts[1] == "@on" then
+            enabled = true
+        elseif parts[1] == "@off" then
+            enabled = false
+        end
+        return
+    end
+    emit(table.concat(parts))
+end
+
+-- What calling `value` runs and the value it passes first: a function
+-- itself, nothing; a value whose metatable has a __call, that, with the
+-- value, as Lua's call does; else nil.
+local function callee(value: any): (any, any)
+    if type(value) == "function" then
+        return value, nil
+    end
+    local mt: any = getmetatable(value)
+    if type(mt) == "table" and rawget(mt, "__call") ~= nil then
+        return rawget(mt, "__call"), value
+    end
+
+    return nil, nil
+end
+
+local function finalize(object: any): nil
+    local handler = gccalls.handler(object)
+    if handler == nil then
+        return
+    end
+    local call, self = callee(handler)
+    if call == nil then
+        emit("error in __gc (attempt to call a " .. type(handler) .. " value (metamethod '__gc'))")
+        return
+    end
+    local ok: boolean, problem: any = true, nil
+    if self ~= nil then
+        ok, problem = pcall(call, self, object)
+    else
+        ok, problem = pcall(call, object)
+    end
+    if not ok then
+        local text = type(problem) == "string" and problem or "error object is not a string"
+        emit("error in __gc (" .. text .. ")")
+    end
+end
+
+gccalls.install(finalize)
+
+export const functions: {[string]: any} = {warn = warn}

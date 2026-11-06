@@ -16,7 +16,7 @@ codepoint value to its bytes.
 
 Offsets here are 1-based, so they compose with Lua string positions and with
 `string.sub` on the same text. This is the opposite of the zero-based offsets a
-[buffer](io#buffers) uses, because those are offsets into storage rather
+[buffer](io.Buffer) uses, because those are offsets into storage rather
 than positions in text.
 
 ## Decoding a scalar
@@ -75,11 +75,6 @@ assert(utf8.truncate("A€B", 4) == "A€")
 
 `truncate` takes a string, since it returns one. Operations that read bytes
 accept a string or a byte view.
-
-::: seealso
-- [](io#byte-views) for the byte views these operations accept
-- [](serde.json) for JSON encoding and decoding
-:::
 ]]
 module utf8
 

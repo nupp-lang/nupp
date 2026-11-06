@@ -8,8 +8,9 @@ export const ERROR_PC: int64 = 32
 export const UNLIMITED: uint64 = 0xffffffffffffffffULL
 export const BUDGET_STATUS: uint64 = 2ULL
 export const CANCELLED_STATUS: uint64 = 3ULL
--- A guest operation raised an error, such as integer modulo by zero. The core
--- has no error values yet, so ERROR_OWNER and ERROR_PC identify the raise.
+-- A guest error no protected call took, such as integer modulo by zero; the
+-- program has reported it on standard error (guestreport). ERROR_OWNER and
+-- ERROR_PC identify the raise.
 export const GUEST_ERROR_STATUS: uint64 = 6ULL
 
 -- The entry owns this mapped extent; dispatch remains immutable while active.

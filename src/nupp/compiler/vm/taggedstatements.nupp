@@ -87,17 +87,6 @@ export function binary(ctx: any, node: any, expected: string?, version: integer)
     return ctx.emit(node, op, operands, "tagged")
 end
 
--- Whether record declaration `stat` declares fields and nested types only.
-export function fieldsOnly(stat: any): boolean
-    for _, entry in ipairs(stat.entries or {}) do
-        if entry.kind ~= "fieldDecl" and entry.kind ~= "typeAlias" then
-            return false
-        end
-    end
-
-    return true
-end
-
 local function booleanCondition(t: any): boolean
     while t and (t.tag == "literal" or t.tag == "const" or t.tag == "constrained") do
         t = t.tag == "const" and t.inner or t.base

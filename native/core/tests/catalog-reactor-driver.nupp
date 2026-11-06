@@ -38,7 +38,7 @@ local function waker(): reactor.Waker?
     end
 
     return function(completion: reactor.Completion): nil
-        ready[#ready + 1] = new Ready(task = task, value = completion)
+        ready[#ready + 1] = Ready(task = task, value = completion)
     end
 end
 
@@ -60,13 +60,13 @@ local function park(): reactor.Completion
     return suspend() as reactor.Completion
 end
 
-reactor.install(new reactor.Parker(waker = waker, park = park))
+reactor.install(reactor.Parker(waker = waker, park = park))
 
 --- Starts `body` as a task, which runs when `run` next turns: its handle.
 export function spawn(body: function(): nil): integer
     lasttask = lasttask + 1
     bodies[lasttask] = coroutine.create(body)
-    ready[#ready + 1] = new Ready(task = lasttask, value = nil)
+    ready[#ready + 1] = Ready(task = lasttask, value = nil)
 
     return lasttask
 end
@@ -81,7 +81,7 @@ export function sleep(millis: number): nil
     while index > 1 and timers[index - 1].at > at do
         index = index - 1
     end
-    table.insert(timers, index, new Timer(at = at, task = running))
+    table.insert(timers, index, Timer(at = at, task = running))
     suspend()
 end
 
@@ -94,7 +94,7 @@ export function cancel(task: integer): nil
             break
         end
     end
-    ready[#ready + 1] = new Ready(task = task, value = CANCELLED)
+    ready[#ready + 1] = Ready(task = task, value = CANCELLED)
 end
 
 --- Runs tasks until none can run, no timer is set and nothing is pending
@@ -117,7 +117,7 @@ export function run(): nil
         local now = os.monotonic()
         while #timers > 0 and timers[1].at <= now do
             local due = table.remove(timers, 1)
-            ready[#ready + 1] = new Ready(task = due.task, value = nil)
+            ready[#ready + 1] = Ready(task = due.task, value = nil)
         end
         if #ready == 0 then
             if #timers == 0 and reactor.pending() == 0 then

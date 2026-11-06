@@ -1,0 +1,180 @@
+@!internal
+module io.internal.pathtypes
+
+const _IMPLEMENTATION_REQUIRES = "@requires-dynamically io.internal.path"
+local paths: any = nil
+
+local function implementation(name: string): any
+    if paths == nil then
+        paths = require(name)
+    end
+    return paths
+end
+
+--- A filesystem or app-owned storage path.
+---
+--- Paths from [](os.appdir) carry their storage identity privately. Joining
+--- appends portable single components, and `parent` stops at the app root.
+--- `normalize` and `absolute` preserve these paths; `resolve` appends components.
+--- Browser storage paths do not support `canonicalize`, and app paths do not
+--- support `relativeto`. Native canonicalization returns a filesystem path.
+--- Converting a storage path to text and rebuilding it grants no storage access.
+--- @export
+export record Path
+    --- Builds a path by joining components using the platform's rules.
+    --- Recent filesystem paths reuse a bounded cache. Passing an app path as the
+    --- first component preserves its storage identity.
+    ---
+    --- #### Examples
+    ---
+    --- ```nupp
+    --- local source = io.Path.of("src", "main.nupp")
+    --- ```
+    --- @param first the first path component
+    --- @param ... the remaining path components
+    --- @return the joined path
+    function of(first: string | Path, ...: string | Path): Path
+        return implementation("io.internal.path").newpath(first, ...)
+    end
+
+    --- The UTF-8 display or native path text.
+    @private _text: string
+
+    --- Returns the UTF-8 display or native path text.
+    --- @param self this path
+    --- @return the path text
+    function tostring(self): string
+        return self._text
+    end
+
+    --- Appends path components using the current platform's rules.
+    --- @param self this path
+    --- @param ... the components to append
+    --- @return the joined path
+    function join(self, ...: string | Path): Path
+        return implementation("io.internal.path").join(self, ...)
+    end
+
+    --- Removes lexical `.` and `..` components without accessing the filesystem.
+    --- @param self this path
+    --- @return the normalized path
+    function normalize(self): Path
+        return implementation("io.internal.path").normalize(self)
+    end
+
+    --- Resolves this path against the process's current working directory.
+    ---
+    --- A drive-relative Windows path can be resolved only when the current
+    --- directory is on that drive.
+    --- @param self this path
+    --- @return the absolute path, or nil on failure
+    --- @return a failure reason, when unsuccessful
+    function absolute(self): (Path?, string?)
+        return implementation("io.internal.path").absolute(self)
+    end
+
+    --- Makes this path absolute, appends components, and normalizes the result.
+    --- @param self this path
+    --- @param ... the components to append
+    --- @return the resolved path, or nil on failure
+    --- @return a failure reason, when unsuccessful
+    function resolve(self, ...: string | Path): (Path?, string?)
+        return implementation("io.internal.path").resolve(self, ...)
+    end
+
+    --- Resolves every symbolic link and `..`, which requires the path to exist.
+    ---
+    --- This reads the filesystem, where `normalize` works on the text alone, so
+    --- it fails on a path that is not there.
+    --- @param self this path
+    --- @return the canonical path, or nil on failure
+    --- @return a failure reason, when unsuccessful
+    function canonicalize(self): (Path?, string?)
+        return implementation("io.internal.path").canonicalize(self)
+    end
+
+    --- Expresses this path relative to another. A path expressed against itself
+    --- returns `.`, the path that stays where the base already is.
+    --- @param self this path
+    --- @param base the path to express this one against
+    --- @return the relative path, or nil when there is no relative form
+    --- @return a failure reason, when unsuccessful
+    function relativeto(self, base: string | Path): (Path?, string?)
+        return implementation("io.internal.path").relativeto(self, base)
+    end
+
+    --- The path without its final component.
+    --- @param self this path
+    --- @return the parent, or nil when there is none
+    function parent(self): Path?
+        return implementation("io.internal.path").parent(self)
+    end
+
+    --- The final component, extension included.
+    --- @param self this path
+    --- @return the file name, or nil when the path ends in a directory component
+    function filename(self): string?
+        return implementation("io.internal.path").filename(self)
+    end
+
+    --- The final component without its extension.
+    --- @param self this path
+    --- @return the stem, or nil when there is no file name
+    function stem(self): string?
+        return implementation("io.internal.path").stem(self)
+    end
+
+    --- The final component's extension, without the dot.
+    --- @param self this path
+    --- @return the extension, or nil when there is none
+    function extension(self): string?
+        return implementation("io.internal.path").extension(self)
+    end
+
+    --- The path with its final component replaced.
+    --- @param self this path
+    --- @param name the file name to use
+    --- @return the new path
+    --- @raises string when name is not one component: empty, `.`, `..`, or
+    ---     holding a sep or NUL byte (or, on Windows, a colon)
+    function withfilename(self, name: string): Path
+        return implementation("io.internal.path").withfilename(self, name)
+    end
+
+    --- The path with its extension replaced.
+    --- @param self this path
+    --- @param extension the extension to use, without the dot
+    --- @return the new path
+    --- @raises string when extension holds a sep or NUL byte (or, on
+    ---     Windows, a colon)
+    function withextension(self, extension: string): Path
+        return implementation("io.internal.path").withextension(self, extension)
+    end
+
+    --- Whether the path is anchored at a root.
+    --- @param self this path
+    --- @return whether the path is absolute
+    function isabsolute(self): boolean
+        return implementation("io.internal.path").isabsolute(self)
+    end
+
+    --- Whether the path is interpreted against a working directory.
+    --- @param self this path
+    --- @return whether the path is relative
+    function isrelative(self): boolean
+        return implementation("io.internal.path").isrelative(self)
+    end
+
+    metamethod __tostring: function(self): string
+    metamethod __eq: function(self, any): boolean
+end
+
+    ;
+(Path as {[string]: any}).__tostring = function(self: Path): string
+    return self:tostring()
+end
+
+    ;
+(Path as {[string]: any}).__eq = function(left: Path, right: Path): boolean
+    return implementation("io.internal.path").equal(left, right)
+end

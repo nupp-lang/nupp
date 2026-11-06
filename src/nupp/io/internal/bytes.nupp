@@ -78,6 +78,7 @@ local function range(length: integer, offset: any, count: any, what: string, lev
 end
 
 const _SCALAR_REQUIRES = "@requires-dynamically nupp.io.internal.scalars"
+const _FILE_REQUIRES = "@requires-dynamically io.internal.fileviews"
 local scalarModule: any = nil
 
 local function scalarImplementation(name: string): any
@@ -85,6 +86,11 @@ local function scalarImplementation(name: string): any
         scalarModule = require(name)
     end
     return scalarModule
+end
+
+-- The file views need native storage, so they load only when a file is adapted.
+local function fileImplementation(name: string): any
+    return require(name)
 end
 
 --- Reads fixed-width numbers from a source of bytes.
@@ -376,6 +382,11 @@ end
 -- Owners
 ----------------------------------------------------------------------------
 
+local readSource: function(source: string | ByteQueue): Reader
+local readBorrowed: function(borrows source: Buffer | ByteView): Reader
+local writeBuffer: function(exclusive destination: Buffer): affine(Writer) borrows (destination)
+local createBuffer: function(initial: integer | string?): affine(Buffer)
+
 --- An appending byte sink.
 ---
 --- The counterpart of `Reader`, and an interface for the same reason: a buffer,
@@ -383,6 +394,18 @@ end
 --- against the contract fills any of them.
 --- @export
 export interface Writer is own.Closeable
+    --- Clears and exclusively borrows a buffer as a byte sink.
+    function of(exclusive destination: Buffer): affine(Writer) borrows (destination)
+        return writeBuffer(destination)
+    end
+
+    --- Takes an open file as a byte sink. Closing the writer closes the file.
+    function of(takes file: io.File): affine(Writer)
+        local create: function(
+            takes file: io.File
+        ): affine(Writer) = fileImplementation("io.internal.fileviews").ownedwriter
+        return create(file)
+    end
 
     --- Appends bytes.
     --- @param self this writer
@@ -445,6 +468,14 @@ export sealed interface Lines is own.Closeable
 end
 
 local makeLines: function(takes source: Reader, limit: integer?): affine(Lines)
+local readThrough: function(
+    exclusive source: Reader,
+    exclusive destination: Buffer,
+    offset: integer?,
+    count: integer?
+): (integer?, string?)
+local transferThrough: function(exclusive source: Reader, exclusive destination: Writer): (integer?, string?)
+local readAll: function(takes source: Reader, maxbytes: integer?): (string?, string?)
 
 --- A forward-only byte source.
 ---
@@ -454,6 +485,15 @@ local makeLines: function(takes source: Reader, limit: integer?): affine(Lines)
 --- which it has.
 --- @export
 export interface Reader is own.Closeable
+    --- Reads a string snapshot or drains a caller-owned byte queue.
+    function of(source: string | ByteQueue): Reader
+        return readSource(source)
+    end
+
+    --- Copies a buffer or view into an independent reader snapshot.
+    function of(borrows source: Buffer | ByteView): Reader
+        return readBorrowed(source)
+    end
 
     --- Reads up to `count` bytes.
     ---
@@ -474,26 +514,48 @@ export interface Reader is own.Closeable
 
     --- Reads into a buffer.
     ---
-    --- A zero answer is the end.
+    --- A zero answer is the end. The offset and count are checked before anything
+    --- is read, so a malformed call consumes no input. This default reads through
+    --- `read` and copies; a reader that can fill the buffer directly overrides it.
     --- @param self this reader
     --- @param destination the buffer to write into
     --- @param offset where in the destination to start, or the beginning
     --- @param count the most bytes to read
     --- @return how many bytes were read, or nil when the reader is closed
     --- @return why it could not read, when unsuccessful
-    readinto: function(
-        exclusive self: Reader,
+    --- @raises string when offset is negative or count is not a positive integer
+    function readinto(
+        exclusive self,
         exclusive destination: Buffer,
         offset: integer?,
         count: integer?
     ): (integer?, string?)
+        return readThrough(self, destination, offset, count)
+    end
 
     --- Writes everything left to a writer.
+    ---
+    --- This default moves the bytes through `read` and `write`; a reader holding
+    --- them in memory overrides it to hand over spans instead.
     --- @param self this reader
     --- @param destination the writer to fill
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
-    transferto: function(exclusive self: Reader, exclusive destination: Writer): (integer?, string?)
+    function transferto(exclusive self, exclusive destination: Writer): (integer?, string?)
+        return transferThrough(self, destination)
+    end
+
+    --- Takes this reader and returns its remaining bytes as a string.
+    ---
+    --- The reader closes on success or failure. A limit is checked as bytes arrive.
+    --- @param self the reader to drain
+    --- @param maxbytes the most bytes to accept, or no limit
+    --- @return the bytes, or nil when the reader failed or exceeded the limit
+    --- @return why it could not read, when unsuccessful
+    --- @raises string when maxbytes is not a positive integer
+    function readall(takes self, maxbytes: integer?): (string?, string?)
+        return readAll(self, maxbytes)
+    end
 
     --- Takes this reader and separates its bytes into lines.
     ---
@@ -685,6 +747,11 @@ end
 --- Growable byte storage whose pointer and logical length never escape separately.
 --- @export
 export sealed interface Buffer is own.Closeable
+    --- Creates growable byte storage from bytes or a starting capacity.
+    function create(initial: integer | string?): affine(Buffer)
+        return createBuffer(initial)
+    end
+
     len: function(borrows self: Buffer): integer
     capacity: function(borrows self: Buffer): integer
     clear: function(exclusive self: Buffer): nil
@@ -869,7 +936,7 @@ newWriteLease = function(
     count: integer
 ): affine(BufferWriteLease, destroyLease) borrows (buffer)
     local state = buffer as any
-    return new WriteLease(
+    return WriteLease(
         anchor = buffer,
         state = state,
         pointer = (state._data + offset) as uint8[?],
@@ -1272,7 +1339,7 @@ bytesAt = function(borrows self: Buffer, offset: integer, count: integer): strin
 end
 
 newView = function(bytes: string): affine(ByteView)
-    return new Snapshot(_bytes = bytes, _closed = false)
+    return Snapshot(_bytes = bytes, _closed = false)
 end
 
 --- Returns a finite byte count for the built-in reader representations.
@@ -1288,11 +1355,11 @@ export function readerRemaining(borrows source: Reader): integer?
 end
 
 newReaderOver = function(bytes: string): Reader
-    return new StringReader(_bytes = bytes, _at = 1, _closed = false)
+    return StringReader(_bytes = bytes, _at = 1, _closed = false)
 end
 
 newWriterOver = function(borrows buffer: Buffer): affine(Writer) borrows (buffer)
-    return new BufferWriter(anchor = buffer, _buffer = buffer, _at = 0, _closed = false)
+    return BufferWriter(anchor = buffer, _buffer = buffer, _at = 0, _closed = false)
 end
 
 ----------------------------------------------------------------------------
@@ -1322,10 +1389,10 @@ end
 --- content, and the buffer is still empty afterwards.
 ---
 --- ```nupp
---- local buffer = io.newbuffer("hello")
+--- local buffer = io.Buffer.create("hello")
 --- assert(buffer:len() == 5)
 ---
---- local sized = io.newbuffer(4096)
+--- local sized = io.Buffer.create(4096)
 --- assert(sized:len() == 0 and sized:capacity() == 4096)
 --- ```
 ---
@@ -1335,17 +1402,19 @@ end
 --- @export
 export function newBuffer(initial: integer | string?): affine(Buffer)
     if initial ~= nil and type(initial) ~= "number" and type(initial) ~= "string" then
-        error("nupp: io.newbuffer initial value must be bytes or a capacity", 2)
+        error("nupp: io.Buffer.create initial value must be bytes or a capacity", 2)
     end
     local bytes = type(initial) == "string" and initial as string or ""
-    local capacity = type(initial) == "number" and integer_(initial, "io.newbuffer capacity", 2) or #bytes
+    local capacity = type(initial) == "number" and integer_(initial, "io.Buffer.create capacity", 2) or #bytes
     local data = physical.allocateBytes(math.max(capacity, 1))
     if #bytes > 0 then
         physical.copy(data, bytes, #bytes)
     end
 
-    return new HeapBuffer(_data = data, _length = #bytes, _capacity = capacity, _closed = false)
+    return HeapBuffer(_data = data, _length = #bytes, _capacity = capacity, _closed = false)
 end
+
+createBuffer = newBuffer
 
 --- Opens a reader over bytes held as a string.
 ---
@@ -1355,7 +1424,7 @@ end
 ---
 --- ```nupp
 ---
---- local reader = io.newreader("hello")
+--- local reader = io.Reader.of("hello")
 --- assert(reader:read(5) == "hello")
 --- assert(reader:read(1) == "")
 --- ```
@@ -1366,7 +1435,7 @@ end
 --- @export
 export function newStringReader(text: string): Reader
     if type(text) ~= "string" then
-        error("nupp: io.newreader needs a string", 2)
+        error("nupp: io.Reader.of needs a string", 2)
     end
 
     return newReaderOver(text)
@@ -1384,10 +1453,10 @@ end
 --- @export
 export function newQueueReader(source: ByteQueue): Reader
     if not queueLike(source) then
-        error("nupp: io.newreader needs a byte queue", 2)
+        error("nupp: io.Reader.of needs a byte queue", 2)
     end
 
-    return new QueueReader(_source = source, _closed = false)
+    return QueueReader(_source = source, _closed = false)
 end
 
 -- Both buffer and view inputs are copied into an independent snapshot.
@@ -1408,26 +1477,36 @@ end
 export const newReader: function(source: string | ByteQueue): Reader
     & function(borrows source: Buffer | ByteView): Reader = openReader as any
 
+readSource = openReader as any
+readBorrowed = openReader as any
+-- Checked overloads retain their distinct borrow contracts; Lua and stored
+-- references use the same implementation and runtime source discrimination.
+rawset(Reader, "of", openReader)
+
 --- Opens a byte writer that clears and exclusively borrows a buffer.
 export function newWriter(exclusive destination: Buffer): affine(Writer) borrows (destination)
     return destination:writer()
 end
 
---- Reads a reader to its end and returns everything it held as a string.
----
---- The reader is taken, and closed on every way out. A limit is checked as the
---- bytes arrive, so a source larger than it returns a reason having read at
---- most one window past the limit rather than holding the whole of it.
---- @param reader the reader to drain
---- @param maxbytes the most bytes to accept, or no limit
---- @return the bytes, or nil when the reader failed or held more than the limit
---- @return why it could not, when unsuccessful
---- @raises string when maxbytes is not a positive integer
---- @export
-export function readAll(takes reader: Reader, maxbytes: integer?): (string?, string?)
+writeBuffer = newWriter
+
+-- Both `Writer.of` forms share one runtime entry: a file is taken and closed with the
+-- writer, and anything else is a buffer borrowed for the writer's life.
+local function openWriter(destination: any): any
+    const publicIo: any = rawget(_G, "io")
+    if publicIo ~= nil and publicIo.type(destination) ~= nil then
+        return fileImplementation("io.internal.fileviews").ownedwriter(destination)
+    end
+
+    return destination:writer()
+end
+
+rawset(Writer, "of", openWriter)
+
+readAll = function(takes reader: Reader, maxbytes: integer?): (string?, string?)
     local limit: integer? = nil
     if maxbytes ~= nil then
-        limit = positive(maxbytes, "io.readall maxbytes", 2)
+        limit = positive(maxbytes, "Reader:readall maxbytes", 2)
     end
     local parts: {string} = {}
     local total: integer = 0
@@ -1564,5 +1643,57 @@ end
 makeLines = function(takes source: Reader, limit: integer?): affine(Lines)
     const bound = positive(limit or 65536, "io.Reader:lines limit", 2)
 
-    return new LineReader(_source = source, _held = "", _at = 0, _limit = bound, _closed = false, _ended = false)
+    return LineReader(_source = source, _held = "", _at = 0, _limit = bound, _closed = false, _ended = false)
+end
+
+-- The default `readinto`: checked before reading, so a malformed call consumes no
+-- input. Level 4 names whoever called `readinto`.
+readThrough = function(
+    exclusive source: Reader,
+    exclusive destination: Buffer,
+    offset: integer?,
+    count: integer?
+): (integer?, string?)
+    const from = integer_(offset or 0, "Reader:readinto offset", 4)
+    const wanted = positive(count or DEFAULT_READ, "Reader:readinto count", 4)
+    sizeSum(from, wanted, "Reader:readinto range", 4)
+    const chunk, why = source:read(wanted)
+    if chunk == nil then
+        return nil, why
+    end
+    const landed = #chunk as integer
+    if landed > 0 then
+        const input = span.fromstring(chunk)
+        const lease = destination:reservewrite(from, landed)
+        do
+            const output = lease:span()
+            for index = 1, landed do
+                output[index] = input[index]
+            end
+            own.drop(output)
+        end
+        lease:commit(landed)
+    end
+
+    return landed, nil
+end
+
+-- The default `transferto`.
+transferThrough = function(exclusive source: Reader, exclusive destination: Writer): (integer?, string?)
+    const size = DEFAULT_READ as integer
+    local moved: integer = 0
+    while true do
+        const chunk, why = source:read(size)
+        if chunk == nil then
+            return nil, why
+        end
+        if #chunk == 0 then
+            return moved, nil
+        end
+        const wrote, failure = destination:write(chunk)
+        if not wrote then
+            return nil, failure
+        end
+        moved = moved + (#chunk as integer)
+    end
 end

@@ -32,8 +32,8 @@ export function prepare(directory: string, digest: string): string
             local result = oracle.run(
                 f,
                 args,
-                new oracle.Memory(bytes = {}, stackBase = 0),
-                new oracle.Hooks(call = nil, fma64 = nil),
+                oracle.Memory(bytes = {}, stackBase = 0),
+                oracle.Hooks(call = nil, fma64 = nil),
                 1000
             )
             assert(result.status == expected, name .. ": oracle status " .. tostring(result.status))

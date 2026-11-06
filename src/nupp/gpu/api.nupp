@@ -23,7 +23,7 @@ module initialization; resource methods operate on the resulting context.
 module nupp.gpu.api
 
 local {type Span, type WriteSpan} = require("binary.span")
-local {type Layout as TensorLayout} = require("io.gpu.layout")
+local {type Layout as TensorLayout} = require("nupp.gpu.layout")
 local {type Scalar} = require("nupp.array")
 
 --- Typed resident device storage or a view borrowing its owning context.

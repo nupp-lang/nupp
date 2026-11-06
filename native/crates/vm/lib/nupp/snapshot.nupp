@@ -175,7 +175,7 @@ export function prepare(bytes: string, options: Options?): affine(Prepared)
         end
     end
 
-    return new Prepared(_value = value, _staged = staged, _resources = resources, _open = true)
+    return Prepared(_value = value, _staged = staged, _resources = resources, _open = true)
 end
 
 --- Restores a graph and publishes it: `prepare` and `publish` in one step.

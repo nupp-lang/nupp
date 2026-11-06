@@ -1,0 +1,76 @@
+@!internal
+module io.internal.boundedcache
+
+local record Entry<T is own.Copyable>
+    @readonly key: string
+    value: T
+    older: Entry<T>?
+    newer: Entry<T>?
+end
+
+export record Cache<T is own.Copyable>
+    @private @readonly capacity: integer
+    @private @readonly entries: {[string]: Entry<T>}
+    @private size: integer
+    @private newest: Entry<T>?
+    @private oldest: Entry<T>?
+
+    function get(exclusive self, key: string): T?
+        local found = self.entries[key]
+        if found == nil then
+            return nil
+        end
+        if found ~= self.newest then
+            local older, newer = found.older, found.newer
+            if older ~= nil then
+                older.newer = newer
+            else
+                self.oldest = newer
+            end
+            if newer ~= nil then
+                newer.older = older
+            end
+            found.older = self.newest
+            found.newer = nil
+            if newest = self.newest then
+                newest.newer = found
+            end
+            self.newest = found
+        end
+
+        return found.value
+    end
+
+    function put(exclusive self, key: string, value: T): nil
+        local found = self.entries[key]
+        if found ~= nil then
+            found.value = value
+            self:get(key)
+            return
+        end
+        local entry = Entry(key = key, value = value, older = self.newest, newer = nil)
+        if newest = self.newest then
+            newest.newer = entry
+        else
+            self.oldest = entry
+        end
+        self.newest = entry
+        self.entries[key] = entry
+        self.size = self.size + 1
+        if self.size > self.capacity then
+            local evicted = self.oldest as Entry<T>
+            self.oldest = evicted.newer
+            if oldest = self.oldest then
+                oldest.older = nil
+            else
+                self.newest = nil
+            end
+            self.entries[evicted.key] = nil
+            self.size = self.size - 1
+        end
+    end
+end
+
+export function create<T is own.Copyable>(capacity: integer): Cache<T>
+    return Cache(capacity = capacity, entries = {}, size = 0, newest = nil, oldest = nil)
+end

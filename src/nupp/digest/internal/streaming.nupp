@@ -22,7 +22,7 @@ The streaming algorithms use the target's 32-bit operations. A selected
 `crypto.hmac_sha256` implementation supplies the one-shot HMAC functions.
 The module resolves that optional implementation during initialization.
 
-Public callers use [](binary.digest) or [](binary.mac); these snapshot
+Public callers use [](binary.Digest) or [](binary.Mac); these snapshot
 engines are private implementation details of their consuming provider contexts.
 ]]
 module nupp.digest.internal.streaming
@@ -274,7 +274,7 @@ function Sha256:update(bytes: string): hash.Hasher
 end
 
 local function copy(source: Sha256): Sha256
-    local target = new Sha256()
+    local target = Sha256()
     for index = 1, 8 do
         target.state[index] = wordAt(source.state, index)
     end
@@ -356,7 +356,7 @@ function Sha256.writeDigest(self: Sha256, exclusive destination: span.ByteWriteS
 end
 
 local function sha256(): Sha256
-    return new Sha256()
+    return Sha256()
 end
 
 local function xorPad(key: string, pad: integer): string
@@ -421,11 +421,11 @@ end
 --- Starts a streaming HMAC-SHA256 digest with `key`.
 --- @export
 function hash.hmac(key: string): hash.Hasher
-    return new Hmac(key)
+    return Hmac(key)
 end
 
 local function oneShot(key: string, message: string): Hmac
-    local mac = new Hmac(key)
+    local mac = Hmac(key)
     mac:update(message)
 
     return mac

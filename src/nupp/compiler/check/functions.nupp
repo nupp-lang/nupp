@@ -19,6 +19,23 @@ local preferComptime = require("nupp.compiler.check.prefercomptime")
 local isA = relations.isA
 local rawType = T.unwrapOwnership
 
+local function mutationSummary(target: any, body: any): nil
+    target.mutatesParams = body.mutatesParams
+    target.mutatesParamPaths = body.mutatesParamPaths
+    target.mutatesSelfPaths = body.mutatesSelfPaths
+    target.mutatesCapturedEntries = body.mutatesCapturedEntries
+    target.mutatesCapturedPaths = body.mutatesCapturedPaths
+    target.mutatesSelf = body.mutatesSelf
+    target.mutationSummaryKnown = true
+end
+
+local function publishMutationSummary(entry: any, body: any): nil
+    mutationSummary(entry, body)
+    if entry.definition then
+        mutationSummary(entry.definition, body)
+    end
+end
+
 --- A type, as types builds them.
 local type Type = T.Type
 
@@ -378,8 +395,6 @@ export function install(c: state.Checker): state.StatHandlers
             end
             if expr and expr.kind == "namedArg" then
                 return directParameter(expr.value)
-            elseif expr and expr.kind == "newExpr" then
-                return directParameter(expr.call)
             end
             if expr and expr.kind == "call" then
                 local source = expr.preservesArguments and expr.preservesArguments[1] or nil
@@ -1149,11 +1164,11 @@ export function install(c: state.Checker): state.StatHandlers
         body.partitionReturnSeen = {}
         c.checkBlock(body.body, true) -- scope already pushed
         restoreCapturedNarrowing()
-        -- Running off the end returns nothing, which a declared result has to admit
-        -- the way it would admit `return` with no values. A constructor's result is
-        -- what `new` yields, not what its body returns. In a declaration tree an empty
-        -- body is a stub, the way a LuaCATS library spells a signature, not a body that
-        -- forgot to return.
+        -- Running off the end returns nothing, which a declared result has to admit the
+        -- way it would admit `return` with no values. A constructor's result is what
+        -- construction yields, not what its body returns. In a declaration tree an
+        -- empty body is a stub, the way a LuaCATS library spells a signature, not a
+        -- body that forgot to return.
         local stub = c.declarationFile and body.body ~= nil and #(body.body.stats or {}) == 0
         if annotated and #annotated > 0 and not body.constructorOwner and not stub and c.fallsThrough(body.body) then
             local missing = nil
@@ -1749,24 +1764,7 @@ export function install(c: state.Checker): state.StatHandlers
         c.bindVar(nameTok.text, boundType)
         local functionEntry = c.scope.vars[nameTok.text]
         if functionEntry then
-            functionEntry.mutatesParams = checkedBody.mutatesParams
-            functionEntry.mutatesParamPaths = checkedBody.mutatesParamPaths
-            functionEntry.mutatesSelfPaths = checkedBody.mutatesSelfPaths
-            functionEntry.mutatesCapturedEntries = checkedBody.mutatesCapturedEntries
-            functionEntry.mutatesCapturedPaths = checkedBody.mutatesCapturedPaths
-            functionEntry.mutatesSelf = checkedBody.mutatesSelf
-            functionEntry.mutationSummaryKnown = true
-            if functionEntry.definition then
-                functionEntry.definition.mutatesParams = checkedBody.mutatesParams
-                functionEntry.definition.mutatesParamPaths = checkedBody.mutatesParamPaths
-                functionEntry.definition.mutatesSelfPaths = checkedBody.mutatesSelfPaths
-                functionEntry.definition.mutatesParamPaths = checkedBody.mutatesParamPaths
-                functionEntry.definition.mutatesSelfPaths = checkedBody.mutatesSelfPaths
-                functionEntry.definition.mutatesCapturedEntries = checkedBody.mutatesCapturedEntries
-                functionEntry.definition.mutatesCapturedPaths = checkedBody.mutatesCapturedPaths
-                functionEntry.definition.mutatesSelf = checkedBody.mutatesSelf
-                functionEntry.definition.mutationSummaryKnown = true
-            end
+            publishMutationSummary(functionEntry, checkedBody)
             if #borrowed > 0 then
                 local roots = {}
                 for _, capture in ipairs(borrowed) do
@@ -1863,13 +1861,7 @@ export function install(c: state.Checker): state.StatHandlers
         if memberDefinition then
             memberDefinition.type = ft
             local checkedBody: any = body
-            memberDefinition.mutatesParams = checkedBody.mutatesParams
-            memberDefinition.mutatesParamPaths = checkedBody.mutatesParamPaths
-            memberDefinition.mutatesSelfPaths = checkedBody.mutatesSelfPaths
-            memberDefinition.mutatesCapturedEntries = checkedBody.mutatesCapturedEntries
-            memberDefinition.mutatesCapturedPaths = checkedBody.mutatesCapturedPaths
-            memberDefinition.mutatesSelf = checkedBody.mutatesSelf
-            memberDefinition.mutationSummaryKnown = true
+            mutationSummary(memberDefinition, checkedBody)
             c.markToken(memberTok, memberDefinition, ft, memberDefinition.kind)
         end
         if not fname.method and ownerKey and memberTok and memberDefinition then
@@ -2067,24 +2059,7 @@ export function install(c: state.Checker): state.StatHandlers
             -- A global function: a best-effort bind.
             local functionEntry = c.bindVar(fname.base.text, ft)
             local checkedBody: any = body
-            functionEntry.mutatesParams = checkedBody.mutatesParams
-            functionEntry.mutatesParamPaths = checkedBody.mutatesParamPaths
-            functionEntry.mutatesSelfPaths = checkedBody.mutatesSelfPaths
-            functionEntry.mutatesCapturedEntries = checkedBody.mutatesCapturedEntries
-            functionEntry.mutatesCapturedPaths = checkedBody.mutatesCapturedPaths
-            functionEntry.mutatesSelf = checkedBody.mutatesSelf
-            functionEntry.mutationSummaryKnown = true
-            if functionEntry.definition then
-                functionEntry.definition.mutatesParams = checkedBody.mutatesParams
-                functionEntry.definition.mutatesParamPaths = checkedBody.mutatesParamPaths
-                functionEntry.definition.mutatesSelfPaths = checkedBody.mutatesSelfPaths
-                functionEntry.definition.mutatesParamPaths = checkedBody.mutatesParamPaths
-                functionEntry.definition.mutatesSelfPaths = checkedBody.mutatesSelfPaths
-                functionEntry.definition.mutatesCapturedEntries = checkedBody.mutatesCapturedEntries
-                functionEntry.definition.mutatesCapturedPaths = checkedBody.mutatesCapturedPaths
-                functionEntry.definition.mutatesSelf = checkedBody.mutatesSelf
-                functionEntry.definition.mutationSummaryKnown = true
-            end
+            publishMutationSummary(functionEntry, checkedBody)
         end
     end
 

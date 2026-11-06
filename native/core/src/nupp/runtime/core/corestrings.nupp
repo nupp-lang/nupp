@@ -222,7 +222,7 @@ end
 -- a .. b as an interned string.
 export function concat(h: heap.Heap*, a: uint64, b: uint64): uint64
     @unsafe do
-        local state = new Builder(0ULL, 0ULL, 0ULL)
+        local state = Builder(0ULL, 0ULL, 0ULL)
         local builder = state as Builder*
         if appendString(h, builder, a) ~= 0ULL or appendString(h, builder, b) ~= 0ULL then
             release(builder)

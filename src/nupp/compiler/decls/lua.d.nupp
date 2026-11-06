@@ -153,11 +153,26 @@ local setmetatable: function<T>(takes t: T, mt: metatable<T>?): T preserves t
 local getmetatable: function<T>(v: T): metatable<T>?
 
 --- Callable assertions and test-suite operations.
+--- @internal
 interface assert.Assertion
     eq: function(any, any, string?): any
     ne: function(any, any, string?): any
     deepeq: function(any, any, string?): any
+    lt: function(any, any, string?): any
+    le: function(any, any, string?): any
+    gt: function(any, any, string?): any
+    ge: function(any, any, string?): any
+    near: function(number, number, number, string?): number
+    isnil: function(any, string?): any
+    notnil: function(any, string?): any
+    truthy: function(any, string?): any
+    falsy: function(any, string?): any
+    istype: function(any, string, string?): any
+    contains: function(any, string, string?): string
+    notcontains: function(any, string, string?): string
     matches: function(any, string, string?): string
+    notmatches: function(any, string, string?): string
+    fail: function(string): never
     raises: function(function(...: any): any, string?): any
     suite: {
         skip: function(string): never,
@@ -247,16 +262,33 @@ end
 --- @internal
 type nupp.__Debug = types.Debug
 
---- Controls the garbage collector. `opt` is "collect" for a full cycle, the default, or
---- "stop", "restart", "count", "step", "setpause", "setstepmul" or "isrunning".
+--- Controls the garbage collector, as Lua 5.5's does. `opt` is "collect" for a full
+--- cycle, the default, or "stop", "restart", "count", "step", "isrunning",
+--- "incremental", "generational" or "param".
 ---
 --- @param opt the operation to perform
---- @param arg the step size or parameter that the operation takes
---- @return what the operation reports: "count" gives the kilobytes in use, while
----     "step" and "isrunning" answer a boolean
+--- @param arg the step size, or the parameter "param" reads and may set
+--- @param value the value "param" sets
+--- @return what the operation reports: "count" gives the kilobytes in use, "step" and
+---     "isrunning" answer a boolean, "incremental" and "generational" the mode before,
+---     and "param" the parameter's value before
 local collectgarbage: function(): number
-    & function(opt: 'collect' | 'stop' | 'restart' | 'count' | 'setpause' | 'setstepmul', arg: number?): number
-    & function(opt: 'step' | 'isrunning', arg: number?): boolean
+    & function(
+        opt: 'collect' | 'stop' | 'restart' | 'count',
+        arg: number?
+    ): number
+    & function(
+        opt: 'step' | 'isrunning',
+        arg: number?
+    ): boolean
+    & function(
+        opt: 'incremental' | 'generational'
+    ): string
+    & function(
+        opt: 'param',
+        name: 'minormul' | 'majorminor' | 'minormajor' | 'pause' | 'stepmul' | 'stepsize',
+        value: integer?
+    ): integer
 
 --- Compiles a chunk read piecewise from `chunk`, a function returning successive pieces
 --- of source, without running it.
@@ -1209,11 +1241,13 @@ local os: {
     --- @return the command's exit status, or whether a shell exists
     execute: function(cmd: string?): any,
 
-    --- Ends the process, closing the interpreter state on the way out.
+    --- Ends the process. With `close`, every finalizer runs first, as Lua's
+    --- `lua_close` runs them.
     ---
     --- @param code the exit status: true or 0 for success, false or another
     ---     number for failure
-    exit: function(code: any?): never,
+    --- @param close whether finalizers run before the process ends
+    exit: function(code: any?, close: boolean?): never,
 
     --- Returns the value of the environment variable `name`.
     ---
@@ -1243,8 +1277,11 @@ local os: {
     --- @return the time, in the system's own epoch-based encoding
     time: function(spec: table?): number,
 
-    --- Returns a file name usable for a temporary file. The file itself is neither
-    --- created nor removed for you.
+    --- Returns a filename for a temporary file.
+    ---
+    --- On POSIX systems, this also creates an empty file to reserve the name.
+    --- Open the file separately and remove it with `os.remove` when finished.
+    --- Use `io.tmpfile` when only a file handle is needed.
     ---
     --- @return the temporary file name
     tmpname: function(): string
@@ -1335,16 +1372,18 @@ interface types.Layout
     fields: {Field}
 end
 
---- A Lua file handle. Ownership is attached by producers rather than this interface, so
---- standard streams and borrowed handles use the same type.
+--- A file handle with Lua file methods and borrowed byte-stream views.
+---
+--- Ownership is attached by producers rather than this interface, so standard
+--- streams and borrowed handles use the same type.
 interface io.File
-    close: @nosuspend function(self: io.File): (boolean?, string?)
-    flush: function(self: io.File): (boolean?, string?)
-    lines: function(self: io.File, ...: any): @nosuspend function(): any
-    read: function(self: io.File, ...: any): any
-    seek: function(self: io.File, whence: string?, offset: number?): (number?, string?)
-    setvbuf: function(self: io.File, mode: string, size: number?): (boolean?, string?)
-    write: function(self: io.File, ...: any): (io.File?, string?)
+    close: @nosuspend function(exclusive self: io.File): (boolean?, string?, integer?)
+    flush: function(exclusive self: io.File): (boolean?, string?)
+    lines: function(exclusive self: io.File, ...: any): function(): ...any
+    read: function(exclusive self: io.File, ...: any): any
+    seek: function(exclusive self: io.File, whence: string?, offset: number?): (number?, string?)
+    setvbuf: function(exclusive self: io.File, mode: string, size: number?): (boolean?, string?)
+    write: function(exclusive self: io.File, ...: any): (io.File?, string?)
 end
 
 --- Closes a file that leaves its owning lexical scope.
@@ -1371,7 +1410,8 @@ local io: {
     ---
     --- @param path the file to read, or nil for the default input file
     --- @return an iterator yielding one line at a time, and nil once the file is read
-    lines: function(path: string?): @nosuspend function(): string?,
+    lines: (function(path: string?): function(): string?)
+    & (function(path: string?, format: string | number, ...: any): function(): ...any),
 
     --- Reads the default input file according to the given formats: "*l" for a line,
     --- "*n" for a number, "*a" for the rest, or a byte count.
@@ -1391,7 +1431,7 @@ local io: {
     ---
     --- @param f the file to close
     --- @return whether the file closed cleanly
-    close: function(f: io.File?): boolean?,
+    close: function(f: io.File?): (boolean?, string?, integer?),
 
     --- Classifies an open or closed file handle.
     --- @param value the value to inspect
@@ -1422,6 +1462,7 @@ local io: {
     popen: function(cmd: string, mode: string?): (affine(io.File, __nuppCloseFile)?, string?),
 
     --- Opens a temporary file in update mode, removed when the program ends.
+    --- See [](os.mktemp) for an owned temporary path.
     ---
     --- @return the file handle
     tmpfile: function(): affine(io.File, __nuppCloseFile)?,
@@ -1710,40 +1751,40 @@ local jit: {
 -- debug
 ----------------------------------------------------------------------------
 
---- Describes the outcome of a cooperative reload poll.
----
---- The four answers are `"prepared"`, when a patch was staged and committed and
---- `generation` is now the live one; `"no-change"`, when no watched input moved;
---- `"diagnostics"`, when the change did not check and the running generation stands;
---- and `"restart-required"`, when the change is well-typed but outside what a live
---- process can take.
----
---- The fields past `kind` are the ones that answer carries, so read them after
---- branching on it rather than before.
-record debug.ReloadPoll
-    kind: string
-
-    --- Present on `"prepared"` and `"no-change"`. On the first it is the generation
-    --- now running; on the second, the one that stayed.
-    generation: integer?
-
-    --- Optional transaction metadata. The watch poll leaves this nil; a
-    --- `"prepared"` result reports the committed `generation` instead.
-    patch: string?
-
-    --- Optional transaction metadata. The watch poll leaves this nil.
-    basegeneration: integer?
-
-    --- Why the change was refused, on `"diagnostics"` and `"restart-required"`.
-    diagnostics: {any}?
-
-    --- Which boundary refused it, where a restart answer could name one.
-    reason: any
-end
-
 --- Cooperative hot reload installed only while `nupp run --watch` is active.
 --- @internal
-record nupp.HotReload
+record debug.reload
+    --- Describes the outcome of a cooperative reload poll.
+    ---
+    --- The four answers are `"prepared"`, when a patch was staged and committed and
+    --- `generation` is now the live one; `"no-change"`, when no watched input moved;
+    --- `"diagnostics"`, when the change did not check and the running generation
+    --- stands; and `"restart-required"`, when the change is well-typed but outside what
+    --- a live process can take.
+    ---
+    --- The fields past `kind` are the ones that answer carries, so read them after
+    --- branching on it rather than before.
+    record ReloadPoll
+        kind: string
+
+        --- Present on `"prepared"` and `"no-change"`. On the first it is the generation
+        --- now running; on the second, the one that stayed.
+        generation: integer?
+
+        --- Optional transaction metadata. The watch poll leaves this nil; a
+        --- `"prepared"` result reports the committed `generation` instead.
+        patch: string?
+
+        --- Optional transaction metadata. The watch poll leaves this nil.
+        basegeneration: integer?
+
+        --- Why the change was refused, on `"diagnostics"` and `"restart-required"`.
+        diagnostics: {any}?
+
+        --- Which boundary refused it, where a restart answer could name one.
+        reason: any
+    end
+
     --- Returns the currently committed implementation generation.
     generation: @nosuspend function(): integer
 
@@ -1752,7 +1793,7 @@ record nupp.HotReload
     --- Branch on `kind`: a poll that published reports `"prepared"`, one that found
     --- nothing reports `"no-change"`, and the two refusals are told apart by whether
     --- restarting is what it would take.
-    poll: function(): debug.ReloadPoll
+    poll: function(): ReloadPoll
 end
 
 --- The debug interface: stack inspection, hooks, locals and upvalues. Using it costs
@@ -1763,7 +1804,7 @@ local debug: {
     ---
     --- Installed only while `nupp run --watch` is active.
     --- @namespace debug.reload
-    reload: nupp.HotReload,
+    reload: debug.reload,
 
     --- Describes a function, or the activation record at a stack level.
     ---

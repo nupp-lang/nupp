@@ -23,6 +23,8 @@ implements, so that the two agree byte for byte.
 ]]
 module nupp.io.uri.whatwg
 
+local utf8 = require("utf8")
+
 local contracts = require("io.internal.contracts")
 
 const DEFAULT_PORTS: {[string]: integer} = {http = 80, https = 443, ws = 80, wss = 443, ftp = 21,}
@@ -129,43 +131,6 @@ local function percentDecode(text: string): string
     end
 
     return table.concat(out)
-end
-
-local function validUtf8(text: string): boolean
-    local at, length = 1, #text
-    while at <= length do
-        local first = text:byte(at) as integer
-        if first < 128 then
-            at = at + 1
-        else
-            local count = first >= 194 and first <= 223 and 1
-                or first >= 224 and first <= 239 and 2
-                or first >= 240 and first <= 244 and 3
-                or 0
-            if count == 0 or at + count > length then
-                return false
-            end
-            local second = text:byte(at + 1) as integer
-            if second < 128
-                or second > 191
-                or first == 224 and second < 160
-                or first == 237 and second > 159
-                or first == 240 and second < 144
-                or first == 244 and second > 143
-            then
-                return false
-            end
-            for offset = 2, count do
-                local continuation = text:byte(at + offset) as integer
-                if continuation < 128 or continuation > 191 then
-                    return false
-                end
-            end
-            at = at + count + 1
-        end
-    end
-
-    return true
 end
 
 ----------------------------------------------------------------------------
@@ -588,7 +553,7 @@ local function serialize(url: any): contracts.UriParts
         out = out .. "#" .. url.fragment
     end
 
-    return new contracts.UriParts(
+    return contracts.UriParts(
         text = out,
         scheme = url.scheme,
         authority = authority,
@@ -642,7 +607,7 @@ export function refusal(text: string): string?
     if text:find("\0", 1, true) ~= nil then
         return "URI contains a NUL byte"
     end
-    if not validUtf8(text) then
+    if not utf8.isvalid(text) then
         return "URI is not valid UTF-8"
     end
 

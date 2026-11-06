@@ -1,4 +1,4 @@
--- The tecs Process surface, with only its import changed.
+-- The tecs Process surface, using the shared popen command argument.
 --
 -- This deliberately spells the caller-facing operations tecs publishes rather than
 -- reaching the nonblocking `poll` and `offer` operations the implementation uses for
@@ -10,8 +10,8 @@ local process = require("io")
 
 local M = {}
 
-local function tecsCallSites(options: process.Process.Options, exclusive buffer: Buffer): nil
-    local child = assert(process.popen(options))
+local function tecsCallSites(command: {string}, options: process.Process.Options, exclusive buffer: Buffer): nil
+    local child = assert(process.popen(command, options))
 
     local pid: integer = child.pid
     assert(pid >= 0)
@@ -24,8 +24,7 @@ local function tecsCallSites(options: process.Process.Options, exclusive buffer:
         local fromBuffer, bufferReason = child.stdin:writespan(bytes)
         assert(fromBuffer, bufferReason)
         child.stdin:close()
-        -- Closing consumes the writer, so the field is refilled before the
-        -- whole child is lent again.
+        -- Refill the consumed pipe before borrowing the complete child again.
         child.stdin = nil
     end
 
@@ -53,7 +52,7 @@ local function tecsCallSites(options: process.Process.Options, exclusive buffer:
     child:close()
 end
 
-function M.theTecsSurfaceCompilesWithOnlyTheImportChanged(): nil
+function M.theTecsSurfaceCompilesWithTheSharedCommandArgument(): nil
     -- The function above is the assertion: it is checked even though running every
     -- branch would require a child protocol contrived solely for this fixture.
     assert(tecsCallSites ~= nil)

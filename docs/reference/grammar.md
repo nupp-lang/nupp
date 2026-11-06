@@ -24,13 +24,3 @@ and type annotations on short-function parameters. Both levels are implemented,
 and the typed layer takes nothing away from the untyped one.
 
 <<< @docs/grammar.abnf
-
-::: seealso
-- [syntax.md](../learn/language/syntax.md) for the same constructs with prose and
-  worked examples
-- [annotations.md](../learn/language/annotations.md) for what each `@annotation` the grammar
-  admits means
-- [cli.md](cli.md#ast) for `nupp ast`, which prints the tree a file parsed to
-- [diagnostics.md](diagnostics.md) for the codes a file that does not parse
-  reports
-:::

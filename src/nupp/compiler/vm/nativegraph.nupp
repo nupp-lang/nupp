@@ -2,6 +2,7 @@ module nupp.compiler.vm.nativegraph
 
 local graph = require("nupp.compiler.vm.graph")
 local physical = require("nupp.compiler.vm.nativephysical")
+local construction = require("nupp.compiler.vm.construction")
 local unit = require("nupp.compiler.vm.nativeunit")
 local finalframe = require("nupp.compiler.vm.nativeframecontract")
 local nativelayout = require("nupp.compiler.vm.nativelayout")
@@ -324,7 +325,8 @@ function nativegraph.initializeBinding(ctx: any, node: any, key: any, value: int
                         while expression and expression.kind == "paren" do
                             expression = expression.expr
                         end
-                        found = expression == origin.node
+                        -- `S(...)` is lowered through its construction wrapper.
+                        found = expression == origin.node or construction.of(expression) == origin.node
                     end
                 end
                 need(found, "physical aggregate copy is unsupported")

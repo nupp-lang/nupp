@@ -1838,7 +1838,7 @@ end
 --- Substitution can intern new types and packs, so visit member names in a stable
 --- order. Recollect them on every refresh: declarations can still gain members.
 local function fillInstantiationMap(into: {[string]: T.Type}, source: {[string]: T.Type}?, map: Bindings): MapFill
-    local fill = new MapFill(source = source, read = {}, count = 0, target = into, written = {})
+    local fill = MapFill(source = source, read = {}, count = 0, target = into, written = {})
     if not source or next(source) == nil then
         return fill
     end
@@ -1861,10 +1861,17 @@ local function fillInstantiationMap(into: {[string]: T.Type}, source: {[string]:
     return fill
 end
 
+local function defaultMetadata(inst: T.Nominal, declaration: T.Nominal): nil
+    inst.defaults = declaration.defaults
+    inst.defaultEntries = declaration.defaultEntries
+    inst.inheritedDefaults = declaration.inheritedDefaults
+end
+
 --- Copies the declaration's current member surface onto an instantiation. A generic
 --- can instantiate itself while its declaration is still being populated; revisiting
 --- that cached identity must therefore pick up members declared afterward.
 local function fillInstantiationMembers(inst: T.Nominal, declaration: T.Nominal, map: Bindings)
+    defaultMetadata(inst, declaration)
     local outer = fillDependencies
     local dependencies: {FillDependency} = {}
     fillDependencies = dependencies
@@ -1895,7 +1902,7 @@ local function fillInstantiationMembers(inst: T.Nominal, declaration: T.Nominal,
     local copy, count = copyBindings(map)
     fills[
         inst
-    ] = new InstantiationFill(
+    ] = InstantiationFill(
         declaration = declaration,
         map = copy,
         mapCount = count,
@@ -1960,6 +1967,7 @@ local function fillCurrent(
     if not fill or fill.declaration ~= declaration then
         return false
     end
+    defaultMetadata(inst, declaration)
     local count: integer = 0
     for binder, stands in pairs(map) do
         if fill.map[binder] ~= stands then
@@ -2027,7 +2035,7 @@ reuseUnchangedInstantiation = function(instance: T.Nominal, declaration: T.Nomin
     end
     local dependencies = fillDependencies
     if dependencies then
-        dependencies[#dependencies + 1] = new FillDependency(instance = instance, map = (copyBindings(map)))
+        dependencies[#dependencies + 1] = FillDependency(instance = instance, map = (copyBindings(map)))
     end
 
     return true
@@ -2115,7 +2123,7 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     end
     local dependencies = fillDependencies
     if dependencies then
-        dependencies[#dependencies + 1] = new FillDependency(instance = inst, map = (copyBindings(map)))
+        dependencies[#dependencies + 1] = FillDependency(instance = inst, map = (copyBindings(map)))
     end
 
     return inst
@@ -2131,6 +2139,9 @@ instantiateNominal = function(n: T.Nominal, map: Bindings): T.Nominal
     local refreshed = refreshingInstantiations or {}
     refreshingInstantiations = refreshed
     local cached = instantiations[key]
+    if cached then
+        defaultMetadata(cached, n)
+    end
     if cached and pendingInstantiations[cached] then
         pendingInstantiations[cached] = nil
     elseif cached then
@@ -2215,7 +2226,7 @@ instantiateNominal = function(n: T.Nominal, map: Bindings): T.Nominal
             -- where it was stated are the declaration's, not this application's.
             inst.associatedRequirements[
                 j
-            ] = new T.AssociatedRequirement(
+            ] = T.AssociatedRequirement(
                 name = requirement.name,
                 bound = requirement.bound and generics.rebind(requirement.bound, complete) or nil,
                 selfBinder = requirement.selfBinder,
@@ -2231,7 +2242,7 @@ instantiateNominal = function(n: T.Nominal, map: Bindings): T.Nominal
             -- on the arguments this instantiation supplied.
             inst.associatedAnswers[
                 name
-            ] = new T.AssociatedAnswer(
+            ] = T.AssociatedAnswer(
                 type = generics.rebind(entry.type, complete),
                 selfBinder = entry.selfBinder,
                 kind = entry.kind,

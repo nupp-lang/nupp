@@ -4,7 +4,7 @@ local core = require("nupp.serde.internal.value")
 local errors = require("nupp.serde.internal.errors")
 local plans = require("nupp.serde.internal.json.plan")
 local json = require("nupp.serde.internal.json.values")
-local binary = require("binary")
+local encoding = require("nupp.util.internal.encoding")
 local numbers = require("nupp.serde.internal.numbers")
 local identities = require("nupp.serde.internal.json.document")
 local extensions = require("nupp.serde.internal.json.extensions")
@@ -59,7 +59,7 @@ export record Output<M is core.Member> is core.Writer<M>
         local ok, problem = pcall(adapter.write, adapter, value, self)
         if ok and (self.roots ~= 1 or #self.frames ~= 0) then
             ok = false
-            problem = new errors.Error(
+            problem = errors.Error(
                 code = "contract",
                 message = "binding must write exactly one root value",
                 path = "$",
@@ -138,7 +138,7 @@ export record Output<M is core.Member> is core.Writer<M>
             self.roots += 1
             if self.roots ~= 1 then
                 error(
-                    new errors.Error(
+                    errors.Error(
                         code = "contract",
                         message = "binding wrote more than one root value",
                         path = "$",
@@ -152,7 +152,7 @@ export record Output<M is core.Member> is core.Writer<M>
 
     function limit(exclusive self, message: string): nil
         self.closed = true
-        error(new errors.Error(code = "limit", message = message, path = self:path(), cause = nil), 0)
+        error(errors.Error(code = "limit", message = message, path = self:path(), cause = nil), 0)
     end
 
     function enter(exclusive self): nil
@@ -270,7 +270,7 @@ export record Output<M is core.Member> is core.Writer<M>
         self:live()
         self:select(member)
         self:position(member)
-        self.sink:write(binary.base64encode(value))
+        self.sink:write(encoding.base64encode(value))
     end
 
     function writetimestamp(exclusive self, member: M, borrows value: core.Timestamp): nil
@@ -285,7 +285,7 @@ export record Output<M is core.Member> is core.Writer<M>
         self:live()
         self:select(member)
         error(
-            new errors.Error(
+            errors.Error(
                 code = "unsupported",
                 message = "JSON atom requires a model conversion",
                 path = self:path(),
@@ -337,7 +337,7 @@ export record Output<M is core.Member> is core.Writer<M>
         else
             self.sink:startobject()
         end
-        local frame = new Frame<M>(kind = kind, plan = plan, count = 0, seen = {})
+        local frame = Frame<M>(kind = kind, plan = plan, count = 0, seen = {})
         self.frames[#self.frames + 1] = frame
         emit:apply(source, self)
         if expected ~= nil and frame.count ~= expected then
@@ -448,9 +448,9 @@ export function output<M is core.Member>(
     budget: Budget?
 ): affine(Output<M>) borrows (sink)
     assert(cache == nil or cache:profile() == factory, "JSON extensions belong to another profile")
-    local limits = budget or new Budget()
+    local limits = budget or Budget()
     assert(limits.maxDepth > 0 and limits.maxDepth <= 1024 and limits.maxValues > 0, "invalid JSON output limits")
-    return new Output<M>(
+    return Output<M>(
         anchor = sink,
         sink = sink,
         factory = factory,
@@ -490,10 +490,6 @@ writeContents = function<D>(
     cache: extensions.Scope?,
     budget: Budget
 ): nil
-    local consumer = new ContentsConsumer<D>(
-        factory = factory,
-        cache = cache or extensions.scope(factory),
-        budget = budget
-    )
+    local consumer = ContentsConsumer<D>(factory = factory, cache = cache or extensions.scope(factory), budget = budget)
     adapter:contents():acceptinto(consumer, value, sink)
 end

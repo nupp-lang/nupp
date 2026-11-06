@@ -80,8 +80,8 @@ building a Lua table or a complete result string. `endarray()` and
 leaving the document open, and consuming `close()` requires one complete root:
 
 ```nupp
-local out = string.buffer.new()
-local writer = serde.json.newwriter(out)
+local out = io.Buffer.create()
+local writer = serde.json.Writer.of(out)
 writer:startobject():key("items"):startarray():write(1):write(2):endarray():endobject()
 writer:close()
 ```
@@ -160,20 +160,24 @@ export type EncodedString = contracts.EncodedString
 --- @export
 export type JSONEncodable = contracts.JSONEncodable
 
---- A checked incremental JSON writer, which `newwriter` returns.
+--- A checked incremental JSON writer, which `Writer.of` returns.
 ---
 --- ```nupp
---- local out = string.buffer.new()
---- local writer = serde.json.newwriter(out)
+--- local out = io.Buffer.create()
+--- local writer = serde.json.Writer.of(out)
 --- writer:startobject():key("ok"):write(true):endobject()
 --- writer:close()
---- assert(out:tostring() == [[{"ok":true}]])
+--- assert(out:getstring() == [[{"ok":true}]])
 --- ```
 --- @export
 export type Writer = contracts.Writer
 
 local record WriterImpl is Writer
     @private raw: any
+
+    -- The caller's buffer, when the writer appends to one; held so the borrow is
+    -- visible.
+    @private @readonly anchor: any
 
     function startarray(exclusive self): Writer borrows (self)
         self.raw:startarray()
@@ -459,24 +463,47 @@ export function verifiedString(text: string): EncodedString
     return native.verifiedstring(text) as EncodedString
 end
 
---- Creates an incremental JSON writer over caller-owned storage.
----
---- ```nupp
---- local out = string.buffer.new()
---- local writer = serde.json.newwriter(out)
---- writer:startobject():key("id"):write(41):endobject()
---- writer:close()
---- assert(out:tostring() == [[{"id":41}]])
---- ```
---- @param out the destination receiving bytes as operations complete
+--- Creates an incremental JSON writer over a staging `string.buffer`, which is
+--- what the codec encodes through before handing bytes to a caller.
+--- @param out the staging buffer receiving bytes as operations complete
 --- @param nullvalue an additional value treated as JSON null
 --- @return a new writer
---- @export
 export function newWriter(exclusive out: Buffer, nullvalue: any?): Writer
     if nullvalue == nil then
-        return new WriterImpl(raw = native.newwriter(out))
+        return WriterImpl(raw = native.newwriter(out), anchor = nil)
     end
-    return new WriterImpl(raw = native.newwriter(out, nullvalue))
+    return WriterImpl(raw = native.newwriter(out, nullvalue), anchor = nil)
+end
+
+-- Appends each batch the writer publishes to the caller's byte buffer.
+local record BufferSink
+    @private @readonly target: any
+
+    function put(self, text: string): nil
+        local target = self.target
+        target:setstring(text, target:len())
+    end
+end
+
+--- Creates an incremental JSON writer that appends to an [](io.Buffer).
+---
+--- ```nupp
+--- local out = io.Buffer.create()
+--- local writer = serde.json.Writer.of(out)
+--- writer:startobject():key("id"):write(41):endobject()
+--- writer:close()
+--- assert(out:getstring() == [[{"id":41}]])
+--- ```
+--- @param out the buffer receiving bytes as operations complete
+--- @param nullvalue an additional value treated as JSON null
+--- @return a new writer
+export function newBufferWriter(exclusive out: any, nullvalue: any?): affine(Writer) borrows (out)
+    const sink = BufferSink(target = out)
+    if nullvalue == nil then
+        return WriterImpl(raw = native.newwriter(sink as any), anchor = out)
+    end
+
+    return WriterImpl(raw = native.newwriter(sink as any, nullvalue), anchor = out)
 end
 
 --- Creates a schema-driven JSON codec with an immutable wire profile.

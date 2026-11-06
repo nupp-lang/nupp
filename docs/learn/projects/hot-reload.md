@@ -223,28 +223,3 @@ and standalone-command cases in
 `tests/integration/reload/hotreloadguaranteetest.lua`, and the runtime's half
 to `native/crates/vm/tests/hot_patch.rs`. The standalone cases edit a required
 module inside `nupp run --watch` processes.
-
-## FAQ
-
-### Does watch mode change what an ordinary build produces?
-
-No. A watched program is lowered exactly as an ordinary one is; what watch mode
-adds is a compiler session beside it and the runtime's body patch, neither of
-which reaches a build.
-
-### Why did an edit to one function body still require a restart?
-
-Nupp rechecks every loaded module before staging, so an edit that also changed
-an exported type, a C declaration, or a capture set reaches further than the
-body it was written in. The restart result names the semantic dependency that
-changed and the module that requires it.
-
-### Can a callback registered with a library be reloaded?
-
-Yes, named or anonymous: see [Callbacks and running calls](#callbacks-and-running-calls).
-
-::: seealso
-- [build.md](build.md) for the ordinary build that ships
-- [c-interop.md](../runtime/c-interop/index.md) for the C declarations a watch
-  session tracks
-:::

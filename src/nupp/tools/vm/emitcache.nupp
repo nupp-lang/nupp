@@ -36,7 +36,7 @@ that requires it.
 The stamp is everything outside the key that lowering depends on: the
 subsystem of the compiler that checks and lowers (`nupp.tools.vm.project` and
 what it requires, as the running image holds it), the interpreter running
-that code (`fingerprint.runtimeIdentity`), the declarations it carries, the
+that code (`fingerprint.runtimeidentity`), the declarations it carries, the
 manifest's value, the search roots, the layout target. So a compiler
 generation never replays what another one lowered unless both lower with the
 same code on the same interpreter, and then they share it. Like every store
@@ -291,7 +291,7 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
             {
                 FORMAT,
                 fingerprint.subsystemFingerprint({"nupp.tools.vm.project"}, dir, digest),
-                fingerprint.runtimeIdentity(),
+                fingerprint.runtimeidentity(),
                 fingerprint.declarationFingerprint(digest),
                 table.concat(configText),
                 table.concat(env.roots or {}, "\1"),

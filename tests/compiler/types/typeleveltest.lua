@@ -307,7 +307,7 @@ function M.comptimeTypeFunctionsPreserveExistingNominalIdentity()
                 "@comptime local function Maybe(T: type): type",
                 "   return types.optional(T)",
                 "end",
-                "local user: Maybe(User) = new User(name = 'Ada')",
+                "local user: Maybe(User) = User(name = 'Ada')",
                 "return user",
             },
             "\n"
@@ -323,7 +323,7 @@ function M.comptimeTypeFunctionsPreserveNestedNominalReferences()
                 "@comptime local function Element(T: type): type",
                 "   return types.elements(T)[1]",
                 "end",
-                "local user: Element({User}) = new User(name = 'Ada')",
+                "local user: Element({User}) = User(name = 'Ada')",
                 "return user",
             },
             "\n"
@@ -780,7 +780,7 @@ function M.stringFormatDerivesArgumentsFromLiteralFormats()
             {
                 "@derive(types.debug)",
                 "local record User name: string end",
-                "local user = new User(name = 'Ada')",
+                "local user = User(name = 'Ada')",
                 "local name = 'Ada'",
                 "local count = string.format('%s has %d messages', name, 3)",
                 "local debug = string.format('user=%?', user)",
@@ -1921,7 +1921,7 @@ function M.usersCanDeclareGenericAffineTypes()
             {
                 "",
                 "local function open(): Owner<Resource, closeA>",
-                "   return new Resource(value = 1)",
+                "   return Resource(value = 1)",
                 "end",
                 "local resource = open()",
                 "own.drop(resource)",
@@ -2218,7 +2218,7 @@ end
     end
     return T
 end
-local cell: Checked(Cell<string>, Cell<number>) = new Cell(value = "same")
+local cell: Checked(Cell<string>, Cell<number>) = Cell(value = "same")
 local type Open = "ready" | types.nonexhaustive()
 local state: Open = "ready"
 local text = switch state do
@@ -2248,11 +2248,11 @@ function M.comptimeTypeCachesPreserveNominalIdentity()
                 "local sameIdentity: Same(Item, Item) = true",
                 "local function first(): nil",
                 "   local record Item value: string end",
-                "   local item: Identity(Item) = new Item(value = 'first')",
+                "   local item: Identity(Item) = Item(value = 'first')",
                 "end",
                 "local function second(): nil",
                 "   local record Item value: string end",
-                "   local item: Identity(Item) = new Item(value = 'second')",
+                "   local item: Identity(Item) = Item(value = 'second')",
                 "end",
                 "first()",
                 "second()",
@@ -2441,7 +2441,7 @@ function M.aTypeParameterArgumentNeedsABoundThatImpliesTheBound()
     testAssert.eq(
         codes(
             body .. table.concat(
-                {"local function wrap<U>(x: U): Reg<U>", "   return new Reg(item = x)", "end", "return wrap",},
+                {"local function wrap<U>(x: U): Reg<U>", "   return Reg(item = x)", "end", "return wrap",},
                 "\n"
             )
         ),
@@ -2452,10 +2452,10 @@ function M.aTypeParameterArgumentNeedsABoundThatImpliesTheBound()
         body .. table.concat(
             {
                 "local function wrap<U is Named>(x: U): Reg<U>",
-                "   return new Reg(item = x)",
+                "   return Reg(item = x)",
                 "end",
                 "local function narrow<U is Titled>(x: U): Reg<U>",
-                "   return new Reg(item = x)",
+                "   return Reg(item = x)",
                 "end",
                 "local type Also<U is Named> = Reg<U>",
                 "return wrap, narrow",
@@ -2478,7 +2478,7 @@ function M.aTypeParameterArgumentNeedsABoundThatImpliesTheBound()
                     "   item: T",
                     "end",
                     "local function wrap<U is Named>(x: U): Reg<U>",
-                    "   return new Reg(item = x)",
+                    "   return Reg(item = x)",
                     "end",
                     "return wrap",
                 },
@@ -3078,7 +3078,7 @@ function M.aMethodCallMaySupplyItsTypeArgumentsInWriting()
             "function Holder:pick<T>(): T?",
             "    return nil",
             "end",
-            "local h = new Holder(v = 1)",
+            "local h = Holder(v = 1)",
         },
         "\n"
     ) .. "\n"
@@ -3128,7 +3128,7 @@ function M.admissionCarriesExactlyTheEffectsItLeft()
     local box = alias .. "local record Box\n    n: Small\nend\n"
     testAssert.eq(codes(box .. "local function put(b: Box, v: integer): nil\n    b.n = v\nend\nprint(put)"), "NUPP2001")
     testAssert.eq(
-        codes(box .. "local function make(v: integer): Box\n    return new Box(n = v)\nend\nprint(make)"),
+        codes(box .. "local function make(v: integer): Box\n    return Box(n = v)\nend\nprint(make)"),
         "NUPP2202"
     )
     testAssert.eq(
@@ -3467,6 +3467,48 @@ end
         ) ~= "",
         "the preceding alias callback member is retired"
     )
+end
+
+function M.cachedGenericApplicationsRefreshLateDefaultImplementations()
+    local declaration = types.nominal("LateDefaults", "interface")
+    local parameter = types.typevar("T", "late-defaults")
+    declaration.typeParams = {parameter}
+    local bindings = {[parameter] = types.string}
+    local instance = generics.reserveInstantiation(declaration, bindings)
+    generics.instantiate(declaration, bindings)
+    for generation = 1, 2 do
+        declaration.defaults = {get = true}
+        declaration.defaultEntries = {get = {name = "get", member = "get", generation = generation}}
+        declaration.inheritedDefaults = {get = declaration}
+        testAssert.eq(generics.instantiate(declaration, bindings), instance)
+        testAssert.eq(instance.defaults.get, true)
+        testAssert.eq(instance.defaultEntries.get.generation, generation)
+        testAssert.eq(instance.inheritedDefaults.get, declaration)
+    end
+end
+
+function M.cachedGenericParentsRefreshTransitiveDefaultImplementations()
+    local child = types.nominal("LateChildDefaults", "interface")
+    local element = types.typevar("Element", "late-child-defaults")
+    child.typeParams = {element}
+    child.byname.value = element
+    local parent = types.nominal("LateParentDefaults", "record")
+    local parameter = types.typevar("T", "late-parent-defaults")
+    parent.typeParams = {parameter}
+    parent.byname.child = generics.instantiate(child, {[element] = parameter})
+    local bindings = {[parameter] = types.string}
+    local instance = generics.instantiate(parent, bindings)
+    local appliedChild = instance.byname.child
+    for generation = 1, 2 do
+        child.defaults = {get = true}
+        child.defaultEntries = {get = {name = "get", member = "get", generation = generation}}
+        child.inheritedDefaults = {get = child}
+        testAssert.eq(generics.instantiate(parent, bindings), instance)
+        testAssert.eq(instance.byname.child, appliedChild)
+        testAssert.eq(appliedChild.defaults, child.defaults)
+        testAssert.eq(appliedChild.defaultEntries, child.defaultEntries)
+        testAssert.eq(appliedChild.inheritedDefaults, child.inheritedDefaults)
+    end
 end
 
 return M

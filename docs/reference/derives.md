@@ -13,7 +13,7 @@ local record User
     name: string = "anonymous"
     tags: {string} = {}
 end
-local user = new User(id = 1)
+local user = User(id = 1)
 print(user:debug())
 ```
 
@@ -47,7 +47,7 @@ local record Point
     y: integer
 end
 
-local p = new Point(x = 3, y = -1)
+local p = Point(x = 3, y = -1)
 print(p:debug())
 ```
 
@@ -73,10 +73,10 @@ local record Post
     scores: {[string]: integer}
 end
 
-local post = new Post(
+local post = Post(
     title = "hello",
     views = 12,
-    tags = {new Tag(name = "a"), new Tag(name = "b")},
+    tags = {Tag(name = "a"), Tag(name = "b")},
     scores = {zeta = 1, alpha = 2}
 )
 print(post:debug())
@@ -102,7 +102,7 @@ local record Credentials
     cache: any
 end
 
-local c = new Credentials(user = "ada", password = "hunter2", cache = {1, 2})
+local c = Credentials(user = "ada", password = "hunter2", cache = {1, 2})
 print(c:debug())
 ```
 
@@ -112,7 +112,7 @@ Credentials { user = "ada", password = <redacted> }
 
 Debug owns its selection policy. Skipped and redacted fields are never read,
 and a field that Debug can render need not have a JSON representation. A caller
-can also render an explicit binding or append to an existing Buffer:
+can also render an explicit binding or append to an existing [](io.Buffer):
 
 ```nupp
 local debug = serde.debug
@@ -121,9 +121,9 @@ local struct Vec2
     y: float
 end
 local binding = serde.binding(Vec2)
-local output = string.buffer.new()
-debug.write(binding, new Vec2(1.25, 2.5), output)
-assert(output:tostring() == "Vec2 { x = 1.25, y = 2.5 }")
+local output = io.Buffer.create()
+debug.write(binding, Vec2(1.25, 2.5), output)
+assert(output:getstring() == "Vec2 { x = 1.25, y = 2.5 }")
 ```
 
 ## Event
@@ -143,7 +143,7 @@ local record Damage
     kind: string = "physical"
 end
 
-local bus: events.MessageBus<integer> = events.newbus()
+local bus: events.MessageBus<integer> = events.MessageBus()
 bus:observe(7, Damage, |event| -> print(event.kind))
 bus:emit(7, Damage, amount = 10, source = 3)
 ```
@@ -228,7 +228,8 @@ A provider may ask for the owner's initializer with `initializer = true` beside
 `methods`, `statics`, and `data`. The compiler then mints the declaration's
 constructor body, or its field list when it declares none, as a hidden member
 taking the instance first: `initializer(storage, ...)` fills storage the caller
-already holds and returns it, and `new` allocates and calls the same body. The
+already holds and returns it. Calling the declaration allocates an instance and
+calls the same body. The
 generated runtime protocol records this hidden member in the declaration's derive
 metadata. A field-list initializer applies a field default where its argument is
 nil, which is the one place that can, since a positional call never passes
@@ -327,13 +328,3 @@ suspension contract. `forward.v1` refuses generic runtime helpers; a later
 recipe version can admit them once symbolic helper identity and caching are
 specified. A helper module becomes an ordinary runtime dependency of the
 consumer even when the comptime provider itself would otherwise erase.
-
-::: seealso
-- [Annotation declarations](../api.md#annotations) for `@derive`,
-  and `@debug` beside the rest of the built-ins
-- [comptime.md](../learn/language/comptime.md) for the evaluation model a provider
-  runs in
-- [reflection.md](../learn/language/reflection.md#runtime-reflection) for the type
-  witnesses generated members are built on
-- [diagnostics.md](diagnostics.md) for the codes a provider failure reports
-:::

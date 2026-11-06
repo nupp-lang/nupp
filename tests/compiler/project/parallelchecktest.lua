@@ -37,7 +37,7 @@ record box.Value
 end
 
 function box.newValue(number: number): box.Value
-    return new box.Value(number = number)
+    return box.Value(number = number)
 end
 
 return box
@@ -56,7 +56,7 @@ local function closeHandle(takes handle: resource.Handle): nil
 end
 
 function resource.open(value: number): affine(resource.Handle, closeHandle)
-    return new resource.Handle(value = value)
+    return resource.Handle(value = value)
 end
 
 return resource
@@ -381,7 +381,7 @@ function M.parallelChecksMatchSerialRecordsAndDiagnosticsAcrossSchedules()
         testAssert.eq(report.timing.parallel.retries, 0, "healthy workers are not retried")
     end
 
-    assert(require("io.files").remove(directory, true))
+    assert(os.remove(directory, true))
 end
 
 function M.documentedRaiseDependenciesFollowParsedAdjacentTags()
@@ -476,7 +476,7 @@ end
         testAssert.eq(state, serialState, "documented type records")
         testAssert.eq(report.timing.parallel.mode, "parallel", "documentation contributes a dependency")
     end
-    assert(require("io.files").remove(directory, true))
+    assert(os.remove(directory, true))
 end
 
 -- Checking a module whose effects need a feature runtime stages that runtime's
@@ -491,11 +491,11 @@ function M.recordsNamingStagedStandardModulesAreReused()
     write(
         directory .. "/src/clock.nupp",
         [[
-local files = require("io.files")
+local files = require("io.http")
 local time = require("coroutine")
 
 local function stamp(path: string): number
-    if files.exists(path) then
+    if files.file(path) ~= nil then
         return os.monotonic()
     end
     return 0
@@ -510,15 +510,15 @@ return {stamp = stamp}
             (
                 [[
 local clock = require("clock")
-local files = require("io.files")
+local files = require("io.http")
 local time = require("coroutine")
 
 local function value(path: string): number
-    local exists = files.exists(path) and 1 or 0
+    local exists = files.file(path) ~= nil and 1 or 0
     return clock.stamp(path) + os.monotonic() + exists + %d
 end
 
-local function described(info: files.Info?): boolean
+local function described(info: files.FileBody?): boolean
     return info ~= nil
 end
 
@@ -536,13 +536,13 @@ return {value = value, described = described}
     testAssert.eq(report.timing.parallel.rechecked, 0, "worker records survive validation")
     testAssert.eq(state, serialState, "parallel check records")
 
-    assert(require("io.files").remove(directory, true))
+    assert(os.remove(directory, true))
 end
 
 -- Staging a runtime's carried source checks the modules that name it again, from
 -- the same parse. A call's destination stored on the tree by the first check named
 -- that check's copy of a standard type, and the second check's copy of the callee
--- could not unify with it: serially, `newObservers()` into an `Observers<integer>`
+-- could not unify with it: serially, `newBus()` into a `MessageBus<integer>`
 -- field lost its binder, while a worker, which stages nothing, inferred it.
 function M.aStandardGenericFillsAFieldInEitherSchedule()
     local directory = os.tmpname()
@@ -551,26 +551,26 @@ function M.aStandardGenericFillsAFieldInEitherSchedule()
     write(
         directory .. "/src/world.nupp",
         [[
-const {type Observers} = require("events")
+const {type MessageBus} = require("events")
 local events = require("events")
-local files = require("io.files")
+local files = require("io.http")
 
 local record World
-    observers: Observers<integer>
+    bus: MessageBus<integer>
 end
 
 local function newWorld(): World
-    local world = new World(observers = events.newobservers())
-    world.observers = events.newobservers()
+    local world = World(bus = events.MessageBus())
+    world.bus = events.MessageBus()
     return world
 end
 
-local function fresh(): Observers<integer>
-    return events.newobservers()
+local function fresh(): MessageBus<integer>
+    return events.MessageBus()
 end
 
 local function count(path: string): integer
-    return files.exists(path) and newWorld().observers.count or fresh().count
+    return files.file(path) ~= nil and newWorld().bus:count() or fresh():count()
 end
 
 return {count = count}
@@ -582,10 +582,10 @@ return {count = count}
             (
                 [[
 local world = require("world")
-local files = require("io.files")
+local files = require("io.http")
 
 local function value(path: string): integer
-    return world.count(path) + (files.exists(path) and %d or 0)
+    return world.count(path) + (files.file(path) ~= nil and %d or 0)
 end
 
 return {value = value}
@@ -601,7 +601,7 @@ return {value = value}
     testAssert.eq(code, 0, "parallel exit status")
     testAssert.eq(stable(report.diagnostics), stable(serialReport.diagnostics), "parallel diagnostics")
 
-    assert(require("io.files").remove(directory, true))
+    assert(os.remove(directory, true))
 end
 
 -- Checking an `@annotation` declaration registers it with the environment rather
@@ -640,7 +640,7 @@ end
 
 local function make(): number
     ann.noop()
-    local marked = new Marked%d(value = 1)
+    local marked = Marked%d(value = 1)
     return marked.value
 end
 
@@ -660,7 +660,7 @@ return {make = make}
     local warmCode, warmOutput = process.capture({NUPP, "check", "--json"}, {cwd = directory})
     testAssert.eq(warmCode, 0, "the warm check reuses clean records: " .. warmOutput)
 
-    assert(require("io.files").remove(directory, true))
+    assert(os.remove(directory, true))
 end
 
 -- A build generates in the worker that checked, so what a parallel build writes has
@@ -676,7 +676,7 @@ function M.parallelBuildsWriteWhatSerialBuildsWrite()
     testAssert.eq(outputs, serialOutputs, "build outputs")
     testAssert.eq(state, serialState, "build state")
 
-    assert(require("io.files").remove(directory, true))
+    assert(os.remove(directory, true))
 end
 
 function M.workerAndInterfaceFailuresFallBackWithoutPublishingPartialState()
@@ -718,7 +718,7 @@ function M.workerAndInterfaceFailuresFallBackWithoutPublishingPartialState()
     testAssert.eq(report.timing.parallel.retries, 1, "the stopped worker was retried once")
     testAssert.eq(state, serialState, "restarted worker records")
 
-    assert(require("io.files").remove(directory, true))
+    assert(os.remove(directory, true))
 end
 
 function M.anInterruptedCheckLeavesNoWorkers()
@@ -802,7 +802,7 @@ function M.anInterruptedCheckLeavesNoWorkers()
         assert(kill(0, pid) ~= 0, "parallel worker survived its interrupted parent: " .. tostring(pid))
     end
 
-    assert(require("io.files").remove(directory, true))
+    assert(os.remove(directory, true))
 end
 
 return M

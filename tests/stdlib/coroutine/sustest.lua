@@ -22,6 +22,20 @@ end
 
 local M = {}
 
+function M.cancellationHelpersShareTheTaskAndProviderIdentity()
+    local private = require("nupp.suspension.cancellation")
+    local value = suspension.newcancellation("read", "closed")
+    testAssert.eq(value.operation, "read")
+    testAssert.eq(value.reason, "closed")
+    assert(suspension.iscancellation(value))
+    assert(coroutine.iscancelled(value))
+    assert(private.is(value))
+    assert(suspension.iscancellation(private.create("write")))
+    assert(not suspension.iscancellation({operation = "read", reason = "closed"}))
+    assert(not suspension.iscancellation(nil))
+    assert(tostring(value):find("read was cancelled: closed", 1, true))
+end
+
 function M.answersASynchronousSubscriptionDirectly()
     local answer = coroutine.suspend("test", function(resume)
         resume(42)

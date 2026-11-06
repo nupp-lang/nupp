@@ -7,8 +7,8 @@ end
 local api = {}
 
 function api.run(): integer
-    local first = new foreign.Box<integer>(value = 40)
-    local second = new Box<integer>(adapter = 2)
+    local first = foreign.Box<integer>(value = 40)
+    local second = Box<integer>(adapter = 2)
     return first.value + second.adapter
 end
 

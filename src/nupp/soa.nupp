@@ -15,7 +15,7 @@ end
 local positions = soa.alloc(ffi.typeof<Position>(), 128)
 local rows = positions:write()
 for index = 1, #rows do
-    rows[index] = new Position(0, 1)
+    rows[index] = Position(0, 1)
 end
 for index = 1, #rows do
     rows[index].x += rows[index].velocity
@@ -144,11 +144,11 @@ export record Layout
             if cursor > MAX_EXACT_INTEGER - bytecount then
                 error("nupp: SoA slab byte size is too large", 2)
             end
-            segments[ordinal] = new SegmentLayout(field = field, offset = cursor, bytecount = bytecount)
+            segments[ordinal] = SegmentLayout(field = field, offset = cursor, bytecount = bytecount)
             cursor = (cursor + bytecount) as integer
         end
 
-        return new InstanceLayout(count = count, bytesize = cursor, segments = segments)
+        return InstanceLayout(count = count, bytesize = cursor, segments = segments)
     end
 end
 
@@ -192,7 +192,7 @@ export function _layout(raw: table, element: any): Layout
         if fieldAlignment > alignment then
             alignment = fieldAlignment as integer
         end
-        local field = new FieldLayout(
+        local field = FieldLayout(
             name = fieldName,
             identity = (raw.name as string) .. "." .. fieldName,
             ctype = ctype:sub(1, 1) == "$" and ctype:sub(2) or ctype,
@@ -207,7 +207,7 @@ export function _layout(raw: table, element: any): Layout
         ] = string.format("%s:%s@%d/%d", field.identity, field.ctype, field.elementsize, field.alignment)
     end
 
-    local layout = new Layout(
+    local layout = Layout(
         name = raw.name as string,
         fingerprint = table.concat(fingerprint, "|"),
         alignment = alignment,
@@ -222,15 +222,6 @@ end
 -- addition is the view's own, never a numeric one.
 local function advance(view: any, by: any): any
     return view + by
-end
-
--- The physical row behind a checked one-based row index, raising at `level`.
-local function physicalRow(offset: integer, count: integer, index: integer, level: integer): integer
-    if index % 1 ~= 0 or index < 1 or index > count then
-        error("nupp: SoA row index out of bounds", level + 1)
-    end
-
-    return offset + index - 1
 end
 
 export sealed interface ArrayToken
@@ -285,6 +276,23 @@ export sealed interface Span<T> is ReadView
     slice: function(borrows self: Span<T>, first: integer, last: integer?): Span<T> borrows (self)
 end
 
+-- The physical row behind a checked one-based row index, raising at `level`.
+local function rowIndex(offset: integer, count: integer, index: integer, level: integer): integer
+    if index % 1 ~= 0 or index < 1 or index > count then
+        error("nupp: SoA row index out of bounds", level + 1)
+    end
+    return offset + index - 1
+end
+
+local function rowValue<T>(element: ctype<T>, layout: Layout, columns: {any}, physical: integer): T
+    local value = (element as any):new() as T
+    for ordinal, field in ipairs(layout.fields) do
+        (value as any)[field.name] = (columns[ordinal] as {[integer]: any})[physical]
+    end
+
+    return value
+end
+
 local record SpanImpl<T> is Span<T>
     @private @readonly anchor: any
     @private @readonly element: ctype<T>
@@ -293,18 +301,16 @@ local record SpanImpl<T> is Span<T>
     @private @readonly offset: integer
     @readonly count: integer
 
-    function get(self, index: integer): T
-        local physical = physicalRow(self.offset, self.count, index, 2)
-        local value = (self.element as any):new() as T
-        for ordinal, field in ipairs(self.layout.fields) do
-            (value as any)[field.name] = (self.columns[ordinal] as {[integer]: any})[physical]
-        end
+    function checkedIndex(self, index: integer): integer
+        return rowIndex(self.offset, self.count, index, 1)
+    end
 
-        return value
+    function get(self, index: integer): T
+        return rowValue(self.element, self.layout, self.columns, self:checkedIndex(index))
     end
 
     function getField(self, index: integer, ordinal: integer): any
-        local physical = physicalRow(self.offset, self.count, index, 2)
+        local physical = rowIndex(self.offset, self.count, index, 2)
         return (self.columns[ordinal] as {[integer]: any})[physical]
     end
 
@@ -314,7 +320,7 @@ local record SpanImpl<T> is Span<T>
             error("nupp: SoA slice out of bounds", 2)
         end
 
-        return new SpanImpl(
+        return SpanImpl(
             anchor = self,
             element = self.element,
             layout = self.layout,
@@ -387,30 +393,28 @@ local record WriteSpanImpl<T> is WriteToken, WriteSpan<T>
     @private @readonly offset: integer
     @readonly count: integer
 
-    function get(self, index: integer): T
-        local physical = physicalRow(self.offset, self.count, index, 2)
-        local value = (self.element as any):new() as T
-        for ordinal, field in ipairs(self.layout.fields) do
-            (value as any)[field.name] = (self.columns[ordinal] as {[integer]: any})[physical]
-        end
+    function checkedIndex(self, index: integer): integer
+        return rowIndex(self.offset, self.count, index, 1)
+    end
 
-        return value
+    function get(self, index: integer): T
+        return rowValue(self.element, self.layout, self.columns, self:checkedIndex(index))
     end
 
     function getField(self, index: integer, ordinal: integer): any
-        local physical = physicalRow(self.offset, self.count, index, 2)
+        local physical = rowIndex(self.offset, self.count, index, 2)
         return (self.columns[ordinal] as {[integer]: any})[physical]
     end
 
     function set(exclusive self, index: integer, value: T): nil
-        local physical = physicalRow(self.offset, self.count, index, 2)
+        local physical = rowIndex(self.offset, self.count, index, 2)
         for ordinal, field in ipairs(self.layout.fields) do
             (self.columns[ordinal] as {[integer]: any})[physical] = (value as any)[field.name]
         end
     end
 
     function setField(exclusive self, index: integer, ordinal: integer, value: any): nil
-        local physical = physicalRow(self.offset, self.count, index, 2);
+        local physical = rowIndex(self.offset, self.count, index, 2);
         (self.columns[ordinal] as {[integer]: any})[physical] = value
     end
 
@@ -423,7 +427,7 @@ local record WriteSpanImpl<T> is WriteToken, WriteSpan<T>
     end
 
     function shared(self): Span<T> borrows (self)
-        return new SpanImpl(
+        return SpanImpl(
             anchor = self,
             element = self.element,
             layout = self.layout,
@@ -475,7 +479,7 @@ local record WriteSpanImpl<T> is WriteToken, WriteSpan<T>
             error("nupp: SoA slice out of bounds", 2)
         end
 
-        return new WriteSpanImpl(
+        return WriteSpanImpl(
             anchor = self,
             element = self.element,
             layout = self.layout,
@@ -525,7 +529,7 @@ export record Array<T> is ArrayToken
 end
 
 function Array.read<T>(borrows self: Array<T>): Span<T> borrows (self)
-    return new SpanImpl(
+    return SpanImpl(
         anchor = self,
         element = self.element,
         layout = self.layout,
@@ -536,7 +540,7 @@ function Array.read<T>(borrows self: Array<T>): Span<T> borrows (self)
 end
 
 function Array.write<T>(exclusive self: Array<T>): affine(WriteToken & WriteSpan<T>, destroywritespan) borrows (self)
-    return new WriteSpanImpl(
+    return WriteSpanImpl(
         anchor = self,
         element = self.element,
         layout = self.layout,
@@ -581,7 +585,7 @@ export function _allocate<T>(element: ctype<T>, count: integer, rawLayout: table
         for ordinal, segment in ipairs(instance.segments) do
             columns[ordinal] = storage.castWritableElements(segment.field.storageType, advance(base, segment.offset))
         end
-        return new Array(
+        return Array(
             raw = raw,
             element = element,
             layout = layout,

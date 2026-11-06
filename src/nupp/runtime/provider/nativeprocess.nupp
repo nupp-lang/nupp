@@ -4,7 +4,9 @@ local host = require("nupp.vm.process")
 local shared = require("io.internal.process.types")
 local provider = {}
 
-function provider.spawn(_: any, options: shared.Options): (any?, any?, any?, any?, integer, string?)
+-- The VM host reports a failed start by its reason alone, so the platform error
+-- code the contract allows is never set here.
+function provider.spawn(_: any, options: shared.SpawnOptions): (any?, any?, any?, any?, integer, string?, integer?)
     -- Public option names stop here; the frozen host consumes this private descriptor.
     return host.spawn({
         args = options.args,

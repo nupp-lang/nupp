@@ -12,6 +12,11 @@ const tables = require("nupp.runtime.core.coretables")
 const strings = require("nupp.runtime.core.corestrings")
 const ints = require("nupp.runtime.core.coreintegers")
 const guestscope = require("nupp.runtime.core.guestscope")
+const librarytexts = require("nupp.runtime.core.librarytexts")
+const collector = require("nupp.runtime.vm.collector")
+const gcweak = require("nupp.runtime.vm.gcweak")
+const gcfinal = require("nupp.runtime.vm.gcfinal")
+const coreuserdata = require("nupp.runtime.core.coreuserdata")
 
 -- tableSet's answer when a __newindex function is to be called instead.
 export const META_PENDING: uint64 = 100ULL
@@ -42,10 +47,19 @@ export const META_POW: uint64 = 17ULL
 -- resolve.
 export const META_FIELDS: uint64 = 18ULL
 
+-- What the collector reads from a metatable: its finalizer and weak mode.
+export const META_GC: uint64 = 19ULL
+export const META_MODE: uint64 = 20ULL
+
+-- A weak mode's letters, which Lua 5.5 reads only in a short string.
+const LETTER_KEYS: uint64 = 107ULL
+const LETTER_VALUES: uint64 = 118ULL
+const SHORT_STRING: uint64 = 40ULL
+
 -- The interned name of a metatable field: "__index", "__newindex" or
 -- "__metatable".
 local function makeMetaKey(ctx: voidptr, which: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
         local builder = state as strings.Builder*
@@ -88,6 +102,10 @@ local function makeMetaKey(ctx: voidptr, which: uint64): uint64
             refused = strings.appendWord(h, builder, 0x776f705f5fULL, 5ULL)
         elseif which == META_FIELDS then
             refused = strings.appendWord(h, builder, 0x73646c65696600ULL, 7ULL)
+        elseif which == META_GC then
+            refused = librarytexts.append(h, builder, librarytexts.TEXT_FIELD_GC)
+        elseif which == META_MODE then
+            refused = librarytexts.append(h, builder, librarytexts.TEXT_FIELD_MODE)
         else
             refused = strings.appendWord(h, builder, 0x61746174656d5f5fULL, 8ULL)
                 | strings.appendWord(h, builder, 0x656c62ULL, 3ULL)
@@ -182,20 +200,30 @@ export function metaSelf(ctx: voidptr): uint64
     end
 end
 
+-- The metatable of a table or a userdata, or 0.
+local function metaOf(value: uint64): uint64
+    local t = tableOf(value)
+    if t ~= 0ULL then
+        return tableOf(tables.meta(t))
+    end
+
+    return tableOf(coreuserdata.meta(value))
+end
+
 -- The `which` metamethod of an operation on `a` and `b`: the first
 -- operand's when it has one, else the second's; 0 when neither is a table
--- with it.
+-- or a userdata with it.
 export function binaryMeta(ctx: voidptr, which: uint64, a: uint64, b: uint64): uint64
-    local first = tableOf(a)
+    local first = metaOf(a)
     if first ~= 0ULL then
-        local found = metaField(ctx, first, which)
+        local found = tables.get(first, metaKey(ctx, which))
         if found ~= values.NIL then
             return found
         end
     end
-    local second = tableOf(b)
+    local second = metaOf(b)
     if second ~= 0ULL then
-        local found = metaField(ctx, second, which)
+        local found = tables.get(second, metaKey(ctx, which))
         if found ~= values.NIL then
             return found
         end
@@ -377,9 +405,36 @@ export function tableof(value: uint64): uint64
     return tableOf(value)
 end
 
+-- The weak mode metatable `mt` gives a table: gcweak's WEAK_KEYS for a "k"
+-- in its __mode and WEAK_VALUES for a "v", when that is a short string.
+local function weakMode(ctx: voidptr, mt: uint64): uint64
+    local s = strings.header(tables.get(mt, metaKey(ctx, META_MODE)))
+    if s == 0ULL or strings.length(s) > SHORT_STRING then
+        return 0ULL
+    end
+    @unsafe do
+        local text = native.pointer(strings.bytes(s))
+        local mode: uint64 = 0ULL
+        local i: uint64 = 0ULL
+        while i < strings.length(s) do
+            local letter = native.word(native.load8(text, native.index(i)))
+            if letter == LETTER_KEYS then
+                mode = mode | gcweak.WEAK_KEYS
+            elseif letter == LETTER_VALUES then
+                mode = mode | gcweak.WEAK_VALUES
+            end
+            i = i + 1ULL
+        end
+        return mode
+    end
+end
+
 -- setmetatable(t, mt): answers t; a metatable with __metatable set is
 -- protected. A frozen t cannot take another, and mt freezes as it is
--- attached (runtime Decision 16), so its metamethods stay what they were.
+-- attached (runtime Decision 16), so its metamethods stay what they were:
+-- t's weak mode is mt's __mode from now on, and a __gc in mt marks t for
+-- finalization, as Lua marks it then (`gcfinal`), unless the exit is
+-- running every finalizer already.
 export function setMetatable(ctx: voidptr, value: uint64, mt: uint64): uint64
     local t = tableOf(value)
     if t == 0ULL then
@@ -397,9 +452,22 @@ export function setMetatable(ctx: voidptr, value: uint64, mt: uint64): uint64
     @unsafe do
         local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
         tables.setMeta(h, t, mt)
+        local o = native.pointer(t) as heap.Header*
+        local mode: uint64 = 0ULL
         if mt ~= values.NIL then
             tables.freeze(h, mt & values.PAYLOAD)
+            mode = weakMode(ctx, mt & values.PAYLOAD)
+            local closing = native.load64(
+                guestscope.scopeof(ctx),
+                native.fieldOffset<guestscope.Services>("finalclose")
+            )
+            if closing == guestscope.CLOSE_IDLE
+                and tables.get(mt & values.PAYLOAD, metaKey(ctx, META_GC)) ~= values.NIL
+            then
+                gcfinal.mark(h, o)
+            end
         end
+        collector.weakmode(h, o, mode)
     end
 
     return value
@@ -424,10 +492,13 @@ export function threadMeta(ctx: voidptr, value: uint64): uint64
     end
 end
 
--- The table a thread's fields are read from: its shared metatable's
--- __index, or 0 when that is not a table.
-export function threadIndex(ctx: voidptr, value: uint64): uint64
+-- The table a thread's or a userdata's fields are read from: its
+-- metatable's __index, or 0 when that is not a table.
+export function objectIndex(ctx: voidptr, value: uint64): uint64
     local meta = tableOf(threadMeta(ctx, value))
+    if meta == 0ULL then
+        meta = tableOf(coreuserdata.meta(value))
+    end
     if meta == 0ULL then
         return 0ULL
     end
@@ -435,11 +506,35 @@ export function threadIndex(ctx: voidptr, value: uint64): uint64
     return tableOf(tables.get(meta, metaKey(ctx, META_INDEX)))
 end
 
+-- A userdata's __index when that is a function, which its fields are read
+-- through, or 0.
+export function objectIndexer(ctx: voidptr, value: uint64): uint64
+    local meta = tableOf(coreuserdata.meta(value))
+    if meta == 0ULL then
+        return 0ULL
+    end
+    local index = tables.get(meta, metaKey(ctx, META_INDEX))
+    if index == values.NIL or tableOf(index) ~= 0ULL then
+        return 0ULL
+    end
+
+    return index
+end
+
 -- getmetatable(v): a table's metatable, or its __metatable field when it
--- has one; the threads' shared one for a thread; nil for anything else.
+-- has one; a userdata's, likewise; the threads' shared one for a thread;
+-- nil for anything else.
 export function getMetatable(ctx: voidptr, value: uint64): uint64
     local t = tableOf(value)
     if t == 0ULL then
+        local own = tableOf(coreuserdata.meta(value))
+        if own ~= 0ULL then
+            local shown = tables.get(own, metaKey(ctx, META_METATABLE))
+            if shown ~= values.NIL then
+                return shown
+            end
+            return values.TAG_OBJ | own
+        end
         return threadMeta(ctx, value)
     end
     local protected = metaField(ctx, t, META_METATABLE)

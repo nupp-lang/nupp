@@ -86,14 +86,14 @@ export record Memo
             if self.count >= self.capacity then
                 self:evict()
             end
-            entry = new Entry(used = self.clock)
+            entry = Entry(used = self.clock)
             self.entries[key] = entry
             self.count += 1
         end
         self.clock += 1
         entry.used = self.clock
         self.lastKey, self.lastEntry = key, entry
-        local slot = new Slot()
+        local slot = Slot()
         if direction == "write" then
             entry.write = slot
         else
@@ -174,5 +174,5 @@ export function new(label: string, capacity: integer?): Memo
         error(label .. " capacity must be a positive integer", 2)
     end
 
-    return new Memo(label = label, capacity = limit)
+    return Memo(label = label, capacity = limit)
 end

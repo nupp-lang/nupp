@@ -4,13 +4,14 @@ module io.internal.uri
 local uriTypes = require("io.internal.uritypes")
 local provider = require("nupp.io.uri.provider")
 
+local bounded = require("io.internal.boundedcache")
+
 export type URI = uriTypes.URI
 export const URI = uriTypes.URI
-export const isuri = uriTypes.isuri
 
 local function fromComponents(components: any): (string?, string?)
     if type(components) ~= "table" then
-        return nil, "nupp: io.newuri needs absolute text or URI components"
+        return nil, "nupp: io.URI.of needs absolute text or URI components"
     end
     local scheme = components.scheme
     if type(scheme) ~= "string" or not (scheme as string):match("^[A-Za-z][A-Za-z0-9+.-]*$") then
@@ -74,50 +75,16 @@ local function fromComponents(components: any): (string?, string?)
 end
 
 const URI_CACHE_CAPACITY = 1024
-local uriCache: {[string]: any} = {}
-local uriCacheSize = 0
-local uriCacheNewest: any = nil
-local uriCacheOldest: any = nil
+local uriCache = bounded.create<URI>(URI_CACHE_CAPACITY)
 
 local function adopt(value: URI): URI
     local text = value:tostring()
-    local found = uriCache[text]
+    local found = uriCache:get(text)
     if found ~= nil then
-        if found ~= uriCacheNewest then
-            local older, newer = found.older, found.newer
-            if older ~= nil then
-                older.newer = newer
-            else
-                uriCacheOldest = newer
-            end
-            if newer ~= nil then
-                newer.older = older
-            end
-            found.older = uriCacheNewest
-            found.newer = nil
-            uriCacheNewest.newer = found
-            uriCacheNewest = found
-        end
-
-        return found.value
+        return found
     end
 
-    local entry = {value = value, older = uriCacheNewest, newer = nil}
-    if uriCacheNewest ~= nil then
-        uriCacheNewest.newer = entry
-    else
-        uriCacheOldest = entry
-    end
-    uriCacheNewest = entry
-    uriCache[text] = entry
-    uriCacheSize = uriCacheSize + 1
-    if uriCacheSize > URI_CACHE_CAPACITY then
-        local evicted = uriCacheOldest
-        uriCacheOldest = evicted.newer
-        uriCacheOldest.older = nil
-        uriCache[evicted.value:tostring()] = nil
-        uriCacheSize = uriCacheSize - 1
-    end
+    uriCache:put(text, value)
 
     return value
 end
@@ -134,9 +101,9 @@ export function newuri(value: string | URI.Components): (URI?, string?)
         end
         text = composed
     end
-    local cached = uriCache[text]
+    local cached = uriCache:get(text)
     if cached ~= nil then
-        return adopt(cached.value)
+        return cached
     end
     local parts, reason = provider.parse(text)
     if parts == nil then

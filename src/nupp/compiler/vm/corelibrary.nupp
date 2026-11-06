@@ -256,6 +256,16 @@ local subjectrows: {Subject} = {
         }
     },
     {
+        -- Full userdata (nupp.runtime.core.coreuserdata): a new one with its
+        -- metatable and the value it carries, and that value.
+        name = "userdata",
+        range = false,
+        calls = {
+            {name = "USERDATA_NEW", id = 124, call = "hostcalls.userdata", min = 2, max = 2},
+            {name = "USERDATA_VALUE", id = 125, call = "hostcalls.uservalue", min = 1, max = 1}
+        }
+    },
+    {
         -- A cleanup function set under its key, and read back by it.
         name = "cleanups",
         range = false,
@@ -322,9 +332,11 @@ local subjectrows: {Subject} = {
 -- each: the file calls' (nupp.runtime.filecalls), then the reactor's, the
 -- poller's (nupp.runtime.pollcalls) and the blocking-work pool's
 -- (nupp.runtime.poolcalls), which guestreactor answers, then the process
--- layer's (nupp.runtime.processcalls), which guestprocess answers. Each
--- group's operations are consecutive, its bounds `<GROUP>_FIRST` and
--- `<GROUP>_LAST`; requiring one of its declaration modules loads nothing.
+-- layer's (nupp.runtime.processcalls), which guestprocess answers, the file
+-- calls on names, and the clocks and calendar (nupp.runtime.timecalls),
+-- which guesttime answers. Each group's operations are consecutive, its
+-- bounds `<GROUP>_FIRST` and `<GROUP>_LAST`; requiring one of its
+-- declaration modules loads nothing.
 export type Operation = {
     name: string,
     library: string,
@@ -374,7 +386,7 @@ local grouprows: {Group} = {
     {
         -- The process layer's: a pipe for a child's stream, spawning, watching
         -- and no longer watching a child's exit, collecting it, signalling
-        -- its group, and ending this process.
+        -- its group, ending this process, and running every finalizer first.
         name = "PROCESS",
         call = "HOST_FILES",
         modules = {"processcalls"},
@@ -385,7 +397,53 @@ local grouprows: {Group} = {
             {name = "PROCESS_UNWATCH", library = "processcalls.unwatch", operation = 21, arguments = 2},
             {name = "PROCESS_REAP", library = "processcalls.reap", operation = 22, arguments = 1},
             {name = "PROCESS_KILL", library = "processcalls.kill", operation = 23, arguments = 2},
-            {name = "PROCESS_EXIT", library = "processcalls.exit", operation = 24, arguments = 1}
+            {name = "PROCESS_EXIT", library = "processcalls.exit", operation = 24, arguments = 1},
+            {name = "PROCESS_CLOSE", library = "processcalls.close", operation = 25, arguments = 0}
+        }
+    },
+    {
+        -- The collector's: the function finalizers run through, and a
+        -- table's `__gc` read past `__metatable` (nupp.runtime.luawarn).
+        name = "GC",
+        call = "HOST_FILES",
+        modules = {"gccalls"},
+        operations = {
+            {name = "GC_INSTALL", library = "gccalls.install", operation = 26, arguments = 1},
+            {name = "GC_HANDLER", library = "gccalls.handler", operation = 27, arguments = 1}
+        }
+    },
+    {
+        -- The file layer's calls on names rather than descriptors: removing
+        -- and renaming a file, making a temporary one, and the calls a
+        -- recursive removal walks a tree with: opening a directory below
+        -- another without following a link, its entries' names, and
+        -- unlinking an entry relative to its directory.
+        name = "PATH",
+        call = "HOST_FILES",
+        modules = {"filecalls"},
+        operations = {
+            {name = "FILE_REMOVE", library = "filecalls.remove", operation = 28, arguments = 1},
+            {name = "FILE_RENAME", library = "filecalls.rename", operation = 29, arguments = 2},
+            {name = "FILE_TEMPORARY", library = "filecalls.temporary", operation = 30, arguments = 0},
+            {name = "FILE_DIROPEN", library = "filecalls.diropen", operation = 31, arguments = 2},
+            {name = "FILE_NAMES", library = "filecalls.names", operation = 32, arguments = 1},
+            {name = "FILE_UNLINK", library = "filecalls.unlink", operation = 33, arguments = 3}
+        }
+    },
+    {
+        -- The clocks and calendar (nupp.runtime.timecalls), which guesttime
+        -- answers: the wall clock, the processor time used, a time broken
+        -- down, C's mktime of broken-down fields, and strftime of one
+        -- conversion.
+        name = "TIME",
+        call = "HOST_FILES",
+        modules = {"timecalls"},
+        operations = {
+            {name = "TIME_NOW", library = "timecalls.now", operation = 34, arguments = 0},
+            {name = "TIME_CLOCK", library = "timecalls.clock", operation = 35, arguments = 0},
+            {name = "TIME_PARTS", library = "timecalls.parts", operation = 36, arguments = 2},
+            {name = "TIME_MAKE", library = "timecalls.make", operation = 37, arguments = 1},
+            {name = "TIME_FORMAT", library = "timecalls.format", operation = 38, arguments = 3}
         }
     },
     {

@@ -10,7 +10,7 @@ local record Login
     @debug(redact = true)
     password: string
 end
-assert(debug.render(debug.binding(Login), new Login(user = "ada", password = "x"))
+assert(debug.render(debug.binding(Login), Login(user = "ada", password = "x"))
     == 'Login { user = "ada", password = <redacted> }')
 ```
 
@@ -27,7 +27,6 @@ const reflect = require("types.reflect")
 
 local core = require("nupp.serde.internal.value")
 local declarations = require("nupp.serde.internal.declaration")
-local text = require("string.buffer")
 local memos = require("nupp.serde.internal.memo")
 local identity = require("nupp.serde.internal.identity") as function(borrows value: unknown): integer?
 
@@ -36,7 +35,7 @@ local record CustomText is core.Atom
     @readonly family: table
     @readonly text: string
     function snapshot(borrows self: CustomText): core.Atom
-        return new CustomText(family = customFamily, text = self.text:sub(1))
+        return CustomText(family = customFamily, text = self.text:sub(1))
     end
 end
 local record CustomDescription<M is core.Member> is core.Description<M>
@@ -57,7 +56,7 @@ local record Custom<M is core.Member> is core.Adapter<unknown, M>
 
     function write(self, borrows value: unknown, exclusive writer: core.Writer<M>): nil
         local printable = value as types.Debug
-        writer:writeatom(self.description.member, new CustomText(family = customFamily, text = printable:debug()))
+        writer:writeatom(self.description.member, CustomText(family = customFamily, text = printable:debug()))
     end
 
     function read(self, exclusive reader: core.Reader<M>): unknown
@@ -112,7 +111,7 @@ local record View is declarations.View
         member: M
     ): core.Adapter<unknown, M>?
         if customDebug(info, index, {}) then
-            return new Custom<M>(description = new CustomDescription<M>(member = member))
+            return Custom<M>(description = CustomDescription<M>(member = member))
         end
         return nil
     end
@@ -133,7 +132,7 @@ export function binding<T is own.Copyable>(target: Type<T>): core.Binding<T>
     if prior ~= nil then
         return prior as core.Binding<T>
     end
-    local result = declarations.binding(target, new declarations.Options(view = new View()))
+    local result = declarations.binding(target, declarations.Options(view = View()))
     rawset(info, bindingKey, result)
 
     return result
@@ -172,7 +171,7 @@ local function plan<M is core.Member>(description: core.Description<M>, seen: {[
         return previous
     end
     assert2(description.kind ~= "opaque", "debug field requires an explicit binding")
-    local result = new Plan<M>(description = description)
+    local result = Plan<M>(description = description)
     seen[description] = result
     for _, child in ipairs(description.children) do
         local selected = action(child.member)
@@ -358,7 +357,7 @@ local record Output<M is core.Member> is core.Writer<M>
         end
         local label = kind == "structure" and declarations.label(member) or nil
         self:add(label ~= nil and label .. " { " or "{")
-        local frame = new Frame<M>(plan = self:selected(member), kind = kind)
+        local frame = Frame<M>(plan = self:selected(member), kind = kind)
         self.frames[#self.frames + 1] = frame
         emit:apply(source, self)
         if kind == "map" then
@@ -424,7 +423,7 @@ local record Output<M is core.Member> is core.Writer<M>
         for index = #self.state.parts, start, -1 do
             self.state.parts[index] = nil
         end
-        frame.entries[#frame.entries + 1] = new MapEntry(key = tostring(key), parts = parts)
+        frame.entries[#frame.entries + 1] = MapEntry(key = tostring(key), parts = parts)
     end
 
     function writeunknown<F is core.WireField, D>(
@@ -449,7 +448,7 @@ local record Output<M is core.Member> is core.Writer<M>
 end
 
 local function output<M is core.Member>(selected: Plan<M>, state: State, depth: integer): affine(Output<M>)
-    return new Output<M>(root = selected, state = state, depth = depth)
+    return Output<M>(root = selected, state = state, depth = depth)
 end
 
 local record Render<T> is core.Consumer<T, T, nil>
@@ -464,7 +463,7 @@ local record Render<T> is core.Consumer<T, T, nil>
 end
 contents = function<D>(adapter: core.DocumentAdapter<D>, borrows value: D, state: State, depth: integer): nil
     assert2(depth <= 128, "debug nesting limit exceeded")
-    adapter:contents():accept(new Render<D>(state = state, depth = depth), value)
+    adapter:contents():accept(Render<D>(state = state, depth = depth), value)
 end
 
 --- Renders values, keeping what it selected for each binding.
@@ -476,7 +475,7 @@ export interface Renderer
     render: function<T>(self, selectedbinding: core.Binding<T>, borrows value: T): string
 
     --- Appends a rendered value. See [](write).
-    write: function<T>(self, selectedbinding: core.Binding<T>, borrows value: T, exclusive buffer: text.Buffer): nil
+    write: function<T>(self, selectedbinding: core.Binding<T>, borrows value: T, exclusive buffer: io.Buffer): nil
 
     --- Forgets every binding's selections.
     clear: function(self): nil
@@ -488,17 +487,15 @@ end
 local record Implementation is Renderer
     @readonly cache: Cache
     function render<T>(self, selectedbinding: core.Binding<T>, borrows value: T): string
-        local state = new State(cache = self.cache)
-        selectedbinding:accept(new Render<T>(state = state), value)
+        local state = State(cache = self.cache)
+        selectedbinding:accept(Render<T>(state = state), value)
         return table.concat(state.parts)
     end
 
-    function write<T>(self, selectedbinding: core.Binding<T>, borrows value: T, exclusive buffer: text.Buffer): nil
-        local state = new State(cache = self.cache)
-        selectedbinding:accept(new Render<T>(state = state), value)
-        for _, part in ipairs(state.parts) do
-            buffer:put(part)
-        end
+    function write<T>(self, selectedbinding: core.Binding<T>, borrows value: T, exclusive buffer: io.Buffer): nil
+        local state = State(cache = self.cache)
+        selectedbinding:accept(Render<T>(state = state), value)
+        buffer:setstring(table.concat(state.parts), buffer:len())
     end
 
     function clear(self): nil
@@ -516,7 +513,7 @@ end
 --- @return the renderer
 --- @raises string when capacity is not positive
 export function renderer(capacity: integer?): Renderer
-    return new Implementation(cache = new Cache(memo = memos.new("Debug extension", capacity)))
+    return Implementation(cache = Cache(memo = memos.new("Debug extension", capacity)))
 end
 
 local defaultRenderer = renderer()
@@ -538,15 +535,15 @@ end
 ---     x: float
 ---     y: float
 --- end
---- local output = string.buffer.new()
---- debug.write(serde.binding(Vec2), new Vec2(1.25, 2.5), output)
---- assert(output:tostring() == "Vec2 { x = 1.25, y = 2.5 }")
+--- local output = io.Buffer.create()
+--- debug.write(serde.binding(Vec2), Vec2(1.25, 2.5), output)
+--- assert(output:getstring() == "Vec2 { x = 1.25, y = 2.5 }")
 --- ```
 ---
 --- @param selectedbinding the value's binding
 --- @param value the value
 --- @param buffer the buffer to append to
-export function write<T>(selectedbinding: core.Binding<T>, borrows value: T, exclusive buffer: text.Buffer): nil
+export function write<T>(selectedbinding: core.Binding<T>, borrows value: T, exclusive buffer: io.Buffer): nil
     defaultRenderer:write(selectedbinding, value, buffer)
 end
 

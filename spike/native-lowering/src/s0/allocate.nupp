@@ -48,7 +48,7 @@ local function zeros(n: integer): {integer}
 end
 
 local function newAllocation(f: ir.Function): allocate.Allocation
-    return new allocate.Allocation(
+    return allocate.Allocation(
         start = zeros(#f.valueKinds),
         finish = zeros(#f.valueKinds),
         location = zeros(#f.valueKinds),
@@ -401,7 +401,7 @@ record allocate.MoveWorkspace
 end
 
 function allocate.workspace(): allocate.MoveWorkspace
-    return new allocate.MoveWorkspace(counts = {}, writer = {}, pending = {}, queue = {}, readers = {}, nextReader = {})
+    return allocate.MoveWorkspace(counts = {}, writer = {}, pending = {}, queue = {}, readers = {}, nextReader = {})
 end
 
 local function appendMove(a: allocate.Allocation, source: integer, destination: integer, kind: integer): nil

@@ -71,7 +71,7 @@ local record Field<T, S is own.Closeable, M is core.Member> is structures.FieldC
         end
         self.fields[
             #self.fields + 1
-        ] = new Project<T, V>(
+        ] = Project<T, V>(
             dynamic = encoding.dynamic,
             key = assert2(self.plan:key(member)),
             path = path,
@@ -116,7 +116,7 @@ local record SelectStructure<T, M is core.Member> is structures.Consumer<T, M, l
         local selected: {Entry<T>} = {}
         for _, field in ipairs(fields) do
             if not field:accept(
-                new Field<T, S, M>(resolver = self.resolver, plan = self.plan, path = self.path, fields = selected)
+                Field<T, S, M>(resolver = self.resolver, plan = self.plan, path = self.path, fields = selected)
             ) then
                 return nil
             end
@@ -127,7 +127,7 @@ local record SelectStructure<T, M is core.Member> is structures.Consumer<T, M, l
             dynamic = dynamic or field.dynamic
         end
 
-        return new Structure<T>(fields = selected, dynamic = dynamic, path = self.path)
+        return Structure<T>(fields = selected, dynamic = dynamic, path = self.path)
     end
 end
 local record Primitive<T> is lowering.Encoding<T>
@@ -162,12 +162,9 @@ local record Resolver<M is core.Member> is lowering.EncodeResolver<M>
         if encoding == nil then
             local scalar = scalars.nativeScalar(adapter)
             if scalar ~= nil then
-                encoding = new Primitive<T>(kind = scalar, path = path)
+                encoding = Primitive<T>(kind = scalar, path = path)
             else
-                encoding = structures.inspect(
-                    adapter,
-                    new SelectStructure<T, M>(resolver = self, plan = plan, path = path)
-                )
+                encoding = structures.inspect(adapter, SelectStructure<T, M>(resolver = self, plan = plan, path = path))
             end
         end
         self.active[adapter] = nil
@@ -180,5 +177,5 @@ end
 -- All accepted operations come from identity-checked adapters and inspected
 -- access operations. Descriptions alone never authorize bypassing a callback.
 export function select<T, M is core.Member>(adapter: core.Adapter<T, M>, plan: plans.Plan<M>): lowering.Encoding<T>?
-    return (new Resolver<M>()):resolve(adapter, plan, "$")
+    return (Resolver<M>()):resolve(adapter, plan, "$")
 end

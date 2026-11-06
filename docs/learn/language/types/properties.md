@@ -87,7 +87,7 @@ local record Dog is Animal
     name: string
 end
 
-local kennel: {value: Dog} = {value = new Dog(name = "rex")}
+local kennel: {value: Dog} = {value = Dog(name = "rex")}
 -- NUPP2001: {value: Dog} is not a {value: Animal}
 local pen: {value: Animal} = kennel
 ```
@@ -148,7 +148,7 @@ local record Counter
     value: integer
 end
 
-local sink: {@writeonly value: integer} = new Counter(value = 0)
+local sink: {@writeonly value: integer} = Counter(value = 0)
 sink.value = 1
 sink.value += 1 -- NUPP2009: `+=` reads `value` through a write-only view
 ```
@@ -158,12 +158,3 @@ separate capability of the same name, and so is a capability property on a
 struct. Struct fields are fixed C
 memory slots, so they remain ordinary invariant fields. See [Records and
 structs](records-and-structs.md#structs) for what a struct field may hold.
-
-::: seealso
-- [interfaces.md](interfaces.md) for the declaration these members most often
-  appear on
-- [records.md](records-and-structs.md) for record and struct members, and the fields a
-  struct refuses
-- [ownership.md](../../runtime/ownership/borrowing.md) for the qualifiers that govern lifetime rather
-  than access
-:::

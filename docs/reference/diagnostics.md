@@ -130,7 +130,7 @@ that page:
 | Derives | [derives.md](derives.md) | `NUPP2810` |
 | Effect contracts | [effects.md](../learn/language/effects.md) | `NUPP2112`, `NUPP2710`, `NUPP2711` |
 | File types | [file-types.md](../learn/language/file-types.md) | `NUPP1006`, `NUPP1008`, `NUPP2105`, `NUPP2106` |
-| Files | [](io.files) | `NUPP2701` |
+| Files | [](os.stat) | `NUPP2701` |
 | Formatter | [fmt.md](../learn/tooling/formatter.md) | `NUPP4001` |
 | Generics | [generics.md](../learn/language/types/generics.md) | `NUPP2003`, `NUPP2116`, `NUPP2122`, `NUPP2146`, `NUPP2148` |
 | Hot reload | [hot-reload.md](../learn/projects/hot-reload.md) | `NUPP5001` |
@@ -285,37 +285,3 @@ different project.
    authoritative answer that nothing was redone, and `slowest` ranks modules by
    time actually spent either way, since confirming that a cache entry is still
    valid costs time too.
-
-## FAQ
-
-### How do I stop the checker reporting a lint I do not want?
-
-Set the lint to `off` by name or by category in the `lints` table in `nupp.lua`,
-or decorate the one statement with `@allow("lint-name")`. See
-[lints.md](lints.md) for the resolution order, which runs registry default, then
-category, then name, then the `@allow`.
-
-### Why did a diagnostic give me `help` and no fix?
-
-Because more than one program would satisfy the rule and the compiler will not
-pick one. An unhandled enum member needs a branch body only the author knows,
-so the message says what is missing and stops. See [Repairs](#repairs) for the
-repairs that are unambiguous enough to be offered as edits.
-
-### Why does a failed run have a diagnostic with no range?
-
-The run never reached a file. A manifest that could not be used ends a check
-before anything is parsed, so the reason is a coded diagnostic about the run --
-`NUPP0002` -- rather than about a place in source. See [Failures outside
-source](#failures-outside-source).
-
-### Why did `@allow` not silence an error?
-
-`@allow` reaches lints and nothing else, so naming a type error in one leaves
-the error standing and reports `NUPP2108` for the name. See
-[lints.md](lints.md) for what counts as a lint.
-
-::: seealso
-- [cli.md](cli.md) for every command, its options, and its exit codes
-- [lsp.md](../learn/tooling/language-server.md) for the same diagnostics inside an editor
-:::

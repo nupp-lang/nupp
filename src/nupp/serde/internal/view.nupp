@@ -38,11 +38,7 @@ export record View<T is own.Copyable>
     --- @raises serde.Error when the binding cannot construct a value from
     ---     the document it wrote
     function snapshot(self): View<T>
-        return new View<T>(
-            binding = self.binding,
-            value = bridge.into(self.binding, self:document()),
-            source = self.source
-        )
+        return View<T>(binding = self.binding, value = bridge.into(self.binding, self:document()), source = self.source)
     end
 end
 
@@ -59,16 +55,14 @@ local record Contents<T is own.Copyable, M is core.Member> is core.Adapter<View<
     end
 
     function read(self, exclusive reader: core.Reader<M>): View<T>
-        return new View<T>(binding = self.binding, value = self.original:read(reader), source = reader:context())
+        return View<T>(binding = self.binding, value = self.original:read(reader), source = reader:context())
     end
 end
 local record Select<T is own.Copyable> is core.Consumer<T, nil, nil>
     @readonly binding: core.Binding<T>
     result: core.Binding<View<T>>?
     function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows state: nil): nil
-        self.result = new core.Bound<View<T>, M>(
-            adapter = new Contents<T, M>(binding = self.binding, original = adapter)
-        )
+        self.result = core.Bound<View<T>, M>(adapter = Contents<T, M>(binding = self.binding, original = adapter))
     end
 end
 local record Adapter<T is own.Copyable> is core.DocumentAdapter<View<T>>
@@ -86,7 +80,7 @@ local record Adapter<T is own.Copyable> is core.DocumentAdapter<View<T>>
     function readcontents(self, exclusive reader: core.DocumentReader): View<T>
         local source = reader:context()
         local logical = documents.documentAdapter():readcontents(reader)
-        return new View<T>(binding = self.binding, value = bridge.into(self.binding, logical), source = source)
+        return View<T>(binding = self.binding, value = bridge.into(self.binding, logical), source = source)
     end
 
     function discard(self, takes value: View<T>): nil
@@ -94,11 +88,11 @@ local record Adapter<T is own.Copyable> is core.DocumentAdapter<View<T>>
     end
 end
 export function of<T is own.Copyable>(binding: core.Binding<T>, value: T, context: core.Context?): View<T>
-    return new View<T>(binding = binding, value = value, source = context)
+    return View<T>(binding = binding, value = value, source = context)
 end
 
 export function adapter<T is own.Copyable>(binding: core.Binding<T>): core.DocumentAdapter<View<T>>
-    local select = new Select<T>(binding = binding)
+    local select = Select<T>(binding = binding)
     binding:accept(select, nil)
-    return new Adapter<T>(binding = binding, selected = assert2(select.result))
+    return Adapter<T>(binding = binding, selected = assert2(select.result))
 end

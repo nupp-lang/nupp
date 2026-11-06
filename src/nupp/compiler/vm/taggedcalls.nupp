@@ -267,7 +267,7 @@ export function defaultConstant(ctx: any, node: any, value: any): integer
     return ctx.emit(node, "K", {pool(ctx, "int64", tostring(value))}, "tagged") as integer
 end
 
--- `new R(...)` with a constructor: a fresh instance with R's field
+-- `R(...)` with a constructor: a fresh instance with R's field
 -- defaults, then R's constructor called with it first (from the table R's
 -- name holds); the instance is the value.
 export function construct(ctx: any, node: any, origin: any): any

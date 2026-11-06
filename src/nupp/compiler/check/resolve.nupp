@@ -1466,7 +1466,7 @@ export function install(c: state.Checker): nil
                     c.diag("NUPP2121", node, "Type<T> needs exactly one type argument")
                 end
                 node.typeArgs[1].namesADeclaration = true
-                return T.typeObject(c.resolveType(node.typeArgs[1]))
+                return T.typeObject(T.unwrapOwnership(c.resolveType(node.typeArgs[1])))
             end
             if name == "thread" and node.typeArgs then
                 if #node.typeArgs ~= 4 then

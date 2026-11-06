@@ -3,7 +3,9 @@ module nupp.runtime.core.guestio
 -- The host's services a program reaches through the core's library calls:
 -- the file system calls under the program's file layer (filecalls) and its
 -- reactor (pollcalls, poolcalls) and process layer (processcalls), the
--- monotonic clock, the collector's controls and the program's arguments.
+-- collector's calls under finalizers (gccalls), clocks and calendar under
+-- `os` (timecalls, which guesttime answers), the monotonic clock and the
+-- program's arguments.
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const values = require("nupp.runtime.vm.values")
@@ -13,13 +15,11 @@ const strings = require("nupp.runtime.core.corestrings")
 const tables = require("nupp.runtime.core.coretables")
 const ints = require("nupp.runtime.core.coreintegers")
 const guestscope = require("nupp.runtime.core.guestscope")
-const texts = require("nupp.runtime.core.guesttexts")
-const collector = require("nupp.runtime.vm.collector")
 const guestreactor = require("nupp.runtime.core.guestreactor")
 const librarylayouts = require("nupp.runtime.core.librarylayouts")
-const librarytexts = require("nupp.runtime.core.librarytexts")
-const guestvalues = require("nupp.runtime.core.guestvalues")
 const guestprocess = require("nupp.runtime.core.guestprocess")
+const guestgc = require("nupp.runtime.core.guestgc")
+const guesttime = require("nupp.runtime.core.guesttime")
 
 local function heapOf(ctx: voidptr): heap.Heap*
     @unsafe do
@@ -51,7 +51,7 @@ end
 -- At most `room` bytes read from descriptor `fd` as a new string, "" at
 -- the end, or the negated error number the read answered.
 local function readText(ctx: voidptr, fd: uint64, room: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = heapOf(ctx)
         local builder = state as strings.Builder*
@@ -74,7 +74,7 @@ end
 
 -- The system's text for error number `code`, sized by a first call.
 local function reasonText(ctx: voidptr, code: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = heapOf(ctx)
         local builder = state as strings.Builder*
@@ -98,6 +98,66 @@ local function reasonText(ctx: voidptr, code: uint64): uint64
     end
 end
 
+-- The room a temporary file's name is given, past Lua's LUA_TMPNAMBUFSIZE.
+const NAME_BYTES: uint64 = 64ULL
+
+-- filecalls.temporary(): the name of a new empty file, or the negated
+-- error number making it answered.
+local function temporaryName(ctx: voidptr): uint64
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = heapOf(ctx)
+        local builder = state as strings.Builder*
+        if strings.reserve(h, builder, NAME_BYTES) ~= 0ULL then
+            error("not enough memory")
+        end
+        local length = os.fileTemporary(native.pointer(builder.base), builder.capacity)
+        if length < 0 then
+            strings.release(builder)
+            return ints.make(h, native.word(length))
+        end
+        if native.word(length) > builder.capacity then
+            strings.release(builder)
+            error("file calls: a temporary name is longer than its room")
+        end
+        builder.length = native.word(length)
+        return values.TAG_OBJ | strings.finish(h, builder)
+    end
+end
+
+-- The room a directory's names are first read into.
+const NAMES_BYTES: uint64 = 4096ULL
+
+-- filecalls.names(fd): directory `fd`'s entry names, each followed by a
+-- NUL, or the negated error number; read again into room for them all when
+-- the first read did not fit.
+local function namesText(ctx: voidptr, fd: uint64): uint64
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = heapOf(ctx)
+        local builder = state as strings.Builder*
+        local wanted = NAMES_BYTES
+        while true do
+            if strings.reserve(h, builder, wanted) ~= 0ULL then
+                strings.release(builder)
+                error("not enough memory")
+            end
+            local length = os.dirNames(fd, native.pointer(builder.base), builder.capacity)
+            if length < 0 then
+                strings.release(builder)
+                return ints.make(h, native.word(length))
+            end
+            if native.word(length) <= builder.capacity then
+                builder.length = native.word(length)
+                return values.TAG_OBJ | strings.finish(h, builder)
+            end
+            wanted = native.word(length)
+        end
+    end
+
+    return values.NIL
+end
+
 -- filecalls' operation `op` with its arguments a, b and c (filecalls.d.nupp):
 -- a count, descriptor or position, the bytes read, or the negated error
 -- number, as the bridge's system call answered it.
@@ -108,6 +168,12 @@ export function files(ctx: voidptr, op: uint64, a: uint64, b: uint64, c: uint64)
     end
     if operation >= librarylayouts.PROCESS_FIRST and operation <= librarylayouts.PROCESS_LAST then
         return guestprocess.call(ctx, operation, a, b)
+    end
+    if operation >= librarylayouts.GC_FIRST and operation <= librarylayouts.GC_LAST then
+        return guestgc.calls(ctx, operation, a)
+    end
+    if operation >= librarylayouts.TIME_FIRST and operation <= librarylayouts.TIME_LAST then
+        return guesttime.call(ctx, operation, a, b, c)
     end
     @unsafe do
         local h = heapOf(ctx)
@@ -137,6 +203,32 @@ export function files(ctx: voidptr, op: uint64, a: uint64, b: uint64, c: uint64)
             return ints.make(h, native.word(os.fileClose(integerOf(a))))
         elseif operation == librarylayouts.FILE_REASON then
             return reasonText(ctx, integerOf(a))
+        elseif operation == librarylayouts.FILE_REMOVE then
+            local s = stringOf(a)
+            return ints.make(h, native.word(os.fileRemove(native.pointer(strings.bytes(s)), strings.length(s))))
+        elseif operation == librarylayouts.FILE_RENAME then
+            local from, to = stringOf(a), stringOf(b)
+            local done = os.fileRename(
+                native.pointer(strings.bytes(from)),
+                strings.length(from),
+                native.pointer(strings.bytes(to)),
+                strings.length(to)
+            )
+            return ints.make(h, native.word(done))
+        elseif operation == librarylayouts.FILE_TEMPORARY then
+            return temporaryName(ctx)
+        elseif operation == librarylayouts.FILE_DIROPEN then
+            local s = stringOf(b)
+            return ints.make(
+                h,
+                native.word(os.dirOpen(integerOf(a), native.pointer(strings.bytes(s)), strings.length(s)))
+            )
+        elseif operation == librarylayouts.FILE_NAMES then
+            return namesText(ctx, integerOf(a))
+        elseif operation == librarylayouts.FILE_UNLINK then
+            local s = stringOf(b)
+            local done = os.unlinkEntry(integerOf(a), native.pointer(strings.bytes(s)), strings.length(s), integerOf(c))
+            return ints.make(h, native.word(done))
         end
     end
     error("file calls: no such operation")
@@ -165,7 +257,7 @@ end
 -- The program argument at `index` as a string, nil past the last: copied
 -- as os.getenv's value is, into a builder sized by a first call.
 local function argumentText(h: heap.Heap*, index: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local builder = state as strings.Builder*
         if strings.reserve(h, builder, 256ULL) ~= 0ULL then
@@ -216,88 +308,4 @@ export function arguments(ctx: voidptr): uint64
 
         return values.TAG_OBJ | t
     end
-end
-
--- Whether the string at header `s` is the `length` bytes packed in `low`
--- and then `high`, least significant byte first.
-local function spelled(s: uint64, length: uint64, low: uint64, high: uint64): boolean
-    if strings.length(s) ~= length then
-        return false
-    end
-    @unsafe do
-        local base = native.pointer(strings.bytes(s))
-        local k: uint64 = 0ULL
-        while k < length do
-            local word = native.chooseWord(k < 8ULL, low, high)
-            if native.word(native.load8(base, native.index(k))) ~= (word >> ((k & 7ULL) * 8ULL)) & 0xffULL then
-                return false
-            end
-            k = k + 1ULL
-        end
-    end
-
-    return true
-end
-
--- The header of a new string holding a number's text, as tostring writes it.
-local function numberText(ctx: voidptr, value: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
-    @unsafe do
-        local h = heapOf(ctx)
-        local builder = state as strings.Builder*
-        if guestvalues.appendtext(h, builder, value) ~= 0ULL then
-            strings.release(builder)
-            error("not enough memory")
-        end
-        return strings.finish(h, builder)
-    end
-end
-
--- collectgarbage(opt): "collect", the default, runs a whole collection;
--- "count" answers the kilobytes in use; "stop" and "restart" turn automatic
--- collection off and on; "isrunning" answers whether it is on; "step" runs a
--- whole collection, which finishes a cycle. Lua 5.5's other options are not
--- the core's yet, and raise as an unknown one does. A number names the
--- option its text spells, as Lua's string arguments take one.
-export function collectgarbage(ctx: voidptr, option: uint64): uint64
-    guestscope.nameLibrary(ctx, librarytexts.NAME_COLLECTGARBAGE)
-    local s: uint64 = 0ULL
-    if option ~= values.NIL then
-        s = strings.header(option)
-        if s == 0ULL and (ints.isInteger(option) or option & values.QNAN ~= values.QNAN or option == values.QNAN) then
-            s = numberText(ctx, option)
-        end
-        if s == 0ULL then
-            texts.argumentError(ctx, 1ULL, librarytexts.TEXT_STRING, 0ULL, option)
-        end
-    end
-    @unsafe do
-        local h = heapOf(ctx)
-        if s == 0ULL or spelled(s, 7ULL, 0x7463656c6c6f63ULL, 0ULL) then
-            collector.fullCycle(h)
-            tables.drain(h)
-            return values.TAG_INTEGER
-        elseif spelled(s, 5ULL, 0x746e756f63ULL, 0ULL) then
-            local bytes = native.fromBits(ints.toFloatBits(h.liveBytes))
-            return floatValue(native.bits(bytes / native.fromBits(0x4090000000000000ULL)))
-        elseif spelled(s, 4ULL, 0x706f7473ULL, 0ULL) then
-            h.automatic = false
-            return values.TAG_INTEGER
-        elseif spelled(s, 7ULL, 0x74726174736572ULL, 0ULL) then
-            h.automatic = true
-            return values.TAG_INTEGER
-        elseif spelled(s, 9ULL, 0x6e696e6e75727369ULL, 0x67ULL) then
-            if h.automatic then
-                return values.TRUE
-            end
-            return values.FALSE
-        elseif spelled(s, 4ULL, 0x70657473ULL, 0ULL) then
-            collector.fullCycle(h)
-            tables.drain(h)
-            return values.TRUE
-        end
-    end
-    texts.optionError(ctx, 1ULL, values.TAG_OBJ | s)
-
-    return values.NIL
 end

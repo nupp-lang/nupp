@@ -19,6 +19,7 @@ local LAYOUT_INTRINSICS: {
 
 local builtinExtensions = require("nupp.compiler.builtinextensions")
 local T = require("nupp.compiler.types")
+local clayout = require("nupp.compiler.types.clayout")
 local relations = require("nupp.compiler.types.relations")
 local generics = require("nupp.compiler.types.generics")
 local lexer = require("nupp.compiler.syntax.lexer")
@@ -259,25 +260,6 @@ local function soaLayoutSpec(c: state.Checker, subject: Type, at: Node): any?
 
     local owner = subject as T.Nominal
 
-    local function expand(t: Type?): string?
-        if not t then
-            return nil
-        end
-        if t.tag == "nominal" and t.declKind == "struct" then
-            local inner = {}
-            for _, name in ipairs(t.fieldOrder or {}) do
-                local one = expand(t.byname[name])
-                if not one then
-                    return nil
-                end
-                inner[#inner + 1] = name .. ":" .. one
-            end
-            return "{" .. table.concat(inner, ",") .. "}"
-        end
-
-        return T.cName(t)
-    end
-
     local parts, nested, printed = {}, {}, {}
     for _, name in ipairs(owner.fieldOrder or {}) do
         local fieldType = owner.byname and owner.byname[name] or nil
@@ -302,7 +284,7 @@ local function soaLayoutSpec(c: state.Checker, subject: Type, at: Node): any?
             return nil
         end
         parts[#parts + 1] = name .. ":" .. (byValue and ("$" .. spelling) or spelling)
-        printed[#printed + 1] = name .. ":" .. (expand(fieldType) or spelling)
+        printed[#printed + 1] = name .. ":" .. (clayout.expanded(fieldType) or spelling)
         if byValue then
             nested[#nested + 1] = elementOf and (elementOf as T.Nominal).name or spelling
         end
@@ -518,9 +500,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             local luaType = T.luaTypeName(into)
             if luaType then
                 test = predicate.normalize(
-                    new predicate.Node(
+                    predicate.Node(
                         op = "and",
-                        a = new predicate.Node(op = "typeis", path = {}, luaType = luaType),
+                        a = predicate.Node(op = "typeis", path = {}, luaType = luaType),
                         b = constraint
                     )
                 )
@@ -1579,6 +1561,14 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         local globalEntry = calleeName ~= "" and c.env and c.env.globals and c.env.globals[calleeName] or nil
         local stableGlobal = globalEntry and calleeEntry and globalEntry.definition == calleeEntry.definition
         node.resolvedGlobal = stableGlobal and calleeName or nil
+        if apiidentity.expression(c, callee) == "setmetatable" then
+            local target = argExprs[1] and (argExprs[1] as any).inferredType
+            if target and target.tag == "typeobject" then
+                c.diag("NUPP2208", node, "a declaration's construction handler cannot be replaced", nil, {
+                    help = "define a constructor, or use a named factory; assign instance metamethods on the declaration"
+                })
+            end
+        end
         if stableAssert then
             node.aotGuardBuiltin = "assert"
         elseif stableGlobal and calleeName == "error" then
@@ -2044,7 +2034,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             node.valuePack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))
             return first
         end
-        local mt, fieldDef, fieldDefs = c.fieldType(ot, member.text)
+        local mt, fieldDef, fieldDefs, instanceModule = c.fieldType(ot, member.text);
+        (node as any).instanceExtensionModule = instanceModule
         if mt and node.safeMethod then
             mt = withoutNil(mt)
         end
@@ -2304,7 +2295,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                         node.automaticOwnerMoves[#node.automaticOwnerMoves + 1] = receiver.automaticOwnerMove
                     end
                 end
-            elseif receiverMode == "exclusive" then
+            elseif receiverMode == "exclusive" or receiverMode == "borrows" then
                 if c.ownershipKind(ot) == "affine" then
                     c.own.expireTemporaryAfterStatement(receiver)
                 end
@@ -2316,58 +2307,49 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     or c.own.capabilityFacts(receiver, nil, false).roots
                     or c.own.provenanceOwners(receiver)
                 local base = entry or c.own.pathBase(receiver)
-                if #roots == 0 and c.ownershipKind(ot) ~= "affine" then
-                    c.diag("NUPP2602", receiver, "an exclusive receiver requires a named or rooted value")
+                if receiverMode == "exclusive" then
+                    if #roots == 0 and c.ownershipKind(ot) ~= "affine" then
+                        c.diag("NUPP2602", receiver, "an exclusive receiver requires a named or rooted value")
+                    else
+                        for _, root in ipairs(roots) do
+                            if c.own.regionBlocked(root, base, entryFacts, regionRoot, regionPath, false) then
+                                c.diag(
+                                    "NUPP2607",
+                                    nameNode or receiver,
+                                    "an exclusive receiver cannot invalidate a value while a derived borrow is live",
+                                    nil,
+                                    c.own.conflictDetails(regionRoot or root, regionPath)
+                                )
+                                break
+                            end
+                        end
+                    end
+                    if c.ownershipKind(first) then
+                        local resultFacts = c.own.capabilityFacts(node, 1)
+                        resultFacts.exclusive = true
+                        if regionRoot and regionPath and regionPath ~= "" then
+                            resultFacts.regionRoot = regionRoot
+                            resultFacts.regionPath = regionPath
+                        end
+                    end
                 else
                     for _, root in ipairs(roots) do
-                        if c.own.regionBlocked(root, base, entryFacts, regionRoot, regionPath, false) then
+                        if c.own.regionBlocked(root, base, entryFacts, regionRoot, regionPath, true) then
                             c.diag(
                                 "NUPP2607",
                                 nameNode or receiver,
-                                "an exclusive receiver cannot invalidate a value while a derived borrow is live",
+                                "a shared receiver cannot overlap a live exclusive view",
                                 nil,
-                                c.own.conflictDetails(regionRoot or root, regionPath)
+                                c.own.conflictDetails(regionRoot or root, regionPath, true)
                             )
                             break
                         end
                     end
-                end
-                if c.ownershipKind(first) then
-                    local resultFacts = c.own.capabilityFacts(node, 1)
-                    resultFacts.exclusive = true
-                    if regionRoot and regionPath and regionPath ~= "" then
+                    if regionRoot and regionPath and regionPath ~= "" and c.ownershipKind(first) then
+                        local resultFacts = c.own.capabilityFacts(node)
                         resultFacts.regionRoot = regionRoot
                         resultFacts.regionPath = regionPath
                     end
-                end
-            elseif receiverMode == "borrows" then
-                if c.ownershipKind(ot) == "affine" then
-                    c.own.expireTemporaryAfterStatement(receiver)
-                end
-                local entry, nameNode = c.ownershipEntry(receiver)
-                entry = c.ownershipState(entry)
-                local entryFacts = entry and c.own.capabilityFacts(entry, nil, false) or nil
-                local regionRoot, regionPath = c.regionOf(receiver)
-                local roots = entry and {entry}
-                    or c.own.capabilityFacts(receiver, nil, false).roots
-                    or c.own.provenanceOwners(receiver)
-                local base = entry or c.own.pathBase(receiver)
-                for _, root in ipairs(roots) do
-                    if c.own.regionBlocked(root, base, entryFacts, regionRoot, regionPath, true) then
-                        c.diag(
-                            "NUPP2607",
-                            nameNode or receiver,
-                            "a shared receiver cannot overlap a live exclusive view",
-                            nil,
-                            c.own.conflictDetails(regionRoot or root, regionPath, true)
-                        )
-                        break
-                    end
-                end
-                if regionRoot and regionPath and regionPath ~= "" and c.ownershipKind(first) then
-                    local resultFacts = c.own.capabilityFacts(node)
-                    resultFacts.regionRoot = regionRoot
-                    resultFacts.regionPath = regionPath
                 end
             end
             if optional then

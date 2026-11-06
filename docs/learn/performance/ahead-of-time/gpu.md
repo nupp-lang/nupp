@@ -157,13 +157,19 @@ artifact; unordered and atomic reductions are not part of this contract.
 
 ## Tensor layouts and fixed-width storage
 
-`Context:tensor(element, shape)` allocates dense row-major storage. The
-`io.gpu.layout` module (imported as `layout`) builds one with
-`layout.new(shape, strides, offset?)` and provides `layout.subview`,
-`layout.transpose`, `layout.broadcast`, and `layout.asStrided` to transform
-checked layout values without allocating. A layout provides `dimensions()`,
-`strides()`, `offset()`, `extent()`, `isdense()` and `isinjective()` as methods,
-the way a buffer does.
+`Context:tensor(element, shape)` allocates dense row-major storage.
+`io.gpu.Layout(shape, strides, offset?)` validates and copies a layout without
+allocating device storage. Its `:subview`, `:transpose`, `:broadcast`, and
+`:asstrided` methods return new layouts and leave the original unchanged.
+
+```nupp
+local rows = io.gpu.Layout({4, 4}, {4, 1})
+local column = rows:subview({0, 2}, {4, 1}):transpose({2, 1})
+assert(column.count == 4)
+```
+
+A layout provides `:dimensions()`, `:strides()`, `:offset()`, `:extent()`,
+`:isdense()`, and `:isinjective()`. Shape and stride queries return copies.
 
 `buffer:view(layout)` applies a layout while preserving the buffer element type, and
 `buffer:isdense()` and `buffer:isinjective()` answer for the buffer or view.
@@ -260,10 +266,3 @@ if a later upload or dispatch changes the resident buffer before readback.
 `downloadMapCopy` reports the staging-to-host copy, and `downloadHostCopy` the
 copy into the caller's span. These records expose the existing two-copy path
 and synchronization costs before any residency optimization is attempted.
-
-::: seealso
-- [`@aot`](../../../api.md#annotation-aot)
-  for the exact `@aot` arguments
-- [](io.gpu) for the generated binding and resident-buffer API
-- [](io.gpu.layout) for layout functions
-:::

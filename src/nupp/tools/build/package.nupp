@@ -148,7 +148,7 @@ end
 --- compiler started from, which the runtime answers without reading the image
 --- file again, and which is the compiler that actually lowers here even when
 --- `NUPP_VM_CLI_IMAGE` names another or nothing. Beside it is the interpreter
---- running that image (`fingerprint.runtimeIdentity`), which the image's digest
+--- running that image (`fingerprint.runtimeidentity`), which the image's digest
 --- does not cover.
 local function programKey(mainName: string, embedded: string?, modules: {[string]: any}?, coverage: boolean): string?
     local compilerRoot = require("nupp.compiler.project.env").compilerRoot()
@@ -164,7 +164,7 @@ local function programKey(mainName: string, embedded: string?, modules: {[string
         mainName,
         digest(embedded or ""),
         fingerprint.graphFingerprint(digest),
-        fingerprint.runtimeIdentity(),
+        fingerprint.runtimeidentity(),
     }
     -- An instrumented image is a different program; an ordinary key is unchanged.
     if coverage then

@@ -125,6 +125,46 @@ function M.everyGradualIndexMayRaise()
     end
 end
 
+function M.declaredFieldsRetainTheirIndexHandlersEffects()
+    for _, access in ipairs({"value.field", 'value["field"]'}) do
+        local source = [[
+local interface Lazy
+    @readonly field: integer
+    metamethod __index: function(self: Lazy, key: string): integer
+end
+local function read(value: Lazy): integer
+    local result: integer = 0
+    @noalloc do result = ACCESS end
+    @noraise do result = ACCESS end
+    return result
+end
+]]
+        local found = refusals((source:gsub("ACCESS", access)))
+        testAssert.eq(#found, 2, access)
+        testAssert.eq(found[1].code, "NUPP2710", access)
+        testAssert.eq(found[2].code, "NUPP2711", access)
+    end
+end
+
+function M.numericIndexContractsDoNotAffectNamedFields()
+    for _, declaration in ipairs({"record", "interface"}) do
+        local source = [[
+local DECLARATION Indexed
+    @readonly field: integer
+    metamethod __index: function(self: Indexed, key: integer): string
+end
+local function read(value: Indexed): integer
+    local result: integer = 0
+    @noalloc do result = value.field end
+    @noraise do result = value.field end
+    return result
+end
+]]
+        local found = refusals((source:gsub("DECLARATION", declaration)))
+        testAssert.eq(#found, 0, declaration)
+    end
+end
+
 function M.aCheckedRangeDischargesMatchingSpanBoundsOnly()
     local found = refusals(
         table.concat(
@@ -241,7 +281,7 @@ function M.automaticCleanupParticipatesInTheRaisingSummary()
                 "local record Resource end",
                 "@effects(suspends = false, raises = true)",
                 "local function close(takes value: Resource): nil error('close') end",
-                "local function open(): affine(Resource, close) return new Resource() end",
+                "local function open(): affine(Resource, close) return Resource() end",
                 "local function use(): nil local value = open() end",
                 "@noraise do use() end",
             },

@@ -56,7 +56,7 @@ const PositionCodec: types.reflect.FieldCodec<Position> = comptime do
     return types.reflect.fieldcodec(types.reflect(Position))
 end
 
-local encoded = PositionCodec:encode(new Position(x = 10, y = 20))
+local encoded = PositionCodec:encode(Position(x = 10, y = 20))
 local decoded, problem = PositionCodec:decode(encoded)
 local invalid, invalidProblem = PositionCodec:decode(42 as any)
 return {
@@ -100,7 +100,7 @@ end
 const Codec: types.reflect.FieldCodec<Point> = comptime do
     return keyed(types.reflect(Point))
 end
-local encoded = Codec:encode(new Point(x = 3, y = 4))
+local encoded = Codec:encode(Point(x = 3, y = 4))
 return {x = encoded.x as number, y = encoded.y as number}
 ]]
     local encoded = run(src)

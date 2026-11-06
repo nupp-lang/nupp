@@ -19,7 +19,7 @@ function M.thePublicReloadNamespaceKeepsItsCanonicalTypedPollResult()
     local parsed = parser.parse(
         [[
 local generation: integer = debug.reload.generation()
-local outcome: debug.ReloadPoll = debug.reload.poll()
+local outcome: debug.reload.ReloadPoll = debug.reload.poll()
 local kind: string = outcome.kind
 local previous: integer? = outcome.basegeneration
 assert(previous == nil or previous >= 0)
@@ -241,7 +241,7 @@ function M.sessionRefusesSignatureDeclarationAndLayoutChanges()
             "   return p.x",
             "end",
             "local function measure(): number",
-            "   return size(new Point(x = 1))",
+            "   return size(Point(x = 1))",
             "end",
             "print(measure())",
         },
@@ -251,7 +251,7 @@ function M.sessionRefusesSignatureDeclarationAndLayoutChanges()
         {
             (
                 before:gsub("p: Point%): number", "p: Point, scale: number): number")
-                    :gsub("size%(new Point%(x = 1%)%)", "size(new Point(x = 1), 2)")
+                    :gsub("size%(Point%(x = 1%)%)", "size(Point(x = 1), 2)")
             ),
             "callable-abi",
             "callable signature changed: size",
@@ -333,7 +333,7 @@ function M.inlineRecordMethodKeepsItsPublicIdentity()
             "      return self.value + by",
             "   end",
             "end",
-            "local function make(value: integer): Counter return new Counter(value = value) end",
+            "local function make(value: integer): Counter return Counter(value = value) end",
             "return {Counter = Counter, make = make}",
         },
         "\n"

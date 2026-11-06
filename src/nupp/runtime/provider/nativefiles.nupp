@@ -1,50 +1,44 @@
 @!internal
 --[[
-The VM's native filesystem provider for [](io.files): the same contract and
-records as the LuaJIT provider, written over the VM's `nupp.vm.files` primitives
+The VM's native filesystem provider behind the `os` filesystem functions and
+`io.open`: the same contract and records as the LuaJIT provider, written over the VM's `nupp.vm.files` primitives
 rather than the native library's C ABI. Whole-file transfers complete before
 they return, so `pendingTransfers` is always zero.
 ]]
 module nupp.runtime.provider.nativefiles
 
 const host = require("nupp.vm.files")
+const systeminfo = require("nupp.runtime.systeminfo")
 const paths = require("io.internal.path")
 const io = require("io")
 local scalarAdapters = require("nupp.io.internal.scalars")
 local privateIo = require("nupp.io")
 const span = require("binary.span")
-const messages = require("io.files.messages")
-const appPaths = require("io.files.internal.path")
+const messages = require("io.internal.files.messages")
+const appPaths = require("io.internal.files.path")
 
-export type Info = messages.Info
-export type Entry = messages.Entry
-export type Kind = messages.Kind
+export type FileKind = messages.FileKind
 export type Mode = messages.Mode
 export type Origin = messages.Origin
-export type UserFolder = messages.UserFolder
-export type TemporaryOptions = messages.TemporaryOptions
 
-const READ_SIZE = 65536
 const MAX_EXACT_INTEGER = 9007199254740991
 local MODES: {[string]: boolean} = {r = true, w = true, a = true, ["r+"] = true, ["w+"] = true, ["a+"] = true,}
 local ORIGINS: {[string]: string} = {set = "set", current = "current", ["end"] = "end",}
-local FOLDERS: {
-    [string]: integer
-} = {home = 0, documents = 1, downloads = 2, desktop = 3, pictures = 4, music = 5, videos = 6,}
 local APP_BASES: {[string]: integer} = {configuration = 0, data = 1, cache = 2,}
+-- The OS error numbers a failed lookup reports when the name does not resolve:
+-- ENOENT everywhere, and ERROR_PATH_NOT_FOUND on Windows. The VM host answers a
+-- failure as its message text, so `exists` tells absence from failure by them.
+local ABSENT_REASONS: {string} = {"(os error 2)", "(os error 3)"}
 
 --- @raises string when value is neither a path nor a string
 local function named(value: any, what: string, level: integer): string
     if type(value) == "string" then
         return value as string
     end
-    if appPaths.is(value) then
-        return (value as appPaths.AppPath):tostring()
-    end
     if type(value) == "table" and (value as any).tostring ~= nil then
         return (value as paths.Path):tostring()
     end
-    error("nupp: io.files " .. what .. " must be a path or a string", level)
+    error("nupp: os " .. what .. " must be a path or a string", level)
 end
 
 --- @raises string when value is not an integer
@@ -53,16 +47,7 @@ local function whole(value: any, what: string, level: integer): integer
         or value ~= math.floor(value as number)
         or math.abs(value as number) > MAX_EXACT_INTEGER
     then
-        error("nupp: io.files " .. what .. " must be an integer", level)
-    end
-
-    return value as integer
-end
-
---- @raises string when value is not a non-negative integer
-local function counted(value: any, what: string, level: integer): integer
-    if whole(value, what, level + 1) < 0 then
-        error("nupp: io.files " .. what .. " must not be negative", level)
+        error("nupp: io " .. what .. " must be an integer", level)
     end
 
     return value as integer
@@ -72,7 +57,7 @@ end
 local function positive(value: any, what: string, level: integer): integer
     local answer = whole(value, what, level + 1)
     if answer < 1 then
-        error("nupp: io.files " .. what .. " must be positive", level)
+        error("nupp: io " .. what .. " must be positive", level)
     end
 
     return answer
@@ -86,7 +71,7 @@ local function payload(borrows value: string | io.ByteView, what: string, level:
     if type(value) == "table" and (value as io.ByteView).getstring ~= nil then
         return (value as io.ByteView):getstring()
     end
-    error("nupp: io.files " .. what .. " must be bytes or a byte view", level)
+    error("nupp: io " .. what .. " must be bytes or a byte view", level)
 end
 
 export record File is io.Reader, io.Writer
@@ -128,71 +113,18 @@ export record File is io.Reader, io.Writer
         return #(chunk as string), nil
     end
 
-    --- Reads into a buffer at an offset, answering how many bytes landed.
-    --- @raises string when the offset or count is malformed
-    function readinto(
-        exclusive self,
-        exclusive destination: io.Buffer,
-        offset: integer?,
-        count: integer?
-    ): (integer?, string?)
-        if self._closed then
-            return nil, "the file is closed"
-        end
-        local from = counted(offset or 0, "File:readinto offset", 2)
-        local wanted = positive(count or READ_SIZE, "File:readinto count", 2)
-        local chunk, failure = self:read(wanted)
-        if chunk == nil then
-            return nil, failure
-        end
-        local taking = #(chunk as string)
-        if taking == 0 then
-            return 0, nil
-        end
-        local input = span.fromstring(chunk as string)
-        local lease = destination:reservewrite(from, wanted)
-        do
-            local output = lease:span()
-            for index = 1, taking do
-                output[index] = input[index]
-            end
-            own.drop(output)
-        end
-        lease:commit(taking)
-
-        return taking, nil
-    end
-
-    --- Copies the rest of the file to a writer, answering the bytes moved.
-    function transferto(exclusive self, exclusive destination: io.Writer): (integer?, string?)
-        if self._closed then
-            return nil, "the file is closed"
-        end
-        local total: integer = 0
-        while true do
-            local chunk, why = self:read(READ_SIZE)
-            if chunk == nil then
-                return nil, why
-            end
-            if #(chunk as string) == 0 then
-                return total, nil
-            end
-            local wrote, failure = destination:write(chunk as string)
-            if not wrote then
-                return nil, failure
-            end
-            total = total + #(chunk as string)
-        end
-    end
-
-    --- Writes all of `bytes` at the cursor.
+    --- Writes bytes at the cursor.
+    --- @param self this file
+    --- @param bytes the bytes to write
+    --- @return whether they were written
+    --- @return why they were not, when unsuccessful
     --- @raises string when bytes is not a string
     function write(exclusive self, bytes: string): (boolean, string?)
         if self._closed then
             return false, "the file is closed"
         end
         if type(bytes) ~= "string" then
-            error("nupp: io.files File:write needs a string", 2)
+            error("nupp: io File:write needs a string", 2)
         end
         local wrote, failure = host.fileWrite(self._handle, bytes)
         if wrote == nil then
@@ -226,7 +158,7 @@ export record File is io.Reader, io.Writer
     --- @raises string when the file is closed
     function size(borrows self): (integer?, io.Error?)
         if self._closed then
-            error("nupp: io.files File is closed", 2)
+            error("nupp: io File is closed", 2)
         end
         local bytes, failure = host.fileSize(self._handle)
         if bytes == nil then
@@ -240,11 +172,11 @@ export record File is io.Reader, io.Writer
     --- @raises string when the file is closed or the origin is unknown
     function seek(exclusive self, offset: integer?, origin: Origin?): (integer?, io.Error?)
         if self._closed then
-            error("nupp: io.files File is closed", 2)
+            error("nupp: io File is closed", 2)
         end
         local whence = ORIGINS[origin or "set"]
         if whence == nil then
-            error("nupp: io.files has no seek origin named " .. tostring(origin), 2)
+            error("nupp: io has no seek origin named " .. tostring(origin), 2)
         end
         local at, failure = host.fileSeek(self._handle, whole(offset or 0, "seek offset", 2), whence)
         if at == nil then
@@ -338,46 +270,32 @@ end
     return self:tostring()
 end
 
-local function informed(path: string | paths.Path, follow: boolean): (Info?, string?)
-    local found, reason = host.info(named(path, "path", 3), follow)
+--- Describes a path: its kind, byte size, modification time in milliseconds since
+--- the Unix epoch, and whether the platform refuses writes to it.
+export function stat(path: string | paths.Path, follow: boolean): (FileKind?, integer?, number?, boolean?, string?)
+    local found, reason = host.info(named(path, "path", 2), follow)
     if found == nil then
-        return nil, reason
+        return nil, nil, nil, nil, reason
     end
 
-    return new Info(
-        kind = found.kind as Kind,
-        size = found.size,
-        modified = found.modified,
-        readonly = found.readOnly
-    ), nil
+    return found.kind as FileKind, found.size, found.modified, found.readOnly, nil
 end
 
---- Describes a path, following symbolic links.
-export function info(path: string | paths.Path): (Info?, string?)
-    return informed(path, true)
-end
+--- Whether a path resolves, following symbolic links. A lookup that cannot tell,
+--- such as a refused permission, is a reason rather than `false`.
+export function exists(path: string | paths.Path): (boolean?, string?)
+    local found, reason = host.info(named(path, "path", 2), true)
+    if found ~= nil then
+        return true, nil
+    end
+    local text = tostring(reason)
+    for _, absent in ipairs(ABSENT_REASONS) do
+        if text:find(absent, 1, true) then
+            return false, nil
+        end
+    end
 
---- Whether the path resolves.
-export function exists(path: string | paths.Path): boolean
-    return (informed(path, true)) ~= nil
-end
-
---- Whether the path resolves to a file.
-export function isFile(path: string | paths.Path): boolean
-    local found = informed(path, true)
-    return found ~= nil and found.kind == "file"
-end
-
---- Whether the path resolves to a directory.
-export function isDirectory(path: string | paths.Path): boolean
-    local found = informed(path, true)
-    return found ~= nil and found.kind == "directory"
-end
-
---- Whether the path itself is a symbolic link.
-export function isSymlink(path: string | paths.Path): boolean
-    local found = informed(path, false)
-    return found ~= nil and found.kind == "symlink"
+    return nil, reason
 end
 
 --- Returns what a symbolic link points to.
@@ -399,20 +317,10 @@ export function createSymlink(
     local to, at = named(target, "target", 2), named(link, "link", 2)
     -- Untyped callers reach here too, so the kind is checked as the declaration says.
     if kind ~= nil and kind ~= "file" and kind ~= "directory" then
-        error("nupp: io.files symlink kind must be 'file' or 'directory'", 2)
+        error("nupp: os symlink kind must be 'file' or 'directory'", 2)
     end
 
     return host.createSymlink(to, at, kind == "directory")
-end
-
---- Sets or clears the platform's read-only attribute.
-export function setReadOnly(path: string | paths.Path, readonly: boolean): (boolean, string?)
-    local at = named(path, "path", 2)
-    if type(readonly) ~= "boolean" then
-        error("nupp: io.files readonly must be a boolean", 2)
-    end
-
-    return host.setReadOnly(at, readonly)
 end
 
 --- Creates a directory and every missing parent.
@@ -424,7 +332,7 @@ end
 export function remove(path: string | paths.Path, recursive: boolean?): (boolean, string?)
     local at = named(path, "path", 2)
     if recursive ~= nil and type(recursive) ~= "boolean" then
-        error("nupp: io.files recursive must be a boolean", 2)
+        error("nupp: os recursive must be a boolean", 2)
     end
 
     return host.remove(at, recursive == true)
@@ -435,24 +343,33 @@ export function rename(from: string | paths.Path, to: string | paths.Path): (boo
     return host.rename(named(from, "source path", 2), named(to, "destination path", 2))
 end
 
---- Lists a directory's children by name and kind.
-export function list(path: string | paths.Path): ({Entry}?, string?)
+--- Yields a directory's immediate children, then nil.
+export type Entries = function(): (string?, FileKind)
+
+--- Lists a directory's children by name and kind. The VM host reads the whole
+--- directory in one call, so the iterator walks an answer already in hand.
+export function list(path: string | paths.Path): (Entries?, string?)
     local found, reason = host.list(named(path, "path", 2))
     if found == nil then
         return nil, reason
     end
-    local entries: {Entry} = {}
-    for index, entry in ipairs(found) do
-        entries[index] = new Entry(name = entry.name, kind = entry.kind as Kind)
-    end
+    local index: integer = 0
 
-    return entries, nil
+    return function(): (string?, FileKind)
+        index = index + 1
+        local entry = found[index]
+        if entry == nil then
+            return nil, nil as any
+        end
+
+        return entry.name, entry.kind as FileKind
+    end, nil
 end
 
 --- Expands a glob into the paths it matches.
 export function glob(pattern: string): ({paths.Path}?, string?)
     if type(pattern) ~= "string" then
-        error("nupp: io.files glob pattern must be a string", 2)
+        error("nupp: os glob pattern must be a string", 2)
     end
     local found, reason = host.glob(pattern)
     if found == nil then
@@ -502,95 +419,57 @@ export function open(path: string | paths.Path, mode: Mode?): (affine(File?), st
     local text = named(path, "path", 2)
     local selected = mode or "r"
     if not MODES[selected] then
-        error("nupp: io.files has no mode named " .. tostring(mode), 2)
+        error("nupp: io has no mode named " .. tostring(mode), 2)
     end
     local handle, reason = host.open(text, selected)
     if handle == nil then
         return nil, reason
     end
 
-    return new File(_handle = handle, _closed = false), nil
+    return File(_handle = handle, _closed = false), nil
 end
 
---- @raises string when an option is not a string
-local function optional(options: TemporaryOptions?, field: string, level: integer): string
-    local value = options ~= nil and (options as any)[field] or nil
+--- @raises string when value is neither nil nor a string
+local function fragment(value: any, what: string, level: integer): string
     if value == nil then
         return ""
     end
     if type(value) ~= "string" then
-        error("nupp: io.files temporary " .. field .. " must be a string", level)
+        error("nupp: os temporary " .. what .. " must be a string", level)
     end
 
     return value as string
 end
 
---- @raises string when the options are malformed
-local function temporary(options: TemporaryOptions?, directory: boolean): (affine(TemporaryPath?), string?)
-    if options ~= nil and type(options) ~= "table" then
-        error("nupp: io.files temporary options must be a table", 3)
-    end
-    local where = options ~= nil and (options as TemporaryOptions).directory or nil
-    local root = where ~= nil and named(where, "temporary directory", 3) or ""
+--- Creates a uniquely named empty file or directory and hands over its removal.
+--- @raises string when an argument is not a string, or the directory not a path
+export function createTemporary(
+    directory: boolean,
+    prefix: string?,
+    suffix: string?,
+    within: any?
+): (affine(TemporaryPath?), string?)
+    local root = within ~= nil and named(within, "temporary directory", 2) or ""
     local text, reason = host.createTemporary(
         root,
-        optional(options, "prefix", 3),
-        optional(options, "suffix", 3),
+        fragment(prefix, "prefix", 2),
+        fragment(suffix, "suffix", 2),
         directory
     )
     if text == nil then
         return nil, reason
     end
 
-    return new TemporaryPath(_text = text, _directory = directory, _closed = false), nil
-end
-
---- Creates a uniquely named empty file and hands over its removal.
-export function createTemporaryFile(options: TemporaryOptions?): (affine(TemporaryPath?), string?)
-    return temporary(options, false)
-end
-
---- Creates a uniquely named empty directory and hands over its removal.
-export function createTemporaryDirectory(options: TemporaryOptions?): (affine(TemporaryPath?), string?)
-    return temporary(options, true)
-end
-
---- Returns a well-known user folder.
---- @raises string when which names no user folder
-export function userFolder(which: UserFolder): (paths.Path?, string?)
-    local index = FOLDERS[which]
-    if index == nil then
-        error("nupp: io.files has no user folder named " .. tostring(which), 2)
-    end
-    local folder, reason = host.userFolder(index)
-    if folder == nil then
-        return nil, reason
-    end
-
-    return paths.newpath(folder), nil
+    return TemporaryPath(_text = text, _directory = directory, _closed = false), nil
 end
 
 --- Reports the complete native filesystem surface.
-export function capabilities(): messages.Capabilities
-    return new messages.Capabilities(
-        available = true,
-        arbitrarypaths = true,
-        symlinks = true,
-        readonlyattributes = true,
-        glob = true,
-        rename = true,
-        atomicwrite = true,
-        tmppaths = true,
-        concurrentopenhandles = true,
-        cwd = true,
-        userfolders = true,
-        executabledirectory = true,
-        persistentstoragerequest = true
-    )
+export function capabilities(): messages.FsCaps
+    return systeminfo.filesystem()
 end
 
 --- Returns an app's configuration, data or cache directory, created.
-export function apppath(kind: string, organization: string, app: string): (appPaths.AppPath?, string?)
+export function apppath(kind: string, organization: string, app: string): (paths.Path?, string?)
     local code = APP_BASES[kind]
     if code == nil then
         return nil, "unknown app path kind"
@@ -606,20 +485,6 @@ export function apppath(kind: string, organization: string, app: string): (appPa
     end
 
     return value, nil
-end
-
---- Returns the directory holding the running executable.
-export function executableDirectory(): (paths.Path?, string?)
-    local executable, reason = host.executablePath()
-    if executable == nil then
-        return nil, reason
-    end
-    local parent = paths.newpath(executable):parent()
-    if parent == nil then
-        return nil, "the executable path has no parent directory"
-    end
-
-    return parent, nil
 end
 
 --- Native storage is always persistent.

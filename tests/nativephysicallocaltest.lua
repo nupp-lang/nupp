@@ -93,11 +93,11 @@ const objectwalk = require("nupp.runtime.vm.objectwalk")
 const weak = require("nupp.runtime.vm.gcweak")
 local function read(seed: uint64): uint64
     @unsafe do
-        local child = new childwalk.Cursor(0ULL, seed, 0x7ff9000000000000ULL)
+        local child = childwalk.Cursor(0ULL, seed, 0x7ff9000000000000ULL)
         local childPointer = child as childwalk.Cursor*
-        local object = new objectwalk.Cursor(0ULL, 0ULL, 0ULL, 0ULL, seed, 0ULL)
+        local object = objectwalk.Cursor(0ULL, 0ULL, 0ULL, 0ULL, seed, 0ULL)
         local objectPointer = object as objectwalk.Cursor*
-        local clear = new weak.ClearCursor(0ULL, 0ULL, seed)
+        local clear = weak.ClearCursor(0ULL, 0ULL, seed)
         local clearPointer = clear as weak.ClearCursor*
         return childPointer.index + objectPointer.largeSlots + clearPointer.changed
     end
@@ -177,7 +177,7 @@ local struct Small
     wide: uint64
 end
 local function read(seed: uint64): uint64
-    local data = new Small(7, -2LL, 17ULL, seed)
+    local data = Small(7, -2LL, 17ULL, seed)
     return seed
 end
 ]]
@@ -201,7 +201,7 @@ end
 local function first(value: uint64): uint64 return value + 1ULL end
 local function second(value: uint64): uint64 return value + 2ULL end
 local function read(seed: uint64): uint64
-    local data = new Pair(second(seed), first(seed))
+    local data = Pair(second(seed), first(seed))
     return seed
 end
 ]]
@@ -228,7 +228,7 @@ function M.aggregateCopiesAndRepeatedConstructionSitesRefuse()
                 [[
 local struct Cursor value: uint64 end
 local function read(seed: uint64): uint64
-    local state = new Cursor(seed)
+    local state = Cursor(seed)
     local copy = state
     return seed
 end
@@ -245,7 +245,7 @@ local struct Cursor value: uint64 end
 local function read(seed: uint64): uint64
     local count = seed
     while count > 0ULL do
-        local state = new Cursor(count)
+        local state = Cursor(count)
         count = count - 1ULL
     end
     return count
@@ -265,7 +265,7 @@ function M.localAddressCannotBecomeRawBitsOrMergeDifferentStorage()
 const native = require("nupp.runtime.vm.intrinsics")
 local struct Cursor value: uint64 end
 local function read(seed: uint64): uint64
-    local state = new Cursor(seed)
+    local state = Cursor(seed)
     local cursor = state as Cursor*
     return native.address(cursor as voidptr)
 end
@@ -280,8 +280,8 @@ end
                 [[
 local struct Cursor value: uint64 end
 local function read(seed: uint64): uint64
-    local first = new Cursor(seed)
-    local second = new Cursor(seed)
+    local first = Cursor(seed)
+    local second = Cursor(seed)
     local cursor = first as Cursor*
     if seed == 0ULL then cursor = second as Cursor* end
     @unsafe do return cursor.value end
@@ -301,7 +301,7 @@ function M.embeddedAndManagedFieldsAndImplicitNumericConversionsRefuse()
 local struct Inner value: uint64 end
 local struct Outer inner: Inner end
 local function read(seed: uint64): uint64
-    local data = new Outer(new Inner(seed))
+    local data = Outer(Inner(seed))
     return seed
 end
 ]]
@@ -315,7 +315,7 @@ end
                 [[
 local struct Floating value: float64 end
 local function read(seed: uint64): uint64
-    local data = new Floating(seed)
+    local data = Floating(seed)
     return seed
 end
 ]]

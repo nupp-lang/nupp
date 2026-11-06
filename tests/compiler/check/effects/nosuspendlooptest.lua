@@ -50,7 +50,7 @@ function M.loopBodyCleanup()
             "local park: function(): nil = nil as any",
             "local function settling(takes value: Resource): nil park() end",
             "local function open(): affine(Resource, settling)",
-            "    return new Resource(value = 1)",
+            "    return Resource(value = 1)",
             "end",
         },
         "\n"

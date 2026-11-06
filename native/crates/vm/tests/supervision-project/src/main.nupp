@@ -21,7 +21,7 @@ end
 function main.run(): number
     local values: {Entity} = {}
     for index = 1, 10000 do
-        values[index] = new Entity(x = index, y = -index)
+        values[index] = Entity(x = index, y = -index)
     end
     do
         local game = vm.spawn(sum, values);
@@ -91,7 +91,7 @@ end
 function main.captureTimes(): string
     local values: {Entity} = {}
     for index = 1, 10000 do
-        values[index] = new Entity(x = index, y = -index)
+        values[index] = Entity(x = index, y = -index)
     end
     local samples: {number} = {}
     do

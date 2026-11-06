@@ -1,0 +1,58 @@
+module nupp.core.catalogrecordscallable
+
+-- Callable construction: calling a record's declaration builds the instance
+-- `new` builds -- its named fields over the declaration's defaults, or its
+-- declared constructor run on it -- and so does a typed reference to the
+-- declaration, or one another module exports.
+const shapes = require("nupp.core.catalogmodulesboxes")
+
+local made: integer = 0
+
+local record Point
+    x: integer
+    y: integer = 4
+
+    function total(self): integer
+        return self.x + self.y
+    end
+end
+
+local record Counter
+    count: integer
+    step: integer = 2
+
+    constructor(self, start: integer)
+        self.count = start
+        made = made + 1
+    end
+
+    function bump(self): integer
+        self.count = self.count + self.step
+        return self.count
+    end
+end
+
+local Make: Type<Point> = Point
+local a = Point(x = 3)
+local b = Make(x = 5, y = 1)
+local c = Point(x = 1)
+local d = Counter(5)
+d:bump()
+local e = Counter(1)
+local box = shapes.Box(3, 4)
+local same = getmetatable(box) == getmetatable(shapes.square(2)) and 1 or 0
+export = made
+    * 10000000
+    + box:area()
+    * 100000
+    + a:total()
+    * 10000
+    + b:total()
+    * 1000
+    + c:total()
+    * 100
+    + d.count
+    * 10
+    + e.count
+    + same
+    * 100000000

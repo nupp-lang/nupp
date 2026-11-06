@@ -139,7 +139,7 @@ function expr.install(c: state.Checker): nil
             return T.withSendable(infer())
         end
         local entries: {[any]: state.Binding} = {}
-        local watch = new state.CaptureWatch(depth = (c.scope.depth or 0) + 1, captured = false, entries = entries)
+        local watch = state.CaptureWatch(depth = (c.scope.depth or 0) + 1, captured = false, entries = entries)
         c.captureWatches[#c.captureWatches + 1] = watch
         local inferred = infer()
         for index = #c.captureWatches, 1, -1 do
@@ -818,7 +818,7 @@ function expr.install(c: state.Checker): nil
                 dynamic.orExitFailure = T.nil_
                 dynamic.orExitWidth = 2
                 local facts = c.own.capabilityFacts(operand, 2, false)
-                dynamic.capabilityFacts = new T.CapabilityFacts(
+                dynamic.capabilityFacts = T.CapabilityFacts(
                     origin = facts.origin,
                     loans = facts.loans,
                     roots = facts.roots,
@@ -1462,7 +1462,7 @@ function expr.install(c: state.Checker): nil
                 local advice, isModule, fixes = c.missingRequire(nameText)
                 if advice then
                     c.diag("missing-require", node, advice, fixes)
-                elseif not isModule and c.opts and c.opts.strict and not (node as any).newTypeOperand then
+                elseif not isModule and c.opts and c.opts.strict then
                     fixes = c.edits.nameSpellingFix(nameTok, visibleNames())
                     c.diag("NUPP2105", nameTok, ("unknown variable %q"):format(nameText), fixes, {
                         help = fixes and "use the suggested visible name"
@@ -1505,46 +1505,6 @@ function expr.install(c: state.Checker): nil
             return out
         elseif kind == "comptimeExpr" then
             return comptimeType(node)
-        elseif kind == "newExpr" then
-            -- The construction is the call underneath. Marking it is most of what this
-            -- does: what a record or a struct construction means is one piece of code
-            -- in `calls`, and `new` decides that it runs rather than repeating it.
-            local call = node.call as cst.Call
-            if not call then
-                return T.any
-            end
-            call.isNew = true
-            -- `new` names a type, so an operand that names a declared one is answered
-            -- as a type. Going through the value would answer for an interface -- which
-            -- binds none -- with `any`, and say nothing.
-            local named = call.obj and c.pathKey(call.obj) or nil
-            local declared = named and c.lookupType(named) or nil
-            declared = declared and rawType(declared) or nil
-            local buildable = declared
-                and declared.tag == "nominal"
-                and (declared.declKind == "record" or declared.declKind == "struct")
-            if declared and not buildable then
-                local why = "`new` builds a record or a struct"
-                if declared.tag == "nominal" and declared.declKind == "interface" then
-                    why = "an interface declares a contract and has no runtime "
-                        .. "table to stamp; construct a record that declares it "
-                        .. "with `is`"
-                elseif declared.tag == "union" then
-                    why = "a union is one of its members, and a value of it is " .. "written as one of them"
-                end
-                c.diag("NUPP2206", call.obj or node, ("%s cannot be constructed"):format(named), nil, {help = why})
-                call.newReported = true
-                -- The operand was answered as the type it names. A type with no value
-                -- under the name is what was just reported, so the value lookup that
-                -- follows is not asked to report it again as an unknown name.
-                if call.obj then
-                    (call.obj as any).newTypeOperand = true
-                end
-            end
-            local result = c.infer(call)
-            node.partitionFields = call.partitionFields
-            c.fixedWidth.copy(node, call)
-            return result
         elseif kind == "ternary" then
             local cond, ifTrue, ifFalse = node.cond, node.ifTrue, node.ifFalse
             if not cond or not ifTrue or not ifFalse then
@@ -1697,9 +1657,9 @@ function expr.install(c: state.Checker): nil
             local constraint = T.constraintOf(target)
             if typeNode and constraint and typeNode.primitiveTest then
                 typeNode.wherePredicate = predicate.normalize(
-                    new predicate.Node(
+                    predicate.Node(
                         op = "and",
-                        a = new predicate.Node(op = "typeis", path = {}, luaType = typeNode.primitiveTest),
+                        a = predicate.Node(op = "typeis", path = {}, luaType = typeNode.primitiveTest),
                         b = constraint
                     )
                 )
@@ -2074,7 +2034,7 @@ function expr.install(c: state.Checker): nil
                     -- A computed key settles what the constructor's type is, but not
                     -- what the rest of it means: the entries past it are expressions
                     -- this pass owes a check and the generator owes a lowering.
-                    -- Answering here left them uninferred, so a `new R(field = v)`
+                    -- Answering here left them uninferred, so a `R(field = v)`
                     -- standing after one reached the generator with no fields resolved
                     -- and was written out as a plain call.
                     computedKey = true
@@ -2307,29 +2267,22 @@ function expr.install(c: state.Checker): nil
         end
     end
 
+    local function recordInferredValue(node: Node, inferred: Type): Type
+        local called = node.kind == "call" or node.kind == "methodCall" or node.kind == "safeCall"
+        if called then
+            markCallMutation(node)
+        end
+        (node as any).inferredType = inferred
+        if called and c.ownershipKind(inferred) == "affine" then
+            c.own.temporaryProduced(node)
+        end
+
+        return inferred
+    end
+
     local function inferValue(node: Node): Type
         if not EXPANDS[node.kind] then
-            local inferred = inferExpr(node)
-            if node.kind == "call"
-                or node.kind == "methodCall"
-                or node.kind == "safeCall"
-                or node.kind == "newExpr"
-            then
-                markCallMutation(node)
-            end
-            local dynamic: any = node
-            dynamic.inferredType = inferred
-            if c.ownershipKind(inferred) == "affine"
-                and (
-                    node.kind == "call"
-                    or node.kind == "methodCall"
-                    or node.kind == "safeCall"
-                    or node.kind == "newExpr"
-                )
-            then
-                c.own.temporaryProduced(node)
-            end
-            return inferred
+            return recordInferredValue(node, inferExpr(node))
         end
         -- A tree survives the check that read it, so what the last one concluded about
         -- this call is dropped before this one asks. An incremental recheck reaches the
@@ -2346,17 +2299,7 @@ function expr.install(c: state.Checker): nil
         if node.kind == "call" or node.kind == "methodCall" or node.kind == "safeCall" then
             node.automaticOwnerMoves = nil
         end
-        local first = inferExpr(node)
-        if node.kind == "call" or node.kind == "methodCall" or node.kind == "safeCall" or node.kind == "newExpr" then
-            markCallMutation(node)
-        end
-        local dynamic: any = node
-        dynamic.inferredType = first
-        if c.ownershipKind(first) == "affine"
-            and (node.kind == "call" or node.kind == "methodCall" or node.kind == "safeCall" or node.kind == "newExpr")
-        then
-            c.own.temporaryProduced(node)
-        end
+        local first = recordInferredValue(node, inferExpr(node))
         if fixedWidth.isValue(first) and not node.fixedWidthUntrustedResult then
             c.fixedWidth.mark(node, first)
         end

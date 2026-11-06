@@ -1,0 +1,159 @@
+@!internal
+
+--[[
+`io.internal.files` implements the filesystem functions `os` publishes. Each export
+has the name and signature of its `os` counterpart, except that `list` answers a
+directory it cannot open rather than raising, so code the pinned stage zero
+compiles can call these directly until that release knows the `os` members.
+]]
+module io.internal.files
+
+const io = require("nupp.io")
+const paths = require("io.internal.path")
+const contracts = require("io.internal.files.contracts")
+const messages = require("io.internal.files.messages")
+const appPaths = require("io.internal.files.path")
+
+local provider: contracts.Provider = require("nupp.runtime.bindings.files")
+
+export type FileKind = messages.FileKind
+export type AppDir = messages.AppDir
+export type FsCaps = messages.FsCaps
+export type Path = appPaths.Path
+export type TemporaryPath = contracts.TemporaryPath
+
+local organization: string?
+local app: string?
+local roots: {[string]: paths.Path} = {}
+
+-- The names app roots are stored under, which predate the shorter selectors.
+local STORED: {[string]: string} = {config = "configuration", data = "data", cache = "cache"}
+
+local function answered<T>(value: T, why: string?): (T, io.Error?)
+    return value, io.toError(why)
+end
+
+local function described(
+    kind: messages.FileKind?,
+    size: integer?,
+    modified: number?,
+    readonly: boolean?,
+    why: string?
+): (messages.FileKind?, integer?, number?, boolean?, io.Error?)
+    if kind == nil then
+        return nil, nil, nil, nil, io.toError(why)
+    end
+
+    return kind, size, modified, readonly, nil
+end
+
+local function shown(path: any): string
+    if type(path) == "string" then
+        return path as string
+    end
+
+    return path:tostring() as string
+end
+
+export function setappid(neworganization: string, newapp: string): nil
+    appPaths.encodeid(neworganization, "organization")
+    appPaths.encodeid(newapp, "app")
+    if neworganization ~= organization or newapp ~= app then
+        roots = {}
+    end
+    organization = neworganization
+    app = newapp
+end
+
+export function appid(): (string?, string?)
+    return organization, app
+end
+
+export function appdir(which: messages.AppDir): (paths.Path?, io.Error?)
+    local stored = STORED[which]
+    if stored == nil then
+        error("bad argument #1 to 'appdir' (expected \"config\", \"data\" or \"cache\")", 2)
+    end
+    if organization == nil or app == nil then
+        return nil, io.toError("app id is unset; call os.setappid first", "invalid")
+    end
+    local remembered = roots[which]
+    if remembered ~= nil then
+        local created, reason = provider.createDirectory(remembered)
+        if not created then
+            return nil, io.toError(reason)
+        end
+        return remembered, nil
+    end
+    local value, reason = provider.apppath(stored, organization as string, app as string)
+    if value ~= nil then
+        roots[which] = value
+    end
+
+    return value, io.toError(reason)
+end
+
+export function exists(path: Path): (boolean?, io.Error?)
+    return answered(provider.exists(path))
+end
+
+export function stat(path: Path, nofollow: boolean?): (messages.FileKind?, integer?, number?, boolean?, io.Error?)
+    return described(provider.stat(path, nofollow ~= true))
+end
+
+export function readlink(path: Path): (paths.Path?, io.Error?)
+    return answered(provider.readLink(path))
+end
+
+export function symlink(target: Path, link: Path, kind: ("file" | "directory")?): (boolean, io.Error?)
+    return answered(provider.createSymlink(target, link, kind))
+end
+
+export function mkdir(path: Path): (boolean, io.Error?)
+    return answered(provider.createDirectory(path))
+end
+
+-- Unlike `os.list`, a directory that cannot be opened answers nil and the reason,
+-- so `os.list` raises at its own caller and the compiler can tolerate absence.
+export function list(dir: Path): (contracts.Entries?, string?)
+    local entries, reason = provider.list(dir)
+    if entries == nil then
+        return nil, shown(dir) .. ": " .. tostring(reason)
+    end
+
+    return entries, nil
+end
+
+export function glob(pattern: string): ({paths.Path}?, io.Error?)
+    return answered(provider.glob(pattern))
+end
+
+export function writeatomic(path: Path, borrows bytes: string | io.ByteView): (boolean, io.Error?)
+    return answered(provider.writeAtomic(path, bytes))
+end
+
+export function copy(from: Path, to: Path): (boolean, io.Error?)
+    return answered(provider.copy(from, to))
+end
+
+export function mktemp(prefix: string?, suffix: string?, dir: Path?): (affine(contracts.TemporaryPath?), io.Error?)
+    local owner, why = provider.createTemporary(false, prefix, suffix, dir)
+    if owner == nil then
+        return nil, io.toError(why)
+    end
+
+    return owner, nil
+end
+
+export function mktempdir(prefix: string?, suffix: string?, dir: Path?): (affine(contracts.TemporaryPath?), io.Error?)
+    local owner, why = provider.createTemporary(true, prefix, suffix, dir)
+    if owner == nil then
+        return nil, io.toError(why)
+    end
+
+    return owner, nil
+end
+
+export function persiststorage(): (boolean, io.Error?)
+    return answered(provider.requestPersistentStorage())
+end

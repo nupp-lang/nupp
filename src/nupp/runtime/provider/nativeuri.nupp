@@ -16,7 +16,7 @@ local function parse(text: string): (contracts.UriParts?, string?)
         return nil, problem
     end
 
-    return new contracts.UriParts(
+    return contracts.UriParts(
         text = raw.text,
         scheme = raw.scheme,
         authority = raw.authority,

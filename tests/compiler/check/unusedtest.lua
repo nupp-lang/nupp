@@ -182,7 +182,7 @@ local function close(takes value: Handle): nil
 end
 
 local function open(name: string): affine(Handle, close)
-   return new Handle(name = name)
+   return Handle(name = name)
 end
 
 local function work(): nil

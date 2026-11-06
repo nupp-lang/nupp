@@ -47,7 +47,7 @@ function selector.target(): allocate.Target
         c[p] = true
     end
 
-    return new allocate.Target(
+    return allocate.Target(
         integerRegisters = target.integerRegisters,
         floatRegisters = target.floatRegisters,
         preservedInternal = internal,
@@ -207,7 +207,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     const RETURN: 53 = ir.OP_RETURN as 53
     const TRAP: 54 = ir.OP_TRAP as 54
     local stackValues = stackBorrowed(f)
-    local code = new selector.Code(
+    local code = selector.Code(
         words = {},
         fixupWord = {},
         fixupKind = {},

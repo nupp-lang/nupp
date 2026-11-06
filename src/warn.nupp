@@ -11,4 +11,4 @@ module warn
 
 local log = require("debug.log")
 
-export = rawget(log, "__nuppwarn") as function(message: string, ...: string): nil
+export = log.warner

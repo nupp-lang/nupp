@@ -203,7 +203,7 @@ export function install(
             {"c-aggregate-v1", n.cdefKind, structName.text, table.concat(semanticFields, "\0")},
             "\0"
         )
-        c.bindVar(structName.text, n, true, structName)
+        c.bindVar(structName.text, T.typeObject(n), true, structName)
         if structName.definition then
             structName.definition.cdefIdentity = stat.cdefIdentity
         end

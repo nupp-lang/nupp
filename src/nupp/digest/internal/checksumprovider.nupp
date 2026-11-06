@@ -1,0 +1,53 @@
+@!internal
+
+--[[Implementation interfaces for `binary.Checksum` algorithm catalogs.
+
+The facade uses its builtin algorithm catalog. Importing this declaration does
+not load storage or algorithms. The catalog supplies an algorithms map keyed by
+canonical algorithm name. Each descriptor's name agrees with its key, and each
+create returns independent owned state.
+
+The facade validates and retains descriptors on the first catalog or factory
+call. Selection, listing, and context creation then use cached descriptors
+without discovery.
+Provider state processes chunks incrementally and retains neither input nor
+output spans. Cleanup consumes state without suspension. Reuse these canonical
+State and Algorithm identities, including ownership and borrowing signatures.
+value returns a non-consuming uint64 snapshot; width specifies its meaningful
+bits from 1 through 64. Standard names retain their standard widths and exact
+CRC parameters. Checksums detect corruption and provide no authentication.
+]]
+module nupp.digest.internal.checksumprovider
+
+local {type ByteSpan} = require("binary.span")
+
+--- Independent incremental state; close consumes its ownership without suspension.
+export interface State is own.Closeable
+    --- Releases all state resources.
+    close: @nosuspend function(takes self: State): nil
+
+    --- Processes this borrowed chunk without retaining its bytes.
+    update: function(exclusive self: State, borrows bytes: ByteSpan): nil
+
+    --- Returns the current unsigned checksum without consuming state.
+    value: function(self: State): uint64
+end
+
+--- Immutable algorithm identity, output metadata, and a factory for fresh state.
+export interface Algorithm
+    --- Canonical algorithm name, matching the catalog map key.
+    @readonly name: string
+
+    --- Number of meaningful checksum bits.
+    @readonly width: integer
+
+    --- Creates independent owned state; self is the retained descriptor.
+    create: function(self: Algorithm): State
+end
+
+--- A selectable implementation catalog. Extra descriptor members are permitted.
+export interface Provider
+
+    --- Canonical names mapped to checked, independent-state factories.
+    @readonly algorithms: {[string]: Algorithm}
+end

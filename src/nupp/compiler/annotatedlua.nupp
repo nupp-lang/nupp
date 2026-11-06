@@ -59,7 +59,7 @@ local function appendTag(
     if name then
         out[
             #out + 1
-        ] = new annotated.Tag(
+        ] = annotated.Tag(
             name = name:lower(),
             value = trim(value),
             line = line,
@@ -92,7 +92,7 @@ function annotated.tags(source: string, parsedTokens: {lexer.Token}?): {annotate
                     -- A `---|` line lists one member of the multi-line alias above it.
                     out[
                         #out + 1
-                    ] = new annotated.Tag(
+                    ] = annotated.Tag(
                         name = "|",
                         value = trim(member),
                         line = line,
@@ -221,7 +221,7 @@ local function markSynthetic(node: any, tag: annotated.Tag)
 end
 
 local function warning(tag: annotated.Tag, filename: string?, message: string): annotated.Warning
-    return new annotated.Warning(
+    return annotated.Warning(
         code = "NUPP1008",
         msg = message,
         filename = filename,

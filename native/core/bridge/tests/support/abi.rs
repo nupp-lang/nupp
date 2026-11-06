@@ -107,7 +107,9 @@ fn generated_entry_refuses_short_regions() {
         let error =
             execute(&path, &words).expect_err("Nupp entry must refuse undersized opaque regions");
         assert!(
-            error.starts_with("Nupp entry refused with transport status "),
+            error
+                .to_string()
+                .starts_with("Nupp entry refused with transport status "),
             "entry rather than bridge refusal: {error}"
         );
     }
@@ -129,7 +131,7 @@ fn generated_entry_returns_requested_status() {
     assert_ne!(status, 0, "successful entry uses the output test");
     let error = execute(&bundle, &words).expect_err("expected generated-entry refusal");
     assert_eq!(
-        error,
+        error.to_string(),
         format!("Nupp entry refused with transport status {status}")
     );
 }

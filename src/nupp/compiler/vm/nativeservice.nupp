@@ -22,6 +22,7 @@ local allowed = {
     ["nupp.runtime.vm.collector"] = true,
     ["nupp.runtime.vm.marking"] = true,
     ["nupp.runtime.vm.gcweak"] = true,
+    ["nupp.runtime.vm.gcfinal"] = true,
     ["nupp.runtime.vm.childwalk"] = true,
     ["nupp.runtime.vm.objectwalk"] = true,
     ["nupp.runtime.vm.values"] = true,
@@ -79,7 +80,18 @@ local osNames = {
     processUnwatch = true,
     processReap = true,
     processKill = true,
-    processExit = true
+    processExit = true,
+    wallClock = true,
+    cpuClock = true,
+    timeParts = true,
+    timeMake = true,
+    timeFormat = true,
+    fileRemove = true,
+    fileRename = true,
+    fileTemporary = true,
+    dirOpen = true,
+    dirNames = true,
+    unlinkEntry = true
 }
 
 local function need(ok: any, message: string): any
@@ -3417,6 +3429,7 @@ local paths = {
     {"nupp.runtime.vm.collector", "src/nupp/runtime/vm/collector.nupp"},
     {"nupp.runtime.vm.marking", "src/nupp/runtime/vm/marking.nupp"},
     {"nupp.runtime.vm.gcweak", "src/nupp/runtime/vm/gcweak.nupp"},
+    {"nupp.runtime.vm.gcfinal", "src/nupp/runtime/vm/gcfinal.nupp"},
     {"nupp.runtime.vm.childwalk", "src/nupp/runtime/vm/childwalk.nupp"},
     {"nupp.runtime.vm.objectwalk", "src/nupp/runtime/vm/objectwalk.nupp"},
     {"nupp.runtime.vm.objectconstruct", "src/nupp/runtime/vm/objectconstruct.nupp"},

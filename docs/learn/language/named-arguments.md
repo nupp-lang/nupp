@@ -188,7 +188,7 @@ local record Point
     y: number
 end
 
-local point = new Point(x = 1, y = 2)
+local point = Point(x = 1, y = 2)
 local {x, y as vertical} = point
 const {x as fixedX: number} = point
 ```
@@ -232,36 +232,3 @@ The rest of the arrangements it reports:
 Plucking from an owned or borrowed operand is reported instead: an owned or
 borrowed container cannot be plucked from. See [ownership.md](../runtime/ownership/index.md) for
 what a capability permits.
-
-::: seealso
-- [diagnostics.md](../../reference/diagnostics.md) for the code behind every
-  arrangement this page refuses
-- [Type cases, binding, and
-  destructuring](switch-expressions.md#type-cases-binding-and-destructuring)
-  for the brace form a switch arm uses
-- [records.md](types/records-and-structs.md) for the field declarations a pluck
-  reads
-:::
-
-## FAQ
-
-### Does renaming a parameter break callers?
-
-It breaks the callers that named it. A named or plucked argument fills a
-parameter by name, so a rename is a source-compatibility change for every call
-site using one, and positional callers are unaffected. See
-[Operands are names or paths](#operands-are-names-or-paths) for the reasoning
-behind that bargain.
-
-### Can positional and named arguments be mixed in one call?
-
-Yes, positional first. `draw(10, y = 20)` is accepted; `draw(y = 20, 10)` is
-refused. A final function literal may follow named arguments when it fills the
-final fixed parameter.
-
-### Do plucked arguments work with methods and constructors?
-
-Yes. Functions, methods, callable records, constructors, and specialized calls
-with a statically known positional pack all accept them. See
-[records.md](types/records-and-structs.md#constructors-and-result-policies) for
-what a constructor does with the arguments it receives.

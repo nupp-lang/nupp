@@ -442,11 +442,11 @@ function relink.new(reuse: any): any
             if c.kind == "func" then
                 value = base + (value as integer)
             end
-            consts[i] = new lowerstate.Const(kind = c.kind, value = value)
+            consts[i] = lowerstate.Const(kind = c.kind, value = value)
         end
         local blocks: {lowerstate.Block} = {}
         for i = 1, #record.blocks do
-            blocks[i] = new lowerstate.Block(index = i)
+            blocks[i] = lowerstate.Block(index = i)
         end
         for i, kept in ipairs(record.blocks) do
             local b = blocks[i]
@@ -481,7 +481,7 @@ function relink.new(reuse: any): any
                 b.ret = ret
             end
         end
-        local f = new lowerstate.Fn(
+        local f = lowerstate.Fn(
             id = id,
             name = relocateName(record.name, base),
             module = module,

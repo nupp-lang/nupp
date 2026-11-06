@@ -3,7 +3,7 @@ module nupp.runtime.vm.bytes
 --[[
 Byte spans in the native profile: a base and a count, with checked access that
 traps on an index outside the span and unchecked access that trusts its caller.
-A span is a struct value the caller builds, `new bytes.Span(base, count)`, so it
+A span is a struct value the caller builds, `bytes.Span(base, count)`, so it
 lives in the caller's frame and is passed as the memory it is.
 ]]
 

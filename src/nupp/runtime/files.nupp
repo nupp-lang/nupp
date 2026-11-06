@@ -13,7 +13,8 @@ to the blocking-work pool when the caller is a task that can park, which
 then waits there while others run; where nothing can park the caller, the
 system call is made on the calling thread, as it returns, since waiting on
 the pool would only block the same thread for longer. Seeks and closes do
-not wait. Callers see only `submit` and the completion.
+not wait, nor do the calls on names (`remove`, `rename`, `temporary` and
+`removetree`), which are not operations. Callers see only completions.
 ]]
 module nupp.runtime.files
 
@@ -42,10 +43,10 @@ export const STDERR = 2
 
 local function answer(result: integer): reactor.Completion
     if result < 0 then
-        return new reactor.Completion(value = -1, code = -result)
+        return reactor.Completion(value = -1, code = -result)
     end
 
-    return new reactor.Completion(value = result)
+    return reactor.Completion(value = result)
 end
 
 -- Completes `operation` on the calling thread, as its system call returns.
@@ -54,7 +55,7 @@ local function complete(operation: reactor.Operation): reactor.Completion
     if kind == reactor.READ then
         local read = filecalls.read(operation.descriptor, operation.count)
         if type(read) == "string" then
-            return new reactor.Completion(value = 0, text = read as string)
+            return reactor.Completion(value = 0, text = read as string)
         end
         return answer(read as integer)
     elseif kind == reactor.OPEN then
@@ -92,36 +93,140 @@ end
 --- the umask.
 --- @return the completion, whose value is the descriptor
 export function open(path: string, flags: integer): reactor.Completion
-    return submit(new reactor.Operation(kind = reactor.OPEN, path = path, flags = flags))
+    return submit(reactor.Operation(kind = reactor.OPEN, path = path, flags = flags))
 end
 
 --- Reads at most `count` bytes from `descriptor`.
 --- @return the completion, whose text is the bytes read
 export function read(descriptor: integer, count: integer): reactor.Completion
-    return submit(new reactor.Operation(kind = reactor.READ, descriptor = descriptor, count = count))
+    return submit(reactor.Operation(kind = reactor.READ, descriptor = descriptor, count = count))
 end
 
 --- Writes `text`, from its byte `first`, to `descriptor`: one write, which
 --- may take fewer bytes than it is given.
 --- @return the completion, whose value is the count written
 export function write(descriptor: integer, text: string, first: integer): reactor.Completion
-    return submit(new reactor.Operation(kind = reactor.WRITE, descriptor = descriptor, text = text, first = first))
+    return submit(reactor.Operation(kind = reactor.WRITE, descriptor = descriptor, text = text, first = first))
 end
 
 --- Moves `descriptor` to `offset` from `whence` (`FROMSTART`, `FROMHERE` or
 --- `FROMEND`).
 --- @return the completion, whose value is the new position
 export function seek(descriptor: integer, offset: integer, whence: integer): reactor.Completion
-    return submit(new reactor.Operation(kind = reactor.SEEK, descriptor = descriptor, offset = offset, whence = whence))
+    return submit(reactor.Operation(kind = reactor.SEEK, descriptor = descriptor, offset = offset, whence = whence))
 end
 
 --- Closes `descriptor`, which is gone even when the completion says it
 --- failed.
 export function close(descriptor: integer): reactor.Completion
-    return submit(new reactor.Operation(kind = reactor.CLOSE, descriptor = descriptor))
+    return submit(reactor.Operation(kind = reactor.CLOSE, descriptor = descriptor))
 end
 
 --- The system's text for error number `code`, as C's strerror gives it.
 export function reason(code: integer): string
     return filecalls.reason(code)
+end
+
+--- Removes the file or empty directory at `path`, as C's remove. Like a
+--- seek, it completes on the calling thread.
+--- @return the completion, whose code says why it failed
+export function remove(path: string): reactor.Completion
+    return answer(filecalls.remove(path))
+end
+
+--- Renames the file at `from` to `to`, as C's rename, on the calling thread.
+--- @return the completion, whose code says why it failed
+export function rename(from: string, to: string): reactor.Completion
+    return answer(filecalls.rename(from, to))
+end
+
+--- Makes a new empty file with a unique name, on the calling thread.
+--- @return the completion, whose text is the file's name
+export function temporary(): reactor.Completion
+    local made = filecalls.temporary()
+    if type(made) == "string" then
+        return reactor.Completion(value = 0, text = made as string)
+    end
+
+    return answer(made as integer)
+end
+
+--- What `removetree` answers when the tree is deeper than it walks.
+export const TOODEEP = -1
+
+--- The deepest directory tree `removetree` walks, as the VM host's.
+export const DEPTH = 512
+
+-- C's ENOTDIR, which a directory open answers for anything else, a link
+-- included.
+const NOTDIR = 20
+
+-- What `filecalls.diropen` takes for the working directory.
+const HERE = -1
+
+-- The error number a system call's answer carries, or 0.
+local function failed(result: integer): integer
+    return result < 0 and -result or 0
+end
+
+-- Removes everything in directory `fd`, `depth` more levels at most: 0, or
+-- the error number that stopped it (TOODEEP past the depth).
+local function empty(fd: integer, depth: integer): integer
+    if depth <= 0 then
+        return TOODEEP
+    end
+    local listed = filecalls.names(fd)
+    if type(listed) ~= "string" then
+        return -(listed as integer)
+    end
+    local names = listed as string
+    local at: integer = 1
+    while at <= #names do
+        local stop = string.find(names, "\0", at, true) as integer
+        local name = string.sub(names, at, stop - 1)
+        at = stop + 1
+        local child = filecalls.diropen(fd, name)
+        if child >= 0 then
+            local code = empty(child, depth - 1)
+            filecalls.close(child)
+            if code ~= 0 then
+                return code
+            end
+            local done = filecalls.unlink(fd, name, 1)
+            if done < 0 then
+                return -done
+            end
+        elseif -child == NOTDIR then
+            local done = filecalls.unlink(fd, name, 0)
+            if done < 0 then
+                return -done
+            end
+        else
+            return -child
+        end
+    end
+
+    return 0
+end
+
+--- Removes `path` and, when it is a directory, everything below it, on the
+--- calling thread. Each directory is opened below its parent's descriptor
+--- without following a link, and each entry unlinked relative to it, so a
+--- directory swapped for a link during the walk is removed as the link.
+--- @return 0, or the error number that stopped it; TOODEEP past DEPTH levels
+export function removetree(path: string): integer
+    local fd = filecalls.diropen(HERE, path)
+    if fd < 0 then
+        if -fd == NOTDIR then
+            return failed(filecalls.remove(path))
+        end
+        return -fd
+    end
+    local code = empty(fd, DEPTH)
+    filecalls.close(fd)
+    if code ~= 0 then
+        return code
+    end
+
+    return failed(filecalls.remove(path))
 end

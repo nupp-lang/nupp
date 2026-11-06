@@ -92,7 +92,7 @@ local function field(qualified: string, role: "attribute" | "element", bindings:
         end
     end
 
-    return new Field(namespaceUri = uri, localName = name, role = role)
+    return Field(namespaceUri = uri, localName = name, role = role)
 end
 
 export record Reader
@@ -127,7 +127,7 @@ export record Reader
         if self.pendingEnd then
             self.pendingEnd = false
             local frame = table.remove(self.frames)
-            return new Event(kind = "end", field = frame.field, attributes = {})
+            return Event(kind = "end", field = frame.field, attributes = {})
         end
         while true do
             local position = self.position
@@ -155,7 +155,7 @@ export record Reader
                     if text:find("]]>", 1, true) then
                         error("invalid XML text", 2)
                     end
-                    return new Event(kind = "text", attributes = {}, text = unescape(text))
+                    return Event(kind = "text", attributes = {}, text = unescape(text))
                 end
             elseif self.input:sub(position, position + 1) == "</" then
                 self.position += 2
@@ -169,7 +169,7 @@ export record Reader
                 if frame == nil or frame.qualified ~= qualified then
                     error("mismatched XML end tag", 2)
                 end
-                return new Event(kind = "end", field = frame.field, attributes = {})
+                return Event(kind = "end", field = frame.field, attributes = {})
             else
                 if self.input:sub(position, position + 1) == "<!" or self.input:sub(position, position + 1) == "<?" then
                     error("unsupported XML declaration", 2)
@@ -234,7 +234,7 @@ export record Reader
                         end
                         bindings[prefix] = value
                     else
-                        raw[#raw + 1] = new RawAttribute(name = name, value = value)
+                        raw[#raw + 1] = RawAttribute(name = name, value = value)
                     end
                 end
                 self.pendingEnd = self.input:sub(self.position, self.position) == "/"
@@ -264,10 +264,10 @@ export record Reader
                         error("duplicate expanded XML attribute", 2)
                     end
                     expanded[key] = true
-                    attributes[#attributes + 1] = new Attribute(field = name, value = attribute.value)
+                    attributes[#attributes + 1] = Attribute(field = name, value = attribute.value)
                 end
-                self.frames[#self.frames + 1] = new Frame(qualified = qualified, field = identity, bindings = bindings)
-                return new Event(kind = "start", field = identity, attributes = attributes)
+                self.frames[#self.frames + 1] = Frame(qualified = qualified, field = identity, bindings = bindings)
+                return Event(kind = "start", field = identity, attributes = attributes)
             end
         end
     end
@@ -283,7 +283,7 @@ export function reader(input: string): Reader
     end
     input = input:gsub("\r\n", "\n"):gsub("\r", "\n")
 
-    return new Reader(input = input, position = 1, frames = {}, pendingEnd = false, roots = 0, events = 0)
+    return Reader(input = input, position = 1, frames = {}, pendingEnd = false, roots = 0, events = 0)
 end
 
 export function identity(value: core.WireField): Field

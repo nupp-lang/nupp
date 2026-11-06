@@ -331,24 +331,51 @@ pub fn create_directory(path: &Path) -> io::Result<()> {
     fs::create_dir_all(path)
 }
 
+/// Reports whether a path resolves, following symbolic links. A name that is
+/// absent is `Ok(false)`; a lookup that cannot tell, such as a refused
+/// permission, is an error rather than an answer.
+pub fn exists(path: &Path) -> io::Result<bool> {
+    path.try_exists()
+}
+
+fn entry(entry: io::Result<fs::DirEntry>) -> io::Result<DirectoryEntry> {
+    let entry = entry?;
+    let name = name_bytes(entry.file_name())?;
+    let file_type = entry.file_type()?;
+    let kind = if file_type.is_symlink() {
+        FileKind::Symlink
+    } else if file_type.is_dir() {
+        FileKind::Directory
+    } else if file_type.is_file() {
+        FileKind::File
+    } else {
+        FileKind::Other
+    };
+    Ok(DirectoryEntry { name, kind })
+}
+
 pub fn list(path: &Path) -> io::Result<Vec<DirectoryEntry>> {
-    fs::read_dir(path)?
-        .map(|entry| {
-            let entry = entry?;
-            let name = name_bytes(entry.file_name())?;
-            let file_type = entry.file_type()?;
-            let kind = if file_type.is_symlink() {
-                FileKind::Symlink
-            } else if file_type.is_dir() {
-                FileKind::Directory
-            } else if file_type.is_file() {
-                FileKind::File
-            } else {
-                FileKind::Other
-            };
-            Ok(DirectoryEntry { name, kind })
+    fs::read_dir(path)?.map(entry).collect()
+}
+
+/// An open directory read in bounded batches, so a caller that stops early
+/// never pays for the entries it did not reach.
+pub struct Listing {
+    entries: fs::ReadDir,
+}
+
+impl Listing {
+    pub fn open(path: &Path) -> io::Result<Self> {
+        Ok(Self {
+            entries: fs::read_dir(path)?,
         })
-        .collect()
+    }
+
+    /// Returns up to `limit` further entries; an empty batch means the
+    /// directory is exhausted.
+    pub fn next_batch(&mut self, limit: usize) -> io::Result<Vec<DirectoryEntry>> {
+        self.entries.by_ref().take(limit).map(entry).collect()
+    }
 }
 
 pub fn remove(path: &Path, recursive: bool) -> io::Result<()> {
@@ -837,6 +864,35 @@ mod tests {
         ));
         fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    #[test]
+    fn listings_arrive_in_bounded_batches_and_absence_is_an_answer() {
+        let root = root("batches");
+        for index in 0..5 {
+            fs::write(root.join(format!("{index}.txt")), b"").unwrap();
+        }
+        let mut listing = Listing::open(&root).unwrap();
+        let mut names = Vec::new();
+        loop {
+            let batch = listing.next_batch(2).unwrap();
+            assert!(batch.len() <= 2);
+            if batch.is_empty() {
+                break;
+            }
+            names.extend(batch.into_iter().map(|entry| entry.name));
+        }
+        names.sort();
+        assert_eq!(names.len(), 5);
+        assert_eq!(names[0], b"0.txt");
+        assert!(listing.next_batch(2).unwrap().is_empty());
+        assert!(Listing::open(&root.join("absent")).is_err());
+
+        assert!(exists(&root.join("0.txt")).unwrap());
+        assert!(!exists(&root.join("absent")).unwrap());
+        create_symlink(&root.join("absent"), &root.join("dangling"), false).unwrap();
+        assert!(!exists(&root.join("dangling")).unwrap());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

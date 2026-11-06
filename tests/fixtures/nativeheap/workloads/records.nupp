@@ -9,7 +9,7 @@ end
 export function main(): number
     local points: {Point} = {}
     for i = 1, 200000 do
-        points[i] = new Point(x = i, y = i * 2)
+        points[i] = Point(x = i, y = i * 2)
     end
     local acc = 0.0
     for _ = 1, 20 do

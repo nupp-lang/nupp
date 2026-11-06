@@ -275,7 +275,7 @@ export record Regex
             return nil
         end
 
-        return new Match(
+        return Match(
             subject = subject,
             first = positions[1],
             last = positions[2],
@@ -392,7 +392,7 @@ export function compile(pattern: string, options: Options?): (Regex?, string?)
     end
     local count, names = host.groups(handle)
 
-    return new Regex(pattern = pattern, _handle = handle, _groupCount = count, _names = names)
+    return Regex(pattern = pattern, _handle = handle, _groupCount = count, _names = names)
 end
 
 --- A pattern that matches exactly the given text, with every character the

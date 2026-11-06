@@ -148,7 +148,6 @@ end
 -- An embedded binding must still produce exactly one logical value.
 local core = require("nupp.serde.internal.value")
 local jsonSyntax = require("serde.json")
-local buffers = require("string.buffer")
 local profile = {
     policy = function()
         return {
@@ -175,8 +174,8 @@ for _, mode in ipairs({"under", "over"}) do
         end,
     }
     local selected = setmetatable({adapter = model}, core.Bound)
-    local destination = buffers.new()
-    local sink = jsonSyntax.newwriter(destination)
+    local destination = require("io").Buffer.create()
+    local sink = jsonSyntax.Writer.of(destination)
     sink:startarray()
     local ok, problem = pcall(function()
         return codec.codec(profile):writevalue(selected, "value", sink)

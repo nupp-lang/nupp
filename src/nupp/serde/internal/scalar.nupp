@@ -45,11 +45,11 @@ local record Time<M is core.Member> is core.Adapter<core.Timestamp, M>
 end
 
 export function text<M is core.Member>(member: M): core.Adapter<string, M>
-    return new Text<M>(description = new Description<M>(member = member, kind = "string"))
+    return Text<M>(description = Description<M>(member = member, kind = "string"))
 end
 
 export function timestamp<M is core.Member>(member: M): core.Adapter<core.Timestamp, M>
-    return new Time<M>(description = new Description<M>(member = member, kind = "timestamp"))
+    return Time<M>(description = Description<M>(member = member, kind = "timestamp"))
 end
 
 export interface Conversion<T, V is own.Copyable>
@@ -88,7 +88,7 @@ export function convert<T, V is own.Copyable, M is core.Member>(
     base: core.Adapter<V, M>,
     conversion: Conversion<T, V>
 ): core.Adapter<T, M>
-    return new Converted<T, V, M>(base = base, conversion = conversion)
+    return Converted<T, V, M>(base = base, conversion = conversion)
 end
 
 local record Boolean<M is core.Member> is core.Adapter<boolean, M>
@@ -106,7 +106,7 @@ local record Boolean<M is core.Member> is core.Adapter<boolean, M>
     end
 end
 export function boolean<M is core.Member>(member: M): core.Adapter<boolean, M>
-    return new Boolean<M>(description = new Description<M>(member = member, kind = "bool"))
+    return Boolean<M>(description = Description<M>(member = member, kind = "bool"))
 end
 
 local record Bytes<M is core.Member> is core.Adapter<string, M>
@@ -124,7 +124,7 @@ local record Bytes<M is core.Member> is core.Adapter<string, M>
     end
 end
 export function bytes<M is core.Member>(member: M): core.Adapter<string, M>
-    return new Bytes<M>(description = new Description<M>(member = member, kind = "bytes"))
+    return Bytes<M>(description = Description<M>(member = member, kind = "bytes"))
 end
 
 local record BigInteger<M is core.Member> is core.Adapter<string, M>
@@ -143,7 +143,7 @@ local record BigInteger<M is core.Member> is core.Adapter<string, M>
     end
 end
 export function bigInteger<M is core.Member>(member: M): core.Adapter<string, M>
-    return new BigInteger<M>(description = new Description<M>(member = member, kind = "biginteger"))
+    return BigInteger<M>(description = Description<M>(member = member, kind = "biginteger"))
 end
 
 local record Decimal<M is core.Member> is core.Adapter<core.Decimal, M>
@@ -161,7 +161,7 @@ local record Decimal<M is core.Member> is core.Adapter<core.Decimal, M>
     end
 end
 export function decimal<M is core.Member>(member: M): core.Adapter<core.Decimal, M>
-    return new Decimal<M>(description = new Description<M>(member = member, kind = "decimal"))
+    return Decimal<M>(description = Description<M>(member = member, kind = "decimal"))
 end
 
 local record Atom<M is core.Member> is core.Adapter<core.Atom, M>
@@ -179,7 +179,7 @@ local record Atom<M is core.Member> is core.Adapter<core.Atom, M>
     end
 end
 export function atom<M is core.Member>(member: M): core.Adapter<core.Atom, M>
-    return new Atom<M>(description = new Description<M>(member = member, kind = "atom"))
+    return Atom<M>(description = Description<M>(member = member, kind = "atom"))
 end
 
 local record Integer<M is core.Member> is core.Adapter<core.Integer, M>
@@ -204,8 +204,8 @@ export function integer<M is core.Member>(
     width: 8 | 16 | 32 | 64,
     signed: boolean
 ): core.Adapter<core.Integer, M>
-    return new Integer<M>(
-        description = new Description<M>(member = member, kind = "integer", width = width, signed = signed),
+    return Integer<M>(
+        description = Description<M>(member = member, kind = "integer", width = width, signed = signed),
         width = width,
         signed = signed
     )
@@ -227,7 +227,7 @@ local record Float<M is core.Member> is core.Adapter<number, M>
     end
 end
 export function float<M is core.Member>(member: M, width: 32 | 64): core.Adapter<number, M>
-    return new Float<M>(description = new Description<M>(member = member, kind = "float", width = width), width = width)
+    return Float<M>(description = Description<M>(member = member, kind = "float", width = width), width = width)
 end
 
 local record Document<D, M is core.Member> is core.Adapter<D, M>
@@ -246,7 +246,7 @@ local record Document<D, M is core.Member> is core.Adapter<D, M>
     end
 end
 export function document<D, M is core.Member>(member: M, adapter: core.DocumentAdapter<D>): core.Adapter<D, M>
-    return new Document<D, M>(description = new Description<M>(member = member, kind = "document"), document = adapter)
+    return Document<D, M>(description = Description<M>(member = member, kind = "document"), document = adapter)
 end
 
 -- Only these adapters return the native parser's scalar carrier unchanged.

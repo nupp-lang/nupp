@@ -41,7 +41,23 @@ local definitions = {
     processUnwatch = {slot = 31, params = {"uint64", "uint64"}, result = "int64", cResult = "int64"},
     processReap = {slot = 32, params = {"uint64"}, result = "int64", cResult = "int64"},
     processKill = {slot = 33, params = {"uint64", "uint64"}, result = "int64", cResult = "int64"},
-    processExit = {slot = 34, params = {"uint64"}, result = "int64", cResult = "int64"}
+    processExit = {slot = 34, params = {"uint64"}, result = "int64", cResult = "int64"},
+    wallClock = {slot = 35, params = {}, result = "int64", cResult = "int64"},
+    cpuClock = {slot = 36, params = {}, result = "uint64", cResult = "uint64"},
+    timeParts = {slot = 37, params = {"uint64", "uint64", "voidptr"}, result = "int64", cResult = "int64"},
+    timeMake = {slot = 38, params = {"voidptr"}, result = "int64", cResult = "int64"},
+    timeFormat = {
+        slot = 39,
+        params = {"uint64", "uint64", "voidptr", "uint64", "voidptr", "uint64"},
+        result = "int64",
+        cResult = "int64"
+    },
+    fileRemove = {slot = 40, params = {"voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    fileRename = {slot = 41, params = {"voidptr", "uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    fileTemporary = {slot = 42, params = {"voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    dirOpen = {slot = 43, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    dirNames = {slot = 44, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    unlinkEntry = {slot = 45, params = {"uint64", "voidptr", "uint64", "uint64"}, result = "int64", cResult = "int64"}
 }
 
 local function need(value: any, message: string): any

@@ -2,5 +2,7 @@ module nupp.vm.math
 
 local namespace: any = rawget(_G, "math")
 require("nupp.compiler.runtime.math").install(namespace)
+-- `math.Xoshiro128` is the standard library's, installed on this same table.
+require("nupp.runtime.standardmath")
 
 export = namespace

@@ -117,7 +117,7 @@ end
 result is falsy, and are that result when it is not.
 
 ```nupp:fragment
-local text = files.read(path) or return
+local text = reader:read(4096) or return
 ```
 
 See [exit-suffixes.md](exit-suffixes.md) for what the operand must look like and
@@ -292,7 +292,7 @@ local function closeFile(takes file: File): nil
 end
 
 local function openFile(): affine(File, closeFile)
-    return new File(closed = false)
+    return File(closed = false)
 end
 
 local function readOnce(): nil
@@ -391,7 +391,7 @@ Types are built from a fixed set of forms.
 
 None of the level-1 introducers is reserved. `type`, `record`, `interface`,
 `struct`, `const`, `cdef`, `from`, `continue`, `module`, `export`,
-`global`, `as`, `is`, `new`, `comptime`, `metamethod`, `takes`,
+`global`, `as`, `is`, `comptime`, `metamethod`, `takes`,
 `borrows`, `exclusive`, `retains`, `releases`, `out`, `switch`, `case`,
 `where`, and `yield` all keep their Lua meaning wherever a declaration cannot
 start.
@@ -452,17 +452,3 @@ table.clear(buffer)
 metatable. A value that is itself a table stays shared, and `__index` is not
 consulted, so the copy holds what `next` would have walked and inherits the
 rest the same way the original did.
-
-## FAQ
-
-### Can a variable be named `record` or `switch`?
-
-Yes. Every level-1 introducer is contextual, so `local record = 5` and
-`switch(value)` keep their Lua meaning. The one exception is
-`local type Alias = 5`, which needs a newline or a semicolon after `type` to
-read as Lua.
-
-### Does the typed layer change what a traceback points at?
-
-No. The compiled program records the source line of every instruction, so a
-runtime error names the line you wrote. `nupp bc` prints that mapping.

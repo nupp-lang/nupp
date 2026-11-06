@@ -18,7 +18,7 @@ local record Vec
 end
 
 Vec.__add = function(a: Vec, b: Vec): Vec
-    return new Vec(x = a.x + b.x, y = a.y + b.y)
+    return Vec(x = a.x + b.x, y = a.y + b.y)
 end
 Vec.__eq = function(a: Vec, b: Vec): boolean
     return a.x == b.x and a.y == b.y
@@ -36,11 +36,11 @@ Vec.__call = function(v: Vec, k: integer): integer
     return v.x * k + v.y
 end
 
-local a = new Vec(x = 1, y = 2)
-local b = new Vec(x = 3, y = 4)
+local a = Vec(x = 1, y = 2)
+local b = Vec(x = 3, y = 4)
 local c = a + b
 local score: integer = c.x * 100 + c.y
-if c == new Vec(x = 4, y = 6) and not (a == b) then
+if c == Vec(x = 4, y = 6) and not (a == b) then
     score = score + 10000
 end
 if a < b and not (b < a) then
@@ -66,7 +66,7 @@ local record Scale
         return string.rep(s, self.factor)
     end
 end
-local twice = new Scale(factor = 2)
+local twice = Scale(factor = 2)
 if twice:apply(21) == 42 and twice:apply("ab") == "abab" then
     score = score + 40000000
 end

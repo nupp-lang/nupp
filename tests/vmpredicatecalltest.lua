@@ -36,17 +36,17 @@ function main.present(value: any): boolean
     return result
 end
 function main.recordPresent(): boolean
-    local value = new Tagged(tag = false)
+    local value = Tagged(tag = false)
     local result = P.present(value)
     return result
 end
 function main.recordMissing(): boolean
-    local value = new Other(other = 1)
+    local value = Other(other = 1)
     local result = P.present(value)
     return result
 end
 function main.recordMetatable(): boolean
-    local value = new Tagged(tag = nil)
+    local value = Tagged(tag = nil)
     setmetatable(value as any, {__index = {tag = false}})
     local result = P.present(value)
     return result

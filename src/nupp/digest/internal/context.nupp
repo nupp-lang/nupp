@@ -13,38 +13,12 @@ module nupp.digest.internal.context
 
 const span = require("binary.span")
 const storage = require("nupp.runtime.storage")
-const binary = require("binary")
-const provider = require("binary.digest.internal.contracts")
+const binary = require("nupp.util.internal.encoding")
+const provider = require("nupp.digest.internal.digestprovider")
 
-export interface Digest is io.Writer
-    --- Consumes an unfinished context and releases provider state without suspension.
-    close: @nosuspend function(takes self: Digest): nil
-
-    --- Returns the canonical algorithm name retained at creation.
-    algorithm: function(self: Digest): string
-
-    --- Returns the fixed output size in bytes.
-    digestsize: function(self: Digest): integer
-
-    --- Absorbs raw bytes without retaining a borrowed input.
-    --- @return true, since a digest takes every byte it is given
-    write: function(exclusive self: Digest, bytes: string): (boolean, string?)
-
-    --- Absorbs a borrowed byte view without retaining it.
-    --- @return how many bytes it absorbed, which is all of them
-    writespan: function(exclusive self: Digest, borrows bytes: span.ByteSpan): (integer?, string?)
-
-    --- Nothing is buffered behind a digest, so this only returns true.
-    flush: function(self: Digest): (boolean, string?)
-
-    --- Consumes this context and returns raw bytes, or writes the fixed-size
-    --- prefix of destination and returns its byte count. Always closes state.
-    digest: function(takes self: Digest): string
-        & function(takes self: Digest, exclusive destination: span.ByteWriteSpan): integer
-
-    --- Consumes this context and returns lowercase hexadecimal, always closing state.
-    hexdigest: function(takes self: Digest): string
-end
+local contracts = require("nupp.digest.internal.contracts")
+export type Digest = contracts.Digest
+export const Digest = contracts.Digest
 
 local record StateOwner is own.Closeable
     state: provider.State
@@ -95,7 +69,7 @@ local record Context is Digest
         -- and destination validation. The context closes on every exit.
         local size = self.size
         do
-            local owner = new StateOwner(state = self.state)
+            local owner = StateOwner(state = self.state)
             if #destination < size then
                 error("digest destination needs " .. size .. " bytes", 2)
             end
@@ -108,7 +82,7 @@ local record Context is Digest
     function digest(takes self): string
         local size = self.size
         do
-            local owner = new StateOwner(state = self.state)
+            local owner = StateOwner(state = self.state)
             local bytes = storage.allocateBytes(size)
             local output = span.writecarray(bytes, size)
             owner.state:finish(output)
@@ -120,7 +94,7 @@ local record Context is Digest
     function hexdigest(takes self): string
         local size = self.size
         do
-            local owner = new StateOwner(state = self.state)
+            local owner = StateOwner(state = self.state)
             local bytes = storage.allocateBytes(size)
             local output = span.writecarray(bytes, size)
             owner.state:finish(output)
@@ -132,5 +106,5 @@ local record Context is Digest
 end
 
 export function wrap(takes state: provider.State, name: string, size: integer): Digest
-    return new Context(state = state, name = name, size = size)
+    return Context(state = state, name = name, size = size)
 end

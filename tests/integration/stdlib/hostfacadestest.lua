@@ -1,11 +1,11 @@
 local system = os.info()
-local random = require("math.random")
+local random = require("nupp.runtime.standardmath").value
 local uuid = os
 local providerstate = require("helpers.providerstate")
 local targetLayout = require("nupp.compiler.targetlayout")
 local M = {}
 
-function M.randomNamespaceForwardsTheHostCallExactly()
+function M.generatorNamespacePreservesTheHostRandomFunction()
     local host = {}
     for key, value in pairs(math) do
         host[key] = value
@@ -21,9 +21,12 @@ function M.randomNamespaceForwardsTheHostCallExactly()
 
         return 0.25
     end
-    local load = providerstate.instance({["math.random"] = true}, nil, nil, {math = host})
-    local moved = load("math.random")
-    assert(moved == host.random and moved == load("math.random"))
+    local original = host.random
+    local load = providerstate.instance({["nupp.runtime.standardmath"] = true}, nil, nil, {math = host})
+    local namespace = load("nupp.runtime.standardmath")
+    local moved = host.random
+    assert(moved == original and type(moved) == "function")
+    assert(namespace.value == host and host.Xoshiro128 == namespace.Xoshiro128)
     assert(moved() == 0.25 and moved(8) == 0.25 and moved(-4, 12) == 0.25)
     assert(calls[1].count == 0)
     assert(calls[2].count == 1 and calls[2][1] == 8)
@@ -55,9 +58,9 @@ function M.secureRandomBytesSizesAndValidation()
 end
 
 function M.identifiersAreMembersOfTheOsNamespace()
-    assert(uuid.uuid4():match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-4%x%x%x%-[89ab]%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"))
-    assert(uuid.uuid7():match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-7%x%x%x%-[89ab]%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"))
-    assert(uuid.v4 == nil and uuid.v7 == nil, "the old nested spelling is gone")
+    assert(uuid.uuid(4):match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-4%x%x%x%-[89ab]%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"))
+    assert(uuid.uuid(7):match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-7%x%x%x%-[89ab]%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"))
+    assert(uuid.uuid4 == nil and uuid.uuid7 == nil and uuid.v4 == nil, "the earlier spellings are gone")
 end
 
 function M.identifiersRejectMalformedProviderResults()
@@ -162,11 +165,14 @@ function M.hostAndVmBindingsSelectTheTargetImplementationOnce()
             browser = "nupp.runtime.browser.uri"
         },
         {
-            module = "io.files",
+            module = "io.internal.files",
             binding = "nupp.runtime.bindings.files",
             native = "nupp.runtime.provider.nativefiles",
             browser = "nupp.runtime.browser.files",
-            member = "capabilities"
+            member = "exists",
+            -- The facade answers the provider through its own error shape rather
+            -- than re-exporting it.
+            wrapped = true
         },
         {
             module = "nupp.runtime.uuidprovider",
@@ -299,7 +305,7 @@ function M.hostAndVmBindingsSelectTheTargetImplementationOnce()
                 assert(facade.storage == expected, label)
             elseif case.member then
                 local call = facade[case.exported or case.member]
-                assert(call == expected[case.member], label)
+                assert(case.wrapped or call == expected[case.member], label)
                 assert(call() == selectedName and call() == selectedName, label)
                 if case.module == "nupp.suspension" then
                     local host = load("nupp.suspension.host")
@@ -384,8 +390,8 @@ function M.memoizedAppPathsAreRecreated()
     local files = require("helpers.providerstate").load("files", provider)
     files.setappid("example", "application-path-test")
 
-    assert(files.datapath() == root)
-    assert(files.datapath() == root)
+    assert(files.appdir("data") == root)
+    assert(files.appdir("data") == root)
     assert(resolved == 1, "the platform root is resolved once")
     assert(created == 1, "a cached root is recreated if the caller removed it")
 end

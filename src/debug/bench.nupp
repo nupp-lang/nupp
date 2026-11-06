@@ -7,7 +7,7 @@ local bench = debug.bench
 
 local function sized(b: debug.bench.Case): nil
     for _ = 1, b.n do
-        bench.keep(makePoint())
+        bench.keep(point())
     end
 end
 
@@ -33,8 +33,6 @@ local json = require("serde.json")
 local statistics = require("nupp.bench.internal.statistics")
 local recordio = require("nupp.bench.internal.record")
 
-local bench = {}
-
 --- The schema version of a written record. Bumped when a reader would otherwise
 --- misread an older file, and checked where a baseline is read.
 ---
@@ -48,10 +46,10 @@ local bench = {}
 --- An older record still reads as a baseline, and an inconclusive one: nothing in it
 --- says the program it timed is the one this compiler runs, so every duration verdict
 --- against it is inconclusive rather than an error. Any other schema is refused.
-bench.schema = 5
+export const schema = 5
 
 --- The oldest schema a standalone program still reads as a baseline.
-bench.oldestbaselineschema = 2
+export const oldest = 2
 
 --- Rounds timed per case. The median of these is what a record reports, so an odd
 --- count has a middle to take.
@@ -68,9 +66,11 @@ local MAX_N = 1 << 30
 -- The sink
 ----------------------------------------------------------------------------
 
---- Where `keep` stores. A field rather than an upvalue so the store crosses the module
---- boundary, which is what makes the value escape; see `keep`.
-bench.__nuppSink = nil as any
+--- Where `keep` stores. A table field rather than an upvalue, so the store crosses
+--- the module boundary, which is what makes the value escape; see `keep`.
+--- Not part of the documented API; `keep` is.
+--- @internal
+export const sink: {value: any} = {value = nil}
 
 --- Keeps a value the measured body produced, so the work that produced it survives.
 ---
@@ -79,14 +79,14 @@ bench.__nuppSink = nil as any
 --- benchmark comes out impossibly fast: the loop under test is deleted and the
 --- measurement is of nothing.
 ---
---- The store is to a field of this module, which is visible outside the measured body
---- and so cannot be removed. Nothing checks that this stays true as the VM's compiler
---- changes; a collapse in the reported durations is the only signal, which is why it
---- is worth reading them.
+--- The store is to a field of this module's `sink`, which is visible outside the
+--- measured body and so cannot be removed. Nothing checks that this stays true as the
+--- VM's compiler changes; a collapse in the reported durations is the only signal,
+--- which is why it is worth reading them.
 ---
 --- @param value whatever the measured body produced
-function bench.keep(value: any): nil
-    bench.__nuppSink = value
+export function keep(value: any): nil
+    sink.value = value
 end
 
 ----------------------------------------------------------------------------
@@ -94,7 +94,7 @@ end
 ----------------------------------------------------------------------------
 
 --- A case handed to a measured body.
-record bench.Case
+export record Case
     --- The case's name, as `case` was given it.
     name: string
 
@@ -112,7 +112,7 @@ record bench.Case
 end
 
 --- An expanded suite case handed to setup, run and teardown callbacks.
-record bench.Invocation
+export record Invocation
     --- The unqualified case name from the suite declaration.
     name: string
 
@@ -124,15 +124,15 @@ record bench.Invocation
 end
 
 --- An implementation of every case in a suite.
-type bench.Variant = {
+export type Variant = {
     name: string,
-    setup: (function(bench.Invocation): any)?,
-    run: function(any, bench.Invocation): any,
-    teardown: (function(any, bench.Invocation): nil)?
+    setup: (function(Invocation): any)?,
+    run: function(any, Invocation): any,
+    teardown: (function(any, Invocation): nil)?
 }
 
 --- A workload in a suite. Parameter lists are expanded as a Cartesian product.
-type bench.SuiteCase = {
+export type SuiteCase = {
     name: string,
     data: any?,
     parameters: {[string]: {any}}?,
@@ -142,34 +142,34 @@ type bench.SuiteCase = {
 }
 
 --- A comparative benchmark suite.
-type bench.SuiteOptions = {
+export type SuiteOptions = {
     name: string,
-    variants: {bench.Variant},
-    cases: {bench.SuiteCase},
+    variants: {Variant},
+    cases: {SuiteCase},
 
     --- Variant used as the denominator in the human result table.
-    baselinevariant: string?,
+    baseline: string?,
 
     --- Calls made before timing begins.
-    warmupiterations: integer?,
+    warmup: integer?,
 
     --- Calls to `run` inside a timed sample. State is set up once per sample.
-    sampleiterations: integer?,
+    batch: integer?,
 
     --- Stop once both this many samples and this many milliseconds of measured time
     --- exist.
     minsamples: integer?,
-    mindurationms: number?,
+    minms: number?,
 
     --- Safety bounds when a sample is much faster or slower than expected.
     maxsamples: integer?,
-    maxdurationms: number?
+    maxms: number?
 }
 
 --- Optional sections in the human result report.
-type bench.FormatOptions = {
+export type FormatOptions = {
     --- Compare suite variants by their geometric-mean ratio.
-    geometricmean: boolean?,
+    geomean: boolean?,
 
     --- Forks behind the measurements, when the runner merged them.
     ---
@@ -182,8 +182,8 @@ type bench.FormatOptions = {
     notes: {string}?
 }
 
---- What a
-record bench.Measurement
+--- One measured case, suite variant or frame session, as a record carries it.
+export record Measurement
     --- The case's name.
     name: string
 
@@ -200,7 +200,7 @@ record bench.Measurement
     medianms: number?
 
     --- The fastest round, in milliseconds.
-    minms: number?
+    fastest: number?
 
     --- Suite samples in milliseconds, normalized to one represented operation.
     samplesms: {number}?
@@ -215,14 +215,14 @@ record bench.Measurement
 
     --- Calls to a suite variant inside a timed sample, and the operations a call
     --- represents.
-    sampleiterations: integer?
+    batch: integer?
 
-    operationsperinvocation: integer?
-    warmupiterations: integer?
+    opspercall: integer?
+    warmup: integer?
     minsamples: integer?
-    mindurationms: number?
+    minms: number?
     maxsamples: integer?
-    maxdurationms: number?
+    maxms: number?
 
     --- Comparative-suite identity. Kept apart so a reader need not parse `name`.
     suite: string?
@@ -230,7 +230,7 @@ record bench.Measurement
     variant: string?
     casename: string?
     parameters: {[string]: any}?
-    baselinevariant: string?
+    baseline: string?
 
     --- Kilobytes allocated, read with the collector stopped. A case stores one round;
     --- a suite stores one represented operation. A size rather than a count of
@@ -312,7 +312,7 @@ record bench.Measurement
     --- `trend` is looking for. Every sample stays in `samplesms` and in the median.
     outliercount: integer?
 
-    outliermaxratio: number?
+    outliermax: number?
 
     --- The checksum the body declared, as `checksumtext` renders it, when it declared
     --- one. A deterministic counter: two records of one case must agree on it.
@@ -326,23 +326,23 @@ record bench.Measurement
 
     --- One normalized summary per fork, in execution order. The input the interval
     --- below was computed from, kept so a reader can recompute it.
-    forksummariesms: {number}?
+    forksms: {number}?
 
     --- The interval for this benchmark's population median, when one is available.
     ---
-    --- `intervalcoverage` is the probability this interval actually attains, not one
+    --- `coverage` is the probability this interval actually attains, not one
     --- that was requested: it falls out of the fork count through the sign test, and a
     --- run with too few forks gets no interval rather than a relabelled one.
     intervallowms: number?
 
     intervalhighms: number?
-    intervalcoverage: number?
+    coverage: number?
 
     --- Why there is no interval: `below-minimum-forks` or `trend-warning`.
-    intervalwithheld: string?
+    withheld: string?
 end
 
-local measurements: {bench.Measurement} = {}
+local measurements: {Measurement} = {}
 
 local type Job = {
     name: string,
@@ -350,8 +350,8 @@ local type Job = {
 }
 
 local jobs: {Job} = {}
-local selectedDeclarations: integer = 0
-local declaredNames: {[string]: boolean} = {}
+local selected: integer = 0
+local declared: {[string]: boolean} = {}
 
 --- Whether `report` has already written. A frame session reports itself, so a program
 --- with both frames and cases would otherwise write twice and gate twice.
@@ -378,13 +378,13 @@ local options = {
 
     --- Where a listing writes JSON strings, one per declared case. Nil keeps the
     --- human-facing `--list-cases` form on stdout.
-    casesOut = nil as string?,
+    casesout = nil as string?,
 
     --- Iterations selected by the set runner from this case's merged baseline.
     iterations = nil as integer?,
 }
 
-local function readOptions(): nil
+local function parseargs(): nil
     local argv = io.cli.args as {string}?
     if not argv then
         return
@@ -399,7 +399,7 @@ local function readOptions(): nil
         if name == "list-cases" then
             options.list = true
         elseif name == "cases-out" then
-            options.casesOut = value or argv[index + 1]
+            options.casesout = value or argv[index + 1]
             if not value then
                 index = (index + 1) as integer
             end
@@ -438,13 +438,13 @@ local function readOptions(): nil
     end
 end
 
-readOptions()
+parseargs()
 
 ----------------------------------------------------------------------------
 -- Measuring
 ----------------------------------------------------------------------------
 
-local function readFile(path: string): string?
+local function readfile(path: string): string?
     local handle = io.open(path, "r")
     if not handle then
         return nil
@@ -464,51 +464,51 @@ end
 ---
 --- @param text what the baseline file holds
 --- @param path where it was read from, for the message
---- @param oldest the oldest schema the reader accepts, `oldestbaselineschema` by
+--- @param floor the oldest schema the reader accepts, `oldest` by
 ---     default
 --- @return the decoded baseline, or nil where it is refused
 --- @return why it was refused, naming its schema and the ones this version reads
-function bench.decodebaseline(text: string, path: string, oldest: integer?): (any, string?)
-    local low = oldest or bench.oldestbaselineschema
+export function decode(text: string, path: string, floor: integer?): (any, string?)
+    local low = floor or oldest
     local decoded, document = pcall(json.decodevalue, text)
     if not decoded or type(document) ~= "table" or json.isarray(document) then
         return nil, ("nupp: baseline %s is not a bench record"):format(path)
     end
-    local schema = document.schema
-    if type(schema) ~= "number" or schema ~= math.floor(schema) or schema < low or schema > bench.schema then
+    local version = document.schema
+    if type(version) ~= "number" or version ~= math.floor(version) or version < low or version > schema then
         return nil, (
             "nupp: baseline %s has schema %s; this bench reads schema %d, and %d through %d without durations"
-        ):format(path, schema == nil and "none" or tostring(schema), bench.schema, low, bench.schema - 1)
+        ):format(path, version == nil and "none" or tostring(version), schema, low, schema - 1)
     end
 
     return recordio.read(document), nil
 end
 
 --- The baseline, read once and remembered, or nil when there is none to read.
-local baselineDocument: any = nil
+local baselinedoc: any = nil
 
-local baselineRead = false
+local baselineread = false
 
 local function baseline(): any
-    if baselineRead then
-        return baselineDocument
+    if baselineread then
+        return baselinedoc
     end
-    baselineRead = true
+    baselineread = true
     if not options.baseline then
         return nil
     end
-    local text = readFile(options.baseline)
+    local text = readfile(options.baseline)
     if not text then
         return nil
     end
-    local document, refused = bench.decodebaseline(text, options.baseline)
+    local document, refused = decode(text, options.baseline)
     -- Accepting replaces the file, so one this version cannot read is only replaced.
     if refused and not options.accept then
         error(refused, 0)
     end
-    baselineDocument = document
+    baselinedoc = document
 
-    return baselineDocument
+    return baselinedoc
 end
 
 --- The iteration count a baseline recorded for this case, or nil for none.
@@ -516,7 +516,7 @@ end
 --- Reused rather than recalibrated so that two records counted the same work. A
 --- calibrated `n` is derived from a timing, so letting each run pick its own leaves the
 --- durations describing different amounts of work and quietly not comparable.
-local function baselineIterations(name: string): integer?
+local function recordedn(name: string): integer?
     local previous = baseline()
     for _, entry in ipairs(previous and previous.cases or {}) do
         if entry.name == name and entry.kind == "case" then
@@ -571,7 +571,7 @@ end
 --- for whatever the recorder had not compiled yet, so it times a program that no longer
 --- exists by the time the measured rounds run -- which is how an uncalibrated version
 --- of this settled on a million iterations that then took a third of the target.
-local function calibrate(name: string, body: function(bench.Case): nil, fixed: integer?): integer
+local function calibrate(name: string, body: function(Case): nil, fixed: integer?): integer
     if fixed and fixed > 0 then
         return fixed
     end
@@ -583,7 +583,7 @@ local function calibrate(name: string, body: function(bench.Case): nil, fixed: i
         -- one quantity and then report another, and the two part company for any body
         -- that waits on anything.
         local started = os.monotonic()
-        body(new bench.Case(name = name, n = n))
+        body(Case(name = name, n = n))
         if os.monotonic() - started >= TARGET_ROUND_MS then
             if held then
                 return n
@@ -607,10 +607,10 @@ end
 ---
 --- @raises string when a requested case-list file cannot be opened
 local function announce(listing: any): nil
-    if options.casesOut then
-        local handle = io.open(options.casesOut, "a")
+    if options.casesout then
+        local handle = io.open(options.casesout, "a")
         if not handle then
-            error("nupp: cannot write " .. options.casesOut, 0)
+            error("nupp: cannot write " .. options.casesout, 0)
         end
         handle:write(json.encodevalue(recordio.writemeasurement(listing)), "\n")
         handle:close()
@@ -623,7 +623,7 @@ end
 --- Announces work before it starts, so calibration or an application-owned frame
 --- loop never makes the command look stuck. JSON and runner-child processes stay
 --- silent; the set runner announces those children with their source paths instead.
-local function announceRun(name: string): nil
+local function announcerun(name: string): nil
     if options.json or options.quiet then
         return
     end
@@ -635,10 +635,10 @@ local function register(name: string, run: function(): nil, listing: any?): nil
     if name == "" then
         error("nupp: a benchmark name cannot be empty", 3)
     end
-    if declaredNames[name] then
+    if declared[name] then
         error("nupp: duplicate benchmark " .. name, 3)
     end
-    declaredNames[name] = true
+    declared[name] = true
     local declared = listing or {name = name}
     if options.list then
         announce(declared)
@@ -648,7 +648,7 @@ local function register(name: string, run: function(): nil, listing: any?): nil
     if options.only and options.only ~= name then
         return
     end
-    selectedDeclarations = (selectedDeclarations + 1) as integer
+    selected = (selected + 1) as integer
     jobs[#jobs + 1] = {name = name, run = run,}
 end
 
@@ -657,7 +657,7 @@ end
 --- Text, so that two runtimes rendering the same number differently -- an integral
 --- float as `3` or `3.0` -- still agree. A whole number is formatted as one; anything
 --- else is `tostring`.
-function bench.checksumtext(value: any): string
+export function checksumtext(value: any): string
     if type(value) == "number" and value == math.floor(value) and math.abs(value) < 2 ^ 53 then
         return ("%d"):format(value)
     end
@@ -665,21 +665,21 @@ function bench.checksumtext(value: any): string
     return tostring(value)
 end
 
-local function checksumOf(subject: bench.Case): string?
+local function checksumof(subject: Case): string?
     if subject.checksum == nil then
         return nil
     end
 
-    return bench.checksumtext(subject.checksum)
+    return checksumtext(subject.checksum)
 end
 
-local function measureCase(name: string, body: function(bench.Case): nil, fixedn: integer?): nil
-    announceRun(name)
+local function measurecase(name: string, body: function(Case): nil, fixedn: integer?): nil
+    announcerun(name)
 
-    local n = calibrate(name, body, fixedn or options.iterations or baselineIterations(name))
-    local subject = new bench.Case(name = name, n = n)
+    local n = calibrate(name, body, fixedn or options.iterations or recordedn(name))
+    local subject = Case(name = name, n = n)
     body(subject)
-    local checksum = checksumOf(subject)
+    local checksum = checksumof(subject)
 
     collectgarbage("collect")
     local before = collectgarbage("count")
@@ -691,7 +691,7 @@ local function measureCase(name: string, body: function(bench.Case): nil, fixedn
         times[round] = os.monotonic() - started
         -- A body that answers differently from one round to the next is not
         -- deterministic, and nothing downstream can compare what it computed.
-        local again = checksumOf(subject)
+        local again = checksumof(subject)
         if again ~= checksum then
             collectgarbage("restart")
             error(
@@ -715,20 +715,20 @@ local function measureCase(name: string, body: function(bench.Case): nil, fixedn
     -- itself, and a median thrown away cannot be recovered.
     local rounds = statistics.trend(times)
     local far = statistics.outliers(times)
-    local roundOrder = statistics.sorted(times)
+    local ordered = statistics.sorted(times)
     measurements[
         #measurements + 1
-    ] = new bench.Measurement(
+    ] = Measurement(
         name = name,
         kind = "case",
         n = n,
         rounds = ROUNDS,
         medianms = median(times),
-        minms = smallest(times),
+        fastest = smallest(times),
         samplesms = times,
-        p25ms = statistics.quantile(roundOrder, 0.25),
-        p75ms = statistics.quantile(roundOrder, 0.75),
-        p99ms = statistics.quantile(roundOrder, 0.99),
+        p25ms = statistics.quantile(ordered, 0.25),
+        p75ms = statistics.quantile(ordered, 0.75),
+        p99ms = statistics.quantile(ordered, 0.99),
         iqrms = statistics.iqr(times),
         trend = rounds.verdict,
         trendtau = rounds.tau,
@@ -736,7 +736,7 @@ local function measureCase(name: string, body: function(bench.Case): nil, fixedn
         trenddrift = rounds.drift,
         concentration = statistics.concentration(times, statistics.CONCENTRATION_TOLERANCE),
         outliercount = far.severe,
-        outliermaxratio = far.maxRatio,
+        outliermax = far.maxRatio,
         checksum = checksum,
         allocatedkb = allocated / ROUNDS,
         retainedkb = retained
@@ -753,9 +753,9 @@ end
 --- @param body the work, which iterates `case.n` times
 --- @param fixedn an explicit iteration count, skipping calibration
 --- @raises string when the name is empty or already declared
-function bench.case(name: string, body: function(bench.Case): nil, fixedn: integer?): nil
+export function case(name: string, body: function(Case): nil, fixedn: integer?): nil
     register(name, function(): nil
-        measureCase(name, body, fixedn)
+        measurecase(name, body, fixedn)
     end)
 end
 
@@ -763,7 +763,7 @@ end
 -- Comparative suites
 ----------------------------------------------------------------------------
 
-local function positiveInteger(value: integer?, fallback: integer, name: string): integer
+local function positiveint(value: integer?, fallback: integer, name: string): integer
     local answer = value or fallback
     if answer < 1 or answer ~= math.floor(answer) then
         error("nupp: " .. name .. " needs a positive whole number", 3)
@@ -772,7 +772,7 @@ local function positiveInteger(value: integer?, fallback: integer, name: string)
     return answer
 end
 
-local function positiveNumber(value: number?, fallback: number, name: string): number
+local function positivenum(value: number?, fallback: number, name: string): number
     local answer = value or fallback
     if answer <= 0 then
         error("nupp: " .. name .. " needs a positive number", 3)
@@ -781,7 +781,7 @@ local function positiveNumber(value: number?, fallback: number, name: string): n
     return answer
 end
 
-local function expandedParameters(source: {[string]: {any}}?): {{[string]: any}}
+local function expand(source: {[string]: {any}}?): {{[string]: any}}
     if not source then
         return {{} as {[string]: any}}
     end
@@ -822,7 +822,7 @@ local function expandedParameters(source: {[string]: {any}}?): {{[string]: any}}
     return expanded
 end
 
-local function suiteName(suite: string, casename: string, variant: string, parameters: {[string]: any}): string
+local function suitename(suite: string, casename: string, variant: string, parameters: {[string]: any}): string
     local keys: {string} = {}
     for key in pairs(parameters) do
         keys[#keys + 1] = key
@@ -840,7 +840,7 @@ local function suiteName(suite: string, casename: string, variant: string, param
     return name
 end
 
-local function callVariant(variant: bench.Variant, invocation: bench.Invocation, iterations: integer): number
+local function callvariant(variant: Variant, invocation: Invocation, iterations: integer): number
     local state: any = nil
     if variant.setup then
         state = variant.setup(invocation)
@@ -851,7 +851,7 @@ local function callVariant(variant: bench.Variant, invocation: bench.Invocation,
         result = variant.run(state, invocation)
     end
     local elapsed = os.monotonic() - started
-    bench.keep(result)
+    keep(result)
     if variant.teardown then
         variant.teardown(state, invocation)
     end
@@ -859,7 +859,7 @@ local function callVariant(variant: bench.Variant, invocation: bench.Invocation,
     return elapsed
 end
 
-local function sampleStatistics(samples: {number}): (number, number, number, number, number, number)
+local function summarize(samples: {number}): (number, number, number, number, number, number)
     local sorted: {number} = {}
     local total = 0.0
     for index = 1, #samples do
@@ -879,53 +879,53 @@ local function sampleStatistics(samples: {number}): (number, number, number, num
     return smallest(sorted), mean, stdev, quantile(sorted, 0.5), quantile(sorted, 0.9), quantile(sorted, 0.99)
 end
 
-local function measureSuite(
-    suite: bench.SuiteOptions,
-    case: bench.SuiteCase,
-    variant: bench.Variant,
+local function measuresuite(
+    opts: SuiteOptions,
+    spec: SuiteCase,
+    variant: Variant,
     parameters: {[string]: any},
     name: string
 ): nil
-    local warmups = positiveInteger(suite.warmupiterations, 10, "warmupiterations")
-    local iterations = positiveInteger(suite.sampleiterations, 1, "sampleiterations")
-    local minsamples = positiveInteger(suite.minsamples, 15, "minsamples")
-    local maxsamples = positiveInteger(suite.maxsamples, 100000, "maxsamples")
-    local minDuration = positiveNumber(suite.mindurationms, 500.0, "mindurationms")
-    local maxDuration = positiveNumber(suite.maxdurationms, 10000.0, "maxdurationms")
-    local operations = positiveInteger(case.operations, 1, "case operations")
+    local warmups = positiveint(opts.warmup, 10, "warmup")
+    local iterations = positiveint(opts.batch, 1, "batch")
+    local minsamples = positiveint(opts.minsamples, 15, "minsamples")
+    local maxsamples = positiveint(opts.maxsamples, 100000, "maxsamples")
+    local minms = positivenum(opts.minms, 500.0, "minms")
+    local maxms = positivenum(opts.maxms, 10000.0, "maxms")
+    local operations = positiveint(spec.operations, 1, "case operations")
     if maxsamples < minsamples then
         error("nupp: maxsamples must be at least minsamples", 0)
     end
-    if maxDuration < minDuration then
-        error("nupp: maxdurationms must be at least mindurationms", 0)
+    if maxms < minms then
+        error("nupp: maxms must be at least minms", 0)
     end
 
-    announceRun(name)
+    announcerun(name)
     collectgarbage("collect")
     for _ = 1, warmups do
-        callVariant(
+        callvariant(
             variant,
-            new bench.Invocation(name = case.name, data = case.data, parameters = parameters),
+            Invocation(name = spec.name, data = spec.data, parameters = parameters),
             iterations
         )
     end
 
-    local invocation = new bench.Invocation(name = case.name, data = case.data, parameters = parameters)
+    local invocation = Invocation(name = spec.name, data = spec.data, parameters = parameters)
     local samples: {number} = {}
     local measured = 0.0
-    local wallStarted = os.monotonic()
-    while #samples < minsamples or measured < minDuration do
-        if #samples >= maxsamples or os.monotonic() - wallStarted >= maxDuration then
+    local wallstart = os.monotonic()
+    while #samples < minsamples or measured < minms do
+        if #samples >= maxsamples or os.monotonic() - wallstart >= maxms then
             break
         end
-        local elapsed = callVariant(variant, invocation, iterations)
+        local elapsed = callvariant(variant, invocation, iterations)
         measured = measured + elapsed
         samples[#samples + 1] = elapsed / (iterations * operations)
     end
-    if #samples < minsamples or measured < minDuration then
+    if #samples < minsamples or measured < minms then
         error(
             (
-                "nupp: %s reached its sampling limit after %d samples and %.3f ms measured; increase sampleiterations or the maximums"
+                "nupp: %s reached its sampling limit after %d samples and %.3f ms measured; increase batch or the maximums"
             ):format(name, #samples, measured),
             0
         )
@@ -934,16 +934,16 @@ local function measureSuite(
     -- Allocation is a separate pass so stopping the collector cannot change the
     -- timing distribution. The collector otherwise stays enabled throughout warmup
     -- and measurement, as it does in the application.
-    local function primeProtectedCall(): nil
+    local function prime(): nil
     end
 
-    pcall(primeProtectedCall)
+    pcall(prime)
     local state: any = nil
     if variant.setup then
         state = variant.setup(invocation)
     end
 
-    local function allocationPass(): any
+    local function pass(): any
         local last: any = nil
         for _ = 1, iterations do
             last = variant.run(state, invocation)
@@ -955,41 +955,41 @@ local function measureSuite(
     collectgarbage("collect")
     local before = collectgarbage("count")
     collectgarbage("stop")
-    local ok, result = pcall(allocationPass)
+    local ok, result = pcall(pass)
     local allocated = collectgarbage("count") - before
     collectgarbage("restart")
     if not ok then
         error(result, 0)
     end
-    bench.keep(result)
+    keep(result)
     if variant.teardown then
         variant.teardown(state, invocation)
     end
     collectgarbage("collect")
     local retained = math.max(0.0, collectgarbage("count") - before)
 
-    local minimum, mean, stdev, p50, p90, p99 = sampleStatistics(samples)
+    local minimum, mean, stdev, p50, p90, p99 = summarize(samples)
     -- Tested in execution order, before anything sorts the series. This process only:
     -- pooling two processes' samples manufactures a step at the join that belongs to
     -- neither of them.
     local drift = statistics.trend(samples)
     local far = statistics.outliers(samples)
-    local sampleOrder = statistics.sorted(samples)
+    local ordered = statistics.sorted(samples)
     measurements[
         #measurements + 1
-    ] = new bench.Measurement(
+    ] = Measurement(
         name = name,
         kind = "suite",
         rounds = #samples,
         medianms = p50,
-        minms = minimum,
+        fastest = minimum,
         samplesms = samples,
         meanms = mean,
         stdevms = stdev,
         p90ms = p90,
         p99ms = p99,
-        p25ms = statistics.quantile(sampleOrder, 0.25),
-        p75ms = statistics.quantile(sampleOrder, 0.75),
+        p25ms = statistics.quantile(ordered, 0.25),
+        p75ms = statistics.quantile(ordered, 0.75),
         iqrms = statistics.iqr(samples),
         trend = drift.verdict,
         trendtau = drift.tau,
@@ -997,37 +997,32 @@ local function measureSuite(
         trenddrift = drift.drift,
         concentration = statistics.concentration(samples, statistics.CONCENTRATION_TOLERANCE),
         outliercount = far.severe,
-        outliermaxratio = far.maxRatio,
-        sampleiterations = iterations,
-        operationsperinvocation = operations,
-        warmupiterations = warmups,
+        outliermax = far.maxRatio,
+        batch = iterations,
+        opspercall = operations,
+        warmup = warmups,
         minsamples = minsamples,
-        mindurationms = minDuration,
+        minms = minms,
         maxsamples = maxsamples,
-        maxdurationms = maxDuration,
-        suite = suite.name,
+        maxms = maxms,
+        suite = opts.name,
         variant = variant.name,
-        casename = case.name,
+        casename = spec.name,
         parameters = parameters,
-        baselinevariant = suite.baselinevariant or suite.variants[1].name,
+        baseline = opts.baseline or opts.variants[1].name,
         allocatedkb = allocated / (iterations * operations),
         retainedkb = retained
     )
 end
 
-local function registerSuite(
-    options: bench.SuiteOptions,
-    case: bench.SuiteCase,
-    variant: bench.Variant,
-    parameters: {[string]: any}
-): nil
-    local name = suiteName(options.name, case.name, variant.name, parameters)
+local function registersuite(options: SuiteOptions, spec: SuiteCase, variant: Variant, parameters: {[string]: any}): nil
+    local name = suitename(options.name, spec.name, variant.name, parameters)
     register(
         name,
         function(): nil
-            measureSuite(options, case, variant, parameters, name)
+            measuresuite(options, spec, variant, parameters, name)
         end,
-        {name = name, suite = options.name, casename = case.name, variant = variant.name, parameters = parameters,}
+        {name = name, suite = options.name, casename = spec.name, variant = variant.name, parameters = parameters,}
     )
 end
 
@@ -1035,7 +1030,7 @@ end
 --- benchmark and therefore gets its own process under the set runner.
 ---
 --- @raises string when the declaration or its sampling bounds are invalid
-function bench.suite(options: bench.SuiteOptions): nil
+export function suite(options: SuiteOptions): nil
     if #options.variants == 0 then
         error("nupp: a suite needs at least one variant", 2)
     end
@@ -1049,19 +1044,19 @@ function bench.suite(options: bench.SuiteOptions): nil
         end
         variants[variant.name] = true
     end
-    local baselinevariant = options.baselinevariant or options.variants[1].name
-    if not variants[baselinevariant] then
-        error("nupp: baselinevariant does not name a variant", 2)
+    local baseline = options.baseline or options.variants[1].name
+    if not variants[baseline] then
+        error("nupp: baseline does not name a variant", 2)
     end
     local cases: {[string]: boolean} = {}
-    for _, case in ipairs(options.cases) do
-        if cases[case.name] then
-            error("nupp: duplicate suite case " .. case.name, 2)
+    for _, spec in ipairs(options.cases) do
+        if cases[spec.name] then
+            error("nupp: duplicate suite case " .. spec.name, 2)
         end
-        cases[case.name] = true
-        for _, parameters in ipairs(expandedParameters(case.parameters)) do
+        cases[spec.name] = true
+        for _, parameters in ipairs(expand(spec.parameters)) do
             for _, variant in ipairs(options.variants) do
-                registerSuite(options, case, variant, parameters)
+                registersuite(options, spec, variant, parameters)
             end
         end
     end
@@ -1078,7 +1073,7 @@ end
 --- callback when the chunk returns, collection before shutdown is not guaranteed, and
 --- the compiler's entry point ends in `os.exit`. A session that is never reported
 --- produces no record, and the runner says so.
-record bench.FrameSession
+export record FrameSession
     name: string
     budgetms: number
     wanted: integer
@@ -1090,7 +1085,7 @@ end
 --- Opens a frame measurement.
 ---
 --- Plain parameters rather than an options record, because a record would make the
---- ordinary call site write `new bench.FrameOptions(...)` -- a table literal is not
+--- ordinary call site write `bench.FrameOptions(...)` -- a table literal is not
 --- one, which is what the first version of this API got wrong in its documented
 --- example.
 ---
@@ -1099,7 +1094,7 @@ end
 --- @param count frames to record before `more` turns false, or nil to let the
 ---     application decide when to stop
 --- @raises string when the name is empty or already declared
-function bench.frames(name: string, budgetms: number?, count: integer?): bench.FrameSession
+export function frames(name: string, budgetms: number?, count: integer?): FrameSession
     -- A frame session is a case as far as the runner is concerned: it is named, it is
     -- listed, and it is selected one per process. A session that is being listed or is
     -- not the selected one is handed back already finished, so `more` is false and the
@@ -1107,16 +1102,16 @@ function bench.frames(name: string, budgetms: number?, count: integer?): bench.F
     if name == "" then
         error("nupp: a benchmark name cannot be empty", 2)
     end
-    if declaredNames[name] then
+    if declared[name] then
         error("nupp: duplicate benchmark " .. name, 2)
     end
-    declaredNames[name] = true
+    declared[name] = true
     if options.list then
         announce({name = name})
     end
     local inert = options.list or (options.only ~= nil and options.only ~= name)
     if inert then
-        return new bench.FrameSession(
+        return FrameSession(
             name = name,
             budgetms = budgetms or 0.0,
             wanted = count or 0,
@@ -1126,10 +1121,10 @@ function bench.frames(name: string, budgetms: number?, count: integer?): bench.F
         )
     end
 
-    selectedDeclarations = (selectedDeclarations + 1) as integer
-    announceRun(name)
+    selected = (selected + 1) as integer
+    announcerun(name)
 
-    return new bench.FrameSession(
+    return FrameSession(
         name = name,
         budgetms = budgetms or 0.0,
         wanted = count or 0,
@@ -1141,7 +1136,7 @@ end
 
 --- Whether more frames are wanted. False once `count` frames have been recorded, and
 --- always true when the session was opened without one.
-function bench.FrameSession:more(): boolean
+function FrameSession:more(): boolean
     if self.done then
         return false
     end
@@ -1153,7 +1148,7 @@ function bench.FrameSession:more(): boolean
 end
 
 --- Marks the start of a frame.
-function bench.FrameSession:begin(): nil
+function FrameSession:begin(): nil
     self.started = os.monotonic()
 end
 
@@ -1162,7 +1157,7 @@ end
 --- Elapsed on the monotonic clock, not `os.clock`, which counts processor time. A frame
 --- that waited on presentation, on I/O, or on a sleep spends very little of either and
 --- blows its budget anyway, and missing the budget is the whole measurement.
-function bench.FrameSession:finish(): nil
+function FrameSession:finish(): nil
     local finished = os.monotonic()
     self.samples[#self.samples + 1] = finished - self.started
 end
@@ -1173,11 +1168,11 @@ end
 --- a hundred is a visible stutter and an unmoved mean.
 ---
 --- This writes the record and applies the gate, which is why an application's loop
---- needs no second call. `bench.report` is idempotent, so a program with both cases and
+--- needs no second call. `report` is idempotent, so a program with both cases and
 --- frames may still call it itself.
 ---
 --- @raises string when a gated counter moved, or the record cannot be written
-function bench.FrameSession:report(): nil
+function FrameSession:report(): nil
     if self.done then
         return
     end
@@ -1198,7 +1193,7 @@ function bench.FrameSession:report(): nil
 
     measurements[
         #measurements + 1
-    ] = new bench.Measurement(
+    ] = Measurement(
         name = self.name,
         kind = "frames",
         p50ms = quantile(sorted, 0.5),
@@ -1207,7 +1202,7 @@ function bench.FrameSession:report(): nil
         frames = #sorted,
         overbudget = over
     )
-    bench.report()
+    report()
 end
 
 ----------------------------------------------------------------------------
@@ -1217,7 +1212,7 @@ end
 --- The compiler running this program, as `nupp run` publishes it: its release and a
 --- digest that tells two builds of one release apart. Nil for a program something
 --- else ran, which a record says by leaving the field out.
-local function compilerIdentity(): any
+local function compileridentity(): any
     local identity = rawget(_G, "__nuppCompiler")
     if type(identity) ~= "function" then
         return nil
@@ -1226,7 +1221,7 @@ local function compilerIdentity(): any
     return (identity as function(): any)()
 end
 
-local function writeFile(path: string, content: string): nil
+local function writefile(path: string, content: string): nil
     local handle = io.open(path, "w")
     if not handle then
         error("nupp: cannot write " .. path, 0)
@@ -1235,13 +1230,13 @@ local function writeFile(path: string, content: string): nil
     handle:close()
 end
 
-local function buildRecord(): any
+local function buildrecord(): any
     local cases = {}
     for index = 1, #measurements do
         cases[index] = measurements[index]
     end
 
-    return {schema = bench.schema, cases = cases, compiler = compilerIdentity(),}
+    return {schema = schema, cases = cases, compiler = compileridentity(),}
 end
 
 --- Says the compiler changed between a baseline and this record, or nil when it did
@@ -1253,7 +1248,7 @@ end
 ---
 --- @param now the record's `compiler`
 --- @param was the baseline's `compiler`
-function bench.compilerchange(now: any, was: any): string?
+export function compilerchange(now: any, was: any): string?
     if type(now) ~= "table" or type(was) ~= "table" or now.digest == was.digest then
         return nil
     end
@@ -1287,20 +1282,20 @@ end
 --- One counter is gated: a case's `checksum`, where both records carry one. The
 --- optimizer's count of the allocations it left standing went with the optimizer;
 --- durations are machine-dependent, so the runner reports them as verdicts instead.
-function bench.compare(record: any, baseline: any): ({string}, {string})
+export function compare(record: any, baseline: any): ({string}, {string})
     local failures: {string} = {}
     local uncompared: {string} = {}
-    local schema = baseline.schema
-    if type(schema) == "number" and schema < bench.schema then
+    local version = baseline.schema
+    if type(version) == "number" and version < schema then
         uncompared[
             #uncompared + 1
         ] = (
             "baseline is schema %d, older than this record's %d; every comparison against it is inconclusive"
-        ):format(schema, bench.schema)
+        ):format(version, schema)
 
         return failures, uncompared
     end
-    local changed = bench.compilerchange(record.compiler, baseline.compiler)
+    local changed = compilerchange(record.compiler, baseline.compiler)
     if changed then
         uncompared[#uncompared + 1] = changed
     end
@@ -1329,18 +1324,18 @@ end
 ---
 --- Case scores are normalized to one body iteration. The calibrated batch size stays
 --- in the JSON record, where the runner also finds it for the next comparison.
-function bench.format(record: any, options: bench.FormatOptions?): string
-    local includeGeometricMean = options and options.geometricmean == true
+export function format(record: any, options: FormatOptions?): string
+    local geomean = options and options.geomean == true
     local rows: {any} = {}
     local width: integer = #"Benchmark"
     local baselines: {[string]: number} = {}
-    local hasRatios = false
+    local ratios = false
     local workloads: {any} = {}
-    local workloadsByKey: {[string]: any} = {}
+    local bykey: {[string]: any} = {}
     local suites: {any} = {}
-    local suitesByName: {[string]: any} = {}
+    local byname: {[string]: any} = {}
 
-    local function parameterText(entry: any): string
+    local function paramtext(entry: any): string
         local keys: {string} = {}
         for key in pairs(entry.parameters or {}) do
             keys[#keys + 1] = key
@@ -1354,17 +1349,17 @@ function bench.format(record: any, options: bench.FormatOptions?): string
         return table.concat(values, ",")
     end
 
-    local function comparisonKey(entry: any): string
-        return tostring(entry.suite) .. "|" .. tostring(entry.casename) .. "|" .. parameterText(entry)
+    local function keyof(entry: any): string
+        return tostring(entry.suite) .. "|" .. tostring(entry.casename) .. "|" .. paramtext(entry)
     end
 
     for _, entry in ipairs(record.cases or {}) do
         if entry.kind == "suite" then
-            hasRatios = true
-            local key = comparisonKey(entry)
-            local workload = workloadsByKey[key]
+            ratios = true
+            local key = keyof(entry)
+            local workload = bykey[key]
             if not workload then
-                local parameters = parameterText(entry)
+                local parameters = paramtext(entry)
                 local label = tostring(entry.suite) .. "." .. tostring(entry.casename)
                 if parameters ~= "" then
                     label = label .. ":" .. parameters
@@ -1373,38 +1368,32 @@ function bench.format(record: any, options: bench.FormatOptions?): string
                     label = label,
                     suite = entry.suite,
                     casename = entry.casename,
-                    baselinevariant = entry.baselinevariant,
+                    baseline = entry.baseline,
                     values = {},
                     variants = {},
-                    variantSeen = {},
+                    seen = {},
                 }
-                workloadsByKey[key] = workload
+                bykey[key] = workload
                 workloads[#workloads + 1] = workload
-                local suite = suitesByName[entry.suite]
-                if not suite then
-                    suite = {
-                        name = entry.suite,
-                        baselinevariant = entry.baselinevariant,
-                        workloads = {},
-                        variants = {},
-                        variantSeen = {},
-                    }
-                    suitesByName[entry.suite] = suite
-                    suites[#suites + 1] = suite
+                local group = byname[entry.suite]
+                if not group then
+                    group = {name = entry.suite, baseline = entry.baseline, workloads = {}, variants = {}, seen = {},}
+                    byname[entry.suite] = group
+                    suites[#suites + 1] = group
                 end
-                suite.workloads[#suite.workloads + 1] = workload
+                group.workloads[#group.workloads + 1] = workload
             end
-            if not workload.variantSeen[entry.variant] then
-                workload.variantSeen[entry.variant] = true
+            if not workload.seen[entry.variant] then
+                workload.seen[entry.variant] = true
                 workload.variants[#workload.variants + 1] = entry.variant
             end
             workload.values[entry.variant] = entry.medianms or 0.0
-            local suite = suitesByName[entry.suite]
-            if suite and not suite.variantSeen[entry.variant] then
-                suite.variantSeen[entry.variant] = true
-                suite.variants[#suite.variants + 1] = entry.variant
+            local group = byname[entry.suite]
+            if group and not group.seen[entry.variant] then
+                group.seen[entry.variant] = true
+                group.variants[#group.variants + 1] = entry.variant
             end
-            if entry.variant == entry.baselinevariant then
+            if entry.variant == entry.baseline then
                 baselines[key] = entry.medianms or 0.0
             end
         end
@@ -1416,19 +1405,19 @@ function bench.format(record: any, options: bench.FormatOptions?): string
     -- percentage either side of the median. It is a spread, not an interval: the
     -- samples it summarizes share a heap and compiled code, so nothing
     -- about a population median follows from it, and the note below the table says so.
-    local function spreadCell(entry: any, scale: number): string
-        local lowerQuartile = entry.p25ms
+    local function spreadcell(entry: any, scale: number): string
+        local low = entry.p25ms
         local tail = entry.p99ms
-        if not lowerQuartile or not tail then
+        if not low or not tail then
             return "-"
         end
 
-        return ("[%.3f, %.3f]"):format(lowerQuartile * scale, tail * scale)
+        return ("[%.3f, %.3f]"):format(low * scale, tail * scale)
     end
 
     -- The interval for a merged measurement, or why there is not one.
-    local function intervalCell(entry: any, scale: number): string
-        if entry.intervalwithheld == "trend-warning" then
+    local function intervalcell(entry: any, scale: number): string
+        if entry.withheld == "trend-warning" then
             return "unstable"
         end
         if not entry.intervallowms or not entry.intervalhighms then
@@ -1438,19 +1427,19 @@ function bench.format(record: any, options: bench.FormatOptions?): string
         return ("[%.3f, %.3f]"):format(entry.intervallowms * scale, entry.intervalhighms * scale)
     end
 
-    local function coverageCell(entry: any): string
-        if not entry.intervalcoverage then
+    local function coveragecell(entry: any): string
+        if not entry.coverage then
             return "-"
         end
 
-        return ("%.2f%%"):format(entry.intervalcoverage * 100.0)
+        return ("%.2f%%"):format(entry.coverage * 100.0)
     end
 
     -- Allocation is measured in a separate collector-stopped pass and stored in
     -- kilobytes. Suites already normalize it to one represented operation; a case
     -- stores one round, so divide by the calibrated iteration count here just as its
     -- duration score does.
-    local function allocationCell(entry: any): string
+    local function alloccell(entry: any): string
         local allocated = entry.allocatedkb
         if allocated == nil then
             return "-"
@@ -1482,19 +1471,19 @@ function bench.format(record: any, options: bench.FormatOptions?): string
                 forkcount = tostring(entry.forkcount or 1),
                 score = ("%.3f"):format(score),
                 units = "ns/op",
-                allocation = allocationCell(entry),
+                allocation = alloccell(entry),
                 ratio = "-",
-                spread = spreadCell(entry, scale),
-                interval = intervalCell(entry, scale),
-                coverage = coverageCell(entry),
+                spread = spreadcell(entry, scale),
+                interval = intervalcell(entry, scale),
+                coverage = coveragecell(entry),
             }
         elseif entry.kind == "suite" then
             local scale = 1000000.0
             local score = (entry.medianms or 0.0) * scale
-            local baselineScore = baselines[comparisonKey(entry)]
+            local basescore = baselines[keyof(entry)]
             local ratio = "-"
-            if baselineScore and score > 0 then
-                ratio = ("%.3fx"):format(baselineScore / (entry.medianms or 0.0))
+            if basescore and score > 0 then
+                ratio = ("%.3fx"):format(basescore / (entry.medianms or 0.0))
             end
             rows[
                 #rows + 1
@@ -1505,11 +1494,11 @@ function bench.format(record: any, options: bench.FormatOptions?): string
                 forkcount = tostring(entry.forkcount or 1),
                 score = ("%.3f"):format(score),
                 units = "ns/op",
-                allocation = allocationCell(entry),
+                allocation = alloccell(entry),
                 ratio = ratio,
-                spread = spreadCell(entry, scale),
-                interval = intervalCell(entry, scale),
-                coverage = coverageCell(entry),
+                spread = spreadcell(entry, scale),
+                interval = intervalcell(entry, scale),
+                coverage = coveragecell(entry),
             }
         else
             local count = tostring(entry.frames or 0)
@@ -1591,15 +1580,15 @@ function bench.format(record: any, options: bench.FormatOptions?): string
     -- reader who sees "IQR" where they expected an interval should notice.
     local forks = options and options.forks or 1
     local replicated = forks > 1
-    local spreadWidth: integer = replicated and 20 or 18
-    local spreadHeading = replicated and "Interval" or "p25-p99"
+    local spreadwidth: integer = replicated and 20 or 18
+    local spreadheading = replicated and "Interval" or "p25-p99"
     for _, row in ipairs(rows) do
         local cell = (replicated and row.interval or row.spread) or "-"
-        if #cell > spreadWidth then
-            spreadWidth = #cell as integer
+        if #cell > spreadwidth then
+            spreadwidth = #cell as integer
         end
     end
-    local pattern = "%-" .. tostring(width) .. "s  %5s  %5s  %10s  %-8s  %12s  %" .. tostring(spreadWidth) .. "s"
+    local pattern = "%-" .. tostring(width) .. "s  %5s  %5s  %10s  %-8s  %12s  %" .. tostring(spreadwidth) .. "s"
     local headings = {
         "Benchmark",
         "Mode",
@@ -1607,13 +1596,13 @@ function bench.format(record: any, options: bench.FormatOptions?): string
         "Score",
         "Units",
         "Alloc B/op",
-        spreadHeading,
+        spreadheading,
     }
     if replicated then
         pattern = pattern .. "  %9s"
         headings[#headings + 1] = "Coverage"
     end
-    if hasRatios then
+    if ratios then
         pattern = pattern .. "  %8s"
         headings[#headings + 1] = "Ratio"
     end
@@ -1643,30 +1632,30 @@ function bench.format(record: any, options: bench.FormatOptions?): string
         if replicated then
             cells[#cells + 1] = row.coverage or "-"
         end
-        if hasRatios then
+        if ratios then
             cells[#cells + 1] = row.ratio
         end
         lines[#lines + 1] = emit(cells)
     end
 
     local winners: {any} = {}
-    local winnerWidth: integer = #"Workload"
-    local variantWidth: integer = #"Winner"
+    local winnerwidth: integer = #"Workload"
+    local variantwidth: integer = #"Winner"
     for _, workload in ipairs(workloads) do
         local winner: string? = nil
         local fastest = math.huge
-        local nextFastest = math.huge
+        local runnerup = math.huge
         local compared: integer = 0
         for _, variant in ipairs(workload.variants) do
             local score = workload.values[variant]
             if score and score > 0 then
                 compared = (compared + 1) as integer
                 if score < fastest then
-                    nextFastest = fastest
+                    runnerup = fastest
                     fastest = score
                     winner = variant
-                elseif score < nextFastest then
-                    nextFastest = score
+                elseif score < runnerup then
+                    runnerup = score
                 end
             end
         end
@@ -1676,71 +1665,69 @@ function bench.format(record: any, options: bench.FormatOptions?): string
             ] = {
                 workload = workload.label,
                 winner = winner,
-                speedup = nextFastest < math.huge and nextFastest / fastest or 1.0,
+                speedup = runnerup < math.huge and runnerup / fastest or 1.0,
             }
-            winnerWidth = math.max(winnerWidth, #workload.label)
-            variantWidth = math.max(variantWidth, #winner)
+            winnerwidth = math.max(winnerwidth, #workload.label)
+            variantwidth = math.max(variantwidth, #winner)
         end
     end
     if #winners > 0 then
         lines[#lines + 1] = ""
         lines[#lines + 1] = "Winners"
-        local winnerPattern = "%-" .. tostring(winnerWidth) .. "s  %-" .. tostring(variantWidth) .. "s  %8s"
-        lines[#lines + 1] = winnerPattern:format("Workload", "Winner", "Speedup")
+        local winnerpattern = "%-" .. tostring(winnerwidth) .. "s  %-" .. tostring(variantwidth) .. "s  %8s"
+        lines[#lines + 1] = winnerpattern:format("Workload", "Winner", "Speedup")
         for _, winner in ipairs(winners) do
-            lines[#lines + 1] = winnerPattern:format(winner.workload, winner.winner, ("%.3fx"):format(winner.speedup))
+            lines[#lines + 1] = winnerpattern:format(winner.workload, winner.winner, ("%.3fx"):format(winner.speedup))
         end
     end
 
-    for _, suite in ipairs(includeGeometricMean and suites or {}) do
+    for _, group in ipairs(geomean and suites or {}) do
         local expected: integer = 0
-        for _, workload in ipairs(suite.workloads) do
-            local baselineScore = workload.values[suite.baselinevariant]
-            if baselineScore and baselineScore > 0 then
+        for _, workload in ipairs(group.workloads) do
+            local basescore = workload.values[group.baseline]
+            if basescore and basescore > 0 then
                 expected = (expected + 1) as integer
             end
         end
         local summary: {any} = {}
-        local summaryWidth: integer = #"Variant"
-        for _, variant in ipairs(suite.variants) do
+        local summarywidth: integer = #"Variant"
+        for _, variant in ipairs(group.variants) do
             local cases: {[string]: any} = {}
-            local caseOrder: {string} = {}
+            local order: {string} = {}
             local compared: integer = 0
-            for _, workload in ipairs(suite.workloads) do
-                local baselineScore = workload.values[suite.baselinevariant]
+            for _, workload in ipairs(group.workloads) do
+                local basescore = workload.values[group.baseline]
                 local score = workload.values[variant]
-                if baselineScore and baselineScore > 0 and score and score > 0 then
+                if basescore and basescore > 0 and score and score > 0 then
                     local name = workload.casename
-                    local case = cases[name]
-                    if not case then
-                        case = {total = 0.0, count = 0}
-                        cases[name] = case
-                        caseOrder[#caseOrder + 1] = name
+                    local tally = cases[name]
+                    if not tally then
+                        tally = {total = 0.0, count = 0}
+                        cases[name] = tally
+                        order[#order + 1] = name
                     end
-                    case.total = case.total + math.log(baselineScore / score)
-                    case.count = (case.count + 1) as integer
+                    tally.total = tally.total + math.log(basescore / score)
+                    tally.count = (tally.count + 1) as integer
                     compared = (compared + 1) as integer
                 end
             end
             if expected > 0 and compared == expected then
                 local total = 0.0
-                for _, name in ipairs(caseOrder) do
-                    local case = cases[name]
-                    total = total + case.total / case.count
+                for _, name in ipairs(order) do
+                    local tally = cases[name]
+                    total = total + tally.total / tally.count
                 end
-                summary[#summary + 1] = {variant = variant, ratio = math.exp(total / #caseOrder),}
-                summaryWidth = math.max(summaryWidth, #variant)
+                summary[#summary + 1] = {variant = variant, ratio = math.exp(total / #order),}
+                summarywidth = math.max(summarywidth, #variant)
             end
         end
         if #summary > 1 then
             lines[#lines + 1] = ""
-            lines[
-                #lines + 1
-            ] = "Geometric mean: " .. tostring(suite.name) .. " (vs " .. tostring(suite.baselinevariant) .. ")"
-            local summaryPattern = "%-" .. tostring(summaryWidth) .. "s  %8s"
-            lines[#lines + 1] = summaryPattern:format("Variant", "Ratio")
+            lines[#lines + 1] = "Geometric mean: " .. tostring(group.name) .. " (vs " .. tostring(group.baseline) .. ")"
+            local summarypattern = "%-" .. tostring(summarywidth) .. "s  %8s"
+            lines[#lines + 1] = summarypattern:format("Variant", "Ratio")
             for _, entry in ipairs(summary) do
-                lines[#lines + 1] = summaryPattern:format(entry.variant, ("%.3fx"):format(entry.ratio))
+                lines[#lines + 1] = summarypattern:format(entry.variant, ("%.3fx"):format(entry.ratio))
             end
         end
     end
@@ -1779,14 +1766,14 @@ end
 --- skip what `nupp run` does after the chunk returns, such as closing `--gpu-costs`.
 ---
 --- @raises string when a gated counter moved, or the record cannot be written
-function bench.report(): nil
+export function report(): nil
     if options.list then
         return
     end
     if reported then
         return
     end
-    if options.only and selectedDeclarations == 0 then
+    if options.only and selected == 0 then
         error("nupp: no benchmark named " .. options.only, 0)
     end
     if not options.only and #jobs > 1 then
@@ -1798,21 +1785,21 @@ function bench.report(): nil
     for _, job in ipairs(pending) do
         job.run()
     end
-    local record = buildRecord()
+    local record = buildrecord()
     local encoded = json.encodevalue(recordio.write(record))
-    writeFile(options.out, encoded)
+    writefile(options.out, encoded)
     if options.json then
         io.stdout:write(encoded, "\n")
     elseif not options.quiet then
-        io.stdout:write(bench.format(record))
+        io.stdout:write(format(record))
     end
     if not options.baseline then
         return
     end
-    local baselineText = readFile(options.baseline)
-    if not baselineText then
+    local text = readfile(options.baseline)
+    if not text then
         if options.accept then
-            writeFile(options.baseline, encoded)
+            writefile(options.baseline, encoded)
 
             return
         end
@@ -1820,22 +1807,22 @@ function bench.report(): nil
 
         return
     end
-    local previous, refused = bench.decodebaseline(baselineText, options.baseline)
+    local previous, refused = decode(text, options.baseline)
     if refused then
         if options.accept then
             io.stderr:write(refused, "; replacing it\n")
-            writeFile(options.baseline, encoded)
+            writefile(options.baseline, encoded)
 
             return
         end
         error(refused, 0)
     end
-    local failures, uncompared = bench.compare(record, previous)
+    local failures, uncompared = compare(record, previous)
     for _, note in ipairs(uncompared) do
         io.stderr:write("nupp: uncompared: " .. note .. "\n")
     end
     if options.accept then
-        writeFile(options.baseline, encoded)
+        writefile(options.baseline, encoded)
 
         return
     end
@@ -1843,5 +1830,3 @@ function bench.report(): nil
         error("nupp: " .. table.concat(failures, "\nnupp: "), 0)
     end
 end
-
-export = bench

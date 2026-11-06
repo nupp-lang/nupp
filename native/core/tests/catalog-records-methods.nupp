@@ -28,8 +28,8 @@ function Counter:absorb(other: Counter): integer
     return self.count
 end
 
-local c = new Counter(count = 1, step = 3)
-local d = new Counter(count = 100, step = 1)
+local c = Counter(count = 1, step = 3)
+local d = Counter(count = 100, step = 1)
 local a = c:bump(2)
 local b = c:twice()
 local tens, ones = c:split()

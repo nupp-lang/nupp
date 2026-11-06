@@ -35,7 +35,7 @@ local function source(bodyDelta, publicDelta)
     end
     local resultType = MAPPED and "View<Box<T>>" or "Box<T>"
     lines[#lines + 1] = "function M.box<T>(takes value: T): " .. resultType .. " preserves value"
-    lines[#lines + 1] = "   return new Box(value = value)"
+    lines[#lines + 1] = "   return Box(value = value)"
     lines[#lines + 1] = "end"
     lines[#lines + 1] = "local function pair(exclusive left: table, exclusive right: table): nil end"
     lines[#lines + 1] = "function M.exercise(value: Wide, indexes: {integer}): nil"

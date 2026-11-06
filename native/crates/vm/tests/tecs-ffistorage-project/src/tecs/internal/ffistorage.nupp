@@ -84,9 +84,7 @@ local function fieldsOf(element: any, opaque: boolean): {Field}
             end
         end
         const spelling = scalar .. (count > 0 and "[" .. tostring(count) .. "]" or "")
-        result[
-            #result + 1
-        ] = new Field(name = field.name as string, spelling = spelling, count = count, scalar = scalar)
+        result[#result + 1] = Field(name = field.name as string, spelling = spelling, count = count, scalar = scalar)
     end
     if #result == 0 then
         error("FFI component struct has no stored fields", 3)
@@ -113,7 +111,7 @@ export function new(sample: any, opaque: boolean?): Storage
         parts[index] = fields[index].name .. ":" .. fields[index].spelling
     end
 
-    return new Storage(
+    return Storage(
         element = element,
         width = width,
         alignment = element.alignment as integer,
@@ -162,7 +160,7 @@ export function allocate(storage: Storage, capacity: integer): any
     else
         column = native.allocarray(storage.element, capacity + 1)
     end
-    backing[column] = new Backing(owner = owner, capacity = capacity, storage = storage)
+    backing[column] = Backing(owner = owner, capacity = capacity, storage = storage)
 
     return column
 end

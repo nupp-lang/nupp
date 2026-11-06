@@ -133,6 +133,32 @@ return recur
     end
 end
 
+-- An exported function is hoisted: a function above its statement may call
+-- it. The call names the binding the statement declares, which a cell holds
+-- from the module's start, since the caller's closure is made before it.
+function M.hoistedExportCalledAboveItsDeclarationCapturesItsCell()
+    local fixture = checked(
+        [[
+module hoistfixture
+local function early(): integer
+    return later()
+end
+export function later(): integer
+    return 7
+end
+assert(early() == 7)
+]],
+        "hoistfixture"
+    )
+    local p = program.describe({fixture}, "hoistfixture")
+    local caller = program.select(p, "hoistfixture", "early")
+    local callee = program.select(p, "hoistfixture", "later")
+    test.eq(#caller.captures, 1)
+    test.eq(caller.captures[1].definition, callee.definition)
+    test.eq(caller.captures[1].storage, "cell")
+    test.eq(p.hoistedFunctions[callee.definition], true)
+end
+
 function M.ownershipCaptureContractsKeepTheirCheckedOuterAndInnerBindings()
     local p = describe(
         [[
@@ -141,7 +167,7 @@ local record Resource
 end
 local function close(takes value: Resource): nil end
 local function open(value: integer): affine(Resource, close)
-    return new Resource(value = value)
+    return Resource(value = value)
 end
 local taken = open(7)
 local borrowed = open(5)
@@ -198,7 +224,7 @@ local record Resource
 end
 local function close(takes value: Resource): nil end
 local function open(value: integer): affine(Resource, close)
-    return new Resource(value = value)
+    return Resource(value = value)
 end
 local function answer(): nil
     local resource = open(7)

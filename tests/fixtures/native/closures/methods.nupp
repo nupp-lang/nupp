@@ -28,7 +28,7 @@ local record Counter
     end
 end
 
-local c = new Counter(n = 0)
+local c = Counter(n = 0)
 for i = 1, 1000 do
     c:bump(i)
 end

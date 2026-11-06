@@ -224,7 +224,7 @@ function generate.program(seed, size)
                 local into = target()
                 local argument = expression(1)
                 emit(
-                    "local box" .. into .. " = new Box(" .. argument .. ")",
+                    "local box" .. into .. " = Box(" .. argument .. ")",
                     "local box" .. into .. " = newBox(" .. argument .. ")"
                 )
                 emit(into .. " = (" .. into .. " + box" .. into .. ".value) % 1000003")
@@ -375,7 +375,7 @@ function generate.program(seed, size)
     emit("    self.value = (self.value + n) % 1000003")
     emit("    return self.value")
     emit("end")
-    emit("local acc = new Acc(value = 0)", "local acc = setmetatable({value = 0}, {__index = Acc})")
+    emit("local acc = Acc(value = 0)", "local acc = setmetatable({value = 0}, {__index = Acc})")
     -- A record built by its constructor, with a field default.
     lines[#lines + 1] = "local record Box"
     lines[#lines + 1] = "    value: integer"

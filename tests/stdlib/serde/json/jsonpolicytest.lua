@@ -32,24 +32,45 @@ function M.nullDropsOrUsesTheSuppliedValue()
     )
 end
 
+-- The public writer appends to an io.Buffer; a provider's own writer to a
+-- string.buffer.
+local function outputFor(provider, prefix)
+    if provider == json then
+        return require("io").Buffer.create(prefix)
+    end
+    local output = require("string.buffer").new()
+    if prefix ~= nil then
+        output:put(prefix)
+    end
+
+    return output
+end
+
+local function textOf(output)
+    if output.getstring ~= nil then
+        return output:getstring()
+    end
+
+    return output:tostring()
+end
+
 function M.abortingWritersDiscardsOnlyUnpublishedBytes()
     for _, provider in ipairs({json, require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot")}) do
-        local output = require("string.buffer").new()
-        output:put("prefix")
-        local writer = (provider == json and provider.newwriter or provider.newwriter)(output)
+        local output = outputFor(provider, "prefix")
+        local writer = (provider == json and json.Writer.of or provider.newwriter)(output)
         writer:startarray():write(1)
         writer:abort()
         writer:abort()
         writer:close()
-        assert(output:tostring() == "prefix")
+        assert(textOf(output) == "prefix")
         assert(not pcall(writer.write, writer, 2))
-        writer = (provider == json and provider.newwriter or provider.newwriter)(output)
+        writer = (provider == json and json.Writer.of or provider.newwriter)(output)
         writer:startarray():write(1)
         writer:flush()
         writer:write(2)
         writer:abort()
         writer:close()
-        assert(output:tostring() == "prefix[1")
+        assert(textOf(output) == "prefix[1")
     end
 end
 
@@ -87,11 +108,11 @@ function M.exactNumberFragmentsPreserveTokensAcrossProviders()
             local fragment = (provider == json and provider.numbertoken or provider.numbertoken)(token)
             local encode = provider == json and provider.encodevalue or provider.encode
             assert(encode(fragment) == token)
-            local output = require("string.buffer").new()
-            local writer = (provider == json and provider.newwriter or provider.newwriter)(output)
+            local output = outputFor(provider)
+            local writer = (provider == json and json.Writer.of or provider.newwriter)(output)
             writer:startarray():write(fragment):endarray()
             writer:close()
-            assert(output:tostring() == "[" .. token .. "]")
+            assert(textOf(output) == "[" .. token .. "]")
         end
         for _, token in ipairs({
             "",
@@ -190,13 +211,13 @@ function M.portableEncodingRejectsInvalidUtf8Everywhere()
         assert(not pcall(json.encodevalue, {[value] = 1}), "the encoder accepted an invalid UTF-8 key")
         assert(not pcall(json.encodedstring, value), "encodedstring accepted invalid UTF-8")
     end
-    local output = require("string.buffer").new()
-    local writer = json.newwriter(output)
+    local output = require("io").Buffer.create()
+    local writer = json.Writer.of(output)
     writer:startobject()
     assert(not pcall(writer.key, writer, "\255"), "the writer accepted an invalid UTF-8 key")
     writer:key("valid"):write(1):endobject()
     writer:close()
-    assert(output:tostring() == [[{"valid":1}]], "a rejected key changed the writer")
+    assert(output:getstring() == [[{"valid":1}]], "a rejected key changed the writer")
 end
 
 function M.arrayMarkersRequireEveryConsecutiveIndex()
@@ -210,6 +231,72 @@ function M.arrayMarkersRequireEveryConsecutiveIndex()
         not pcall(require("nupp.codec.json.aot").asarray, aotSparse),
         "the AOT provider accepted an array starting at index two"
     )
+end
+
+function M.providersPreserveWriterTransitionsAndArrayIdentity()
+    for _, provider in ipairs({require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot")}) do
+        local function rejected(action, expected)
+            local ok, problem = pcall(action)
+            assert(not ok and tostring(problem):find(expected, 1, true), tostring(problem))
+        end
+
+        local value = {1, 2, 3}
+        assert(provider.asarray(value) == value and provider.isarray(value))
+        for _, invalid in ipairs({{[0] = true}, {[1.5] = true}, {[1] = true, [3] = true}, {named = true}}) do
+            rejected(
+                function()
+                    provider.asarray(invalid)
+                end,
+                "consecutive positive indexes"
+            )
+            assert(getmetatable(invalid) == nil, "rejected marking changed the table")
+        end
+        rejected(
+            function()
+                provider.asarray(false)
+            end,
+            "json.asarray needs a table"
+        )
+
+        local output = require("string.buffer").new()
+        local writer = provider.newwriter(output)
+        writer:startobject()
+        rejected(
+            function()
+                writer:null()
+            end,
+            "an object value must follow key()"
+        )
+        writer:key("nested"):startarray():null():startobject():key("value"):write(2):endobject():endarray()
+        writer:key("pending")
+        rejected(
+            function()
+                writer:endobject()
+            end,
+            "the final object key has no value"
+        )
+        writer:write(true):endobject()
+        rejected(
+            function()
+                writer:startarray()
+            end,
+            "writer already has a root value"
+        )
+        writer:close()
+        assert(output:tostring() == [[{"nested":[null,{"value":2}],"pending":true}]])
+        rejected(
+            function()
+                writer:null()
+            end,
+            "writer is already closed"
+        )
+        rejected(
+            function()
+                writer:startobject()
+            end,
+            "writer is already closed"
+        )
+    end
 end
 
 function M.pullShapesRequireTheMatchingContainerKind()

@@ -34,7 +34,7 @@ local record Point
     y: integer
 end
 local points = serde.binding(Point)
-local tree = document.from(points, new Point(x = 1, y = 2))
+local tree = document.from(points, Point(x = 1, y = 2))
 assert(assert(tree:get("y")):numbertoken() == "2")
 assert(document.into(points, tree).x == 1)
 ```
@@ -123,8 +123,8 @@ export const tuple = documents.tuple
 --- local document = serde.document
 --- local json = serde.json
 --- local value = document.object({
----     new document.Entry(name = "ok", value = document.bool(true)),
----     new document.Entry(name = "note", value = document.null())
+---     document.Entry(name = "ok", value = document.bool(true)),
+---     document.Entry(name = "note", value = document.null())
 --- })
 --- assert(json.encodedocument(document.adapter(), value) == '{"ok":true,"note":null}')
 --- ```
@@ -202,7 +202,7 @@ export const snapshot = readers.snapshot
 ---     count: integer
 --- end
 --- local counters = serde.binding(Counter)
---- local owner = new Counter(count = 1)
+--- local owner = Counter(count = 1)
 --- local live = document.view(counters, owner)
 --- local frozen = live:snapshot()
 --- owner.count = 2
@@ -241,12 +241,12 @@ export const viewadapter = views.adapter
 --- local record Settings
 ---     volume: integer
 --- end
---- local settings: types.Key<Settings> = types.newkey()
+--- local settings: types.Key<Settings> = types.Key()
 --- local registry = document.storeregistry()
 --- registry:register("settings", settings, serde.binding(Settings), 1, nil)
 ---
---- local store = types.newstore()
---- store:set(settings, new Settings(volume = 7))
+--- local store = types.Store.create()
+--- store:set(settings, Settings(volume = 7))
 --- local bytes = json.encode(document.storebinding(), registry:save(store))
 ---
 --- local restored = registry:load(json.decode(document.storebinding(), bytes), "reject")

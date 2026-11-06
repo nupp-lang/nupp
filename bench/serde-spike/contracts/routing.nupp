@@ -20,14 +20,14 @@ local record Policy<M is core.Member> is routes.Policy<M>
             "foreign OpenAPI property"
         )
         if member == self.model.name then
-            return new routes.Route(
+            return routes.Route(
                 location = self.collision and "header" or "query",
                 name = self.collision and "x-token" or "display name"
             )
         elseif member == self.model.secret then
-            return new routes.Route(location = "header", name = "X-Token")
+            return routes.Route(location = "header", name = "X-Token")
         else
-            return new routes.Route(location = "body", name = member.name)
+            return routes.Route(location = "body", name = member.name)
         end
     end
 end
@@ -38,7 +38,7 @@ local record Factory is routes.Factory
     function policy<M is core.Member>(self, member: M): routes.Policy<M>
         assert(member == self.model.root, "routing requires this model")
         self.calls += 1
-        return new Policy<M>(model = self.model, collision = self.collision)
+        return Policy<M>(model = self.model, collision = self.collision)
     end
 end
 local record BodyPolicy<M is core.Member> is plans.Policy<M>
@@ -72,20 +72,20 @@ local record BodyFactory is plans.PolicyFactory
             return base
         end
 
-        return new BodyPolicy<M>(base = base, routing = self.routing:policy(member))
+        return BodyPolicy<M>(base = base, routing = self.routing:policy(member))
     end
 end
 
 local model = api.model()
 local binding = api.binding(model)
-local factory = new Factory(model = model)
+local factory = Factory(model = model)
 local parameters = routes.codec(factory)
-local body = codecs.codec(new BodyFactory(base = api.policy("request"), routing = factory))
-local value = new api.Value(
+local body = codecs.codec(BodyFactory(base = api.policy("request"), routing = factory))
+local value = api.Value(
     name = "Ada & Bob",
     secret = "token",
     identifier = "ignored",
-    payload = new api.Choice(alternative = "text", value = documents.string("body")),
+    payload = api.Choice(alternative = "text", value = documents.string("body")),
     additional = {}
 )
 local result = parameters:encode(binding, value)
@@ -100,7 +100,7 @@ parameters:clear()
 parameters:encode(binding, value)
 assert(factory.calls == calls + 1)
 assert(not pcall(parameters.encode, parameters, api.binding(api.model()), value))
-local collision = routes.codec(new Factory(model = model, collision = true))
+local collision = routes.codec(Factory(model = model, collision = true))
 assert(not pcall(collision.encode, collision, binding, value))
 value.secret = "bad\r\nheader"
 assert(not pcall(parameters.encode, parameters, binding, value))

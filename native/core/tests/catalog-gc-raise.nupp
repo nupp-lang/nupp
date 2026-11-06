@@ -1,0 +1,22 @@
+module nupp.core.cataloggcraise
+
+-- An error no protected call takes is reported, and then every marked
+-- table is finalized, newest first, as lua.c's lua_close finalizes them
+-- after its report.
+local alive: any = {}
+
+local function marked(holder: any): nil
+    for i = 1, 2 do
+        holder[i] = setmetatable({}, {
+            __gc = function(): nil
+                print("closed", i)
+            end
+        })
+    end
+end
+
+marked(alive)
+print("raising")
+error("boom")
+
+export = 0

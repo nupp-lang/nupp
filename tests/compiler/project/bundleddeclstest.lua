@@ -47,7 +47,6 @@ local BUNDLED = {
     "events",
     "nupp.runtime.contracts",
     "os.host",
-    "math.random",
 }
 
 -- Checks a strict program against the prelude and answers its diagnostics as
@@ -77,6 +76,54 @@ function M.tlsOverviewExampleChecksAgainstItsPublicApi()
     testAssert.eq(diagsUnderPrelude(example), "")
 end
 
+function M.compressionFactoriesAndTypesLiveOnBinary()
+    testAssert.eq(
+        diagsUnderPrelude(
+            [[
+local {compress, formats, type CompressionFormat,
+    type CompressionReaderOptions, type CompressionWriterOptions} = require("binary")
+local gzip: CompressionFormat = compress("gzip")
+local writerOptions: CompressionWriterOptions = {gzip = {level = 6}}
+local readerOptions: CompressionReaderOptions = {maxoutputbytes = 1024}
+assert(gzip:decompress(gzip:compress("hello", writerOptions), readerOptions) == "hello")
+assert(#formats("compression") == 3)
+assert(gzip is binary.CompressionFormat)
+]]
+        ),
+        ""
+    )
+end
+
+function M.binaryDescriptorsAndFamilyEnumCheckOutsideTheCheckout()
+    testAssert.eq(
+        diagsUnderPrelude(
+            [[
+local {digest, checksum, mac, formats, type FormatKind,
+    type DigestFormat, type ChecksumFormat, type MacFormat} = require("binary")
+local sha: DigestFormat = digest("sha256")
+local crc: ChecksumFormat = checksum("crc32c")
+local hmac: MacFormat = mac("hmac-sha256")
+local kind: FormatKind = "digest"
+assert(#formats(kind) > 0)
+assert(#sha:computehex("hello") == 64)
+assert(crc:compute("123456789") == 0xe3069283ULL)
+assert(#hmac:compute("key", "hello") == 32)
+]]
+        ),
+        ""
+    )
+    assert(diagsUnderPrelude('binary.formats("unknown")'):find("NUPP2006", 1, true))
+    for _, expression in ipairs({
+        "binary.compression",
+        "binary.compressionformats",
+        "binary.Digest.create",
+        "binary.Checksum.compute",
+        "binary.Mac.Algorithm"
+    }) do
+        assert(diagsUnderPrelude("return " .. expression):find("NUPP2004", 1, true), expression)
+    end
+end
+
 function M.retiredNamespacesAreNotBundled()
     local env = strictEnv()
     for _, name in ipairs({
@@ -91,15 +138,21 @@ function M.retiredNamespacesAreNotBundled()
         "binary.checksum.spi",
         "binary.digest.spi",
         "binary.mac.spi",
+        "binary.compress",
+        "binary.compress.internal.contracts",
         "binary.compress.spi",
         "serde.json.spi",
         "io.spi",
         "io.files.spi",
+        "io.files",
+        "io.files.messages",
         "io.net.spi",
         "io.http.spi",
         "io.gpu.spi",
         "coroutine.sus.spi",
         "coroutine.workers.spi",
+        "coroutine.workers",
+        "coroutine.sus.cancellation",
         "coroutine.suspension",
         "coroutine.suspension.host",
         "coroutine.suspension.spi",
@@ -164,6 +217,24 @@ function M.compilerCarriesEveryFeatureRuntimeSource()
     end
 end
 
+function M.applicationDirectoriesReturnTheUnifiedPathOutsideTheCheckout()
+    local env = envMod.new("/private/tmp/nupp-app-path-consumer", {config = {include = {"src"}}, cache = false})
+    local source = [[
+os.setappid("example", "notes")
+local root: io.Path = assert(os.appdir("data"))
+local path: io.Path = assert(root:resolve("draft.txt")):withfilename("notes.txt")
+local named: os.Path = path
+local file = assert(io.open(named, "w"))
+assert(file:write("notes"))
+]]
+    local parsed = parser.parse(source, "app-path.nupp")
+    testAssert.eq(#parsed.errors, 0)
+    local diagnostics = check.check(parsed, "app-path.nupp", env)
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    local public = assert(env.loadBundledModule("nupp.runtime.standardos"))
+    testAssert.eq(public.exports.types.AppPath, nil, "the separate public type is removed")
+end
+
 function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
     local env = envMod.new("/private/tmp/nupp-bundled-layout-consumer", {config = {include = {"src"}}, cache = false})
     local sources = {
@@ -173,13 +244,11 @@ function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
         ["nupp.runtime.entropy"] = "/nupp/runtime/entropy.nupp",
         ["nupp.runtime.standardtable"] = "/nupp/runtime/standardtable.nupp",
         ["coroutine.sus"] = "/coroutine/sus/init.nupp",
-        ["coroutine.sus.cancellation"] = "/coroutine/sus/cancellation.nupp",
         ["coroutine.sus.host"] = "/coroutine/sus/host.nupp",
         ["nupp.suspension.contracts"] = "/nupp/suspension/contracts.nupp",
-        ["coroutine.workers"] = "/coroutine/workers/init.nupp",
         ["nupp.workers.contracts"] = "/nupp/workers/contracts.nupp",
-        ["io.files"] = "/io/files/init.nupp",
-        ["io.files.messages"] = "/io/files/messages.nupp",
+        ["io.internal.files"] = "/io/internal/files/init.nupp",
+        ["io.internal.files.messages"] = "/io/internal/files/messages.nupp",
         ["io.http"] = "/io/http/init.nupp",
         ["nupp.io.http.contracts"] = "/nupp/io/http/contracts.nupp",
         ["io.net"] = "/io/net/init.nupp",
@@ -208,6 +277,10 @@ function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
     testAssert.eq(suspension.exports.values.suspend, nil, "the wait lives on coroutine")
     local coroutineModule = env.loadBundledModule("nupp.runtime.standardcoroutine")
     testAssert.eq(coroutineModule.exports.values.suspend.tag, "func")
+    local workerContract = env.loadBundledModule("nupp.workers.contracts")
+    testAssert.eq(coroutineModule.exports.types.Worker, workerContract.exports.types.Worker)
+    testAssert.eq(suspension.exports.values.newcancellation.tag, "func")
+    testAssert.eq(suspension.exports.values.iscancellation.rets[1].tag, "boolean")
 end
 
 function M.directSuspendKeepsItsGenericTypeOutsideTheCheckout()
@@ -247,13 +320,14 @@ local server: io.net.TlsServerOptions = {certificate = "certificate", privatekey
 local function ready(borrows session: io.net.TlsSession): boolean
     return session:isready()
 end
-local {type Pool, newpool} = require("table")
+local {type Pool} = require("table")
+local {Pool} = require("table")
 local record Value
     number: integer
 end
-local bits: binary.Bitset = new binary.Bitset(64)
-local values: Pool<Value> = newpool(Value, 4)
-local qualified: table.Pool<Value> = table.newpool(Value, 4)
+local bits: binary.Bitset = binary.Bitset(64)
+local values: Pool<Value> = Pool(Value, 4)
+local qualified: table.Pool<Value> = table.Pool(Value, 4)
 local bytes: string = os.randombytes(0)
 return bits, values, qualified, bytes
 ]]
@@ -294,29 +368,36 @@ export function now(clock: ClockProvider): number return clock.now() end
 end
 
 function M.uuidUsesItsContractWithoutNativeCompilerServices()
-    local relations = require("nupp.compiler.types.relations")
     local env = envMod.new(".", {memoryOnly = true, nativeCompilerServices = false, typeRoots = {},})
-    local result = parser.parse("return os.uuid4", "uuid-contract.nupp")
+    local result = parser.parse(
+        "local function make(version: 4 | 7): string return os.uuid(version) end\nreturn make(4), make(7)",
+        "uuid-contract.nupp"
+    )
     testAssert.eq(#result.errors, 0)
     local diagnostics = check.check(result, "uuid-contract.nupp", env)
     testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     local uuid = env.globals.os.t
-    local provider = assert(env.resolveModule(env, "nupp.runtime.uuidprovider"))
-    testAssert.eq(uuid.byname.uuid4.tag, "func", "uuid4 has a checked function signature")
-    testAssert.eq(uuid.byname.uuid4.rets[1].tag, "string", "uuid4 returns a string")
-    testAssert.eq(
-        relations.isA(uuid.byname.uuid4, provider.byname.uuid4),
-        true,
-        "uuid4 satisfies the canonical contract signature"
-    )
-    testAssert.eq(
-        relations.isA(uuid.byname.uuid7, provider.byname.uuid7),
-        true,
-        "uuid7 satisfies the canonical contract signature"
-    )
-    testAssert.eq(uuid.byname.randomBytes, nil, "unrelated operations are absent")
+    testAssert.eq(uuid.byname.uuid.tag, "func", "uuid has a checked function signature")
+    testAssert.eq(T.tostring(uuid.byname.uuid.params[1]), "4 | 7", "uuid accepts only supported versions")
+    testAssert.eq(uuid.byname.uuid.rets[1].tag, "string", "uuid returns a string")
+    testAssert.eq(uuid.byname.uuid4, nil, "the retired version 4 entry is absent")
+    testAssert.eq(uuid.byname.uuid7, nil, "the retired version 7 entry is absent")
+    for _, source in ipairs({
+        "return os.uuid(5)",
+        "return os.uuid(4.5)",
+        'return os.uuid("4")',
+        "local function make(version: integer): string return os.uuid(version) end\nreturn make(4)",
+    }) do
+        local refused = parser.parse(source, "uuid-invalid-version.nupp")
+        testAssert.eq(#refused.errors, 0)
+        local rejected = false
+        for _, diagnostic in ipairs(check.check(refused, "uuid-invalid-version.nupp", env)) do
+            rejected = rejected or diagnostic.code == "NUPP2006"
+        end
+        assert(rejected, "unsupported UUID version type was accepted: " .. source)
+    end
     local exports = assert(env.resolveModuleExports(env, "os"))
-    testAssert.eq(exports.values.uuid4, uuid.byname.uuid4, "module and export resolution agree")
+    testAssert.eq(exports.values.uuid, uuid.byname.uuid, "module and export resolution agree")
     testAssert.eq(
         rawget(env.bundled, "nupp.runtime.provider.nativeuuid"),
         nil,
@@ -520,6 +601,31 @@ return m
     testAssert.eq(found, true, "an exported signature mentioning any is still reported")
 end
 
+function M.anEmbeddedCompilerDoesNotProbeDiskForMissingDeclarations()
+    local instances = require("helpers.providerstate")
+    local host = {
+        open = function(path)
+            error("embedded declaration lookup reached disk: " .. path)
+        end
+    }
+    for _, prefix in ipairs({"/compiler", "/nupp/compiler"}) do
+        local load = instances.instance(
+            {["nupp.compiler.bundled"] = true},
+            {["nupp.runtime.standardio"] = {value = host},},
+            {
+                ["nupp.embedded"] = function()
+                    return {[prefix .. "/coroutine.nupp"] = "module coroutine"}
+                end,
+            },
+            {io = host, __nuppCleanupRegistry = {}}
+        )
+        local bundled = load("nupp.compiler.bundled")
+        testAssert.eq(bundled.source("/coroutine/init.nupp"), nil)
+        testAssert.eq(bundled.source("/coroutine.nupp"), "module coroutine")
+        testAssert.eq(bundled.source("/missing.nupp"), nil)
+    end
+end
+
 -- A declaration the build copied beside the compiled modules goes stale the moment
 -- `src` changes it, and the compiler then checks today's source against yesterday's
 -- interface. That surfaces as an ordinary type error about a field that is plainly
@@ -599,9 +705,8 @@ end
 
 function M.openFilesKeepTheirLexicalCleanupAcrossThePublicFacade()
     local source = [[
-const files = require("io.files")
 do
-    local file, reason = files.open("input.txt")
+    local file, reason = io.open("input.txt")
     if file == nil then error(reason) end
     print(file)
 end
@@ -614,10 +719,13 @@ end
             error(("%s: %s"):format(diagnostic.code, diagnostic.msg), 2)
         end
     end
-    -- The program never names `close`; the image carries it because the lowering
-    -- runs the File terminal at lexical scope exit.
+    -- The program never names `close`; the image carries the host file close
+    -- because the lowering runs the File terminal at lexical scope exit.
     local image = program.image(parsed, "files-owner")
-    assert(program.names(image, "close"), "the public File terminal runs at lexical scope exit")
+    assert(
+        program.names(image, "file.close") or program.names(image, "close"),
+        "the public File terminal runs at lexical scope exit"
+    )
 end
 
 function M.runnerResourceMapsToItsManifestSource()
@@ -630,6 +738,148 @@ function M.runnerResourceMapsToItsManifestSource()
     debug.getinfo = saved
     assert(ok, path)
     testAssert.eq(path, ROOT .. "/tests/run.lua", "the carried runner maps to the manifest source")
+end
+
+function M.fileByteViewsAreAffineOwners()
+    for _, method in ipairs({"reader", "writer"}) do
+        local diagnostics = diagsUnderPrelude(
+            ([[
+local file = assert(io.open("input.bin", "r+"))
+file:%s()
+]]):format(method)
+        )
+        assert(diagnostics:find("NUPP26", 1, true), method .. ": " .. diagnostics)
+    end
+end
+
+function M.fileByteViewsCannotEscapeTheirLocalFile()
+    for _, view in ipairs({{method = "reader", name = "Reader"}, {method = "writer", name = "Writer"}}) do
+        local diagnostics = diagsUnderPrelude(
+            (
+                [[
+local function escape(): affine(io.%s)
+    local file = assert(io.open("input.bin", "r+"))
+    return file:%s()
+end
+]]
+            ):format(view.name, view.method)
+        )
+        assert(diagnostics:find("NUPP26", 1, true), view.method .. ": " .. diagnostics)
+    end
+end
+
+function M.liveExclusiveFileViewsPreventClosingTheirFile()
+    for _, view in ipairs({
+        {method = "reader", operation = "read(1)"},
+        {method = "writer", operation = "write('x')"}
+    }) do
+        local diagnostics = diagsUnderPrelude(
+            (
+                [[
+local file = assert(io.open("input.bin", "r+"))
+local view = file:%s()
+file:close()
+view:%s
+view:close()
+]]
+            ):format(view.method, view.operation)
+        )
+        assert(diagnostics:find("NUPP26", 1, true), view.method .. ": " .. diagnostics)
+    end
+end
+
+function M.closingByteViewsAllowsReusingTheirFile()
+    testAssert.eq(
+        diagsUnderPrelude(
+            [[
+local file = assert(io.open("input.bin", "r+"))
+local reader = file:reader()
+reader:read(1)
+reader:close()
+file:seek("set", 0)
+local writer = file:writer()
+writer:write("x")
+writer:close()
+file:flush()
+file:close()
+]]
+        ),
+        ""
+    )
+end
+
+function M.fileByteViewsCanBeConsumedByBoundedLines()
+    testAssert.eq(
+        diagsUnderPrelude(
+            [[
+local file = assert(io.open("input.bin", "rb"))
+local reader = file:reader()
+local lines = reader:lines(32)
+local line, reason = lines:read()
+if line == nil then assert(reason == nil, reason) end
+lines:close()
+file:seek("set", 0)
+file:close()
+]]
+        ),
+        ""
+    )
+end
+
+function M.fileParametersGetByteViewsWithoutAnAcquisitionExpression()
+    local source = [[
+local function useFile(exclusive file: io.File): nil
+    local reader = file:reader()
+    reader:read(1)
+    reader:close()
+    local writer = file:writer()
+    writer:write("x")
+    writer:close()
+end
+return useFile
+]]
+    testAssert.eq(diagsUnderPrelude(source), "")
+    local parsed = parser.parse(source, "file-parameter.nupp")
+    testAssert.eq(#parsed.errors, 0)
+    for _, diagnostic in ipairs(check.check(parsed, "file-parameter.nupp", strictEnv(), {strict = true}) or {}) do
+        testAssert.ne(diagnostic.severity, "error", diagnostic.msg)
+    end
+    local image = program.image(parsed, "file-parameter")
+    assert(program.names(image, "reader") and program.names(image, "writer"), "byte view calls lower to the image")
+end
+
+function M.standardStreamsExposeTheSameByteViewTypes()
+    testAssert.eq(
+        diagsUnderPrelude(
+            [[
+local function acceptReader(exclusive reader: io.Reader): nil end
+local function acceptWriter(exclusive writer: io.Writer): nil end
+local reader = io.stdin:reader()
+acceptReader(reader)
+reader:close()
+local output = io.stdout:writer()
+acceptWriter(output)
+output:close()
+local errors = io.stderr:writer()
+acceptWriter(errors)
+errors:close()
+]]
+        ),
+        ""
+    )
+end
+
+function M.boundedFileLinesCannotEscapeTheirLocalFile()
+    local diagnostics = diagsUnderPrelude(
+        [[
+local function escape(): affine(io.Lines)
+    local file = assert(io.open("input.bin", "rb"))
+    local reader = file:reader()
+    return reader:lines(32)
+end
+]]
+    )
+    assert(diagnostics:find("NUPP26", 1, true), diagnostics)
 end
 
 function M.movedPrivateBundledSourcesKeepFileAndTreePrivacyDistinct()
@@ -652,7 +902,10 @@ function M.movedPrivateBundledSourcesKeepFileAndTreePrivacyDistinct()
     package.loaded["nupp.compiler.project.env"] = nil
     local ok, problem = pcall(function()
         local fresh = require("nupp.compiler.project.env")
-        local env = fresh.new("/private/tmp", {config = {include = {"no-bundled-layout-fixture"}}, cache = false})
+        local env = fresh.new("/private/tmp/nupp-bundled-privacy-consumer", {
+            config = {include = {"src"}},
+            cache = false
+        })
         local ioModule = env.loadBundledModule("nupp.io")
         assert(ioModule and ioModule.exports.types.Token)
         testAssert.eq(ioModule.exports.types.Token.moduleName, "nupp.io")

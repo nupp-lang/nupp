@@ -69,7 +69,7 @@ local function clear(exclusive points: span.WriteSpan<Point>): nil
     const view = points
     const indexes = indexed.range(1, #view, view)
     for index = indexes.first, indexes.last do
-        view[index] = new Point(0, 0)
+        view[index] = Point(0, 0)
     end
 end
 
@@ -162,13 +162,6 @@ A declarative C binding can use
 [`countedBy(count)`](docs/learn/runtime/c-interop/index.md#counted-pointer-adapters)
 instead. Its checked call surface accepts spans, verifies shared counts, and
 projects the physical pointer and count arguments automatically.
-
-::: seealso
-- [ownership.md](docs/learn/runtime/ownership/index.md) for what makes a writable span
-  affine and when its access ends
-- [c-interop.md](docs/learn/runtime/c-interop/index.md) for the boundary `ref` and
-  `countedBy` sit on
-:::
 ]]
 module nupp.mem.span
 
@@ -246,7 +239,7 @@ local record SpanImpl<T> is span.Span<T>
             error("nupp: span slice out of bounds", 2)
         end
 
-        return new SpanImpl(
+        return SpanImpl(
             anchor = self,
             pointer = self.pointer as any,
             offset = self.offset + first - 1,
@@ -295,7 +288,7 @@ local record FixedSpanImpl<T, const N: integer> is span.FixedSpan<T, N>
             error("nupp: span slice out of bounds", 2)
         end
 
-        return new SpanImpl(
+        return SpanImpl(
             anchor = self,
             pointer = self.pointer as any,
             offset = self.offset + first - 1,
@@ -449,7 +442,7 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
 
     --- Downgrades this writer to a shared view for the lifetime of the result.
     function shared(borrows self: WriteSpanImpl<T>): span.Span<T> borrows (self)
-        return new SpanImpl(
+        return SpanImpl(
             anchor = self,
             pointer = self.pointer as any,
             offset = self.offset,
@@ -465,7 +458,7 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
             error("nupp: write span slice out of bounds", 2)
         end
 
-        return new WriteSpanImpl(
+        return WriteSpanImpl(
             anchor = self,
             pointer = self.pointer as any,
             offset = self.offset + first - 1,
@@ -482,20 +475,20 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
         @unsafe do
             local left, right = own.partition(
                 self,
-                new WriteSpanImpl(
+                WriteSpanImpl(
                     anchor = self,
                     pointer = self.pointer as any,
                     offset = self.offset,
                     count = mid
                 ) as span.WriteSpan<T>,
-                new WriteSpanImpl(
+                WriteSpanImpl(
                     anchor = self,
                     pointer = self.pointer as any,
                     offset = self.offset + mid,
                     count = self.count - mid
                 ) as span.WriteSpan<T>
             )
-            return new span.WriteSplit(anchor = self, left = left, right = right) as span.WriteSplit<T>
+            return span.WriteSplit(anchor = self, left = left, right = right) as span.WriteSplit<T>
         end
     end
 
@@ -552,7 +545,7 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
     end
 
     function shared(borrows self: FixedWriteSpanImpl<T, N>): span.FixedSpan<T, N> borrows (self)
-        return new FixedSpanImpl(
+        return FixedSpanImpl(
             anchor = self,
             pointer = self.pointer as any,
             offset = self.offset,
@@ -570,7 +563,7 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
             error("nupp: write span slice out of bounds", 2)
         end
 
-        return new WriteSpanImpl(
+        return WriteSpanImpl(
             anchor = self,
             pointer = self.pointer as any,
             offset = self.offset + first - 1,
@@ -585,20 +578,20 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
         @unsafe do
             local left, right = own.partition(
                 self,
-                new WriteSpanImpl(
+                WriteSpanImpl(
                     anchor = self,
                     pointer = self.pointer as any,
                     offset = self.offset,
                     count = mid
                 ) as span.WriteSpan<T>,
-                new WriteSpanImpl(
+                WriteSpanImpl(
                     anchor = self,
                     pointer = self.pointer as any,
                     offset = self.offset + mid,
                     count = (self.count as integer) - mid
                 ) as span.WriteSpan<T>
             )
-            return new span.WriteSplit(anchor = self, left = left, right = right) as span.WriteSplit<T>
+            return span.WriteSplit(anchor = self, left = left, right = right) as span.WriteSplit<T>
         end
     end
 end
@@ -636,7 +629,7 @@ type span.ByteWriteSpan = span.WriteSpan<uint8>
 --- @export
 function span.fromString(borrows source: string): span.ByteSpan borrows (source)
     local pointer = physical.borrowString(source)
-    return (new SpanImpl(anchor = source, pointer = pointer as any, offset = 0, count = #source)) as span.ByteSpan
+    return (SpanImpl(anchor = source, pointer = pointer as any, offset = 0, count = #source)) as span.ByteSpan
 end
 
 -- Private constructor for engine-owned bytes: [](io.Bytes) reaches
@@ -645,7 +638,7 @@ end
 -- implementation, which is why the hook lives here.
 local function foreignByteSpan(anchor: any, pointer: any, offset: integer, count: integer): span.ByteSpan
     local typed = physical.castBytes(pointer)
-    return (new SpanImpl(anchor = anchor, pointer = typed as any, offset = offset, count = count)) as span.ByteSpan
+    return (SpanImpl(anchor = anchor, pointer = typed as any, offset = offset, count = count)) as span.ByteSpan
 end
 
 rawset(span as table, "__foreignByteSpan", foreignByteSpan)
@@ -661,7 +654,7 @@ local function foreignSpan<T>(
 ): span.Span<T>
     @unsafe do
         local typed = physical.castElements(element, pointer)
-        return (new SpanImpl(anchor = anchor, pointer = typed as any, offset = offset, count = count)) as span.Span<T>
+        return (SpanImpl(anchor = anchor, pointer = typed as any, offset = offset, count = count)) as span.Span<T>
     end
 end
 
@@ -692,7 +685,7 @@ function span.fromCarray<T>(borrows source: T[?], count: integer): span.Span<T> 
         error("nupp: span count cannot be negative", 2)
     end
     return (
-        new SpanImpl(anchor = source, pointer = source as any, offset = 0, count = physical.boundedCount(source, count))
+        SpanImpl(anchor = source, pointer = source as any, offset = 0, count = physical.boundedCount(source, count))
     ) as span.Span<T>
 end
 
@@ -709,9 +702,7 @@ function span.fromFixedCarray<T, const N: integer>(
     borrows source: T[N],
     count: N
 ): span.FixedSpan<T, N> borrows (source)
-    return (
-        new FixedSpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)
-    ) as span.FixedSpan<T, N>
+    return (FixedSpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)) as span.FixedSpan<T, N>
 end
 
 --- Creates an affine write span over a C array and an explicit logical count.
@@ -727,7 +718,7 @@ end
 ---
 --- const storage = carray(Value, 4)
 --- local writable = span.writecarray(storage, 4)
---- writable[1] = new Value(42)
+--- writable[1] = Value(42)
 --- own.drop(writable)
 ---
 --- const values = span.fromcarray(storage, 4)
@@ -744,7 +735,7 @@ function span.writeCarray<T>(exclusive source: T[?], count: integer): span.Writa
         error("nupp: write span count cannot be negative", 2)
     end
     return (
-        new WriteSpanImpl(
+        WriteSpanImpl(
             anchor = source,
             pointer = source as any,
             offset = 0,
@@ -767,7 +758,7 @@ function span.writeFixedCarray<T, const N: integer>(
     count: N
 ): span.FixedWritable<T, N> borrows (source)
     return (
-        new FixedWriteSpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)
+        FixedWriteSpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)
     ) as span.FixedWriteSpan<T, N>
 end
 

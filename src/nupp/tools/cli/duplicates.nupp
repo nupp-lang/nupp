@@ -1,0 +1,212 @@
+module nupp.tools.cli.duplicates
+
+local cliModule = require("io.cli")
+local usageError = require("nupp.tools.cli.error").forCommand("duplicates")
+
+local cliReport = require("nupp.tools.cli.report")
+
+local REPORT_SCHEMA = {
+    type = "object",
+    description = "Repeated statement sequences. Byte positions are one-based; range ends are exclusive.",
+    properties = {
+        schemaVersion = {type = "integer"},
+        ok = {type = "boolean", description = "False for unreadable files, syntax errors, or exhausted work budget."},
+        complete = {type = "boolean", description = "Whether every input and candidate was examined."},
+        truncated = {type = "boolean", description = "More groups were found than maxGroups permits in this report."},
+        options = {
+            type = "object",
+            properties = {
+                mode = {type = "string"},
+                ignoreLiterals = {type = "boolean"},
+                minTokens = {type = "integer"},
+                minLines = {type = "integer"},
+                maxGroups = {type = "integer"},
+                budget = {type = "integer"}
+            },
+            required = {"mode", "ignoreLiterals", "minTokens", "minLines", "maxGroups", "budget"},
+        },
+        filesScanned = {type = "integer"},
+        candidateCount = {type = "integer"},
+        comparisons = {
+            type = "integer",
+            description = "Work units consumed, including indexing and token comparisons."
+        },
+        diagnostics = cliReport.DIAGNOSTICS,
+        groups = {
+            type = "array",
+            items = {
+                type = "object",
+                properties = {
+                    tokenCount = {type = "integer"},
+                    snippet = {type = "string"},
+                    snippetTruncated = {type = "boolean"},
+                    occurrences = {
+                        type = "array",
+                        items = {
+                            type = "object",
+                            properties = {
+                                file = {type = "string"},
+                                functionName = {type = "string"},
+                                declarationName = {type = "string"},
+                                kind = {type = "string", enum = {"function", "block", "members"}},
+                                codeLines = {type = "integer"},
+                                range = cliReport.RANGE,
+                            },
+                            required = {"file", "kind", "codeLines", "range"},
+                        }
+                    },
+                },
+                required = {"tokenCount", "snippet", "snippetTruncated", "occurrences"},
+            }
+        },
+    },
+    required = {
+        "schemaVersion",
+        "ok",
+        "complete",
+        "truncated",
+        "options",
+        "filesScanned",
+        "candidateCount",
+        "comparisons",
+        "diagnostics",
+        "groups"
+    },
+}
+
+local function run(values: any): integer
+    local duplicates = require("nupp.tools.duplicates")
+    local options, problem = duplicates.options(values)
+    if not options then
+        if values.format == "json" then
+            cliReport.failure(REPORT_SCHEMA, {
+                cliReport.runDiagnostic(cliReport.TOOL_FAILED, problem or "invalid duplication options")
+            })
+            return 2
+        end
+        return usageError(problem)
+    end
+    local fs = require("nupp.compiler.fs")
+    local envMod = require("nupp.compiler.project.env")
+    local sources, paths = {}, values.files
+    if #paths == 0 then
+        paths = envMod.listSourceFiles(envMod.new("."))
+    end
+    for _, path in ipairs(paths) do
+        local source, err
+        if path:match("%.nupp$") then
+            source, err = fs.readFile(path)
+        else
+            err = "expected a .nupp source file"
+        end
+        sources[#sources + 1] = {file = fs.canonical(path), text = source, error = err}
+    end
+    local report = duplicates.scan(sources, options)
+    if #paths == 0 then
+        report.ok, report.complete = false, false
+        report.diagnostics = cliReport.diagnosticValues({
+            cliReport.runDiagnostic(cliReport.MANIFEST, "no source files found under the project's include roots")
+        })
+    end
+    if values.format == "json" then
+        cliReport.write(report)
+    else
+        io.stdout:write(
+            string.format(
+                "%d duplicate groups in %d files (%s matching)\n",
+                #report.groups,
+                report.filesScanned,
+                options.mode
+            )
+        )
+        for i, group in ipairs(report.groups) do
+            io.stdout:write(string.format("\n%d. %d tokens, %d occurrences\n", i, group.tokenCount, #group.occurrences))
+            for _, occurrence in ipairs(group.occurrences) do
+                io.stdout:write(
+                    string.format(
+                        "  %s:%d:%d  %s%s (%d code lines)\n",
+                        occurrence.file,
+                        occurrence.range.start.line,
+                        occurrence.range.start.column,
+                        occurrence.kind,
+                        (occurrence.functionName or occurrence.declarationName)
+                        and " " .. (occurrence.functionName or occurrence.declarationName)
+                        or "",
+                        occurrence.codeLines
+                    )
+                )
+            end
+        end
+        if report.truncated then
+            io.stdout:write("\nReport truncated; increase --max-groups to see more groups.\n")
+        end
+        for _, diagnostic in ipairs(report.diagnostics) do
+            io.stderr:write(
+                (
+                    diagnostic.file
+                    and diagnostic.file .. (diagnostic.range and ":" .. diagnostic.range.start.line or "") .. ": "
+                    or "nupp: "
+                ) .. diagnostic.message .. "\n"
+            )
+        end
+        if not report.complete then
+            io.stderr:write("Duplicate audit is incomplete.\n")
+        end
+    end
+
+    return report.ok and 0 or 1
+end
+
+--- Finds repeated statements across project sources, including function sections.
+---
+--- Reports candidates for review without changing source. Renamed matching
+--- ignores local names but preserves members, globals, types, and literals.
+--- Findings do not fail the command; incomplete audits do.
+---
+--- Examples:
+---
+---     nupp duplicates
+---     nupp duplicates --json --min-tokens=60 --min-lines=6
+---     nupp duplicates --mode=exact src/first.nupp src/second.nupp
+@cli("duplicates")
+@derive(cliModule.command)
+local record Duplicates
+    --- Matching policy for local bindings.
+    mode: "exact" | "renamed" = "renamed"
+
+    --- Matches numeric and string literals by token kind instead of value.
+    ignoreLiterals: boolean = false
+
+    --- Minimum tokens in a matching statement sequence.
+    minTokens: integer = 80
+
+    --- Minimum token-bearing lines in every occurrence.
+    minLines: integer = 8
+
+    --- Maximum groups included in the report, largest first.
+    maxGroups: integer = 100
+
+    --- Maximum work units before reporting an incomplete audit.
+    budget: integer = 50000000
+
+    --- Output format.
+    @cli(value = "FORMAT", constantaliases = {json = "json", text = "text"})
+    format: "text" | "json" = "text"
+
+    --- Prints the JSON report schema.
+    schema: boolean = false
+
+    --- Files to compare; defaults to project include roots.
+    @cli(positional = "FILE")
+    files: {string} = {}
+
+    function run(self): integer
+        return run(self)
+    end
+end
+
+function Duplicates.reportSchema(): any
+    return REPORT_SCHEMA
+end
+
+export = {commandType = Duplicates}

@@ -25,4 +25,4 @@ local function describe(event: Spawn | integer): string
     return "number"
 end
 
-print(describe(new exported.Spawned(entity = 3)), describe(4))
+print(describe(exported.Spawned(entity = 3)), describe(4))

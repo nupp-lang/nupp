@@ -4,9 +4,9 @@ order: 150
 
 # Worker tasks
 
-`coroutine.workers` runs sendable functions in parallel on a shared,
+`coroutine.Scope.work` runs sendable functions in parallel on a shared,
 bounded scheduler whose lanes are native threads, each running its own VM.
-A lane is reached through `fork` on an [application task scope](task-scopes.md),
+A lane is reached through `work` on an [application task scope](task-scopes.md),
 which owns the worker children it starts. Arguments and results cross as copies,
 while heaps and their globals, userdata, cdata, and mutable module state stay
 isolated. Eligible closure captures cross only as independent copies.
@@ -35,7 +35,7 @@ end
 ```
 
 `jobs.hash` is still an ordinary function. Calling `jobs.hash(bytes)` runs it
-in the current VM; passing it to `scope:fork` runs it on the worker
+in the current VM; passing it to `scope:work` runs it on the worker
 scheduler. There is no worker declaration or parallel version of the function.
 
 Workers run under `nupp run` and in a `binary` target alike: the VM runtime
@@ -334,7 +334,7 @@ storage rather than a copy of a value.
 
 A type that says nothing definite is left to the copy. `any`, a bare `table`,
 and a record all describe values that may or may not be copyable. A record built
-with `new` carries its declaration table and crosses with that identity; a plain
+by calling its declaration carries its declaration table and crosses with that identity; a plain
 table cast to the same record type remains plain. The type alone cannot decide
 which value arrives. The checker's guarantee is therefore one level deep -- each
 capture and argument is held to its declared type -- and the transport walks the
@@ -353,7 +353,7 @@ which field stopped the copy rather than that the message was untransferable:
 
 ```nupp:fragment
 local scope = tasks.scope()
-const row = new jobs.Row(name = "a")
+const row = jobs.Row(name = "a")
 
 -- The lane receives its own jobs.Row metatable, so its methods work there.
 scope:work(row, jobs.displayRow)
@@ -369,7 +369,7 @@ scope:work({{name = "a"}, {name = "a"}}, jobs.count)
 ```
 
 All fields present on a record table cross, including dynamic fields not named
-by the declaration. Only the canonical declaration metatable stamped by `new`
+by the declaration. Only the canonical metatable stamped during construction
 is reproducible. A prototype-style instance carrying a private metatable whose
 `__index` points at a record is still rejected rather than silently losing that
 private behavior.
@@ -444,7 +444,7 @@ before rebuilding its owner, and primitive elements move; every other
 ownership mode and element shape keeps the refusal above.
 
 [](io.Bytes) shares immutable engine storage with any number of readers; a move
-hands exclusive mutable storage to one lane. `io.Bytes.newbuilder()` constructs
+hands exclusive mutable storage to one lane. `io.Bytes.Builder()` constructs
 shared bytes incrementally, and consuming `Builder:freeze()` transfers its
 allocation into immutable bytes without copying.
 

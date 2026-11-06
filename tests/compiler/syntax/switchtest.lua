@@ -47,7 +47,7 @@ function M.anAnySelectorNeedsItsElse()
                     "        else -> 0",
                     "    end",
                     "end",
-                    "return f(new R(v = 3)) + f(2)",
+                    "return f(R(v = 3)) + f(2)",
                 },
                 "\n"
             )
@@ -126,7 +126,7 @@ function M.aDiscriminantCaseNarrowsTheValueItBelongsTo()
                 "      case 'square' -> s.side",
                 "   end",
                 "end",
-                "local square = new Square(kind = 'square', side = 4)",
+                "local square = Square(kind = 'square', side = 4)",
                 "return direct(square), copied(square)",
             },
             "\n"
@@ -165,7 +165,7 @@ function M.typeBindingsAndDestructuringRun()
                 "      case is string as contents -> #contents",
                 "   end",
                 "end",
-                "return measure(new Circle(radius = 4)), measure('abc')",
+                "return measure(Circle(radius = 4)), measure('abc')",
             },
             "\n"
         )
@@ -284,7 +284,7 @@ function M.yieldCompletesCleanupBeforeTheSwitchContinues()
                 "   events = events .. 'close'",
                 "end",
                 "local function openResource(): affine(Resource, closeResource)",
-                "   return new Resource(name = 'selected')",
+                "   return Resource(name = 'selected')",
                 "end",
                 "local value = switch 1 do",
                 "   case 1 -> do",
@@ -414,7 +414,7 @@ function M.recordCasesMatchWithAndWithoutANilMember()
             "      case is Second {value} -> value",
             "   end",
             "end",
-            "return get(new First(value = 1))",
+            "return get(First(value = 1))",
         },
         "\n"
     )
@@ -925,7 +925,7 @@ local function g(v: Box | string): string
         case is string -> v
     end
 end
-return g(new Box(n = 50)), g(new Box(n = 1))
+return g(Box(n = 50)), g(Box(n = 1))
 ]]
     )
     testAssert.eq(big, "big box")

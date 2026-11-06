@@ -838,7 +838,7 @@ function M.canonicalSignedIntegersWidenWithoutLosingUnsignedContracts()
                     "local struct S",
                     "   big: int64",
                     "end",
-                    "local s = new S(1)",
+                    "local s = S(1)",
                     "s.big = 2",
                     "local back: int64 = s.big",
                     "return back",
@@ -862,7 +862,7 @@ function M.physicalStoresRefuseLiteralsTheSlotCannotHold()
             "   big: int64",
             "   ubig: uint64",
             "end",
-            "local s = new S(1, 2, 3.0, 4, 5)",
+            "local s = S(1, 2, 3.0, 4, 5)",
         },
         "\n"
     ) .. "\n"
@@ -883,7 +883,7 @@ function M.physicalStoresRefuseLiteralsTheSlotCannotHold()
                     "   b: uint8",
                     "   f: float32",
                     "end",
-                    "local s = new S(1.9, 300, 1e40)",
+                    "local s = S(1.9, 300, 1e40)",
                     "return s",
                 },
                 "\n"

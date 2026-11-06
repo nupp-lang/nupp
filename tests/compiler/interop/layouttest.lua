@@ -79,6 +79,32 @@ return field.size > 0 and date.month >= 1
     testAssert.eq(value, true)
 end
 
+function M.assertionHelpersAreAvailableThroughThePrelude()
+    local value = runs(
+        [[
+assert.lt(1, 2)
+assert.le(2, 2)
+assert.gt(2, 1)
+assert.ge(2, 2)
+assert.near(1, 1, 0)
+assert.isnil(nil)
+assert.notnil(false)
+assert.truthy(0)
+assert.falsy(false)
+assert.istype("x", "string")
+assert.contains("a.b", ".")
+assert.notcontains("abc", ".")
+assert.notmatches("abc", "%d")
+local function fails(): never
+    assert.fail("failure")
+end
+return tostring(assert.raises(fails))
+]],
+        "assertion helpers"
+    )
+    testAssert.matches(value, "failure")
+end
+
 function M.fileTypeDoesNotLoadItsImplementation()
     local isolated = envMod.new(HERE .. "/..")
     local resolve = isolated.resolveModule
@@ -405,8 +431,8 @@ local struct Node
     value: int32
 end
 
-local head = new Node(nil, 1)
-local tail = new Node(nil, 2)
+local head = Node(nil, 1)
+local tail = Node(nil, 2)
 head.next = tail
 return types.layoutof(Node).size
 ]],
@@ -423,8 +449,8 @@ local struct Node
     value: int32
 end
 
-local head = new Node(nil, 1)
-local tail = new Node(nil, 2)
+local head = Node(nil, 1)
+local tail = Node(nil, 2)
 head.next = tail
 local value: int32 = 0
 @unsafe do
@@ -491,8 +517,8 @@ local struct B
     n: int32
 end
 
-local x = new A(nil, 7)
-local y = new B(nil, 8)
+local x = A(nil, 7)
+local y = B(nil, 8)
 x.b = y
 y.a = x
 local total: integer = 0
@@ -557,7 +583,7 @@ local struct Vertex
     id: int32
 end
 
-local v = new Vertex()
+local v = Vertex()
 v.pos[0] = 1.5
 v.pos[2] = 3.5
 v.id = 7

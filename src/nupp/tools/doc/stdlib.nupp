@@ -68,14 +68,14 @@ end
 local SOURCES: {
     Source
 } = {
-    new Source(file = "/decls/lua.d.nupp"),
-    new Source(file = "/decls/prelude.d.nupp"),
-    new Source(file = "/decls/ffi.d.nupp", required = "ffi"),
-    new Source(file = "/decls/stringbuffer.d.nupp", required = "string.buffer"),
-    new Source(file = "/decls/jit/util.d.nupp", required = "jit.util"),
-    new Source(file = "/decls/jit/profile.d.nupp", required = "jit.profile"),
-    new Source(file = "/decls/jit/zone.d.nupp", required = "jit.zone"),
-    new Source(file = "/decls/jit/vmdef.d.nupp", required = "jit.vmdef"),
+    Source(file = "/decls/lua.d.nupp"),
+    Source(file = "/decls/prelude.d.nupp"),
+    Source(file = "/decls/ffi.d.nupp", required = "ffi"),
+    Source(file = "/decls/stringbuffer.d.nupp", required = "string.buffer"),
+    Source(file = "/decls/jit/util.d.nupp", required = "jit.util"),
+    Source(file = "/decls/jit/profile.d.nupp", required = "jit.profile"),
+    Source(file = "/decls/jit/zone.d.nupp", required = "jit.zone"),
+    Source(file = "/decls/jit/vmdef.d.nupp", required = "jit.vmdef"),
 }
 
 -- Lua standard-library names from the Lua 5.1 through 5.5 manual indexes.
@@ -91,6 +91,13 @@ local LUA_NAMES = {
     ["io.File.seek"] = true,
     ["io.File.setvbuf"] = true,
     ["io.File.write"] = true,
+    ["io.Process.close"] = true,
+    ["io.Process.flush"] = true,
+    ["io.Process.lines"] = true,
+    ["io.Process.read"] = true,
+    ["io.Process.seek"] = true,
+    ["io.Process.setvbuf"] = true,
+    ["io.Process.write"] = true,
     ["assert"] = true,
     ["bit32.arshift"] = true,
     ["bit32.band"] = true,
@@ -339,14 +346,14 @@ local function navigationItems(items: {any}): {Entry}
     for _, item in ipairs(items) do
         entries[
             #entries + 1
-        ] = new Entry(name = item.name, path = item.path, items = navigationItems(item.members or {}), kind = item.kind)
+        ] = Entry(name = item.name, path = item.path, items = navigationItems(item.members or {}), kind = item.kind)
     end
 
     return entries
 end
 
 local function libraryEntry(module: extractMod.Module): Entry
-    return new Entry(
+    return Entry(
         name = module.name,
         path = stringsMod.headingId(module.name),
         items = navigationItems(module.items),
@@ -461,11 +468,23 @@ export function indexParts(document: Page): {IndexPart}
 end
 
 local function indexMarkdown(document: Page): string
+    local prefix = urlsMod.relativePrefix(urlsMod.routeFile(document.path))
+    local extra = {}
+    for name, anchor in pairs(document.symbols or {}) do
+        extra[name] = "#" .. anchor
+    end
+    local links = urlsMod.symbolLinkIndex(
+        document.modules,
+        function(module: string, path: string?): string
+            return prefix .. urlsMod.moduleFile(module) .. (path and "#" .. path or "")
+        end,
+        extra
+    )
     local out = {}
     for _, part in ipairs(indexParts(document)) do
         out[#out + 1] = part.markdown
         if part.items then
-            out[#out + 1] = markdownMod.items(part.items, nil, nil, true)
+            out[#out + 1] = markdownMod.items(part.items, nil, nil, true, links)
         end
     end
 
@@ -488,6 +507,7 @@ export function page(settings: Settings?): Page?
         types = {},
         annotations = navigationItems(annotationItems)
     }
+    local callableTypes: {[string]: extractMod.Member} = {}
     for _, source in ipairs(SOURCES) do
         local text = bundledMod.source(source.file)
         if text then
@@ -497,6 +517,19 @@ export function page(settings: Settings?): Page?
                 returnedAsModule = source.required ~= nil,
                 publicNames = source.file == "/decls/lua.d.nupp" and {_G = true, _VERSION = true} or nil
             })
+            if source.file == "/decls/lua.d.nupp" then
+                -- Internal interfaces can still describe the call of a public global.
+                local all = extractMod.extract(text, path, "globals", {includePrivate = true})
+                for _, item in ipairs(all and all.items or {}) do
+                    if item.module and item.doc.tags.internal then
+                        for _, member in ipairs(item.members or {}) do
+                            if member.isMetamethod and member.name == "__call" then
+                                callableTypes[item.module .. "." .. item.name] = member
+                            end
+                        end
+                    end
+                end
+            end
             if module then
                 for _, item in ipairs(module.items) do
                     if item.module then
@@ -538,7 +571,6 @@ export function page(settings: Settings?): Page?
     for _, library in ipairs(modules) do
         byModule[library.name] = library
     end
-    local callableTypes: {[string]: extractMod.Member} = {}
     for _, item in ipairs(qualified) do
         local name = item.module as string
         for _, member in ipairs(item.members or {}) do
@@ -571,6 +603,7 @@ export function page(settings: Settings?): Page?
                 end
             end
             item.returns = call.returns
+            item.forms = extractMod.callForms(call.forms)
             item.typeargs = call.typeargs or {}
             for _, entry in ipairs(navigation.globals) do
                 if entry.name == item.name then
@@ -711,6 +744,33 @@ export function merge(modules: {extractMod.Module}, document: Page?): nil
         else
             modules[#modules + 1] = builtin
             byName[builtin.name] = builtin
+        end
+    end
+
+    -- A source descriptor adds methods to an existing builtin type without
+    -- creating another public type or changing the builtin's identity.
+    local descriptors = {["io.FileMethods"] = "io.File"}
+    for _, module in ipairs(modules) do
+        local byPath = {}
+        for _, item in ipairs(module.items) do
+            byPath[item.path] = item
+        end
+        for index = #module.items, 1, -1 do
+            local descriptor = module.items[index]
+            local target = byPath[descriptors[descriptor.path]]
+            if target then
+                local function rebase(values)
+                    for _, member in ipairs(values or {}) do
+                        member.path = target.path .. member.path:sub(#descriptor.path + 1)
+                        rebase(member.members)
+                    end
+                end
+
+                rebase(descriptor.members)
+                target.members = target.members or {}
+                mergeItems(target.members, descriptor.members or {})
+                table.remove(module.items, index)
+            end
         end
     end
 

@@ -29,6 +29,7 @@ export type Param = {
     name: string,
     type: string,
     mode: string?,
+    optional: boolean?,
     text: string
 }
 
@@ -44,6 +45,18 @@ export type TypeArg = {
     text: string
 }
 
+--- One callable form, with its own argument and result contract.
+export type Form = {
+    signature: string,
+    title: string?,
+    text: string,
+    lua: boolean?,
+    params: {Param},
+    returns: {Result},
+    raises: {docblock.Raise},
+    typeargs: {TypeArg}
+}
+
 --- A field, method, nested type, or metamethod of a record, interface, or struct. A
 --- function-typed one carries its own arguments and results, which is what tells a
 --- method apart from a field; a nested type carries its own members recursively,
@@ -56,11 +69,18 @@ export record Member
     path: string
     params: {Param}
     returns: {Result}
+    forms: {Form}?
     raises: {docblock.Raise}
     lua: boolean?
     isFunction: boolean?
+    instanceMethod: boolean?
     isMetamethod: boolean?
     isType: boolean?
+    signature: string?
+    stored: boolean?
+    defaultValue: string?
+    constructionBlocked: boolean?
+    generatedConstructor: boolean?
 
     --- This member is a nested `type` alias, so `type` above holds what it names
     --- rather than what a value of it is, and `generics` holds its parameters.
@@ -97,8 +117,10 @@ export type Item = {
     line: integer,
     members: {Member},
     supertypes: {string}?,
+    constructionBlocked: boolean?,
     params: {Param},
     returns: {Result},
+    forms: {Form}?,
     raises: {docblock.Raise},
     typeargs: {TypeArg},
     annotations: {string}?,
@@ -123,6 +145,31 @@ export type Item = {
         fileDirective: boolean?
     }?
 }
+
+local function rewriteTypes(value: {
+    supertypes: {string}?,
+    params: {Param},
+    returns: {Result},
+    forms: {Form}?
+}, rewrite: function(string): string): nil
+    local supertypes = value.supertypes or {}
+    for index, supertype in ipairs(supertypes) do
+        supertypes[index] = rewrite(supertype)
+    end
+    for _, parts in ipairs({value.params, value.returns}) do
+        for _, part in ipairs(parts) do
+            part.type = rewrite(part.type)
+        end
+    end
+    for _, form in ipairs(value.forms or {}) do
+        form.signature = rewrite(form.signature)
+        for _, parts in ipairs({form.params, form.returns, form.raises}) do
+            for _, part in ipairs(parts) do
+                part.type = rewrite(part.type)
+            end
+        end
+    end
+end
 
 --- A source file, read as its documented declarations.
 export type Module = {
@@ -463,12 +510,8 @@ local function structureSupertypes(stat): {string}?
     return #names > 0 and names or nil
 end
 
--- A structure's signature is its opening line and nothing below it: the modifiers, the
--- name, its generic parameters, the contracts written after `is`, and a `where`
--- refinement. Rendering the whole declaration instead said everything twice, since the
--- page documents every entry under its own heading beneath the block, and it buried
--- the one line naming the type under a screen of reformatted source. The renderers
--- write `...` after this where members follow, so the elision reads as an elision.
+-- Keep the declaration header separate from its documented members so an overview
+-- can identify the type without repeating their definitions.
 local function structureHeader(stat): string
     local parts: {string} = {}
     if stat.modifier then
@@ -519,20 +562,22 @@ local function declaredResults(node): {any}
     return rets
 end
 
-local function functionSignature(stat, name)
+local function functionSignature(stat, name, omitReceiver)
     local body = stat.body
     local params = {}
-    for _, param in ipairs(body and body.params or {}) do
-        local piece
-        if param[1] and param[1].kind == "..." then
-            piece = "..." .. (param.name and param.name.text or "")
-        else
-            piece = (param.modeTok and (param.modeTok.text .. " ") or "") .. (param.name and param.name.text or "?")
+    for index, param in ipairs(body and body.params or {}) do
+        if not (omitReceiver and index == 1 and param.name and param.name.text == "self") then
+            local piece
+            if param[1] and param[1].kind == "..." then
+                piece = "..." .. (param.name and param.name.text or "")
+            else
+                piece = (param.modeTok and (param.modeTok.text .. " ") or "") .. (param.name and param.name.text or "?")
+            end
+            if param.type then
+                piece = piece .. ": " .. syntax(param.type)
+            end
+            params[#params + 1] = piece
         end
-        if param.type then
-            piece = piece .. ": " .. syntax(param.type)
-        end
-        params[#params + 1] = piece
     end
     local returns = {}
     for _, value in ipairs(declaredResults(body)) do
@@ -566,7 +611,8 @@ local function functionSignature(stat, name)
         result = result .. " yields " .. syntax(body.yieldPack) .. " resumes " .. syntax(body.resumePack)
     end
     if #returns > 0 then
-        result = result .. ": " .. table.concat(returns, ", ")
+        local values = table.concat(returns, ", ")
+        result = result .. ": " .. (#returns > 1 and "(" .. values .. ")" or values)
     end
 
     return result
@@ -622,10 +668,9 @@ end
 -- carry the same annotations and document the same way.
 --
 -- An overloaded binding writes an intersection of those nodes rather than one, and it
--- is still a function to whoever calls it. The widest overload speaks for the set: a
--- doc block names every parameter any overload takes, so choosing a narrower one would
--- leave some of them with nowhere to attach. The rendered signature still shows every
--- overload, because that comes from the whole written type.
+-- is still a function to whoever calls it. The widest overload supplies the
+-- established parameter order; callable bindings add the arguments and result
+-- alternatives from the other arms. The full written type supplies the signature.
 local function typeFunction(node)
     if not node then
         return nil
@@ -654,6 +699,20 @@ local function typeFunction(node)
     end
 
     return widest, overloads
+end
+
+-- An explicit annotation wins over an initializer cast. Parentheses around the
+-- initializer do not hide its public contract; an outer cast to any still does.
+local function bindingType(stat)
+    if stat.types and stat.types[1] then
+        return stat.types[1]
+    end
+    local value = stat.exprs and stat.exprs[1]
+    while value and value.kind == "paren" do
+        value = value.expr
+    end
+
+    return value and value.kind == "castExpr" and value.type or nil
 end
 
 --- Returns a callable metamethod's type without its implicit receiver.
@@ -808,6 +867,145 @@ local function typeFunctionDetails(node, info)
     return details
 end
 
+-- An intersection supplies its forms without any documentation tags. A comment
+-- directly on an arm can refine its prose, parameters and results; shared tags
+-- remain defaults for arms that do not override them.
+local function functionForms(node, info): {Form}?
+    local _, overloads = typeFunction(node)
+    if not overloads or #overloads < 2 then
+        return nil
+    end
+    local forms: {Form} = {}
+    for _, fn in ipairs(overloads) do
+        local own = entryDoc(fn)
+        local params = {}
+        for name, text in pairs(info.params) do
+            params[name] = text
+        end
+        for name, text in pairs(own.params) do
+            params[name] = text
+        end
+        local details = typeFunctionDetails(fn, {
+            params = params,
+            returns = #own.returns > 0 and own.returns or info.returns
+        })
+        local typeargs = {}
+        for _, generic in ipairs(fn.generics and fn.generics.names or {}) do
+            typeargs[
+                #typeargs + 1
+            ] = {name = generic.text, text = own.typeargs[generic.text] or info.typeargs[generic.text] or ""}
+        end
+        local leading = 0
+        local token = firstToken(fn)
+        for index = 1, token and token.triviaCount or 0 do
+            leading = leading + #lexer.triviaText(token, index)
+        end
+        forms[
+            #forms + 1
+        ] = {
+            signature = withoutHiddenTerminals(dedent(trim(cst.textOf(fn):sub(leading + 1)))),
+            title = type(own.tags.form) == "string" and own.tags.form or nil,
+            text = own.text,
+            lua = own.tags.lua and true or nil,
+            params = details.params,
+            returns = details.returns,
+            raises = #own.raises > 0 and own.raises or info.raises,
+            typeargs = typeargs
+        }
+    end
+
+    return forms
+end
+
+--- Removes the implicit receiver from every form of a callable namespace.
+export function callForms(forms: {Form}?): {Form}?
+    if not forms then
+        return nil
+    end
+    local result = {}
+    for _, form in ipairs(forms) do
+        local params = {}
+        for index = 2, #form.params do
+            params[#params + 1] = form.params[index]
+        end
+        result[
+            #result + 1
+        ] = {
+            signature = callSignature(form.signature) or form.signature,
+            title = form.title,
+            text = form.text,
+            lua = form.lua,
+            params = params,
+            returns = form.returns,
+            raises = form.raises,
+            typeargs = form.typeargs
+        }
+    end
+
+    return result
+end
+
+-- Keep aggregate details for consumers of the earlier documentation model. The
+-- renderer uses forms so it never combines unrelated argument and result packs.
+local function bindingFunctionDetails(node, info)
+    local widest, overloads = typeFunction(node)
+    if #overloads == 1 then
+        return typeFunctionDetails(widest, info)
+    end
+    local details = {params = {}, returns = {}}
+    local parameterTypes, parameters, arms = {}, {}, {}
+    for index, param in ipairs(typeFunctionDetails(widest, info).params) do
+        local key = (param.mode or "") .. ":" .. (param.name == "?" and tostring(index) or param.name)
+        parameters[key] = param
+        parameterTypes[key] = {}
+        details.params[#details.params + 1] = param
+    end
+    local resultCount = 0
+
+    local function joined(parts)
+        local seen, unique = {}, {}
+        for _, part in ipairs(parts) do
+            if not seen[part] then
+                seen[part] = true
+                unique[#unique + 1] = part
+            end
+        end
+        if #unique == 1 then
+            return unique[1]
+        end
+
+        return "(" .. table.concat(unique, ") | (") .. ")"
+    end
+
+    for _, overload in ipairs(overloads) do
+        local arm = typeFunctionDetails(overload, info)
+        arms[#arms + 1] = arm
+        resultCount = math.max(resultCount, #arm.returns)
+        for index, param in ipairs(arm.params) do
+            local key = (param.mode or "") .. ":" .. (param.name == "?" and tostring(index) or param.name)
+            if not parameters[key] then
+                parameters[key] = param
+                parameterTypes[key] = {}
+                details.params[#details.params + 1] = param
+            end
+            local types = parameterTypes[key]
+            types[#types + 1] = param.type
+        end
+    end
+    for key, param in pairs(parameters) do
+        param.type = joined(parameterTypes[key])
+    end
+    for index = 1, resultCount do
+        local alternatives = {}
+        for _, arm in ipairs(arms) do
+            alternatives[#alternatives + 1] = arm.returns[index] and arm.returns[index].type or "nil"
+        end
+        details.returns[index] = {type = joined(alternatives), text = info.returns[index] or ""}
+    end
+
+    return details
+end
+
 ----------------------------------------------------------------------------
 -- Fields and shapes
 ----------------------------------------------------------------------------
@@ -844,6 +1042,7 @@ local function fieldItem(field, childModuleName, includePrivate)
         item.kind = "function"
         local details = typeFunctionDetails(fn, info)
         item.params, item.returns = details.params, details.returns
+        item.forms = functionForms(field.type, info)
         for _, generic in ipairs(fn.generics and fn.generics.names or {}) do
             item.typeargs[#item.typeargs + 1] = {name = generic.text, text = info.typeargs[generic.text] or "",}
         end
@@ -1017,6 +1216,7 @@ local function shapeModule(name, entries, text, path, blocks, includePrivate, ex
                                 params[#params + 1] = item.params[index]
                             end
                             item.params = params
+                            item.forms = callForms(item.forms)
                         end
                     end
                     items[#items + 1] = item
@@ -1125,12 +1325,23 @@ local function setReceiver(details, body, receiver)
     end
 end
 
+local function constructionBlocked(entries): boolean
+    for _, entry in ipairs(entries or {}) do
+        if (entry.kind == "fieldDecl" or entry.kind == "constructorDecl") and hiddenEntry(entry, false) then
+            return true
+        end
+    end
+
+    return false
+end
+
 local function buildMembers(
     entries: {any}?,
     basePath: string,
     includePrivate: boolean,
     fieldTextOverrides: {[string]: string}?,
-    receiver: string?
+    receiver: string?,
+    implicitReceiver: boolean?
 ): {Member}
     local members = {}
     for _, entry in ipairs(entries or {}) do
@@ -1140,7 +1351,7 @@ local function buildMembers(
             and entryVisible
         then
             local fieldInfo = entryInfo
-            local member = new Member(
+            local member = Member(
                 name = entry.name.text,
                 type = syntax(entry.type),
                 text = fieldInfo.text ~= "" and fieldInfo.text
@@ -1151,12 +1362,15 @@ local function buildMembers(
                 returns = {},
                 raises = fieldInfo.raises,
                 annotations = annotationsOf(entry),
-                comptimeKind = comptimeKind(entry.type)
+                comptimeKind = comptimeKind(entry.type),
+                stored = entry.kind == "fieldDecl" or nil,
+                defaultValue = entry.defaultValue and syntax(entry.defaultValue) or nil
             )
             local fieldFunction = typeFunction(entry.type)
             if fieldFunction then
                 local details = typeFunctionDetails(fieldFunction, fieldInfo)
                 member.params, member.returns = details.params, details.returns
+                member.forms = functionForms(entry.type, fieldInfo)
                 member.isFunction = true
                 member.typeargs = {}
                 for _, generic in ipairs(fieldFunction.generics and fieldFunction.generics.names or {}) do
@@ -1168,6 +1382,11 @@ local function buildMembers(
                 if ownerModule and surfaces.rotates(ownerModule, nominal, entry.name.text) then
                     member.type = rotatedTypeText(entry.type)
                     member.params = rotatedParams(member.params)
+                    local _, overloads = typeFunction(entry.type)
+                    for index, form in ipairs(member.forms or {}) do
+                        form.signature = withoutHiddenTerminals(rotatedFunctionText(overloads[index]))
+                        form.params = rotatedParams(form.params)
+                    end
                 end
             end
             if entry.kind == "metamethodDecl" then
@@ -1180,7 +1399,7 @@ local function buildMembers(
             setReceiver(details, entry.body, receiver)
             members[
                 #members + 1
-            ] = new Member(
+            ] = Member(
                 name = entry.name.text,
                 type = functionSignature(entry, entry.name.text),
                 text = methodInfo.text,
@@ -1189,25 +1408,44 @@ local function buildMembers(
                 returns = details.returns,
                 raises = methodInfo.raises,
                 isFunction = true,
+                instanceMethod = implicitReceiver
+                or entry.body.params[1] ~= nil
+                and entry.body.params[1].name ~= nil
+                and entry.body.params[1].name.text == "self"
+                or false,
                 annotations = annotationsOf(entry)
             )
         elseif entry.kind == "constructorDecl" and entryVisible then
             -- A constructor has no name of its own, because a caller does not write
-            -- one: `new T(...)` is the spelling. It documents under the keyword, so
+            -- one: `T(...)` constructs it. It documents under the keyword, so
             -- what it says about its parameters has somewhere to be read.
             local constructorInfo = entryInfo
             local details = functionDetails(entry, constructorInfo)
-            setReceiver(details, entry.body, receiver)
+            if details.params[1] and details.params[1].name == "self" then
+                table.remove(details.params, 1)
+            end
+            local signature = functionSignature(entry, "constructor", true)
+            if #details.returns == 0 or #details.returns == 1 and details.returns[1].type == "nil" then
+                signature = signature:gsub(":%s*nil%s*$", "") .. ": " .. (receiver or basePath)
+                details.returns = {
+                    {type = receiver or basePath, text = constructorInfo.returns[1] or "the constructed instance"}
+                }
+            end
+            local typeargs = {}
+            for _, generic in ipairs(entry.body.generics and entry.body.generics.names or {}) do
+                typeargs[#typeargs + 1] = {name = generic.text, text = constructorInfo.typeargs[generic.text] or ""}
+            end
             members[
                 #members + 1
-            ] = new Member(
+            ] = Member(
                 name = "constructor",
-                type = functionSignature(entry, "constructor"),
+                type = signature,
                 text = constructorInfo.text,
                 path = basePath .. ".constructor",
                 params = details.params,
                 returns = details.returns,
                 raises = constructorInfo.raises,
+                typeargs = typeargs,
                 isFunction = true,
                 annotations = annotationsOf(entry)
             )
@@ -1219,7 +1457,7 @@ local function buildMembers(
             end
             members[
                 #members + 1
-            ] = new Member(
+            ] = Member(
                 name = entry.name.text,
                 type = entry.declKind or "record",
                 text = entryInfo.text,
@@ -1228,14 +1466,17 @@ local function buildMembers(
                 returns = {},
                 raises = {},
                 isType = true,
+                signature = structureHeader(entry),
                 supertypes = structureSupertypes(entry),
+                constructionBlocked = constructionBlocked(entry.entries),
                 typeargs = typeargs,
                 members = buildMembers(
                     entry.entries,
                     nestedPath,
                     includePrivate,
                     entryInfo.fields,
-                    receiverName(nestedPath, entry.generics)
+                    receiverName(nestedPath, entry.generics),
+                    entry.declKind == "struct"
                 ),
                 annotations = annotationsOf(entry)
             )
@@ -1246,7 +1487,7 @@ local function buildMembers(
             -- says what the alias is for.
             members[
                 #members + 1
-            ] = new Member(
+            ] = Member(
                 name = entry.name.text,
                 type = syntax(entry.value),
                 text = entryInfo.text,
@@ -1261,7 +1502,7 @@ local function buildMembers(
         elseif entry.name and entryVisible then
             members[
                 #members + 1
-            ] = new Member(
+            ] = Member(
                 name = entry.name.text,
                 type = entry.kind,
                 text = entryInfo.text,
@@ -1451,14 +1692,15 @@ declarationItem = function(
         end
         name, kind = publishedAs or stat.names[1].text, "variable"
         signature = (stat.isConst and "const " or "local ") .. name
-        if stat.types[1] then
-            signature = signature .. ": " .. syntax(stat.types[1])
+        local declared = bindingType(stat)
+        if declared then
+            signature = signature .. ": " .. syntax(declared)
         end
-        if typeFunction(stat.types[1]) then
+        if typeFunction(declared) then
             kind = "function"
             public = public or (published or {})[stat.names[1].text] == true
         end
-        itemComptimeKind = comptimeKind(stat.types[1])
+        itemComptimeKind = comptimeKind(bindingType(stat))
     elseif stat.kind == "assignStmt" and stat.isConst and #stat.targets == 1 and #stat.exprs == 1 and moduleLocal then
         local owner, member = syntax(stat.targets[1]):match("^([%w_]+)%.([%w_]+)$")
         if owner ~= moduleLocal then
@@ -1506,6 +1748,7 @@ declarationItem = function(
         kind = kind,
         signature = signature,
         supertypes = stat.kind == "recordDecl" and structureSupertypes(stat) or nil,
+        constructionBlocked = stat.kind == "recordDecl" and constructionBlocked(stat.entries) or nil,
         aliasSource = stat.kind == "typeAlias" and syntax(stat.value)
         or (stat.kind == "localStmt" or stat.kind == "assignStmt")
         and stat.exprs
@@ -1549,7 +1792,7 @@ declarationItem = function(
         end
         item.annotation = {arguments = "typed", targets = targets}
     end
-    local declaredFunction = stat.kind == "localStmt" and typeFunction(stat.types and stat.types[1])
+    local declaredFunction = stat.kind == "localStmt" and typeFunction(bindingType(stat))
         or stat.kind == "typeAlias" and typeFunction(stat.value)
         or nil
     if stat.kind == "typeAlias" then
@@ -1565,8 +1808,10 @@ declarationItem = function(
         local details = functionDetails(stat, info)
         item.params, item.returns = details.params, details.returns
     elseif declaredFunction then
-        local details = typeFunctionDetails(declaredFunction, info)
+        local details = stat.kind == "localStmt" and bindingFunctionDetails(bindingType(stat), info)
+            or typeFunctionDetails(declaredFunction, info)
         item.params, item.returns = details.params, details.returns
+        item.forms = functionForms(stat.kind == "localStmt" and bindingType(stat) or stat.value, info)
     elseif stat.kind == "typeAlias" and stat.value and stat.value.kind == "tshape" then
         item.members = buildMembers(stat.value.fields, item.path, includePrivate, info.fields)
     elseif stat.kind == "recordDecl" or stat.kind == "cdefStruct" then
@@ -1575,7 +1820,8 @@ declarationItem = function(
             item.path,
             includePrivate,
             info.fields,
-            receiverName(item.path, stat.generics)
+            receiverName(item.path, stat.generics),
+            stat.declKind == "struct"
         )
     end
     if item.annotation then
@@ -1693,15 +1939,19 @@ local function foldMethods(
             else
                 owner.members[
                     #owner.members + 1
-                ] = new Member(
+                ] = Member(
                     name = name,
                     type = item.signature,
                     text = item.doc.text,
                     path = owner.path .. "." .. name,
                     params = item.params,
                     returns = item.returns,
+                    forms = item.forms,
                     raises = item.raises,
                     isFunction = true,
+                    instanceMethod = item.kind == "method"
+                    or item.params[1] ~= nil and item.params[1].name == "self"
+                    or false,
                     annotations = item.annotations,
                     comptimeKind = item.comptimeKind
                 )
@@ -2167,7 +2417,7 @@ export function extract(source: string, path: string?, name: string, opts: Optio
                     and declaration.name.text
                     or declaration.kind == "localStmt"
                     and #declaration.names == 1
-                    and typeFunction(declaration.types[1])
+                    and typeFunction(bindingType(declaration))
                     and declaration.names[1].text
                     or nil
                 local aliases = localName and publicAliases[localName] or nil
@@ -2336,16 +2586,7 @@ export function extract(source: string, path: string?, name: string, opts: Optio
             for _, value in ipairs(values) do
                 value.path = publicName(value.path)
                 value.type = publicName(value.type)
-                local supertypes = value.supertypes or {}
-                for index, supertype in ipairs(supertypes) do
-                    supertypes[index] = publicName(supertype)
-                end
-                for _, param in ipairs(value.params) do
-                    param.type = publicName(param.type)
-                end
-                for _, returned in ipairs(value.returns) do
-                    returned.type = publicName(returned.type)
-                end
+                rewriteTypes(value, publicName)
                 members(value.members or {})
             end
         end
@@ -2356,16 +2597,7 @@ export function extract(source: string, path: string?, name: string, opts: Optio
                 item.path = name .. "." .. item.name
             end
             item.signature = publicName(item.signature)
-            local supertypes = item.supertypes or {}
-            for index, supertype in ipairs(supertypes) do
-                supertypes[index] = publicName(supertype)
-            end
-            for _, param in ipairs(item.params) do
-                param.type = publicName(param.type)
-            end
-            for _, returned in ipairs(item.returns) do
-                returned.type = publicName(returned.type)
-            end
+            rewriteTypes(item, publicName)
             members(item.members)
         end
     end
@@ -2391,16 +2623,7 @@ export function extract(source: string, path: string?, name: string, opts: Optio
                 for _, value in ipairs(values) do
                     value.path = publicName(value.path)
                     value.type = publicName(value.type)
-                    local supertypes = value.supertypes or {}
-                    for index, supertype in ipairs(supertypes) do
-                        supertypes[index] = publicName(supertype)
-                    end
-                    for _, param in ipairs(value.params or {}) do
-                        param.type = publicName(param.type)
-                    end
-                    for _, returned in ipairs(value.returns or {}) do
-                        returned.type = publicName(returned.type)
-                    end
+                    rewriteTypes(value, publicName)
                     members(value.members or {})
                 end
             end
@@ -2411,16 +2634,7 @@ export function extract(source: string, path: string?, name: string, opts: Optio
                 end
                 item.path = namespace .. "." .. item.name
                 item.signature = publicName(item.signature)
-                local supertypes = item.supertypes or {}
-                for index, supertype in ipairs(supertypes) do
-                    supertypes[index] = publicName(supertype)
-                end
-                for _, param in ipairs(item.params) do
-                    param.type = publicName(param.type)
-                end
-                for _, returned in ipairs(item.returns) do
-                    returned.type = publicName(returned.type)
-                end
+                rewriteTypes(item, publicName)
                 members(item.members)
             end
             extraModules[#extraModules + 1] = projection

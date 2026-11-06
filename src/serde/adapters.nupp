@@ -34,19 +34,19 @@ local record Draft is own.Closeable
 end
 local record Construction is adapters.Construction<Book, Draft>
     function begin(self): Draft
-        return new Draft()
+        return Draft()
     end
     function finish(self, takes draft: Draft): Book
         local owned: Draft = draft
-        local book = new Book(title = assert(owned.title, "title is required"), tags = owned.tags or {})
+        local book = Book(title = assert(owned.title, "title is required"), tags = owned.tags or {})
         owned:close()
         return book
     end
 end
 
-local title = new Member(name = "title")
-local tags = new Member(name = "tags")
-local book = adapters.structure(new Member(name = "Book"), {
+local title = Member(name = "title")
+local tags = Member(name = "tags")
+local book = adapters.structure(Member(name = "Book"), {
     adapters.field<Book, Draft, string, Member>(
         title,
         function(borrows value: Book): string borrows (value)
@@ -67,14 +67,14 @@ local book = adapters.structure(new Member(name = "Book"), {
         function(exclusive draft: Draft, value: {string}): nil
             draft.tags = value
         end,
-        adapters.list(tags, new Member(name = "tag"), adapters.text(new Member(name = "tag"))),
+        adapters.list(tags, Member(name = "tag"), adapters.text(Member(name = "tag"))),
         false,
         true
     )
-}, new Construction())
-local books: serde.Binding<Book> = new serde.Bound<Book, Member>(adapter = book)
+}, Construction())
+local books: serde.Binding<Book> = serde.Bound<Book, Member>(adapter = book)
 
-local bytes = plain:encode(books, new Book(title = "Dune", tags = {"sf"}))
+local bytes = plain:encode(books, Book(title = "Dune", tags = {"sf"}))
 assert(bytes == '{"title":"Dune","tags":["sf"]}')
 assert(plain:decode(books, '{"title":"Emma"}').title == "Emma")
 ```
@@ -168,8 +168,8 @@ export const atom = scalars.atom
 ---     @readonly name: string
 ---     @readonly index: integer?
 --- end
---- local payload: serde.Binding<document.Document> = new serde.Bound<document.Document, Member>(
----     adapter = adapters.document(new Member(name = "payload"), document.adapter())
+--- local payload: serde.Binding<document.Document> = serde.Bound<document.Document, Member>(
+---     adapter = adapters.document(Member(name = "payload"), document.adapter())
 --- )
 --- assert(assert(plain:decode(payload, '{"any":[1,true]}'):get("any")):size() == 2)
 --- ```
@@ -197,14 +197,14 @@ export const document = scalars.document
 ---         return value.degrees
 ---     end
 ---     function restore(self, value: number): Celsius
----         return new Celsius(degrees = value)
+---         return Celsius(degrees = value)
 ---     end
 --- end
---- local member = new Member(name = "temperature")
---- local temperature: serde.Binding<Celsius> = new serde.Bound<Celsius, Member>(
----     adapter = adapters.convert(adapters.float(member, 64), new Degrees())
+--- local member = Member(name = "temperature")
+--- local temperature: serde.Binding<Celsius> = serde.Bound<Celsius, Member>(
+---     adapter = adapters.convert(adapters.float(member, 64), Degrees())
 --- )
---- assert(plain:encode(temperature, new Celsius(degrees = 21.5)) == "21.5")
+--- assert(plain:encode(temperature, Celsius(degrees = 21.5)) == "21.5")
 --- ```
 ---
 --- @param base the adapter for the projected value
@@ -320,9 +320,9 @@ export const inspect = structures.inspect
 ---     @readonly name: string
 ---     @readonly index: integer?
 --- end
---- local title = new Member(name = "title")
---- local pages = new Member(name = "pages")
---- local layout = adapters.layout(new Member(name = "Book"))
+--- local title = Member(name = "title")
+--- local pages = Member(name = "pages")
+--- local layout = adapters.layout(Member(name = "Book"))
 --- local titleSlot = layout:add(title, adapters.text(title), true)
 --- local pagesSlot = layout:adddefault(pages, adapters.float(pages, 64), function(): number return 0 end)
 --- local books = layout:binding()

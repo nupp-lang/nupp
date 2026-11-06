@@ -91,7 +91,7 @@ export function install(c: state.Checker): Ops
         end
         -- Registered before the call is inferred, so the type the verdict falls back
         -- on is read at the sweep, once the checker has selected what runs.
-        candidates[#candidates + 1] = {call = call, code = "NUPP2701", construction = call.isNew == true}
+        candidates[#candidates + 1] = {call = call, code = "NUPP2701"}
     end
 
     -- The type the verdict falls back on when no summary answers. The callee's own
@@ -458,7 +458,7 @@ export function install(c: state.Checker): Ops
             end
             local info = queries and queries.callee and queries.callee(call) or nil
             local mayYield, why = nil, nil
-            if candidate.construction and not call.constructorEntry then
+            if call.construction and not call.constructorEntry then
                 -- A construction with no declared constructor runs no code of its
                 -- own: the values are the arguments, judged where they were written.
                 mayYield = false

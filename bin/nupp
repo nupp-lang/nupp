@@ -216,7 +216,7 @@ if [ -z "${NUPP_VM_CLI_IMAGE:-}" ] && [ -e "$ROOT/.nupp/vm-cli/current" ]; then
     NUPP_VM_CLI_IMAGE="$VM_PACKAGE/compiler.image"
     NUPP_VM_BINARY="$VM_PACKAGE/runtime"
     # The interpreter that runtime computes with, which keys what its emits keep
-    # (`fingerprint.runtimeIdentity`); a generation installed before it was
+    # (`fingerprint.runtimeidentity`); a generation installed before it was
     # recorded names none.
     NUPP_VM_RUNTIME_ID=
     [ -f "$VM_PACKAGE/runtime-identity" ] && read -r NUPP_VM_RUNTIME_ID < "$VM_PACKAGE/runtime-identity"

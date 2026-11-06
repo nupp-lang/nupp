@@ -36,8 +36,8 @@ end
 
 export function run(): integer
     assert(classify(1) == 10 and classify(2) == 10 and classify(3) == 30 and classify(4) == 40)
-    assert(capture(new Item(21))() == 42)
-    assert(capture(new Item(-1))() == 0 and capture("text")() == -1)
+    assert(capture(Item(21))() == 42)
+    assert(capture(Item(-1))() == 0 and capture("text")() == -1)
     local calls: integer = 0
 
     local function selector(): integer
@@ -61,7 +61,7 @@ export function run(): integer
     end
 
     local function open(): affine(Item, close)
-        return new Item(7)
+        return Item(7)
     end
 
     local answer = do

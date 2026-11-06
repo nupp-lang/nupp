@@ -2,6 +2,8 @@
 
 module nupp.codec.json.aot
 
+local writerprotocol = require("nupp.codec.json.internal.writerprotocol")
+
 local numberSyntax = require("nupp.codec.json.number")
 
 --[[
@@ -331,21 +333,7 @@ function json.isArray(value: any): boolean
 end
 
 function json.asArray(value: any): any
-    if type(value) ~= "table" then
-        error("json.asarray needs a table", 2)
-    end
-    local count: integer = 0
-    local highest: integer = 0
-    for key in pairs(value) do
-        if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then
-            error("an array-marked table must contain consecutive positive indexes", 2)
-        end
-        count = count + 1
-        highest = math.max(highest, assert(math.tointeger(key)))
-    end
-    if count ~= highest then
-        error("an array-marked table must contain consecutive positive indexes", 2)
-    end
+    writerprotocol.array(value)
 
     return setmetatable(value, ARRAY_MARKER)
 end
@@ -699,34 +687,6 @@ function json.decodeSerde(schema: any, text: string): (any?, string?)
     return value, nil
 end
 
-function json.decodeSerdeBuffer(schema: any, exclusive input: Buffer): (any?, string?)
-    local ok, value, code, position = pcall(
-        serdeDecoder.decode as any,
-        input,
-        nil,
-        ARRAY_MARKER,
-        OBJECT_MARKER,
-        schema.shape,
-        ARRAY_SHAPE,
-        SERDE_MARKERS
-    )
-    if not ok then
-        if type(value) ~= "string" then
-            error(value, 0)
-        end
-        error(withoutPosition(value), 0)
-    end
-    if code ~= 0 then
-        failDecode(code, position, code == 1 and input:tostring() or "")
-    end
-
-    if schema.finish ~= nil then
-        value = schema.finish(value)
-    end
-
-    return value, nil
-end
-
 function json.encoded(value: any, nullvalue: any?): any
     return setmetatable({bytes = json.encode(value, nullvalue)}, ENCODED_VALUE)
 end
@@ -792,39 +752,15 @@ function json.newWriter(exclusive out: Buffer, nullvalue: any?): any
         end
     end
 
-    local function prepare(): nil
-        if closed then
-            error("writer is already closed", 2)
-        end
-        if #stack == 0 then
-            if root then
-                error("writer already has a root value", 2)
-            end
-            root = true
-            return
-        end
-        local frame = stack[#stack]
-        if frame.kind == "array" then
-            if not frame.first then
-                add(",")
-            end
-            frame.first = false
-        elseif not frame.value then
-            error("an object value must follow key()", 2)
-        else
-            frame.value = false
-        end
-    end
-
     function writer:startarray(): any
-        prepare();
+        root = writerprotocol.prepare(stack, root, closed, add);
         add("[");
         stack[#stack + 1] = {kind = "array", first = true};
         return self
     end
 
     function writer:startobject(): any
-        prepare();
+        root = writerprotocol.prepare(stack, root, closed, add);
         add("{");
         stack[#stack + 1] = {kind = "object", first = true, value = false};
         return self
@@ -848,13 +784,13 @@ function json.newWriter(exclusive out: Buffer, nullvalue: any?): any
 
     function writer:write(value: any): any
         local encoded = encodedBytes(value) or json.encode(value, nullvalue)
-        prepare();
+        root = writerprotocol.prepare(stack, root, closed, add);
         add(encoded);
         return self
     end
 
     function writer:null(): any
-        prepare();
+        root = writerprotocol.prepare(stack, root, closed, add);
         add("null");
         return self
     end
@@ -943,7 +879,6 @@ local checked: contracts.Provider = {
     EMPTY_OBJECT = json.EMPTY_OBJECT,
     compileserde = json.compileSerde,
     decodeserde = json.decodeSerde,
-    decodeserdebuffer = json.decodeSerdeBuffer,
 }
 
 export = checked

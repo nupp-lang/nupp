@@ -34,5 +34,5 @@ function TableArena:record(index: integer): (integer, integer, integer, integer,
 end
 
 export function new(source: string): Arena
-    return new TableArena(source = source, count = 0, words = {}) as Arena
+    return TableArena(source = source, count = 0, words = {}) as Arena
 end

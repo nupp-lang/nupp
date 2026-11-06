@@ -229,9 +229,3 @@ foreground until it is stopped, exactly as running that command directly would.
 Tasks do not depend on other tasks. The one ordering a task can express is
 `build`, and anything more is the command's own business, which is what a shell
 or a script written in Nupp is for.
-
-::: seealso
-- [cli.md](../../reference/cli.md#task) for every option `nupp task` takes
-- [build.md](build.md) for the target kinds `build` can name
-- [testing.md](testing.md) for `test`, the one command that always builds
-:::

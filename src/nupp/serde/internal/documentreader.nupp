@@ -152,7 +152,7 @@ export record Reader is core.DocumentReader, own.Closeable
     function readdocument<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
         self:consume("document")
         local value = self.value:document()
-        local child = new Reader(value = value, source = value:context() or self.source, used = false, expired = false)
+        local child = Reader(value = value, source = value:context() or self.source, used = false, expired = false)
         local result = adapter:readcontents(child)
         if not child.used then
             error(publication.failure(adapter, result, "document adapter did not consume its contents"), 0)
@@ -174,12 +174,7 @@ export record Reader is core.DocumentReader, own.Closeable
         self:consume(kind)
         for index = 1, self.value:size() do
             local value = self.value:at(index)
-            local child = new Reader(
-                value = value,
-                source = value:context() or self.source,
-                used = false,
-                expired = false
-            )
+            local child = Reader(value = value, source = value:context() or self.source, used = false, expired = false)
             consumer:apply(state, index, child)
             assert2(child.used, "document callback did not consume its value")
         end
@@ -219,12 +214,7 @@ export record Reader is core.DocumentReader, own.Closeable
         for index = 1, self.value:size() do
             local field = self.value:field(index)
             local value = field.value
-            local child = new Reader(
-                value = value,
-                source = value:context() or self.source,
-                used = false,
-                expired = false
-            )
+            local child = Reader(value = value, source = value:context() or self.source, used = false, expired = false)
             consumer:apply(state, field.name, child)
             assert2(child.used, "document callback did not consume its value")
         end
@@ -262,13 +252,13 @@ export record Reader is core.DocumentReader, own.Closeable
         self:consume("map")
         for index = 1, self.value:size() do
             local entry = self.value:entry(index)
-            local key = new Reader(
+            local key = Reader(
                 value = entry.key,
                 source = entry.key:context() or self.source,
                 used = false,
                 expired = false
             )
-            local value = new Reader(
+            local value = Reader(
                 value = entry.value,
                 source = entry.value:context() or self.source,
                 used = false,
@@ -281,7 +271,7 @@ export record Reader is core.DocumentReader, own.Closeable
 end
 
 export function reader(value: documents.Document): Reader
-    return new Reader(value = value, source = value:context(), used = false, expired = false)
+    return Reader(value = value, source = value:context(), used = false, expired = false)
 end
 
 export function snapshot(value: documents.Document): documents.Document

@@ -19,8 +19,8 @@ local coroutinepack = taggedcalls.coroutinepack
 local coroutinepacked = taggedcalls.coroutinepacked
 local defaultConstant = taggedcalls.defaultConstant
 local fieldSlot = taggedvalues.fieldSlot
-local fieldsOnly = taggedstatements.fieldsOnly
 local interfacetype = taggedvalues.interfacetype
+local keyedByName = taggedvalues.keyedByName
 local invoke = taggedcalls.invoke
 local invokeMethod = taggedcalls.invokeMethod
 local invokeProtected = taggedcalls.invokeProtected
@@ -176,7 +176,12 @@ end
 
 function tagged.writeBinding(ctx: any, node: any, key: any, previous: integer, value: integer): integer
     local b = binding(ctx, key)
-    need(not b.definition.constant or node.kind == "localFuncStmt", "assignment to immutable declaration")
+    -- A function statement fills the cell made for it before its closure, a
+    -- recursive local or a hoisted export.
+    need(
+        not b.definition.constant or node.kind == "localFuncStmt" or node.kind == "funcStmt",
+        "assignment to immutable declaration"
+    )
     if b.storage == "cell" then
         ctx.emit(node, "SetCell", {previous, value}, nil)
         return previous
@@ -280,8 +285,9 @@ function tagged.erasedStatement(ctx: any, stat: any): nil
                 -- holds whatever fulfills it.
                 or entry.kind == "metamethodDecl"
                 -- A nested type declares a type only, and so does a nested
-                -- record of fields alone, built where it is constructed.
-                or entry.kind == "typeAlias" or entry.kind == "recordDecl" and fieldsOnly(entry),
+                -- record of fields alone, built where it is constructed. One
+                -- with methods holds a table of its own (`recordValue`).
+                or entry.kind == "typeAlias" or entry.kind == "recordDecl",
                 "unsupported record entry: " .. tostring(entry.kind) .. " in " .. tostring(stat.name and stat.name.text)
             )
         end
@@ -583,22 +589,7 @@ function tagged.forVersion(version: integer): any
                 return ctx.emit(node, "K", {pool(ctx, "int64", "-9223372036854775808")}, "tagged") as integer
             end
             local slot = fieldSlot(ctx, node.obj.inferredType, node.name and node.name.text)
-            -- A field of a plain table is its string key, and so is one of a
-            -- record's name (`R.f`), which holds the table of its methods.
-            local tag = typeKind(node.obj.inferredType)
-            local plain = slot == nil
-                and (
-                    tag == "table"
-                    or tag == "map"
-                    or tag == "array"
-                    or tag == "shape"
-                    or tag == "typeobject"
-                    or tag == "any"
-                    or tag == "typevar"
-                    or interfacetype(node.obj.inferredType)
-                    or recordOrigin(node.obj.inferredType) ~= nil
-                )
-                and node.name ~= nil
+            local plain = slot == nil and keyedByName(node.obj.inferredType) and node.name ~= nil
             if slot == nil and not plain then
                 return tagged.constant(ctx, node, expected)
             end
@@ -614,21 +605,8 @@ function tagged.forVersion(version: integer): any
         profile.assignmentTarget = function(ctx: any, node: any, rhs: any): any
             if node.kind == "dotIndex" then
                 local slot = fieldSlot(ctx, node.obj.inferredType, node.name and node.name.text)
-                local tag = typeKind(node.obj.inferredType)
                 -- `R.f = ...` writes the table a record's name holds.
-                local plain = slot == nil
-                    and (
-                        tag == "table"
-                        or tag == "map"
-                        or tag == "array"
-                        or tag == "shape"
-                        or tag == "typeobject"
-                        or tag == "any"
-                        or tag == "typevar"
-                        or interfacetype(node.obj.inferredType)
-                        or recordOrigin(node.obj.inferredType) ~= nil
-                    )
-                    and node.name ~= nil
+                local plain = slot == nil and keyedByName(node.obj.inferredType) and node.name ~= nil
                 need(slot ~= nil or plain, "only record and table field assignment is admitted")
                 local object = ctx.expression(node.obj, "tagged")
                 if object == nil then
@@ -987,6 +965,13 @@ function tagged.forVersion(version: integer): any
                     local key = ctx.emit(entry, "K", {pool(ctx, "str", name)}, "tagged")
                     ctx.emit(entry, "SetIdx", {ctx.readHeld(held), key, ctx.readHeld(closure)}, nil)
                     ctx.release(closure)
+                elseif entry.kind == "recordDecl" and entry.name and ctx.bound(entry.name.definition) then
+                    -- A nested record with methods was made first; its table
+                    -- is reached through the declaration's, as `R.Nested`.
+                    local nested = ctx.hold(ctx.expression({kind = "name", token = entry.name, entry.name}, "tagged"))
+                    local key = ctx.emit(entry, "K", {pool(ctx, "str", entry.name.text)}, "tagged")
+                    ctx.emit(entry, "SetIdx", {ctx.readHeld(held), key, ctx.readHeld(nested)}, nil)
+                    ctx.release(nested)
                 end
             end
             local value = ctx.readHeld(held)
@@ -1452,9 +1437,10 @@ function tagged.forVersion(version: integer): any
                 end
                 return landed(ctx, node, ctx.emit(node, "LibCall", operands, "tagged")) as integer
             elseif library == "collectgarbage" then
-                -- collectgarbage(opt, arg): without an option, "collect".
+                -- collectgarbage(opt, ...): without an option, "collect";
+                -- "param" takes a name and a value.
                 local args = node.args.exprs or {}
-                need(#args <= 2, "collectgarbage takes an option and its argument")
+                need(#args <= 3, "collectgarbage takes an option and two arguments")
                 if #args == 0 then
                     local none = ctx.emit(node, "Nil", {}, "tagged")
                     return landed(

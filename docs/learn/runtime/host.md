@@ -115,7 +115,7 @@ local struct PointerMove
     y: number
 end
 
-local input: events.MessageBus<integer> = events.newbus()
+local input: events.MessageBus<integer> = events.MessageBus()
 input:observe(1, PointerMove, |move| -> print(move.x, move.y), "cursor")
 local route = host.route("app.pointer.move", PointerMove, input, 1, "latest")
 
@@ -130,8 +130,3 @@ the newest up to its limit and counts what it drops (`route:dropped()`). The
 host applies an inbound route's policy before the messages cross, so what a
 route would drop never costs the program anything. An inbound message carries
 scalars and strings, which is what an event's fields hold.
-
-::: seealso
-- [](os.host) for the full API
-- [suspension.md](concurrency/suspension.md) for what a wait does under a handler
-:::

@@ -87,7 +87,7 @@ package.preload.testjson = package.preload.testjson or function()
         asObject = native.asobject,
         isArray = native.isarray,
         encode = native.encodevalue,
-        newWriter = native.newwriter,
+        newWriter = native.Writer.of,
     }
 
     -- The facade answers a reason now; the runner's callers want a raise.
@@ -311,14 +311,14 @@ local function cleanupTempNames()
     if #remaining == 0 then
         return
     end
-    local loaded, files = pcall(require, "io.files")
+    local loaded, files = pcall(require, "io.internal.files")
     if not loaded then
         return
     end
     for _, path in ipairs(remaining) do
         pcall(function()
             if files.exists(path) then
-                files.remove(path, true)
+                os.remove(path, true)
             end
         end)
     end
@@ -1715,21 +1715,21 @@ local function readJson(path)
 end
 
 local function fixtureManifest(root)
-    local files = require("io.files")
+    local files = require("io.internal.files")
     local manifest = {}
 
     local function walk(directory, prefix)
-        for _, entry in ipairs(files.list(directory) or {}) do
-            local relative = prefix == "" and entry.name or prefix .. "/" .. entry.name
-            local path = directory .. "/" .. entry.name
+        for name, kind in files.list(directory) or function() end do
+            local relative = prefix == "" and name or prefix .. "/" .. name
+            local path = directory .. "/" .. name
             if relative ~= ".nupp-fixture.json" then
-                if entry.kind == "directory" then
+                if kind == "directory" then
                     manifest[#manifest + 1] = {path = relative, kind = "directory"}
                     local ok, problem = walk(path, relative)
                     if not ok then
                         return nil, problem
                     end
-                elseif entry.kind == "file" then
+                elseif kind == "file" then
                     local file, problem = io.open(path, "rb")
                     if not file then
                         return nil, tostring(problem)
@@ -1845,7 +1845,7 @@ local function resolveFixture(key, produce)
         error("content-addressed fixtures require exclusive file creation on this runtime", 2)
     end
 
-    local files = require("io.files")
+    local files = require("io.internal.files")
     local made, makeProblem = files.mkdir(fixtureRoot)
     if not made then
         error("cannot create fixture store: " .. tostring(makeProblem), 2)
@@ -1878,20 +1878,20 @@ local function resolveFixture(key, produce)
             return published, cached.value, true
         elseif files.exists(published) then
             local quarantine = fixtureRoot .. "/." .. slot .. ".corrupt-" .. shardSalt .. "-" .. fixtureSerial
-            files.remove(quarantine, true)
-            local quarantined, quarantineProblem = files.rename(published, quarantine)
+            os.remove(quarantine, true)
+            local quarantined, quarantineProblem = os.rename(published, quarantine)
             if not quarantined then
                 os.remove(lock)
                 error("cannot quarantine corrupt fixture " .. key .. ": " .. tostring(quarantineProblem), 2)
             end
-            local removed, removeProblem = files.remove(quarantine, true)
+            local removed, removeProblem = os.remove(quarantine, true)
             if not removed then
                 os.remove(lock)
                 error("cannot remove corrupt fixture " .. key .. ": " .. tostring(removeProblem), 2)
             end
         end
         local temporary = fixtureRoot .. "/." .. slot .. ".tmp-" .. shardSalt .. "-" .. fixtureSerial
-        files.remove(temporary, true)
+        os.remove(temporary, true)
         local prepared, prepareProblem = files.mkdir(temporary)
         if not prepared then
             os.remove(lock)
@@ -1916,17 +1916,17 @@ local function resolveFixture(key, produce)
             end
         end
         if ok then
-            local moved, moveProblem = files.rename(temporary, published)
+            local moved, moveProblem = os.rename(temporary, published)
             os.remove(lock)
             if not moved then
-                files.remove(temporary, true)
+                os.remove(temporary, true)
                 error("cannot publish fixture " .. key .. ": " .. tostring(moveProblem), 2)
             end
 
             return published, value, false
         end
 
-        files.remove(temporary, true)
+        os.remove(temporary, true)
         local failureWritten, failureProblem = pcall(
             writeText,
             failure,
@@ -1975,8 +1975,8 @@ local function resolveFixture(key, produce)
         elseif holderExited(stamp) then
             fixtureSerial = fixtureSerial + 1
             local claimed = lock .. ".dead-" .. shardSalt .. "-" .. fixtureSerial
-            if files.rename(lock, claimed) then
-                files.remove(claimed)
+            if os.rename(lock, claimed) then
+                os.remove(claimed)
             end
             return resolveFixture(key, produce)
         end
@@ -2015,25 +2015,25 @@ end
 -- producer alone however long it has been working.
 if not queueDir and #shard == 0 then
     pcall(function()
-        local files = require("io.files")
-        for _, entry in ipairs(files.list(fixtureRoot) or {}) do
-            if entry.name:match("%.failed%.json$") then
-                files.remove(fixtureRoot .. "/" .. entry.name)
-            elseif entry.name:match("%.lock$") then
-                local path = fixtureRoot .. "/" .. entry.name
+        local files = require("io.internal.files")
+        for name in files.list(fixtureRoot) or function() end do
+            if name:match("%.failed%.json$") then
+                os.remove(fixtureRoot .. "/" .. name)
+            elseif name:match("%.lock$") then
+                local path = fixtureRoot .. "/" .. name
                 local stamp = lockStamp(path)
                 local created = stamp and stamp.created
                 local cutoff = os.time() - FIXTURE_LEASE_SECONDS
-                local information = not created and files.info(path) or nil
+                local modified = not created and select(3, files.stat(path)) or nil
                 local known = stamp ~= nil and stamp.holder ~= nil and processAlive ~= nil
                 local stale = holderExited(stamp)
                     or not known and created and created <= cutoff
-                    or not known and information ~= nil and tonumber(information.modified) / 1000 <= cutoff
+                    or not known and modified ~= nil and tonumber(modified) / 1000 <= cutoff
                 if stale then
                     fixtureSerial = fixtureSerial + 1
                     local claimed = path .. ".stale-" .. shardSalt .. "-" .. fixtureSerial
-                    if files.rename(path, claimed) then
-                        files.remove(claimed)
+                    if os.rename(path, claimed) then
+                        os.remove(claimed)
                     end
                 end
             end
@@ -2713,8 +2713,6 @@ local processCalls = {
     "require('nupp.workers')",
     'require("io.internal.process")',
     "require('io.internal.process')",
-    'require("coroutine.workers")',
-    "require(\"coroutine.workers\")",
     -- Reaching into the loader is process-shaped whether or not a process is
     -- started. A suite that clears a module to prove it loads lazily, injects a
     -- loader, or writes a global through `rawset` is mutating what every other

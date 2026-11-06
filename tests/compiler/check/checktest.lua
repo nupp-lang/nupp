@@ -266,7 +266,7 @@ function M.anOwnerResolvesMethodsThroughItsUnderlyingType()
             "    function size(self): integer return self.n end",
             "end",
             "local function open(): affine(Buffer, Buffer.close)",
-            "    return new Buffer(n = 1)",
+            "    return Buffer(n = 1)",
             "end",
             "local owner = open()",
         },
@@ -379,7 +379,7 @@ function M.absentOptionalMemberNeedsAClosedSource()
                 {
                     record,
                     "local function forward(h: {@readonly id: integer}): nil show(h) end",
-                    "forward(new User(id = 1, name = 5))",
+                    "forward(User(id = 1, name = 5))",
                 },
                 "\n"
             )
@@ -430,10 +430,10 @@ function M.absentOptionalMemberNeedsAClosedSource()
                 "    if v.name then print(v.name:upper()) end",
                 "end",
                 "show({id = 1})",
-                "show(new User(id = 1))",
-                "local u: User = new User(id = 2)",
+                "show(User(id = 1))",
+                "local u: User = User(id = 2)",
                 "show(u)",
-                "show(new Point(1))",
+                "show(Point(1))",
                 "local function viaIndexer(h: {id: integer} & {[string]: string}): nil show(h) end",
                 "return viaIndexer",
             },
@@ -592,7 +592,7 @@ function M.aPositionalLiteralIsATupleWhereOneIsExpected()
                 "end",
                 "local x: {number, string} = {1, 'a'}",
                 "x = {3, 'c'}",
-                "local r = new R(t = {4, 'd'})",
+                "local r = R(t = {4, 'd'})",
                 "r.t = {5, 'e'}",
                 "local nested: {a: {number, string}} = {a = {6, 'f'}}",
                 "local arr: {{number, string}} = {{7, 'g'}, {8, 'h'}}",
@@ -675,7 +675,7 @@ function M.mutableArraysPreserveTheirElementType()
         "NUPP2001:2"
     )
     testAssert.eq(
-        checkedDiags("local record IntList\n{integer}\nend\nlocal ints = new IntList()\ntable.insert(ints, 1.5)", env),
+        checkedDiags("local record IntList\n{integer}\nend\nlocal ints = IntList()\ntable.insert(ints, 1.5)", env),
         "NUPP2125:5"
     )
     assertClean(decl .. "local nums: const {number} = ints\nprint(nums[1])\nints[1] = 3")
@@ -719,26 +719,26 @@ end
 
 function M.directRecordConstructionRequiresFields()
     local decl = "local record Item\nname: string\ncount: integer = 0\nnote: string?\nend\n"
-    testAssert.eq(diagsOf(decl .. "local item = new Item()\nreturn item"), "NUPP2208:6")
-    assertClean(decl .. "local item = new Item(name = 'ready')\nreturn item")
+    testAssert.eq(diagsOf(decl .. "local item = Item()\nreturn item"), "NUPP2208:6")
+    assertClean(decl .. "local item = Item(name = 'ready')\nreturn item")
     testAssert.eq(
-        diagsOf("local record Box<T>\nvalue: T\nname: string\nend\nlocal box = new Box(value = 1)\nreturn box"),
+        diagsOf("local record Box<T>\nvalue: T\nname: string\nend\nlocal box = Box(value = 1)\nreturn box"),
         "NUPP2208:5"
     )
     testAssert.eq(
-        diagsOf("local record Handler\ncall: function(): nil\nend\nlocal handler = new Handler()\nreturn handler"),
+        diagsOf("local record Handler\ncall: function(): nil\nend\nlocal handler = Handler()\nreturn handler"),
         "NUPP2208:4"
     )
-    testAssert.eq(diagsOf("local record Box<T>\nvalue: T\nend\nlocal box = new Box()\nreturn box"), "NUPP2208:4")
-    testAssert.eq(diagsOf("local record Box<T>\nvalue: T?\nend\nlocal box = new Box()\nreturn box"), "NUPP2148:4")
+    testAssert.eq(diagsOf("local record Box<T>\nvalue: T\nend\nlocal box = Box()\nreturn box"), "NUPP2208:4")
+    testAssert.eq(diagsOf("local record Box<T>\nvalue: T?\nend\nlocal box = Box()\nreturn box"), "NUPP2148:4")
     testAssert.eq(
         diagsOf(
-            "local interface Named\nname: string\nend\nlocal record Item is Named end\nlocal item = new Item()\nreturn item"
+            "local interface Named\nname: string\nend\nlocal record Item is Named end\nlocal item = Item()\nreturn item"
         ),
         "NUPP2208:5"
     )
     assertClean(
-        "local record Item\nname: string\nfunction describe(self): string return self.name end\nend\nlocal item = new Item(name = 'ready')\nreturn item:describe()"
+        "local record Item\nname: string\nfunction describe(self): string return self.name end\nend\nlocal item = Item(name = 'ready')\nreturn item:describe()"
     )
     assertClean(
         table.concat(
@@ -747,7 +747,7 @@ function M.directRecordConstructionRequiresFields()
                 "call: function(self: Handler, value: string): nil & function(self: Handler, value: integer): nil",
                 "end",
                 "Handler.call = function(_self: Handler, _value: any): nil end",
-                "local handler = new Handler()",
+                "local handler = Handler()",
                 "return handler",
             },
             "\n"
@@ -755,7 +755,7 @@ function M.directRecordConstructionRequiresFields()
     )
     testAssert.eq(diagsOf("local record Handler\ncall: function(): nil\nconstructor(self) end\nend"), "NUPP2208:3")
     assertClean(
-        "local record Item\nname: string\nconstructor(self, name: string) self.name = name end\nend\nlocal item = new Item('ready')\nreturn item"
+        "local record Item\nname: string\nconstructor(self, name: string) self.name = name end\nend\nlocal item = Item('ready')\nreturn item"
     )
 end
 
@@ -940,7 +940,7 @@ function M.callsInvalidateNarrowingThroughMutationAndCapture()
                     "   name: string?",
                     "end",
                     "local function clear(box: Box): nil box.name = nil end",
-                    "local box = new Box(name = 'ready')",
+                    "local box = Box(name = 'ready')",
                     "if box.name then",
                     "   clear(box)",
                     "   local text: string = box.name",
@@ -997,7 +997,7 @@ function M.callsInvalidateNarrowingThroughMutationAndCapture()
                     "   name: string?",
                     "end",
                     "function Box:clear(): nil self.name = nil end",
-                    "local box = new Box(name = 'ready')",
+                    "local box = Box(name = 'ready')",
                     "if box.name then",
                     "   box:clear()",
                     "   local text: string = box.name",
@@ -1019,7 +1019,7 @@ function M.aliasWritesInvalidateFieldNarrowing()
                     "local record Box",
                     "   name: string?",
                     "end",
-                    "local box = new Box(name = 'ready')",
+                    "local box = Box(name = 'ready')",
                     "local alias = box",
                     "if box.name then",
                     "   alias.name = nil",
@@ -1115,7 +1115,7 @@ function M.propertyCapabilities()
                 "   @readonly [string]: string",
                 "   @writeonly [string]: Animal",
                 "end",
-                "local cell = new Cell(value = 'ready')",
+                "local cell = Cell(value = 'ready')",
                 "cell.value = 1",
                 "local value: string = cell.value",
                 "cell['answer'] = 42",
@@ -1367,19 +1367,19 @@ function M.inheritedContractsBoundsAndSelf()
             "   x: number",
             "end",
             -- the argument is the declaration's visible Type<C> witness;
-            -- calling it runs the __call the bound declares and yields an instance
-            "local function construct<C is Component>(c: Type<C>): C",
+            -- an instance carries the inherited callable contract
+            "local function construct<C is Component>(c: C): C",
             "   local name: string = c.componentName",
             "   return c()",
             "end",
-            "local made: Position = construct(Position)",
+            "local made: Position = construct(Position(componentName = 'position', tag = 'tag', x = 1))",
             "local tag: string = made.tag",
         },
         "\n"
     )
     assertClean(src)
     testAssert.eq(
-        (diagsOf(src .. table.concat({"", "local record Plain end", "local bad = construct(Plain)",}, "\n"))),
+        (diagsOf(src .. table.concat({"", "local record Plain end", "local bad = construct(Plain())",}, "\n"))),
         "NUPP2116:18"
     )
 end
@@ -1411,8 +1411,8 @@ function M.genericIndexContracts()
                 "   metamethod __index: function<T>(self, key: Key<T>): T",
                 "   metamethod __newindex: function<T>(self, key: Key<T>, value: T)",
                 "end",
-                "local store: Store = new Store()",
-                "local key = new Key<string>()",
+                "local store: Store = Store()",
+                "local key = Key<string>()",
                 "local value: string = store[key]",
                 "store[key] = 'saved'",
             },
@@ -1431,7 +1431,7 @@ function M.operatorContracts()
                     "local record Left",
                     ("   metamethod %s: function(left: Left, right: Right): Result"):format(metamethod),
                     "end",
-                    "local left, right: Left, Right = new Left(), new Right()",
+                    "local left, right: Left, Right = Left(), Right()",
                     ("local result: Result = left %s right"):format(operator),
                 },
                 "\n"
@@ -1454,7 +1454,7 @@ function M.operatorContracts()
                 "local record Operand",
                 "   metamethod __unm: function(operand: Operand): Result",
                 "end",
-                "local operand: Operand = new Operand()",
+                "local operand: Operand = Operand()",
                 "local result: Result = -operand",
             },
             "\n"
@@ -1470,7 +1470,7 @@ function M.operatorContracts()
                 "local record Scale",
                 "   metamethod __mul: function(left: number, right: Scale): Result",
                 "end",
-                "local scale: Scale = new Scale()",
+                "local scale: Scale = Scale()",
                 "local result: Result = 2 * scale",
             },
             "\n"
@@ -1490,7 +1490,7 @@ function M.operatorContracts()
                 {
                     left,
                     right,
-                    "local left, right: Left, Right = new Left(), new Right()",
+                    "local left, right: Left, Right = Left(), Right()",
                     ("local result: boolean = left %s right"):format(operator),
                 },
                 "\n"
@@ -1509,7 +1509,7 @@ function M.operatorContracts()
 
     testAssert.eq((diagsOf("local n = #true")), "NUPP2003:1")
     testAssert.eq(
-        (diagsOf("local record A end\nlocal record B end\nlocal x: A = new A()\nlocal y: B = new B()\nprint(x < y)")),
+        (diagsOf("local record A end\nlocal record B end\nlocal x: A = A()\nlocal y: B = B()\nprint(x < y)")),
         "NUPP2003:5"
     )
 end
@@ -1520,7 +1520,7 @@ function M.metatableTypeIsACompilerKnownPhantom()
             {
                 "local record R end",
                 "local mt: metatable<R> = {__index = {}}",
-                "local r: R = new R()",
+                "local r: R = R()",
                 "setmetatable(r, mt)",
                 "setmetatable(r, nil)",
             },
@@ -1548,7 +1548,7 @@ function M.inlineMethodsAreHoistedAndNestedAliasesAreQualified()
                 "   end",
                 "end",
                 "local id: Types.Id = 1",
-                "local counter: Types.Counter = new Types.Counter(value = 0)",
+                "local counter: Types.Counter = Types.Counter(value = 0)",
                 "local yes: boolean = counter:even(id)",
             },
             "\n"
@@ -1568,8 +1568,8 @@ function M.inlineMethodsSeeDeclarationsWrittenAfterThem()
                 "local m = {}",
                 "record m.A",
                 "   function make(self): integer",
-                "      local b = new m.B(v = 3)",
-                "      local nested = new m.A.Inner(w = 4)",
+                "      local b = m.B(v = 3)",
+                "      local nested = m.A.Inner(w = 4)",
                 "      return b.v + nested.w + self.later + m.B.twice(1)",
                 "   end",
                 "   record Inner",
@@ -1582,7 +1582,7 @@ function M.inlineMethodsSeeDeclarationsWrittenAfterThem()
                 "   v: integer",
                 "   function twice(x: integer): integer return x * 2 end",
                 "end",
-                "local total: integer = (new m.A(later = 1)):make()",
+                "local total: integer = (m.A(later = 1)):make()",
                 "return m",
             },
             "\n"
@@ -1598,13 +1598,13 @@ function M.aLaterLocalRecordStaysOutOfAnEarlierMethodsScope()
         table.concat(
             {
                 "local record A",
-                "   function make(self): integer return (new B(v = 3)).v end",
+                "   function make(self): integer return (B(v = 3)).v end",
                 "end",
                 "local record B",
                 "   v: integer",
-                "   function again(self): B return new B(v = self.v) end",
+                "   function again(self): B return B(v = self.v) end",
                 "end",
-                "print((new A()):make())",
+                "print((A()):make())",
             },
             "\n"
         )
@@ -1622,7 +1622,7 @@ function M.recordsWorkWithPairsAndMetatableTyposAreRejected()
                 "local record R",
                 "   value: number",
                 "end",
-                "local r: R = new R(value = 0)",
+                "local r: R = R(value = 0)",
                 "for key, value in pairs(r) do print(key, value) end",
             },
             "\n"
@@ -1632,7 +1632,7 @@ function M.recordsWorkWithPairsAndMetatableTyposAreRejected()
         (
             diagsOf(
                 table.concat(
-                    {"local record R end", "local r: R = new R()", "setmetatable(r, {__cal = function() end})",},
+                    {"local record R end", "local r: R = R()", "setmetatable(r, {__cal = function() end})",},
                     "\n"
                 )
             )
@@ -1688,7 +1688,7 @@ end
 
 function M.metamethodTyposCarrySafeFixes()
     local literal = table.concat(
-        {"local record R end", "local r: R = new R()", "setmetatable(r, {__cal = function() end})",},
+        {"local record R end", "local r: R = R()", "setmetatable(r, {__cal = function() end})",},
         "\n"
     )
     local _, literalDiags = diagsOf(literal)
@@ -1792,7 +1792,7 @@ function M.aBoundLiteralIsNoLongerFresh()
         animals .. table.concat(
             {
                 "",
-                "local pen: {value: Animal} = {const tag = 'k', value = new Dog(name = 'rex', bark = 'woof')}",
+                "local pen: {value: Animal} = {const tag = 'k', value = Dog(name = 'rex', bark = 'woof')}",
                 "return pen",
             },
             "\n"
@@ -1803,7 +1803,7 @@ function M.aBoundLiteralIsNoLongerFresh()
             animals .. table.concat(
                 {
                     "",
-                    "local kennel = {const tag = 'k', value = new Dog(name = 'rex', bark = 'woof')}",
+                    "local kennel = {const tag = 'k', value = Dog(name = 'rex', bark = 'woof')}",
                     "local pen: {value: Animal} = kennel",
                     "return pen",
                 },
@@ -1817,7 +1817,7 @@ function M.aBoundLiteralIsNoLongerFresh()
             animals .. table.concat(
                 {
                     "",
-                    "const kennel = {const tag = 'k', value = new Dog(name = 'rex', bark = 'woof')}",
+                    "const kennel = {const tag = 'k', value = Dog(name = 'rex', bark = 'woof')}",
                     "local pen: {value: Animal} = kennel",
                     "return pen",
                 },
@@ -1830,7 +1830,7 @@ function M.aBoundLiteralIsNoLongerFresh()
         animals .. table.concat(
             {
                 "",
-                "const kennel = {const tag = 'k', value = new Dog(name = 'rex', bark = 'woof')}",
+                "const kennel = {const tag = 'k', value = Dog(name = 'rex', bark = 'woof')}",
                 "local pen: {@readonly value: Animal} = kennel",
                 "return pen",
             },
@@ -1891,7 +1891,7 @@ function M.constReachesTheWholeValue()
                 "   local k: integer? = o.m.k",
                 "   return o:peek() + o.inner.n + ci.n + first + (k or 0)",
                 "end",
-                "local o = new Outer(inner = new Inner(n = 1, xs = {}), m = {})",
+                "local o = Outer(inner = Inner(n = 1, xs = {}), m = {})",
                 "o:bump()",
                 "print(f(o), Outer.peek(o))",
             },
@@ -2023,7 +2023,7 @@ function M.fallingOffTheEndNeedsAnOptionalResult()
             "\n"
         )
     )
-    -- A constructor's result is what `new` yields, not what its body returns.
+    -- A constructor's result is what construction yields, not what its body returns.
     assertClean(
         table.concat(
             {
@@ -2033,7 +2033,7 @@ function M.fallingOffTheEndNeedsAnOptionalResult()
                 "        self.value = value",
                 "    end",
                 "end",
-                "local b = new Box(1)",
+                "local b = Box(1)",
                 "print(b.value)",
             },
             "\n"
@@ -2089,7 +2089,7 @@ function M.recordDeclarationsCheck()
                 "   x: number",
                 "   y: number",
                 "end",
-                "local p: Point = new Point(x = 0, y = 0)",
+                "local p: Point = Point(x = 0, y = 0)",
                 "local n: number? = p?.x",
             },
             "\n"
@@ -2099,13 +2099,7 @@ function M.recordDeclarationsCheck()
         (
             diagsOf(
                 table.concat(
-                    {
-                        "local record Point",
-                        "   x: number",
-                        "end",
-                        "local p: Point = new Point(x = 0)",
-                        "local v = p.z",
-                    },
+                    {"local record Point", "   x: number", "end", "local p: Point = Point(x = 0)", "local v = p.z",},
                     "\n"
                 )
             )
@@ -2127,7 +2121,7 @@ function M.nominalProvenance()
                         "local record B",
                         "   v: number",
                         "end",
-                        "local a: A = new A(v = 0)",
+                        "local a: A = A(v = 0)",
                         "local b: B = a",
                     },
                     "\n"
@@ -2139,7 +2133,7 @@ function M.nominalProvenance()
     -- but a record erodes to a matching structural shape
     assertClean(
         table.concat(
-            {"local record A", "   v: number", "end", "local a: A = new A(v = 0)", "local s: {v: number} = a",},
+            {"local record A", "   v: number", "end", "local a: A = A(v = 0)", "local s: {v: number} = a",},
             "\n"
         )
     )
@@ -2316,7 +2310,7 @@ end
 
 -- A call whose callee is a dotted path reports what is wrong with the path once.
 function M.aBrokenCalleePathIsReportedOnce()
-    local R = "local record R\n    v: integer\nend\nlocal r = new R(v = 1)\n"
+    local R = "local record R\n    v: integer\nend\nlocal r = R(v = 1)\n"
     testAssert.eq((diagsOf(R .. "r.nope.goes()")), "NUPP2004:5")
     testAssert.eq((diagsOf(R .. "local y = r.nope.goes(1)\nprint(y)")), "NUPP2004:5")
 end
@@ -2514,13 +2508,7 @@ function M.unknownNeedsNarrowingOrACast()
     assertClean("local a: unknown = 5\nlocal s = a as string\nprint(s)")
     assertClean(
         table.concat(
-            {
-                "local record P",
-                "   x: integer",
-                "end",
-                "local a: unknown = new P(x = 1)",
-                "if a is P then print(a.x) end",
-            },
+            {"local record P", "   x: integer", "end", "local a: unknown = P(x = 1)", "if a is P then print(a.x) end",},
             "\n"
         )
     )
@@ -2822,7 +2810,7 @@ function M.constrainedDeclarationsAreValidated()
     )
 end
 
--- A record's identity is the metatable `new` stamps and a struct's is its
+-- A record's identity is the metatable construction stamps and a struct's is its
 -- ctype. A refinement beside either would be a second answer to a settled
 -- question, and which answer `is R` gave would depend on whether a body
 -- happened to carry one.
@@ -2999,8 +2987,8 @@ function M.constructionWidensAnInferredLiteral()
                 "local record Box<T>",
                 "    value: T",
                 "end",
-                "local b: Box<integer> = new Box(value = 1)",
-                "local s: Box<string> = new Box(value = 'a')",
+                "local b: Box<integer> = Box(value = 1)",
+                "local s: Box<string> = Box(value = 'a')",
                 "b.value = 2",
                 "s.value = 'b'",
                 "return b, s",
@@ -3015,7 +3003,7 @@ function M.constructionWidensAnInferredLiteral()
                 "    first: T",
                 "    second: T",
                 "end",
-                "local p: Pair<integer> = new Pair(first = 1, second = 2)",
+                "local p: Pair<integer> = Pair(first = 1, second = 2)",
                 "return p",
             },
             "\n"

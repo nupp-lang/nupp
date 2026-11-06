@@ -63,7 +63,7 @@ for name in pairs(SEVERITY_COLOR) do
     plainSeverity[name] = plain
 end
 
-local PLAIN = new Style(
+local PLAIN = Style(
     strong = plain,
     faint = plain,
     heading = plain,
@@ -80,7 +80,7 @@ local PLAIN = new Style(
     severity = plainSeverity
 )
 
-local COLORED = new Style(
+local COLORED = Style(
     strong = styler(CODES.strong),
     faint = styler(CODES.faint),
     heading = styler(CODES.heading),

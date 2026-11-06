@@ -4,6 +4,10 @@ Shared classification and signature formatting for generated API Markdown.
 module nupp.tools.doc.api
 
 local extractMod = require("nupp.tools.doc.extract")
+local lexer = require("nupp.compiler.syntax.lexer")
+local formatter = require("nupp.tools.fmt")
+local parser = require("nupp.compiler.syntax.parser")
+local cst = require("nupp.compiler.syntax.cst")
 
 export type ItemGroup = {
     title: string,
@@ -12,9 +16,10 @@ export type ItemGroup = {
     items: {extractMod.Item}
 }
 
--- Construction is what `new` does, and a `constructor` declaration documents inside the
--- record it belongs to. A module-level function that hands back an instance is a
--- function whatever it is called, so nothing here reads a naming convention as a kind.
+-- Calling a record or struct declaration constructs an instance. Its `constructor`
+-- documents inside the record it belongs to. A module-level function that hands back an
+-- instance is a function whatever it is called, so nothing here reads a naming
+-- convention as a kind.
 export function displayKind(item: extractMod.Item): string
     if item.comptimeKind then
         return "comptime " .. item.comptimeKind
@@ -27,7 +32,7 @@ end
 -- gathering members under `Methods`, `Types` and `Fields` headings, which reordered a
 -- declaration away from the order it was written in and spent three headings on one
 -- word each. A metamethod is named for the Lua operation it implements rather than for
--- anything a caller writes, and a constructor is reached as `new T(...)`, so neither
+-- anything a caller writes, and a constructor is reached as `T(...)`, so neither
 -- reads as an ordinary method.
 export function memberKind(member: extractMod.Member): string
     if member.comptimeKind then
@@ -52,10 +57,64 @@ export function memberKind(member: extractMod.Member): string
     return "field"
 end
 
--- What a declaration's code block shows. A structure's signature is its opening line
--- alone, so `...` stands where its entries were and the members table below expands
--- them. A declaration with no members has nothing elided and so carries no mark, which
--- is every function, value and type alias as well as an empty structure.
+local function hasReceiver(params: {extractMod.Param}, path: string, typeargs: {extractMod.TypeArg}?): boolean
+    local first = params[1]
+    if not first or first.name == "..." then
+        return false
+    end
+    if first.name == "self" then
+        return true
+    end
+    local parsed = parser.parse("local receiver: " .. first.type)
+    if #parsed.errors > 0 then
+        return false
+    end
+    local statement = parsed.root.blocks[1].stats[1]
+    if statement.kind ~= "localStmt" then
+        return false
+    end
+    local node = statement.types[1]
+    while node do
+        if node.kind == "tconst" or node.kind == "tparen" then
+            node = node.inner
+        elseif node.kind == "ttypecall" then
+            local callee = node.callee
+            local wrapper = callee and callee.kind == "tname" and callee.base and callee.base.text
+            if wrapper ~= "affine" and wrapper ~= "borrowed" and wrapper ~= "pinned" then
+                break
+            end
+            node = node.arguments[1]
+        else
+            break
+        end
+    end
+    if not node or node.kind ~= "tname" then
+        return false
+    end
+    local name = cst.textOf(node):gsub("%s+", ""):match("^[%w_%.]+")
+    for _, generic in ipairs(typeargs or {}) do
+        if name == generic.name then
+            return false
+        end
+    end
+    local owner = path:match("^(.*)%.[^.]+$")
+
+    return name == "self" or owner ~= nil and name ~= nil and (owner == name or owner:sub(-#name - 1) == "." .. name)
+end
+
+export function isInstanceMethod(member: extractMod.Member): boolean
+    if member.instanceMethod ~= nil then
+        return member.instanceMethod
+    end
+    for _, form in ipairs(member.forms or {}) do
+        if not hasReceiver(form.params, member.path, form.typeargs) then
+            return false
+        end
+    end
+
+    return member.forms ~= nil and #member.forms > 0 or hasReceiver(member.params, member.path, member.typeargs)
+end
+
 export function hasReturns(returns: {extractMod.Result}): boolean
     return #returns > 0 and not (#returns == 1 and returns[1].type == "nil")
 end
@@ -67,23 +126,58 @@ local function omitNilResult(signature, returns): string
     return signature
 end
 
+local function formatType(source: string, prefix: string?, width: integer?): string
+    local parts = {}
+    local tokens = lexer.lex(source)
+    local line = 1
+    for _, token in ipairs(tokens) do
+        if token.kind ~= "eof" then
+            if #parts > 0 and token.triviaCount > 0 then
+                parts[#parts + 1] = token.line > line and "\n" .. string.rep(" ", token.col - 1) or " "
+            end
+            parts[#parts + 1] = token.text
+            local _, newlines = token.text:gsub("\n", "")
+            line = token.line + newlines
+        end
+    end
+
+    prefix = prefix or ""
+    local formatted = formatter.format(prefix .. table.concat(parts), nil, {bindImports = false, width = width})
+
+    return (formatted:sub(#prefix + 1):gsub("\n$", ""))
+end
+
+local function callableSignature(signature, returns): string
+    return formatType(omitNilResult(signature, returns), "type _ = ", 88)
+end
+
+export function formSignature(form: extractMod.Form): string
+    return callableSignature(form.signature, form.returns)
+end
+
 export function displaySignature(item: extractMod.Item): string
+    if item.kind == "record" or item.kind == "interface" then
+        return item.signature
+    end
+    if item.kind == "type" then
+        return formatType(item.signature)
+    end
     if item.kind == "function" then
         local signature = item.signature
         local typed = signature:match("^local%s+[%w_%.]+:%s*(.*)$") or signature:match("^const%s+[%w_%.]+:%s*(.*)$")
         if typed then
-            return omitNilResult(typed, item.returns)
+            return callableSignature(typed, item.returns)
         end
         signature = signature:gsub("%f[%a]local%s+function%s+", "function ", 1)
         signature = signature:gsub("%f[%a]const%s+function%s+", "function ", 1)
         local prefix, suffix = signature:match("^(.-function)%s+[%w_%.:]+(.*)$")
         if prefix then
-            return omitNilResult(prefix .. suffix, item.returns)
+            return callableSignature(prefix .. suffix, item.returns)
         end
         if signature:sub(1, #item.name + 1) == item.name .. "(" then
-            return omitNilResult("function" .. signature:sub(#item.name + 1), item.returns)
+            return callableSignature("function" .. signature:sub(#item.name + 1), item.returns)
         end
-        return omitNilResult(signature, item.returns)
+        return callableSignature(signature, item.returns)
     end
     if #item.members == 0 or item.kind == "annotation" and item.name:sub(1, 1) == "@" then
         return item.signature
@@ -137,14 +231,19 @@ end
 -- it is spelled the way it was declared instead of as `name: type`, which would say it
 -- is a field whose values are types.
 export function memberSpelling(member: extractMod.Member): string
+    if member.isType and (member.type == "record" or member.type == "interface") then
+        return member.signature or member.type .. " " .. member.name
+    end
     if member.isAlias then
-        return "type " .. member.name .. (member.generics or "") .. " = " .. member.type
+        return formatType("type " .. member.name .. (member.generics or "") .. " = " .. member.type)
     end
 
-    if member.isFunction and member.name ~= "constructor" then
+    if member.isFunction then
         local signature = member.type:gsub("^(.-function)%s+[%w_%.:]+", "%1", 1)
-        return omitNilResult(signature, member.returns)
+        return callableSignature(signature, member.returns)
     end
 
-    return member.name .. ": " .. (member.isFunction and omitNilResult(member.type, member.returns) or member.type)
+    return member.name .. ": " .. (
+        member.isFunction and omitNilResult(member.type, member.returns) or formatType(member.type, "type _ = ")
+    )
 end

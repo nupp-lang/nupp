@@ -1,0 +1,119 @@
+@!internal
+module nupp.digest.mac
+
+local catalog = require("nupp.digest.internal.catalog")
+
+const _PROVIDER_REQUIRES = "@requires-dynamically nupp.runtime.provider.mac"
+
+local {type Digest as ContextDigest} = require("nupp.digest.internal.contracts")
+const provider = require("nupp.digest.internal.macprovider")
+
+--- An owned incremental MAC context.
+export interface Mac is ContextDigest
+end
+
+--- A reusable MAC algorithm descriptor.
+export record MacFormat
+    --- Canonical algorithm name.
+    @readonly name: string
+
+    --- Fixed output size in bytes.
+    @readonly digestsize: integer
+
+    @private implementation: provider.Algorithm
+
+    --- Creates independent owned state for this algorithm.
+    --- @param key raw authentication key bytes
+    --- @return the unfinished incremental context
+    function create(self, key: string): Mac
+        local state = self.implementation:create(key)
+        local contexts = require("nupp.digest.internal.context")
+        return contexts.wrap(state, self.name, self.digestsize)
+    end
+
+    --- Computes a complete value and closes its context.
+    --- @param key raw authentication key bytes
+    --- @param bytes raw message bytes
+    --- @return raw authentication tag bytes
+    function compute(self, key: string, bytes: string): string
+        local value: Mac = self:create(key)
+        value:write(bytes)
+        return value:digest()
+    end
+
+    --- Computes lowercase hexadecimal and closes its context.
+    --- @param key raw authentication key bytes
+    --- @param bytes raw message bytes
+    --- @return lowercase hexadecimal authentication tag text
+    function computehex(self, key: string, bytes: string): string
+        local value: Mac = self:create(key)
+        value:write(bytes)
+        return value:hexdigest()
+    end
+end
+
+local EXPECTED: {[string]: integer} = {["hmac-sha256"] = 32}
+
+local function validate(selected: provider.Provider): nil
+    for name, implementation in pairs(selected.algorithms) do
+        if type(name) ~= "string"
+            or name == ""
+            or type(implementation) ~= "table"
+            or implementation.name ~= name
+            or type(implementation.digestsize) ~= "number"
+            or implementation.digestsize <= 0
+            or implementation.digestsize % 1 ~= 0
+            or type(implementation.create) ~= "function"
+        then
+            error("invalid mac algorithm descriptor " .. tostring(name), 2)
+        end
+        local expected = EXPECTED[name]
+        if expected ~= nil and implementation.digestsize ~= expected then
+            error("mac provider has the wrong digestsize for " .. name, 2)
+        end
+    end
+end
+
+local available: {[string]: MacFormat} = {}
+local names: {string} = {}
+local initialized = false
+
+local function descriptor(name: string, implementation: provider.Algorithm): MacFormat
+    return MacFormat(name = name, digestsize = implementation.digestsize, implementation = implementation)
+end
+
+local function initialize(providerName: string): nil
+    if initialized then
+        return
+    end
+    local selected = require(providerName) as provider.Provider
+    validate(selected)
+    catalog.populate(selected.algorithms, available, names, descriptor)
+    initialized = true
+end
+
+--- Returns a retained descriptor or raises when the algorithm is unavailable.
+--- @param name canonical algorithm name
+--- @return the retained algorithm descriptor
+--- @raises string when the algorithm is unavailable or its catalog is invalid
+export function mac(name: string): MacFormat
+    initialize("nupp.runtime.provider.mac")
+    local found = available[name]
+    if found == nil then
+        error("unknown mac algorithm " .. name, 2)
+    end
+
+    return found
+end
+
+--- Returns an independent sorted list of canonical algorithm names.
+--- @return available canonical names in ascending order
+export function formats(): {string}
+    initialize("nupp.runtime.provider.mac")
+    local result: {string} = {}
+    for index, name in ipairs(names) do
+        result[index] = name
+    end
+
+    return result
+end

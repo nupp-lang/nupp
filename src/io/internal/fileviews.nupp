@@ -1,0 +1,198 @@
+@!internal
+
+module io.internal.fileviews
+
+local bytes = require("nupp.io.internal.bytes")
+local span = require("binary.span")
+local physical = require("nupp.runtime.storage")
+
+local DEFAULT_READ: integer = 65536
+local MAX_EXACT: integer = 9007199254740991
+local spanString: function(borrows source: const uint8[?], count: integer): string = physical.string as any
+
+local function count(value: integer, minimum: integer, operation: string): integer
+    if type(value) ~= "number" or value ~= math.floor(value) or value < minimum or value > MAX_EXACT then
+        error("nupp: " .. operation .. " requires an integer of at least " .. tostring(minimum), 3)
+    end
+    return value
+end
+
+local function parentClosed(file: any): boolean
+    local publicIo: any = rawget(_G, "io")
+    return publicIo.type(file) == "closed file"
+end
+
+local function copyString(exclusive destination: span.Writable<uint8>, text: string): nil
+    if #text > 0 then
+        local source = span.fromstring(text)
+        local output = destination:ref()
+        local input = source:ref()
+        physical.copy(output, input, #text)
+    end
+end
+
+local record FileReader is bytes.Reader
+    @private @readonly anchor: any
+    @private _closed: boolean
+
+    function read(exclusive self, wanted: integer): (string?, string?)
+        count(wanted, 1, "Reader:read count")
+        if self._closed then
+            return nil, "the reader is closed"
+        end
+        if parentClosed(self.anchor) then
+            return nil, "the file is closed"
+        end
+        local text, reason = self.anchor:read(wanted)
+        if text == nil then
+            if reason ~= nil then
+                return nil, reason
+            end
+            return ""
+        end
+        if type(text) ~= "string" or #text > wanted then
+            return nil, "the file returned an invalid byte read"
+        end
+
+        return text
+    end
+
+    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+        local output, available = destination:ref()
+        local text, reason = self:read(count(available, 1, "Reader:readspan destination length"))
+        if text == nil then
+            return nil, reason
+        end
+        if #text > 0 then
+            local source = span.fromstring(text)
+            local input = source:ref()
+            physical.copy(output, input, #text)
+        end
+
+        return #text
+    end
+
+    function readinto(
+        exclusive self,
+        exclusive destination: bytes.Buffer,
+        offset: integer?,
+        wanted: integer?
+    ): (integer?, string?)
+        local from = count(offset or 0, 0, "Reader:readinto offset")
+        local amount = count(wanted or DEFAULT_READ, 1, "Reader:readinto count")
+        if from > MAX_EXACT - amount then
+            error("nupp: Reader:readinto range is too large", 2)
+        end
+        local text, reason = self:read(amount)
+        if text == nil then
+            return nil, reason
+        end
+        if #text == 0 then
+            return 0
+        end
+        local lease = destination:reservewrite(from, #text)
+        do
+            local output = lease:span()
+            copyString(output, text)
+            own.drop(output)
+        end
+        lease:commit(#text)
+
+        return #text
+    end
+
+    function isreleased(borrows self): boolean
+        return self._closed or parentClosed(self.anchor)
+    end
+
+    close: @nosuspend function(takes self: FileReader): nil
+end
+
+function FileReader.close(takes self: FileReader): nil
+    local state = @unsafe own.release(self)
+    state._closed = true
+end
+
+local record FileWriter is bytes.Writer
+    @private @readonly anchor: any
+    @private _closed: boolean
+
+    -- Whether this writer took the file, so closing it closes the file too.
+    @private @readonly _owns: boolean
+
+    function write(exclusive self, text: string): (boolean, string?)
+        if self._closed then
+            return false, "the writer is closed"
+        end
+        if parentClosed(self.anchor) then
+            return false, "the file is closed"
+        end
+        if type(text) ~= "string" then
+            error("nupp: Writer:write bytes must be a string", 2)
+        end
+        local wrote, reason = self.anchor:write(text)
+        if wrote == nil or wrote == false then
+            return false, reason
+        end
+
+        return true
+    end
+
+    function writespan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+        local text = ""
+        if #source > 0 then
+            local pointer = source:ref()
+            text = spanString(pointer, #source)
+        end
+        local wrote, reason = self:write(text)
+        if not wrote then
+            return nil, reason
+        end
+
+        return #source
+    end
+
+    function flush(self): (boolean, string?)
+        if self._closed then
+            return false, "the writer is closed"
+        end
+        if parentClosed(self.anchor) then
+            return false, "the file is closed"
+        end
+        local flushed, reason = self.anchor:flush()
+        if not flushed then
+            return false, reason
+        end
+
+        return true
+    end
+
+    function isreleased(borrows self): boolean
+        return self._closed or parentClosed(self.anchor)
+    end
+
+    close: @nosuspend function(takes self: FileWriter): nil
+end
+
+function FileWriter.close(takes self: FileWriter): nil
+    local state = @unsafe own.release(self)
+    if state._closed then
+        return
+    end
+    state._closed = true
+    if state._owns and not parentClosed(state.anchor) then
+        state.anchor:close()
+    end
+end
+
+export function reader(exclusive file: any): affine(bytes.Reader) borrows (file)
+    return FileReader(anchor = file, _closed = false)
+end
+
+export function writer(exclusive file: any): affine(bytes.Writer) borrows (file)
+    return FileWriter(anchor = file, _closed = false, _owns = false)
+end
+
+export function ownedwriter(takes file: any): affine(bytes.Writer)
+    return FileWriter(anchor = @unsafe own.release(file), _closed = false, _owns = true)
+end

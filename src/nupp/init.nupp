@@ -7,7 +7,7 @@ local encoded = serde.json.encodevalue({ok = true})
 debug.log.info("wrote %d bytes", #encoded)
 ```
 
-Host requests use `os.host`, and independent random generators use `math.random`.
+Host requests use `os.host`, and independent random generators use `math.Xoshiro128`.
 Typed storage uses `nupp.array`, `nupp.heap` and `nupp.soa`. Private implementation modules
 remain beneath `nupp`; application imports use the documented public names.
 

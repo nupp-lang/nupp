@@ -3,7 +3,7 @@ module nupp.core.catalogmodulesrecords
 -- A record another module exports is constructed through its table, and
 -- its instances' methods are the record's.
 const shapes = require("nupp.core.catalogmodulesboxes")
-local box = new shapes.Box(3, 4)
+local box = shapes.Box(3, 4)
 local sq = shapes.square(5)
 local score = box:area() * 100 + sq:area()
 if getmetatable(box) == getmetatable(sq) then

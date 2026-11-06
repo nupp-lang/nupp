@@ -14,6 +14,9 @@ local stringsMod = require("nupp.tools.doc.strings")
 local extractMod = require("nupp.tools.doc.extract")
 local urlsMod = require("nupp.tools.doc.urls")
 local apiMod = require("nupp.tools.doc.api")
+local constructors = require("nupp.tools.doc.constructors")
+local parser = require("nupp.compiler.syntax.parser")
+local cst = require("nupp.compiler.syntax.cst")
 
 local markdownEscape, markdownCell = stringsMod.markdownEscape, stringsMod.markdownCell
 local childModules = extractMod.children
@@ -33,6 +36,32 @@ local markdown = {}
 -- apart from one nothing documents at all.
 local anchors: Links? = nil
 local known: Links? = nil
+local typeModule: Module? = nil
+local constructionIndex = {}
+local typeOwner = ""
+local typeParameters: {[string]: boolean} = {}
+local primitiveTypes: {[string]: boolean} = {}
+for name in (
+    "any unknown never nil boolean string number integer table thread userdata cdata cstring voidptr "
+    .. "float int8 int16 int32 int64 uint8 uint16 uint32 uint64 type typepack"
+):gmatch("%S+") do
+    primitiveTypes[name] = true
+end
+
+local function typeContext(path, parameters)
+    local previousOwner, previousParameters = typeOwner, typeParameters
+    typeOwner, typeParameters = path, {}
+    for name in pairs(previousParameters) do
+        typeParameters[name] = true
+    end
+    for _, parameter in ipairs(parameters or {}) do
+        typeParameters[parameter.name:match("^[%w_]+") or parameter.name] = true
+    end
+
+    return function()
+        typeOwner, typeParameters = previousOwner, previousParameters
+    end
+end
 
 -- Prose an author wrote, as opposed to a signature the parser produced. Only prose is
 -- searched for references: a signature is code, and `handlers[name](value)` in one is
@@ -76,6 +105,116 @@ local function codeSpan(value: string): string
     return delimiter .. value .. delimiter
 end
 
+-- Type details are parsed separately from code examples. Only names in type positions
+-- become explicit Markdown links; labels, literals and generic binders do not.
+local function typeSpan(source: string): string
+    if not anchors and not known then
+        return codeSpan(source)
+    end
+    local prefix = "local value: "
+    local parsed = parser.parse(prefix .. source, "documentation-type-reference.nupp")
+    if #parsed.errors > 0 then
+        return codeSpan(source)
+    end
+
+    local function resolve(name)
+        local owner = typeOwner
+        while owner ~= "" do
+            local target = owner .. "." .. name
+            local url = anchors and anchors[target] or known and known[target]
+            if url then
+                return url ~= "" and url or nil
+            end
+            owner = owner:match("^(.*)%.[^.]+$") or ""
+        end
+        local context = typeModule
+        if context then
+            local first, rest = name:match("^([%w_]+)%.(.*)$")
+            first = first or name
+            local imported = context.imports and context.imports[first]
+            local canonical
+            if imported then
+                local member = context.importedMembers and context.importedMembers[first]
+                local selected = member and (member .. (rest and "." .. rest or "")) or rest or ""
+                canonical = imported .. "." .. selected
+            elseif rest and (first == context.moduleLocal or first == context.name:match("([^.]+)$")) then
+                canonical = context.name .. "." .. rest
+            end
+            if canonical then
+                local url = anchors and anchors[canonical] or known and known[canonical]
+                return url and url ~= "" and url or nil
+            end
+        end
+        local url = anchors and anchors[name] or known and known[name]
+
+        return url and url ~= "" and url or nil
+    end
+
+    local references = {}
+
+    local function visit(node, parameters)
+        if cst.isToken(node) then
+            return
+        end
+        if node.generics then
+            local nested = {}
+            for name in pairs(parameters) do
+                nested[name] = true
+            end
+            for _, token in ipairs(node.generics.names) do
+                nested[token.text] = true
+            end
+            parameters = nested
+        end
+        if node.kind == "tname" and not parameters[node.base.text] and not primitiveTypes[node.base.text] then
+            local first, last, started = node.base, node.base, false
+            for _, child in ipairs(node) do
+                if child == first then
+                    started = true
+                elseif started then
+                    if not cst.isToken(child) or child.kind ~= "name" and child.kind ~= "." then
+                        break
+                    end
+                    last = child
+                end
+            end
+            local start, finish = first.offset - #prefix, last.offset + #last.text - #prefix - 1
+            local name = source:sub(start, finish)
+            local url = resolve(name)
+            if url then
+                references[#references + 1] = {start = start, finish = finish, name = name, url = url}
+            end
+        end
+        for _, child in ipairs(node) do
+            visit(child, parameters)
+        end
+    end
+
+    visit(parsed.root, typeParameters)
+    table.sort(references, function(left, right)
+        return left.start < right.start
+    end)
+
+    local function fragment(value)
+        local leading, body, trailing = value:match("^(%s*)(.-)(%s*)$")
+        return leading .. (body ~= "" and codeSpan(body) or "") .. trailing
+    end
+
+    local out, position = {}, 1
+    for _, reference in ipairs(references) do
+        if reference.start > position then
+            out[#out + 1] = fragment(source:sub(position, reference.start - 1))
+        end
+        out[#out + 1] = "[" .. codeSpan(reference.name) .. "](" .. reference.url .. ")"
+        position = reference.finish + 1
+    end
+    if position <= #source then
+        out[#out + 1] = fragment(source:sub(position))
+    end
+
+    return table.concat(out)
+end
+
 -- What a declaration was annotated with, on its own line under the heading.
 local function markdownAnnotations(out, annotations)
     if not annotations or #annotations == 0 then
@@ -107,7 +246,7 @@ local function markdownArguments(out, params, heading)
     out[#out + 1] = ""
     for _, param in ipairs(params) do
         local spelled = (param.mode and (param.mode .. " ") or "") .. param.name
-        definition(out, codeSpan(spelled) .. " - " .. codeSpan(param.type), param.text)
+        definition(out, codeSpan(spelled) .. " - " .. typeSpan(param.type), param.text)
     end
     out[#out + 1] = ""
 end
@@ -119,7 +258,7 @@ local function markdownReturns(out, returns, heading)
     out[#out + 1] = heading .. " Returns"
     out[#out + 1] = ""
     for _, value in ipairs(returns) do
-        definition(out, codeSpan(value.type), value.text)
+        definition(out, typeSpan(value.type), value.text)
     end
     out[#out + 1] = ""
 end
@@ -139,6 +278,52 @@ local function markdownRaises(out, raises, heading)
         out[#out + 1] = "| `" .. markdownEscape(raise.type) .. "` | " .. cell(raise.text) .. " |"
     end
     out[#out + 1] = ""
+end
+
+local function markdownTypeargs(out, typeargs, heading)
+    if #typeargs == 0 then
+        return
+    end
+    out[#out + 1] = heading .. " Type parameters"
+    out[#out + 1] = ""
+    out[#out + 1] = "| Name | Description |"
+    out[#out + 1] = "| --- | --- |"
+    for _, typearg in ipairs(typeargs) do
+        out[#out + 1] = "| `" .. markdownEscape(typearg.name) .. "` | " .. cell(typearg.text) .. " |"
+    end
+    out[#out + 1] = ""
+end
+
+local function markdownForms(out, forms, name, path, level, lua)
+    local explicitLua = false
+    for _, form in ipairs(forms) do
+        explicitLua = explicitLua or form.lua or false
+    end
+    for index, form in ipairs(forms) do
+        local restore = typeContext(path, form.typeargs)
+        local names = {}
+        for _, param in ipairs(form.params) do
+            names[#names + 1] = param.name
+        end
+        local title = form.title or codeSpan(name .. "(" .. table.concat(names, ", ") .. ")")
+        out[#out + 1] = '<a id="' .. path .. '.form-' .. tostring(index) .. '"></a>'
+        out[#out + 1] = heading(level) .. " " .. title .. ((form.lua or lua and not explicitLua) and " _Lua_" or "")
+        out[#out + 1] = ""
+        out[#out + 1] = "```nupp"
+        out[#out + 1] = apiMod.formSignature(form)
+        out[#out + 1] = "```"
+        out[#out + 1] = ""
+        if form.text ~= "" then
+            out[#out + 1] = prose(form.text)
+            out[#out + 1] = ""
+        end
+        local hSub = heading(level + 1)
+        markdownTypeargs(out, form.typeargs, hSub)
+        markdownArguments(out, form.params, hSub)
+        markdownReturns(out, form.returns, hSub)
+        markdownRaises(out, form.raises, hSub)
+        restore()
+    end
 end
 
 local function overloadAnchor(path, seen)
@@ -174,8 +359,9 @@ local function markdownMemberSummary(out, members, heading, title, path, superty
         title: string,
         entries: {OverviewMember}
     }} = {
-        {title = "Methods", entries = {}},
         {title = "Constructors", entries = {}},
+        {title = "Static methods", entries = {}},
+        {title = "Instance methods", entries = {}},
         {title = "Metamethods", entries = {}},
         {title = "Types", entries = {}},
         {title = "Fields", entries = {}},
@@ -183,15 +369,15 @@ local function markdownMemberSummary(out, members, heading, title, path, superty
     local seen = {}
     for index, member in ipairs(members) do
         local path = overloadAnchor(member.path, seen)
-        local group = groups[5]
+        local group = groups[6]
         if member.isType or member.isAlias then
-            group = groups[4]
+            group = groups[5]
         elseif member.isMetamethod then
-            group = groups[3]
+            group = groups[4]
         elseif member.name == "constructor" then
-            group = groups[2]
-        elseif member.isFunction then
             group = groups[1]
+        elseif member.isFunction then
+            group = groups[apiMod.isInstanceMethod(member) and 3 or 2]
         end
         group.entries[
             #group.entries + 1
@@ -228,56 +414,87 @@ local function renderMarkdownMembers(out, members, level)
     local hName, hSub = heading(level), heading(level + 1)
     local seen = {}
     for _, member in ipairs(members or {}) do
+        local restore = typeContext(member.path, member.typeargs)
         local path = overloadAnchor(member.path, seen)
-        local section = not member.isType and not member.isAlias
-        if section then
-            out[#out + 1] = "::: api-item " .. path
-        end
+        out[#out + 1] = "::: api-item " .. path
         out[#out + 1] = '<a id="' .. path .. '"></a>'
         out[
             #out + 1
-        ] = hName .. " `" .. member.name .. "` _" .. memberKind(member) .. "_" .. (member.lua and " _Lua_" or "")
+        ] = hName .. " `" .. member.name .. "` _" .. memberKind(
+            member
+        ) .. "_" .. (member.lua and not member.forms and " _Lua_" or "")
         out[#out + 1] = ""
-        -- A nested type's kind already spells its declaration, and what it holds is its
-        -- own members below; only a field or a method has a type to show here.
-        if not member.isType then
-            out[#out + 1] = "```nupp"
-            out[#out + 1] = memberSpelling(member)
-            out[#out + 1] = "```"
+        if not member.forms and (not member.isType or member.type == "record" or member.type == "interface") then
+            local fieldType = not member.isFunction
+                and not member.isType
+                and not member.isAlias
+                and typeSpan(member.type)
+                or nil
+            if fieldType and fieldType:find("](", 1, true) then
+                out[#out + 1] = codeSpan(member.name .. ":") .. " " .. fieldType
+            else
+                out[#out + 1] = "```nupp"
+                out[#out + 1] = memberSpelling(member)
+                out[#out + 1] = "```"
+            end
             out[#out + 1] = ""
         end
         markdownAnnotations(out, member.annotations)
-        if member.text ~= "" then
-            out[#out + 1] = prose(member.text)
+        local text, examples = member.text, ""
+        local constructor = member.name == "constructor" and member.isFunction
+        if constructor then
+            text, examples = constructors.examples(text)
+        end
+        if text ~= "" then
+            out[#out + 1] = prose(text)
             out[#out + 1] = ""
         end
-        markdownArguments(out, member.params, hSub)
-        markdownReturns(out, member.returns, hSub)
-        markdownRaises(out, member.raises, hSub)
+        if member.forms then
+            markdownForms(out, member.forms, member.name, path, level + 1, member.lua)
+        else
+            markdownTypeargs(out, member.typeargs or {}, hSub)
+            markdownArguments(out, member.params, hSub)
+            markdownReturns(out, member.returns, hSub)
+            markdownRaises(out, member.raises, hSub)
+        end
+        if constructor then
+            out[#out + 1] = hSub .. " Examples"
+            out[#out + 1] = ""
+            out[#out + 1] = examples ~= "" and prose(examples)
+                or constructors.example(member, typeModule or {name = ""})
+            out[#out + 1] = ""
+        end
         if member.isType then
-            markdownMemberSummary(out, member.members, hSub, nil, path, member.supertypes)
-            renderMarkdownMembers(out, member.members, level + 1)
+            local children = constructors.members(member, typeModule or {name = ""}, constructionIndex)
+            markdownMemberSummary(out, children, hSub, nil, path, member.supertypes)
+            renderMarkdownMembers(out, children, level + 1)
         end
-        if section then
-            out[#out + 1] = ":::"
-            out[#out + 1] = ""
-        end
+        out[#out + 1] = ":::"
+        out[#out + 1] = ""
+        restore()
     end
 end
 
 local function renderMarkdownItem(out, item, level, bodyOnly, path)
+    local restore = typeContext(item.path, item.typeargs)
     level = level or 3
     local h, hSub = heading(level), heading(level + 1)
     if not bodyOnly then
         out[#out + 1] = "::: api-item " .. (path or item.path)
         out[#out + 1] = '<a id="' .. (path or item.path) .. '"></a>'
-        out[#out + 1] = h .. " `" .. item.name .. "` _" .. displayKind(item) .. "_" .. (item.lua and " _Lua_" or "")
+        out[
+            #out + 1
+        ] = h .. " `" .. item.name .. "` _" .. displayKind(
+            item
+        ) .. "_" .. (item.lua and not item.forms and " _Lua_" or "")
         out[#out + 1] = ""
     end
-    out[#out + 1] = "```nupp"
-    out[#out + 1] = displaySignature(item)
-    out[#out + 1] = "```"
-    out[#out + 1] = ""
+    if not item.forms then
+        out[#out + 1] = "```nupp"
+        out[#out + 1] = displaySignature(item)
+        out[#out + 1] = "```"
+        out[#out + 1] = ""
+    end
     if item.kind == "function" and item.readOnly then
         out[#out + 1] = "**Read-only binding.**"
         out[#out + 1] = ""
@@ -287,32 +504,35 @@ local function renderMarkdownItem(out, item, level, bodyOnly, path)
         out[#out + 1] = prose(item.doc.text);
         out[#out + 1] = ""
     end
-    if #item.typeargs > 0 then
-        out[#out + 1] = hSub .. " Type parameters"
-        out[#out + 1] = ""
-        out[#out + 1] = "| Name | Description |"
-        out[#out + 1] = "| --- | --- |"
-        for _, typearg in ipairs(item.typeargs) do
-            out[#out + 1] = "| `" .. markdownEscape(typearg.name) .. "` | " .. cell(typearg.text) .. " |"
-        end
+    local wrapped = item.kind == "type" and item.signature:match("=%s*affine%s*%(%s*([%a_][%w_%.]*)") or nil
+    local linked = wrapped and typeSpan(wrapped) or nil
+    if linked and linked:find("](", 1, true) then
+        out[#out + 1] = "See " .. linked .. " for the wrapped type's operations."
         out[#out + 1] = ""
     end
-    markdownArguments(out, item.params, hSub)
-    markdownReturns(out, item.returns, hSub)
-    markdownRaises(out, item.raises, hSub)
+    if item.forms then
+        markdownForms(out, item.forms, item.name, path or item.path, level + 1, item.lua)
+    else
+        markdownTypeargs(out, item.typeargs, hSub)
+        markdownArguments(out, item.params, hSub)
+        markdownReturns(out, item.returns, hSub)
+        markdownRaises(out, item.raises, hSub)
+    end
+    local members = constructors.members(item, typeModule or {name = item.module or ""}, constructionIndex)
     markdownMemberSummary(
         out,
-        item.members,
+        members,
         hSub,
         item.kind == "annotation" and "Values" or nil,
         path or item.path,
         item.supertypes
     )
-    renderMarkdownMembers(out, item.members, level + 1)
+    renderMarkdownMembers(out, members, level + 1)
     if not bodyOnly then
         out[#out + 1] = ":::"
         out[#out + 1] = ""
     end
+    restore()
 end
 
 --- Renders declarations as sections, for a page that writes its own headings around
@@ -326,7 +546,18 @@ end
 --- @param items the declarations to render, in the order they should be read
 --- @param level the heading depth of an item's name, 3 by default
 --- @return the markdown, or the empty string when there is nothing to render
-function markdown.items(items: {Item}, level: integer?, seen: {[string]: integer}?, legacy: boolean?): string
+function markdown.items(
+    items: {Item},
+    level: integer?,
+    seen: {[string]: integer}?,
+    legacy: boolean?,
+    links: Links?
+): string
+    local previous, previousIndex = anchors, constructionIndex
+    anchors = links or anchors
+    if not typeModule then
+        constructionIndex = constructors.index({{name = "", items = items}})
+    end
     local out = {}
     local seen = seen or {}
     for _, item in ipairs(items) do
@@ -340,13 +571,19 @@ function markdown.items(items: {Item}, level: integer?, seen: {[string]: integer
         renderMarkdownItem(out, item, level or 3, false, overloadAnchor(item.path, seen))
     end
 
+    anchors, constructionIndex = previous, previousIndex
+
     return table.concat(out, "\n")
 end
 
 --- Renders a declaration for a reader which supplies its own section heading.
 function markdown.itemBody(item: Item): string
+    local previousIndex = constructionIndex
+    constructionIndex = constructors.index({{name = "", items = {item}}})
     local out = {}
     renderMarkdownItem(out, item, 3, true)
+    constructionIndex = previousIndex
+
     return table.concat(out, "\n")
 end
 
@@ -436,6 +673,7 @@ function markdown.render(
     siteLinks: Links?
 ): string
     local all = all or modules
+    constructionIndex = constructors.index(all)
     anchors = symbolLinkIndex(modules, function(module: string, path: string?): string
         if prefix then
             return prefix .. urlsMod.moduleFile(module) .. (path and "#" .. path or "")
@@ -455,6 +693,7 @@ function markdown.render(
     end
     local seen = {}
     for moduleIndex, module in ipairs(modules) do
+        typeModule = module
         local rootDeclaration = false
         for _, item in ipairs(module.items) do
             rootDeclaration = rootDeclaration or item.path == module.name
@@ -499,7 +738,8 @@ function markdown.render(
             out[#out + 1] = ""
         end
     end
-    anchors, known = nil, nil
+    anchors, known, typeModule = nil, nil, nil
+    constructionIndex = {}
 
     return table.concat(out, "\n") .. "\n"
 end

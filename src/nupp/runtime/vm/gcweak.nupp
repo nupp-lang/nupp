@@ -8,11 +8,15 @@ A table's weak mode is two bits of its header's `aux` (keys 1, values 2),
 which the object library keeps as its metatable's `__mode` says; the
 collector reads only the bits. A weak table is scanned as an ephemeron
 table: an entry survives when each of its weak sides is a string or a boxed
-integer, which are never cleared, or already marked; only then are both sides
-marked. Every weak table a cycle scanned is revisited when the gray stack
-drains, since a weak side marked later makes its entry survive, and once
-marking can do no more, the entries whose weak side is still white are
-cleared before the sweep frees what they named.
+integer, which are never cleared, or already marked; only then are both
+sides marked (where Lua marks a weak-values table's keys anyway, a key whose
+entry is cleared and which nothing else reaches dies a cycle sooner, which
+only another weak table or a finalizer could tell). Every weak table
+a cycle scanned is revisited when the gray stack drains, since a weak side
+marked later makes its entry survive, and once marking can do no more, the
+entries whose weak side is still white are cleared before the sweep frees
+what they named: values before finalizers resurrect what they reach, keys
+after (`clearSides`, `gcfinal`).
 
 A lookup structure that is not a root but answers references, the intern
 table first, is weak too, and a hit in it passes the read barrier: while
@@ -20,13 +24,14 @@ marking a white hit is grayed, and while sweeping a white hit whitened by an
 earlier cycle is a miss, since the sweep has not reached it and will free
 it, where one the sweep already passed (this cycle's epoch) is a survivor.
 
-There are no finalizers: no guest code runs for a dead object. The runtime
-still tears down owned payloads outside the slot: table parts, record arrays
-and overflow, iterator keys, buffer bytes and userdata host data. Weak indexes
-erase entries by exact header identity before retirement or reclamation. The
-released-object handoff keeps its existing kinds: the sweep counts one dead,
-sets its kind to `FREED`, and preserves its payload and slot until the runtime
-takes it from the released list and recycles it.
+A table marked for finalization is resurrected before it dies (`gcfinal`),
+so the sweep never frees one. The runtime tears down owned payloads outside
+the slot: table parts, record arrays and overflow, iterator keys, buffer
+bytes and userdata host data. Weak indexes erase entries by exact header
+identity before retirement or reclamation. The released-object handoff keeps
+its existing kinds: the sweep counts one dead, sets its kind to `FREED`, and
+preserves its payload and slot until the runtime takes it from the released
+list and recycles it.
 ]]
 
 const native = require("nupp.runtime.vm.intrinsics")
@@ -42,6 +47,26 @@ export const WEAK_MODES: uint64 = 3
 --- Beside a scanned table's mode: the scan is a minor collection's, so an
 --- old referent holds (Decision 20; `weakentries` reads the same bit).
 export const WEAK_MINOR: uint64 = 4
+
+--- Beside a scanned table's mode: `KIND_SLICE` objects are storage views,
+--- which are cleared, not string slices, which are not
+--- (`Heap.storageviews`; `weakentries` reads the same bit).
+export const WEAK_VIEWS: uint64 = 8
+
+--- The mode a cycle scans table `o` under: its weak sides, and the bits for
+--- a minor collection and for storage views.
+export function scanmode(h: heap.Heap*, o: heap.Header*): uint64
+    @unsafe do
+        local mode = (o.aux as uint64) & WEAK_MODES
+        if h.minor ~= 0ULL then
+            mode = mode | WEAK_MINOR
+        end
+        if h.storageviews ~= 0ULL then
+            mode = mode | WEAK_VIEWS
+        end
+        return mode
+    end
+end
 
 --- Grays a white object, answering whether it did.
 local function grayIfWhite(h: heap.Heap*, value: uint64): boolean
@@ -73,7 +98,7 @@ end
 export function weakCycleRemember(h: heap.Heap*, o: heap.Header*, mode: uint64): nil
     @unsafe do
         heap.wordsPush(h.weak, native.address(o as voidptr))
-        heap.wordsPush(h.weak, mode & (WEAK_MODES | WEAK_MINOR))
+        heap.wordsPush(h.weak, mode & (WEAK_MODES | WEAK_MINOR | WEAK_VIEWS))
     end
 end
 
@@ -155,9 +180,46 @@ export function weakCycleClearNext(h: heap.Heap*, cursor: ClearCursor*): uint64
 end
 
 export function clear(h: heap.Heap*): nil
-    local state = new ClearCursor(0ULL, 0ULL, 0ULL)
+    local state = ClearCursor(0ULL, 0ULL, 0ULL)
     local cursor = state as ClearCursor*
     while weakCycleClearNext(h, cursor) ~= 0ULL do
+    end
+end
+
+--- Clears, in the weak tables this cycle scanned from the `first`th up to
+--- the `last`th, the entries whose weak `sides` (WEAK_KEYS, WEAK_VALUES or
+--- both) name a dead object, keeping the list for a later call: the
+--- collector clears values before finalizers resurrect what they reach and
+--- keys after, as Lua's atomic phase does (`collector`).
+export function clearSides(h: heap.Heap*, first: uint64, last: uint64, sides: uint64): nil
+    @unsafe do
+        local i = first * 2ULL
+        while i < last * 2ULL do
+            local o = native.pointer(heap.wordAt(h.weak, i)) as heap.Header*
+            local mode = heap.wordAt(h.weak, i + 1ULL)
+            if o.kind as uint64 == heap.KIND_TABLE and mode & sides ~= 0ULL then
+                local t = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as heap.TableBody*
+                local length = weakentries.weakClearViews(
+                    native.pointer(t.arrayPtr),
+                    t.arrayLen,
+                    native.pointer(t.hashPtr),
+                    t.hashCap,
+                    mode & (sides | WEAK_MINOR | WEAK_VIEWS),
+                    native.pointer(0ULL)
+                )
+                t.arrayLen = length
+                o.auxPtr = t.arrayPtr
+                o.auxLen = length
+            end
+            i = i + 2ULL
+        end
+    end
+end
+
+--- How many weak tables this cycle has scanned so far.
+export function scanned(h: heap.Heap*): uint64
+    @unsafe do
+        return h.weak.count // 2ULL
     end
 end
 

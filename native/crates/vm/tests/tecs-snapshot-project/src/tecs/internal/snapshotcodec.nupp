@@ -132,7 +132,7 @@ export function write(
                 const storage = ffistorage.find(component.componentId)
                 entries[
                     entry
-                ] = new events.SnapshotComponentEntry(
+                ] = events.SnapshotComponentEntry(
                     name = component.componentName,
                     fingerprint = storage ~= nil
                     and storage.rawCodec
@@ -144,7 +144,7 @@ export function write(
             indices[#indices + 1] = entry
             ::nextComponent::
         end
-        plans[#plans + 1] = new Plan(source = source, columns = columns, indices = indices, rows = rows, count = count)
+        plans[#plans + 1] = Plan(source = source, columns = columns, indices = indices, rows = rows, count = count)
         total = total + count
         ::nextSource::
     end
@@ -232,7 +232,7 @@ export function write(
     })
     output:reset():put(bytes)
 
-    return new events.SnapshotPrelude(
+    return events.SnapshotPrelude(
         version = 1,
         nextEntityId = nextId,
         entityCount = total,
@@ -403,9 +403,7 @@ export function read(bytes: string, maximum: integer): Decoded
         if entry.fingerprint ~= nil and type(entry.fingerprint) ~= "string" then
             error("invalid snapshot fingerprint", 2)
         end
-        entries[
-            index
-        ] = new events.SnapshotComponentEntry(name = entry.name, fingerprint = entry.fingerprint as string?)
+        entries[index] = events.SnapshotComponentEntry(name = entry.name, fingerprint = entry.fingerprint as string?)
         definitions[index] = component
         if entry.fingerprint ~= nil then
             -- Validate schema even for the fast path; matching a string alone
@@ -472,7 +470,7 @@ export function read(bytes: string, maximum: integer): Decoded
             end
             columns[
                 column
-            ] = new Column(
+            ] = Column(
                 component = definitions[entry],
                 storage = storage,
                 pointer = pointer,
@@ -480,7 +478,7 @@ export function read(bytes: string, maximum: integer): Decoded
                 scratch = nil
             )
         end
-        frames[index] = new Frame(owner = bytes, ids = ids as number[?], count = count, columns = columns)
+        frames[index] = Frame(owner = bytes, ids = ids as number[?], count = count, columns = columns)
     end
     if counted ~= total then
         error("snapshot counts do not match its contents", 2)
@@ -491,11 +489,11 @@ export function read(bytes: string, maximum: integer): Decoded
         if type(entry) ~= "table" or type(entry.key) ~= "string" then
             error("invalid snapshot data key", 2)
         end
-        data[index] = new Data(key = entry.key, value = entry.value)
+        data[index] = Data(key = entry.key, value = entry.value)
     end
 
-    return new Decoded(
-        prelude = new events.SnapshotPrelude(
+    return Decoded(
+        prelude = events.SnapshotPrelude(
             version = 1,
             nextEntityId = nextId,
             entityCount = total,

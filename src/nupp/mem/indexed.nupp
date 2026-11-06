@@ -66,7 +66,7 @@ export function range(first: integer, last: integer, borrows ...: any): Range
         end
     end
 
-    return new Range(first = first, last = last)
+    return Range(first = first, last = last)
 end
 
 --- Private range validation for scalar-replaced views. Each variadic value is a
@@ -84,7 +84,7 @@ export function _rangeCounts(first: integer, last: integer, ...: integer): Range
         end
     end
 
-    return new Range(first = first, last = last)
+    return Range(first = first, last = last)
 end
 
 --- Private allocation-free slice validation used by virtual standard views.

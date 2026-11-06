@@ -57,7 +57,7 @@ end
 -- value is copied into a builder sized by a first call, then once more if it
 -- did not fit.
 local function getenv(ctx: voidptr, name: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     local s = strings.header(name)
     if s == 0ULL then
         texts.argumentError(ctx, 1ULL, librarytexts.TEXT_STRING, 0ULL, name)
@@ -109,7 +109,7 @@ end
 -- print(...) over a pack {[0] = n, ...}: each value's text, separated by
 -- tabs, and a newline, written to the host's output at once.
 local function printValues(ctx: voidptr, packValue: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = guestvalues.guestheap(ctx)
         local pack = packValue & values.PAYLOAD
@@ -163,7 +163,7 @@ end
 
 -- {...}: a fresh table holding a variadic pack's values at 1..n.
 local function packCopy(ctx: voidptr, packValue: uint64, named: boolean): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = guestvalues.guestheap(ctx)
         local pack = packValue & values.PAYLOAD

@@ -147,12 +147,12 @@ local lintFixtures = {
             "local function held<T is Holds>(value: T): T.Item",
             "   return nil as any",
             "end",
-            "return held(new Typed())"
+            "return held(Typed())"
         ),
     },
     NUPP2512 = {
-        reports = source("local record Point", "   x: integer", "   y: integer", "end", "return new Point(1, 2)"),
-        quiet = source("local record Point", "   x: integer", "   y: integer", "end", "return new Point(x = 1, y = 2)"),
+        reports = source("local record Point", "   x: integer", "   y: integer", "end", "return Point(1, 2)"),
+        quiet = source("local record Point", "   x: integer", "   y: integer", "end", "return Point(x = 1, y = 2)"),
     },
     NUPP2513 = {
         reports = source("@deprecated local function legacy(): integer return 1 end", "return legacy()"),

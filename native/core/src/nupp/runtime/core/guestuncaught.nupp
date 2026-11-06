@@ -1,0 +1,167 @@
+module nupp.runtime.core.guestuncaught
+
+-- An error no protected call takes ends the program, reported as lua.c's
+-- message handler reports one: an error object that is no string or
+-- number and has a __tostring is shown by it, its answer when that is a
+-- string and "(error object is a table value)" when not, and its own
+-- error when it raises one. The entry calls the __tostring as a guest
+-- frame (REPORT_DESTINATION) whose return ends the entry. Any other value
+-- is shown as the VM shows it (guestreport.plain). Then every marked table
+-- is finalized, as lua.c's lua_close finalizes them after the report: each
+-- finalizer a REPORT_DESTINATION frame too, whose return brings the
+-- recovery back for the next (guestfinalizers.aftererror).
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const context = require("nupp.runtime.core.context")
+const frames = require("nupp.runtime.core.frames")
+const access = require("nupp.runtime.core.frameaccess")
+const strings = require("nupp.runtime.core.corestrings")
+const ints = require("nupp.runtime.core.coreintegers")
+const guestscope = require("nupp.runtime.core.guestscope")
+const guestvalues = require("nupp.runtime.core.guestvalues")
+const guestmeta = require("nupp.runtime.core.guestmeta")
+const guestlanding = require("nupp.runtime.core.guestlanding")
+const guestops = require("nupp.runtime.core.guestops")
+const threads = require("nupp.runtime.core.threads")
+const guestreport = require("nupp.runtime.core.guestreport")
+const finalizers = require("nupp.runtime.core.guestfinalizers")
+
+-- Services.reporting: no report begun, the __tostring running, or the
+-- finalizers running after the report.
+const IDLE: uint64 = 0ULL
+const CONVERTING: uint64 = 1ULL
+const FINALIZING: uint64 = 2ULL
+-- The top of every frame's window a handler's own call stages: the callee,
+-- then up to three arguments (guestops.metaCall).
+const CALL_WINDOW: uint64 = 4ULL
+const VALUE_BYTES: uint64 = 8ULL
+-- The one argument a __tostring takes, and the caller's instruction it
+-- would resume at, which it never does: the entry ends when it returns.
+const ARGUMENTS: uint64 = 1ULL
+const NEVER_RESUMED: uint64 = 0ULL
+
+-- Starts `value`'s __tostring in a frame the active one calls, answering
+-- the pc it starts at, or 0 when the value is reported as it is: a string
+-- or number, a value with no __tostring, or one that is no plain function
+-- or finds no frame to call it from.
+local function convert(ctx: voidptr, value: uint64): uint64
+    if strings.header(value) ~= 0ULL or ints.isInteger(value) or guestvalues.isfloat(value) then
+        return 0ULL
+    end
+    local callee = guestmeta.binaryMeta(ctx, guestmeta.META_TOSTRING, value, value)
+    if callee == 0ULL or guestvalues.objkind(callee) ~= heap.KIND_CLOSURE or threads.wrapped(callee) ~= 0ULL then
+        return 0ULL
+    end
+    @unsafe do
+        local s = native.loadPointer(ctx, context.STATE)
+        local active = access.active(s)
+        if active == 0ULL then
+            return 0ULL
+        end
+        local frame = native.pointer(active)
+        local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+        if count <= CALL_WINDOW then
+            return 0ULL
+        end
+        local base = count - CALL_WINDOW
+        local window = native.pointer(access.values(s, frame))
+        native.store64(window, native.index(base * VALUE_BYTES), callee)
+        native.store64(window, native.index((base + 1ULL) * VALUE_BYTES), value)
+        -- The failure is over; the call's own error, if it raises one, is
+        -- reported in its place.
+        guestlanding.recovered(ctx)
+        local pc = native.pointer(access.code(s, frame))
+        local child = guestops.metaPrepare(ctx, frame, pc, base, ARGUMENTS, base)
+        if child == 0ULL then
+            return 0ULL
+        end
+        if frames.reportresult(s, native.pointer(child)) ~= 1ULL
+            or frames.publish(s, frame, native.pointer(child), NEVER_RESUMED) ~= 1ULL
+        then
+            frames.abortPrepared(s, frame, native.pointer(child))
+            return 0ULL
+        end
+        native.store64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("reporting"), CONVERTING)
+        native.store64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("reportvalue"), value)
+        native.store64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("reportanswer"), values.NIL)
+        access.refresh(s, native.pointer(child), ctx)
+        return access.pc(s, native.pointer(child))
+    end
+end
+
+-- The __tostring the report waits on returned `answer`: its frame ends
+-- the entry (the return handlers), and recover reports it.
+export function answered(ctx: voidptr, answer: uint64): nil
+    native.store64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("reportanswer"), answer)
+end
+
+-- After the report: the next finalizer, with no error failing meanwhile,
+-- answering the pc it starts at; once none is left, 0, the entry ending
+-- with the error's status.
+local function finalize(ctx: voidptr): uint64
+    guestlanding.recovered(ctx)
+    native.store64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("reporting"), FINALIZING)
+    local at = finalizers.aftererror(ctx)
+    if at ~= 0ULL then
+        return at
+    end
+    native.store64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("reporting"), IDLE)
+    native.store64(ctx, context.STATUS, context.GUEST_ERROR_STATUS)
+
+    return 0ULL
+end
+
+-- The entry's recovery (threads.recover), then, once an error ends the
+-- entry, its report and the finalizers. Answers the pc to continue at, a
+-- protected call's, the __tostring's or a finalizer's, or 0 when the
+-- entry ends.
+export function recover(ctx: voidptr): uint64
+    local at = threads.recover(ctx)
+    if at ~= 0ULL then
+        return at
+    end
+    local failing = guestlanding.failing(ctx) == 1ULL
+    local reporting = native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("reporting"))
+    if reporting == FINALIZING then
+        -- A budget, cancellation or refusal stopping one ends the entry so.
+        if not failing and native.load64(ctx, context.STATUS) ~= 0ULL then
+            return 0ULL
+        end
+        -- One that raised, with no installed function to warn of it.
+        if failing then
+            guestreport.finalizer(ctx, guestscope.lastError(ctx), false)
+        end
+        return finalize(ctx)
+    end
+    if reporting == CONVERTING then
+        native.store64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("reporting"), IDLE)
+        -- A budget, cancellation or refusal stopping it ends the entry so.
+        if not failing and native.load64(ctx, context.STATUS) ~= 0ULL then
+            return 0ULL
+        end
+        local answer = native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("reportanswer"))
+        if failing then
+            guestreport.plain(ctx, guestscope.lastError(ctx))
+        elseif strings.header(answer) ~= 0ULL then
+            guestreport.plain(ctx, answer)
+        else
+            guestreport.object(
+                ctx,
+                native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("reportvalue"))
+            )
+        end
+        return finalize(ctx)
+    end
+    if not failing then
+        return 0ULL
+    end
+    local value = guestscope.lastError(ctx)
+    local started = convert(ctx, value)
+    if started ~= 0ULL then
+        return started
+    end
+    guestreport.plain(ctx, value)
+
+    return finalize(ctx)
+end

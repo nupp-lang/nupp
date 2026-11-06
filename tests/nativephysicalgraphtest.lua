@@ -475,7 +475,7 @@ function M.localCursorFieldReceiverSurvivesNominalCopiesAndJoin()
         [[
 local struct Cursor value: uint64 end
 local function read(seed: uint64): uint64
-    local state = new Cursor(seed)
+    local state = Cursor(seed)
     local cursor = state as Cursor*
     @unsafe do
         cursor.value = native.asWord(seed == 0ULL or seed == 1ULL)
@@ -493,6 +493,28 @@ end
         end
     end
     assert(copies > 1, "nominal local storage is transported without cloning its descriptor")
+    local _, _, store = operation(g, "NativeStore")
+    assert(physical.localOrigin(store[4].field.receiver) == localArgs[1])
+    G.prune(g)
+    G.verify(g)
+end
+
+function M.callableLocalStructIsTheSamePhysicalLocal()
+    -- Calling the declaration builds the local `new` builds.
+    local g = compile(
+        [[
+local struct Cursor value: uint64 end
+local function read(seed: uint64): uint64
+    local state = Cursor(seed)
+    local cursor = state as Cursor*
+    @unsafe do
+        cursor.value = seed + 1ULL
+        return cursor.value
+    end
+end
+]]
+    )
+    local _, _, localArgs = operation(g, "NativeLocal")
     local _, _, store = operation(g, "NativeStore")
     assert(physical.localOrigin(store[4].field.receiver) == localArgs[1])
     G.prune(g)

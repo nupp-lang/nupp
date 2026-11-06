@@ -18,12 +18,12 @@ export function capture(value: any): any
     end
     return {
         id = value.id,
-        architecture = value.architecture,
+        architecture = value.arch,
         supported = value.supported,
-        luajitRevision = held(value, "luajitrevision", "luajitRevision"),
-        luajitVersion = held(value, "luajitversion", "luajitVersion"),
-        operatingSystem = held(value, "operatingsystem", "operatingSystem"),
-        enabledRecorderFeatures = held(value, "enabledrecorderfeatures", "enabledRecorderFeatures"),
-        bytecodeSchema = held(value, "bytecodeschema", "bytecodeSchema"),
+        luajitRevision = held(value, "revision", "luajitRevision"),
+        luajitVersion = held(value, "version", "luajitVersion"),
+        operatingSystem = held(value, "os", "operatingSystem"),
+        enabledRecorderFeatures = held(value, "features", "enabledRecorderFeatures"),
+        bytecodeSchema = held(value, "schema", "bytecodeSchema"),
     }
 end

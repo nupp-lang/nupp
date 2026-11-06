@@ -126,6 +126,30 @@ export const TEXT_INVALID_OPTION: uint64 = 117ULL
 export const NAME_COLLECTGARBAGE: uint64 = 118ULL
 export const TEXT_PARKED: uint64 = 119ULL
 export const TEXT_RESUME_TASK: uint64 = 120ULL
+export const TEXT_ERROR_OBJECT: uint64 = 121ULL
+export const TEXT_OBJECT_VALUE: uint64 = 122ULL
+export const TEXT_FIELD_GC: uint64 = 123ULL
+export const TEXT_FIELD_MODE: uint64 = 124ULL
+export const TEXT_WARNING: uint64 = 125ULL
+export const TEXT_GC_ERROR: uint64 = 126ULL
+export const TEXT_NOT_STRING: uint64 = 127ULL
+export const TEXT_CALL_VALUE: uint64 = 128ULL
+export const TEXT_GC_METAMETHOD: uint64 = 144ULL
+export const TEXT_COLLECT: uint64 = 129ULL
+export const TEXT_STOP: uint64 = 130ULL
+export const TEXT_RESTART: uint64 = 131ULL
+export const TEXT_COUNT: uint64 = 132ULL
+export const TEXT_STEP: uint64 = 133ULL
+export const TEXT_ISRUNNING: uint64 = 134ULL
+export const TEXT_GENERATIONAL: uint64 = 135ULL
+export const TEXT_INCREMENTAL: uint64 = 136ULL
+export const TEXT_PARAM: uint64 = 137ULL
+export const TEXT_MINORMUL: uint64 = 138ULL
+export const TEXT_MAJORMINOR: uint64 = 139ULL
+export const TEXT_MINORMAJOR: uint64 = 140ULL
+export const TEXT_PAUSE: uint64 = 141ULL
+export const TEXT_STEPMUL: uint64 = 142ULL
+export const TEXT_STEPSIZE: uint64 = 143ULL
 
 -- Appends text `id` to `b`: nonzero when the builder refused it.
 export function append(h: heap.Heap*, b: strings.Builder*, id: uint64): uint64
@@ -588,6 +612,88 @@ export function append(h: heap.Heap*, b: strings.Builder*, id: uint64): uint64
             | strings.appendWord(h, b, 0x656c756465686373ULL, 8ULL)
             | strings.appendWord(h, b, 0x74756f726f632064ULL, 8ULL)
             | strings.appendWord(h, b, 0x656e69ULL, 3ULL)
+    elseif id == TEXT_ERROR_OBJECT then
+        -- "(error object is a "
+        return strings.appendWord(h, b, 0x6f20726f72726528ULL, 8ULL)
+            | strings.appendWord(h, b, 0x7369207463656a62ULL, 8ULL)
+            | strings.appendWord(h, b, 0x206120ULL, 3ULL)
+    elseif id == TEXT_OBJECT_VALUE then
+        -- " value"
+        return strings.appendWord(h, b, 0x65756c617620ULL, 6ULL)
+    elseif id == TEXT_FIELD_GC then
+        -- "__gc"
+        return strings.appendWord(h, b, 0x63675f5fULL, 4ULL)
+    elseif id == TEXT_FIELD_MODE then
+        -- "__mode"
+        return strings.appendWord(h, b, 0x65646f6d5f5fULL, 6ULL)
+    elseif id == TEXT_WARNING then
+        -- "warn warn: "
+        return strings.appendWord(h, b, 0x726177206e726177ULL, 8ULL) | strings.appendWord(h, b, 0x203a6eULL, 3ULL)
+    elseif id == TEXT_GC_ERROR then
+        -- "error in __gc ("
+        return strings.appendWord(h, b, 0x6e6920726f727265ULL, 8ULL)
+            | strings.appendWord(h, b, 0x282063675f5f20ULL, 7ULL)
+    elseif id == TEXT_NOT_STRING then
+        -- "error object is not a string"
+        return strings.appendWord(h, b, 0x626f20726f727265ULL, 8ULL)
+            | strings.appendWord(h, b, 0x207369207463656aULL, 8ULL)
+            | strings.appendWord(h, b, 0x7473206120746f6eULL, 8ULL)
+            | strings.appendWord(h, b, 0x676e6972ULL, 4ULL)
+    elseif id == TEXT_CALL_VALUE then
+        -- "attempt to call a "
+        return strings.appendWord(h, b, 0x2074706d65747461ULL, 8ULL)
+            | strings.appendWord(h, b, 0x206c6c6163206f74ULL, 8ULL)
+            | strings.appendWord(h, b, 0x2061ULL, 2ULL)
+    elseif id == TEXT_GC_METAMETHOD then
+        -- " (metamethod '__gc')"
+        return strings.appendWord(h, b, 0x656d6174656d2820ULL, 8ULL)
+            | strings.appendWord(h, b, 0x5f5f2720646f6874ULL, 8ULL)
+            | strings.appendWord(h, b, 0x29276367ULL, 4ULL)
+    elseif id == TEXT_COLLECT then
+        -- "collect"
+        return strings.appendWord(h, b, 0x7463656c6c6f63ULL, 7ULL)
+    elseif id == TEXT_STOP then
+        -- "stop"
+        return strings.appendWord(h, b, 0x706f7473ULL, 4ULL)
+    elseif id == TEXT_RESTART then
+        -- "restart"
+        return strings.appendWord(h, b, 0x74726174736572ULL, 7ULL)
+    elseif id == TEXT_COUNT then
+        -- "count"
+        return strings.appendWord(h, b, 0x746e756f63ULL, 5ULL)
+    elseif id == TEXT_STEP then
+        -- "step"
+        return strings.appendWord(h, b, 0x70657473ULL, 4ULL)
+    elseif id == TEXT_ISRUNNING then
+        -- "isrunning"
+        return strings.appendWord(h, b, 0x6e696e6e75727369ULL, 8ULL) | strings.appendWord(h, b, 0x67ULL, 1ULL)
+    elseif id == TEXT_GENERATIONAL then
+        -- "generational"
+        return strings.appendWord(h, b, 0x69746172656e6567ULL, 8ULL) | strings.appendWord(h, b, 0x6c616e6fULL, 4ULL)
+    elseif id == TEXT_INCREMENTAL then
+        -- "incremental"
+        return strings.appendWord(h, b, 0x6e656d6572636e69ULL, 8ULL) | strings.appendWord(h, b, 0x6c6174ULL, 3ULL)
+    elseif id == TEXT_PARAM then
+        -- "param"
+        return strings.appendWord(h, b, 0x6d61726170ULL, 5ULL)
+    elseif id == TEXT_MINORMUL then
+        -- "minormul"
+        return strings.appendWord(h, b, 0x6c756d726f6e696dULL, 8ULL)
+    elseif id == TEXT_MAJORMINOR then
+        -- "majorminor"
+        return strings.appendWord(h, b, 0x6e696d726f6a616dULL, 8ULL) | strings.appendWord(h, b, 0x726fULL, 2ULL)
+    elseif id == TEXT_MINORMAJOR then
+        -- "minormajor"
+        return strings.appendWord(h, b, 0x6a616d726f6e696dULL, 8ULL) | strings.appendWord(h, b, 0x726fULL, 2ULL)
+    elseif id == TEXT_PAUSE then
+        -- "pause"
+        return strings.appendWord(h, b, 0x6573756170ULL, 5ULL)
+    elseif id == TEXT_STEPMUL then
+        -- "stepmul"
+        return strings.appendWord(h, b, 0x6c756d70657473ULL, 7ULL)
+    elseif id == TEXT_STEPSIZE then
+        -- "stepsize"
+        return strings.appendWord(h, b, 0x657a697370657473ULL, 8ULL)
     end
 
     return 0ULL

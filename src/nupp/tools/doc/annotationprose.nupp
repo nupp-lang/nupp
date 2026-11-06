@@ -214,10 +214,8 @@ buffers without an intermediate CPU copy.
 
 `Context:tensor(element, shape)` allocates dense row-major storage.
 `buffer:layout()` returns an element-independent layout.
-The `gpu.layout` module (imported as `layout`) owns the
-`layout.subview`,
-`layout.transpose`, `layout.broadcast`, and `layout.asStrided`
-operations, which are allocation-free;
+`layout:subview`, `layout:transpose`, `layout:broadcast`, and
+`layout:asstrided` construct layouts over existing GPU storage.
 `buffer:view(layout)` applies it while preserving the buffer's element type.
 Each view retains logical dimensions separately from its bounded physical
 extent. Host transfers and dispatch-indexed span accesses require dense layout;

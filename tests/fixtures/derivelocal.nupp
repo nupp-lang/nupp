@@ -46,7 +46,7 @@ record M.Value
     name: string
 end
 
-local value = new M.Value(name = "local")
+local value = M.Value(name = "local")
 assert2(value:named() == "name=local")
 
 @derive(M.deriveLabelled)
@@ -54,7 +54,7 @@ record M.Box<T>
     value: T
 end
 
-local box = new M.Box(value = "anything")
+local box = M.Box(value = "anything")
 assert2(box:label() == "generic")
 
 return M

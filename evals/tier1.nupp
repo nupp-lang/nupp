@@ -73,7 +73,7 @@ local function main(): integer
     end
     nupp = harness.absolute(nupp)
     out = harness.absolute(out)
-    if not require("io.files").exists(nupp) then
+    if not os.exists(nupp) then
         error("no compiler at " .. nupp, 0)
     end
     if not harness.commandAvailable("claude") then

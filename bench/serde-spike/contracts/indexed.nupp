@@ -30,13 +30,13 @@ local record EmailConversion is scalar.Conversion<Email, string>
 
     function restore(self, value: string): Email
         assert2(value:find("@", 1, true), "invalid email")
-        return new Email(text = value)
+        return Email(text = value)
     end
 end
-local emailAdapter = scalar.convert(scalar.text(email), new EmailConversion())
+local emailAdapter = scalar.convert(scalar.text(email), EmailConversion())
 local layout = indexed.layout(root)
 local emailSlot = layout:adddefault(email, emailAdapter, function(): Email
-    return new Email(text = "default@example.com")
+    return Email(text = "default@example.com")
 end)
 local countSlot = layout:add(count, scalar.integer(count, 64, true), false)
 local payloadSlot = layout:add(payload, scalar.document(payload, documents.adapter()), false)
@@ -103,7 +103,7 @@ local record InspectStructure<M is core.Member> is structure.StructureConsumer<i
     ): integer
         local result: integer = 0
         for _, field in ipairs(fields) do
-            result += field:accept(new InspectField<S, M>(source = self.source))
+            result += field:accept(InspectField<S, M>(source = self.source))
         end
 
         return result
@@ -112,9 +112,9 @@ end
 local record Inspect is core.Consumer<indexed.IndexedValue, nil, integer>
     @readonly source: indexed.IndexedValue
     function apply<M is core.Member>(self, adapter: core.Adapter<indexed.IndexedValue, M>, borrows state: nil): integer
-        return assert2(structure.inspect(adapter, new InspectStructure<M>(source = self.source)))
+        return assert2(structure.inspect(adapter, InspectStructure<M>(source = self.source)))
     end
 end
-assert2(binding:accept(new Inspect(source = empty), nil) == 2)
-assert2(binding:accept(new Inspect(source = decoded), nil) == 4)
+assert2(binding:accept(Inspect(source = empty), nil) == 2)
+assert2(binding:accept(Inspect(source = decoded), nil) == 4)
 assert2(codec:encode(binding, empty) == '{"email":"default@example.com"}')

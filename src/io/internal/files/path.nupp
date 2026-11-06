@@ -1,0 +1,12 @@
+@!internal
+module io.internal.files.path
+
+const paths = require("io.internal.path")
+
+export type Path = string | paths.Path
+
+export const encodeid = paths.encodeid
+export const native = paths.native
+export const browser = paths.browser
+export const is = paths.isapplication
+export const descriptor = paths.descriptor

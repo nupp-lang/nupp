@@ -18,9 +18,9 @@ local hostevents = require("hostevents")
 local packetText: string = ""
 local consumed: integer = 0
 local pending: {number} = {}
-local bus: events.MessageBus<integer> = events.newbus()
+local bus: events.MessageBus<integer> = events.MessageBus()
 local route: host.Route? = nil
-local session = host.newpump()
+local session = host.Pump()
 
 local type Send = function(borrows packet: span.ByteSpan): nil
 local type Tick = function(): number

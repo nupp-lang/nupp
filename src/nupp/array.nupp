@@ -38,19 +38,19 @@ end
 --- width is meaningful, and the compiler this library is first built with
 --- knows no other.
 local function narrow<T>(kind: string, _shape: Span<T>): Scalar<T>
-    return new Scalar(_elementType = nil as T, physical = kind)
+    return Scalar(_elementType = nil as T, physical = kind)
 end
 
 export const uint8 = narrow("uint8", (nil as any) as Span<uint8>)
 export const int8 = narrow("int8", (nil as any) as Span<int8>)
 export const uint16 = narrow("uint16", (nil as any) as Span<uint16>)
 export const int16 = narrow("int16", (nil as any) as Span<int16>)
-export const uint32 = new Scalar(_elementType = nil as uint32, physical = "uint32")
-export const int32 = new Scalar(_elementType = nil as int32, physical = "int32")
-export const uint64 = new Scalar(_elementType = nil as uint64, physical = "uint64")
-export const int64 = new Scalar(_elementType = nil as int64, physical = "int64")
-export const float32 = new Scalar(_elementType = nil as float32, physical = "float")
-export const float64 = new Scalar(_elementType = nil as float64, physical = "number")
+export const uint32 = Scalar(_elementType = nil as uint32, physical = "uint32")
+export const int32 = Scalar(_elementType = nil as int32, physical = "int32")
+export const uint64 = Scalar(_elementType = nil as uint64, physical = "uint64")
+export const int64 = Scalar(_elementType = nil as int64, physical = "int64")
+export const float32 = Scalar(_elementType = nil as float32, physical = "float")
+export const float64 = Scalar(_elementType = nil as float64, physical = "number")
 
 export record Array<T>
     @private @readonly pointer: T[?]
@@ -74,7 +74,7 @@ export function newarray<T>(takes witness: T, count: integer): Array<T>
     local storage = require("nupp.runtime.storage")
     local raw = @unsafe own.release(witness)
     local element = storage.descriptor(raw)
-    return new Array(pointer = storage.allocateArray(element, count) as T[?], count = count) as Array<T>
+    return Array(pointer = storage.allocateArray(element, count) as T[?], count = count) as Array<T>
 end
 
 --- Allocates zeroed storage for the selected scalar element type.
@@ -82,7 +82,7 @@ end
 ---     target's storage limit
 export function scalar<T>(borrows witness: Scalar<T>, count: integer): Array<T>
     local storage = require("nupp.runtime.storage")
-    return new Array(
+    return Array(
         pointer = storage.allocateArray(storage.scalar(witness.physical), count) as T[?],
         count = count
     ) as Array<T>
@@ -108,5 +108,5 @@ export function bytes(count: integer): Bytes
     if count < 0 or count ~= math.floor(count) then
         error("nupp: byte array count must be a non-negative integer", 2)
     end
-    return new Bytes(pointer = require("nupp.runtime.storage").allocateBytes(count), count = count)
+    return Bytes(pointer = require("nupp.runtime.storage").allocateBytes(count), count = count)
 end

@@ -35,29 +35,55 @@ end
 ```
 
 `self` is a type binder scoped to the declaration. Here the inherited `__call`
-contract is rebound from `Component` to `Position`, so a call to
-`Position(...)` has type `Position`.
+contract is rebound from `Component` to `Position`. Calling a `Position`
+instance therefore returns another `Position`.
 
-The declaration emits nothing. It does not write `Position.__call`, create a
-metatable, or choose what the call constructs, so a program whose runtime never
-installs `__call` fails at the first call. This is the same trust boundary as a
-declaration file or an FFI signature.
+The metamethod contract emits no function. Install `Position.__call` before
+calling an instance. Calling the declaration itself, `Position(...)`, uses its
+generated or explicit constructor and does not consult the instance contract.
 
 ## Installing at runtime
 
-Runtime setup is ordinary Lua, and there are two places to write it: a
-registrar that calls `setmetatable`, or the record's own table.
+Install an instance metamethod on the record's own table. The declaration's
+construction handler is reserved; it cannot be replaced through `setmetatable`.
 
-### Registrars install the metatable
+### Construction and instance calls
 
-An event registrar can attach a callable metatable after the record has been
-declared:
+A constructor and an instance call can accept different arguments:
+
+```nupp
+local record Handler
+    prefix: string
+
+    constructor(self, prefix: string)
+        self.prefix = prefix
+    end
+
+    metamethod __call: function(self, request: string): string
+end
+
+Handler.__call = function(self: Handler, request: string): string
+    return self.prefix .. request
+end
+
+local make = Handler
+local handler = make("Received: ")
+assert(handler("hello") == "Received: hello")
+```
+
+For a record `R`, construction belongs to the metatable of the declaration;
+`R.__call` belongs to its instances. The declaration metatable is protected at
+runtime, including when Lua holds the declaration. Debug APIs that bypass Lua's
+metatable protection are outside this contract.
+
+### Factory registrars
+
+A registrar that used to replace a declaration's `__call` can return a factory:
 
 ```nupp
 local interface Event
     eventId: integer
     init: function(instance: self, ...: any)
-    metamethod __call: function(self, ...: any): self
 end
 
 local record OnSpawn is Event
@@ -68,34 +94,27 @@ OnSpawn.init = function(instance: OnSpawn, entity: integer)
     instance.entity = entity
 end
 
-local function newEvent<E is Event>(event: Type<E>)
+local function register<E is Event>(event: Type<E>): function(...: any): E
     local id = 1
     local instanceMt = {__index = event}
-
-    setmetatable(event, {__call = function(_self: E, ...: any): E
+    return function(...: any): E
         local instance = setmetatable({eventId = id}, instanceMt) as E
         event.init(instance, ...)
         return instance
-    end,})
+    end
 end
 
-newEvent(OnSpawn)
-local spawned: OnSpawn = OnSpawn(42)
+local spawn = register(OnSpawn)
+local spawned: OnSpawn = spawn(42)
 ```
 
-The contract sits on `Event` rather than on `OnSpawn`, so `newEvent` checks its
-own body: the metatable it builds is a `metatable<E>`, and `E`'s bound says what
-`__call` has to be. Putting the contract on the concrete record instead leaves
-the registrar unchecked and only its call sites held to anything.
-
-The parameter is `Type<E>`, not `E`. What `newEvent(OnSpawn)` passes is the
-record's own visible type witness, which is not an instance of the record. The
-body calls `setmetatable` on its runtime table. Writing `event: E` claims to
-take an instance and would be a different function.
+The parameter `Type<E>` carries the declaration and its members. The factory
+owns this custom allocation path. An interface's instance `__call` contract
+does not provide a construction signature for `Type<E>`.
 
 ### Writing a metamethod on the record table
 
-Records retain their existing runtime namespace table. `new R(...)` stamps that
+Records retain their existing runtime namespace table. `R(...)` stamps that
 table as the instance metatable, and the table carries `__index = R` for
 ordinary method lookup. Because that table *is* the metatable its instances
 carry, writing a declared metamethod on it fulfills the contract without
@@ -259,7 +278,7 @@ local record Counter
     end
 end
 
-local counter = new Counter(value = 0)
+local counter = Counter(value = 0)
 counter:increment(2)
 ```
 
@@ -315,7 +334,7 @@ setmetatable(instance, witness as metatable<Task>)
 ```
 
 `Task` may stand where `Type<Task>` is wanted and nowhere an instance is; a
-value built by `new Task(...)` is the reverse. Reaching a member through the
+value built by `Task(...)` is the reverse. Reaching a member through the
 witness reaches the record's, so `Task.make(...)`, `Task.field = ...` and the
 metamethods installed on it all resolve.
 
@@ -369,33 +388,3 @@ Macro-generated protocol declarations are an `import-tl` concern. Comptime is
 deliberately data-only and does not generate declarations, so a translated
 macroexp-defined `__len` contract must be ejected as an explicit declaration or
 a visible translation residue.
-
-::: seealso
-- [interfaces.md](types/interfaces.md#metamethod-contracts) for how a
-  contract participates in interface satisfaction
-- [generics.md](types/generics.md#generic-metamethods) for the
-  inference rules behind a generic contract
-- [records.md](types/records-and-structs.md#names-hold-their-table) for the
-  namespace table a contract is installed on
-:::
-
-## FAQ
-
-### Does a metamethod contract emit any code?
-
-No. The declaration is checked and erased, so a record with contracts compiles
-to the same program as the record without them. The runtime behavior comes
-entirely from whatever installs the function.
-
-### Must a record declare `is` to satisfy a contract?
-
-No. A type that declares no `is` edge may still satisfy an interface
-structurally, metamethod contracts included. `is` adds the parent's fields and
-metamethods to the declaring type, which structural satisfaction does not.
-
-### Why does a declared `__eq` not change how equality is checked?
-
-Equality is always a valid Lua operation returning `boolean`, so nothing about
-the expression's type depends on a contract. Lua also requires both operands to
-share one `__eq` handler identity, which a function type cannot express, so
-`__eq` is declarable as protocol surface and no more.

@@ -49,25 +49,20 @@ package.loaded["assert"] = require("assert")
 local _ = terminal.style
 
 -- File-loaded suites share these host facilities in the parent and worker states.
-require("math.random")
+const carriedrandom = math.Xoshiro128
 require("binary")
-const carriedpool = table.newpool
+const carriedpool = table.Pool
 const carriedentropy = os.randombytes
 const _ = os.info
 require("utf8")
-require("binary")
-require("binary.digest")
-require("binary.checksum")
-require("binary.mac")
-require("binary.compress")
+const carriedcompression = binary.compress
 require("serde.json")
-const carriedpath = io.newpath
-const carrieduri = io.newuri
+const carriedpath = io.Path.of
+const carrieduri = io.URI.of
 require("string.buffer")
 require("coroutine")
 require("io.net")
 const carriedprocess = io.popen
-require("coroutine.workers")
 -- These three reach providers only the LuaJIT host loads up front. A VM lane is a
 -- process of its own with no worker states to share them with, so there a suite
 -- requires them when it uses them, which keeps them out of the runner's image.

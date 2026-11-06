@@ -49,7 +49,7 @@ local function withExtension(callback, assertionSource, ioSource, coroutineOverr
 @!internal
 module nupp.runtime.standardio
 export type Buffer = {label: string}
-export function newbuffer(value: string): Buffer return {label = value} end
+export const Buffer = {create = function(value: string): Buffer return {label = value} end}
 export type Style = {label: string}
 export type ColorMode = "auto" | "always" | "never"
 export type Alignment = "left" | "right"
@@ -60,7 +60,7 @@ export function columns(): integer return 73 end
 export const value: table = do
     local original = rawget(_G, "io") as any
     original.columns = columns
-    original.newbuffer = newbuffer
+    original.Buffer = Buffer
     yield original
 end
 ]]
@@ -117,7 +117,7 @@ end
     local name = "nupp.runtime.standardio"
     local nativePopen = require(name).popen
     local loaded, preload, columns = package.loaded[name], package.preload[name], rawget(io, "columns")
-    local newbuffer = rawget(io, "newbuffer")
+    local bufferType = rawget(io, "Buffer")
     local ioError = rawget(io, "Error")
     local coroutineName = "nupp.runtime.standardcoroutine"
     local coroutineLoaded, coroutinePreload = package.loaded[coroutineName], package.preload[coroutineName]
@@ -141,7 +141,7 @@ end
     end)
     package.loaded[name], package.preload[name] = loaded, preload
     rawset(io, "columns", columns)
-    rawset(io, "newbuffer", newbuffer)
+    rawset(io, "Buffer", bufferType)
     rawset(io, "Error", ioError)
     package.loaded[coroutineName], package.preload[coroutineName] = coroutineLoaded, coroutinePreload
     rawset(coroutine, "checkpoint", checkpoint)
@@ -156,7 +156,7 @@ function M.preservesTheHostTableThroughAliasesAndRequire()
         local source = [[
 local original = io
 local imported = require("io")
-return original == io, original == imported, imported.newbuffer("ready").label, original.stdout == imported.stdout
+return original == io, original == imported, imported.Buffer.create("ready").label, original.stdout == imported.stdout
 ]]
         local code = compile(source, "extension-consumer.nupp", env)
         local global, imported, label, stdout = assert(loadProgram(code))()
@@ -476,7 +476,7 @@ function M.incrementalRequiredAliasesShareHoistedTypesAndInvalidate()
 @!internal
 module nupp.runtime.standardio
 export type Buffer = {count: integer}
-export function newbuffer(value: string): Buffer return {count = #value} end
+export const Buffer = {create = function(value: string): Buffer return {count = #value} end}
 export const value: table = rawget(_G, "io") as table
 ]]
         )
@@ -594,7 +594,7 @@ export type SelectedBuffer = Buffer
 export function run(): (boolean, string)
     local original = io
     local imported = require("io")
-    local buffer: io.Buffer = imported.newbuffer("kept")
+    local buffer: io.Buffer = imported.Buffer.create("kept")
     return original == imported, buffer.label
 end
 ]],
@@ -698,7 +698,7 @@ end
             local code, parsed = compile(
                 [[
 local constructor = io.Error
-local problem: io.Error = new io.Error(kind = "other", message = "kept")
+local problem: io.Error = io.Error(kind = "other", message = "kept")
 return constructor, problem, tostring(problem)
 ]],
                 "byte-error-consumer.nupp",
@@ -738,7 +738,7 @@ end
                 [[
 local existing = require("coroutine")
 local scopeType = coroutine.Scope
-local cancellation: existing.Cancellation = new coroutine.Cancellation(operation = "kept")
+local cancellation: existing.Cancellation = coroutine.Cancellation(operation = "kept")
 return scopeType, cancellation, coroutine.Cancellation == existing.Cancellation
 ]],
                 "coroutine-record-consumer.nupp",

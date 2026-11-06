@@ -1,15 +1,19 @@
 @!internal
 module nupp.runtime.browser.files
 
+const systeminfo = require("nupp.runtime.systeminfo")
+
 local effects = require("nupp.runtime.browser.effects")
-local messages = require("io.files.messages")
-local appPaths = require("io.files.internal.path")
+local messages = require("io.internal.files.messages")
+const paths = require("io.internal.path")
+local appPaths = require("io.internal.files.path")
 local io = require("io")
 local privateIo = require("nupp.io")
 local scalarAdapters = require("nupp.io.internal.scalars")
 local span = require("binary.span")
 local suspension = require("nupp.suspension")
 local memory = require("nupp.runtime.browser.memory") as any
+const {type Entries} = require("io.internal.files.contracts")
 
 local pending: integer = 0
 local READ_SIZE: integer = 65536
@@ -26,7 +30,7 @@ local function descriptor(value: any, level: integer): any
     if not appPaths.is(value) then
         error("nupp: browser file paths must come from an app path", level)
     end
-    local described = appPaths.descriptor(value as appPaths.AppPath)
+    local described = appPaths.descriptor(value as paths.Path)
     if described.provider ~= "browser" then
         error("nupp: browser file paths must come from this browser provider", level)
     end
@@ -39,7 +43,7 @@ local function whole(value: any, what: string, level: integer): integer
         or value ~= math.floor(value as number)
         or math.abs(value as number) > MAX_EXACT_INTEGER
     then
-        error("nupp: io.files " .. what .. " must be an integer", level)
+        error("nupp: io " .. what .. " must be an integer", level)
     end
 
     return value as integer
@@ -48,7 +52,7 @@ end
 local function positive(value: any, what: string, level: integer): integer
     local answer = whole(value, what, level + 1)
     if answer < 1 then
-        error("nupp: io.files " .. what .. " must be positive", level)
+        error("nupp: io " .. what .. " must be positive", level)
     end
 
     return answer
@@ -57,7 +61,7 @@ end
 local function counted(value: any, what: string, level: integer): integer
     local answer = whole(value, what, level + 1)
     if answer < 0 then
-        error("nupp: io.files " .. what .. " must not be negative", level)
+        error("nupp: io " .. what .. " must not be negative", level)
     end
 
     return answer
@@ -112,27 +116,11 @@ local function effect(operation: string, path: any?, extra: any?, discard: (func
     return answer.value, nil
 end
 
-export function capabilities(): messages.Capabilities
-    local value = effect("capabilities", nil)
-    local available = type(value) == "table" and value.available == true
-    return new messages.Capabilities(
-        available = available,
-        arbitrarypaths = false,
-        symlinks = false,
-        readonlyattributes = false,
-        glob = false,
-        rename = false,
-        atomicwrite = false,
-        tmppaths = false,
-        concurrentopenhandles = false,
-        cwd = false,
-        userfolders = false,
-        executabledirectory = false,
-        persistentstoragerequest = available and value.persistentAvailable == true
-    )
+export function capabilities(): messages.FsCaps
+    return systeminfo.filesystem()
 end
 
-export function apppath(kind: string, organization: string, app: string): (appPaths.AppPath?, string?)
+export function apppath(kind: string, organization: string, app: string): (paths.Path?, string?)
     if APP_KINDS[kind] == nil then
         return nil, "unknown app path kind"
     end
@@ -148,10 +136,10 @@ export function apppath(kind: string, organization: string, app: string): (appPa
     return path, nil
 end
 
-export function info(path: any): (messages.Info?, string?)
+export function stat(path: any, follow: boolean): (messages.FileKind?, integer?, number?, boolean?, string?)
     local value, reason = effect("info", path)
     if value == nil then
-        return nil, reason
+        return nil, nil, nil, nil, reason
     end
 
     local kind = type(value) == "table" and value.kind or nil
@@ -167,32 +155,25 @@ export function info(path: any): (messages.Info?, string?)
         or modified == math.huge
         or modified == -math.huge
     then
-        return nil, "browser file host returned invalid metadata"
+        return nil, nil, nil, nil, "browser file host returned invalid metadata"
     end
 
-    -- The host answers seconds; the facade answers the milliseconds the clock does.
+    -- The host answers seconds; `os` answers the milliseconds the clock does. App
+    -- storage has no links to follow and no read-only attribute.
 
-    return new messages.Info(kind = kind, size = size, modified = (modified as number) * 1000, readonly = false), nil
+    return kind as messages.FileKind, size as integer, (modified as number) * 1000, false, nil
 end
 
-export function exists(path: any): boolean
-    local value = info(path)
-    return value ~= nil
-end
+export function exists(path: any): (boolean?, string?)
+    local value, reason = effect("exists", path)
+    if value == nil then
+        return nil, reason
+    end
+    if type(value) ~= "table" or type(value.exists) ~= "boolean" then
+        return nil, "browser file host returned an invalid existence result"
+    end
 
-export function isFile(path: any): boolean
-    local value = info(path)
-    return value ~= nil and value.kind == "file"
-end
-
-export function isDirectory(path: any): boolean
-    local value = info(path)
-    return value ~= nil and value.kind == "directory"
-end
-
-export function isSymlink(path: any): boolean
-    descriptor(path, 2)
-    return false
+    return value.exists as boolean, nil
 end
 
 export function readLink(path: any): (nil, string?)
@@ -204,11 +185,6 @@ export function createSymlink(target: any, link: any, kind: any): (boolean, stri
     descriptor(target, 2)
     descriptor(link, 2)
     return false, unavailable("symbolic links")
-end
-
-export function setReadOnly(path: any, readOnly: boolean): (boolean, string?)
-    descriptor(path, 2)
-    return false, unavailable("read-only attributes")
 end
 
 export function createDirectory(path: any): (boolean, string?)
@@ -237,7 +213,7 @@ export function rename(from: any, to: any): (boolean, string?)
     return false, unavailable("rename")
 end
 
-export function list(path: any): ({messages.Entry}?, string?)
+export function list(path: any): (Entries?, string?)
     local value, reason = effect("list", path)
     if value == nil then
         return nil, reason
@@ -245,7 +221,6 @@ export function list(path: any): ({messages.Entry}?, string?)
     if type(value) ~= "table" then
         return nil, "browser file host returned an invalid directory listing"
     end
-    local entries: {messages.Entry} = {}
     for _, entry in ipairs(value) do
         if type(entry) ~= "table"
             or type(entry.name) ~= "string"
@@ -254,15 +229,24 @@ export function list(path: any): ({messages.Entry}?, string?)
         then
             return nil, "browser file host returned an invalid directory entry"
         end
-        entries[#entries + 1] = new messages.Entry(name = entry.name, kind = entry.kind)
     end
+    -- The host answers the whole directory at once, so iteration walks that answer.
+    local index = 0
 
-    return entries, nil
+    return function(): (string?, messages.FileKind)
+        index = index + 1
+        local entry = value[index]
+        if entry == nil then
+            return nil, nil as any
+        end
+
+        return entry.name as string, entry.kind as messages.FileKind
+    end, nil
 end
 
 export function glob(pattern: string): (nil, string?)
     if type(pattern) ~= "string" then
-        error("nupp: io.files glob pattern must be a string", 2)
+        error("nupp: os glob pattern must be a string", 2)
     end
     return nil, unavailable("glob")
 end
@@ -280,7 +264,7 @@ local record File is io.Reader, io.Writer
             return nil, "the file is closed"
         end
         local wanted = math.min(positive(count, "File:read count", 2), READ_SIZE)
-        local destination = io.newbuffer(wanted)
+        local destination = io.Buffer.create(wanted)
         local lease = destination:reservewrite(0, wanted)
         local got: integer?
         local reason: string?
@@ -347,24 +331,6 @@ local record File is io.Reader, io.Writer
         return got, nil
     end
 
-    function transferto(exclusive self, exclusive destination: io.Writer): (integer?, string?)
-        local total: integer = 0
-        while true do
-            local chunk, reason = self:read(READ_SIZE)
-            if chunk == nil then
-                return nil, reason
-            end
-            if #chunk == 0 then
-                return total, nil
-            end
-            local wrote, failure = destination:write(chunk)
-            if not wrote then
-                return nil, failure
-            end
-            total = total + #chunk
-        end
-    end
-
     function write(exclusive self, bytes: string): (boolean, string?)
         if self._closed then
             return false, "the file is closed"
@@ -416,7 +382,7 @@ local record File is io.Reader, io.Writer
 
     function size(borrows self): (integer?, io.Error?)
         if self._closed then
-            error("nupp: io.files File is closed", 2)
+            error("nupp: io File is closed", 2)
         end
         local value, reason = effect("file-size", nil, {handle = self._handle,})
         if value == nil then
@@ -429,11 +395,11 @@ local record File is io.Reader, io.Writer
 
     function seek(exclusive self, offset: integer?, origin: messages.Origin?): (integer?, io.Error?)
         if self._closed then
-            error("nupp: io.files File is closed", 2)
+            error("nupp: io File is closed", 2)
         end
         local whence = ORIGINS[origin or "set"]
         if whence == nil then
-            error("nupp: io.files has no seek origin named " .. tostring(origin), 2)
+            error("nupp: io has no seek origin named " .. tostring(origin), 2)
         end
 
         local value, reason = effect("file-seek", nil, {
@@ -505,7 +471,7 @@ end
 export function open(path: any, mode: messages.Mode?): (affine(File?), string?)
     local selected = mode or "r"
     if MODES[selected] == nil then
-        error("nupp: io.files has no mode named " .. tostring(mode), 2)
+        error("nupp: io has no mode named " .. tostring(mode), 2)
     end
     local value, reason = effect("open", path, {mode = selected,}, closeOrphan)
     if value == nil then
@@ -516,7 +482,7 @@ export function open(path: any, mode: messages.Mode?): (affine(File?), string?)
         return nil, invalid
     end
 
-    return new File(_handle = handle, _closed = false), nil
+    return File(_handle = handle, _closed = false), nil
 end
 
 local function wholeRead(path: any): (string?, string?)
@@ -552,7 +518,7 @@ end
 
 local function wholeWrite(path: any, bytes: any, mode: messages.Mode): (boolean, string?)
     if type(bytes) ~= "string" and (type(bytes) ~= "table" or bytes.getstring == nil) then
-        error("nupp: io.files contents must be bytes or a byte view", 3)
+        error("nupp: io contents must be bytes or a byte view", 3)
     end
     local text = type(bytes) == "string" and bytes or bytes:getstring()
     pending = pending + 1
@@ -595,20 +561,8 @@ export function pendingTransfers(): integer
     return pending
 end
 
-export function createTemporaryFile(options: messages.TemporaryOptions?): (nil, string?)
+export function createTemporary(directory: boolean, prefix: string?, suffix: string?, within: any?): (nil, string?)
     return nil, unavailable("temporary paths")
-end
-
-export function createTemporaryDirectory(options: messages.TemporaryOptions?): (nil, string?)
-    return nil, unavailable("temporary paths")
-end
-
-export function userFolder(which: messages.UserFolder): (nil, string?)
-    return nil, unavailable("user folders")
-end
-
-export function executableDirectory(): (nil, string?)
-    return nil, unavailable("an executable directory")
 end
 
 export function requestPersistentStorage(): (boolean, string?)

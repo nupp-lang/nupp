@@ -2,6 +2,7 @@ module nupp.compiler.vm.nativephysical
 
 local fixed = require("nupp.compiler.types.fixedwidth")
 local targetLayout = require("nupp.compiler.targetlayout")
+local construction = require("nupp.compiler.vm.construction")
 local physical = {}
 local qualifiers = {affine = true, borrowed = true, pinned = true}
 local contexts: any = setmetatable({}, {__mode = "k"})
@@ -2892,7 +2893,7 @@ local function localRecipe(owner: any, context: any, node: any): any
         and owner.checkedSignature == owner.body.signatureType,
         "local construction requires exact checked owner"
     )
-    need(node and node.kind == "newExpr" and node.call and node.call.isNew == true, "checked new expression required")
+    need(node and node.kind == "newExpr" and construction.plain(node.call), "checked construction required")
     local call, checked = node.call, node.inferredType
     need(
         checked

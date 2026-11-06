@@ -1,7 +1,7 @@
 @!internal
 module nupp.runtime.bindings.files
 
-local contracts = require("io.files.internal.contracts")
+local contracts = require("io.internal.files.contracts")
 local target = require("nupp.runtime.target")
 local implementation: contracts.Provider = do
     if target.host == "native" then
@@ -10,4 +10,7 @@ local implementation: contracts.Provider = do
     yield _G.require("nupp.runtime.browser.files") as contracts.Provider
 end
 
-export = implementation
+-- Exported untyped while the pinned stage zero stages its own `io.files` facade,
+-- which reads this module against the provider contract it was built with. The
+-- importers here annotate the contract themselves.
+export = implementation as any

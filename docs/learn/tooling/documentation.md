@@ -104,6 +104,8 @@ documentation.
 | `@export`, `@public` | Force a declaration public |
 | `@local` | Keep a declaration out; `--include-private` brings it back |
 | `@namespace [prefix]` | Document a shape's own fields as modules |
+| `@form <title>` | Name one callable overload form |
+| `@lua` | Mark a form that matches a Lua function |
 
 A tag's description continues onto any following indented line. Any other
 `@name` is kept as a tag with its value.
@@ -118,6 +120,36 @@ An out-of-line method that spells an explicit `self` receiver with a dot still
 renders its final name segment with `:`. The source may need
 `function Buffer.write(exclusive self: Buffer, ...)` to state the receiver's
 ownership, but its documentation signature names the method as `Buffer:write`.
+
+### Callable forms
+
+A callable intersection renders as one API entry with a separate signature,
+Arguments, and Returns for each form. Put a `---` comment immediately before
+an arm to give it its own descriptions and examples:
+
+```nupp:fragment
+--- Parses text or bytes.
+export const parse = implementation as(
+    --- Parses a text document.
+    --- @form Text
+    --- @param source the document text
+    --- @return the parsed document
+    function(source: string): (Document)
+    &
+    --- Parses a byte sequence.
+    --- @form Bytes
+    --- @param source the encoded document
+    --- @return the parsed document
+    function(source: {integer}): (Document)
+)
+```
+
+Forms are derived from the type without tags. An optional `@form` supplies a
+title; otherwise the heading shows the function name and parameter names.
+Shared `@param`, `@return`, `@typearg`, and `@raises` descriptions remain defaults.
+A form's own named tags override those names; its `@return` or `@raises` tags
+replace the corresponding shared list. `@lua` marks a form with the Lua badge.
+The JSON model exposes the same groups in `forms`.
 
 ### Raised errors
 
@@ -274,7 +306,7 @@ a caller to write it. Wherever a rendered signature applies `affine` to a
 cleanup the documentation hides, the argument prints as `_`:
 
 ```nupp:fragment
-newreader: function(self: ByteView): affine(Reader, _)
+reader: function(self: ByteView): affine(Reader, _)
 ```
 
 The argument is replaced rather than dropped, because `affine(Reader)` is a
@@ -637,7 +669,8 @@ it would otherwise be the one name in the reference that led nowhere. Such a
 page is titled `Namespace:` rather than `Module:`, and its entries in the
 sidebar, the search index, and the Markdown output say the same.
 
-Construction is what `new` does. A `constructor` declaration documents inside
+Calling a record or struct declaration constructs an instance. A `constructor`
+declaration documents inside
 the record it belongs to, where a caller reads it beside the fields it fills. A
 module-level function that happens to return an instance is a function, whatever
 it is named, so no naming convention promotes one to a kind of its own.
@@ -708,39 +741,3 @@ docs = {
 Then `nupp build --target docs`, and `nupp check --target docs` parses and
 validates every source without writing output. See [documentation
 targets](../projects/build.md#documentation-targets) for every key one takes.
-
-## FAQ
-
-### Why is a declaration missing from the reference?
-
-It is private by default: a name starting with `_`, a file or module under
-`internal`, or a file marked `@!internal`. Render with `--include-private`, or
-set `includePrivate = true` on the target, to see them. See [Public
-surface](#public-surface) for the whole rule.
-
-### Does `nupp doc` type-check the sources it reads?
-
-No. It renders from the parser's CST, so a project whose check fails still
-documents, and a signature on a page is the one that was written rather than
-one the checker confirmed. Run `nupp check --target docs` to parse and validate
-a docs target without writing output.
-
-### How does a page get published without being listed in the manifest?
-
-A page entry names a `glob` instead of a `path` and a `source`, and every
-Markdown file it matches is published at the route its own path gives. What the
-path cannot say -- where the page sits in the navigation, what navigation calls
-it -- the page says in frontmatter. See [page trees](../projects/build.md#page-trees).
-
-A `directory` entry does the same for a collection, publishing every document
-under it beneath one generated index. See [page
-directories](../projects/build.md#page-directories) for numbering and how the index is
-built.
-
-::: seealso
-- [cli.md](../../reference/cli.md#doc) for the command's flags and JSON report
-- [`@!internal`](../../api.md#annotation-file-internal) for generated
-  documentation visibility
-- [diagnostics.md](../../reference/diagnostics.md) for the page the `diagnostics`
-  key generates
-:::

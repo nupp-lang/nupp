@@ -1,0 +1,194 @@
+--[[
+A declaration's runtime construction handler.
+
+A checked call of a record or struct declaration is lowered where it stands.
+Anything else that calls one -- Lua code, or a value typed `any` -- reaches
+the `__call` built here: positional fields in declaration order with their
+defaults when omitted, or the declared constructor the arguments select, by
+arity and by the runtime domain of each argument.
+]]
+module nupp.compiler.vm.callable
+
+const constructors = require("nupp.compiler.constructors")
+
+-- Internal names cannot collide with a source name.
+const COUNT = "\0callable:count"
+const ARGUMENT = "\0callable:argument"
+
+-- Lua permits no more than 200 locals in one function; a construction with
+-- more defaulted fields than this reads the rest from the arguments again.
+const MAX_LOCALS = 180
+
+-- `node` builds a checked-shaped syntax node and `data` a literal of plain
+-- data, both the metadata lowering's.
+export type Builders = {
+    node: function(string, table?): any,
+    data: function(any): any
+}
+
+local function token(text: string): any
+    return {text = text}
+end
+
+local function named(b: Builders, text: string): any
+    return b.node("name", {token = token(text)})
+end
+
+local function call(b: Builders, subject: any, arguments: {any}): any
+    return b.node("call", {obj = subject, args = b.node("args", {exprs = arguments})})
+end
+
+local function binop(b: Builders, op: string, lhs: any, rhs: any): any
+    return b.node("binop", {op = token(op), lhs = lhs, rhs = rhs})
+end
+
+-- `select(index, ...)`: one argument, nil past the end.
+local function argument(b: Builders, index: integer): any
+    return call(b, named(b, "select"), {b.data(index), b.node("vararg")})
+end
+
+local function local1(b: Builders, text: string, value: any): any
+    return b.node("localStmt", {names = {token(text)}, exprs = {value}})
+end
+
+local function when(b: Builders, cond: any, stats: {any}): any
+    return b.node("ifStmt", {clauses = {b.node("ifClause", {cond = cond, body = b.node("block", {stats = stats})})}})
+end
+
+local function returns(b: Builders, values: {any}): any
+    return b.node("returnStmt", {exprs = values})
+end
+
+local function handler(b: Builders, stats: {any}): any
+    return b.node("funcExpr", {
+        body = b.node("funcbody", {
+            params = {{name = token("self")}, {vararg = true}},
+            body = b.node("block", {stats = stats})
+        })
+    })
+end
+
+local function counted(b: Builders): any
+    return local1(b, COUNT, call(b, named(b, "select"), {b.data("#"), b.node("vararg")}))
+end
+
+-- Positional fields in declaration order, with a default only where the call
+-- passed fewer arguments: an explicit nil stays nil. The instance is built
+-- against `self`, the declaration called, so the handler captures nothing.
+local function fields(b: Builders, nominal: any): {any}
+    local stats, bindings, locals = {counted(b)}, {}, 0
+    for index, member in ipairs(nominal.fieldOrder or {}) do
+        local declared = nominal.byname and nominal.byname[member]
+        if not (declared and (declared.tag == "func" or declared.tag == "typeobject")) then
+            local value = argument(b, index)
+            local default = nominal.fieldDefaults and nominal.fieldDefaults[member]
+            if default and locals < MAX_LOCALS then
+                locals = locals + 1
+                local held = ARGUMENT .. tostring(index)
+                stats[#stats + 1] = local1(b, held, value)
+                stats[#stats + 1] = when(b, binop(b, "<", named(b, COUNT), b.data(index)), {
+                    b.node("assignStmt", {
+                        targets = {named(b, held)},
+                        exprs = {b.data(default.value)}
+                    })
+                })
+                value = named(b, held)
+            elseif default then
+                value = b.node("paren", {
+                    expr = binop(
+                        b,
+                        "or",
+                        binop(b, "and", binop(b, "<", named(b, COUNT), b.data(index)), b.data(default.value)),
+                        value
+                    )
+                })
+            end
+            bindings[#bindings + 1] = {name = member, node = value}
+        end
+    end
+    stats[#stats + 1] = returns(b, {
+        b.node("newExpr", {
+            inferredType = nominal,
+            call = {recordFields = bindings, args = {exprs = {}}, vmStructWitness = named(b, "self")}
+        })
+    })
+
+    return stats
+end
+
+-- Whether argument `index` falls in one of `domains`.
+local function admits(b: Builders, index: integer, domains: {any}): any
+    local test = nil
+    for _, domain in ipairs(domains) do
+        local one = nil
+        if domain.literal then
+            one = binop(b, "==", argument(b, index), b.data(domain.value))
+        elseif domain.nominal and domain.nominal.declKind == "record" then
+            one = b.node("isExpr", {
+                expr = argument(b, index),
+                type = {kind = "construction"},
+                typeTestTarget = domain.nominal
+            })
+        elseif domain.kind ~= "any" and not domain.nominal then
+            -- A 64-bit integer is an integer on the VM.
+            local kind = domain.kind == "cdata" and "number" or domain.kind
+            one = binop(b, "==", call(b, named(b, "type"), {argument(b, index)}), b.data(kind))
+        end
+        if one == nil then
+            -- A struct, or anything at all: nothing at run time tells it apart.
+            return nil
+        end
+        test = test and binop(b, "or", test, one) or one
+    end
+
+    return test
+end
+
+-- The first declared constructor whose arity and domains admit the call.
+local function dispatch(b: Builders, nominal: any): {any}
+    local stats = {counted(b)}
+    for _, entry in ipairs(constructors.plan(nominal)) do
+        local cond = binop(
+            b,
+            "and",
+            binop(b, ">=", named(b, COUNT), b.data(entry.min)),
+            binop(b, "<=", named(b, COUNT), b.data(entry.max))
+        )
+        for index, domains in ipairs(entry.params) do
+            local test = admits(b, index, domains)
+            if test then
+                cond = binop(b, "and", cond, b.node("paren", {expr = test}))
+            end
+        end
+        local target = b.node("dotIndex", {obj = named(b, "self"), name = token("__nuppCtor" .. tostring(entry.index))})
+        stats[#stats + 1] = when(b, cond, {returns(b, {call(b, target, {b.node("vararg")})})})
+    end
+    stats[#stats + 1] = b.node("callStmt", {
+        expr = call(b, named(b, "error"), {
+            b.data("no constructor accepts these arguments"),
+            b.data(2)
+        })
+    })
+
+    return stats
+end
+
+--- The `__call` of a declaration, or nil when a struct without constructors
+--- keeps its storage type's own.
+export function of(b: Builders, nominal: any): any
+    if nominal == nil then
+        return nil
+    end
+    local declared = nominal.constructors or {}
+    if #declared == 1 then
+        local target = b.node("dotIndex", {obj = named(b, "self"), name = token("__nuppCtor1")})
+        return handler(b, {returns(b, {call(b, target, {b.node("vararg")})})})
+    elseif #declared > 1 then
+        return handler(b, dispatch(b, nominal))
+    end
+    if nominal.declKind ~= "record" then
+        return nil
+    end
+
+    return handler(b, fields(b, nominal))
+end

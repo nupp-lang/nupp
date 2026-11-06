@@ -50,7 +50,7 @@ local function signature(text: string): ir.Signature
         "S0 reader: unknown calling convention " .. rest
     )
 
-    return new ir.Signature(
+    return ir.Signature(
         params = kinds(parameters),
         results = results,
         convention = rest == "tail" and ir.INTERNAL or ir.C
@@ -363,13 +363,13 @@ function reader.read(text: string): {ir.Function}
                 if imported.convention ~= ir.INTERNAL then
                     f.signatures[
                         #f.signatures + 1
-                    ] = new ir.Signature(params = imported.params, results = imported.results, convention = ir.INTERNAL)
+                    ] = ir.Signature(params = imported.params, results = imported.results, convention = ir.INTERNAL)
                     f.importSignatures[index] = #f.signatures
                 end
             elseif imported.convention ~= ir.C then
                 f.signatures[
                     #f.signatures + 1
-                ] = new ir.Signature(params = imported.params, results = imported.results, convention = ir.C)
+                ] = ir.Signature(params = imported.params, results = imported.results, convention = ir.C)
                 f.importSignatures[index] = #f.signatures
             end
         end

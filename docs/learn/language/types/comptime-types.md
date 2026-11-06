@@ -255,7 +255,7 @@ local record User
     name: string
 end
 
-local inspected = string.format("user=%?", new User(name = "Ada"))
+local inspected = string.format("user=%?", User(name = "Ada"))
 ```
 
 See [derives.md](../../../reference/derives.md#debug) for what
@@ -377,39 +377,3 @@ blueprints, so they cannot forge nominal identity or escape into the compiled
 program.
 Recursive algorithms use ordinary comptime calls or loops and are governed by
 the same limits.
-
-## FAQ
-
-### Do comptime calls run at runtime?
-
-A `@comptime function` runs while source is checked and contributes only its
-resulting type or pack. It emits no callable function, cache table, or runtime
-branch, and [const parameters](#const-parameters) erase by the same boundary.
-See
-[file-types.md](../file-types.md#constructs-that-arent-erased) for the
-two things that do survive.
-
-### Why do type generators use parentheses?
-
-`Optional(string)` calls a compile-time function; `Box<string>` applies a
-declared generic type. The distinction lets built-in and user-defined
-generators share one call syntax. See
-[affine-types.md](../../runtime/ownership/affine-types.md#cleanup-identity-is-part-of-the-type)
-for the same rule applied to ownership.
-
-### Can a type function create a nominal type?
-
-No. It can assemble a structural result or return an existing nominal type, but
-it cannot inject a record, interface, method, name, or module member, which
-keeps compile-time code from expanding the program's public or runtime surface.
-Nominal identity comes from an explicit declaration site, so it stays stable
-across repeated evaluation, caches, incremental rebuilds, and module
-boundaries. See [associated-types.md](associated-types.md) for computed answers
-that a declaration owns.
-
-::: seealso
-- [comptime.md](../comptime.md) for `comptime do` and the value-level
-  side of compile-time evaluation
-- [generics.md](generics.md) for the binders an open call waits on
-- [packs.md](packs.md) for `typepack` results and where they may appear
-:::

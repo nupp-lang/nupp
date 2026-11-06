@@ -12,7 +12,7 @@ function probe.run(): integer
     local answer: integer = 0
     do
         local installation = host.install(
-            new host.Handler(
+            host.Handler(
                 canpark = function(_: host.Handler): boolean
                     return true
                 end,

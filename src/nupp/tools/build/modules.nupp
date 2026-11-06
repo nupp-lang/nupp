@@ -11,7 +11,8 @@ module nupp.tools.build.modules
 
 const assert2 = require("assert")
 
-const files = require("io.files")
+const files = require("io.internal.files")
+local fileops = require("nupp.runtime.standardos")
 const {type Target as Target2} = require("nupp.tools.build.manifest")
 const {type Inc} = require("nupp.compiler.project.incremental")
 const {type ConstTerm} = require("nupp.compiler.types")
@@ -131,8 +132,7 @@ local function selectedSourceFiles(root: string, target: Target): ({string}?, st
         end
         local candidates: {string} = {}
         for _, matched in ipairs(matches) do
-            local info = files.info(matched)
-            if info and info.kind == "directory" then
+            if files.stat(matched) == "directory" then
                 for _, path in ipairs(fs.listFiles(matched, hiddenDirectory)) do
                     candidates[#candidates + 1] = path
                 end
@@ -824,7 +824,7 @@ local function openSession(
         end
         if not stagedReady then
             if not isolated then
-                files.remove(stagedRoot, true)
+                fileops.remove(stagedRoot, true)
                 assert2(fs.mkdir(stagedRoot), "cannot create runtime source staging tree")
             end
             inc.env.roots[#inc.env.roots + 1] = stagedRoot
@@ -851,14 +851,14 @@ local function openSession(
 
     local function stageGpuRuntime(): nil
         stageBundled("nupp.gpu.internal")
-        stageBundled("io.gpu.layout")
+        stageBundled("nupp.gpu.layout")
         if target.host ~= "browser" then
             stageBundled("nupp.runtime.native")
         end
         stageBundled("io.gpu")
     end
 
-    return new modules.Session(
+    return modules.Session(
         inc = inc,
         checkMs = checkMs,
         stageBundled = stageBundled,
@@ -1337,7 +1337,10 @@ local function buildModules(root: string, outDir: string, config: Config, target
             local feature = native.feature(effect)
             if feature ~= nil and feature.runtimeModule ~= nil and (feature.portableRuntime or not browserTarget) then
                 local runtimeModule = feature.runtimeModule as string
-                linkRuntimeSource(runtimeModule)
+                linkPackagedRuntime(runtimeModule)
+                if not linkedModules[runtimeModule] then
+                    linkRuntimeSource(runtimeModule)
+                end
                 if linkedModules[runtimeModule] and enqueueLinked ~= nil then
                     enqueueLinked(runtimeModule)
                 end

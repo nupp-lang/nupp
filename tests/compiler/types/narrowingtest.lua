@@ -98,7 +98,7 @@ function M.aStaleFactDoesNotEmptyAType()
                     "local function poke(target: R): nil",
                     "    target.v = 'hi'",
                     "end",
-                    "local r = new R(v = nil)",
+                    "local r = R(v = nil)",
                     "local holder = {inner = r}",
                     "r.v = nil",
                     "poke(holder.inner)",
@@ -395,18 +395,12 @@ end
 function M.nilChecksNarrowThroughFieldPaths()
     assertClean(
         CFG .. table.concat(
-            {
-                "",
-                "local c: Cfg = new Cfg(name = 'test')",
-                "if c.port ~= nil then",
-                "    local p: number = c.port",
-                "end",
-            },
+            {"", "local c: Cfg = Cfg(name = 'test')", "if c.port ~= nil then", "    local p: number = c.port", "end",},
             "\n"
         )
     )
     -- and outside the guard the field is still optional
-    testAssert.eq(diagsOf(CFG .. "\nlocal c: Cfg = new Cfg(name = 'test')\nlocal p: number = c.port"), "NUPP2001:6")
+    testAssert.eq(diagsOf(CFG .. "\nlocal c: Cfg = Cfg(name = 'test')\nlocal p: number = c.port"), "NUPP2001:6")
 end
 
 function M.narrowingSurvivesTheElseBranch()
@@ -414,7 +408,7 @@ function M.narrowingSurvivesTheElseBranch()
         CFG .. table.concat(
             {
                 "",
-                "local c: Cfg = new Cfg(name = 'test')",
+                "local c: Cfg = Cfg(name = 'test')",
                 "if c.port == nil then",
                 "else",
                 "    local p: number = c.port",
@@ -432,7 +426,7 @@ function M.assignmentForgetsWhatWasNarrowed()
             CFG .. table.concat(
                 {
                     "",
-                    "local c: Cfg = new Cfg(name = 'test')",
+                    "local c: Cfg = Cfg(name = 'test')",
                     "if c.port ~= nil then",
                     "    c.port = nil",
                     "    local p: number = c.port",
@@ -816,7 +810,7 @@ function M.aLoopBodyWriteIsForgottenAtTheLoopEntry()
                 "    a: string?",
                 "    b: string?",
                 "end",
-                "local p: Pair = new Pair(a = 'x')",
+                "local p: Pair = Pair(a = 'x')",
                 "if p.a ~= nil then",
                 "    for i = 1, 2 do",
                 "        local s: string = p.a",
@@ -1002,7 +996,7 @@ function M.aCalleeWritesReachThroughTheFunctionsItCalls()
                 {
                     "",
                     "local M = {}",
-                    "local x: Box = new Box(f = 'hi')",
+                    "local x: Box = Box(f = 'hi')",
                     "function M.a(): nil",
                     "    if x.f ~= nil then",
                     "        M.b()",
@@ -1120,7 +1114,7 @@ function M.aMethodThroughAnInterfaceMayWriteTheReceiver()
                     "function Box:clear()",
                     "    self.f = nil",
                     "end",
-                    "local box: Box = new Box(f = 'hi')",
+                    "local box: Box = Box(f = 'hi')",
                     "local i: Clearer = box",
                     "if box.f ~= nil then",
                     "    i:clear()",
@@ -1143,7 +1137,7 @@ function M.aNamedArgumentFindsItsParameter()
                     "local function clear(b: Box)",
                     "    b.f = nil",
                     "end",
-                    "local x: Box = new Box(f = 'hi')",
+                    "local x: Box = Box(f = 'hi')",
                     "if x.f ~= nil then",
                     "    clear(b = x)",
                     "    local s: string = x.f",
@@ -1167,7 +1161,7 @@ function M.aCalleeWriteThroughACopyOfItsParameterReachesTheCaller()
                     "    local me = self",
                     "    me.f = nil",
                     "end",
-                    "local x: Box = new Box(f = 'hi')",
+                    "local x: Box = Box(f = 'hi')",
                     "if x.f ~= nil then",
                     "    x:clear()",
                     "    local s: string = x.f",
@@ -1186,7 +1180,7 @@ function M.aCalleeWriteThroughACopyOfItsParameterReachesTheCaller()
                     "local function clear(b: Box)",
                     "    b.f = nil",
                     "end",
-                    "local x: Box = new Box(f = 'hi')",
+                    "local x: Box = Box(f = 'hi')",
                     "local y = x",
                     "if x.f ~= nil then",
                     "    clear(y)",
@@ -1216,7 +1210,7 @@ function M.aCalleeWriteThroughACopyOfItsParameterReachesTheCaller()
                 "local function mark(s: Circle | Square)",
                 "    s.seen = true",
                 "end",
-                "local s: Circle | Square = new Circle(kind = 'circle', radius = 1)",
+                "local s: Circle | Square = Circle(kind = 'circle', radius = 1)",
                 "local kind = s.kind",
                 "mark(s)",
                 "if kind == 'circle' then",
@@ -1236,7 +1230,7 @@ function M.copiesAreFollowedThroughAnnotationsAndCopiesOfCopies()
             BOX .. table.concat(
                 {
                     "",
-                    "local x: Box = new Box(f = 'hi')",
+                    "local x: Box = Box(f = 'hi')",
                     "local y: Box = x",
                     "if x.f ~= nil then",
                     "    y.f = nil",
@@ -1313,7 +1307,7 @@ function M.aComputedIndexWriteClearsTheDottedFact()
                 "local record Args",
                 "    exprs: {string}?",
                 "end",
-                "local n: Args = new Args()",
+                "local n: Args = Args()",
                 "n.exprs = {}",
                 "for i = 1, 3 do",
                 "    n.exprs[#n.exprs + 1] = 'x'",
@@ -1335,7 +1329,7 @@ function M.safeNavigationProvesThePathItWalked()
                 "local record Outer",
                 "    inner: Inner?",
                 "end",
-                "local o: Outer? = new Outer(inner = new Inner(f = 'hi'))",
+                "local o: Outer? = Outer(inner = Inner(f = 'hi'))",
                 "if o?.inner?.f ~= nil then",
                 "    local s: string = o.inner.f",
                 "end",
@@ -1357,7 +1351,7 @@ function M.safeNavigationProvesThePathItWalked()
                     "local record Outer",
                     "    inner: Inner?",
                     "end",
-                    "local o: Outer? = new Outer(inner = new Inner(f = 'hi'))",
+                    "local o: Outer? = Outer(inner = Inner(f = 'hi'))",
                     "if o?.inner == nil then",
                     "    print('none')",
                     "else",

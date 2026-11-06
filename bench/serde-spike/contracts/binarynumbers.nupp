@@ -32,9 +32,9 @@ assert(not pcall(integers.decode, string.rep("\0", 9), 64, false))
 local core = require("serde")
 local positional = require("example.binarypositional")
 local layout = {
-    new positional.Slot(kind = "integer", width = 64, signed = false),
-    new positional.Slot(kind = "bytes"),
-    new positional.Slot(kind = "integer", width = 16, signed = true)
+    positional.Slot(kind = "integer", width = 64, signed = false),
+    positional.Slot(kind = "bytes"),
+    positional.Slot(kind = "integer", width = 16, signed = true)
 }
 local values: {positional.Value} = {cases[14], "\0\255bytes", numbers.integer("-32768", 16, true)}
 local bytes = positional.encode(layout, values)

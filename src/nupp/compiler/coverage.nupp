@@ -110,8 +110,8 @@ end
 --- nothing a backend decides.
 function coverage.enumerate(root: any, path: string?): coverage.Index
     local sites: {coverage.Site} = {}
-    local index = new coverage.Index(
-        manifest = new coverage.Manifest(path = path, sites = sites),
+    local index = coverage.Index(
+        manifest = coverage.Manifest(path = path, sites = sites),
         statements = {},
         functions = {},
         branches = {},
@@ -130,7 +130,7 @@ function coverage.enumerate(root: any, path: string?): coverage.Index
             return known
         end
         local id = #sites + 1
-        local site = new coverage.Site(id = id, kind = kind, line = sourceLine(node) or 0)
+        local site = coverage.Site(id = id, kind = kind, line = sourceLine(node) or 0)
         local owner = kind == "function" and declared[node] or nil
         if owner then
             site.name = owner.name

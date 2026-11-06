@@ -316,8 +316,8 @@ function M.aSymlinkIsReportedRatherThanFollowed()
     -- is right to carry -- so the case this names cannot be built there, and
     -- asserting on it would be asserting on the copy.
     local linked = false
-    for _, entry in ipairs(assert(require("io.files").list(dir))) do
-        linked = linked or (entry.name == "link.txt" and entry.kind == "symlink")
+    for name, kind in assert(require("io.internal.files").list(dir)) do
+        linked = linked or (name == "link.txt" and kind == "symlink")
     end
     if not linked then
         remove(dir)

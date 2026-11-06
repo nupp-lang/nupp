@@ -1,0 +1,51 @@
+@!internal
+module nupp.digest.internal.contracts
+
+local {type ByteWriteSpan} = require("binary.span")
+
+export interface Stream is io.Writer
+    --- Takes the context into a scalar writer, loading its adapter on demand.
+    @override
+    function scalar(takes self): affine(io.ScalarWriter)
+        local scalars = require("nupp.io.internal.scalars")
+        return scalars.writer(self)
+    end
+end
+
+--- A running checksum. As a writer it accepts every byte it is given, so `write`
+--- and `writespan` always succeed and `flush` has nothing to publish.
+export interface Checksum is Stream
+    --- Consumes this context and releases its provider state without suspension.
+    close: @nosuspend function(takes self: Checksum): nil
+
+    --- Returns the canonical algorithm name.
+    algorithm: function(self: Checksum): string
+
+    --- Returns the number of meaningful bits in each snapshot.
+    width: function(self: Checksum): integer
+
+    --- Returns an unsigned snapshot without consuming this context.
+    value: function(self: Checksum): uint64
+
+end
+
+--- A running digest. As a writer it accepts every byte it is given, so `write`
+--- and `writespan` always succeed and `flush` has nothing to publish.
+export interface Digest is Stream
+    --- Consumes an unfinished context and releases provider state without suspension.
+    close: @nosuspend function(takes self: Digest): nil
+
+    --- Returns the canonical algorithm name retained at creation.
+    algorithm: function(self: Digest): string
+
+    --- Returns the fixed output size in bytes.
+    digestsize: function(self: Digest): integer
+
+    --- Consumes this context and returns raw bytes, or writes the fixed-size
+    --- prefix of destination and returns its byte count. Always closes state.
+    digest: function(takes self: Digest): string
+        & function(takes self: Digest, exclusive destination: ByteWriteSpan): integer
+
+    --- Consumes this context and returns lowercase hexadecimal, always closing state.
+    hexdigest: function(takes self: Digest): string
+end

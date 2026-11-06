@@ -5,7 +5,9 @@ order: 160
 # C interop
 
 Nupp turns C declarations into checked native calls, which the VM runtime
-makes through libffi. Reach for it to call a C library, and add ownership
+makes through libffi. Each binding is prepared once from its checked
+signature, and managed arguments stay rooted for as long as native code can
+observe their addresses. Reach for it to call a C library, and add ownership
 contracts where a C signature cannot describe lifetime behavior.
 
 ```nupp
@@ -818,38 +820,3 @@ For C code that ships with the project, declare a `kind = "c"` dependency in
 depend on it, so headers, generated bindings, native libraries, and Nupp
 modules share one cache key and one build graph. See [C
 dependencies](../../projects/build.md#c-dependencies) for the provider configuration.
-
-## FAQ
-
-### What makes the call?
-
-The VM runtime. A checked [`cdef` binding](#hand-write-a-small-binding) is
-prepared once from its checked signature, and each call goes through libffi
-with its managed arguments rooted for as long as native code can observe their
-addresses.
-
-### Does importing a header capture ownership?
-
-A C declaration says that a value is a pointer, but not whether the caller must
-free it, whether the callee retains it, or how long a derived pointer stays
-valid. Add those facts under [lifetime
-behavior](#describe-lifetime-behavior) after importing a header. See [the
-ownership reference](../ownership/borrowing.md#borrowing-and-pinning) for the
-borrowing, pinning, retention, and cleanup contracts they name.
-
-### Do ownership contracts change the native ABI?
-
-`affine(T, cleanup)`, `borrows`, `exclusive`, and `countedBy` describe checked
-relationships around a call; they add no field and change no C signature. See
-[the ownership reference](../ownership/borrowing.md#c-interop) for the affine
-pointer's ABI representation, and [counted pointer
-adapters](#counted-pointer-adapters) for the span a checked caller sees instead
-of the pointer and count.
-
-::: seealso
-- [ownership.md](../ownership/index.md) for the resource workflow a C boundary joins
-- [](binary.span) for the views a counted pointer projects
-- [build.md](../../projects/build.md#c-dependencies) for C and Cargo dependency provider
-  configuration
-- [native-modules.md](../../projects/native-modules.md#embedding-the-vm) for running the VM inside a C or Rust application
-:::

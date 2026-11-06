@@ -79,19 +79,19 @@ local CIRCLE = table.concat(
 
 function M.interfacesConformStructurally()
     -- no `implements` clause: carrying the members is enough
-    assertClean(SHAPE .. "\n" .. CIRCLE .. "\nlocal s: Shape = new Circle(r = 1)")
+    assertClean(SHAPE .. "\n" .. CIRCLE .. "\nlocal s: Shape = Circle(r = 1)")
 end
 
 function M.interfaceConformanceIsChecked()
     local wrongShape = table.concat({"local record Square", "    side: number", "end",}, "\n")
-    local d = diagsOf(SHAPE .. "\n" .. wrongShape .. "\nlocal s: Shape = new Square(side = 1)")
+    local d = diagsOf(SHAPE .. "\n" .. wrongShape .. "\nlocal s: Shape = Square(side = 1)")
     testAssert.eq(d, "NUPP2001:7")
     -- a member with the wrong type is caught too
     local badArea = table.concat(
         {"local record Blob", "    n: number", "end", "function Blob:area(): string", "    return 'nope'", "end",},
         "\n"
     )
-    testAssert.eq(diagsOf(SHAPE .. "\n" .. badArea .. "\nlocal s: Shape = new Blob(n = 1)"), "NUPP2001:10")
+    testAssert.eq(diagsOf(SHAPE .. "\n" .. badArea .. "\nlocal s: Shape = Blob(n = 1)"), "NUPP2001:10")
 end
 
 function M.interfacesAcceptPlainShapes()
@@ -144,36 +144,31 @@ function M.genericDeclarationsBindTheirParameters()
 end
 
 function M.typeArgumentsSubstituteIntoFields()
-    assertClean(BOX .. "\nlocal b: Box<number> = new Box(value = 0)\nlocal n: number = b.value")
-    testAssert.eq(
-        diagsOf(BOX .. "\nlocal b: Box<number> = new Box(value = 0)\nlocal s: string = b.value"),
-        "NUPP2001:5"
-    )
-    assertClean(BOX .. "\nlocal b: Box<string> = new Box(value = 'x')\nlocal s: string = b.value")
+    assertClean(BOX .. "\nlocal b: Box<number> = Box(value = 0)\nlocal n: number = b.value")
+    testAssert.eq(diagsOf(BOX .. "\nlocal b: Box<number> = Box(value = 0)\nlocal s: string = b.value"), "NUPP2001:5")
+    assertClean(BOX .. "\nlocal b: Box<string> = Box(value = 'x')\nlocal s: string = b.value")
 end
 
 function M.differentArgumentsAreDifferentTypes()
     testAssert.eq(
-        diagsOf(
-            BOX .. table.concat({"", "local n: Box<number> = new Box(value = 0)", "local s: Box<string> = n",}, "\n")
-        ),
+        diagsOf(BOX .. table.concat({"", "local n: Box<number> = Box(value = 0)", "local s: Box<string> = n",}, "\n")),
         "NUPP2001:5"
     )
     -- and the message distinguishes them
-    local result = parser.parse(BOX .. "\nlocal n: Box<number> = new Box(value = 0)\nlocal s: Box<string> = n", "t")
+    local result = parser.parse(BOX .. "\nlocal n: Box<number> = Box(value = 0)\nlocal s: Box<string> = n", "t")
     local d = check.check(result, "t.nupp", env)[1]
     assert(d.msg:find("Box<number>", 1, true), "renders arguments: " .. d.msg)
 end
 
 function M.constructionInfersTheArgument()
-    assertClean(BOX .. "\nlocal b: Box<number> = new Box(value = 1)")
-    assertClean(BOX .. "\nlocal b: Box<string> = new Box(value = 'x')")
-    testAssert.eq(diagsOf(BOX .. "\nlocal b: Box<string> = new Box(value = 1)"), "NUPP2001:4")
+    assertClean(BOX .. "\nlocal b: Box<number> = Box(value = 1)")
+    assertClean(BOX .. "\nlocal b: Box<string> = Box(value = 'x')")
+    testAssert.eq(diagsOf(BOX .. "\nlocal b: Box<string> = Box(value = 1)"), "NUPP2001:4")
 end
 
 function M.readTypeArgumentsVaryCovariantly()
     -- A read-only integer property is usable as a number property.
-    assertClean(BOX .. "\nlocal b: Box<number> = new Box(value = 1)")
+    assertClean(BOX .. "\nlocal b: Box<number> = Box(value = 1)")
 end
 
 return M

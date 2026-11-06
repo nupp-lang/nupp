@@ -4,6 +4,8 @@ mod platform;
 mod poll;
 mod pool;
 mod process;
+mod time;
+mod tree;
 
 #[cfg(all(test, target_arch = "aarch64"))]
 #[path = "../tests/support/abi.rs"]
@@ -26,6 +28,36 @@ const MAX_REGION: u64 = ARTIFACT;
 /// Code, data and scratch together: the artifact and as much again.
 const MAX_TOTAL: u64 = 2 * ARTIFACT;
 const MAX_WORDS: u64 = 1024 * 1024;
+/// The entry's status for a guest error no protected call took. The guest has
+/// reported it on standard error, as the command line reports one, so the
+/// bridge adds nothing and exits as the command line does.
+const GUEST_ERROR: u64 = 6;
+const GUEST_ERROR_EXIT: i32 = 1;
+
+/// Why a run published nothing: the bridge refused it, or the entry answered
+/// a nonzero transport status.
+#[derive(Debug)]
+enum Failure {
+    Bridge(String),
+    Status(u64),
+}
+
+impl From<String> for Failure {
+    fn from(error: String) -> Self {
+        Failure::Bridge(error)
+    }
+}
+
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Failure::Bridge(error) => f.write_str(error),
+            Failure::Status(status) => {
+                write!(f, "Nupp entry refused with transport status {status}")
+            }
+        }
+    }
+}
 
 #[derive(Debug)]
 struct Spec {
@@ -88,9 +120,11 @@ fn input(path: &Path) -> Result<Vec<u64>, String> {
         .collect())
 }
 
-fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, String> {
+fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, Failure> {
     if !platform::supported() {
-        return Err("standalone bridge requires little-endian ARM64 macOS or Linux".into());
+        return Err(Failure::Bridge(
+            "standalone bridge requires little-endian ARM64 macOS or Linux".into(),
+        ));
     }
     let mut file = File::open(bundle).map_err(|e| format!("bundle: {e}"))?;
     let size = file.metadata().map_err(|e| e.to_string())?.len();
@@ -103,7 +137,7 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, String> {
         .read_to_end(&mut payload)
         .map_err(|e| e.to_string())?;
     if payload.len() != spec.code + spec.data {
-        return Err("bundle changed while reading".into());
+        return Err(Failure::Bridge("bundle changed while reading".into()));
     }
     let mut code = platform::Mapping::new(spec.code)?;
     let mut data = platform::Mapping::new(spec.data)?;
@@ -152,6 +186,17 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, String> {
         process::process_reap as *const () as u64,
         process::process_kill as *const () as u64,
         process::process_exit as *const () as u64,
+        time::wall_clock as *const () as u64,
+        time::cpu_clock as *const () as u64,
+        time::time_parts as *const () as u64,
+        time::time_make as *const () as u64,
+        time::time_format as *const () as u64,
+        files::file_remove as *const () as u64,
+        files::file_rename as *const () as u64,
+        files::file_temporary as *const () as u64,
+        tree::dir_open as *const () as u64,
+        tree::dir_names as *const () as u64,
+        tree::unlink_entry as *const () as u64,
     ];
     let packet = [
         1,
@@ -180,15 +225,17 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, String> {
     #[cfg(test)]
     scratch.verify()?;
     if status != 0 {
-        return Err(format!("Nupp entry refused with transport status {status}"));
+        return Err(Failure::Status(status));
     }
     Ok(output)
 }
 
-fn run() -> Result<(), String> {
+fn run() -> Result<(), Failure> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     if args.len() < 3 {
-        return Err("usage: nupp-core BUNDLE INPUT OUTPUT [ARGUMENT...]".into());
+        return Err(Failure::Bridge(
+            "usage: nupp-core BUNDLE INPUT OUTPUT [ARGUMENT...]".into(),
+        ));
     }
     // The guest's `arg`: the bundle as its program, then what follows OUTPUT.
     let mut program = vec![args[0].clone()];
@@ -197,13 +244,17 @@ fn run() -> Result<(), String> {
     let words = input(Path::new(&args[1]))?;
     let output = execute(Path::new(&args[0]), &words)?;
     let bytes: Vec<_> = output.into_iter().flat_map(u64::to_le_bytes).collect();
-    std::fs::write(&args[2], bytes).map_err(|e| format!("output: {e}"))
+    std::fs::write(&args[2], bytes).map_err(|e| Failure::Bridge(format!("output: {e}")))
 }
 
 fn main() {
-    if let Err(error) = run() {
-        eprintln!("nupp-core: {error}");
-        std::process::exit(1);
+    match run() {
+        Ok(()) => {}
+        Err(Failure::Status(GUEST_ERROR)) => std::process::exit(GUEST_ERROR_EXIT),
+        Err(error) => {
+            eprintln!("nupp-core: {error}");
+            std::process::exit(1);
+        }
     }
 }
 

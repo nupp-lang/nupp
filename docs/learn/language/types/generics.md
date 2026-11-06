@@ -205,11 +205,11 @@ Unification makes four decisions a partly inferred call depends on:
 - **A destination can answer an otherwise open result parameter.** In
   `local value: string = make()`, the destination supplies `string`. An
   annotated binding, an assigned variable or field, a declared result, a field
-  `new R(field = make())` fills, and an argument `take(make())` passes are
+  `R(field = make())` fills, and an argument `take(make())` passes are
   destinations. A field or parameter whose type mentions a binder of the record
   or callee is one only once that binder is answered: by type arguments written,
   by the fields or arguments before it, or by a literal, name or dotted path
-  after it, so `new Box(items = make(), default = 1)` infers `items` from `1`.
+  after it, so `Box(items = make(), default = 1)` infers `items` from `1`.
   Nothing is evaluated out of order to find out, and an overloaded callee gives
   a destination only where every candidate agrees on the parameter.
 - **A parameter with no evidence takes its declared default.** An open result
@@ -315,14 +315,3 @@ store[nameKey] = "saved"
 ```
 
 `T` is inferred from `Key<T>` for both the read and the write.
-
-::: seealso
-- [packs.md](packs.md) for what a type-pack parameter binds to and how a call
-  adjusts to it
-- [interfaces.md](interfaces.md#bounded-generics) for the bounds a parameter
-  can carry
-- [refinements.md](refinements.md) for interfaces that answer `is` with a
-  runtime test
-- [type-level-computation.md](comptime-types.md) for computing a type
-  rather than binding one
-:::

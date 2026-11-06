@@ -36,7 +36,7 @@ local scalarAdapters = require("nupp.io.internal.scalars")
 const {type Reader} = require("nupp.io")
 const {type Writer} = require("nupp.io")
 const {type Buffer} = require("nupp.io")
-const {type Path} = require("io.files")
+const {type Path} = require("io.internal.files.path")
 
 local suspension = require("nupp.suspension")
 local span = require("binary.span")
@@ -77,7 +77,7 @@ export type ListenOptions = {
     port: integer?,
 
     --- A filesystem name to bind instead, for a Unix domain socket, as anything
-    --- [](io.files) accepts.
+    --- [](os.Path) names.
     ---
     --- The name is not removed when the listener closes. A caller that binds a
     --- path owns that path, and unlinking a file this process may not have
@@ -106,7 +106,7 @@ export type ConnectOptions = {
     port: integer?,
 
     --- A filesystem name to reach instead, for a Unix domain socket, as anything
-    --- [](io.files) accepts. Nothing is resolved for one, so a connect to a
+    --- [](os.Path) names. Nothing is resolved for one, so a connect to a
     --- path starts at the handshake.
     path: Path?,
 
@@ -169,7 +169,6 @@ end
 
 const DEFAULT_HIGH_WATER = 1048576
 const DEFAULT_CONNECT_MS = 30000
-const READ_SIZE = 65536
 const MAX_BACKLOG = 2147483647
 const MAX_UINT32 = 4294967295
 
@@ -406,53 +405,6 @@ export record DirectionView is io.Reader, io.Writer
         return #chunk as integer
     end
 
-    --- @raises string when count is not a positive integer
-    function readinto(
-        exclusive self,
-        exclusive destination: Buffer,
-        offset: integer?,
-        count: integer?
-    ): (integer?, string?)
-        const wanted = positive(count or READ_SIZE, "net.DirectionView readInto count", 2)
-        const chunk, why = self:read(wanted)
-        if chunk == nil then
-            return nil, why
-        end
-        const landed = #chunk as integer
-        if landed > 0 then
-            const input = span.fromstring(chunk)
-            const lease = destination:reservewrite(offset or 0, landed)
-            do
-                const output = lease:span()
-                for index = 1, landed do
-                    output[index] = input[index]
-                end
-                own.drop(output)
-            end
-            lease:commit(landed)
-        end
-
-        return landed
-    end
-
-    function transferto(exclusive self, exclusive destination: Writer): (integer?, string?)
-        local moved: integer = 0
-        while true do
-            const chunk, why = self:read(READ_SIZE)
-            if chunk == nil then
-                return nil, why
-            end
-            if #chunk == 0 then
-                return moved
-            end
-            const wrote, wroteWhy = destination:write(chunk)
-            if not wrote then
-                return nil, wroteWhy
-            end
-            moved = moved + (#chunk as integer)
-        end
-    end
-
     function write(exclusive self, bytes: string): (boolean, string?)
         if self._ended then
             return false, "the writer is closed"
@@ -665,65 +617,6 @@ export record Stream is io.Reader, io.Writer
         return #chunk as integer
     end
 
-    --- Reads into a buffer. A zero answer is the end.
-    --- @param self this connection
-    --- @param destination the buffer to write into
-    --- @param offset where in the destination to start, or the beginning
-    --- @param count the most bytes to read
-    --- @return how many bytes were read, or nil when the connection is closed
-    --- @return why it could not read, when unsuccessful
-    --- @raises string when count is not a positive integer
-    function readinto(
-        exclusive self,
-        exclusive destination: Buffer,
-        offset: integer?,
-        count: integer?
-    ): (integer?, string?)
-        const wanted = positive(count or READ_SIZE, "net.Stream readInto count", 2)
-        const chunk, why = self:read(wanted)
-        if chunk == nil then
-            return nil, why
-        end
-        const landed = #chunk as integer
-        if landed > 0 then
-            const input = span.fromstring(chunk)
-            const lease = destination:reservewrite(offset or 0, landed)
-            do
-                const output = lease:span()
-                for index = 1, landed do
-                    output[index] = input[index]
-                end
-                own.drop(output)
-            end
-            lease:commit(landed)
-        end
-
-        return landed
-    end
-
-    --- Writes everything left to a writer.
-    --- @param self this connection
-    --- @param destination the writer to fill
-    --- @return how many bytes moved, or nil on failure
-    --- @return why it could not, when unsuccessful
-    function transferto(exclusive self, exclusive destination: Writer): (integer?, string?)
-        local moved: integer = 0
-        while true do
-            const chunk, why = self:read(READ_SIZE)
-            if chunk == nil then
-                return nil, why
-            end
-            if #chunk == 0 then
-                return moved
-            end
-            const wrote, wroteWhy = destination:write(chunk)
-            if not wrote then
-                return nil, wroteWhy
-            end
-            moved = moved + (#chunk as integer)
-        end
-    end
-
     --- Appends bytes, waiting where the send queue is already at its maximum.
     ---
     --- The whole value is written, as the contract promises. An input larger than
@@ -817,7 +710,7 @@ export record Stream is io.Reader, io.Writer
     --- @param self the connection to view
     --- @return the view, which may not outlive it
     function asreader(borrows self): affine(Reader) borrows (self)
-        return new DirectionView(
+        return DirectionView(
             _provider = self._provider,
             _handle = self._handle,
             _writing = false,
@@ -833,7 +726,7 @@ export record Stream is io.Reader, io.Writer
     --- @param self the connection to view
     --- @return the view, which may not outlive it
     function aswriter(borrows self): affine(Writer) borrows (self)
-        return new DirectionView(
+        return DirectionView(
             _provider = self._provider,
             _handle = self._handle,
             _writing = true,
@@ -915,7 +808,7 @@ export record Listener is own.Closeable
             return nil, io.toError(failure)
         end
 
-        return new Stream(
+        return Stream(
             _provider = self._provider,
             _handle = handle,
             _closed = false,
@@ -1032,7 +925,7 @@ export record Datagram is own.Closeable
             lease:commit(landed)
         end
 
-        return new Message(
+        return Message(
             len = landed,
             address = {host = host or "", port = peerPort or 0} as Address,
             truncated = cut or false
@@ -1154,7 +1047,7 @@ export function bind(options: DatagramOptions): (affine(Datagram)?, io.Error?)
         return nil, io.toError(why)
     end
 
-    return new Datagram(_provider = chosen, _handle = handle, _closed = false)
+    return Datagram(_provider = chosen, _handle = handle, _closed = false)
 end
 
 --- Opens a listener.
@@ -1191,7 +1084,7 @@ export function listen(options: ListenOptions): (affine(Listener)?, io.Error?)
         return nil, io.toError(why)
     end
 
-    return new Listener(_provider = chosen, _handle = handle, _closed = false, _highWater = DEFAULT_HIGH_WATER)
+    return Listener(_provider = chosen, _handle = handle, _closed = false, _highWater = DEFAULT_HIGH_WATER)
 end
 
 --- Opens a connection, resolving the peer's name off this frame.
@@ -1267,7 +1160,7 @@ export function connect(options: ConnectOptions): (affine(Stream)?, io.Error?)
         return nil, io.toError(failure)
     end
 
-    return new Stream(_provider = chosen, _handle = handle, _closed = false, _shutdown = false, _highWater = highWater)
+    return Stream(_provider = chosen, _handle = handle, _closed = false, _shutdown = false, _highWater = highWater)
 end
 
 ----------------------------------------------------------------------------

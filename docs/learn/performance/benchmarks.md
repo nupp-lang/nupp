@@ -56,7 +56,7 @@ until a round is long enough to time, then every measured round uses that same
 
 `Alloc B/op` is measured in a separate pass with the collector stopped, so the
 account does not change the timing distribution. A suite divides the observed
-managed heap growth by `sampleiterations * operations`; a case divides it
+managed heap growth by `batch * operations`; a case divides it
 by its calibrated `n`. Replicated reports show the median across forks. It is a
 byte total, not an allocation-event count, and does not include native
 allocations. Frames and older records without the measurement show `-`.
@@ -78,13 +78,13 @@ Those samples alternate between ~21ns and ~140ns, and the harness says so:
 ```text
 nupp: presize.point.grown: scattered: only 9% of samples lie within 10% of the
       median, so the score describes no rate this benchmark ran at; raise
-      sampleiterations until one sample spans whole collector cycles
+      batch until one sample spans whole collector cycles
 ```
 
 That one was real. `bench/presize.bench.nupp` allocated about a collector
 cycle's worth per call, so with one call per sample the collector ran on every
 *other* sample: half measured the loop, half measured the loop plus a cycle the
-previous sample's garbage had earned. Raising `sampleiterations` to 8 so each
+previous sample's garbage had earned. Raising `batch` to 8 so each
 sample spans whole cycles moved it from 9% concentration to 98%, and the score
 from `40.6` to `65.8 ns/op`. The old number was **18% low** because half the
 samples excluded work their own allocations caused.
@@ -169,13 +169,13 @@ end
 bench.suite(
     {
         name = "sum",
-        baselinevariant = "ipairs",
+        baseline = "ipairs",
         variants = {
             {name = "ipairs", setup = numbers, run = byPairs},
             {name = "index", setup = numbers, run = byIndex},
         },
         cases = {{name = "floats", parameters = {size = {100, 10000}}},},
-        sampleiterations = 1000,
+        batch = 1000,
     } as bench.SuiteOptions
 )
 bench.report()
@@ -202,18 +202,18 @@ is kept for you, so a suite needs no `keep`.
 
 | Option | Default | Use |
 | --- | --- | --- |
-| `sampleiterations` | 1 | `run` calls per timed sample. Leave at 1 for a mutating workload; raise it when one call is too short to measure |
+| `batch` | 1 | `run` calls per timed sample. Leave at 1 for a mutating workload; raise it when one call is too short to measure |
 | `operations` | 1 | Operations one `run` call represents, so the score stays `ns/op` |
-| `warmupiterations` | 10 | Untimed calls before sampling |
-| `minsamples`, `mindurationms` | 15, 500 | Sampling stops once both are satisfied |
-| `maxsamples`, `maxdurationms` | 100000, 10000 | Safety bounds; hitting one is an error, not an under-sampled result |
+| `warmup` | 10 | Untimed calls before sampling |
+| `minsamples`, `minms` | 15, 500 | Sampling stops once both are satisfied |
+| `maxsamples`, `maxms` | 100000, 10000 | Safety bounds; hitting one is an error, not an under-sampled result |
 
-Drop `sampleiterations` from the suite above and the fastest pair says so
+Drop `batch` from the suite above and the fastest pair says so
 rather than publishing a number off a clock it outran:
 
 ```text
 nupp: sum.floats.index:size=100 reached its sampling limit after 100000
-samples and 0.028538s measured; increase sampleiterations or the maximums
+samples and 0.028538s measured; increase batch or the maximums
 ```
 
 The collector runs normally during warmup and timing. Allocation is measured in
@@ -291,7 +291,7 @@ interior. Below ten you get the range and no verdict.
 ```text
 nupp: trend-warning: sum.floats.index:size=10000: monotone trend in 7/12 forks,
       level moved +5.4% across the series; interval withheld and verdict forced
-      to inconclusive. Raise warmupiterations so the movement happens before
+      to inconclusive. Raise warmup so the movement happens before
       timing starts
 ```
 
@@ -322,7 +322,7 @@ middle put it near zero, and then the median is an artefact of where the two
 happen to balance rather than a rate the code ever ran at.
 
 The usual cause is the collector cycling on alternate samples. The usual fix is
-`sampleiterations` high enough that one sample spans whole cycles, so every
+`batch` high enough that one sample spans whole cycles, so every
 sample pays its share instead of every other one paying all of it.
 
 ### Outliers are counted, not dropped
@@ -542,7 +542,7 @@ needs each process's ordered series.
 
 Every duration in a record is in milliseconds, and its field says so with an `Ms`
 suffix: `medianMs`, `samplesMs`, `forkSummariesMs`, `intervalLowMs`, and the
-suite options `mindurationms` and `maxdurationms`.
+suite options `minms` and `maxms`.
 
 `build/bench-record.json` always holds the latest complete record. `--history`
 appends the same document as NDJSON once every selected benchmark reported.
@@ -550,7 +550,3 @@ appends the same document as NDJSON once every selected benchmark reported.
 `debug.bench` measures from inside a program; `nupp bench` discovers and isolates
 those programs. Neither replaces an application's own hot loop, such as a
 game's frame or a server's request path with its real asset load.
-
-::: seealso
-- [index.md](index.md) for what to measure and how to read the bytecode
-:::

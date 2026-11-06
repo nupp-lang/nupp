@@ -25,7 +25,7 @@ there to overrule the guess in either direction.
 ]]
 module nupp.tools.build.progress
 
-const terminal2 = require("io.cli")
+const tables = require("nupp.cli.internal.tablebuilder")
 
 const terminal = require("io.cli")
 
@@ -135,7 +135,7 @@ local function resolve(mode: string?, stream: io.File): boolean
         return true
     end
 
-    return terminal2.isterminal(stream)
+    return terminal.isterminal(stream)
 end
 
 -- Terminals wrap, and a wrapped line cannot be erased with a carriage return: what
@@ -406,24 +406,15 @@ export record Reporter
             return
         end
         self.stream:write(style.faint("  slowest") .. "\n")
-        local rows: {{terminal.Cell}} = {}
-        for index, span in ipairs(measured.slowest) do
-            rows[index] = {terminal.cell(span.module), terminal.cell(duration(span.durationMs))}
+        local output = tables.newtable(self.stream)
+            :headings(false)
+            :indent("    ")
+            :column("module", nil, style.faint)
+            :column("took", "right", style.faint)
+        for _, span in ipairs(measured.slowest) do
+            output:row():cell(span.module):cell(duration(span.durationMs))
         end
-        -- A breakdown under a heading that already named it, so the columns go
-        -- unheaded; what is shared is the measuring and the padding.
-        terminal2.writetable(
-            self.stream,
-            {
-                columns = {
-                    {heading = "module", paint = style.faint},
-                    {heading = "took", align = "right", paint = style.faint,}
-                },
-                rows = rows,
-                showheading = false,
-                indent = "    ",
-            } as terminal.TableOptions
-        )
+        output:write()
     end
 end
 
@@ -435,12 +426,12 @@ export function new(mode: string?, stream: io.File?): Reporter
     local showing = resolve(mode, target)
     local started = clock.now()
 
-    return new Reporter(
+    return Reporter(
         stream = target,
         showing = showing,
         -- Rewriting a line needs the escapes that color needs, so one answer settles
         -- both. A terminal that has said it cannot take them gets a line per step.
-        rewriting = showing and terminal2.colorenabled(target),
+        rewriting = showing and terminal.colorenabled(target),
         style = terminal.style(target),
         startedAt = started,
         activity = "other",

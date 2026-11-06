@@ -10,7 +10,7 @@ local record State
 end
 
 function main.run(): number
-    local value = new State(count = 41, cache = 9, self = nil)
+    local value = State(count = 41, cache = 9, self = nil)
     value.self = value
     local saves = 0
     local loads = 0
@@ -35,7 +35,7 @@ function main.run(): number
     local restored = persist.load(bytes, nil, policies)
     assert(restored ~= value and restored.self == restored)
     assert(restored.count == 42 and restored.cache == 84 and loads == 1)
-    local target = new State(count = 0, cache = 0, self = nil)
+    local target = State(count = 0, cache = 0, self = nil)
     assert(persist.loadInto(bytes, target, policies) == target)
     assert(target.self == target and target.count == 42 and target.cache == 84)
     assert(loads == 2)

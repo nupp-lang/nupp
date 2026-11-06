@@ -22,7 +22,7 @@ local type Decode = function(string): Ast & function({Token}): Ast
 
 local decode: Decode = nil as any
 local fromText: Ast = decode("name")
-local fromTokens: Ast = decode({new Token(kind = "name")})
+local fromTokens: Ast = decode({Token(kind = "name")})
 return fromText, fromTokens
 ```
 
@@ -99,11 +99,11 @@ local record Ast
 end
 
 local function parseText(text: string): Ast
-    return new Ast(source = text)
+    return Ast(source = text)
 end
 
 local function parseTokens(tokens: {Token}): Ast
-    return new Ast(source = tokens[1].kind)
+    return Ast(source = tokens[1].kind)
 end
 
 local record Decoder
@@ -116,9 +116,9 @@ local record Decoder
     end
 end
 
-local decoder = new Decoder()
+local decoder = Decoder()
 local textAst = decoder:decode("name")
-local tokenAst = decoder:decode({new Token(kind = "name")})
+local tokenAst = decoder:decode({Token(kind = "name")})
 return textAst, tokenAst
 ```
 
@@ -144,7 +144,7 @@ local record Decoder
     end
 end
 
-local decoder = new Decoder()
+local decoder = Decoder()
 local held = decoder.decode
 return held
 ```
@@ -162,7 +162,7 @@ local record Decoder
     end
 end
 
-local decoder = new Decoder()
+local decoder = Decoder()
 local fromText: function(string): string = function(text: string): string
     return decoder:decode(text)
 end
@@ -188,7 +188,7 @@ local record Decoder
     end
 end
 
-local decoder = new Decoder()
+local decoder = Decoder()
 local input: any = "ready"
 return decoder:decode(input)
 ```
@@ -206,7 +206,7 @@ local record Decoder
     end
 end
 
-local decoder = new Decoder()
+local decoder = Decoder()
 local input: any = "ready"
 return decoder:decode(input as string)
 ```
@@ -253,7 +253,7 @@ local record Decoder is DecoderContract
     end
 end
 
-local decoder: DecoderContract = new Decoder()
+local decoder: DecoderContract = Decoder()
 return decoder:decode("ready"), decoder:decode(42)
 ```
 
@@ -308,7 +308,7 @@ local record LoudDecoder is Decoder
     end
 end
 
-local decoder: Decoder = new LoudDecoder()
+local decoder: Decoder = LoudDecoder()
 return decoder:decode("ready"), decoder:decode(42)
 ```
 
@@ -358,7 +358,7 @@ local record DetailedFormatter is Formatter
     end
 end
 
-local formatter = new DetailedFormatter()
+local formatter = DetailedFormatter()
 return formatter:format("ready"), formatter:format(42)
 ```
 
@@ -383,7 +383,7 @@ end
 local record Decoder is TextDecoder, NumberDecoder
 end
 
-local decoder = new Decoder()
+local decoder = Decoder()
 return decoder:decode("ready"), decoder:decode(42)
 ```
 
@@ -406,7 +406,7 @@ local record Codec<T>
     end
 end
 
-local codec = new Codec<integer>()
+local codec = Codec<integer>()
 return codec:encode(4), codec:encode({5})
 ```
 
@@ -431,12 +431,12 @@ local record Value
     end
 end
 
-local fromNumber = new Value(42)
-local fromText = new Value("ready")
+local fromNumber = Value(42)
+local fromText = Value("ready")
 return fromNumber.text, fromText.text
 ```
 
-`new Value(...)` applies the same exact-one rule and directly invokes the
+`Value(...)` applies the same exact-one rule and directly invokes the
 selected constructor body. Duplicate constructor parameter packs are reported,
 and declaring any constructor closes named-field construction for that
 record. See [Records and
@@ -446,7 +446,7 @@ may promise.
 The selected entry supplies its whole result policy as well as its body. One
 parameter pack may return `File`, while another returns `affine(File,
 File.destroy)`. Results never take part in selection: the arguments choose an
-entry first, and that entry's result becomes the type of `new File(...)`.
+entry first, and that entry's result becomes the type of `File(...)`.
 
 ## Facades for untyped callers
 
@@ -466,15 +466,15 @@ end
 
 local record Decoder
     function decode(self, text: string): Ast
-        return new Ast(source = text)
+        return Ast(source = text)
     end
 
     function decode(self, tokens: {Token}): Ast
-        return new Ast(source = tokens[1].kind)
+        return Ast(source = tokens[1].kind)
     end
 end
 
-local decoder = new Decoder()
+local decoder = Decoder()
 
 local function decodeDynamic(input: any): Ast
     if type(input) == "string" then
@@ -489,34 +489,3 @@ return decodeDynamic("ready")
 That dispatcher exists because the program asked for a dynamic facade. Typed
 method calls do not pay for it. See [Escape hatches](index.md#escape-hatches)
 for the rest of what crosses that boundary.
-
-## FAQ
-
-### Why is my call ambiguous when one signature is more specific?
-
-Nupp has no best-match ranking, so `integer` does not beat `number` and
-declaration order does not break the tie. Narrow the argument with a cast, or
-give the entries parameter packs that do not overlap. See [Callable
-intersections](#callable-intersections) for the selection rule.
-
-### Can untyped Lua call an overloaded method?
-
-No. Each entry lives in a hidden slot rather than under the source name, so an
-untyped caller has nothing to index. Export a facade that decides at run time.
-See [Facades for untyped callers](#facades-for-untyped-callers) for the shape
-one takes.
-
-### Can two overloads differ only by return type?
-
-No, that is reported as a duplicate. The call has to pick a body before there is
-a result
-to compare, so only parameter packs take part in selection. See [Parameter
-packs select the entry](#parameter-packs-select-the-entry).
-
-::: seealso
-- [intersections.md](intersections.md) for the intersection relation a callable
-  contract is written in, and for provable emptiness
-- [interfaces.md](interfaces.md) for contracts, defaults, and what `is` claims
-- [records.md](records-and-structs.md) for constructors and inline methods
-- [packs.md](packs.md) for the argument pack selection runs against
-:::

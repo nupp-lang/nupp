@@ -94,7 +94,7 @@ assert(parser:key() == "flag")
         assert(status == 0, output)
         assert(output == "", output)
     end)
-    local removed, removeProblem = require("io.files").remove(dir, true)
+    local removed, removeProblem = os.remove(dir, true)
     assert(removed, removeProblem)
     assert(ok, problem)
 end

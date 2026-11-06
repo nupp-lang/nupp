@@ -444,7 +444,6 @@ function M.serializationMigrationUsesResolvedDeclarationsAndPreservesErrors()
     local source = [[
 local derive = require("nupp.derive")
 local syntax = require("serde.json")
-local text = require("string.buffer")
 @derive(derive.Debug, derive.JSON)
 @json(unknown = "ignore")
 local record User
@@ -457,11 +456,11 @@ local user, problem = User.fromJSON('{"user_name":"Ada","extra":true}')
 assert(user ~= nil and problem == nil and user.name == "Ada")
 local absent, failure = User.fromJSON('{"user_name":false}')
 assert(absent == nil and type(failure) == "string")
-local buffer = text.new()
-local writer = syntax.newwriter(buffer)
+local buffer = io.Buffer.create()
+local writer = syntax.Writer.of(buffer)
 assert(user):writeJSON(writer)
 writer:close()
-assert(buffer:tostring() == '{"user_name":"Ada"}')
+assert(buffer:getstring() == '{"user_name":"Ada"}')
 assert(user:debug():find("Ada", 1, true))
 ]]
     local plan, problem = migrate.plan(source, "serialization-migration.nupp", nil, sharedEnv())
@@ -499,7 +498,7 @@ local record Handwritten
     function writeJSON(self, value: string): string return value end
 end
 function Handwritten.fromJSON(value: string): string return value end
-local handwritten = new Handwritten()
+local handwritten = Handwritten()
 assert(handwritten:writeJSON("x") == Handwritten.fromJSON("x"))
 return selected
 ]]

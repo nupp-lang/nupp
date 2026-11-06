@@ -65,6 +65,32 @@ end
     end
 end
 
+function M.declaredFieldsHonorTheirIndexContractsSuspensionMode()
+    for _, access in ipairs({"value.field", 'value["field"]'}) do
+        for _, quiet in ipairs({false, true}) do
+            local source = [[
+local interface Lazy
+    @readonly field: integer
+    metamethod __index: MODEfunction(self: Lazy, key: string): integer
+end
+local function read(value: Lazy): integer
+    local result: integer = 0
+    @nosuspend do result = ACCESS end
+    return result
+end
+]]
+            source = source:gsub("MODE", quiet and "@nosuspend " or ""):gsub("ACCESS", access)
+            local found, diagnostics = diagnose(source)
+            testAssert.eq(#found, quiet and 0 or 1, access)
+            for _, diagnostic in ipairs(diagnostics) do
+                if diagnostic.severity == "error" then
+                    testAssert.eq(diagnostic.code, "NUPP2701", diagnostic.msg)
+                end
+            end
+        end
+    end
+end
+
 function M.allowsACallThatCannot()
     local refusals = diagnose(QUIET .. "@nosuspend do\n    quiet()\nend")
     testAssert.eq(#refusals, 0, "a proved-quiet callee is silent")
@@ -111,14 +137,14 @@ function M.constructsARecordWithoutSuspending()
     -- is a table and a metatable; with one, the constructor's body answers.
     local plain = "local record P\n    x: integer\nend\n"
     testAssert.eq(
-        #diagnose(plain .. "@nosuspend do\n    local p = new P(x = 1)\nend"),
+        #diagnose(plain .. "@nosuspend do\n    local p = P(x = 1)\nend"),
         0,
         "a record with no constructor cannot suspend"
     )
     testAssert.eq(
         #diagnose(
             plain
-            .. "local function make(): P\n    return new P(x = 1)\nend\n"
+            .. "local function make(): P\n    return P(x = 1)\nend\n"
             .. "@nosuspend do\n    local p = make()\nend"
         ),
         0,
@@ -127,13 +153,13 @@ function M.constructsARecordWithoutSuspending()
     local quiet = "local record Q\n    x: integer\n    constructor(self, x: integer)\n"
         .. "        self.x = x\n    end\nend\n"
     testAssert.eq(
-        #diagnose(quiet .. "@nosuspend do\n    local q = new Q(1)\nend"),
+        #diagnose(quiet .. "@nosuspend do\n    local q = Q(1)\nend"),
         0,
         "a constructor that cannot suspend is silent"
     )
     local noisy = "local record R\n    x: integer\n    constructor(self, x: integer)\n"
         .. "        coroutine.yield()\n        self.x = x\n    end\nend\n"
-    local refusals = diagnose(noisy .. "@nosuspend do\n    local r = new R(1)\nend")
+    local refusals = diagnose(noisy .. "@nosuspend do\n    local r = R(1)\nend")
     testAssert.eq(#refusals, 1, "a constructor that suspends is refused")
     assert(refusals[1].msg:find("R", 1, true) ~= nil, "it names the record: " .. refusals[1].msg)
 end
@@ -181,7 +207,7 @@ function M.judgesCallableRecordIteratorsByTheirContract()
             "    metamethod __call: @nosuspend function(self): integer?",
             "end",
             "@nosuspend do",
-            "    for value in new Quiet() do print(value) end",
+            "    for value in Quiet() do print(value) end",
             "end",
         },
         "\n"
@@ -194,7 +220,7 @@ function M.judgesCallableRecordIteratorsByTheirContract()
             "    metamethod __call: function(self): integer?",
             "end",
             "@nosuspend do",
-            "    for value in new Noisy() do print(value) end",
+            "    for value in Noisy() do print(value) end",
             "end",
         },
         "\n"
@@ -214,7 +240,7 @@ function M.judgesADispatchedMetamethod()
                 "    x: integer",
                 "    metamethod __add: " .. contract,
                 "end",
-                "local a, b: V, V = new V(x = 1), new V(x = 2)",
+                "local a, b: V, V = V(x = 1), V(x = 2)",
                 "@nosuspend do",
                 "    local c = a + b",
                 "end",
@@ -265,10 +291,10 @@ function M.judgesTheTerminalsARegionDischarges()
             "local function quiet(takes value: Resource): nil",
             "end",
             "local function openSettling(): affine(Resource, settling)",
-            "    return new Resource(value = 1)",
+            "    return Resource(value = 1)",
             "end",
             "local function openQuiet(): affine(Resource, quiet)",
-            "    return new Resource(value = 1)",
+            "    return Resource(value = 1)",
             "end",
         },
         "\n"

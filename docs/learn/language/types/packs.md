@@ -288,7 +288,7 @@ local function release(takes value: Resource): nil
 end
 
 local function acquire(): affine(Resource, release)
-    return new Resource()
+    return Resource()
 end
 
 acquire() -- NUPP2605: the owner has nowhere to land
@@ -300,37 +300,3 @@ release(value) -- the obligation is discharged
 A correlated owner returned by `pcall` becomes a live obligation only in its
 success arm. See [ownership.md](../../runtime/ownership/borrowing.md) for the model the modes come
 from.
-
-## FAQ
-
-### Why is `{number, string}` not the same as `(number, string)`?
-
-`{number, string}` is a tuple table: one value, allocated, indexable, and
-storable in a field. `(number, string)` is two values in a row, which is what a
-Lua function returns and what a call expands into. Only the tuple can be
-annotated on a local, which is what the checker says when a pack is written
-there.
-
-### Can a pack be stored in a variable?
-
-No. A pack exists only in a sequence position: parameters, results, a vararg,
-an assignment's right side, or a coroutine transfer. Collect the values into a
-tuple table with `{...}` when they need to be held, and expand them again with
-`unpack`.
-
-### Does `(f())` drop an owner?
-
-It is reported when a discarded slot is owned or pinned. Parentheses
-take the first value and truncate the rest, which Lua permits and Nupp allows
-only for values carrying no cleanup obligation. See [Ownership and
-provenance](#ownership-and-provenance) for the complete list of adjustments
-that trigger it.
-
-::: seealso
-- [generics.md](generics.md) for how a pack binder is inferred at a call site
-- [ownership.md](../../runtime/ownership/borrowing.md) for the modes a slot carries
-- [narrowing.md](narrowing.md#narrowing-tests) for the tests that pick a
-  correlated arm
-- [type-level-computation.md](comptime-types.md) for `typepack`
-  parameters and the `types` pack API
-:::

@@ -21,8 +21,11 @@ lower.graphSink = nil as function(entry: string, functions: {Fn}, header: table)
 lower.pathMapper = nil as(function(path: string): string?)?
 
 const graphemit = require("nupp.compiler.vm.legacyemit")
+const construction = require("nupp.compiler.vm.construction")
 const apiidentity = require("nupp.compiler.apiidentity")
 const MATH_EXTENSION_MEMBERS = {
+    -- Installed on the host table by `nupp.runtime.standardmath`.
+    Xoshiro128 = true,
     lerp = true,
     wrapAngle = true,
     deltaAngle = true,
@@ -547,7 +550,7 @@ function lower.emit(
     local functions: {Fn} = {}
 
     local function newFn(name: string, parent: Fn?): Fn
-        local f = new lowerstate.Fn(
+        local f = lowerstate.Fn(
             id = #functions,
             name = name,
             module = currentModule,
@@ -877,6 +880,11 @@ function lower.emit(
     local function dstSafe(node)
         while node.kind == "paren" do
             node = node.expr
+        end
+        -- A construction is spelled as a call but builds its instance first and
+        -- then reads its fields, as a table constructor does.
+        if construction.bare(node) then
+            return false
         end
         if node.kind == "binop" then
             local op = tokText(node.op);
@@ -1210,6 +1218,7 @@ function lower.emit(
         return (e.kind == "call" or e.kind == "methodCall" or e.kind == "safeCall")
             and not e.scalarIntrinsic
             and not e.ownershipIntrinsic
+            and not construction.bare(e)
     end
 
     -- A call with results landing at `dst..`: eight registers are reserved above
@@ -1736,6 +1745,15 @@ function lower.emit(
 
     emitCall = function(f: Fn, node, dst, nres, all)
         nres = nres or 1
+        if construction.bare(node) then
+            -- A construction answers its one instance, whatever the site asked for.
+            assert(not all, "a construction has no variable result count")
+            exprAs(f, node, "v", dst)
+            for i = 1, nres - 1 do
+                f:op("Nil", dst + i)
+            end
+            return
+        end
         if node.kind == "castExpr" then
             emitCall(f, node.expr, dst, nres, all)
             return
@@ -2920,7 +2938,7 @@ function lower.emit(
             f:op("Nil", dst)
             f:push()
             local selectorName = "\0switch" .. subject
-            f.scopes[#f.scopes][selectorName] = new lowerstate.Binding(reg = subject, class = "v")
+            f.scopes[#f.scopes][selectorName] = lowerstate.Binding(reg = subject, class = "v")
             local selector = {kind = "name", token = {text = selectorName}}
             local mark, fmark = f.nregs, f.nfregs
             local done = f:label()
@@ -3092,13 +3110,6 @@ function lower.emit(
             local members = node.namespacePath:sub(first)
             local member = members:match("^[^.]+")
             local moduleName = (member == nil or MATH_EXTENSION_MEMBERS[member]) and "nupp.vm.math" or "math"
-            -- `math.random` is the standard namespace module, which is both the
-            -- host function and the generator types (and installs itself as
-            -- the host's `math.random` when loaded).
-            if member == "random" then
-                moduleName = "math.random"
-                members = members:sub(7)
-            end
             if moduleName ~= "math" then
                 queueModule(moduleName)
             end
@@ -3141,6 +3152,13 @@ function lower.emit(
             else
                 -- Unbound Lua names read the global table. Checked Nupp names
                 -- have already passed resolution before reaching the emitter.
+                -- A `global` declaration read as a value, `local Make = Origin`,
+                -- pulls in the module that creates it, as constructing it does.
+                local witness = node.inferredType
+                local declared = type(witness) == "table" and witness.tag == "typeobject" and shapeOf(witness.of)
+                if declared and declared.module and declared.module ~= currentModule then
+                    f:op("Require", dst, f:const("str", declared.module))
+                end
                 f:op("Require", dst, f:const("str", "_G"));
                 local t = f:reg();
                 f:op("GetField", t, dst, f:const("str", name));
@@ -3294,11 +3312,6 @@ function lower.emit(
                     f:op("K", dst, f:const("num", math.huge))
                 elseif full == "math.pi" then
                     f:op("K", dst, f:const("num", math.pi))
-                elseif full == "math.random" then
-                    -- The standard namespace module: the host function, the
-                    -- generator types, and installed as the host's on load.
-                    queueModule(full)
-                    f:op("Require", dst, f:const("str", full))
                 elseif BUILTINS[full] then
                     f:op("K", dst, f:const("builtin", full))
                 else
@@ -3332,7 +3345,7 @@ function lower.emit(
             local o = exprAs(f, node.obj, "v")
             local i, keyClass = indexOperand(f, node.expr)
             f:op(keyClass == "i" and "GetIdxI" or keyClass == "f" and "GetIdxF" or "GetIdx", dst, o, i)
-        elseif k == "call" or k == "methodCall" or k == "safeCall" then
+        elseif (k == "call" and not construction.bare(node)) or k == "methodCall" or k == "safeCall" then
             emitCall(f, node, dst)
         elseif k == "safeIndex" or k == "safeBracket" then
             -- `o?.name` and `o?.[key]`: nil when `o` is.
@@ -3349,14 +3362,17 @@ function lower.emit(
                 f:op("GetIdx", dst, o, key)
             end
             f:place(skip)
-        elseif k == "newExpr" then
-            local call = node.call
+        elseif k == "newExpr" or construction.bare(node) then
+            -- A synthesized `newExpr` wraps the construction call; `R(...)` is the
+            -- call.
+            local call = k == "newExpr" and node.call or node
             if call.constructorCall then
                 local lowered = {}
                 for key, value in pairs(call) do
                     lowered[key] = value
                 end
                 lowered.constructorCall = nil
+                lowered.construction = nil
                 lowered.obj = {
                     kind = "dotIndex",
                     obj = call.obj,
@@ -3391,6 +3407,12 @@ function lower.emit(
             if shape.module and shape.module ~= currentModule then
                 local loaded = f:reg()
                 f:op("Require", loaded, f:const("str", shape.module))
+            end
+            -- A bare call's callee may be any expression, `choose()(x)` among
+            -- them: it runs once, before the fields, as a call's callee does.
+            local callee = call.obj
+            if k ~= "newExpr" and not shape.physical and callee and not callee.immutablePath then
+                call.obj = {kind = "vmRegister", reg = exprAs(f, callee, "v")}
             end
             local instance = shape.physical
                 and not shape.layout.supported
@@ -3521,6 +3543,7 @@ function lower.emit(
                     end
                 end
             end
+            call.obj = callee
         elseif k == "tableExpr" then
             local items, named = 0, 0
             for _, field in ipairs(node.fields) do
@@ -4056,7 +4079,7 @@ function lower.emit(
     local function loopBegin(f: Fn)
         f.breaks[
             #f.breaks + 1
-        ] = new lowerstate.Loop(exit = f:label(), next = f:label(), cleanupDepth = f.cleanupDepth or 0)
+        ] = lowerstate.Loop(exit = f:label(), next = f:label(), cleanupDepth = f.cleanupDepth or 0)
     end
 
     -- Where `continue` lands: the loop's own next-round step, after the body.
@@ -5204,6 +5227,10 @@ function lower.emit(
                 for _, super in ipairs(node.supertypes or {}) do
                     implements = implements or super.interfaceName ~= nil
                 end
+                -- A record an interface declares is reached through its table.
+                for _, entry in ipairs(node.entries or {}) do
+                    implements = implements or entry.vmNested == true
+                end
             end
             if not shape and not implements then
                 return
@@ -5243,6 +5270,11 @@ function lower.emit(
                     stmtReclaim(f, generated)
                 end
                 f:pop()
+                for _, entry in ipairs(node.entries or {}) do
+                    if entry.vmNested then
+                        stmt(f, entry)
+                    end
+                end
                 return
             end
             f:op("SetField", identity, f:const("str", "__index"), identity)

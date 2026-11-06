@@ -288,7 +288,7 @@ function M.cdefStructTyping()
                 "   tv_sec: int64",
                 "   tv_usec: int64",
                 "end",
-                "local tv = new timeval()",
+                "local tv = timeval()",
                 "local s: int64 = tv.tv_sec",
                 "local n: number = tonumber(tv.tv_sec) or 0",
             },
@@ -304,7 +304,7 @@ function M.cdefStructTyping()
                         "cdef struct timeval",
                         "   tv_sec: int64",
                         "end",
-                        "local tv = new timeval()",
+                        "local tv = timeval()",
                         "local s: float = tv.tv_sec",
                     },
                     "\n"
@@ -350,7 +350,7 @@ function M.pointerConversions()
                 "   sec: int64",
                 "end",
                 "cdef function fill(t: tval*, z: voidptr?): int32",
-                "local t = new tval()",
+                "local t = tval()",
                 "fill(t, nil)",
             },
             "\n"
@@ -380,7 +380,7 @@ function M.pointerConversions()
                         "   n: int32",
                         "end",
                         "cdef function fill2(t: tval2*): int32",
-                        "fill2(new other())",
+                        "fill2(other())",
                     },
                     "\n"
                 )
@@ -419,13 +419,42 @@ function M.cdefStructRuntime()
                     "   a: int32",
                     "   b: int32",
                     "end",
-                    "local p = new nuppTestPair(3, 9)",
+                    "local p = nuppTestPair(3, 9)",
                     "return p.a + p.b",
                 },
                 "\n"
             )
         ),
         12
+    )
+end
+
+function M.cdefDeclarationsConstructThroughTypedReferences()
+    testAssert.eq(
+        run(
+            [[
+cdef struct nuppCallablePoint
+    x: int32
+end
+local Make: Type<nuppCallablePoint> = nuppCallablePoint
+local function build(make: Type<nuppCallablePoint>): nuppCallablePoint
+    return make(7)
+end
+local first = Make(5)
+return assert(tonumber(first.x)) + assert(tonumber(build(Make).x))
+]]
+        ),
+        12
+    )
+    testAssert.eq(
+        (diagsOf([[
+cdef struct nuppNonCallablePoint
+    x: int32
+end
+local point = nuppNonCallablePoint(1)
+point()
+]])),
+        "NUPP2005:5"
     )
 end
 
@@ -442,9 +471,9 @@ function M.cdefUnionsAndBitfieldsKeepTheirCLayout()
                     "   ready: uint32 : 1",
                     "   mode: uint32 : 3",
                     "end",
-                    "local value = new nuppTestValue()",
+                    "local value = nuppTestValue()",
                     "value.integer_value = 7",
-                    "local bits = new nuppTestBits()",
+                    "local bits = nuppTestBits()",
                     "bits.ready = 1",
                     "bits.mode = 5",
                     "return value.integer_value + bits.ready + bits.mode",
@@ -471,7 +500,7 @@ function M.cdefBooleanBitfieldsHoldOneBit()
                     "   ready: boolean : 1",
                     "   mode: uint32 : 3",
                     "end",
-                    "local flags = new nuppTestFlags()",
+                    "local flags = nuppTestFlags()",
                     "flags.ready = true",
                     "flags.mode = 5",
                     "return (flags.ready and 1 or 0) + flags.mode",
@@ -538,10 +567,10 @@ function M.luaStringCannotBeStoredInACstringField()
     -- struct field outlives the call and the collector may move on from the
     -- string while the field still points at it
     local HOLDER = "cdef struct holder\n   name: cstring\nend\n"
-    testAssert.eq((diagsOf(HOLDER .. "local h = new holder()\nlocal text = 'a' .. 'b'\nh.name = text")), "NUPP2604:6")
-    testAssert.eq((diagsOf(HOLDER .. "local h = new holder('hi')")), "NUPP2604:4")
+    testAssert.eq((diagsOf(HOLDER .. "local h = holder()\nlocal text = 'a' .. 'b'\nh.name = text")), "NUPP2604:6")
+    testAssert.eq((diagsOf(HOLDER .. "local h = holder('hi')")), "NUPP2604:4")
     -- inside unsafe the author vouches that the string outlives the slot
-    assertClean(HOLDER .. "local h = new holder()\nlocal text = 'a' .. 'b'\n@unsafe do\n   h.name = text\nend")
+    assertClean(HOLDER .. "local h = holder()\nlocal text = 'a' .. 'b'\n@unsafe do\n   h.name = text\nend")
     -- the call-scoped conversion is unchanged
     assertClean("cdef function strlen2(s: cstring): uint64\nstrlen2('hi')")
 end

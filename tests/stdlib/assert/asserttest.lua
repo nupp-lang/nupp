@@ -133,6 +133,135 @@ function M.preservesSuccessfulAssertionResultsExactly()
     test.eq(message, "message")
 end
 
+function M.comparesOrderedValues()
+    for _, case in ipairs({{test.lt, 1, 2, 2}, {test.le, 2, 2, 3}, {test.gt, 3, 2, 2}, {test.ge, 2, 2, 1}}) do
+        local compare, good, bound, bad = unpack(case)
+        test.eq(compare(good, bound), good)
+        local problem = test.raises(function()
+            compare(bad, bound, "ordered values")
+        end)
+        test.matches(problem, "ordered values")
+        test.matches(problem, tostring(bad))
+        test.matches(problem, tostring(bound))
+    end
+    test.eq(test.lt("a", "b"), "a")
+    test.raises(function()
+        test.lt(0 / 0, 1)
+    end)
+end
+
+function M.comparesNumbersWithExplicitTolerance()
+    test.eq(test.near(1.25, 1, 0.25), 1.25)
+    test.eq(test.near(math.huge, math.huge, 0), math.huge)
+    local problem = test.raises(function()
+        test.near(1.3, 1, 0.25, "too far")
+    end)
+    test.matches(problem, "too far")
+    test.matches(problem, "0%.25")
+    for _, tolerance in ipairs({-1, math.huge, 0 / 0}) do
+        test.raises(
+            function()
+                test.near(1, 1, tolerance)
+            end,
+            "tolerance"
+        )
+    end
+    test.raises(function()
+        test.near(0 / 0, 1, 1)
+    end)
+    test.raises(function()
+        test.near(math.huge, -math.huge, 1)
+    end)
+end
+
+function M.checksLiteralContainmentAndPatterns()
+    test.eq(test.contains("a.b", "."), "a.b")
+    test.eq(test.notcontains("abc", "."), "abc")
+    test.eq(test.notmatches("abc", "%d"), "abc")
+    test.raises(
+        function()
+            test.contains("abc", ".", "literal")
+        end,
+        "literal"
+    )
+    test.raises(
+        function()
+            test.notcontains("a.b", ".")
+        end,
+        "contain"
+    )
+    test.raises(
+        function()
+            test.notmatches("abc1", "%d")
+        end,
+        "match"
+    )
+    test.raises(function()
+        test.contains(false, "x")
+    end)
+    test.raises(function()
+        test.notcontains(false, "x")
+    end)
+    test.raises(function()
+        test.notmatches(false, "x")
+    end)
+end
+
+function M.checksNilTruthinessAndType()
+    test.eq(test.isnil(nil), nil)
+    test.eq(test.notnil(false), false)
+    test.eq(test.truthy(0), 0)
+    test.eq(test.falsy(false), false)
+    test.eq(test.falsy(nil), nil)
+    test.eq(test.istype("value", "string"), "value")
+    for _, case in ipairs({
+        {
+            function()
+                test.isnil(false, "nil check")
+            end,
+            "nil check"
+        },
+        {
+            function()
+                test.notnil(nil, "not nil check")
+            end,
+            "not nil check"
+        },
+        {
+            function()
+                test.truthy(false, "truth check")
+            end,
+            "truth check"
+        },
+        {
+            function()
+                test.falsy(0, "false check")
+            end,
+            "false check"
+        },
+        {
+            function()
+                test.istype(1, "string", "type check")
+            end,
+            "type check"
+        }
+    }) do
+        test.raises(case[1], case[2])
+    end
+    local problem = test.raises(function()
+        test.istype(1, "string")
+    end)
+    test.matches(problem, '"string"')
+    test.matches(problem, '"number"')
+end
+
+function M.failsAtTheCaller()
+    local problem = test.raises(function()
+        test.fail("explicit failure")
+    end)
+    test.matches(problem, "asserttest%.lua:%d+: explicit failure")
+end
+
 function M.identifiesSkippedTests()
     local ok, skip = pcall(function()
         test.suite.skip("needs a network connection")

@@ -85,7 +85,7 @@ local M = {}
 -- directories were listed.
 function M.theProjectWalkNeverListsTheOutputDirectory()
     local envMod = require("nupp.compiler.project.env")
-    local files = require("io.files")
+    local files = require("io.internal.files")
     local dir = temporary()
     writeFile(dir .. "/src/main.nupp", "module main\nexport = true\n")
     writeFile(dir .. "/top.nupp", "module top\nexport = true\n")
@@ -147,10 +147,13 @@ end
 -- both directions and integer/float operands. A pinned historical compiler
 -- measured frames 40 -> 62, presize 97 -> 145, soa 744 -> 1075, and
 -- trivia-record 243 -> 315. These four ceilings keep the same ~10% margin.
+-- optparser moved on 2026-11-04 with no edit to it: a record's declaration is
+-- callable at run time, through a construction handler built once in the
+-- module chunk (about 20 instructions for each of its two records).
 local BYTECODE = {
     ["aos"] = 508,
     ["frames"] = 69,
-    ["optparser"] = 685,
+    ["optparser"] = 800,
     ["presize"] = 160,
     ["soa"] = 1183,
     ["trivia-record"] = 347,
@@ -203,7 +206,7 @@ local function moduleGraph(dir, count)
         lines[#lines + 1] = ("export record R%d\n    a: number\n    b: string\nend\n"):format(i)
         lines[
             #lines + 1
-        ] = ("export function make(a: number): R%d\n    return new R%d(a = a, b = \"m%d\")\nend\n"):format(i, i, i)
+        ] = ("export function make(a: number): R%d\n    return R%d(a = a, b = \"m%d\")\nend\n"):format(i, i, i)
         lines[#lines + 1] = "export function score(x: number): number"
         lines[#lines + 1] = "    local total = x"
         for j in pairs(seen) do

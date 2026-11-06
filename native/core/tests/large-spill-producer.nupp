@@ -15,7 +15,7 @@ function producer.compile(gapText: string): string
     assert(gap == 0 or gap == 4093 or gap == 5000)
     local f = ir.new(
         "large_spill",
-        new ir.Signature(
+        ir.Signature(
             params = {ir.I64, ir.I64, ir.I64, ir.I64, ir.I64, ir.I64},
             results = {ir.I64},
             convention = ir.INTERNAL

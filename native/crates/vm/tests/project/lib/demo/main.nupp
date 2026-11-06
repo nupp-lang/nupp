@@ -15,7 +15,7 @@ local function destroyLease(takes self: Lease): nil
 end
 
 local function lease(state: any): affine(Lease, destroyLease)
-    return new Lease(state = state)
+    return Lease(state = state)
 end
 
 local function pack(...)

@@ -45,8 +45,8 @@ local record PlannerLimits
     renderedBytes: integer = 2097152
 end
 
-local derived = new PlannerLimits()
-local written = new PlannerLimits(
+local derived = PlannerLimits()
+local written = PlannerLimits(
     fields = 2048,
     semanticNodes = 16384,
     canonicalBytes = 1048576,
@@ -76,14 +76,14 @@ local record ModuleCache
 end
 
 local corpora = {
-    new ModuleCache(
+    ModuleCache(
         sourceHash = "source-a",
         interfaceHash = "interface-a",
         dependencies = {"nupp.compiler.types", "nupp.compiler.project.env"},
         effects = {"stdlib.derives"},
         external = false
     ),
-    new ModuleCache(
+    ModuleCache(
         sourceHash = "source-b",
         interfaceHash = "interface-b",
         dependencies = {},
@@ -93,12 +93,13 @@ local corpora = {
 }
 local bytes = {}
 local accepted = true
-local out = require("string.buffer").new()
+local out = io.Buffer.create()
 for index, value in ipairs(corpora) do
-    local writer = typedJSON.newwriter(out)
+    local writer = typedJSON.Writer.of(out)
     typedJSON.writevalue(serde.binding(ModuleCache), value, writer)
     writer:close()
-    bytes[index] = out:get()
+    bytes[index] = out:getstring()
+    out:clear()
     local decoded, why = decode(serde.binding(ModuleCache), bytes[index])
     accepted = accepted and decoded ~= nil and why == nil
         and (decoded as ModuleCache).sourceHash == value.sourceHash
@@ -145,24 +146,25 @@ local record TecsMCPRequest
 end
 
 local corpus = {
-    new TecsMCPRequest(name = "world.list", arguments = "{}"),
-    new TecsMCPRequest(
+    TecsMCPRequest(name = "world.list", arguments = "{}"),
+    TecsMCPRequest(
         name = "world.spawn",
         arguments = '{"components":["Position","Velocity"]}'
     ),
-    new TecsMCPRequest(
+    TecsMCPRequest(
         name = "session.inspect",
         arguments = '{"entity":42,"fields":["name"]}'
     ),
 }
 local bytes, debugged = {}, {}
 local accepted = true
-local out = require("string.buffer").new()
+local out = io.Buffer.create()
 for index, request in ipairs(corpus) do
-    local writer = typedJSON.newwriter(out)
+    local writer = typedJSON.Writer.of(out)
     typedJSON.writevalue(serde.binding(TecsMCPRequest), request, writer)
     writer:close()
-    bytes[index] = out:get()
+    bytes[index] = out:getstring()
+    out:clear()
     debugged[index] = request:debug()
     local decoded, why = decode(serde.binding(TecsMCPRequest), bytes[index])
     accepted = accepted and decoded ~= nil and why == nil

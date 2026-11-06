@@ -34,7 +34,7 @@ local record Bound<T is own.Copyable> is Entry
     @readonly id: string
     @readonly binding: core.Binding<T>
     function read(self, value: documents.Document): Value
-        return new Selected<T>(id = self.id, binding = self.binding, value = bridge.into(self.binding, value))
+        return Selected<T>(id = self.id, binding = self.binding, value = bridge.into(self.binding, value))
     end
 end
 
@@ -44,7 +44,7 @@ export record Registry
     @private @readonly entries: {[string]: Entry} = {}
     function register<T is own.Copyable>(self, identity: string, binding: core.Binding<T>): nil
         assert2(identity ~= "" and self.entries[identity] == nil, "duplicate or empty type identity")
-        self.entries[identity] = new Bound<T>(id = identity, binding = binding)
+        self.entries[identity] = Bound<T>(id = identity, binding = binding)
     end
 
     function contains(self, identity: string): boolean
@@ -67,9 +67,9 @@ local record Project is Consumer<documents.Document>
     end
 end
 export function project(value: Value): documents.Document
-    return value:accept(new Project())
+    return value:accept(Project())
 end
 
 export function registry(): Registry
-    return new Registry()
+    return Registry()
 end

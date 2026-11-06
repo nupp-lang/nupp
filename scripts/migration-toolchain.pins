@@ -1,0 +1,3 @@
+# Retain the parser for Tecs until its construction migration is complete.
+STAGE0_TAG=v0.0.15-callable.3
+STAGE0_SHA256=2e6746dd7249055fdf3cb8578045a9f5f8f305608c12aa9930cf76fccbd01fa1

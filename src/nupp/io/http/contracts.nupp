@@ -6,7 +6,7 @@ Shared interfaces for HTTP implementations.
 The build binds the HTTP implementation for the selected target. Provider
 functions have no implicit receiver; Client and Response methods do. Request,
 Options, Version, and Capabilities come from [](nupp.io.http.messages), URI from
-[](io), and Body is the canonical [](io) Reader interface.
+[](io), and body readers use [](io.Reader).
 
 A Client owns its transport and outstanding work. A successful send returns an
 affine Response owning the response resources and body reader. Preserve borrowing
@@ -23,8 +23,7 @@ module nupp.io.http.contracts
 
 local {type Version, type Request, type Options, type Capabilities} = require("nupp.io.http.messages")
 local {type URI} = require("io.internal.uri")
-local {type Reader as ResponseBody, type Error} = require("nupp.io")
-export type Body = ResponseBody
+local {type Reader, type Error} = require("nupp.io")
 
 export interface Response is own.Closeable
     --- HTTP response status code.
@@ -37,7 +36,7 @@ export interface Response is own.Closeable
     @readonly url: URI
 
     --- Owned response reader whose lifetime is governed by the response.
-    @readonly body: Body
+    @readonly body: Reader
 
     --- Reports whether the status is in the successful 2xx range.
     @readonly ok: function(self: Response): boolean

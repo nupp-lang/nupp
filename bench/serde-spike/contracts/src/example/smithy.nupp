@@ -92,7 +92,7 @@ export function load(ast: documents.Document): Model
     for name, kind in pairs(prelude) do
         shapes[
             "smithy.api#" .. name
-        ] = new Shape(
+        ] = Shape(
             id = "smithy.api#" .. name,
             kind = kind,
             traits = documents.object({}),
@@ -105,7 +105,7 @@ export function load(ast: documents.Document): Model
         assert(shapes[field.name] == nil, "duplicate shape identity")
         shapes[
             field.name
-        ] = new Shape(
+        ] = Shape(
             id = field.name,
             kind = assert(field.value:get("type"), "missing shape type"):string(),
             traits = traits(field.value),
@@ -119,7 +119,7 @@ export function load(ast: documents.Document): Model
         local target = assert(value:get("target"), "missing member target"):string()
         container.members[
             #container.members + 1
-        ] = new Member(
+        ] = Member(
             name = name,
             index = #container.members + 1,
             container = container,
@@ -149,7 +149,7 @@ export function load(ast: documents.Document): Model
         end
     end
 
-    return new Model(shapes = shapes)
+    return Model(shapes = shapes)
 end
 
 export function parse(source: string): Model
@@ -160,14 +160,14 @@ local plans = require("serde.json")
 local json = require("serde.json")
 local timestamps = require("serde.codec")
 
-export const schemaContext = util.newkey<Shape>()
-export const memberContext = util.newkey<Member>()
-local wireFieldContext = util.newkey<core.WireField>()
+export const schemaContext = util.Key<Shape>()
+export const memberContext = util.Key<Member>()
+local wireFieldContext = util.Key<core.WireField>()
 export record UnknownField
     @readonly field: core.WireField
     @readonly value: documents.Document
 end
-export const unknownFieldsContext = util.newkey<{UnknownField}>()
+export const unknownFieldsContext = util.Key<{UnknownField}>()
 
 local function defaultValue(shape: Shape, value: documents.Document): documents.Document
     local numbers = require("serde.codec")
@@ -191,7 +191,7 @@ local function defaultValue(shape: Shape, value: documents.Document): documents.
     elseif shape.kind == "float" or shape.kind == "double" then
         local width: 32 | 64 = shape.kind == "float" and 32 or 64
         return documents.float(
-            new core.Float(value = numbers.float(assert(tonumber(value:numbertoken())), width), width = width)
+            core.Float(value = numbers.float(assert(tonumber(value:numbertoken())), width), width = width)
         )
     elseif shape.kind == "bigInteger" then
         return documents.biginteger(value:numbertoken())
@@ -248,7 +248,7 @@ local record Fields is core.Members<Member, documents.Document>
                 local context = field.value:context()
                 local identity = context ~= nil and context:get(wireFieldContext) or nil
                 writer:writeunknown(
-                    identity or new jsonDocument.FieldName(name = field.name),
+                    identity or jsonDocument.FieldName(name = field.name),
                     field.value,
                     documents.adapter()
                 )
@@ -268,7 +268,7 @@ local record ReadFields is core.MemberConsumer<Member, State>
     @readonly adapters: {[Member]: Adapter}
     function apply(self, exclusive state: State, member: Member, exclusive reader: core.Reader<Member>): nil
         local adapter = assert(self.adapters[member], "foreign Smithy member")
-        state.fields[#state.fields + 1] = new documents.Entry(name = member.name, value = adapter:read(reader))
+        state.fields[#state.fields + 1] = documents.Entry(name = member.name, value = adapter:read(reader))
     end
 end
 
@@ -281,7 +281,7 @@ local record Unknown is core.UnknownConsumer<State>
     ): nil
         local value = reader:capturevalue(documents.adapter())
         if getmetatable(field) ~= jsonDocument.FieldName then
-            state.unknown[#state.unknown + 1] = new UnknownField(field = field, value = value)
+            state.unknown[#state.unknown + 1] = UnknownField(field = field, value = value)
             return
         end
         local context = assert(value:context(), "unknown JSON content requires its source context")
@@ -290,7 +290,7 @@ local record Unknown is core.UnknownConsumer<State>
         metadata:set(wireFieldContext, field)
         state.fields[
             #state.fields + 1
-        ] = new documents.Entry(
+        ] = documents.Entry(
             name = jsonDocument.fieldname(field),
             value = documents.withcontext(value, metadata:freeze())
         )
@@ -337,9 +337,7 @@ local record ReadEntries is core.EntryConsumer<Member, State>
         exclusive key: core.Reader<Member>,
         exclusive value: core.Reader<Member>
     ): nil
-        state.entries[
-            #state.entries + 1
-        ] = new documents.MapEntry(key = self.key:read(key), value = self.value:read(value))
+        state.entries[#state.entries + 1] = documents.MapEntry(key = self.key:read(key), value = self.value:read(value))
     end
 end
 
@@ -383,25 +381,25 @@ local record Adapter is core.Adapter<documents.Document, Member>
             writer:writetimestamp(member, value:timestamp())
 
         elseif kind == "structure" then
-            writer:writestruct(member, value, new Fields(shape = member.target, adapters = self.adapters))
+            writer:writestruct(member, value, Fields(shape = member.target, adapters = self.adapters))
         elseif kind == "union" then
             assert(value:size() == 1, "Smithy unions contain exactly one member")
-            writer:writeunion(member, value, new Fields(shape = member.target, adapters = self.adapters))
+            writer:writeunion(member, value, Fields(shape = member.target, adapters = self.adapters))
         elseif kind == "list" then
             writer:writelist(
                 member,
                 value:size(),
                 value,
-                new Elements(adapter = assert(self.adapters[member.target:at(1)]))
+                Elements(adapter = assert(self.adapters[member.target:at(1)]))
             )
         elseif kind == "map" then
             writer:writemap(
                 member,
                 value:size(),
                 value,
-                new Entries(
-                    key = new One(adapter = assert(self.adapters[member.target:at(1)])),
-                    value = new One(adapter = assert(self.adapters[member.target:at(2)]))
+                Entries(
+                    key = One(adapter = assert(self.adapters[member.target:at(1)])),
+                    value = One(adapter = assert(self.adapters[member.target:at(2)]))
                 )
             )
         else
@@ -429,7 +427,7 @@ local record Adapter is core.Adapter<documents.Document, Member>
             value = documents.integer(reader:readinteger(member, self.description.width as(8 | 16 | 32 | 64), true))
         elseif kind == "float" then
             value = documents.float(
-                new core.Float(
+                core.Float(
                     value = reader:readfloat(member, self.description.width as(32 | 64)),
                     width = self.description.width as(32 | 64)
                 )
@@ -444,9 +442,9 @@ local record Adapter is core.Adapter<documents.Document, Member>
             value = documents.timestamp(reader:readtimestamp(member))
 
         else
-            local state = new State(unknown = unknown)
+            local state = State(unknown = unknown)
             if kind == "structure" then
-                reader:readstruct(member, state, new ReadFields(adapters = self.adapters), new Unknown())
+                reader:readstruct(member, state, ReadFields(adapters = self.adapters), Unknown())
                 local present: {[string]: boolean} = {}
                 for _, field in ipairs(state.fields) do
                     present[field.name] = true
@@ -456,7 +454,7 @@ local record Adapter is core.Adapter<documents.Document, Member>
                     if not present[child.name] then
                         local default = self.defaults[child]
                         if default ~= nil then
-                            state.fields[#state.fields + 1] = new documents.Entry(name = child.name, value = default)
+                            state.fields[#state.fields + 1] = documents.Entry(name = child.name, value = default)
                         else
                             assert(
                                 child.traits:get("smithy.api#required") == nil,
@@ -467,17 +465,17 @@ local record Adapter is core.Adapter<documents.Document, Member>
                 end
                 value = documents.object(state.fields)
             elseif kind == "union" then
-                reader:readunion(member, state, new ReadFields(adapters = self.adapters), new Unknown())
+                reader:readunion(member, state, ReadFields(adapters = self.adapters), Unknown())
                 assert(#state.fields == 1, "Smithy unions contain exactly one member")
                 value = documents.union(state.fields[1].name, state.fields[1].value)
             elseif kind == "list" then
-                reader:readlist(member, state, new ReadElements(adapter = assert(self.adapters[member.target:at(1)])))
+                reader:readlist(member, state, ReadElements(adapter = assert(self.adapters[member.target:at(1)])))
                 value = documents.list(state.elements)
             elseif kind == "map" then
                 reader:readmap(
                     member,
                     state,
-                    new ReadEntries(
+                    ReadEntries(
                         key = assert(self.adapters[member.target:at(1)]),
                         value = assert(self.adapters[member.target:at(2)])
                     )
@@ -545,14 +543,14 @@ local function adapter(member: Member, seen: {[Member]: Adapter}): Adapter
     end
     local nullable = member.container.traits:get("smithy.api#sparse") ~= nil
         and (member.container.kind == "list" or member.container.kind == "map" and member.name == "value")
-    local description = new Description(
+    local description = Description(
         member = member,
         kind = kind,
         width = width,
         signed = kind == "integer" and true or nil,
         nullable = nullable
     )
-    local result = new Adapter(member = member, description = description, adapters = seen)
+    local result = Adapter(member = member, description = description, adapters = seen)
     seen[member] = result
     for index = 1, shape:size() do
         local child = shape:at(index)
@@ -562,7 +560,7 @@ local function adapter(member: Member, seen: {[Member]: Adapter}): Adapter
         end
         description.children[
             index
-        ] = new Child(
+        ] = Child(
             member = child,
             required = child.traits:get("smithy.api#required") ~= nil,
             hasdefault = child:trait("smithy.api#default") ~= nil,
@@ -574,7 +572,7 @@ local function adapter(member: Member, seen: {[Member]: Adapter}): Adapter
 end
 
 export function root(shape: Shape): Member
-    return new Member(name = shape.id, container = shape, target = shape, traits = documents.object({}))
+    return Member(name = shape.id, container = shape, target = shape, traits = documents.object({}))
 end
 
 export function memberAdapter(member: Member): core.Adapter<documents.Document, Member>
@@ -582,7 +580,7 @@ export function memberAdapter(member: Member): core.Adapter<documents.Document, 
 end
 
 export function binding(shape: Shape): core.Binding<documents.Document>
-    return new core.Bound<documents.Document, Member>(adapter = adapter(root(shape), {}))
+    return core.Bound<documents.Document, Member>(adapter = adapter(root(shape), {}))
 end
 
 local record Policy<M is core.Member> is plans.Policy<M>
@@ -632,9 +630,9 @@ local record Factory is plans.PolicyFactory
         end
         assert(getmetatable(member) == Member, "policy requires Smithy members")
 
-        return new Policy<M>(epoch = self.epoch, rename = self.rename)
+        return Policy<M>(epoch = self.epoch, rename = self.rename)
     end
 end
 export function policy(epoch: boolean, rename: boolean): plans.PolicyFactory
-    return new Factory(epoch = epoch, rename = rename)
+    return Factory(epoch = epoch, rename = rename)
 end

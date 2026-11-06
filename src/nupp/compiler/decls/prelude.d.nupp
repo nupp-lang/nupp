@@ -489,7 +489,7 @@ local types: {
     --- declaration order when the declaration has no constructor; a field with a
     --- default, or one that admits nil, is an optional slot. Written as
     --- `...: unpackof types.construction(E)`, the pack is a parameter list a
-    --- call binds by position or by name, the way it would for `new E(...)`.
+    --- call binds by position or by name, the way it would for `E(...)`.
     --- @param value the record or struct to inspect
     --- @return its construction contract
     --- @raises string when the declaration has several constructors, which is no
@@ -558,6 +558,7 @@ local types: {
     derive: types.derive,
 
     --- Semantic reflection and reflection-driven field codecs.
+    --- @namespace types.reflect
     reflect: types.reflect
 }
 
@@ -796,7 +797,7 @@ end
 ---     port: integer = 8080
 --- end
 ---
---- local settings = new Settings()
+--- local settings = Settings()
 --- assert(settings:debug() == 'Settings { host = "localhost", port = 8080 }')
 --- ```
 ---
@@ -839,7 +840,7 @@ end
 ---     name: string
 --- end
 ---
---- local user = new M.User(name = "ada")
+--- local user = M.User(name = "ada")
 --- assert(user:named() == "name=ada")
 ---
 --- return M
@@ -1509,7 +1510,7 @@ record types.reflect
     ---     return types.reflect.fieldcodec(types.reflect(Position))
     --- end
     ---
-    --- local encoded = PositionCodec:encode(new Position(x = 3, y = 4))
+    --- local encoded = PositionCodec:encode(Position(x = 3, y = 4))
     --- assert(encoded.x == 3 and encoded.y == 4)
     --- assert(PositionCodec.fingerprint == "t:x,y")
     --- ```
@@ -1575,7 +1576,7 @@ record types.reflect
     ---     return keyed(types.reflect(Message))
     --- end
     ---
-    --- local encoded = MessageCodec:encode(new Message(id = 1, text = "hello"))
+    --- local encoded = MessageCodec:encode(Message(id = 1, text = "hello"))
     --- assert(encoded.id == 1 and encoded.text == "hello")
     --- ```
     fieldcodec: @comptime function(info: Info): FieldCodecBlueprint

@@ -72,7 +72,7 @@ function M.httpResponseBodiesRetainOwnedIoSignatures()
 local contracts = require("io.http")
 local io = require("io")
 local function copy(borrows response: contracts.Response): nil
-local destination = io.newbuffer()
+local destination = io.Buffer.create()
 response.body:readinto(destination, 0, 8)
 local lease = destination:reservewrite(0, 8)
 local output = lease:span()
@@ -83,6 +83,30 @@ local writer = destination:writer()
 response.body:transferto(writer)
 writer:close()
 end
+return true
+]]
+    )
+    assert(found == "", found)
+end
+
+function M.httpUploadsUseTheSharedOwnedReaderContract()
+    local found = errors(
+        [[
+local http = require("io.http")
+local io = require("io")
+local function inspectReader(borrows reader: io.Reader): nil
+    local buffer = io.Buffer.create()
+    reader:readinto(buffer, 0, 8)
+end
+local function inspect(borrows body: http.ReaderBody): nil
+    inspectReader(body.reader)
+end
+local function upload(takes source: io.Reader): http.ReaderBody
+    return http.reader(source, nil, nil)
+end
+local body = upload(io.Reader.of("payload"))
+inspect(body)
+body:close()
 return true
 ]]
     )
@@ -134,7 +158,7 @@ print(checked, canonical)
         graph.changeDocument(typePath, declaration .. "\n")
         checked(graph)
     end)
-    require("io.files").remove(dir, true)
+    os.remove(dir, true)
     assert(ok, problem)
 end
 
@@ -159,7 +183,7 @@ local record Reader
     function read(self, value: Left): string return "left" end
     function read(self, value: Right): string return "right" end
 end
-local reader = new Reader()
+local reader = Reader()
 return reader:read({} as any as Left) .. reader:read({} as any as Right)
 ]]
         )
@@ -172,7 +196,7 @@ return reader:read({} as any as Left) .. reader:read({} as any as Right)
         local answer = require("program").run(checked.result, "main", main)
         assert(answer == "leftright", "same-named declaration nominals keep distinct methods: " .. tostring(answer))
     end)
-    require("io.files").remove(dir, true)
+    os.remove(dir, true)
     assert(ok, problem)
 end
 
@@ -255,7 +279,7 @@ return marked.text
         end
         assert(found, "restored providers keep their nominal return type")
     end)
-    require("io.files").remove(dir, true)
+    os.remove(dir, true)
     if not ok then
         error(problem, 0)
     end
@@ -299,9 +323,9 @@ record m.Owner
     range: function(borrows self: m.Owner): m.Range borrows (self)
 end
 local function range(borrows self: m.Owner): m.Range borrows (self)
-    return new m.Range(anchor = self, count = 1)
+    return m.Range(anchor = self, count = 1)
 end
-return new m.Owner(range = range)
+return m.Owner(range = range)
 ]]
     )
     assert(accepted == "", accepted)
@@ -347,13 +371,13 @@ end
 function M.applicationImportsCannotReachBuiltinImplementationContracts()
     for _, name in ipairs({
         "nupp.runtime.contracts",
-        "binary.checksum.internal.contracts",
-        "binary.digest.internal.contracts",
-        "binary.mac.internal.contracts",
-        "binary.compress.internal.contracts",
+        "nupp.digest.internal.checksumprovider",
+        "nupp.digest.internal.digestprovider",
+        "nupp.digest.internal.macprovider",
+        "nupp.compression.contracts",
         "serde.json.internal.contracts",
         "io.internal.contracts",
-        "io.files.internal.contracts",
+        "io.internal.files.contracts",
         "io.net.internal.contracts",
         "nupp.io.net.contracts",
         "nupp.io.http.contracts",

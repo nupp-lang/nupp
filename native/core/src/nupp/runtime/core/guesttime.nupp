@@ -1,0 +1,179 @@
+module nupp.runtime.core.guesttime
+
+-- The clocks and calendar a program reaches through the file calls' LibCall
+-- (HOST_FILES), from TIME_FIRST to TIME_LAST (librarylayouts): timecalls.d.nupp's,
+-- each answering what the bridge's call did. Broken-down times cross as
+-- FIELDS int64 words in C's `struct tm` order, from a builder's room.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const os = require("nupp.runtime.vm.os")
+const context = require("nupp.runtime.core.context")
+const strings = require("nupp.runtime.core.corestrings")
+const tables = require("nupp.runtime.core.coretables")
+const ints = require("nupp.runtime.core.coreintegers")
+const guestscope = require("nupp.runtime.core.guestscope")
+const guestmeta = require("nupp.runtime.core.guestmeta")
+const librarylayouts = require("nupp.runtime.core.librarylayouts")
+
+-- The fields of a broken-down time, and the bytes they take.
+const FIELDS: uint64 = 9ULL
+
+const FIELD_BYTES: uint64 = 72ULL
+
+-- The room one strftime conversion is given, past Lua's SIZETIMEFMT.
+const ITEM_BYTES: uint64 = 256ULL
+
+local function heapOf(ctx: voidptr): heap.Heap*
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        return native.pointer(native.load64(services, native.fieldOffset<guestscope.Services>("heap"))) as heap.Heap*
+    end
+end
+
+-- The int64 bits of an integer argument. The `os` library passes checked
+-- integers; anything else is its mistake.
+local function integerOf(value: uint64): uint64
+    if not ints.isInteger(value) then
+        error("time calls: an integer argument was expected")
+    end
+
+    return ints.bitsOf(value)
+end
+
+-- A float's value word, from its bits: NaN as the canonical one.
+local function floatValue(bits: uint64): uint64
+    local x = native.fromBits(bits)
+    if x ~= x then
+        return values.QNAN
+    end
+
+    return bits
+end
+
+-- timecalls.parts(t, utc): a new table of t's FIELDS, or nil.
+local function parts(ctx: voidptr, t: uint64, utc: uint64): uint64
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = heapOf(ctx)
+        local builder = state as strings.Builder*
+        if strings.reserve(h, builder, FIELD_BYTES) ~= 0ULL then
+            error("not enough memory")
+        end
+        local room = native.pointer(builder.base)
+        if os.timeParts(integerOf(t), integerOf(utc), room) < 0 then
+            strings.release(builder)
+            return values.NIL
+        end
+        local result = guestscope.newTable(ctx)
+        -- Held while its fields are stored. Each is within a C int, so
+        -- making its value allocates nothing.
+        guestscope.hold(ctx, values.TAG_OBJ | result)
+        local index: uint64 = 1ULL
+        while index <= FIELDS do
+            local field = ints.make(h, native.load64(room, native.index((index - 1ULL) * 8ULL)))
+            if tables.set(h, result, values.TAG_INTEGER | index, field) == tables.NO_MEMORY then
+                strings.release(builder)
+                error("not enough memory")
+            end
+            index = index + 1ULL
+        end
+        strings.release(builder)
+        tables.drain(h)
+        guestscope.release(ctx)
+
+        return values.TAG_OBJ | result
+    end
+end
+
+-- timecalls.make(fields): C's mktime of the table's FIELDS, which it sets
+-- normalized; the time, or -1.
+local function make(ctx: voidptr, fields: uint64): uint64
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local t = guestmeta.tableof(fields)
+    if t == 0ULL then
+        error("time calls: a table argument was expected")
+    end
+    @unsafe do
+        local h = heapOf(ctx)
+        local builder = state as strings.Builder*
+        if strings.reserve(h, builder, FIELD_BYTES) ~= 0ULL then
+            error("not enough memory")
+        end
+        local room = native.pointer(builder.base)
+        local index: uint64 = 1ULL
+        while index <= FIELDS do
+            local field = tables.get(t, values.TAG_INTEGER | index)
+            if not ints.isInteger(field) then
+                strings.release(builder)
+                error("time calls: an integer field was expected")
+            end
+            native.store64(room, native.index((index - 1ULL) * 8ULL), ints.bitsOf(field))
+            index = index + 1ULL
+        end
+        local result = os.timeMake(room)
+        index = 1ULL
+        while index <= FIELDS do
+            local field = ints.make(h, native.load64(room, native.index((index - 1ULL) * 8ULL)))
+            if tables.set(h, t, values.TAG_INTEGER | index, field) == tables.NO_MEMORY then
+                strings.release(builder)
+                error("not enough memory")
+            end
+            index = index + 1ULL
+        end
+        strings.release(builder)
+        tables.drain(h)
+
+        return ints.make(h, native.word(result))
+    end
+end
+
+-- timecalls.format(t, utc, spec): strftime of one conversion, or nil.
+local function format(ctx: voidptr, t: uint64, utc: uint64, spec: uint64): uint64
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local s = strings.header(spec)
+    if s == 0ULL then
+        error("time calls: a string argument was expected")
+    end
+    @unsafe do
+        local h = heapOf(ctx)
+        local builder = state as strings.Builder*
+        if strings.reserve(h, builder, ITEM_BYTES) ~= 0ULL then
+            error("not enough memory")
+        end
+        local length = os.timeFormat(
+            integerOf(t),
+            integerOf(utc),
+            native.pointer(strings.bytes(s)),
+            strings.length(s),
+            native.pointer(builder.base),
+            builder.capacity
+        )
+        if length < 0 or native.word(length) > builder.capacity then
+            strings.release(builder)
+            return values.NIL
+        end
+        builder.length = native.word(length)
+        return values.TAG_OBJ | strings.finish(h, builder)
+    end
+end
+
+-- Time operation `operation` with its arguments a, b and c.
+export function call(ctx: voidptr, operation: uint64, a: uint64, b: uint64, c: uint64): uint64
+    if operation == librarylayouts.TIME_NOW then
+        @unsafe do
+            return ints.make(heapOf(ctx), native.word(os.wallClock()))
+        end
+    elseif operation == librarylayouts.TIME_CLOCK then
+        return floatValue(os.cpuClock())
+    elseif operation == librarylayouts.TIME_PARTS then
+        return parts(ctx, a, b)
+    elseif operation == librarylayouts.TIME_MAKE then
+        return make(ctx, a)
+    elseif operation == librarylayouts.TIME_FORMAT then
+        return format(ctx, a, b, c)
+    end
+    error("time calls: no such operation")
+
+    return values.NIL
+end

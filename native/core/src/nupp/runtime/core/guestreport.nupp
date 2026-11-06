@@ -1,0 +1,146 @@
+module nupp.runtime.core.guestreport
+
+-- The text an error no protected call takes ends the program with, written
+-- as the command line writes one (nupp.tools.cli.run): on standard error,
+-- `nupp: ` and the error's text, unless the text names the command line
+-- already (reportprefix), then a newline. guestuncaught decides which text.
+-- A finalizer's failure is warned of on the same stream (`finalizer`).
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const os = require("nupp.runtime.vm.os")
+const strings = require("nupp.runtime.core.corestrings")
+const guestvalues = require("nupp.runtime.core.guestvalues")
+const guesterrors = require("nupp.runtime.core.guesterrors")
+const guestscope = require("nupp.runtime.core.guestscope")
+const librarytexts = require("nupp.runtime.core.librarytexts")
+const reportprefix = require("nupp.runtime.core.reportprefix")
+
+const STANDARD_ERROR: uint64 = 2ULL
+-- "nupp: " and "\n" as little-endian byte words.
+const PREFIX: uint64 = 0x203a7070756eULL
+const PREFIX_BYTES: uint64 = 6ULL
+const NEWLINE: uint64 = 10ULL
+const NEWLINE_BYTES: uint64 = 1ULL
+
+-- Writes the `length` bytes at `base` to standard error, as far as it
+-- takes them.
+local function write(base: uint64, length: uint64): nil
+    local done: uint64 = 0ULL
+    while done < length do
+        local written = os.fileWrite(STANDARD_ERROR, native.pointer(base + done), length - done)
+        if written <= 0 then
+            return
+        end
+        done = done + native.word(written)
+    end
+end
+
+-- Writes a report the builder holds, `nupp: ` first, then a newline: from
+-- past that prefix when the text names the command line already. Releases
+-- the builder.
+local function emit(h: heap.Heap*, b: strings.Builder*): nil
+    @unsafe do
+        if strings.appendWord(h, b, NEWLINE, NEWLINE_BYTES) == 0ULL then
+            local from: uint64 = 0ULL
+            if reportprefix.present(b.base + PREFIX_BYTES, b.length - PREFIX_BYTES - NEWLINE_BYTES) then
+                from = PREFIX_BYTES
+            end
+            write(b.base + from, b.length - from)
+        end
+        strings.release(b)
+    end
+end
+
+-- Reports `value` by Lua's tostring without a __tostring: a string as it
+-- is, a number's text, and nil, a boolean or an object's type and address
+-- as the VM's report shows them. When there is no room to build it, a
+-- string's bytes are written as they are.
+export function plain(ctx: voidptr, value: uint64): nil
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = guestvalues.guestheap(ctx)
+        local builder = state as strings.Builder*
+        -- The value is held while the builder grows, which may collect.
+        guestscope.hold(ctx, value)
+        if strings.appendWord(h, builder, PREFIX, PREFIX_BYTES) ~= 0ULL
+            or guestvalues.appendtext(h, builder, value) ~= 0ULL
+        then
+            guestscope.release(ctx)
+            strings.release(builder)
+            local s = strings.header(value)
+            if s ~= 0ULL then
+                write(strings.bytes(s), strings.length(s))
+            end
+            return
+        end
+        guestscope.release(ctx)
+        emit(h, builder)
+    end
+end
+
+-- Reports `value` as lua.c reports an error object whose __tostring gave
+-- no string: "(error object is a table value)".
+export function object(ctx: voidptr, value: uint64): nil
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = guestvalues.guestheap(ctx)
+        local builder = state as strings.Builder*
+        -- The name is held while the builder grows, which may collect.
+        local name = guesterrors.typeName(ctx, value)
+        guestscope.hold(ctx, name)
+        if strings.appendWord(h, builder, PREFIX, PREFIX_BYTES) ~= 0ULL
+            or librarytexts.append(h, builder, librarytexts.TEXT_ERROR_OBJECT) ~= 0ULL
+            or strings.appendString(h, builder, strings.header(name)) ~= 0ULL
+            or librarytexts.append(h, builder, librarytexts.TEXT_OBJECT_VALUE) ~= 0ULL
+            or librarytexts.append(h, builder, librarytexts.TEXT_CLOSE) ~= 0ULL
+        then
+            guestscope.release(ctx)
+            strings.release(builder)
+            return
+        end
+        guestscope.release(ctx)
+        emit(h, builder)
+    end
+end
+
+-- Warns that a finalizer failed, as Lua 5.5's luaE_warnerror words it, on standard
+-- error: "error in __gc (" and the error's text, or "error object is not a string" when
+-- it raised no string, then ")". With `uncallable` the finalizer was no function, and
+-- the text is what calling `value` would have raised: "attempt to call a T value
+-- (metamethod '__gc')". The line starts as `log`'s default formatter starts a warning,
+-- without its time: the core has no `warn` or `log` yet.
+export function finalizer(ctx: voidptr, value: uint64, uncallable: boolean): nil
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = guestvalues.guestheap(ctx)
+        local builder = state as strings.Builder*
+        local name = values.NIL
+        if uncallable then
+            -- The name is held while the builder grows, which may collect.
+            name = guesterrors.typeName(ctx, value)
+            guestscope.hold(ctx, name)
+        end
+        local refused = librarytexts.append(h, builder, librarytexts.TEXT_WARNING)
+            | librarytexts.append(h, builder, librarytexts.TEXT_GC_ERROR)
+        if uncallable then
+            refused = refused
+                | librarytexts.append(h, builder, librarytexts.TEXT_CALL_VALUE)
+                | strings.appendString(h, builder, strings.header(name))
+                | librarytexts.append(h, builder, librarytexts.TEXT_OBJECT_VALUE)
+                | librarytexts.append(h, builder, librarytexts.TEXT_GC_METAMETHOD)
+            guestscope.release(ctx)
+        elseif strings.header(value) ~= 0ULL then
+            refused = refused | strings.appendString(h, builder, strings.header(value))
+        else
+            refused = refused | librarytexts.append(h, builder, librarytexts.TEXT_NOT_STRING)
+        end
+        refused = refused
+            | librarytexts.append(h, builder, librarytexts.TEXT_CLOSE)
+            | strings.appendWord(h, builder, NEWLINE, NEWLINE_BYTES)
+        if refused == 0ULL then
+            write(builder.base, builder.length)
+        end
+        strings.release(builder)
+    end
+end

@@ -15,7 +15,7 @@ end
 local type Held = affine(Token, release)
 
 local function hold(n: integer): Held
-    return @unsafe own.adopt<Held>(new Token(n = n))
+    return @unsafe own.adopt<Held>(Token(n = n))
 end
 
 local score = 0

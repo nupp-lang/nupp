@@ -18,7 +18,7 @@ export record Point
 end
 
 export function scale(p: Point, k: number): Point
-    return new Point(x = p.x * k, y = p.y * k)
+    return Point(x = p.x * k, y = p.y * k)
 end
 ```
 
@@ -111,38 +111,3 @@ end
 ```
 
 See [Structs](types/records-and-structs.md#structs) for the layout rules.
-
-::: seealso
-- [type-system/overview.md](types/index.md) for what the checker
-  infers before any annotation is written
-- [syntax.md](syntax.md) for the typed layer a `.nupp` file may use
-- [c-interop.md](../runtime/c-interop/index.md) for the declarations that survive erasure
-- [diagnostics.md](../../reference/diagnostics.md) for every code the checker
-  reports
-:::
-
-## FAQ
-
-### Does existing Lua need conversion?
-
-No. A Lua file stays valid in a `.lua` file, and `.nupp` modules require it and
-are required by it like any other module. Move a file to `.nupp` when it needs
-[typed syntax](syntax.md#level-1-typed-layer); `nupp migrate` writes annotated
-Lua to a `.nupp` destination.
-
-### Do file extensions change module identity?
-
-No. The extension is not part of the module name, so `require("models")`
-resolves `models.nupp` or `models.lua` alike, and nothing that requires a file
-changes when it moves from one to the other. See [Canonical
-names](modules.md#canonical-names) for how a module's name is derived from its
-path.
-
-### Do types exist at runtime?
-
-Annotations, generics, interfaces, affine policies, and most other checked
-constructs leave nothing in the compiled program. A `struct` retains a runtime
-representation because its checked layout is the feature, and [C
-declarations](../runtime/c-interop/index.md) remain runtime bindings because
-they load native symbols. Ordinary typed code acquires no type registry or
-runtime checker.

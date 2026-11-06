@@ -10,7 +10,7 @@ local record Save
     inventory: {string}
 end
 local saves = serde.binding(Save)
-local bytes = native.encode(saves, new Save(level = 12, inventory = {"key"}))
+local bytes = native.encode(saves, Save(level = 12, inventory = {"key"}))
 local restored = native.decode(saves, bytes)
 assert(restored.level == 12 and restored.inventory[1] == "key")
 ```
@@ -174,8 +174,7 @@ local function integer(value: unknown): integer
     return number as integer
 end
 
-local function unpack(value: unknown, budget: Budget, depth: integer): documents.Document
-    budget:take(depth)
+local function nodeHeader(value: unknown): ({unknown}, integer, string)
     assert(type(value) == "table" and getmetatable(value) == nil, "expected native node")
     local node = value as {unknown}
     local size = #node
@@ -186,6 +185,13 @@ local function unpack(value: unknown, budget: Budget, depth: integer): documents
         )
     end
     local kind = text(node[1])
+
+    return node, size, kind
+end
+
+local function unpack(value: unknown, budget: Budget, depth: integer): documents.Document
+    budget:take(depth)
+    local node, size, kind = nodeHeader(value)
     if kind == "null" then
         assert(size == 1, "invalid native null")
         return documents.null()
@@ -214,20 +220,17 @@ local function unpack(value: unknown, budget: Budget, depth: integer): documents
         local width = integer(node[3])
         assert(width == 32 or width == 64, "invalid native float width")
         return documents.float(
-            new core.Float(
-                value = numbers.floating(node[2] as number, width as(32 | 64), true),
-                width = width as(32 | 64)
-            )
+            core.Float(value = numbers.floating(node[2] as number, width as(32 | 64), true), width = width as(32 | 64))
         )
     elseif kind == "decimal" then
         assert(size == 3, "invalid native decimal")
         local coefficient = text(node[2])
         documents.bigInteger(coefficient)
-        return documents.decimal(new core.Decimal(coefficient = coefficient, exponent = integer(node[3])))
+        return documents.decimal(core.Decimal(coefficient = coefficient, exponent = integer(node[3])))
     elseif kind == "timestamp" then
         assert(size == 3, "invalid native timestamp")
         local seconds = numbers.integer(text(node[2]), 64, true).decimal
-        return documents.timestamp(new core.Timestamp(seconds = seconds, nanos = integer(node[3])))
+        return documents.timestamp(core.Timestamp(seconds = seconds, nanos = integer(node[3])))
     elseif kind == "document" then
         assert(size == 2, "invalid native document boundary")
         return documents.document(unpack(node[2], budget, depth + 1))
@@ -237,7 +240,7 @@ local function unpack(value: unknown, budget: Budget, depth: integer): documents
         for index = 2, size, 2 do
             fields[
                 #fields + 1
-            ] = new documents.Entry(name = text(node[index]), value = unpack(node[index + 1], budget, depth + 1))
+            ] = documents.Entry(name = text(node[index]), value = unpack(node[index + 1], budget, depth + 1))
         end
         if kind == "union" then
             return documents.union(fields[1].name, fields[1].value)
@@ -256,7 +259,7 @@ local function unpack(value: unknown, budget: Budget, depth: integer): documents
         for index = 2, size, 2 do
             values[
                 #values + 1
-            ] = new documents.MapEntry(
+            ] = documents.MapEntry(
                 key = unpack(node[index], budget, depth + 1),
                 value = unpack(node[index + 1], budget, depth + 1)
             )
@@ -267,21 +270,12 @@ local function unpack(value: unknown, budget: Budget, depth: integer): documents
 end
 
 materialize = function(value: unknown): documents.Document
-    return unpack(value, new Budget(), 0)
+    return unpack(value, Budget(), 0)
 end
 
 local function validateTree(value: unknown, budget: Budget, depth: integer): nil
     budget:take(depth)
-    assert(type(value) == "table" and getmetatable(value) == nil, "expected native node")
-    local node = value as {unknown}
-    local size = #node
-    for key in pairs(value as {[unknown]: unknown}) do
-        assert(
-            type(key) == "number" and (key as number) >= 1 and (key as number) <= size and (key as number) % 1 == 0,
-            "native node is not a dense array"
-        )
-    end
-    local kind = text(node[1])
+    local node, size, kind = nodeHeader(value)
     if kind == "structure" or kind == "union" then
         assert(size % 2 == 1 and (kind ~= "union" or size == 3), "invalid native named aggregate")
         local names: {[string]: boolean} = {}
@@ -349,7 +343,7 @@ end
 
 local function encodeValue<T>(binding: core.Binding<T>, borrows value: T, scope: Scope): string
     local buffer = runtime()
-    binding:accept(new Check<T>(binding = binding, direction = "write", scope = scope), nil)
+    binding:accept(Check<T>(binding = binding, direction = "write", scope = scope), nil)
     local tree = writers.value(binding, value)
     local result = header .. (buffer.encode(tree) as string)
     assert(#result <= maxBytes, "native persistence output exceeds byte limit")
@@ -359,10 +353,10 @@ end
 
 local function decodeValue<T>(binding: core.Binding<T>, bytes: string, scope: Scope): T
     local buffer = runtime()
-    local selected = binding:accept(new Read<T>(binding = binding, scope = scope), nil)
+    local selected = binding:accept(Read<T>(binding = binding, scope = scope), nil)
     assert(#bytes <= maxBytes and bytes:sub(1, #header) == header, "unsupported native persistence frame")
     local value = buffer.decode(bytes:sub(#header + 1))
-    validateTree(value, new Budget(), 0)
+    validateTree(value, Budget(), 0)
 
     return selected:read(value as bridge.Value, contexts.builder(identity, profile):freeze())
 end
@@ -371,7 +365,7 @@ local function decodeContents<D>(adapter: core.DocumentAdapter<D>, bytes: string
     local buffer = runtime()
     assert(#bytes <= maxBytes and bytes:sub(1, #header) == header, "unsupported native persistence frame")
     local value = documents.withContext(
-        unpack(buffer.decode(bytes:sub(#header + 1)), new Budget(), 0),
+        unpack(buffer.decode(bytes:sub(#header + 1)), Budget(), 0),
         contexts.builder(identity, profile):freeze()
     )
     local reader = readers.reader(value)
@@ -439,10 +433,10 @@ end
 --- @raises string when the host is not native, or capacity is not a positive integer
 export function codec(capacity: integer?): Codec
     runtime()
-    return new Cached(scope = new Scope(memo = memos.new("native extension", capacity)))
+    return Cached(scope = Scope(memo = memos.new("native extension", capacity)))
 end
 
-local defaultCodec = new Cached(scope = new Scope(memo = memos.new("native extension", 256)))
+local defaultCodec = Cached(scope = Scope(memo = memos.new("native extension", 256)))
 
 --- Encodes a value as a frame.
 ---

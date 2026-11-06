@@ -1,0 +1,29 @@
+module nupp.core.cataloggcend
+
+-- At the program's end every table marked for finalization is finalized,
+-- as Lua's lua_close does: the pending ones first, then every marked one,
+-- alive or not, newest first. While that runs, setmetatable marks no table.
+local alive: any = {}
+
+local function marked(holder: any): nil
+    for i = 1, 3 do
+        holder[i] = setmetatable({}, {
+            __gc = function(): nil
+                print("end", i)
+                setmetatable({}, {
+                    __gc = function(): nil
+                        print("never")
+                    end
+                })
+            end
+        })
+    end
+end
+
+marked(alive)
+setmetatable({}, {
+    __gc = function(): nil
+        print("dropped")
+    end
+})
+export = 5

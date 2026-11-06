@@ -46,7 +46,7 @@ local function plan<M is core.Member>(
     local tag = assert2(wire[kind], "unsupported binary fixture kind: " .. kind)
     local number = policy:number(description.member)
     assert2(number >= 1 and number <= 65535, "binary field number is out of range")
-    local result = new Plan<M>(description = description, field = new syntax.Field(number = number, wire = tag))
+    local result = Plan<M>(description = description, field = syntax.Field(number = number, wire = tag))
     seen[description] = result
     if kind == "integer" then
         assert2(
@@ -71,7 +71,7 @@ local function plan<M is core.Member>(
             )
             result.positional[
                 index
-            ] = new positional.Slot(
+            ] = positional.Slot(
                 kind = childKind,
                 width = (selected.description.width or 64) as(8 | 16 | 32 | 64),
                 signed = selected.description.signed ~= false
@@ -108,7 +108,7 @@ local record Scope
             end
         end
         assert2(self.count < 256, "binary fixture extension cache is full")
-        local slot = new Slot()
+        local slot = Slot()
         cache[adapter] = slot
         self.count += 1
         self.active += 1
@@ -133,9 +133,9 @@ local record Opaque is core.Atom
     @readonly field: syntax.Field
     @readonly bytes: string
     function snapshot(borrows self): core.Atom
-        return new Opaque(
+        return Opaque(
             family = family,
-            field = new syntax.Field(number = self.field.number, wire = self.field.wire),
+            field = syntax.Field(number = self.field.number, wire = self.field.wire),
             bytes = self.bytes:sub(1)
         )
     end
@@ -158,7 +158,7 @@ local record Unknown is core.UnknownReader, own.Closeable
     function capturevalue<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
         self:live()
         local value = documents.withcontext(
-            documents.atom(new Opaque(family = family, field = self.entry.field, bytes = self.entry.bytes)),
+            documents.atom(Opaque(family = family, field = self.entry.field, bytes = self.entry.bytes)),
             self.source
         )
         local reader = documentReaders.reader(value)
@@ -236,7 +236,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
     end
 
     function child(self, selected: Plan<M>, value: positional.Value): affine(Input<M>)
-        return new Input<M>(selected = selected, value = value, source = self.source, depth = self.depth + 1)
+        return Input<M>(selected = selected, value = value, source = self.source, depth = self.depth + 1)
     end
 
     function readstruct<S>(
@@ -263,7 +263,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
                 consume:apply(state, child.description.member, input)
                 assert2(input.used, "binary member was not consumed")
             else
-                local input: affine(Unknown) = new Unknown(entry = entry, source = self.source)
+                local input: affine(Unknown) = Unknown(entry = entry, source = self.source)
                 unknown:apply(state, entry.field, input)
                 assert2(input.used, "unknown binary field was not consumed")
             end
@@ -397,7 +397,7 @@ local record Output<M is core.Member> is core.Writer<M>
             frame.values[position] = value
         else
             local bytes = type(value) == "string" and value as string or integers.encode(value as core.Integer)
-            frame.entries[#frame.entries + 1] = new syntax.Entry(field = selected.field, bytes = bytes)
+            frame.entries[#frame.entries + 1] = syntax.Entry(field = selected.field, bytes = bytes)
         end
     end
 
@@ -427,7 +427,7 @@ local record Output<M is core.Member> is core.Writer<M>
     function aggregate<S>(exclusive self, member: M, kind: string, borrows source: S, emit: core.Members<M, S>): nil
         local selected = self:selected(member)
         assert2(selected.description.kind == kind, "binary aggregate does not match its description")
-        local frame = new Frame<M>(selected = selected)
+        local frame = Frame<M>(selected = selected)
         self.frames[#self.frames + 1] = frame
         emit:apply(source, self)
         self.frames[#self.frames] = nil
@@ -477,7 +477,7 @@ local record Output<M is core.Member> is core.Writer<M>
             opaque.field.number == selected.number and opaque.field.wire == selected.wire,
             "unknown binary identity changed"
         )
-        frame.entries[#frame.entries + 1] = new syntax.Entry(field = selected, bytes = opaque.bytes)
+        frame.entries[#frame.entries + 1] = syntax.Entry(field = selected, bytes = opaque.bytes)
     end
 
     function close(takes self): nil
@@ -544,11 +544,11 @@ local record Output<M is core.Member> is core.Writer<M>
 end
 
 local function output<M is core.Member>(selected: Plan<M>, policy: Policy): affine(Output<M>)
-    return new Output<M>(root = selected, policy = policy)
+    return Output<M>(root = selected, policy = policy)
 end
 
 local function input<M is core.Member>(selected: Plan<M>, bytes: string, source: core.Context): affine(Input<M>)
-    return new Input<M>(selected = selected, value = bytes, source = source)
+    return Input<M>(selected = selected, value = bytes, source = source)
 end
 
 local record Encode<T> is core.Consumer<T, T, string>
@@ -586,14 +586,14 @@ end
 local record Cached is Codec
     @readonly scope: Scope
     function encode<T>(self, binding: core.Binding<T>, borrows value: T): string
-        return binding:accept(new Encode<T>(scope = self.scope), value)
+        return binding:accept(Encode<T>(scope = self.scope), value)
     end
 
     function decode<T>(self, binding: core.Binding<T>, bytes: string): T
         assert2(#bytes <= 16777216, "binary input exceeds byte limit")
-        return binding:accept(new Decode<T>(binding = binding, scope = self.scope, bytes = bytes), nil)
+        return binding:accept(Decode<T>(binding = binding, scope = self.scope, bytes = bytes), nil)
     end
 end
 export function codec(policy: Policy): Codec
-    return new Cached(scope = new Scope(policy = policy))
+    return Cached(scope = Scope(policy = policy))
 end

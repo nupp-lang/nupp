@@ -5,14 +5,16 @@ Lua 5.5's `os` library on the native core, written over its process layer
 (`nupp.runtime.processes`): `os.execute` runs a command line in the shell
 and answers Lua's results (true or nil, "exit" or "signal", and the code),
 or with no command whether a shell exists; `os.exit` ends the program;
-`os.getenv` reads the environment; `os.monotonic` is Nupp's clock. The
-other functions are not the core's yet and raise.
+`os.getenv` reads the environment; `os.monotonic` is Nupp's clock;
+`os.remove`, `os.rename` and `os.tmpname` work on file names through the
+file layer; `os.setlocale` answers the one locale the core has, C's; and
+the clock and calendar functions are `nupp.runtime.luatime`'s.
 
 A command's child leads a process group of its own (Decision 8), where C's
 system leaves it in the caller's and ignores SIGINT and SIGQUIT while it
 waits: an interrupt from the terminal reaches this program, not the child.
-`os.exit` ignores its second argument: the core runs no finalizers at exit,
-and every write has reached its file already.
+`os.exit(code, true)` runs every finalizer first, as Lua's `lua_close`
+does; every write has reached its file already.
 ]]
 module nupp.runtime.luaos
 
@@ -20,6 +22,7 @@ const processes = require("nupp.runtime.processes")
 const processcalls = require("nupp.runtime.processcalls")
 const files = require("nupp.runtime.files")
 const luaargs = require("nupp.runtime.luaargs")
+const luatime = require("nupp.runtime.luatime")
 
 -- C's EXIT_SUCCESS and EXIT_FAILURE.
 const SUCCESS = 0
@@ -43,13 +46,16 @@ local function execute(...: any): ...any
 end
 
 -- Ends the program with `code`: true or none is success, false failure.
+-- With `close`, every finalizer runs first.
 local function exit(code: any, close: any): nil
-    local _ = close
     local status: integer = SUCCESS
     if type(code) == "boolean" then
         status = code and SUCCESS or FAILURE
     elseif code ~= nil then
         status = luaargs.integerarg(code, 1, "exit", 2)
+    end
+    if close then
+        processcalls.close()
     end
     processcalls.exit(status)
 end
@@ -62,11 +68,93 @@ local function monotonic(): number
     return os.monotonic()
 end
 
--- One of the functions the core does not have yet.
-local function missing(name: string): function(...: any): nil
-    return function(...: any): nil
-        error("'" .. name .. "' not supported", 2)
+-- Removes the file, link or empty directory its first argument names (a
+-- string or an `io.Path`): true, or Lua's failure results naming it. With a
+-- second argument of true, a directory goes with everything below it, as
+-- main's os.remove removes one: true, or nil and the reason, the system's
+-- text and its number as the native host words it.
+local function remove(...: any): (boolean?, string?, integer?)
+    local count = select("#", ...)
+    local recursive: any = select(2, ...)
+    if recursive ~= nil and type(recursive) ~= "boolean" then
+        error("bad argument #2 to 'remove' (recursive must be a boolean)", 2)
     end
+    if recursive == true then
+        local given: any = select(1, ...)
+        if type(given) ~= "string" and not (type(given) == "table" and (given as {[string]: any}).tostring ~= nil) then
+            error("nupp: os path must be a path or a string", 2)
+        end
+        local tree = luaargs.pathname(given, 1, 2) as string
+        local code = files.removetree(tree)
+        if code == files.TOODEEP then
+            return nil, ("%s: the directory tree is deeper than %d levels"):format(tree, files.DEPTH)
+        elseif code ~= 0 then
+            return nil, ("%s (os error %d)"):format(files.reason(code), code)
+        end
+        return true
+    end
+    luaargs.needed(count, 1, "remove", "string", 2)
+    local name = luaargs.stringarg(luaargs.pathname(select(1, ...), 1, 2), nil, 1, "remove", 2)
+    local done = files.remove(name)
+    if done.code ~= 0 then
+        return nil, name .. ": " .. files.reason(done.code), done.code
+    end
+
+    return true
+end
+
+-- Renames the file its first argument names to its second, each a string
+-- or an `io.Path`: true, or Lua's failure results.
+local function rename(...: any): (boolean?, string?, integer?)
+    local count = select("#", ...)
+    luaargs.needed(count, 1, "rename", "string", 2)
+    local source = luaargs.stringarg(luaargs.pathname(select(1, ...), 1, 2), nil, 1, "rename", 2)
+    luaargs.needed(count, 2, "rename", "string", 2)
+    local target = luaargs.stringarg(luaargs.pathname((select(2, ...)), 2, 2), nil, 2, "rename", 2)
+    local done = files.rename(source, target)
+    if done.code ~= 0 then
+        return nil, files.reason(done.code), done.code
+    end
+
+    return true
+end
+
+-- The name of a new empty file, made as Lua's os.tmpname makes one with
+-- mkstemp.
+local function tmpname(): string
+    local made = files.temporary()
+    if made.code ~= 0 then
+        error("unable to generate a unique filename", 2)
+    end
+
+    return made.text
+end
+
+-- The categories os.setlocale takes, as Lua's catnames.
+const CATEGORIES: {
+    [string]: boolean
+} = {all = true, collate = true, ctype = true, monetary = true, numeric = true, time = true}
+
+-- The core's one locale, C's.
+const CLOCALE = "C"
+
+-- Sets or, with no locale, answers the locale of `category`: the core has
+-- only C's, which "C", "POSIX" and "" (the environment's) select; any
+-- other locale fails with nil.
+local function setlocale(locale: any, category: any): string?
+    local name: string? = nil
+    if locale ~= nil then
+        name = luaargs.stringarg(locale, nil, 1, "setlocale", 2)
+    end
+    local which = luaargs.stringarg(category, "all", 2, "setlocale", 2)
+    if not CATEGORIES[which] then
+        luaargs.argerror(2, "setlocale", ("invalid option '%s'"):format(which), 2)
+    end
+    if name == nil or name == CLOCALE or name == "POSIX" or name == "" then
+        return CLOCALE
+    end
+
+    return nil
 end
 
 local library: {
@@ -76,14 +164,14 @@ local library: {
     exit = exit,
     getenv = getenv,
     monotonic = monotonic,
-    clock = missing("clock"),
-    date = missing("date"),
-    difftime = missing("difftime"),
-    remove = missing("remove"),
-    rename = missing("rename"),
-    setlocale = missing("setlocale"),
-    time = missing("time"),
-    tmpname = missing("tmpname")
+    remove = remove,
+    rename = rename,
+    tmpname = tmpname,
+    setlocale = setlocale,
+    clock = luatime.clock,
+    date = luatime.date,
+    difftime = luatime.difftime,
+    time = luatime.time
 }
 
 --- The library values this module carries by name: `os` itself.

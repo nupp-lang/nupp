@@ -247,14 +247,14 @@ local collected: {[integer]: Completion} = {}
 
 local function answer(result: integer): Completion
     if result < 0 then
-        return new Completion(value = -1, code = -result)
+        return Completion(value = -1, code = -result)
     end
 
-    return new Completion(value = result)
+    return Completion(value = result)
 end
 
 local function failure(code: integer): Completion
-    return new Completion(value = -1, code = code)
+    return Completion(value = -1, code = code)
 end
 
 local function openpoller(): integer
@@ -313,7 +313,7 @@ local function attempt(operation: Operation): Completion?
     if operation.kind == READ then
         local got = filecalls.read(operation.descriptor, operation.count)
         if type(got) == "string" then
-            return new Completion(value = 0, text = got as string)
+            return Completion(value = 0, text = got as string)
         elseif notready(got as integer) then
             return nil
         end
@@ -374,7 +374,7 @@ local function collect(): nil
             if operation.kind == READ then
                 local got = poolcalls.finish(ticket, operation.count)
                 if type(got) == "string" then
-                    deliver(waiter, new Completion(value = 0, text = got as string))
+                    deliver(waiter, Completion(value = 0, text = got as string))
                 else
                     deliver(waiter, answer(got as integer))
                 end
@@ -408,7 +408,7 @@ local function reap(process: integer): Completion?
         return failure(-status)
     end
     local reason = status >> REASONBITS == SIGNALLED and "signal" or "exit"
-    local done = new Completion(value = process, code = status & CODEMASK, reason = reason)
+    local done = Completion(value = process, code = status & CODEMASK, reason = reason)
     collected[process] = done
 
     return done
@@ -479,7 +479,7 @@ end
 --- waits for the poller to report it ready rather than going to the pool.
 export function watch(descriptor: integer): nil
     if sources[descriptor] == nil then
-        sources[descriptor] = new Source(descriptor = descriptor, reads = {}, writes = {})
+        sources[descriptor] = Source(descriptor = descriptor, reads = {}, writes = {})
     end
 end
 
@@ -556,7 +556,7 @@ export function submit(operation: Operation, done: function(Completion): nil): i
         error("reactor: an operation of kind " .. tostring(kind) .. " does not wait", 2)
     end
     last = last + 1
-    local waiter = new Waiter(id = last, operation = operation, done = done)
+    local waiter = Waiter(id = last, operation = operation, done = done)
     if kind == EXIT then
         waitexit(waiter)
         waiters[waiter.id] = waiter
@@ -685,17 +685,17 @@ end
 
 --- A read of at most `count` bytes from `descriptor`, to submit.
 export function reading(descriptor: integer, count: integer): Operation
-    return new Operation(kind = READ, descriptor = descriptor, count = count)
+    return Operation(kind = READ, descriptor = descriptor, count = count)
 end
 
 --- A write of `text` from its byte `first` to `descriptor`, to submit.
 export function writing(descriptor: integer, text: string, first: integer): Operation
-    return new Operation(kind = WRITE, descriptor = descriptor, text = text, first = first)
+    return Operation(kind = WRITE, descriptor = descriptor, text = text, first = first)
 end
 
 --- A wait for child `process` to exit, to submit.
 export function exiting(process: integer): Operation
-    return new Operation(kind = EXIT, process = process)
+    return Operation(kind = EXIT, process = process)
 end
 
 --- The operations submitted and not yet completed or cancelled.

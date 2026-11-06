@@ -8,7 +8,7 @@
 -- score. Files go under NUPP_GUEST_TEMP.
 local score = 0
 local bit = 1
-local base = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/popen-" .. tostring(math.random(1, 1 << 40))
+local base = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/popen-" .. string.sub(os.tmpname(), -6)
 
 local function check(ok)
     if ok then
@@ -127,4 +127,13 @@ do
     check(total == 1830)
 end
 
+-- A process's handle is a full userdata too.
+do
+    local p = popen("true")
+    check(type(p) == "userdata" and io.type(p) == "file")
+    p:close()
+end
+
+-- The name the base was taken from.
+os.remove("/tmp/lua_" .. string.sub(base, -6))
 return score
