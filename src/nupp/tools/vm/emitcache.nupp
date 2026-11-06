@@ -56,7 +56,7 @@ local T = require("nupp.compiler.types")
 local emitcache = {}
 
 --- Bumped when what is kept changes shape or meaning.
-const FORMAT = "vm-root-emit/2"
+const FORMAT = "vm-root-emit/3"
 
 --- Variables that make an emit report or stub as it goes. A replay would skip the
 --- report, so an emit asked for one keeps nothing.
