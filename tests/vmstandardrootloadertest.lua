@@ -179,6 +179,25 @@ local function checkedCoroutine(source, env)
     return parsed, table.concat(codes, ","), table.concat(messages, "\n")
 end
 
+function M.nativeCoroutineFacadeRetainsThePublicNullaryBodyType()
+    local env = coroutineContext()
+    local exports = assert(environment.resolveModuleExports(env, "nupp.tasks"))
+    local body = assert(exports.types.Nullary, "the VM task declaration must expose main's Nullary alias")
+    test.eq(body.tag, "func")
+    test.eq(#body.params, 0)
+    test.eq(#body.rets, 1)
+    test.eq(body.rets[1].tag, "any")
+    local _, codes, messages = checkedCoroutine(
+        [[
+local body: coroutine.Nullary = function(): integer return 7 end
+local answer: any = body()
+assert(answer == 7)
+]],
+        env
+    )
+    test.eq(codes, "", messages)
+end
+
 function M.managedCoroutineNamespacesRetainOwnedFunctionsAndExtendFinalMembers()
     local members = require("nupp.compiler.types.members")
     local env = coroutineContext()

@@ -66,6 +66,7 @@ local record Tasks
     deadline: function(): number?
     isCancelled: function(value: any): boolean
 end
+type Tasks.Nullary = function(): any
 type Tasks.Scope = Scope
 type Tasks.Cancellation = Cancellation
 type Tasks.Status = Status
