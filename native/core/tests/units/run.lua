@@ -352,6 +352,27 @@ for _, name in ipairs({"allocator", "graphs", "weak", "valuetable"}) do
 end
 
 UNITS[#UNITS + 1] = {
+    name = "tablekeyunits",
+    modules = {"tablekeyunits", "unitentry", "nupp.runtime.core.coretables"},
+    paths = {["nupp.runtime.core.coretables"] = ROOT .. "/native/core/src/nupp/runtime/core/coretables.nupp"},
+    include = "native/core/src",
+    entries = {{"tablekeyunits", "equality", 1}, {"tablekeyunits", "growth", 1}, {"tablekeyunits", "dead", 2}},
+    cases = function()
+        return {
+            {"equality", {0}, 0},
+            {"equality", {1}, 0},
+            {"equality", {80}, 0},
+            {"growth", {8}, 0},
+            {"growth", {128}, 0},
+            {"dead", {0, 0}, 0},
+            {"dead", {1, 0}, 0},
+            {"dead", {0, 1}, 0},
+            {"dead", {1, 1}, 0}
+        }
+    end
+}
+
+UNITS[#UNITS + 1] = {
     name = "tableunits",
     modules = {"tableunits", "unitentry", "nupp.runtime.core.coretables"},
     paths = {["nupp.runtime.core.coretables"] = ROOT .. "/native/core/src/nupp/runtime/core/coretables.nupp"},

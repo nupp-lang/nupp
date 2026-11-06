@@ -230,6 +230,204 @@ export function tableRehash(
     return copied
 end
 
+-- Core callers prepare StringBody.hash on every live query and resident
+-- string before using the content policy, and keep query/live-entry objects
+-- rooted throughout the call. NIL-valued keys may already be dead. These
+-- helpers never collect or compute an unprepared hash.
+const NO_BUCKET: uint64 = 0xffffffffffffffffULL
+
+local function corestring(key: uint64): uint64
+    if key & values.TAG_MASK ~= values.TAG_OBJ then
+        return 0ULL
+    end
+    local address = key & values.PAYLOAD
+    if address == 0ULL
+        or native.word(native.load8(native.pointer(address), native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_STR
+    then
+        return 0ULL
+    end
+
+    return address
+end
+
+local function corestringhash(address: uint64): uint64
+    return native.load64(
+        native.pointer(address + native.sizeOf<heap.Header>()),
+        native.fieldOffset<heap.StringBody>("hash")
+    )
+end
+
+local function corehash(key: uint64): uint64
+    local string = corestring(key)
+    if string ~= 0ULL then
+        return corestringhash(string)
+    end
+
+    return objecthash.slotHash(key)
+end
+
+local function coreequal(left: uint64, right: uint64): boolean
+    if left == right then
+        return true
+    end
+    local a = corestring(left)
+    local b = corestring(right)
+    if a == 0ULL or b == 0ULL then
+        return false
+    end
+    local length = native.load64(native.pointer(a), native.fieldOffset<heap.Header>("auxLen"))
+    if length ~= native.load64(native.pointer(b), native.fieldOffset<heap.Header>("auxLen"))
+        or corestringhash(a) ~= corestringhash(b)
+    then
+        return false
+    end
+    local bytesA = native.load64(native.pointer(a), native.fieldOffset<heap.Header>("auxPtr"))
+    local bytesB = native.load64(native.pointer(b), native.fieldOffset<heap.Header>("auxPtr"))
+    local index: uint64 = 0ULL
+    while index < length do
+        if native.load8(
+            native.pointer(bytesA),
+            native.index(index)
+        ) ~= native.load8(native.pointer(bytesB), native.index(index)) then
+            return false
+        end
+        index = index + 1ULL
+    end
+
+    return true
+end
+
+-- Content-key variants are outside the frozen VM's raw leaf contract.
+export function coreprobe(table: voidptr, capacity: uint64, mask: uint64, key: uint64): uint64
+    if native.address(table) == 0ULL then
+        return NO_BUCKET
+    end
+    if key == values.NIL then
+        return NO_BUCKET
+    end
+    if capacity < 8ULL then
+        return NO_BUCKET
+    end
+    if capacity > 0x100000000ULL then
+        return NO_BUCKET
+    end
+    local below: uint64 = capacity - 1ULL
+    if mask ~= below then
+        return NO_BUCKET
+    end
+    local remainder: uint64 = capacity & below
+    if remainder ~= 0ULL then
+        return NO_BUCKET
+    end
+    local bucket: uint64 = corehash(key) & mask
+    local probes: uint64 = 0ULL
+    while probes < capacity do
+        local found = native.load64(table, native.index(bucket * 16ULL))
+        -- A NIL-valued entry may name reclaimed storage. Its key word is
+        -- opaque: only identity can match it, even before the next GC.
+        if found == key then
+            return bucket
+        end
+        if native.load64(table, native.index(bucket * 16ULL + 8ULL)) ~= values.NIL and coreequal(found, key) then
+            return bucket
+        end
+        if found == values.NIL then
+            return bucket
+        end
+        bucket = (bucket + 1ULL) & mask
+        probes = probes + 1ULL
+    end
+
+    return NO_BUCKET
+end
+
+export function corerehash(
+    source: voidptr,
+    order: voidptr,
+    length: uint64,
+    capacity: uint64,
+    target: voidptr,
+    targetOrder: voidptr,
+    targetRank: voidptr,
+    targetCapacity: uint64
+): uint64
+    if native.address(target) == 0ULL then
+        return NO_BUCKET
+    end
+    if native.address(targetOrder) == 0ULL then
+        return NO_BUCKET
+    end
+    if native.address(targetRank) == 0ULL then
+        return NO_BUCKET
+    end
+    if native.address(source) == native.address(target) then
+        return NO_BUCKET
+    end
+    if targetCapacity < 8ULL then
+        return NO_BUCKET
+    end
+    if targetCapacity > 0x100000000ULL then
+        return NO_BUCKET
+    end
+    local mask: uint64 = targetCapacity - 1ULL
+    local remainder: uint64 = targetCapacity & mask
+    if remainder ~= 0ULL then
+        return NO_BUCKET
+    end
+    local live = tableLiveCount(source, order, length, capacity)
+    if live == NO_BUCKET then
+        return NO_BUCKET
+    end
+    local wanted = tableCapacity(live + 1ULL)
+    if wanted == 0ULL then
+        return NO_BUCKET
+    end
+    if wanted > targetCapacity then
+        return NO_BUCKET
+    end
+    local index: uint64 = 0ULL
+    while index < targetCapacity do
+        if native.load64(target, native.index(index * 16ULL)) ~= values.NIL then
+            return NO_BUCKET
+        end
+        index = index + 1ULL
+    end
+    index = 0ULL
+    local copied: uint64 = 0ULL
+    while index < length do
+        local bucket = native.word(native.load32(order, native.index(index * 4ULL))) & values.LOW_WORD
+        local value = native.load64(source, native.index(bucket * 16ULL + 8ULL))
+        if value ~= values.NIL then
+            local key = native.load64(source, native.index(bucket * 16ULL))
+            local next = coreprobe(target, targetCapacity, mask, key)
+            native.store64(target, native.index(next * 16ULL), key)
+            native.store64(target, native.index(next * 16ULL + 8ULL), value)
+            native.store32(targetOrder, native.index(copied * 4ULL), native.index(next))
+            native.store32(targetRank, native.index(next * 4ULL), native.index(copied))
+            copied = copied + 1ULL
+        end
+        index = index + 1ULL
+    end
+
+    return copied
+end
+
+local function ownedprobe(table: voidptr, capacity: uint64, mask: uint64, key: uint64, core: boolean): uint64
+    if core then
+        return coreprobe(table, capacity, mask, key)
+    end
+
+    return tableProbe(table, capacity, mask, key)
+end
+
+local function ownedequal(left: uint64, right: uint64, core: boolean): boolean
+    if core then
+        return coreequal(left, right)
+    end
+
+    return left == right
+end
+
 -- Owned descriptors use the same pooled/mapped word backing as value arrays.
 -- Buckets occupy 2*capacity words, followed by capacity u32 order and rank
 -- entries. No operation collects, invokes guest code, or lends a movable view.
@@ -319,7 +517,7 @@ end
 
 -- The source and every descriptor field remain unchanged until a separately
 -- owned target has been completely initialized and rehashed successfully.
-export function tableOwnedGrow(t: heap.ValueTable*): uint64
+local function ownedgrow(t: heap.ValueTable*, core: boolean): uint64
     if not tableOwnedValid(t) then
         return 1ULL
     end
@@ -338,16 +536,30 @@ export function tableOwnedGrow(t: heap.ValueTable*): uint64
         end
         local order = base + capacity * 16ULL
         local rank = base + capacity * 20ULL
-        local copied = tableRehash(
-            native.pointer(t.ptr),
-            native.pointer(t.order),
-            t.length,
-            t.capacity,
-            native.pointer(base),
-            native.pointer(order),
-            native.pointer(rank),
-            capacity
-        )
+        local copied: uint64 = 0ULL
+        if core then
+            copied = corerehash(
+                native.pointer(t.ptr),
+                native.pointer(t.order),
+                t.length,
+                t.capacity,
+                native.pointer(base),
+                native.pointer(order),
+                native.pointer(rank),
+                capacity
+            )
+        else
+            copied = tableRehash(
+                native.pointer(t.ptr),
+                native.pointer(t.order),
+                t.length,
+                t.capacity,
+                native.pointer(base),
+                native.pointer(order),
+                native.pointer(rank),
+                capacity
+            )
+        end
         if copied ~= live then
             backing.wordBackingRelease(base)
             return 1ULL
@@ -376,7 +588,7 @@ export function tableWriteEntry(t: heap.ValueTable*, key: uint64, value: uint64,
     end
 end
 
-export function tableOwnedInsert(t: heap.ValueTable*, key: uint64, value: uint64): uint64
+local function ownedinsert(t: heap.ValueTable*, key: uint64, value: uint64, core: boolean): uint64
     if not tableOwnedValid(t) then
         return 1ULL
     end
@@ -384,9 +596,9 @@ export function tableOwnedInsert(t: heap.ValueTable*, key: uint64, value: uint64
         return 0ULL
     end
     @unsafe do
-        local bucket = tableProbe(native.pointer(t.ptr), t.capacity, t.mask, key)
+        local bucket = ownedprobe(native.pointer(t.ptr), t.capacity, t.mask, key, core)
         if bucket ~= 0xffffffffffffffffULL then
-            if native.load64(native.pointer(t.ptr), native.index(bucket * 16ULL)) == key then
+            if ownedequal(native.load64(native.pointer(t.ptr), native.index(bucket * 16ULL)), key, core) then
                 native.store64(native.pointer(t.ptr), native.index(bucket * 16ULL + 8ULL), value)
                 return 0ULL
             end
@@ -395,11 +607,11 @@ export function tableOwnedInsert(t: heap.ValueTable*, key: uint64, value: uint64
             return 0ULL
         end
         if tableNeedsGrowth(t.length, t.capacity) ~= 0ULL then
-            local status = tableOwnedGrow(t)
+            local status = ownedgrow(t, core)
             if status ~= 0ULL then
                 return status
             end
-            bucket = tableProbe(native.pointer(t.ptr), t.capacity, t.mask, key)
+            bucket = ownedprobe(native.pointer(t.ptr), t.capacity, t.mask, key, core)
         end
         if bucket == 0xffffffffffffffffULL then
             return 1ULL
@@ -409,14 +621,14 @@ export function tableOwnedInsert(t: heap.ValueTable*, key: uint64, value: uint64
     end
 end
 
-export function tableOwnedGetSlot(t: heap.ValueTable*, key: uint64): uint64
+local function ownedgetslot(t: heap.ValueTable*, key: uint64, core: boolean): uint64
     @unsafe do
-        local bucket = tableProbe(native.pointer(t.ptr), t.capacity, t.mask, key)
+        local bucket = ownedprobe(native.pointer(t.ptr), t.capacity, t.mask, key, core)
         if bucket == 0xffffffffffffffffULL then
             return 0ULL
         end
         local address = t.ptr + bucket * 16ULL
-        if native.load64(native.pointer(address), 0) ~= key
+        if not ownedequal(native.load64(native.pointer(address), 0), key, core)
             or native.load64(native.pointer(address), 8) == values.NIL
         then
             return 0ULL
@@ -440,13 +652,13 @@ export function tableOwnedEntryBucket(t: heap.ValueTable*, position: uint64): ui
     end
 end
 
-export function tableOwnedPosition(t: heap.ValueTable*, key: uint64): uint64
+local function ownedposition(t: heap.ValueTable*, key: uint64, core: boolean): uint64
     @unsafe do
-        local bucket = tableProbe(native.pointer(t.ptr), t.capacity, t.mask, key)
+        local bucket = ownedprobe(native.pointer(t.ptr), t.capacity, t.mask, key, core)
         if bucket == 0xffffffffffffffffULL then
             return bucket
         end
-        if native.load64(native.pointer(t.ptr), native.index(bucket * 16ULL)) ~= key then
+        if not ownedequal(native.load64(native.pointer(t.ptr), native.index(bucket * 16ULL)), key, core) then
             return 0xffffffffffffffffULL
         end
         return native.word(native.load32(native.pointer(t.rank), native.index(bucket * 4ULL))) & values.LOW_WORD
@@ -470,10 +682,10 @@ export function tableOwnedNextPosition(t: heap.ValueTable*, start: uint64): uint
     end
 end
 
-export function tableOwnedNextAfter(t: heap.ValueTable*, key: uint64): uint64
+local function ownednext(t: heap.ValueTable*, key: uint64, core: boolean): uint64
     local start: uint64 = 0ULL
     if key ~= values.NIL then
-        local position = tableOwnedPosition(t, key)
+        local position = ownedposition(t, key, core)
         if position == 0xffffffffffffffffULL then
             return position
         end
@@ -486,4 +698,52 @@ end
 -- Logical owned backing includes buckets plus both insertion-order arrays.
 export function tableOwnedBytes(t: heap.ValueTable*): uint64
     return @unsafe t.capacity * 24ULL
+end
+
+-- Identity wrappers preserve the shared VM's existing key policy.
+export function tableOwnedGrow(t: heap.ValueTable*): uint64
+    return ownedgrow(t, false)
+end
+
+export function tableOwnedInsert(t: heap.ValueTable*, key: uint64, value: uint64): uint64
+    return ownedinsert(t, key, value, false)
+end
+
+export function tableOwnedGetSlot(t: heap.ValueTable*, key: uint64): uint64
+    return ownedgetslot(t, key, false)
+end
+
+export function tableOwnedPosition(t: heap.ValueTable*, key: uint64): uint64
+    return ownedposition(t, key, false)
+end
+
+export function tableOwnedNextAfter(t: heap.ValueTable*, key: uint64): uint64
+    return ownednext(t, key, false)
+end
+
+-- Use one key policy consistently for a descriptor; never reinterpret an
+-- identity table that may already hold multiple equal-content string keys.
+-- Core wrappers require prepared hashes for all live query and resident strings.
+-- NIL-valued tombstones match only by identity and are never dereferenced.
+-- Before guest wiring, GC must distinguish live deleted keys from dead ones:
+-- equal-content next queries to a live deleted key are not supported here.
+-- Initialization, release, entry buckets and next positions share no key policy.
+export function coregrow(t: heap.ValueTable*): uint64
+    return ownedgrow(t, true)
+end
+
+export function coreinsert(t: heap.ValueTable*, key: uint64, value: uint64): uint64
+    return ownedinsert(t, key, value, true)
+end
+
+export function coregetslot(t: heap.ValueTable*, key: uint64): uint64
+    return ownedgetslot(t, key, true)
+end
+
+export function coreposition(t: heap.ValueTable*, key: uint64): uint64
+    return ownedposition(t, key, true)
+end
+
+export function corenext(t: heap.ValueTable*, key: uint64): uint64
+    return ownednext(t, key, true)
 end

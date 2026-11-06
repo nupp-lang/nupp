@@ -1,0 +1,259 @@
+module tablekeyunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const values = require("nupp.runtime.vm.values")
+const hashes = require("nupp.runtime.vm.objecttable")
+const tables = require("nupp.runtime.core.coretables")
+
+const ARENA_BYTES: uint64 = 67108864ULL
+const MAXIMUM: uint64 = 0xffffffffffffffffULL
+const COLLISION: uint64 = 7ULL
+const LARGE_STRING: uint64 = 40000ULL
+
+local function miss(ok: boolean): uint64
+    if ok then
+        return 0ULL
+    end
+
+    return 1ULL
+end
+
+-- Separate, noninterned headers with inline bytes. Deliberately identical
+-- prepared hashes on different byte sequences exercise the collision path.
+-- allocRaw does not collect; tests disable automatic GC and root explicitly.
+local function string(h: heap.Heap*, seed: uint64, count: uint64): uint64
+    @unsafe do
+        local o = heap.allocRaw(h, heap.KIND_STR, native.sizeOf<heap.StringBody>() + count + 1ULL)
+        local address = native.address(o as voidptr)
+        local base = address + heap.HEADER_BYTES + native.sizeOf<heap.StringBody>()
+        o.auxPtr = base
+        o.auxLen = count
+        native.store64(
+            native.pointer(address + heap.HEADER_BYTES),
+            native.fieldOffset<heap.StringBody>("hash"),
+            COLLISION
+        )
+        local i: uint64 = 0ULL
+        while i < count do
+            native.store8(native.pointer(base), native.index(i), (seed >> ((i % 8ULL) * 8ULL)) & 255ULL)
+            i = i + 1ULL
+        end
+        native.store8(native.pointer(base), native.index(count), 0ULL)
+
+        return values.TAG_OBJ | address
+    end
+end
+
+local function get(t: heap.ValueTable*, key: uint64): uint64
+    local slot = hashes.coregetslot(t, key)
+    if slot == 0ULL then
+        return values.NIL
+    end
+
+    return native.load64(native.pointer(slot), 0)
+end
+
+local function resident(t: heap.ValueTable*, position: uint64): uint64
+    @unsafe do
+        local bucket = hashes.tableOwnedEntryBucket(t, position)
+        if bucket == MAXIMUM then
+            return values.NIL
+        end
+
+        return native.load64(native.pointer(t.ptr), native.index(bucket * 16ULL))
+    end
+end
+
+-- Content equality, collision-safe bytes/length, replacement preserving the
+-- first resident key/order, and the old identity wrappers on the same strings.
+export function equality(count: uint64): uint64
+    local state = heap.ValueTable(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local identity = heap.ValueTable(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local t = state as heap.ValueTable*
+            local old = identity as heap.ValueTable*
+            wrong = wrong + hashes.tableOwnedInitialize(t, h, 0ULL) + hashes.tableOwnedInitialize(old, h, 0ULL)
+            local first = string(h, 1ULL, count)
+            local equal = string(h, 1ULL, count)
+            local longer = string(h, 1ULL, count + 1ULL)
+            wrong = wrong + miss(first ~= equal)
+            wrong = wrong + hashes.coreinsert(t, first, 10ULL)
+            wrong = wrong + hashes.coreinsert(t, equal, 20ULL)
+            wrong = wrong + miss(t.length == 1ULL and get(t, first) == 20ULL and get(t, equal) == 20ULL)
+            wrong = wrong + miss(resident(t, 0ULL) == first and hashes.coreposition(t, equal) == 0ULL)
+            wrong = wrong + hashes.coreinsert(t, longer, 30ULL)
+            wrong = wrong + miss(t.length == 2ULL and get(t, longer) == 30ULL)
+            if count > 0ULL then
+                local different = string(h, 2ULL, count)
+                wrong = wrong + hashes.coreinsert(t, different, 40ULL)
+                wrong = wrong + miss(t.length == 3ULL and get(t, different) == 40ULL and get(t, equal) == 20ULL)
+            end
+            wrong = wrong + hashes.tableOwnedInsert(old, first, 50ULL) + hashes.tableOwnedInsert(old, equal, 60ULL)
+            wrong = wrong + miss(old.length == 2ULL and hashes.tableOwnedGetSlot(old, longer) == 0ULL)
+            wrong = wrong + miss(native.load64(native.pointer(hashes.tableOwnedGetSlot(old, first)), 0) == 50ULL)
+            wrong = wrong + miss(native.load64(native.pointer(hashes.tableOwnedGetSlot(old, equal)), 0) == 60ULL)
+            wrong = wrong + hashes.coreinsert(t, values.FALSE, 70ULL)
+            wrong = wrong + hashes.coreinsert(t, values.TRUE, 80ULL)
+            wrong = wrong + miss(get(t, values.FALSE) == 70ULL and get(t, values.TRUE) == 80ULL)
+            local one = values.TAG_OBJ | tables.create(h)
+            local two = values.TAG_OBJ | tables.create(h)
+            wrong = wrong + hashes.coreinsert(t, one, 90ULL)
+            wrong = wrong + miss(get(t, one) == 90ULL and get(t, two) == values.NIL)
+            hashes.tableOwnedRelease(t)
+            hashes.tableOwnedRelease(old)
+            heap.destroy(h)
+        end
+    end
+
+    return wrong
+end
+
+-- Forced collisions through growth/rehash; equal-content queries replace and
+-- delete without replacing resident keys or insertion ranks. Rehash drops nils.
+export function growth(count: uint64): uint64
+    local state = heap.ValueTable(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local t = state as heap.ValueTable*
+            wrong = hashes.tableOwnedInitialize(t, h, 0ULL)
+            local i: uint64 = 0ULL
+            while i < count do
+                local key = string(h, i, 8ULL)
+                wrong = wrong + hashes.coreinsert(t, key, i + 1ULL)
+                local query = string(h, i, 8ULL)
+                wrong = wrong + hashes.coreinsert(t, query, i + 2ULL)
+                wrong = wrong + miss(t.length == i + 1ULL and resident(t, i) == key)
+                i = i + 1ULL
+            end
+            wrong = wrong + miss(t.capacity >= count and get(t, values.NIL) == values.NIL)
+            i = 0ULL
+            while i < count do
+                local query = string(h, i, 8ULL)
+                wrong = wrong + miss(get(t, query) == i + 2ULL and hashes.coreposition(t, query) == i)
+                if i % 3ULL == 0ULL then
+                    local key = resident(t, i)
+                    wrong = wrong + hashes.coreinsert(t, query, values.NIL)
+                    wrong = wrong + miss(get(t, query) == values.NIL and resident(t, i) == key)
+                    wrong = wrong + miss(hashes.coreposition(t, key) == i)
+                    wrong = wrong + miss(hashes.coreposition(t, query) == MAXIMUM)
+                end
+                i = i + 1ULL
+            end
+            local position = hashes.corenext(t, values.NIL)
+            i = 0ULL
+            while i < count do
+                if i % 3ULL ~= 0ULL then
+                    wrong = wrong + miss(position == i)
+                    position = hashes.corenext(t, resident(t, i))
+                end
+                i = i + 1ULL
+            end
+            wrong = wrong + miss(position == MAXIMUM)
+            wrong = wrong + hashes.coregrow(t)
+            wrong = wrong + miss(t.length == count - (count + 2ULL) // 3ULL)
+            i = 0ULL
+            local kept: uint64 = 0ULL
+            while i < count do
+                local query = string(h, i, 8ULL)
+                if i % 3ULL == 0ULL then
+                    wrong = wrong + miss(get(t, query) == values.NIL)
+                else
+                    wrong = wrong + miss(get(t, query) == i + 2ULL and hashes.coreposition(t, query) == kept)
+                    kept = kept + 1ULL
+                end
+                i = i + 1ULL
+            end
+            hashes.tableOwnedRelease(t)
+            heap.destroy(h)
+        end
+    end
+
+    return wrong
+end
+
+-- Large mapped keys make a stale dereference observable. Keep a distinct
+-- same-byte query alive, then delete or weak-clear its resident and collect.
+-- Opaque tombstones retain their old key/rank, not the old allocation.
+export function dead(minor: uint64, weak: uint64): uint64
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = collector.GENERATIONAL
+            h.automatic = false
+            local table = tables.create(h)
+            local o = native.pointer(table) as heap.Header*
+            local t = native.pointer(
+                table + heap.HEADER_BYTES + native.word(native.fieldOffset<heap.TableBody>("hashPtr"))
+            ) as heap.ValueTable*
+            wrong = hashes.tableOwnedInitialize(t, h, 4ULL)
+            local key = string(h, 1ULL, LARGE_STRING)
+            local query = string(h, 1ULL, LARGE_STRING)
+            local following = string(h, 2ULL, 8ULL)
+            local roots = arena.alloc(a, 16ULL, 8ULL)
+            if roots == nil then
+                error("table keys: no root slots")
+            end
+            native.store64(roots, 0, values.TAG_OBJ | table)
+            native.store64(roots, 8, query)
+            collector.register(h, native.address(roots), 2ULL)
+            local value = values.TRUE
+            if weak ~= 0ULL then
+                collector.weakmode(h, o, 2ULL)
+                value = values.TAG_OBJ | tables.create(h)
+            end
+            wrong = wrong + hashes.coreinsert(t, key, value)
+            collector.hashstore(h, o, key, value)
+            wrong = wrong + hashes.coreinsert(t, following, values.TRUE)
+            collector.hashstore(h, o, following, values.TRUE)
+            if weak == 0ULL then
+                wrong = wrong + hashes.coreinsert(t, query, values.NIL)
+                wrong = wrong + miss(hashes.corenext(t, key) == 1ULL)
+            end
+            if minor ~= 0ULL then
+                collector.minorcycle(h)
+            else
+                collector.fullCycle(h)
+            end
+            tables.drain(h)
+            if weak ~= 0ULL then
+                -- First cycle clears the weak value; a second releases the
+                -- now-unreachable string regardless of phase visitation order.
+                if minor ~= 0ULL then
+                    collector.minorcycle(h)
+                else
+                    collector.fullCycle(h)
+                end
+                tables.drain(h)
+            end
+            wrong = wrong + miss(not heap.isLiveSlot(h, key & values.PAYLOAD))
+            wrong = wrong + miss(heap.isLiveSlot(h, query & values.PAYLOAD))
+            wrong = wrong + miss(get(t, query) == values.NIL)
+            wrong = wrong + miss(hashes.coreposition(t, query) == MAXIMUM)
+            wrong = wrong + miss(hashes.corenext(t, query) == MAXIMUM)
+            wrong = wrong + miss(hashes.corenext(t, values.NIL) == 1ULL)
+            wrong = wrong + miss(resident(t, 0ULL) == key)
+            wrong = wrong + hashes.coreinsert(t, query, values.TRUE)
+            collector.hashstore(h, o, query, values.TRUE)
+            wrong = wrong + miss(t.length == 3ULL and resident(t, 2ULL) == query)
+            wrong = wrong + hashes.coregrow(t)
+            wrong = wrong + miss(t.length == 2ULL and get(t, query) == values.TRUE)
+            heap.destroy(h)
+        end
+    end
+
+    return wrong
+end
