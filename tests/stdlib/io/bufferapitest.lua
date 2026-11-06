@@ -191,18 +191,26 @@ local function admittedBuffer()
     for name, value in pairs(default) do
         adapter[name] = value
     end
-    adapter.startwrite = function(state, offset, count)
+    adapter.preparewrite = function(state, offset, count)
         if control.startFailure then
             error(control.startFailure, 0)
         end
         assert(control.active == 0, "a second live lease was admitted")
-        local data = default.startwrite(state, offset, count)
+        local data = default.preparewrite(state, offset, count)
         control.next = control.next + 1
-        control.active = control.next
+        control.pending = control.next
         control.prepared = data
         control.offset, control.count = offset, count
 
-        return data, control.active
+        return data, control.pending
+    end
+    adapter.admitwrite = function(state, token, data)
+        assert(control.active == 0 and token == control.pending and data == control.prepared)
+        if control.admitFailure then
+            error(control.admitFailure, 0)
+        end
+        default.admitwrite(state, 1, data)
+        control.active = token
     end
     adapter.commitwrite = function(state, token, data, offset, used)
         assert(token == control.active and data == control.prepared)
@@ -262,6 +270,20 @@ function M.failedLeaseConstructionDoesNotClearAnotherAdmission()
     assert(control.active == 0)
     buffer:put("after refusal")
     assert(buffer:tostring() == "after refusal" and control.active == 0)
+    buffer:close()
+end
+
+function M.failedLeaseAdmissionPreservesTheErrorAndAllowsTheNextWrite()
+    local implementation, control = admittedBuffer()
+    local buffer = implementation.newBuffer("before")
+    local failure = {}
+    control.admitFailure = failure
+    local okay, problem = pcall(buffer.reserve, buffer, 1)
+    assert(not okay and problem == failure)
+    assert(control.active == 0 and buffer:tostring() == "before")
+    control.admitFailure = nil
+    buffer:put("!")
+    assert(buffer:tostring() == "before!" and control.active == 0)
     buffer:close()
 end
 

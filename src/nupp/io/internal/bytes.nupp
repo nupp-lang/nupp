@@ -1144,15 +1144,15 @@ newWriteLease = function(
     local state = (buffer as any)._state
     local lease = allocateWriteLease(buffer, offset, count)
     do
-        local data, token = bufferstate.startwrite(state, offset, count)
-        -- Immutable state/anchor retain the root of this prepared pointer. The
-        -- exclusive lease keeps that state stable until commit/drop; core
-        -- admission also rejects relocation while its generation is live.
-        -- The pointer slot already exists, so these stores do not allocate.
+        local data, token = bufferstate.preparewrite(state, offset, count)
+        -- Immutable state/anchor retain the pointer's root. The writer is not
+        -- admitted yet, so either barrier may fail safely. Admission validates
+        -- this preparation's generation and is the last call before return.
         @unsafe do
             lease.pointer = data
         end
         lease.token = token
+        bufferstate.admitwrite(state, token, data)
     end
 
     return lease
