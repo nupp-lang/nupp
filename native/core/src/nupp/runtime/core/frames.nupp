@@ -150,6 +150,9 @@ export const MODULE_DESTINATION: uint64 = 7ULL
 -- caller takes its first result as a call's, and runs the library call
 -- again with it.
 export const LIBRARY_DESTINATION: uint64 = 8ULL
+-- A __tostring the entry calls on an error no protected call took
+-- (`guestreport`): its first result ends the entry, which reports it.
+export const REPORT_DESTINATION: uint64 = 9ULL
 -- The most results a caller frame may want from one call.
 export const MAX_RESULTS: uint64 = 16ULL
 
@@ -1465,6 +1468,7 @@ export function rootRangeCount(
                 and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= PACK_DESTINATION
                 and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= MODULE_DESTINATION
                 and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= LIBRARY_DESTINATION
+                and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= REPORT_DESTINATION
                 or native.load64(frame, native.fieldOffset<Frame>("resultOwner")) ~= previous
                 or native.load64(
                     frame,
@@ -1584,6 +1588,16 @@ export function libraryresult(state: voidptr, child: voidptr): uint64
         return 0ULL
     end
     native.store64(child, native.fieldOffset<Frame>("resultKind"), LIBRARY_DESTINATION)
+
+    return 1ULL
+end
+
+-- Marks a prepared child as the __tostring an error's report waits on.
+export function reportresult(state: voidptr, child: voidptr): uint64
+    if prepared(state, child) == 0ULL then
+        return 0ULL
+    end
+    native.store64(child, native.fieldOffset<Frame>("resultKind"), REPORT_DESTINATION)
 
     return 1ULL
 end

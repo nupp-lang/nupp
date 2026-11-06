@@ -131,6 +131,11 @@ export struct Services
     chunks: uint64
     chunkcount: uint64
     chunkslabs: uint64
+    -- The report of an error no protected call took (`guestreport`): 1
+    -- while its value's __tostring runs, the value, and what it answered.
+    reporting: uint64
+    reportvalue: uint64
+    reportanswer: uint64
 end
 
 export const FAULT_ARITH: uint64 = 1ULL
@@ -180,6 +185,9 @@ export function prepare(base: voidptr, bytes: uint64): uint64
     native.store64(services, native.fieldOffset<Services>("chunks"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("chunkcount"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("chunkslabs"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("reporting"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("reportvalue"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("reportanswer"), 0ULL)
 
     return native.address(services)
 end

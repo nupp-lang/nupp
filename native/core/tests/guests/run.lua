@@ -252,7 +252,7 @@ end
 -- The uncaught error's report names its chunk as the core does: a long
 -- path, shortened as Lua shortens one.
 OUTPUT.errorsuncaught = function(printed)
-    return printed:find("^before error\nprinted\t1\nnupp: [^\n]*catalogerrorsuncaught%.nupp:9: boom\n$") ~= nil
+    return printed:find("^before error\nprinted\t1\nnupp: [^\n]*catalogerrorsuncaught%.nupp:12: boom\n$") ~= nil
 end
 
 -- Whether `printed` is what case `name` prints.
@@ -454,13 +454,41 @@ local RAISED = 1
 -- together, and their twins against reference Lua the same way; the ABI
 -- guard, which runs the entry inside a test, is not run.
 local EXITS = {processexit = 3, errorsuncaught = RAISED}
+local EXITTWINS = {processexit = "catalog-process-exit"}
+-- What a printed text must match: exactly this string, or this function's
+-- test of it.
+local function matches(expected, printed)
+    if type(expected) == "function" then
+        return expected(printed)
+    end
+
+    return printed == expected
+end
+-- Whether `printed` is the uncaught error's output with `report` last, a
+-- Lua pattern.
+local function reported(report)
+    return function(printed)
+        return printed:find("^before error\nprinted\t1\n" .. report .. "\n$") ~= nil
+    end
+end
 -- Further runs of a case's program, with these arguments, that an error no
 -- protected call takes ends: each ends with status RAISED, publishes
--- nothing and prints this. The bench entry asked for a case it does not
--- have reports it as `nupp bench` does.
-local EXITTWINS = {processexit = "catalog-process-exit"}
+-- nothing and prints this (matches). The bench entry asked for a case it
+-- does not have reports it as `nupp bench` does. The uncaught error's
+-- objects are shown by their __tostring as lua.c's message handler shows
+-- them, its "(error object is a table value)" for an answer that is no
+-- string and the __tostring's own error for one it raises, and values with
+-- no string form as the VM shows them.
 local RAISES = {
-    benchworkloads = {"--case '^fib$' --json --out /dev/null", "nupp: no benchmark named ^fib$\n"}
+    benchworkloads = {{"--case '^fib$' --json --out /dev/null", "nupp: no benchmark named ^fib$\n"}},
+    errorsuncaught = {
+        {"tostring", reported("nupp: custom text")},
+        {"nonstring", reported("nupp: %(error object is a table value%)")},
+        {"raising", reported("nupp: [^\n]*catalogerrorsuncaught%.nupp:42: inner")},
+        {"named", reported("nupp: already named")},
+        {"table", reported("nupp: table: 0x%x+")},
+        {"nil", reported("nupp: nil")}
+    }
 }
 -- The twins that run commands: the reference interpreter they run under is
 -- built with LUA_USE_POSIX (see `posixreference`).
@@ -1286,21 +1314,33 @@ local function main()
             check(version == (profile >= 3 and profile or modules), label .. " descriptor version")
             local bundle = OUT .. "/" .. label .. ".bundle"
             write(bundle, bundleBytes)
-            local raise = RAISES[name]
-            if raise then
-                local output = OUT .. "/" .. label .. "-raises.out"
-                write(output, sentinel)
-                defer(
-                    "bridge raise",
-                    (SETUP[name] or "")
-                    .. GUEST_ENV
-                    .. ("%s %s %s %s %s"):format(quote(bridge), quote(bundle), quote(empty), quote(output), raise[1]),
-                    function(status, printed)
-                        check(status == RAISED, ("%s raises: exit status %s"):format(label, tostring(status)))
-                        check(printed == raise[2], label .. " raises: printed " .. printed)
-                        check(read(output) == sentinel, label .. " raises: published nothing")
-                    end
-                )
+            -- Each in every collection mode the case runs in.
+            local modes = {{"", empty}}
+            if RAISES[name] and UNITS and STRESS[name] then
+                local stress = OUT .. "/" .. label .. "-raises-stress.bin"
+                write(stress, u64(-1) .. u64(0) .. u64(1))
+                local stepped = OUT .. "/" .. label .. "-raises-interleaved.bin"
+                write(stepped, u64(-1) .. u64(0) .. u64(2))
+                modes[#modes + 1] = {" stress", stress}
+                modes[#modes + 1] = {" interleaved", stepped}
+            end
+            for index, raise in ipairs(RAISES[name] or {}) do
+                for _, run in ipairs(modes) do
+                    local output = OUT .. "/" .. label .. "-raises" .. index .. run[1]:gsub(" ", "-") .. ".out"
+                    local raised = ("%s%s raises (%s)"):format(label, run[1], raise[1])
+                    write(output, sentinel)
+                    defer(
+                        "bridge raise",
+                        (SETUP[name] or "")
+                        .. GUEST_ENV
+                        .. ("%s %s %s %s %s"):format(quote(bridge), quote(bundle), quote(run[2]), quote(output), raise[1]),
+                        function(status, printed)
+                            check(status == RAISED, ("%s: exit status %s"):format(raised, tostring(status)))
+                            check(matches(raise[2], printed), raised .. ": printed " .. printed)
+                            check(read(output) == sentinel, raised .. ": published nothing")
+                        end
+                    )
+                end
             end
             if STATUS[name] then
                 refuses(label, bundle, empty)

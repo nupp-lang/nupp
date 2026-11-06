@@ -1,14 +1,17 @@
 module nupp.runtime.core.guestreport
 
--- An error no protected call takes ends the program, which says so as the
--- command line does (nupp.tools.cli.run): on standard error, `nupp: ` and
--- the error's text, unless the text names the command line already
--- (reportprefix), then a newline. The text is Lua's tostring without a
--- __tostring, which would run guest code after the program has ended.
+-- The text an error no protected call takes ends the program with, written
+-- as the command line writes one (nupp.tools.cli.run): on standard error,
+-- `nupp: ` and the error's text, unless the text names the command line
+-- already (reportprefix), then a newline. guestuncaught decides which text.
 const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
 const os = require("nupp.runtime.vm.os")
 const strings = require("nupp.runtime.core.corestrings")
 const guestvalues = require("nupp.runtime.core.guestvalues")
+const guesterrors = require("nupp.runtime.core.guesterrors")
+const guestscope = require("nupp.runtime.core.guestscope")
+const librarytexts = require("nupp.runtime.core.librarytexts")
 const reportprefix = require("nupp.runtime.core.reportprefix")
 
 const STANDARD_ERROR: uint64 = 2ULL
@@ -31,19 +34,37 @@ local function write(base: uint64, length: uint64): nil
     end
 end
 
--- Reports `value`, the error that ended the program: `nupp: `, its text and
--- a newline, built whole and written from past the prefix when the text
--- names the command line already. When there is no room to build it, a
+-- Writes a report the builder holds, `nupp: ` first, then a newline: from
+-- past that prefix when the text names the command line already. Releases
+-- the builder.
+local function emit(h: heap.Heap*, b: strings.Builder*): nil
+    @unsafe do
+        if strings.appendWord(h, b, NEWLINE, NEWLINE_BYTES) == 0ULL then
+            local from: uint64 = 0ULL
+            if reportprefix.present(b.base + PREFIX_BYTES, b.length - PREFIX_BYTES - NEWLINE_BYTES) then
+                from = PREFIX_BYTES
+            end
+            write(b.base + from, b.length - from)
+        end
+        strings.release(b)
+    end
+end
+
+-- Reports `value` by Lua's tostring without a __tostring: a string as it
+-- is, a number's text, and nil, a boolean or an object's type and address
+-- as the VM's report shows them. When there is no room to build it, a
 -- string's bytes are written as they are.
-export function uncaught(ctx: voidptr, value: uint64): nil
+export function plain(ctx: voidptr, value: uint64): nil
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = guestvalues.guestheap(ctx)
         local builder = state as strings.Builder*
+        -- The value is held while the builder grows, which may collect.
+        guestscope.hold(ctx, value)
         if strings.appendWord(h, builder, PREFIX, PREFIX_BYTES) ~= 0ULL
             or guestvalues.appendtext(h, builder, value) ~= 0ULL
-            or strings.appendWord(h, builder, NEWLINE, NEWLINE_BYTES) ~= 0ULL
         then
+            guestscope.release(ctx)
             strings.release(builder)
             local s = strings.header(value)
             if s ~= 0ULL then
@@ -51,11 +72,32 @@ export function uncaught(ctx: voidptr, value: uint64): nil
             end
             return
         end
-        local from: uint64 = 0ULL
-        if reportprefix.present(builder.base + PREFIX_BYTES, builder.length - PREFIX_BYTES) then
-            from = PREFIX_BYTES
+        guestscope.release(ctx)
+        emit(h, builder)
+    end
+end
+
+-- Reports `value` as lua.c reports an error object whose __tostring gave
+-- no string: "(error object is a table value)".
+export function object(ctx: voidptr, value: uint64): nil
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = guestvalues.guestheap(ctx)
+        local builder = state as strings.Builder*
+        -- The name is held while the builder grows, which may collect.
+        local name = guesterrors.typeName(ctx, value)
+        guestscope.hold(ctx, name)
+        if strings.appendWord(h, builder, PREFIX, PREFIX_BYTES) ~= 0ULL
+            or librarytexts.append(h, builder, librarytexts.TEXT_ERROR_OBJECT) ~= 0ULL
+            or strings.appendString(h, builder, strings.header(name)) ~= 0ULL
+            or librarytexts.append(h, builder, librarytexts.TEXT_OBJECT_VALUE) ~= 0ULL
+            or librarytexts.append(h, builder, librarytexts.TEXT_CLOSE) ~= 0ULL
+        then
+            guestscope.release(ctx)
+            strings.release(builder)
+            return
         end
-        write(builder.base + from, builder.length - from)
-        strings.release(builder)
+        guestscope.release(ctx)
+        emit(h, builder)
     end
 end

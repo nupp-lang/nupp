@@ -126,6 +126,8 @@ export const TEXT_INVALID_OPTION: uint64 = 117ULL
 export const NAME_COLLECTGARBAGE: uint64 = 118ULL
 export const TEXT_PARKED: uint64 = 119ULL
 export const TEXT_RESUME_TASK: uint64 = 120ULL
+export const TEXT_ERROR_OBJECT: uint64 = 121ULL
+export const TEXT_OBJECT_VALUE: uint64 = 122ULL
 
 -- Appends text `id` to `b`: nonzero when the builder refused it.
 export function append(h: heap.Heap*, b: strings.Builder*, id: uint64): uint64
@@ -588,6 +590,14 @@ export function append(h: heap.Heap*, b: strings.Builder*, id: uint64): uint64
             | strings.appendWord(h, b, 0x656c756465686373ULL, 8ULL)
             | strings.appendWord(h, b, 0x74756f726f632064ULL, 8ULL)
             | strings.appendWord(h, b, 0x656e69ULL, 3ULL)
+    elseif id == TEXT_ERROR_OBJECT then
+        -- "(error object is a "
+        return strings.appendWord(h, b, 0x6f20726f72726528ULL, 8ULL)
+            | strings.appendWord(h, b, 0x7369207463656a62ULL, 8ULL)
+            | strings.appendWord(h, b, 0x206120ULL, 3ULL)
+    elseif id == TEXT_OBJECT_VALUE then
+        -- " value"
+        return strings.appendWord(h, b, 0x65756c617620ULL, 6ULL)
     end
 
     return 0ULL

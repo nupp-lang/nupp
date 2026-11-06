@@ -2,8 +2,11 @@ module nupp.core.catalogerrorsuncaught
 
 -- An error no protected call takes ends the program as the command line
 -- ends one: what was written before it reaches the output, the error's
--- positioned text follows `nupp: ` on standard error, the program ends
--- with status 1 and nothing after it runs.
+-- text follows `nupp: ` on standard error, the program ends with status 1
+-- and nothing after it runs. With no argument the error is a positioned
+-- string; the first argument picks another: an error object shown by its
+-- __tostring as lua.c shows one, a text already naming the command line,
+-- and values with no string form, shown as the VM shows them.
 local function fails(n: integer): integer
     if n > 0 then
         error("boom")
@@ -11,8 +14,43 @@ local function fails(n: integer): integer
     return n
 end
 
+local arguments: any = rawget(_G, "arg")
+local kind: any = arguments[1]
+
 io.write("before error\n")
 print("printed", 1)
+if kind == "tostring" then
+    error(
+        setmetatable({}, {
+            __tostring = function(_: any): string
+                return "custom text"
+            end
+        })
+    )
+elseif kind == "nonstring" then
+    error(
+        setmetatable({}, {
+            __tostring = function(_: any): any
+                return 42
+            end
+        })
+    )
+elseif kind == "raising" then
+    error(
+        setmetatable({}, {
+            __tostring = function(_: any): string
+                error("inner")
+                return "never"
+            end
+        })
+    )
+elseif kind == "named" then
+    error("nupp: already named", 0)
+elseif kind == "table" then
+    error({})
+elseif kind == "nil" then
+    error(nil)
+end
 fails(1)
 print("never")
 

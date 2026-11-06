@@ -14,9 +14,7 @@ export type Text = {
     text: string
 }
 
-local texts: {
-    Text
-} = {
+local texts: {Text} = {
     {name = "TEXT_BAD", id = 1, text = "bad argument #"},
     {name = "TEXT_TO", id = 2, text = " to '"},
     {name = "TEXT_OPEN", id = 3, text = "' ("},
@@ -135,7 +133,10 @@ local texts: {
     {name = "TEXT_INVALID_OPTION", id = 117, text = "invalid option '"},
     {name = "NAME_COLLECTGARBAGE", id = 118, text = "collectgarbage"},
     {name = "TEXT_PARKED", id = 119, text = "parked"},
-    {name = "TEXT_RESUME_TASK", id = 120, text = "cannot resume a scheduled coroutine"}
+    {name = "TEXT_RESUME_TASK", id = 120, text = "cannot resume a scheduled coroutine"},
+    -- What lua.c reports for an error object with no string form.
+    {name = "TEXT_ERROR_OBJECT", id = 121, text = "(error object is a "},
+    {name = "TEXT_OBJECT_VALUE", id = 122, text = " value"}
 }
 
 local byName: {[string]: Text} = {}

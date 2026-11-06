@@ -32,6 +32,7 @@ const guesterrors = require("nupp.runtime.core.guesterrors")
 const guestmeta = require("nupp.runtime.core.guestmeta")
 const guestreplay = require("nupp.runtime.core.guestreplay")
 const guestarith = require("nupp.runtime.core.guestarith")
+const uncaught = require("nupp.runtime.core.guestuncaught")
 
 -- The closed checked producer binds these program/slot reads to corebytecode's
 -- canonical opcode recipes and its retained complete graph-derived byte stream.
@@ -1850,6 +1851,11 @@ export function Ret(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         access.refresh(resumer, current, ctx)
         return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
     end
+    -- The __tostring an error's report waits on: its answer ends the entry.
+    if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.REPORT_DESTINATION then
+        uncaught.answered(ctx, value)
+        return native.fail()
+    end
     if ops.root(ctx, frame) == 1ULL then
         -- The root result outlives the guest heap, so it must be an immediate:
         -- a table, string or boxed integer cannot be published.
@@ -1940,6 +1946,11 @@ export function RetN(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
         local currentPC = native.pointer(access.pc(resumer, current))
         access.refresh(resumer, current, ctx)
         return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+    end
+    -- The __tostring an error's report waits on: its answer ends the entry.
+    if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.REPORT_DESTINATION then
+        uncaught.answered(ctx, value)
+        return native.fail()
     end
     if ops.root(ctx, frame) == 1ULL then
         if value & values.TAG_MASK == values.TAG_OBJ then
@@ -2218,6 +2229,11 @@ export function RetV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
     end
     local s = native.pointer(ops.state(ctx))
     ops.checkpoint(ctx, frame, pc)
+    -- The __tostring an error's report waits on: its answer ends the entry.
+    if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.REPORT_DESTINATION then
+        uncaught.answered(ctx, value)
+        return native.fail()
+    end
     if ops.root(ctx, frame) == 1ULL then
         if value & values.TAG_MASK == values.TAG_OBJ then
             ops.fail(ctx, frame, pc, ops.RESOURCE)
