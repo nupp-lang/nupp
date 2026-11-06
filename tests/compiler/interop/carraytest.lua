@@ -147,4 +147,99 @@ function M.elementReadBorrowsTheArray()
     )
 end
 
+function M.constCArrayStoresAreRejectedAtFixedAndDynamicExtents()
+    for _, extent in ipairs({"[4]", "[?]"}) do
+        local function write(element)
+            return "local function use(pointer: "
+                .. element
+                .. extent
+                .. "): nil\n"
+                .. " @unsafe do pointer[0] = 90 as uint32 end\nend"
+        end
+
+        testAssert.eq(diagsOf(write("const uint8")), "NUPP2009", extent .. " const elements are read-only")
+        testAssert.eq(diagsOf(write("uint8")), "", extent .. " mutable elements remain writable")
+    end
+end
+
+function M.constCArrayReadsRetainTheirElementQualification()
+    for _, extent in ipairs({"[4]", "[?]"}) do
+        testAssert.eq(
+            diagsOf(
+                "local function use(pointer: const uint8"
+                .. extent
+                .. "): nil\n"
+                .. " @unsafe do local byte = pointer[0]; print(byte) end\nend"
+            ),
+            ""
+        )
+        testAssert.eq(
+            diagsOf(
+                "local function use(pointer: const uint8"
+                .. extent
+                .. "): uint32\n"
+                .. " @unsafe do return pointer[0] end\nend"
+            ),
+            "NUPP2002",
+            "a read must not erase const"
+        )
+        testAssert.eq(
+            diagsOf(
+                "local function use(pointer: uint8"
+                .. extent
+                .. "): uint32\n"
+                .. " @unsafe do return pointer[0] end\nend"
+            ),
+            ""
+        )
+    end
+end
+
+function M.constCArrayAggregateReadsKeepTheirFieldProtection()
+    for _, extent in ipairs({"[4]", "[?]"}) do
+        local function fields(element)
+            return P
+                .. "\nlocal function use(pointer: "
+                .. element
+                .. extent
+                .. "): nil\n"
+                .. " @unsafe do pointer[0].x = 1 end\nend"
+        end
+
+        testAssert.eq(diagsOf(fields("const P")), "NUPP2009")
+        testAssert.eq(diagsOf(fields("P")), "")
+    end
+end
+
+function M.constPointerStoresKeepTheirExistingGuard()
+    testAssert.eq(
+        diagsOf("local function use(pointer: const uint8*): nil\n" .. " @unsafe do pointer[0] = 90 as uint32 end\nend"),
+        "NUPP2009"
+    )
+    testAssert.eq(
+        diagsOf("local function use(pointer: uint8*): nil\n" .. " @unsafe do pointer[0] = 90 as uint32 end\nend"),
+        ""
+    )
+    testAssert.eq(
+        diagsOf("local function use(pointer: const uint8*): uint32\n" .. " @unsafe do return pointer[0] end\nend"),
+        ""
+    )
+end
+
+function M.publicStringSpanRefsRejectDirectUnsafeStores()
+    testAssert.eq(
+        diagsOf(
+            [[
+local span = require("binary.span")
+local function use(text: string): nil
+    local view = span.fromstring(text)
+    local pointer = view:ref()
+    @unsafe do pointer[0] = 90 as uint32 end
+end
+]]
+        ),
+        "NUPP2009"
+    )
+end
+
 return M

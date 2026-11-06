@@ -1370,6 +1370,10 @@ export function install(c: state.Checker): state.ExprHandlers
             end
             -- zero-based, and always present: no optional here
             if writing then
+                if ot.elem.tag == "const" then
+                    c.diag("NUPP2009", node, "cannot write through a const C array")
+                    return T.any
+                end
                 node.fixedWidthPhysicalStore = true
                 if aggregateValue(ot.elem) then
                     node.postWriteType = false
