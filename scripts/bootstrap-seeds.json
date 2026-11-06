@@ -8,16 +8,16 @@
       "imageSha256": "3e17ec95db4d9ccfeac0247455c2654e48674a55635dd9ff312f37fdbe9468bd"
     },
     "x86_64-unknown-linux-gnu": {
-      "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-api-seed.4/nupp-seed-x86_64-unknown-linux-gnu-507e8e4c08cf85cf10b2b237c420588093303682.tar.gz",
-      "sha256": "54c6a8aa5f0e6464c7c1f313b749336fe4a0e6362aefce3d31de6889f80518ff",
+      "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-api-seed.5/nupp-seed-x86_64-unknown-linux-gnu-49b98a8f7bd9d9de7be7cef889d19fab30b29343.tar.gz",
+      "sha256": "f26643ec034d7fc14eca4dac9248aefd5c48cc1f2e4b4cfcc6ddd18d0843d94b",
       "runtimeSha256": "287be283a060dceda9e39a205d8353ac94dd960ec26108d0ca3399c7008d5ad3",
-      "imageSha256": "7c83dcdd6f82df5ea7c015408643903b0439f3d5393693485e7305041542ac89"
+      "imageSha256": "3e17ec95db4d9ccfeac0247455c2654e48674a55635dd9ff312f37fdbe9468bd"
     },
     "x86_64-pc-windows-gnu": {
-      "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-api-seed.4/nupp-seed-x86_64-pc-windows-gnu-507e8e4c08cf85cf10b2b237c420588093303682.tar.gz",
-      "sha256": "9b51529b7f333db57565f8f3bbf8625db3f5925ebed616688957ba411a95cbd2",
+      "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-api-seed.5/nupp-seed-x86_64-pc-windows-gnu-49b98a8f7bd9d9de7be7cef889d19fab30b29343.tar.gz",
+      "sha256": "664fab398790c50330db23d7817a693f0b3a2053777d806c3d3e5369230a9197",
       "runtimeSha256": "ae7ed494ed599fa07ba025692be236cda7b8e0c0b64fcc0761fa5a5d5db9d94b",
-      "imageSha256": "7c83dcdd6f82df5ea7c015408643903b0439f3d5393693485e7305041542ac89"
+      "imageSha256": "3e17ec95db4d9ccfeac0247455c2654e48674a55635dd9ff312f37fdbe9468bd"
     }
   }
 }
