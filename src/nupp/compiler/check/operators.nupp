@@ -540,6 +540,10 @@ export function install(c: state.Checker): state.ExprHandlers
                 return makeLpegPattern(origin, lpegEmpty)
             end
             local view = indexedViews.describe(t)
+            if indexedViews.unknownLayout(t) then
+                c.diag("NUPP2403", node, "indexed spans require a concrete packed or columnar layout")
+                return T.integer
+            end
             if view then
                 local receiverDefinition = operand.kind == "name" and operand.token and operand.token.definition or nil
                 node.indexedLength = {

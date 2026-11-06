@@ -154,7 +154,7 @@ end
 
 function M.reducerRegionsFollowEveryNestedDoBlock()
     local prefix = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -217,7 +217,7 @@ end
 -- its masked contributions belong to; the masked ones still belong to one.
 function M.scalarAndMaskedContributionsMixInOneReducer()
     local prefix = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -275,7 +275,7 @@ end
 -- orders take floating lanes; the two refusals name the operation.
 function M.horizontalsAreTypedByTheirContract()
     local prefix = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -462,7 +462,7 @@ function M.gpuTargetBindsACompilerGeneratedTypedObject()
         [[
 local span = require("binary.span")
 local gpu = require("io.gpu")
-local array = require("nupp.array")
+local array = table.Array
 
 @aot(target = "gpu")
 local function scale(
@@ -523,7 +523,7 @@ function M.gpuResourcesAreClosableChildrenOfTheirContext()
     local header = [[
 local span = require("binary.span")
 local gpu = require("io.gpu")
-local array = require("nupp.array")
+local array = table.Array
 
 @aot(target = "gpu")
 local function double(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
@@ -601,7 +601,7 @@ function M.gpuBuffersExposeCheckedTensorLayouts()
     reportsGpu(
         [[
 local gpu = require("io.gpu")
-local array = require("nupp.array")
+local array = table.Array
 
 local context = gpu.open()
 local tensor = context:tensor(array.float, {4, 8})
@@ -628,7 +628,7 @@ return true
     reportsGpu(
         [[
 local gpu = require("io.gpu")
-local array = require("nupp.array")
+local array = table.Array
 
 local context = gpu.open()
 local tensor = context:tensor(array.float, {4, 8})
@@ -641,7 +641,7 @@ return true
     reportsGpu(
         [[
 local gpu = require("io.gpu")
-local array = require("nupp.array")
+local array = table.Array
 
 local struct Pair
     left: float
@@ -668,7 +668,7 @@ return true
     reportsGpu(
         [[
 local gpu = require("io.gpu")
-local array = require("nupp.array")
+local array = table.Array
 
 local function wordCount(borrows buffer: gpu.Buffer<uint32>): integer
     return buffer.count

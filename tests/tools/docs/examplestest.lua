@@ -322,9 +322,7 @@ function M.pureFacadeExamplesRunTheirAssertions()
         "src/types/reflect.nupp",
         "src/own.nupp",
         "src/serde/json/init.nupp",
-        "src/nupp/array.nupp",
-        "src/nupp/heap.nupp",
-        "src/nupp/soa.nupp"
+        "src/nupp/array/internal/api.nupp"
     }) do
         local blocks = fencedBlocks(commentLines(assert(fs.readFile(ROOT .. "/" .. path))))
         local block = assert(blocks[1], path .. " has an opening example")

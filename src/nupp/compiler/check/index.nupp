@@ -315,10 +315,17 @@ export function install(c: state.Checker): state.ExprHandlers
         local exported = exports and exports.types and exports.types[descriptor.writable and "Writable" or "Span"]
             or nil
         local projected = nil
+        local map: {[any]: any} = {}
+        if exported and exported.typeParams and exported.typeParams[1] then
+            map[exported.typeParams[1]] = fieldType
+        end
+        if exported and exported.constParams and exported.constParams[1] then
+            map[exported.constParams[1]] = T.constLiteral("string", "packed")
+        end
         if exported and exported.tag == "genericAlias" and exported.typeParams[1] then
-            projected = generics.materialize(exported.body, {[exported.typeParams[1]] = fieldType})
+            projected = generics.materialize(exported.body, map)
         elseif exported and exported.tag == "nominal" and exported.typeParams and exported.typeParams[1] then
-            projected = generics.instantiate(exported, {[exported.typeParams[1]] = fieldType})
+            projected = generics.instantiate(exported, map)
         end
         if not projected then
             return T.any
@@ -463,6 +470,46 @@ export function install(c: state.Checker): state.ExprHandlers
                 return intrinsicType
             end
         end
+        -- A fixed pool constructor needs its declaration, not the whole table
+        -- extension and its unrelated array allocators.
+        if kind == "dotIndex"
+            and not node.writeContext
+            and memberName == "Pool"
+            and target.kind == "name"
+            and target.token
+            and target.token.text == "table"
+        then
+            local entry = c.lookupEntry("table")
+            local builtin = c.env and c.env.globals and c.env.globals.table
+            if entry
+                and builtin
+                and entry.definition == builtin.definition
+                and builtinExtensions.implementation(c.env, "table") == "nupp.runtime.standardtable"
+            then
+                target.skipBuiltinExtension = true
+                c.infer(target)
+                runtimeSurface.requireIdentity(c, runtimeSurface.tracked(c, target), memberName, member)
+                local exports = c.env.resolveModuleExports
+                    and c.env.resolveModuleExports(c.env, "nupp.util.internal.pool")
+                local declared = exports and exports.types and exports.types.Pool
+                if declared and declared.tag == "nominal" then
+                    node.qualifiedModule = "nupp.util.internal.pool"
+                    node.qualifiedMembers = {"Pool"}
+                    (node as any).namespacePath = "table.Pool"
+                    node.immutablePath = true
+                    if not node.callCallee then
+                        node.compilerFeatureEffect = "runtime.structpool"
+                        if c.recordEffect then
+                            c.recordEffect("runtime.structpool")
+                        end
+                    end
+                    local value = T.typeObject(declared)
+                    node.resolvedType = value
+                    c.markToken(member, exports.typeDefs and exports.typeDefs.Pool, value, "record")
+                    return value
+                end
+            end
+        end
         local projected = qualifiedModule(node)
         if projected then
             return projected
@@ -574,6 +621,13 @@ export function install(c: state.Checker): state.ExprHandlers
             end
             if canonical then
                 (node as any).namespacePath = canonical
+                if canonical == "table.Array" or canonical:sub(1, 12) == "table.Array." then
+                    node.exactCallExport = {module = "table", member = canonical:sub(7), identity = canonical}
+                end
+                if canonical == "table.Pool" then
+                    node.qualifiedModule = "nupp.util.internal.pool"
+                    node.qualifiedMembers = {"Pool"}
+                end
                 node.scalarIntrinsic = scalarIntrinsics.forPath(canonical)
                 if not node.writeContext and (canonical == "package.providers" or canonical == "package.select") then
                     node.exactCallExport = {module = "package", member = memberName, identity = canonical,}
@@ -1092,6 +1146,10 @@ export function install(c: state.Checker): state.ExprHandlers
         end
         local it = c.infer(key)
         local view = indexedViews.describe(ot)
+        if indexedViews.unknownLayout(ot) then
+            c.diag("NUPP2403", node, "indexed spans require a concrete packed or columnar layout")
+            return T.any
+        end
         if view then
             local literalName = key.kind == "string"
                 and it.tag == "literal"

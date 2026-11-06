@@ -380,8 +380,8 @@ function M.heapRootsStayRootedThroughTheirOwners()
     local shared = compile(
         HEADER
         .. [[
-local heap = require("nupp.heap")
-local function work(borrows storage: heap.Array<Cell>): int32
+local heap = table.Array
+local function work(borrows storage: table.Array<Cell>): int32
     const values = storage:read()
     local total = 0 as int32
     for index = 1, #values do
@@ -399,8 +399,8 @@ return work
     local writable = compile(
         HEADER
         .. [[
-local heap = require("nupp.heap")
-local function work(exclusive storage: heap.Array<Cell>): nil
+local heap = table.Array
+local function work(exclusive storage: table.Array<Cell>): nil
     const values = storage:write()
     for index = 1, #values do
         values[index].value = 9
@@ -417,12 +417,13 @@ end
 function M.soaRootsComposeWithResolvedFieldProjection()
     local code = compile(
         [[
-local soa = require("nupp.soa")
+local soa = table.Array
+local span = require("binary.span")
 local struct Particle
     x: float
     y: float
 end
-local function work(exclusive particles: soa.Array<Particle>): nil
+local function work(exclusive particles: table.Array<Particle, "columnar">): nil
     const rows = particles:write()
     const xs = rows.x
     for index = 1, #xs do
@@ -574,12 +575,13 @@ end
 function M.soaWholeRowsGatherAndScatterWithoutAViewWrapper()
     local code = compile(
         [[
-local soa = require("nupp.soa")
+local soa = table.Array
+local span = require("binary.span")
 local struct Particle
     x: float
     y: float
 end
-local function work(exclusive particles: soa.Array<Particle>): number
+local function work(exclusive particles: table.Array<Particle, "columnar">): number
     const rows = particles:write()
     local prior = 0.0
     for index = 1, #rows do
@@ -1148,7 +1150,7 @@ end
 
 function M.managedArrayViewsUseTheSameContiguousLowering()
     local code = compile(
-        [[local array = nupp.array
+        [[local array = table.Array
 local values = array.scalar(array.int32, 3)
 const rows = values:read()
 local total = 0 as int32

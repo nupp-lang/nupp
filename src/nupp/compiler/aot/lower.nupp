@@ -13,6 +13,8 @@ narrowing that is not in the IR is a narrowing that did not happen.
 ]]
 module nupp.compiler.aot.lower
 
+local indexedViews = require("nupp.compiler.types.indexedviews")
+
 local apiidentity = require("nupp.compiler.apiidentity")
 local admit = require("nupp.compiler.aot.admit")
 local targetLayout = require("nupp.compiler.targetlayout")
@@ -824,6 +826,7 @@ function lower.spanElement(
             or origin.name ~= expected
             or span.typeArgs == nil
             or span.typeArgs[1] == nil
+            or not indexedViews.spanElement(span)
         then
             return nil
         end
@@ -880,29 +883,12 @@ end
 --- Resolve only the sealed SoA view identities, including the writer token.
 local function soaElement(resolved: any?): (any?, boolean)
     local raw = semanticRaw(resolved)
-    local members = raw ~= nil and raw.tag == "intersection" and raw.members or {raw}
-    local element: any? = nil
-    local writable = false
-    local token = false
-    for _, member in ipairs(members) do
-        local view, origin = nominal(member)
-        if origin == nil or origin.moduleName ~= "nupp.soa" then
-            return nil, false
-        end
-        if origin.name == "WriteToken" and not token then
-            token = true
-        elseif (origin.name == "Span" or origin.name == "WriteSpan") and element == nil then
-            element = (view.typeArgs or {})[1]
-            writable = origin.name == "WriteSpan"
-        else
-            return nil, false
-        end
-    end
-    if token and not writable then
-        return nil, false
+    local view = raw and indexedViews.describe(raw) or nil
+    if view and view.adapter == "soa" then
+        return view.element, view.writable
     end
 
-    return element, writable
+    return nil, false
 end
 
 ----------------------------------------------------------------------------
@@ -2002,7 +1988,9 @@ local function admitSpecies(node: cst.Call, kernel: lower.Kernel): nil
         -- A module alias, or the module's global path written out.
         owner = root ~= nil and (kernel.modules[root as string] or root) or nil
     end
-    if owner ~= "nupp.array" or not SPECIES_WITNESSES[field as string] then
+    if (owner ~= "nupp.array" and owner ~= "nupp.array.internal.api" and owner ~= "table.Array")
+        or not SPECIES_WITNESSES[field as string]
+    then
         context.reject(site, "simd.species takes one of the scalar witnesses in nupp.array, such as array.uint32")
     end
     if #arguments > 2 or #arguments == 2 and arguments[2].kind ~= "number" then
@@ -2763,7 +2751,7 @@ local function floatingWitness(argument: cst.Node?, kernel: lower.Kernel): strin
     end
     local root, field = (witness as string):match("^(.+)%.([^.]+)$")
     local owner = root ~= nil and (kernel.modules[root as string] or root) or nil
-    if owner ~= "nupp.array" then
+    if (owner ~= "nupp.array" and owner ~= "nupp.array.internal.api" and owner ~= "table.Array") then
         return nil
     end
 
@@ -8568,7 +8556,7 @@ function lower.parameters(
                     name = columnName,
                     type = field.type,
                     sourceType = field.sourceType,
-                    spanModule = "nupp.soa",
+                    spanModule = "nupp.mem.span.columnar",
                     soa = scalarIR.SoaColumn(
                         view = name as string,
                         sourceType = spelling,
@@ -8583,7 +8571,7 @@ function lower.parameters(
                         kind = "scalar",
                         type = field.type,
                         sourceType = field.sourceType,
-                        spanModule = "nupp.soa"
+                        spanModule = "nupp.mem.span.columnar"
                     ),
                     source = lower.site(raw)
                 )
@@ -9611,7 +9599,7 @@ function lower.scan(chunk: cst.Chunk, checked: boolean): lower.Declarations
                 -- global path, which the checker accepts as the required one.
                 if #names == 1 and #exprs == 1 and exprs[1].kind == "dotIndex" then
                     local path = lower.dottedName(exprs[1])
-                    if path ~= nil and (path as string):match("^nupp%.") ~= nil then
+                    if path ~= nil and ((path as string):match("^nupp%.") ~= nil or path == "table.Array") then
                         found.modules[names[1].text] = path as string
                     end
                 end

@@ -46,7 +46,7 @@ through the table the child unpacks them from. Arguments to `work` are copied
 into another Lua state, and the callable must be sendable, a module function or a
 literal whose effectively-final captures can be copied. The selected worker
 provider says which values may cross: the native provider moves an engine-backed
-`nupp.heap` buffer, the browser provider refuses every ownership mode.
+`table.Array` buffer, the browser provider refuses every ownership mode.
 
 `await` returns the body's complete result pack, including nil positions, and
 may be called again after settlement. `isdone` checks settlement without

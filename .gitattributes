@@ -35,3 +35,8 @@ runtime/luajit/** text=auto eol=lf
 
 # The serde identity helper is embedded in the compiler bundle.
 src/nupp/serde/internal/identity.lua text eol=lf
+
+# Authored Lua helpers are embedded byte-for-byte in the compiler.
+src/nupp/serde/internal/binarycodec.lua text eol=lf
+src/nupp/io/internal/nativebuffer.lua text eol=lf
+src/nupp/array/internal/storage.lua text eol=lf

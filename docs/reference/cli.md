@@ -1073,7 +1073,7 @@ built compiler in 18.9s: 164 compiled, 0 reused
   check 16.1s  generate 952ms
   slowest
     nupp.compiler.lua.gen        1.9s
-    nupp.heap                699ms
+    table.Array                699ms
     nupp.compiler.check.calls    664ms
 ```
 

@@ -1,20 +1,3 @@
---[[
-`nupp` holds the remaining typed-storage APIs. Library code
-uses the standard roots directly:
-
-```nupp
-local encoded = serde.json.encodevalue({ok = true})
-debug.log.info("wrote %d bytes", #encoded)
-```
-
-Host requests use `os.host`, and independent random generators use `math.Xoshiro128`.
-Typed storage uses `nupp.array`, `nupp.heap` and `nupp.soa`. Private implementation modules
-remain beneath `nupp`; application imports use the documented public names.
-
-See [standard-library.md](docs/learn/runtime/data/standard-library.md) for the
-library overview and [modules.md](docs/learn/language/modules.md) for module
-lookup.
-]]
-
+-- Private implementations live under nupp; application code uses the standard roots.
 const nupp = {}
 return nupp

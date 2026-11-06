@@ -4,7 +4,8 @@
 
 local bench = require("debug.bench")
 const {type Invocation} = require("debug.bench")
-local soa = require("nupp.soa")
+local soa = table.Array
+local span = require("binary.span")
 local ffi = require("ffi")
 
 local struct Particle
@@ -23,7 +24,7 @@ local STEPS: integer = 30
 local DT = 1 / 60
 
 local function generatedSoA(_: any, _: Invocation): number
-    local particles = soa.alloc(ffi.typeof<Particle>(), COUNT)
+    local particles = soa.alloc(ffi.typeof<Particle>(), COUNT, "columnar")
     local sink = 0.0
     do
         const rows = particles:write();

@@ -651,7 +651,7 @@ end
 function M.sessionRestartsBeforeAChangedSoALayoutCanReachLiveStorage()
     local before = table.concat(
         {
-            "local soa = require('nupp.soa')",
+            "local soa = table.Array",
             "local ffi = require('ffi')",
             "local struct Particle",
             "   x: float",

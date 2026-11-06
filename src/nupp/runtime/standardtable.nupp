@@ -28,6 +28,10 @@ record pools remain available on every backend.
 module nupp.runtime.standardtable
 
 local pool = require("nupp.util.internal.pool")
+local arrays = require("nupp.array")
+
+export type Array<T, const Layout: string = "packed"> = arrays.Array<T, Layout>
+export const Array = require("nupp.array.internal.api")
 
 --- A pool of instances of a record or struct declaration.
 export type Pool<T> = pool.Pool<T>
@@ -98,6 +102,7 @@ end
 --- @internal
 export function install(host: table): table
     rawset(host, "Pool", Pool)
+    rawset(host, "Array", Array)
     if rawget(host, "move") == nil then
         rawset(host, "move", move)
     end

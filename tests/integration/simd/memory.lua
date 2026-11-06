@@ -4,7 +4,7 @@ local M = {}
 local function sourceFor(ty, lanes)
     local source = {
         (
-            'local array = require("nupp.array")\nlocal span = require("binary.span")\nlocal simd = require("simd")\nlocal u32 = math.u32\nlocal struct Pair\n    first: %s\n    second: %s\nend\n'
+            'local array = table.Array\nlocal span = require("binary.span")\nlocal simd = require("simd")\nlocal u32 = math.u32\nlocal struct Pair\n    first: %s\n    second: %s\nend\n'
         ):format(ty, ty)
     }
     local probes, fields, indexed, interleaved, exports = {}, {}, {}, {}, {}

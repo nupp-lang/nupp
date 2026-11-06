@@ -79,8 +79,8 @@ local FORMER_DROP_OWNERS = {
     "local owner = io.Reader.of('one'):lines()",
     "local owner = assert(io.open('input.bin'))",
     "local owner = assert(os.mktemp())",
-    "local owner = nupp.heap.alloc(ffi.typeof<int32>(), 4)",
-    "local struct Row\n    x: int32\nend\nlocal owner = nupp.soa.alloc(ffi.typeof<Row>(), 4)",
+    "local owner = table.Array.alloc(ffi.typeof<int32>(), 4)",
+    "local struct Row\n    x: int32\nend\nlocal owner = table.Array.alloc(ffi.typeof<Row>(), 4)",
 }
 
 function M.everyStandardOwnerClosesThroughOwnDropAlone()
@@ -135,10 +135,10 @@ function M.memAndUtilRefusalsCarryTheLibraryPrefix()
     local spans = require("binary.span")
     for label, refused in pairs({
         heap = function()
-            require("nupp.heap").alloc(ffi.typeof("int32_t"), -1)
+            require("nupp.runtime.standardtable").Array.alloc(ffi.typeof("int32_t"), -1)
         end,
         bytes = function()
-            require("nupp.array").bytes(-1)
+            require("nupp.runtime.standardtable").Array.bytes(-1)
         end,
         span = function()
             spans.fromcarray(ffi.new("int32_t[1]"), -1)
@@ -286,7 +286,7 @@ end
 function M.wasmViewsLowerThroughTheOpaqueCheckedSurface()
     local source = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local struct Sample
    value: float
 end
@@ -1017,7 +1017,7 @@ function M.nativeGpuRejectsFractionalCountsBeforeTheAbi()
         end,
     })
     local context = provider.open()
-    local element = require("nupp.array").uint32
+    local element = require("nupp.runtime.standardtable").Array.uint32
     for _, count in ipairs({1.5, math.huge, 0 / 0}) do
         local ok, problem = pcall(context.buffer, context, element, count)
         assert(not ok and tostring(problem):find("buffer count", 1, true), tostring(problem))
@@ -1338,7 +1338,7 @@ function M.browserGpuValidatesHostHandlesAndReleasesContextResources()
     }
     local browser = require("helpers.providerstate").browserGpu(host)
     local context = browser.open()
-    local element = require("nupp.array").uint32
+    local element = require("nupp.runtime.standardtable").Array.uint32
     for _, malformed in ipairs({false, {}, {buffer = 0}, {buffer = 1.5}, {buffer = 4294967296}}) do
         returned = malformed
         local ok, problem = pcall(context.buffer, context, element, 1)
@@ -1441,7 +1441,7 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
     }
     local cancelledBrowser = require("helpers.providerstate").browserGpu(cancelledHost)
     local cancelledContext = cancelledBrowser.open()
-    local element = require("nupp.array").uint32
+    local element = require("nupp.runtime.standardtable").Array.uint32
     local buffered, bufferProblem = pcall(cancelledContext.buffer, cancelledContext, element, 1)
     assert(not buffered and bufferProblem == "cancelled buffer", tostring(bufferProblem))
     local compiled, kernelProblem = pcall(
@@ -1495,7 +1495,7 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
     local context = browser.open()
     local ffi = require("ffi")
     local spans = require("binary.span")
-    element = require("nupp.array").uint32
+    element = require("nupp.runtime.standardtable").Array.uint32
     local input = context:buffer(element, 1)
     local output = context:buffer(element, 1)
     local source = ffi.new("uint32_t[1]", 7)

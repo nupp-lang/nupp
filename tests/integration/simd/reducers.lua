@@ -90,7 +90,7 @@ function M.generate(options)
         local module = "simd_reducers_" .. ty .. "_" .. batch.first
         modules[#modules + 1] = module
         local names, source = {}, {
-            'local array = require("nupp.array")',
+            'local array = table.Array',
             'local span = require("binary.span")',
             'local simd = require("simd")',
         }

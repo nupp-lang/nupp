@@ -247,7 +247,7 @@ local function recordAddress(metatable: any): string?
     return type(address) == "string" and address or nil
 end
 
-local heapModule = require("nupp.heap") as any
+local heapModule = require("nupp.array") as any
 local heapArrayMovable = rawget(heapModule as table, "__heapArrayMovable")
 local heapArrayParts = rawget(heapModule as table, "__heapArrayParts")
 local heapArrayFromParts = rawget(heapModule as table, "__heapArrayFromParts")
@@ -300,7 +300,7 @@ local function unsendable(value: any, path: string, depth: integer, state: Trans
 
             return nil
         end
-        if metatable == (_G.nupp and rawget(_G.nupp, "__heapArrayMetatable")) then
+        if metatable == rawget(heapModule as table, "__arrayMetatable") then
             -- An engine-backed owned array moves: the message takes its
             -- allocation, and the receiving lane becomes the one owner. The
             -- element layout has to be one the tag vocabulary carries, and a
@@ -627,7 +627,7 @@ local function packAttachments(packed: Packed, transfer: TransferState): (Packed
 
     end
     local regionMT = _G.nupp and rawget(_G.nupp, "__regionMetatable")
-    local arrayMT = _G.nupp and rawget(_G.nupp, "__heapArrayMetatable")
+    local arrayMT = rawget(heapModule as table, "__arrayMetatable")
     local state: AttachmentPack = {flat = {}, count = 0, map = {}, moved = nil}
     local values = rewriteAttachments(packed.values, regionMT, arrayMT, state) as {any}
 
@@ -785,7 +785,7 @@ local function releasePlantedMoved(value: any, depth: integer): nil
         return
     end
     local metatable = getmetatable(value)
-    if metatable ~= nil and metatable == (_G.nupp and rawget(_G.nupp, "__heapArrayMetatable")) then
+    if metatable ~= nil and metatable == rawget(heapModule as table, "__arrayMetatable") then
 
         local bytes = (heapArrayParts as function(any): (string?, integer?, integer?))(value)
         if bytes ~= nil then

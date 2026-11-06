@@ -803,7 +803,7 @@ stores:
 
 ::: code-group
 ```nupp:fragment [Nupp]
-function m.advance(view: soa.WriteSpan<Particle>, delta: float): nil
+function m.advance(view: span.WriteSpan<Particle, "columnar">, delta: float): nil
     const rows = view
     for index = 1, #rows do
         rows[index].x += rows[index].dx * delta

@@ -3587,7 +3587,7 @@ function M.anAotEntryCallsAnotherEntryOfItsFile()
         [
             "src/main.nupp"
         ] = [[
-local array = require("nupp.array")
+local array = table.Array
 local span = require("binary.span")
 
 @aot

@@ -17,7 +17,7 @@ local env = envMod.new(HERE .. "/..")
 local M = {}
 
 local PRELUDE = [[
-local array = require("nupp.array")
+local array = table.Array
 local span = require("binary.span")
 local simd = require("simd")
 ]]
@@ -612,7 +612,7 @@ end
 
 local FIXED = [[
 module fixed
-local array = require("nupp.array")
+local array = table.Array
 local span = require("binary.span")
 local simd = require("simd")
 

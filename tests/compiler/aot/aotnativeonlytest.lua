@@ -56,7 +56,7 @@ end
 
 local VEC = [[
 module vec
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 --- Doubles every lane.
@@ -79,7 +79,7 @@ export = {twice = twice, positive = positive, loads = loads}
 
 local MAIN = [[
 module main
-local array = require("nupp.array")
+local array = table.Array
 local span = require("binary.span")
 local simd = require("simd")
 local vec = require("vec")
@@ -198,7 +198,7 @@ end
 
 local AGGREGATE = [[
 module complex
-local array = require("nupp.array")
+local array = table.Array
 local span = require("binary.span")
 local simd = require("simd")
 

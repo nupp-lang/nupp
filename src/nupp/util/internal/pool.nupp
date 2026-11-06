@@ -26,6 +26,9 @@ work on every backend; struct pools require C storage.
 ]]
 module nupp.util.internal.pool
 
+-- Struct pages are selected at their call site; record pools need no storage.
+const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
+
 --- Reusable instances of one record or struct declaration.
 --- @export
 export record Pool<T>
@@ -249,3 +252,6 @@ end
 export function new<T>(witness: Type<T>, size: integer?): Pool<T>
     return Pool<T>(witness, size)
 end
+
+-- Keep the host member available when the constructor is projected directly.
+rawset(rawget(_G, "table") as table, "Pool", Pool)

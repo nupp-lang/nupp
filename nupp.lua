@@ -275,10 +275,8 @@ local RESOURCES = {
         source = "src/nupp/serde/internal/valuebuilder.nupp",
         output = "nupp/compiler/nupp/serde/internal/valuebuilder.nupp"
     },
-    {source = "src/nupp/heap.nupp", output = "nupp/compiler/nupp/heap.nupp"},
     {source = "src/io/internal/bytestypes.nupp", output = "nupp/compiler/io/internal/bytestypes.nupp"},
     {source = "src/io/internal/sharedbytes.nupp", output = "nupp/compiler/io/internal/sharedbytes.nupp"},
-    {source = "src/nupp/soa.nupp", output = "nupp/compiler/nupp/soa.nupp"},
     {
         source = "src/nupp/serde/internal/json/values.nupp",
         output = "nupp/compiler/nupp/serde/internal/json/values.nupp"
@@ -405,6 +403,9 @@ local RESOURCES = {
         source = "src/nupp/runtime/provider/tablestruct.nupp",
         output = "nupp/compiler/nupp/runtime/provider/tablestruct.nupp",
     },
+    {source = "src/nupp/array/internal/layout.nupp", output = "nupp/compiler/nupp/array/internal/layout.nupp"},
+    {source = "src/nupp/array/internal/storage.lua", output = "nupp/compiler/nupp/array/internal/storage.lua"},
+    {source = "src/nupp/array/internal/api.nupp", output = "nupp/compiler/nupp/array/internal/api.nupp"},
     {source = "src/nupp/array.nupp", output = "nupp/compiler/nupp/array.nupp"},
     {source = "src/nupp/util/internal/pool.nupp", output = "nupp/compiler/nupp/util/internal/pool.nupp"},
     {source = "src/events.nupp", output = "nupp/compiler/events.nupp"},

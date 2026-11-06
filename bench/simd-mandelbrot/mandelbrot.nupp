@@ -4,8 +4,9 @@
 const assert2 = require("assert")
 
 local span = require("binary.span")
-local soa = require("nupp.soa")
-local array = require("nupp.array")
+local soa = table.Array
+local span = require("binary.span")
+local array = table.Array
 local simd = require("simd")
 
 local struct Point
@@ -82,8 +83,8 @@ end
 
 @aot
 local function mandelbrotSimd(
-    exclusive escapes: soa.WriteToken & soa.WriteSpan<Escape>,
-    borrows points: soa.Span<Point>,
+    exclusive escapes: span.WriteSpan<Escape, "columnar">,
+    borrows points: span.Span<Point, "columnar">,
     first: integer,
     last: integer,
     maxIterations: int32

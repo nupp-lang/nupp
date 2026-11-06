@@ -1,4 +1,4 @@
-local array = require("nupp.array")
+local array = table.Array
 local span = require("binary.span")
 
 @aot

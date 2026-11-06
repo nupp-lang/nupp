@@ -2376,13 +2376,13 @@ end
 -- reads must be emitted as values rather than as frame slots.
 function M.foldedScalarLocalsAreNotCapturedByAnOwnershipFrame()
     local src = [[
-const array = require("nupp.array")
+const array = table.Array
 local function report(name: string, bad: number): nil end
 local function run(): number
     local n: integer = 7
     do
-        const xs = array.scalar(array.number, n)
-        const ys = array.scalar(array.number, n)
+        const xs = array.alloc(ffi.typeof<number>(), n)
+        const ys = array.alloc(ffi.typeof<number>(), n)
         const wx = xs:write()
         const wy = ys:write()
         for i = 1, n do

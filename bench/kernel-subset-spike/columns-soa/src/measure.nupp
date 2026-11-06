@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local soa = require("nupp.soa")
+local soa = table.Array
 local span = require("binary.span")
 local kernel = require("kernel")
 
@@ -11,7 +11,7 @@ local struct Entity
 end
 
 local function run(count: integer, steps: integer, scalar: boolean, dt: float): (number, number)
-    local entities = soa.alloc(ffi.typeof<Entity>(), count)
+    local entities = soa.alloc(ffi.typeof<Entity>(), count, "columnar")
     local elapsed = 0.0
     local checksum = 0.0
     do

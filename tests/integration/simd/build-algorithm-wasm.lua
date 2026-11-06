@@ -87,7 +87,7 @@ elseif name == "simd-json" then
     write(
         "src/tape.nupp",
         [[
-local array = require("nupp.array")
+local array = table.Array
 local span = require("binary.span")
 local indexer = require("simd_json.indexer")
 local u32 = math.u32

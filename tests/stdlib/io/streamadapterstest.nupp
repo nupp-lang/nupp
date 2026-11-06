@@ -76,7 +76,16 @@ local record PlainReader is Reader
     end
 
     function readspan(exclusive self, exclusive destination: span.ByteWriteSpan): (integer?, string?)
-        return 0
+        local chunk, why = self:read(#destination)
+        if chunk == nil then
+            return nil, why
+        end
+        const bytes = span.fromstring(chunk)
+        for index = 1, #bytes do
+            destination[index] = bytes[index]
+        end
+
+        return #chunk
     end
 
     function close(takes self): nil

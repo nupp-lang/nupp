@@ -415,7 +415,7 @@ running, and so do tasks whose values use records it already carries.
 ## Moving owned buffers
 
 One exception to the ownership refusal is deliberate. A worker parameter may
-take a [](nupp.heap) array of a fixed-width element, and an affine result
+take a [](table.Array) array of a fixed-width element, and an affine result
 may return one; neither is a copy. The array's storage lives in neither Lua
 heap, so the message hands its pointer across and the receiving lane becomes
 the one owner. The submission consumes the sender's binding, so touching it
@@ -425,9 +425,9 @@ ownership back to whichever lane awaits the task.
 ```nupp
 module jobs
 
-const heap = nupp.heap
+const heap = table.Array
 
-export function fill(takes frame: heap.Array<uint8>, seed: integer): affine(heap.Array<uint8>, heap.destroyarray)
+export function fill(takes frame: affine(table.Array<uint8>, table.Array.destroy), seed: integer): affine(table.Array<uint8>, heap.destroy)
     local writable = frame:write()
     for index = 1, #writable do
         writable[index] = (seed + index) % 256
@@ -460,7 +460,7 @@ Exactly one owner exists at any moment: a lane's binding, or the in-flight
 message, which frees the allocation if it is destroyed unread by a cancelled
 task, a closing queue, or a dying lane. A lane that keeps a received buffer
 instead of returning it consumes it like any affine owner, with
-`values:close()`. The element layout crosses as a tag the receiver validates
+`own.drop(values)`. The element layout crosses as a tag the receiver validates
 before rebuilding its owner, and primitive elements move; every other
 ownership mode and element shape keeps the refusal above.
 

@@ -24,7 +24,7 @@ function M.generate(options)
             local name = 'simd_conversions_' .. from .. '_' .. at
             local source = {
                 [[
-local array = require("nupp.array")
+local array = table.Array
 local span = require("binary.span")
 local simd = require("simd")
 local u32 = math.u32

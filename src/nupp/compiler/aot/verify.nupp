@@ -3134,7 +3134,10 @@ local function signature(
             local column = param.soa
             local layout = layouts[column.layout]
             holds(program.executionTarget == "cpu" and program.entryMode == "kernel", "invalid SoA execution target")
-            holds(param.spanModule == "nupp.soa" and param.region ~= nil and layout ~= nil, "invalid SoA column")
+            holds(
+                param.spanModule == "nupp.mem.span.columnar" and param.region ~= nil and layout ~= nil,
+                "invalid SoA column"
+            )
             holds(column.ordinal >= 1 and column.ordinal % 1 == 0, "invalid SoA column ordinal")
             local field = (layout as scalarIR.Layout).fields[column.ordinal]
             holds(
@@ -3168,7 +3171,7 @@ local function signature(
             prior[#prior + 1] = param
             previousView = column.view
         else
-            holds(param.spanModule ~= "nupp.soa", "SoA span lacks its source mapping")
+            holds(param.spanModule ~= "nupp.mem.span.columnar", "SoA span lacks its source mapping")
             previousView = nil
         end
     end

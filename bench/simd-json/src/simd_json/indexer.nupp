@@ -19,7 +19,7 @@ across both, and the first error in the input is the one reported, which is
 the contract `indexer_reference` states in the plain form.
 ]]
 
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 local span = require("binary.span")
 

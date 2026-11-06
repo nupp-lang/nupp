@@ -123,7 +123,7 @@ local span = require("binary.span")
 local simd = require("simd")
 @aot
 local function total(borrows input: span.Span<uint32>, seed: uint32): uint32
-    local fold = simd.reducer.wrappingsum(nupp.array.uint32, seed)
+    local fold = simd.reducer.wrappingsum(table.Array.uint32, seed)
     for i = 1, #input do fold:add(input[i]) end
     return fold:value()
 end
@@ -153,7 +153,7 @@ function M.floatReducerVerifierHoldsEveryOperandToBinary32()
     local program = lowered(
         [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 @aot
 local function total(borrows input: span.Span<float>, seed: float): float
@@ -197,7 +197,7 @@ end
 function M.integerHorizontalsAreRecheckedAgainstTheirLanes()
     local program = lowered(
         [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 @aot
 local function fold(value: int32): int32
@@ -250,7 +250,7 @@ return {fold = fold}
     changed("intrinsic", "exact_dot", "invalid generic SIMD horizontal operation")
     local floating = lowered(
         [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 @aot
 local function fold(value: float): float
@@ -274,7 +274,7 @@ function M.simdConversionRechecksWidthsAndLaneCounts()
     local program = lowered(
         [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 @aot
 local function cast(exclusive out: span.WriteSpan<int32>, borrows input: span.Span<number>): nil
@@ -309,7 +309,7 @@ function M.scatterRechecksUniquenessAndAddressing()
     local program = lowered(
         [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 @aot
 local function write(exclusive out: span.WriteSpan<float>): nil
@@ -642,7 +642,7 @@ end
 
 local VECTOR_MAP = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 @aot
 local function add(exclusive output: span.WriteSpan<uint8>, borrows input: span.Span<uint8>): nil
@@ -659,7 +659,7 @@ return {add = add}
 function M.derivedVectorOffsetsRequireEnoughExactRoom()
     local source = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 @aot
 local function copy(borrows input: span.Span<uint8>, exclusive output: span.WriteSpan<uint8>): nil
@@ -868,7 +868,7 @@ end
 
 function M.rearrangementsRecheckOperandShapesAndOutputSelection()
     local source = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 @aot
 local function rearrange(): number
@@ -1250,7 +1250,7 @@ function M.aLaneWiseCallTakesOnlyLocalsOfItsSpecies()
     local program = lowered(
         [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 local function bump(value: number): number
     return value * 2.0 + 1.0
@@ -1311,7 +1311,7 @@ function M.laneArithmeticRechecksItsElementAndArity()
     local program = lowered(
         [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 @aot
 local function lanes(exclusive out: span.WriteSpan<number>, borrows input: span.Span<number>, borrows counts: span.Span<int32>, exclusive bits: span.WriteSpan<int32>): nil
@@ -1373,7 +1373,7 @@ function M.aMaskConversionKeepsTheLaneCount()
     local program = lowered(
         [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 @aot
 local function masks(exclusive out: span.WriteSpan<int32>, borrows input: span.Span<number>): nil
@@ -1412,7 +1412,7 @@ function M.aFieldAccessNamesAFieldOfItsElement()
     local program = lowered(
         [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 local struct Pair
     x: float
@@ -1455,7 +1455,7 @@ end
 
 local REGION = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 @aot
 local function total(borrows input: span.Span<number>, seed: number): number
@@ -1533,7 +1533,7 @@ end
 
 function M.laneIndicesAreRecheckedAgainstLogicalSpecies()
     local source = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 @aot
 local function lanes(value: number): (number, number)
@@ -1622,7 +1622,7 @@ end
 
 function M.aLaneIndexWrittenAgainstTheSpeciesLaneCountFoldsWithTheTier()
     local source = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 @aot
 local function lanes(value: number): (number, number)
@@ -1791,7 +1791,7 @@ end
 -- silently, because a packing operation against the wrong mask still emits.
 local CROSS_LANE = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 @aot
 local function crossLane(borrows input: span.Span<number>): number

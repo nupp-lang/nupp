@@ -1,5 +1,6 @@
 -- End-to-end SoA lowering smoke fixture.
-local soa = require("nupp.soa")
+local soa = table.Array
+local span = require("binary.span")
 local ffi = require("ffi")
 
 local struct Particle
@@ -10,7 +11,7 @@ local struct Particle
 end
 
 local function run(): number
-    local particles = soa.alloc(ffi.typeof<Particle>(), 4)
+    local particles = soa.alloc(ffi.typeof<Particle>(), 4, "columnar")
     do
         local rows = particles:write();
         for index = 1, #rows do

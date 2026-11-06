@@ -58,7 +58,7 @@ end
 -- An int32 and a uint32 are the same Lua number, so the witness alone decides
 -- which way a 32-bit fold wraps.
 function M.theElementWitnessDecidesHowAnIntegerReducerWraps()
-    local array = require("nupp.array")
+    local array = require("nupp.runtime.standardtable").Array
     local signed = simd.reducer.wrappingsum(array.int32, 2147483647)
     local unsigned = simd.reducer.wrappingsum(array.uint32, 2147483647)
     signed:add(1)
@@ -77,7 +77,7 @@ end
 -- every operation rounds as `math.f32` rounds, and the seed is rounded
 -- on the way in.
 function M.theFloatWitnessRoundsEveryOperationToBinary32()
-    local array = require("nupp.array")
+    local array = require("nupp.runtime.standardtable").Array
     local f32 = math.f32
     local wide = simd.reducer.orderedsum(0.1)
     local narrow = simd.reducer.orderedsum(array.float, 0.1)
@@ -108,7 +108,7 @@ end
 -- value and a mask a boolean: `false` contributes nothing, and an arg
 -- extremum still counts it as a position.
 function M.aBooleanMaskSkipsTheContributionAsOrdinaryLua()
-    local array = require("nupp.array")
+    local array = require("nupp.runtime.standardtable").Array
     local total = simd.reducer.orderedsum(0.0)
     total:add(1.0, false)
     total:add(2.0, true)

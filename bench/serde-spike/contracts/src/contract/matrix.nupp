@@ -78,7 +78,7 @@ local function add(name, target, input)
         end,
         buffer = function()
             return buffer:withexclusive(function(exclusive target: io.Buffer): integer
-                target:clear()
+                target:reset()
                 append(value, target)
                 return target:len()
             end)

@@ -92,7 +92,7 @@ function M.generate(options)
                 local module = 'simd_bitmemory_' .. ty .. '_' .. at
                 local source = {
                     (
-                        'local array=require("nupp.array")\nlocal span=require("binary.span")\nlocal simd=require("simd")\nlocal u32=math.u32\nlocal struct Pair\n    first: %s\n    second: %s\nend\n'
+                        'local array=table.Array\nlocal span=require("binary.span")\nlocal simd=require("simd")\nlocal u32=math.u32\nlocal struct Pair\n    first: %s\n    second: %s\nend\n'
                     ):format(ty, ty)
                 }
                 local names, exports, calls, lanes = {}, {}, {}, {}

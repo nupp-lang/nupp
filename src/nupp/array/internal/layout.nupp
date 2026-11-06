@@ -1,0 +1,147 @@
+@!internal
+module nupp.array.internal.layout
+
+local MAX_EXACT_INTEGER = 9007199254740991
+
+--- A stored top-level field in a SoA descriptor.
+--- @export
+export record FieldLayout
+    --- The field's name, as the struct declared it.
+    @readonly name: string
+
+    --- The struct name and the field name joined, which is what a fingerprint
+    --- entry is filed under.
+    @readonly identity: string
+
+    --- The C type of an element of this column.
+    @readonly ctype: string
+
+    --- Where this field sits in the declaration, counted from one.
+    @readonly ordinal: integer
+
+    --- Bytes per element.
+    @readonly elementsize: integer
+
+    --- The alignment the column starts on.
+    @readonly alignment: integer
+
+    @private @readonly pointerType: any
+end
+
+--- A field segment for a particular element count.
+--- @export
+export record SegmentLayout
+    --- Which field this segment holds.
+    @readonly field: FieldLayout
+
+    --- Where the segment starts, in bytes from the slab's aligned base.
+    @readonly offset: integer
+
+    --- How many bytes it occupies.
+    @readonly bytecount: integer
+end
+
+--- The count-dependent layout of a complete SoA slab.
+--- @export
+export record InstanceLayout
+    --- The row count this layout was computed for.
+    @readonly count: integer
+
+    --- The slab's size in bytes, before alignment padding.
+    @readonly bytesize: integer
+
+    --- One segment per field, in declaration order.
+    @readonly segments: {SegmentLayout}
+end
+
+--- Immutable reflection for a reified struct's SoA representation.
+--- @export
+export record Layout
+    --- The struct's name.
+    @readonly name: string
+
+    --- Every field's identity, type, size and alignment in one string, so two
+    --- layouts can be compared without walking them.
+    @readonly fingerprint: string
+
+    --- The alignment the whole slab starts on, which is the widest field's.
+    @readonly alignment: integer
+
+    --- One entry per stored top-level field, in declaration order.
+    @readonly fields: {FieldLayout}
+
+    --- Computes checked segment offsets for `count` rows without allocating storage.
+    --- @raises string when count is not a nonnegative integer or the slab size
+    ---     overflows
+    function forcount(self, count: integer): InstanceLayout
+        if count < 0 or count ~= math.floor(count) then
+            error("nupp: SoA row count must be a nonnegative integer", 2)
+        end
+
+        local segments: {SegmentLayout} = {}
+        local cursor: integer = 0
+        for ordinal, field in ipairs(self.fields) do
+            if count > 0 and count > MAX_EXACT_INTEGER // field.elementsize then
+                error("nupp: SoA field byte size is too large", 2)
+            end
+            local bytecount = (field.elementsize * count) as integer
+            local remainder = cursor % field.alignment
+            if remainder ~= 0 then
+                cursor = (cursor + field.alignment - remainder) as integer
+            end
+            if cursor > MAX_EXACT_INTEGER - bytecount then
+                error("nupp: SoA slab byte size is too large", 2)
+            end
+            segments[ordinal] = SegmentLayout(field = field, offset = cursor, bytecount = bytecount)
+            cursor = (cursor + bytecount) as integer
+        end
+
+        return InstanceLayout(count = count, bytesize = cursor, segments = segments)
+    end
+end
+
+local layoutCache: {[table]: Layout} = setmetatable({}, {__mode = "k"}) as any
+
+--- Converts compiler-emitted C layout facts into the public count-independent SoA
+--- descriptor. The raw layout also carries private ctype witnesses used only to build
+--- typed column pointers.
+--- @internal
+export function _layout(raw: table): Layout
+    local prior = layoutCache[raw]
+    if prior then
+        return prior
+    end
+
+    local fields: {FieldLayout} = {}
+    local fingerprint = {"soa1", raw.name as string}
+    local alignment: integer = 1
+    for ordinal, source in ipairs(raw.fields as {any}) do
+        local fieldAlignment = source.alignment as integer
+        if fieldAlignment > alignment then
+            alignment = fieldAlignment as integer
+        end
+        local field = FieldLayout(
+            name = source.name as string,
+            identity = (raw.name as string) .. "." .. (source.name as string),
+            ctype = source.ctype as string,
+            ordinal = ordinal,
+            elementsize = source.size as integer,
+            alignment = fieldAlignment,
+            pointerType = source.pointerType
+        )
+        fields[ordinal] = field
+        fingerprint[
+            #fingerprint + 1
+        ] = string.format("%s:%s@%d/%d", field.identity, field.ctype, field.elementsize, field.alignment)
+    end
+
+    local layout = Layout(
+        name = raw.name as string,
+        fingerprint = table.concat(fingerprint, "|"),
+        alignment = alignment,
+        fields = fields
+    )
+    layoutCache[raw] = layout
+
+    return layout
+end

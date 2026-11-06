@@ -9487,14 +9487,14 @@ export function generate(
             end
 
         elseif kind == "call" and x.soaLayout and x.soaOperation then
-            local moduleName = compilerModuleName("nupp.soa")
+            local moduleName = compilerModuleName("nupp.array")
             local args = x.args and x.args.exprs or {}
             local line = sourceLine(x)
             if x.soaOperation == "allocate" then
                 local elementName, countName = nextTemp(), nextTemp()
                 e(
                     (
-                        "(function(%s,%s)return %s._allocate(%s,%s,"
+                        "(function(%s,%s)return %s._allocateColumns(%s,%s,"
                     ):format(elementName, countName, moduleName, elementName, countName),
                     line
                 )

@@ -1,7 +1,8 @@
 const assert2 = require("assert")
 
-local soa = require("nupp.soa")
-local array = require("nupp.array")
+local soa = table.Array
+local span = require("binary.span")
+local array = table.Array
 local simd = require("simd")
 local ffi = require("ffi")
 
@@ -10,15 +11,15 @@ local struct Particle
     velocity: float
 end
 
-local type Reader = soa.Span<Particle>
-local type Writer = soa.WriteToken & soa.WriteSpan<Particle>
+local type Reader = span.Span<Particle, "columnar">
+local type Writer = span.WriteSpan<Particle, "columnar">
 
 local function delta(velocity: number, dt: number): number
     return velocity * dt
 end
 
 @aot
-local function advance(exclusive rows: soa.WriteToken & soa.WriteSpan<Particle>, dt: float): nil
+local function advance(exclusive rows: span.WriteSpan<Particle, "columnar">, dt: float): nil
     for i = 1, #rows do
         rows[i].x += rows[i].velocity * dt
     end
@@ -119,7 +120,7 @@ local struct Numeric
 end
 
 @aot
-local function numeric(exclusive rows: soa.WriteToken & soa.WriteSpan<Numeric>, value: number): nil
+local function numeric(exclusive rows: span.WriteSpan<Numeric, "columnar">, value: number): nil
     for i = 1, #rows do
         rows[i].tiny = value
         rows[i].small = -value
@@ -131,8 +132,8 @@ end
 
 local checksum = 0.0
 for _, n in ipairs({0, 1, 3, 4, 5, 7, 8, 9, 17, 65}) do
-    local particles = soa.alloc(ffi.typeof<Particle>(), n + 4)
-    local other = soa.alloc(ffi.typeof<Particle>(), n)
+    local particles = soa.alloc(ffi.typeof<Particle>(), n + 4, "columnar")
+    local other = soa.alloc(ffi.typeof<Particle>(), n, "columnar")
     do
         local rows = particles:write()
         for i = 1, #rows do
@@ -192,7 +193,7 @@ for _, n in ipairs({0, 1, 3, 4, 5, 7, 8, 9, 17, 65}) do
     own.drop(particles)
 end
 
-local numbers = soa.alloc(ffi.typeof<Numeric>(), 5)
+local numbers = soa.alloc(ffi.typeof<Numeric>(), 5, "columnar")
 do
     local rows = numbers:write()
     for i = 1, #rows do

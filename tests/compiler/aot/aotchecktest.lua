@@ -47,7 +47,7 @@ return {first = first, Pair = Pair}
     [
         "vectorfieldload.nupp"
     ] = [[
-local array = require("nupp.array")
+local array = table.Array
 local span = require("binary.span")
 local simd = require("simd")
 
@@ -69,7 +69,8 @@ return {first = first, Particle = Particle}
     [
         "vectorsoa.nupp"
     ] = [[
-local soa = require("nupp.soa")
+local soa = table.Array
+local span = require("binary.span")
 local simd = require("simd")
 
 local struct Particle
@@ -78,7 +79,7 @@ local struct Particle
 end
 
 @aot
-local function masses(borrows rows: soa.Span<Particle>): number
+local function masses(borrows rows: span.Span<Particle, "columnar">): number
     local total = 0.0
     for i = 1, #rows do
         total = total + rows[i].mass
@@ -92,7 +93,7 @@ return {masses = masses, Particle = Particle}
     [
         "speciesresult.nupp"
     ] = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -149,7 +150,7 @@ return {shifted = shifted}
     [
         "lane.nupp"
     ] = [[
-local array = require("nupp.array")
+local array = table.Array
 local span = require("binary.span")
 local simd = require("simd")
 
@@ -285,7 +286,7 @@ return {damp = damp, Particle = Particle}
     [
         "vectorentry.nupp"
     ] = [[
-local array = require("nupp.array")
+local array = table.Array
 local span = require("binary.span")
 local simd = require("simd")
 
@@ -344,7 +345,7 @@ return {halve = halve}
     [
         "aggregate.nupp"
     ] = [[
-local array = require("nupp.array")
+local array = table.Array
 local span = require("binary.span")
 local simd = require("simd")
 
@@ -390,11 +391,11 @@ end
 -- Not returned: an `any` result is not an interface a module can export.
 local _ = pair
 ]],
-    -- A species witness named through the global `nupp.array` path.
+    -- A species witness named through the global `table.Array` path.
     [
         "globalwitness.nupp"
     ] = [[
-local array = nupp.array
+local array = table.Array
 local span = require("binary.span")
 local simd = require("simd")
 
@@ -408,7 +409,7 @@ local function countQuotes(borrows source: span.Span<uint8>): uint32
             cursor = cursor + species.lanes
         end
     end
-    if lanes = simd.vectors(nupp.array.uint8) then
+    if lanes = simd.vectors(table.Array.uint8) then
         found = found + lanes.lanes - lanes.lanes
     end
     while cursor < #source do
@@ -847,7 +848,7 @@ return {twice = twice}
             [
                 "uses.nupp"
             ] = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 local vec = require("vec")
 local twice = vec.twice
@@ -902,7 +903,7 @@ return {
             [
                 "pair.nupp"
             ] = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 local struct Pair

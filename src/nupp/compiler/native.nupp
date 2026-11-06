@@ -69,7 +69,13 @@ end
 local FEATURES: {[string]: native.Feature} = {
     [
         "runtime.structpool"
-    ] = {name = "structpool", runtimeModule = "nupp.util.internal.structpool", portableRuntime = true, requires = {}},
+    ] = {
+        name = "structpool",
+        exports = {"nupp.util.internal.pool.new", "nupp.util.internal.pool.Pool"},
+        runtimeModule = "nupp.util.internal.structpool",
+        portableRuntime = true,
+        requires = {}
+    },
     [
         "stdlib.packages"
     ] = {
@@ -813,7 +819,13 @@ local FEATURES: {[string]: native.Feature} = {
     ["runtime.indexed"] = {name = "indexed", runtimeModule = "nupp.mem.indexed", portableRuntime = true,},
     [
         "runtime.heap"
-    ] = {name = "heap", module = "nupp.heap", runtimeModule = "nupp.heap", requires = {"runtime.spanview"},},
+    ] = {
+        name = "heap",
+        module = "nupp.array",
+        runtimeModule = "nupp.array",
+        portableRuntime = true,
+        requires = {"runtime.spanview"},
+    },
     ["native.http"] = {
         name = "http",
         module = "nupp.runtime.provider.nativehttp",

@@ -43,7 +43,7 @@ binds buffers in parameter order, and dispatches scalar uniforms separately:
 
 ```nupp:fragment
 local kernels = require("kernels")
-local array = nupp.array
+local array = table.Array
 
 local source = array.scalar(array.float, 1024)
 local result = array.scalar(array.float, 1024)
@@ -199,7 +199,7 @@ bounded copies between guest storage and WebGPU buffers:
 
 ```nupp
 local span = binary.span
-local array = nupp.array
+local array = table.Array
 
 @aot(target = "gpu")
 local function addMask(

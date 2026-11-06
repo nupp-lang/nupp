@@ -706,9 +706,9 @@ export function firstByte(region: io.Bytes): integer
     return region:view(0, 1)[1]
 end
 
-const heap = require("nupp.heap")
+const heap = table.Array
 
-export function stamp(takes frame: heap.Array<uint8>, value: integer): affine(heap.Array<uint8>, heap.destroyarray)
+export function stamp(takes frame: affine(table.Array<uint8>, table.Array.destroy), value: integer): affine(table.Array<uint8>, heap.destroy)
     local writable = frame:write()
     writable[1] = value % 256
     own.drop(writable)
@@ -716,7 +716,7 @@ export function stamp(takes frame: heap.Array<uint8>, value: integer): affine(he
     return frame
 end
 
-export function total(takes values: heap.Array<int32>): integer
+export function total(takes values: affine(table.Array<int32>, table.Array.destroy)): integer
     local sum: integer = 0
     do
         local readable = values:read()
@@ -724,7 +724,7 @@ export function total(takes values: heap.Array<int32>): integer
             sum = sum + readable[index]
         end
     end
-    values:close()
+    own.drop(values)
 
     return sum
 end
@@ -858,7 +858,7 @@ end)
 print(copied, tostring(copyProblem):find("has a metatable", 1, true) ~= nil)
 
 const ffi = require("ffi")
-const heap = require("nupp.heap")
+const heap = table.Array
 
 local frame = heap.alloc(ffi.typeof<uint8>(), 64)
 do local scope = tasks.scope() ;
@@ -1310,12 +1310,12 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
         ] = [[
 module jobs
 
-const heap = require("nupp.heap")
+const heap = table.Array
 const sharedbytes = io.Bytes
 
-export function inspect(takes frame: heap.Array<uint8>, region: io.Bytes): integer
+export function inspect(takes frame: affine(table.Array<uint8>, table.Array.destroy), region: io.Bytes): integer
     local count = frame.count
-    frame:close()
+    own.drop(frame)
     return count + region:len()
 end
 ]],
@@ -1323,7 +1323,7 @@ end
             "src/main.nupp"
         ] = [[
 const jobs = require("jobs")
-const heap = require("nupp.heap")
+const heap = table.Array
 const sharedbytes = io.Bytes
 const tasks = require("coroutine")
 
@@ -1426,13 +1426,13 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
         ] = [[
 module jobs
 
-const heap = require("nupp.heap")
+const heap = table.Array
 
 export function square(value: integer): integer
     return value * value
 end
 
-export function stamp(takes frame: heap.Array<uint8>, value: integer): affine(heap.Array<uint8>, heap.destroyarray)
+export function stamp(takes frame: affine(table.Array<uint8>, table.Array.destroy), value: integer): affine(table.Array<uint8>, heap.destroy)
     local writable = frame:write()
     writable[1] = value % 256
     own.drop(writable)
@@ -1446,7 +1446,7 @@ end
 module nupp.internal.scopeobserver
 
 const ffi = require("ffi")
-const heap = require("nupp.heap")
+const heap = table.Array
 const jobs = require("jobs")
 const tasks = require("coroutine")
 

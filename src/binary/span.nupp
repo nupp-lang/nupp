@@ -176,10 +176,10 @@ export type ByteWriteSpan = source1.ByteWriteSpan
 export type FixedSpan<T, const N: integer> = source1.FixedSpan<T, N>
 export type FixedWritable<T, const N: integer> = source1.FixedWritable<T, N>
 export type FixedWriteSpan<T, const N: integer> = source1.FixedWriteSpan<T, N>
-export type Span<T> = source1.Span<T>
-export type Writable<T> = source1.Writable<T>
-export type WriteSpan<T> = source1.WriteSpan<T>
-export type WriteSplit<T> = source1.WriteSplit<T>
+export type Span<T, const Layout: string = "packed"> = source1.Span<T, Layout>
+export type Writable<T, const Layout: string = "packed"> = source1.Writable<T, Layout>
+export type WriteSpan<T, const Layout: string = "packed"> = source1.WriteSpan<T, Layout>
+export type WriteSplit<T, const Layout: string = "packed"> = source1.WriteSplit<T, Layout>
 export type WriteToken = source1.WriteToken
 export type Range = source2.Range
 export const WriteSplit = source1.WriteSplit

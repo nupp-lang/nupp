@@ -26,7 +26,7 @@ local operations = {
     {"maskedStore", "s:load(scratch, 65)", "chosen[i] and a[i] or b[i]"},
 }
 local prelude = [[
-local array = require("nupp.array")
+local array = table.Array
 local span = require("binary.span")
 local simd = require("simd")
 local u32 = math.u32

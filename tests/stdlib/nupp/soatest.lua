@@ -52,8 +52,10 @@ local function codes(source)
 end
 
 local PRELUDE = [[
-local soa = require("nupp.soa")
-local array = require("nupp.array")
+local span = require("binary.span")
+local soa = table.Array
+local span = require("binary.span")
+local array = table.Array
 local simd = require("simd")
 local ffi = require("ffi")
 
@@ -71,7 +73,7 @@ function M.directFieldsAndWholeRowsKeepValueSemantics()
     local value, code = runs(
         PRELUDE
         .. [[
-local particles = soa.alloc(ffi.typeof<Particle>(), 4)
+local particles = soa.alloc(ffi.typeof<Particle>(), 4, "columnar")
 do local rows = particles:write() ;
     for index = 1, #rows do
         rows[index].x = index
@@ -102,7 +104,7 @@ function M.countBoundedLoopsBindSoaInvariantsOnce()
     local code, errors, generated = compile(
         PRELUDE
         .. [[
-function advance(view: soa.WriteSpan<Particle>, delta: float): nil
+function advance(view: span.WriteSpan<Particle, "columnar">, delta: float): nil
     const rows = view
     for index = 1, #rows do
         rows[index].x += rows[index].dx * delta
@@ -135,7 +137,7 @@ function M.nestedCountBoundedLoopsLeaveCrossLoopHoistingToTheRecorder()
     local code, errors, generated, _, remarks = compile(
         PRELUDE
         .. [[
-function advance(view: soa.WriteSpan<Particle>, delta: float, steps: integer): nil
+function advance(view: span.WriteSpan<Particle, "columnar">, delta: float, steps: integer): nil
     const rows = view
     for _ = 1, steps do
         for index = 1, #rows do
@@ -177,7 +179,7 @@ storage[0].x = 2
 storage[1].x = 4
 storage[2].x = 6
 const source = span.fromcarray(storage, 3)
-local particles = soa.alloc(ffi.typeof<Particle>(), 3)
+local particles = soa.alloc(ffi.typeof<Particle>(), 3, "columnar")
 do
     local rows = particles:write()
     const output = rows
@@ -201,7 +203,7 @@ function M.scopedDirectFieldsKeepTheirResults()
     local value = runs(
         PRELUDE
         .. [[
-local particles = soa.alloc(ffi.typeof<Particle>(), 2)
+local particles = soa.alloc(ffi.typeof<Particle>(), 2, "columnar")
 do local rows = particles:write() ;
     for index = 1, #rows do
         rows[index].x = index
@@ -220,7 +222,7 @@ function M.compoundAssignmentEvaluatesTheIndexOnce()
     local value = runs(
         PRELUDE
         .. [[
-local particles = soa.alloc(ffi.typeof<Particle>(), 1)
+local particles = soa.alloc(ffi.typeof<Particle>(), 1, "columnar")
 local calls = 0
 local function nextIndex(): integer
     calls += 1
@@ -268,9 +270,9 @@ function M.aStructKeepsItsAoSLayoutBesideSoAStorage()
     local value = runs(
         PRELUDE
         .. [[
-local heap = require("nupp.heap")
+local heap = table.Array
 local aos = heap.alloc(ffi.typeof<Particle>(), 1)
-local columns = soa.alloc(ffi.typeof<Particle>(), 1)
+local columns = soa.alloc(ffi.typeof<Particle>(), 1, "columnar")
 do
     local rows = aos:write()
     rows[1] = Particle(1, 2, 3, 4)
@@ -296,7 +298,8 @@ end
 function M.nestedStructsAndFixedArraysRemainSingleColumns()
     local facts = runs(
         [[
-local soa = require("nupp.soa")
+local soa = table.Array
+local span = require("binary.span")
 local ffi = require("ffi")
 local struct Position
     x: float
@@ -349,7 +352,7 @@ function M.fieldProjectionIsTypedAndSiblingColumnsCanBeWritten()
         PRELUDE
         .. [[
 local span = require("binary.span")
-local particles = soa.alloc(ffi.typeof<Particle>(), 2)
+local particles = soa.alloc(ffi.typeof<Particle>(), 2, "columnar")
 do
     local rows = particles:write()
     local xs: span.Writable<float> = rows.x
@@ -372,7 +375,7 @@ function M.fieldTokensCarrySemanticColumnInspectionFacts()
     local _, errors, _, parsed = compile(
         PRELUDE
         .. [[
-local particles = soa.alloc(ffi.typeof<Particle>(), 1)
+local particles = soa.alloc(ffi.typeof<Particle>(), 1, "columnar")
 local rows = particles:read()
 local direct = rows[1].x
 local projected = rows["dy"]
@@ -394,12 +397,13 @@ end
 function M.literalBracketsReachColumnsThatCollideWithViewMembers()
     local value = runs(
         [[
-local soa = require("nupp.soa")
+local soa = table.Array
+local span = require("binary.span")
 local ffi = require("ffi")
 local struct Collision
     slice: float
 end
-local values = soa.alloc(ffi.typeof<Collision>(), 1)
+local values = soa.alloc(ffi.typeof<Collision>(), 1, "columnar")
 do
     local rows = values:write()
     local column = rows["slice"]
@@ -420,7 +424,7 @@ function M.aotBodiesRetainSemanticUnitStrideFieldFacts()
         PRELUDE
         .. [[
 @aot
-local function advance(exclusive rows: soa.WriteToken & soa.WriteSpan<Particle>, dt: float): nil
+local function advance(exclusive rows: span.WriteSpan<Particle, "columnar">, dt: float): nil
     for i = 1, #rows do
         rows[i].x += rows[i].dx * dt
         rows[i].y += rows[i].dy * dt
@@ -455,7 +459,7 @@ function M.writableSlicesKeepOffsetsAndBorrowBarriers()
     local value = runs(
         PRELUDE
         .. [[
-local particles = soa.alloc(ffi.typeof<Particle>(), 3)
+local particles = soa.alloc(ffi.typeof<Particle>(), 3, "columnar")
 do
     local rows = particles:write()
     local middle = rows:slice(2, 2)
@@ -477,7 +481,7 @@ function M.nonescapingSoaSlicesUseScalarOffsets()
     local value, code = runs(
         PRELUDE
         .. [[
-local particles = soa.alloc(ffi.typeof<Particle>(), 4)
+local particles = soa.alloc(ffi.typeof<Particle>(), 4, "columnar")
 do
     local rows = particles:write()
     const middle = rows:slice(2, 3)
@@ -499,7 +503,7 @@ function M.nonescapingFieldProjectionsUseTheSelectedColumn()
     local value, code = runs(
         PRELUDE
         .. [[
-local particles = soa.alloc(ffi.typeof<Particle>(), 3)
+local particles = soa.alloc(ffi.typeof<Particle>(), 3, "columnar")
 do
     local rows = particles:write()
     const xs = rows.x
@@ -529,8 +533,8 @@ function M.fieldWiseCopyMovesRowsWithoutMaterializingThem()
     local value = runs(
         PRELUDE
         .. [[
-local source = soa.alloc(ffi.typeof<Particle>(), 3)
-local target = soa.alloc(ffi.typeof<Particle>(), 4)
+local source = soa.alloc(ffi.typeof<Particle>(), 3, "columnar")
+local target = soa.alloc(ffi.typeof<Particle>(), 4, "columnar")
 do
     local rows = source:write()
     rows[1] = Particle(1, 2, 3, 4)
@@ -555,7 +559,7 @@ function M.fieldProjectionRequiresAResolvedStoredField()
         codes(
             PRELUDE
             .. [[
-local particles = soa.alloc(ffi.typeof<Particle>(), 1)
+local particles = soa.alloc(ffi.typeof<Particle>(), 1, "columnar")
 local name = "x"
 local xs = particles:read()[name]
 print(xs ~= nil)
@@ -569,7 +573,7 @@ print(xs ~= nil)
         codes(
             PRELUDE
             .. [[
-local particles = soa.alloc(ffi.typeof<Particle>(), 1)
+local particles = soa.alloc(ffi.typeof<Particle>(), 1, "columnar")
 const name = "x"
 local xs = particles:read()[name]
 print(xs ~= nil)
@@ -583,7 +587,7 @@ print(xs ~= nil)
         codes(
             PRELUDE
             .. [[
-local particles = soa.alloc(ffi.typeof<Particle>(), 1)
+local particles = soa.alloc(ffi.typeof<Particle>(), 1, "columnar")
 local xs = particles:read()["missing"]
 print(xs ~= nil)
 ]]
@@ -596,7 +600,7 @@ print(xs ~= nil)
         codes(
             PRELUDE
             .. [[
-local particles = soa.alloc(ffi.typeof<Particle>(), 1)
+local particles = soa.alloc(ffi.typeof<Particle>(), 1, "columnar")
 local xs = particles:read().missing
 print(xs ~= nil)
 ]]
@@ -609,7 +613,7 @@ print(xs ~= nil)
         codes(
             PRELUDE
             .. [[
-local particles = soa.alloc(ffi.typeof<Particle>(), 1)
+local particles = soa.alloc(ffi.typeof<Particle>(), 1, "columnar")
 local xs = particles:read():field("x")
 print(xs ~= nil)
 ]]
@@ -624,25 +628,25 @@ function M.zeroCountsAndBoundsAreChecked()
         PRELUDE
         .. [[
 local layout = soa.layoutof(ffi.typeof<Particle>())
-local empty = soa.alloc(ffi.typeof<Particle>(), 0)
+local empty = soa.alloc(ffi.typeof<Particle>(), 0, "columnar")
 local zero = layout:forcount(0)
 local okRead = pcall(function() return empty:read()[1] end)
-local one = soa.alloc(ffi.typeof<Particle>(), 1)
+local one = soa.alloc(ffi.typeof<Particle>(), 1, "columnar")
 local okDirect = pcall(function()
     local rows = one:write()
     rows[2].x = 1
     own.drop(rows)
 end)
 local okNegative = pcall(function()
-    local invalid = soa.alloc(ffi.typeof<Particle>(), -1)
-    invalid:close()
+    local invalid = soa.alloc(ffi.typeof<Particle>(), -1, "columnar")
+    own.drop(invalid)
 end)
 local okFractionalLayout = pcall(function()
     layout:forcount(1.5 as any)
 end)
 local okFractionalAllocation = pcall(function()
-    local invalid = soa.alloc(ffi.typeof<Particle>(), 1.5 as any)
-    invalid:close()
+    local invalid = soa.alloc(ffi.typeof<Particle>(), 1.5 as any, "columnar")
+    own.drop(invalid)
 end)
 local okOverflow = false
 if jit.os ~= "Windows" then
@@ -672,8 +676,8 @@ function M.nanAndFractionalRowIndexesAreRefused()
     local value = runs(
         PRELUDE
         .. [[
-local particles = soa.alloc(ffi.typeof<Particle>(), 4)
-local source = soa.alloc(ffi.typeof<Particle>(), 4)
+local particles = soa.alloc(ffi.typeof<Particle>(), 4, "columnar")
+local source = soa.alloc(ffi.typeof<Particle>(), 4, "columnar")
 do
     local rows = particles:write()
     rows[1].x = 1
@@ -733,7 +737,7 @@ function M.sharedRowsRejectWrites()
         codes(
             PRELUDE
             .. [[
-local particles = soa.alloc(ffi.typeof<Particle>(), 1)
+local particles = soa.alloc(ffi.typeof<Particle>(), 1, "columnar")
 local rows = particles:read()
 rows[1].x = 2
 ]]
@@ -746,7 +750,7 @@ rows[1].x = 2
         codes(
             PRELUDE
             .. [[
-local particles = soa.alloc(ffi.typeof<Particle>(), 1)
+local particles = soa.alloc(ffi.typeof<Particle>(), 1, "columnar")
 local rows = particles:read()
 rows[1] = Particle(1, 2, 3, 4)
 ]]
@@ -760,9 +764,10 @@ function M.nonStructElementsAreRejectedAtTheCall()
     testAssert.eq(
         codes(
             [[
-local soa = require("nupp.soa")
+local soa = table.Array
+local span = require("binary.span")
 local ffi = require("ffi")
-local rows = soa.alloc(ffi.typeof<int32>(), 4)
+local rows = soa.alloc(ffi.typeof<int32>(), 4, "columnar")
 ]]
         ),
         "NUPP2403",
@@ -790,7 +795,7 @@ end
 local DIRECT = PRELUDE
     .. [[
 @aot
-local function advance(exclusive rows: soa.WriteToken & soa.WriteSpan<Particle>, dt: float): nil
+local function advance(exclusive rows: span.WriteSpan<Particle, "columnar">, dt: float): nil
     local species = assert(simd.species(array.float))
     local cursor: uint32 = 0
     while cursor < #rows do
@@ -818,14 +823,14 @@ function M.nativeColumnsKeepSourceMappingAndUseExplicitVectors()
         testAssert.eq(param.soa.ordinal, ordinal, "ordered columns")
         testAssert.eq(param.soa.view, "rows", "source view")
         testAssert.eq(param.soa.field, ({"x", "y", "dx", "dy"})[ordinal], "field identity")
-        testAssert.eq(param.spanModule, "nupp.soa", "sealed column origin")
+        testAssert.eq(param.spanModule, "nupp.mem.span.columnar", "sealed column origin")
     end
     for _, fact in ipairs(program.aliasFacts) do
         testAssert.eq(fact.proof, "soa_columns", "sibling layout proof")
         testAssert.eq(fact.relation, "disjoint", "sibling columns do not alias")
     end
     local binding = table.concat(aotBinding.wrapper(program), "\n")
-    assert(binding:find("exclusive rows: soa.WriteToken&soa.WriteSpan<Particle>", 1, true), binding)
+    assert(binding:find('exclusive rows: span.WriteSpan<Particle,"columnar">', 1, true), binding)
     assert(binding:find('rows["dx"]', 1, true), binding)
     assert(not binding:find("ffi.copy", 1, true), binding)
     assert(not binding:find("exclusive __nuppSoa", 1, true), binding)
@@ -841,7 +846,7 @@ function M.nativeSharedViewsMayOverlapButSiblingColumnsAreDisjoint()
     local programs, diagnostics = native(
         PRELUDE
         .. [[
-local type Reader = soa.Span<Particle>
+local type Reader = span.Span<Particle, "columnar">
 @aot
 local function counts(borrows left: Reader, value: number, borrows right: Reader): number
     return #left + value + #right
@@ -875,7 +880,7 @@ function M.nativeColumnsRejectUnprovedBoundsAndUnsupportedRowOperations()
         local source = PRELUDE
             .. [[
 @aot
-local function read(borrows rows: soa.Span<Particle>, key: string): number
+local function read(borrows rows: span.Span<Particle, "columnar">, key: string): number
 ]]
             .. example[
                 1
@@ -898,7 +903,7 @@ function M.dynamicNativeRowFieldsRemainATypeError()
             PRELUDE
             .. [[
 @aot
-local function read(borrows rows: soa.Span<Particle>, key: string): number
+local function read(borrows rows: span.Span<Particle, "columnar">, key: string): number
     for i = 1, #rows do return rows[i][key] end
     return 0
 end
@@ -940,7 +945,7 @@ function M.nativeSoaCursorParametersUseTheViewCountForEveryColumn()
         PRELUDE
         .. [[
 @aot
-local function read(borrows rows: soa.Span<Particle>, cursor: uint32): number
+local function read(borrows rows: span.Span<Particle, "columnar">, cursor: uint32): number
     if cursor < #rows then return rows[cursor + 1].dy end
     return -1
 end
@@ -997,11 +1002,11 @@ function M.nativeSoaRejectsNonScalarLayoutsAndUnownedViews()
         {
             PRELUDE
             .. [[
-local function rowsCount(borrows rows: soa.Span<Particle>): integer
+local function rowsCount(borrows rows: span.Span<Particle, "columnar">): integer
     return #rows
 end
 @aot
-local function count(borrows rows: soa.Span<Particle>): integer
+local function count(borrows rows: span.Span<Particle, "columnar">): integer
     return rowsCount(rows)
 end
 return count
@@ -1015,7 +1020,7 @@ local struct Flags
     active: boolean
 end
 @aot
-local function count(borrows rows: soa.Span<Flags>): integer
+local function count(borrows rows: span.Span<Flags, "columnar">): integer
     return #rows
 end
 return count
@@ -1023,9 +1028,10 @@ return count
             "field type boolean"
         },
         {
-            PRELUDE .. [[
+            PRELUDE
+            .. [[
 @aot
-local function count(rows: soa.Span<Particle>): integer
+local function count(rows: span.Span<Particle, "columnar">): integer
     return #rows
 end
 return count
@@ -1039,7 +1045,7 @@ local struct Nested
     value: Particle
 end
 @aot
-local function count(borrows rows: soa.Span<Nested>): integer
+local function count(borrows rows: span.Span<Nested, "columnar">): integer
     return #rows
 end
 return count
@@ -1053,7 +1059,7 @@ local struct Packed
     bit: uint32 : 1
 end
 @aot
-local function count(borrows rows: soa.Span<Packed>): integer
+local function count(borrows rows: span.Span<Packed, "columnar">): integer
     return #rows
 end
 return count
@@ -1075,7 +1081,7 @@ function M.nativeSoaKeepsAffineAliasesAndReservesAuthoredParameterNames()
     local programs, diagnostics = native(
         PRELUDE
         .. [[
-local type Writer = soa.Writable<Particle>
+local type Writer = span.Writable<Particle, "columnar">
 @aot
 local function count(exclusive rows: Writer, __nuppSoa_1_2: number): number
     return #rows + __nuppSoa_1_2
@@ -1087,6 +1093,65 @@ return count
     testAssert.eq(programs[1].params[1].soa.sourceType, "Writer", "affine alias preserved")
     assert(programs[1].params[2].name ~= "__nuppSoa_1_2", "generated column collides with source parameter")
     testAssert.eq(programs[1].params[5].name, "__nuppSoa_1_2", "authored scalar retained")
+end
+
+function M.managedAndOwnedArraysShareOneTypeAndSpanBrand()
+    local value = runs(
+        [[
+local Array = table.Array
+local span = require("binary.span")
+local function sum(borrows values: table.Array<int32>): integer
+    const rows = values:read()
+    local total: integer = 0
+    for index = 1, #rows do total += rows[index] as integer end
+    return total
+end
+local managed = Array.scalar(Array.int32, 2)
+local alias = managed
+do local rows = managed:write() ; rows[1] = 7 as int32 ; rows[2] = 9 as int32 end
+local owned = Array.alloc(ffi.typeof<int32>(), 2)
+do local rows = owned:write() ; rows:copyfrom(1, managed:read(), 1, 2) end
+return sum(alias) == 16 and sum(owned) == 16 and managed:read().storagekind == "packed"
+]]
+    )
+    testAssert.eq(value, true)
+end
+
+function M.columnarSpansKeepTheCanonicalBrandAndRejectPackedAdapters()
+    local value = runs(
+        PRELUDE
+        .. [[
+local values = soa.alloc(ffi.typeof<Particle>(), 1, "columnar")
+do local rows = values:write() ; rows[1] = Particle(1, 2, 3, 4) end
+local function canonical(borrows rows: span.Span<Particle, "columnar">): boolean
+    return rows.storagekind == "columnar"
+end
+return canonical(values:read())
+]]
+    )
+    testAssert.eq(value, true)
+    local _, errors = compile(
+        PRELUDE
+        .. [[
+cdef function send(borrows data: Particle* countedBy(count), count: uint64)
+local values = soa.alloc(ffi.typeof<Particle>(), 1, "columnar")
+send(values:read())
+]]
+    )
+    assert(#errors > 0, "columnar rows must not enter a contiguous C adapter")
+end
+
+function M.layoutGenericIndexingRequiresAConcreteRepresentation()
+    local _, errors = compile(
+        [[
+local span = require("binary.span")
+local function first<T, const L: string>(borrows rows: span.Span<T, L>): T
+    return rows[1]
+end
+return first
+]]
+    )
+    assert(#errors > 0 and errors[1].code == "NUPP2403")
 end
 
 return M

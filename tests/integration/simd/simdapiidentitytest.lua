@@ -69,7 +69,7 @@ function M.callAliasesKeepSemanticIdentityAndShadowing()
 end
 
 local SCALE = [[
-local array = require("nupp.array")
+local array = table.Array
 local span = require("binary.span")
 local lanes = require(%q)
 @aot
@@ -112,7 +112,7 @@ function M.finalAndLegacyImportsProduceTheSameVerifiedIR()
 end
 
 local DIRECT_REDUCERS = [[
-local array = nupp.array
+local array = table.Array
 local span = binary.span
 @aot
 local function total(borrows values: span.Span<number>): number
@@ -309,7 +309,7 @@ local function checkedSimd(source, env)
 end
 
 local CASE_KERNEL = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 @aot
 local function fold(): number
@@ -352,7 +352,7 @@ end
 
 function M.lowercaseSimdContractsKeepRefusalsAndMethodCase()
     local source = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 @aot
 local function invalid(): number

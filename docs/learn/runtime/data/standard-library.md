@@ -17,8 +17,7 @@ print(#digest, math.lerp(10, 20, 0.25))
 
 Compiler intrinsics live in their subject namespaces, such as `types`, `simd`,
 and `own`. The compiler selects their implementations from the members checked
-source reaches. Typed storage uses [](nupp.array), [](nupp.heap) and
-[](nupp.soa); [](io.Buffer) owns FIFO byte buffers.
+source reaches. Typed storage uses [](table.Array); [](io.Buffer) owns FIFO byte buffers.
 
 Nupp-authored libraries outside that surface are ordinary declared modules on
 disk. A qualified module path loads one only when the source uses it:
@@ -81,7 +80,7 @@ intrinsic namespaces and the declared modules:
 - [](debug.log) owns leveled logging over a swappable destination.
 - [](math) owns scalar and two-dimensional vector helpers.
 - [](binary.span) owns rooted, bounds-checked shared and writable C array views.
-- [`nupp.soa`](structure-of-arrays.md) stores every top-level field of a
+- [`table.Array`](structure-of-arrays.md) stores every top-level field of a
   reified struct in its own column.
 - [](io.gpu) owns resident buffers, generated kernel dispatches, and tensor views.
   [](io.gpu.Layout) provides checked layout transformations.
@@ -167,7 +166,7 @@ raise instead of returning a failure value.
 
 A result declared `affine(...)` has a cleanup obligation: its local scope drops
 it, and `own.drop` ends its lifetime early. Other values have different storage
-lifetimes. `nupp.array` and struct pool pages use managed storage; shared-byte
+lifetimes. `table.Array` and struct pool pages use managed storage; shared-byte
 regions retain engine references. `io.Buffer` is affine and releases its
 storage when its owner is dropped.
 

@@ -24,7 +24,7 @@ function M.mapAndExplicitWidthsShareOneTranslationUnit()
         [[
 local span = require("binary.span")
 local simd = require("simd")
-local array = require("nupp.array")
+local array = table.Array
 @aot
 local function map(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>): nil
     assert(#output == #input)

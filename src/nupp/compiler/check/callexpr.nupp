@@ -2075,8 +2075,22 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         end
         local soaExport = node.kind == "call" and callee and callee.exactCallExport or nil
         if soaExport
-            and soaExport.module == "nupp.soa"
-            and (soaExport.member == "allocate" or soaExport.member == "alloc" or soaExport.member == "layoutof")
+            and (
+                soaExport.module == "nupp.array"
+                or soaExport.module == "nupp.array.internal.api"
+                or soaExport.module == "nupp.runtime.standardtable"
+                or soaExport.module == "table"
+            )
+            and (
+                soaExport.member == "layoutof"
+                or soaExport.member == "Array.layoutof"
+                or (
+                    (soaExport.member == "alloc" or soaExport.member == "Array.alloc")
+                    and argExprs[3]
+                    and rawType(c.infer(argExprs[3])).tag == "literal"
+                    and (rawType(c.infer(argExprs[3])) as T.Literal).constant == "columnar"
+                )
+            )
         then
             local witness = argExprs[1] and rawType(c.infer(argExprs[1])) or nil
             local subject = witness and witness.tag == "ctype" and witness.of or nil
@@ -2086,7 +2100,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 local spec = soaLayoutSpec(c, subject, argExprs[1] or node)
                 if spec then
                     node.soaLayout = spec
-                    node.soaOperation = soaExport.member == "alloc" and "allocate" or soaExport.member
+                    node.soaOperation = soaExport.member:match("alloc$") and "allocate" or "layoutof"
                 end
             end
         end

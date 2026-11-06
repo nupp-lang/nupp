@@ -7,7 +7,7 @@ once and `species:over` runs it a chunk at a time, the last chunk under its tail
 mask:
 
 ```nupp
-local array = nupp.array
+local array = table.Array
 local span = binary.span
 
 @aot
@@ -45,12 +45,8 @@ module simd
 
 const types = require("types")
 
-const {type Span, type WriteSpan} = require("binary.span")
-const {
-    type ReadView as SoaReadView,
-    type WriteSpan as SoaWriteSpan,
-    type WriteToken as SoaWriteToken
-} = require("nupp.soa")
+const {type Span, type WriteSpan} = require("nupp.mem.span")
+
 const storageWitnesses = require("nupp.array")
 const {type Scalar as StorageWitness} = require("nupp.array")
 
@@ -2169,14 +2165,14 @@ sealed interface simd.Species<T, S>
         ): simd.Vector<T, S>
         & function<E>(
             borrows self: simd.Species<T, S>,
-            borrows source: SoaWriteToken & SoaWriteSpan<E>,
+            borrows source: WriteSpan<E, "columnar">,
             offset: integer,
             field: string,
             active: simd.Mask<T, S>?
         ): simd.Vector<T, S>
-        & function(
+        & function<E>(
             borrows self: simd.Species<T, S>,
-            borrows source: SoaReadView,
+            borrows source: Span<E, "columnar">,
             offset: integer,
             field: string,
             active: simd.Mask<T, S>?
@@ -2201,7 +2197,7 @@ sealed interface simd.Species<T, S>
         ): nil
         & function<E>(
             borrows self: simd.Species<T, S>,
-            exclusive destination: SoaWriteToken & SoaWriteSpan<E>,
+            exclusive destination: WriteSpan<E, "columnar">,
             offset: integer,
             field: string,
             value: simd.Vector<T, S>,
@@ -3422,7 +3418,7 @@ local speciesCache: {[string]: LuaSpecies} = {}
 scalarSpecies = function(element: any, lanes: any): any
     local name = ELEMENT_OF[element]
     if name == nil then
-        error("simd.species takes one of the scalar witnesses in nupp.array, such as array.uint32", 3)
+        error("simd.species takes one of the scalar witnesses in table.Array, such as array.uint32", 3)
     end
     if lanes ~= nil and (type(lanes) ~= "number" or lanes < 2 or lanes > 64 or lanes % 1 ~= 0) then
         error("simd.species takes a witness and, for a fixed shape, one literal lane count", 3)

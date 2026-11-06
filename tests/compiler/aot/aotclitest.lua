@@ -810,7 +810,7 @@ return {
             "run.nupp"
         ] = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local gpu = require("io.gpu")
 
 @aot(target = "gpu")
@@ -1742,7 +1742,7 @@ return {advance = advance, Position = Position, Velocity = Velocity,}
 
 local GENERIC_EXPLICIT_SIMD = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -1876,7 +1876,7 @@ return {afterIncrement = afterIncrement}
 local SCOPED_SIMD = [[
 local span = require("binary.span")
 local simd = require("simd")
-local array = require("nupp.array")
+local array = table.Array
 
 @aot
 local function quotes(borrows source: span.Span<uint8>): uint32
@@ -2368,8 +2368,8 @@ local span = require("binary.span")
 local simd = require("simd")
 @aot
 local function folds(borrows input: span.Span<uint64>, seed: uint64): (uint64, integer, uint64, boolean)
-    local sum = simd.reducer.wrappingsum(nupp.array.uint64, 4294967296ULL)
-    local arg = simd.reducer.integerargmax(nupp.array.uint64)
+    local sum = simd.reducer.wrappingsum(table.Array.uint64, 4294967296ULL)
+    local arg = simd.reducer.integerargmax(table.Array.uint64)
     local count = simd.reducer.count()
     local all = simd.reducer.all()
     for i = 3, #input do
@@ -2521,7 +2521,7 @@ end
 function M.narrowIntegerVectorsRetainPhysicalLaneWidth()
     local source = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -2568,7 +2568,7 @@ end
 function M.byteVectorsTakeBitwiseOperatorsWithScalarOperands()
     local source = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -2616,7 +2616,7 @@ function M.fixedSpeciesRejectUnsupportedLaneCountsAtTheSource()
                 "fixed-count.nupp"
             ] = (
                 [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 @aot
 local function count(): uint32
@@ -2638,7 +2638,7 @@ end
 function M.structuralVectorOperationsHaveScalarReferenceSemantics()
     local source = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -2698,7 +2698,7 @@ end
 
 local CONVERT_SIMD = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 @aot
 local function convert(exclusive out: span.WriteSpan<int32>, borrows input: span.Span<number>): nil
@@ -2762,7 +2762,7 @@ end
 
 local INDEXED_SIMD = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 @aot
 local function move(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, borrows map: span.Span<uint32>): nil
@@ -2861,7 +2861,7 @@ end
 
 function M.horizontalVectorOperationsNameTheirArithmeticContracts()
     local source = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -2912,7 +2912,7 @@ end
 -- cannot become one behind it.
 function M.onlyTheAlgebraicDotContractsItsMultiplyAndAdd()
     local source = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -3002,7 +3002,7 @@ end
 function M.compositeLaneExtractionKeepsNativeVectorsWhole()
     local source = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -3069,7 +3069,7 @@ end
 
 function M.aSwizzleIsTheTableLookupAndReachesTheTargetsTableInstruction()
     local source = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -3108,7 +3108,7 @@ end
 
 function M.aPairedSwizzleNumbersBothVectorsInOneRun()
     local source = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -3145,7 +3145,7 @@ end
 
 function M.aSwizzleNeedsLaneNumbersRatherThanAFloatingElement()
     local source = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -3166,7 +3166,7 @@ end
 
 function M.horizontalExtremaNameTheirNanContractAndAreDefinedAtEveryElement()
     local source = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -3249,7 +3249,7 @@ end
 
 function M.horizontalSumsStillRefuseANonFloatingElement()
     local source = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -3327,7 +3327,7 @@ end
 function M.provedFixedVectorsCopyOnlyTheirLogicalLanes()
     local source = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -3376,8 +3376,9 @@ end
 
 function M.readOnlySoaRowsHaveContiguousExplicitLoads()
     local source = [[
-local soa = require("nupp.soa")
-local array = require("nupp.array")
+local soa = table.Array
+local span = require("binary.span")
+local array = table.Array
 local simd = require("simd")
 
 local struct Row
@@ -3386,7 +3387,7 @@ local struct Row
 end
 
 @aot
-local function sumX(borrows rows: soa.Span<Row>): float
+local function sumX(borrows rows: span.Span<Row, "columnar">): float
     local species = assert(simd.species(array.float))
     local total = species:splat(0.0)
     local cursor: uint32 = 0
@@ -3421,7 +3422,7 @@ end
 -- answered.
 function M.vectorSignaturesAreNativeOnlyEntries()
     local source = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -3458,7 +3459,7 @@ return {ones = ones, twice = twice}
         [
             "species.nupp"
         ] = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -3480,7 +3481,7 @@ end
 function M.genericHelpersPreserveSpeciesInTheKernelAndItsOracle()
     local source = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 local function twice<T, S>(value: simd.Vector<T, S>): simd.Vector<T, S>
@@ -3520,7 +3521,7 @@ end
 function M.explicitLaneAndBitmaskOperationsKeepOneBasedLaneIdentity()
     local source = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -3568,7 +3569,7 @@ end
 function M.uint64MaskBitsReplaceTheFixedSixtyFourBitHelperSurface()
     local source = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -4074,7 +4075,7 @@ function M.rootedByteViewsRequireAnEntryParameter()
         [
             "local-view.nupp"
         ] = [[
-local array = require("nupp.array")
+local array = table.Array
 local builder = require("serde.valuebuilder")
 local simd = require("simd")
 
@@ -4136,7 +4137,7 @@ function M.rootedByteViewsCarryTheSameCursorProof()
         [
             "rooted.nupp"
         ] = [[
-local array = require("nupp.array")
+local array = table.Array
 local builder = require("serde.valuebuilder")
 local simd = require("simd")
 local {type Buffer} = require("io")
@@ -5265,7 +5266,7 @@ end
 function M.pairedRearrangementsAndTransposeKeepNativeResultsAtEveryTier()
     local source = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 @aot
 local function rearrange(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
@@ -5327,7 +5328,7 @@ function M.transposeRejectsNonSquareMixedAndPreferredRows()
     }) do
         local source = (
             [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 @aot
 local function bad(): number
@@ -5347,7 +5348,7 @@ end
 
 local CONDITIONAL_SCAN = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -5468,7 +5469,7 @@ function M.aProvenVectorAccessIsOneCopyAndAnIntegerCompare()
             "map.nupp"
         ] = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -5557,7 +5558,7 @@ function M.aProofNeedsTheGuardAndTheCursorItLeft()
             "unproven.nupp"
         ] = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -5627,7 +5628,7 @@ function M.aGuardProvesASpanTheEntryGuardsHoldNoShorter()
             "related.nupp"
         ] = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -5722,7 +5723,7 @@ function M.aGuardedCursorLoopIsVersionedWhereItsCursorCannotWrap()
             "wide.nupp"
         ] = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -5794,7 +5795,7 @@ function M.anIntegerCompareFeedingAnyIsOneReductionAndAFlagStaysAFlag()
             "scan.nupp"
         ] = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -5846,7 +5847,7 @@ function M.aByteLookupOverFourTablesIsOneTableInstruction()
             "lookup.nupp"
         ] = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -5891,7 +5892,7 @@ function M.anInterleavedLoadIsOneLd3AndTheStoreOneSt4()
             "records.nupp"
         ] = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -5967,7 +5968,7 @@ return {widen = widen}
             "misplaced.nupp"
         ] = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -5993,7 +5994,7 @@ function M.anUnrolledLoopChecksItsBoundOncePerGroup()
             "unrolled.nupp"
         ] = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -6059,7 +6060,7 @@ function M.aLoopCarriedMaskStaysInItsRegister()
             "halve.nupp"
         ] = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -6114,7 +6115,7 @@ function M.aBaselineMaskAcrossRegistersIsNeverRepacked()
             "refine.nupp"
         ] = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -6167,7 +6168,7 @@ function M.aSpeciesBindingIsTheOnlyPlaceItsSpeciesLives()
             "outside.nupp"
         ] = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -6237,7 +6238,7 @@ return {lanes = lanes}
 
     out, code = run(dir, scalar .. "witness.nupp")
     test.eq(code, 1, "the argument is an array witness\n" .. out)
-    assert(out:find("NUPP2125", 1, true) and out:find("Span<uint32> is not a Scalar<any>", 1, true), out)
+    assert(out:find("NUPP2125", 1, true) and out:find('Span<uint32, "packed"> is not a Scalar<any>', 1, true), out)
 end
 
 function M.columnLoadsUnderAFullOverChunkAreUnmasked()
@@ -6248,9 +6249,10 @@ function M.columnLoadsUnderAFullOverChunkAreUnmasked()
         [
             "columns.nupp"
         ] = [[
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
-local soa = require("nupp.soa")
+local soa = table.Array
+local span = require("binary.span")
 
 local struct Particle
     x: float
@@ -6258,7 +6260,7 @@ local struct Particle
 end
 
 @aot
-local function advance(exclusive rows: soa.WriteToken & soa.WriteSpan<Particle>, dt: float): nil
+local function advance(exclusive rows: span.WriteSpan<Particle, "columnar">, dt: float): nil
     local species = simd.species(array.float)
     for at, active in species:over(#rows) do
         local x = species:load(rows, at, "x", active)
@@ -6294,7 +6296,7 @@ function M.anAssertedSpeciesIsTheSpeciesWhereThereAreVectorsAndOneLaneWhereThere
             "optional.nupp"
         ] = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -6315,7 +6317,7 @@ return {total = total}
             "required.nupp"
         ] = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 @aot
@@ -6458,7 +6460,7 @@ function M.siblingFieldLoadsBecomeOneDeinterleavingLoad()
             "fields.nupp"
         ] = [[
 local span = require("binary.span")
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 
 local struct Pair
