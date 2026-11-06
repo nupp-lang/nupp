@@ -4796,6 +4796,7 @@ function M.siteMatchesTheNuppdocPageModel()
         ["docs/details.md"] = "# Details\n\nA deeper reference.\n\n" .. "<<< @docs/snippet.abnf\n",
         ["docs/snippet.abnf"] = 'rule = "literal" / other\n',
         ["src/math.nupp"] = SOURCE,
+        ["src/zconfig.d.nupp"] = NESTED_DECLARATIONS,
         [
             "src/engine/init.nupp"
         ] = table.concat(
@@ -4993,7 +4994,7 @@ function M.siteMatchesTheNuppdocPageModel()
             .. '<a href="#types" title="Types">Types</a></summary><ol>'
             .. '<li class="nuppdoc-outline-section"><details><summary>'
             .. '<a href="#math.Point" title="Point">Point</a></summary><ol>'
-            .. '<li><a href="#math.Point.x" title="x">x</a></li>',
+            .. '<li class="nuppdoc-outline-flow"><a href="#math.Point.x" title="x">x</a></li>',
             1,
             true
         ),
@@ -5003,7 +5004,7 @@ function M.siteMatchesTheNuppdocPageModel()
         module:find(
             '<li class="nuppdoc-outline-section"><details open><summary>'
             .. '<a href="#functions" title="Functions">Functions</a></summary><ol>'
-            .. '<li class="nuppdoc-outline-function">'
+            .. '<li class="nuppdoc-outline-flow">'
             .. '<a href="#math.add" title="add">add</a>',
             1,
             true
@@ -5011,6 +5012,23 @@ function M.siteMatchesTheNuppdocPageModel()
         module
     )
     assert(module:find('id="nuppdoc-outline" aria-label="On this page"', 1, true), module)
+    local config = readFile(dir .. "/site/modules/zconfig/index.html")
+    local configOutline = assert(config:match('<aside class="nuppdoc%-outline"(.-)</aside>'))
+    assert(
+        configOutline:find('<a href="#zconfig.Config.Settings" title="Settings">Settings</a></summary><ol>', 1, true),
+        configOutline
+    )
+    for _, name in ipairs({"enabled", "apply"}) do
+        assert(
+            configOutline:find(
+                '<li class="nuppdoc-outline-flow"><a href="#zconfig.Config.Settings.' .. name .. '"',
+                1,
+                true
+            ),
+            configOutline
+        )
+    end
+    assert(configOutline:find('<li><a href="#zconfig.Config.Settings.Value"', 1, true), configOutline)
     local outline = assert(module:match('<aside class="nuppdoc%-outline"(.-)</aside>'))
     assert(outline:find('href="#functions"', 1, true) < outline:find('href="#types"', 1, true), outline)
     local moduleMarkdown = readFile(dir .. "/site/modules/math.md")

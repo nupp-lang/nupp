@@ -1784,7 +1784,7 @@ memberOutline = function(members: {extractMod.Member}?): {pageMod.Entry}?
             path = member.path,
             name = member.name,
             items = memberOutline(member.members),
-            column = member.isFunction
+            flow = not member.isType and not member.isAlias
         )
     end
 
@@ -1924,7 +1924,7 @@ local function renderSite(root, outDir, modules, title, settings, standardLibrar
                             path = item.path,
                             name = item.name,
                             items = memberOutline(item.members),
-                            column = item.kind == "function"
+                            flow = item.kind == "function"
                         )
                     end
                     items[

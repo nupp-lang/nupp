@@ -102,33 +102,6 @@ local SCRIPT = [[
 
     const outlinePanel = document.querySelector(".nuppdoc-outline");
     const mobileOutlineToggle = document.querySelector("[data-mobile-outline-toggle]");
-    const measureOutlineColumns = () => {
-        if (!outlinePanel) return;
-        const canvas = document.createElement("canvas");
-        const context = canvas.getContext("2d");
-        for (const list of outlinePanel.querySelectorAll("ol")) {
-            list.classList.remove("nuppdoc-outline-columns");
-            if (!mobileViewport.matches || !context || !list.clientWidth) continue;
-            const functions = [...list.children].filter((item) =>
-                item.classList.contains("nuppdoc-outline-function"));
-            if (functions.length < 2) continue;
-            const listStyle = getComputedStyle(list);
-            const padding = parseFloat(listStyle.paddingLeft) + parseFloat(listStyle.paddingRight);
-            const available = (list.clientWidth - padding - 16) / 2;
-            const fits = functions.every((item) => {
-                const link = item.querySelector("a");
-                const style = getComputedStyle(link);
-                context.font = style.font;
-                const spacing = parseFloat(style.letterSpacing) || 0;
-                return context.measureText(link.textContent).width +
-                    Math.max(0, link.textContent.length - 1) * spacing + 2 <= available;
-            });
-            list.classList.toggle("nuppdoc-outline-columns", fits);
-        }
-    };
-    outlinePanel?.addEventListener("toggle", () => requestAnimationFrame(measureOutlineColumns), true);
-    addEventListener("resize", measureOutlineColumns);
-    document.fonts?.ready.then(measureOutlineColumns);
     const closeMobileOutline = () => {
         document.body.classList.remove("is-mobile-outline-open");
         mobileOutlineToggle?.setAttribute("aria-expanded", "false");
@@ -138,7 +111,6 @@ local SCRIPT = [[
         closeMobileNav();
         document.body.classList.toggle("is-mobile-outline-open", open);
         mobileOutlineToggle.setAttribute("aria-expanded", String(open));
-        if (open) requestAnimationFrame(measureOutlineColumns);
     });
     document.querySelector("[data-mobile-outline-close]")
         ?.addEventListener("click", closeMobileOutline);
