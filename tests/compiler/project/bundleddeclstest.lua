@@ -587,8 +587,8 @@ function M.stringBufferKeepsItsMembersUnderStrict()
     local env = strictEnv()
     local result = parser.parse(
         [[
-const sb = require("string.buffer")
-const b = sb.new()
+const sb = require("io")
+const b = sb.Buffer.create()
 b:put("x")
 return b:tostring()
 ]],

@@ -647,6 +647,18 @@ end
 
 rawset(span as table, "__foreignByteSpan", foreignByteSpan)
 
+-- Storage owners lend writable bytes with the owner, not the cast pointer,
+-- as the GC anchor. Borrow checking enforces the same lifetime statically.
+local function foreignByteWriteSpan(
+    borrows anchor: any,
+    pointer: any,
+    count: integer
+): span.Writable<uint8> borrows (anchor)
+    return WriteSpanImpl(anchor = anchor, pointer = pointer as any, offset = 0, count = count) as span.WriteSpan<uint8>
+end
+
+rawset(span as table, "__foreignByteWriteSpan", foreignByteWriteSpan)
+
 -- Standard-library storage owners use this private constructor only after
 -- validating byte alignment and extent against the supplied physical type.
 local function foreignSpan<T>(

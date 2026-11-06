@@ -48,7 +48,7 @@ end
 -- One source, reused: a column of particles written as a single copy and read
 -- back into fresh memory, with the fingerprint carried alongside.
 local COLUMN = [[
-const sb = require("string.buffer")
+const sb = require("io")
 
 local struct Particle
     x: float
@@ -94,11 +94,11 @@ for i = 0, 7 do
     cells[i].vy = i * 4
 end
 
-const out = sb.new()
+const out = sb.Buffer.create()
 writeColumn(cells, 8, out)
 
 const back = carray(Particle, 8)
-const input = sb.new()
+const input = sb.Buffer.create()
 input:set(out:tostring())
 const count = readColumn(input, back)
 
@@ -129,7 +129,7 @@ function M.aColumnFromAnotherLayoutIsRefused()
     local refused = runs(
         COLUMN:format(
             [[
-const wrong = sb.new()
+const wrong = sb.Buffer.create()
 wrong:encode("x:float,y:float|8")
 wrong:encode(2)
 const cells = carray(Particle, 2)

@@ -2754,7 +2754,7 @@ return {
     -- check wrote rather than spelled here.
     local function checkStamp()
         local file = assert(io.open(dir .. "/out/cache/checks.buf", "rb"))
-        local envelope = require("string.buffer").decode(file:read("*a"))
+        local envelope = require("nupp.serde.internal.binarycodec").decode(file:read("*a"))
         file:close()
         return envelope.slots[1].stamp
     end

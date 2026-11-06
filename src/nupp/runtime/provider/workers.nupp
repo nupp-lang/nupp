@@ -26,18 +26,15 @@ const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
 ----------------------------------------------------------------------------
 
 local type BufferValue = {
-    encode: @nosuspend function(any, any): any,
-    decode: @nosuspend function(any): any,
-    get: @nosuspend function(any): string,
-    reset: @nosuspend function(any): any,
-    set: @nosuspend function(any, string): any
+    encode: @nosuspend function(any, any): string,
+    decode: @nosuspend function(any, string): any
 }
 local type Buffer = {
     new: @nosuspend function(table?): BufferValue,
     encode: @nosuspend function(any): any,
     decode: @nosuspend function(string): any
 }
-local buffer = require("string.buffer") as Buffer
+local buffer = require("nupp.serde.internal.binarycodec") as Buffer
 local suspension = require("nupp.suspension")
 local cancellation = require("nupp.suspension.cancellation")
 local common = require("nupp.workers.internal.support")
@@ -350,7 +347,7 @@ local function unsendable(value: any, path: string, depth: integer, state: Trans
         return ("%s repeats a table already present in the message"):format(path)
     end
     state.seen[value] = true
-    -- Match string.buffer's raw table walk. A record may declare __pairs, but worker
+    -- Match the binary codec's raw table walk. A record may declare __pairs, but worker
     -- transfer copies stored data rather than invoking user iteration behavior.
     for key, item in next, value as {[any]: any} do
         local keyKind = type(key)
@@ -433,7 +430,7 @@ local noRecords: {string} = {}
 -- Encoding a payload
 ----------------------------------------------------------------------------
 
--- One string.buffer codec per channel, whose metatable dictionary is the
+-- One serde binary codec per channel, whose metatable dictionary is the
 -- channel's ordered, append-only address registry. The sender registers an
 -- address once and invalidates its codec; the receiver compares the native
 -- dictionary count per message, because the dictionary only grows and each
@@ -506,14 +503,11 @@ local function encodePacked(target: Channel, packed: Packed): (number, string)
         return 0, ""
     end
     local encoder = channelCodec(target).encoder as BufferValue
-    encoder:reset()
     if packed.count == 1 then
-        encoder:encode(packed.values[1])
-    else
-        encoder:encode(packed.values)
+        return packed.count, encoder:encode(packed.values[1])
     end
 
-    return packed.count, encoder:get()
+    return packed.count, encoder:encode(packed.values)
 end
 
 --- The decoder for the channel's dictionary as it stands, rebuilt when the
@@ -538,8 +532,7 @@ local function decodePacked(target: Channel, count: number, bytes: string): Pack
         return {values = {}, count = 0}
     end
     local decoder = readyCodec(target).decoder as BufferValue
-    decoder:set(bytes)
-    local value = decoder:decode()
+    local value = decoder:decode(bytes)
     if count == 1 then
         return {values = {value}, count = 1}
     end
@@ -612,7 +605,7 @@ local function rewriteAttachments(value: any, regionMT: any, arrayMT: any, state
         copy[key] = rewriteAttachments(item, regionMT, arrayMT, state)
     end
     setmetatable(copy, metatable)
-    -- Attachment placeholders use ordinary tables so string.buffer can carry
+    -- Attachment placeholders use ordinary tables so the binary codec can carry
     -- them. Escape a user table that could be mistaken for one after decoding;
     -- the escape marker itself is included so a user-authored escape-shaped
     -- table is wrapped one level further and remains unambiguous.

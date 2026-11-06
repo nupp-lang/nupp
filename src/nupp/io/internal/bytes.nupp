@@ -4,6 +4,20 @@ module nupp.io.internal.bytes
 
 local physical = require("nupp.runtime.storage")
 local span = require("binary.span")
+local fast = require("nupp.io.internal.nativebuffer")
+-- Raw storage stays private; every lent view retains the buffer as its anchor.
+local nativeBase: function(borrows buffer: any): uint8[?] = fast.base as any
+local foreignRead: function(
+    borrows owner: any,
+    pointer: any,
+    integer,
+    integer
+): span.ByteSpan borrows (owner) = (require("nupp.mem.span") as any).__foreignByteSpan
+local foreignWrite: function(
+    borrows owner: any,
+    pointer: any,
+    integer
+): span.Writable<uint8> borrows (owner) = (require("nupp.mem.span") as any).__foreignByteWriteSpan
 
 local SMALLEST = 32
 local DEFAULT_READ = 65536
@@ -620,6 +634,7 @@ end
 -- because they name the records. The types are the contract either way.
 local reserve: function(borrows self: Buffer, minimum: integer): nil
 local bytesAt: function(borrows self: Buffer, offset: integer, count: integer): string
+local syncNative: function(borrows self: Buffer): nil
 local newReaderOver: function(bytes: string): Reader
 local newWriterOver: function(borrows buffer: Buffer): affine(Writer) borrows (buffer)
 local newBufferReader: function(exclusive buffer: Buffer): affine(Reader) borrows (buffer)
@@ -1070,6 +1085,7 @@ local newWriteLease: function(
 ): affine(BufferWriteLease, destroyLease) borrows (buffer)
 
 local record HeapBuffer is Buffer
+    @private _native: any
     @private _data: uint8[?]
     @private _length: integer
     @private _capacity: integer
@@ -1092,6 +1108,11 @@ local record HeapBuffer is Buffer
 
     function tostring(borrows self): string
         opened(self._closed, "io.Buffer", 2)
+        if self._native ~= nil then
+            local bytes = self._native:tostring() as string
+            return self._read == 0 and bytes or bytes:sub(self._read + 1)
+        end
+
         return bytesAt(self, self._read, self._length - self._read)
     end
 
@@ -1142,7 +1163,7 @@ local record HeapBuffer is Buffer
 
     function span(borrows self, first: integer?, last: integer?): span.ByteSpan borrows (self)
         opened(self._closed, "io.Buffer", 2)
-        local view = span.fromcarray(self._data, self._length)
+        syncNative(self)
         local start = first or 1
         local finish = last or (self._length - self._read)
         if start % 1 ~= 0
@@ -1154,7 +1175,7 @@ local record HeapBuffer is Buffer
             error("nupp: buffer span out of bounds", 2)
         end
 
-        return view:slice(self._read + start, self._read + finish)
+        return foreignRead(self, self._data, self._read + start - 1, finish - start + 1)
     end
 
     function reserve(exclusive self, count: integer): affine(BufferWriteLease, destroyLease) borrows (self)
@@ -1166,11 +1187,19 @@ local record HeapBuffer is Buffer
 
     function capacity(borrows self): integer
         opened(self._closed, "io.Buffer", 2)
+        if self._native ~= nil then
+            local _, free = self._native:reserve(0)
+            return self._length + (free as integer)
+        end
+
         return self._capacity
     end
 
     function clear(exclusive self): nil
         opened(self._closed, "io.Buffer", 2)
+        if self._native ~= nil then
+            self._native:reset()
+        end
         self._length = 0
         self._read = 0
     end
@@ -1188,6 +1217,14 @@ local record HeapBuffer is Buffer
             @unsafe do
                 local root = borrowFrom(self._data as voidptr, self)
                 physical.fill((root as uint8*) + self._length, wanted - self._length, 0)
+            end
+        end
+        if self._native ~= nil then
+            if wanted > self._length then
+                self._native:commit(wanted - self._length)
+            elseif wanted < self._length then
+                local bytes = bytesAt(self, 0, wanted)
+                self._native:reset():put(bytes)
             end
         end
         self._length = wanted
@@ -1221,6 +1258,9 @@ local record HeapBuffer is Buffer
             end
         end
         if ending > self._length then
+            if self._native ~= nil then
+                self._native:commit(ending - self._length)
+            end
             self._length = ending
         end
     end
@@ -1274,7 +1314,7 @@ local record WriteLease is BufferWriteLease
     drop: @nosuspend function(takes self: WriteLease): nil
 
     function span(exclusive self): span.Writable<uint8> borrows (self)
-        return span.writecarray(self.pointer, self.count)
+        return foreignWrite(self, self.pointer, self.count)
     end
 
     function commit(takes self, written: integer): nil
@@ -1298,6 +1338,9 @@ local record WriteLease is BufferWriteLease
             end
             local ending = raw.offset + used
             if ending > target._length then
+                if target._native ~= nil then
+                    target._native:commit(ending - target._length)
+                end
                 target._length = ending
             end
         end
@@ -1658,6 +1701,10 @@ end
 function HeapBuffer.close(takes self: HeapBuffer): nil
     local state = @unsafe own.release(self)
     state._closed = true
+    if state._native ~= nil then
+        state._native:free();
+        state._native = nil
+    end
     state._length = 0
     state._capacity = 0
     state._read = 0
@@ -1695,6 +1742,12 @@ end
 -- Doubling, with a floor, so appending one byte at a time stays linear overall.
 reserve = function(borrows self: Buffer, minimum: integer): nil
     local state = self as any
+    if state._native ~= nil then
+        local _, free = state._native:reserve(math.max(0, minimum - state._length))
+        syncNative(self)
+        state._capacity = state._length + free
+        return
+    end
     if minimum <= state._capacity then
         return
     end
@@ -1713,10 +1766,21 @@ reserve = function(borrows self: Buffer, minimum: integer): nil
     state._capacity = capacity
 end
 
+syncNative = function(borrows self: Buffer): nil
+    local state = self as any
+    if state._native ~= nil then
+        @unsafe do
+            state._data = nativeBase(state._native)
+        end
+    end
+end
+
 bytesAt = function(borrows self: Buffer, offset: integer, count: integer): string
     if count == 0 then
         return ""
     end
+
+    syncNative(self)
 
     return physical.string((self as any)._data + offset, count)
 end
@@ -1799,6 +1863,9 @@ end
 
 local function bufferFacade(takes state: HeapBuffer): affine(Buffer)
     local raw = @unsafe own.release(state)
+    if raw._native ~= nil then
+        (raw as any).put = fast.bind(raw)
+    end
     if bufferProxyPrototype ~= nil then
         local proxy = bufferProxyFactory(bufferProxyPrototype)
         bufferProxyStates[proxy] = raw
@@ -1832,15 +1899,36 @@ export function newBuffer(initial: integer | string?): affine(Buffer)
     end
     local bytes = type(initial) == "string" and initial as string or ""
     local capacity = type(initial) == "number" and integer_(initial, "io.Buffer.create capacity", 2) or #bytes
-    local data = physical.allocateBytes(math.max(capacity, 1))
-    if #bytes > 0 then
-        physical.copy(data, bytes, #bytes)
+    local native: any = nil
+    local data: uint8[?]
+    if fast.new ~= nil then
+        native = fast.new(math.max(capacity, SMALLEST))
+        native:put(bytes)
+        data = nativeBase(native)
+    else
+        data = physical.allocateBytes(math.max(capacity, 1))
+        if #bytes > 0 then
+            physical.copy(data, bytes, #bytes)
+        end
     end
 
-    return bufferFacade(HeapBuffer(_data = data, _length = #bytes, _capacity = capacity, _read = 0, _closed = false))
+    return bufferFacade(
+        HeapBuffer(_native = native, _data = data, _length = #bytes, _capacity = capacity, _read = 0, _closed = false)
+    )
 end
 
 createBuffer = newBuffer
+
+-- Compiler-owned text accumulation uses the same storage implementation without
+-- constructing the public ownership facade for a nonescaping builder.
+local function finishText(takes buffer: affine(Buffer)): string
+    local text = buffer:tostring()
+    buffer:close()
+    return text
+end
+
+rawset(Buffer, "__textBuilder", fast.new or newBuffer)
+rawset(Buffer, "__textFinish", fast.finish or finishText)
 
 --- Opens a reader over bytes held as a string.
 ---

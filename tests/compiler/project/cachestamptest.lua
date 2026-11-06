@@ -421,7 +421,7 @@ function M.aStoreWhoseBodyWasDamagedAnswersNothing()
         local at = assert(text:find(message, 1, true), "the message is stored as written")
         local flipped = string.char(bit.bxor(text:byte(at + 7), 1))
         text = text:sub(1, at + 6) .. flipped .. text:sub(at + 8)
-        assert(pcall(require("string.buffer").decode, text), "the damage still decodes")
+        assert(pcall(require("nupp.serde.internal.binarycodec").decode, text), "the damage still decodes")
         file = assert(io.open(path, "wb"))
         file:write(text)
         file:close()
@@ -617,7 +617,7 @@ function M.aNarrowCheckDoesNotHandOnAnotherCompilersRecordsAsItsOwn()
     -- of the file rather than spelled here: the newest body is this compiler's.
     local function stamp()
         local file = assert(io.open(path, "rb"))
-        local envelope = require("string.buffer").decode(file:read("*a"))
+        local envelope = require("nupp.serde.internal.binarycodec").decode(file:read("*a"))
         file:close()
         return envelope.slots[1].stamp
     end

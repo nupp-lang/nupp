@@ -53,7 +53,7 @@ local function assertLowered(src, ...)
     local fired, code = lowered(src)
     testAssert.eq(fired, true, "expected OPT-5 to fire\n" .. src)
     assert(code:find("__nuppBuffer", 1, true), "the buffer is required\n" .. code)
-    assert(code:find(".new()", 1, true), "the lowercase factory is emitted\n" .. code)
+    assert(code:find(".__textBuilder()", 1, true), "the canonical buffer factory is emitted\n" .. code)
     local plain = compile(src, 0)
     testAssert.eq(
         runCode(code, "optimized", ...),
@@ -84,7 +84,7 @@ return out
 ]]
     )
     assert(code:find(":put(", 1, true), "appends rather than concatenates\n" .. code)
-    assert(code:find(":tostring()", 1, true), "and finishes once\n" .. code)
+    assert(code:find("return __nuppBufferFinish%d+%(__nuppBuf_%d+%)"), "and finishes once\n" .. code)
 end
 
 function M.lowersANumericLoop()
@@ -315,7 +315,7 @@ return join({"a", "b"}) .. ":" .. join({})
     local code = assertLowered(source)
     testAssert.eq(runCode(code, "direct return"), "a,b,:")
     testAssert.eq(code:find("local out", 1, true), nil, code)
-    assert(code:match("return __nuppBuf_%d+:tostring%(%)"), code)
+    assert(code:match("return __nuppBufferFinish%d+%(__nuppBuf_%d+%)"), code)
 end
 
 function M.retainsTheAccumulatorWhenACaptureStillReadsIt()

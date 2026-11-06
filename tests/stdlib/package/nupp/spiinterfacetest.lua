@@ -130,9 +130,9 @@ function M.bundledAliasesShareStagedNominalTypes()
             main,
             [[
 module nupp.test.aliases
-local {type Buffer} = require("string.buffer")
+local {type Buffer} = require("io")
 local contracts = require("serde.json.internal.contracts")
-local function writer(exclusive out: string.buffer.Buffer, nullValue: any?): any
+local function writer(exclusive out: io.Buffer, nullValue: any?): any
     out:put("value")
     return nil
 end

@@ -64,7 +64,7 @@ local _valueBuilder = require("serde.valuebuilder")
 local _jsonBuilder = require("nupp.codec.json.internal.builder")
 local array = require("nupp.array")
 local simd = require("simd")
-local {type Buffer} = require("string.buffer")
+local {type Buffer} = require("nupp.io.internal.bytes")
 
 --- A sixteen-entry nibble table, as the vector `swizzle` looks up in.
 ---

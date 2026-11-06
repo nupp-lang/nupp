@@ -5,6 +5,7 @@ require("simdjson_bench")
 local simdjson = require("simdjsonbench")
 local control = simdjson.compileSerde(production.controlPlan(), "reject")
 local source = production.source()
+local input = require("io").Buffer.create(source)
 local samples = tonumber(arg[1]) or 21
 local target = 0.1
 local sink = 0
@@ -12,8 +13,8 @@ local sink = 0
 local cases = {
     {name = "nupp-untyped", run = production.untypedDecode},
     {name = "nupp-prepared", run = production.preparedDecode},
-    {name = "nupp-buffer", run = production.preparedBufferDecode},
-    {name = "buffer-copy-control", run = production.preparedBufferCopyDecode},
+    {name = "nupp-buffer", run = production.preparedBufferDecode, input = input},
+    {name = "buffer-copy-control", run = production.preparedBufferCopyDecode, input = input},
     {name = "nupp-derived", run = production.derivedDecode},
     {
         name = "simdjson-binding",
@@ -26,7 +27,7 @@ local cases = {
 local function elapsed(case, count)
     local started = os.clock()
     for _ = 1, count do
-        sink = sink + case.run().id
+        sink = sink + case.run(case.input).id
     end
 
     return os.clock() - started
@@ -74,3 +75,5 @@ for _, case in ipairs(cases) do
     )
 end
 io.stderr:write("blackhole ", sink, "\n")
+
+input:close()

@@ -7,7 +7,7 @@ keyed by a digest of everything the entry was computed from, so a key that
 matches is an answer that is still correct rather than one that is probably
 still correct.
 
-Nothing here is executable. `string.buffer` serializes plain data and the
+Nothing here is executable. The serde binary codec serializes plain data and the
 decoder produces plain data. A file that cannot be decoded or whose format or
 stamp differs is a cache miss. That is what lets the store sit in the project's
 own build directory instead of a user-private one -- a store of code could not.
@@ -26,7 +26,7 @@ body that does not match its seal is a miss like any other.
 ]]
 module nupp.compiler.project.store
 
-local loaded, nativeBuffer = pcall(require, "string.buffer")
+local loaded, nativeBuffer = pcall(require, "nupp.serde.internal.binarycodec")
 
 local function unavailable(): never
     error("binary cache serialization is unavailable on this host")

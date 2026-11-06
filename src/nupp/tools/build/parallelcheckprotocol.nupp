@@ -10,23 +10,23 @@ Framing belongs to the worker channel.
 ]]
 module nupp.tools.build.parallelcheckprotocol
 
-local hasBuffer, nativeBuffer = pcall(require, "string.buffer")
+local hasCodec, codec = pcall(require, "nupp.serde.internal.binarycodec")
 
 --- Whether this host can encode a payload at all.
-export const available = hasBuffer
+export const available = hasCodec
 
 --- The longest frame either end accepts.
 export const MAX_FRAME = 268435456
 
 export function encode(value: any): string
-    return nativeBuffer.encode({schema = 1, value = value})
+    return codec.encode({schema = 1, value = value})
 end
 
 export function decode(text: string): (any?, string?)
-    if not hasBuffer then
+    if not hasCodec then
         return nil, "parallel-check payloads are unavailable on this host"
     end
-    local decoded, envelope = pcall(nativeBuffer.decode, text)
+    local decoded, envelope = pcall(codec.decode, text)
     if not decoded or type(envelope) ~= "table" or envelope.schema ~= 1 or type(envelope.value) ~= "table" then
         return nil, "the parallel-check payload is malformed"
     end

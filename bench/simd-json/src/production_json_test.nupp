@@ -13,7 +13,7 @@ local function decoded<T>(binding: serde.Binding<T>, bytes: string): (T?, string
     return value as T, nil
 end
 
-local newBuffer = require("string.buffer").new
+local newBuffer = require("io").Buffer.create
 
 -- Malformed text and an unmatched shape are answered, not raised.
 local function refused(value: any, reason: string?): boolean
@@ -51,9 +51,6 @@ end
 local fastSource = [[{"id":41,"child":{"label":"one"},"children":[{"label":"two"}],"labels":{"region":"us"}}]]
 local fastPrepared = serde.binding(FastEnvelope)
 local advancedPrepared = serde.binding(AdvancedEnvelope)
-local fastBuffer = newBuffer()
-fastBuffer:put(fastSource)
-local fastInput = own.manage(io.Buffer.create(fastSource)):alias()
 
 local test = {}
 
@@ -211,16 +208,12 @@ function test.preparedDecode(): FastEnvelope
     return (assert2(decoded(fastPrepared, fastSource)))
 end
 
-function test.preparedBufferDecode(): FastEnvelope
-    local value, problem = fastInput:withexclusive(function(exclusive input: io.Buffer): FastEnvelope
-        return require("serde.json").decodebuffer(fastPrepared, input)
-    end)
-
-    return (assert2(value, problem))
+function test.preparedBufferDecode(exclusive input: io.Buffer): FastEnvelope
+    return require("serde.json").decodebuffer(fastPrepared, input)
 end
 
-function test.preparedBufferCopyDecode(): FastEnvelope
-    return (assert2(decoded(fastPrepared, fastBuffer:tostring())))
+function test.preparedBufferCopyDecode(borrows input: io.Buffer): FastEnvelope
+    return (assert2(decoded(fastPrepared, input:tostring())))
 end
 
 function test.derivedDecode(): FastEnvelope

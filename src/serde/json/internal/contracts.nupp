@@ -2,7 +2,7 @@
 
 module serde.json.internal.contracts
 
-local {type Buffer as SharedBuffer} = require("string.buffer")
+local {type Buffer as SharedBuffer} = require("nupp.io.internal.bytes")
 
 --[[Implementation interfaces consumed during ordinary module initialization.
 The build binds the implementation for the selected target. Importing these

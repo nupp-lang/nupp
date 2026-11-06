@@ -13,6 +13,8 @@ vendor/
 tests/build/
 /src/**/*.lua
 !/src/nupp/serde/internal/identity.lua
+!/src/nupp/serde/internal/binarycodec.lua
+!/src/nupp/io/internal/nativebuffer.lua
 !/src/nupp/runtime/vendor/
 !/src/nupp/runtime/vendor/lunajson/
 !/src/nupp/runtime/vendor/lunajson/*.lua

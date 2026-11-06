@@ -864,21 +864,40 @@ int decodeSerde(lua_State *state) {
 int decodeSerdeBuffer(lua_State *state) {
     auto *schema = checkSerdeSchema(state, 1);
     if (!hasRegisteredMetatable(state, 2, &BUFFER_METATABLE_KEY)) {
-        return luaL_argerror(state, 2, "string.buffer.Buffer expected");
+        return luaL_argerror(state, 2, "io.Buffer expected");
     }
+    // Keep the append lease and both views rooted until parsing finishes.
     lua_getfield(state, 2, "reserve");
     lua_pushvalue(state, 2);
     lua_pushinteger(state, simdjson::SIMDJSON_PADDING);
-    lua_call(state, 2, 2);
+    lua_call(state, 2, 1);
+    const int lease = lua_gettop(state);
+    lua_getfield(state, lease, "span");
+    lua_pushvalue(state, lease);
+    lua_call(state, 1, 1);
+    const int writable = lua_gettop(state);
+    lua_getfield(state, writable, "ref");
+    lua_pushvalue(state, writable);
+    lua_call(state, 1, 2);
     const size_t trailing = serdeCapacity(state, -1);
     if (trailing < simdjson::SIMDJSON_PADDING) {
         return luaL_error(state, "prepared JSON buffer did not reserve padding");
     }
     std::memset(serdeDestination(state, -2), 0, simdjson::SIMDJSON_PADDING);
     lua_pop(state, 2);
+    lua_getfield(state, writable, "drop");
+    lua_pushvalue(state, writable);
+    lua_call(state, 1, 0);
+    lua_getfield(state, lease, "commit");
+    lua_pushvalue(state, lease);
+    lua_pushinteger(state, 0);
+    lua_call(state, 2, 0);
 
-    lua_getfield(state, 2, "ref");
+    lua_getfield(state, 2, "span");
     lua_pushvalue(state, 2);
+    lua_call(state, 1, 1);
+    lua_getfield(state, -1, "ref");
+    lua_pushvalue(state, -2);
     lua_call(state, 1, 2);
     const char *source = serdeDestination(state, -2);
     const size_t length = serdeCapacity(state, -1);

@@ -6,7 +6,7 @@ const {type Writer} = require("io")
 const {type ByteQueue} = require("io")
 const io2 = require("io")
 
-local text = require("string.buffer")
+local text = require("io")
 local span = require("binary.span")
 
 local M = {}
@@ -215,25 +215,27 @@ function M.readsThroughAnyReader(): nil
     assert2(reader:atend())
 end
 
-function M.readsAStringBufferInPlace(): nil
-    local queue = text.new()
+function M.bufferReadersConsumeInPlace(): nil
+    local queue = text.Buffer.create()
     queue:put("head:")
     queue:put("!")
 
-    local reader = io2.Reader.of(queue):scalar()
+    local reader = queue:reader():scalar()
     assert2(reader:remaining() == 6)
     assert2(reader:readbytes(5) == "head:")
-    assert2(queue:tostring() == "!")
+    assert2(reader:remaining() == 1)
     assert2(reader:readuint8() == 33)
     assert2(reader:atend())
+    reader:close()
+    assert2(queue:tostring() == "")
 end
 
 function M.bridgesAStringBufferIntoTheReaderContract(): nil
-    local queue = text.new()
+    local queue = text.Buffer.create()
     queue:put("payload")
 
     local destination = io2.Buffer.create()
-    local reader = io2.Reader.of(queue)
+    local reader = queue:reader()
     assert2(reader:transferto(destination:writer()) == 7)
     assert2(destination:getstring() == "payload")
     assert2(reader:read(8) == "")

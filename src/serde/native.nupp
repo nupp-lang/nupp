@@ -47,7 +47,7 @@ export const identity: table = {}
 
 local profile: table = {}
 
--- Version 1 is a LuaJIT-local tagged tree encoded by string.buffer. Names are
+-- Version 1 is a LuaJIT-local tagged tree encoded by the serde binary codec. Names are
 -- durable field identities; runtime slots and declaration fingerprints are not.
 local header = "NUPP\0LJ\1"
 local maxBytes: integer = 16777216
@@ -83,8 +83,8 @@ local function runtime(): any
     )
     local ok, jit = pcall(_G.require, "jit")
     assert(ok and type(jit) == "table", "native persistence requires LuaJIT")
-    local loaded, buffer = pcall(_G.require, "string.buffer")
-    assert(loaded, "native persistence requires LuaJIT string.buffer")
+    local loaded, buffer = pcall(_G.require, "nupp.serde.internal.binarycodec")
+    assert(loaded, "native persistence requires the serde binary codec")
 
     return buffer
 end

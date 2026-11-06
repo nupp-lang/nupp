@@ -9,7 +9,17 @@ local simdjsonBench = require("simdjson_bench")
 local span = require("binary.span")
 local valueBuilder = require("serde.valuebuilder")
 
-require("production_json_test").run()
+local production = require("production_json_test")
+production.run()
+local input = require("io").Buffer.create(production.source())
+assert(production.preparedBufferDecode(input).id == 41)
+assert(production.preparedBufferCopyDecode(input).id == 41)
+local nativeControl = require("simdjson_bench_native")
+local schema = nativeControl.compileSerde(production.controlPlan(), "reject")
+local decoded, problem = nativeControl.decodeSerdeBuffer(schema, input)
+assert(decoded and decoded.id == 41, problem)
+assert(input:tostring() == production.source(), "the control decoder changed its input")
+input:close()
 
 local reference = require("simd_json.indexer_reference")
 
@@ -394,13 +404,13 @@ do
         "serialized empty-container sentinels did not round trip"
     )
 
-    local out = require("string.buffer").new()
+    local out = require("io").Buffer.create()
     local writer = simdjsonBench.writer(out, nullValue)
     writer:startObject():key("items"):startArray():write(1)
     writer:null():write(simdjsonBench.EMPTY_OBJECT):endArray():key("empty"):write(simdjsonBench.EMPTY_ARRAY):endObject()
     writer:close()
     check(out:tostring() == [[{"items":[1,null,{}],"empty":[]}]], "streaming writer emitted the wrong chunks")
-    out = require("string.buffer").new()
+    out = require("io").Buffer.create()
     local key = simdjsonBench.encodedString('quoted"key')
     local trustedWriter = simdjsonBench.writer(out)
     trustedWriter:startObject():key(key):write(simdjsonBench.verified("1")):endObject()
@@ -414,7 +424,7 @@ do
     )
     check(
         not pcall(function()
-            local invalidOut = require("string.buffer").new()
+            local invalidOut = require("io").Buffer.create()
             simdjsonBench.writer(invalidOut):startObject():write(true)
         end),
         "streaming writer accepted an object value without a key"

@@ -1,7 +1,7 @@
 const assert2 = require("assert")
 
 local json = require("serde.json")
-local text = require("string.buffer")
+local text = require("io")
 local utf8 = require("utf8")
 local uri = io
 
@@ -33,7 +33,7 @@ local function scorePlayers(players: {Player}, round: integer): Snapshot
 end
 
 local function describe(snapshot: Snapshot): string
-    local out = text.new()
+    local out = text.Buffer.create()
     out:put("round=", tostring(snapshot.round), "\n")
     out:put("players=", table.concat(snapshot.names, ", "), "\n")
     out:put("total=", tostring(snapshot.total), "\n")

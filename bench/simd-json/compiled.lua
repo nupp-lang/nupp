@@ -1,4 +1,4 @@
--- Refuse timings unless the selected public codec reaches native builders.
+-- Record the selected codec and require AOT for the measured native kernels.
 local function upvalue(fn, wanted)
     for index = 1, 64 do
         local name, value = debug.getupvalue(fn, index)
@@ -14,6 +14,11 @@ end
 
 local function prove(entry, providerMember, decoderName)
     local provider = upvalue(entry, "native")
+    -- The public codec now deliberately selects Lunajson. Its functional
+    -- comparisons remain useful, but they are not native-builder evidence.
+    if provider == require("nupp.runtime.provider.lunajson") then
+        return false
+    end
     local decoder = upvalue(provider[providerMember], decoderName).decode
     local registry = assert(rawget(_G, "__nuppAotCompiled"), "no AOT replacement registry")
     local modules = assert(rawget(_G, "__nuppAotBuilderModules"), "no native builder registry")

@@ -1432,8 +1432,30 @@ export function generate(
         return metatypeOnceName
     end
 
+    local function concatBufferRuntime()
+        return declareConstant("__nuppBufferRuntime", "{runtime=false}")
+    end
+
     local function concatBufferName()
-        return compilerModuleName("string.buffer")
+        needRuntimeEffect("runtime.io_internal_bytes")
+        local cache = concatBufferRuntime()
+        return declareHelper(
+            "__nuppBuffer",
+            "",
+            "local runtime="
+            .. cache
+            .. '.runtime;if not runtime then runtime=require("nupp.io.internal.bytes").Buffer;'
+            .. cache
+            .. '.runtime=runtime end;return runtime.__textBuilder()'
+        )
+    end
+
+    local function finishBufferName()
+        return declareHelper(
+            "__nuppBufferFinish",
+            "buffer",
+            "return " .. concatBufferRuntime() .. ".runtime.__textFinish(buffer)"
+        )
     end
 
     -- The suspension runtime, bound once per module using coroutine cleanup,
@@ -1668,7 +1690,7 @@ export function generate(
     -- optimize, it leaves the accumulator empty.
     local function finishConcatBuffer(x, line)
         if x.concatBuffer and not x.concatBuffer.directReturn then
-            e(("%s = %s:tostring()"):format(x.concatBuffer.target, x.concatBuffer.name), line)
+            e(("%s = %s(%s)"):format(x.concatBuffer.target, finishBufferName(), x.concatBuffer.name), line)
         end
     end
 
@@ -5377,7 +5399,7 @@ export function generate(
             return
         end
         if x.concatBufferResult then
-            e(x.concatBufferResult .. ":tostring()", sourceLine(x))
+            e(finishBufferName() .. "(" .. x.concatBufferResult .. ")", sourceLine(x))
             return
         end
         if x.statementCleanupOwners and not x.statementCleanupActive then
@@ -9716,7 +9738,7 @@ export function generate(
             if not x.concatBuffer.elide then
                 emitChildren(x)
             end
-            e(("local %s = %s.new()"):format(x.concatBuffer.name, concatBufferName()), sourceLine(x))
+            e(("local %s = %s()"):format(x.concatBuffer.name, concatBufferName()), sourceLine(x))
 
         elseif kind == "assignStmt" and x.concatBuffer then
             -- `s = s .. a .. b` becomes `buf:put(a, b)`. Lua's `..` is

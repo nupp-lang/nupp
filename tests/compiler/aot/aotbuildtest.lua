@@ -2926,7 +2926,7 @@ function M.wasmConstFamiliesBindEveryKernelSpecializationAndRefuseBuilders()
         [=[
 module wasmconst
 local valueBuilder = require("serde.valuebuilder")
-local {type Buffer} = require("string.buffer")
+local {type Buffer} = require("io")
 @aot
 local function measured<const Bump: integer>(borrows source: string | Buffer, bump: Bump): uint32
     return math.u32.add(valueBuilder.len(source), math.u32.wrap(bump as integer))
@@ -4659,9 +4659,9 @@ return {
         [[
 module bytes
 
-local text = require("string.buffer")
+local text = require("io")
 local valueBuilder = require("serde.valuebuilder")
-local {type Buffer} = require("string.buffer")
+local {type Buffer} = require("io")
 
 --- Counts the bytes of a string or a buffer, plus a const bump.
 @aot
@@ -4676,7 +4676,7 @@ end
 
 --- The byte count of a freshly filled buffer, plus one.
 local function measureBuffer(contents: string): uint32
-    local buffer = text.new()
+    local buffer = text.Buffer.create()
     buffer:put(contents)
     return measure(buffer, 1)
 end

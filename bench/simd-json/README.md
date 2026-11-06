@@ -4,6 +4,10 @@ This benchmark retains the Nupp AOT experiment, differential decoders, and
 performance history behind `nupp.codec.json.internal.decode`. Its C++ code is
 an external simdjson control only; none of it is part of the production runtime.
 
+The current public codec selects the portable Lunajson implementation. The
+report's `compiled` flags record that distinction; the scanner, indexer, and
+parser must still be registered AOT kernels before timing starts.
+
 The benchmark uses Nupp's deliberately narrow C++ binding to the system
 `simdjson` package. It requires `pkg-config`, simdjson development files, and
 LuaJIT development files (`brew install simdjson luajit` on macOS). The

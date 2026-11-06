@@ -979,11 +979,11 @@ function M.bundledModuleTypesResolveThroughTheIncrementalGraph()
     file:write(
         table.concat(
             {
-                [[local buffer = require("string.buffer")]],
+                [[local buffer = require("io")]],
                 "local record Thing",
                 "   buf: buffer.Buffer",
                 "end",
-                "local thing = Thing(buf = buffer.new())",
+                "local thing = Thing(buf = buffer.Buffer.create())",
                 "return thing.buf:tostring()",
             },
             "\n"

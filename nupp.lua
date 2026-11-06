@@ -340,6 +340,8 @@ local RESOURCES = {
     {source = "src/serde/adapters.nupp", output = "nupp/compiler/serde/adapters.nupp"},
     {source = "src/serde/codec.nupp", output = "nupp/compiler/serde/codec.nupp"},
     {source = "src/nupp/serde/internal/identity.lua", output = "nupp/compiler/nupp/serde/internal/identity.lua"},
+    {source = "src/nupp/serde/internal/binarycodec.lua", output = "nupp/compiler/nupp/serde/internal/binarycodec.lua"},
+    {source = "src/nupp/io/internal/nativebuffer.lua", output = "nupp/compiler/nupp/io/internal/nativebuffer.lua"},
     {source = "src/serde/document.nupp", output = "nupp/compiler/serde/document.nupp"},
     {source = "src/serde/json/init.nupp", output = "nupp/compiler/serde/json/init.nupp"},
     {

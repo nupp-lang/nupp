@@ -26,7 +26,7 @@ const carriedcompression = binary.compress
 require("serde.json")
 const carriedpath = io.Path.of
 const carrieduri = io.URI.of
-require("string.buffer")
+const _carriedbuffer = io.Buffer
 require("coroutine")
 require("io.net")
 const carriedprocess = io.popen
