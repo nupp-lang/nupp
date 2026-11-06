@@ -47,7 +47,6 @@ local BUNDLED = {
     "events",
     "nupp.runtime.contracts",
     "os.host",
-    "math.random",
 }
 
 -- Checks a strict program against the prelude and answers its diagnostics as
@@ -630,10 +629,13 @@ end
             error(("%s: %s"):format(diagnostic.code, diagnostic.msg), 2)
         end
     end
-    -- The program never names `close`; the image carries it because the lowering
-    -- runs the File terminal at lexical scope exit.
+    -- The program never names `close`; the image carries the host file close
+    -- because the lowering runs the File terminal at lexical scope exit.
     local image = program.image(parsed, "files-owner")
-    assert(program.names(image, "close"), "the public File terminal runs at lexical scope exit")
+    assert(
+        program.names(image, "file.close") or program.names(image, "close"),
+        "the public File terminal runs at lexical scope exit"
+    )
 end
 
 function M.runnerResourceMapsToItsManifestSource()

@@ -1163,9 +1163,6 @@ function metadata.expand(root, moduleName: string?)
                 current.kind == "name" or current.kind == "dotIndex" or current.kind == "call" and current.standardRoot
             )
             and current.qualifiedModule
-        if vmMath and (path == "math.random" or path:sub(1, 12) == "math.random.") then
-            namespace = "math.random"
-        end
         if namespace and namespace ~= moduleName and not qualified[namespace] then
             qualified[namespace] = true
             qualifiedOrder[#qualifiedOrder + 1] = namespace

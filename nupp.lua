@@ -162,7 +162,6 @@ local RESOURCES = {
     {source = "src/nupp/mem/indexed.nupp", output = "nupp/compiler/nupp/mem/indexed.nupp"},
     {source = "src/nupp/mem/span.nupp", output = "nupp/compiler/nupp/mem/span.nupp"},
     {source = "src/io/gpu/init.nupp", output = "nupp/compiler/io/gpu/init.nupp"},
-    {source = "src/math/random.nupp", output = "nupp/compiler/math/random.nupp"},
     {source = "src/math/internal/random.nupp", output = "nupp/compiler/math/internal/random.nupp"},
     {source = "src/binary/init.nupp", output = "nupp/compiler/binary/init.nupp"},
     {source = "src/nupp/runtime/entropy.nupp", output = "nupp/compiler/nupp/runtime/entropy.nupp"},

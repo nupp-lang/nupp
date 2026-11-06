@@ -24,6 +24,8 @@ const graphemit = require("nupp.compiler.vm.legacyemit")
 const construction = require("nupp.compiler.vm.construction")
 const apiidentity = require("nupp.compiler.apiidentity")
 const MATH_EXTENSION_MEMBERS = {
+    -- Installed on the host table by `nupp.runtime.standardmath`.
+    Xoshiro128 = true,
     lerp = true,
     wrapAngle = true,
     deltaAngle = true,
@@ -3108,13 +3110,6 @@ function lower.emit(
             local members = node.namespacePath:sub(first)
             local member = members:match("^[^.]+")
             local moduleName = (member == nil or MATH_EXTENSION_MEMBERS[member]) and "nupp.vm.math" or "math"
-            -- `math.random` is the standard namespace module, which is both the
-            -- host function and the generator types (and installs itself as
-            -- the host's `math.random` when loaded).
-            if member == "random" then
-                moduleName = "math.random"
-                members = members:sub(7)
-            end
             if moduleName ~= "math" then
                 queueModule(moduleName)
             end
@@ -3317,11 +3312,6 @@ function lower.emit(
                     f:op("K", dst, f:const("num", math.huge))
                 elseif full == "math.pi" then
                     f:op("K", dst, f:const("num", math.pi))
-                elseif full == "math.random" then
-                    -- The standard namespace module: the host function, the
-                    -- generator types, and installed as the host's on load.
-                    queueModule(full)
-                    f:op("Require", dst, f:const("str", full))
                 elseif BUILTINS[full] then
                     f:op("K", dst, f:const("builtin", full))
                 else
