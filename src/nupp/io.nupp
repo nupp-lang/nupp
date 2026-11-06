@@ -85,19 +85,19 @@ export const Writer = bytes.writerdefaults
 
 --- A FIFO byte source that a reader borrows without taking ownership.
 ---
---- A [](string.buffer) FIFO is a byte queue: `put` appends to the back and
---- `get` consumes from the front. `io.Reader.of(queue):scalar()` adapts one, so
+--- An [](io.Buffer) FIFO is a byte queue: `put` appends to the back and
+--- `get` consumes from the front. `queue:reader():scalar()` adapts one, so
 --- bytes assembled there are read without copying everything in it first, and
---- the queue's own `get` stays usable over the same bytes.
+--- the queue remains owned by its caller.
 ---
 --- ```nupp
---- local queue = string.buffer.new()
+--- local queue = io.Buffer.create()
 --- queue:put("header:")
 --- queue:put("!")
 ---
---- local reader = io.Reader.of(queue):scalar()
+--- local reader = queue:reader():scalar()
 --- assert(reader:readbytes(7) == "header:")
---- assert(queue:tostring() == "!")
+--- assert(reader:remaining() == 1)
 --- assert(reader:readuint8() == 33)
 --- ```
 ---
@@ -108,10 +108,10 @@ export const Writer = bytes.writerdefaults
 ---
 --- ```nupp
 --- local destination = io.Buffer.create()
---- local queue = string.buffer.new()
+--- local queue = io.Buffer.create()
 --- queue:put("payload")
 --- do
----     local reader = io.Reader.of(queue)
+---     local reader = queue:reader()
 ---     assert(reader:transferto(destination:writer()) == 7)
 --- end
 --- assert(destination:getstring() == "payload")

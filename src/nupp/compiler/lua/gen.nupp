@@ -1411,13 +1411,12 @@ export function generate(
 
     -- A module projected through a builtin namespace is required once per generated
     -- module. Reserved rather than assumed, so a user local with the preferred name
-    -- does not collide with it. OPT-5 reaches string.buffer through the same
-    -- registry.
+    -- does not collide with it.
 
     local function compilerModuleName(moduleName: string): string
         local name = compilerModules[moduleName]
         if not name then
-            local preferred = moduleName == "string.buffer" and "__nuppBuffer" or "__nuppModule"
+            local preferred = "__nuppModule"
             name = reservedName(preferred)
             compilerModules[moduleName] = name
             compilerModuleOrder[#compilerModuleOrder + 1] = moduleName
@@ -1459,7 +1458,7 @@ export function generate(
     end
 
     -- The suspension runtime, bound once per module using coroutine cleanup,
-    -- the way `string.buffer` is.
+    -- like other compiler-owned helpers.
     local function suspensionModule()
         needsSuspension = true
         needRuntimeEffect("runtime.suspension")
@@ -9675,7 +9674,7 @@ export function generate(
 
         elseif kind == "dotIndex" and x.compilerModule then
             -- The module the checker projected through a builtin namespace. OPT-5
-            -- shares this binding when the module is string.buffer.
+            -- uses its private cached buffer binding.
             e(compilerModuleName(x.compilerModule), sourceLine(x))
 
         elseif kind == "localStmt"

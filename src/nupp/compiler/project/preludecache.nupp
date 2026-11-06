@@ -23,11 +23,11 @@ away rather than migrated whenever it might not.
 ## Flattened graph
 
 The prelude is a graph, not a tree: types refer to each other, and a receiver
-type is a table used as a key. `string.buffer`, which is what the store
+type is a table used as a key. The private serde codec, which is what the store
 serializes with, encodes neither shared references nor cycles. So the graph is
 numbered -- every table gets an id, every reference becomes that id -- and the
 numbering is undone on the way back. Flat arrays rather than nested records,
-because that is the shape `string.buffer` is quickest at and the shape a decoder
+because that is the shape the codec is quickest at and the shape a decoder
 can walk without allocating anything it throws away.
 
 `NUPP_NO_PRELUDE_CACHE` in the environment turns all of this off, which is how a

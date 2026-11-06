@@ -5,10 +5,8 @@ local testAssert = require("assert")
 -- `loadBundled` discards a declaration that produces any diagnostic, and
 -- strictness was inherited from the project's manifest -- so `strict = true`, which
 -- is the setting a careful project turns on, made every consumer re-judge nupp's
--- own declarations under a rule they were not written to. `string.buffer` fails
--- it: `put` takes `...: any`, which strict reports on an exported function. The
--- module then resolved to `unknown`, every use of it was silently untyped, and
--- nothing was reported about any of it.
+-- own declarations under a rule they were not written to. Foreign declarations
+-- can legitimately accept any; strict consumers must still receive their types.
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("helpers.fragment")
 local envMod = require("nupp.compiler.project.env")
@@ -33,7 +31,6 @@ end
 -- Every module the compiler ships a declaration for.
 local BUNDLED = {
     "ffi",
-    "string.buffer",
     "jit.util",
     "jit.profile",
     "jit.zone",
@@ -659,7 +656,7 @@ function M.aTreeInSyncReportsNothingStale()
     -- The risk this carries is the false positive: it would nag on every command in
     -- every checkout, which is worse than the error it explains.
     local bundled = require("nupp.compiler.bundled")
-    for _, relative in ipairs({"/decls/prelude.d.nupp", "/decls/stringbuffer.d.nupp", "/nupp/mem/span.nupp",}) do
+    for _, relative in ipairs({"/decls/prelude.d.nupp", "/nupp/mem/span.nupp",}) do
         assert(bundled.source(relative), "the compiler carries " .. relative)
     end
     local stale = bundled.staleDeclarations()

@@ -6295,7 +6295,7 @@ function M.builtinNavigationKeepsEveryDeclaredGlobalAndLibrary()
     for _, library in ipairs(shapes) do
         assert(libraries[library.name], "missing library " .. library.name)
     end
-    for _, name in ipairs({"ffi", "string.buffer", "jit.util", "jit.profile", "jit.zone", "jit.vmdef"}) do
+    for _, name in ipairs({"ffi", "jit.util", "jit.profile", "jit.zone", "jit.vmdef"}) do
         assert(libraries[name], "missing required builtin " .. name)
     end
     for _, name in ipairs({
@@ -6428,7 +6428,7 @@ function M.builtinNavigationMergesOwnedRootsAndOpensCurrentBranch()
         local _, count = api:gsub('data%-module="' .. name .. '"', '')
         assert(count == 1, name .. " has " .. count .. " roots")
     end
-    for _, name in ipairs({"string.buffer", "jit.util", "jit.profile", "jit.zone", "jit.vmdef"}) do
+    for _, name in ipairs({"jit.util", "jit.profile", "jit.zone", "jit.vmdef"}) do
         assert(api:find('data-module="' .. name .. '"', 1, true), "missing nested builtin " .. name)
     end
     assert(api:find('>functions</a>', 1, true), "global functions need their own group")
@@ -6642,7 +6642,7 @@ end
     end
     assert(globalAssert and globalAssert.lua, "callable globals with named function types need Lua identity")
 
-    assert(modules.ffi and modules["string.buffer"] and modules["jit.vmdef"])
+    assert(modules.ffi and not modules["string.buffer"] and modules["jit.vmdef"])
     assert(not modules.re and not modules.lpeg and not modules.number)
     os.execute("rm -rf '" .. dir .. "'")
 end

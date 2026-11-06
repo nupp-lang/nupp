@@ -124,33 +124,6 @@ end
 Under `@aot`, table construction and initialization can run in one native call.
 See [building ordinary Lua values](ahead-of-time/lua-values.md).
 
-### `string.buffer`
-
-`string.buffer` needs no source-level `require`:
-
-::: code-group
-```nupp [Nupp]
-function m.pair(): string
-    local b = string.buffer.new()
-    b:put("a", "b")
-    return b:tostring()
-end
-```
-
-```lua [Generated Lua]
-const __nuppBuffer = require("string.buffer")
-
-function m.pair()
-    local b = __nuppBuffer.new()
-    b:put("a", "b")
-    return b:tostring()
-end
-```
-:::
-
-The private binding leaves the runtime `string` table untouched. An explicit
-`require` also works; a shadowed `string` remains ordinary table access.
-
 ### Switch dispatch
 
 A [switch](../language/switch-expressions.md) writes directly to its destination
@@ -301,7 +274,7 @@ Each pass has a stable `OPT-n` code:
 | `OPT-2` | numeric-ipairs | -O1 | Use a numeric loop for a proved stable dense array |
 | `OPT-3` | constant-fold | -O1 | Fold exact primitives, branches, dead loops, and immutable paths |
 | `OPT-4` | static-callable | -O1 | Bind repeated immutable dotted callees at first use |
-| `OPT-5` | concat-buffer | -O1 | Append to a string.buffer instead of rebuilding a string each pass |
+| `OPT-5` | concat-buffer | -O1 | Append through io.Buffer instead of rebuilding a string each pass |
 | `OPT-6` | indexed-range | -O1 | Remove repeated bounds checks and temporary view objects |
 | `OPT-7` | inline-return-helper | -O1 | Inline a module's own single-return local helpers where they are called |
 | `OPT-8` | const-monomorphize | -O1 | Specialize functions for known constant arguments |
@@ -729,7 +702,8 @@ same block.
 
 ### `OPT-5`, concat buffer
 
-A loop that appends to a string can use a `string.buffer` FIFO:
+A loop that appends to a string uses a private builder behind `io.Buffer`.
+The equivalent public operations are:
 
 ::: code-group
 ```nupp [Nupp]
@@ -742,11 +716,10 @@ function m.join(items: {string}): string
 end
 ```
 
-```lua [-O1]
-local __nuppBuffer = require("string.buffer")
+```nupp [Equivalent buffer operations]
 
-function m.join(items)
-    local __nuppBuf_1 = __nuppBuffer.new()
+function m.join(items: {string}): string
+    local __nuppBuf_1 = io.Buffer.create()
     for _, item in ipairs(items) do
         __nuppBuf_1:put(item, ",")
     end

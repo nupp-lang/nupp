@@ -80,4 +80,50 @@ function M.browserLuaJitUsesTheSamePrivateStorage()
     assert(ok, problem)
 end
 
+function M.nativeAndFallbackAgreeOnRandomFifoSequences()
+    local isolated = require("helpers.providerstate").instance
+    local fallback = isolated({["nupp.io.internal.bytes"] = true}, {
+        ["nupp.io.internal.nativebuffer"] = {},
+    })("nupp.io.internal.bytes").Buffer
+    local bit = require("bit")
+    local state = 20260928
+
+    local function draw(n)
+        state = bit.bxor(state, bit.lshift(state, 13))
+        state = bit.bxor(state, bit.rshift(state, 17))
+        state = bit.bxor(state, bit.lshift(state, 5))
+        return (state % 4294967296) % n
+    end
+
+    local values = {"", "a", "hello", "\0\255", 0, -1, 1.5, 1e100, 2 ^ 53}
+    for _ = 1, 500 do
+        local left, right = require("io").Buffer.create(), fallback.create()
+        for _ = 1, 24 do
+            local op = draw(6)
+            if op < 2 then
+                local value = values[draw(#values) + 1]
+                left:put(value);
+                right:put(value)
+            elseif op == 2 then
+                local count = draw(left:len() + 1)
+                assert(left:get(count) == right:get(count))
+            elseif op == 3 then
+                local count = draw(left:len() + 1)
+                left:skip(count);
+                right:skip(count)
+            elseif op == 4 then
+                left:reset();
+                right:reset()
+            else
+                local value = draw(1000)
+                left:putf("%s-%d", "q", value);
+                right:putf("%s-%d", "q", value)
+            end
+            assert(left:len() == right:len() and left:tostring() == right:tostring())
+        end
+        left:close();
+        right:close()
+    end
+end
+
 return M

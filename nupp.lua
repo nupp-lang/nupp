@@ -242,10 +242,6 @@ local RESOURCES = {
         source = "src/nupp/runtime/provider/nativegpu.nupp",
         output = "nupp/compiler/nupp/runtime/provider/nativegpu.nupp"
     },
-    {
-        source = "src/nupp/runtime/provider/nativebuffer.nupp",
-        output = "nupp/compiler/nupp/runtime/provider/nativebuffer.nupp"
-    },
     {source = "src/nupp/runtime/bitops.nupp", output = "nupp/compiler/nupp/runtime/bitops.nupp"},
     {source = "src/nupp/gpu/api.nupp", output = "nupp/compiler/nupp/gpu/api.nupp"},
     {source = "src/nupp/gpu/types.nupp", output = "nupp/compiler/nupp/gpu/types.nupp"},
@@ -550,7 +546,6 @@ for _, resource in ipairs({
     "src/nupp/runtime/browser/workers.nupp",
     "src/nupp/runtime/provider/lunajson.nupp",
     "src/nupp/runtime/provider/scalarbitops.nupp",
-    "src/nupp/runtime/provider/tablebuffer.nupp",
     "src/nupp/runtime/storage.nupp",
     "src/nupp/runtime/managed.nupp",
     "src/nupp/runtime/vendor/lunajson/decoder.lua",

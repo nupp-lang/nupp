@@ -283,9 +283,9 @@ return out
 ]]
     local code, remarks = compile(source, 1, "lua51")
     for _, entry in ipairs(remarks) do
-        testAssert.eq(entry.code ~= "OPT-5", true, "Lua 5.1 cannot use string.buffer")
+        testAssert.eq(entry.code ~= "OPT-5", true, "Lua 5.1 preserves concatenation")
     end
-    testAssert.eq(code:find("__nuppBuffer", 1, true), nil, "Lua 5.1 output does not require LuaJIT's string.buffer")
+    testAssert.eq(code:find("__nuppBuffer", 1, true), nil, "Lua 5.1 output preserves concatenation")
 end
 
 function M.disablingThePassLeavesItAlone()

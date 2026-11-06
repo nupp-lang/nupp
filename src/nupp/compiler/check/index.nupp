@@ -46,7 +46,7 @@ local TYPE_INTRINSICS: {[string]: boolean} = {admit = true, sizeof = true, align
 -- apart from the prelude table's runtime shape: LuaJIT does not put these modules on
 -- that table, so codegen replaces the whole expression with a private require binding.
 -- Recognition by the root's definition leaves a locally shadowed namespace alone.
-local COMPILER_MODULES: {[string]: string} = {["string.buffer"] = "string.buffer"}
+local COMPILER_MODULES: {[string]: string} = {}
 
 --- A node of the tree being checked.
 local type Node = cst.Node

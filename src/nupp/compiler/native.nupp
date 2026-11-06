@@ -316,7 +316,7 @@ local FEATURES: {[string]: native.Feature} = {
         name = "io_internal_bytes",
         runtimeModule = "nupp.io.internal.bytes",
         portableRuntime = true,
-        requires = {"stdlib.math", "runtime.spanview", "runtime.text_buffer"}
+        requires = {"stdlib.math", "runtime.spanview"}
     },
     [
         "runtime.io_internal_scalars"
@@ -513,7 +513,6 @@ local FEATURES: {[string]: native.Feature} = {
         portableRuntime = true,
         requires = {"runtime.checksum_catalog", "runtime.digest_catalog", "runtime.mac_catalog"},
     },
-    ["runtime.text_buffer"] = {name = "text_buffer", module = "string.buffer", requires = {}},
     -- `portableRuntime` because the run-time half of `math` names nothing
     -- LuaJIT alone has: its bit operations come from whatever answers
     -- `numeric.bitops` on the target, and its `binary32` conversions are

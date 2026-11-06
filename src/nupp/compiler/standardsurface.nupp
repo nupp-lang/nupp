@@ -97,7 +97,7 @@ local MODULES: {[string]: {
     ["nupp.serde.internal.value"] = {kind = "common"},
     ["nupp.serde.internal.view"] = {kind = "common"},
     ["utf8"] = {kind = "common"},
-    ["nupp.derive"] = facility("runtime", "runtime.text_buffer"),
+    ["nupp.derive"] = facility("runtime", "runtime.io_internal_bytes"),
     ["io.cli"] = {kind = "common"},
     ["nupp.runtime.standardio"] = {kind = "common"},
     ["nupp.cli.internal.optparser"] = {kind = "common"},
@@ -190,10 +190,7 @@ export function supports(moduleName: string, host: string?): boolean
     if BROWSER_IMPLEMENTATIONS[moduleName] then
         return selectedHost == "browser"
     end
-    if moduleName == "nupp.runtime.provider.nativebuffer"
-        or moduleName == "nupp.runtime.provider.nativestorage"
-        or moduleName == "bit"
-    then
+    if moduleName == "nupp.runtime.provider.nativestorage" or moduleName == "bit" then
         return true
     end
     if selectedHost == "browser" then

@@ -78,6 +78,11 @@ return text, total
     end
 end
 
+function M.retiredBufferHasNoCheckedRuntimeSource()
+    local _, diags = checked("return require('string.buffer')")
+    assert(errors(diags):find("NUPP3015", 1, true), errors(diags))
+end
+
 function M.runtimeIdentitiesSurviveAliasesAndAny()
     for _, source in ipairs({
         "return jit.status()",
@@ -86,7 +91,6 @@ function M.runtimeIdentitiesSurviveAliasesAndAny()
         "local s = string; return s.buffer",
         "return require('bit')",
         "return require('ffi')",
-        "return require('string.buffer')",
         "return _G.jit",
         "return require('table.new')",
         "local t: any = (table as any); return t['new'](1, 2)",

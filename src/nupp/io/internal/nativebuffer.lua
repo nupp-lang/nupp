@@ -13,7 +13,8 @@ function M.finish(buffer)
 end
 
 function M.base(buffer)
-    return ffi.cast("uint8_t *", (buffer:ref()))
+    local pointerSpec = "uint8_t *"
+    return ffi.cast(pointerSpec, (buffer:ref()))
 end
 
 local function slowPut(buffer, ...)

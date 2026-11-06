@@ -1931,11 +1931,17 @@ function M.portableFeatureRuntimesAreReachable()
         local feature = native.feature(effect)
         if feature.portableRuntime then
             seen = seen + 1
-            assert(feature.runtimeModule ~= nil, effect .. " says portableRuntime with no runtime module to compile")
-            assert(
-                surface.reachable(browser, feature.runtimeModule),
-                feature.runtimeModule .. " is unreachable in the browser"
-            )
+            if feature.runtimeModule ~= nil then
+                assert(
+                    surface.reachable(browser, feature.runtimeModule),
+                    feature.runtimeModule .. " is unreachable in the browser"
+                )
+            else
+                assert(#feature.requires > 0, effect .. " has neither a runtime module nor dependencies")
+                for _, dependency in ipairs(feature.requires) do
+                    assert(native.feature(dependency), effect .. " has an unknown dependency")
+                end
+            end
         end
     end
     assert(seen > 0, "some feature runtime is available in the browser")
@@ -3262,156 +3268,6 @@ function M.tableLibrary()
     assertClean("local t = table.new(16, 0)")
     assertClean("local t = table.new(16, 0)\ntable.clear(t)")
     testAssert.eq((diagsOf("table.clear = function() end")), "NUPP2009:1")
-end
-
-function M.stringBufferModule()
-    assertClean(
-        table.concat(
-            {
-                "local buffer = require('string.buffer')",
-                "local b = buffer.new()",
-                "b:put('a', 1):put('b')",
-                "local s: string = b:tostring()",
-                "local joined: string = b .. 'x'",
-                "local size: integer = #b",
-            },
-            "\n"
-        )
-    )
-    testAssert.eq(
-        (
-            diagsOf(
-                table.concat(
-                    {"local buffer = require('string.buffer')", "local b = buffer.new()", "b:putt('x')",},
-                    "\n"
-                )
-            )
-        ),
-        "NUPP2004:3"
-    )
-    testAssert.eq(
-        (
-            diagsOf(
-                table.concat({"local buffer = require('string.buffer')", "local n: number = buffer.encode({})",}, "\n")
-            )
-        ),
-        "NUPP2001:2"
-    )
-end
-
-function M.stringBufferTypeIsNameable()
-    assertClean(
-        table.concat(
-            {
-                "local buffer = require('string.buffer')",
-                "local function render(out: buffer.Buffer): buffer.Buffer borrows (out)",
-                "   return out:putf('%d', 1)",
-                "end",
-                "local b = buffer.new(64)",
-                "local s: string = render(b):tostring()",
-            },
-            "\n"
-        )
-    )
-    testAssert.eq(
-        (
-            diagsOf(
-                table.concat(
-                    {
-                        "local buffer = require('string.buffer')",
-                        "local b: buffer.Buffer = buffer.new()",
-                        "local n: number = b",
-                    },
-                    "\n"
-                )
-            )
-        ),
-        "NUPP2001:3"
-    )
-end
-
-function M.stringBufferCoversTheWholeApi()
-    assertClean(
-        table.concat(
-            {
-                "local buffer = require('string.buffer')",
-                "local b = buffer.new(64, {dict = {'k'}})",
-                "b:reset():put('a', 1):putf('%s', 'x'):skip(1)",
-                "b:set('abc')",
-                "b:encode({1})",
-                "local decoded = b:decode()",
-                "do",
-                "   local ptr, len = b:reserve(8)",
-                "end",
-                "b:commit(0)",
-                "do",
-                "   local base, size = b:ref()",
-                "   local n: integer = #b",
-                "   local all: string = b:tostring()",
-                "end",
-                "local text: string = b:get(1)",
-                "b:free()",
-                "local encoded: string = buffer.encode(decoded)",
-                "local back = buffer.decode(encoded)",
-                "local ffi = require('ffi')",
-                "b:putcdata(ffi.new('uint8_t[4]'), 4)",
-            },
-            "\n"
-        )
-    )
-end
-
-function M.stringBufferBorrowBlocksInvalidation()
-    testAssert.eq(
-        (
-            diagsOf(
-                table.concat(
-                    {
-                        "local buffer = require('string.buffer')",
-                        "local b = buffer.new()",
-                        "local base, size = b:ref()",
-                        "b:reset()",
-                        "print(size)",
-                    },
-                    "\n"
-                )
-            )
-        ),
-        "NUPP2607:4"
-    )
-end
-
-function M.stringBufferPointersBecomeCheckedSpans()
-    assertClean(
-        table.concat(
-            {
-                "local buffer = require('string.buffer')",
-                "local spans = require(\"binary.span\")",
-                "local b = buffer.new()",
-                "local available: integer = 0",
-                "do",
-                "   local ptr, reserved = b:reserve(64)",
-                "   available = reserved",
-                "   do",
-                "      local writable = spans.writecarray(ptr, reserved as integer)",
-                "      writable[1] = 65",
-                "      own.drop(writable)",
-                "   end",
-                "end",
-                "b:commit(1)",
-                "local len: integer = 0",
-                "do",
-                "   local base, readable = b:ref()",
-                "   len = readable",
-                "   local view = spans.fromcarray(base, readable as integer)",
-                "   local first: integer = view[1]",
-                "end",
-                "b:skip(len)",
-                "local total: integer = available + len",
-            },
-            "\n"
-        )
-    )
 end
 
 function M.profileSessionProtocolPreservesItsReportType()

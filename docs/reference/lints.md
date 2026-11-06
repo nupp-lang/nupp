@@ -506,7 +506,6 @@ on what it builds, and an instance stops being a table.
 | --- | --- | --- |
 | `type(v)` | `"table"` | `"cdata"` |
 | `pairs(v)` | iterates fields | needs a `__pairs` metamethod |
-| `string.buffer.encode(v)` | encodes | raises, and takes no hook |
 | a table-walking serializer | works | sees no keys |
 
 `__pairs` is dispatched on an `ffi.metatype`, so iteration can be restored by

@@ -33,7 +33,7 @@ function M.nullDropsOrUsesTheSuppliedValue()
 end
 
 -- The public writer appends to an io.Buffer; a provider's own writer to a
--- string.buffer.
+-- io.Buffer.
 local function outputFor(provider, prefix)
     if provider == json then
         return require("io").Buffer.create(prefix)

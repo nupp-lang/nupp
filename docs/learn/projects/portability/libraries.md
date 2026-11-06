@@ -42,7 +42,7 @@ return value
 
 Runtime `const`, compound assignment,
 bit operators, `continue`, jumps, short functions, safe navigation, extended
-literals, FFI, native `bit`, `string.buffer`, exact-width representations and VM
+literals, FFI, native `bit`, exact-width representations and VM
 table helpers are rejected. There are no automatic bit, integer or struct
 provider substitutions. An explicit pure-Lua bit or integer library can qualify
 through the same checks as other source dependencies. A provider's internal
@@ -65,7 +65,7 @@ guest's libraries; registering a provider cannot change that requirement.
 
 ## LuaJIT modules
 
-`require("ffi")`, `require("string.buffer")`, `require("table.new")`, `bit`, and
+`require("ffi")`, `require("table.new")`, `bit`, and
 the `jit.*` modules are LuaJIT facilities, so the compatibility profile rejects
 them. Use an ordinary pure-Lua dependency when stock Lua 5.1 support is required.
 
@@ -85,9 +85,9 @@ modules.
 
 Storage and struct operations use private runtime contracts. Their layouts and
 scalar codecs agree with the representation compiled into the program.
-[](string.buffer) owns the canonical FIFO `Buffer` type on native and browser
-LuaJIT hosts. Its pointer and serialization operations retain their native
-representation and lifetime requirements.
+[](io.Buffer) owns growable FIFO byte storage on native and browser hosts.
+Borrowed spans retain its storage for the duration of their loan. Serialization
+belongs to [](serde).
 
 Each GPU context retains its device methods. CPU workgroups and tensor layout
 operations are ordinary code. HTTP clients are created with

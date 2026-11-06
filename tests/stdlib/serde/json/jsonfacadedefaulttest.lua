@@ -64,31 +64,6 @@ function M.anOrdinaryJsonRequireLoadsLunajsonAndNoAotDecoder()
     assert(not output:find("LOADED ", 1, true), "ordinary JSON use loaded an AOT-only module: " .. output)
 end
 
-function M.schemaFreeJsonDoesNotLoadTheNativeBufferProvider()
-    local path = os.tmpname() .. ".lua"
-    local handle = assert(io.open(path, "w"))
-    handle:write(string.format("package.path = %q\n", package.path))
-    handle:write(
-        [[
-        package.preload["nupp.runtime.provider.nativebuffer"] = function()
-            error("schema-free JSON loaded the native buffer provider")
-        end
-        local json = require("serde.json")
-        local bytes = json.encodevalue({answer = 42})
-        local value, reason = json.decodevalue(bytes)
-        assert(reason == nil and value.answer == 42)
-        assert(package.loaded["nupp.runtime.provider.nativebuffer"] == nil)
-        print("done")
-    ]]
-    )
-    handle:close()
-    local pipe = assert(io.popen(string.format("luajit %q 2>&1 && printf '\\n__exit__:0\\n'", path), "r"))
-    local output = pipe:read("*a")
-    local closed = pipe:close()
-    os.remove(path)
-    assert(closed and output:match("^done%s+__exit__:0%s*$"), output)
-end
-
 function M.valueBuildingWithoutByteViewsDoesNotLoadStorage()
     local output = runScript(
         [[

@@ -105,7 +105,7 @@ return {newBuffer = text.Buffer.create, now = os.monotonic, bytes = array.bytes}
             assert(exists(output .. "/nupp/runtime/provider/nativestorage.lua"), target.name .. " carries storage")
             assert(
                 not exists(output .. "/nupp/runtime/provider/nativebuffer.lua"),
-                "string.buffer uses the VM directly"
+                "the retired buffer provider is absent"
             )
             testAssert.eq(
                 exists(output .. "/nupp/runtime/provider/nativetime.lua"),

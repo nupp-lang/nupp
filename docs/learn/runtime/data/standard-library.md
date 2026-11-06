@@ -18,7 +18,7 @@ print(#digest, math.lerp(10, 20, 0.25))
 Compiler intrinsics live in their subject namespaces, such as `types`, `simd`,
 and `own`. The compiler selects their implementations from the members checked
 source reaches. Typed storage uses [](nupp.array), [](nupp.heap) and
-[](nupp.soa); [](string.buffer) owns FIFO byte buffers.
+[](nupp.soa); [](io.Buffer) owns FIFO byte buffers.
 
 Nupp-authored libraries outside that surface are ordinary declared modules on
 disk. A qualified module path loads one only when the source uses it:
@@ -137,7 +137,7 @@ Packages can discover implementations of their own interfaces with
 builtin services. See [SPI](../../projects/spi.md) for package discovery.
 
 Runtime implementation contracts are private. Explicit C interop APIs,
-including native `string.buffer` pointer operations, retain their own target
+including borrowed span pointer operations, retain their own target
 and lifetime requirements.
 
 ### Forcing a native feature
@@ -168,9 +168,8 @@ raise instead of returning a failure value.
 A result declared `affine(...)` has a cleanup obligation: its local scope drops
 it, and `own.drop` ends its lifetime early. Other values have different storage
 lifetimes. `nupp.array` and struct pool pages use managed storage; shared-byte
-regions retain engine references; `string.buffer.Buffer` provides `free` to
-discard retained capacity. None of those APIs promises automatic cleanup merely
-because a local leaves scope.
+regions retain engine references. `io.Buffer` is affine and releases its
+storage when its owner is dropped.
 
 A writer that buffers output reports delivery failures through `flush`. Check
 that result before closing when delivery matters. See

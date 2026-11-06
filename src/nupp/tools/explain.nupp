@@ -1409,7 +1409,7 @@ local ENTRIES: {any} = {
     {
         code = "NUPP3014",
         summary = "A runtime identity or representation requires LuaJIT",
-        rule = "Compatibility follows resolved standard-library identities through aliases and checks the stock Lua 5.1 surface. Native bit, FFI, exact-width representations, string.buffer and VM table helpers are unavailable. Explicitly checked pure-Lua libraries remain usable; no automatic provider substitution occurs.",
+        rule = "Compatibility follows resolved standard-library identities through aliases and checks the stock Lua 5.1 surface. Native bit, FFI, exact-width representations, VM table helpers are unavailable. Explicitly checked pure-Lua libraries remain usable; no automatic provider substitution occurs.",
         docs = "docs/learn/projects/portability/libraries.md#lua-51-source-compatibility",
     },
     {
