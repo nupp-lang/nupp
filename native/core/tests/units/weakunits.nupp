@@ -16,6 +16,8 @@ const values = require("nupp.runtime.vm.values")
 const weak = require("nupp.runtime.vm.gcweak")
 const final = require("nupp.runtime.vm.gcfinal")
 const tables = require("nupp.runtime.core.coretables")
+const corestorage = require("nupp.runtime.core.corestorage")
+const backing = require("nupp.runtime.vm.backing")
 
 const WRONG: uint64 = 1000000000ULL
 const ARENA_BYTES: uint64 = 67108864ULL
@@ -394,10 +396,10 @@ export function frozenweak(): uint64
     return answer
 end
 
--- A KIND_SLICE object as a weak value: on a heap whose slices are storage
--- views (`views` 1, the core's) a collectable object, cleared; else a slice
--- of a string, never cleared. Answers 1 when it was cleared.
-export function views(storageviews: uint64): uint64
+-- VM string slices remain value-like while core storage/views are collectable
+-- weak keys and values. `mode` bit 1 sets the reserved old heap flag; bit 2
+-- selects a minor collection. Both combinations must keep the same semantics.
+export function views(mode: uint64): uint64
     local answer: uint64 = 0ULL
     do
         local a = arena.open(ARENA_BYTES)
@@ -405,19 +407,126 @@ export function views(storageviews: uint64): uint64
             local h = heap.create(a)
             h.generational = collector.GENERATIONAL
             h.automatic = false
-            h.storageviews = storageviews
-            local roots = rootsIn(a, h, 1ULL)
+            h.storageviews = mode & 1ULL
+            local roots = rootsIn(a, h, 2ULL)
             local t = weaktable(h, weak.WEAK_VALUES)
+            local keys = weaktable(h, weak.WEAK_KEYS)
             setRoot(roots, 0ULL, t)
+            setRoot(roots, 1ULL, keys)
             local o = collector.allocate(h, heap.KIND_SLICE, native.sizeOf<heap.SliceBody>())
             local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as heap.SliceBody*
             body.source = values.NIL
             body.offset = 0
             body.length = 0
             collector.initialized(h, o)
-            tables.set(h, t & values.PAYLOAD, int(1ULL), heap.objectValue(o))
-            local wrong = full(h)
-            answer = bit(tables.get(t & values.PAYLOAD, int(1ULL)) == values.NIL, 1ULL) + wrong * WRONG
+            local slice = heap.objectValue(o)
+            local storage = corestorage.newstorage(h, corestorage.UINT8, 16ULL)
+            local view = corestorage.newview(h, storage, corestorage.UINT8, 4ULL, 8ULL)
+            local loose = corestorage.newstorage(h, corestorage.UINT8, 16ULL)
+            local taggedview = values.TAG_OBJ | view
+            local taggedloose = values.TAG_OBJ | loose
+            local distinct = (native.pointer(storage) as heap.Header*).kind as uint64 == heap.KIND_CORE_STORAGE
+                and (native.pointer(view) as heap.Header*).kind as uint64 == heap.KIND_CORE_VIEW
+                and heap.KIND_CORE_STORAGE ~= values.KIND_BYTES
+                and heap.KIND_CORE_VIEW ~= values.KIND_SLICE
+                and o.kind as uint64 == values.KIND_SLICE
+            tables.set(h, t & values.PAYLOAD, int(1ULL), slice)
+            tables.set(h, t & values.PAYLOAD, int(2ULL), taggedview)
+            tables.set(h, t & values.PAYLOAD, int(3ULL), taggedloose)
+            tables.set(h, keys & values.PAYLOAD, slice, int(1ULL))
+            tables.set(h, keys & values.PAYLOAD, taggedview, int(2ULL))
+            local wrong: uint64 = 0ULL
+            if mode & 2ULL ~= 0ULL then
+                wrong = minor(h)
+            else
+                wrong = full(h)
+            end
+            answer = bit(
+                tables.get(t & values.PAYLOAD, int(1ULL)) == slice
+                and tables.get(keys & values.PAYLOAD, slice) == int(1ULL)
+                and alive(h, slice),
+                1ULL
+            ) + bit(
+                tables.get(t & values.PAYLOAD, int(2ULL)) == values.NIL and not alive(h, taggedview),
+                2ULL
+            ) + bit(
+                tables.get(t & values.PAYLOAD, int(3ULL)) == values.NIL
+                and not alive(h, taggedloose)
+                and not alive(h, storage),
+                4ULL
+            ) + bit(
+                tables.get(keys & values.PAYLOAD, taggedview) == values.NIL,
+                8ULL
+            ) + bit(distinct, 16ULL) + wrong * WRONG
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- A rooted nested view retains its storage, not an intermediate view. After
+-- promotion a minor collection keeps the unrooted old pair; a full collection
+-- retires only the storage's external backing. Drain returns that backing once,
+-- demonstrated by taking the same pooled block again.
+export function storageowners(minorFirst: uint64): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = collector.GENERATIONAL
+            h.automatic = false
+            local roots = rootsIn(a, h, 1ULL)
+            local storage = corestorage.newstorage(h, corestorage.UINT8, 16ULL)
+            local base = corestorage.storagebase(storage)
+            native.store8(native.pointer(base), 6, 42ULL)
+            local view = corestorage.newview(h, storage, corestorage.UINT8, 4ULL, 8ULL)
+            local nested = corestorage.newview(h, view, corestorage.UINT8, 2ULL, 3ULL)
+            local held = values.TAG_OBJ | nested
+            setRoot(roots, 0ULL, held)
+            local normalized = native.load64(native.pointer(nested + heap.HEADER_BYTES), 0) == values.TAG_OBJ | storage
+            local wrong: uint64 = 0ULL
+            if minorFirst ~= 0ULL then
+                wrong = minor(h)
+            else
+                wrong = full(h)
+            end
+            local kept = alive(h, storage) and alive(h, nested) and not alive(h, view)
+            local bytes = corestorage.storagebase(nested) == base + 6ULL
+                and native.word(native.load8(native.pointer(base), 6)) == 42ULL
+                and corestorage.elementcount(nested) == 3ULL
+            wrong = wrong + minor(h) + minor(h)
+            local promoted = old(storage) and old(nested)
+            setRoot(roots, 0ULL, values.NIL)
+            wrong = wrong + minor(h)
+            local oldkept = alive(h, storage) and alive(h, nested)
+            collector.fullCycle(h)
+            wrong = wrong + collector.checkOracle(h, true)
+            local retired = not alive(h, storage)
+                and not alive(h, nested)
+                and h.released.count == 1ULL
+                and (native.pointer(storage) as heap.Header*).aux as uint64 == heap.KIND_CORE_STORAGE
+            tables.drain(h)
+            local drained = h.released.count == 0ULL
+            local reused = backing.wordBackingTake(h, 2ULL)
+            local returned = reused == base
+            if reused ~= 0ULL then
+                backing.wordBackingRelease(reused)
+            end
+            answer = bit(
+                normalized,
+                1ULL
+            ) + bit(
+                kept,
+                2ULL
+            ) + bit(
+                bytes,
+                4ULL
+            ) + bit(
+                promoted,
+                8ULL
+            ) + bit(oldkept, 16ULL) + bit(retired, 32ULL) + bit(drained, 64ULL) + bit(returned, 128ULL) + wrong * WRONG
             heap.destroy(h)
         end
     end

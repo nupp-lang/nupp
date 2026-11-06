@@ -27,9 +27,6 @@ const stacks = require("nupp.runtime.core.stacks")
 -- `finalcall`.
 const ROOTED_FIELDS: uint64 = 12ULL
 
--- heap.storageviews' value for the guest heap.
-const STORAGE_VIEWS: uint64 = 1ULL
-
 -- The scope comes first, so a Services address is also its scope's address.
 export struct Services
     scope: servicescope.ServiceScope
@@ -297,9 +294,6 @@ export function open(
         local h = heap.create(a)
         -- Generations (Decision 20) are kept from the first allocation on.
         h.generational = collector.GENERATIONAL
-        -- Its KIND_SLICE objects are storage views (corestorage), which a
-        -- weak table clears (heap.storageviews).
-        h.storageviews = STORAGE_VIEWS
         native.store64(services, native.fieldOffset<Services>("stacks"), slotstorage)
         native.store64(services, native.fieldOffset<Services>("stride"), stride)
         native.store64(services, native.fieldOffset<Services>("slots"), slots)

@@ -45,6 +45,10 @@ export const KIND_USERDATA: uint64 = 10
 export const KIND_THREAD: uint64 = 11
 export const KIND_INTEGER: uint64 = 12
 
+-- Core storage and views are not the frozen VM's bytes and string slices.
+export const KIND_CORE_STORAGE: uint64 = 13
+export const KIND_CORE_VIEW: uint64 = 14
+
 export const COLOR_WHITE: uint64 = 0
 export const COLOR_GRAY: uint64 = 1
 export const COLOR_BLACK: uint64 = 2
@@ -518,11 +522,8 @@ export struct Heap
     genbase: uint64
     sincefull: uint64
 
-    --- 1 on the core, where a `KIND_SLICE` object is a view of typed storage
-    --- (`corestorage`) rather than the VM's slice of a string (`values`): a
-    --- collectable object a weak table clears, not a string it never does.
-    --- The kind numbers conflict; until they are told apart this says which
-    --- meaning the heap's objects have.
+    --- Reserved compatibility slot; storage views now have their own kind.
+    --- Kept in place so shared heap offsets do not change.
     storageviews: uint64
 
     --- 1 while the program has asked for Lua's incremental mode

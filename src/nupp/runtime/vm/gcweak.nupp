@@ -48,21 +48,13 @@ export const WEAK_MODES: uint64 = 3
 --- old referent holds (Decision 20; `weakentries` reads the same bit).
 export const WEAK_MINOR: uint64 = 4
 
---- Beside a scanned table's mode: `KIND_SLICE` objects are storage views,
---- which are cleared, not string slices, which are not
---- (`Heap.storageviews`; `weakentries` reads the same bit).
-export const WEAK_VIEWS: uint64 = 8
-
 --- The mode a cycle scans table `o` under: its weak sides, and the bits for
---- a minor collection and for storage views.
+--- a minor collection.
 export function scanmode(h: heap.Heap*, o: heap.Header*): uint64
     @unsafe do
         local mode = (o.aux as uint64) & WEAK_MODES
         if h.minor ~= 0ULL then
             mode = mode | WEAK_MINOR
-        end
-        if h.storageviews ~= 0ULL then
-            mode = mode | WEAK_VIEWS
         end
         return mode
     end
@@ -98,7 +90,7 @@ end
 export function weakCycleRemember(h: heap.Heap*, o: heap.Header*, mode: uint64): nil
     @unsafe do
         heap.wordsPush(h.weak, native.address(o as voidptr))
-        heap.wordsPush(h.weak, mode & (WEAK_MODES | WEAK_MINOR | WEAK_VIEWS))
+        heap.wordsPush(h.weak, mode & (WEAK_MODES | WEAK_MINOR))
     end
 end
 
@@ -204,7 +196,7 @@ export function clearSides(h: heap.Heap*, first: uint64, last: uint64, sides: ui
                     t.arrayLen,
                     native.pointer(t.hashPtr),
                     t.hashCap,
-                    mode & (sides | WEAK_MINOR | WEAK_VIEWS),
+                    mode & (sides | WEAK_MINOR),
                     native.pointer(0ULL)
                 )
                 t.arrayLen = length
@@ -244,7 +236,7 @@ local function owns(o: heap.Header*): boolean
             return tail.arrayPtr ~= 0 or tail.extra ~= 0
         elseif kind == heap.KIND_ITER then
             return o.auxPtr ~= 0
-        elseif kind == heap.KIND_BYTES or kind == heap.KIND_STORAGE then
+        elseif kind == heap.KIND_BYTES or kind == heap.KIND_STORAGE or kind == heap.KIND_CORE_STORAGE then
             return o.auxPtr ~= 0 and o.auxPtr ~= body
         elseif kind == heap.KIND_USERDATA or kind == heap.KIND_INTEGER or kind == heap.KIND_THREAD then
             return true

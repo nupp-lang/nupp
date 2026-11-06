@@ -143,7 +143,7 @@ export function childNext(o: heap.Header*, cursor: Cursor*): uint64
                         end
                     end
                 end
-            elseif kind == heap.KIND_SLICE then
+            elseif kind == heap.KIND_SLICE or kind == heap.KIND_CORE_VIEW then
                 if phase == 0ULL then
                     cursor.phase = 4ULL
                     cursor.value = native.load64(body, 0)

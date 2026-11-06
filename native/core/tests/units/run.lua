@@ -500,7 +500,8 @@ UNITS[#UNITS + 1] = {
         {"weakunits", "resurrection", 1},
         {"weakunits", "cardsweak", 1},
         {"weakunits", "frozenweak", 0},
-        {"weakunits", "views", 1}
+        {"weakunits", "views", 1},
+        {"weakunits", "storageowners", 1}
     },
     cases = function()
         return {
@@ -510,8 +511,12 @@ UNITS[#UNITS + 1] = {
             {"resurrection", {1}, 127},
             {"cardsweak", {1000}, 63},
             {"frozenweak", {}, 31},
-            {"views", {1}, 1},
-            {"views", {0}, 0}
+            {"views", {0}, 31},
+            {"views", {1}, 31},
+            {"views", {2}, 31},
+            {"views", {3}, 31},
+            {"storageowners", {0}, 255},
+            {"storageowners", {1}, 255}
         }
     end
 }
