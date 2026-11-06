@@ -1,4 +1,4 @@
-module sharedlocalclient
+module nupp.core.sharedlocalclient
 
 const pages = require("nupp.runtime.core.pagemappings")
 const shared = require("nupp.runtime.core.sharedbacking")

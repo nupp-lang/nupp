@@ -1,4 +1,4 @@
-module sharedlocalproducer
+module nupp.core.sharedlocalproducer
 
 const native = require("nupp.runtime.vm.intrinsics")
 const shared = require("nupp.runtime.core.sharedbacking")

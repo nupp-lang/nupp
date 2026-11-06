@@ -1,4 +1,4 @@
-module allocator
+module nupp.core.allocator
 
 -- The allocator alone (`nupp.runtime.vm.heap`): the header at `heap.rs`'s
 -- offsets, size classes, chunks touched as they are used, large objects on

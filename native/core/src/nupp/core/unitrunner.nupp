@@ -289,7 +289,7 @@ function runner.build(
     end
 
     assert(not observerEntry or observeLanding, "observer entry requires landing lifecycle")
-    local entryModule = observerEntry or (observeLanding and "builderentry" or "unitentry")
+    local entryModule = observerEntry or (observeLanding and "nupp.core.builderentry" or "nupp.core.unitentry")
     local roots = {{entryModule, "prepare"}, {entryModule, "finish"}}
     for _, entry in ipairs(entries) do
         roots[#roots + 1] = {entry[1], entry[2]}

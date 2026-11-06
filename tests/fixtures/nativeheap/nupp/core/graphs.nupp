@@ -1,4 +1,4 @@
-module graphs
+module nupp.core.graphs
 
 -- The collector over synthetic object graphs: lists, rings, wide fan-out and
 -- large objects, held by registered ranges, handles, handle scopes, constant

@@ -1,4 +1,4 @@
-module stringunits
+module nupp.core.stringunits
 
 -- Core strings (nupp.runtime.core.corestrings), Lua patterns
 -- (nupp.runtime.core.corepattern) and the error report's prefix rule

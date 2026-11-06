@@ -1,4 +1,4 @@
-module storagelifetimeunits
+module nupp.core.storagelifetimeunits
 
 const native = require("nupp.runtime.vm.intrinsics")
 const arena = require("nupp.runtime.vm.arena")

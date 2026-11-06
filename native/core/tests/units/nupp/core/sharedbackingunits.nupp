@@ -1,4 +1,4 @@
-module sharedbackingunits
+module nupp.core.sharedbackingunits
 
 const native = require("nupp.runtime.vm.intrinsics")
 const os = require("nupp.runtime.vm.os")

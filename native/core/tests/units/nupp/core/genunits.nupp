@@ -1,4 +1,4 @@
-module genunits
+module nupp.core.genunits
 
 -- Generations (runtime Decision 20) on the owned backend: promotion after two
 -- minor collections, the barrier remembering an old object that takes a young

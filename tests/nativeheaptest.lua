@@ -97,7 +97,7 @@ local function compileFixture(name, runtimeModules)
             end
         end
     end
-    local paths = {FIXTURES .. "/" .. name .. ".nupp"}
+    local paths = {FIXTURES .. "/nupp/core/" .. name .. ".nupp"}
     for _, module in ipairs(selected) do
         paths[#paths + 1] = ROOT .. "/src/nupp/runtime/vm/" .. module .. ".nupp"
     end

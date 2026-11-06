@@ -399,7 +399,7 @@ for _, name in ipairs({"allocator", "graphs", "weak", "valuetable"}) do
     UNITS[#UNITS + 1] = {
         name = name,
         modules = {name, "unitentry"},
-        paths = {[name] = FIXTURES .. "/" .. name .. ".nupp"},
+        paths = {[name] = FIXTURES .. "/nupp/core/" .. name .. ".nupp"},
         include = "tests/fixtures/nativeheap",
         entries = entries,
         cases = function()
@@ -881,7 +881,7 @@ UNITS[#UNITS + 1] = {
 UNITS[#UNITS + 1] = {
     name = "replay",
     modules = {"replay", "unitentry"},
-    paths = {replay = FIXTURES .. "/replay.nupp"},
+    paths = {replay = FIXTURES .. "/nupp/core/replay.nupp"},
     include = "tests/fixtures/nativeheap",
     entries = {{"replay", "replayTrace", 0}},
     cases = function()
@@ -985,11 +985,13 @@ for _, unit in ipairs(UNITS) do
     if next(only) and not only[unit.name] then
         goto continue
     end
-    local fixtures = {}
+    local fixtures, fixtureNames = {}, {}
     for _, name in ipairs(unit.modules) do
-        local path = unit.paths and unit.paths[name] or HERE .. "/" .. name .. ".nupp"
+        local path = unit.paths and unit.paths[name] or HERE .. "/nupp/core/" .. name .. ".nupp"
         local include = unit.paths and unit.paths[name] and unit.include or "native/core/tests/units"
-        fixtures[#fixtures + 1] = {moduleName = name, path = path, include = include}
+        local moduleName = name:find(".", 1, true) and name or "nupp.core." .. name
+        fixtureNames[name] = moduleName
+        fixtures[#fixtures + 1] = {moduleName = moduleName, path = path, include = include}
     end
     local index = {}
     for at, entry in ipairs(unit.entries) do
@@ -1001,7 +1003,7 @@ for _, unit in ipairs(UNITS) do
         -- failure with its reason and dropped, so one run shows every gap.
         local entries, refused = {}, {}
         for _, entry in ipairs(unit.entries) do
-            entries[#entries + 1] = entry
+            entries[#entries + 1] = {fixtureNames[entry[1]] or entry[1], entry[2], entry[3]}
         end
         local ok, result
         while true do
@@ -1013,7 +1015,7 @@ for _, unit in ipairs(UNITS) do
                 ROOT .. "/build/core-unit-cache",
                 unit.observeLanding,
                 unit.sharedhandoff,
-                unit.observerEntry
+                unit.observerEntry and (fixtureNames[unit.observerEntry] or unit.observerEntry)
             )
             if ok then
                 break

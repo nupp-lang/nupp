@@ -1,4 +1,4 @@
-module replay
+module nupp.core.replay
 
 -- A heap trace recorded from the Rust heap (`heap_trace.rs`), replayed into
 -- the Nupp allocator and collector from standard input. Every allocation is

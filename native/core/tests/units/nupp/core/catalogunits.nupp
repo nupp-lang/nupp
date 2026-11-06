@@ -1,4 +1,4 @@
-module catalogunits
+module nupp.core.catalogunits
 
 -- The raw catalog's call-graph check (nupp.runtime.core.rawcatalog.acyclic)
 -- over compressed rows, at owner counts past the 256 the catalog once

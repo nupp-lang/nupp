@@ -1,4 +1,4 @@
-module unitentry
+module nupp.core.unitentry
 
 -- The scope a test unit's fixture functions receive as their hidden last
 -- parameter: a page ledger and service scope in caller-provided scratch.

@@ -1,4 +1,4 @@
-module weakaction
+module nupp.core.weakaction
 
 const objectweak = require("nupp.runtime.vm.objectweak")
 

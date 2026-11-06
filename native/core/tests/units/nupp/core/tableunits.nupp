@@ -1,4 +1,4 @@
-module tableunits
+module nupp.core.tableunits
 
 -- Core tables (nupp.runtime.core.coretables) on the owned backend: the array
 -- part, the hash part and the migration between them, borders after removal,

@@ -1,4 +1,4 @@
-module builderunits
+module nupp.core.builderunits
 
 const native = require("nupp.runtime.vm.intrinsics")
 const arena = require("nupp.runtime.vm.arena")

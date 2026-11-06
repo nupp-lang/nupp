@@ -1,4 +1,4 @@
-module weakindex
+module nupp.core.weakindex
 
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")

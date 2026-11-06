@@ -1,4 +1,4 @@
-module gcunits
+module nupp.core.gcunits
 
 -- Collector graph fixtures on the owned backend, after the CLIF-path
 -- fixtures in tests/fixtures/nativeheap/graphs.nupp: cycles, unrooted

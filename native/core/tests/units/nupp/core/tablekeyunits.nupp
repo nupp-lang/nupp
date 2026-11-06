@@ -1,4 +1,4 @@
-module tablekeyunits
+module nupp.core.tablekeyunits
 
 const native = require("nupp.runtime.vm.intrinsics")
 const arena = require("nupp.runtime.vm.arena")

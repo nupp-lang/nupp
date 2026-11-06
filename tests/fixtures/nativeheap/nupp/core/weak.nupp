@@ -1,4 +1,4 @@
-module weak
+module nupp.core.weak
 
 -- Weak tables, the read barrier of weak lookups and the released list
 -- (`nupp.runtime.vm.gcweak`). A table here is a table-kind object whose array

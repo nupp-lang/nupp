@@ -1,4 +1,4 @@
-module arithunits
+module nupp.core.arithunits
 
 -- Native integer floor division and modulo, which Lua defines for every sign
 -- combination.

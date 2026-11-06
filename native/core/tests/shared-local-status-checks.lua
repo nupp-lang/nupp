@@ -2,7 +2,7 @@
 -- disabled after construction. No production catalog or export is changed.
 local ROOT = assert(os.getenv("NUPP_COMPILER_ROOT"))
 local STEP, MODE = arg[1] or "consumer", arg[2] or "normal"
-local CLIENT, TARGET = "sharedlocalclient", "nupp.runtime.core.sharedbacking"
+local CLIENT, TARGET = "nupp.core.sharedlocalclient", "nupp.runtime.core.sharedbacking"
 local KEY = TARGET .. ".releaselocal"
 local OUT = ROOT .. "/build/core-units/shared-local-status"
 local PATH = ROOT .. "/src/nupp/compiler/vm/nativeservice.nupp"
@@ -151,16 +151,16 @@ sink.compilerGraph = function(...)
     strict()
     return result
 end
-local module = STEP == "producer" and "sharedlocalproducer" or CLIENT
+local module = STEP == "producer" and "nupp.core.sharedlocalproducer" or CLIENT
 local fixtures = {
     {
         moduleName = module,
-        path = ROOT .. "/native/core/tests/units/" .. module .. ".nupp",
+        path = ROOT .. "/native/core/tests/units/nupp/core/" .. module:match("[^.]+$") .. ".nupp",
         include = "native/core/tests/units"
     },
     {
-        moduleName = "unitentry",
-        path = ROOT .. "/native/core/tests/units/unitentry.nupp",
+        moduleName = "nupp.core.unitentry",
+        path = ROOT .. "/native/core/tests/units/nupp/core/unitentry.nupp",
         include = "native/core/tests/units"
     }
 }

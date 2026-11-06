@@ -1,4 +1,4 @@
-module atomicunits
+module nupp.core.atomicunits
 
 const native = require("nupp.runtime.vm.intrinsics")
 const os = require("nupp.runtime.vm.os")

@@ -1,4 +1,4 @@
-module heapunits
+module nupp.core.heapunits
 
 -- Collector unit fixtures executed on the owned backend. Each builds a fresh
 -- heap in its own arena and answers a count the driver computes on its own.

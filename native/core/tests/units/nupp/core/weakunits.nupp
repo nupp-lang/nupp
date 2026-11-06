@@ -1,4 +1,4 @@
-module weakunits
+module nupp.core.weakunits
 
 -- Weak tables and finalizers on the owned backend, as the collector keeps
 -- them (gcweak, gcfinal): ephemeron chains whatever order their entries

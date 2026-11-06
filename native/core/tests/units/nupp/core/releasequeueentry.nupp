@@ -1,4 +1,4 @@
-module releasequeueentry
+module nupp.core.releasequeueentry
 
 const native = require("nupp.runtime.vm.intrinsics")
 const pages = require("nupp.runtime.core.pagemappings")
