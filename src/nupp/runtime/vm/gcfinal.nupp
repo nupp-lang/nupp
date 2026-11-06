@@ -1,0 +1,169 @@
+module nupp.runtime.vm.gcfinal
+
+--[[
+The collector's side of finalizers (Lua 5.5's `__gc`, runtime Decision 12).
+
+A table is marked for finalization when a metatable with `__gc` is attached
+to it (`mark`): a bit of its header's `aux` says so, beside the weak modes,
+and `Heap.tofinalize` lists it in the order it was marked. When marking ends
+and a marked table is dead, `separate` moves it to `Heap.pending`, newest
+first, and marks it again with everything it reaches, so it and they live
+until its finalizer has run (resurrection); the pending tables are roots.
+The runtime takes them in order (`take`), which clears the bit: a finalizer
+runs at most once, unless the table is marked again. At exit `separateall`
+moves every marked table to the pending list, dead or not, as Lua's
+`lua_close` does.
+
+A minor collection treats an old table as alive (Decision 20), so only young
+ones are separated there; a full collection separates every dead one.
+]]
+
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const marking = require("nupp.runtime.vm.marking")
+
+--- The `aux` bit of a table marked for finalization: above the weak modes
+--- (bits 0 and 1) and a packed table's element kind (bits 2 to 5), below a
+--- card record's index (bit 8 up).
+export const FINALIZE: uint64 = 64
+
+local function auxof(o: heap.Header*): uint64
+    @unsafe do
+        return o.aux as uint64
+    end
+end
+
+local function setaux(o: heap.Header*, aux: uint64): nil
+    @unsafe o.aux = aux
+end
+
+local function headerof(address: uint64): heap.Header*
+    @unsafe do
+        return native.pointer(address) as heap.Header*
+    end
+end
+
+--- Whether table `o` is marked for finalization.
+export function marked(o: heap.Header*): boolean
+    return auxof(o) & FINALIZE ~= 0ULL
+end
+
+--- Marks table `o` for finalization, once: one marked already keeps its
+--- place in the order.
+export function mark(h: heap.Heap*, o: heap.Header*): nil
+    if marked(o) then
+        return
+    end
+    setaux(o, auxof(o) | FINALIZE)
+    @unsafe heap.wordsPush(h.tofinalize, native.address(o as voidptr))
+end
+
+--- Whether marking left `o` dead: white, and in a minor collection young.
+local function dead(h: heap.Heap*, o: heap.Header*): boolean
+    @unsafe do
+        if o.color as uint64 ~= heap.COLOR_WHITE then
+            return false
+        end
+        return h.minor == 0ULL or (o.flags as uint64) & heap.F_OLD == 0ULL
+    end
+end
+
+--- Moves marked tables, every one with `all` and else the dead ones, to the
+--- end of the pending list, newest first, keeping the rest in their order;
+--- answers how many moved.
+local function move(h: heap.Heap*, all: boolean): uint64
+    @unsafe do
+        local list = h.tofinalize
+        local moved: uint64 = 0ULL
+        local i = list.count
+        while i > 0ULL do
+            i = i - 1ULL
+            local address = heap.wordAt(list, i)
+            if all or dead(h, headerof(address)) then
+                heap.wordsPush(h.pending, values.TAG_OBJ | address)
+                moved = moved + 1ULL
+            end
+        end
+        if moved == 0ULL then
+            return 0ULL
+        end
+        local kept: uint64 = 0ULL
+        i = 0ULL
+        while i < list.count do
+            local address = heap.wordAt(list, i)
+            if not all and not dead(h, headerof(address)) then
+                heap.setWordAt(list, kept, address)
+                kept = kept + 1ULL
+            end
+            i = i + 1ULL
+        end
+        list.count = kept
+        return moved
+    end
+end
+
+--- At the end of marking: the dead marked tables become pending, newest
+--- first, and are grayed again; the caller marks what they reach before any
+--- weak key is cleared. Answers whether any were.
+export function separate(h: heap.Heap*): boolean
+    @unsafe do
+        local first = h.pending.count
+        if move(h, false) == 0ULL then
+            return false
+        end
+        local i = first
+        while i < h.pending.count do
+            marking.shadeValue(h, heap.wordAt(h.pending, i))
+            i = i + 1ULL
+        end
+        return true
+    end
+end
+
+--- At exit: every marked table becomes pending, after those pending
+--- already, newest first.
+export function separateall(h: heap.Heap*): nil
+    move(h, true)
+end
+
+--- How many finalizers wait to run.
+export function count(h: heap.Heap*): uint64
+    @unsafe do
+        return h.pending.count - h.pendinghead
+    end
+end
+
+--- How many tables are marked for finalization and not yet pending.
+export function markedcount(h: heap.Heap*): uint64
+    @unsafe do
+        return h.tofinalize.count
+    end
+end
+
+--- The next pending table, as a value, its mark cleared, or nil when none
+--- waits. The caller roots it before it allocates.
+export function take(h: heap.Heap*): uint64
+    @unsafe do
+        if h.pendinghead >= h.pending.count then
+            return values.NIL
+        end
+        local value = heap.wordAt(h.pending, h.pendinghead)
+        h.pendinghead = h.pendinghead + 1ULL
+        if h.pendinghead == h.pending.count then
+            h.pending.count = 0ULL
+            h.pendinghead = 0ULL
+        end
+        local o = headerof(value & values.PAYLOAD)
+        setaux(o, auxof(o) & ~FINALIZE)
+        return value
+    end
+end
+
+--- The pending tables' values, for the root walk: their first word and
+--- count.
+export function rootbase(h: heap.Heap*): uint64
+    @unsafe do
+        return h.pending.base + h.pendinghead * 8ULL
+    end
+end

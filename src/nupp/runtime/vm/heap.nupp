@@ -517,6 +517,27 @@ export struct Heap
     cardfree: Words*
     genbase: uint64
     sincefull: uint64
+
+    --- 1 on the core, where a `KIND_SLICE` object is a view of typed storage
+    --- (`corestorage`) rather than the VM's slice of a string (`values`): a
+    --- collectable object a weak table clears, not a string it never does.
+    --- The kind numbers conflict; until they are told apart this says which
+    --- meaning the heap's objects have.
+    storageviews: uint64
+
+    --- 1 while the program has asked for Lua's incremental mode
+    --- (`collectgarbage("incremental")`): generations are still kept, so
+    --- going back to them is safe, but no minor collection runs.
+    incremental: uint64
+
+    --- Finalizers (`gcfinal`): the tables marked for finalization, by header
+    --- address in the order they were marked; and those found dead, as
+    --- values in the order their finalizers run, from `pendinghead` on. The
+    --- pending ones are roots until each is taken to run.
+    tofinalize: Words*
+
+    pending: Words*
+    pendinghead: uint64
 end
 
 -- ---- words over mappings ---------------------------------------------------
@@ -951,6 +972,11 @@ export function create(borrows a: arena.Arena*): Heap* borrows (a)
         h.remembered = zeroWords(a)
         h.cards = zeroWords(a)
         h.cardfree = zeroWords(a)
+        h.tofinalize = zeroWords(a)
+        h.pending = zeroWords(a)
+        h.pendinghead = 0ULL
+        h.incremental = 0ULL
+        h.storageviews = 0ULL
         h.generational = 0ULL
         h.minor = 0ULL
         h.genbase = 1048576
@@ -1029,6 +1055,8 @@ export function destroy(h: Heap*): nil
         wordsRelease(h.remembered)
         wordsRelease(h.cards)
         wordsRelease(h.cardfree)
+        wordsRelease(h.tofinalize)
+        wordsRelease(h.pending)
         setClear(h.chunkSet)
         setClear(h.largeSet)
         setClear(h.seen)
