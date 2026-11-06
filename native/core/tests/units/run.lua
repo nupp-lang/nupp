@@ -91,6 +91,36 @@ end
 -- and cases of {function, arguments, expected result}.
 local UNITS = {
     {
+        name = "stringviewunits",
+        modules = {
+            "nupp.core.stringviewunits",
+            "unitentry",
+            "nupp.runtime.core.corestorage",
+            "nupp.runtime.core.corestrings",
+            "nupp.runtime.core.coretables"
+        },
+        paths = {
+            ["nupp.core.stringviewunits"] = ROOT .. "/native/core/tests/units/nupp/core/stringviewunits.nupp",
+            ["nupp.runtime.core.corestorage"] = ROOT .. "/native/core/src/nupp/runtime/core/corestorage.nupp",
+            ["nupp.runtime.core.corestrings"] = ROOT .. "/native/core/src/nupp/runtime/core/corestrings.nupp",
+            ["nupp.runtime.core.coretables"] = ROOT .. "/native/core/src/nupp/runtime/core/coretables.nupp"
+        },
+        include = "native/core/src",
+        entries = {{"nupp.core.stringviewunits", "lifetime", 2}},
+
+        cases = function()
+            local cases = {}
+            for _, count in ipairs({0, 1, 40, 41}) do
+                for minor = 0, 1 do
+                    cases[#cases + 1] = {"lifetime", {count, minor}, 1023}
+                end
+            end
+
+            return cases
+        end
+    },
+
+    {
         name = "builderunits",
         modules = {"builderunits", "unitentry"},
         entries = {{"builderunits", "lifetime", 1}},

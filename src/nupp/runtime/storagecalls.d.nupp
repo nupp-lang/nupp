@@ -12,19 +12,19 @@ local record storagecalls
     --- New zeroed storage of `count` bytes.
     allocbytes: function(count: integer): uint8[?]
 
-    --- A view of `storage`'s bytes from byte `offset`, as `count` elements
-    --- of `kind` (as many as fit when omitted), keeping the storage alive.
+    --- A view of `storage`'s or a string's bytes from byte `offset`, as `count`
+    --- elements of `kind` (as many as fit when omitted), keeping the storage alive.
     view: function(borrows storage: any, kind: integer, offset: integer, count: integer?): any borrows (storage)
 
     --- `storage`'s bytes as elements of `kind`, as many as fit: a view, which
     --- keeps the storage alive whoever holds it.
-    cast: function(storage: any, kind: integer): any
+    cast: function(borrows storage: any, kind: integer): any borrows (storage)
 
     --- Copies `count` bytes of `source`, storage or a string, into `target`.
     copy: function(borrows target: any, borrows source: any, count: integer): nil
 
     --- Sets `count` bytes of `target` to `byte`.
-    fill: function(target: any, count: integer, byte: integer): nil
+    fill: function(borrows target: any, count: integer, byte: integer): nil
 
     --- The first `count` bytes of `storage` as a string.
     text: function(borrows storage: any, count: integer): string

@@ -150,6 +150,7 @@ export const TEXT_MINORMAJOR: uint64 = 140ULL
 export const TEXT_PAUSE: uint64 = 141ULL
 export const TEXT_STEPMUL: uint64 = 142ULL
 export const TEXT_STEPSIZE: uint64 = 143ULL
+export const TEXT_WRITABLE_STORAGE: uint64 = 145ULL
 
 -- Appends text `id` to `b`: nonzero when the builder refused it.
 export function append(h: heap.Heap*, borrows b: strings.Builder*, id: uint64): uint64
@@ -694,6 +695,10 @@ export function append(h: heap.Heap*, borrows b: strings.Builder*, id: uint64): 
     elseif id == TEXT_STEPSIZE then
         -- "stepsize"
         return strings.appendWord(h, b, 0x657a697370657473ULL, 8ULL)
+    elseif id == TEXT_WRITABLE_STORAGE then
+        -- "writable storage"
+        return strings.appendWord(h, b, 0x656c626174697277ULL, 8ULL)
+            | strings.appendWord(h, b, 0x656761726f747320ULL, 8ULL)
     end
 
     return 0ULL

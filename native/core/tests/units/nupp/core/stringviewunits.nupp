@@ -1,0 +1,110 @@
+module nupp.core.stringviewunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const values = require("nupp.runtime.vm.values")
+const strings = require("nupp.runtime.core.corestrings")
+const storage = require("nupp.runtime.core.corestorage")
+const tables = require("nupp.runtime.core.coretables")
+
+const ARENA_BYTES: uint64 = 67108864ULL
+const WORD_BYTES: uint64 = 8ULL
+const SAMPLE: uint64 = 83ULL
+
+local function bit(ok: boolean, value: uint64): uint64
+    if ok then
+        return value
+    end
+
+    return 0ULL
+end
+
+-- The sole root becomes a nested view, so collection must find the string
+-- through the ultimate owner rather than a source local or intermediate view.
+export function lifetime(count: uint64, minor: uint64): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = collector.GENERATIONAL
+            h.automatic = false
+            local slot = arena.alloc(a, WORD_BYTES, WORD_BYTES)
+            local source = arena.alloc(a, count + 1ULL, WORD_BYTES)
+            if slot == nil then
+                error("string views: no root slot")
+            end
+            if source == nil then
+                error("string views: no source")
+            end
+            local rootAddress = native.address(slot)
+            local sourceAddress = native.address(source)
+            native.store64(native.pointer(rootAddress), 0, values.NIL)
+            collector.register(h, rootAddress, 1ULL)
+            local i: uint64 = 0ULL
+            while i < count do
+                local byte = SAMPLE
+                if i == 1ULL then
+                    byte = 0ULL
+                end
+                native.store8(native.pointer(sourceAddress), native.index(i), byte)
+                i = i + 1ULL
+            end
+            local owner = strings.make(h, sourceAddress, count)
+            native.store64(native.pointer(rootAddress), 0, values.TAG_OBJ | owner)
+            local base = (native.pointer(owner) as heap.Header*).auxPtr
+            local view = storage.newview(h, owner, storage.UINT8, 0ULL, count)
+            native.store64(native.pointer(rootAddress), 0, values.TAG_OBJ | view)
+            answer = answer | bit(view ~= 0ULL and storage.storagebase(view) == base, 1ULL)
+            answer = answer | bit(storage.elementcount(view) == count and not storage.iswritable(view), 2ULL)
+            local offset: uint64 = 0ULL
+            if count > 1ULL then
+                offset = 1ULL
+            end
+            local nested = storage.newview(h, view, storage.UINT8, offset, count - offset)
+            native.store64(native.pointer(rootAddress), 0, values.TAG_OBJ | nested)
+            local wrong: uint64 = 0ULL
+            if minor == 0ULL then
+                collector.fullCycle(h)
+                wrong = collector.checkOracle(h, true)
+            else
+                collector.minorcycle(h)
+                wrong = collector.checkOracle(h, false)
+            end
+            answer = answer | bit(wrong == 0ULL and heap.isLiveSlot(h, owner) and heap.isLiveSlot(h, nested), 4ULL)
+            answer = answer
+                | bit(
+                    storage.storagebase(nested) == base + offset and storage.elementcount(nested) == count - offset,
+                    8ULL
+                )
+            answer = answer
+                | bit(not storage.iswritable(nested) and storage.writeelement(nested, 0ULL, 1ULL) == 1ULL, 16ULL)
+            if count > 1ULL then
+                answer = answer | bit(native.word(native.load8(native.pointer(base), 1)) == 0ULL, 32ULL)
+            else
+                answer = answer | 32ULL
+            end
+            local cast = storage.newview(h, nested, storage.UINT16, 0ULL, (count - offset) // 2ULL)
+            native.store64(native.pointer(rootAddress), 0, values.TAG_OBJ | cast)
+            answer = answer
+                | bit(
+                    cast ~= 0ULL and storage.storagebase(cast) == base + offset and not storage.iswritable(cast),
+                    64ULL
+                )
+            answer = answer | bit(storage.newview(h, owner, storage.UINT8, count + 1ULL, 0ULL) == 0ULL, 128ULL)
+            local mutable = storage.newstorage(h, storage.UINT8, 1ULL)
+            answer = answer
+                | bit(storage.iswritable(mutable) and storage.writeelement(mutable, 0ULL, SAMPLE) == 0ULL, 256ULL)
+            answer = answer
+                | bit(native.word(native.load8(native.pointer(storage.storagebase(mutable)), 0)) == SAMPLE, 512ULL)
+            native.store64(native.pointer(rootAddress), 0, values.NIL)
+            collector.fullCycle(h)
+            tables.drain(h)
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end

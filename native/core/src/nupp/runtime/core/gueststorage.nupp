@@ -61,6 +61,9 @@ end
 -- stored as an integer kind is truncated toward zero, as C converts one.
 export function storageset(ctx: voidptr, subject: uint64, key: uint64, value: uint64): uint64
     local object = subject & values.PAYLOAD
+    if not corestorage.iswritable(object) then
+        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_WRITABLE_STORAGE, 0ULL, subject)
+    end
     local index = storageindex(ctx, object, key)
     if index == NOINDEX then
         return 1ULL
@@ -144,7 +147,13 @@ export function storagecall(ctx: voidptr, id: uint64, n: uint64, a: uint64, b: u
             tables.drain(h)
             return values.TAG_OBJ | made
         end
-        local object = storageargument(ctx, a, 1ULL)
+        local object: uint64 = 0ULL
+        if id == librarycalls.STORAGE_VIEW or id == librarycalls.STORAGE_CAST then
+            object = strings.header(a)
+        end
+        if object == 0ULL then
+            object = storageargument(ctx, a, 1ULL)
+        end
         local size = corestorage.bytelength(object)
         if id == librarycalls.STORAGE_ELEMENTS then
             return values.TAG_INTEGER | corestorage.elementcount(object)
@@ -174,6 +183,9 @@ export function storagecall(ctx: voidptr, id: uint64, n: uint64, a: uint64, b: u
             tables.drain(h)
             return values.TAG_OBJ | made
         elseif id == librarycalls.STORAGE_COPY then
+            if not corestorage.iswritable(object) then
+                texts.argumentError(ctx, 1ULL, librarytexts.TEXT_WRITABLE_STORAGE, 0ULL, a)
+            end
             -- The source is storage or a string.
             local s = strings.header(b)
             local from: uint64 = 0ULL
@@ -194,6 +206,9 @@ export function storagecall(ctx: voidptr, id: uint64, n: uint64, a: uint64, b: u
             corestorage.copybytes(corestorage.storagebase(object), from, count)
             return values.NIL
         elseif id == librarycalls.STORAGE_FILL then
+            if not corestorage.iswritable(object) then
+                texts.argumentError(ctx, 1ULL, librarytexts.TEXT_WRITABLE_STORAGE, 0ULL, a)
+            end
             local count = countargument(ctx, b, 2ULL, size)
             local byte: uint64 = 0ULL
             if ints.isInteger(c) then

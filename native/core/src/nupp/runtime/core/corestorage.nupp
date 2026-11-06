@@ -6,12 +6,12 @@ module nupp.runtime.core.corestorage
 -- The scalar data contains no references and coretables.drain releases both
 -- external allocations after retirement, independently of Header.aux.
 --
--- A core view stores its tagged ultimate owner in its first body word and an
--- absolute byte offset in its second. The collector traces that owner. Raw
--- pointers are resolved from the owner's current descriptor on every access,
--- so backing growth cannot leave retained views pointing into a released block.
--- A view keeps its original extent and element kind; callers must preserve
--- those bounds when changing an owner beyond reserve-only backing growth.
+-- A core view stores its tagged ultimate storage or string owner in its first body word
+-- and an absolute byte offset in its second. The collector traces that owner. Raw
+-- pointers are resolved from the owner's current descriptor on every access, so backing
+-- growth cannot leave retained views pointing into a released block. A view keeps its
+-- original extent and element kind; callers must preserve those bounds when changing an
+-- owner beyond reserve-only backing growth.
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const collector = require("nupp.runtime.vm.collector")
@@ -83,6 +83,10 @@ export function elementkind(object: uint64): uint64
             return o.aux as uint64
         end
 
+        if o.kind as uint64 == heap.KIND_STR then
+            return UINT8
+        end
+
         return descriptor(object).kind
     end
 end
@@ -90,7 +94,7 @@ end
 export function elementcount(object: uint64): uint64
     @unsafe do
         local o = native.pointer(object) as heap.Header*
-        if o.kind as uint64 == heap.KIND_CORE_VIEW then
+        if o.kind as uint64 == heap.KIND_CORE_VIEW or o.kind as uint64 == heap.KIND_STR then
             return o.auxLen
         end
         local d = descriptor(object)
@@ -104,10 +108,34 @@ export function storagebase(object: uint64): uint64
         local o = native.pointer(object) as heap.Header*
         if o.kind as uint64 == heap.KIND_CORE_VIEW then
             local view = native.pointer(object + heap.HEADER_BYTES) as View*
-            return descriptor(view.owner & values.PAYLOAD).base + view.offset
+            local owner = view.owner & values.PAYLOAD
+            local source = native.pointer(owner) as heap.Header*
+            if source.kind as uint64 == heap.KIND_STR then
+                return source.auxPtr + view.offset
+            end
+
+            return descriptor(owner).base + view.offset
+        end
+
+        if o.kind as uint64 == heap.KIND_STR then
+            return o.auxPtr
         end
 
         return descriptor(object).base
+    end
+end
+
+-- Only mutable storage owners lend writable bytes. Views keep the ultimate
+-- owner, so casting or slicing a string view cannot remove this restriction.
+export function iswritable(object: uint64): boolean
+    @unsafe do
+        local o = native.pointer(object) as heap.Header*
+        if o.kind as uint64 == heap.KIND_CORE_VIEW then
+            local view = native.pointer(object + heap.HEADER_BYTES) as View*
+            o = native.pointer(view.owner & values.PAYLOAD) as heap.Header*
+        end
+
+        return o.kind as uint64 == heap.KIND_CORE_STORAGE
     end
 end
 
@@ -121,7 +149,10 @@ end
 export function newview(h: heap.Heap*, source: uint64, kind: uint64, offset: uint64, n: uint64): uint64
     @unsafe do
         local from = native.pointer(source) as heap.Header*
-        if from.kind as uint64 ~= heap.KIND_CORE_STORAGE and from.kind as uint64 ~= heap.KIND_CORE_VIEW then
+        if from.kind as uint64 ~= heap.KIND_CORE_STORAGE
+            and from.kind as uint64 ~= heap.KIND_CORE_VIEW
+            and from.kind as uint64 ~= heap.KIND_STR
+        then
             return 0ULL
         end
         local width = elementwidth(kind)
@@ -389,9 +420,9 @@ end
 
 -- Stores `bits` (an integer's two's complement, or a float's binary64 bits
 -- for the float kinds) as the element at `index`. Answers 1 when the index
--- is outside the storage.
+-- is outside the storage or the owner is immutable.
 export function writeelement(object: uint64, index: uint64, bits: uint64): uint64
-    if index >= elementcount(object) then
+    if not iswritable(object) or index >= elementcount(object) then
         return 1ULL
     end
     storeelement(elementkind(object), storagebase(object), index, bits)

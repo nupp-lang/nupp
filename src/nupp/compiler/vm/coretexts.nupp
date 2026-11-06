@@ -163,7 +163,8 @@ local texts: {Text} = {
     {name = "TEXT_MINORMAJOR", id = 140, text = "minormajor"},
     {name = "TEXT_PAUSE", id = 141, text = "pause"},
     {name = "TEXT_STEPMUL", id = 142, text = "stepmul"},
-    {name = "TEXT_STEPSIZE", id = 143, text = "stepsize"}
+    {name = "TEXT_STEPSIZE", id = 143, text = "stepsize"},
+    {name = "TEXT_WRITABLE_STORAGE", id = 145, text = "writable storage"}
 }
 
 local byName: {[string]: Text} = {}

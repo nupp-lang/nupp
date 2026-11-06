@@ -26,4 +26,51 @@ local view = storage.borrowString(greeting)
 if storage.string(view, 2) == "hi" and storage.sizeOf(storage.scalar("int32")) == 4 then
     score = score + 32
 end
+
+local calls = require("nupp.runtime.storagecalls")
+
+local function refuses(borrows write: function(): nil): nil
+    local okay, problem = pcall(write)
+    assert(not okay and tostring(problem):find("writable storage", 1, true) ~= nil)
+end
+
+const immutable = "ab\0cd"
+local stringbytes = storage.borrowString(immutable)
+local borrowed = calls.view(stringbytes, 1, 0, 5)
+assert(calls.text(borrowed, 5) == immutable)
+refuses(function(): nil
+    borrowed[0] = 90
+end)
+refuses(function(): nil
+    calls.copy(borrowed, "z", 1)
+end)
+refuses(function(): nil
+    calls.fill(borrowed, 1, 90)
+end)
+local nested = calls.view(borrowed, 1, 1, 3)
+local cast = calls.cast(nested, 1)
+@unsafe do
+    local offset = (stringbytes as const uint8*) + 2
+    local tail = calls.view(offset, 1, 0, 2)
+    assert(calls.text(tail, 2) == "\0c")
+    refuses(function(): nil
+        tail[0] = 90
+    end)
+end
+refuses(function(): nil
+    calls.copy(cast, "zzz", 3)
+end)
+refuses(function(): nil
+    calls.fill(nested, 3, 90)
+end)
+local copiedbytes = calls.fromstring(immutable)
+local copied = calls.view(copiedbytes, 1, 0, 5)
+copied[0] = 90
+assert(calls.text(copied, 5) == "Zb\0cd" and calls.text(borrowed, 5) == immutable)
+local mutable = calls.allocbytes(4)
+local mutableview = calls.view(mutable, 1, 1, 2)
+calls.fill(mutableview, 2, 65)
+local mutablecast = calls.cast(mutableview, 1)
+calls.copy(mutablecast, "BC", 2)
+assert(calls.text(mutable, 4) == "\0BC\0")
 export = score

@@ -26,10 +26,11 @@ local type Descriptor = {
 }
 
 -- The element kinds the core's storage holds, by scalar name.
+const BYTE_KIND = 1
 local kinds: {
     [string]: integer
 } = {
-    uint8 = 1,
+    uint8 = BYTE_KIND,
     int8 = 2,
     uint16 = 3,
     int16 = 4,
@@ -84,14 +85,14 @@ export function allocarray(element: any, count: integer): any
 end
 
 export function borrowstring(borrows bytes: string): const uint8[?] borrows (bytes)
-    return calls.fromstring(bytes)
+    return calls.view(bytes, BYTE_KIND, 0)
 end
 
 export function copy(borrows destination: any, borrows source: any, count: integer): nil
     calls.copy(destination, source, count)
 end
 
-export function fill(destination: any, count: integer, value: integer): nil
+export function fill(borrows destination: any, count: integer, value: integer): nil
     calls.fill(destination, count, value)
 end
 
@@ -112,7 +113,7 @@ export function castbytes(borrows pointer: any): const uint8[?] borrows (pointer
     return calls.view(pointer, 1, 0)
 end
 
-export function castelements<T>(element: ctype<T>, pointer: any): any
+export function castelements<T>(element: ctype<T>, borrows pointer: any): any borrows (pointer)
     return calls.cast(pointer, ((element as any) as Descriptor).kind)
 end
 
