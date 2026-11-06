@@ -567,6 +567,8 @@ local coreLibrary: {[string]: boolean} = {
     collectgarbage = true,
     ["hostcalls.arguments"] = true,
     ["hostcalls.randombytes"] = true,
+    ["hostcalls.systemtext"] = true,
+    ["hostcalls.systeminteger"] = true,
     ["hostcalls.setcleanup"] = true,
     ["hostcalls.userdata"] = true,
     ["hostcalls.uservalue"] = true,
@@ -894,6 +896,7 @@ local coremodules: {
     bit = "nupp.runtime.provider.scalarbitops",
     ["nupp.vm.storagebinding"] = "nupp.runtime.provider.heapstorage",
     ["nupp.vm.cryptobinding"] = "nupp.runtime.provider.coreentropy",
+    ["nupp.vm.systembinding"] = "nupp.runtime.provider.coresystem",
     ["nupp.io.internal.nativebuffer"] = "nupp.runtime.provider.bufferfallback",
     ["nupp.array.internal.storage"] = "nupp.runtime.provider.arraystorage",
 }

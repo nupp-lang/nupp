@@ -1,0 +1,17 @@
+module nupp.core.catalogsystemprovider
+
+local system = require("nupp.runtime.system")
+local score = 0
+if #system.platform > 0 and system.platform == string.lower(system.platform) and #system.architecture > 0 then
+    score = score | 1
+end
+if (system.endianness == "little" or system.endianness == "big")
+    and (system.pointerBits == 32 or system.pointerBits == 64)
+then
+    score = score | 2
+end
+local parallelism = system.availableParallelism()
+if math.type(parallelism) == "integer" and parallelism >= 1 then
+    score = score | 4
+end
+export = score

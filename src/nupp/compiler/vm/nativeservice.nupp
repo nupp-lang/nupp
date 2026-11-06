@@ -94,7 +94,8 @@ local osNames = {
     unlinkEntry = true,
     atomicload64 = true,
     atomiccas64 = true,
-    securefill = true
+    securefill = true,
+    systemquery = true
 }
 
 local function need(ok: any, message: string): any

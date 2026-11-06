@@ -156,6 +156,8 @@ local CASES: {[string]: {
     storagebasics = {fixture = "catalog-storage-basics", version = 8},
     storageprovider = {fixture = "catalog-storage-provider", version = 8, follow = true},
     bytebuffer = {fixture = "catalog-byte-buffer", version = 8, follow = true},
+    systemprovider = {fixture = "catalog-system-provider", version = 8, follow = true},
+    systeminfo = {fixture = "catalog-system-info", version = 8, follow = true},
     entropy = {fixture = "catalog-entropy", version = 8, follow = true},
     entropyfailure = {fixture = "catalog-entropy-failure", version = 8, follow = true},
     modulesdynamic = {fixture = "catalog-modules-dynamic", version = 8, modules = {"catalog-modules-geometry"},},

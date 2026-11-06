@@ -62,6 +62,36 @@ local function callOf(owner)
     return owner.body.body.stats[1].exprs[1]
 end
 
+function M.systemQueriesRetainTheirExactSelectorLoanAndStatusABI()
+    fixture(
+        [[
+export function query(field: uint64, base: voidptr, room: uint64): int64
+    return os.systemquery(field, base, room)
+end
+]],
+        function(_, functions)
+            local call = nativeos.call(functions.query, callOf(functions.query))
+            assert(nativeos.slot(call, functions.query) == 49)
+            assert(
+                #call.params == 3
+                and call.params[1] == "uint64"
+                and call.params[2] == "voidptr"
+                and call.params[3] == "uint64"
+            )
+            assert(call.result == "int64" and nativeos.result(call) == nil)
+            call.result = "uint64"
+            refuses(
+                function()
+                    nativeos.validate(call)
+                end,
+                "changed"
+            )
+            call.result = "int64"
+            assert(nativeos.validate(call))
+        end
+    )
+end
+
 function M.secureEntropyFillRetainsItsExactBufferAndStatusABI()
     fixture(
         [[

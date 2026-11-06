@@ -1,0 +1,39 @@
+module nupp.core.catalogsysteminfo
+
+local system = require("nupp.runtime.system")
+local report = os.info()
+local score = 0
+if report == os.info()
+    and report.platform == system.platform
+    and report.arch == system.architecture
+    and report.endianness == system.endianness
+    and report.pointerbits == system.pointerBits
+then
+    score = score | 1
+end
+if #report.platform > 0 and #report.arch > 0 and (report.pointerbits == 32 or report.pointerbits == 64) then
+    score = score | 2
+end
+local parallelism = report.parallelism
+local fs = report.fs
+if math.type(parallelism) == "integer"
+    and parallelism >= 1
+    and report.parallelism == parallelism
+    and fs == report.fs
+    and fs.available
+    and fs.arbitrarypaths
+then
+    score = score | 4
+end
+local changed = pcall(function(): nil
+    local target: any = report
+    target.platform = "changed"
+end)
+local changedfs = pcall(function(): nil
+    local target: any = fs
+    target.available = false
+end)
+if not changed and not changedfs and report.platform == system.platform and report.fs.available then
+    score = score | 8
+end
+export = score

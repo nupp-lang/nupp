@@ -12,6 +12,12 @@ local record hostcalls
     --- private provider validates zero and the public maximum before calling.
     randombytes: function(count: integer): string
 
+    --- Executing platform, architecture or byte order, selected privately by 0, 1 or 2.
+    systemtext: function(field: integer): string
+
+    --- Executing pointer width or usable parallelism, selected privately by 3 or 4.
+    systeminteger: function(field: integer): integer
+
     --- Sets `cleanup` as the destructor of the affine types that name the
     --- declaration whose checked cleanup key is `key`: what a body for that
     --- declaration would set, for one only a declaration file holds.

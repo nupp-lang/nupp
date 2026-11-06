@@ -144,6 +144,11 @@ export function securefill(scope: voidptr, base: voidptr, bytes: uint64): int64
     return os.securefill(base, bytes)
 end
 
+export function systemquery(scope: voidptr, field: uint64, base: voidptr, room: uint64): int64
+    local _ = scope
+    return os.systemquery(field, base, room)
+end
+
 export function mathFunction(scope: voidptr, op: uint64, x: uint64, y: uint64): uint64
     local _ = scope
     return os.mathFunction(op, x, y)

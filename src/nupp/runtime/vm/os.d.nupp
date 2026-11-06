@@ -286,5 +286,11 @@ local record Os
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     securefill: function(base: voidptr, bytes: uint64): int64
 
+    --- Executing facts: fields 0..2 size/fill text, 3 answers pointer bits,
+    --- and 4 queries usable parallelism. Scalar queries require a zero range.
+    --- Text sizing uses a zero range; a short/invalid loan writes nothing.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    systemquery: function(field: uint64, base: voidptr, room: uint64): int64
+
 end
 return Os

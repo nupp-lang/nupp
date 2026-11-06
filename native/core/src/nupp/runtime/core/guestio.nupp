@@ -393,3 +393,52 @@ export function securebytes(ctx: voidptr, requested: uint64): uint64
         return values.TAG_OBJ | strings.finish(h, lifetime)
     end
 end
+
+const SYSTEM_TEXT_FIELDS: uint64 = 3ULL
+const SYSTEM_FIELDS: uint64 = 5ULL
+
+-- Text facts are sized before acquisition; only the private destination is
+-- exposed, with its independent owner retained through string publication.
+export function systemtext(ctx: voidptr, requested: uint64): uint64
+    local state = strings.Builder(0ULL, 0ULL)
+    if not ints.isInteger(requested) or ints.bitsOf(requested) >= SYSTEM_TEXT_FIELDS then
+        error("invalid text system field")
+    end
+    local field = ints.bitsOf(requested)
+    @unsafe do
+        local h = heapOf(ctx)
+        local length = os.systemquery(field, native.pointer(0ULL), 0ULL)
+        if length <= 0 then
+            error("system text query failed")
+        end
+        local lifetime = strings.open(h, state as strings.Builder*)
+        if strings.reserve(h, lifetime, native.word(length)) ~= 0ULL then
+            error("not enough memory")
+        end
+        local written = os.systemquery(field, native.pointer(strings.descriptor(lifetime).base), native.word(length))
+        if written ~= length then
+            error("system text query failed")
+        end
+        if strings.commit(lifetime, native.word(written)) ~= 0ULL then
+            error("not enough memory")
+        end
+        return values.TAG_OBJ | strings.finish(h, lifetime)
+    end
+end
+
+export function systeminteger(ctx: voidptr, requested: uint64): uint64
+    if not ints.isInteger(requested) then
+        error("invalid integer system field")
+    end
+    local field = ints.bitsOf(requested)
+    if field < SYSTEM_TEXT_FIELDS or field >= SYSTEM_FIELDS then
+        error("invalid integer system field")
+    end
+    @unsafe do
+        local result = os.systemquery(field, native.pointer(0ULL), 0ULL)
+        if result <= 0 then
+            error("system integer query failed")
+        end
+        return ints.make(heapOf(ctx), native.word(result))
+    end
+end

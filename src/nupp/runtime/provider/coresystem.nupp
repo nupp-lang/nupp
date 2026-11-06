@@ -1,0 +1,18 @@
+@!internal
+module nupp.runtime.provider.coresystem
+
+const calls = require("nupp.runtime.hostcalls")
+const PLATFORM = 0
+const ARCHITECTURE = 1
+const ENDIANNESS = 2
+const POINTER_BITS = 3
+const PARALLELISM = 4
+
+export const platform = calls.systemtext(PLATFORM)
+export const architecture = calls.systemtext(ARCHITECTURE)
+export const endianness = calls.systemtext(ENDIANNESS)
+export const pointerbits = calls.systeminteger(POINTER_BITS)
+
+export function availableparallelism(): integer
+    return calls.systeminteger(PARALLELISM)
+end
