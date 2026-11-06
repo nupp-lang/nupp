@@ -12,19 +12,30 @@ const marking = require("nupp.runtime.vm.marking")
 -- referent holds, as it is not collected (gcweak.WEAK_MINOR).
 const MINOR: uint64 = 4ULL
 
-local function weakClearable(value: uint64): boolean
+-- A mode bit beside the weak sides: a `KIND_SLICE` object is a storage view,
+-- as on the core (gcweak.WEAK_VIEWS).
+const VIEWS: uint64 = 8ULL
+
+-- Strings and boxed integers are values to Lua and never cleared. The core
+-- numbers its storage views `KIND_SLICE`, the VM's slice of a string
+-- (corestorage against values.nupp, the same number for two kinds): under
+-- VIEWS one is a collectable object like any other.
+local function weakClearable(value: uint64, mode: uint64): boolean
     @unsafe do
         if value & values.TAG_MASK ~= values.TAG_OBJ then
             return false
         end
         local kind = (native.pointer(value & values.PAYLOAD) as heap.Header*).kind as uint64
-        return kind ~= heap.KIND_STR and kind ~= heap.KIND_SLICE and kind ~= heap.KIND_INTEGER
+        if kind == heap.KIND_SLICE then
+            return mode & VIEWS ~= 0ULL
+        end
+        return kind ~= heap.KIND_STR and kind ~= heap.KIND_INTEGER
     end
 end
 
 local function weakHolds(value: uint64, mode: uint64): boolean
     @unsafe do
-        if not weakClearable(value) then
+        if not weakClearable(value, mode) then
             return true
         end
         local o = native.pointer(value & values.PAYLOAD) as heap.Header*
@@ -61,15 +72,13 @@ export function weakMarkViews(
         while i < capacity do
             local key = native.load64(buckets, native.index(i * 16ULL))
             local item = native.load64(buckets, native.index(i * 16ULL + 8ULL))
+            -- An entry survives when each weak side holds (a weak key
+            -- makes it an ephemeron); only then are both sides marked, what
+            -- holds unmarked (a string) included. Unlike Lua's traversal, a
+            -- weak-values table's key is not marked while its value is
+            -- dead: the entry is cleared, and nothing would reach the key.
             if key ~= values.NIL and item ~= values.NIL then
-                local survives: boolean = true
-                if weakKeys and not weakHolds(key, mode) then
-                    survives = false
-                end
-                if weakValues and not weakHolds(item, mode) then
-                    survives = false
-                end
-                if survives then
+                if (not weakKeys or weakHolds(key, mode)) and (not weakValues or weakHolds(item, mode)) then
                     if marking.shadeValue(h, key) then
                         grayed = true
                     end

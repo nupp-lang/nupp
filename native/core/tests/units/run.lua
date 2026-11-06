@@ -487,6 +487,35 @@ UNITS[#UNITS + 1] = {
     end
 }
 
+-- Weak tables and finalizers (gcweak, gcfinal): ephemeron chains,
+-- resurrection in full and minor collections, a carded table taking a weak
+-- mode, a frozen weak table, and storage views as weak values.
+UNITS[#UNITS + 1] = {
+    name = "weakunits",
+    modules = {"weakunits", "unitentry", "nupp.runtime.core.coretables"},
+    paths = {["nupp.runtime.core.coretables"] = ROOT .. "/native/core/src/nupp/runtime/core/coretables.nupp"},
+    include = "native/core/src",
+    entries = {
+        {"weakunits", "ephemerons", 1},
+        {"weakunits", "resurrection", 1},
+        {"weakunits", "cardsweak", 1},
+        {"weakunits", "frozenweak", 0},
+        {"weakunits", "views", 1}
+    },
+    cases = function()
+        return {
+            {"ephemerons", {1}, 15},
+            {"ephemerons", {50}, 15},
+            {"resurrection", {0}, 127},
+            {"resurrection", {1}, 127},
+            {"cardsweak", {1000}, 63},
+            {"frozenweak", {}, 31},
+            {"views", {1}, 1},
+            {"views", {0}, 0}
+        }
+    end
+}
+
 -- Strings as little-endian words, for unit inputs.
 local function pack(text, words)
     local result = {}

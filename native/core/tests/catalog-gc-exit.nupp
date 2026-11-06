@@ -1,0 +1,22 @@
+module nupp.core.cataloggcexit
+
+-- os.exit(code, true) finalizes every marked table before the program
+-- ends, as Lua's lua_close does, newest first; os.exit(code) would not.
+local alive: any = {}
+
+local function marked(holder: any): nil
+    for i = 1, 2 do
+        holder[i] = setmetatable({}, {
+            __gc = function(): nil
+                print("closed", i)
+            end
+        })
+    end
+end
+
+marked(alive)
+print("exiting")
+os.exit(4, true)
+print("never")
+
+export = 0

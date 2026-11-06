@@ -1,0 +1,314 @@
+module nupp.runtime.core.guestfinalizers
+
+-- Finalizers on the core: Lua 5.5's `__gc` (runtime Decision 12).
+-- setmetatable marks a table whose new metatable has a __gc (guestmeta), and
+-- a collection that finds it dead makes it pending, resurrected with what it
+-- reaches (nupp.runtime.vm.gcfinal). The pending finalizers run, in order,
+-- at the next site that takes them: collectgarbage, a loop's back edge
+-- (Jmp), the program's end and os.exit's close. A site calls one as a
+-- protected call, from the two slots at the top of its frame's window, which
+-- hold nothing live there, and runs again when it returns: then it takes
+-- the finalizer back, warning when it raised, starts the next, and once
+-- none is left goes on as it would have.
+--
+-- One finalizer runs at a time: a site reached while one runs starts none,
+-- collectgarbage answers nil there (guestgc), and the finalizer cannot
+-- yield across its caller (guestreplay.crossing), as in Lua, where it runs
+-- under a C call. Its __gc is read from the table's metatable when it is
+-- about to run; a value that is no function is warned of as uncallable, as
+-- calling it would raise. A table with __call or a wrapped coroutine as
+-- __gc is warned of so too: the core calls plain functions only here.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const gcfinal = require("nupp.runtime.vm.gcfinal")
+const context = require("nupp.runtime.core.context")
+const catalog = require("nupp.runtime.core.guestcatalog")
+const frames = require("nupp.runtime.core.frames")
+const access = require("nupp.runtime.core.frameaccess")
+const tables = require("nupp.runtime.core.coretables")
+const guestscope = require("nupp.runtime.core.guestscope")
+const guestvalues = require("nupp.runtime.core.guestvalues")
+const guestmeta = require("nupp.runtime.core.guestmeta")
+const guestops = require("nupp.runtime.core.guestops")
+const guestreport = require("nupp.runtime.core.guestreport")
+const threads = require("nupp.runtime.core.threads")
+
+-- What `step` and `close` answer besides the pc a finalizer starts at: no
+-- finalizer started, or the entry failed (its failure recorded).
+export const NONE: uint64 = 0ULL
+export const FAILED: uint64 = 1ULL
+
+-- The slots a finalizer is staged in, at the top of the window: its
+-- function then the table, where its protected call's status and error
+-- land.
+const STAGED: uint64 = 2ULL
+const ARGUMENTS: uint64 = 1ULL
+const RESULTS: uint64 = 2ULL
+const VALUE_BYTES: uint64 = 8ULL
+-- The pc of a frame an error ended, which no call returns to.
+const NEVER_RESUMED: uint64 = 0ULL
+
+-- The descriptor version whose modules run as initializers one after
+-- another (guestentry), each its own root.
+const MODULES_VERSION: uint64 = 2ULL
+
+local function services(ctx: voidptr): voidptr
+    return guestscope.scopeof(ctx)
+end
+
+local function field(ctx: voidptr, name: int64): uint64
+    return native.load64(services(ctx), name)
+end
+
+local function setfield(ctx: voidptr, name: int64, value: uint64): nil
+    native.store64(services(ctx), name, value)
+end
+
+local function heapof(ctx: voidptr): heap.Heap*
+    return guestvalues.guestheap(ctx)
+end
+
+-- The first staged slot of `frame`'s window.
+local function stagebase(frame: voidptr): uint64
+    return native.load64(frame, native.fieldOffset<frames.Frame>("valueCount")) - STAGED
+end
+
+local function windowof(frame: voidptr): voidptr
+    return native.pointer(native.load64(frame, native.fieldOffset<frames.Frame>("values")))
+end
+
+-- Whether a finalizer runs now.
+export function running(ctx: voidptr): boolean
+    return field(ctx, native.fieldOffset<guestscope.Services>("finalframe")) ~= 0ULL
+end
+
+-- Whether the exit has begun to finalize every marked table.
+export function closing(ctx: voidptr): boolean
+    return field(ctx, native.fieldOffset<guestscope.Services>("finalclose")) ~= guestscope.CLOSE_IDLE
+end
+
+-- Whether the finalizer the site at `pc` in `frame` started has returned
+-- there, and the site runs again to take it back.
+export function returned(ctx: voidptr, frame: voidptr, pc: voidptr): boolean
+    return field(ctx, native.fieldOffset<guestscope.Services>("finalframe")) == native.address(frame)
+        and field(ctx, native.fieldOffset<guestscope.Services>("finalpc")) == native.address(pc)
+end
+
+-- Whether the site at `pc` in `frame` has anything to do: a finalizer of
+-- its own to take back, or one pending while none runs.
+export function due(ctx: voidptr, frame: voidptr, pc: voidptr): boolean
+    if running(ctx) then
+        return returned(ctx, frame, pc)
+    end
+
+    return gcfinal.count(heapof(ctx)) ~= 0ULL
+end
+
+-- Takes back the finalizer that returned to `frame`: a warning when it
+-- raised, its error after the status in the staged slots.
+local function finish(ctx: voidptr, frame: voidptr): nil
+    local window = windowof(frame)
+    local base = stagebase(frame)
+    setfield(ctx, native.fieldOffset<guestscope.Services>("finalframe"), 0ULL)
+    setfield(ctx, native.fieldOffset<guestscope.Services>("finalpc"), 0ULL)
+    setfield(ctx, native.fieldOffset<guestscope.Services>("finalthread"), 0ULL)
+    if native.load64(window, native.index(base * VALUE_BYTES)) == values.FALSE then
+        guestreport.finalizer(ctx, native.load64(window, native.index((base + 1ULL) * VALUE_BYTES)), false)
+    end
+end
+
+-- What runs `table`'s finalizer, staged after it at the top of `frame`'s
+-- window: the function `nupp.runtime.luawarn` installed, which calls its
+-- __gc as Lua's lua_call would and warns when it raises; without one, its
+-- __gc when that is a plain function. Nil when nothing is to run, a __gc
+-- that cannot be called here warned of.
+local function finalizer(ctx: voidptr, frame: voidptr, table: uint64): uint64
+    local window = windowof(frame)
+    local base = stagebase(frame)
+    -- The table is staged first: nothing else roots it now.
+    native.store64(window, native.index((base + 1ULL) * VALUE_BYTES), table)
+    native.store64(window, native.index(base * VALUE_BYTES), values.NIL)
+    local callee = field(ctx, native.fieldOffset<guestscope.Services>("finalcall"))
+    if callee == 0ULL then
+        callee = values.NIL
+        local mt = tables.meta(table & values.PAYLOAD)
+        if guestvalues.objkind(mt) == heap.KIND_TABLE then
+            callee = tables.get(mt & values.PAYLOAD, guestmeta.metaKey(ctx, guestmeta.META_GC))
+        end
+        if callee ~= values.NIL
+            and (guestvalues.objkind(callee) ~= heap.KIND_CLOSURE or threads.wrapped(callee) ~= 0ULL)
+        then
+            native.store64(window, native.index(base * VALUE_BYTES), callee)
+            guestreport.finalizer(ctx, callee, true)
+            callee = values.NIL
+        end
+    end
+    native.store64(window, native.index(base * VALUE_BYTES), callee)
+
+    return callee
+end
+
+-- Prepares the call of the finalizer staged at the top of `frame`'s
+-- window, from `pc`: the unpublished child, or 0 after recording the
+-- failure.
+local function prepare(ctx: voidptr, frame: voidptr, pc: voidptr): uint64
+    local base = stagebase(frame)
+
+    return guestops.metaPrepare(ctx, frame, pc, base, ARGUMENTS, base)
+end
+
+-- Starts the finalizer of `table`, a pending table, from the site at `pc`
+-- in `frame`: the pc it starts at, NONE when there is none to run, FAILED
+-- when the entry failed.
+local function start(ctx: voidptr, frame: voidptr, pc: voidptr, table: uint64): uint64
+    if finalizer(ctx, frame, table) == values.NIL then
+        return NONE
+    end
+    local child = prepare(ctx, frame, pc)
+    if child == 0ULL then
+        return FAILED
+    end
+    local s = native.loadPointer(ctx, context.STATE)
+    -- The site runs again when it returns: its own pc is where it resumes.
+    if frames.wantResults(s, native.pointer(child), RESULTS) ~= 1ULL
+        or frames.protect(s, native.pointer(child)) ~= 1ULL
+        or frames.publish(s, frame, native.pointer(child), guestops.resume(ctx, frame, pc) - 1ULL) ~= 1ULL
+    then
+        frames.abortPrepared(s, frame, native.pointer(child))
+        guestops.failure(ctx, guestops.INVALID)
+        return FAILED
+    end
+    setfield(ctx, native.fieldOffset<guestscope.Services>("finalframe"), native.address(frame))
+    setfield(ctx, native.fieldOffset<guestscope.Services>("finalpc"), native.address(pc))
+    setfield(
+        ctx,
+        native.fieldOffset<guestscope.Services>("finalthread"),
+        field(ctx, native.fieldOffset<guestscope.Services>("running"))
+    )
+    access.refresh(s, native.pointer(child), ctx)
+
+    return access.pc(s, native.pointer(child))
+end
+
+-- After an error no protected call took has been reported, the next of
+-- every marked table's finalizers, as `lua.c` closes the state then: from
+-- the active frame, which never runs again, as a call whose return ends
+-- the entry's handlers (a report's, frames.REPORT_DESTINATION), so the
+-- entry's recovery (guestuncaught) comes back for the next. Answers the pc
+-- it starts at, or NONE when none is left.
+export function aftererror(ctx: voidptr): uint64
+    if not closing(ctx) then
+        setfield(ctx, native.fieldOffset<guestscope.Services>("finalclose"), guestscope.CLOSE_RUNNING)
+        gcfinal.separateall(heapof(ctx))
+    end
+    local s = native.loadPointer(ctx, context.STATE)
+    local active = access.active(s)
+    if active == 0ULL then
+        return NONE
+    end
+    local frame = native.pointer(active)
+    local pc = native.pointer(access.code(s, frame))
+    local h = heapof(ctx)
+    while true do
+        local table = gcfinal.take(h)
+        if table == values.NIL then
+            setfield(ctx, native.fieldOffset<guestscope.Services>("finalclose"), guestscope.CLOSE_DONE)
+            return NONE
+        end
+        if finalizer(ctx, frame, table) ~= values.NIL then
+            local child = prepare(ctx, frame, pc)
+            if child == 0ULL then
+                return NONE
+            end
+            if frames.reportresult(s, native.pointer(child)) ~= 1ULL
+                or frames.publish(s, frame, native.pointer(child), NEVER_RESUMED) ~= 1ULL
+            then
+                frames.abortPrepared(s, frame, native.pointer(child))
+                return NONE
+            end
+            access.refresh(s, native.pointer(child), ctx)
+            return access.pc(s, native.pointer(child))
+        end
+    end
+
+    return NONE
+end
+
+-- The site at `pc` in `frame`: takes back the finalizer that returned
+-- there, then starts the next pending one, answering the pc it starts at;
+-- NONE when none starts (none is pending, or one runs from another site),
+-- and the site goes on; FAILED when the entry failed.
+export function step(ctx: voidptr, frame: voidptr, pc: voidptr): uint64
+    if returned(ctx, frame, pc) then
+        finish(ctx, frame)
+    elseif running(ctx) then
+        return NONE
+    end
+    local h = heapof(ctx)
+    while true do
+        local table = gcfinal.take(h)
+        if table == values.NIL then
+            return NONE
+        end
+        local started = start(ctx, frame, pc, table)
+        if started ~= NONE then
+            return started
+        end
+    end
+
+    return NONE
+end
+
+-- The exit's close, from the site at `pc` in `frame`, as Lua's lua_close
+-- runs it: the pending finalizers, then every marked table's, newest first;
+-- setmetatable marks no table meanwhile. Answers as `step`; NONE once all
+-- have run. The program's end and os.exit(code, true) run it.
+export function close(ctx: voidptr, frame: voidptr, pc: voidptr): uint64
+    if field(ctx, native.fieldOffset<guestscope.Services>("finalclose")) == guestscope.CLOSE_DONE then
+        return NONE
+    end
+    if not closing(ctx) then
+        setfield(ctx, native.fieldOffset<guestscope.Services>("finalclose"), guestscope.CLOSE_RUNNING)
+        gcfinal.separateall(heapof(ctx))
+    end
+    local started = step(ctx, frame, pc)
+    if started == NONE then
+        setfield(ctx, native.fieldOffset<guestscope.Services>("finalclose"), guestscope.CLOSE_DONE)
+    end
+
+    return started
+end
+
+-- Whether the root returning ends the program: it is the last module's,
+-- or the only one's (an earlier module's initializer is a root too).
+local function last(ctx: voidptr): boolean
+    local descriptor = native.loadPointer(ctx, context.CATALOG)
+    local data = native.loadPointer(descriptor, native.fieldOffset<catalog.Catalog>("data"))
+    if native.load64(data, native.fieldOffset<catalog.DescriptorV1>("version")) ~= MODULES_VERSION then
+        return true
+    end
+
+    return native.load64(
+        ctx,
+        context.MODULE_ORDINAL
+    ) + 1ULL >= native.load64(data, native.fieldOffset<catalog.Descriptor>("moduleCount"))
+end
+
+-- The program's end, as the root returns `value` from the site at `pc` in
+-- `frame`: the exit's close, the result kept meanwhile, since staging may
+-- overwrite its slot before its Ret runs again. Answers as `close`; NONE
+-- at once for a root that does not end the program.
+export function ending(ctx: voidptr, frame: voidptr, pc: voidptr, value: uint64): uint64
+    if not last(ctx) then
+        return NONE
+    end
+    setfield(ctx, native.fieldOffset<guestscope.Services>("finalresult"), value)
+
+    return close(ctx, frame, pc)
+end
+
+-- The root's result `ending` kept.
+export function kept(ctx: voidptr): uint64
+    return field(ctx, native.fieldOffset<guestscope.Services>("finalresult"))
+end

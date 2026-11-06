@@ -41,6 +41,10 @@ local record processcalls
 
     --- Ends this program with status `code`. It does not return.
     exit: function(code: integer): nil
+
+    --- Runs the finalizer of every table marked for one, as Lua's
+    --- `lua_close` does: those pending, then the rest, newest first.
+    close: function(): nil
 end
 
 local calls: processcalls

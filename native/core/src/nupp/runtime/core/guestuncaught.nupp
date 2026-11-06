@@ -6,7 +6,10 @@ module nupp.runtime.core.guestuncaught
 -- string and "(error object is a table value)" when not, and its own
 -- error when it raises one. The entry calls the __tostring as a guest
 -- frame (REPORT_DESTINATION) whose return ends the entry. Any other value
--- is shown as the VM shows it (guestreport.plain).
+-- is shown as the VM shows it (guestreport.plain). Then every marked table
+-- is finalized, as lua.c's lua_close finalizes them after the report: each
+-- finalizer a REPORT_DESTINATION frame too, whose return brings the
+-- recovery back for the next (guestfinalizers.aftererror).
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const values = require("nupp.runtime.vm.values")
@@ -22,10 +25,13 @@ const guestlanding = require("nupp.runtime.core.guestlanding")
 const guestops = require("nupp.runtime.core.guestops")
 const threads = require("nupp.runtime.core.threads")
 const guestreport = require("nupp.runtime.core.guestreport")
+const finalizers = require("nupp.runtime.core.guestfinalizers")
 
--- Services.reporting: no report begun, or the __tostring running.
+-- Services.reporting: no report begun, the __tostring running, or the
+-- finalizers running after the report.
 const IDLE: uint64 = 0ULL
 const CONVERTING: uint64 = 1ULL
+const FINALIZING: uint64 = 2ULL
 -- The top of every frame's window a handler's own call stages: the callee,
 -- then up to three arguments (guestops.metaCall).
 const CALL_WINDOW: uint64 = 4ULL
@@ -90,16 +96,45 @@ export function answered(ctx: voidptr, answer: uint64): nil
     native.store64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("reportanswer"), answer)
 end
 
+-- After the report: the next finalizer, with no error failing meanwhile,
+-- answering the pc it starts at; once none is left, 0, the entry ending
+-- with the error's status.
+local function finalize(ctx: voidptr): uint64
+    guestlanding.recovered(ctx)
+    native.store64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("reporting"), FINALIZING)
+    local at = finalizers.aftererror(ctx)
+    if at ~= 0ULL then
+        return at
+    end
+    native.store64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("reporting"), IDLE)
+    native.store64(ctx, context.STATUS, context.GUEST_ERROR_STATUS)
+
+    return 0ULL
+end
+
 -- The entry's recovery (threads.recover), then, once an error ends the
--- entry, its report. Answers the pc to continue at, a protected call's or
--- the __tostring's, or 0 when the entry ends.
+-- entry, its report and the finalizers. Answers the pc to continue at, a
+-- protected call's, the __tostring's or a finalizer's, or 0 when the
+-- entry ends.
 export function recover(ctx: voidptr): uint64
     local at = threads.recover(ctx)
     if at ~= 0ULL then
         return at
     end
     local failing = guestlanding.failing(ctx) == 1ULL
-    if native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("reporting")) == CONVERTING then
+    local reporting = native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("reporting"))
+    if reporting == FINALIZING then
+        -- A budget, cancellation or refusal stopping one ends the entry so.
+        if not failing and native.load64(ctx, context.STATUS) ~= 0ULL then
+            return 0ULL
+        end
+        -- One that raised, with no installed function to warn of it.
+        if failing then
+            guestreport.finalizer(ctx, guestscope.lastError(ctx), false)
+        end
+        return finalize(ctx)
+    end
+    if reporting == CONVERTING then
         native.store64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("reporting"), IDLE)
         -- A budget, cancellation or refusal stopping it ends the entry so.
         if not failing and native.load64(ctx, context.STATUS) ~= 0ULL then
@@ -116,8 +151,7 @@ export function recover(ctx: voidptr): uint64
                 native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("reportvalue"))
             )
         end
-        native.store64(ctx, context.STATUS, context.GUEST_ERROR_STATUS)
-        return 0ULL
+        return finalize(ctx)
     end
     if not failing then
         return 0ULL
@@ -128,7 +162,6 @@ export function recover(ctx: voidptr): uint64
         return started
     end
     guestreport.plain(ctx, value)
-    native.store64(ctx, context.STATUS, context.GUEST_ERROR_STATUS)
 
-    return 0ULL
+    return finalize(ctx)
 end

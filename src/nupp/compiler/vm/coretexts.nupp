@@ -136,7 +136,34 @@ local texts: {Text} = {
     {name = "TEXT_RESUME_TASK", id = 120, text = "cannot resume a scheduled coroutine"},
     -- What lua.c reports for an error object with no string form.
     {name = "TEXT_ERROR_OBJECT", id = 121, text = "(error object is a "},
-    {name = "TEXT_OBJECT_VALUE", id = 122, text = " value"}
+    {name = "TEXT_OBJECT_VALUE", id = 122, text = " value"},
+    -- The metatable fields the collector reads: a finalizer and a weak mode.
+    {name = "TEXT_FIELD_GC", id = 123, text = "__gc"},
+    {name = "TEXT_FIELD_MODE", id = 124, text = "__mode"},
+    -- A finalizer's error, warned as Lua's luaE_warnerror words it, on a line
+    -- `log`'s default formatter starts with its level and module.
+    {name = "TEXT_WARNING", id = 125, text = "warn warn: "},
+    {name = "TEXT_GC_ERROR", id = 126, text = "error in __gc ("},
+    {name = "TEXT_NOT_STRING", id = 127, text = "error object is not a string"},
+    {name = "TEXT_CALL_VALUE", id = 128, text = "attempt to call a "},
+    {name = "TEXT_GC_METAMETHOD", id = 144, text = " (metamethod '__gc')"},
+    -- collectgarbage's options, its parameters' names, and the modes it
+    -- answers.
+    {name = "TEXT_COLLECT", id = 129, text = "collect"},
+    {name = "TEXT_STOP", id = 130, text = "stop"},
+    {name = "TEXT_RESTART", id = 131, text = "restart"},
+    {name = "TEXT_COUNT", id = 132, text = "count"},
+    {name = "TEXT_STEP", id = 133, text = "step"},
+    {name = "TEXT_ISRUNNING", id = 134, text = "isrunning"},
+    {name = "TEXT_GENERATIONAL", id = 135, text = "generational"},
+    {name = "TEXT_INCREMENTAL", id = 136, text = "incremental"},
+    {name = "TEXT_PARAM", id = 137, text = "param"},
+    {name = "TEXT_MINORMUL", id = 138, text = "minormul"},
+    {name = "TEXT_MAJORMINOR", id = 139, text = "majorminor"},
+    {name = "TEXT_MINORMAJOR", id = 140, text = "minormajor"},
+    {name = "TEXT_PAUSE", id = 141, text = "pause"},
+    {name = "TEXT_STEPMUL", id = 142, text = "stepmul"},
+    {name = "TEXT_STEPSIZE", id = 143, text = "stepsize"}
 }
 
 local byName: {[string]: Text} = {}

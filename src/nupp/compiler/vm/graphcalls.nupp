@@ -688,7 +688,8 @@ local libraryValues: {
     ["os.getenv"] = true,
     debug = true,
     io = true,
-    os = true
+    os = true,
+    warn = true
 }
 
 -- The library name `node` reads when it names a library function, `tostring`
@@ -706,6 +707,10 @@ const schedulerValues: {
     ["coroutine.sleepuntil"] = true
 }
 
+-- The module that gives the core its `warn` and runs its finalizers, loaded
+-- as the entry starts when the image carries it.
+export const WARN_MODULE = "nupp.runtime.luawarn"
+
 export function libraryValue(node: any): string?
     local name: string? = nil
     if node and node.kind == "name" and preludeName(node) then
@@ -719,13 +724,15 @@ end
 
 -- The module whose `functions` carries library value `name`: Lua's `io` and
 -- `os`, the libraries themselves, are `nupp.runtime.luaio` and
--- `nupp.runtime.luaos`; the task surface is the scheduler's; the others are
--- `nupp.runtime.libraryvalues`.
+-- `nupp.runtime.luaos`, and `warn` is `nupp.runtime.luawarn`'s; the task
+-- surface is the scheduler's; the others are `nupp.runtime.libraryvalues`.
 export function libraryModule(name: string): string
     if name == "io" then
         return "nupp.runtime.luaio"
     elseif name == "os" then
         return "nupp.runtime.luaos"
+    elseif name == "warn" then
+        return WARN_MODULE
     elseif schedulerValues[name] then
         return "nupp.runtime.scheduler"
     end

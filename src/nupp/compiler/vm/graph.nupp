@@ -179,6 +179,7 @@ export const omits = graphcalls.omits
 export const checking = graphcalls.checking
 export const libraryValue = graphcalls.libraryValue
 export const libraryModule = graphcalls.libraryModule
+export const WARN_MODULE = graphcalls.WARN_MODULE
 export const mayUseIo = graphcalls.mayUseIo
 export const mayUseScheduler = graphcalls.mayUseScheduler
 export const mayTakeLibraryValue = graphcalls.mayTakeLibraryValue
