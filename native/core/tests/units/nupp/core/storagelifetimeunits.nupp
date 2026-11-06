@@ -13,6 +13,8 @@ const ints = require("nupp.runtime.core.coreintegers")
 
 const ARENA_BYTES: uint64 = 67108864ULL
 const WORD_BYTES: uint64 = 8ULL
+-- Keep relocated bytes and the descriptor in distinct backing pool classes.
+const RELOCATION_GROWTH: uint64 = 128ULL
 const MAXIMUM: uint64 = 0xffffffffffffffffULL
 const WRONG: uint64 = 1000000000ULL
 
@@ -193,7 +195,7 @@ export function relocation(minor: uint64): uint64
             end
             answer = answer | bit(not live(h, view), 2ULL)
             local stats = copied as storage.CopyStats*
-            if storage.reserve(h, d, 64ULL, stats) ~= storage.OK then
+            if storage.reserve(h, d, RELOCATION_GROWTH, stats) ~= storage.OK then
                 error("storage lifetime: no relocated backing")
             end
             local after = d.base
