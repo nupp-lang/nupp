@@ -112,6 +112,43 @@ local function checked(source)
     return parsed
 end
 
+-- This checked leaf also runs the bootstrap compiler's linked frame code. The
+-- optional species width returns nil through a call before taking its default.
+function M.defaultSpeciesWidthsSurviveCompiledNilCallResults()
+    for _, element in ipairs({"float32", "float64"}) do
+        for _, width in ipairs({4, false}) do
+            local arguments = {{kind = "name", exactCallExport = {identity = "nupp.array." .. element}}}
+            if width then
+                arguments[2] = {kind = "number", token = {text = tostring(width)}}
+            end
+            local body = {
+                rets = {},
+                signatureType = {rets = {{tag = "nil"}}},
+                params = {},
+                body = {
+                    stats = {{
+                        kind = "localStmt",
+                        names = {{text = "species"}},
+                        exprs = {{
+                            kind = "call",
+                            obj = {kind = "name", exactCallExport = {identity = "simd.species"}},
+                            args = {exprs = arguments},
+                            inferredType = {
+                                tag = "nominal",
+                                origin = {moduleName = "simd", name = "Species"},
+                                typeArgs = {{tag = element}},
+                            },
+                        }},
+                    }},
+                },
+            }
+            local result, reason = kernels.tryBuild(body)
+            assert(result, reason)
+            graph.verify(result)
+        end
+    end
+end
+
 function M.lowercaseHorizontalIdentitiesKeepFrozenInstructionsAndResults()
     local source = [[
 local array = require("nupp.array")
