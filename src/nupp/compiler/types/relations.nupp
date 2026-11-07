@@ -22,6 +22,11 @@ local rigidBinders: {[T.Type]: boolean} = setmetatable({}, {__mode = "k"}) as {[
 --- A type, as nupp.compiler.types builds them.
 local type Type = T.Type
 
+local function channelEndpoint(origin: T.Nominal): boolean
+    return origin.moduleName == "nupp.workers.internal.channeltypes"
+        and (origin.name == "Sender" or origin.name == "Receiver")
+end
+
 ----------------------------------------------------------------------------
 -- Disjointness
 ----------------------------------------------------------------------------
@@ -1314,6 +1319,21 @@ local function check(a: Type, b: Type): boolean, string?
             end
         end
         local origin = a.origin as T.Nominal
+        -- A queue's payload type travels with its capability. In particular,
+        -- Receiver<Owned> must not become Receiver<any> and erase the cleanup
+        -- obligation of received values.
+        if channelEndpoint(origin) then
+            local have, wanted = a.typeArgs or {}, b.typeArgs or {}
+            if #have ~= #wanted then
+                return fail(a, b)
+            end
+            for index, member in ipairs(have) do
+                if member ~= wanted[index] then
+                    return false, "channel endpoint payload types must agree exactly"
+                end
+            end
+            return true
+        end
         local intrinsicInvariant = (
             apiidentity.canonical(origin.moduleName or "") == "simd"
             or apiidentity.canonical(origin.sealedModule or "") == "simd"

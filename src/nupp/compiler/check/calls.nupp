@@ -3053,6 +3053,24 @@ export function install(c: state.Checker): Ops
                             end
                         end
                     end
+                    local nominal = payload.tag == "nominal" and payload as T.Nominal or nil
+                    local origin = nominal and ((nominal.origin or nominal) as T.Nominal) or nil
+                    if (node as any).workerChannelScope
+                        and origin
+                        and (
+                            origin.moduleName or (nominal and nominal.moduleName) or origin.sealedModule
+                        ) == "nupp.workers.internal.channeltypes"
+                        and (origin.name == "Sender" or origin.name == "Receiver")
+                    then
+                        local roots = c.own.rootsOf(movedNode)
+                        if #roots ~= 1 or roots[1] ~= (node as any).workerChannelRoot then
+                            c.diag(
+                                "NUPP2621",
+                                movedNode,
+                                "a channel endpoint must belong to the scope starting this worker"
+                            )
+                        end
+                    end
                     consumedExclusive = consumedExclusive
                         or c.own.capabilityFacts(movedNode, nil, false).exclusive
                         or consumedEntry and c.own.capabilityFacts(consumedEntry, nil, false).exclusive

@@ -189,6 +189,7 @@ local type ScopeState = {
     wakers: {function(boolean)},
     settling: boolean,
     workerScope: any,
+    channelOwner: any,
     settleHook: any,
     limit: integer?,
     forks: integer,
@@ -1175,6 +1176,7 @@ local function workersImpl(owner: ScopeState): any
         }
         owner.settleHook = workerModule.settle
         owner.workerScope = workerModule.openscope(owner.deadline, observer)
+        owner.workerScope._channelOwner = owner.channelOwner
     end
 
     return owner.workerScope
@@ -1222,7 +1224,7 @@ function ForkMT.await(self: any): ...any
     return unpack(values as {any}, 1, count)
 end
 
-local function forkImpl(scope: any, fn: any, ...: any): any
+local function startWorker(scope: any, dedicated: boolean, fn: any, ...: any): any
     const owner = state(scope)
     if owner.closed then
         error("nupp: the task scope is closed", 2)
@@ -1232,12 +1234,59 @@ local function forkImpl(scope: any, fn: any, ...: any): any
     const lends = awaitSlot(owner, "a worker task")
     -- The provider's runtime keeps the callable first; the source order that puts it
     -- last is the checker's view, restored before lowering.
-    const task = workerScope:spawn(fn, ...)
+    local task: any
+    if dedicated then
+        task = workerScope:worker(fn, ...)
+    else
+        task = workerScope:spawn(fn, ...)
+    end
     if lends then
         lendSlot(owner, "a worker task")
     end
 
     return setmetatable({_owner = owner, _task = task,}, ForkMT)
+end
+
+local function dispatchWorker(scope: any, dedicated: boolean, fn: any, ...: any): any
+    if workerModule ~= nil and workerModule.ownsarguments ~= nil and workerModule.ownsarguments(...) then
+        local ok, task = pcall(startWorker, scope, dedicated, fn, ...)
+        if not ok then
+            if workerModule.cleanuparguments ~= nil then
+                workerModule.cleanuparguments(...)
+            end
+            error(task, 0)
+        end
+        return task
+    end
+
+    return startWorker(scope, dedicated, fn, ...)
+end
+
+local function forkImpl(scope: any, fn: any, ...: any): any
+    return dispatchWorker(scope, false, fn, ...)
+end
+
+local function workerImpl(scope: any, fn: any, ...: any): any
+    return dispatchWorker(scope, true, fn, ...)
+end
+
+local function channelImpl(scope: any, messages: integer, bytes: integer): (any, any)
+    local owner = state(scope)
+    if owner.closed then
+        error("nupp: the task scope is closed", 2)
+    end
+    settleAgainstScope(owner)
+    if workerModule == nil or workerModule.channel == nil then
+        error("nupp: no channel provider is available", 2)
+    end
+    if owner.channelOwner == nil then
+        owner.channelOwner = {}
+        if owner.workerScope ~= nil then
+            owner.workerScope._channelOwner = owner.channelOwner
+        end
+    end
+
+    return workerModule.channel(owner.channelOwner, messages, bytes)
 end
 
 local function cancelImpl(owner: ScopeState, reason: string?): nil
@@ -1463,6 +1512,7 @@ local function newState(deadline: number?, limit: integer?): ScopeState
         wakers = {},
         settling = false,
         workerScope = nil,
+        channelOwner = nil,
         settleHook = nil,
         limit = limit,
         forks = 0,
@@ -1529,6 +1579,13 @@ local function settle(owner: ScopeState): nil
     if workerScope ~= nil then
         local ok, problem = pcall(workerScope.close, workerScope)
         owner.workerScope = nil
+        if not ok and not owner.failed then
+            ownFailure(owner, problem)
+        end
+    end
+    if owner.channelOwner ~= nil and workerModule ~= nil and workerModule.closechannels ~= nil then
+        local ok, problem = pcall(workerModule.closechannels, owner.channelOwner)
+        owner.channelOwner = nil
         if not ok and not owner.failed then
             ownFailure(owner, problem)
         end

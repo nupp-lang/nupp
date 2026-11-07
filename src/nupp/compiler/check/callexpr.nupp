@@ -2316,6 +2316,12 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     rotatedNode.bodyScopeRoot = scopeEntry and c.borrowRoot(scopeEntry) or nil
                 end
             end
+            if surface and surface.endpointsMustBorrowScope then
+                local scopeEntry = c.ownershipEntry(receiver)
+                local channelCall: any = node
+                channelCall.workerChannelScope = true
+                channelCall.workerChannelRoot = scopeEntry and c.borrowRoot(scopeEntry) or nil
+            end
             local first, rets, pack = c.inferCall(node, callable and dropSelf(methodType) or methodType, callArgs)
             forwardProtocol(node)
             if rotated and originalExprs then

@@ -1701,14 +1701,30 @@ local function submitImpl(self: workers.Scope, dedicated: boolean, fn: any, ...:
     return task
 end
 
+local function ownsArguments(...: any): boolean
+    if appchannels.contains(...) then
+        return true
+    end
+    local arrayMT = rawget(heapModule as table, "__arrayMetatable")
+    for index = 1, select("#", ...) do
+        local value = select(index, ...)
+        if type(value) == "table" and getmetatable(value) == arrayMT then
+            return true
+        end
+    end
+
+    return false
+end
+
 local function submitOwned(self: workers.Scope, dedicated: boolean, fn: any, ...: any): any
-    if not appchannels.contains(...) then
+    if not ownsArguments(...) then
         return submitImpl(self, dedicated, fn, ...)
     end
-    local arguments = pack(...)
-    local ok, task = pcall(submitImpl, self, dedicated, fn, unpack(arguments.values, 1, arguments.count))
+    local ok, task = pcall(submitImpl, self, dedicated, fn, ...)
     if not ok then
-        appchannels.cleanup(arguments.values, 0)
+        for index = 1, select("#", ...) do
+            releasePlantedMoved(select(index, ...), 0)
+        end
         error(task, 2)
     end
 
@@ -1956,6 +1972,12 @@ end
 workers.openscope = openScope
 workers.channel = appchannels.create
 workers.closechannels = appchannels.closeScope
+workers.ownsarguments = ownsArguments
+workers.cleanuparguments = function(...: any): nil
+    for index = 1, select("#", ...) do
+        releasePlantedMoved(select(index, ...), 0)
+    end
+end
 
 -- How many tasks a scope still lists, for the task scope's lifecycle hook.
 rawset(workers, "__registered", function(scope: any): integer

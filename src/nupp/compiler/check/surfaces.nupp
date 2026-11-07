@@ -28,10 +28,16 @@ local type CompilerSurface = {
 
     --- The child body may borrow the scope it is started on. A scope joins every
     --- child before it settles, so such a borrow cannot outlive what it borrows.
-    bodyMayBorrowScope: boolean?
+    bodyMayBorrowScope: boolean?,
+    endpointsMustBorrowScope: boolean?
 }
 
-local workerSurface: CompilerSurface = {effect = "runtime.workers", rotate = true, sendableLast = true}
+local workerSurface: CompilerSurface = {
+    effect = "runtime.workers",
+    rotate = true,
+    sendableLast = true,
+    endpointsMustBorrowScope = true
+}
 
 --- The call surfaces the compiler owns on the standard library's behalf, by public
 --- module, nominal, and member. The member names here are the only ones lowering ever
@@ -47,6 +53,7 @@ local COMPILER_SURFACES: {
         Scope = {
             spawn = {rotate = true, overloadMembers = {[2] = "_spawnNamed"}, bodyMayBorrowScope = true,},
             work = workerSurface,
+            worker = workerSurface,
         },
     },
 }

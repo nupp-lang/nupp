@@ -150,4 +150,142 @@ end
     )
 end
 
+function M.dynamicMessagesCannotEraseAnOwnedPayload()
+    refuses(
+        [[
+export function lose(borrows sender: Sender<any>, takes values: affine(table.Array<int32>, table.Array.destroy)): nil
+    sender:trysend(values)
+end
+]],
+        "NUPP2611"
+    )
+end
+
+function M.endpointPayloadTypesCannotWidenThroughAny()
+    for _, endpoint in ipairs({"Sender", "Receiver"}) do
+        for _, target in ipairs({"number", "any"}) do
+            refuses(
+                (
+                    [[
+export function lose(takes endpoint: %s<integer>): %s<%s>
+    return endpoint
+end
+]]
+                ):format(endpoint, endpoint, target),
+                "NUPP2002"
+            )
+        end
+    end
+end
+
+local PAIR = [[
+local function pair<T>(borrows owner: coroutine.Scope): (affine(Sender<T>) borrows(owner), affine(Receiver<T>) borrows(owner))
+    error("contract fixture", 0)
+end
+]]
+
+function M.aWorkerMayTakeAnEndpointFromItsOwnScope()
+    clean(
+        PAIR
+        .. [[
+local owner = coroutine.scope()
+local sending, receiving = pair<integer>(owner)
+local child = owner:work(receiving, function(takes incoming: Receiver<integer>): integer
+    local input = incoming
+    local kind, value = input:receive()
+    return kind == "value" and value or 0
+end)
+print(child:await())
+]]
+    )
+end
+
+function M.aWorkerCannotOutliveTheScopeThatOwnsItsEndpoint()
+    refuses(
+        PAIR
+        .. [[
+local outer = coroutine.scope()
+do
+    local inner = coroutine.scope()
+    local sending, receiving = pair<integer>(inner)
+    outer:work(receiving, function(takes incoming: Receiver<integer>): integer
+        local input = incoming
+        local kind, value = input:receive()
+        return kind == "value" and value or 0
+    end)
+end
+]],
+        "NUPP2621"
+    )
+end
+
+function M.aCooperativeChildMayOwnAnEndpointFromItsScope()
+    clean(
+        PAIR
+        .. [[
+local owner = coroutine.scope()
+local sending, receiving = pair<integer>(owner)
+local child = owner:spawn(function(): integer takes(receiving)
+    local input = receiving
+    local kind, value = input:receive()
+    return kind == "value" and value or 0
+end)
+sending:send(7)
+print(child:await())
+]]
+    )
+end
+
+function M.aCooperativeChildCannotKeepAnotherScopesEndpoint()
+    refuses(
+        PAIR
+        .. [[
+local outer = coroutine.scope()
+do
+    local inner = coroutine.scope()
+    local sending, receiving = pair<integer>(inner)
+    outer:spawn(function(): nil takes(receiving)
+        local input = receiving
+        input:receive()
+    end)
+end
+]],
+        "NUPP2621"
+    )
+end
+
+function M.endpointsCannotLeaveThroughCooperativeTaskResults()
+    refuses(
+        PAIR
+        .. [[
+local owner = coroutine.scope()
+local sending, receiving = pair<integer>(owner)
+owner:spawn(function(): Receiver<integer> takes(receiving)
+    return receiving
+end)
+]],
+        "NUPP2125"
+    )
+end
+
+function M.endpointsCannotReturnFromAWorkerOrEnterMessages()
+    refuses(
+        [[
+local owner = coroutine.scope()
+owner:work(nil as any, function(takes receiver: Receiver<integer>): Receiver<integer>
+    return receiver
+end)
+]],
+        "NUPP2006"
+    )
+    refuses(
+        [[
+export function wrong(borrows sender: Sender<Receiver<integer>>, takes value: Receiver<integer>): nil
+    sender:send(value)
+end
+]],
+        "NUPP2006"
+    )
+end
+
 return M
