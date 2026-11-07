@@ -134,8 +134,42 @@ Caching requires an explicit input contract. The runner hashes package files,
 static module dependencies, compiler and runtime identities, environment values,
 and result-affecting arguments. Declare other files and directories in `inputs`,
 relative to the project root. Subprocesses, dynamic module loads, and unresolved
-modules prevent reuse. External and native reads still need a complete input
-contract; runtime-native modules without inspectable dependencies stay uncached.
+modules prevent reuse unless the package declares a closed input contract.
+
+### Closed input contracts
+
+A closed contract names every input used by generated code or child processes.
+Use it when static module dependencies cannot describe the package's reads:
+
+```lua
+packages = {
+   ["component/serializer"] = {
+      cache = true,
+      closed = true,
+      inputs = {"src", "tests/helpers", "tests/fixtures/serializer"},
+      compiled = "src",
+      commands = {"sh", "luajit"},
+   },
+}
+```
+
+`compiled` hashes the built modules corresponding to that source root, including
+missing artifacts. `commands` hashes resolved executables and records missing
+commands; shell builtins use the shell's identity. External libraries, SDKs,
+configuration files, and native artifacts also belong in `inputs` when the test
+reads them. Live network and hardware checks stay uncached.
+
+Repository contracts can use `sources` for Git source roots, including untracked
+files and excluding ignored build output. `optionalInputs` records both present
+and missing paths. `toolchain = true` also hashes the provisioned Lua tools under
+`NUPP_LAUNCHER_TOOLCHAIN_PREFIX`. These declarations replace dependency inference;
+an incomplete declaration can reuse an obsolete pass.
+
+### Reusing passes
+
+Worker counts, group selection, and output options do not change a package's
+cache key. A package must still be selected completely to reuse its pass.
+`--verbose` reports each package's cache hit, miss, or exclusion reason.
 
 ```bash
 nupp test

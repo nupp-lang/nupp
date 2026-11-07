@@ -10,6 +10,34 @@ local files = require("io.internal.files")
 local digest = fingerprint.contentDigest()
 local M = {}
 
+-- Selection and presentation do not change a package's answer. Unknown options
+-- stay in the key; case selections never reach the package cache at all.
+function M.flags(arguments)
+    local flags = {}
+    for _, value in ipairs(arguments) do
+        if value:sub(1, 1) == "-"
+            and value ~= "--json"
+            and value ~= "--verbose"
+            and value ~= "--color"
+            and value ~= "--no-color"
+            and value ~= "--timings"
+            and not ({
+                jobs = true,
+                scope = true,
+                group = true,
+                exclude = true,
+                ["exclude-group"] = true,
+                color = true,
+                timings = true
+            })[value:match("^%-%-([^=]+)=")]
+        then
+            flags[#flags + 1] = value
+        end
+    end
+
+    return table.concat(flags, "\0")
+end
+
 function M.open(options)
     if options.workerHost and not options.runtime and not os.getenv("NUPP_VM_BINARY") then
         return nil
@@ -22,6 +50,12 @@ function M.open(options)
     end
     for _, suite in ipairs(options.selected) do
         selected[suite.name] = true
+    end
+    local activeDirectories = {}
+    for _, suite in ipairs(options.catalog) do
+        if selected[suite.name] then
+            activeDirectories[suite.path:match("^(.*)/") or "."] = true
+        end
     end
     local environment, environmentNames = {}, {}
     -- Include all NUPP_* variables, including ones a new runtime introduces.
@@ -49,7 +83,14 @@ function M.open(options)
     end
     -- The native compiler supplies its exact runtime/image paths. Legacy hosts
     -- supply their development provider and pinned toolchain artifacts instead.
-    for _, name in ipairs({"<host>", "NUPP_VM_BINARY", "NUPP_VM_CLI_IMAGE", "NUPP_NATIVE_LIBRARY"}) do
+    for _, name in ipairs({
+        "<host>",
+        "NUPP_VM_BINARY",
+        "NUPP_VM_CLI_IMAGE",
+        "NUPP_NATIVE_LIBRARY",
+        "NUPP_STAGE0",
+        "NUPP_TEST_BIN"
+    }) do
         local path = name == "<host>" and options.runtime or os.getenv(name)
         if path and path ~= "" then
             local text = fs.readFile(path)
@@ -74,8 +115,84 @@ function M.open(options)
     identity[#identity + 1] = fingerprint.subsystemFingerprint({"assert"})
     local base = digest(table.concat(identity, "\0"))
     local store = fs.absolute(options.build) .. "/.nupp-test-results"
-    local cache = {packages = {}}
+    local cache = {packages = {}, reasons = {}}
     local env
+    -- Share reads within one snapshot, then discard them before validating the
+    -- post-run snapshot. A test or concurrent edit must invalidate a stored pass.
+    local snapshots, listings, programs, sourceListings = {}, {}, {}, {}
+
+    local function snapshot(path)
+        local saved = snapshots[path]
+        if not saved then
+            local text = fs.readFile(path)
+            local _, _, modified = files.stat(path)
+            saved = {hash = text and digest(text), modified = modified}
+            snapshots[path] = saved
+        end
+
+        return saved
+    end
+
+    local function listing(path)
+        if not listings[path] then
+            listings[path] = fs.listFiles(path)
+        end
+        return listings[path]
+    end
+
+    local function program(name)
+        if not programs[name] then
+            local quoted = "'" .. name:gsub("'", "'\"'\"'") .. "'"
+            local pipe = io.popen("command -v " .. quoted .. " 2>/dev/null", "r")
+            local path = pipe and pipe:read("*l")
+            if pipe then
+                pipe:close()
+            end
+            -- `command -v` names shell builtins without a path. Their code is
+            -- the shell executable, not a file named `pwd` in the checkout.
+            programs[name] = path and (path:find("/", 1, true) or path:find("\\", 1, true)) and fs.absolute(path)
+                or path and name ~= "sh" and program("sh")
+                or false
+        end
+
+        return programs[name]
+    end
+
+    local function sources(path)
+        if not sourceListings[path] then
+            local function quote(value)
+                return "'" .. value:gsub("'", "'\"'\"'") .. "'"
+            end
+
+            local pipe = io.popen(
+                "git -C " .. quote(
+                    fs.absolute(root .. "/..")
+                ) .. " ls-files -z --cached --others --exclude-standard -- " .. quote(path),
+                "r"
+            )
+            if not pipe then
+                return nil
+            end
+            local output = pipe:read("*a") or ""
+            local ok = pipe:close()
+            if not ok or output == "" then
+                return nil
+            end
+            local paths = {}
+            for relative in output:gmatch("([^%z]+)") do
+                local path = fs.absolute(root .. "/../" .. relative)
+                if files.stat(path) then
+                    paths[#paths + 1] = path
+                end
+            end
+            if #paths == 0 then
+                return nil
+            end
+            sourceListings[path] = paths
+        end
+
+        return sourceListings[path]
+    end
 
     local function key(directory, policy)
         local inputs, recent, compiler, visited = {}, false, false, {}
@@ -85,17 +202,17 @@ function M.open(options)
             if inputs[path] then
                 return true
             end
-            local text = fs.readFile(path)
-            if text == nil then
+            local saved = snapshot(path)
+            if not saved.hash then
                 return false
             end
-            inputs[path] = digest(text)
-            local _, _, modified = files.stat(path)
+            inputs[path] = saved.hash
+            local modified = saved.modified
             if not modified or tonumber(modified) / 1000 > os.time() - 2 then
                 recent = true
             end
 
-            return true, text
+            return true
         end
 
         local function tree(path, packageRoot)
@@ -107,7 +224,7 @@ function M.open(options)
             if kind ~= "directory" then
                 return false
             end
-            for _, file in ipairs(fs.listFiles(path)) do
+            for _, file in ipairs(listing(path)) do
                 local relative = file:sub(#root + 2)
                 local nested = false
                 if packageRoot then
@@ -167,7 +284,75 @@ function M.open(options)
         end
         for _, input in ipairs(policy.inputs or {}) do
             if not tree(input) then
-                return nil, recent, inputs
+                return nil, recent, inputs, "missing declared input: " .. input
+            end
+        end
+        for _, input in ipairs(policy.sources or {}) do
+            local paths = sources(input)
+            if not paths then
+                return nil, recent, inputs, "unavailable source root: " .. input
+            end
+            for _, path in ipairs(paths) do
+                if not tree(path) then
+                    return nil, recent, inputs, "unreadable source: " .. path
+                end
+            end
+        end
+        for _, input in ipairs(policy.optionalInputs or {}) do
+            if files.stat(input) then
+                if not tree(input) then
+                    return nil, recent, inputs, "unreadable optional input: " .. input
+                end
+            else
+                inputs[fs.absolute(input)] = "missing"
+            end
+        end
+        if policy.toolchain then
+            local prefix = os.getenv("NUPP_LAUNCHER_TOOLCHAIN_PREFIX")
+            inputs["<toolchain-prefix>"] = prefix or "missing"
+            if prefix then
+                for _, name in ipairs({"luajit", "lua51", "luarocks", "lpeg"}) do
+                    local path = fs.absolute(prefix .. "/" .. name)
+                    if files.stat(path) then
+                        if not tree(path) then
+                            return nil, recent, inputs, "unreadable toolchain: " .. path
+                        end
+                    else
+                        inputs[path] = "missing"
+                    end
+                end
+            end
+        end
+        -- A closed contract replaces inference for generated source, loadfile,
+        -- and subprocesses. It must name their source/fixture roots and tools.
+        if policy.closed
+            and (
+                not policy.compiled
+                or #(policy.inputs or {}) + #(policy.sources or {}) == 0
+                or #(policy.commands or {}) == 0
+            )
+        then
+            return nil, recent, inputs, "incomplete closed input contract"
+        end
+        if policy.compiled then
+            for _, source in ipairs(listing(fs.absolute(policy.compiled))) do
+                if source:match("%.nupp$") or source:match("%.lua$") then
+                    local relative = source:sub(#fs.absolute(policy.compiled) + 2):gsub("%.nupp$", ".lua")
+                    local artifact = fs.absolute(options.build .. "/" .. relative)
+                    if not add(artifact) then
+                        if files.stat(artifact) then
+                            return nil, recent, inputs, "unreadable compiled artifact: " .. artifact
+                        end
+                        inputs[artifact] = "missing"
+                    end
+                end
+            end
+        end
+        for _, name in ipairs(policy.commands or {}) do
+            local path = program(name)
+            inputs["<command:" .. name .. ">"] = path or "missing"
+            if path and not add(path) then
+                return nil, recent, inputs, "unreadable command: " .. name
             end
         end
         local complete = true
@@ -176,8 +361,8 @@ function M.open(options)
                 complete = cache.source(root .. "/" .. suite.path, add, module) and complete
             end
         end
-        if not complete then
-            return nil, recent, inputs
+        if not complete and not policy.closed then
+            return nil, recent, inputs, "opaque or unresolved module inputs"
         end
         if compiler then
             inputs["<compiler>"] = fingerprint.subsystemFingerprint({
@@ -250,8 +435,10 @@ function M.open(options)
         return complete
     end
 
-    for directory, policy in pairs(options.policies or {}) do
-        if policy.cache == true and directories[directory] then
+    for directory in pairs(activeDirectories) do
+        local policy = (options.policies or {})[directory] or {}
+        cache.reasons[directory] = policy.reason or "no input contract"
+        if policy.cache == true then
             local complete = true
             local members = {}
             for _, suite in ipairs(options.catalog) do
@@ -263,8 +450,11 @@ function M.open(options)
                 end
             end
             if complete then
-                local hash, recent, inputs = key(directory, policy)
+                local hash, recent, inputs, reason = key(directory, policy)
+                cache.reasons[directory] = reason or "input contract could not be resolved"
                 if hash then
+                    cache.reasons[directory] = recent and "recent input; execute without storing"
+                        or "no matching passing result"
                     local path = store .. "/" .. digest(directory) .. ".json"
                     local item = {
                         key = hash,
@@ -321,14 +511,18 @@ function M.open(options)
                         end)
                         if checked and valid then
                             item.hit = old
+                            cache.reasons[directory] = "hit"
                         end
                     end
                 end
+            else
+                cache.reasons[directory] = "partial package selection"
             end
         end
     end
 
     function cache.save(results, suites)
+        snapshots, listings, programs, sourceListings = {}, {}, {}, {}
         for directory, item in pairs(cache.packages) do
             if not item.hit and not item.recent then
                 local tests, rows, ok = {}, {}, true
@@ -371,8 +565,10 @@ function M.open(options)
         local _, _, allowed = key(directory, policy)
         allowed = allowed or {}
         local findings, declared = {}, {}
-        for _, input in ipairs(policy.inputs or {}) do
-            declared[#declared + 1] = fs.absolute(input)
+        for _, list in ipairs({policy.inputs or {}, policy.optionalInputs or {}}) do
+            for _, input in ipairs(list) do
+                declared[#declared + 1] = fs.absolute(input)
+            end
         end
 
         local function known(path)
