@@ -111,7 +111,7 @@ function SharedBytes:slice(offset: integer, count: integer): SharedBytes
 end
 
 --- @raises string when the extent falls outside the region
-function SharedBytes:view(offset: integer?, count: integer?): span.Span<uint8>
+function SharedBytes:view(offset: integer?, count: integer?): span.Span<uint8> borrows (self)
     local from = offset == nil and 0 or offset as integer
     local taking = count == nil and length(self) - from or count as integer
     if not inside(length(self), from, taking) then
@@ -122,7 +122,7 @@ function SharedBytes:view(offset: integer?, count: integer?): span.Span<uint8>
 end
 
 --- @raises string when the region is not aligned or is not a whole number of elements
-function SharedBytes:viewas<T>(element: ctype<T>): span.Span<T>
+function SharedBytes:viewas<T>(element: ctype<T>): span.Span<T> borrows (self)
     local width = storage.sizeof(element) as integer
     local alignment = (element as any).alignment as integer
     local byteOffset = first(self) - 1
