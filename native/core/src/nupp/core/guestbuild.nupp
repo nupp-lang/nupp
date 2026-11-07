@@ -48,6 +48,7 @@ local CASES: {[string]: {
     rooted: boolean?,
     module: string?
 }} = {
+    bindingconditions = {fixture = "catalog-binding-conditions", version = 8},
     optionalmethodcleanups = {fixture = "catalog-optional-method-cleanups", version = 8},
     stringdynamic = {fixture = "catalog-string-dynamic", version = 8},
     stringmetaonly = {fixture = "catalog-string-metatable-only", version = 8},

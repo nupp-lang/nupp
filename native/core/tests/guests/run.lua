@@ -58,6 +58,7 @@ local GUEST_ENV = "NUPP_GUEST_PROBE=core-environment NUPP_GUEST_SCALE=3 NUPP_GUE
 ) .. " NUPP_GUEST_TEMP=" .. OUT .. "/temp" .. " "
 
 local CASES = {
+    {"bindingconditions", 0x7FFB000000000001},
     {"optionalmethodcleanups", 0x7FFF000000000001},
     {"stringdynamic", 0x7FFF000000000001},
     {"stringmetaonly", 0x7FFF000000000001},

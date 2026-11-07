@@ -137,7 +137,7 @@ end
 export function checkStatement(ctx: any, stat: any, version: integer): nil
     if stat.kind == "ifStmt" then
         for _, clause in ipairs(stat.clauses) do
-            need(not clause.binding, "binding conditions are unsupported")
+            need(version >= 8 or not clause.binding, "binding conditions are unsupported")
             need(version >= 8 or booleanCondition(clause.cond.inferredType), "if condition requires a checked Boolean")
         end
     elseif stat.kind == "whileStmt" and version == 5 then

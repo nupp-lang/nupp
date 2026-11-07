@@ -452,6 +452,12 @@ function tagged.forVersion(version: integer): any
     end
     -- v8 tables: empty constructors, keyed reads and writes, and length.
     if version >= 8 then
+        -- A binding condition keeps false and rejects only nil.
+        profile.bindingCondition = function(ctx: any, clause: any, value: integer): integer
+            local none = ctx.emit(clause, "Nil", {}, "tagged")
+            local absent = ctx.emit(clause, "Eq", {value, none}, "tagged")
+            return ctx.emit(clause, "Not", {absent}, "tagged") as integer
+        end
         profile.tableConstructor = function(ctx: any, node: any, expected: string?): integer
             need(expected == nil or expected == "tagged", "table requires tagged destination")
             -- `{...}` copies the pack; a positional `...` or call giving other

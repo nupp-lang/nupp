@@ -32,14 +32,14 @@ local function compile(text, sourcePath, profile)
     return program.compile(catalog, profile or tagged)
 end
 
-local function accept(text, path)
-    local complete = compile(text, path)
+local function accept(text, path, profile, version)
+    local complete = compile(text, path, profile)
     for _, g in ipairs(complete.graphs) do
         graph.verify(g)
         graph.prune(g)
         graph.verify(g)
     end
-    local normalized = contracts.normalize(complete)
+    local normalized = contracts.normalize(complete, version)
     semantic.semantic(normalized)
 
     return complete, normalized
@@ -319,6 +319,167 @@ return choose
         end,
         "binding conditions are unsupported"
     )
+end
+
+function M.bindingConditionsTestNilAndTransportTheSameValueIntoTheirArm()
+    local complete = accept(
+        [[
+local function choose(value: any): any
+    if seen = value then return seen else return "absent" end
+end
+return choose(false)
+]],
+        nil,
+        tagged.forVersion(8),
+        8
+    )
+    local g = ownerGraph(complete, "choose")
+    local branch = terms(g, "branch")[1]
+    test.eq(#terms(g, "branch"), 1)
+    local ops = {}
+    for _, block in ipairs(g.blocks) do
+        for at, op in ipairs(block.op) do
+            ops[op] = (ops[op] or 0) + 1
+            if op == "Not" then
+                test.eq(block.dst[at], branch.term.value)
+            end
+        end
+    end
+    test.eq(ops.Eq, 1)
+    test.eq(ops.Not, 1)
+    local yes, no = branch.term.edges[1], branch.term.edges[2]
+    test.eq(#yes.args, #no.args + 1)
+    test.eq(yes.args[1], 1)
+    local arm = g.blocks[yes.target]
+    test.eq(arm.term.kind, "return")
+    test.eq(arm.term.value, arm.params[1])
+end
+
+function M.bindingConditionsEvaluateEachClauseFromItsCallContinuation()
+    local complete = accept(
+        [[
+local function fetch(value: any): any return value end
+local function choose(value: any): any
+    if seen = fetch(value) then return seen
+    elseif other = fetch(nil) then return other
+    else return "absent" end
+end
+return choose
+]],
+        nil,
+        tagged.forVersion(8),
+        8
+    )
+    local g = ownerGraph(complete, "choose")
+    test.eq(#terms(g, "invoke"), 2)
+    test.eq(#terms(g, "branch"), 2)
+    for _, entry in ipairs(terms(g, "invoke")) do
+        local continuation = g.blocks[entry.term.edges[1].target]
+        test.eq(continuation.term.kind, "branch")
+    end
+end
+
+function M.bindingConditionGuestRetainsScopeCapturesAndCleanup()
+    local path = ROOT .. "/native/core/tests/catalog-binding-conditions.nupp"
+    local file = assert(io.open(path, "rb"))
+    local source = file:read("*a")
+    file:close()
+    local complete = accept(source, path, tagged.forVersion(8), 8)
+    assert(complete.catalog.cleanupOwners)
+    local owned = program.select(complete.catalog, "nupp.core.catalogbindingconditions", "guarded")
+    test.eq(complete.catalog.cleanupOwners[owned.id], true)
+end
+
+function M.bindingConditionsLowerTheUnmodifiedBoundedCache()
+    local path = ROOT .. "/src/io/internal/boundedcache.nupp"
+    local file = assert(io.open(path, "rb"))
+    local source = file:read("*a")
+    file:close()
+    accept(source, path, tagged.forVersion(8), 8)
+end
+
+function M.bindingConditionCellsKeepTheirOwnDeclarationAndCapture()
+    local complete = accept(
+        [[
+local function choose(value: number?): any
+    local seen = "outer"
+    local saved: any = nil
+    if seen = value then
+        local function read(): number return seen end
+        seen = seen + 1
+        saved = read
+    else
+        saved = function(): string return seen end
+    end
+    return saved
+end
+return choose
+]],
+        nil,
+        tagged.forVersion(8),
+        8
+    )
+    local owner = program.select(complete.catalog, "guest_branch_fixture", "choose")
+    local clause = owner.body.body.stats[3].clauses[1]
+    local definition = clause.binding.definition
+    local bound = complete.catalog.byDefinition[definition]
+    test.eq(bound.storage, "cell")
+    local reader = program.select(complete.catalog, "guest_branch_fixture", "read")
+    test.eq(reader.captures[1].definition, definition)
+    local g = ownerGraph(complete, "choose")
+    local branch = terms(g, "branch")[1]
+    local arm = g.blocks[branch.term.edges[1].target]
+    local cells = 0
+    for at, op in ipairs(arm.op) do
+        if op == "NewCell" and arm.args[at][1] == arm.params[1] then
+            cells = cells + 1
+        end
+    end
+    test.eq(cells, 1)
+end
+
+function M.bindingConditionsPreserveOldProfileAndOwnershipRefusals()
+    local source = [[
+local function choose(value: boolean?): boolean
+    if seen = value then return seen else return false end
+end
+return choose
+]]
+    for version = 2, 7 do
+        refuses(
+            function()
+                compile(source, nil, tagged.forVersion(version))
+            end,
+            "binding conditions are unsupported"
+        )
+    end
+    for _, parameter in ipairs({"takes value: affine(Resource, close)", "borrows value: Resource"}) do
+        refuses(
+            function()
+                compile(
+                    [[
+local record Resource
+    value: integer
+end
+local function close(takes value: Resource): nil end
+local function choose(]]
+                    .. parameter
+                    .. [[): nil
+    if seen = value then print(seen) end
+]]
+                    .. (
+                        parameter:match("^takes") and "    own.drop(value)\n" or ""
+                    ) .. [[
+end
+return choose
+]],
+                    nil,
+                    tagged.forVersion(8)
+                )
+            end,
+            "an if binding cannot take an owned or borrowed value"
+        )
+    end
 end
 
 function M.mixedBooleanNilConditionsRequireAnExplicitFutureContract()

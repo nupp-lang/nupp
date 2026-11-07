@@ -1543,9 +1543,17 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 end
 
                 for _, clause in ipairs(stat.clauses) do
-                    need(not clause.binding, "unsupported checked binding clause")
+                    need(not clause.binding or profile.bindingCondition, "unsupported checked binding clause")
                     local conditionDepth = #cleanups
-                    local condition = expression(clause.cond, profile.booleanKind)
+                    local bound, condition = nil, nil
+                    if clause.binding then
+                        bound = expression(clause.cond, profile.localKind(clause.binding, fn))
+                        if block then
+                            condition = invoke("bindingCondition", clause, bound)
+                        end
+                    else
+                        condition = expression(clause.cond, profile.booleanKind)
+                    end
                     if not block then
                         break
                     end
@@ -1554,7 +1562,13 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                         "owning temporaries in a condition require conditional cleanup"
                     )
                     local parent = block
-                    local yes, no = branch(), branch()
+                    -- The bound value belongs only to the true arm. Its leading
+                    -- result parameter uses the same transport as a call result.
+                    local yes = branch(bound and profile.valueKind(g, bound))
+                    local no = branch()
+                    if bound then
+                        table.insert(yes.edge.args, 1, bound)
+                    end
                     parent.term = {
                         kind = "branch",
                         value = condition,
@@ -1562,6 +1576,10 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                         pos = position(clause)
                     }
                     resume(yes)
+                    if clause.binding then
+                        local key = clause.binding.definition or clause.binding
+                        ctx.bind(key, initializeBinding(clause, key, yes.result))
+                    end
                     local depth = #cleanups
                     statements(clause.body.stats)
                     if cleanupEnabled then

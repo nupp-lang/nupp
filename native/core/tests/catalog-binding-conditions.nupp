@@ -1,0 +1,80 @@
+module nupp.core.catalogbindingconditions
+
+local evaluations = 0
+
+local function optional(value: any): any
+    evaluations = evaluations + 1
+    return value
+end
+
+local function choose(first: any, second: any): function(): any
+    local seen = "outer"
+    if seen = optional(first) then
+        local function read(): any
+            return seen
+        end
+
+        assert(read() == first)
+        seen = second
+        return read
+    elseif other = optional(second) then
+        assert(seen == "outer")
+        return function(): any
+            return other
+        end
+    else
+        return function(): any
+            return seen
+        end
+    end
+end
+
+local first = choose(false, 7)
+assert(first() == 7 and evaluations == 1)
+local second = choose(0, "")
+assert(second() == "" and first() == 7 and evaluations == 2)
+local third = choose("", false)
+assert(third() == false and evaluations == 3)
+assert(choose(nil, 0)() == 0 and evaluations == 5)
+assert(choose(nil, nil)() == "outer" and evaluations == 7)
+
+local outer = 42
+if outer = optional(0) then
+    assert(outer == 0)
+    if outer = optional(false) then
+        assert(outer == false)
+    end
+    assert(outer == 0)
+end
+assert(outer == 42 and evaluations == 9)
+
+local closed = 0
+local record Guard
+    id: integer
+    constructor(self): affine(Guard, Guard.destroy)
+        self.id = 1
+    end
+    function destroy(takes self): nil
+        closed = closed + self.id
+    end
+end
+
+local function guarded(value: any, fail: boolean): nil
+    if bound = optional(value) then
+        local guard = Guard()
+        assert(bound == value and guard.id == 1)
+        if fail then
+            error("binding cleanup", 0)
+        end
+    else
+        assert(value == nil)
+    end
+end
+
+guarded(false, false)
+assert(closed == 1)
+local ok, problem = pcall(guarded, 0, true)
+assert(not ok and problem == "binding cleanup" and closed == 2)
+guarded(nil, false)
+assert(closed == 2 and evaluations == 12)
+export = true
