@@ -7,6 +7,7 @@ local tagged = require("nupp.compiler.vm.taggedprofile")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
 local unit = require("nupp.compiler.vm.nativeunit")
+local runtime = require("nupp.compiler.runtime")
 local ROOT = assert(environment.compilerRoot())
 local M = {}
 local held
@@ -24,10 +25,13 @@ local function fixture()
     end
     local env = environment.new(ROOT, {config = {include = {"src", "native/core/src", "spike/native-lowering/src"}}})
 
+    local compile = require("nupp.tools.cli.compile")
+    local loadImage = assert(rawget(_G, "__nupp_load_image"))
+
     local function sourceModule(short)
         local path = ROOT .. "/native/core/src/nupp/core/" .. short .. ".nupp"
-        local image = assert(require("nupp.tools.cli.compile").image(path, env))
-        return assert(assert(rawget(_G, "__nupp_load_image"))(image))()
+        local image = assert(compile.image(path, env, "nupp.core." .. short))
+        return assert(loadImage(image))()
     end
 
     local name = "nupp.core.artifactcallfixture"
@@ -61,13 +65,30 @@ local function fixture()
     for _, subject in ipairs(corelibrary.subjects()) do
         subjects[subject.name] = subject
     end
-    held = {
-        writer = sourceModule("guestartifact"),
-        generator = sourceModule("librarycallsgen"),
-        code = code,
-        scopes = scopes,
-        subjects = subjects
-    }
+    local removeLoader = runtime.install(
+        env,
+        function(path, moduleEnv, name, source)
+            local image = compile.image(path, moduleEnv, name, nil, source)
+            return image, image == nil and "type errors" or nil
+        end,
+        nil,
+        nil,
+        function(image)
+            return loadImage(image)
+        end
+    )
+    local okay, result = pcall(function()
+        return {
+            writer = sourceModule("guestartifact"),
+            generator = sourceModule("librarycallsgen"),
+            code = code,
+            scopes = scopes,
+            subjects = subjects
+        }
+    end)
+    removeLoader()
+    assert(okay, result)
+    held = result
 
     return held
 end

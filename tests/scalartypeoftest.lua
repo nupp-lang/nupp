@@ -309,14 +309,16 @@ local struct Row
 end
 export function entry(): ctype<Row> return ffi.typeof<Row>() end]]
     }
-    for _, body in ipairs(bodies) do
+    local missing = "required checked module is missing: ffi"
+    local unresolved = "unresolved executable reference ffi at "
+    local failures = {missing, missing, unresolved, unresolved, unresolved, missing}
+    for index, body in ipairs(bodies) do
         local module = fixture(body)
         assert(#projection.imports(module.parsed.root) == 0)
-        assert(
-            refused(function()
-                catalog(module)
-            end):find("required checked module is missing: ffi", 1, true)
-        )
+        local problem = refused(function()
+            catalog(module)
+        end)
+        assert(problem:find(failures[index], 1, true), "control " .. index .. ": " .. problem)
     end
 end
 
