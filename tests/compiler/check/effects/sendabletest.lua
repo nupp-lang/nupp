@@ -9,12 +9,13 @@ local check = require("helpers.fragment")
 local envMod = require("nupp.compiler.project.env")
 
 local HERE = require("helpers.paths").tests
+local sharedEnv = envMod.new(HERE)
 
 -- The fragment returns its table, which is what makes it a module: `m` is then the
 -- name this file's exports are reachable under, rather than an ordinary local holding
 -- an ordinary table.
 local function diagnose(body)
-    local env = envMod.new(HERE)
+    local env = sharedEnv
     local result = parser.parse(body .. "\nreturn m\n", "test.nupp")
     testAssert.eq(#result.errors, 0, "syntax errors in test source")
     local errors = {}
@@ -28,7 +29,7 @@ local function diagnose(body)
 end
 
 local function diagnoseDeclared(body)
-    local env = envMod.new(HERE)
+    local env = sharedEnv
     local result = parser.parse("module test\n\n" .. body, "test.nupp")
     testAssert.eq(#result.errors, 0, "syntax errors in declared module")
     local errors = {}

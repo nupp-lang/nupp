@@ -4,6 +4,8 @@ local check = require("helpers.fragment")
 local envmod = require("nupp.compiler.project.env")
 local root = require("helpers.paths").absoluteTests .. "/.."
 
+local env = envmod.new(root)
+
 local PREFIX = [[
 module nupp.tests.channelcontract
 local {type Sender, type Receiver} = require("coroutine")
@@ -14,7 +16,7 @@ local function diagnostics(source)
     local ast = parser.parse(PREFIX .. source, filename)
     test.eq(#ast.errors, 0, ast.errors[1] and ast.errors[1].msg or "syntax")
     local errors = {}
-    for _, diagnostic in ipairs(check.check(ast, filename, envmod.new(root))) do
+    for _, diagnostic in ipairs(check.check(ast, filename, env)) do
         if diagnostic.severity ~= "warning" then
             errors[#errors + 1] = diagnostic
         end

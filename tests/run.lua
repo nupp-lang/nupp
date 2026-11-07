@@ -1554,7 +1554,8 @@ local function fixtureManifest(root)
     local manifest = {}
 
     local function walk(directory, prefix)
-        for name, kind in files.list(directory) or function() end do
+        for name, kind in files.list(directory) or function()
+        end do
             local relative = prefix == "" and name or prefix .. "/" .. name
             local path = directory .. "/" .. name
             if relative ~= ".nupp-fixture.json" then
@@ -1851,7 +1852,8 @@ end
 if not queueDir and #shard == 0 then
     pcall(function()
         local files = require("io.internal.files")
-        for name in files.list(fixtureRoot) or function() end do
+        for name in files.list(fixtureRoot) or function()
+        end do
             if name:match("%.failed%.json$") then
                 os.remove(fixtureRoot .. "/" .. name)
             elseif name:match("%.lock$") then
@@ -2396,6 +2398,7 @@ local processCalls = {
 local shellCalls = {"os.execute", "io.popen",}
 local SHELLING = {
     serdecontracttest = true,
+    serdecapabilitycontracttest = true,
     -- Shelling happens in the helper so source inspection would otherwise rely
     -- on an explanatory comment retaining the implementation's exact spelling.
     simdfleetequivalencetest = true,

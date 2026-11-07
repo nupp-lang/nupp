@@ -7,10 +7,12 @@ local incremental = require("nupp.compiler.project.incremental")
 
 local HERE = require("helpers.paths").tests
 
+local sharedEnv = envMod.new(HERE)
+
 local function refusals(src)
     local parsed = parser.parse(src, "effect-region.nupp")
     testAssert.eq(#parsed.errors, 0, "syntax")
-    local diags = check.check(parsed, "effect-region.nupp", envMod.new(HERE))
+    local diags = check.check(parsed, "effect-region.nupp", sharedEnv)
     local found = {}
     for _, diag in ipairs(diags) do
         if diag.code == "NUPP2710" or diag.code == "NUPP2711" then

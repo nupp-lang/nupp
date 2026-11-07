@@ -1,6 +1,12 @@
 local test = require("assert")
 local providerstate = require("helpers.providerstate")
 local M = {}
+local sharedEnv
+
+local function environment()
+    sharedEnv = sharedEnv or require("nupp.compiler.project.env").new(require("helpers.paths").root)
+    return sharedEnv
+end
 
 function M.fileOperationsRemainUsableWithoutAClockProvider()
     local removed, renamed
@@ -153,7 +159,7 @@ function M.checkedInfoAndServicesUseThePrivateContract()
     local checker = require("helpers.fragment")
     local gen = require("nupp.compiler.lua.gen")
     local root = require("helpers.paths").tests .. "/.."
-    local env = require("nupp.compiler.project.env").new(root)
+    local env = environment()
     local source = [[
 local function describe(value: os.Info): string return value.platform end
 local facts: os.Info = os.info()
@@ -190,7 +196,7 @@ function M.onlyLazySystemFieldsCanSuspend()
     local parser = require("nupp.compiler.syntax.parser")
     local checker = require("helpers.fragment")
     local root = require("helpers.paths").tests .. "/.."
-    local env = require("nupp.compiler.project.env").new(root, {cache = false})
+    local env = environment()
     for _, field in ipairs({"platform", "arch", "endianness", "pointerbits", "parallelism", "fs"}) do
         local source = "local function read(facts: os.Info): nil\n"
             .. "    @nosuspend do print(facts."
@@ -219,7 +225,7 @@ function M.filesystemFactsDoNotPackageTheFilesystemImplementation()
     local source = 'local caps: os.FsCaps = os.info().fs\nlocal glob: boolean = caps.glob\nprint(glob)'
     local parsed = parser.parse(source, "filesystem-facts.nupp")
     test.eq(#parsed.errors, 0)
-    local env = require("nupp.compiler.project.env").new(root, {cache = false})
+    local env = environment()
     local diagnostics = checker.check(parsed, "filesystem-facts.nupp", env)
     test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     local _, generated, _, emitted = gen.generate(parsed, "filesystem-facts.nupp")
@@ -242,7 +248,7 @@ function M.clockInstallerDoesNotPackageUnusedProvidersAtAnyOptimizationLevel()
     for _, level in ipairs({0, 1, 2}) do
         local parsed = parser.parse(source, path)
         test.eq(#parsed.errors, 0)
-        local env = require("nupp.compiler.project.env").new(root, {cache = false})
+        local env = environment()
         local diagnostics = checker.check(parsed, path, env)
         test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
         optimize.run(parsed, {level = level})
@@ -291,7 +297,7 @@ function M.directAndAliasedUuidCallsCarryTheHelperAndProvider()
             or "uuid-features.nupp"
         local parsed = parser.parse(source, path)
         test.eq(#parsed.errors, 0, source)
-        local env = require("nupp.compiler.project.env").new(root, {cache = false})
+        local env = environment()
         local diagnostics = checker.check(parsed, path, env)
         test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
         local _, generated, _, emitted = gen.generate(parsed, path)
@@ -413,7 +419,7 @@ function M.fileMutationsAcceptPathTypesAndRetainTheirRuntimeFeatures()
     }) do
         local parsed = parser.parse(source, "file-mutations.nupp")
         test.eq(#parsed.errors, 0)
-        local env = require("nupp.compiler.project.env").new(root, {cache = false})
+        local env = environment()
         local diagnostics = checker.check(parsed, "file-mutations.nupp", env)
         test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
         local _, errors, _, emitted = gen.generate(parsed, "file-mutations.nupp")
@@ -426,7 +432,7 @@ function M.temporaryNamesReportDeprecation()
     local parser = require("nupp.compiler.syntax.parser")
     local checker = require("helpers.fragment")
     local root = require("helpers.paths").tests .. "/.."
-    local env = require("nupp.compiler.project.env").new(root, {cache = false})
+    local env = environment()
     for _, source in ipairs({
         "return os.tmpname()",
         "local system = os\nreturn system.tmpname()",
@@ -443,7 +449,7 @@ function M.temporaryNamesReportDeprecation()
     end
     local source = "local os = {tmpname = function(): string return 'local' end}\nreturn os.tmpname()"
     local parsed = parser.parse(source, "shadowed-temporary-name.nupp")
-    local env = require("nupp.compiler.project.env").new(root, {cache = false})
+    local env = environment()
     test.eq(#checker.check(parsed, "shadowed-temporary-name.nupp", env), 0)
 end
 
@@ -472,7 +478,7 @@ function M.filesystemFunctionsTypeAsTheirTuplesAndIterators()
     for _, source in ipairs(accepted) do
         local parsed = parser.parse(source, "filesystem-surface.nupp")
         test.eq(#parsed.errors, 0, source)
-        local env = require("nupp.compiler.project.env").new(root, {cache = false})
+        local env = environment()
         local diagnostics = checker.check(parsed, "filesystem-surface.nupp", env)
         test.eq(#diagnostics, 0, (diagnostics[1] and diagnostics[1].msg or "") .. "\n" .. source)
         local _, errors, _, emitted = gen.generate(parsed, "filesystem-surface.nupp")
@@ -492,7 +498,7 @@ function M.filesystemFunctionsTypeAsTheirTuplesAndIterators()
         'print(os.userdir, os.setreadonly)',
     }) do
         local parsed = parser.parse(source, "filesystem-refused.nupp")
-        local env = require("nupp.compiler.project.env").new(root, {cache = false})
+        local env = environment()
         local diagnostics = checker.check(parsed, "filesystem-refused.nupp", env)
         assert(#diagnostics > 0, "the checker accepted: " .. source)
     end
