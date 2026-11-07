@@ -176,7 +176,7 @@ end
 
 -- Lua's integer mode depends on the initial value and the step, never the
 -- limit; any other combination runs in floating point. Controls whose
--- subtype is only known at run time are refused until math.type exists.
+-- subtype is only known at run time remain outside this profile.
 export function numericFor(ctx: any, stat: any, version: integer): any
     local sign = stepSign(ctx, stat, version)
     local startType = stat.start.inferredType
@@ -200,16 +200,29 @@ export function numericFor(ctx: any, stat: any, version: integer): any
     if values == nil then
         return nil
     end
-    if dynamicLimit then
-        local start = ctx.hold(values[1])
-        local step = values[3] and ctx.hold(values[3]) or nil
-        values[2] = ctx.emit(stat, "LibCall", {corelibrary.id("FOR_LIMIT"), values[2]}, "tagged")
-        values[1] = ctx.readHeld(start)
-        ctx.release(start)
-        if step then
-            values[3] = ctx.readHeld(step)
-            ctx.release(step)
+
+    local function checkedLimit(): nil
+        if not dynamicLimit then
+            return
         end
+        local held = {}
+        for index, value in ipairs(values) do
+            held[index] = ctx.hold(value)
+        end
+        local result = taggedvalues.landed(
+            ctx,
+            stat,
+            ctx.emit(stat, "LibCall", {corelibrary.id("FOR_LIMIT"), values[2]}, "tagged")
+        )
+        for index, handle in ipairs(held) do
+            values[index] = ctx.readHeld(handle)
+            ctx.release(handle)
+        end
+        values[2] = result
+    end
+
+    if not integerMode then
+        checkedLimit()
     end
     if stat.step == nil then
         values[3] = ctx.emit(stat, "K", {pool(ctx, "int64", "1")}, "tagged")
@@ -234,6 +247,9 @@ export function numericFor(ctx: any, stat: any, version: integer): any
         end
         local zero = ctx.emit(stat, "K", {pool(ctx, "int64", "0")}, "tagged")
         values[4] = ctx.emit(stat, "Lt", {zero, values[3]}, "tagged")
+    end
+    if integerMode then
+        checkedLimit()
     end
     if values[1] <= ctx.g.nparams then
         values[1] = ctx.emit(stat, "Move", {values[1]}, "tagged")

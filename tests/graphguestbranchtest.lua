@@ -760,6 +760,8 @@ local function interpret(result)
                 value = (mantissa + 4503599627370496) * 2.0 ^ (exponent - 1075)
             end
             return b[8] >= 128 and -value or value
+        elseif c.kind == "str" then
+            return c.value
         elseif c.kind == "nil" then
             return nil
         end
@@ -874,16 +876,16 @@ end
 
 function M.checkedDynamicNumericStepsKeepDirectionAndInitialControls()
     local cases = {
-        {"local s = 2\nlocal t = 0\nfor i = 1, 5, s do t = t + i s = -1 end\nexport = t", 9},
-        {"local s = -2\nlocal t = 0\nfor i = 5, 1, s do t = t + i s = 1 end\nexport = t", 9},
-        {"local s = 2\nlocal t = 0\nfor i = 5, 1, s do t = t + i end\nexport = t", 0},
-        {"local s = -2\nlocal t = 0\nfor i = 1, 5, s do t = t + i end\nexport = t", 0},
-        {"local s = 0.5\nlocal t = 0.0\nfor i = 0.5, 2.0, s do t = t + i end\nexport = t", 5.0},
-        {"local s = -0.5\nlocal t = 0.0\nfor i = 2.0, 0.5, s do t = t + i end\nexport = t", 5.0},
-        {"local s = 2\nlocal t = 0.0\nfor i = 1.0, 5.0, s do t = t + i end\nexport = t", 9.0},
+        {"local s: integer = 2\nlocal t = 0\nfor i = 1, 5, s do t = t + i s = -1 end\nexport = t", 9},
+        {"local s: integer = -2\nlocal t = 0\nfor i = 5, 1, s do t = t + i s = 1 end\nexport = t", 9},
+        {"local s: integer = 2\nlocal t = 0\nfor i = 5, 1, s do t = t + i end\nexport = t", 0},
+        {"local s: integer = -2\nlocal t = 0\nfor i = 1, 5, s do t = t + i end\nexport = t", 0},
+        {"local s: float64 = 0.5\nlocal t = 0.0\nfor i = 0.5, 2.0, s do t = t + i end\nexport = t", 5.0},
+        {"local s: float64 = -0.5\nlocal t = 0.0\nfor i = 2.0, 0.5, s do t = t + i end\nexport = t", 5.0},
+        {"local s: integer = 2\nlocal t = 0.0\nfor i = 1.0, 5.0, s do t = t + i end\nexport = t", 9.0},
         {"local s = 0.0 * (1e308 * 10.0)\nlocal t = 0\nfor i = 1.0, 1.0, s do t = t + 1 end\nexport = t", 1},
         {
-            "local s = -0.5\nlocal nan = 0.0 * (1e308 * 10.0)\nlocal t = 0\nfor i = 1.0, nan, s do t = t + 1 end\nexport = t",
+            "local s: float64 = -0.5\nlocal nan = 0.0 * (1e308 * 10.0)\nlocal t = 0\nfor i = 1.0, nan, s do t = t + 1 end\nexport = t",
             1
         },
     }
@@ -893,7 +895,7 @@ function M.checkedDynamicNumericStepsKeepDirectionAndInitialControls()
     for _, zero in ipairs({"0", "0.0", "-0.0"}) do
         refuses(
             function()
-                interpret(numericProgram("local s = " .. zero .. "\nfor i = 5, 1, s do end\nexport = 0", nil, 8))
+                interpret(numericProgram("local s = " .. zero .. "\nfor i = 5.0, 1.0, s do end\nexport = 0", nil, 8))
             end,
             "'for' step is zero"
         )
