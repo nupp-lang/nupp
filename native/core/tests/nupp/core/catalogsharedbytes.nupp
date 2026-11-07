@@ -25,7 +25,8 @@ for _, payload in ipairs({"", "a\0b", string.rep("x", 40), string.rep("y", 41), 
     local len = dynamic.len
     local text = dynamic.tostring
     assert(len(region) == #payload and text(region) == payload, "returned region exposes its declared methods")
-    assert(getmetatable(region).__index == SharedBytes, "region keeps the canonical method namespace")
+    local mt = getmetatable(region)
+    assert(mt ~= nil and rawget(mt as table, "__index") == SharedBytes, "region keeps the canonical method namespace")
     assert(region ~= SharedBytes.copy(payload), "copy retains distinct logical block identity")
     assert(region:slice(0, #payload) == region, "same block and extent retains identity")
     local view = region:view()
