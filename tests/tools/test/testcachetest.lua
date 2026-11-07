@@ -419,13 +419,17 @@ function M.repositoryPackagesHaveExplicitContractsOrExclusions()
             flags = ""
         })
     )
-    local enabled = 0
+    local enabled, unresolved = 0, {}
     for directory in pairs(directories) do
         if policy.packages[directory].cache then
-            assert(cache.packages[directory], directory .. ": " .. tostring(cache.reasons[directory]))
+            if not cache.packages[directory] then
+                unresolved[#unresolved + 1] = directory .. ": " .. tostring(cache.reasons[directory])
+            end
             enabled = enabled + 1
         end
     end
+    table.sort(unresolved)
+    assert(#unresolved == 0, table.concat(unresolved, "\n"))
     assert(enabled > 100, "repository cache rollout must cover ordinary packages, not only a pilot")
 end
 

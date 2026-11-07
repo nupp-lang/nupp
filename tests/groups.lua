@@ -556,12 +556,12 @@ local function enable(profile, paths)
 end
 
 enable("pure", [[
-compiler/syntax/lexer
 stdlib/io/cache
 ]])
 enable(
     "repository",
     [[
+compiler/syntax/lexer
 compiler/check
 compiler/check/associated
 compiler/check/effects
