@@ -530,7 +530,7 @@ export interface Reader is own.Closeable
         local available: integer
         do
             local output = lease:span()
-            available = positive(#output, "Reader:readinto reservation length", 2)
+            available = bounds.positive(#output, "Reader:readinto reservation length", 2)
             landed, reason = self:readspan(output)
             own.drop(output)
         end
@@ -538,7 +538,7 @@ export interface Reader is own.Closeable
             own.drop(lease)
             return nil, reason
         end
-        local written = integer_(landed, "Reader:readinto byte count", 2)
+        local written = bounds.count(landed, "Reader:readinto byte count", 2)
         if written > available then
             error("nupp: io.Reader returned more bytes than its reservation", 2)
         end
