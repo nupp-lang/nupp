@@ -73,7 +73,7 @@ load directly and Nupp suites compile first; both return a table of test
 functions. `nupp test --schema` describes its JSON report.
 
 ```bash
-nupp test              # everything
+nupp test              # ordinary tests
 nupp test checktest    # one suite
 ```
 
@@ -88,6 +88,71 @@ skip, `N` for a case that could not execute, and `E` for a failure on stderr.
 As each suite finishes, it reports failed cases and their captured output on
 stderr. Its final summary reports every outcome and elapsed time. Output from
 passing tests stays captured unless `--verbose` is set.
+
+## Scopes
+
+A scope states what a suite proves, independently of its execution lane.
+A project can declare scopes in the second value returned by `tests/groups.lua`:
+
+```lua
+return {smoke = {"parsertest"}}, {
+   scopes = {parsertest = "component", releasetest = "delivery"},
+}
+```
+
+`unit` covers a module without invoking the compiler, `component` covers a
+compiler or library behavior in process, `integration` covers real projects and
+execution boundaries, and `delivery` covers bootstrap and packaging. When a
+project declares scopes, every discovered suite must have one. Projects without
+scope metadata keep their existing default selection.
+
+```bash
+nupp test --scope=component
+nupp test --scope=delivery
+nupp test --scope=all --fresh
+```
+
+Delivery suites run when named directly, selected by a group, or requested with
+`--scope=delivery` or `--scope=all`. The default run excludes them.
+
+## Passing result cache
+
+The runner can reuse complete passing test packages whose declared inputs have
+not changed. A package is a directory containing suites; a nested suite directory
+is a separate package.
+
+```lua
+return {}, {
+   packages = {
+      ["unit/parser"] = {cache = true, inputs = {"tests/fixtures/parser"}},
+      ["integration/process"] = {cache = false},
+   },
+}
+```
+
+Caching requires an explicit input contract. The runner hashes package files,
+static module dependencies, compiler and runtime identities, environment values,
+and result-affecting arguments. Declare other files and directories in `inputs`,
+relative to the project root. Subprocesses, dynamic module loads, and unresolved
+modules prevent reuse. External and native reads still need a complete input
+contract; runtime-native modules without inspectable dependencies stay uncached.
+
+```bash
+nupp test
+nupp test --fresh
+nupp test parsertest --audit --jobs=1
+```
+
+`--fresh` executes tests without reading or writing the result cache. A cache hit
+has status `cached`, keeps its original duration, and is counted separately from
+fresh passes. Failed, skipped, incomplete, recently modified, and partially
+selected packages do not populate the cache. The store lives under
+`build/.nupp-test-results`; removing it costs another test run.
+
+`--audit` selects one test package and reports parent-process file and environment accesses
+outside the known inputs. It does not observe all native or child-process reads,
+and an empty audit does not establish cache eligibility. Authoritative CI uses
+`--fresh`.
 
 ## Where the time went
 

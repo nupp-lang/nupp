@@ -259,6 +259,7 @@ local RESOURCES = {
     "src/nupp/compiler/decls/*.d.nupp",
     "src/nupp/compiler/decls/jit/*.d.nupp",
     {source = "tests/run.lua", output = "nupp/compiler/nupp/test/runner.lua"},
+    {source = "tests/cache.lua", output = "nupp/compiler/nupp/test/cache.lua"},
     -- The tools' own files, carried beside the compiler's so that
     -- `nupp.compiler.bundled` is the one place anything carried is read from.
     {source = "src/nupp/tools/build/stub-catalog.json", output = "nupp/compiler/build/stub-catalog.json",},

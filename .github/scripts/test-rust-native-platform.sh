@@ -105,4 +105,4 @@ LUA
 # Named as a group so the broad suite in the same job can leave out what this
 # gate already ran against these exact artifacts, rather than building them
 # again twenty minutes later to reach the same answer.
-./bin/nupp test --jobs=1 --group=rust-native-gate
+./bin/nupp test --fresh --scope=all --jobs=1 --group=rust-native-gate
