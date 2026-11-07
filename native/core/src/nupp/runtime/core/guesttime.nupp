@@ -166,7 +166,9 @@ end
 
 -- Time operation `operation` with its arguments a, b and c.
 export function call(ctx: voidptr, operation: uint64, a: uint64, b: uint64, c: uint64): uint64
-    if operation == librarylayouts.TIME_NOW then
+    if operation == librarylayouts.CLOCK_WALLTIME then
+        return floatValue(os.wallMillis())
+    elseif operation == librarylayouts.TIME_NOW then
         @unsafe do
             return ints.make(heapOf(ctx), native.word(os.wallClock()))
         end

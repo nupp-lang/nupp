@@ -597,4 +597,22 @@ function M.closedGuestFixtureRetainsOuterComparisonAcrossLogicalRHS()
     assert(comparison[2].args[1] ~= operations(g, "ICmpSLt")[1].dst, "outer comparison did not reload its computed lhs")
 end
 
+function M.coreClocksUseTheSharedTimerProvider()
+    assert(graph.coremodule("nupp.vm.clock") == "nupp.runtime.provider.coreclock")
+    assert(graph.coremodule("nupp.runtime.bindings.suspension") == "nupp.runtime.provider.suspension")
+    assert(graph.corecallmodule("nupp.runtime.clockcalls"))
+    local library = require("nupp.compiler.vm.corelibrary")
+    local found = false
+    for _, group in ipairs(library.groups()) do
+        if group.name == "CLOCK" then
+            assert(group.call == "HOST_FILES" and #group.operations == 1)
+            local operation = group.operations[1]
+            assert(operation.name == "CLOCK_WALLTIME" and operation.library == "clockcalls.walltime")
+            assert(operation.operation == 47 and operation.arguments == 0)
+            found = true
+        end
+    end
+    assert(found)
+end
+
 return M

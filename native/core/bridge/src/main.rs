@@ -211,6 +211,7 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, Failure> {
         platform::atomic_cas64 as *const () as u64,
         entropy::secure_fill as *const () as u64,
         system::system_query as *const () as u64,
+        time::wall_millis as *const () as u64,
     ];
     #[cfg(test)]
     let imports = shared::imports(imports);

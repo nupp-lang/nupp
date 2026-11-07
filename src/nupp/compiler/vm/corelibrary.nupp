@@ -710,6 +710,12 @@ local grouprows: {Group} = {
         }
     },
     {
+        name = "CLOCK",
+        call = "HOST_FILES",
+        modules = {"clockcalls"},
+        operations = {{name = "CLOCK_WALLTIME", library = "clockcalls.walltime", operation = 47, arguments = 0}}
+    },
+    {
         -- The scheduler's primitives (nupp.runtime.taskcalls), which the
         -- TASKS call takes: a task of a function and the pack of its
         -- arguments; running one until it returns, fails, parks or yields,

@@ -61,7 +61,8 @@ local definitions = {
     atomicload64 = {slot = 46, params = {"voidptr", "int64"}, result = "uint64", cResult = "uint64"},
     atomiccas64 = {slot = 47, params = {"voidptr", "int64", "uint64", "uint64"}, result = "uint64", cResult = "uint64"},
     securefill = {slot = 48, params = {"voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    systemquery = {slot = 49, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"}
+    systemquery = {slot = 49, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    wallMillis = {slot = 50, params = {}, result = "uint64", cResult = "uint64"}
 }
 
 local function need(value: any, message: string): any

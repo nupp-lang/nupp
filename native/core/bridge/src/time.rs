@@ -57,8 +57,18 @@ const AFTER_O: &[u8] = b"deHImMSuUVwWy";
 /// The most bytes one conversion writes, as Lua's SIZETIMEFMT.
 const ITEM: usize = 250;
 
-/// The wall clock in whole seconds since the epoch, C's time(NULL). The
-/// guest's `os.time()`.
+// Unix epoch milliseconds encoded as binary64, preserving subsecond precision.
+pub extern "C" fn wall_millis() -> u64 {
+    const MILLIS_PER_SECOND: f64 = 1000.0;
+    let elapsed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
+    let seconds = match elapsed {
+        Ok(duration) => duration.as_secs_f64(),
+        Err(error) => -error.duration().as_secs_f64(),
+    };
+    (seconds * MILLIS_PER_SECOND).to_bits()
+}
+
+/// The wall clock in whole seconds since the epoch, C's time(NULL).
 pub extern "C" fn wall_clock() -> u64 {
     (unsafe { time(std::ptr::null_mut()) }) as u64
 }
@@ -177,6 +187,14 @@ mod tests {
         let t = unsafe { time_make(fields.as_mut_ptr() as u64) } as i64;
         assert_ne!(t, -1);
         assert_eq!(&fields[3..6], &[1, 1, 121]);
+    }
+
+    #[test]
+    fn wall_milliseconds_match_epoch() {
+        let before = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64() * 1000.0;
+        let actual = f64::from_bits(wall_millis());
+        let after = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64() * 1000.0;
+        assert!(actual >= before && actual <= after);
     }
 
     #[test]

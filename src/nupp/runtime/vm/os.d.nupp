@@ -292,5 +292,9 @@ local record Os
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     systemquery: function(field: uint64, base: voidptr, room: uint64): int64
 
+    -- Unix epoch milliseconds as binary64 bits, independent of monotonic time.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    wallMillis: function(): uint64
+
 end
 return Os

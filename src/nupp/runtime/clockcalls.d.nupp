@@ -1,0 +1,8 @@
+@!internal
+
+local record Clock
+    walltime: function(): number
+end
+
+local calls: Clock
+return calls

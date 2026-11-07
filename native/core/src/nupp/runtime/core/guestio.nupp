@@ -204,6 +204,9 @@ export function files(ctx: voidptr, op: uint64, a: uint64, b: uint64, c: uint64)
     if operation >= librarylayouts.GC_FIRST and operation <= librarylayouts.GC_LAST then
         return guestgc.calls(ctx, operation, a)
     end
+    if operation >= librarylayouts.CLOCK_FIRST and operation <= librarylayouts.CLOCK_LAST then
+        return guesttime.call(ctx, operation, a, b, c)
+    end
     if operation >= librarylayouts.TIME_FIRST and operation <= librarylayouts.TIME_LAST then
         return guesttime.call(ctx, operation, a, b, c)
     end

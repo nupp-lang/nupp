@@ -96,7 +96,8 @@ local osNames = {
     atomicload64 = true,
     atomiccas64 = true,
     securefill = true,
-    systemquery = true
+    systemquery = true,
+    wallMillis = true
 }
 
 local function need(ok: any, message: string): any

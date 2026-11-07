@@ -1,0 +1,17 @@
+@!internal
+module nupp.runtime.provider.coreclock
+
+local tasks = require("nupp.runtime.taskcalls")
+local clock = require("nupp.runtime.clockcalls")
+
+export function now(): number
+    return tasks.now() as number
+end
+
+export function wallTime(): number
+    return clock.walltime()
+end
+
+export function sleep(milliseconds: number): nil
+    tasks.sleep(milliseconds)
+end

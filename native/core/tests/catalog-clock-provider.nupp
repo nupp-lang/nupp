@@ -1,0 +1,42 @@
+module nupp.core.catalogclockprovider
+
+local clock = assert(require("nupp.runtime.timeprovider").provider)
+local suspension = require("nupp.suspension")
+local score = 0
+local before = clock.now()
+local epoch = os.walltime()
+if before >= 0 and epoch > 1600000000000 then
+    score = score | 1
+end
+local fired = false
+local cancel = clock.wakeat(before, function(_: boolean): nil
+    fired = true
+end)
+cancel()
+cancel()
+suspension.poll()
+if not fired then
+    score = score | 2
+end
+clock.wakeat(before, function(_: boolean): nil
+    fired = true
+end)
+suspension.poll()
+if fired then
+    score = score | 4
+end
+clock.sleep(0)
+clock.sleep(2)
+if clock.now() >= before + 2 then
+    score = score | 8
+end
+clock.sleepuntil(clock.now())
+if not pcall(clock.sleep, -1) and not pcall(clock.wakeat, -1, function(_: boolean): nil
+end) then
+    score = score | 16
+end
+local public = os.monotonic()
+if public >= before and os.walltime() >= epoch then
+    score = score | 32
+end
+export = score
