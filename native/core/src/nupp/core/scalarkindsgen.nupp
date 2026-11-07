@@ -1,0 +1,4 @@
+module nupp.core.scalarkindsgen
+
+local generator = require("nupp.core.librarycallsgen")
+export const source = generator.scalars

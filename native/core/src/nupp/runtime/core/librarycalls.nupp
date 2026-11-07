@@ -115,6 +115,47 @@ export const MATH_I32_WRAP: uint64 = 93ULL
 export const WIDTHS_FIRST: uint64 = 91ULL
 export const WIDTHS_LAST: uint64 = 93ULL
 
+-- scalar
+export const MATH_I32_ADD: uint64 = 148ULL
+export const MATH_I32_SUB: uint64 = 149ULL
+export const MATH_I32_MUL: uint64 = 150ULL
+export const MATH_I32_ANDBITS: uint64 = 151ULL
+export const MATH_I32_ORBITS: uint64 = 152ULL
+export const MATH_I32_XORBITS: uint64 = 153ULL
+export const MATH_I32_NOTBITS: uint64 = 154ULL
+export const MATH_I32_SHIFTLEFT: uint64 = 155ULL
+export const MATH_I32_SHIFTRIGHTARITHMETIC: uint64 = 156ULL
+export const MATH_I32_ROTATELEFT: uint64 = 157ULL
+export const MATH_I32_ROTATERIGHT: uint64 = 158ULL
+export const MATH_I32_LESSTHAN: uint64 = 159ULL
+export const MATH_I32_LESSOREQUAL: uint64 = 160ULL
+export const MATH_I32_FROMU32: uint64 = 161ULL
+export const MATH_I32_TOU32: uint64 = 162ULL
+export const MATH_U32_ADD: uint64 = 163ULL
+export const MATH_U32_SUB: uint64 = 164ULL
+export const MATH_U32_MUL: uint64 = 165ULL
+export const MATH_U32_DIV: uint64 = 166ULL
+export const MATH_U32_MOD: uint64 = 167ULL
+export const MATH_U32_ANDBITS: uint64 = 168ULL
+export const MATH_U32_ORBITS: uint64 = 169ULL
+export const MATH_U32_XORBITS: uint64 = 170ULL
+export const MATH_U32_NOTBITS: uint64 = 171ULL
+export const MATH_U32_SHIFTLEFT: uint64 = 172ULL
+export const MATH_U32_SHIFTRIGHTLOGICAL: uint64 = 173ULL
+export const MATH_U32_ROTATELEFT: uint64 = 174ULL
+export const MATH_U32_ROTATERIGHT: uint64 = 175ULL
+export const MATH_U32_LESSTHAN: uint64 = 176ULL
+export const MATH_U32_LESSOREQUAL: uint64 = 177ULL
+export const MATH_U32_FROMI32: uint64 = 178ULL
+export const MATH_U32_TOI32: uint64 = 179ULL
+export const MATH_U32_POPCOUNT: uint64 = 180ULL
+export const MATH_U32_TRAILINGZEROS: uint64 = 181ULL
+export const MATH_U32_LEADINGZEROS: uint64 = 182ULL
+export const MATH_U64_ANDBITS: uint64 = 183ULL
+export const MATH_U64_SUB: uint64 = 184ULL
+export const SCALAR_FIRST: uint64 = 148ULL
+export const SCALAR_LAST: uint64 = 184ULL
+
 -- packs
 export const PACK_COPY: uint64 = 21ULL
 export const PACK_NAMED: uint64 = 73ULL

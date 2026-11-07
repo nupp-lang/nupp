@@ -28,6 +28,7 @@ export type Call = {
     min: integer?,
     max: integer?,
     packs: string?,
+    scalar: string?,
     meta: boolean?
 }
 
@@ -212,9 +213,241 @@ local subjectrows: {Subject} = {
         name = "widths",
         range = true,
         calls = {
-            {name = "MATH_F32_NARROW", id = 91, call = "math.f32.narrow", min = 1, max = 1},
-            {name = "MATH_U32_WRAP", id = 92, call = "math.u32.wrap", min = 1, max = 1},
-            {name = "MATH_I32_WRAP", id = 93, call = "math.i32.wrap", min = 1, max = 1}
+            {
+                name = "MATH_F32_NARROW",
+                id = 91,
+                call = "scalarcalls.f32narrow",
+                scalar = "f32.narrow",
+                min = 1,
+                max = 1
+            },
+            {name = "MATH_U32_WRAP", id = 92, call = "scalarcalls.u32wrap", scalar = "u32.wrap", min = 1, max = 1},
+            {name = "MATH_I32_WRAP", id = 93, call = "scalarcalls.i32wrap", scalar = "i32.wrap", min = 1, max = 1}
+        }
+    },
+    {
+        name = "scalar",
+        range = true,
+        calls = {
+            {name = "MATH_I32_ADD", id = 148, call = "scalarcalls.i32add", scalar = "i32.add", min = 2, max = 2},
+            {name = "MATH_I32_SUB", id = 149, call = "scalarcalls.i32sub", scalar = "i32.sub", min = 2, max = 2},
+            {name = "MATH_I32_MUL", id = 150, call = "scalarcalls.i32mul", scalar = "i32.mul", min = 2, max = 2},
+            {
+                name = "MATH_I32_ANDBITS",
+                id = 151,
+                call = "scalarcalls.i32andbits",
+                scalar = "i32.andBits",
+                min = 2,
+                max = 2
+            },
+            {
+                name = "MATH_I32_ORBITS",
+                id = 152,
+                call = "scalarcalls.i32orbits",
+                scalar = "i32.orBits",
+                min = 2,
+                max = 2
+            },
+            {
+                name = "MATH_I32_XORBITS",
+                id = 153,
+                call = "scalarcalls.i32xorbits",
+                scalar = "i32.xorBits",
+                min = 2,
+                max = 2
+            },
+            {
+                name = "MATH_I32_NOTBITS",
+                id = 154,
+                call = "scalarcalls.i32notbits",
+                scalar = "i32.notBits",
+                min = 1,
+                max = 1
+            },
+            {
+                name = "MATH_I32_SHIFTLEFT",
+                id = 155,
+                call = "scalarcalls.i32shiftleft",
+                scalar = "i32.shiftLeft",
+                min = 2,
+                max = 2
+            },
+            {
+                name = "MATH_I32_SHIFTRIGHTARITHMETIC",
+                id = 156,
+                call = "scalarcalls.i32shiftrightarithmetic",
+                scalar = "i32.shiftRightArithmetic",
+                min = 2,
+                max = 2
+            },
+            {
+                name = "MATH_I32_ROTATELEFT",
+                id = 157,
+                call = "scalarcalls.i32rotateleft",
+                scalar = "i32.rotateLeft",
+                min = 2,
+                max = 2
+            },
+            {
+                name = "MATH_I32_ROTATERIGHT",
+                id = 158,
+                call = "scalarcalls.i32rotateright",
+                scalar = "i32.rotateRight",
+                min = 2,
+                max = 2
+            },
+            {
+                name = "MATH_I32_LESSTHAN",
+                id = 159,
+                call = "scalarcalls.i32lessthan",
+                scalar = "i32.lessThan",
+                min = 2,
+                max = 2
+            },
+            {
+                name = "MATH_I32_LESSOREQUAL",
+                id = 160,
+                call = "scalarcalls.i32lessorequal",
+                scalar = "i32.lessOrEqual",
+                min = 2,
+                max = 2
+            },
+            {
+                name = "MATH_I32_FROMU32",
+                id = 161,
+                call = "scalarcalls.i32fromu32",
+                scalar = "i32.fromU32",
+                min = 1,
+                max = 1
+            },
+            {name = "MATH_I32_TOU32", id = 162, call = "scalarcalls.i32tou32", scalar = "i32.toU32", min = 1, max = 1},
+            {name = "MATH_U32_ADD", id = 163, call = "scalarcalls.u32add", scalar = "u32.add", min = 2, max = 2},
+            {name = "MATH_U32_SUB", id = 164, call = "scalarcalls.u32sub", scalar = "u32.sub", min = 2, max = 2},
+            {name = "MATH_U32_MUL", id = 165, call = "scalarcalls.u32mul", scalar = "u32.mul", min = 2, max = 2},
+            {name = "MATH_U32_DIV", id = 166, call = "scalarcalls.u32div", scalar = "u32.div", min = 2, max = 2},
+            {name = "MATH_U32_MOD", id = 167, call = "scalarcalls.u32mod", scalar = "u32.mod", min = 2, max = 2},
+            {
+                name = "MATH_U32_ANDBITS",
+                id = 168,
+                call = "scalarcalls.u32andbits",
+                scalar = "u32.andBits",
+                min = 2,
+                max = 2
+            },
+            {
+                name = "MATH_U32_ORBITS",
+                id = 169,
+                call = "scalarcalls.u32orbits",
+                scalar = "u32.orBits",
+                min = 2,
+                max = 2
+            },
+            {
+                name = "MATH_U32_XORBITS",
+                id = 170,
+                call = "scalarcalls.u32xorbits",
+                scalar = "u32.xorBits",
+                min = 2,
+                max = 2
+            },
+            {
+                name = "MATH_U32_NOTBITS",
+                id = 171,
+                call = "scalarcalls.u32notbits",
+                scalar = "u32.notBits",
+                min = 1,
+                max = 1
+            },
+            {
+                name = "MATH_U32_SHIFTLEFT",
+                id = 172,
+                call = "scalarcalls.u32shiftleft",
+                scalar = "u32.shiftLeft",
+                min = 2,
+                max = 2
+            },
+            {
+                name = "MATH_U32_SHIFTRIGHTLOGICAL",
+                id = 173,
+                call = "scalarcalls.u32shiftrightlogical",
+                scalar = "u32.shiftRightLogical",
+                min = 2,
+                max = 2
+            },
+            {
+                name = "MATH_U32_ROTATELEFT",
+                id = 174,
+                call = "scalarcalls.u32rotateleft",
+                scalar = "u32.rotateLeft",
+                min = 2,
+                max = 2
+            },
+            {
+                name = "MATH_U32_ROTATERIGHT",
+                id = 175,
+                call = "scalarcalls.u32rotateright",
+                scalar = "u32.rotateRight",
+                min = 2,
+                max = 2
+            },
+            {
+                name = "MATH_U32_LESSTHAN",
+                id = 176,
+                call = "scalarcalls.u32lessthan",
+                scalar = "u32.lessThan",
+                min = 2,
+                max = 2
+            },
+            {
+                name = "MATH_U32_LESSOREQUAL",
+                id = 177,
+                call = "scalarcalls.u32lessorequal",
+                scalar = "u32.lessOrEqual",
+                min = 2,
+                max = 2
+            },
+            {
+                name = "MATH_U32_FROMI32",
+                id = 178,
+                call = "scalarcalls.u32fromi32",
+                scalar = "u32.fromI32",
+                min = 1,
+                max = 1
+            },
+            {name = "MATH_U32_TOI32", id = 179, call = "scalarcalls.u32toi32", scalar = "u32.toI32", min = 1, max = 1},
+            {
+                name = "MATH_U32_POPCOUNT",
+                id = 180,
+                call = "scalarcalls.u32popcount",
+                scalar = "u32.popcount",
+                min = 1,
+                max = 1
+            },
+            {
+                name = "MATH_U32_TRAILINGZEROS",
+                id = 181,
+                call = "scalarcalls.u32trailingzeros",
+                scalar = "u32.trailingZeros",
+                min = 1,
+                max = 1
+            },
+            {
+                name = "MATH_U32_LEADINGZEROS",
+                id = 182,
+                call = "scalarcalls.u32leadingzeros",
+                scalar = "u32.leadingZeros",
+                min = 1,
+                max = 1
+            },
+            {
+                name = "MATH_U64_ANDBITS",
+                id = 183,
+                call = "scalarcalls.u64andbits",
+                scalar = "u64.andBits",
+                min = 2,
+                max = 2
+            },
+            {name = "MATH_U64_SUB", id = 184, call = "scalarcalls.u64sub", scalar = "u64.sub", min = 2, max = 2}
         }
     },
     {
@@ -594,6 +827,7 @@ local elementrows: {Element} = {
 
 local ids: {[string]: integer} = {}
 local singles: {[string]: Call} = {}
+local scalars: {[string]: Call} = {}
 local packs: {[string]: integer} = {}
 local metas: {[integer]: boolean} = {}
 local files: {[string]: Operation} = {}
@@ -621,6 +855,14 @@ do
                     "core library arity: " .. entry.name
                 )
                 singles[entry.call] = entry
+            end
+            if entry.scalar then
+                assert(scalars[entry.scalar] == nil, "core scalar identity answered twice: " .. entry.scalar)
+                assert(
+                    entry.call == "scalarcalls." .. entry.scalar:gsub("%.", ""):lower(),
+                    "core scalar path differs: " .. entry.name
+                )
+                scalars[entry.scalar] = entry
             end
             if entry.packs then
                 assert(packs[entry.packs] == nil, "core library pack answered twice: " .. entry.packs)
@@ -716,6 +958,11 @@ export function single(library: string?): Call?
     return singles[library]
 end
 
+-- The implemented scalar call, by its checked canonical identity.
+export function scalar(identity: string?): Call?
+    return identity and scalars[identity] or nil
+end
+
 -- The id of the call answering every result of `library` as a pack, or nil.
 export function packed(library: string?): integer?
     if library == nil then
@@ -777,6 +1024,7 @@ export function subjects(): {Subject}
                 min = entry.min,
                 max = entry.max,
                 packs = entry.packs,
+                scalar = entry.scalar,
                 meta = entry.meta
             }
         end

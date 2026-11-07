@@ -1,0 +1,49 @@
+@!internal
+
+-- The core's implemented scalar operations, called only by canonical math
+-- function values and typed operators. Requiring the declaration loads no module.
+local record scalarcalls
+    f32narrow: @nosuspend function(value: number): float32
+    u32wrap: @nosuspend function(value: integer): uint32
+    i32wrap: @nosuspend function(value: integer): int32
+    i32add: @nosuspend function(a: int32, b: int32): int32
+    i32sub: @nosuspend function(a: int32, b: int32): int32
+    i32mul: @nosuspend function(a: int32, b: int32): int32
+    i32andbits: @nosuspend function(a: int32, b: int32): int32
+    i32orbits: @nosuspend function(a: int32, b: int32): int32
+    i32xorbits: @nosuspend function(a: int32, b: int32): int32
+    i32notbits: @nosuspend function(a: int32): int32
+    i32shiftleft: @nosuspend function(a: int32, count: integer): int32
+    i32shiftrightarithmetic: @nosuspend function(a: int32, count: integer): int32
+    i32rotateleft: @nosuspend function(a: int32, count: integer): int32
+    i32rotateright: @nosuspend function(a: int32, count: integer): int32
+    i32lessthan: @nosuspend function(a: int32, b: int32): boolean
+    i32lessorequal: @nosuspend function(a: int32, b: int32): boolean
+    i32fromu32: @nosuspend function(a: uint32): int32
+    i32tou32: @nosuspend function(a: int32): uint32
+    u32add: @nosuspend function(a: uint32, b: uint32): uint32
+    u32sub: @nosuspend function(a: uint32, b: uint32): uint32
+    u32mul: @nosuspend function(a: uint32, b: uint32): uint32
+    u32div: @nosuspend function(a: uint32, b: uint32): uint32
+    u32mod: @nosuspend function(a: uint32, b: uint32): uint32
+    u32andbits: @nosuspend function(a: uint32, b: uint32): uint32
+    u32orbits: @nosuspend function(a: uint32, b: uint32): uint32
+    u32xorbits: @nosuspend function(a: uint32, b: uint32): uint32
+    u32notbits: @nosuspend function(a: uint32): uint32
+    u32shiftleft: @nosuspend function(a: uint32, count: integer): uint32
+    u32shiftrightlogical: @nosuspend function(a: uint32, count: integer): uint32
+    u32rotateleft: @nosuspend function(a: uint32, count: integer): uint32
+    u32rotateright: @nosuspend function(a: uint32, count: integer): uint32
+    u32lessthan: @nosuspend function(a: uint32, b: uint32): boolean
+    u32lessorequal: @nosuspend function(a: uint32, b: uint32): boolean
+    u32fromi32: @nosuspend function(a: int32): uint32
+    u32toi32: @nosuspend function(a: uint32): int32
+    u32popcount: @nosuspend function(a: uint32): uint32
+    u32trailingzeros: @nosuspend function(a: uint32): uint32
+    u32leadingzeros: @nosuspend function(a: uint32): uint32
+    u64andbits: @nosuspend function(a: uint64, b: uint64): uint64
+    u64sub: @nosuspend function(a: uint64, b: uint64): uint64
+end
+
+local calls: scalarcalls
+return calls
