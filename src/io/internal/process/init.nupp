@@ -800,12 +800,14 @@ record process.Process is io.File, own.Affine<self._drop>
 
     --- Reports that a process pipe cannot seek.
     function seek(self, whence: string?, offset: number?): (number?, string?)
-        return file.seek(self, whence, offset)
+        local result, problem = file.seek(self, whence, offset)
+        return result, problem
     end
 
     --- Sets buffering for the process's writable pipe.
     function setvbuf(self, mode: string, size: number?): (boolean?, string?)
-        return file.setvbuf(self, mode, size)
+        local result, problem = file.setvbuf(self, mode, size)
+        return result, problem
     end
 
     --- Whether it is still running, enforcing an elapsed process deadline first.

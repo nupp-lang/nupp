@@ -308,7 +308,8 @@ local forwarding: {
         writeFile = "write",
         flushFile = "flush"
     },
-    ["nupp.runtime.standardos"] = {remove = "remove", rename = "rename"}
+    ["nupp.runtime.standardos"] = {remove = "remove", rename = "rename"},
+    ["io.internal.process"] = {seek = "seek", setvbuf = "setvbuf"}
 }
 
 local function localinitializer(p: any, chunk: any, definition: any): any
@@ -331,11 +332,95 @@ local function localinitializer(p: any, chunk: any, definition: any): any
     return nil
 end
 
+-- A checked Process method passes its receiver and arguments unchanged to the
+-- imported file formatter. Its public caller, not the helper call, names errors.
+local function fileforward(p: any, owner: any, call: any, member: string): boolean
+    local node = owner.node
+    local chunk = p.owners[owner.parent + 1]
+    local record = p.recordMembers[node]
+    if owner.scope.name ~= "io.internal.process"
+        or node.kind ~= "inlineMethod"
+        or node.inlineStatic
+        or not record
+        or not node.name
+        or node.name.text ~= owner.name
+        or node.name.definition ~= owner.definition
+        or p.functionsByDefinition[owner.definition] ~= owner
+        or p.byBody[owner.body] ~= owner
+        or not chunk
+        or chunk.kind ~= "module"
+        or chunk.scope ~= owner.scope
+        or call.kind ~= "call"
+        or call.obj.kind ~= "dotIndex"
+        or call.obj.name.text ~= member
+        or call.obj.obj.kind ~= "name"
+    then
+        return false
+    end
+    local declared = false
+    for declaration in pairs(p.recordDecls) do
+        if declaration.name and declaration.name.definition == record and declaration.name.text == "Process" then
+            for _, entry in ipairs(declaration.entries or {}) do
+                declared = declared or entry == node
+            end
+        end
+    end
+    if not declared then
+        return false
+    end
+    local definition = call.obj.obj.token.definition
+    local original = localinitializer(p, chunk, definition)
+    local site = original and p.requireByNode[original]
+    if not definition
+        or definition.reassigned
+        or definition.requiredModule ~= "io.internal.fileformat"
+        or not original
+        or original.kind ~= "call"
+        or original.runtimeLoader ~= "require"
+        or original.requiredModule ~= "io.internal.fileformat"
+        or not site
+        or site.node ~= original
+        or site.owner ~= chunk.id
+        or site.module ~= "io.internal.fileformat"
+        or site.target == nil
+    then
+        return false
+    end
+    local target = p.owners[site.target + 1]
+    local issued = p.callByNode[call]
+    if not target
+        or target.kind ~= "module"
+        or target.scope.name ~= site.module
+        or not issued
+        or issued.node ~= call
+        or issued.owner ~= owner.id
+    then
+        return false
+    end
+    local params, args = graph.parameters(owner.body), call.args.exprs
+    if #params ~= 3 or #args ~= #params then
+        return false
+    end
+    for index, parameter in ipairs(params) do
+        if not parameter.name
+            or args[index].kind ~= "name"
+            or args[index].token.definition ~= parameter.name.definition
+        then
+            return false
+        end
+    end
+
+    return true
+end
+
 local function forwardcontext(p: any, owner: any, call: any): integer
     local methods = forwarding[owner.scope.name]
     local member = methods and methods[owner.name]
     if not member or owner.kind ~= "function" then
         return FORWARD_NONE
+    end
+    if owner.scope.name == "io.internal.process" then
+        return fileforward(p, owner, call, member) and FORWARD_CALL or FORWARD_NONE
     end
     local declaration = owner.node.kind == "localFuncStmt" and owner.node.name
         or owner.node.kind == "funcStmt" and #owner.node.name == 1 and owner.node.name[1]
@@ -688,8 +773,12 @@ function contracts.normalize(compiled: any, version: integer?): (any, any)
                     local methods = forwarding[owner.scope.name]
                     local member = methods and methods[owner.name]
                     need(member ~= nil, "checked forwarding member missing")
-                    local root = owner.scope.name == "nupp.runtime.standardio" and "io" or "os"
-                    row.name = root .. "." .. (member as string)
+                    if owner.scope.name == "io.internal.process" then
+                        row.name = "?"
+                    else
+                        local root = owner.scope.name == "nupp.runtime.standardio" and "io" or "os"
+                        row.name = root .. "." .. (member as string)
+                    end
                 end
                 diagnostics[id + 1] = row
                 block.term.contract = id

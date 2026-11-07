@@ -1,0 +1,8 @@
+@!internal
+module nupp.runtime.provider.coreargumenterror
+
+local luaargs = require("nupp.runtime.luaargs")
+
+export function argerror(position: integer, _name: string, message: string, level: integer): nil
+    luaargs.argerror(position, "?", message, level + 1)
+end

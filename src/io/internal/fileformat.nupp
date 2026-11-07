@@ -2,6 +2,8 @@
 
 module io.internal.fileformat
 
+local arguments = require("io.internal.argumenterror")
+
 local function opened(child: any): nil
     if child.state.reaped then
         error("attempt to use a closed file", 3)
@@ -402,10 +404,10 @@ export function seek(child: any, whence: string?, offset: number?): (number?, st
     opened(child)
     local direction = whence or "cur"
     if direction ~= "set" and direction ~= "cur" and direction ~= "end" then
-        error("bad argument #1 to 'seek' (invalid option)", 2)
+        arguments.argerror(2, "seek", "invalid option '" .. tostring(direction) .. "'", 2)
     end
     if offset ~= nil and type(offset) ~= "number" then
-        error("bad argument #2 to 'seek' (number expected)", 2)
+        arguments.argerror(3, "seek", "number expected", 2)
     end
 
     return nil, "Illegal seek"
@@ -414,10 +416,10 @@ end
 export function setvbuf(child: any, mode: string, size: number?): (boolean?, string?)
     opened(child)
     if mode ~= "no" and mode ~= "full" and mode ~= "line" then
-        error("bad argument #1 to 'setvbuf' (invalid option)", 2)
+        arguments.argerror(2, "setvbuf", "invalid option '" .. tostring(mode) .. "'", 2)
     end
     if size ~= nil and (size < 0 or size ~= size or size == math.huge) then
-        error("bad argument #2 to 'setvbuf' (invalid buffer size)", 2)
+        arguments.argerror(3, "setvbuf", "invalid buffer size", 2)
     end
     local ok, reason = flush(child)
     if not ok then

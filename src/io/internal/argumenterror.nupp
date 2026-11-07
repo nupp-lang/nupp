@@ -1,0 +1,24 @@
+@!internal
+module io.internal.argumenterror
+
+-- Positions include the file receiver. A host without namewhat keeps the
+-- historical receiver-excluded diagnostic; an unknown namewhat is different
+-- from that missing capability and keeps the raw argument position.
+export function argerror(position: integer, name: string, message: string, level: integer): nil
+    local info = debug.getinfo(level + 1, "n")
+    local shown = position
+    local called = "?"
+    if info == nil or info.namewhat == nil then
+        shown = position - 1
+        called = name
+    else
+        if info.namewhat == "method" then
+            shown = shown - 1
+        end
+        called = info.name or "?"
+    end
+    if shown == 0 then
+        error("calling '" .. called .. "' on bad self (" .. message .. ")", level + 2)
+    end
+    error("bad argument #" .. tostring(shown) .. " to '" .. called .. "' (" .. message .. ")", level + 2)
+end

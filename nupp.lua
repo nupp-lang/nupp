@@ -81,6 +81,7 @@ local RESOURCES = {
     {source = "src/nupp/workers/internal/support.nupp", output = "nupp/compiler/nupp/workers/internal/support.nupp"},
     {source = "src/nupp/suspension/contracts.nupp", output = "nupp/compiler/nupp/suspension/contracts.nupp"},
     {source = "src/nupp/suspension/selected.nupp", output = "nupp/compiler/nupp/suspension/selected.nupp"},
+    {source = "src/io/internal/argumenterror.nupp", output = "nupp/compiler/io/internal/argumenterror.nupp"},
     {source = "src/io/internal/fileformat.nupp", output = "nupp/compiler/io/internal/fileformat.nupp"},
     {source = "src/io/internal/fileviews.nupp", output = "nupp/compiler/io/internal/fileviews.nupp"},
     {source = "src/io/internal/portablefile.nupp", output = "nupp/compiler/io/internal/portablefile.nupp"},
