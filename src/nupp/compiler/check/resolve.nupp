@@ -16,6 +16,7 @@ module nupp.compiler.check.resolve
 local apiidentity = require("nupp.compiler.apiidentity")
 local builtinExtensions = require("nupp.compiler.builtinextensions")
 local T = require("nupp.compiler.types")
+local borrowResults = require("nupp.compiler.check.borrowresults")
 local generics = require("nupp.compiler.types.generics")
 local consteval = require("nupp.compiler.types.consteval")
 local constrain = require("nupp.compiler.types.constrain")
@@ -2023,10 +2024,13 @@ export function install(c: state.Checker): nil
                 end
             end
             local borrowsParam, borrowsSelf, borrowsParams, borrowsResult
+            local sharedBorrow = retPack.tail == nil and not retPack.alternatives and borrowResults.shared(node.rets)
             for result, ret in ipairs(node.rets or {}) do
                 if ret.kind == "tborrows" then
                     if borrowsResult then
-                        c.diag("NUPP2621", ret, "only one result may declare a borrow")
+                        if not sharedBorrow then
+                            c.diag("NUPP2621", ret, "multiple borrowed results must all name the same sources")
+                        end
                     else
                         borrowsResult = result
                     end
@@ -2047,15 +2051,20 @@ export function install(c: state.Checker): nil
                 if #borrowsParams == 1 then
                     borrowsParam, borrowsParams = borrowsParams[1], nil
                 end
-                if rets[borrowsResult] then
-                    -- Borrow provenance lives on the callable and is attached to the
-                    -- produced value at the call. Do not replace an owning result's
-                    -- discharge obligation with the borrow relation it also carries.
-                    if rets[borrowsResult].tag ~= "affine" then
-                        rets[borrowsResult] = T.borrowed(T.unwrapOwnership(rets[borrowsResult]))
+                -- An owning result keeps its discharge obligation in addition to
+                -- the source it retains. Zero means this relation applies to every
+                -- fixed result; positive indexes retain the single-result contract.
+                local first = sharedBorrow and 1 or borrowsResult
+                local last = sharedBorrow and #rets or borrowsResult
+                for slot = first, last do
+                    if rets[slot] and rets[slot].tag ~= "affine" then
+                        rets[slot] = T.borrowed(T.unwrapOwnership(rets[slot]))
                     end
-                    retPack = T.pack(rets, retPack.tail, retPack.modes)
                 end
+                if sharedBorrow then
+                    borrowsResult = 0
+                end
+                retPack = T.pack(rets, retPack.tail, retPack.modes)
             end
             if node.generics then
                 c.popScope()

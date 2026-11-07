@@ -193,6 +193,27 @@ function M.roundTripsCallableContractsAndOverloadProvenance()
     testAssert.eq(got.overloadedMethods.read, true, "overload marker")
 end
 
+function M.roundTripsABorrowSharedByEveryFixedResult()
+    local signature = T.funcWith(
+        T.func({T.string}, {T.borrowed(T.string), T.borrowed(T.string)}, false, {
+            "borrows"
+        }),
+        {
+            borrowsParam = 1,
+            borrowsResult = 0,
+        }
+    )
+    local loaded = roundTrip(signature)
+    testAssert.eq(loaded.borrowsParam, 1)
+    testAssert.eq(loaded.borrowsResult, 0)
+    local descriptor = reflection.describe(loaded, "SharedBorrow")
+    testAssert.eq(descriptor.types[descriptor.root].borrowedResult, 0)
+    local onlyFirst = T.funcWith(signature, {borrowsResult = 1})
+    local relations = require("nupp.compiler.types.relations")
+    assert(not relations.isA(loaded, onlyFirst), "an image erased the second result's lifetime")
+    assert(not relations.isA(onlyFirst, loaded), "an image invented the second result's lifetime")
+end
+
 function M.referencesPreviouslyLoadedStructuralArenas()
     local origins, encodedArenas = {}, {}
     local shared = T.func(

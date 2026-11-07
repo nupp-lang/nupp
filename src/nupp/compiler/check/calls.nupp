@@ -3420,8 +3420,12 @@ export function install(c: state.Checker): Ops
                 end
             end
             local borrowedSlot = calleeT.borrowsResult or 1
+            local firstBorrowedSlot = borrowedSlot == 0 and 1 or borrowedSlot
+            local lastBorrowedSlot = borrowedSlot == 0 and #retPack.head or borrowedSlot
             if #owners > 0 then
-                c.own.capabilityFacts(node, borrowedSlot).roots = owners
+                for slot = firstBorrowedSlot, lastBorrowedSlot do
+                    c.own.capabilityFacts(node, slot).roots = owners
+                end
             end
             local exclusiveResult = calleeT.borrowsParam and calleeT.paramModes[calleeT.borrowsParam] == "exclusive"
             if not exclusiveResult then
@@ -3433,7 +3437,9 @@ export function install(c: state.Checker): Ops
                 end
             end
             if exclusiveResult and #owners > 0 then
-                c.own.capabilityFacts(node, borrowedSlot).exclusive = true
+                for slot = firstBorrowedSlot, lastBorrowedSlot do
+                    c.own.capabilityFacts(node, slot).exclusive = true
+                end
             end
             local resultRoot, resultPath, consistent = nil, nil, true
             for _, source in ipairs(sources) do
@@ -3450,9 +3456,11 @@ export function install(c: state.Checker): Ops
                 end
             end
             if consistent and resultRoot and resultPath and resultPath ~= "" then
-                local resultFacts = c.own.capabilityFacts(node)
-                resultFacts.regionRoot = resultRoot
-                resultFacts.regionPath = resultPath
+                for slot = firstBorrowedSlot, lastBorrowedSlot do
+                    local resultFacts = c.own.capabilityFacts(node, slot)
+                    resultFacts.regionRoot = resultRoot
+                    resultFacts.regionPath = resultPath
+                end
             end
         end
         -- A pack used in both parameter and result position is a transparent forwarding

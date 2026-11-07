@@ -10,6 +10,7 @@ method.
 module nupp.compiler.check.functions
 
 local T = require("nupp.compiler.types")
+local borrowResults = require("nupp.compiler.check.borrowresults")
 local relations = require("nupp.compiler.types.relations")
 local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")
@@ -1095,6 +1096,10 @@ export function install(c: state.Checker): state.StatHandlers
                 declaredBorrow, declaredBorrowResult = ret, result
             end
         end
+        local sharedBorrow = retPack.tail == nil and not retPack.alternatives and borrowResults.shared(body.rets)
+        if sharedBorrow then
+            declaredBorrowResult = 0
+        end
         c.borrowReturnStack[#c.borrowReturnStack + 1] = declaredBorrow
             and {contract = declaredBorrow, result = declaredBorrowResult,}
             or false
@@ -1425,7 +1430,9 @@ export function install(c: state.Checker): state.StatHandlers
         for result, ret in ipairs(body.rets or {}) do
             if ret.kind == "tborrows" then
                 if borrowClause then
-                    c.diag("NUPP2621", ret, "only one result may declare a borrow")
+                    if not sharedBorrow then
+                        c.diag("NUPP2621", ret, "multiple borrowed results must all name the same sources")
+                    end
                 else
                     borrowClause, borrowsResult = ret as cst.Tborrows, result
                 end
@@ -1468,11 +1475,17 @@ export function install(c: state.Checker): state.StatHandlers
         -- discharged, and the borrow it holds is tracked on the value rather than in
         -- the type, the way a lexical borrow is.
         local borrowedSlot = borrowsResult or 1
-        if (borrowsParam or borrowsSelf or borrowsParams)
-            and rets[borrowedSlot]
-            and rets[borrowedSlot].tag ~= "affine"
-        then
-            rets[borrowedSlot] = T.borrowed(rawType(rets[borrowedSlot]))
+        if borrowsParam or borrowsSelf or borrowsParams then
+            local first = sharedBorrow and 1 or borrowedSlot
+            local last = sharedBorrow and #rets or borrowedSlot
+            for slot = first, last do
+                if rets[slot] and rets[slot].tag ~= "affine" then
+                    rets[slot] = T.borrowed(rawType(rets[slot]))
+                end
+            end
+        end
+        if sharedBorrow then
+            borrowsResult = 0
         end
         if body.returnPack and not retPack.alternatives then
             retPack = T.pack(rets, retPack.tail, retPack.modes)

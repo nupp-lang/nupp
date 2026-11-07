@@ -971,6 +971,19 @@ export function install(c: state.Checker): state.StatHandlers
             return nil
         end
 
+        local function returnedCapability(result: integer)
+            local exprs = stat.exprs or {}
+            if result <= #exprs then
+                return exprs[result]
+            end
+            local expanded = exprs[#exprs]
+            if expanded then
+                return {capabilityFacts = own.capabilityFacts(expanded, result - #exprs + 1, false)}
+            end
+
+            return nil
+        end
+
         local function fixedExpression(result: integer)
             local exprs = stat.exprs or {}
             if result < #exprs then
@@ -1033,7 +1046,10 @@ export function install(c: state.Checker): state.StatHandlers
                 c.markTemporaryConsumed(stat.exprs[j])
             end
             local declaredBorrow = c.borrowReturnStack[#c.borrowReturnStack]
-            local borrowContract = declaredBorrow and declaredBorrow.result == j and declaredBorrow.contract or nil
+            local borrowContract = declaredBorrow
+                and (declaredBorrow.result == 0 or declaredBorrow.result == j)
+                and declaredBorrow.contract
+                or nil
             if borrowContract then
                 local expected: {any} = {}
                 local missing = nil
@@ -1043,7 +1059,7 @@ export function install(c: state.Checker): state.StatHandlers
                         expected[#expected + 1] = borrowRoot(source)
                     end
                 end
-                local actual = provenanceOwners(stat.exprs[j])
+                local actual = provenanceOwners(returnedCapability(j))
                 for _, source in ipairs(expected) do
                     local found = false
                     for _, candidate in ipairs(actual) do
@@ -1114,7 +1130,7 @@ export function install(c: state.Checker): state.StatHandlers
                     -- as the result refers to it; only an owner is destroyed at scope
                     -- exit, and only a borrowed parameter stands for one the caller
                     -- holds.
-                    for _, root in ipairs(own.rootsOf(stat.exprs[j])) do
+                    for _, root in ipairs(own.rootsOf(returnedCapability(j))) do
                         if not declaredSources[root]
                             and (root.functionDepth or 0) >= c.functionDepth
                             and ownershipKind(root.t) ~= nil

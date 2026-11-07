@@ -1,0 +1,33 @@
+module nupp.compiler.check.borrowresults
+
+local cst = require("nupp.compiler.syntax.cst")
+
+-- A callable can retain one source set on every fixed result. Requiring every
+-- slot to name that set avoids losing which results retain the source when a
+-- callable is assigned, substituted, or forwarded.
+export function shared(results: {cst.Node}?): boolean
+    if results == nil or #results < 2 then
+        return false
+    end
+    local expected: string? = nil
+    for _, result in ipairs(results) do
+        if result.kind ~= "tborrows" then
+            return false
+        end
+        local names: {string} = {}
+        for _, source in ipairs(result.params or {result.param}) do
+            if source == nil then
+                return false
+            end
+            names[#names + 1] = source.text
+        end
+        table.sort(names)
+        local key = table.concat(names, "\0")
+        if expected ~= nil and key ~= expected then
+            return false
+        end
+        expected = key
+    end
+
+    return true
+end

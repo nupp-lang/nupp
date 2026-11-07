@@ -2833,10 +2833,156 @@ function M.aBorrowedResultHoldsOnlyItsOwnSlot()
     )
 end
 
--- One callable records one borrow relation, so two of them are refused rather than
--- silently keeping the first. The second clause having been refused, returning that
--- result's borrow is an unbacked one, which is the NUPP2608 beside it.
-function M.onlyOneResultMayDeclareABorrow()
+-- Results with different source sets are refused rather than losing a relation.
+function M.fixedResultsMayShareABorrowSource()
+    assertClean(
+        POOL
+        .. "\n"
+        .. [[
+local function pair(borrows owner: Pool): (Pool borrows (owner), Pool borrows (owner))
+    return owner, owner
+end
+local function forward(borrows owner: Pool): (Pool borrows (owner), Pool borrows (owner))
+    return pair(owner)
+end
+local owner = open_pool()
+local left, right = forward(owner)
+print(left.items, right.items)
+]]
+    )
+end
+
+function M.eachSharedBorrowedResultRetainsItsSource()
+    for _, used in ipairs({"left", "right"}) do
+        testAssert.eq(
+            codes(
+                POOL
+                .. "\n"
+                .. [[
+local function pair(borrows owner: Pool): (Pool borrows (owner), Pool borrows (owner))
+    return owner, owner
+end
+local owner = open_pool()
+local left, right = pair(owner)
+own.drop(owner)
+print(]]
+                .. used
+                .. [[.items)
+]]
+            ),
+            "NUPP2602"
+        )
+    end
+end
+
+function M.aSharedBorrowContractChecksEveryReturnedSource()
+    testAssert.eq(
+        codes(
+            POOL
+            .. "\n"
+            .. [[
+local function pair(borrows owner: Pool, borrows other: Pool): (Pool borrows (owner), Pool borrows (owner))
+    return owner, other
+end
+print(pair)
+]]
+        ),
+        "NUPP2619"
+    )
+end
+
+function M.aCallableCannotForgetOneOfItsSharedBorrowedResults()
+    testAssert.eq(
+        codes(
+            POOL
+            .. "\n"
+            .. [[
+local function pair(borrows owner: Pool): (Pool borrows (owner), Pool borrows (owner))
+    return owner, owner
+end
+local one: function(borrows owner: Pool): (Pool borrows (owner), Pool) = pair
+print(one)
+]]
+        ),
+        "NUPP2001"
+    )
+end
+
+function M.sharedBorrowedSourcesAreASet()
+    assertClean(
+        POOL
+        .. "\n"
+        .. [[
+local function pair(borrows left: Pool, borrows right: Pool): (Pool borrows (left, right), Pool borrows (right, left))
+    error("fixture", 0)
+end
+print(pair)
+]]
+    )
+end
+
+function M.sharedBorrowedOwnersKeepTheirCleanupObligations()
+    local source = POOL
+        .. "\n"
+        .. [[
+local record Token is own.Closeable
+    anchor: any
+    function close(takes self): nil end
+end
+local function issue(borrows owner: Pool): (affine(Token) borrows (owner), affine(Token) borrows (owner))
+    return Token(anchor = owner), Token(anchor = owner)
+end
+local function forward(borrows owner: Pool): (affine(Token) borrows (owner), affine(Token) borrows (owner))
+    return issue(owner)
+end
+local owner = open_pool()
+local left, right = forward(owner)
+left:close()
+]]
+    assertClean(source .. "right:close()\nown.drop(owner)")
+    testAssert.eq(codes(source .. "own.drop(owner)\nright:close()"), "NUPP2602")
+end
+
+function M.sharedBorrowedMethodsKeepBothResultLifetimes()
+    testAssert.eq(
+        codes(
+            POOL
+            .. "\n"
+            .. [[
+function Pool:pair(): (Pool borrows (self), Pool borrows (self))
+    return self, self
+end
+local owner = open_pool()
+local left, right = owner:pair()
+own.drop(owner)
+print(right.items)
+]]
+        ),
+        "NUPP2602"
+    )
+end
+
+function M.aSharedBorrowedFunctionTypePreservesBothLifetimes()
+    testAssert.eq(
+        codes(
+            POOL
+            .. "\n"
+            .. [[
+local function pair(borrows owner: Pool): (Pool borrows (owner), Pool borrows (owner))
+    return owner, owner
+end
+local alias: function(borrows value: Pool): (Pool borrows (value), Pool borrows (value)) = pair
+local owner = open_pool()
+local left, right = alias(owner)
+own.drop(owner)
+print(right.items)
+]]
+        ),
+        "NUPP2602"
+    )
+end
+
+function M.borrowedResultsCannotDeclareDifferentSources()
     testAssert.eq(
         codes(
             POOL .. table.concat(
