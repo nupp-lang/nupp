@@ -225,6 +225,56 @@ function compat.checkSyntax(checker: any)
     end)
 end
 
+-- Runtime const bindings are VM hints, after the checker has proved readonly
+-- access. Erase those hints in ordinary emission for a portable target, including
+-- carried library implementations that were checked in the full language.
+function compat.eraseRuntimeConstants(code: string): string
+    local parsed = require("nupp.compiler.syntax.parser").parse(code, "generated.lua")
+    local replacements: {[integer]: string} = {}
+    local positions: {integer} = {}
+
+    local function replace(at: any, text: string): nil
+        if replacements[at.offset] == nil then
+            positions[#positions + 1] = at.offset
+        end
+        replacements[at.offset] = text
+    end
+
+    local function visit(node: any): nil
+        if type(node) ~= "table" then
+            return
+        end
+        local at = first(node)
+        if (node.isConst or node.constTok) and at.text == "const" then
+            replace(at, (node.kind == "param" or node.kind == "fieldNamed") and "     " or "local")
+        end
+        for _, child in ipairs(node) do
+            visit(child)
+        end
+    end
+
+    visit(parsed.root)
+    for index, token in ipairs(parsed.tokens) do
+        if token.text == "const" and parsed.tokens[index + 1] and parsed.tokens[index + 1].text == "function" then
+            replace(token, "local")
+        end
+    end
+    if #positions == 0 then
+        return code
+    end
+    table.sort(positions)
+    local parts: {string} = {}
+    local offset: integer = 1
+    for _, position in ipairs(positions) do
+        parts[#parts + 1] = code:sub(offset, position - 1)
+        parts[#parts + 1] = assert(replacements[position])
+        offset = position + 5
+    end
+    parts[#parts + 1] = code:sub(offset)
+
+    return table.concat(parts)
+end
+
 --- This guard uses the shared parser and checks its extensions, including in browsers.
 function compat.generated(code: string, filename: string?, sourceTokens: {any}?): {any}
     local parsed = require("nupp.compiler.syntax.parser").parse(code, (filename or "generated") .. ".lua")

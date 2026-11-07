@@ -632,7 +632,8 @@ export function generate(
     coverage: (boolean | CoverageRequest)?,
     hot: HotRequest?,
     bytecodeBoundary: string?,
-    forcedEffects: {[string]: boolean}?
+    forcedEffects: {[string]: boolean}?,
+    emissionCompat: string?
 ): string, {any}, Coverage?, {[string]: boolean}, HotMetadata?
     -- This immutable fact describes generated code and is unrelated to provider
     -- discovery.
@@ -2234,7 +2235,7 @@ export function generate(
     -- instruments the largest function in the compiler and the module then will not
     -- load.
     local pluck = {
-        compat = result.compat,
+        compat = emissionCompat or result.compat,
         typeKinds = TYPE_KINDS,
         declarationKinds = DECL_KINDS,
         witnessPlan = require("nupp.compiler.lua.typewitness").collect(result.root, result.moduleExports),
@@ -9840,6 +9841,7 @@ export function generate(
     raw("\n")
 
     local code = table.concat(out)
+    local modulePrelude: string? = nil
     for _, activation in ipairs(emitDepth.activationPlaceholders) do
         local replacement = activation.used and ("local %s;"):format(activation.name) or ""
         code = code:gsub(activation.marker:gsub("([^%w])", "%%%1"), replacement, 1)
@@ -10166,9 +10168,10 @@ export function generate(
         elseif loadsSpi or patching then
             prefix = ("local %s={};local __nuppOk,__nuppWhy=pcall(function()"):format(emitDepth.exportTableName)
         else
-            prefix = (
-                "local %s={};package.loaded[%q]=%s;local __nuppOk,__nuppWhy=pcall(function()"
+            modulePrelude = (
+                "local %s={};package.loaded[%q]=%s;"
             ):format(emitDepth.exportTableName, declaredModuleName, emitDepth.exportTableName)
+            prefix = "local __nuppOk,__nuppWhy=pcall(function()"
         end
         local epilogue = patching
             and (" end);if not __nuppOk then error(__nuppWhy,0) end;return %s"):format(emitDepth.exportTableName)
@@ -10645,6 +10648,12 @@ export function generate(
         code = ("_G.assert((_G.loadstring or _G.load)(%s,%q))();"):format(quotedPrelude, "@nupp-prelude") .. code
     end
 
+    -- Publish a declared module before its runtime installers can require it.
+    -- Lua 5.2 and later do not install a require sentinel while a loader runs.
+    if modulePrelude ~= nil then
+        code = modulePrelude .. code
+    end
+
     -- Generated Lua that will not load is a bug in this file, and it should say so here
     -- rather than wherever the module is first required.
     --
@@ -10678,7 +10687,7 @@ export function generate(
             local localCap = text:match("more than (%d+) local variables")
             if localCap and not spillsModuleScope and declaredModuleName and hot == nil then
                 spillNextModule = true
-                return generate(result, filename, coverage, hot, bytecodeBoundary, forcedEffects)
+                return generate(result, filename, coverage, hot, bytecodeBoundary, forcedEffects, emissionCompat)
             end
             -- LuaJIT's parser also stops at two hundred levels of nesting and at a
             -- function whose expressions need more than its registers. A program
@@ -10732,7 +10741,8 @@ export function generate(
         end
     end
 
-    if result.compat == "lua51" then
+    if (emissionCompat or result.compat) == "lua51" then
+        code = require("nupp.compiler.compat").eraseRuntimeConstants(code)
         for _, diagnostic in ipairs(require("nupp.compiler.compat").generated(code, filename, result.tokens)) do
             diags[#diags + 1] = diagnostic
         end

@@ -230,6 +230,25 @@ function M.generatedOutputGuardDoesNotNeedAStockVm()
     assert(#compat.generated([[return "\\x41", 0xff, 1.5e2]], "test") == 0)
 end
 
+function M.carriedFullLanguageConstantsEmitAsPortableLocals()
+    local source = [[
+module carried
+export const label = "const string"
+export const fields = {["const"] = "kept"}
+export function read(): string return label .. fields["const"] end
+]]
+    local result, diags = checked(source, {})
+    assert(errors(diags) == "", errors(diags))
+    local code, generated = gen.generate(result, "carried.nupp", nil, nil, nil, nil, "lua51")
+    assert(errors(generated) == "", errors(generated))
+    assert(#compat.generated(code, "carried.nupp") == 0)
+    local exports = assert(loadstring(code))()
+    assert(exports.read() == "const stringkept")
+    local _, before = source:gsub("\n", "")
+    local _, after = code:gsub("\n", "")
+    assert(before == after, "erasing VM hints preserves source positions")
+end
+
 local function inProject(callback)
     local fs = require("nupp.compiler.fs")
     local root = os.tmpname()

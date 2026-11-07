@@ -27,6 +27,7 @@ const {type Value} = require("nupp.compiler.project.store")
 local aotcheck = require("nupp.tools.build.aotcheck")
 local envMod = require("nupp.compiler.project.env")
 local gen = require("nupp.compiler.lua.gen")
+local compat = require("nupp.compiler.compat")
 local optimize = require("nupp.compiler.lua.optimize")
 local hash = require("nupp.compiler.hash")
 local incremental = require("nupp.compiler.project.incremental")
@@ -1093,7 +1094,8 @@ function modules.compileChecked(job: modules.CompileJob): modules.Compiled
             config._coverage and {path = path} or nil,
             hotRequest,
             nil,
-            ((target as any)._aotGpuSources or {})[normalize(path)] and {["runtime.gpu"] = true} or nil
+            ((target as any)._aotGpuSources or {})[normalize(path)] and {["runtime.gpu"] = true} or nil,
+            config.compat
         )
         -- Generation is the last word on runtime reachability: it has now seen
         -- which checked nodes survived folding, comptime erasure, materialization,
@@ -1770,6 +1772,14 @@ local function buildModules(root: string, outDir: string, config: Config, target
             return true
         end
         addingCarriedRuntime[name] = true
+        local portableDiags = jsonArray({} as {any})
+        if config.compat ~= nil then
+            text = compat.eraseRuntimeConstants(text)
+            for _, diagnostic in ipairs(compat.generated(text, modulePath)) do
+                portableDiags[#portableDiags + 1] = diagnostic
+            end
+        end
+        said[name] = portableDiags
         local required = runtimeImports(name, text, config, target)
         local carriedEffects = jsonArray({} as {string})
         if carriedRecord then
@@ -1802,7 +1812,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
             externalInputs = jsonArray({} as {any}),
             effects = carriedEffects,
             output = output,
-            diags = jsonArray({} as {any}),
+            diags = portableDiags,
             materializations = jsonArray({} as {any}),
             derives = jsonArray({} as {any}),
             optimizationRemarks = jsonArray({} as {any}),
