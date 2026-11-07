@@ -1237,6 +1237,18 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
             elseif not err then
                 out = t
             end
+        elseif t.op == "threadOf" then
+            local body
+            body, err = normalize(t.subject as Type, memo, budget)
+            if not err then
+                if body.tag == "func" then
+                    out = T.threadOf(body)
+                elseif body.tag == "typevar" or body.tag == "neutral" or body.tag == "projection" then
+                    out = T.threadOf(body)
+                else
+                    out, err = T.any, "thread<F> needs a function type, got " .. T.tostring(body)
+                end
+            end
         elseif t.op == "singleton" then
             local term
             term, err = consteval.reduce(t.constTerm as T.ConstTerm)

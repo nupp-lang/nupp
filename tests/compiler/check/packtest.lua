@@ -52,6 +52,62 @@ local producer: Producer = worker
     )
 end
 
+function M.functionTypesSupplyAllFourCoroutinePacks()
+    clean(
+        [[
+local type Producer = function(number) yields(number, string) resumes(boolean): string
+local producer: Producer = function(start: number) yields(number, string) resumes(boolean): string
+    local again: boolean = coroutine.yield(start, 'paused')
+    return tostring(again)
+end
+local co: thread<Producer> = coroutine.create(producer)
+local legacy: thread<(number), (boolean), (number, string), (string)> = co
+local ok, value, label = coroutine.resume(co, 1)
+if ok then
+    local result: number | string = value
+    local detail: string? = label
+end
+coroutine.resume(co, true)
+]]
+    )
+end
+
+function M.functionThreadTypesPreserveGenericArgumentsAndFunctionBinders()
+    clean(
+        [[
+local type Producer<T> = function(T) yields(T) resumes(boolean): string
+local type Handle<F> = thread<F>
+local function create<F>(body: F): thread<F>
+    return coroutine.create(body)
+end
+local producer: Producer<number> = function(value: number) yields(number) resumes(boolean): string
+    coroutine.yield(value)
+    return 'done'
+end
+local co: Handle<Producer<number>> = create(producer)
+local ok, value = coroutine.resume(co, 1)
+if ok then local result: number | string = value end
+]]
+    )
+end
+
+function M.functionThreadTypesStillRefuseWrongTransfers()
+    local prefix = [[
+local type Producer = function(number) yields(number) resumes(boolean): string
+local producer: Producer = function(value: number) yields(number) resumes(boolean): string
+    coroutine.yield(value)
+    return 'done'
+end
+local co: thread<Producer> = coroutine.create(producer)
+]]
+    testAssert.eq(codes(prefix .. "coroutine.resume(co, 'wrong')"), "NUPP2010")
+    testAssert.eq(codes(prefix .. "coroutine.resume(co, 1)\ncoroutine.resume(co, 2)"), "NUPP2010")
+    testAssert.eq(codes("local type Bad = thread<number>"), "NUPP2121")
+    testAssert.eq(codes("local type Bad = thread<(number), (string)>"), "NUPP2121")
+    local invalid = codes("local type Handle<F> = thread<F>\nlocal co: Handle<number>")
+    assert(invalid ~= "", "a deferred thread constructor accepted a non-function type")
+end
+
 function M.functionProtocolRenderingUsesTheFinalGrammar()
     local types = require("nupp.compiler.types")
     local arguments = {

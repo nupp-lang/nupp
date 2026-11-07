@@ -59,6 +59,20 @@ end
 
 local M = {}
 
+function M.roundTripsDeferredFunctionThreadTypes()
+    local body = T.typevar("F", "interface-image:thread-body")
+    local deferred = roundTrip(T.threadOf(body))
+    testAssert.eq(deferred.op, "threadOf", "deferred operation")
+    testAssert.eq(deferred.subject.identity, body.identity, "function binder")
+    local signature = T.func({T.number}, {T.string})
+    local reduced, problem = generics.reduce(deferred, {[deferred.subject] = signature})
+    testAssert.eq(problem, nil, "concrete function reduction")
+    testAssert.eq(reduced, T.threadOf(signature), "the imported protocol is interned identically")
+    testAssert.eq(roundTrip(reduced), reduced, "concrete protocol round trip")
+    local _, invalid = generics.reduce(deferred, {[deferred.subject] = T.number})
+    assert(invalid and invalid:find("function type", 1, true), "an imported constructor validates its argument")
+end
+
 function M.copyabilityIsPreservedAcrossInterfaceImages()
     local copyable = indexed("Copyable", "/project/sample.nupp", "interface")
     copyable.intrinsicCopyable = true

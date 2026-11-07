@@ -1475,8 +1475,29 @@ export function install(c: state.Checker): nil
                 return T.typeObject(T.unwrapOwnership(c.resolveType(node.typeArgs[1])))
             end
             if name == "thread" and node.typeArgs then
+                if #node.typeArgs == 1 then
+                    local argument = node.typeArgs[1]
+                    if argument.kind == "tpack" and #argument.types == 1 and not argument.tailKind then
+                        argument = argument.types[1]
+                    end
+                    local body = c.resolveType(argument)
+                    if body.tag ~= "func"
+                        and body.tag ~= "typevar"
+                        and body.tag ~= "neutral"
+                        and body.tag ~= "projection"
+                    then
+                        c.diag("NUPP2121", node, "thread<F> needs a function type, got " .. T.tostring(body))
+                        return T.any
+                    end
+                    return T.threadOf(body)
+                end
                 if #node.typeArgs ~= 4 then
-                    c.diag("NUPP2121", node, "thread protocol needs start, resume, yield, and return packs")
+                    c.diag(
+                        "NUPP2121",
+                        node,
+                        "thread needs one function type or four start, resume, yield, and return packs"
+                    )
+                    return T.any
                 end
                 return T.protocolThread(
                     c.resolvePack(node.typeArgs[1]),
