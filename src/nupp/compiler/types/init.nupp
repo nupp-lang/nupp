@@ -488,9 +488,9 @@ record types.Func
     --- Every 1-based parameter a multi-source borrowed result depends on.
     borrowsParams: {integer}?
 
-    --- The 1-based result slot the borrow relation lands on, 1 when absent. A generic
-    --- for wants its state in the second slot, so the relation states the position it
-    --- is about the way an owning or preserving result already does.
+    --- The 1-based result slot the borrow relation lands on, 1 when absent. Zero
+    --- applies the same source set to every fixed result. Such a signature has no
+    --- variadic result tail.
     borrowsResult: integer?
 
     --- For each fixed result slot, the 1-based parameter whose complete capability

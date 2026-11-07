@@ -126,7 +126,11 @@ local SCRIPT = [[
             list.classList.toggle("nuppdoc-outline-columns", fits);
         }
     };
-    outlinePanel?.addEventListener("toggle", () => requestAnimationFrame(measureOutlineColumns), true);
+    const scheduleOutlineColumns = () => requestAnimationFrame(measureOutlineColumns);
+    // A type's members are inside its own collapsed details element. Listen on each
+    // one directly, so opening a nested type also measures the newly visible list.
+    outlinePanel?.querySelectorAll("details").forEach((section) =>
+        section.addEventListener("toggle", scheduleOutlineColumns));
     addEventListener("resize", measureOutlineColumns);
     document.fonts?.ready.then(measureOutlineColumns);
     const closeMobileOutline = () => {
@@ -138,6 +142,7 @@ local SCRIPT = [[
         closeMobileNav();
         document.body.classList.toggle("is-mobile-outline-open", open);
         mobileOutlineToggle.setAttribute("aria-expanded", String(open));
+        scheduleOutlineColumns();
     });
     document.querySelector("[data-mobile-outline-close]")
         ?.addEventListener("click", closeMobileOutline);

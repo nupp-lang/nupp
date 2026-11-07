@@ -347,8 +347,23 @@ local function entries(borrows value: table): (function(table, integer): (intege
 end
 ```
 
-A callable records one borrow relation. Two results each declaring their own
-source is refused with NUPP2621, and every other result stays owned as it was.
+A callable records one source set. Multiple results may each declare that same
+set when every result is fixed and carries the clause:
+
+```nupp
+local function pair(borrows value: table): (table borrows (value), table borrows (value))
+    return value, value
+end
+
+local owner = {}
+local left, right = pair(owner)
+print(left, right)
+```
+
+Each result keeps the source alive independently. An owning result also keeps
+its cleanup obligation. Different source sets, a mix of borrowed and ordinary
+results with multiple clauses, or a variadic result tail are refused with
+NUPP2621.
 
 ### Pinning
 

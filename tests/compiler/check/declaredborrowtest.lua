@@ -305,4 +305,47 @@ export = R
     testAssert.eq(codes, "")
 end
 
+function M.aDefinitionKeepsEverySharedDeclaredBorrow()
+    for _, result in ipairs({"(R, R)", "(R borrows(self), R borrows(self))"}) do
+        local codes, exports = checked(
+            [[
+export record R
+    value: integer
+    pair: function(borrows self: R): (R borrows(self), R borrows(self))
+end
+function R:pair(): ]]
+            .. result
+            .. [[
+    return self, self
+end
+]]
+        )
+        testAssert.eq(codes, "")
+        local signature = exports.types.R.byname.pair
+        testAssert.eq(signature.borrowsResult, 0)
+        testAssert.eq(signature.borrowsSelf, true)
+        testAssert.eq(signature.rets[1].tag, "borrowed")
+        testAssert.eq(signature.rets[2].tag, "borrowed")
+    end
+end
+
+function M.everySharedDeclaredResultMustRetainItsSource()
+    for _, returned in ipairs({"other, self", "self, other"}) do
+        local codes = checked(
+            [[
+export record R
+    value: integer
+    pair: function(borrows self: R, borrows other: R): (R borrows(self), R borrows(self))
+end
+function R:pair(borrows other: R): (R, R)
+    return ]]
+            .. returned
+            .. [[
+end
+]]
+        )
+        assert(codes:find("NUPP2619", 1, true), codes)
+    end
+end
+
 return M
