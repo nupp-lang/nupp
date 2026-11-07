@@ -234,6 +234,82 @@ function M.finalizesAndValidatesTypePackHandles()
     testAssert.eq(value.tail.type, T.any, "pack homogeneous tail survives validation")
 end
 
+function M.preservesConsumingParameterPackModes()
+    local value = evaluateTypeBlueprint([[return types.pack({types.integer}, nil, {"takes"})]])
+    testAssert.eq(value.modes[1], "takes")
+end
+
+function M.forwardsAnInherentOwnerThroughATypeFunction()
+    local value, closed = run(
+        "comptimetest.forwardsAnInherentOwnerThroughATypeFunction",
+        [[
+local closed = 0
+local record Resource is own.Closeable
+    value: integer
+    function close(takes self): nil
+        closed = closed + 1
+    end
+end
+@comptime local function Identity(T: type): type return T end
+local function forward(takes value: Resource): Identity(Resource)
+    return value
+end
+local value = 0
+do
+    local resource = forward(Resource(value = 7))
+    value = resource.value
+end
+return value, closed
+]]
+    )
+    testAssert.eq(value, 7)
+    testAssert.eq(closed, 1)
+end
+
+function M.contextualLiteralsKeepComputedArgumentOwnershipModes()
+    local codes = errorsOf(
+        [[
+local record Resource is own.Closeable
+    value: integer
+    function close(takes self): nil end
+end
+@comptime local function Arguments(F: type): typepack return types.parameters(F) end
+local record Queue
+    submit: function<F>(F, ...: unpackof Arguments(F)): nil
+end
+local queue: Queue = nil as any
+local resource = Resource(value = 7)
+queue.submit(function(takes value: Resource): nil
+    local owned = value
+end, resource)
+print(resource.value)
+]]
+    )
+    assert(table.concat(codes, " "):find("NUPP2601", 1, true), table.concat(codes, " "))
+end
+
+function M.aTakingChildCannotKeepAnOwnerBorrowedFromAnotherScope()
+    local codes = errorsOf(
+        [[
+local record Resource is own.Closeable
+    function close(takes self): nil end
+end
+local function resource(borrows scope: coroutine.Scope): affine(Resource) borrows(scope)
+    error("contract fixture")
+end
+local outer = coroutine.scope()
+do
+    local inner = coroutine.scope()
+    local owned = resource(inner)
+    outer:spawn(function(): nil takes(owned)
+        local retained = owned
+    end)
+end
+]]
+    )
+    assert(table.concat(codes, " "):find("NUPP2621", 1, true), table.concat(codes, " "))
+end
+
 function M.preservesStructuralFieldAndIndexerCapabilities()
     local value = evaluateTypeBlueprint(
         [[
@@ -1115,12 +1191,15 @@ end
     testAssert.eq(codes[1], "NUPP2411", "a shadowed table is not the registered callable")
     assert(diags[1].msg:find("a table is not callable", 1, true), diags[1].msg)
     testAssert.eq(
-        run("comptimetest.callableAssertionCapabilitiesDoNotAdmitOtherTables", [[
+        run(
+            "comptimetest.callableAssertionCapabilitiesDoNotAdmitOtherTables",
+            [[
 return comptime do
     local assert = math.abs
     return assert(-4)
 end
-]]),
+]]
+        ),
         4,
         "a shadowed function retains its ordinary meaning"
     )

@@ -68,6 +68,23 @@ expr.EXPANDS = EXPANDS
 ---
 --- @param c the run's state
 function expr.install(c: state.Checker): nil
+    local function retainTakenCaptureRoots(node: any, body: any): nil
+        local facts = c.own.capabilityFacts(node)
+        local roots, seen = {}, {}
+        for _, root in ipairs(facts.roots or {}) do
+            roots[#roots + 1], seen[root] = root, true
+        end
+        for _, capture in ipairs(body and body.takenCaptures or {}) do
+            for _, root in ipairs(capture.facts and capture.facts.roots or {}) do
+                if not seen[root] then
+                    roots[#roots + 1], seen[root] = root, true
+                end
+            end
+        end
+        if #roots > 0 then
+            facts.roots = roots
+        end
+    end
 
     -- Expected types only flow into the expression being checked, never into a nested
     -- short function it happens to contain.
@@ -1748,6 +1765,7 @@ function expr.install(c: state.Checker): nil
                     inferred = T.borrowed(inferred)
                 end
             end
+            retainTakenCaptureRoots(node, body)
             return inferred
         elseif kind == "shortfn" then
             local function inferShort(): Type
@@ -2429,6 +2447,7 @@ function expr.install(c: state.Checker): nil
                     inferred = T.borrowed(inferred)
                 end
             end
+            retainTakenCaptureRoots(node, node.body)
             return finish(inferred)
         end
 

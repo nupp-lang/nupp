@@ -2866,8 +2866,13 @@ export function install(c: state.Checker): Ops
                 widenLiteralBindings(genericMap, fresh)
                 local paramEval = generics.evaluatePack(substPack(declaredParamPack, genericMap), c.reductionControl)
                 local retEval = generics.evaluatePack(substPack(declaredRetPack, genericMap), c.reductionControl)
-                if not paramEval.error and not retEval.error then
-                    paramPack, retPack = paramEval.pack, retEval.pack
+                local finalParams, paramError = generics.expandComputedPack(paramEval.pack, c.reductionControl)
+                local finalResults, retError = generics.expandComputedPack(retEval.pack, c.reductionControl)
+                local problem = paramEval.error or retEval.error or paramError or retError
+                if problem then
+                    c.diag("NUPP2006", node, problem, nil, callDetails(node))
+                else
+                    paramPack, retPack = finalParams, finalResults
                     params, rets = paramPack.head, retPack.head
                     paramModes = paramPack.modes
                     if paramPack.tail and paramPack.tail.kind == "homogeneous" then
@@ -2984,6 +2989,24 @@ export function install(c: state.Checker): Ops
                 elseif takenKind == "affine" or takenKind == "pinned" then
                     local movedNode = cst.isToken(argNodes[j]) and node or argNodes[j]
                     local consumedEntry = c.ownershipEntry(movedNode)
+                    local payload = ats[j]
+                    while payload.tag == "affine"
+                        or payload.tag == "borrowed"
+                        or payload.tag == "pinned"
+                        or payload.tag == "const" do
+                        payload = payload.inner
+                    end
+                    if (node as any).bodyScopeRoot and payload.tag == "func" then
+                        for _, root in ipairs(c.own.rootsOf(movedNode)) do
+                            if root ~= (node as any).bodyScopeRoot then
+                                c.diag(
+                                    "NUPP2621",
+                                    movedNode,
+                                    "a child cannot retain a capture borrowed from another scope"
+                                )
+                            end
+                        end
+                    end
                     consumedExclusive = consumedExclusive
                         or c.own.capabilityFacts(movedNode, nil, false).exclusive
                         or consumedEntry and c.own.capabilityFacts(consumedEntry, nil, false).exclusive
