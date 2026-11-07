@@ -1,6 +1,5 @@
--- A benchmark-protocol fixture with authored measurements: no workload is timed.
-local json = require("serde.json")
-
+-- Authored protocol records, with no timed workload or serializer dependency.
+-- These fixtures test the runner's wire protocol and process orchestration.
 local function option(name)
     for index = 1, #io.cli.args do
         if io.cli.args[index] == name then
@@ -12,25 +11,17 @@ end
 local listing = option("--cases-out")
 local file = assert(io.open(listing or option("--out"), "wb"))
 if listing then
-    file:write(json.encodevalue({name = "fixed"}), "\n", json.encodevalue({name = "trend"}), "\n")
+    file:write('{"name":"fixed"}\n{"name":"trend"}\n')
 else
     local name = option("--case")
+    assert(name == "fixed" or name == "trend", "unknown authored benchmark")
     file:write(
-        json.encodevalue({
-            cases = {
-                {
-                    name = name,
-                    kind = "case",
-                    n = 1,
-                    rounds = 3,
-                    medianMs = 0.25,
-                    samplesMs = {0.25, 0.25, 0.25},
-                    trend = name == "trend" and "trend" or "no-trend-detected",
-                    trendDrift = name == "trend" and 0.5 or 0,
-                    abortSites = {},
-                }
-            },
-        })
+        (
+            [[{"cases":[{
+"name":"%s","kind":"case","n":1,"rounds":3,"medianMs":0.25,
+"samplesMs":[0.25,0.25,0.25],"trend":"%s","trendDrift":%s,"abortSites":[]
+}]}]]
+        ):format(name, name == "trend" and "trend" or "no-trend-detected", name == "trend" and "0.5" or "0")
     )
 end
 file:close()

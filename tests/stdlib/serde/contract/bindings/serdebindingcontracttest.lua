@@ -66,13 +66,6 @@ function M.declarationMappingsWhitelistRenameAndValidateConstruction()
     assert(status == 0, output)
 end
 
-function M.debugKeepsItsOwnPolicyAndReleasesLazySchemaExtensions()
-    local status, output = call({"run", "debug.nupp"})
-    assert(status == 0, output)
-    status, output = call({"run", "debug_scope.lua"})
-    assert(status == 0, output)
-end
-
 function M.scopedReadersRejectRetentionAndIncorrectConsumption()
     local status, output = call({"run", "reader_scope.lua"})
     assert(status == 0, output)

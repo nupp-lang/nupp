@@ -1,0 +1,8 @@
+const jobs = require("jobs")
+const tasks = require("coroutine")
+const run = require("experiment")
+do
+    local scope = tasks.scope()
+    assert(scope:work(0, jobs.identity):await() == 0)
+end
+run(jobs, tasks)

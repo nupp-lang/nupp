@@ -842,7 +842,7 @@ function M.selfParseClean()
         "src/nupp/compiler/syntax/lexer.nupp",
         "src/nupp/compiler/syntax/cst.nupp",
         "src/nupp/compiler/syntax/parser.nupp",
-        "tests/compiler/syntax/lexertest.lua",
+        "tests/compiler/syntax/lexer/lexertest.lua",
         "tests/compiler/syntax/parsertest.lua",
         "tests/run.lua",
     }) do

@@ -1,0 +1,9 @@
+module jobs
+
+export function identity(value: integer): integer
+    return value
+end
+
+export function fail(): never
+    error("worker failure", 0)
+end

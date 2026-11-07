@@ -3588,6 +3588,16 @@ function types.neutral(
     )
 end
 
+--- Derives a coroutine protocol from its body's function type.
+function types.threadOf(body: types.Type): types.Type
+    if body.tag ~= "func" then
+        return types.neutral("threadOf", body)
+    end
+    local unknown = types.pack({}, {kind = "unknown", type = types.any})
+
+    return types.protocolThread(body.paramPack, body.resumePack or unknown, body.yieldPack or unknown, body.retPack)
+end
+
 --- Interns a deferred comptime type-function application. The helper descriptor is
 --- transport data, not part of identity; its stable program identity and canonical
 --- arguments are. Closed calls never need this term.
@@ -4063,6 +4073,8 @@ function types.tostring(t: types.Type): string
             local helper = t.comptimeHelper
             local name = helper and helper.name and helper.name.text or "<type function>"
             return name .. "(" .. table.concat(arguments, ", ") .. ")"
+        elseif t.op == "threadOf" then
+            return "thread<" .. types.tostring(t.subject as types.Type) .. ">"
         elseif t.op == "singleton" then
             return types.tostringConst(t.constTerm as types.ConstTerm)
         elseif t.op == "keyof" then

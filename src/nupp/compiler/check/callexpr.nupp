@@ -1707,21 +1707,20 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
 
             if intrinsic == "create" then
                 local bodyType = T.packAt(actual, 1)
-                if bodyType and bodyType.tag == "func" then
-                    -- create(f, ...) binds the start arguments: they are checked
-                    -- against f's parameters now, and every resume, the first
-                    -- included, passes resume values.
-                    local bound = #actual.head > 1 or actual.tail ~= nil
-                    if bound then
+                if bodyType and (bodyType.tag == "func" or bodyType.tag == "typevar") then
+                    first = T.threadOf(bodyType)
+                    -- An actual bound start pack leaves every resume on the resume
+                    -- pack.
+                    if bodyType.tag == "func" and (#actual.head > 1 or actual.tail ~= nil) then
                         checkProtocol(bodyType.paramPack, 1)
+                        local resumed = bodyType.resumePack or unknownPack()
+                        first = T.protocolThread(
+                            resumed,
+                            resumed,
+                            bodyType.yieldPack or unknownPack(),
+                            bodyType.retPack
+                        )
                     end
-                    local resumed = bodyType.resumePack or unknownPack()
-                    first = T.protocolThread(
-                        bound and resumed or bodyType.paramPack,
-                        resumed,
-                        bodyType.yieldPack or unknownPack(),
-                        bodyType.retPack
-                    )
                     pack, rets = T.pack({first}), {first}
                 end
             elseif intrinsic == "resume" then

@@ -16,28 +16,24 @@ function M.open(root)
 
     local project = {}
 
+    local function absolute(path)
+        if path:match("^/") or path:match("^%a:[/\\]") then
+            return path
+        end
+        return root .. "/" .. path
+    end
+
     function project.check(files)
         local diagnostics, ok = {}, true
         for _, file in ipairs(files) do
-            local result = compile.check(root .. "/" .. file, environment(), {}, diagnostics)
+            local result = compile.check(absolute(file), environment(), {}, diagnostics)
             ok = result ~= nil and ok
         end
-        local reported = {}
-        for _, diagnostic in ipairs(diagnostics) do
-            reported[
-                #reported + 1
-            ] = {
-                file = diagnostic.filename or diagnostic.file or diagnostic.path,
-                code = diagnostic.code,
-                severity = diagnostic.severity or "error",
-                message = diagnostic.msg,
-            }
-        end
 
-        return ok, reported
+        return ok, require("nupp.tools.cli.report").diagnosticValues(diagnostics)
     end
 
-    function project.run(file)
+    function project.run(file, capturePrint)
         local loadImage = assert(rawget(_G, "__nupp_load_image"), "contract fixtures run on the VM")
 
         local function compiled(path, e, name, source)
@@ -62,8 +58,18 @@ function M.open(root)
             end,
             loadCompiled
         )
+        local printed, originalPrint = {}, print
+        if capturePrint then
+            print = function(...)
+                local values = {}
+                for index = 1, select("#", ...) do
+                    values[index] = tostring(select(index, ...))
+                end
+                printed[#printed + 1] = table.concat(values, "\t") .. "\n"
+            end
+        end
         local ok, problem = pcall(function()
-            local path = root .. "/" .. file
+            local path = absolute(file)
             local chunk
             if file:match("%.nupp$") then
                 chunk = assert(loadCompiled(assert(compiled(path, environment()))))
@@ -72,6 +78,7 @@ function M.open(root)
             end
             chunk()
         end)
+        print = originalPrint
         remove()
         -- These are fixture modules, never the shared compiler or stdlib.
         for name in pairs(package.loaded) do
@@ -80,6 +87,8 @@ function M.open(root)
             end
         end
         assert(ok, problem)
+
+        return table.concat(printed)
     end
 
     return project

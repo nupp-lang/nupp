@@ -90,6 +90,9 @@ local rules = {
     {"^evals/", {"evals"}},
 
     {"^tests/tools/bench/benchrunnertest%.lua$", {"tests", "measurement"}},
+    {"^tests/tools/bench/process/", {"tests", "measurement"}},
+    {"^tests/helpers/benchprocess%.lua$", {"tests", "measurement"}},
+    {"^tests/fixtures/bench_", {"tests", "measurement"}},
     {"^tests/stdlib/serde/json/jsonfuseddifferentialtest%.lua$", {"tests", "aot"}},
     {"^tests/integration/simd/", {"tests", "aot"}},
     {"^tests/integration/acceptance/", {"tests"}},

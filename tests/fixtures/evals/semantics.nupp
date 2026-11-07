@@ -1,0 +1,98 @@
+const assert2 = require("assert")
+
+local harness = require("harness")
+local tier1 = require("tier1eval")
+local batch = require("batcheval")
+local tier2 = require("tier2eval")
+local json = require("serde.json")
+
+local function equal(got: any, expected: any, label: string): nil
+    if got ~= expected then
+        error(("%s: expected %s, got %s"):format(label, tostring(expected), tostring(got)), 2)
+    end
+end
+
+local events = {
+    {
+        type = "assistant",
+        message = {
+            content = {
+                {type = "tool_use", name = "Read", input = {},},
+                {
+                    type = "tool_use",
+                    name = "Bash",
+                    input = {command = "nupp check; nupp fmt sample.nupp; which nupp",},
+                },
+            },
+        },
+    },
+}
+local agent = harness.agentRecord(
+    {num_turns = 2, total_cost_usd = 0.125, usage = {output_tokens = 40}, timedOut = false,},
+    events,
+    "test-model"
+)
+equal(agent.toolCalls.Read, 1, "Read count")
+equal(agent.toolCalls.Bash, 1, "Bash count")
+equal(agent.toolCallTotal, 2, "total tool count")
+equal(agent.nuppInvocations, 2, "compiler invocation count")
+equal(agent.outputTokens, 40, "output token count")
+equal(harness.spent(agent), "$0.1250", "formatted cost")
+
+local entry = {code = "NUPP2001", wrong = "local answer: string = 1\n",}
+local before = {{code = "NUPP2001", severity = "error",},}
+local clean = tier1.grade(before, {}, entry, "local answer: string = 'one'\n")
+assert2(clean.passed, "a clean alternative repair passes")
+assert2(clean.targetCodeGone, "the target code is gone")
+equal(clean.errorsRemaining, 0, "no errors remain")
+local broken = tier1.grade(before, {{code = "NUPP9999", severity = "error",},}, entry, "")
+assert2(not broken.passed, "another compiler error still fails")
+assert2(broken.suspiciousShrink, "a gutted source is marked for review")
+
+local summary = batch.summarize({
+    {
+        invalid = json.NULL,
+        task = {code = "A", hadFix = true,},
+        grade = {passed = true, suspiciousShrink = false,},
+        agent = {costUsd = 1, toolCallTotal = 3, nuppInvocations = 1,},
+    },
+    {
+        invalid = json.NULL,
+        task = {code = "B", hadFix = false, summary = "broken",},
+        grade = {passed = false, suspiciousShrink = false, diagnosticsAfter = {"NUPP2001"},},
+        agent = {costUsd = 3, toolCallTotal = 7, nuppInvocations = 3,},
+    },
+    {invalid = "could not pose", task = {code = "C",}, grade = {passed = false,}, agent = {},},
+})
+equal(summary.overall.tasks, 2, "invalid task excluded from denominator")
+equal(summary.overall.passed, 1, "one valid task passed")
+equal(summary.overall.rate, 0.5, "overall pass rate")
+equal(summary.cost.median, 2, "even-population median")
+equal(summary.toolCalls.total, 10, "tool total")
+equal(#summary.invalid, 1, "invalid task retained")
+equal(#summary.failed, 1, "failed task retained")
+
+local suites, rest = tier2.splitPaths({
+    "src/nupp/compiler/check.nupp",
+    "tests/compiler/check/checktest.lua",
+    "docs/reference.md",
+    "tests/not-a-suite.txt",
+})
+equal(#suites, 1, "one suite selected")
+equal(suites[1], "tests/compiler/check/checktest.lua", "suite path")
+equal(#rest, 3, "non-suites remain at the parent")
+local nested, excluded = tier2.splitPaths({
+    "tests/stdlib/io/streamadapterstest.nupp",
+    "tests/compiler/check/fixtures/sampletest.lua",
+    "tests/tools/fmt/corpus/sampletest.nupp",
+})
+equal(#nested, 1, "nested Nupp suite selected")
+equal(#excluded, 2, "fixture suites excluded")
+local nestedNames = tier2.suiteNames({"tests/compiler/check/checktest.lua", nested[1]})
+equal(nestedNames[1], "checktest", "nested Lua suite name")
+equal(nestedNames[2], "streamadapterstest", "nested Nupp suite name")
+local prompt = tier2.prompt({"checktest", "projecttest"})
+assert2(prompt:find("checktest, projecttest", 1, true), "prompt names all suites")
+assert2(prompt:find("./bin/nupp test checktest", 1, true), "prompt names the first command")
+
+print("evaluation harness self-test passed")

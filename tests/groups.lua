@@ -13,6 +13,10 @@
 -- run, because "the step passed" and "the step ran no test" look identical in a
 -- log and only one of them is a result.
 local groups = {
+    project = {"project*test"},
+    derive = {"derive*test"},
+    template = {"template*test"},
+    bundle = {"bundle*test"},
     -- Reaches Windows-specific process, path and loader behaviour. Run before
     -- the broad suite on that platform so a loader failure names the last case
     -- instead of arriving twenty minutes later as unrun shards.
@@ -55,12 +59,43 @@ local groups = {
     ["fmt"] = {"fmt*test"},
 
     -- Browser delivery: the worker seam and generated browser templates.
-    ["browser"] = {"portableiocontractstest", "templatetest",},
+    [
+        "browser"
+    ] = {
+        "portableiocontractstest",
+        "templategametest",
+        "templatelibtest",
+        "templatemanifesttest",
+        "templatepathtest",
+        "templateremotetest",
+        "templateresolutiontest",
+        "templateresourcetest",
+        "templatesandboxtest",
+        "templatesubstitutiontest",
+        "templatetest",
+        "templatetreetest",
+        "templatevariabletest",
+    },
 
     ["gpu"] = {"gputest"},
 
     -- Packaging and release delivery.
-    ["packaging"] = {"bundletest", "compilerpacktest", "targetmanifesttest",},
+    [
+        "packaging"
+    ] = {
+        "bundlebuffertest",
+        "bundlechanneltest",
+        "bundlededicatedtest",
+        "bundleforktest",
+        "bundlelifetimetest",
+        "bundleprovidertest",
+        "bundleschedulertest",
+        "bundlescopetest",
+        "bundlesignaturetest",
+        "bundletest",
+        "compilerpacktest",
+        "targetmanifesttest",
+    },
 
     -- The benchmark runner's process boundary. Every case starts children and the
     -- replicated one starts twelve, so the suite costs about three minutes where the
@@ -71,7 +106,19 @@ local groups = {
     -- account, the statistics, the fork merge rules -- stays in `benchtest` and runs on
     -- every change, so what this gates is the cost of starting processes rather than
     -- the cover for anything a compiler change can reach.
-    ["measurement"] = {"benchrunnertest"},
+    [
+        "measurement"
+    ] = {
+        "benchgpuprocesstest",
+        "benchrecordsprocesstest",
+        "benchschemaprocesstest",
+        "benchprotocolprocesstest",
+        "benchsuiteprocesstest",
+        "benchhistoryprocesstest",
+        "benchpilotprocesstest",
+        "benchrunnertest",
+        "benchselectionprocesstest"
+    },
 
     -- The Nupp-authored interpreter core: the lowering, the glue and the object
     -- it links. Both build Rust; the second runs the runtime crate's tests.
@@ -230,6 +277,164 @@ for name in (
     scopes[name] = "delivery"
 end
 scopes.advancestage0test = "delivery"
+
+-- Independent packages retain the original suite obligations.
+scopes.derivemanifesttest = "component"
+scopes.derivetecstest = "component"
+
+-- Independent packages retain the original suite obligations.
+scopes.derivediagnostictest = "component"
+scopes.deriveidentitytest = "component"
+scopes.derivelimittest = "component"
+scopes.deriveemissiontest = "component"
+
+-- Independent packages retain the original suite obligations.
+scopes.deriveinternalprovidertest = "integration"
+scopes.deriveexportprovidertest = "component"
+scopes.derivepublicprovidertest = "component"
+scopes.deriveexternalprovidertest = "integration"
+
+-- Independent packages retain the original suite obligations.
+scopes.projecthashtest = "component"
+scopes.projectaotscopetest = "integration"
+scopes.projectmoduletest = "component"
+scopes.projectpathtest = "integration"
+scopes.projectprocesstest = "integration"
+scopes.projectmaterializationtest = "integration"
+scopes.projectmanifesttest = "component"
+scopes.projectcrosstest = "integration"
+scopes.projectnativetest = "integration"
+scopes.projectchecktest = "integration"
+scopes.projectinvalidationtest = "integration"
+scopes.projectctest = "integration"
+scopes.projectbinarytest = "integration"
+scopes.projectfixpointtest = "integration"
+scopes.projectaottest = "integration"
+scopes.projectclinktest = "integration"
+scopes.projectcargotest = "integration"
+scopes.projectgeneratortest = "integration"
+scopes.projectfilesystemtest = "integration"
+scopes.projectrocktest = "integration"
+scopes.projecttestcommandtest = "integration"
+scopes.projecttasktest = "integration"
+scopes.projectsyntaxtest = "component"
+
+scopes.deriveprovidertest = "component"
+
+-- Independent packages retain the original suite obligations.
+scopes.benchgpuprocesstest = "integration"
+scopes.benchrecordsprocesstest = "integration"
+scopes.benchschemaprocesstest = "integration"
+scopes.benchprotocolprocesstest = "integration"
+scopes.benchsuiteprocesstest = "integration"
+scopes.benchhistoryprocesstest = "integration"
+scopes.benchpilotprocesstest = "integration"
+scopes.benchselectionprocesstest = "integration"
+
+-- Independent packages retain the original suite obligations.
+scopes.bundlefactorytest = "delivery"
+scopes.bundlecomponenttest = "delivery"
+scopes.bundlebootstraptest = "delivery"
+scopes.bundleprovidertest = "delivery"
+scopes.bundlesignaturetest = "delivery"
+scopes.bundlepayloadtest = "delivery"
+scopes.bundleworkertest = "delivery"
+scopes.bundleschedulertest = "delivery"
+scopes.bundlefailuretest = "delivery"
+scopes.bundlescopetest = "delivery"
+scopes.bundleregiontest = "delivery"
+scopes.bundlebuffertest = "delivery"
+scopes.bundleforktest = "delivery"
+scopes.bundlelifetimetest = "delivery"
+scopes.bundlechanneltest = "delivery"
+scopes.bundlededicatedtest = "delivery"
+
+-- Independent packages retain the original suite obligations.
+scopes.templateresolutiontest = "component"
+scopes.templatesubstitutiontest = "component"
+scopes.templatemanifesttest = "component"
+scopes.templatevariabletest = "component"
+scopes.templatetreetest = "integration"
+scopes.templatesandboxtest = "integration"
+scopes.templatepathtest = "integration"
+scopes.templateresourcetest = "integration"
+scopes.templateremotetest = "integration"
+scopes.templatelibtest = "integration"
+scopes.templatebrowsertest = "integration"
+scopes.templatesimdtest = "integration"
+scopes.templatelovetest = "integration"
+scopes.templategametest = "integration"
+
+-- Independent packages retain the original suite obligations.
+scopes.fmtlayouttest = "component"
+scopes.fmttypetest = "component"
+scopes.fmtselflexertest = "component"
+scopes.fmtselfcsttest = "component"
+scopes.fmtselfparsertest = "component"
+scopes.fmtselfdisplaywidthtest = "component"
+scopes.fmtselfformattertest = "component"
+scopes.fmtselfmaintest = "component"
+
+-- Independent packages retain the original suite obligations.
+scopes.fmtoptionclitest = "integration"
+scopes.fmtcacheclitest = "integration"
+
+-- Independent packages retain the original suite obligations.
+scopes.fmttree2test = "integration"
+scopes.fmttree3test = "integration"
+scopes.fmttree4test = "integration"
+
+-- Independent packages retain the original suite obligations.
+scopes.buildprogressspecializationtest = "integration"
+scopes.buildprogressclitest = "integration"
+
+scopes.buildprogresstest = "unit"
+
+scopes.evalsemanticstest = "component"
+
+scopes.evalstest = "integration"
+
+scopes.evalcatalogtest = "integration"
+
+scopes.evalfilesystemtest = "integration"
+
+scopes.projectprocessbinarytest = "integration"
+
+scopes.projectbinarytest = "integration"
+
+scopes.projectmaterializationtest = "integration"
+
+scopes.projectlayoutcachetest = "integration"
+
+scopes.projectaotlinktest = "integration"
+
+scopes.projectaottest = "integration"
+
+scopes.projectcrosstest = "integration"
+
+scopes.projectcrossrefusaltest = "integration"
+
+scopes.contractprojecttest = "component"
+
+scopes.projectbundlelayouttest = "integration"
+
+scopes.projectprocessbinarytest = "integration"
+
+scopes.projectbinaryfilesystemtest = "integration"
+
+scopes.projectbinarytest = "integration"
+
+scopes.projectlayoutcachetest = "integration"
+
+scopes.projectexportedlayouttest = "integration"
+
+scopes.projectcrosstest = "integration"
+
+scopes.projectcrosscontracttest = "integration"
+
+scopes.projectcrossaggregatetest = "integration"
+
+scopes.serdedebugcontracttest = "integration"
 
 return groups, {
     scopes = scopes,

@@ -2756,6 +2756,58 @@ end
 -- new suite reaches one. Shell calls instead choose reusable process workers:
 -- several suites share each worker, and a failed case does not end its queue.
 local PROCESS_ISOLATED = {
+    -- Debug type witnesses and schema extensions need a fresh runtime context.
+    serdedebugcontracttest = true,
+    contractprojecttest = true,
+    evalfilesystemtest = true,
+    evalcatalogtest = true,
+    evalsemanticstest = true,
+    templateresolutiontest = true,
+    templatesubstitutiontest = true,
+    templatemanifesttest = true,
+    templatevariabletest = true,
+    templatetreetest = true,
+    templatesandboxtest = true,
+    templatepathtest = true,
+    templateresourcetest = true,
+    templateremotetest = true,
+    templatetest = true,
+    templatelibtest = true,
+    templatebrowsertest = true,
+    templatesimdtest = true,
+    templatelovetest = true,
+    templategametest = true,
+
+    bundlefactorytest = true,
+    bundlecomponenttest = true,
+    bundlebootstraptest = true,
+    bundleprovidertest = true,
+    bundlesignaturetest = true,
+    bundlepayloadtest = true,
+    bundleworkertest = true,
+    bundleschedulertest = true,
+    bundlefailuretest = true,
+    bundlescopetest = true,
+    bundleregiontest = true,
+    bundlebuffertest = true,
+    bundleforktest = true,
+    bundlelifetimetest = true,
+    bundlechanneltest = true,
+    bundlededicatedtest = true,
+
+    deriveinternalprovidertest = true,
+    deriveexportprovidertest = true,
+    derivepublicprovidertest = true,
+    deriveexternalprovidertest = true,
+
+    derivediagnostictest = true,
+    deriveidentitytest = true,
+    derivelimittest = true,
+    deriveemissiontest = true,
+
+    derivemanifesttest = true,
+    derivetecstest = true,
+
     -- These exercise worker hosting or runner descriptor behavior even when the
     -- operation is built as a source fixture rather than called by the Lua test.
     bundletest = true,
@@ -2808,7 +2860,69 @@ local processCalls = {
 }
 
 local shellCalls = {"os.execute", "io.popen",}
-local SHELLING = {serdecontracttest = true, serdecapabilitycontracttest = true}
+local SHELLING = {
+    projectcrossaggregatetest = true,
+    projectcrosscontracttest = true,
+    projectexportedlayouttest = true,
+    projectbinaryfilesystemtest = true,
+    projectbundlelayouttest = true,
+    projectcrossrefusaltest = true,
+    projectaotlinktest = true,
+    projectlayoutcachetest = true,
+    projectprocessbinarytest = true,
+    buildprogresstest = true,
+    buildprogressspecializationtest = true,
+    buildprogressclitest = true,
+
+    fmttreetest = true,
+    fmttree2test = true,
+    fmttree3test = true,
+    fmttree4test = true,
+
+    fmtclitest = true,
+    fmtoptionclitest = true,
+    fmtcacheclitest = true,
+
+    benchgpuprocesstest = true,
+    benchrecordsprocesstest = true,
+    benchschemaprocesstest = true,
+    benchprotocolprocesstest = true,
+    benchsuiteprocesstest = true,
+    benchhistoryprocesstest = true,
+    benchrunnertest = true,
+    benchpilotprocesstest = true,
+    benchselectionprocesstest = true,
+
+    projecthashtest = true,
+    projectaotscopetest = true,
+    projectmoduletest = true,
+    projectpathtest = true,
+    projectprocesstest = true,
+    projectmaterializationtest = true,
+    projectmanifesttest = true,
+    projectcrosstest = true,
+    projectnativetest = true,
+    projecttest = true,
+    projectchecktest = true,
+    projectinvalidationtest = true,
+    projectctest = true,
+    projectbinarytest = true,
+    projectfixpointtest = true,
+    projectaottest = true,
+    projectclinktest = true,
+    projectcargotest = true,
+    projectgeneratortest = true,
+    projectfilesystemtest = true,
+    projectrocktest = true,
+    projecttestcommandtest = true,
+    projecttasktest = true,
+    projectsyntaxtest = true,
+
+    serdecontracttest = true,
+    serdecapabilitycontracttest = true,
+    -- Shelling happens in the helper so source inspection would otherwise rely
+    -- on an explanatory comment retaining the implementation's exact spelling.
+}
 local sourceBySuite = {}
 
 local function suiteSource(suiteInfo)

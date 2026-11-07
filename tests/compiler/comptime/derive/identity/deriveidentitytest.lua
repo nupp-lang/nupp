@@ -1,0 +1,114 @@
+local fixture = require("helpers.derive")
+local testAssert = fixture.testAssert
+local parser = fixture.parser
+local check = fixture.check
+local env = fixture.env
+local compileAt = fixture.compileAt
+local compile = fixture.compile
+local firstDeclaration = fixture.firstDeclaration
+
+local program = require("helpers.derive").program
+
+local M = {}
+
+function M.recheckingADerivedDeclarationIsIdempotent()
+    local source = [[
+local editor = require("tests.fixtures.deriveeditor")
+@derive(types.debug, editor.derive)
+local record Stable
+    value: integer = 0
+end
+return Stable()
+]]
+    local parsed = parser.parse(source, "derive_recheck.nupp")
+    testAssert.eq(#parsed.errors, 0, "syntax errors")
+    for pass = 1, 2 do
+        local diagnostics = check.check(parsed, "derive_recheck.nupp", env)
+        for _, diagnostic in ipairs(diagnostics) do
+            if diagnostic.severity ~= "warning" and diagnostic.severity ~= "note" then
+                error(("pass %d unexpectedly reported %s: %s"):format(pass, diagnostic.code, diagnostic.msg))
+            end
+        end
+    end
+end
+
+function M.fingerprintsDebugAnnotationChanges()
+    local function fingerprint(redacted)
+        local source = "@derive(types.debug)\nlocal record Fingerprinted\n" .. (
+            redacted and "@debug(redact = true)\n" or ""
+        ) .. "value: string\nend"
+        local _, diagnostics, parsed = compile(source)
+        testAssert.eq(#diagnostics, 0)
+
+        return firstDeclaration(parsed).deriveRecipe.fingerprint
+    end
+
+    assert(fingerprint(false) ~= fingerprint(true), "a rendering policy edit kept its recipe fingerprint")
+end
+
+function M.givesEveryGeneratedMemberADistinctSemanticIdentity()
+    local _, diagnostics, parsed = compile(
+        [[
+local editor = require("tests.fixtures.deriveeditor")
+@derive(editor.derive)
+local record Identified value: integer end
+]]
+    )
+    testAssert.eq(#diagnostics, 0, "derive identity diagnostics")
+    local nominal = assert(firstDeclaration(parsed).hoistedType)
+    local defs = {
+        nominal.derivedDefinitions.inspect,
+        nominal.derivedStaticDefinitions.kind,
+        nominal.derivedStaticDefinitions.fields
+    }
+    local identities = {}
+    for _, definition in ipairs(defs) do
+        assert(definition and definition.generatedRecipeFingerprint, "missing generated provenance")
+        assert(not identities[definition.generatedIdentity], "generated members share an identity")
+        identities[definition.generatedIdentity] = true
+    end
+    assert(
+        defs[1].token == defs[2].token and defs[2].token == defs[3].token,
+        "one provider's members share a written navigation origin"
+    )
+end
+
+function M.fingerprintsNestedDebugMapKeysAndIgnoresPathSpelling()
+    local _, stringDiagnostics, stringParsed = compileAt(
+        [[
+@derive(types.debug)
+local record Mapped entries: {[string]: string} end
+]],
+        "spelling/../mapped.nupp"
+    )
+    local _, integerDiagnostics, integerParsed = compileAt(
+        [[
+@derive(types.debug)
+local record Mapped entries: {[integer]: string} end
+]],
+        "mapped.nupp"
+    )
+    testAssert.eq(#stringDiagnostics, 0, "string map diagnostics")
+    testAssert.eq(#integerDiagnostics, 0, "integer map diagnostics")
+    local stringRecipe = assert(firstDeclaration(stringParsed).deriveRecipe)
+    local integerRecipe = assert(firstDeclaration(integerParsed).deriveRecipe)
+    assert(stringRecipe.fingerprint ~= integerRecipe.fingerprint, "a Debug map key edit kept the recipe fingerprint")
+
+    local _, alternateDiagnostics, alternateParsed = compileAt(
+        [[
+@derive(types.debug)
+local record Mapped entries: {[string]: string} end
+]],
+        -- The same file spelled from the suite's own directory: a file outside
+        -- the project is another module, and an image names its module.
+        HERE .. "/../mapped.nupp"
+    )
+    testAssert.eq(#alternateDiagnostics, 0, "alternate path diagnostics")
+    testAssert.eq(
+        program.image(alternateParsed, "derive_test"),
+        program.image(stringParsed, "derive_test"),
+        "the image depends on the invocation path spelling"
+    )
+end
+
+return M

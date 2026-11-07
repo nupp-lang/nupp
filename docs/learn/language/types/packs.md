@@ -254,8 +254,18 @@ reports incompatible requirements instead of dropping one.
 Creating or resuming a separate coroutine does not yield its values from the
 current coroutine.
 
-The handle carries four packs, in the order start arguments, resume arguments,
-yielded values, and final returns:
+`thread<F>` derives its protocol from a function type:
+
+```nupp:fragment
+local co: thread<Worker> = coroutine.create(worker)
+```
+
+Its start arguments are `F`'s parameters, its resume and yield packs come from
+the protocol clauses, and its final returns are `F`'s results. Generic aliases
+can carry the function type as `local type Handle<F> = thread<F>`.
+
+The explicit form takes the same packs in the order start arguments, resume
+arguments, yielded values, and final returns:
 
 ```nupp:fragment
 local co: thread<(number), (boolean), (number, string), (string)> =
