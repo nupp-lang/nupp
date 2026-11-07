@@ -60,6 +60,8 @@ local function bytesat(borrows handle: Block, offset: integer): any borrows (han
     return advance(storage.castbytes(handle.data), offset)
 end
 
+local RegionMT: metatable<SharedBytes> = {__index = SharedBytes}
+
 -- Two regions are equal when they name the same engine block, offset, and
 -- length; equal bytes in separate blocks are not equal. The VM gives records no
 -- `__eq`, so each block hands out one region per extent, kept while anything
@@ -70,7 +72,7 @@ local function wrap(handle: Block, offset: integer, count: integer): SharedBytes
     if known ~= nil then
         return known as SharedBytes
     end
-    local region = {_handle = handle, _first = offset, _length = count} as SharedBytes
+    local region = setmetatable({_handle = handle, _first = offset, _length = count}, RegionMT) as SharedBytes
     handle.regions[key] = region
 
     return region

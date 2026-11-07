@@ -21,11 +21,17 @@ end
 for _, payload in ipairs({"", "a\0b", string.rep("x", 40), string.rep("y", 41), string.rep("z", 128)}) do
     local region = SharedBytes.copy(payload)
     assert(region:len() == #payload and region:tostring() == payload)
+    local dynamic: any = region
+    local len = dynamic.len
+    local text = dynamic.tostring
+    assert(len(region) == #payload and text(region) == payload, "returned region exposes its declared methods")
+    assert(getmetatable(region).__index == SharedBytes, "region keeps the canonical method namespace")
     assert(region ~= SharedBytes.copy(payload), "copy retains distinct logical block identity")
     assert(region:slice(0, #payload) == region, "same block and extent retains identity")
     local view = region:view()
     assert(#view == #payload)
     collectgarbage("collect")
+    assert(dynamic:len() == #payload and dynamic:tostring() == payload, "region methods survive collection")
     if #payload > 0 then
         assert(view[1] == payload:byte(1) and view[#payload] == payload:byte(#payload))
     end
