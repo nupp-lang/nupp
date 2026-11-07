@@ -10,7 +10,16 @@ export record Sender<T> is own.Closeable
     @private _state: any
     @private _close: @nosuspend function(any): nil
 
+    --- Sends one message, waiting for channel capacity.
+    ---
+    --- [](coroutine.MessageArguments) preserves the payload's ownership mode.
+    --- An owned payload transfers even if closure or cancellation raises.
     send: function(borrows self: Sender<T>, ...: unpackof contracts.MessageArguments(T)): nil
+
+    --- Tries to send one message without waiting.
+    ---
+    --- Returns `"sent", nil`, or `"full", value` or `"closed", value` with
+    --- ownership of the unsent payload preserved.
     trysend: @nosuspend function(
         borrows self: Sender<T>,
         ...: unpackof contracts.MessageArguments(T)

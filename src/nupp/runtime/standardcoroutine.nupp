@@ -92,6 +92,21 @@ export const Parameters = workerContract.Parameters
 --- Returns a worker function's argument pack after validating transfers.
 export const Submitted = workerContract.Submitted
 
+--- Returns two integer capacity arguments for a channel's message type.
+---
+--- `ChannelLimits(T)` checks that `T` can cross a channel. The resulting
+--- arguments are the message count and retained-byte limits of
+--- [](coroutine.Scope.channel).
+export const ChannelLimits = workerContract.ChannelLimits
+
+--- Returns a channel's one-message argument pack with its ownership mode.
+---
+--- `MessageArguments(T)` checks that `T` can cross a channel and produces one
+--- `T` argument with `takes` mode, so an owned payload transfers to the send.
+--- For `any`, the argument is plain and its value is copied instead.
+--- [](coroutine.Sender.send) and [](coroutine.Sender.trysend) use this pack.
+export const MessageArguments = workerContract.MessageArguments
+
 export type Cancellation = source1.Cancellation
 export type Scope = source1.Scope
 export type Status = source1.Status

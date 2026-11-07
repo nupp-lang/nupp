@@ -264,10 +264,42 @@ record tasks.Scope is own.Closeable
         name: string
     ): tasks.Task<F> borrows (self)
 
-    --- Starts a child on a worker lane: `scope:work(arguments..., f)`.
-
     -- A0 seed transition: same borrowed worker submission; retire fork after the new
     -- seed pin.
+
+    --- Starts a child on a worker lane: `scope:work(arguments..., f)`.
+    ---
+    --- Uses the shared worker pool for a finite job. Arguments and results cross
+    --- isolated states under the [](coroutine.Submitted) transfer contract.
+    --- See [workers.md](docs/learn/runtime/concurrency/workers.md) for setup.
+    ---
+    --- ## Examples
+    ---
+    --- Submit a job and await its result:
+    ---
+    --- ```nupp
+    --- module example.double
+    ---
+    --- export function run(): nil
+    ---     local scope = coroutine.scope()
+    ---     const task = scope:work(21, |value: integer| -> value * 2)
+    ---     assert(task:await() == 42)
+    --- end
+    --- ```
+    ---
+    --- Submit both jobs before awaiting either to let them run in parallel:
+    ---
+    --- ```nupp
+    --- module example.hashes
+    ---
+    --- export function run(): nil
+    ---     local scope = coroutine.scope()
+    ---     const left = scope:work("left", |text: string| -> binary.fnv1a64(text))
+    ---     const right = scope:work("right", |text: string| -> binary.fnv1a64(text))
+    ---     assert(left:await() == binary.fnv1a64("left"))
+    ---     assert(right:await() == binary.fnv1a64("right"))
+    --- end
+    --- ```
     work: function<F is Worker>(
         borrows self: tasks.Scope,
         F,
@@ -275,6 +307,58 @@ record tasks.Scope is own.Closeable
     ): tasks.Task<F> borrows (self)
 
     --- Starts a dedicated child: `scope:worker(arguments..., entry)`.
+    ---
+    --- Reserves a thread or Web Worker until the entry returns. Use bounded
+    --- channels to exchange messages while it runs. Close its input or request
+    --- cancellation before leaving a scope that owns a persistent service.
+    --- See [workers.md](docs/learn/runtime/concurrency/workers.md#dedicated-workers)
+    --- for admission limits and lifetime rules.
+    ---
+    --- ## Examples
+    ---
+    --- Transfer a receiving endpoint to a worker and await its reply:
+    ---
+    --- ```nupp
+    --- module example.request
+    ---
+    --- export function run(): nil
+    ---     local scope = coroutine.scope()
+    ---     local sender, receiver = scope:channel<integer>(1, 1024)
+    ---     const reply = scope:worker(receiver,
+    ---         function(takes messages: coroutine.Receiver<integer>): integer
+    ---             local input = messages
+    ---             local kind, value = input:receive()
+    ---             assert(kind == "value")
+    ---             return value * 2
+    ---         end)
+    ---     sender:send(21)
+    ---     sender:close()
+    ---     assert(reply:await() == 42)
+    --- end
+    --- ```
+    ---
+    --- A producer closes its transferred sender when its local owner leaves:
+    ---
+    --- ```nupp
+    --- module example.events
+    ---
+    --- export function run(): nil
+    ---     local scope = coroutine.scope()
+    ---     local sender, receiver = scope:channel<string>(2, 1024)
+    ---     const producer = scope:worker(sender,
+    ---         function(takes messages: coroutine.Sender<string>): nil
+    ---             local output = messages
+    ---             output:send("ready")
+    ---             output:send("done")
+    ---         end)
+    ---     local first, ready = receiver:receive()
+    ---     local second, done = receiver:receive()
+    ---     assert(first == "value" and ready == "ready")
+    ---     assert(second == "value" and done == "done")
+    ---     assert(receiver:receive() == "closed")
+    ---     producer:await()
+    --- end
+    --- ```
     worker: function<F is Worker>(
         borrows self: tasks.Scope,
         F,

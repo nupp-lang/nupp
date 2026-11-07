@@ -340,6 +340,11 @@ with the unsent payload. Blocking send owns a movable payload even if it
 raises; unwinding drops that payload once. A failed `trysend` returns its
 ownership to the caller.
 
+The signatures use [](coroutine.MessageArguments), a compile-time type function
+that produces one argument of the channel's message type. It preserves the
+`takes` mode for owned payloads; `any` messages use a plain copied value.
+Calls to `send` and `trysend` pass one message.
+
 `receive` waits and returns `"value", payload` or `"closed", nil`.
 `tryreceive` never waits and also returns `"empty", nil`. The tag distinguishes
 a nil message from an empty or closed queue. Both try operations are

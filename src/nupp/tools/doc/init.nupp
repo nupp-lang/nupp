@@ -986,16 +986,9 @@ local function loadModules(root, config, settings, requested)
     local projectedAliases = {}
 
     local function needsProjection(value: any): boolean
-        if value.isAlias or value.supertypes then
-            return true
-        end
-        for _, member in ipairs(value.members or {}) do
-            if needsProjection(member) then
-                return true
-            end
-        end
-
-        return false
+        -- Plain contracts also carry imported types in their fields and methods.
+        -- Resolve those names even when no alias or base needs expansion.
+        return value.isAlias or value.supertypes ~= nil or #(value.members or {}) > 0
     end
 
     local function projected(item: any, module: any): any
