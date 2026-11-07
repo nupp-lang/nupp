@@ -50,6 +50,8 @@ local CASES: {[string]: {
     stringdynamic = {fixture = "catalog-string-dynamic", version = 8},
     stringmetaonly = {fixture = "catalog-string-metatable-only", version = 8},
     stringmetatable = {fixture = "catalog-string-metatable", version = 8},
+    stringmethods = {fixture = "catalog-string-methods", version = 8},
+    stringgmatchvalues = {fixture = "catalog-string-gmatch-values", version = 8},
     scalarmath = {fixture = "catalog-scalar-math", version = 8, follow = true},
     scalarrandom = {fixture = "catalog-scalar-random", version = 8, follow = true},
     scalarmutation = {fixture = "catalog-scalar-mutation", version = 8, follow = true},

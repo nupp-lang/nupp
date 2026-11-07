@@ -408,13 +408,27 @@ export function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: u
     end
 end
 
+-- Capture `i` of a match: its text, or its position for `()`.
+local function capture(h: heap.Heap*, ms: patterns.MatchState*, subject: uint64, i: uint64): uint64
+    local start = patterns.captureStart(ms, i)
+    local size = patterns.captureSize(ms, i)
+    if size == patterns.POSITION then
+        return values.TAG_INTEGER | (start - subject + 1ULL)
+    end
+
+    return values.TAG_OBJ | strings.make(h, start, size)
+end
+
 -- One step of `for ... in s:gmatch(p)`, over a state table {s, p, src, last}
 -- with byte offsets: finds the next match as lstrlib's gmatch_aux does and
--- stores its captures (or the whole match) from key 5. Answers true or false.
-export function gmatchNext(ctx: voidptr, stateValue: uint64): uint64
+-- stores its captures (or the whole match) from key 5 and returns their count.
+local function gmatchstep(ctx: voidptr, stateValue: uint64, pack: uint64): uint64
     local ms0 = patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = guestvalues.guestheap(ctx)
+        if guestvalues.objkind(stateValue) ~= heap.KIND_TABLE then
+            error("invalid gmatch state")
+        end
         local state = stateValue & values.PAYLOAD
         local s = strings.header(tables.get(state, values.TAG_INTEGER | librarylayouts.GMATCH_SUBJECT))
         local p = strings.header(tables.get(state, values.TAG_INTEGER | librarylayouts.GMATCH_PATTERN))
@@ -434,7 +448,7 @@ export function gmatchNext(ctx: voidptr, stateValue: uint64): uint64
         end
         local at = subject + src
         local finish = subject + strings.length(s)
-        local answer = values.FALSE
+        local count: uint64 = 0ULL
         while at <= finish do
             local e = patterns.match(h, ms, at, pattern)
             if e ~= 0ULL and (last == values.NIL or e ~= subject + native.word(guestvalues.intvalue(last))) then
@@ -452,31 +466,29 @@ export function gmatchNext(ctx: voidptr, stateValue: uint64): uint64
                 )
                 local captures = patterns.level(ms)
                 if captures == 0ULL then
-                    tables.set(
-                        h,
-                        state,
-                        values.TAG_INTEGER | librarylayouts.GMATCH_CAPTURES,
-                        values.TAG_OBJ | strings.make(h, at, e - at)
-                    )
+                    local value = values.TAG_OBJ | strings.make(h, at, e - at)
+                    guestvalues.packput(h, state, librarylayouts.GMATCH_CAPTURES, value)
+                    if pack ~= 0ULL then
+                        guestvalues.packput(h, pack, 1ULL, value)
+                    end
+                    count = 1ULL
                 end
                 local i: uint64 = 0ULL
                 while i < captures do
-                    local start = patterns.captureStart(ms, i)
-                    local size = patterns.captureSize(ms, i)
-                    local value = values.TAG_INTEGER | (start - subject + 1ULL)
-                    if size ~= patterns.POSITION then
-                        value = values.TAG_OBJ | strings.make(h, start, size)
+                    local value = capture(h, ms, subject, i)
+                    guestvalues.packput(h, state, librarylayouts.GMATCH_CAPTURES + i, value)
+                    if pack ~= 0ULL then
+                        guestvalues.packput(h, pack, i + 1ULL, value)
                     end
-                    tables.set(h, state, values.TAG_INTEGER | (librarylayouts.GMATCH_CAPTURES + i), value)
                     i = i + 1ULL
+                    count = i
                 end
-                answer = values.TRUE
                 break
             end
             at = at + 1ULL
         end
         patterns.release(ms)
-        if answer == values.FALSE then
+        if count == 0ULL then
             tables.set(
                 h,
                 state,
@@ -485,7 +497,41 @@ export function gmatchNext(ctx: voidptr, stateValue: uint64): uint64
             )
         end
 
-        return answer
+        return count
+    end
+end
+
+-- The legacy static iterator's boolean step and captures at state[5...].
+export function gmatchNext(ctx: voidptr, stateValue: uint64): uint64
+    if gmatchstep(ctx, stateValue, 0ULL) == 0ULL then
+        return values.FALSE
+    end
+    return values.TRUE
+end
+
+-- A first-class iterator captures this state, including converted numbers.
+export function gmatchstate(ctx: voidptr, value: uint64, pattern: uint64): uint64
+    @unsafe do
+        local state = guestscope.newTable(ctx)
+        guestscope.hold(ctx, values.TAG_OBJ | state)
+        local h = guestvalues.guestheap(ctx)
+        local s = guestvalues.strarg(ctx, value, 1ULL)
+        guestvalues.packput(h, state, librarylayouts.GMATCH_SUBJECT, values.TAG_OBJ | s)
+        local p = guestvalues.strarg(ctx, pattern, 2ULL)
+        guestvalues.packput(h, state, librarylayouts.GMATCH_PATTERN, values.TAG_OBJ | p)
+        guestvalues.packput(h, state, librarylayouts.GMATCH_SOURCE, values.TAG_INTEGER)
+        tables.drain(h)
+        return values.TAG_OBJ | state
+    end
+end
+
+-- Zero results on exhaustion; otherwise the full captures or whole match.
+export function gmatchvalues(ctx: voidptr, state: uint64): uint64
+    @unsafe do
+        local pack = guestscope.newTable(ctx)
+        guestscope.hold(ctx, values.TAG_OBJ | pack)
+        local count = gmatchstep(ctx, state, pack)
+        return guestvalues.packed(guestvalues.guestheap(ctx), pack, count, values.NIL)
     end
 end
 
@@ -713,17 +759,6 @@ local function plainPattern(p: uint64): boolean
         end
         return true
     end
-end
-
--- Capture `i` of a match: its text, or its position for `()`.
-local function capture(h: heap.Heap*, ms: patterns.MatchState*, subject: uint64, i: uint64): uint64
-    local start = patterns.captureStart(ms, i)
-    local size = patterns.captureSize(ms, i)
-    if size == patterns.POSITION then
-        return values.TAG_INTEGER | (start - subject + 1ULL)
-    end
-
-    return values.TAG_OBJ | strings.make(h, start, size)
 end
 
 -- string.find (start position) and string.match (first capture, or the whole

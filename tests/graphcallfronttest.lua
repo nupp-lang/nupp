@@ -696,4 +696,79 @@ return calls.stringmeta({})]],
     assert(#found == 1 and found[1].args[1] == require("nupp.compiler.vm.corelibrary").id("STRING_METATABLE"))
 end
 
+function M.stringMethodsReadTheCurrentCallee()
+    local p = checked(
+        [[local function typed(value: string): string return value:sub(2) end
+return ('abc'):sub(2), typed('abc')]]
+    )
+    local count = 0
+    for _, site in ipairs(p.calls) do
+        if site.node.kind == "methodCall" then
+            assert(graph.coreLibraryCall(site.node) == nil)
+            assert(site.method and site.target == nil)
+            local contract = graph.dynamicmethodcontract(site.node)
+            assert(contract.method and contract.effects.mayCollect and contract.effects.mayRaise)
+            count = count + 1
+        end
+    end
+    assert(count == 2)
+    local compiled = program.compile(p, tagged.forVersion(8))
+    local invoked = 0
+    for _, g in ipairs(compiled.graphs) do
+        invoked = invoked + #calls(g)
+        for _, op in ipairs(operations(g, "LibCall")) do
+            assert(op.args[1] ~= require("nupp.compiler.vm.corelibrary").id("STRING_SUB"))
+        end
+    end
+    assert(invoked >= 2)
+end
+
+function M.privateStringIteratorCallsUseCanonicalIds()
+    local p = checked(
+        [[local calls=require("nupp.runtime.hostcalls")
+local state=calls.gmatchstate("abc", ".")
+return calls.gmatchvalues(state)]],
+        "nupp.core.stringiteratorcallfixture"
+    )
+    local compiled = program.compile(p, tagged.forVersion(8))
+    local found = operations(compiled.graphs[1], "LibCall")
+    local core = require("nupp.compiler.vm.corelibrary")
+    assert(#found == 2 and found[1].args[1] == core.id("STRING_GMATCH_STATE"))
+    assert(found[2].args[1] == core.id("STRING_GMATCH_VALUES"))
+end
+
+function M.stringFieldAliasesReadCurrentIndexWithoutAdmittingWrites()
+    local p = checked([[local function alias(value: string): any return value.sub end
+return ('abc').sub, alias('abc')]])
+    local compiled = program.compile(p, tagged.forVersion(8))
+    local reads = 0
+    for _, g in ipairs(compiled.graphs) do
+        reads = reads + #operations(g, "GetIdx")
+    end
+    assert(reads == 2)
+    local path = "=string-field-write.nupp"
+    local parsed = parser.parse("local value: string='abc'; value.sub=value.sub", path)
+    assert(#parsed.errors == 0)
+    local diagnostics = checker.check(
+        parsed,
+        path,
+        environment.new(".", {
+            memoryOnly = true,
+            cache = false
+        }),
+        {
+            moduleName = "stringfieldwrite",
+            strict = false,
+            lints = {["unused-binding"] = "off"}
+        }
+    )
+    local refused = false
+    for _, diagnostic in ipairs(diagnostics) do
+        if diagnostic.code == "NUPP2009" then
+            refused = true
+        end
+    end
+    assert(refused, "string field assignment lost its checker refusal")
+end
+
 return M

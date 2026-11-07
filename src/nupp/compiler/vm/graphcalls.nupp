@@ -608,6 +608,8 @@ local coreLibrary: {[string]: boolean} = {
     collectgarbage = true,
     ["hostcalls.arguments"] = true,
     ["hostcalls.stringmeta"] = true,
+    ["hostcalls.gmatchstate"] = true,
+    ["hostcalls.gmatchvalues"] = true,
     ["hostcalls.argerror"] = true,
     ["hostcalls.randombytes"] = true,
     ["hostcalls.systemtext"] = true,
@@ -1023,13 +1025,6 @@ export function dynamicRequire(call: any): boolean
         and obj.obj.token.text == "_G"
 end
 
-local function stringType(t: any): boolean
-    while t and (t.tag == "const" or t.tag == "literal") do
-        t = t.tag == "const" and t.inner or t.base
-    end
-    return t ~= nil and t.tag == "string"
-end
-
 -- Whether `t` is a thread's type, whose methods are the coroutine
 -- library's (Decision 18: the threads' metatable's __index is `coroutine`).
 local function threadType(t: any): boolean
@@ -1062,9 +1057,7 @@ export function coreLibraryCall(call: any): string?
         return "require.dynamic"
     end
     local name
-    if call and call.kind == "methodCall" and call.name and stringType(call.obj and call.obj.inferredType) then
-        name = "string." .. call.name.text
-    elseif call
+    if call
         and call.kind == "methodCall"
         and call.name
         and threadMethods[call.name.text]

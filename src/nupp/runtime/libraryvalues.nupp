@@ -136,6 +136,13 @@ export const functions: {[string]: any} = {
     ["string.format"] = function(format: string, ...: any): string
         return string.format(format, ...)
     end,
+    ["string.gmatch"] = function(s: string, pattern: string): function(): ...any
+        local state = hostcalls.gmatchstate(s, pattern)
+        return function(): ...any
+            local pack = hostcalls.gmatchvalues(state)
+            return table.unpack(pack, 1, pack[0] as integer)
+        end
+    end,
     ["string.gsub"] = function(s: string, pattern: string, replacement: any, n: integer?): (string, integer)
         if type(replacement) == "function" then
             return string.gsub(s, pattern, replacement as function(...: string): any, n)

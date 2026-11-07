@@ -277,6 +277,10 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return gueststrings.format(ctx, n + 1ULL, a, values.NIL, values.NIL, values.NIL, pack)
     elseif id == librarycalls.TABLE_CONCAT then
         return guesttables.concat(ctx, count, a, b, c, d)
+    elseif id == librarycalls.STRING_GMATCH_STATE then
+        return gueststrings.gmatchstate(ctx, a, b)
+    elseif id == librarycalls.STRING_GMATCH_VALUES then
+        return gueststrings.gmatchvalues(ctx, a)
     elseif id == librarycalls.STRING_GMATCH_NEXT then
         return gueststrings.gmatchNext(ctx, a)
     elseif id == librarycalls.CONCAT2 then

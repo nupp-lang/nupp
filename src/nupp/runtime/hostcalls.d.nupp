@@ -11,6 +11,10 @@ local record hostcalls
     -- Installs the rooted builtin string metatable, without user-table attachment.
     stringmeta: function(meta: {[string]: any}): nil
 
+    -- A string iterator's managed state and its next exact result pack.
+    gmatchstate: function(subject: string, pattern: string): {[integer]: any}
+    gmatchvalues: function(state: {[integer]: any}): {any}
+
     -- Raises an argument error using the original library call's checked site.
     argerror: function(position: integer, fallback: string, detail: string, level: integer): nil
 

@@ -587,7 +587,9 @@ function tagged.forVersion(version: integer): any
                 return ctx.emit(node, "K", {pool(ctx, "int64", "-9223372036854775808")}, "tagged") as integer
             end
             local slot = fieldSlot(ctx, node.obj.inferredType, node.name and node.name.text)
-            local plain = slot == nil and keyedByName(node.obj.inferredType) and node.name ~= nil
+            local plain = slot == nil
+                and (keyedByName(node.obj.inferredType) or typeKind(node.obj.inferredType) == "string")
+                and node.name ~= nil
             if slot == nil and not plain then
                 return tagged.constant(ctx, node, expected)
             end

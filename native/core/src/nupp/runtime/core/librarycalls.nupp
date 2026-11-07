@@ -233,6 +233,8 @@ export const OS_MONOTONIC: uint64 = 117ULL
 export const HOST_ARGUMENTS: uint64 = 119ULL
 export const ARGUMENT_ERROR: uint64 = 200ULL
 export const STRING_METATABLE: uint64 = 201ULL
+export const STRING_GMATCH_STATE: uint64 = 202ULL
+export const STRING_GMATCH_VALUES: uint64 = 203ULL
 export const HOST_FILES: uint64 = 120ULL
 export const HOST_RANDOM_BYTES: uint64 = 127ULL
 export const HOST_SYSTEM_TEXT: uint64 = 128ULL
@@ -396,6 +398,10 @@ export function libraryname(id: uint64): uint64
         return librarytexts.NAME_ISFROZEN
     elseif id == COLLECTGARBAGE then
         return librarytexts.NAME_COLLECTGARBAGE
+    elseif id == STRING_GMATCH_STATE then
+        return librarytexts.NAME_GMATCH
+    elseif id == STRING_GMATCH_VALUES then
+        return librarytexts.NAME_GMATCH
     end
 
     return 0ULL
