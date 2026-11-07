@@ -188,6 +188,7 @@ local CASES: {[string]: {
     tablespackedsemantics = {fixture = "catalog-tables-packed-semantics", version = 8},
     hostlibrary = {fixture = "catalog-host-library", version = 8},
     benchforms = {fixture = "catalog-bench-forms", version = 8},
+    callarguments = {fixture = "catalog-call-arguments", version = 8},
     iofiles = {fixture = "catalog-io-files", version = 8},
     iostandard = {fixture = "catalog-io-standard", version = 8},
     -- The reactor under a minimal scheduler (catalog-reactor-driver): pipes

@@ -245,29 +245,6 @@ local function compatibleSignatures(c: voidptr, site: uint64, callee: uint64): u
     return 1ULL
 end
 
--- The callsite record of function `fn`'s call at instruction `index`, or
--- zero. Admission keeps a function's callsites in increasing pc order, so
--- this is a binary search.
-local function callsite(c: voidptr, fn: voidptr, index: uint64): uint64
-    local records = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("contracts"))
-    local low = native.load64(fn, native.fieldOffset<catalog.Function>("firstCall"))
-    local high = low + native.load64(fn, native.fieldOffset<catalog.Function>("callCount"))
-    while low < high do
-        local middle = low + ((high - low) >> 1ULL)
-        local candidate = native.offset(records, native.index(middle * native.sizeOf<catalog.Callsite>()))
-        local at = native.load64(candidate, native.fieldOffset<catalog.Callsite>("pc"))
-        if at == index then
-            return native.address(candidate)
-        elseif at < index then
-            low = middle + 1ULL
-        else
-            high = middle
-        end
-    end
-
-    return 0ULL
-end
-
 -- The callee is the actual registry handle loaded from a live slot. Hint alone
 -- cannot select a body. Canonical byte fields must also match this PC's retained
 -- checked callsite, its target signature and each canonical scalar argument.
@@ -304,7 +281,7 @@ export function prepare(
     local index = (
         native.address(pc) - native.load64(frame, native.fieldOffset<frames.Frame>("code"))
     ) >> INSTRUCTION_SHIFT
-    local contract = callsite(c, fn, index)
+    local contract = catalog.callsite(c, fn, index)
     if contract == 0ULL then
         return 0ULL
     end

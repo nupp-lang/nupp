@@ -120,8 +120,8 @@ end
 --- Reads what the pipe holds now without waiting: the bytes (at most
 --- `limit`), or nil when none have arrived yet; and whether it has ended.
 pipemethods.poll = function(self: any, limit: any): (string?, boolean)
-    local s = streams.openstream(self, 1, "poll", 2)
-    local most = limit == nil and POLLBYTES or luaargs.integerarg(limit, 1, "poll", 2)
+    local s = streams.openstream(self, 1, "?", 2)
+    local most = limit == nil and POLLBYTES or luaargs.integerarg(limit, 2, "?", 2)
     if s.at <= #s.input then
         local text = string.sub(s.input, s.at, s.at + most - 1)
         s.at = s.at + #text
@@ -144,7 +144,7 @@ end
 -- The handle `self`, which must not be closed, as argument 1 of `name`.
 local function handleof(self: any, name: string): ProcessHandle
     if type(self) ~= "userdata" or getmetatable(self) ~= meta then
-        luaargs.argerror(1, name, "FILE* expected, got " .. luaargs.typename(self), 3)
+        luaargs.argerror(1, "?", "FILE* expected, got " .. luaargs.typename(self), 3)
     end
     local handle = processof(self)
     if handle.reaped then
@@ -188,13 +188,13 @@ end
 methods.read = function(self: any, ...: any): ...any
     local handle = handleof(self, "read")
 
-    return streams.readformats(handle.stream, 1, "read", 2, ...)
+    return streams.readformats(handle.stream, 2, "?", 2, ...)
 end
 
 --- Iterates over the child's standard output in Lua's formats.
 methods.lines = function(self: any, ...: any): function(): ...any
     local handle = handleof(self, "lines")
-    local formats, count = streams.lineformats(1, 2, ...)
+    local formats, count = streams.lineformats(2, "?", 2, ...)
 
     return streams.lineiterator(handle.stream, false, formats, count)
 end
@@ -204,7 +204,7 @@ end
 methods.write = function(self: any, ...: any): ...any
     handleof(self, "write")
 
-    return streams.writevalues(self, streams.writer(self), 1, "write", 2, ...)
+    return streams.writevalues(self, streams.writer(self), 2, "?", 2, ...)
 end
 
 --- Writes what is buffered: true, as every write has reached the pipe.
@@ -218,15 +218,13 @@ end
 methods.seek = function(self: any, whence: any, offset: any): (integer?, string?, integer?)
     local handle = handleof(self, "seek")
 
-    return streams.methods.seek(streams.wrap(handle.stream, pipemeta), whence, offset)
+    return streams.seekstream(handle.stream, whence, offset, 2, "?", 2)
 end
 
 --- Sets the buffering of the child's standard input.
 methods.setvbuf = function(self: any, mode: any, size: any): (boolean?, string?, integer?)
     handleof(self, "setvbuf")
-    local target = streams.wrap(streams.writer(self), pipemeta)
-
-    return streams.methods.setvbuf(target, mode, size)
+    return streams.bufferstream(streams.writer(self), mode, size, 2, "?", 2)
 end
 
 --- Whether the child is still running.
@@ -329,7 +327,7 @@ end
 -- `io.popen` takes them.
 local function launch(command: any, options: any): processes.Options
     if options ~= nil and type(options) ~= "table" and type(options) ~= "string" then
-        luaargs.argerror(2, "popen", "table or string expected", 3)
+        luaargs.argerror(2, "io.popen", "table or string expected", 3)
     end
     local given: {[string]: any} = type(options) == "table" and options as {[string]: any} or {}
     if given.args ~= nil then
@@ -340,7 +338,7 @@ local function launch(command: any, options: any): processes.Options
     end
     local mode: any = type(options) == "string" and options or given.mode or "r"
     if mode ~= "r" and mode ~= "w" and mode ~= "rb" and mode ~= "wb" then
-        luaargs.argerror(2, "popen", "invalid mode", 3)
+        luaargs.argerror(2, "io.popen", "invalid mode", 3)
     end
     local reads = string.sub(mode as string, 1, 1) == "r"
 
@@ -369,10 +367,10 @@ local function launch(command: any, options: any): processes.Options
             arguments[index] = tostring(argument)
         end
         if #arguments == 0 then
-            luaargs.argerror(1, "popen", "argument array is empty", 3)
+            luaargs.argerror(1, "io.popen", "argument array is empty", 3)
         end
     else
-        luaargs.argerror(1, "popen", "string or argument array expected", 3)
+        luaargs.argerror(1, "io.popen", "string or argument array expected", 3)
     end
     local environment: {string}? = nil
     if given.env ~= nil then

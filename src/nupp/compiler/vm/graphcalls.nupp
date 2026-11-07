@@ -606,6 +606,7 @@ local coreLibrary: {[string]: boolean} = {
     ["os.monotonic"] = true,
     collectgarbage = true,
     ["hostcalls.arguments"] = true,
+    ["hostcalls.argerror"] = true,
     ["hostcalls.randombytes"] = true,
     ["hostcalls.systemtext"] = true,
     ["hostcalls.systeminteger"] = true,

@@ -184,6 +184,7 @@ local CASES = {
     {"errorsruntime", 0x7FFF00000000001F},
     {"hostlibrary", 0x7FFF0000000000FF},
     {"benchforms", 0x7FFF00000000003F},
+    {"callarguments", 0x7FFF000003FFFFFF},
     {"iofiles", 0x7FFF3FFFFFFFFFFF},
     {"iostandard", 0x7FFF00000000000F},
     {"reactorpipes", 0x7FFF00000007FFFF},
@@ -376,6 +377,7 @@ local STRESS = {
     errorsruntime = true,
     hostlibrary = true,
     benchforms = true,
+    callarguments = true,
     iofiles = true,
     iostandard = true,
     reactorpipes = true,
@@ -508,6 +510,7 @@ local NUMERIC = {
     modulesretry = "catalog-modules-retry",
     errorsruntime = "catalog-errors-runtime",
     tablespackedsemantics = "catalog-tables-packed-semantics",
+    callarguments = "catalog-call-arguments",
     iofiles = "catalog-io-files",
     iostandard = "catalog-io-standard",
     processexecute = "catalog-process-execute",
@@ -902,6 +905,7 @@ local function stage()
             "catalog-host-library",
             "catalog-output-write",
             "catalog-io-files",
+            "catalog-call-arguments",
             "catalog-io-standard",
             "catalog-reactor-driver",
             "catalog-reactor-pipes",
@@ -1562,6 +1566,37 @@ local function main()
                         backward = backward or instruction[1] == "Jmp" and instruction[2] < 0
                     end
                     check(seen.Le and seen.Add and seen.JmpIf and backward, label .. " numeric loop shape")
+                end
+                if name == "callarguments" then
+                    local wordBytes, diagnosticBytes = 8, 16
+                    local v3Bytes, formatWord, rowsWord, countWord = 152, 16, 17, 18
+                    local rows, count = get64(data, rowsWord * wordBytes), get64(data, countWord * wordBytes)
+                    check(get64(data, 4 * wordBytes) == v3Bytes, label .. " V3 record offset")
+                    check(get64(data, formatWord * wordBytes) == 3 and count > 0, label .. " diagnostic format")
+                    local prefix = bundleBytes:sub(1, 72 + codeBytes)
+
+                    local function invalid(suffix, offset, bytes)
+                        local path = OUT .. "/" .. label .. "-diagnostic-" .. suffix .. ".bundle"
+                        write(path, prefix .. put(data, offset, bytes))
+                        guarded(label .. " diagnostic " .. suffix, path, empty, highWater, nil, 1)
+                    end
+
+                    invalid("format", formatWord * wordBytes, u64(4))
+                    invalid("offset", rowsWord * wordBytes, u64(rows + wordBytes))
+                    invalid("count", countWord * wordBytes, u64(count - 1))
+                    invalid("method", rows, u64(2))
+                    invalid("name-metadata", rows + wordBytes, u64(v3Bytes))
+                    local named
+                    for i = 0, count - 1 do
+                        local nameOffset = get64(data, rows + i * diagnosticBytes + wordBytes)
+                        if nameOffset ~= 0 then
+                            named = nameOffset
+                            break
+                        end
+                    end
+                    check(named ~= nil, label .. " named diagnostic")
+                    invalid("name-bound", named, u64(65537))
+                    invalid("name-terminator", named + wordBytes + get64(data, named), string.char(1))
                 end
                 if name == "modulePair" then
                     local modules = get64(data, 15 * 8)

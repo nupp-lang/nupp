@@ -38,7 +38,7 @@ local function execute(...: any): ...any
     if command == nil then
         return processes.hasshell()
     end
-    local line = luaargs.stringarg(command, nil, 1, "execute", 2)
+    local line = luaargs.stringarg(command, nil, 1, "os.execute", 2)
     local child, code = processes.shell(line, processes.INHERIT, processes.INHERIT)
     if child == nil then
         return nil, files.reason(code), code
@@ -54,7 +54,7 @@ local function exit(code: any, close: any): nil
     if type(code) == "boolean" then
         status = code and SUCCESS or FAILURE
     elseif code ~= nil then
-        status = luaargs.integerarg(code, 1, "exit", 2)
+        status = luaargs.integerarg(code, 1, "os.exit", 2)
     end
     if close then
         processcalls.close()
@@ -63,7 +63,7 @@ local function exit(code: any, close: any): nil
 end
 
 local function getenv(name: any): string?
-    return os.getenv(luaargs.stringarg(name, nil, 1, "getenv", 2))
+    return os.getenv(luaargs.stringarg(name, nil, 1, "os.getenv", 2))
 end
 
 local function monotonic(): number
@@ -95,8 +95,8 @@ local function remove(...: any): (boolean?, string?, integer?)
         end
         return true
     end
-    luaargs.needed(count, 1, "remove", "string", 2)
-    local name = luaargs.stringarg(luaargs.pathname(select(1, ...), 1, 2), nil, 1, "remove", 2)
+    luaargs.needed(count, 1, "os.remove", "string", 2)
+    local name = luaargs.stringarg(luaargs.pathname(select(1, ...), 1, 2), nil, 1, "os.remove", 2)
     local done = files.remove(name)
     if done.code ~= 0 then
         return nil, name .. ": " .. files.reason(done.code), done.code
@@ -109,10 +109,10 @@ end
 -- or an `io.Path`: true, or Lua's failure results.
 local function rename(...: any): (boolean?, string?, integer?)
     local count = select("#", ...)
-    luaargs.needed(count, 1, "rename", "string", 2)
-    local source = luaargs.stringarg(luaargs.pathname(select(1, ...), 1, 2), nil, 1, "rename", 2)
-    luaargs.needed(count, 2, "rename", "string", 2)
-    local target = luaargs.stringarg(luaargs.pathname((select(2, ...)), 2, 2), nil, 2, "rename", 2)
+    luaargs.needed(count, 1, "os.rename", "string", 2)
+    local source = luaargs.stringarg(luaargs.pathname(select(1, ...), 1, 2), nil, 1, "os.rename", 2)
+    luaargs.needed(count, 2, "os.rename", "string", 2)
+    local target = luaargs.stringarg(luaargs.pathname((select(2, ...)), 2, 2), nil, 2, "os.rename", 2)
     local done = files.rename(source, target)
     if done.code ~= 0 then
         return nil, files.reason(done.code), done.code
@@ -146,11 +146,11 @@ const CLOCALE = "C"
 local function setlocale(locale: any, category: any): string?
     local name: string? = nil
     if locale ~= nil then
-        name = luaargs.stringarg(locale, nil, 1, "setlocale", 2)
+        name = luaargs.stringarg(locale, nil, 1, "os.setlocale", 2)
     end
-    local which = luaargs.stringarg(category, "all", 2, "setlocale", 2)
+    local which = luaargs.stringarg(category, "all", 2, "os.setlocale", 2)
     if not CATEGORIES[which] then
-        luaargs.argerror(2, "setlocale", ("invalid option '%s'"):format(which), 2)
+        luaargs.argerror(2, "os.setlocale", ("invalid option '%s'"):format(which), 2)
     end
     if name == nil or name == CLOCALE or name == "POSIX" or name == "" then
         return CLOCALE

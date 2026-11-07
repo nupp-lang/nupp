@@ -109,7 +109,12 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
         assert(literal.integer(text) == row.kind, "guest element kind " .. row.name .. " differs from corelibrary")
     end
     local layouts = {}
-    for _, name in ipairs({"DescriptorV1", "Descriptor", "Function", "Signature", "Callsite"}) do
+    local layoutNames = {"DescriptorV1", "Descriptor", "Function", "Signature", "Callsite"}
+    if code.diagnostics then
+        layoutNames[#layoutNames + 1] = "DescriptorV3"
+        layoutNames[#layoutNames + 1] = "CallDiagnostic"
+    end
+    for _, name in ipairs(layoutNames) do
         local checked = assert(scope.checkedExports.types[name], "checked catalog layout")
         assert(scope.checkedExports.typeDefs[name], "checked catalog definition")
         local layout = assert(targetLayout.of(checked, "aarch64-apple-darwin"))
@@ -128,6 +133,10 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
     local version = code.semantic.schema.version >= 3 and code.semantic.schema.version
         or (#code.initializers == 1 and 1 or 2)
     local descriptorName = version == 1 and "DescriptorV1" or "Descriptor"
+    if code.diagnostics then
+        assert(version == 8 and #code.diagnostics == #calls, "complete checked call diagnostics required")
+        descriptorName = "DescriptorV3"
+    end
     local cursor = layouts[descriptorName].size
     local recordOffset = cursor
     cursor += #records * layouts.Function.size
@@ -135,6 +144,10 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
     cursor += #signatures * layouts.Signature.size
     local callOffset = cursor
     cursor += #calls * layouts.Callsite.size
+    local diagnosticOffset = cursor
+    if code.diagnostics then
+        cursor += #calls * layouts.CallDiagnostic.size
+    end
     local targetOffset = cursor
     cursor += #records * 8
     local moduleOffset = cursor
@@ -212,6 +225,20 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
             end
         end
     end
+    if code.diagnostics then
+        local nameLimit = literal.integer(assert(scope.exportedConstants.DIAGNOSTIC_NAME_LIMIT))
+        for _, diagnostic in ipairs(code.diagnostics) do
+            local text = diagnostic.name
+            if text ~= nil then
+                assert(type(text) == "string" and #text > 0 and #text <= nameLimit, "diagnostic name bound")
+                if stringOffsets[text] == nil then
+                    stringOffsets[text] = cursor
+                    stringOrder[#stringOrder + 1] = text
+                    cursor += 8 + ((#text + 8) // 8) * 8
+                end
+            end
+        end
+    end
     assert(cursor <= ARTIFACT_BOUND and cursor % 8 == 0, "guest artifact byte budget")
     -- The artifact is written as pieces at their offsets, each a whole record,
     -- word run or payload, and joined in offset order with zeros between.
@@ -282,6 +309,11 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
     }
     if version ~= 1 then
         descriptor.moduleCount, descriptor.modules = #code.initializers, moduleOffset
+    end
+    if code.diagnostics then
+        descriptor.format = literal.integer(assert(scope.exportedConstants.DIAGNOSTIC_FORMAT))
+        descriptor.diagnostics = diagnosticOffset
+        descriptor.diagnosticCount = #calls
     end
     fields(descriptorName, 0, descriptor)
     local values = assert(scopes["nupp.runtime.vm.values"])
@@ -394,6 +426,15 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
             resultSlot = call.resultSlot,
             spread = call.spread and 1 or 0
         })
+    end
+    if code.diagnostics then
+        for index = 1, #calls do
+            local diagnostic = code.diagnostics[index]
+            fields("CallDiagnostic", (diagnosticOffset + (index - 1) * layouts.CallDiagnostic.size) as integer, {
+                method = diagnostic.method and 1 or 0,
+                name = diagnostic.name and assert(stringOffsets[diagnostic.name]) or 0
+            })
+        end
     end
     for _, offset in ipairs(dispatch) do
         assert(

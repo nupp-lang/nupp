@@ -13,6 +13,31 @@ const catalog = require("nupp.runtime.core.guestcatalog")
 const frames = require("nupp.runtime.core.frames")
 const guestscope = require("nupp.runtime.core.guestscope")
 
+-- A logical frame at the same error level positioned() uses. A protected
+-- target is visible, but walking past its C-like boundary is refused.
+export function frameat(ctx: voidptr, level: uint64): uint64
+    local state = native.loadPointer(ctx, context.STATE)
+    local frame = native.load64(state, native.fieldOffset<frames.State>("active"))
+    local k: uint64 = 1ULL
+    if level == 0ULL then
+        return 0ULL
+    end
+    while k < level do
+        if frame == 0ULL
+            or native.load64(
+                native.pointer(frame),
+                native.fieldOffset<frames.Frame>("resultKind")
+            ) == frames.PROTECTED_DESTINATION
+        then
+            return 0ULL
+        end
+        frame = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("previous"))
+        k = k + 1ULL
+    end
+
+    return frame
+end
+
 -- A string message with Lua's position before it, "chunk:line: ", naming
 -- the frame `level` calls out from the one that failed: 1 is that frame at
 -- `pc` in `owner`, 2 its caller at the call. Anything else, or a frame with
@@ -25,21 +50,9 @@ export function positioned(ctx: voidptr, message: uint64, level: uint64, failedO
         if s == 0ULL or level == 0ULL then
             return message
         end
-        local state = native.loadPointer(ctx, context.STATE)
-        local frame = native.load64(state, native.fieldOffset<frames.State>("active"))
-        local owner = failedOwner
-        local pc = failedPc
-        local k: uint64 = 1ULL
-        while k < level do
-            if frame == 0ULL
-                or native.load64(
-                    native.pointer(frame),
-                    native.fieldOffset<frames.Frame>("resultKind")
-                ) == frames.PROTECTED_DESTINATION
-            then
-                return message
-            end
-            frame = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("previous"))
+        local owner, pc = failedOwner, failedPc
+        if level > 1ULL then
+            local frame = frameat(ctx, level)
             if frame == 0ULL then
                 return message
             end
@@ -49,7 +62,6 @@ export function positioned(ctx: voidptr, message: uint64, level: uint64, failedO
                 return message
             end
             pc = resume - 1ULL
-            k = k + 1ULL
         end
         local c = native.loadPointer(ctx, context.CATALOG)
         if owner >= native.load64(c, native.fieldOffset<catalog.Catalog>("count")) then

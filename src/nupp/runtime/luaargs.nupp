@@ -8,6 +8,8 @@ errors they raise), for the libraries written in Nupp: `io`
 ]]
 module nupp.runtime.luaargs
 
+const hostcalls = require("nupp.runtime.hostcalls")
+
 --- The name Lua's argument errors give a value's type: its metatable's
 --- __name when it has one.
 export function typename(value: any): string
@@ -22,7 +24,7 @@ end
 --- Raises Lua's error for argument `position` of `name`, at `level` past the
 --- function that calls this.
 export function argerror(position: integer, name: string, message: string, level: integer): nil
-    error(("bad argument #%d to '%s' (%s)"):format(position, name, message), level + 1)
+    hostcalls.argerror(position, name, message, level)
 end
 
 --- An integer argument as luaL_checkinteger takes one: a number with an

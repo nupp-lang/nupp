@@ -76,10 +76,10 @@ local function opencheck(filename: string, mode: string, level: integer): any
 end
 
 local function open(filename: any, mode: any): (any, string?, integer?)
-    local name = stringarg(filename, nil, 1, "open", 2)
-    local how = stringarg(mode, "r", 2, "open", 2)
+    local name = stringarg(filename, nil, 1, "io.open", 2)
+    local how = stringarg(mode, "r", 2, "io.open", 2)
     if string.match(how, "^[rwa]%+?b*$") == nil then
-        argerror(2, "open", "invalid mode", 2)
+        argerror(2, "io.open", "invalid mode", 2)
     end
 
     return openfile(name, how)
@@ -90,7 +90,7 @@ local function close(...: any): (boolean?, string?, integer?)
     if select("#", ...) > 0 then
         file = select(1, ...)
     end
-    local s = openstream(file, 1, "close", 2)
+    local s = openstream(file, 1, "io.close", 2)
     if luaprocess.isprocess(file) then
         local process: any = file
         return process:close()
@@ -105,7 +105,7 @@ local function read(...: any): ...any
         error("default input file is closed", 2)
     end
 
-    return readformats(s, 1, "read", 2, ...)
+    return readformats(s, 1, "io.read", 2, ...)
 end
 
 local function write(...: any): ...any
@@ -114,7 +114,7 @@ local function write(...: any): ...any
         error("default output file is closed", 2)
     end
 
-    return writevalues(output, s, 1, "write", 2, ...)
+    return writevalues(output, s, 1, "io.write", 2, ...)
 end
 
 local function flush(): (boolean?, string?, integer?)
@@ -127,13 +127,13 @@ end
 
 local function lines(filename: any, ...: any): ...any
     if filename == nil then
-        local s = openstream(input, 1, "lines", 2)
-        local formats, count = lineformats(2, 2, ...)
+        local s = openstream(input, 1, "io.lines", 2)
+        local formats, count = lineformats(2, "io.lines", 2, ...)
         return lineiterator(s, false, formats, count)
     end
-    local name = stringarg(filename, nil, 1, "lines", 2)
+    local name = stringarg(filename, nil, 1, "io.lines", 2)
     local handle = opencheck(name, "r", 2)
-    local formats, count = lineformats(2, 2, ...)
+    local formats, count = lineformats(2, "io.lines", 2, ...)
 
     return lineiterator(streams.state(handle).stream, true, formats, count), nil, nil, handle
 end
@@ -154,20 +154,20 @@ local function defaultfile(name: string, mode: string, current: any, ...: any): 
 end
 
 local function inputfile(...: any): any
-    input = defaultfile("input", "r", input, ...)
+    input = defaultfile("io.input", "r", input, ...)
 
     return input
 end
 
 local function outputfile(...: any): any
-    output = defaultfile("output", "w", output, ...)
+    output = defaultfile("io.output", "w", output, ...)
 
     return output
 end
 
 local function filetype(...: any): string?
     if select("#", ...) == 0 then
-        argerror(1, "type", "value expected", 2)
+        argerror(1, "io.type", "value expected", 2)
     end
     local value: any = select(1, ...)
     if not streams.isfile(value) then

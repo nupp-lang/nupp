@@ -1223,6 +1223,9 @@ export function MathFloor(
 end
 
 -- A core library call (guestlib): its arguments are staged after `base`.
+const MAX_ARGUMENT_POSITION: uint64 = 0x7fffffffffffffffULL
+const MAX_ARGUMENT_LEVEL: uint64 = 0x7ffffffffffffffeULL
+
 export function LibCall(
     pc: voidptr,
     regs: voidptr,
@@ -1311,6 +1314,25 @@ export function LibCall(
     -- the pc the message's position names.
     if libraryId == librarycalls.RERAISE then
         guestscope.raise(ctx, guestscope.lastError(ctx), 0ULL)
+        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+        return native.fail()
+    end
+    if libraryId == librarycalls.ARGUMENT_ERROR then
+        if count ~= 4ULL
+            or not wide.isInteger(a)
+            or not wide.isInteger(d)
+            or wide.bitsOf(a) == 0ULL
+            or wide.bitsOf(a) > MAX_ARGUMENT_POSITION
+            or wide.bitsOf(d) > MAX_ARGUMENT_LEVEL
+            or strings.header(b) == 0ULL
+            or strings.header(c) == 0ULL
+            or catalog.diagnostics(native.loadPointer(ctx, context.CATALOG)) == 0ULL
+        then
+            ops.fail(ctx, frame, pc, ops.INVALID)
+            return native.fail()
+        end
+        local message = texts.argumentmessage(ctx, wide.bitsOf(a), b, c, wide.bitsOf(d))
+        guestscope.raise(ctx, message, wide.bitsOf(d) + 1ULL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end

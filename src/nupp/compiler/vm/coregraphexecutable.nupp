@@ -742,13 +742,27 @@ end
 -- The retained checker objects are immutable borrows within this build process.
 -- This issuer is not a native loader or production frame/effect authority.
 function executable.fromChecked(compiled: any, version: integer?): any
-    local normalized = contracts.normalize(compiled, version)
+    local normalized, diagnostics = contracts.normalize(compiled, version)
     need(
         #normalized.modules <= 3 or normalized.schema.version >= 8,
         "at most three module initializers are executable before v8"
     )
     need(normalized.modules[#normalized.modules].chunk == normalized.entry, "entry module must initialize last")
     local result = deriveCatalog(normalized)
+    local required = false
+    for _, g in ipairs(normalized.graphs) do
+        for _, block in ipairs(g.blocks) do
+            for at, op in ipairs(block.op) do
+                if op == "LibCall" and corelibrary.split(block.args[at][1]) == corelibrary.id("ARGUMENT_ERROR") then
+                    required = true
+                end
+            end
+        end
+    end
+    if required then
+        need(normalized.schema.version == 8, "argument diagnostics require checked source profile 8")
+        result.diagnostics = diagnostics
+    end
     issued[result] = {compiled = compiled, version = version, snapshot = copy(result)}
 
     return result
@@ -757,7 +771,11 @@ end
 function executable.validate(result: any): nil
     local state = need(type(result) == "table" and rawget(issued, result), "unissued executable catalog")
     need(same(result, state.snapshot), "issued executable metadata changed")
-    need(same(contracts.normalize(state.compiled, state.version), state.snapshot.semantic), "checked catalog changed")
+    local normalized, diagnostics = contracts.normalize(state.compiled, state.version)
+    need(same(normalized, state.snapshot.semantic), "checked catalog changed")
+    if state.snapshot.diagnostics then
+        need(same(diagnostics, state.snapshot.diagnostics), "checked call diagnostics changed")
+    end
 end
 
 function executable.checkedOwner(result: any, id: integer): any

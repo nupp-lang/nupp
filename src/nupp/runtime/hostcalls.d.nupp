@@ -8,6 +8,9 @@ local record hostcalls
     --- then its arguments from 1, a new table each call.
     arguments: function(): {[integer]: string}
 
+    -- Raises an argument error using the original library call's checked site.
+    argerror: function(position: integer, fallback: string, detail: string, level: integer): nil
+
     --- Exactly count bytes from the secure host source, or an error. The
     --- private provider validates zero and the public maximum before calling.
     randombytes: function(count: integer): string

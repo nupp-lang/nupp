@@ -8,6 +8,7 @@ const values = require("nupp.runtime.vm.values")
 const context = require("nupp.runtime.core.context")
 const guestscope = require("nupp.runtime.core.guestscope")
 const frames = require("nupp.runtime.core.frames")
+const catalog = require("nupp.runtime.core.guestcatalog")
 const strings = require("nupp.runtime.core.corestrings")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 const guesterrors = require("nupp.runtime.core.guesterrors")
@@ -91,6 +92,82 @@ export function moduleNotFound(ctx: voidptr, name: uint64): nil
         guestscope.raiseLibrary(ctx, message)
         guestscope.raise(ctx, message, 0ULL)
         error("library error")
+    end
+end
+
+-- Formats an ordinary Nupp library's error from its original checked call.
+-- Inputs remain rooted in the active guest frame throughout construction.
+export function argumentmessage(ctx: voidptr, position: uint64, fallback: uint64, detail: uint64, level: uint64): uint64
+    local state = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local c = native.loadPointer(ctx, context.CATALOG)
+        local rows = catalog.diagnostics(c)
+        if rows == 0ULL then
+            error("argument errors require the diagnostic envelope")
+        end
+        local frame = guesterrors.frameat(ctx, level)
+        local method: uint64 = 0ULL
+        local name: uint64 = 0ULL
+        if frame ~= 0ULL
+            and native.load64(
+                native.pointer(frame),
+                native.fieldOffset<frames.Frame>("resultKind")
+            ) ~= frames.PROTECTED_DESTINATION
+        then
+            local parent = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("previous"))
+            if parent ~= 0ULL then
+                local owner = native.load64(native.pointer(parent), native.fieldOffset<frames.Frame>("functionId"))
+                local resume = native.load64(native.pointer(parent), native.fieldOffset<frames.Frame>("resumePC"))
+                if owner < native.load64(c, native.fieldOffset<catalog.Catalog>("count")) and resume ~= 0ULL then
+                    local fn = native.pointer(
+                        native.load64(
+                            c,
+                            native.fieldOffset<catalog.Catalog>("records")
+                        ) + owner * native.sizeOf<catalog.Function>()
+                    )
+                    local site = catalog.callsite(c, fn, resume - 1ULL)
+                    if site ~= 0ULL then
+                        local id = native.load64(native.pointer(site), native.fieldOffset<catalog.Callsite>("id"))
+                        local row = native.pointer(rows + id * native.sizeOf<catalog.CallDiagnostic>())
+                        method = native.load64(row, native.fieldOffset<catalog.CallDiagnostic>("method"))
+                        name = native.load64(row, native.fieldOffset<catalog.CallDiagnostic>("name"))
+                    end
+                end
+            end
+        end
+        local h = guestHeap(ctx)
+        local lifetime = strings.open(h, state as strings.Builder*)
+        local b = state as strings.Builder*
+        local shown = position - method
+        local refused: uint64 = 0ULL
+        if shown == 0ULL then
+            refused = librarytexts.append(h, b, librarytexts.TEXT_CALLING)
+        else
+            refused = librarytexts.append(h, b, librarytexts.TEXT_BAD)
+                | strings.appendInteger(h, b, native.index(shown))
+                | librarytexts.append(h, b, librarytexts.TEXT_TO)
+        end
+        if name ~= 0ULL then
+            local data = native.load64(c, native.fieldOffset<catalog.Catalog>("data"))
+            local length = native.load64(native.pointer(data + name), 0)
+            refused = refused | strings.append(h, b, data + name + 8ULL, length)
+        else
+            refused = refused | strings.appendString(h, b, strings.header(fallback))
+        end
+        local detailPrefix = librarytexts.TEXT_OPEN
+        if shown == 0ULL then
+            detailPrefix = librarytexts.TEXT_BAD_SELF
+        end
+        refused = refused
+            | librarytexts.append(h, b, detailPrefix)
+            | strings.appendString(h, b, strings.header(detail))
+            | librarytexts.append(h, b, librarytexts.TEXT_CLOSE)
+        if refused ~= 0ULL then
+            strings.release(b)
+            error("not enough memory")
+        end
+
+        return values.TAG_OBJ | strings.finish(h, b)
     end
 end
 

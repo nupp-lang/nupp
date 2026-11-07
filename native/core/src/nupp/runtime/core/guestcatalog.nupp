@@ -45,6 +45,36 @@ export struct Descriptor
     modules: uint64
 end
 
+-- The diagnostic envelope preserves every preceding descriptor field.
+export const DIAGNOSTIC_FORMAT: uint64 = 3ULL
+export const DIAGNOSTIC_NAME_LIMIT: uint64 = 65536ULL
+export struct DescriptorV3
+    version: uint64
+    bytes: uint64
+    ownerCount: uint64
+    entry: uint64
+    records: uint64
+    signatures: uint64
+    signatureCount: uint64
+    contracts: uint64
+    contractCount: uint64
+    targets: uint64
+    instanceBound: uint64
+    frameDepth: uint64
+    dispatch: uint64
+    handlerCount: uint64
+    moduleCount: uint64
+    modules: uint64
+    format: uint64
+    diagnostics: uint64
+    diagnosticCount: uint64
+end
+
+export struct CallDiagnostic
+    method: uint64
+    name: uint64
+end
+
 export struct Function
     id: uint64
     parentPlusOne: uint64
@@ -200,6 +230,19 @@ local function valid(data: voidptr, bytes: uint64): uint64
     if bytes < headerBytes or native.load64(data, native.fieldOffset<DescriptorV1>("bytes")) ~= bytes then
         return 0ULL
     end
+    -- Canonical record offsets discriminate the two profile-8 envelopes.
+    local diagnosticOffset: uint64 = 0ULL
+    if version == 8ULL
+        and native.load64(data, native.fieldOffset<Descriptor>("records")) == native.sizeOf<DescriptorV3>()
+    then
+        if bytes < native.sizeOf<DescriptorV3>()
+            or native.load64(data, native.fieldOffset<DescriptorV3>("format")) ~= DIAGNOSTIC_FORMAT
+        then
+            return 0ULL
+        end
+        headerBytes = native.sizeOf<DescriptorV3>()
+        diagnosticOffset = native.load64(data, native.fieldOffset<DescriptorV3>("diagnostics"))
+    end
     local count = native.load64(data, native.fieldOffset<Descriptor>("ownerCount"))
     local entry = native.load64(data, native.fieldOffset<Descriptor>("entry"))
     local ns = native.load64(data, native.fieldOffset<Descriptor>("signatureCount"))
@@ -241,6 +284,15 @@ local function valid(data: voidptr, bytes: uint64): uint64
         return 0ULL
     end
     cursor = cursor + nc * native.sizeOf<Callsite>()
+    if headerBytes == native.sizeOf<DescriptorV3>() then
+        if diagnosticOffset ~= cursor
+            or native.load64(data, native.fieldOffset<DescriptorV3>("diagnosticCount")) ~= nc
+            or contains(bytes, cursor, nc, native.sizeOf<CallDiagnostic>()) == 0ULL
+        then
+            return 0ULL
+        end
+        cursor = cursor + nc * native.sizeOf<CallDiagnostic>()
+    end
     local targets = native.load64(data, native.fieldOffset<Descriptor>("targets"))
     if targets ~= cursor or contains(bytes, cursor, count, 8ULL) == 0ULL then
         return 0ULL
@@ -497,7 +549,75 @@ local function valid(data: voidptr, bytes: uint64): uint64
         return 0ULL
     end
 
+    if headerBytes == native.sizeOf<DescriptorV3>() then
+        local index: uint64 = 0ULL
+        local payload = cursor + handlers * 8ULL
+        while index < nc do
+            local row = native.offset(data, native.index(diagnosticOffset + index * native.sizeOf<CallDiagnostic>()))
+            local method = native.load64(row, native.fieldOffset<CallDiagnostic>("method"))
+            local name = native.load64(row, native.fieldOffset<CallDiagnostic>("name"))
+            if method > 1ULL
+                or method == 1ULL
+                and native.load64(
+                    native.offset(data, native.index(calls + index * native.sizeOf<Callsite>())),
+                    native.fieldOffset<Callsite>("argumentCount")
+                ) == 0ULL
+            then
+                return 0ULL
+            end
+            if name ~= 0ULL then
+                if name < payload or name % 8ULL ~= 0ULL or name > bytes or bytes - name < 9ULL then
+                    return 0ULL
+                end
+                local length = native.load64(data, native.index(name))
+                if length == 0ULL
+                    or length > DIAGNOSTIC_NAME_LIMIT
+                    or length > bytes - name - 9ULL
+                    or native.load8(data, native.index(name + 8ULL + length)) ~= 0
+                then
+                    return 0ULL
+                end
+            end
+            index = index + 1ULL
+        end
+    end
+
     return 1ULL
+end
+
+-- The callsite record of function `fn`'s call at instruction `index`, or
+-- zero. Admission keeps a function's callsites in increasing pc order, so
+-- this is a binary search.
+export function callsite(c: voidptr, fn: voidptr, index: uint64): uint64
+    local records = native.loadPointer(c, native.fieldOffset<Catalog>("contracts"))
+    local low = native.load64(fn, native.fieldOffset<Function>("firstCall"))
+    local high = low + native.load64(fn, native.fieldOffset<Function>("callCount"))
+    while low < high do
+        local middle = low + ((high - low) >> 1ULL)
+        local candidate = native.offset(records, native.index(middle * native.sizeOf<Callsite>()))
+        local at = native.load64(candidate, native.fieldOffset<Callsite>("pc"))
+        if at == index then
+            return native.address(candidate)
+        elseif at < index then
+            low = middle + 1ULL
+        else
+            high = middle
+        end
+    end
+
+    return 0ULL
+end
+
+-- The envelope's validated diagnostic rows, or zero for a legacy catalog.
+export function diagnostics(c: voidptr): uint64
+    local data = native.loadPointer(c, native.fieldOffset<Catalog>("data"))
+    if native.load64(data, native.fieldOffset<Descriptor>("version")) ~= 8ULL
+        or native.load64(data, native.fieldOffset<Descriptor>("records")) ~= native.sizeOf<DescriptorV3>()
+    then
+        return 0ULL
+    end
+
+    return native.address(data) + native.load64(data, native.fieldOffset<DescriptorV3>("diagnostics"))
 end
 
 -- Storage is fresh, exclusively borrowed and disjoint from immutable data and

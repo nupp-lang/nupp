@@ -495,7 +495,7 @@ export function lineiterator(s: Stream, toclose: boolean, formats: {any}, count:
         if s.closed then
             error("file is already closed", 2)
         end
-        local results, n = packed(readformats(s, 1, "lines", 2, table.unpack(formats, 1, count)))
+        local results, n = packed(readformats(s, 2, "?", 2, table.unpack(formats, 1, count)))
         if results[1] ~= nil and results[1] ~= false then
             return table.unpack(results, 1, n)
         end
@@ -511,10 +511,10 @@ export function lineiterator(s: Stream, toclose: boolean, formats: {any}, count:
 end
 
 --- The formats after the file, kept for an iterator, as Lua's aux_lines.
-export function lineformats(position: integer, level: integer, ...: any): ({any}, integer)
+export function lineformats(position: integer, name: string, level: integer, ...: any): ({any}, integer)
     local count = select("#", ...)
     if count > LINEFORMATS then
-        argerror(LINEFORMATS + position, "lines", "too many arguments", level + 1)
+        argerror(LINEFORMATS + position, name, "too many arguments", level + 1)
     end
 
     return {...}, count
@@ -522,22 +522,22 @@ end
 
 --- Reads the values `...` asks for: "n", "l", "L", "a" or a byte count.
 methods.read = function(self: any, ...: any): ...any
-    local s = openstream(self, 1, "read", 2)
+    local s = openstream(self, 1, "?", 2)
 
-    return readformats(s, 1, "read", 2, ...)
+    return readformats(s, 2, "?", 2, ...)
 end
 
 --- Writes strings and numbers: the file, or Lua's failure results.
 methods.write = function(self: any, ...: any): ...any
-    local s = openstream(self, 1, "write", 2)
+    local s = openstream(self, 1, "?", 2)
 
-    return writevalues(self, s, 1, "write", 2, ...)
+    return writevalues(self, s, 2, "?", 2, ...)
 end
 
 --- An iterator over the values `...` asks for, a line by default.
 methods.lines = function(self: any, ...: any): function(): ...any
-    local s = openstream(self, 1, "lines", 2)
-    local formats, count = lineformats(1, 2, ...)
+    local s = openstream(self, 1, "?", 2)
+    local formats, count = lineformats(2, "?", 2, ...)
 
     return lineiterator(s, false, formats, count)
 end
@@ -545,25 +545,30 @@ end
 --- Writes what is buffered: true, as every write has reached the file
 --- before it returned.
 methods.flush = function(self: any): (boolean?, string?, integer?)
-    openstream(self, 1, "flush", 2)
+    openstream(self, 1, "?", 2)
 
     return true
 end
 
 --- Moves the file to `offset` from "set", "cur" or "end": the new position,
 --- or Lua's failure results.
-methods.seek = function(self: any, whence: any, offset: any): (integer?, string?, integer?)
-    local s = openstream(self, 1, "seek", 2)
-    local name = stringarg(whence, "cur", 1, "seek", 2)
-    local origin = name == "set" and files.FROMSTART
-        or name == "cur" and files.FROMHERE
-        or name == "end" and files.FROMEND
+export function seekstream(
+    s: Stream,
+    whence: any,
+    offset: any,
+    position: integer,
+    name: string,
+    level: integer
+): (integer?, string?, integer?)
+    local originName = stringarg(whence, "cur", position, name, level + 1)
+    local origin = originName == "set" and files.FROMSTART
+        or originName == "cur" and files.FROMHERE
+        or originName == "end" and files.FROMEND
         or nil
     if origin == nil then
-        argerror(1, "seek", ("invalid option '%s'"):format(name), 2)
+        argerror(position, name, ("invalid option '%s'"):format(originName), level + 1)
     end
-    local at = offset == nil and 0 or integerarg(offset, 2, "seek", 2)
-    -- Read-ahead is where the file is, not where the reading is.
+    local at = offset == nil and 0 or integerarg(offset, position + 1, name, level + 1)
     local pending = #s.input - s.at + 1
     local move = origin == files.FROMHERE and at - pending or at
     local done = files.seek(s.descriptor, move, origin as integer)
@@ -575,23 +580,37 @@ methods.seek = function(self: any, whence: any, offset: any): (integer?, string?
     return done.value
 end
 
---- Sets the file's buffering: "no", "full" or "line", with a size.
-methods.setvbuf = function(self: any, mode: any, size: any): (boolean?, string?, integer?)
-    local s = openstream(self, 1, "setvbuf", 2)
-    local name = stringarg(mode, nil, 1, "setvbuf", 2)
-    if name ~= "no" and name ~= "full" and name ~= "line" then
-        argerror(1, "setvbuf", ("invalid option '%s'"):format(name), 2)
+methods.seek = function(self: any, whence: any, offset: any): (integer?, string?, integer?)
+    return seekstream(openstream(self, 1, "?", 2), whence, offset, 2, "?", 2)
+end
+
+export function bufferstream(
+    s: Stream,
+    mode: any,
+    size: any,
+    position: integer,
+    name: string,
+    level: integer
+): (boolean?, string?, integer?)
+    local how = stringarg(mode, nil, position, name, level + 1)
+    if how ~= "no" and how ~= "full" and how ~= "line" then
+        argerror(position, name, ("invalid option '%s'"):format(how), level + 1)
     end
-    local bytes = size == nil and BUFFER or integerarg(size, 2, "setvbuf", 2)
-    s.mode = name
+    local bytes = size == nil and BUFFER or integerarg(size, position + 1, name, level + 1)
+    s.mode = how
     s.size = bytes > 0 and bytes or BUFFER
 
     return true
 end
 
+--- Sets the file's buffering: "no", "full" or "line", with a size.
+methods.setvbuf = function(self: any, mode: any, size: any): (boolean?, string?, integer?)
+    return bufferstream(openstream(self, 1, "?", 2), mode, size, 2, "?", 2)
+end
+
 --- Closes the file: true, or Lua's failure results.
 methods.close = function(self: any): (boolean?, string?, integer?)
-    local s = openstream(self, 1, "close", 2)
+    local s = openstream(self, 1, "?", 2)
 
     return closestream(s)
 end

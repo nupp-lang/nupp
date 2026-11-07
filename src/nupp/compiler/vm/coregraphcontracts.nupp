@@ -285,7 +285,31 @@ local function intern(signatures: any, index: any, signature: any): integer
     return id
 end
 
-function contracts.normalize(compiled: any, version: integer?): any
+-- Diagnostic names describe the issued source call, never its runtime target.
+local function diagnostic(call: any, protected: boolean): any
+    if protected then
+        return {method = false}
+    end
+    if call.kind == "forinStmt" then
+        return {method = false, name = "for iterator"}
+    end
+    if call.kind == "methodCall" then
+        return {method = true, name = call.name.text}
+    end
+    local callee = call.obj
+    while callee and callee.kind == "paren" do
+        callee = callee.expr
+    end
+    if callee and callee.kind == "name" then
+        return {method = false, name = callee.token.text}
+    elseif callee and callee.kind == "dotIndex" then
+        return {method = false, name = callee.name.text}
+    end
+
+    return {method = false}
+end
+
+function contracts.normalize(compiled: any, version: integer?): (any, any)
     local v: integer = version or 2
     local numeric, loops = v >= 3, v >= 5
     fields(compiled, "graphs header catalog")
@@ -401,6 +425,7 @@ function contracts.normalize(compiled: any, version: integer?): any
         graphs = {},
         contracts = {}
     }
+    local diagnostics = {}
     need(output.entry == p.entry, "entry owner differs")
     local signatureIndex, callEdges, admitted = {}, {}, {}
     for _, item in ipairs(definition.operations) do
@@ -542,6 +567,7 @@ function contracts.normalize(compiled: any, version: integer?): any
                     -- xpcall(f, handler, ...): its handler is staged apart.
                     handled = source.handled == true or nil
                 }
+                diagnostics[id + 1] = diagnostic(source.call, source.protected == true)
                 block.term.contract = id
                 record.effect = 1
                 if not source.dynamic then
@@ -575,7 +601,7 @@ function contracts.normalize(compiled: any, version: integer?): any
         end
     end
 
-    return output
+    return output, diagnostics
 end
 
 export = contracts
