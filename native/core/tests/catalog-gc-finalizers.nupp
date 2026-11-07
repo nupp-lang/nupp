@@ -143,6 +143,7 @@ local function inside(): nil
     setmetatable({}, {__gc = uncallable})
 end
 
+debug.log.settimestampformat("")
 local score = 0
 local holder: any = {}
 make(holder)

@@ -214,6 +214,7 @@ local CASES = {
     {"gcexit", 0},
     -- warn's contract; an error no protected call takes reported, then
     -- every marked table finalized (EXITS).
+    {"logwarn", 0x7FFF00000000007F},
     {"gcwarn", 0x7FFF000000000007},
     {"gcraise", 0},
     -- An error no protected call takes: reported on standard error, and
@@ -407,6 +408,7 @@ local STRESS = {
     gcoptions = true,
     gcend = true,
     gcexit = true,
+    logwarn = true,
     gcwarn = true,
     gcraise = true,
     errorsuncaught = true,
@@ -602,6 +604,7 @@ local POSIXTWINS = {
 }
 local FIXTURES = {
     "catalog-optional-method-cleanups",
+    "catalog-log-warn",
     "catalog-string-dynamic",
     "catalog-string-metatable-only",
     "catalog-string-metatable",
@@ -969,6 +972,7 @@ local function stage()
             "catalog-gc-options",
             "catalog-gc-end",
             "catalog-gc-exit",
+            "catalog-log-warn",
             "catalog-gc-warn",
             "catalog-gc-raise",
             "catalog-os-time",

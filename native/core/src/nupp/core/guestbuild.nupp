@@ -225,6 +225,7 @@ local CASES: {[string]: {
     gcoptions = {fixture = "catalog-gc-options", version = 8},
     gcend = {fixture = "catalog-gc-end", version = 8},
     gcexit = {fixture = "catalog-gc-exit", version = 8},
+    logwarn = {fixture = "catalog-log-warn", version = 8, follow = true},
     gcwarn = {fixture = "catalog-gc-warn", version = 8},
     gcraise = {fixture = "catalog-gc-raise", version = 8},
     processlayer = {

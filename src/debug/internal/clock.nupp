@@ -1,0 +1,32 @@
+@!internal
+
+module debug.internal.clock
+
+-- `os.time` is NYI in LuaJIT and stitches the trace it stands on, so the second
+-- is read through the FFI there. The drift check is what keeps a resolved-but-wrong-
+-- width `time` from answering nonsense: some Windows CRTs inline it to `_time64`
+-- or give it a 32-bit `time_t`, and neither fails to resolve. The VM has no `ffi`
+-- module, and its `os.time` is an ordinary builtin, so it keeps that.
+local clock: function(): number = os.time
+-- A literal require, so the module graph still names every module this loads.
+local hasffi, ffi = pcall(function(): any
+    return require("ffi")
+end)
+if hasffi then
+    pcall(ffi.cdef, "typedef int64_t nupp_time_t; nupp_time_t time(nupp_time_t *t);")
+    local resolved, fn = pcall(function(): any
+        return ffi.C.time
+    end)
+    if resolved and fn then
+        local null = ffi.cast("nupp_time_t*", 0)
+        local valid, answered = pcall(fn, null)
+        local drift = valid and ((tonumber(answered) or 0) - os.time()) or math.huge
+        if drift > -2 and drift < 2 then
+            clock = function(): number
+                return tonumber(fn(null)) or 0
+            end
+        end
+    end
+end
+
+export = clock

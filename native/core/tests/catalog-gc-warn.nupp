@@ -15,6 +15,7 @@ local truth: any = true
 local list: any = {}
 local number: any = 42
 local score = 0
+debug.log.settimestampformat("")
 warn("@on")
 warn("joined ", "text ", number as string)
 warn("@off")

@@ -1,0 +1,9 @@
+@!internal
+
+module nupp.runtime.provider.corelogclock
+
+local function clock(): number
+    return os.time()
+end
+
+export = clock

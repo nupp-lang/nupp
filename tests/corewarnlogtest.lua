@@ -76,4 +76,14 @@ function M.finalizerFailuresHonorTheSharedWarningSwitch()
     test.eq(calls[1][4], "error in __gc (attempt to call a boolean value (metamethod '__gc'))")
 end
 
+function M.currentLoggerRetainsTimestampControls()
+    local log = fixture()
+    local previous = log.timestampformat()
+    assert(#log.timestamp() > 0)
+    test.eq(log.settimestampformat(""), previous)
+    test.eq(log.timestamp(), "")
+    test.eq(log.settimestampformat(previous), "")
+    assert(#log.timestamp() > 0)
+end
+
 return M

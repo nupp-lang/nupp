@@ -1,0 +1,70 @@
+module nupp.core.cataloglogwarn
+
+const log = require("debug.log")
+const imported = require("warn")
+
+local calls: any = {}
+local previous = log.setsink(
+    log.callback(function(level: debug.log.Severity, module: string, line: integer, message: string): nil
+        calls[#calls + 1] = {level = level, module = module, line = line, message = message}
+    end)
+)
+local priorlevel = log.setlevel("off")
+local score = 0
+if warn == imported and imported == log.warner then
+    score = score + 1
+end
+warn("@off")
+log.warner("hidden")
+if #calls == 0 then
+    score = score + 2
+end
+imported("@on")
+warn("shared ", "sink")
+if #calls == 1
+    and calls[1].level == 2
+    and calls[1].module == "warn"
+    and calls[1].line == 0
+    and calls[1].message == "shared sink"
+then
+    score = score + 4
+end
+
+local function discarded(): nil
+    setmetatable({}, {
+        __gc = function(): nil
+            error("finalizer failure", 0)
+        end
+    })
+end
+
+discarded()
+collectgarbage("collect")
+if #calls == 2 and calls[2].message == "error in __gc (finalizer failure)" then
+    score = score + 8
+end
+warn("@off")
+local wrong: any = false
+local ok = pcall(function(): nil
+    warn(wrong as string)
+end)
+if not ok and #calls == 2 then
+    score = score + 16
+end
+log.warner("@on")
+warn("@ignored")
+warn("@on", " is text")
+if #calls == 3 and calls[3].message == "@on is text" and log.level() == "off" then
+    score = score + 32
+end
+local beforeformat = log.timestampformat()
+local stamped = log.timestamp()
+local previousformat = log.settimestampformat("")
+if #stamped > 0 and previousformat == beforeformat and log.timestamp() == "" then
+    score = score + 64
+end
+log.settimestampformat(beforeformat)
+local installed = log.setsink(previous)
+own.drop(installed)
+log.setlevel(priorlevel)
+export = score
