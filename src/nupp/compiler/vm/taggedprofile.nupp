@@ -641,6 +641,8 @@ function tagged.forVersion(version: integer): any
             elseif libraryField == "math.mininteger" then
                 return ctx.emit(node, "K", {pool(ctx, "int64", "-9223372036854775808")}, "tagged") as integer
             end
+            -- A record's metatable can also be attached to a named table.
+            -- Its field name reaches either layout through the runtime adapter.
             local slot = fieldSlot(ctx, node.obj.inferredType, node.name and node.name.text)
             local plain = slot == nil
                 and (keyedByName(node.obj.inferredType) or typeKind(node.obj.inferredType) == "string")
@@ -652,8 +654,7 @@ function tagged.forVersion(version: integer): any
             if object == nil then
                 return nil as any
             end
-            local key = plain and ctx.emit(node, "K", {pool(ctx, "str", node.name.text)}, "tagged")
-                or ctx.emit(node, "K", {pool(ctx, "int64", tostring(slot))}, "tagged")
+            local key = ctx.emit(node, "K", {pool(ctx, "str", node.name.text)}, "tagged")
 
             return ctx.emit(node, "GetIdx", {object, key}, "tagged") as integer
         end
@@ -668,8 +669,7 @@ function tagged.forVersion(version: integer): any
                     return {receiver = 0, kind = "tagged"}
                 end
                 local held = ctx.hold(object)
-                local key = plain and ctx.emit(node, "K", {pool(ctx, "str", node.name.text)}, "tagged")
-                    or ctx.emit(node, "K", {pool(ctx, "int64", tostring(slot))}, "tagged")
+                local key = ctx.emit(node, "K", {pool(ctx, "str", node.name.text)}, "tagged")
                 object = ctx.readHeld(held)
                 ctx.release(held)
                 return {receiver = object, index = key, kind = "tagged"}

@@ -12,6 +12,8 @@ this module when it takes a library function as a value.
 local hostcalls = require("nupp.runtime.hostcalls")
 local scalarcalls = require("nupp.runtime.scalarcalls")
 
+local type PairIterator = @nosuspend function(): ((any, any) | (nil))
+
 export const functions: {[string]: any} = {
     -- The ambient `package` table: its `loaded` and `preload` as Lua's, empty
     -- because the image holds the modules, and fields a program sets on it.
@@ -103,8 +105,28 @@ export const functions: {[string]: any} = {
     next = function(t: table, key: any): (any, any)
         return next(t, key)
     end,
-    pairs = function(t: table): (function(table, any): (any, any), table, nil)
-        return next, t, nil
+    pairs = function(borrows t: table): PairIterator borrows (t)
+        -- The builtin traverses synchronously and retains no table beyond the call.
+        local nextPair = next as @nosuspend function(borrows source: table, key: any?): (any, any)
+        local key: any = nil
+        local finished = false
+        local iterate: @nosuspend function(): (
+            (any, any) | (nil)
+        ) borrows (t) = function(): ((any, any) | (nil)) borrows (t)
+            if finished then
+                return nil
+            end
+            local found, value = nextPair(t, key)
+            key = found
+            if found == nil then
+                finished = true
+                return nil
+            end
+
+            return found, value
+        end
+
+        return iterate
     end,
     select = function(n: any, ...: any): ...any
         if n == "#" then

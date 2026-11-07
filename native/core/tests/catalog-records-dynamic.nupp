@@ -22,4 +22,73 @@ loose.y = 9
 score = score + p.y * 10000 + p:sum()
 local plain: any = {x = 3}
 score = score + plain.x * 1000000
+
+-- A plain named table adopted by a record keeps its own field keys. A numeric
+-- key must stay distinct from the declaration's private physical slot.
+local named: any = {x = 7, y = 8, [1] = 91}
+local adopted = setmetatable(named, Point as any) as Point
+collectgarbage()
+assert(adopted.x == 7 and adopted.y == 8)
+assert(adopted:sum() == 15)
+adopted.x = 11
+assert(named.x == 11 and named[1] == 91)
+
+-- Traversal exposes names, so an ordinary copy with the same metatable has
+-- the same typed field behavior without changing the original instance.
+local copy: any = {}
+for key, value in pairs(p) do
+    copy[key] = value
+end
+local copied = setmetatable(copy, getmetatable(p)) as Point
+assert(copied.x == p.x and copied.y == p.y)
+copied.y = 31
+collectgarbage()
+assert(copy.y == 31 and p.y == 9)
+
+-- A retained iterator keeps its table and cursor, including after collection.
+local map: {[string]: integer} = {entry = 37}
+local iterate = pairs(map)
+collectgarbage()
+local key, value = iterate()
+assert(key == "entry" and value == 37)
+assert(iterate() == nil)
+assert(iterate() == nil)
+
+local function count(...: any): integer
+    return select("#", ...)
+end
+
+local counted = pairs(map)
+assert(count(counted()) == 2)
+assert(count(counted()) == 1)
+assert(count(counted()) == 1)
+
+local empty: {[string]: integer} = {}
+local emptyIterator = pairs(empty)
+assert(emptyIterator() == nil and emptyIterator() == nil)
+
+local recordIterator = pairs(p)
+collectgarbage()
+local firstKey, firstValue = recordIterator()
+local secondKey, secondValue = recordIterator()
+assert(firstKey ~= secondKey)
+assert((firstKey == "x" and firstValue == 5) or (firstKey == "y" and firstValue == 9))
+assert((secondKey == "x" and secondValue == 5) or (secondKey == "y" and secondValue == 9))
+assert(recordIterator() == nil and recordIterator() == nil)
+
+local order: integer = 0
+
+local function receiver(): Point
+    order = order * 10 + 1
+    return adopted
+end
+
+local function replacement(): integer
+    order = order * 10 + 2
+    return 23
+end
+
+receiver().x = replacement()
+assert(order == 12 and named.x == 23 and named[1] == 91)
+
 export = score
