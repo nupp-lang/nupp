@@ -600,25 +600,33 @@ export function packedowners(mode: uint64): uint64
             local retired = h.released.count == 1ULL and o.aux as uint64 == heap.KIND_TABLE
             tables.drain(h)
             local drained = h.released.count == 0ULL
-            -- Filled owners have descriptor and data in one size class; empty
-            -- owners have only the descriptor. A repeated drain frees neither twice.
-            local first = backing.wordBackingTake(h, words)
+            -- Descriptor and data may use different backing classes. Recover
+            -- each allocation through its own size, then prove that a second
+            -- drain returns neither block to a live borrower.
+            local descriptorWords = (native.sizeOf<common.Storage>() + WORD_BYTES - 1ULL) // WORD_BYTES
+            local first = backing.wordBackingTake(h, descriptorWords)
             local second = backing.wordBackingTake(h, words)
             local reused = first == address
             if filled then
                 reused = (first == base and second == address) or (first == address and second == base)
             end
             tables.drain(h)
-            local third = backing.wordBackingTake(h, words)
+            local third = backing.wordBackingTake(h, descriptorWords)
+            local fourth = backing.wordBackingTake(h, words)
             local once = first ~= 0ULL
                 and second ~= 0ULL
                 and third ~= 0ULL
+                and fourth ~= 0ULL
                 and first ~= second
                 and first ~= third
+                and first ~= fourth
                 and second ~= third
+                and second ~= fourth
+                and third ~= fourth
             backing.wordBackingRelease(first)
             backing.wordBackingRelease(second)
             backing.wordBackingRelease(third)
+            backing.wordBackingRelease(fourth)
             answer = bit(
                 isolated,
                 1ULL
