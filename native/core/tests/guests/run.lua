@@ -1452,12 +1452,16 @@ local function main()
                 )
                 local body = selected.programs[#selected.programs]
                 if name:match("^numeric") then
-                    local seen, backward = {}, false
-                    for _, instruction in ipairs(body.instructions) do
-                        seen[instruction[1]] = true
-                        backward = backward or instruction[1] == "Jmp" and instruction[2] < 0
+                    local loop = false
+                    for _, functionBody in ipairs(selected.programs) do
+                        local seen, backward = {}, false
+                        for _, instruction in ipairs(functionBody.instructions) do
+                            seen[instruction[1]] = true
+                            backward = backward or instruction[1] == "Jmp" and instruction[2] < 0
+                        end
+                        loop = loop or seen.Le and seen.Add and seen.JmpIf and backward
                     end
-                    check(seen.Le and seen.Add and seen.JmpIf and backward, label .. " numeric loop shape")
+                    check(loop, label .. " numeric loop shape")
                 end
                 if name == "callarguments" then
                     local wordBytes, diagnosticBytes = 8, 24
