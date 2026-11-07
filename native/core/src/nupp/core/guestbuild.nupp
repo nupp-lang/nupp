@@ -15,6 +15,7 @@ local program = require("nupp.compiler.vm.programgraph")
 local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local tagged = require("nupp.compiler.vm.taggedprofile")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
+local corelibrary = require("nupp.compiler.vm.corelibrary")
 require("nupp.compiler.hostservices")
 local build = {}
 -- Processor seconds by phase across this process's builds, for the runner's
@@ -424,6 +425,12 @@ local function runtime(mode: string, cacheDirectory: string?, audited: boolean):
     -- The modules the artifact producer holds to corelibrary's table.
     for _, name in ipairs({"librarycalls", "corestorage"}) do
         scopes["nupp.runtime.core." .. name] = units.session.module("nupp.runtime.core." .. name)
+    end
+    for _, subject in ipairs(corelibrary.subjects()) do
+        if subject.output then
+            local name = "nupp.runtime.core." .. subject.output
+            scopes[name] = units.session.module(name)
+        end
     end
     if audited then
         scopes["nupp.runtime.core.guestaudit"] = units.session.module("nupp.runtime.core.guestaudit")

@@ -96,8 +96,9 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
     end
     -- The runtime's library call ids (generated from corelibrary) and its
     -- element kinds are the table's, which the compiler emits by.
-    local calls = assert(scopes["nupp.runtime.core.librarycalls"], "guest library calls")
     for _, subject in ipairs(corelibrary.subjects()) do
+        local owner = "nupp.runtime.core." .. (subject.output or "librarycalls")
+        local calls = assert(scopes[owner], "guest library calls " .. owner)
         for _, call in ipairs(subject.calls) do
             local text = assert(calls.exportedConstants[call.name], "guest library call " .. call.name)
             assert(literal.integer(text) == call.id, "guest library call " .. call.name .. " differs from corelibrary")
