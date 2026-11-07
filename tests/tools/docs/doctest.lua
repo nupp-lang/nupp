@@ -4841,7 +4841,7 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(home:find('href="llms.txt"', 1, true), home)
     assert(home:find('class="nuppdoc-search-button"', 1, true), home)
     assert(home:find('data-nuppdoc-search-index="assets/search-index.js"', 1, true), home)
-    assert(home:find('<a href="modules/engine/index.html">API</a>', 1, true), home)
+    assert(home:find('<a href="modules/config/index.html">API</a>', 1, true), home)
     assert(not home:find('<h2 id="modules">Modules</h2>', 1, true), home)
     assert(not home:find('class="nuppdoc-module-grid"', 1, true), home)
 
