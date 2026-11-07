@@ -6,7 +6,7 @@ local root = require("helpers.paths").absoluteTests .. "/.."
 
 local PREFIX = [[
 module nupp.tests.channelcontract
-local {type Sender, type Receiver} = require("nupp.workers.internal.channeltypes")
+local {type Sender, type Receiver} = require("coroutine")
 ]]
 
 local function diagnostics(source)
@@ -178,18 +178,11 @@ end
     end
 end
 
-local PAIR = [[
-local function pair<T>(borrows owner: coroutine.Scope): (affine(Sender<T>) borrows(owner), affine(Receiver<T>) borrows(owner))
-    error("contract fixture", 0)
-end
-]]
-
 function M.aWorkerMayTakeAnEndpointFromItsOwnScope()
     clean(
-        PAIR
-        .. [[
+        [[
 local owner = coroutine.scope()
-local sending, receiving = pair<integer>(owner)
+local sending, receiving = owner:channel<integer>(1, 64)
 local child = owner:work(receiving, function(takes incoming: Receiver<integer>): integer
     local input = incoming
     local kind, value = input:receive()
@@ -202,12 +195,11 @@ end
 
 function M.aWorkerCannotOutliveTheScopeThatOwnsItsEndpoint()
     refuses(
-        PAIR
-        .. [[
+        [[
 local outer = coroutine.scope()
 do
     local inner = coroutine.scope()
-    local sending, receiving = pair<integer>(inner)
+    local sending, receiving = inner:channel<integer>(1, 64)
     outer:work(receiving, function(takes incoming: Receiver<integer>): integer
         local input = incoming
         local kind, value = input:receive()
@@ -221,10 +213,9 @@ end
 
 function M.aCooperativeChildMayOwnAnEndpointFromItsScope()
     clean(
-        PAIR
-        .. [[
+        [[
 local owner = coroutine.scope()
-local sending, receiving = pair<integer>(owner)
+local sending, receiving = owner:channel<integer>(1, 64)
 local child = owner:spawn(function(): integer takes(receiving)
     local input = receiving
     local kind, value = input:receive()
@@ -238,12 +229,11 @@ end
 
 function M.aCooperativeChildCannotKeepAnotherScopesEndpoint()
     refuses(
-        PAIR
-        .. [[
+        [[
 local outer = coroutine.scope()
 do
     local inner = coroutine.scope()
-    local sending, receiving = pair<integer>(inner)
+    local sending, receiving = inner:channel<integer>(1, 64)
     outer:spawn(function(): nil takes(receiving)
         local input = receiving
         input:receive()
@@ -256,10 +246,9 @@ end
 
 function M.endpointsCannotLeaveThroughCooperativeTaskResults()
     refuses(
-        PAIR
-        .. [[
+        [[
 local owner = coroutine.scope()
-local sending, receiving = pair<integer>(owner)
+local sending, receiving = owner:channel<integer>(1, 64)
 owner:spawn(function(): Receiver<integer> takes(receiving)
     return receiving
 end)
@@ -286,6 +275,36 @@ end
 ]],
         "NUPP2006"
     )
+end
+
+function M.pointerMessagesRemainRefused()
+    refuses(
+        [[
+export function wrong(borrows sender: Sender<voidptr>, value: voidptr): nil
+    sender:send(value)
+end
+]],
+        "NUPP2006"
+    )
+end
+
+function M.borrowedSpansCannotBeSent()
+    refuses(
+        [[
+local spans = require("binary.span")
+export function wrong(borrows sender: Sender<spans.Span<int32>>, borrows view: spans.Span<int32>): nil
+    sender:send(view)
+end
+]],
+        "NUPP2602"
+    )
+end
+
+function M.theFactoryRejectsUnsupportedPayloadsBeforeUse()
+    refuses([[
+local owner = coroutine.scope()
+local sender, receiver = owner:channel<voidptr>(1, 64)
+]], "NUPP2006")
 end
 
 return M

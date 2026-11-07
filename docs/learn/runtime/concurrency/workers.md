@@ -2,14 +2,12 @@
 order: 150
 ---
 
-# Worker tasks
+# Workers and channels
 
-`coroutine.Scope.work` runs sendable functions in parallel on a shared,
-bounded scheduler whose lanes are native threads with isolated LuaJIT states.
-A lane is reached through `work` on an [application task scope](task-scopes.md),
-which owns the worker children it starts. Arguments and results cross as copies,
-while Lua heaps and their globals, userdata, cdata, and mutable module state stay
-isolated. Eligible closure captures cross only as independent copies.
+`coroutine.Scope.work` runs parallel jobs on a shared pool, and
+`coroutine.Scope.worker` runs a dedicated entry until it returns.
+Both start isolated states and return a `coroutine.Task`; bounded channels carry
+messages while an entry runs.
 
 ```nupp
 module jobs
@@ -197,7 +195,7 @@ same lanes and pay ten thousand copies to do it.
 
 ## Shared scheduler
 
-The first worker submission creates one scheduler for the process. Its lane
+The first pooled `work` submission creates one scheduler for the process. Its lane
 count is the host's online processor count, capped at 64, and
 `os.info().parallelism` returns that count without opening
 anything. Later and concurrent scopes reuse the same lanes rather than creating
@@ -266,13 +264,123 @@ export function countAll(shards: {{string}}): number
 end
 ```
 
-This is an executor, not an actor system. A task is a request-and-response call
-whose inputs and results cross the boundary. Long-lived stateful ownership and
-mailboxes would be a separate abstraction.
+## Dedicated workers
+
+`scope:worker(arguments..., entry)` starts a dedicated thread or Web Worker.
+It uses the same sendable functions, result packs, task methods, and scope
+limits as `work`, with a separate host limit of 64 dedicated workers. Admission
+never queues behind pooled jobs; exhausting the dedicated limit raises an
+admission error.
+
+A service receives commands until its sender closes. This entry returns the
+sum of the commands it processed. Event updates are best effort; a full or
+closed event queue does not stop command processing:
+
+```nupp
+module counter
+
+export function serve(takes commands: coroutine.Receiver<integer>,
+    takes events: coroutine.Sender<integer>): integer
+    local input, output = commands, events
+    local total: integer = 0
+    while true do
+        local kind, value = input:receive()
+        if kind == "closed" then return total end
+        total = total + value
+        output:trysend(total)
+    end
+end
+```
+
+Close the command sender before awaiting a persistent service. Close the event
+receiver too when its remaining messages are no longer needed, so a producer
+waiting for event capacity can finish:
+
+```nupp:fragment
+local counter = require("counter")
+local scope = coroutine.scope()
+local commands, input = scope:channel<integer>(8, 4096)
+local output, events = scope:channel<integer>(8, 4096)
+local service = scope:worker(input, output, counter.serve)
+commands:send(3)
+commands:send(4)
+commands:close()
+events:close()
+print(service:await())
+```
+
+Normal scope exit joins children. It does not send an implicit stop command;
+close commands or cancel a persistent child before leaving its scope. Channels
+remain usable while children settle and are dropped afterward. A child failure,
+deadlines, and explicit cancellation request cancellation before joining.
+
+Workers cannot start other workers. They can open local scopes and run
+cooperative tasks and channels inside their isolated state.
+
+## Channels
+
+`scope:channel<T>(messages, bytes)` creates one `coroutine.Sender<T>` and one
+`coroutine.Receiver<T>`. Both limits must be positive, finite integers. The
+queue bounds accepted messages by count and retained payload bytes; an
+oversized message raises immediately.
+
+```nupp:fragment
+local scope = coroutine.scope()
+local sender, receiver = scope:channel<string?>(2, 1024)
+sender:send(nil)
+local kind, value = receiver:receive()
+assert(kind == "value" and value == nil)
+sender:close()
+assert(receiver:receive() == "closed")
+```
+
+`send` waits for capacity and raises on closure or cancellation. `trysend`
+never waits: it returns `"sent", nil`, or `"full", value` or `"closed", value`
+with the unsent payload. Blocking send owns a movable payload even if it
+raises; unwinding drops that payload once. A failed `trysend` returns its
+ownership to the caller.
+
+`receive` waits and returns `"value", payload` or `"closed", nil`.
+`tryreceive` never waits and also returns `"empty", nil`. The tag distinguishes
+a nil message from an empty or closed queue. Both try operations are
+`@nosuspend`.
+
+Closing the sender lets the receiver drain accepted messages before reporting
+closure. Closing the receiver discards queued messages and wakes blocked
+senders with closure. Cancellation wakes both capacity and receive waits.
+An idle native state sleeps in the host wait; a browser state yields to its
+worker event loop.
+
+Endpoints are affine owners. Passing one as a direct `takes` worker argument
+moves it; subsequent use of the old binding is a compile error. Each endpoint
+borrows the scope that created it, and a worker receiving it must belong to
+that scope. Endpoints cannot cross inside messages, captures, or task results.
+They cannot be cloned, and their payload types cannot be widened through
+`any`.
+
+Mutable messages cross as independent copies. Native channels also support
+published `io.SharedBytes` and moved fixed-width arrays under the storage rules
+below. Browser channels carry copied values and refuse native storage
+attachments. A channel typed `any` accepts copied values; declare an explicit
+owning payload type when moving storage, so failed sends preserve its type.
+
+## Browser channels
+
+Browser endpoints use direct `MessagePort` connections established at startup.
+Worker-to-worker messages continue when the page is busy; neither the page nor
+the main Nupp state relays each message. Credits count accepted messages and
+bytes in transit as well as queued messages, and return on consumption or
+discard. General channels require neither `SharedArrayBuffer` nor cross-origin
+isolation. The browser adapter caps one encoded channel message at 512 KiB,
+including its copied value envelope; a smaller channel byte limit still applies.
+
+Channels carry application messages. Device adapters can use their own
+preallocated sample buffers or rings; this API does not promise audio callback
+deadlines or uninterrupted device playback.
 
 ## Functions that can be submitted
 
-The final argument to `work` must be a `@sendable function`. A function read
+The final argument to `work` or `worker` must be a `@sendable function`. A function read
 from a loaded module is sendable with no captures:
 
 ```nupp:fragment
@@ -349,9 +457,8 @@ main.nupp:9:9: error: NUPP2006: argument 1.hook is a function, which cannot
 
 Refused this way: functions, threads, userdata, cdata, C pointers, and any
 parameter carrying an ownership mode, wherever one of them sits inside an
-array, a tuple, a union, or a shape. The one exception is the owned-buffer
-move described [below](#moving-owned-buffers), which is a transfer of
-storage rather than a copy of a value.
+array, a tuple, a union, or a shape. Owned buffers move under the rules [below](#moving-owned-buffers), and channel
+endpoints move as direct startup arguments under the [channel rules](#channels).
 
 A type that says nothing definite is left to the copy. `any`, a bare `table`,
 and a record all describe values that may or may not be copyable. A record built
@@ -540,13 +647,12 @@ remains that result or failure.
 Cancelling one child with `Task:cancel` does not cancel its siblings, and
 `scope:cancel` cancels every one. When a sibling fails, the task scope requests
 cancellation for every unfinished worker child, then awaits running cleanup
-through the installed suspension handler. The task scope owns its family of
-lanes privately; `work` is the only way in.
+through the installed suspension handler. The task scope owns its worker children and joins them before returning.
 
 The same rule applies to nontermination: an infinite worker task makes its
-scope infinite. Worker tasks are for bounded CPU work. Durable work, retries
-across process failure, and jobs that outlive the caller belong to a broker or
-[](io.Process), not this scheduler.
+scope infinite. Use `work` for bounded CPU jobs and `worker` for a service that shuts down
+within its scope. Durable work, retries across process failure, and jobs that
+outlive the caller belong to a broker or [](io.Process).
 
 ## Browser lanes
 
@@ -580,7 +686,8 @@ synchronous channel:
 
 One thing the native scheduler offers is not there. A [moved owned
 buffer](#moving-owned-buffers) cannot transfer its native pointer ownership into
-another guest, so every ownership mode keeps the copy refusal.
+another guest, so owned storage keeps the copy refusal. Channel endpoints move through
+their direct-port startup protocol rather than copying a native pointer.
 
 Everything else is the same: a scope is fail-fast, a scope deadline reaches a
 lane, and `coroutine.checkpoint()` is where a running lane observes that its

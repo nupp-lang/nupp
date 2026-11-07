@@ -3,9 +3,8 @@ module nupp.workers.internal.channeltypes
 
 local contracts = require("nupp.workers.contracts")
 
--- These declarations stay private until both runtime adapters implement the
--- contract. A result pack uses its first value as the tag, so nil remains a
--- message and an unsent owner remains an owner after narrowing the tag.
+-- Public aliases expose these types through coroutine. The implementation stays
+-- private. Result tags preserve nil messages and ownership of unsent values.
 
 export record Sender<T> is own.Closeable
     @private _state: any

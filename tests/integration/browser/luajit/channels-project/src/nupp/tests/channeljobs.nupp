@@ -1,6 +1,6 @@
 module nupp.tests.channeljobs
 
-local {type Sender, type Receiver} = require("nupp.workers.internal.channeltypes")
+local {type Sender, type Receiver} = require("coroutine")
 
 export function producer(
     takes start: Receiver<boolean>,
@@ -15,6 +15,7 @@ export function producer(
     assert(commands:receive() == "value")
     for index = 1, 256 do
         events:send(index)
+        coroutine.sleep(1)
     end
 
     return 256

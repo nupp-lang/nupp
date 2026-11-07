@@ -1024,4 +1024,26 @@ function M.aSwitchArmHandsItsOwnerToTheBindingOnce()
     testAssert.eq(chunk(), "<a>a|<b>ba")
 end
 
+function M.inlineAffineTypeArgumentsPublishCleanupsAtStatementBoundaries()
+    local chunk = compile(
+        PRELUDE
+        .. "\n"
+        .. [[
+local function tag<T>(value: integer): integer return value end
+local plain = tag<affine(Resource, close_resource)>(3)
+local function nested(): integer
+    return tag<affine(Resource, close_resource)>(4)
+end
+do
+    local resource = open_resource("r")
+    local inside = tag<affine(Resource, close_resource)>(5)
+    assert(inside == 5)
+end
+assert(plain == 3 and nested() == 4)
+return calls
+]]
+    )
+    testAssert.eq(chunk(), "r", "the generic calls preserve the surrounding owner's cleanup")
+end
+
 return M

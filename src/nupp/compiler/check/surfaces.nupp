@@ -54,6 +54,7 @@ local COMPILER_SURFACES: {
             spawn = {rotate = true, overloadMembers = {[2] = "_spawnNamed"}, bodyMayBorrowScope = true,},
             work = workerSurface,
             worker = workerSurface,
+            channel = {effect = "runtime.workers"},
         },
     },
 }

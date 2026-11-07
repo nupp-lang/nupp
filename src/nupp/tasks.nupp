@@ -66,6 +66,7 @@ module nupp.tasks
 
 const {type Task as Task2} = require("nupp.workers.contracts")
 const {type Status as Status2} = require("nupp.workers.contracts")
+local {type Sender, type Receiver} = require("nupp.workers.internal.channeltypes")
 
 local suspension = require("nupp.suspension")
 -- A scope is a driver: it installs a handler in front of whoever hosts the frame.
@@ -272,6 +273,19 @@ record tasks.Scope is own.Closeable
         F,
         ...: unpackof nupp.workers.contracts.Submitted(F)
     ): tasks.Task<F> borrows (self)
+
+    --- Starts a dedicated child: `scope:worker(arguments..., entry)`.
+    worker: function<F is Worker>(
+        borrows self: tasks.Scope,
+        F,
+        ...: unpackof nupp.workers.contracts.Submitted(F)
+    ): tasks.Task<F> borrows (self)
+
+    --- Creates bounded sender and receiver owners that borrow this scope.
+    channel: function<T>(
+        borrows self: tasks.Scope,
+        ...: unpackof nupp.workers.contracts.ChannelLimits(T)
+    ): (affine(Sender<T>) borrows (self), affine(Receiver<T>) borrows (self))
 
     --- Requests cancellation of every child.
     cancel: function(borrows self: tasks.Scope, reason: string?): nil
@@ -1312,6 +1326,15 @@ local forkSurface: function<F is Worker>(
     F,
     ...: unpackof nupp.workers.contracts.Submitted(F)
 ): tasks.Task<F> borrows (self)
+local workerSurface: function<F is Worker>(
+    borrows self: tasks.Scope,
+    F,
+    ...: unpackof nupp.workers.contracts.Submitted(F)
+): tasks.Task<F> borrows (self)
+local channelSurface: function<T>(
+    borrows self: tasks.Scope,
+    ...: unpackof nupp.workers.contracts.ChannelLimits(T)
+): (affine(Sender<T>) borrows (self), affine(Receiver<T>) borrows (self))
 local cancelSurface: function(borrows self: tasks.Scope, reason: string?): nil
 @unsafe do
     -- `spawnChild` is the ownership implementation boundary: the runtime stores
@@ -1325,6 +1348,8 @@ local cancelSurface: function(borrows self: tasks.Scope, reason: string?): nil
         return spawnChild(state(scope), name, body, nil)
     end as any
     forkSurface = forkImpl as any
+    workerSurface = workerImpl as any
+    channelSurface = channelImpl as any
     cancelSurface = function(scope: any, reason: string?): nil
         cancelImpl(state(scope), reason)
     end as any
@@ -1394,6 +1419,8 @@ end
 --- @raises tasks.Cancellation its cancellation, where a deadline passed
 @unsafe do
     tasks.Scope.work = forkSurface as any
+    tasks.Scope.worker = workerSurface as any
+    tasks.Scope.channel = channelSurface as any
 end
 
 --- Requests cancellation of every child, as the scope's own decision.

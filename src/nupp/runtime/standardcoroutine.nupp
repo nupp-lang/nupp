@@ -51,10 +51,10 @@ does not own its result, failure, or lifetime. A server, a loading pipeline, or
 a scene needs somewhere to put children found over time and one answer to what
 happens when the body returns, a child fails, or the whole thing is cancelled.
 
-CPU work on other threads starts through [](coroutine.Scope.work). A task scope
-is the only way to it: `work` hands a child to a lane, and the scope owns its lanes
-lazily and closes it through the suspension-aware path, so leaving the block
-inside a frame parks rather than blocking the thread.
+Pooled CPU jobs start through [](coroutine.Scope.work); dedicated services start
+through [](coroutine.Scope.worker). Both belong to a task scope. Bounded
+[](coroutine.Scope.channel) endpoints carry messages while a child runs, and
+leaving the scope joins its children through the suspension-aware path.
 
 The scheduling contract is with the host rather than with each child. The host
 sees one aggregate and decides when it runs; this decides which children run
@@ -70,6 +70,7 @@ local source1 = require("nupp.tasks")
 local suspension = require("nupp.suspension")
 local suspensionContract = require("nupp.suspension.contracts")
 local workerContract = require("nupp.workers.contracts")
+local channelTypes = require("nupp.workers.internal.channeltypes")
 local clockContract = require("nupp.runtime.contracts")
 local selectedTime = require("nupp.runtime.timeprovider").provider
 
@@ -77,7 +78,8 @@ local function missingClock(...: any): never
     error("nupp.time: no clock provider is available", 2)
 end
 
---- Describes a sendable function accepted by [](coroutine.Scope.work).
+--- Describes a sendable function accepted by [](coroutine.Scope.work) and
+--- [](coroutine.Scope.worker).
 --- The returned [](coroutine.Task) represents its running job.
 export type Worker = workerContract.Worker
 
@@ -94,6 +96,13 @@ export type Cancellation = source1.Cancellation
 export type Scope = source1.Scope
 export type Status = source1.Status
 export type Task<F> = source1.Task<F>
+
+--- Owns a channel's sending direction, bounded by the scope that created it.
+export type Sender<T> = channelTypes.Sender<T>
+
+--- Owns a channel's receiving direction, bounded by the scope that created it.
+export type Receiver<T> = channelTypes.Receiver<T>
+
 export const Cancellation = source1.Cancellation
 export const Scope = source1.Scope
 export const checkpoint = source1.checkpoint

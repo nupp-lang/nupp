@@ -1351,7 +1351,10 @@ local function schedulerSource(value: Scheduler): suspension.Source
     )
     rawset(created as any, "active", function(): boolean
         for _, lane in ipairs(value.lanes) do
-            if (lane.inflight > 0 or lane.dedicated) and not ended(lane) then
+            -- An ended dedicated lane still needs one poll to wake its joiners
+            -- and retire its resources. Ending between subscribe and park must
+            -- not make the readiness source disappear.
+            if lane.inflight > 0 or lane.dedicated then
                 return true
             end
         end

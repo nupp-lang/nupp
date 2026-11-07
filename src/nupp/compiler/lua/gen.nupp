@@ -2820,6 +2820,49 @@ export function generate(
         end
     end
 
+    -- A closed affine policy in explicit call type arguments publishes its
+    -- terminal before the enclosing statement. The type itself erases, so emitting
+    -- that assignment where the type stood would split the callee from its arguments.
+    pluck.inlineCleanupRegistrations = {}
+    pluck.inlineCleanupNodes = {}
+    do
+        local function collect(node: any, statement: any): nil
+            if cst.isToken(node) then
+                return
+            end
+            if node.cleanupRegistrations then
+                local list = pluck.inlineCleanupRegistrations[statement] or {}
+                pluck.inlineCleanupRegistrations[statement] = list
+                for _, registration in ipairs(node.cleanupRegistrations) do
+                    list[#list + 1] = registration
+                end
+                pluck.inlineCleanupNodes[node] = true
+            end
+            for _, child in ipairs(node) do
+                collect(child, statement)
+            end
+        end
+
+        local function visit(node: any, statement: any): nil
+            if cst.isToken(node) then
+                return
+            end
+            if COVERAGE_STATEMENTS[node.kind] or node.kind == "localFuncStmt" then
+                statement = node
+            end
+            if statement and (node.kind == "call" or node.kind == "methodCall") then
+                for _, argument in ipairs(node.typeArgs or {}) do
+                    collect(argument, statement)
+                end
+            end
+            for _, child in ipairs(node) do
+                visit(child, statement)
+            end
+        end
+
+        visit(result.root, nil)
+    end
+
     -- Emits what `slot op= value` stores, given `emitRead` emitting the slot's
     -- current value: the bitops helper applied to it when the operator has no
     -- form in LuaJIT, and the operator applied to it otherwise. The value
@@ -4761,7 +4804,13 @@ export function generate(
                     end
                 end
                 local simple = #names == 1 and #exprs == 1
-                sequence[#sequence + 1] = simple and {bindings = group} or {declaration = stat, bindings = group}
+                sequence[
+                    #sequence + 1
+                ] = {
+                    bindings = group,
+                    declaration = not simple and stat or nil,
+                    registrations = pluck.inlineCleanupRegistrations[stat]
+                }
             else
                 sequence[#sequence + 1] = {stat = stat}
                 bodyStats[#bodyStats + 1] = stat
@@ -5343,6 +5392,7 @@ export function generate(
             compilerModuleName(x.instanceExtensionModule)
         end
         local kind = x.kind
+        pluck.emitRegistrations(pluck.inlineCleanupRegistrations[x], sourceLine(x))
         local witnessGroup = pluck.witnessPlan.blocks[x]
         if witnessGroup and not witnessGroup.active then
             witnessGroup.active = true
@@ -6993,7 +7043,9 @@ export function generate(
             -- reference and must publish that function under its declaration identity.
             -- The assignment is metadata only; the affine value itself stays fully
             -- transparent and allocates nothing.
-            pluck.emitRegistrations(x.cleanupRegistrations, sourceLine(x))
+            if not pluck.inlineCleanupNodes[x] then
+                pluck.emitRegistrations(x.cleanupRegistrations, sourceLine(x))
+            end
             return
 
         elseif kind == "castExpr" then
@@ -8733,6 +8785,10 @@ export function generate(
                     end
                     e("do")
                     for _, item in ipairs(x.automaticSequence) do
+                        pluck.emitRegistrations(
+                            item.registrations,
+                            sourceLine(item.declaration or item.bindings and item.bindings[1].expr or item.stat)
+                        )
                         if item.declaration then
                             local stat = item.declaration
                             local names, exprs = stat.names or {}, stat.exprs or {}

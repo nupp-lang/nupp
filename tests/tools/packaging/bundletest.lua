@@ -2149,6 +2149,59 @@ local channels = require("nupp.runtime.provider.channels") as any
 local provider = require("nupp.runtime.workersprovider").provider as any
 local native = require("nupp.workers.native") as any
 local time = require("coroutine")
+local ffi = require("ffi")
+ffi.cdef("int usleep(unsigned int usec);")
+
+-- The public API preserves both endpoint owners and the child's scope loan.
+for _ = 1, 3 do
+    local scope = coroutine.scope()
+    local commands, requests = scope:channel<integer>(2, 64)
+    local replies, events = scope:channel<integer>(1, 64)
+    local child = scope:worker(requests, replies, jobs.service)
+    for index = 1, 100 do
+        commands:send(index)
+        local kind, value = events:receive()
+        assert(kind == "value" and value == index * index)
+    end
+    commands:close()
+    events:close()
+    assert(child:await() == 100)
+    -- Let the thread end without polling: scope cleanup must still drive its join.
+    ffi.C.usleep(2000)
+end
+
+do
+    local scope = coroutine.scope()
+    local sender, receiver = scope:channel<integer>(1, 64)
+    local child = scope:spawn(function(): nil takes(sender)
+        local output = sender
+        output:send(17)
+    end)
+    local kind, value = receiver:receive()
+    assert(kind == "value" and value == 17)
+    child:await()
+end
+
+do
+    local scope = coroutine.scope()
+    local sender, receiver = scope:channel<affine(table.Array<uint8>, table.Array.destroy)>(1, 64)
+    local first = table.Array.alloc(ffi.typeof<uint8>(), 4)
+    sender:send(first)
+    local second = table.Array.alloc(ffi.typeof<uint8>(), 4)
+    local status, returned = sender:trysend(second)
+    assert(status == "full")
+    if status ~= "sent" then
+        assert(returned.count == 4)
+        own.drop(returned)
+    end
+    local kind, arrived = receiver:receive()
+    if kind == "value" then
+        assert(arrived.count == 4)
+        own.drop(arrived)
+    else
+        error("the accepted array was lost")
+    end
+end
 
 for _ = 1, 3 do
     local services = provider.openscope(nil, nil)
