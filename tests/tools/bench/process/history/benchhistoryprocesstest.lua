@@ -5,6 +5,7 @@ local HERE = fixture.HERE
 local NUPP = fixture.NUPP
 local TIMEOUT_MS = fixture.TIMEOUT_MS
 local read = fixture.read
+local benchmarkProgram = fixture.benchmarkProgram
 local workspace = fixture.workspace
 local inWorkspace = fixture.inWorkspace
 
@@ -15,7 +16,7 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
     local history = working .. "/history.jsonl"
     local stdout = working .. "/stdout.txt"
     local profiles = working .. "/profiles"
-    local fixture = HERE .. "/fixtures/bench_suite.nupp"
+    local fixture = benchmarkProgram("bench_suite")
     local simpleFixture = HERE .. "/fixtures/bench_protocol.nupp"
 
     local ran = os.execute(

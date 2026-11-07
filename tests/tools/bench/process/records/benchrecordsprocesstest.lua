@@ -5,6 +5,7 @@ local HERE = fixture.HERE
 local NUPP = fixture.NUPP
 local TIMEOUT_MS = fixture.TIMEOUT_MS
 local read = fixture.read
+local benchmarkProgram = fixture.benchmarkProgram
 local workspace = fixture.workspace
 local inWorkspace = fixture.inWorkspace
 local evidence = fixture.evidence
@@ -12,12 +13,12 @@ local evidence = fixture.evidence
 local M = {}
 
 function M.comparisonRecordsRetainBothSidesAndVerdicts()
-    local working = workspace()
+    local working = workspace(true)
     local stdout, history, baseline = working
         .. "/stdout.json", working
         .. "/history.jsonl", working
         .. "/baseline.json"
-    local fixture = HERE .. "/fixtures/bench_fixed_records.nupp"
+    local fixture = benchmarkProgram("bench_fixed_records")
 
     local function run(extra)
         local command = (

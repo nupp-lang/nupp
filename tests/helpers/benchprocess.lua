@@ -54,12 +54,12 @@ local function jsonLines(path)
     return values
 end
 
-local function workspace()
+local function workspace(precompiled)
     local directory = os.tmpname()
     os.remove(directory)
     testAssert.eq(os.execute(("mkdir -p %q"):format(directory)), 0, "create isolated benchmark workspace")
     local manifest = assert(io.open(directory .. "/nupp.lua", "wb"))
-    manifest:write(("return {include = {%q}}\n"):format(NUPP_SRC))
+    manifest:write(("return {include = {%q}}\n"):format(precompiled and "." or NUPP_SRC))
     manifest:close()
 
     return directory
@@ -98,6 +98,103 @@ local function evidence(text)
     return canonical(value)
 end
 
+-- Process orchestration reuses a compiled program. Source compilation remains
+-- covered by the standalone protocol tests; every fork still executes its work.
+local programIdentity
+
+local function benchmarkProgram(name)
+    local fingerprint = require("nupp.compiler.project.fingerprint")
+    local digest = require("nupp.compiler.hostservices").hash.digest
+    if not programIdentity then
+        local root = assert(HERE:match("^(.*)/[^/]+$"))
+        local env = require("nupp.compiler.project.env")
+        local sources = env.listSourceFiles(env.new(root))
+        assert(#sources > 100, "benchmark fixture key must cover the real project sources")
+        table.sort(sources)
+        local parts = {
+            "benchmark-program-v1",
+            fingerprint.graphFingerprint(digest),
+            digest(read(root .. "/scripts/toolchain.pins")),
+            digest(read(HERE .. "/helpers/benchprocess.lua")),
+            digest(read(NUPP)),
+            _VERSION,
+            jit and (jit.version .. jit.os .. jit.arch) or "native",
+        }
+        for _, path in ipairs(sources) do
+            parts[#parts + 1] = path .. "\0" .. digest(read(path))
+        end
+        for _, variable in ipairs({"NUPP_VM_BINARY", "NUPP_VM_CLI_IMAGE", "NUPP_NATIVE_LIBRARY"}) do
+            local path = os.getenv(variable)
+            if path and path ~= "" then
+                parts[#parts + 1] = digest(read(path))
+            end
+        end
+        local host = rawget(_G, "__NUPP_EXECUTABLE")
+        if host then
+            parts[#parts + 1] = digest(read(host))
+        end
+        local pipe = assert(io.popen("env -0"))
+        local environment = pipe:read("*a")
+        pipe:close()
+        local values = {}
+        for value in environment:gmatch("[^%z]+") do
+            -- Content-validated compiler stores do not change the artifact.
+            if not value:match("^NUPP_CACHE_DIR=") then
+                values[#values + 1] = value
+            end
+        end
+        table.sort(values)
+        parts[#parts + 1] = table.concat(values, "\0")
+        programIdentity = digest(table.concat(parts, "\0"))
+    end
+    local source = read(HERE .. "/fixtures/" .. name .. ".nupp")
+    local key = "benchmark-program-" .. digest(programIdentity .. "\0" .. name .. "\0" .. source)
+    local directory, artifact, reused = testAssert.suite.fixture(key, function(directory)
+        assert(os.execute(("mkdir -p %q"):format(directory .. "/src")) == 0)
+        local file = assert(io.open(directory .. "/src/" .. name .. ".nupp", "wb"))
+        file:write(source)
+        file:close()
+        file = assert(io.open(directory .. "/nupp.lua", "wb"))
+        file:write(
+            (
+                [[return {include = {"src", %q}, build = {default = "app", targets = {
+app = {kind = "modules", entries = {%q}, sources = {%q}, outDir = "out", optimize = 1}
+}}}]]
+            ):format(NUPP_SRC, name, "src/" .. name .. ".nupp")
+        )
+        file:close()
+        testAssert.eq(require("nupp.tools.build.project").build(directory), 0, "build the shared benchmark program")
+        -- Register the built modules before `nupp run`'s source loader. Native
+        -- libraries remain beside them in the ordinary module output tree.
+        local loader = {
+            [[local source = debug.getinfo(1, "S").source:gsub("\\", "/")
+local root = assert(source:match("^@(.*)/[^/]+$"))
+package.path = root .. "/?.lua;" .. root .. "/?/init.lua;" .. package.path
+]]
+        }
+        for _, path in ipairs(require("nupp.compiler.fs").listFiles(directory .. "/out")) do
+            local relative = path:sub(#directory + #"/out/" + 1)
+            if relative:match("%.lua$") then
+                local module = relative:gsub("%.lua$", ""):gsub("/init$", ""):gsub("/", ".")
+                loader[
+                    #loader + 1
+                ] = (
+                    "if package.loaded[%q] == nil then package.preload[%q] = assert(loadfile(root .. %q)) end\n"
+                ):format(module, module, "/" .. relative)
+            end
+        end
+        loader[#loader + 1] = ("assert(loadfile(root .. %q))()\n"):format("/" .. name .. ".lua")
+        file = assert(io.open(directory .. "/out/benchmark.lua", "wb"))
+        file:write(table.concat(loader))
+        file:close()
+
+        return "out/benchmark.lua"
+    end)
+    testAssert.suite.work("benchmark.program.builds", reused and 0 or 1)
+
+    return require("nupp.compiler.fs").absolute(directory .. "/" .. artifact)
+end
+
 return {
     testAssert = testAssert,
     json = json,
@@ -108,6 +205,7 @@ return {
     read = read,
     jsonLines = jsonLines,
     workspace = workspace,
+    benchmarkProgram = benchmarkProgram,
     inWorkspace = inWorkspace,
     evidence = evidence,
 }

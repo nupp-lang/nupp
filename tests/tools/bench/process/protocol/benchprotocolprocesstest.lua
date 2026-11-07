@@ -5,6 +5,7 @@ local HERE = fixture.HERE
 local NUPP = fixture.NUPP
 local read = fixture.read
 local jsonLines = fixture.jsonLines
+local benchmarkProgram = fixture.benchmarkProgram
 local workspace = fixture.workspace
 local inWorkspace = fixture.inWorkspace
 
@@ -16,6 +17,7 @@ function M.caseListingIsSeparateFromApplicationOutputAndRunnerNIsFixed()
     local stdout = working .. "/stdout.txt"
     local recordOut = working .. "/record.json"
     local fixture = HERE .. "/fixtures/bench_protocol.nupp"
+    local program = benchmarkProgram("bench_protocol")
 
     local listed = os.execute(
         inWorkspace(working, ("%q run -O1 %q --list-cases --cases-out %q > %q"):format(NUPP, fixture, casesOut, stdout))
@@ -29,7 +31,7 @@ function M.caseListingIsSeparateFromApplicationOutputAndRunnerNIsFixed()
     local ran = os.execute(
         inWorkspace(
             working,
-            ("%q run -O1 %q --case protocol --n 3 --out %q > %q"):format(NUPP, fixture, recordOut, stdout)
+            ("%q run -O1 %q --case protocol --n 3 --out %q > %q"):format(NUPP, program, recordOut, stdout)
         )
     )
     testAssert.eq(ran, 0, "the selected case exits successfully")
@@ -83,7 +85,7 @@ function M.caseListingIsSeparateFromApplicationOutputAndRunnerNIsFixed()
                 working,
                 (
                     "%q run -O1 %q --case protocol --n 3 --baseline %q --out %q --quiet > %q"
-                ):format(NUPP, fixture, baseline, recordOut, stdout)
+                ):format(NUPP, program, baseline, recordOut, stdout)
             )
         )
         testAssert.eq(status, 0, "standalone baseline schema " .. schema .. " reads")

@@ -13,6 +13,10 @@
 -- run, because "the step passed" and "the step ran no test" look identical in a
 -- log and only one of them is a result.
 local groups = {
+    project = {"project*test"},
+    derive = {"derive*test"},
+    template = {"template*test"},
+    bundle = {"bundle*test"},
     -- Reaches Windows-specific process, path and loader behaviour. Run before
     -- the broad suite on that platform so a loader failure names the last case
     -- instead of arriving twenty minutes later as unrun shards.
@@ -412,6 +416,44 @@ scopes.evalstest = "integration"
 scopes.evalcatalogtest = "integration"
 
 scopes.evalfilesystemtest = "integration"
+
+scopes.projectprocessbinarytest = "integration"
+
+scopes.projectbinarytest = "integration"
+
+scopes.projectmaterializationtest = "integration"
+
+scopes.projectlayoutcachetest = "integration"
+
+scopes.projectaotlinktest = "integration"
+
+scopes.projectaottest = "integration"
+
+scopes.projectcrosstest = "integration"
+
+scopes.projectcrossrefusaltest = "integration"
+
+scopes.contractprojecttest = "component"
+
+scopes.projectbundlelayouttest = "integration"
+
+scopes.projectprocessbinarytest = "integration"
+
+scopes.projectbinaryfilesystemtest = "integration"
+
+scopes.projectbinarytest = "integration"
+
+scopes.projectlayoutcachetest = "integration"
+
+scopes.projectexportedlayouttest = "integration"
+
+scopes.projectcrosstest = "integration"
+
+scopes.projectcrosscontracttest = "integration"
+
+scopes.projectcrossaggregatetest = "integration"
+
+scopes.serdedebugcontracttest = "integration"
 
 return groups, {
     scopes = scopes,

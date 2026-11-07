@@ -4,6 +4,7 @@ local HERE = fixture.HERE
 local NUPP = fixture.NUPP
 local TIMEOUT_MS = fixture.TIMEOUT_MS
 local read = fixture.read
+local benchmarkProgram = fixture.benchmarkProgram
 local workspace = fixture.workspace
 local inWorkspace = fixture.inWorkspace
 
@@ -19,9 +20,9 @@ local M = {}
 -- dimension is asserted on its own rather than in combination, where another
 -- dimension's filtering can cover for it.
 function M.eachSelectorNarrowsOnItsOwn()
-    local working = workspace()
+    local working = workspace(true)
     local stdout = working .. "/stdout.txt"
-    local fixture = HERE .. "/fixtures/bench_suite.nupp"
+    local fixture = benchmarkProgram("bench_suite")
 
     local function listed(...)
         local flags = table.concat({...}, " ")

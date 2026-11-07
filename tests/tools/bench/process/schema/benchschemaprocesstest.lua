@@ -5,6 +5,7 @@ local HERE = fixture.HERE
 local NUPP = fixture.NUPP
 local TIMEOUT_MS = fixture.TIMEOUT_MS
 local read = fixture.read
+local benchmarkProgram = fixture.benchmarkProgram
 local workspace = fixture.workspace
 local inWorkspace = fixture.inWorkspace
 
@@ -16,9 +17,9 @@ local M = {}
 -- schema this version does not read is refused, naming both, rather than decoding
 -- as a baseline that matches nothing and passes.
 function M.aBaselineSchemaIsCheckedWhereItIsRead()
-    local working = workspace()
+    local working = workspace(true)
     local stdout, stderr, baseline = working .. "/stdout.json", working .. "/stderr.txt", working .. "/baseline.json"
-    local fixture = HERE .. "/fixtures/bench_fixed_records.nupp"
+    local fixture = benchmarkProgram("bench_fixed_records")
 
     local function run(extra)
         local command = (
@@ -50,7 +51,7 @@ function M.aBaselineSchemaIsCheckedWhereItIsRead()
     end
 
     local compared = ("--case '^fixed$' --forks 12 --baseline %q --margin 5"):format(baseline)
-    testAssert.eq(run("--case '^fixed$' --forks 12"), 0, "the baseline run succeeds")
+    testAssert.eq(run("--case '^fixed$' --forks 12"), 0, "the baseline run succeeds:\n" .. read(stderr))
     local current = json.decode(read(stdout))
     testAssert.eq(current.schema, 4, "a record is written at schema 4")
 

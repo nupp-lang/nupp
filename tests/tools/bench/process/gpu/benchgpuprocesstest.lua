@@ -5,15 +5,16 @@ local HERE = fixture.HERE
 local NUPP = fixture.NUPP
 local TIMEOUT_MS = fixture.TIMEOUT_MS
 local read = fixture.read
+local benchmarkProgram = fixture.benchmarkProgram
 local workspace = fixture.workspace
 local inWorkspace = fixture.inWorkspace
 
 local M = {}
 
 function M.gpuCostFilesAreUniqueAcrossForksAndCandidates()
-    local working = workspace()
+    local working = workspace(true)
     local directory, stdout = working .. "/gpu-costs", working .. "/stdout.json"
-    local fixture = HERE .. "/fixtures/bench_fixed_records.nupp"
+    local fixture = benchmarkProgram("bench_fixed_records")
     local command = (
         "%q bench --timeout-ms "
         .. TIMEOUT_MS

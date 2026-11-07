@@ -5,6 +5,7 @@ local HERE = fixture.HERE
 local NUPP = fixture.NUPP
 local TIMEOUT_MS = fixture.TIMEOUT_MS
 local read = fixture.read
+local benchmarkProgram = fixture.benchmarkProgram
 local workspace = fixture.workspace
 local inWorkspace = fixture.inWorkspace
 
@@ -15,9 +16,9 @@ local M = {}
 -- of a case counted the same work, and that the permutation actually changes between
 -- rounds rather than being shuffled once and reused.
 function M.replicatedRunKeepsEveryForkAndFixesTheWorkAcrossThem()
-    local working = workspace()
+    local working = workspace(true)
     local stdout = working .. "/stdout.json"
-    local fixture = HERE .. "/fixtures/bench_protocol.nupp"
+    local fixture = benchmarkProgram("bench_protocol")
 
     local ran = os.execute(
         inWorkspace(

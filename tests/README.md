@@ -5,6 +5,7 @@ file stem from the repository root:
 
 ```sh
 ./bin/nupp test doctest
+./bin/nupp test --group=project
 ./bin/nupp test --lane=shared
 ./bin/nupp test --list-suites
 ```
@@ -22,6 +23,10 @@ The directory names describe what a test exercises:
 
 Keep fixtures used by one subject under that subject. Existing harnesses keep
 their scripts and inputs together under `integration/`.
+
+The `project`, `derive`, `template`, and `bundle` groups select related packages.
+Shared helpers contain setup and fixture production; each package keeps its own
+cases so editing one behavior does not change every package.
 
 ## Discovery
 

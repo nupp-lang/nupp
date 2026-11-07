@@ -5,6 +5,7 @@ local HERE = fixture.HERE
 local NUPP = fixture.NUPP
 local read = fixture.read
 local jsonLines = fixture.jsonLines
+local benchmarkProgram = fixture.benchmarkProgram
 local workspace = fixture.workspace
 local inWorkspace = fixture.inWorkspace
 
@@ -17,6 +18,7 @@ function M.suitesExpandParametersAndRequireOneSelectedPair()
     local stderr = working .. "/stderr.txt"
     local recordOut = working .. "/record.json"
     local fixture = HERE .. "/fixtures/bench_suite.nupp"
+    local program = benchmarkProgram("bench_suite")
 
     local listed = os.execute(
         inWorkspace(working, ("%q run -O1 %q --list-cases --cases-out %q > %q"):format(NUPP, fixture, casesOut, stdout))
@@ -45,7 +47,7 @@ function M.suitesExpandParametersAndRequireOneSelectedPair()
     testAssert.eq(listing[2].variant, "other", "the listing identifies its variant")
     testAssert.eq(listing[4].parameters.size, 2, "the listing carries structured parameters")
 
-    local unsafe = os.execute(inWorkspace(working, ("%q run -O1 %q > %q 2> %q"):format(NUPP, fixture, stdout, stderr)))
+    local unsafe = os.execute(inWorkspace(working, ("%q run -O1 %q > %q 2> %q"):format(NUPP, program, stdout, stderr)))
     assert(unsafe ~= 0, "a direct multi-benchmark run fails")
     assert(
         read(stderr):find("defines more than one benchmark", 1, true) ~= nil,
@@ -54,7 +56,7 @@ function M.suitesExpandParametersAndRequireOneSelectedPair()
 
     local selected = "protocol.work.other:size=2"
     local ran = os.execute(
-        inWorkspace(working, ("%q run -O1 %q --case %q --out %q --quiet"):format(NUPP, fixture, selected, recordOut))
+        inWorkspace(working, ("%q run -O1 %q --case %q --out %q --quiet"):format(NUPP, program, selected, recordOut))
     )
     testAssert.eq(ran, 0, "the selected suite pair exits successfully")
     local record = json.decode(read(recordOut))

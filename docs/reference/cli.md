@@ -1617,6 +1617,7 @@ The bundled runner accepts suite names, `--json`, `--verbose`, `--jobs=N`,
 repeated `--group=NAME`, `--exclude=SUITE`, `--exclude-group=NAME`, one of
 `--lane=shared|shell|isolated`, `--list-suites`, `--list-cases`,
 `--list-groups`, `--case=SUITE/CASE`, `--rerun=REPORT`, and
+`--scope=unit|component|integration|delivery|all`, `--fresh`, `--audit`, and
 `--timings[=N]`. Those remain forwarded arguments rather than fields of this
 command because a project may configure a different test executable.
 

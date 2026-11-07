@@ -2411,6 +2411,9 @@ end
 -- new suite reaches one. Shell calls instead choose reusable process workers:
 -- several suites share each worker, and a failed case does not end its queue.
 local PROCESS_ISOLATED = {
+    -- Debug type witnesses and schema extensions need a fresh runtime context.
+    serdedebugcontracttest = true,
+    contractprojecttest = true,
     evalfilesystemtest = true,
     evalcatalogtest = true,
     evalsemanticstest = true,
@@ -2518,6 +2521,15 @@ local processCalls = {
 
 local shellCalls = {"os.execute", "io.popen",}
 local SHELLING = {
+    projectcrossaggregatetest = true,
+    projectcrosscontracttest = true,
+    projectexportedlayouttest = true,
+    projectbinaryfilesystemtest = true,
+    projectbundlelayouttest = true,
+    projectcrossrefusaltest = true,
+    projectaotlinktest = true,
+    projectlayoutcachetest = true,
+    projectprocessbinarytest = true,
     buildprogresstest = true,
     buildprogressspecializationtest = true,
     buildprogressclitest = true,
