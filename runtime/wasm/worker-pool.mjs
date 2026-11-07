@@ -9,6 +9,8 @@
 // The pool belongs to the running application rather than to one scope, so short
 // repeated scopes reuse booted lanes instead of paying a Wasm instantiation each.
 
+import {endpointTransfers} from './channel-host.mjs';
+
 const DEFAULT_MAX_LANES = 8;
 const LANE_ENTRY_MODULE = "nupp.workers";
 
@@ -25,7 +27,7 @@ function laneCount(maxLanes) {
 // refetches the manifest by URL and refuses one with another digest, so a deploy
 // between page load and lane start cannot pair two builds.
 export function createWorkerPool({laneUrl, manifestUrl, manifestDigest, maxLanes, limits, WorkerClass,
-  requestPersistentStorage}) {
+  requestPersistentStorage, maxDedicated = 64, channels}) {
   if (typeof manifestDigest !== "string" || !/^[0-9a-f]{64}$/.test(manifestDigest)) {
     throw new Error("a browser worker pool needs the manifest digest its page verified");
   }
@@ -33,7 +35,11 @@ export function createWorkerPool({laneUrl, manifestUrl, manifestDigest, maxLanes
   if (typeof Worker !== "function") {
     throw new Error("Web Workers are unavailable, so this host cannot run Nupp worker tasks");
   }
+  if (!Number.isSafeInteger(maxDedicated) || maxDedicated < 1) {
+    throw new Error("the dedicated worker limit must be a positive safe integer");
+  }
   const lanes = [];
+  const dedicated = new Set();
   const capacity = laneCount(maxLanes);
   const tasks = new Map();
   const queue = [];
@@ -61,17 +67,35 @@ export function createWorkerPool({laneUrl, manifestUrl, manifestDigest, maxLanes
     for (const resolve of waiting) resolve(result);
   };
 
-  const laneFailure = (lane, reason) => {
+  const revokeEndpoints = task => {
+    channels?.discard(task.endpoints);
+    for (const token of task.endpointTokens || []) channels?.revoke(token);
+    task.endpoints = [];
+  };
+
+  const laneFailure = (lane, reason, channelsClosed = false) => {
+    if (lane.failed) return;
+    lane.failed = reason;
     const running = lane.task;
+    if (running && !channelsClosed) revokeEndpoints(running);
     lane.task = undefined;
     lane.worker.terminate();
-    const at = lanes.indexOf(lane);
-    if (at >= 0) lanes.splice(at, 1);
+    if (lane.dedicated) dedicated.delete(lane);
+    else {
+      const at = lanes.indexOf(lane);
+      if (at >= 0) lanes.splice(at, 1);
+    }
     if (running) settle(running, {status: "failed", error: reason});
-    dispatch();
+    if (!lane.opening) dispatch();
   };
 
   const laneMessage = (lane, message) => {
+    if (lane.failed) return;
+    if (message?.type === 'ready') {
+      lane.ready = true;
+      if (lane.task) postAssigned(lane, lane.task);
+      return;
+    }
     if (message?.type === "persistent-storage-request") {
       Promise.resolve(requestPersistentStorage?.()).then(
         (granted) => lane.worker.postMessage({
@@ -89,7 +113,7 @@ export function createWorkerPool({laneUrl, manifestUrl, manifestDigest, maxLanes
       return;
     }
     if (message?.type === "failed") {
-      laneFailure(lane, `nupp: a worker lane could not start: ${message.error}`);
+      laneFailure(lane, `nupp: a worker lane could not start: ${message.error}`, message.channelsClosed === true);
       return;
     }
     if (message?.type !== "reply" || !Number.isSafeInteger(message.id)) return;
@@ -107,12 +131,16 @@ export function createWorkerPool({laneUrl, manifestUrl, manifestDigest, maxLanes
           ? {status: "failed", error: message.error}
           : {status: "failed", error: "nupp: a worker lane returned an invalid task reply"};
     settle(task, result);
+    if (lane.dedicated) {
+      dedicated.delete(lane);
+      lane.worker.terminate();
+    }
     dispatch();
   };
 
-  const openLane = () => {
+  const openLane = (isDedicated = false) => {
     const worker = new Worker(laneUrl, {type: "module"});
-    const lane = {worker, task: undefined};
+    const lane = {worker, task: undefined, dedicated: isDedicated, ready: false, opening: true};
     worker.addEventListener("message", (event) => laneMessage(lane, event.data));
     worker.addEventListener("error", (event) => laneFailure(
       lane, `nupp: a worker lane ended before answering a task: ${event.message || event.type}`,
@@ -120,28 +148,58 @@ export function createWorkerPool({laneUrl, manifestUrl, manifestDigest, maxLanes
     worker.addEventListener("messageerror", () => laneFailure(
       lane, "nupp: a worker lane could not decode a task",
     ));
-    worker.postMessage({
-      type: "boot", manifestUrl, manifestDigest, entry: LANE_ENTRY_MODULE, limits,
-      ...(typeof requestPersistentStorage === "function" ? {persistentStorageAvailable: true} : {}),
-    });
-    lanes.push(lane);
+    try {
+      worker.postMessage({
+        type: "boot", manifestUrl, manifestDigest, entry: LANE_ENTRY_MODULE, limits,
+        clockOrigin: performance.timeOrigin,
+        ...(typeof requestPersistentStorage === "function" ? {persistentStorageAvailable: true} : {}),
+      });
+    } catch (error) {
+      worker.terminate();
+      throw error;
+    }
+    lane.opening = false;
+    if (lane.failed) throw new Error(lane.failed);
+    if (isDedicated) dedicated.add(lane);
+    else lanes.push(lane);
 
     return lane;
+  };
+
+  const postAssigned = (lane, task) => {
+    lane.worker.postMessage({
+      type: "task",
+      task: {id: task.id, module: task.module, member: task.member, payload: task.payload,
+        endpointArguments: task.endpointArguments},
+      endpoints: task.endpoints,
+    }, endpointTransfers(task.endpoints || []));
+    task.endpointTokens = task.endpoints.map(item => item.token);
+    task.endpoints = [];
+  };
+
+  const assignLane = (lane, task) => {
+    lane.task = task;
+    task.lane = lane;
+    if (lane.ready) postAssigned(lane, task);
   };
 
   function dispatch() {
     while (queue.length > 0 && !closed) {
       let lane = lanes.find((candidate) => candidate.task === undefined);
-      if (!lane && lanes.length < capacity) lane = openLane();
+      if (!lane && lanes.length < capacity) {
+        try { lane = openLane(); }
+        catch (error) {
+          const task = queue.shift();
+          revokeEndpoints(task);
+          settle(task, {status: 'failed', error: String(error?.message || error)});
+          continue;
+        }
+      }
       if (!lane) return;
       const task = queue.shift();
       if (task.settled) continue;
-      lane.task = task;
-      task.lane = lane;
-      lane.worker.postMessage({
-        type: "task",
-        task: {id: task.id, module: task.module, member: task.member, payload: task.payload},
-      });
+      try { assignLane(lane, task); }
+      catch (error) { laneFailure(lane, `nupp: worker startup failed: ${error?.message || error}`); }
     }
   }
 
@@ -150,12 +208,22 @@ export function createWorkerPool({laneUrl, manifestUrl, manifestDigest, maxLanes
     task.cancelRequested = true;
     task.deadline = task.deadline || deadline === true;
     if (task.lane) {
+      if (!task.lane.ready) {
+        const lane = task.lane;
+        lane.task = undefined;
+        if (lane.dedicated) { dedicated.delete(lane); lane.worker.terminate(); }
+        revokeEndpoints(task);
+        settle(task, {status: 'cancelled', deadline: task.deadline === true});
+        dispatch();
+        return;
+      }
       task.lane.worker.postMessage({type: "cancel", id: task.id, deadline: task.deadline === true});
       return;
     }
     // Never handed to a lane, so nothing loaded or invoked its function.
     const at = queue.indexOf(task);
     if (at >= 0) queue.splice(at, 1);
+    revokeEndpoints(task);
     settle(task, {status: "cancelled", deadline: task.deadline === true});
   };
 
@@ -165,6 +233,12 @@ export function createWorkerPool({laneUrl, manifestUrl, manifestDigest, maxLanes
       throw new Error("invalid browser worker submission");
     }
     if (tasks.has(entry.task)) throw new Error("a browser worker task id was reused");
+    if (entry.dedicated !== undefined && typeof entry.dedicated !== "boolean") {
+      throw new Error("invalid browser worker execution mode");
+    }
+    if (entry.dedicated && dedicated.size >= maxDedicated) {
+      throw new Error(`nupp: dedicated worker admission limit reached (${maxDedicated})`);
+    }
     const task = {
       id: entry.task,
       module: entry.module,
@@ -177,9 +251,34 @@ export function createWorkerPool({laneUrl, manifestUrl, manifestDigest, maxLanes
       lane: undefined,
       timer: undefined,
       result: undefined,
+      endpoints: [],
     };
+    // Dedicated entries reserve their own guest before they can be accepted.
+    // They never consume a CPU lane or enter that lane pool's pending queue.
+    let lane;
+    try {
+      if (entry.endpoints?.length) {
+        if (!channels) throw new Error('channel endpoint startup is unavailable');
+        task.endpoints = channels.take(entry.endpoints.map(item => item.handle));
+        task.endpointArguments = entry.endpoints.map(item => item.argument);
+      }
+      lane = entry.dedicated ? openLane(true) : undefined;
+    } catch (error) {
+      revokeEndpoints(task);
+      throw error;
+    }
     tasks.set(task.id, task);
-    queue.push(task);
+    if (lane) {
+      try { assignLane(lane, task); }
+      catch (error) {
+        tasks.delete(task.id);
+        lane.task = undefined;
+        dedicated.delete(lane);
+        lane.worker.terminate();
+        revokeEndpoints(task);
+        throw error;
+      }
+    } else queue.push(task);
     // The scope's absolute deadline is a reading of the same monotonic clock the
     // application's own `os.monotonic` returns, because both are this Worker's.
     if (typeof entry.deadline === "number" && Number.isFinite(entry.deadline)) {
@@ -237,9 +336,12 @@ export function createWorkerPool({laneUrl, manifestUrl, manifestDigest, maxLanes
       if (closed) return;
       closed = true;
       for (const task of [...tasks.values()]) {
+        revokeEndpoints(task);
         settle(task, {status: "failed", error: "nupp: the browser worker pool closed"});
       }
       for (const lane of lanes.splice(0, lanes.length)) lane.worker.terminate();
+      for (const lane of dedicated) lane.worker.terminate();
+      dedicated.clear();
     },
   };
 }

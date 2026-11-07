@@ -1,0 +1,40 @@
+local jobs = require("nupp.tests.channeljobs")
+local workers = require("nupp.workers") as any
+local channels = require("nupp.runtime.browser.channels") as any
+local effects = require("nupp.runtime.browser.effects")
+local suspension = require("nupp.suspension")
+
+local services = workers.__scope(nil, nil)
+local commands, start = channels.create(services, 1, 64)
+local output, input = channels.create(services, 4, 128)
+local producerReady, producerStarted = channels.create(services, 1, 64)
+local consumerReady, consumerStarted = channels.create(services, 1, 64)
+local producer = services:worker(jobs.producer, start, output, producerReady)
+local consumer = services:worker(jobs.consumer, input, consumerReady)
+assert(producerStarted:receive() == "value")
+assert(consumerStarted:receive() == "value")
+producerStarted:close()
+consumerStarted:close()
+commands:send(true)
+commands:close()
+local blockStart = os.monotonic()
+suspension.suspend("page stall", function(resume: function(any)): function()
+    return effects.request("channeltest", {operation = "block"}, resume)
+end)
+assert(producer:await() == 256)
+local result = consumer:await()
+assert(result[1] == 256 and result[2] == 32896)
+services:close()
+
+-- Cancellation has a control path even when the event channel has no room.
+local cancelling = workers.__scope(nil, nil)
+local events, receive = channels.create(cancelling, 1, 64)
+local child = cancelling:worker(jobs.blocked, events)
+assert(receive:receive() == "value")
+assert(child:cancel())
+assert(not pcall(child.await, child))
+receive:close()
+cancelling:close()
+return (
+    [[{"count":256,"sum":32896,"firstAfterStart":%f,"lastAfterStart":%f,"progressAfterStart":%f,"cancelled":true}]]
+):format(result[3] - blockStart, result[4] - blockStart, result[5] - blockStart)

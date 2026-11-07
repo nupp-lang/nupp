@@ -795,6 +795,7 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {
         name = "workers",
         module = "nupp.runtime.provider.workers",
+        modules = {"nupp.runtime.provider.channels", "nupp.workers.native"},
         host = "workers",
         binary = true,
         runtimeModule = "nupp.runtime.provider.workers",

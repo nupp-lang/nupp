@@ -7,16 +7,17 @@
 //! LuaJIT state can be created and remain there for its entire lifetime; no
 //! worker ever enters its parent's Lua state.
 
+use crate::channels::{BoundedQueue, QueuePushError};
 use crate::mcode;
 use crate::sharedbytes::SharedBytes;
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use std::fmt;
 use std::marker::PhantomData;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::Rc;
-use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle, ThreadId};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub const DEFAULT_QUEUE_MESSAGES: usize = 1024;
 pub const DEFAULT_QUEUE_BYTES: usize = 256 * 1024 * 1024;
@@ -52,144 +53,6 @@ impl WorkerEvent {
 
 fn job_bytes(job: &WorkerJob) -> usize {
     job.bytes.len()
-}
-
-struct QueueState<T> {
-    entries: VecDeque<T>,
-    bytes: usize,
-    closed: bool,
-}
-
-struct BoundedQueue<T> {
-    state: Mutex<QueueState<T>>,
-    arrived: Condvar,
-    space: Condvar,
-    message_limit: usize,
-    byte_limit: usize,
-    measure: fn(&T) -> usize,
-}
-
-impl<T> BoundedQueue<T> {
-    fn new(message_limit: usize, byte_limit: usize, measure: fn(&T) -> usize) -> Self {
-        Self {
-            state: Mutex::new(QueueState {
-                entries: VecDeque::new(),
-                bytes: 0,
-                closed: false,
-            }),
-            arrived: Condvar::new(),
-            space: Condvar::new(),
-            message_limit,
-            byte_limit,
-            measure,
-        }
-    }
-
-    fn try_push(&self, value: T) -> Result<(), QueuePushError<T>> {
-        let bytes = (self.measure)(&value);
-        let mut state = lock(&self.state);
-        if state.closed {
-            return Err(QueuePushError::Closed(value));
-        }
-        if state.entries.len() >= self.message_limit
-            || state
-                .bytes
-                .checked_add(bytes)
-                .is_none_or(|sum| sum > self.byte_limit)
-        {
-            return Err(QueuePushError::Full(value));
-        }
-        state.bytes += bytes;
-        state.entries.push_back(value);
-        self.arrived.notify_one();
-        Ok(())
-    }
-
-    fn pop(&self, timeout: Option<Duration>) -> Option<T> {
-        let mut state = lock(&self.state);
-        match timeout {
-            None => {
-                while state.entries.is_empty() && !state.closed {
-                    state = self
-                        .arrived
-                        .wait(state)
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                }
-            }
-            Some(timeout) if !timeout.is_zero() => {
-                let deadline = Instant::now() + timeout;
-                while state.entries.is_empty() && !state.closed {
-                    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                        break;
-                    };
-                    let waited = self
-                        .arrived
-                        .wait_timeout(state, remaining)
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    state = waited.0;
-                    if waited.1.timed_out() {
-                        break;
-                    }
-                }
-            }
-            Some(_) => {}
-        }
-        let answer = state.entries.pop_front()?;
-        state.bytes = state.bytes.saturating_sub((self.measure)(&answer));
-        self.space.notify_one();
-        Some(answer)
-    }
-
-    fn push_wait(&self, value: T) -> Result<(), T> {
-        let bytes = (self.measure)(&value);
-        debug_assert!(bytes <= self.byte_limit);
-        let mut state = lock(&self.state);
-        while !state.closed
-            && (state.entries.len() >= self.message_limit
-                || state
-                    .bytes
-                    .checked_add(bytes)
-                    .is_none_or(|sum| sum > self.byte_limit))
-        {
-            state = self
-                .space
-                .wait(state)
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-        }
-        if state.closed {
-            return Err(value);
-        }
-        state.bytes += bytes;
-        state.entries.push_back(value);
-        self.arrived.notify_one();
-        Ok(())
-    }
-
-    fn close(&self) {
-        let mut state = lock(&self.state);
-        state.closed = true;
-        self.arrived.notify_all();
-        self.space.notify_all();
-    }
-
-    /// Closes the queue and drops what it still held.
-    fn close_and_discard(&self) {
-        let mut state = lock(&self.state);
-        state.closed = true;
-        state.entries.clear();
-        state.bytes = 0;
-        self.arrived.notify_all();
-        self.space.notify_all();
-    }
-
-    fn len(&self) -> usize {
-        lock(&self.state).entries.len()
-    }
-}
-
-enum QueuePushError<T> {
-    Closed(T),
-    Full(T),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

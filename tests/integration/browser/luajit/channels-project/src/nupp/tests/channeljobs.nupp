@@ -1,0 +1,55 @@
+module nupp.tests.channeljobs
+
+local {type Sender, type Receiver} = require("nupp.workers.internal.channeltypes")
+
+export function producer(
+    takes start: Receiver<boolean>,
+    takes output: Sender<integer>,
+    takes signal: Sender<boolean>
+): integer
+    local commands = start
+    local events = output
+    local ready = signal
+    ready:send(true)
+    ready:close()
+    assert(commands:receive() == "value")
+    for index = 1, 256 do
+        events:send(index)
+    end
+
+    return 256
+end
+
+export function consumer(takes input: Receiver<integer>, takes signal: Sender<boolean>): {number}
+    local incoming = input
+    local ready = signal
+    ready:send(true)
+    ready:close()
+    local count: integer = 0
+    local sum: integer = 0
+    local first: number = 0
+    local progress: number = 0
+    while true do
+        local kind, value = incoming:receive()
+        if kind == "closed" then
+            break
+        end
+        assert(value == count + 1)
+        count += 1
+        sum += value
+        if count == 1 then
+            first = os.monotonic()
+        elseif count == 32 then
+            progress = os.monotonic()
+        end
+    end
+
+    return {count, sum, first, os.monotonic(), progress}
+end
+
+export function blocked(takes output: Sender<integer>): nil
+    local events = output
+    while true do
+        events:send(1)
+    end
+end

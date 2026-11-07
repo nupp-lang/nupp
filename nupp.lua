@@ -175,6 +175,14 @@ local RESOURCES = {
     {source = "src/nupp/runtime/structvalue.nupp", output = "nupp/compiler/nupp/runtime/structvalue.nupp"},
     {source = "src/nupp/workers/contracts.nupp", output = "nupp/compiler/nupp/workers/contracts.nupp"},
     {source = "src/nupp/workers/internal/support.nupp", output = "nupp/compiler/nupp/workers/internal/support.nupp"},
+    {
+        source = "src/nupp/workers/internal/channeltypes.nupp",
+        output = "nupp/compiler/nupp/workers/internal/channeltypes.nupp"
+    },
+    {
+        source = "src/nupp/workers/internal/valuecodec.nupp",
+        output = "nupp/compiler/nupp/workers/internal/valuecodec.nupp"
+    },
     {source = "src/nupp/suspension/contracts.nupp", output = "nupp/compiler/nupp/suspension/contracts.nupp"},
     {source = "src/nupp/suspension/selected.nupp", output = "nupp/compiler/nupp/suspension/selected.nupp"},
     {source = "src/io/internal/fileformat.nupp", output = "nupp/compiler/io/internal/fileformat.nupp"},
@@ -190,6 +198,8 @@ local RESOURCES = {
     {source = "src/nupp/suspension/cancellation.nupp", output = "nupp/compiler/nupp/suspension/cancellation.nupp"},
     {source = "src/binary/_representation.nupp", output = "nupp/compiler/binary/_representation.nupp"},
     {source = "src/nupp/runtime/provider/workers.nupp", output = "nupp/compiler/nupp/runtime/provider/workers.nupp"},
+    {source = "src/nupp/runtime/provider/channels.nupp", output = "nupp/compiler/nupp/runtime/provider/channels.nupp"},
+    {source = "src/nupp/runtime/browser/channels.nupp", output = "nupp/compiler/nupp/runtime/browser/channels.nupp"},
     {
         source = "src/nupp/runtime/provider/suspension.nupp",
         output = "nupp/compiler/nupp/runtime/provider/suspension.nupp"
@@ -538,7 +548,6 @@ for _, resource in ipairs({
     "src/nupp/runtime/browser/host.nupp",
     "src/nupp/runtime/browser/hostwire.nupp",
     "src/nupp/runtime/browser/response.nupp",
-    "src/nupp/runtime/browser/workercodec.nupp",
     "src/nupp/runtime/browser/crypto.nupp",
     "src/nupp/runtime/browser/http.nupp",
     "src/nupp/runtime/browser/files.nupp",

@@ -8,11 +8,12 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 #![deny(clippy::undocumented_unsafe_blocks)]
 
+use crate::channels::{BoundedQueue, Endpoint, Receive, SendError};
 use crate::workers::DEFAULT_QUEUE_BYTES;
 use crate::{
     HostRuntime, SharedBytes, SharedBytesBuilder, Worker, WorkerEvent, WorkerJob, WorkerLimits,
 };
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::ffi::{c_char, c_int, c_void};
 use std::fmt::Write as _;
 use std::mem::ManuallyDrop;
@@ -20,8 +21,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::ptr;
 use std::slice;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
 const MAX_MESSAGES: usize = 1024;
@@ -73,19 +74,8 @@ impl WorkersHost {
     }
 }
 
-struct QueueState {
-    messages: VecDeque<Box<AdapterMessage>>,
-    bytes: usize,
-    closed: bool,
-}
-
 pub(crate) struct AdapterChannel {
-    queue: Mutex<QueueState>,
-    arrived: Condvar,
-    // Signalled when a pop or close makes room, for a producer that waits.
-    departed: Condvar,
-    // A worker's outbox: its one producer waits for room rather than being
-    // refused, because a refused reply is a task its parent never hears of.
+    queue: BoundedQueue<Box<AdapterMessage>>,
     waits_for_room: AtomicBool,
     dictionary: Mutex<Vec<Vec<u8>>>,
 }
@@ -93,79 +83,27 @@ pub(crate) struct AdapterChannel {
 impl AdapterChannel {
     fn new() -> Self {
         Self {
-            queue: Mutex::new(QueueState {
-                messages: VecDeque::new(),
-                bytes: 0,
-                closed: false,
-            }),
-            arrived: Condvar::new(),
-            departed: Condvar::new(),
+            queue: BoundedQueue::new(MAX_MESSAGES, MAX_BYTES, |message| message.measured_bytes()),
             waits_for_room: AtomicBool::new(false),
             dictionary: Mutex::new(Vec::new()),
         }
     }
 
-    /// Queues a message, or refuses it when the channel is closed or full. A
-    /// channel that waits for room refuses only when closed, or when even an
-    /// empty queue could not hold the message.
     fn try_push(&self, message: Box<AdapterMessage>) -> bool {
-        let measured = message.measured_bytes();
-        let mut queue = lock(&self.queue);
-        loop {
-            if queue.closed {
-                return false;
-            }
-            let fits = queue.messages.len() < MAX_MESSAGES
-                && queue
-                    .bytes
-                    .checked_add(measured)
-                    .is_some_and(|bytes| bytes <= MAX_BYTES);
-            if fits {
-                break;
-            }
-            if !self.waits_for_room.load(Ordering::Relaxed) || queue.messages.is_empty() {
-                return false;
-            }
-            queue = self
-                .departed
-                .wait(queue)
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if self.waits_for_room.load(Ordering::Relaxed) {
+            self.queue.push_wait(message).is_ok()
+        } else {
+            self.queue.try_push(message).is_ok()
         }
-        queue.bytes += measured;
-        queue.messages.push_back(message);
-        self.arrived.notify_one();
-        true
     }
 
     fn pop(&self, timeout_ms: i32) -> Option<Box<AdapterMessage>> {
-        let mut queue = lock(&self.queue);
-        if timeout_ms < 0 {
-            while queue.messages.is_empty() && !queue.closed {
-                queue = self
-                    .arrived
-                    .wait(queue)
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-            }
-        } else if timeout_ms > 0 {
-            let timeout = Duration::from_millis(timeout_ms as u64);
-            let waited = self
-                .arrived
-                .wait_timeout_while(queue, timeout, |queue| {
-                    queue.messages.is_empty() && !queue.closed
-                })
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            queue = waited.0;
-        }
-        let message = queue.messages.pop_front()?;
-        queue.bytes = queue.bytes.saturating_sub(message.measured_bytes());
-        self.departed.notify_all();
-        Some(message)
+        let timeout = (timeout_ms >= 0).then(|| Duration::from_millis(timeout_ms as u64));
+        self.queue.pop(timeout)
     }
 
     fn close(&self) {
-        lock(&self.queue).closed = true;
-        self.arrived.notify_all();
-        self.departed.notify_all();
+        self.queue.close();
     }
 }
 
@@ -181,6 +119,7 @@ pub(crate) struct AdapterAccount {
 }
 
 enum Attachment {
+    Endpoint(Box<MessageEndpoint>),
     Region {
         region: Arc<Region>,
         first: usize,
@@ -230,6 +169,28 @@ pub(crate) struct AdapterMessage {
 }
 
 impl AdapterMessage {
+    fn payload_bytes(&self) -> usize {
+        self.attachments
+            .iter()
+            .flatten()
+            .fold(self.first.len(), |bytes, attachment| {
+                bytes.saturating_add(match attachment {
+                    Attachment::Region { region, .. } => region.bytes.len(),
+                    Attachment::Moved { count, layout, .. } => {
+                        let width = match layout {
+                            1 | 2 => 1,
+                            3 | 4 => 2,
+                            5 | 6 | 9 => 4,
+                            7 | 8 | 10 => 8,
+                            _ => usize::MAX,
+                        };
+                        count.saturating_mul(width).max(1)
+                    }
+                    Attachment::Endpoint(_) => usize::MAX,
+                })
+            })
+    }
+
     fn measured_bytes(&self) -> usize {
         std::mem::size_of::<Self>()
             .saturating_add(self.first.len())
@@ -365,34 +326,43 @@ fn attachments(raw: *const RawAttachment, count: usize) -> Option<Vec<Option<Att
     answer
 }
 
-/// Every entry is checked before any becomes an owning `Attachment`, so a
-/// refusal has built nothing that frees a block on drop: the blocks are still
-/// the raw array's, and `attachments` frees each of them exactly once.
+/// Validate before taking moved storage. Endpoint generations are claimed first,
+/// so a refused capability cannot leave a partially built malloc-owner list.
 fn convert_attachments(raw: &[RawAttachment]) -> Option<Vec<Option<Attachment>>> {
     if !raw.iter().all(valid_attachment) {
         return None;
     }
-    Some(
-        raw.iter()
-            .map(|item| {
-                Some(if item.kind == 0 {
-                    let region = borrowed_arc(item.block.cast::<Region>())
-                        .expect("a validated region entry names a region");
-                    Attachment::Region {
-                        region: Arc::clone(&region),
-                        first: item.first,
-                        length: item.length,
-                    }
-                } else {
-                    Attachment::Moved {
-                        pointer: item.block,
-                        count: item.first,
-                        layout: item.length,
-                    }
-                })
-            })
-            .collect(),
-    )
+    let mut identities = HashSet::new();
+    for item in raw.iter().filter(|item| item.kind == 2) {
+        if !identities.insert(item.block) {
+            return None;
+        }
+    }
+    let mut endpoints = HashMap::new();
+    for (index, item) in raw.iter().enumerate().filter(|(_, item)| item.kind == 2) {
+        let source = borrowed_endpoint(item.block.cast::<MessageEndpoint>())?;
+        endpoints.insert(index, Box::new(source.transfer()?));
+    }
+    let mut converted = Vec::with_capacity(raw.len());
+    for (index, item) in raw.iter().enumerate() {
+        converted.push(Some(match item.kind {
+            0 => {
+                let region = borrowed_arc(item.block.cast::<Region>())?;
+                Attachment::Region {
+                    region: Arc::clone(&region),
+                    first: item.first,
+                    length: item.length,
+                }
+            }
+            2 => Attachment::Endpoint(endpoints.remove(&index)?),
+            _ => Attachment::Moved {
+                pointer: item.block,
+                count: item.first,
+                layout: item.length,
+            },
+        }));
+    }
+    Some(converted)
 }
 
 fn valid_attachment(item: &RawAttachment) -> bool {
@@ -404,6 +374,11 @@ fn valid_attachment(item: &RawAttachment) -> bool {
                 .is_some_and(|end| end <= region.bytes.len())
         }),
         1 => !item.block.is_null() && item.length >= 1,
+        2 => borrowed_endpoint(item.block.cast::<MessageEndpoint>()).is_some_and(|endpoint| {
+            endpoint.is_live()
+                && item.first == usize::from(endpoint.is_sender())
+                && item.length == 0
+        }),
         _ => false,
     }
 }
@@ -437,7 +412,7 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_count(
 ) -> usize {
     ffi_value(0, || {
         borrowed_arc(channel)
-            .map(|channel| lock(&channel.queue).messages.len())
+            .map(|channel| channel.queue.len())
             .unwrap_or(0)
     })
 }
@@ -447,7 +422,7 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_channel_closed(
 ) -> c_int {
     ffi_value(1, || {
         borrowed_arc(channel)
-            .is_none_or(|channel| lock(&channel.queue).closed)
+            .is_none_or(|channel| channel.queue.is_closed())
             .into()
     })
 }
@@ -599,6 +574,13 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_message_take_attachment(
         };
         let attachment = ManuallyDrop::new(attachment);
         let raw = match &*attachment {
+            Attachment::Endpoint(endpoint) => RawAttachment {
+                kind: 2,
+                first: usize::from(endpoint.is_sender()),
+                length: 0,
+                // SAFETY: ManuallyDrop transfers the unique endpoint to its registry owner.
+                block: register_endpoint(*unsafe { ptr::read(endpoint) }).cast(),
+            },
             Attachment::Region {
                 region,
                 first,
@@ -635,7 +617,11 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_message_take_attachment(
 }
 
 fn release_raw_attachment(raw: RawAttachment) {
-    if raw.kind == 0 {
+    if raw.kind == 2 {
+        if !raw.block.is_null() {
+            discard_endpoint(raw.block.cast::<MessageEndpoint>());
+        }
+    } else if raw.kind == 0 {
         if !raw.block.is_null() {
             // SAFETY: a region raw attachment carries exactly one Arc strong
             // owner transferred from `message_take_attachment`.
@@ -1036,7 +1022,10 @@ pub(crate) unsafe extern "C" fn nupp_rust_worker_spawn(
                         .run_buffer(job.bytes.as_slice(), "=nupp-worker", &[])
                         .map(|()| SharedBytes::default())
                         .map_err(|problem| problem.to_string());
-                    thread_inbox.close();
+                    // No entry can consume more input after the guest stops.
+                    // Release queued moved owners and endpoint directions here,
+                    // independently of when the parent observes the failure.
+                    thread_inbox.queue.close_and_discard();
                     thread_outbox.close();
                     answer
                 })
@@ -1300,6 +1289,322 @@ pub(crate) extern "C" fn nupp_rust_worker_parallelism() -> usize {
     })
 }
 
+// Application endpoints are generation-checked capabilities. Lua userdata holds
+// an authenticated registry key rather than a queue or allocation address.
+type MessageEndpoint = Endpoint<Box<AdapterMessage>>;
+
+fn pending_messages() -> &'static Mutex<HashMap<usize, Box<AdapterMessage>>> {
+    static PENDING: OnceLock<Mutex<HashMap<usize, Box<AdapterMessage>>>> = OnceLock::new();
+    PENDING.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn take_pending(key: usize) -> Option<Box<AdapterMessage>> {
+    let mut pending = lock(pending_messages());
+    let value = pending.remove(&key);
+    if pending.is_empty() {
+        pending.shrink_to_fit();
+    }
+    value
+}
+
+unsafe extern "C" fn pending_prepare(
+    data: *const u8,
+    length: usize,
+    raw: *const RawAttachment,
+    count: usize,
+) -> usize {
+    ffi_value(0, || {
+        // SAFETY: the shim keeps its string and attachment array live for this call.
+        let Some(data) = (unsafe { bytes(data, length) }) else {
+            return 0;
+        };
+        let Some(attachments) = attachments(raw, count) else {
+            return 0;
+        };
+        if attachments
+            .iter()
+            .flatten()
+            .any(|item| matches!(item, Attachment::Endpoint(_)))
+        {
+            return 0;
+        }
+        static NEXT: AtomicUsize = AtomicUsize::new(1);
+        let Ok(key) = NEXT.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |key| {
+            key.checked_add(1)
+        }) else {
+            return 0;
+        };
+        lock(pending_messages()).insert(
+            key,
+            Box::new(AdapterMessage {
+                kind: 0,
+                id: 0,
+                number: 0.0,
+                first: data.to_vec(),
+                second: vec![],
+                value: vec![],
+                attachments,
+            }),
+        );
+        key
+    })
+}
+
+unsafe extern "C" fn pending_release(key: usize) -> c_int {
+    ffi_value(0, || i32::from(take_pending(key).is_some()))
+}
+
+unsafe extern "C" fn pending_take(key: usize) -> *mut AdapterMessage {
+    ffi_value(ptr::null_mut(), || {
+        take_pending(key).map_or(ptr::null_mut(), Box::into_raw)
+    })
+}
+
+unsafe extern "C" fn pending_size(key: usize) -> usize {
+    ffi_value(usize::MAX, || {
+        lock(pending_messages())
+            .get(&key)
+            .map_or(usize::MAX, |message| message.payload_bytes())
+    })
+}
+
+unsafe extern "C" fn pending_offer(endpoint: *const MessageEndpoint, key: usize) -> c_int {
+    ffi_value(4, || {
+        let Some(endpoint) = borrowed_endpoint(endpoint) else {
+            return 4;
+        };
+        let Some(message) = take_pending(key) else {
+            return 4;
+        };
+        let (status, returned) = match endpoint.try_send(message) {
+            Ok(()) => return 0,
+            Err(SendError::Full(value)) => (1, value),
+            Err(SendError::Closed(value)) => (2, value),
+            Err(SendError::Oversized(value)) => (3, value),
+            Err(SendError::Invalid(value)) => (4, value),
+        };
+        lock(pending_messages()).insert(key, returned);
+        status
+    })
+}
+
+// Userdata stores an opaque, never-reused key. Validate it before touching Rust
+// storage even if a dynamic caller forges another userdata's metatable.
+fn endpoint_handles() -> &'static Mutex<HashMap<usize, Arc<MessageEndpoint>>> {
+    static HANDLES: OnceLock<Mutex<HashMap<usize, Arc<MessageEndpoint>>>> = OnceLock::new();
+    HANDLES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn register_endpoint(endpoint: MessageEndpoint) -> *mut MessageEndpoint {
+    register_endpoint_shared(Arc::new(endpoint))
+}
+
+fn register_endpoint_shared(endpoint: Arc<MessageEndpoint>) -> *mut MessageEndpoint {
+    static NEXT: AtomicUsize = AtomicUsize::new(1);
+    let Ok(key) = NEXT.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+        value.checked_add(1)
+    }) else {
+        return ptr::null_mut();
+    };
+    lock(endpoint_handles()).insert(key, endpoint);
+    key as *mut MessageEndpoint
+}
+
+fn borrowed_endpoint(handle: *const MessageEndpoint) -> Option<Arc<MessageEndpoint>> {
+    lock(endpoint_handles()).get(&(handle as usize)).cloned()
+}
+
+fn discard_endpoint(handle: *const MessageEndpoint) {
+    let endpoint = {
+        let mut handles = lock(endpoint_handles());
+        let endpoint = handles.remove(&(handle as usize));
+        if handles.is_empty() {
+            handles.shrink_to_fit();
+        }
+        endpoint
+    };
+    if let Some(endpoint) = endpoint {
+        endpoint.close();
+    }
+}
+
+unsafe extern "C" fn endpoint_pair(
+    messages: usize,
+    bytes: usize,
+    receiver: *mut *mut MessageEndpoint,
+) -> *mut MessageEndpoint {
+    ffi_value(ptr::null_mut(), || {
+        if receiver.is_null() {
+            return ptr::null_mut();
+        }
+        let Some((send, receive)) =
+            Endpoint::<Box<AdapterMessage>>::pair(messages, bytes, |message| {
+                message.payload_bytes()
+            })
+        else {
+            return ptr::null_mut();
+        };
+        let send = register_endpoint(send);
+        let receive = register_endpoint(receive);
+        if send.is_null() || receive.is_null() {
+            discard_endpoint(send);
+            discard_endpoint(receive);
+            return ptr::null_mut();
+        }
+        // SAFETY: C provides one writable output slot for this synchronous call.
+        unsafe {
+            *receiver = receive;
+        }
+        send
+    })
+}
+
+unsafe extern "C" fn endpoint_destroy(endpoint: *mut MessageEndpoint) {
+    ffi_void(|| discard_endpoint(endpoint));
+}
+
+unsafe extern "C" fn endpoint_close(endpoint: *const MessageEndpoint) {
+    ffi_void(|| {
+        if let Some(endpoint) = borrowed_endpoint(endpoint) {
+            endpoint.close();
+        }
+    });
+}
+
+unsafe extern "C" fn endpoint_transfer(endpoint: *const MessageEndpoint) -> *mut MessageEndpoint {
+    ffi_value(ptr::null_mut(), || {
+        borrowed_endpoint(endpoint)
+            .and_then(|endpoint| endpoint.transfer())
+            .map_or(ptr::null_mut(), register_endpoint)
+    })
+}
+
+unsafe extern "C" fn endpoint_anchor(endpoint: *const MessageEndpoint) -> *mut MessageEndpoint {
+    ffi_value(ptr::null_mut(), || {
+        borrowed_endpoint(endpoint).map_or(ptr::null_mut(), register_endpoint_shared)
+    })
+}
+
+unsafe extern "C" fn endpoint_abort(endpoint: *const MessageEndpoint) {
+    ffi_void(|| {
+        if let Some(endpoint) = borrowed_endpoint(endpoint) {
+            endpoint.abort_resource();
+        }
+    });
+}
+
+unsafe extern "C" fn endpoint_send(
+    endpoint: *const MessageEndpoint,
+    data: *const u8,
+    length: usize,
+) -> c_int {
+    ffi_value(4, || {
+        let Some(endpoint) = borrowed_endpoint(endpoint) else {
+            return 4;
+        };
+        if !endpoint.is_live() || !endpoint.is_sender() {
+            return 4;
+        }
+        if length > endpoint.byte_limit() {
+            return 3;
+        }
+        // SAFETY: C retains the immutable Lua string for this call only.
+        let Some(data) = (unsafe { bytes(data, length) }) else {
+            return 4;
+        };
+        match endpoint.try_send(Box::new(AdapterMessage {
+            kind: 0,
+            id: 0,
+            number: 0.0,
+            first: data.to_vec(),
+            second: vec![],
+            value: vec![],
+            attachments: vec![],
+        })) {
+            Ok(()) => 0,
+            Err(SendError::Full(_)) => 1,
+            Err(SendError::Closed(_)) => 2,
+            Err(SendError::Oversized(_)) => 3,
+            Err(SendError::Invalid(_)) => 4,
+        }
+    })
+}
+
+unsafe extern "C" fn endpoint_direction(endpoint: *const MessageEndpoint) -> c_int {
+    ffi_value(-1, || {
+        borrowed_endpoint(endpoint).map_or(-1, |endpoint| {
+            if endpoint.is_live() {
+                i32::from(endpoint.is_sender())
+            } else {
+                -2
+            }
+        })
+    })
+}
+
+unsafe extern "C" fn attachment_kind(message: *const AdapterMessage, index: usize) -> c_int {
+    ffi_value(-1, || {
+        // SAFETY: C retains the message while peeking before an owning take.
+        unsafe { message.as_ref() }
+            .and_then(|message| message.attachments.get(index))
+            .and_then(Option::as_ref)
+            .map_or(-1, |attachment| match attachment {
+                Attachment::Region { .. } => 0,
+                Attachment::Moved { .. } => 1,
+                Attachment::Endpoint(_) => 2,
+            })
+    })
+}
+
+unsafe extern "C" fn endpoint_ready(endpoint: *const MessageEndpoint, bytes: usize) -> c_int {
+    ffi_value(4, || {
+        borrowed_endpoint(endpoint).map_or(4, |endpoint| endpoint.readiness(bytes) as c_int)
+    })
+}
+
+unsafe extern "C" fn endpoint_wait(
+    endpoint: *const MessageEndpoint,
+    bytes: usize,
+    timeout_ms: i32,
+) -> c_int {
+    ffi_value(4, || {
+        // Short waits let the guest check cancellation between host sleeps.
+        let timeout = Duration::from_millis(if timeout_ms < 0 {
+            10
+        } else {
+            timeout_ms.min(10) as u64
+        });
+        // The lookup releases the registry lock before sleeping on this queue.
+        borrowed_endpoint(endpoint)
+            .map_or(4, |endpoint| endpoint.wait_ready(bytes, timeout) as c_int)
+    })
+}
+
+unsafe extern "C" fn endpoint_receive(
+    endpoint: *const MessageEndpoint,
+    status: *mut c_int,
+) -> *mut AdapterMessage {
+    ffi_value(ptr::null_mut(), || {
+        if status.is_null() {
+            return ptr::null_mut();
+        }
+        // Resolve the opaque handle before touching endpoint storage.
+        let answer =
+            borrowed_endpoint(endpoint).map_or(Receive::Invalid, |endpoint| endpoint.try_receive());
+        let (code, value) = match answer {
+            Receive::Value(value) => (0, Some(value)),
+            Receive::Empty => (1, None),
+            Receive::Closed => (2, None),
+            Receive::Invalid => (4, None),
+        };
+        // SAFETY: C keeps the status slot writable until this call returns.
+        unsafe {
+            *status = code;
+        }
+        value.map_or(ptr::null_mut(), Box::into_raw)
+    })
+}
+
 /// The shim's entry points into this module, handed to C as one table so that
 /// none of them is a symbol the library exports. Field order and signatures
 /// match `NuppRustWorkerAdapter` in `worker_shim.c` exactly.
@@ -1372,6 +1677,25 @@ pub(crate) struct WorkerAdapterTable {
     worker_task_release: unsafe extern "C" fn(*const AdapterWorker, i64),
     worker_task_status: unsafe extern "C" fn(*const AdapterWorker, i64) -> c_int,
     worker_parallelism: extern "C" fn() -> usize,
+    endpoint_pair:
+        unsafe extern "C" fn(usize, usize, *mut *mut MessageEndpoint) -> *mut MessageEndpoint,
+    endpoint_destroy: unsafe extern "C" fn(*mut MessageEndpoint),
+    endpoint_close: unsafe extern "C" fn(*const MessageEndpoint),
+    endpoint_transfer: unsafe extern "C" fn(*const MessageEndpoint) -> *mut MessageEndpoint,
+    endpoint_send: unsafe extern "C" fn(*const MessageEndpoint, *const u8, usize) -> c_int,
+    endpoint_receive:
+        unsafe extern "C" fn(*const MessageEndpoint, *mut c_int) -> *mut AdapterMessage,
+    endpoint_ready: unsafe extern "C" fn(*const MessageEndpoint, usize) -> c_int,
+    endpoint_wait: unsafe extern "C" fn(*const MessageEndpoint, usize, i32) -> c_int,
+    endpoint_direction: unsafe extern "C" fn(*const MessageEndpoint) -> c_int,
+    attachment_kind: unsafe extern "C" fn(*const AdapterMessage, usize) -> c_int,
+    pending_prepare: unsafe extern "C" fn(*const u8, usize, *const RawAttachment, usize) -> usize,
+    pending_release: unsafe extern "C" fn(usize) -> c_int,
+    pending_take: unsafe extern "C" fn(usize) -> *mut AdapterMessage,
+    pending_size: unsafe extern "C" fn(usize) -> usize,
+    pending_offer: unsafe extern "C" fn(*const MessageEndpoint, usize) -> c_int,
+    endpoint_anchor: unsafe extern "C" fn(*const MessageEndpoint) -> *mut MessageEndpoint,
+    endpoint_abort: unsafe extern "C" fn(*const MessageEndpoint),
 }
 
 static WORKER_ADAPTER: WorkerAdapterTable = WorkerAdapterTable {
@@ -1419,6 +1743,23 @@ static WORKER_ADAPTER: WorkerAdapterTable = WorkerAdapterTable {
     worker_task_release: nupp_rust_worker_task_release,
     worker_task_status: nupp_rust_worker_task_status,
     worker_parallelism: nupp_rust_worker_parallelism,
+    endpoint_pair,
+    endpoint_destroy,
+    endpoint_close,
+    endpoint_transfer,
+    endpoint_send,
+    endpoint_receive,
+    endpoint_ready,
+    endpoint_wait,
+    endpoint_direction,
+    attachment_kind,
+    pending_prepare,
+    pending_release,
+    pending_take,
+    pending_size,
+    pending_offer,
+    endpoint_anchor,
+    endpoint_abort,
 };
 
 unsafe extern "C" {
@@ -1455,6 +1796,163 @@ unsafe extern "C" {
 #[allow(clippy::undocumented_unsafe_blocks)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pending_storage_counts_backing_bytes_and_survives_refusal() {
+        let region = Arc::new(Region {
+            bytes: SharedBytes::new(vec![0; 4096]),
+        });
+        let raw = RawAttachment {
+            kind: 0,
+            block: Arc::as_ptr(&region).cast_mut().cast(),
+            first: 1,
+            length: 1,
+        };
+        unsafe {
+            let key = pending_prepare(b"wire".as_ptr(), 4, &raw, 1);
+            assert_ne!(key, 0);
+            assert_eq!(pending_size(key), 4100);
+            assert_eq!(Arc::strong_count(&region), 2);
+            let mut receiver = ptr::null_mut();
+            let sender = endpoint_pair(1, 128, &mut receiver);
+            assert_eq!(pending_offer(sender, key), 3);
+            assert_eq!(pending_size(key), 4100);
+            pending_release(key);
+            pending_release(key);
+            assert_eq!(Arc::strong_count(&region), 1);
+            assert!(pending_take(key).is_null());
+            endpoint_destroy(sender);
+            endpoint_destroy(receiver);
+        }
+    }
+
+    #[test]
+    fn queued_storage_has_one_owner_after_a_move_or_receiver_close() {
+        let region = Arc::new(Region {
+            bytes: SharedBytes::new(vec![7; 8]),
+        });
+        let raw = RawAttachment {
+            kind: 0,
+            block: Arc::as_ptr(&region).cast_mut().cast(),
+            first: 1,
+            length: 8,
+        };
+        unsafe {
+            let mut receiver = ptr::null_mut();
+            let sender = endpoint_pair(1, 128, &mut receiver);
+            assert_eq!(endpoint_send(sender, b"filled".as_ptr(), 6), 0);
+            let anchor = endpoint_anchor(sender);
+            let key = pending_prepare(b"wire".as_ptr(), 4, &raw, 1);
+            assert_eq!(pending_offer(sender, key), 1);
+            assert_eq!(Arc::strong_count(&region), 2);
+            let moved = endpoint_transfer(sender);
+            assert_eq!(pending_offer(sender, key), 4);
+            let mut status = 4;
+            nupp_rust_worker_message_destroy(endpoint_receive(receiver, &mut status));
+            assert_eq!(status, 0);
+            assert_eq!(pending_offer(moved, key), 0);
+            assert!(pending_take(key).is_null());
+            endpoint_abort(anchor);
+            assert_eq!(Arc::strong_count(&region), 1);
+            endpoint_destroy(sender);
+            endpoint_destroy(moved);
+            endpoint_destroy(receiver);
+            endpoint_destroy(anchor);
+        }
+    }
+
+    #[test]
+    fn lua_endpoint_handles_enforce_bounds_moves_and_directional_close() {
+        let mut runtime = HostRuntime::owned(true, None).unwrap();
+        runtime.enable_workers(b"return nil").unwrap();
+        runtime
+            .run_buffer(
+                br#"
+local native = require("nupp.workers.native")
+for _, limits in ipairs({{0, 1}, {1, 0}, {-1, 1}, {1.5, 1}, {1, math.huge}, {0/0, 1}}) do
+    assert(not pcall(native.endpointCreate, unpack(limits)))
+end
+assert(native.endpointReady({}, 0) == 4)
+assert(native.endpointWait({}, 0, 0) == 4)
+local sender, receiver = native.endpointCreate(2, 3)
+assert(native.endpointReady(sender, 3) == 0)
+assert(native.endpointReady(sender, 4) == 3)
+assert(native.endpointWait(receiver, 0, 0) == 1)
+assert(native.endpointReady(sender, -1) == 4)
+assert(native.endpointReady(sender, 0/0) == 4)
+assert(native.endpointWait(receiver, 0, math.huge) == 4)
+assert(native.endpointSend(receiver, "x") == 4)
+assert(native.endpointReceive(sender) == 4)
+assert(native.endpointSend({}, "x") == 4)
+assert(native.endpointSend(123, "x") == 4)
+local foreign = io.stdout
+local original = getmetatable(foreign)
+debug.setmetatable(foreign, getmetatable(sender))
+assert(native.endpointSend(foreign, "x") == 4)
+assert(native.endpointReceive(foreign) == 4)
+assert(native.endpointDirection(foreign) == -1)
+debug.setmetatable(foreign, original)
+assert(native.endpointSend(sender, "abcd") == 3)
+assert(native.endpointSend(sender, "ab") == 0)
+assert(native.endpointSend(sender, "c") == 0)
+assert(native.endpointSend(sender, "") == 1)
+local status, bytes = native.endpointReceive(receiver)
+assert(status == 0 and bytes == "ab")
+local moved = native.endpointMove(sender)
+assert(native.endpointSend(sender, "x") == 4)
+assert(not pcall(native.endpointMove, sender))
+native.endpointClose(sender)
+assert(native.endpointSend(moved, "de") == 0)
+native.endpointClose(moved)
+assert(native.endpointSend(moved, "x") == 4)
+status, bytes = native.endpointReceive(receiver)
+assert(status == 0 and bytes == "c")
+status, bytes = native.endpointReceive(receiver)
+assert(status == 0 and bytes == "de")
+assert(native.endpointReceive(receiver) == 2)
+local producer, consumer = native.endpointCreate(1, 1)
+assert(native.endpointSend(producer, "x") == 0)
+native.endpointClose(consumer)
+assert(native.endpointSend(producer, "x") == 2)
+assert(native.endpointReceive(consumer) == 4)
+local abandoned, ending = native.endpointCreate(1, 1)
+abandoned = nil
+collectgarbage("collect")
+assert(native.endpointReceive(ending) == 2)
+local upstream, downstream = native.endpointCreate(1, 8)
+local moved = native.endpointMove(downstream)
+local bridge = native.channelCreate()
+assert(native.channelPushBufferTask(bridge, 1, "fixture", "entry", 1, "", {moved, 0, 0}))
+assert(native.endpointDirection(moved) == -1)
+local _, _, _, _, _, _, _, _, flat = native.channelPop(bridge, 0)
+assert(native.endpointDirection(flat[1]) == 0)
+assert(native.endpointSend(upstream, "during execution") == 3)
+assert(native.endpointSend(upstream, "live") == 0)
+local code, payload = native.endpointReceive(flat[1])
+assert(code == 0 and payload == "live")
+native.endpointClose(flat[1])
+assert(native.endpointSend(upstream, "closed") == 2)
+native.endpointClose(upstream)
+native.channelClose(bridge)
+native.channelDestroy(bridge)
+local producing, consuming = native.endpointCreate(1, 8)
+local lifetime = native.endpointAnchor(producing)
+local transferred = native.endpointMove(producing)
+assert(native.endpointSend(lifetime, "forged direction") == 4)
+assert(native.endpointSend(transferred, "held") == 0)
+native.channelRelease(lifetime)
+native.channelRelease(lifetime)
+assert(native.endpointReceive(consuming) == 2)
+assert(native.endpointSend(transferred, "late") == 2)
+native.endpointClose(transferred)
+native.endpointClose(consuming)
+"#,
+                "=endpoint-contract",
+                &[],
+            )
+            .unwrap();
+        runtime.shutdown().unwrap();
+    }
 
     #[test]
     fn rust_panic_firewall_returns_conservative_values() {
@@ -1534,7 +2032,13 @@ mod tests {
         assert!(!producer.is_finished());
         assert_eq!(channel.pop(0).unwrap().id, 0);
         assert!(producer.join().unwrap());
-        assert_eq!(lock(&channel.queue).messages.back().unwrap().id, -1);
+        for _ in 1..MAX_MESSAGES {
+            channel.pop(0).unwrap();
+        }
+        assert_eq!(channel.pop(0).unwrap().id, -1);
+        for id in 0..MAX_MESSAGES {
+            assert!(channel.try_push(empty_message(id as i64)));
+        }
 
         // Closing refuses a waiting producer rather than stranding it.
         let producer = {

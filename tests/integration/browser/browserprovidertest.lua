@@ -384,6 +384,56 @@ function M.aFullWorkerQueueSaysItIsFull()
     check(tostring(answer):find("nupp: a worker queue is full", 1, true) ~= nil, tostring(answer))
 end
 
+function M.dedicatedWorkersHaveAdmissionSeparateFromThePool()
+    for _, dedicatedFirst in ipairs({false, true}) do
+        local app = application({owned = {"nupp.runtime.browser.workers"}, workers = true})
+        local workers = app.load("nupp.runtime.browser.workers")
+        local echo = workers.describesendable(
+            function(value)
+                return value
+            end,
+            "fixture.browserjobs",
+            "echo"
+        )
+        local ok, answer = app.run(
+            function()
+                local scope = workers.openscope(nil, nil)
+
+                local function fillPool()
+                    for index = 1, 1024 do
+                        scope:spawn(echo, index)
+                    end
+                    local accepted, problem = pcall(scope.spawn, scope, echo, 1025)
+                    check.eq(accepted, false)
+                    check(tostring(problem):find("worker queue is full", 1, true) ~= nil, tostring(problem))
+                end
+
+                local function fillDedicated()
+                    for index = 1, 64 do
+                        scope:worker(echo, index)
+                    end
+                    local accepted, problem = pcall(scope.worker, scope, echo, 65)
+                    check.eq(accepted, false)
+                    check(tostring(problem):find("dedicated worker admission limit", 1, true) ~= nil, tostring(problem))
+                end
+
+                if dedicatedFirst then
+                    fillDedicated();
+                    fillPool()
+                else
+                    fillPool();
+                    fillDedicated()
+                end
+
+                return "separate limits"
+            end,
+            50
+        )
+        check.eq(ok, true, tostring(answer))
+        check.eq(answer, "separate limits")
+    end
+end
+
 -- A worker scope lists only what it may still owe something to: unsettled tasks, and
 -- a settled failure nothing observed, which close raises. A settled task leaves the
 -- list however long the scope lives, and its handle still answers.
@@ -404,7 +454,7 @@ function M.aWorkerScopeListsOnlyWhatItStillOwes()
                     return 0, {ok = true, value = {started = started}}
                 elseif request.operation == "await" then
                     local binary = app.load("binary")
-                    local codec = app.load("nupp.runtime.browser.workercodec")
+                    local codec = app.load("nupp.workers.internal.valuecodec")
                     local payload = payloads[request.task]
                     local arguments = codec.decode(assert(binary.base64decode(payload)))
                     if arguments.values[1] == "fail" then

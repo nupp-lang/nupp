@@ -38,40 +38,9 @@ local buffer = require("nupp.serde.internal.binarycodec") as Buffer
 local suspension = require("nupp.suspension")
 local cancellation = require("nupp.suspension.cancellation")
 local common = require("nupp.workers.internal.support")
+local appchannels = require("nupp.runtime.provider.channels")
 
-local type Native = {
-    channelCreate: @nosuspend function(): any,
-    channelDestroy: @nosuspend function(any),
-    channelClose: @nosuspend function(any),
-    channelPush: @nosuspend function(any, string, string): boolean,
-    channelPushNumberTask: @nosuspend function(any, integer, string, string, number): boolean,
-    channelPushNumberReply: @nosuspend function(any, integer, number): boolean,
-    channelPushStringTask: @nosuspend function(any, integer, string, string, string): boolean,
-    channelPushStringReply: @nosuspend function(any, integer, string): boolean,
-    channelDictRegister: @nosuspend function(any, string): integer?,
-    channelDictCount: @nosuspend function(any): integer,
-    channelDictAddress: @nosuspend function(any, integer): string?,
-    channelPushBufferTask: @nosuspend function(any, integer, string, string, number, string, any): boolean,
-    channelPushBufferReply: @nosuspend function(any, integer, number, string, any): boolean,
-    channelPop: @nosuspend function(
-        any,
-        integer
-    ): (string?, string?, integer?, integer?, string?, string?, any, number?, any),
-    channelCount: @nosuspend function(any): integer,
-    channelClosed: @nosuspend function(any): boolean,
-    workerSpawn: @nosuspend function(any, any): (any?, string?),
-    workerJoin: @nosuspend function(any): (integer, string?),
-    workerParallelism: @nosuspend function(): integer,
-    workerTaskCreate: @nosuspend function(any, integer, number?): boolean,
-    workerTaskCancel: @nosuspend function(any, integer): integer,
-    workerTaskStart: @nosuspend function(integer): (boolean, boolean),
-    workerTaskCheckpoint: @nosuspend function(): (boolean, boolean),
-    workerTaskFinish: @nosuspend function(integer): (boolean, boolean),
-    workerTaskRelease: @nosuspend function(any, integer): nil,
-    workerTaskStatus: @nosuspend function(any, integer): integer,
-    current: @nosuspend function(): (any?, any?)
-}
-local native = require("nupp.workers.native") as Native
+local native = require("nupp.workers.native")
 
 assert(type(native.workerParallelism) == "function", "nupp: native worker scheduler is unavailable")
 
@@ -90,7 +59,10 @@ local type TransferState = {
     records: {[string]: any}?,
     addresses: {string}?,
     hasRegions: boolean?,
-    hasMoved: boolean?
+    hasMoved: boolean?,
+    hasEndpoints: boolean?,
+    allowEndpoints: boolean?,
+    endpointOwner: any?
 }
 
 local contracts = require("nupp.workers.contracts")
@@ -167,6 +139,9 @@ local record Channel
 end
 
 local record Lane
+    dedicated: boolean
+    retired: boolean
+    owner: any
     handle: any
     inbox: Channel
     outbox: Channel
@@ -179,6 +154,8 @@ end
 
 local record Scheduler
     lanes: {Lane}
+    pooled: boolean
+    dedicated: integer
     source: suspension.Source?
     waitCursor: integer
 end
@@ -257,6 +234,7 @@ local sharedbytesModule = require("io.internal.sharedbytes") as any
 local regionParts = sharedbytesModule.regionparts
 local regionFromParts = sharedbytesModule.regionfromparts
 local sharedbytesNative = require("nupp.mem.sharedbytes.native") as any
+local valuecodec = require("nupp.workers.internal.valuecodec")
 
 --- Whether a region's extent still lies inside the storage it names. Its parts
 --- are private fields, and a message must not carry an extent the far side
@@ -287,6 +265,24 @@ local function unsendable(value: any, path: string, depth: integer, state: Trans
     @allow("exhaustiveness")
     if kind ~= "table" then
         return ("%s is a %s"):format(path, kind)
+    end
+    local direction, owner, live = appchannels.identify(value)
+    if direction ~= nil then
+        if not state.allowEndpoints or depth ~= 1 then
+            return path .. " is a channel endpoint outside a direct worker startup argument"
+        end
+        if owner ~= state.endpointOwner then
+            return path .. " is a channel endpoint owned by another scope"
+        end
+        if not live then
+            return path .. " is a closed or moved channel endpoint"
+        end
+        if state.seen[value] then
+            return path .. " repeats a channel endpoint"
+        end
+        state.seen[value] = true
+        state.hasEndpoints = true
+        return nil
     end
     local metatable = getmetatable(value)
     if metatable ~= nil then
@@ -365,12 +361,14 @@ local function unsendable(value: any, path: string, depth: integer, state: Trans
     return nil
 end
 
-local function validatedTaskTransfer(captures: Packed, arguments: Packed): TransferState
+local function validatedTaskTransfer(captures: Packed, arguments: Packed, owner: any): TransferState
     local transfer: TransferState = {seen = {}, records = nil, addresses = nil}
     local rejectedCaptures = unsendable(captures.values, "captures", 0, transfer)
     if rejectedCaptures ~= nil then
         error("nupp: cannot copy task captures: " .. rejectedCaptures, 3)
     end
+    transfer.allowEndpoints = true
+    transfer.endpointOwner = owner
     local rejected = unsendable(arguments.values, "arguments", 0, transfer)
     if rejected ~= nil then
         error("nupp: cannot copy task arguments: " .. rejected, 3)
@@ -565,6 +563,13 @@ local function rewriteAttachments(value: any, regionMT: any, arrayMT: any, state
     if type(value) ~= "table" then
         return value
     end
+    if appchannels.identify(value) ~= nil then
+        local handle, direction = appchannels.claim(value)
+        local flat = state.flat
+        flat[#flat + 1], flat[#flat + 2], flat[#flat + 3] = handle, direction, 0
+        state.count = state.count + 1
+        return {__nuppEndpoint = state.count}
+    end
     local metatable = getmetatable(value)
     if metatable ~= nil and metatable == regionMT then
         local index = state.map[value]
@@ -611,6 +616,7 @@ local function rewriteAttachments(value: any, regionMT: any, arrayMT: any, state
     -- table is wrapped one level further and remains unambiguous.
     if rawget(copy, "__nuppRegion") ~= nil
         or rawget(copy, "__nuppMoved") ~= nil
+        or rawget(copy, "__nuppEndpoint") ~= nil
         or rawget(copy, ATTACHMENT_TABLE) ~= nil
     then
         return {[ATTACHMENT_TABLE] = copy}
@@ -620,15 +626,22 @@ local function rewriteAttachments(value: any, regionMT: any, arrayMT: any, state
 end
 
 local function packAttachments(packed: Packed, transfer: TransferState): (Packed, {any}, {string}?)
-    if transfer.hasRegions then
-
-    end
-    if transfer.hasMoved then
-
-    end
     local regionMT = _G.nupp and rawget(_G.nupp, "__regionMetatable")
     local arrayMT = rawget(heapModule as table, "__arrayMetatable")
     local state: AttachmentPack = {flat = {}, count = 0, map = {}, moved = nil}
+    if transfer.hasEndpoints or transfer.hasMoved then
+        local ok, values = pcall(rewriteAttachments, packed.values, regionMT, arrayMT, state)
+        if not ok then
+            for index = 1, #state.flat, 3 do
+                appchannels.releaseRaw(state.flat[index])
+            end
+            for _, bytes in ipairs(state.moved or {}) do
+                (heapArrayFree as function(any): nil)(bytes)
+            end
+            error(values, 0)
+        end
+        return {values = values as {any}, count = packed.count}, state.flat, state.moved
+    end
     local values = rewriteAttachments(packed.values, regionMT, arrayMT, state) as {any}
 
     return {values = values, count = packed.count}, state.flat, state.moved
@@ -677,22 +690,42 @@ local function plantAttachments(value: any, flat: {any}, cache: {any}): any
                 regionFromParts as function(any, integer, integer): any
             )(flat[base + 1], flat[base + 2] as integer, flat[base + 3] as integer)
             cache[index] = built
+            flat[base + 1] = false
         end
 
+        return built
+    end
+    local endpointIndex = rawget(value as table, "__nuppEndpoint")
+    if type(endpointIndex) == "number" then
+        local index = endpointIndex as integer
+        local built = cache[index]
+        if built == nil then
+            local base = (index - 1) * 3
+            built = appchannels.plant(flat[base + 1], flat[base + 2] as integer)
+            cache[index] = built
+            flat[base + 1] = false
+        end
         return built
     end
     local movedIndex = rawget(value as table, "__nuppMoved")
     if type(movedIndex) == "number" then
 
-        local base = (movedIndex as integer - 1) * 3
+        local index = movedIndex as integer
+        local base = (index - 1) * 3
+        if cache[index] ~= nil then
+            error("nupp: a moved buffer attachment occurs more than once", 0)
+        end
         local pointer = flat[base + 1]
         local built = (
             heapArrayFromParts as function(any, integer, integer): any
         )(pointer, flat[base + 2] as integer, flat[base + 3] as integer)
         if built == nil then
+            flat[base + 1] = false
             (heapArrayFree as function(any): nil)(pointer)
             error("nupp: a moved buffer's element layout is not supported by this lane", 0)
         end
+        cache[index] = built
+        flat[base + 1] = false
 
         return built
     end
@@ -715,8 +748,12 @@ local function releaseArrivedMoved(attachments: any): nil
     local flat = attachments as {any}
     for index = 1, #flat, 3 do
         local handle = flat[index]
-        if type(handle) == "userdata" and getmetatable(handle) == nil then
-            (heapArrayFree as function(any): nil)(handle)
+        if type(handle) == "userdata" then
+            if getmetatable(handle) == nil then
+                (heapArrayFree as function(any): nil)(handle)
+            else
+                appchannels.releaseRaw(handle)
+            end
         end
     end
 end
@@ -745,6 +782,30 @@ local function unresolvedRecord(value: any, unresolved: {[any]: string}, depth: 
     return nil
 end
 
+local function plantPayload(packed: Packed, attachments: any): (Packed?, string?)
+    if attachments ~= nil then
+        local cache: {any} = {}
+        local planted, values = pcall(plantAttachments, packed.values, attachments as {any}, cache)
+        if not planted then
+            for _, adopted in pairs(cache) do
+                if appchannels.identify(adopted) ~= nil then
+                    appchannels.cleanup(adopted, 0)
+                elseif getmetatable(adopted) == rawget(heapModule as table, "__arrayMetatable") then
+                    local pointer = (heapArrayParts as function(any): (string?, integer?, integer?))(adopted)
+                    if pointer ~= nil then
+                        (heapArrayFree as function(any): nil)(pointer)
+                    end
+                end
+            end
+            releaseArrivedMoved(attachments)
+            return nil, tostring(values)
+        end
+        packed.values = values as {any}
+    end
+
+    return packed, nil
+end
+
 local function decodePackedFrame(source: Channel, count: number, bytes: string, attachments: any): (Packed?, string?)
     local unresolved: {[any]: string}? = nil
     if count ~= 0 then
@@ -765,15 +826,8 @@ local function decodePackedFrame(source: Channel, count: number, bytes: string, 
             return nil, problem
         end
     end
-    if attachments ~= nil then
-        local planted, values = pcall(plantAttachments, packed.values, attachments as {any}, {})
-        if not planted then
-            return nil, tostring(values)
-        end
-        packed.values = values as {any}
-    end
 
-    return packed, nil
+    return plantPayload(packed, attachments)
 end
 
 -- Frees moved allocations planted into values nothing will consume: a
@@ -782,6 +836,10 @@ end
 -- walk is safe wherever the values may have been consumed first.
 local function releasePlantedMoved(value: any, depth: integer): nil
     if type(value) ~= "table" or depth > 33 then
+        return
+    end
+    if appchannels.identify(value) ~= nil then
+        appchannels.cleanup(value, 0)
         return
     end
     local metatable = getmetatable(value)
@@ -1100,7 +1158,7 @@ local function destroy(value: Channel): nil
     value.handle = nil
 end
 
-local function startLane(): Lane
+local function startLane(dedicated: boolean): Lane
     local inbox = newChannel()
     local outbox = newChannel()
     local handle, problem = native.workerSpawn(inbox.handle, outbox.handle)
@@ -1120,6 +1178,9 @@ local function startLane(): Lane
     end
 
     return Lane(
+        dedicated = dedicated,
+        retired = false,
+        owner = nil,
         handle = handle,
         inbox = inbox,
         outbox = outbox,
@@ -1143,27 +1204,15 @@ local function scheduler(): Scheduler
     if workerInbox ~= nil then
         error("nupp: a worker task cannot open another worker scope", 3)
     end
-    local count = math.max(1, math.min(native.workerParallelism(), 64)) as integer
-    local lanes: {Lane} = {}
-    for index = 1, count do
-        local ok, lane = pcall(startLane)
-        if not ok then
-            for _, started in ipairs(lanes) do
-                native.channelClose(started.inbox.handle)
-                native.workerJoin(started.handle)
-                destroy(started.inbox)
-                destroy(started.outbox)
-            end
-            error(lane, 3)
-        end
-        lanes[index] = lane as Lane
-    end
-    sharedScheduler = Scheduler(lanes = lanes, source = nil, waitCursor = 1)
+    sharedScheduler = Scheduler(lanes = {}, pooled = false, dedicated = 0, source = nil, waitCursor = 1)
 
     return sharedScheduler
 end
 
 local function route(lane: Lane, timeoutMs: integer): boolean
+    if lane.retired then
+        return false
+    end
     local frame = pop(lane.outbox, timeoutMs)
     if frame == nil then
         return false
@@ -1195,7 +1244,7 @@ local function route(lane: Lane, timeoutMs: integer): boolean
 end
 
 local function ended(lane: Lane): boolean
-    return native.channelClosed(lane.outbox.handle) and native.channelCount(lane.outbox.handle) == 0
+    return lane.retired or native.channelClosed(lane.outbox.handle) and native.channelCount(lane.outbox.handle) == 0
 end
 
 -- A reply has been routed once its id is no longer pending. Routing settles the task
@@ -1205,7 +1254,7 @@ local function ready(lane: Lane, id: integer): boolean
 end
 
 local function wakeEndedLane(lane: Lane): integer
-    if lane.inflight == 0 or not ended(lane) then
+    if not ended(lane) then
         return 0
     end
     local waiters = lane.waiters
@@ -1221,13 +1270,45 @@ local function wakeEndedLane(lane: Lane): integer
     return woke as integer
 end
 
+local function retireLane(value: Scheduler, lane: Lane): nil
+    if lane.retired then
+        return
+    end
+    native.workerJoin(lane.handle)
+    lane.retired = true
+    lane.handle = nil
+    destroy(lane.inbox)
+    destroy(lane.outbox)
+    value.dedicated = value.dedicated - 1
+    local owner = lane.owner
+    if owner ~= nil then
+        for index = #owner._dedicated, 1, -1 do
+            if owner._dedicated[index] == lane then
+                table.remove(owner._dedicated, index)
+                break
+            end
+        end
+        lane.owner = nil
+    end
+    for index = #value.lanes, 1, -1 do
+        if value.lanes[index] == lane then
+            table.remove(value.lanes, index)
+            break
+        end
+    end
+end
+
 local function pollScheduler(value: Scheduler): integer
     local moved = 0
-    for _, lane in ipairs(value.lanes) do
+    for index = #value.lanes, 1, -1 do
+        local lane = value.lanes[index]
         while route(lane, 0) do
             moved = moved + 1
         end
         moved = moved + wakeEndedLane(lane)
+        if lane.dedicated and lane.inflight == 0 and ended(lane) then
+            retireLane(value, lane)
+        end
     end
 
     return moved as integer
@@ -1241,7 +1322,7 @@ local function waitScheduler(value: Scheduler, timeoutMs: integer): integer
     for offset = 0, count - 1 do
         local index = (value.waitCursor + offset - 1) % count + 1
         local lane = value.lanes[index]
-        if lane.inflight > 0 and not ended(lane) then
+        if (lane.inflight > 0 or lane.dedicated) and not ended(lane) then
             value.waitCursor = index % count + 1
             local bounded = timeoutMs < 0 and BLOCKING_REPLY_SLICE_MS
                 or math.min(timeoutMs, BLOCKING_REPLY_SLICE_MS) as integer
@@ -1270,7 +1351,7 @@ local function schedulerSource(value: Scheduler): suspension.Source
     )
     rawset(created as any, "active", function(): boolean
         for _, lane in ipairs(value.lanes) do
-            if lane.inflight > 0 and not ended(lane) then
+            if (lane.inflight > 0 or lane.dedicated) and not ended(lane) then
                 return true
             end
         end
@@ -1337,6 +1418,45 @@ local function waitFor(value: Scheduler, lane: Lane, id: integer): nil
     end
 end
 
+local function waitForEnd(value: Scheduler, lane: Lane): nil
+    if not lane.dedicated or lane.retired then
+        return
+    end
+    if not suspension.handled() then
+        while not ended(lane) do
+            route(lane, -1)
+        end
+        retireLane(value, lane)
+        return
+    end
+
+    local function subscribe(resume: function(boolean), context: suspension.Context): function()
+        context:uses(schedulerSource(value))
+        local waiting = lane.waiters[0]
+        if waiting == nil then
+            waiting = {}
+            lane.waiters[0] = waiting
+        end
+        waiting[#waiting + 1] = resume
+
+        return function(): nil
+            local current = lane.waiters[0]
+            if current ~= nil then
+                for index = #current, 1, -1 do
+                    if current[index] == resume then
+                        table.remove(current, index)
+                        break
+                    end
+                end
+            end
+        end
+    end
+
+    while not lane.retired do
+        suspension.suspend("dedicated worker shutdown", subscribe)
+    end
+end
+
 -- A function with no compiler descriptor is located by scanning every loaded
 -- module once; the answer is a property of the function value, so it is kept.
 -- Failures are not kept: the module that will publish the function may simply
@@ -1393,9 +1513,32 @@ end
 -- A lane whose scheduler has stopped closes its inbox, and nothing spawned to
 -- it would ever be answered, so it is passed over.
 local function leastBusy(value: Scheduler): Lane
+    if not value.pooled then
+        local started: {Lane} = {}
+        local count = math.max(1, math.min(native.workerParallelism(), 64)) as integer
+        for _ = 1, count do
+            local ok, lane = pcall(startLane, false)
+            if not ok then
+                for _, existing in ipairs(started) do
+                    native.channelClose(existing.inbox.handle)
+                    native.workerJoin(existing.handle)
+                    destroy(existing.inbox)
+                    destroy(existing.outbox)
+                end
+                error(lane, 3)
+            end
+            started[#started + 1] = lane as Lane
+        end
+        for _, lane in ipairs(started) do
+            value.lanes[#value.lanes + 1] = lane
+        end
+        value.pooled = true
+    end
     local selected: Lane? = nil
     for _, candidate in ipairs(value.lanes) do
-        if not native.channelClosed(candidate.inbox.handle)
+        if not candidate.dedicated
+            and not candidate.retired
+            and not native.channelClosed(candidate.inbox.handle)
             and (selected == nil or candidate.inflight < (selected as Lane).inflight)
         then
             selected = candidate
@@ -1408,7 +1551,7 @@ local function leastBusy(value: Scheduler): Lane
     return selected as Lane
 end
 
-local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
+local function submitImpl(self: workers.Scope, dedicated: boolean, fn: any, ...: any): any
     if self._closed then
         error("nupp: cannot spawn into a closed worker scope", 2)
     end
@@ -1428,13 +1571,31 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
         )
     local transfer: TransferState? = nil
     if not prepared then
-        transfer = validatedTaskTransfer(captures, arguments)
+        transfer = validatedTaskTransfer(captures, arguments, self._channelOwner or self)
     end
     local submittedArguments = common.concatenate(captures, arguments)
-    local lane = leastBusy(self._scheduler)
+    local scheduling = self._scheduler as Scheduler
+    local lane: Lane
+    if dedicated then
+        pollScheduler(scheduling)
+        if scheduling.dedicated >= 64 then
+            error("nupp: dedicated worker admission limit reached (64)", 2)
+        end
+        lane = startLane(true)
+        lane.owner = self
+        self._dedicated[#self._dedicated + 1] = lane
+        scheduling.dedicated = scheduling.dedicated + 1
+        scheduling.lanes[#scheduling.lanes + 1] = lane
+    else
+        lane = leastBusy(scheduling)
+    end
     local id = lane.nextId
     lane.nextId = id + 1
     if not native.workerTaskCreate(lane.handle, id, self._deadline) then
+        if dedicated then
+            native.channelClose(lane.inbox.handle)
+            retireLane(scheduling, lane)
+        end
         error("nupp: cannot register worker task state", 2)
     end
     schedulerSource(self._scheduler)
@@ -1462,6 +1623,7 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
     lane.pending[id] = true
     lane.tasks[id] = task
     local movedPointers: {string}? = nil
+    local endpointAttachments: {any}? = nil
     local submitted, problem = pcall(function(): nil
         if preparedInput == "number" and prepared then
             if not native.channelPushNumberTask(
@@ -1487,8 +1649,14 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
             registerTransferRecords(lane.inbox, transfer as TransferState)
             local outgoing = submittedArguments
             local attachments: any = nil
-            if (transfer as TransferState).hasRegions or (transfer as TransferState).hasMoved then
+            if (transfer as TransferState).hasRegions
+                or (transfer as TransferState).hasMoved
+                or (transfer as TransferState).hasEndpoints
+            then
                 outgoing, attachments, movedPointers = packAttachments(submittedArguments, transfer as TransferState)
+                if (transfer as TransferState).hasEndpoints then
+                    endpointAttachments = attachments as {any}
+                end
             end
             local count, bytes = encodePacked(lane.inbox, outgoing)
             movedPointers = nil
@@ -1506,12 +1674,24 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
         end
     end)
     if not submitted then
+        if endpointAttachments ~= nil then
+            for index = 1, #endpointAttachments, 3 do
+                appchannels.releaseRaw(endpointAttachments[index])
+            end
+        end
         releaseMoved(movedPointers)
         lane.pending[id] = nil
         lane.tasks[id] = nil
         lane.inflight = lane.inflight - 1
         native.workerTaskRelease(lane.handle, id)
+        if dedicated then
+            native.channelClose(lane.inbox.handle)
+            retireLane(scheduling, lane)
+        end
         error(problem, 2)
+    end
+    if dedicated then
+        native.channelClose(lane.inbox.handle)
     end
     enlist(self, task)
     if self._observer ~= nil and self._observer.created ~= nil then
@@ -1521,6 +1701,28 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
     return task
 end
 
+local function submitOwned(self: workers.Scope, dedicated: boolean, fn: any, ...: any): any
+    if not appchannels.contains(...) then
+        return submitImpl(self, dedicated, fn, ...)
+    end
+    local arguments = pack(...)
+    local ok, task = pcall(submitImpl, self, dedicated, fn, unpack(arguments.values, 1, arguments.count))
+    if not ok then
+        appchannels.cleanup(arguments.values, 0)
+        error(task, 2)
+    end
+
+    return task
+end
+
+local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
+    return submitOwned(self, false, fn, ...)
+end
+
+local function dedicatedImpl(self: workers.Scope, fn: any, ...: any): any
+    return submitOwned(self, true, fn, ...)
+end
+
 local spawnSurface: function<F is workers.Worker>(
     borrows self: workers.Scope,
     F,
@@ -1528,6 +1730,15 @@ local spawnSurface: function<F is workers.Worker>(
 ): workers.Task<F>
 @unsafe do
     spawnSurface = spawnImpl as any
+end
+
+local dedicatedSurface: function<F is workers.Worker>(
+    borrows self: workers.Scope,
+    F,
+    ...: unpackof contracts.Submitted(F)
+): workers.Task<F>
+@unsafe do
+    dedicatedSurface = dedicatedImpl as any
 end
 
 ----------------------------------------------------------------------------
@@ -1614,6 +1825,7 @@ function TaskImpl:await(): ...any
     if not self:isdone() then
         waitFor(self._scheduler, self._lane, self._id)
     end
+    waitForEnd(self._scheduler, self._lane)
     release(self)
     if self._state == "failed" then
         error("nupp: worker task failed: " .. (self._error or "unknown failure"), 2)
@@ -1632,6 +1844,7 @@ local function settleParking(task: any): string?
     if not TaskImpl.isdone(task) then
         waitFor(task._scheduler, task._lane, task._id)
     end
+    waitForEnd(task._scheduler, task._lane)
     release(task)
 
     return task._state == "failed" and "nupp: worker task failed: " .. (task._error or "unknown failure") or nil
@@ -1650,6 +1863,7 @@ local function settleForScope(task: any): (string, {any}?, integer, any)
     if not TaskImpl.isdone(task) then
         waitFor(task._scheduler, task._lane, task._id)
     end
+    waitForEnd(task._scheduler, task._lane)
     release(task)
     if task._state == "failed" then
         return "failed", nil, 0, "nupp: worker task failed: " .. (task._error or "unknown failure")
@@ -1683,6 +1897,10 @@ local function closeScope(borrows self: workers.Scope): nil
             firstFailure = problem
         end
     end
+    while #self._dedicated > 0 do
+        waitForEnd(self._scheduler, self._dedicated[1] as Lane)
+    end
+    appchannels.closeScope(self)
     if firstFailure ~= nil then
         error(firstFailure, 2)
     end
@@ -1718,10 +1936,12 @@ local function openScope(deadline: number?, observer: any): workers.Scope
     return setmetatable(
         {
             spawn = spawnSurface,
+            worker = dedicatedSurface,
             close = closeScope,
             _cancelAll = cancelAllScope,
             _settleOldest = settleOldestScope,
             _scheduler = scheduler(),
+            _dedicated = {},
             _first = nil,
             _last = nil,
             _registered = 0,
@@ -1734,6 +1954,8 @@ local function openScope(deadline: number?, observer: any): workers.Scope
 end
 
 workers.openscope = openScope
+workers.channel = appchannels.create
+workers.closechannels = appchannels.closeScope
 
 -- How many tasks a scope still lists, for the task scope's lifecycle hook.
 rawset(workers, "__registered", function(scope: any): integer
@@ -1849,6 +2071,8 @@ function workers.runscheduler(): nil
             answerTask(outbox, {kind = "reply", id = id, cancelled = true, deadline = deadline,})
         else
             local preparedOutput: any = nil
+            local startupArguments: any = nil
+            local startupEndpoints = false
             local ok, answer = xpcall(
                 function(): Packed
                     if frame.error ~= nil then
@@ -1860,11 +2084,16 @@ function workers.runscheduler(): nil
                     local descriptor = sendableDescriptors[callable]
                     preparedOutput = descriptor and descriptor.output or nil
                     local arguments = packedValue(frame.encoding, frame.bytes, frame.value)
+                    startupArguments = arguments.values
+                    startupEndpoints = appchannels.contains(unpack(arguments.values, 1, arguments.count))
 
                     return pack(callable(unpack(arguments.values, 1, arguments.count)))
                 end,
                 workerFailure
             )
+            if startupEndpoints then
+                appchannels.cleanup(startupArguments, 0)
+            end
             local cancelled, finishedDeadline = native.workerTaskFinish(id)
             if ok and cancelled then
                 releasePlantedMoved((answer as Packed).values, 0)
@@ -1891,6 +2120,62 @@ function workers.runscheduler(): nil
             end
         end
     end
+end
+
+-- Application channels use the same native storage transfer rules and owners
+-- as task startup and replies, with the portable copied-value spine.
+function workers.channelprepare(value: any): (string, any)
+    local transfer: TransferState = {seen = {}, records = nil, addresses = nil}
+    local rejected = unsendable(value, "message", 0, transfer)
+    if rejected ~= nil then
+        error("nupp: cannot send channel message: " .. rejected, 3)
+    end
+    local packed: Packed = {values = {value}, count = 1}
+    if not transfer.hasRegions and not transfer.hasMoved then
+        return valuecodec.encode(packed), nil
+    end
+    local pending = native.messageCreate()
+    local moved: {string}? = nil
+    local ok, bytes = pcall(function(): string
+        local outgoing, attachments, allocations = packAttachments(packed, transfer)
+        moved = allocations
+        local encoded = valuecodec.encode(outgoing)
+        moved = nil
+        if not native.messageFill(pending, encoded, attachments) then
+            error("nupp: cannot prepare a channel message", 0)
+        end
+
+        return encoded
+    end)
+    if not ok then
+        releaseMoved(moved)
+        native.messageClose(pending)
+        error(bytes, 0)
+    end
+
+    return bytes as string, pending
+end
+
+function workers.channeldecode(bytes: string, attachments: any): any
+    local ok, packed = pcall(valuecodec.decode, bytes)
+    if not ok then
+        releaseArrivedMoved(attachments)
+        error(packed, 0)
+    end
+    local planted, problem = plantPayload(packed as Packed, attachments)
+    if planted == nil then
+        error(problem, 0)
+    end
+    if planted.count ~= 1 then
+        releasePlantedMoved(planted.values, 0)
+        error("nupp: invalid channel message", 0)
+    end
+
+    return planted.values[1]
+end
+
+function workers.channeldrop(value: any): nil
+    releasePlantedMoved(value, 0)
 end
 
 @allow("unused-binding")

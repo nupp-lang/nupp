@@ -1,0 +1,34 @@
+@!internal
+module nupp.workers.internal.channeltypes
+
+-- These declarations stay private until both runtime adapters implement the
+-- contract. A result pack uses its first value as the tag, so nil remains a
+-- message and an unsent owner remains an owner after narrowing the tag.
+
+export record Sender<T> is own.Closeable
+    @private _state: any
+    @private _close: @nosuspend function(any): nil
+
+    send: function(borrows self: Sender<T>, takes value: T): nil
+    trysend: @nosuspend function(borrows self: Sender<T>, takes value: T): (("sent", nil) | ("full" | "closed", T))
+
+    function close(takes self): nil
+        @nosuspend do
+            self._close(self._state)
+        end
+    end
+end
+
+export record Receiver<T> is own.Closeable
+    @private _state: any
+    @private _close: @nosuspend function(any): nil
+
+    receive: function(borrows self: Receiver<T>): (("value", T) | ("closed", nil))
+    tryreceive: @nosuspend function(borrows self: Receiver<T>): (("value", T) | ("empty" | "closed", nil))
+
+    function close(takes self): nil
+        @nosuspend do
+            self._close(self._state)
+        end
+    end
+end

@@ -6,7 +6,7 @@
 -- corresponding native paths are covered by the worker suites.
 
 local check = require("assert")
-local codec = require("nupp.runtime.browser.workercodec")
+local codec = require("nupp.workers.internal.valuecodec")
 
 local M = {}
 

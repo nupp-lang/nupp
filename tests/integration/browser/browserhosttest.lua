@@ -54,7 +54,11 @@ local function passesNodeSuite(label, files)
 end
 
 function M.thePageHostPassesItsNodeSuite()
-    passesNodeSuite("the page host's Node suite", {"integration/browser/wasm-aot/runtime.test.mjs"})
+    passesNodeSuite("the page host's Node suite", {
+        "integration/browser/wasm-aot/runtime.test.mjs",
+        "integration/browser/wasm-aot/channel.test.mjs",
+        "integration/browser/wasm-aot/channel-host.test.mjs",
+    })
 end
 
 function M.theWasmSimdHelpersPassTheirNodeSuites()

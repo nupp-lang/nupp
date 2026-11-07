@@ -7,13 +7,23 @@
 // never reads the payload the Nupp codec wrote.
 
 import { runPackagedNuppLuaJITApp } from "./app-runtime.mjs";
+import {createChannelHost} from '../wasm/channel-host.mjs';
 
 const inbox = [];
 let deliver;
 let current;
 let booted = false;
+let announcedReady = false;
 let nextPersistenceRequest = 1;
 const persistenceRequests = new Map();
+const channels = createChannelHost();
+function failed(error) {
+  channels.discard(inbox.flatMap(task => task.endpoints || []));
+  inbox.length = 0;
+  channels.close();
+  self.postMessage({type: 'failed', error: String(error?.message || error), channelsClosed: true});
+}
+self.addEventListener('error', event => { event.preventDefault(); failed(event.error || event.message); });
 
 function requestPersistentStorage() {
   const requestId = nextPersistenceRequest++;
@@ -67,12 +77,11 @@ self.addEventListener("message", (event) => {
   if (message?.type === "boot") {
     if (booted) return;
     booted = true;
-    boot(message).catch((error) => {
-      self.postMessage({type: "failed", error: String(error?.message || error)});
-    });
+    boot(message).catch(failed);
     return;
   }
   if (message?.type === "task") {
+    message.task.endpoints = message.endpoints || [];
     assign(message.task);
     return;
   }
@@ -80,12 +89,14 @@ self.addEventListener("message", (event) => {
     if (current && current.id === message.id) {
       current.cancelled = true;
       current.deadline = message.deadline === true;
+      channels.interrupt(current.deadline);
       return;
     }
     // Still queued here, so nothing has loaded or invoked its function.
     const at = inbox.findIndex((task) => task.id === message.id);
     if (at >= 0) {
       const [task] = inbox.splice(at, 1);
+      channels.discard(task.endpoints);
       self.postMessage({type: "reply", id: task.id, status: "cancelled", deadline: message.deadline === true});
     }
   }
@@ -101,6 +112,7 @@ async function performLaneEffect(effect) {
   }
   if (effect.operation === "reply") {
     if (current && current.id === effect.task) {
+      channels.settle();
       self.postMessage({
         type: "reply",
         id: effect.task,
@@ -114,12 +126,16 @@ async function performLaneEffect(effect) {
   } else if (effect.operation !== "next") {
     throw new Error(`unsupported browser worker lane operation ${effect.operation}`);
   }
+  if (!announcedReady) { announcedReady = true; self.postMessage({type: 'ready'}); }
   const task = await nextTask();
   if (!task) return {};
   current = {id: task.id, cancelled: false, deadline: false};
+  channels.reset();
+  const endpoints = channels.adopt(task.endpoints);
   self.postMessage({type: "started", id: task.id});
 
-  return {task: task.id, module: task.module, member: task.member, payload: task.payload};
+  return {task: task.id, module: task.module, member: task.member, payload: task.payload,
+    endpoints: endpoints.map((descriptor, index) => ({...descriptor, argument: task.endpointArguments[index]}))};
 }
 
 // A lane runs for as long as the pool keeps it, so its turn is one task rather than
@@ -136,12 +152,14 @@ async function boot(message) {
   await runPackagedNuppLuaJITApp(message.manifestUrl, {
     manifestDigest: message.manifestDigest,
     limits: message.limits,
+    clockOrigin: message.clockOrigin,
     workerEntry: message.entry || "nupp.workers",
     workerSetup: message.setup || "",
     // A lane has no pool of its own: the page owns the one pool, and a worker task
     // that opened a scope would be a lane waiting on itself. `nupp.workers` refuses
     // that in the lane's own state; this keeps the host from offering it either.
     workers: false,
+    channelHost: channels,
     requestPersistentStorage: message.persistentStorageAvailable ? requestPersistentStorage : undefined,
     effectHandlers: {lane: performLaneEffect},
     beginsTurn: beginsTask,

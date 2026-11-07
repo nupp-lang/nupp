@@ -6,6 +6,7 @@
 //! operations that may fail remain beneath the protected C shim so LuaJIT
 //! cannot unwind through Rust.
 
+mod channels;
 #[doc(hidden)]
 pub mod cli;
 mod embed;

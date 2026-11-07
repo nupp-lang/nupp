@@ -1,14 +1,11 @@
 @!internal
-module nupp.runtime.browser.workercodec
+module nupp.workers.internal.valuecodec
 
--- The value boundary between a browser application and one of its worker lanes.
+-- Copied values crossing isolated execution states.
 --
--- A lane is a separate Web Worker with its own LuaJIT guest, so the same rule the
--- native scheduler enforces holds here: arguments, captures and results cross as copies
--- and heap identity never does. The native scheduler reaches `io.Buffer` for that;
--- this module instead writes one self-describing byte string that the JavaScript pool
--- relays without reading, which keeps the framing's meaning in Nupp rather than spread
--- across the host.
+-- Arguments, captures, results and channel messages preserve values, not Lua heap
+-- identity. This self-describing wire form carries record addresses with the data;
+-- native task scheduling retains its scalar and storage-transfer fast paths.
 --
 -- The refusals and their wording are the native ones, because they are the same
 -- rule about the same values and a program should not learn a different vocabulary

@@ -279,6 +279,8 @@ export type Task<F> = TaskType(F)
 --- A family of parallel child tasks, owned by the task scope whose `work` opened it.
 export record Scope
     _scheduler: any
+    _dedicated: {any}
+    _channelOwner: any?
     _first: any
     _last: any
     _registered: integer
@@ -288,6 +290,9 @@ export record Scope
 
     --- Starts a sendable function with copied arguments.
     spawn: function<F is Worker>(borrows self: Scope, F, ...: unpackof Submitted(F)): Task<F>
+
+    -- Dedicated entry stays internal until channel transport passes on both targets.
+    worker: function<F is Worker>(borrows self: Scope, F, ...: unpackof Submitted(F)): Task<F>
 
     --- Waits for every child, raising the first failure nothing observed. Idempotent.
     --- Under a suspension handler it parks until every child has settled, and without
@@ -304,6 +309,8 @@ end
 --- Complete worker implementation protocol, including structured-task integration.
 --- Implement generic spawn and ownership guarantees through the shared scope types.
 export interface Provider
+    @readonly channel: (function(owner: any, messages: integer, bytes: integer): (any, any))?
+    @readonly closechannels: (function(borrows owner: any): nil)?
 
     --- Creates canonical scope state for task integration, with an optional
     --- monotonic deadline and observer.

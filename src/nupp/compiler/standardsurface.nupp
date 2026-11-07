@@ -161,6 +161,9 @@ local MODULES: {[string]: {
     ["nupp.time"] = facility("host", "runtime.time"),
     ["nupp.workers"] = facility("host", "runtime.workers"),
     ["nupp.workers.internal.support"] = {kind = "common"},
+    ["nupp.workers.internal.channeltypes"] = {kind = "common"},
+    ["nupp.workers.internal.valuecodec"] = {kind = "common"},
+    ["nupp.runtime.browser.channels"] = {kind = "common"},
     ["nupp.array"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.util.internal.pool"] = {kind = "common"},
     ["nupp.util.internal.structpool"] = {kind = "unavailable", capability = "cstorage"},
@@ -202,6 +205,7 @@ export function supports(moduleName: string, host: string?): boolean
     end
     if moduleName:match("^nupp%.runtime%.provider%.native")
         or moduleName == "nupp.runtime.provider.workers"
+        or moduleName == "nupp.runtime.provider.channels"
         or moduleName == "nupp.runtime.provider.suspension"
         or moduleName == "nupp.codec.json.aot"
     then

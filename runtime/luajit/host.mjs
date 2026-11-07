@@ -4,7 +4,8 @@
  * response to the frame that follows it.
  */
 export function createGuest({manifestUrl, app, config = {}, profile = 'runner', signal,
-  deadlineMs = 30000, timeoutMessage = 'Guest request timed out', snapshot = true, captureSnapshot = false, onProgress = () => {}}) {
+  deadlineMs = 30000, timeoutMessage = 'Guest request timed out', snapshot = true, captureSnapshot = false,
+  clockOrigin = performance.timeOrigin, onProgress = () => {}}) {
   if (!(app instanceof Uint8Array)) throw new Error('Guest code must be bytes');
   let worker, restored = false, retried = false, ready = false;
   let closed = false, waiting, resultSequence, timer, closedReason;
@@ -59,7 +60,7 @@ export function createGuest({manifestUrl, app, config = {}, profile = 'runner', 
     const copy = app.slice();
     instance.postMessage({type: 'boot', manifestUrl: new URL(manifestUrl, import.meta.url).href,
       app: copy.buffer, config, profile, snapshot: useSnapshot, captureSnapshot,
-      clockOrigin: performance.timeOrigin}, [copy.buffer]);
+      clockOrigin}, [copy.buffer]);
   }
   if (signal?.aborted) abort();
   else signal?.addEventListener('abort', abort, {once: true});

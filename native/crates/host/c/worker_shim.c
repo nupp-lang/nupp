@@ -42,6 +42,11 @@
 
 #define ATTACHMENT_REGION 0
 #define ATTACHMENT_MOVED 1
+#define ATTACHMENT_ENDPOINT 2
+#define ENDPOINT_METATABLE "nupp.workers.endpoint.rust"
+typedef struct EndpointHandle { void *endpoint; } EndpointHandle;
+static EndpointHandle *endpoint_handle(lua_State *state, int index);
+static EndpointHandle *endpoint_push_handle(lua_State *state, void *endpoint);
 #define MAX_ATTACHMENTS 255u
 
 enum {
@@ -125,6 +130,23 @@ typedef struct NuppRustWorkerAdapter {
     void (*worker_task_release)(const void *worker, int64_t id);
     int (*worker_task_status)(const void *worker, int64_t id);
     size_t (*worker_parallelism)(void);
+    void *(*endpoint_pair)(size_t messages, size_t bytes, void **receiver);
+    void (*endpoint_destroy)(void *endpoint);
+    void (*endpoint_close)(const void *endpoint);
+    void *(*endpoint_transfer)(const void *endpoint);
+    int (*endpoint_send)(const void *endpoint, const uint8_t *bytes, size_t length);
+    void *(*endpoint_receive)(const void *endpoint, int *status);
+    int (*endpoint_ready)(const void *endpoint, size_t bytes);
+    int (*endpoint_wait)(const void *endpoint, size_t bytes, int timeout_ms);
+    int (*endpoint_direction)(const void *endpoint);
+    int (*attachment_kind)(const void *message, size_t index);
+    size_t (*pending_prepare)(const uint8_t *bytes, size_t length, const RawAttachment *attachments, size_t count);
+    int (*pending_release)(size_t key);
+    void *(*pending_take)(size_t key);
+    size_t (*pending_size)(size_t key);
+    int (*pending_offer)(const void *endpoint, size_t key);
+    void *(*endpoint_anchor)(const void *endpoint);
+    void (*endpoint_abort)(const void *endpoint);
 } NuppRustWorkerAdapter;
 
 static const NuppRustWorkerAdapter *rust;
@@ -247,7 +269,7 @@ static int region_handle_gc(lua_State *state) {
     return 0;
 }
 
-static void region_push_handle(lua_State *state, void *block) {
+static RegionHandle *region_push_handle(lua_State *state, void *block) {
     RegionHandle *handle = lua_newuserdata(state, sizeof *handle);
     handle->block = block;
     lua_getfield(state, LUA_REGISTRYINDEX, REGION_METATABLE);
@@ -260,7 +282,8 @@ static void region_push_handle(lua_State *state, void *block) {
         lua_setfield(state, LUA_REGISTRYINDEX, REGION_METATABLE);
     }
     lua_setmetatable(state, -2);
-    account_charge(state, block);
+    if (block != NULL) account_charge(state, block);
+    return handle;
 }
 
 static void *region_block(lua_State *state, int index) {
@@ -384,6 +407,24 @@ static void release_listed_moved(lua_State *state, int index, size_t triples) {
     }
 }
 
+/* The temporary full userdata still owns its source Box after Rust claims a
+ * newer generation. Release that stale owner immediately, also on refusal. */
+static void release_listed_endpoints(lua_State *state, int index) {
+    size_t position, count;
+    if (lua_type(state, index) != LUA_TTABLE) return;
+    count = lua_objlen(state, index) / 3;
+    for (position = 0; position < count; ++position) {
+        EndpointHandle *handle;
+        lua_rawgeti(state, index, (int)(position * 3 + 1));
+        handle = endpoint_handle(state, -1);
+        if (handle != NULL && handle->endpoint != NULL && rust->endpoint_direction(handle->endpoint) != -1) {
+            rust->endpoint_destroy(handle->endpoint);
+            handle->endpoint = NULL;
+        }
+        lua_pop(state, 1);
+    }
+}
+
 static size_t read_attachments(lua_State *state, int index,
     RawAttachment *out) {
     size_t entries, triples, position;
@@ -404,7 +445,11 @@ static size_t read_attachments(lua_State *state, int index,
             kind = ATTACHMENT_MOVED;
             block = moved_pointer(state, -1);
         } else {
-            block = region_block(state, -1);
+            EndpointHandle *endpoint = endpoint_handle(state, -1);
+            if (endpoint != NULL) {
+                kind = ATTACHMENT_ENDPOINT;
+                block = endpoint->endpoint;
+            } else block = region_block(state, -1);
         }
         lua_rawgeti(state, index, (int)(position * 3 + 2));
         first = lua_tointeger(state, -1);
@@ -412,7 +457,8 @@ static size_t read_attachments(lua_State *state, int index,
         length = lua_tointeger(state, -1);
         lua_pop(state, 3);
         if (block == NULL || (kind == ATTACHMENT_MOVED
-            ? first < 0 || length < 1 : first < 1 || length < 0)) {
+            ? first < 0 || length < 1 : kind == ATTACHMENT_ENDPOINT
+            ? (first != 0 && first != 1) || length != 0 : first < 1 || length < 0)) {
             release_listed_moved(state, index, triples);
             return (size_t)-1;
         }
@@ -445,6 +491,7 @@ static int push_buffer(lua_State *state, int kind, int task) {
             release_listed_moved(state, attachments_index,
                 lua_objlen(state, attachments_index) / 3);
         }
+        release_listed_endpoints(state, attachments_index);
         lua_pushboolean(state, 0);
         return 1;
     }
@@ -456,6 +503,7 @@ static int push_buffer(lua_State *state, int kind, int task) {
             (const uint8_t *)value, value_length,
             attachments, attachment_count);
     }
+    release_listed_endpoints(state, attachments_index);
     lua_pushboolean(state, accepted);
     return 1;
 }
@@ -499,6 +547,41 @@ static void push_message_bytes(lua_State *state, void *message, int which) {
     lua_pushlstring(state, (const char *)bytes, length);
 }
 
+#define MESSAGE_OWNER_METATABLE "nupp.workers.message.rust"
+typedef struct MessageOwner { void *message; } MessageOwner;
+
+static int message_owner_gc(lua_State *state) {
+    MessageOwner *owner = lua_touserdata(state, 1);
+    if (owner != NULL && owner->message != NULL) {
+        rust->worker_message_destroy(owner->message);
+        owner->message = NULL;
+    }
+    return 0;
+}
+
+static MessageOwner *message_owner(lua_State *state) {
+    MessageOwner *owner;
+    lua_getfield(state, LUA_REGISTRYINDEX, "nupp.workers.message.idle");
+    owner = lua_touserdata(state, -1);
+    if (owner != NULL && owner->message == NULL) return owner;
+    lua_pop(state, 1);
+    owner = lua_newuserdata(state, sizeof *owner);
+    owner->message = NULL;
+    lua_getfield(state, LUA_REGISTRYINDEX, MESSAGE_OWNER_METATABLE);
+    if (lua_isnil(state, -1)) {
+        lua_pop(state, 1);
+        lua_createtable(state, 0, 1);
+        lua_pushcclosure(state, message_owner_gc, 0);
+        lua_setfield(state, -2, "__gc");
+        lua_pushvalue(state, -1);
+        lua_setfield(state, LUA_REGISTRYINDEX, MESSAGE_OWNER_METATABLE);
+    }
+    lua_setmetatable(state, -2);
+    lua_pushvalue(state, -1);
+    lua_setfield(state, LUA_REGISTRYINDEX, "nupp.workers.message.idle");
+    return owner;
+}
+
 static void push_attachments(lua_State *state, void *message) {
     size_t count = nupp_rust_worker_message_attachment_count(message);
     size_t index;
@@ -506,13 +589,21 @@ static void push_attachments(lua_State *state, void *message) {
     lua_createtable(state, (int)(count * 3), 0);
     for (index = 0; index < count; ++index) {
         RawAttachment attachment;
+        int kind = rust->attachment_kind(message, index);
+        EndpointHandle *endpoint = kind == ATTACHMENT_ENDPOINT
+            ? endpoint_push_handle(state, NULL) : NULL;
+        RegionHandle *region = kind == ATTACHMENT_REGION ? region_push_handle(state, NULL) : NULL;
         if (!nupp_rust_worker_message_take_attachment(message, index, &attachment)) {
+            if (endpoint != NULL || region != NULL) lua_pop(state, 1);
             lua_pushnil(state);
             lua_rawseti(state, -2, (int)(index * 3 + 1));
             continue;
         }
-        if (attachment.kind == ATTACHMENT_REGION) {
-            region_push_handle(state, attachment.block);
+        if (endpoint != NULL) {
+            endpoint->endpoint = attachment.block;
+        } else if (region != NULL) {
+            region->block = attachment.block;
+            account_charge(state, attachment.block);
         } else {
             lua_pushlightuserdata(state, attachment.block);
         }
@@ -528,8 +619,10 @@ static int channel_pop(lua_State *state) {
     lua_Integer timeout = lua_tointeger(state, 2);
     int bounded = timeout < INT32_MIN ? INT32_MIN
         : timeout > INT32_MAX ? INT32_MAX : (int)timeout;
+    MessageOwner *owner = message_owner(state);
     void *message = nupp_rust_worker_channel_pop(light(state, 1), bounded);
     int kind;
+    owner->message = message;
     if (message == NULL) {
         int index;
         for (index = 0; index < 7; ++index) lua_pushnil(state);
@@ -566,10 +659,12 @@ static int channel_pop(lua_State *state) {
             lua_pushnumber(state, nupp_rust_worker_message_number(message));
             push_attachments(state, message);
             nupp_rust_worker_message_destroy(message);
+            owner->message = NULL;
             return 9;
         }
     }
     nupp_rust_worker_message_destroy(message);
+    owner->message = NULL;
     return 7;
 }
 
@@ -845,6 +940,275 @@ static int region_accounted(lua_State *state) {
     return 1;
 }
 
+/* Application endpoints use full userdata and a private metatable. Queue
+ * pointers, integers, records, and serialized bytes cannot mint capabilities. */
+
+static EndpointHandle *endpoint_handle(lua_State *state, int index) {
+    EndpointHandle *handle;
+    if (lua_type(state, index) != LUA_TUSERDATA
+        || lua_objlen(state, index) != sizeof(EndpointHandle)
+        || !lua_getmetatable(state, index)) return NULL;
+    lua_getfield(state, LUA_REGISTRYINDEX, ENDPOINT_METATABLE);
+    if (!lua_rawequal(state, -1, -2)) { lua_pop(state, 2); return NULL; }
+    lua_pop(state, 2);
+    handle = lua_touserdata(state, index);
+    return handle;
+}
+
+static int endpoint_gc(lua_State *state) {
+    EndpointHandle *handle = endpoint_handle(state, 1);
+    if (handle != NULL && handle->endpoint != NULL && rust->endpoint_direction(handle->endpoint) != -1) {
+        rust->endpoint_destroy(handle->endpoint);
+        handle->endpoint = NULL;
+    }
+    return 0;
+}
+
+static EndpointHandle *endpoint_push_handle(lua_State *state, void *endpoint) {
+    EndpointHandle *handle = lua_newuserdata(state, sizeof *handle);
+    handle->endpoint = endpoint;
+    lua_getfield(state, LUA_REGISTRYINDEX, ENDPOINT_METATABLE);
+    if (lua_isnil(state, -1)) {
+        lua_pop(state, 1);
+        lua_createtable(state, 0, 1);
+        lua_pushcclosure(state, endpoint_gc, 0);
+        lua_setfield(state, -2, "__gc");
+        lua_pushvalue(state, -1);
+        lua_setfield(state, LUA_REGISTRYINDEX, ENDPOINT_METATABLE);
+    }
+    lua_setmetatable(state, -2);
+    return handle;
+}
+
+static int endpoint_create(lua_State *state) {
+    double messages = lua_tonumber(state, 1), bytes = lua_tonumber(state, 2);
+    EndpointHandle *sender, *receiver;
+    void *receive = NULL, *send;
+    if (lua_type(state, 1) != LUA_TNUMBER || lua_type(state, 2) != LUA_TNUMBER
+        || !isfinite(messages) || !isfinite(bytes) || messages < 1 || bytes < 1
+        || messages != floor(messages) || bytes != floor(bytes)
+        || messages > 2147483647.0 || bytes > 9007199254740991.0 || bytes > (double)SIZE_MAX)
+        return luaL_error(state, "nupp: channel limits must be positive finite integers within host limits");
+    /* Allocate both Lua owners before Rust allocates either native owner. */
+    sender = endpoint_push_handle(state, NULL);
+    receiver = endpoint_push_handle(state, NULL);
+    send = rust->endpoint_pair((size_t)messages, (size_t)bytes, &receive);
+    if (send == NULL) return luaL_error(state, "nupp: cannot create a channel");
+    sender->endpoint = send;
+    receiver->endpoint = receive;
+    return 2;
+}
+
+static int endpoint_close(lua_State *state) {
+    EndpointHandle *handle = endpoint_handle(state, 1);
+    if (handle != NULL && handle->endpoint != NULL && rust->endpoint_direction(handle->endpoint) != -1) {
+        rust->endpoint_close(handle->endpoint);
+        rust->endpoint_destroy(handle->endpoint);
+        handle->endpoint = NULL;
+    }
+    return 0;
+}
+
+static int endpoint_move(lua_State *state) {
+    EndpointHandle *handle = endpoint_handle(state, 1);
+    EndpointHandle *moved = endpoint_push_handle(state, NULL);
+    moved->endpoint = handle != NULL && handle->endpoint != NULL
+        ? rust->endpoint_transfer(handle->endpoint) : NULL;
+    if (moved->endpoint == NULL) return luaL_error(state, "nupp: invalid, closed, or moved channel endpoint");
+    rust->endpoint_destroy(handle->endpoint);
+    handle->endpoint = NULL;
+    return 1;
+}
+
+static int endpoint_send(lua_State *state) {
+    EndpointHandle *handle = endpoint_handle(state, 1);
+    size_t length = 0;
+    const char *bytes = lua_tolstring(state, 2, &length);
+    int status = handle != NULL && handle->endpoint != NULL && bytes != NULL
+        ? rust->endpoint_send(handle->endpoint, (const uint8_t *)bytes, length) : 4;
+    lua_pushinteger(state, status);
+    return 1;
+}
+
+static int endpoint_direction(lua_State *state) {
+    EndpointHandle *handle = endpoint_handle(state, 1);
+    lua_pushinteger(state, handle != NULL && handle->endpoint != NULL
+        ? rust->endpoint_direction(handle->endpoint) : -1);
+    return 1;
+}
+
+static int endpoint_wait_or_ready(lua_State *state, int wait) {
+    EndpointHandle *handle = endpoint_handle(state, 1);
+    lua_Number size = lua_tonumber(state, 2);
+    lua_Number timeout = wait ? lua_tonumber(state, 3) : 0;
+    int status = 4;
+    if (handle != NULL && handle->endpoint != NULL && lua_type(state, 2) == LUA_TNUMBER
+        && isfinite(size) && size >= 0 && floor(size) == size
+        && size <= 9007199254740991.0 && size <= (lua_Number)SIZE_MAX
+        && (!wait || (lua_type(state, 3) == LUA_TNUMBER && isfinite(timeout)
+            && timeout >= -1 && timeout <= INT32_MAX && floor(timeout) == timeout))) {
+        status = wait ? rust->endpoint_wait(handle->endpoint, (size_t)size, (int)timeout)
+            : rust->endpoint_ready(handle->endpoint, (size_t)size);
+    }
+    lua_pushinteger(state, status);
+    return 1;
+}
+
+static int endpoint_ready(lua_State *state) { return endpoint_wait_or_ready(state, 0); }
+static int endpoint_wait(lua_State *state) { return endpoint_wait_or_ready(state, 1); }
+
+
+static int endpoint_receive(lua_State *state) {
+    EndpointHandle *handle = endpoint_handle(state, 1);
+    int status = 4;
+    /* Own the popped message before allocating its Lua string. A Lua allocation
+     * failure unwinds C directly, so the userdata finalizer must own that path. */
+    MessageOwner *owner = message_owner(state);
+    void *message = handle != NULL && handle->endpoint != NULL
+        ? rust->endpoint_receive(handle->endpoint, &status) : NULL;
+    owner->message = message;
+    lua_pushinteger(state, status);
+    if (message == NULL) {lua_pushnil(state); lua_pushnil(state);}
+    else {
+        push_message_bytes(state, message, 0);
+        push_attachments(state, message);
+        nupp_rust_worker_message_destroy(message);
+        owner->message = NULL;
+    }
+    return 3;
+}
+
+#define ANCHOR_METATABLE "nupp.workers.channel.resource"
+static EndpointHandle *anchor_handle(lua_State *state, int index) {
+    int same;
+    if (lua_type(state, index) != LUA_TUSERDATA || lua_objlen(state, index) != sizeof(EndpointHandle)
+        || !lua_getmetatable(state, index)) return NULL;
+    lua_getfield(state, LUA_REGISTRYINDEX, ANCHOR_METATABLE);
+    same = lua_rawequal(state, -1, -2);
+    lua_pop(state, 2);
+    return same ? lua_touserdata(state, index) : NULL;
+}
+
+static int anchor_close(lua_State *state) {
+    EndpointHandle *handle = anchor_handle(state, 1);
+    if (handle != NULL && handle->endpoint != NULL && rust->endpoint_direction(handle->endpoint) != -1) {
+        rust->endpoint_abort(handle->endpoint);
+        rust->endpoint_destroy(handle->endpoint);
+        handle->endpoint = NULL;
+    }
+    return 0;
+}
+
+static int endpoint_anchor(lua_State *state) {
+    EndpointHandle *source = endpoint_handle(state, 1);
+    EndpointHandle *handle = lua_newuserdata(state, sizeof *handle);
+    handle->endpoint = NULL;
+    lua_getfield(state, LUA_REGISTRYINDEX, ANCHOR_METATABLE);
+    if (lua_isnil(state, -1)) {
+        lua_pop(state, 1);
+        lua_createtable(state, 0, 1);
+        lua_pushcclosure(state, anchor_close, 0);
+        lua_setfield(state, -2, "__gc");
+        lua_pushvalue(state, -1);
+        lua_setfield(state, LUA_REGISTRYINDEX, ANCHOR_METATABLE);
+    }
+    lua_setmetatable(state, -2);
+    handle->endpoint = source != NULL ? rust->endpoint_anchor(source->endpoint) : NULL;
+    if (handle->endpoint == NULL) return luaL_error(state, "nupp: invalid channel resource");
+    return 1;
+}
+
+#define PENDING_METATABLE "nupp.workers.pending.rust"
+typedef struct PendingHandle { size_t key; } PendingHandle;
+
+static PendingHandle *pending_handle(lua_State *state, int index) {
+    int same;
+    if (lua_type(state, index) != LUA_TUSERDATA || lua_objlen(state, index) != sizeof(PendingHandle)
+        || !lua_getmetatable(state, index)) return NULL;
+    lua_getfield(state, LUA_REGISTRYINDEX, PENDING_METATABLE);
+    same = lua_rawequal(state, -1, -2);
+    lua_pop(state, 2);
+    return same ? lua_touserdata(state, index) : NULL;
+}
+
+static int pending_close(lua_State *state) {
+    PendingHandle *handle = pending_handle(state, 1);
+    if (handle != NULL && handle->key != 0) {
+        if (rust->pending_release(handle->key)) handle->key = 0;
+    }
+    return 0;
+}
+
+static int pending_create(lua_State *state) {
+    PendingHandle *handle = lua_newuserdata(state, sizeof *handle);
+    handle->key = 0;
+    lua_getfield(state, LUA_REGISTRYINDEX, PENDING_METATABLE);
+    if (lua_isnil(state, -1)) {
+        lua_pop(state, 1);
+        lua_createtable(state, 0, 1);
+        lua_pushcclosure(state, pending_close, 0);
+        lua_setfield(state, -2, "__gc");
+        lua_pushvalue(state, -1);
+        lua_setfield(state, LUA_REGISTRYINDEX, PENDING_METATABLE);
+    }
+    lua_setmetatable(state, -2);
+    return 1;
+}
+
+static int pending_fill(lua_State *state) {
+    PendingHandle *handle = pending_handle(state, 1);
+    RawAttachment attachments[MAX_ATTACHMENTS];
+    size_t length = 0, count;
+    const char *bytes = lua_tolstring(state, 2, &length);
+    if (handle == NULL || handle->key != 0 || bytes == NULL) {
+        if (lua_type(state, 3) == LUA_TTABLE) release_listed_moved(state, 3, lua_objlen(state, 3) / 3);
+        release_listed_endpoints(state, 3);
+        lua_pushboolean(state, 0);
+        return 1;
+    }
+    count = read_attachments(state, 3, attachments);
+    if (count != (size_t)-1) {
+        handle->key = rust->pending_prepare((const uint8_t *)bytes, length, attachments, count);
+    }
+    release_listed_endpoints(state, 3);
+    lua_pushboolean(state, handle->key != 0);
+    return 1;
+}
+
+static int pending_offer(lua_State *state) {
+    EndpointHandle *endpoint = endpoint_handle(state, 1);
+    PendingHandle *message = pending_handle(state, 2);
+    int status = endpoint != NULL && message != NULL && message->key != 0
+        ? rust->pending_offer(endpoint->endpoint, message->key) : 4;
+    if (status == 0) message->key = 0;
+    lua_pushinteger(state, status);
+    return 1;
+}
+
+static int pending_size(lua_State *state) {
+    PendingHandle *message = pending_handle(state, 1);
+    size_t size = message != NULL && message->key != 0 ? rust->pending_size(message->key) : SIZE_MAX;
+    if (size > 9007199254740991ULL) lua_pushnil(state);
+    else lua_pushnumber(state, (lua_Number)size);
+    return 1;
+}
+
+static int pending_take(lua_State *state) {
+    PendingHandle *handle = pending_handle(state, 1);
+    MessageOwner *owner = message_owner(state);
+    void *message = handle != NULL && handle->key != 0 ? rust->pending_take(handle->key) : NULL;
+    owner->message = message;
+    if (handle != NULL && message != NULL) handle->key = 0;
+    if (message == NULL) {lua_pushnil(state); lua_pushnil(state);}
+    else {
+        push_message_bytes(state, message, 0);
+        push_attachments(state, message);
+        nupp_rust_worker_message_destroy(message);
+        owner->message = NULL;
+    }
+    return 2;
+}
+
 static void field(lua_State *state, const char *name, lua_CFunction function) {
     lua_pushcclosure(state, function, 0);
     lua_setfield(state, -2, name);
@@ -852,6 +1216,22 @@ static void field(lua_State *state, const char *name, lua_CFunction function) {
 
 int nupp_luaopen_workers(lua_State *state) {
     lua_createtable(state, 0, 24);
+    field(state, "endpointCreate", endpoint_create);
+    field(state, "endpointClose", endpoint_close);
+    field(state, "endpointMove", endpoint_move);
+    field(state, "endpointSend", endpoint_send);
+    field(state, "endpointReceive", endpoint_receive);
+    field(state, "endpointAnchor", endpoint_anchor);
+    field(state, "channelRelease", anchor_close);
+    field(state, "messageCreate", pending_create);
+    field(state, "messageFill", pending_fill);
+    field(state, "messageOffer", pending_offer);
+    field(state, "messageSize", pending_size);
+    field(state, "messageTake", pending_take);
+    field(state, "messageClose", pending_close);
+    field(state, "endpointReady", endpoint_ready);
+    field(state, "endpointWait", endpoint_wait);
+    field(state, "endpointDirection", endpoint_direction);
     field(state, "channelCreate", channel_create);
     field(state, "channelDestroy", channel_destroy);
     field(state, "channelClose", channel_close);

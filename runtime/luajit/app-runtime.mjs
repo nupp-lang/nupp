@@ -2,6 +2,7 @@ import {createKernels} from './aot.mjs';
 import {assetsFor, sha256} from './assets.mjs';
 import {nativeInitialization} from './native.mjs';
 import {createWorkerPool} from '../wasm/worker-pool.mjs';
+import {createChannelHost} from '../wasm/channel-host.mjs';
 import {createGuest} from './host.mjs';
 import {createTransfers} from './transfers.mjs';
 import {closeHostChannel, handleBrowserEffects} from '../wasm/app-runtime.mjs';
@@ -56,6 +57,7 @@ export function applicationPayload(app, initialize = new Uint8Array()) {
 // host's request deadline, so a spinning guest is terminated rather than awaited.
 export async function runNuppLuaJITApp({manifestUrl, app, initialize, managed = false,
   signal, limits: overrides, onProgress, beginsTurn = () => true, workerEntry, workerSetup,
+  clockOrigin = performance.timeOrigin,
   createGuest: openGuest = createGuest, ...services}) {
   const {perTurn, perRun} = resolveLimits(overrides);
   const controller = new AbortController();
@@ -75,8 +77,9 @@ export async function runNuppLuaJITApp({manifestUrl, app, initialize, managed = 
   };
   // Handlers read the per-turn table: an HTTP body or response is bounded by what
   // one turn may move.
-  const options = {...services, limits: perTurn, signal: controller.signal};
-  const guest = openGuest({manifestUrl, app: applicationPayload(app, initialize), signal: controller.signal,
+  const options = {...services, limits: perTurn, signal: controller.signal,
+    performance: services.performance || {now: () => performance.now() + performance.timeOrigin - clockOrigin}};
+  const guest = openGuest({manifestUrl, app: applicationPayload(app, initialize), signal: controller.signal, clockOrigin,
     config: {mode: 'application', managed, workerEntry, workerSetup}, deadlineMs: perTurn.computeMs,
     timeoutMessage: exceededMessage('perTurn.computeMs', `${perTurn.computeMs} ms`),
     onProgress(message) { if (message.type === 'ready') armRun(); onProgress?.(message); }});
@@ -166,17 +169,18 @@ export async function runPackagedNuppLuaJITApp(manifestUrl, {manifestDigest, ...
   const initialize = new Uint8Array(native.length + supplied.length);
   initialize.set(native); initialize.set(supplied, native.length);
   let pool;
+  const channels = options.channelHost || createChannelHost();
   try {
     if (manifest.workers && options.workers !== false) {
       await verified(manifest.workers.lane);
       pool = createWorkerPool({laneUrl: new URL(manifest.workers.lane, base).href,
         manifestUrl: address.href, manifestDigest: digest, maxLanes: manifest.workers.maxLanes || 2, limits,
-        requestPersistentStorage: options.requestPersistentStorage});
+        requestPersistentStorage: options.requestPersistentStorage, channels});
     }
     return await runNuppLuaJITApp({...options, app, initialize,
       manifestUrl: new URL(manifest.guest, base).href, limits,
       storageName: options.storageName || `nupp-${manifest.assets[manifest.app].sha256.slice(0,24)}`,
       requestPersistentStorage: options.requestPersistentStorage,
-      effectHandlers: packagedEffectHandlers(options.effectHandlers, kernels, pool)});
-  } finally { pool?.close(); }
+      effectHandlers: packagedEffectHandlers({...options.effectHandlers, channel: effect => channels.perform(effect)}, kernels, pool)});
+  } finally { pool?.close(); channels.close(); }
 }
