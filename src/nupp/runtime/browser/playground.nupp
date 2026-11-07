@@ -22,6 +22,15 @@ local rendering = require("serde.debug")
 -- checked implementations so imports in user programs reach the same services.
 local platformLibraries = {
     function()
+        return require("nupp.runtime.provider.checksum")
+    end,
+    function()
+        return require("nupp.runtime.provider.digest")
+    end,
+    function()
+        return require("nupp.runtime.provider.mac")
+    end,
+    function()
         return require("binary")
     end,
     function()
@@ -145,7 +154,7 @@ _G.__nuppPlaygroundRun = function(source: string): string
     then
         error("nupp: derive runtime did not load", 0)
     end
-    assert2(#platformLibraries == 26, "nupp: browser library loaders are missing")
+    assert2(#platformLibraries == 29, "nupp: browser library loaders are missing")
     lines = {}
     outputBytes = 0
     local chunk, problem = loadstring(source, "@playground.nupp")
