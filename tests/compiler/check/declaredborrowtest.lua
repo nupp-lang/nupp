@@ -315,10 +315,7 @@ export record R
 end
 function R:pair(): ]]
             .. result
-            .. [[
-    return self, self
-end
-]]
+            .. "\n    return self, self\nend\n"
         )
         testAssert.eq(codes, "")
         local signature = exports.types.R.byname.pair
@@ -340,9 +337,7 @@ end
 function R:pair(borrows other: R): (R, R)
     return ]]
             .. returned
-            .. [[
-end
-]]
+            .. "\nend\n"
         )
         assert(codes:find("NUPP2619", 1, true), codes)
     end
