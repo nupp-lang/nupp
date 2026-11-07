@@ -1735,6 +1735,27 @@ function tagged.forVersion(version: integer): any
     end
 
     if version >= 8 then
+        profile.finish = function(ctx: any): nil
+            local g = ctx.g
+            need(
+                g.native == nil and g.exactTypes == nil and g.nativePhysical == nil,
+                "transport compaction requires a tagged source graph"
+            )
+            for _, kind in ipairs(g.types) do
+                need(kind == "v", "transport compaction requires tagged values")
+            end
+            need(g.counts.i == 0 and g.counts.f == 0 and g.counts.x == 0, "tagged graph has physical slot hints")
+            -- The frontend verified the original graph. Remove only unused
+            -- transport, then compact hints before the core's bounded copy.
+            graph.prune(g)
+            local count: integer = 0
+            for value = g.nparams + 1, #g.types do
+                g.slots[value] = count
+                count += 1
+            end
+            g.counts.v = count
+            graph.verify(g)
+        end
         local withCleanup: any = nil
         profile.forOwner = function(p: any, owner: any): any
             if not (p.cleanupOwners and p.cleanupOwners[owner.id]) then
