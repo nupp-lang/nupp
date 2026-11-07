@@ -65,6 +65,16 @@ assert(closed == 1, "zero step closes owner")
 local limitOk, limitProblem = pcall(zero, 1, {})
 assert(not limitOk and string.find(tostring(limitProblem), "bad 'for' limit", 1, true) ~= nil, "invalid limit raises")
 assert(closed == 2, "invalid limit closes owner")
+
+local function faulty(): any
+    local value: any = {}
+    return value + 1
+end
+
+local faultOk, faultProblem = pcall(faulty)
+assert(not faultOk and type(faultProblem) == "string", "runtime fault retains message")
+assert(string.find(faultProblem, "arithmetic", 1, true) ~= nil, "runtime fault keeps its wording")
+
 local weak: any = setmetatable({}, {__mode = "v"})
 
 local function forgetcall(): nil
