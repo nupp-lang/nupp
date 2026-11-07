@@ -85,3 +85,99 @@ entry 0
     vm.set_index(a, x, Value::num(42.0));
     assert_eq!(vm.call_value(Value::func(0), &[a]), vec![Value::num(42.0)]);
 }
+
+const RECORD_METHODS: &str = include_str!("record-method-overrides.image");
+
+#[test]
+fn record_method_overrides_match_property_reads() {
+    for threaded in [false, true] {
+        let mut vm = vm(RECORD_METHODS);
+        vm.threaded = threaded;
+        vm.call_value(Value::func(4), &[]);
+        let name = vm.intern("action");
+        for shape in [0, 1] {
+            let receiver = vm.new_record(shape);
+            vm.register(receiver);
+            let other = vm.new_record(shape);
+            vm.register(other);
+            assert_eq!(
+                vm.call_value(Value::func(0), &[receiver]),
+                vec![Value::num(1.0)]
+            );
+            for (method, expected) in [
+                (Value::func(2), 2.0),
+                (Value::func(3), 3.0),
+                (Value::NIL, 1.0),
+            ] {
+                vm.set_index(receiver, name, method);
+                let expected_method = if method == Value::NIL {
+                    Value::func(1)
+                } else {
+                    method
+                };
+                assert_eq!(
+                    vm.call_value(Value::func(5), &[receiver]),
+                    vec![expected_method]
+                );
+                assert_eq!(vm.resolve_method(receiver, name), expected_method);
+                assert_eq!(
+                    vm.call_value(Value::func(0), &[receiver]),
+                    vec![Value::num(expected)]
+                );
+                assert_eq!(
+                    vm.call_value(Value::func(0), &[other]),
+                    vec![Value::num(1.0)]
+                );
+                vm.full_cycle();
+                vm.check_oracle();
+            }
+            for value in [Value::FALSE, Value::num(9.0)] {
+                vm.set_index(receiver, name, value);
+                assert_eq!(vm.call_value(Value::func(5), &[receiver]), vec![value]);
+                assert_eq!(vm.resolve_method(receiver, name), value);
+                let result = vm.pcall_values(Value::func(0), &[receiver]);
+                assert_eq!(result[0], Value::FALSE);
+                let error = String::from_utf8_lossy(vm.bytes_of(result[1]));
+                assert!(error.contains("method 'action'"), "{error}");
+            }
+        }
+    }
+}
+
+#[test]
+fn record_method_lookup_keeps_own_index_and_missing_method_context() {
+    for threaded in [false, true] {
+        let mut vm = vm(RECORD_METHODS);
+        vm.threaded = threaded;
+        let receiver = vm.new_record(2);
+        vm.register(receiver);
+        let prototype = vm.new_table();
+        vm.register(prototype);
+        let meta = vm.new_table();
+        vm.register(meta);
+        let name = vm.intern("action");
+        let index = vm.intern("__index");
+        vm.set_index(prototype, name, Value::func(2));
+        vm.set_index(meta, index, prototype);
+        vm.set_metatable(receiver, meta);
+        assert_eq!(
+            vm.call_value(Value::func(0), &[receiver]),
+            vec![Value::num(2.0)]
+        );
+        vm.set_index(receiver, name, Value::func(3));
+        assert_eq!(
+            vm.call_value(Value::func(0), &[receiver]),
+            vec![Value::num(3.0)]
+        );
+        vm.set_index(receiver, name, Value::NIL);
+        assert_eq!(
+            vm.call_value(Value::func(0), &[receiver]),
+            vec![Value::num(2.0)]
+        );
+        vm.set_index(prototype, name, Value::NIL);
+        let result = vm.pcall_values(Value::func(0), &[receiver]);
+        assert_eq!(result[0], Value::FALSE);
+        let error = String::from_utf8_lossy(vm.bytes_of(result[1]));
+        assert!(error.contains("method 'action'"), "{error}");
+    }
+}

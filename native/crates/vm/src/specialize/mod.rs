@@ -482,7 +482,10 @@ impl Interp {
                 let mut cases = Vec::new();
                 for key in site.seen()? {
                     let (guard, method) = match key & TAG {
-                        K_SHAPE => { let s = (key & !TAG) as u32; (Guard::Shape(s), *self.heap.shapes.get(s as usize)?.methods.get(&name)?) }
+                        // A shape alone cannot prove that the receiver has no
+                        // overriding slot or overflow field. Keep method lookup
+                        // on the generic path; field/store plans are unchanged.
+                        K_SHAPE => return None,
                         K_META => {
                             // The key's address is re-derived from a live object or not used.
                             let meta = self.live_table(key & !TAG)?;

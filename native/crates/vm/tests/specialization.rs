@@ -550,3 +550,55 @@ fn versions_install_only_while_current_and_keep_what_they_own() {
         vm.jit = Some(jit);
     }
 }
+
+#[test]
+fn record_method_overrides_survive_warm_shape_feedback() {
+    let program = include_str!("record-method-overrides.image");
+    for tier in [Tier::Single, Tier::Threaded, Tier::Eager, Tier::Frames] {
+        let mut vm = fixture_of(program, tier, Spec::Specialize, Gc::Interleave);
+        vm.call_value(Value::func(4), &[]);
+        let invoke = |vm: &mut Interp, receiver| {
+            if tier == Tier::Frames {
+                run_frames(vm, 0, &[receiver])
+            } else {
+                let direct = if tier == Tier::Eager {
+                    vm.call_direct(Value::func(0), &[receiver])
+                } else {
+                    None
+                };
+                direct.unwrap_or_else(|| vm.call_value(Value::func(0), &[receiver]))[0]
+            }
+        };
+        let name = vm.intern("action");
+        for shape in [0, 1] {
+            let receiver = vm.new_record(shape);
+            vm.register(receiver);
+            let other = vm.new_record(shape);
+            vm.register(other);
+            for _ in 0..256 {
+                assert_eq!(invoke(&mut vm, receiver), Value::num(1.0));
+            }
+            // Receiver shape feedback cannot prove absence of an instance override.
+            if let Some(plan) = vm.spec_plan(0, Convention::Direct) {
+                assert!(!matches!(plan.sites.get(&0), Some(SiteSpec::Method(_))));
+            }
+            for (method, expected) in [
+                (Value::func(2), 2.0),
+                (Value::func(3), 3.0),
+                (Value::NIL, 1.0),
+            ] {
+                vm.set_index(receiver, name, method);
+                for _ in 0..4 {
+                    assert_eq!(invoke(&mut vm, receiver), Value::num(expected), "{tier:?}");
+                    assert_eq!(
+                        invoke(&mut vm, other),
+                        Value::num(1.0),
+                        "same shape, other instance on {tier:?}"
+                    );
+                }
+                vm.full_cycle();
+                vm.check_oracle();
+            }
+        }
+    }
+}

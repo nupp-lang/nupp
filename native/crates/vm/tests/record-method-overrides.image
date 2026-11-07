@@ -1,0 +1,37 @@
+shape 0 Slot action:any
+shape 1 Extra other:any
+shape 2 Indirect other:any
+function invoke 0 1 8 0 v:v
+const 0 str "action"
+CallMethod 0 0 1
+Ret 0
+end
+function fallback 1 1 4 0 v:v
+const 0 num 1
+K 2 0
+Ret 2
+end
+function replacement 2 1 4 0 v:v
+const 0 num 2
+K 2 0
+Ret 2
+end
+function second 3 1 4 0 v:v
+const 0 num 3
+K 2 0
+Ret 2
+end
+function install 4 0 4 0 :v
+const 0 str "action"
+const 1 func 1
+K 1 1
+SetMethod 0 0 1
+SetMethod 1 0 1
+RetNil
+end
+function read 5 1 4 0 v:v
+const 0 str "action"
+GetField 2 1 0
+Ret 2
+end
+entry 0

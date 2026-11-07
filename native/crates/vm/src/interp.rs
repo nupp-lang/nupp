@@ -939,15 +939,14 @@ impl Interp {
         for i in 0..nv { out[fixed + i] = Value(t.stack[t.cur - nv + i]); }
         args
     }
-    /// What `recv:name(...)` calls: a record's shape method, else a field of
-    /// the record or table holding a function (`{define = Registry.define}`
-    /// and the Lua class idiom). Strings are handled by the callers.
+    /// What `recv:name(...)` calls: the same field `recv.name` reads, so an
+    /// instance override precedes the record's shape method. Strings are
+    /// handled by the callers.
     pub fn resolve_method(&mut self, recv: Value, name: Value) -> Value {
         if let Some(method) = crate::simd_reduce::method(self, recv, name) { return method; }
         if self.kind_of(recv)==Some(KIND_CLOSURE) && self.bytes_of(name)==b"__nuppRelease" { return Value::builtin(crate::builtins::id_of("affine.release").unwrap()); }
         let Some(p) = recv.as_obj() else { self.op_error(OpErr::Index, recv) };
         let h = unsafe { &*p.as_ptr() };
-        if h.kind == KIND_RECORD { if let Some(m) = self.heap.shapes[h.shape() as usize].methods.get(&name) { return *m; } }
         if h.kind == KIND_RECORD || h.kind == KIND_TABLE || h.kind == KIND_USERDATA { let v = self.index(recv, name); if v != Value::NIL { return v; } }
         self.op_error(OpErr::Call, Value::NIL)
     }
