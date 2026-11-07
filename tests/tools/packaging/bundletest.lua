@@ -778,8 +778,7 @@ const jobs = require("jobs")
 const tasks = require("coroutine")
 const sharedbytes = io.SharedBytes
 
--- Private service entry exercises the shared bootstrap before the public
--- channel API is exported.
+-- Exercise the private bootstrap and its resource counts directly.
 const provider = require("nupp.runtime.workersprovider").provider as any
 for _ = 1, 3 do
     local services = provider.openscope(nil, nil)
@@ -2241,6 +2240,22 @@ do
     events:close()
     services:close()
     assert(services._scheduler.dedicated == 0)
+end
+
+-- The public guard also owns arguments when admission fails before handoff.
+do
+    local scope = coroutine.scope()
+    local raw: any = @unsafe own.release(scope)
+    local commands, requests = raw:channel(1, 64)
+    raw:close()
+    assert(not requests._state.closed)
+    assert(not pcall(raw.worker, raw, jobs.returnEndpoint, requests))
+    assert(requests._state.closed)
+    commands:close()
+    local values = table.Array.alloc(ffi.typeof<uint8>(), 4)
+    local moved: any = @unsafe own.release(values)
+    assert(not pcall(raw.work, raw, jobs.service, moved))
+    assert(moved.closed)
 end
 
 -- Runtime checks back up the static scope and transfer restrictions.

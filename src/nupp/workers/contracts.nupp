@@ -395,10 +395,14 @@ export record Scope
     _deadline: number?
     _observer: any
 
+    -- Structured-task integration already guards the whole admission/handoff.
+    -- Private provider callers keep using the guarded spawn and worker methods.
+    _submit: (function(Scope, boolean, any, ...: any): any)?
+
     --- Starts a sendable function with copied arguments.
     spawn: function<F is Worker>(borrows self: Scope, F, ...: unpackof Submitted(F)): Task<F>
 
-    -- Dedicated entry stays internal until channel transport passes on both targets.
+    -- Dedicated entries use the same transfer contract as pooled jobs.
     worker: function<F is Worker>(borrows self: Scope, F, ...: unpackof Submitted(F)): Task<F>
 
     --- Waits for every child, raising the first failure nothing observed. Idempotent.

@@ -1249,7 +1249,11 @@ local function startWorker(scope: any, dedicated: boolean, fn: any, ...: any): a
     -- The provider's runtime keeps the callable first; the source order that puts it
     -- last is the checker's view, restored before lowering.
     local task: any
-    if dedicated then
+    if workerScope._submit ~= nil then
+        -- dispatchWorker owns failed-submission cleanup across admission and
+        -- handoff. Do not repeat the provider's argument scan and error guard.
+        task = workerScope:_submit(dedicated, fn, ...)
+    elseif dedicated then
         task = workerScope:worker(fn, ...)
     else
         task = workerScope:spawn(fn, ...)
@@ -1262,6 +1266,11 @@ local function startWorker(scope: any, dedicated: boolean, fn: any, ...: any): a
 end
 
 local function dispatchWorker(scope: any, dedicated: boolean, fn: any, ...: any): any
+    -- Supported owners are table wrappers. A scalar or empty argument pack
+    -- needs no ownership scan or failed-admission cleanup.
+    if select("#", ...) <= 1 and type((...)) ~= "table" then
+        return startWorker(scope, dedicated, fn, ...)
+    end
     if workerModule ~= nil and workerModule.ownsarguments ~= nil and workerModule.ownsarguments(...) then
         local ok, task = pcall(startWorker, scope, dedicated, fn, ...)
         if not ok then

@@ -228,8 +228,7 @@ local function wrap(owner: any, handle: any, direction: string): any
     return endpoint
 end
 
--- The public typed factory is staged separately while startup transfer and
--- target-specific storage are completed.
+-- The public scope factory keeps these opaque runtime wrappers private.
 export function create(owner: any, messages: integer, bytes: integer): (any, any)
     local sending, receiving = native.endpointCreate(messages, bytes)
     local anchor = native.endpointAnchor(sending)

@@ -1705,14 +1705,13 @@ local function submitImpl(self: workers.Scope, dedicated: boolean, fn: any, ...:
 end
 
 local function ownsArguments(...: any): boolean
-    if appchannels.contains(...) then
-        return true
-    end
     local arrayMT = rawget(heapModule as table, "__arrayMetatable")
     for index = 1, select("#", ...) do
         local value = select(index, ...)
-        if type(value) == "table" and getmetatable(value) == arrayMT then
-            return true
+        if type(value) == "table" then
+            if getmetatable(value) == arrayMT or appchannels.identify(value) ~= nil then
+                return true
+            end
         end
     end
 
@@ -1956,6 +1955,7 @@ local function openScope(deadline: number?, observer: any): workers.Scope
         {
             spawn = spawnSurface,
             worker = dedicatedSurface,
+            _submit = submitImpl,
             close = closeScope,
             _cancelAll = cancelAllScope,
             _settleOldest = settleOldestScope,
@@ -2110,7 +2110,10 @@ function workers.runscheduler(): nil
                     preparedOutput = descriptor and descriptor.output or nil
                     local arguments = packedValue(frame.encoding, frame.bytes, frame.value)
                     startupArguments = arguments.values
-                    startupEndpoints = appchannels.contains(unpack(arguments.values, 1, arguments.count))
+                    -- Only packed startup frames can carry endpoint attachments.
+                    if frame.encoding == "packed" then
+                        startupEndpoints = appchannels.contains(unpack(arguments.values, 1, arguments.count))
+                    end
 
                     return pack(callable(unpack(arguments.values, 1, arguments.count)))
                 end,

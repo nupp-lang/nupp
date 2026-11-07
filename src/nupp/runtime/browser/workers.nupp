@@ -633,6 +633,7 @@ local function openScope(deadline: number?, observer: any): workers.Scope
         {
             spawn = spawnSurface,
             worker = dedicatedSurface,
+            _submit = submitImpl,
             close = closeScope,
             _cancelAll = cancelAllScope,
             _settleOldest = settleOldestScope,
