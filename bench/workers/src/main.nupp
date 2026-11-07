@@ -205,7 +205,7 @@ rows[
     note = "record with an absent optional field"
 }
 
-const sharedbytes = io.Bytes
+const sharedbytes = io.SharedBytes
 
 local lined = ("abcdefg\n"):rep(131072)
 local corpus = sharedbytes.copy(lined)

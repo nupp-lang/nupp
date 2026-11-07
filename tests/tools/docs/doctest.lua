@@ -2179,9 +2179,9 @@ function M.hidesPrivateCleanupNamesFromSignatures()
             "end",
             "",
             "--- Byte sources.",
-            "record io.Bytes",
+            "record io.SharedBytes",
             "   --- Opens a reader over these bytes.",
-            "   newReader: function(self: Bytes): affine(Reader, __destroyReader)",
+            "   newReader: function(self: SharedBytes): affine(Reader, __destroyReader)",
             "end",
         },
         "\n"
@@ -2202,8 +2202,8 @@ function M.hidesPrivateCleanupNamesFromSignatures()
     assert(literal.signature:find('"affine(Reader, __destroyReader)"', 1, true), literal.signature)
     local longLiteral = assert(byName["io.longLiteral"], "the long literal function was not documented")
     assert(longLiteral.signature:find("[[affine(Reader, __destroyReader)]]", 1, true), longLiteral.signature)
-    local bytes = assert(byName["Bytes"], "the record was not documented")
-    assert(bytes.signature == "record io.Bytes", bytes.signature)
+    local bytes = assert(byName["SharedBytes"], "the record was not documented")
+    assert(bytes.signature == "record io.SharedBytes", bytes.signature)
     local newReader = assert(bytes.members[1], "the record's member was not documented")
     assert(newReader.type:find("affine(Reader, _)", 1, true), newReader.type)
     assert(not newReader.type:find("__destroyReader", 1, true), newReader.type)

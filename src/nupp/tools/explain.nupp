@@ -138,8 +138,8 @@ local ENTRIES: {any} = {
         rule = "A private field is representation available only while checking the "
         .. "canonical module that declares its record. Expose a public method when "
         .. "another module needs an operation without revealing that representation.",
-        wrong = "local function inspect(bytes: io.Bytes): any\n    return bytes._handle\nend\nreturn inspect\n",
-        right = "local function inspect(bytes: io.Bytes): string\n    return bytes:tostring()\nend\nreturn inspect\n",
+        wrong = "local function inspect(bytes: io.SharedBytes): any\n    return bytes._handle\nend\nreturn inspect\n",
+        right = "local function inspect(bytes: io.SharedBytes): string\n    return bytes:tostring()\nend\nreturn inspect\n",
         related = {"NUPP2004", "NUPP2202"},
         docs = "docs/learn/language/types/records-and-structs.md#private-fields",
     },

@@ -5,7 +5,7 @@ module nupp.io.http.messages
 const {type Path} = require("io.internal.files.path")
 const uri = require("io.internal.uri")
 const {type Reader} = require("nupp.io")
-const {type Bytes} = require("io.internal.bytestypes")
+const {type SharedBytes} = require("io.internal.bytestypes")
 
 --- Transport capability flags describing observable HTTP guarantees.
 ---
@@ -129,7 +129,7 @@ end
 --- Everything a typed request body may own: immutable bytes, a reader stream, or a file
 --- path. Convert a Buffer with `tostring()` or `freeze()` so the request owns an
 --- immutable snapshot rather than borrowing mutable storage.
-export type RequestBody = string | Bytes | ReaderBody | FileBody
+export type RequestBody = string | SharedBytes | ReaderBody | FileBody
 
 --- A request, as `http.Client:send` takes it.
 ---

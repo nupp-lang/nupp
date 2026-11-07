@@ -73,7 +73,7 @@ intrinsic namespaces and the declared modules:
   [](os.host) runs an embedded component's operations for a host-owned
   loop. See [host.md](../host.md).
 - [](io) owns byte buffers, readers, writers, and typed scalar reads and writes
-  over them. [](io.Bytes) shares immutable engine storage across workers and
+  over them. [](io.SharedBytes) shares immutable engine storage across workers and
   lends byte views without copying.
 - [](os) owns the filesystem: metadata, directories, links, temporary paths, and app storage roots.
 - [](io.net) owns listeners, plain connections, and TLS sessions.
@@ -150,7 +150,7 @@ automatic detection unless the packaging requires otherwise.
 
 Storage offsets count from zero; element indexes count from one. Storage is a
 [](io.Buffer), an
-[](io.Bytes) or an open file: a range in one is
+[](io.SharedBytes) or an open file: a range in one is
 a zero-based offset and a count, because an offset names a distance from the
 beginning and maps directly onto a native byte range. An element view, a
 [span](binary.span) or a [SoA](structure-of-arrays.md) view, and text, a Lua
@@ -162,7 +162,7 @@ string or [](utf8), use 1-based positions, as a Lua array and
 Check each operation's return signature before handling a failure. The typed
 file, process, network, TLS and HTTP services use [](io.Error), whose `kind`
 identifies failures such as `"notfound"`. The Lua stream function `io.open`
-and `io.Bytes.readfile` return string reasons. Invalid arguments may
+and `io.SharedBytes.readfile` return string reasons. Invalid arguments may
 raise instead of returning a failure value.
 
 A result declared `affine(...)` has a cleanup obligation: its local scope drops

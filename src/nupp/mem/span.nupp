@@ -738,7 +738,7 @@ function span.fromString(borrows source: string): span.Span<uint8> borrows (sour
     return (SpanImpl(anchor = source, pointer = pointer as any, offset = 0, count = #source)) as span.Span<uint8>
 end
 
--- Private constructor for engine-owned bytes: [](io.Bytes) reaches
+-- Private constructor for engine-owned bytes: [](io.SharedBytes) reaches
 -- it to lend a checked view over a region's storage, anchored on the region so
 -- the storage outlives every read. Only this module can construct the sealed
 -- implementation, which is why the hook lives here.

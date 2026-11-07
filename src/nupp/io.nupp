@@ -11,10 +11,10 @@ const bytes = require("nupp.io.internal.bytes")
 
 --- A forward-only byte source.
 ---
---- `io.Reader.of(source)` accepts a string, a byte queue, a buffer, a span, or
---- `io.Bytes`. A buffer reader exclusively borrows and consumes its source;
---- a span reader retains its borrow, and a Bytes reader retains the immutable
---- region. Closing a reader ends its borrow or drops its retained reference.
+--- `io.Reader.of(source)` accepts a string, a buffer, a span, or
+--- `io.SharedBytes`. A buffer reader exclusively borrows and consumes its source;
+--- a span reader retains its borrow, and a shared-byte reader retains its region.
+--- Closing a reader ends its borrow or drops its retained reference.
 --- See [bytes.md](docs/learn/runtime/data/bytes.md) for storage and copies.
 ---
 --- ```nupp
@@ -83,46 +83,6 @@ export type Writer = bytes.Writer
 
 --- @internal
 export const Writer = bytes.writerdefaults
-
---- A FIFO byte source that a reader borrows without taking ownership.
----
---- An [](io.Buffer) FIFO is a byte queue: `put` appends to the back and
---- `get` consumes from the front. `queue:reader():scalar()` adapts one, so
---- bytes assembled there are read without copying everything in it first, and
---- the queue remains owned by its caller.
----
---- ```nupp
---- local queue = io.Buffer.create()
---- queue:put("header:")
---- queue:put("!")
----
---- local reader = queue:reader():scalar()
---- assert(reader:readbytes(7) == "header:")
---- assert(reader:remaining() == 1)
---- assert(reader:readuint8() == 33)
---- ```
----
---- Reading drains the queue, and `remaining()` reports what it still holds.
---- `Reader.of` is the same bridge one layer down: it returns an ordinary
---- `Reader` over the queue, for `transferto`, `readinto`, and everything else
---- that contract already covers.
----
---- ```nupp
---- local destination = io.Buffer.create()
---- local queue = io.Buffer.create()
---- queue:put("payload")
---- do
----     local reader = queue:reader()
----     assert(reader:transferto(destination:writer()) == 7)
---- end
---- assert(destination:tostring() == "payload")
---- ```
----
---- Neither takes the queue over. Nothing here frees or closes it, and one read
---- to empty leaves an empty queue rather than a released one.
----
---- @export
-export type ByteQueue = bytes.ByteQueue
 
 --- An exclusive prepared region of a buffer. Its span may be written, then the
 --- lease is committed with the number of bytes that actually landed. Dropping a
@@ -317,15 +277,15 @@ end
 ---
 --- #### Sources
 ---
---- Create a byte reader over a string, buffer, view, or queue, then adapt it:
+--- Create a byte reader over a string, buffer, span, or shared bytes, then adapt it:
 ---
 --- ```nupp
 --- local reader = io.Reader.of("\1\2\3\4"):scalar()
 --- assert(reader:remaining() == 4)
 --- ```
 ---
---- `remaining()` reports the bytes left in built-in string and queue readers,
---- including bytes buffered by the adapter. Open-ended readers return nil.
+--- `remaining()` reports the bytes left in built-in memory readers, including
+--- bytes buffered by the adapter. Open-ended readers return nil.
 --- `atend()` checks whether a scalar reader has reached the end.
 ---
 --- @export

@@ -1,12 +1,12 @@
 @!internal
 
---[[Engine-backed operations for the canonical io.Bytes declarations.]]
+--[[Engine-backed operations for the canonical io.SharedBytes declarations.]]
 module io.internal.sharedbytes
 
 local span = require("binary.span")
 local byteTypes = require("io.internal.bytestypes")
-export type Bytes = byteTypes.Bytes
-export const Bytes = byteTypes.Bytes
+export type SharedBytes = byteTypes.SharedBytes
+export const SharedBytes = byteTypes.SharedBytes
 local spanImplementation = require("nupp.mem.span")
 
 local type Native = {
@@ -17,7 +17,7 @@ local type Native = {
     length: @nosuspend function(any): integer?,
     accounted: @nosuspend function(): integer
 }
--- Bytes retain engine blocks. Other io operations can load this declaration
+-- SharedBytes retain engine blocks. Other io operations can load this declaration
 -- without needing the engine bridge; factories initialize it on first use.
 local native: Native = nil as any
 local ffi = require("ffi")
@@ -29,7 +29,7 @@ local function initialize(): nil
     local moduleName = "nupp.mem.sharedbytes.native"
     local nativeModule = require("nupp.runtime.optional").load(moduleName)
     if nativeModule == nil then
-        error("nupp: io.Bytes needs the Nupp engine host, which a stamped binary provides", 0)
+        error("nupp: io.SharedBytes needs the Nupp engine host, which a stamped binary provides", 0)
     end
     native = nativeModule as Native
 end
@@ -45,19 +45,19 @@ local foreignSpan = rawget(
 
 local getfield: function(borrows source: table, key: string): any = rawget as any
 
-local function handle(borrows value: Bytes): any
+local function handle(borrows value: SharedBytes): any
     return getfield(value as table, "_handle")
 end
 
-local function first(borrows value: Bytes): integer
+local function first(borrows value: SharedBytes): integer
     return getfield(value as table, "_first") as integer
 end
 
-local function length(borrows value: Bytes): integer
+local function length(borrows value: SharedBytes): integer
     return getfield(value as table, "_length") as integer
 end
 
-local RegionMT: metatable<Bytes> = {__index = Bytes}
+local RegionMT: metatable<SharedBytes> = {__index = SharedBytes}
 
 --- Two regions are equal when they name the same engine block, offset, and
 --- length; equal bytes in separate blocks are not equal.
@@ -67,11 +67,11 @@ rawset(RegionMT as table, "__eq", function(left: any, right: any): boolean
         and left._length == right._length
 end)
 
-local function wrap(handle: any, first: integer, length: integer): Bytes
-    return setmetatable({_handle = handle, _first = first, _length = length}, RegionMT) as Bytes
+local function wrap(handle: any, first: integer, length: integer): SharedBytes
+    return setmetatable({_handle = handle, _first = first, _length = length}, RegionMT) as SharedBytes
 end
 
-function Bytes:len(): integer
+function SharedBytes:len(): integer
     return length(self)
 end
 
@@ -83,7 +83,7 @@ local function inside(length: integer, offset: integer, count: integer): boolean
 end
 
 --- @raises string when the extent falls outside the region
-function Bytes:slice(offset: integer, count: integer): Bytes
+function SharedBytes:slice(offset: integer, count: integer): SharedBytes
     if not inside(length(self), offset, count) then
         error("nupp: a region slice is out of bounds", 2)
     end
@@ -92,7 +92,7 @@ function Bytes:slice(offset: integer, count: integer): Bytes
 end
 
 --- @raises string when the extent falls outside the region
-function Bytes:view(offset: integer?, count: integer?): span.Span<uint8>
+function SharedBytes:view(offset: integer?, count: integer?): span.Span<uint8>
     local from = offset == nil and 0 or offset as integer
     local taking = count == nil and length(self) - from or count as integer
     if not inside(length(self), from, taking) then
@@ -103,7 +103,7 @@ function Bytes:view(offset: integer?, count: integer?): span.Span<uint8>
 end
 
 --- @raises string when the region is not aligned or is not a whole number of elements
-function Bytes:viewas<T>(element: ctype<T>): span.Span<T>
+function SharedBytes:viewas<T>(element: ctype<T>): span.Span<T>
     local width = ffi.sizeof(element) as integer
     local alignment = ffi.alignof(element) as integer
     local byteOffset = first(self) - 1
@@ -124,7 +124,7 @@ function Bytes:viewas<T>(element: ctype<T>): span.Span<T>
 end
 
 --- @raises string when the region's engine storage has been released
-function Bytes:tostring(): string
+function SharedBytes:tostring(): string
     local text = native.text(handle(self), first(self), first(self) + length(self) - 1)
     if text == nil then
         error("nupp: a region's storage has been released", 2)
@@ -135,7 +135,7 @@ end
 
 --- Copies `text` once into an engine-owned region.
 --- @raises string when the engine cannot allocate the region
-function Bytes.copy(text: string): Bytes
+function SharedBytes.copy(text: string): SharedBytes
     initialize()
     local handle, length = native.fromString(text)
     if handle == nil then
@@ -150,7 +150,7 @@ end
 --- @param path the native path of the file to read
 --- @return the region, or nil when the file cannot be opened, sized, or read
 --- @return why it could not be read, when unsuccessful
-function Bytes.readfile(path: string): (Bytes?, string?)
+function SharedBytes.readfile(path: string): (SharedBytes?, string?)
     initialize()
     local handle, problem = native.readFile(path)
     if handle == nil then

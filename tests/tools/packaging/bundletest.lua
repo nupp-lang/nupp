@@ -700,9 +700,9 @@ export function echoSparse(value: Sparse): Sparse
     return value
 end
 
-const sharedbytes = io.Bytes
+const sharedbytes = io.SharedBytes
 
-export function firstByte(region: io.Bytes): integer
+export function firstByte(region: io.SharedBytes): integer
     return region:view(0, 1)[1]
 end
 
@@ -748,7 +748,7 @@ module nupp.internal.workerapp
 const capture = require("capture")
 const jobs = require("jobs")
 const tasks = require("coroutine")
-const sharedbytes = io.Bytes
+const sharedbytes = io.SharedBytes
 
 local counter = require("counter")
 for index = 1, 100 do assert(counter.next() == index) end
@@ -909,7 +909,7 @@ local rawShared = require("nupp.mem.sharedbytes.native") as Accounted
 collectgarbage("collect")
 collectgarbage("collect")
 local before = rawShared.accounted()
-local grown: io.Bytes? = sharedbytes.copy(("y"):rep(65536))
+local grown: io.SharedBytes? = sharedbytes.copy(("y"):rep(65536))
 print(rawShared.accounted() - before == 65536, grown ~= nil)
 grown = nil
 collectgarbage("collect")
@@ -1314,9 +1314,9 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
 module jobs
 
 const heap = table.Array
-const sharedbytes = io.Bytes
+const sharedbytes = io.SharedBytes
 
-export function inspect(takes frame: affine(table.Array<uint8>, table.Array.destroy), region: io.Bytes): integer
+export function inspect(takes frame: affine(table.Array<uint8>, table.Array.destroy), region: io.SharedBytes): integer
     local count = frame.count
     own.drop(frame)
     return count + region:len()
@@ -1327,7 +1327,7 @@ end
         ] = [[
 const jobs = require("jobs")
 const heap = table.Array
-const sharedbytes = io.Bytes
+const sharedbytes = io.SharedBytes
 const tasks = require("coroutine")
 
 local region = sharedbytes.copy("abc")
@@ -1367,7 +1367,7 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
         [
             "src/main.nupp"
         ] = [[
-local function freeze(takes buffer: io.Buffer): io.Bytes
+local function freeze(takes buffer: io.Buffer): io.SharedBytes
     return buffer:freeze()
 end
 local function reader(): io.Reader

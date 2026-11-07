@@ -397,10 +397,10 @@ end
 -- Owners
 ----------------------------------------------------------------------------
 
-local readSource: function(source: string | ByteQueue): Reader
+local readSource: function(source: string): Reader
 local readBuffer: function(exclusive source: Buffer): affine(Reader) borrows (source)
 local readSpan: function(borrows source: span.Span<uint8>): affine(Reader) borrows (source)
-local readBytes: function(source: immutable.Bytes): Reader
+local readSharedBytes: function(source: immutable.SharedBytes): Reader
 local writeBuffer: function(exclusive destination: Buffer): affine(Writer) borrows (destination)
 local createBuffer: function(initial: integer | string?): affine(Buffer)
 
@@ -502,8 +502,8 @@ local readAll: function(takes source: Reader, maxbytes: integer?): (string?, str
 --- which it has.
 --- @export
 export interface Reader is own.Closeable
-    --- Reads a string snapshot or drains a caller-owned byte queue.
-    function of(source: string | ByteQueue): Reader
+    --- Reads a string snapshot.
+    function of(source: string): Reader
         return readSource(source)
     end
 
@@ -518,8 +518,8 @@ export interface Reader is own.Closeable
     end
 
     --- Retains immutable engine bytes without making a string snapshot.
-    function of(source: immutable.Bytes): Reader
-        return readBytes(source)
+    function of(source: immutable.SharedBytes): Reader
+        return readSharedBytes(source)
     end
 
     --- Reads up to `count` bytes.
@@ -652,59 +652,6 @@ local newReaderOver: function(bytes: string): Reader
 local newWriterOver: function(borrows buffer: Buffer): affine(Writer) borrows (buffer)
 local newBufferReader: function(exclusive buffer: Buffer): affine(Reader) borrows (buffer)
 
---- A queue of bytes something else is filling, which a reader may be opened over
---- without owning it.
----
---- A process stream and an HTTP response body are both one of these without either
---- knowing about this module.
---- @export
-export interface ByteQueue
-    metamethod __len: function(self): integer
-
-    --- Consumes bytes from the front and returns them, or all of them when given no
-    --- count.
-    --- @param self this queue
-    --- @param ... how many bytes each returned string takes
-    --- @return the consumed bytes
-    get: function(self: ByteQueue, ...: integer?): string
-end
-
---- Reads the queue contract on Lua 5.1 as well as userdata-backed LuaJIT queues.
-export const queueLength: function(source: ByteQueue): integer = function(source)
-    local answer: any
-    local custom = false
-    if type(source) == "table" then
-        local meta: any = getmetatable(source)
-        if type(meta) == "table" and type(meta.__len) == "function" then
-            answer = meta.__len(source)
-            custom = true
-        end
-    end
-    if not custom then
-        answer = #source
-    end
-
-    return integer_(answer, "io.ByteQueue length", 2)
-end
-
-local function takeQueue(source: ByteQueue, count: integer): string
-    local chunk: any = source:get(count)
-    if type(chunk) ~= "string" or #chunk ~= count then
-        error("nupp: io.ByteQueue returned the wrong byte count", 2)
-    end
-
-    return chunk
-end
-
-local function takeAllQueue(source: ByteQueue, count: integer): string
-    local chunk: any = source:get()
-    if type(chunk) ~= "string" or #chunk ~= count then
-        error("nupp: io.ByteQueue returned the wrong byte count", 2)
-    end
-
-    return chunk
-end
-
 --- An exclusive prepared region of a buffer. Its span may be written, then the
 --- lease is committed with the number of bytes that actually landed. Dropping a
 --- lease aborts it without changing the buffer's logical length.
@@ -752,9 +699,9 @@ export sealed interface Buffer is own.Closeable
     --- Consumes this buffer and returns its unread bytes as an immutable region.
     ---
     --- LuaJIT copies the bytes through a string into engine storage.
-    function freeze(takes self: Buffer): immutable.Bytes
+    function freeze(takes self: Buffer): immutable.SharedBytes
         -- The public freeze call selects the engine; loading Buffer stays portable.
-        local copy: function(string): immutable.Bytes = rawget(immutable.Bytes as table, "copy") as any
+        local copy: function(string): immutable.SharedBytes = rawget(immutable.SharedBytes as table, "copy") as any
         local result = copy(self:tostring())
         self:close()
         return result
@@ -1413,11 +1360,11 @@ end
 
 local spanText: function(borrows source: const uint8[?], count: integer): string = physical.string as any
 
--- A Bytes source is a retained immutable value; a Span source carries its
+-- A SharedBytes source is a retained immutable value; a Span source carries its
 -- caller's borrow. The reader uses one implementation for both.
 local function heldSpan(borrows source: any): span.Span<uint8> borrows (source)
     if source.view ~= nil and source.viewas ~= nil then
-        return (source as immutable.Bytes):view()
+        return (source as immutable.SharedBytes):view()
     end
     return source as span.Span<uint8>
 end
@@ -1588,14 +1535,12 @@ local function copyBufferSpan(exclusive buffer: Buffer, exclusive destination: s
     buffer:skip(count)
 end
 
---- A reader over anything answering `get`.
---- @export
-local record QueueReader is Reader
+--- A reader that exclusively borrows a buffer.
+local record BufferReader is Reader
     _source: any
-    _buffer: boolean
     _closed: boolean
 
-    --- Reads up to `count` bytes from the queue.
+    --- Reads up to `count` bytes from the buffer.
     --- @param self this reader
     --- @param count the most bytes to read
     --- @return the bytes, or nil when the reader is closed
@@ -1606,13 +1551,13 @@ local record QueueReader is Reader
             return nil, "the reader is closed"
         end
         local wanted = positive(count, "Reader:read count", 2)
-        local source = self._source as ByteQueue
-        local have = queueLength(source)
+        local source = self._source
+        local have = (source as Buffer):len()
         if have == 0 then
             return "", nil
         end
 
-        return takeQueue(source, math.min(wanted, have) as integer), nil
+        return (source as Buffer):get(math.min(wanted, have) as integer), nil
     end
 
     function readspan(exclusive self, exclusive destination: span.ByteWriteSpan): (integer?, string?)
@@ -1624,18 +1569,13 @@ local record QueueReader is Reader
             local output = destination as span.WriteSpan<uint8>
             wanted = positive(#output, "Reader:readspan destination length", 2)
         end
-        local source = self._source as ByteQueue
-        local have = queueLength(source)
+        local source = self._source
+        local have = (source as Buffer):len()
         if have == 0 then
             return 0, nil
         end
         local taking = math.min(wanted, have) as integer
-        if self._buffer then
-            copyBufferSpan(self._source as Buffer, destination, taking)
-        else
-            local chunk = takeQueue(source, taking)
-            copyString(destination, chunk, 0, taking)
-        end
+        copyBufferSpan(source as Buffer, destination, taking)
 
         return taking, nil
     end
@@ -1651,8 +1591,8 @@ local record QueueReader is Reader
         end
         local from = integer_(offset == nil and 0 or offset, "Reader:readinto offset", 2)
         local wanted = positive(count == nil and DEFAULT_READ or count, "Reader:readinto count", 2)
-        local source = self._source as ByteQueue
-        local have = queueLength(source)
+        local source = self._source
+        local have = (source as Buffer):len()
         if have == 0 then
             return 0, nil
         end
@@ -1668,7 +1608,7 @@ local record QueueReader is Reader
         return taking, nil
     end
 
-    --- Writes everything the queue has to a writer.
+    --- Writes everything the buffer has to a writer.
     --- @param self this reader
     --- @param destination the writer to fill
     --- @return how many bytes moved, or nil on failure
@@ -1677,9 +1617,7 @@ local record QueueReader is Reader
         if self._closed then
             return nil, "the reader is closed"
         end
-        local source = self._source as ByteQueue
-        local count = queueLength(source)
-        local rest = takeAllQueue(source, count)
+        local rest = (self._source as Buffer):get()
         local ok, reason = destination:write(rest)
         if not ok then
             return nil, reason
@@ -1688,12 +1626,12 @@ local record QueueReader is Reader
         return #rest, nil
     end
 
-    --- Closes the reader without closing the queue behind it.
+    --- Closes the reader without closing the buffer behind it.
     ---
     --- Repeated calls are safe. Declared rather than written inline: a cleanup
     --- contract is `@nosuspend`, and an inline method cannot carry one.
     --- @param self this reader, spent by the call
-    close: @nosuspend function(takes self: QueueReader): nil
+    close: @nosuspend function(takes self: BufferReader): nil
 end
 
 ----------------------------------------------------------------------------
@@ -1739,7 +1677,7 @@ function StringReader.close(takes self: StringReader): nil
     state._bytes = ""
 end
 
-function QueueReader.close(takes self: QueueReader): nil
+function BufferReader.close(takes self: BufferReader): nil
     local state = @unsafe own.release(self)
     state._closed = true
     state._source = nil
@@ -1802,8 +1740,8 @@ export function readerRemaining(borrows source: Reader): integer?
         return #source._bytes - source._at + 1
     elseif source is SpanReader then
         return #heldSpan(source._source) - source._at
-    elseif source is QueueReader then
-        return queueLength(source._source as ByteQueue)
+    elseif source is BufferReader then
+        return (source._source as Buffer):len()
     end
 
     return nil
@@ -1814,7 +1752,7 @@ newReaderOver = function(bytes: string): Reader
 end
 
 newBufferReader = function(exclusive buffer: Buffer): affine(Reader) borrows (buffer)
-    return QueueReader(_source = buffer as any, _buffer = true, _closed = false)
+    return BufferReader(_source = buffer as any, _closed = false)
 end
 
 newWriterOver = function(borrows buffer: Buffer): affine(Writer) borrows (buffer)
@@ -1824,22 +1762,6 @@ end
 ----------------------------------------------------------------------------
 -- Opening
 ----------------------------------------------------------------------------
-
-local function queueLike(value: any): boolean
-    local kind = type(value)
-    if kind == "table" then
-        return value.get ~= nil
-    elseif kind == "userdata" or kind == "cdata" then
-        -- Reading a field off foreign data can raise, so asking is done under pcall.
-        local ok, getter = pcall(function(): any
-            return value.get
-        end)
-
-        return ok and getter ~= nil
-    else
-        return false
-    end
-end
 
 -- Lua 5.1 table length ignores __len. A private userdata facade preserves the
 -- public length operation for plain Lua as well as checked source.
@@ -1963,29 +1885,11 @@ export function newStringReader(text: string): Reader
     return newReaderOver(text)
 end
 
---- Opens a reader over a byte queue, which it does not own.
----
---- Closing this reader leaves the queue behind it open, because the queue was
---- never transferred. A process stream and an HTTP response body are both byte
---- queues without naming this module.
----
---- @param source the queue to read from
---- @return the reader, owned by the caller
---- @raises string when source is not a byte queue
---- @export
-export function newQueueReader(source: ByteQueue): Reader
-    if not queueLike(source) then
-        error("nupp: io.Reader.of needs a byte queue", 2)
-    end
-
-    return QueueReader(_source = source, _buffer = false, _closed = false)
-end
-
 local function newSpanReader(borrows source: span.Span<uint8>): affine(Reader) borrows (source)
     return SpanReader(_source = source, _at = 0, _closed = false)
 end
 
-local function newBytesReader(source: immutable.Bytes): Reader
+local function newSharedBytesReader(source: immutable.SharedBytes): Reader
     return SpanReader(_source = source, _at = 0, _closed = false)
 end
 
@@ -1993,29 +1897,27 @@ local function openReader(source: any): any
     if type(source) == "string" then
         return (newStringReader as any)(source)
     elseif source.view ~= nil and source.viewas ~= nil then
-        return (newBytesReader as any)(source)
+        return (newSharedBytesReader as any)(source)
     elseif source.span ~= nil and source.reserve ~= nil then
         return (newBufferReader as any)(source)
     end
     local _, count = (require("nupp.mem.span") as any).__sharedRef(source)
     if count ~= nil then
         return (newSpanReader as any)(source)
-    elseif queueLike(source) then
-        return (newQueueReader as any)(source)
     end
-    error("nupp: io.Reader.of needs a string, buffer, Bytes, byte span, or queue", 2)
+    error("nupp: io.Reader.of needs a string, buffer, SharedBytes, or byte span", 2)
 end
 
 --- Opens a byte reader, retaining the source's borrow when needed.
-export const newReader: function(source: string | ByteQueue): Reader
+export const newReader: function(source: string): Reader
     & function(exclusive source: Buffer): affine(Reader) borrows (source)
     & function(borrows source: span.Span<uint8>): affine(Reader) borrows (source)
-    & function(source: immutable.Bytes): Reader = openReader as any
+    & function(source: immutable.SharedBytes): Reader = openReader as any
 
 readSource = openReader as any
 readBuffer = openReader as any
 readSpan = openReader as any
-readBytes = openReader as any
+readSharedBytes = openReader as any
 -- Checked overloads retain their distinct borrow contracts; Lua and stored
 -- references use the same implementation and runtime source discrimination.
 rawset(Reader, "of", openReader)
