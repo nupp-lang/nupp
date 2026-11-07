@@ -2,6 +2,24 @@ module nupp.core.catalogclockprovider
 
 local clock = assert(require("nupp.runtime.timeprovider").provider)
 local suspension = require("nupp.suspension")
+local primitives: any = coroutine
+assert(primitives == _G.coroutine)
+local running = primitives.running
+local main, ismain = running()
+assert(main ~= nil and ismain and not primitives.isyieldable())
+local co = primitives.create(function(value: any): any
+    local answer = primitives.yield(value + 1)
+    return answer
+end)
+local started, yielded = primitives.resume(co, 4)
+assert(started and yielded == 5 and primitives.status(co) == "suspended")
+local finished, answer = primitives.resume(co, 9)
+assert(finished and answer == 9 and primitives.status(co) == "dead")
+assert(primitives.close(co))
+local wrapped = primitives.wrap(function(value: any): any
+    return value * 2
+end)
+assert(wrapped(3) == 6)
 local score = 0
 local before = clock.now()
 local epoch = os.walltime()

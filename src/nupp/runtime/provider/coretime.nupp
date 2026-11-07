@@ -1,0 +1,6 @@
+@!internal
+module nupp.runtime.provider.coretime
+
+local contracts = require("nupp.runtime.contracts")
+
+export const provider: contracts.ClockProvider = require("nupp.runtime.provider.nativetime")

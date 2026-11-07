@@ -599,8 +599,17 @@ end
 
 function M.coreClocksUseTheSharedTimerProvider()
     assert(graph.coremodule("nupp.vm.clock") == "nupp.runtime.provider.coreclock")
+    assert(graph.coremodule("nupp.runtime.bindings.clock") == "nupp.runtime.provider.coretime")
     assert(graph.coremodule("nupp.runtime.bindings.suspension") == "nupp.runtime.provider.suspension")
     assert(graph.corecallmodule("nupp.runtime.clockcalls"))
+    for _, name in ipairs({"create", "resume", "yield", "status", "wrap", "running", "isyieldable", "close"}) do
+        local parsed = parser.parse(
+            "local primitive = coroutine." .. name .. "; return primitive",
+            "=coroutine-value.nupp"
+        )
+        assert(graph.mayTakeLibraryValue(parsed.root))
+    end
+
     local library = require("nupp.compiler.vm.corelibrary")
     local found = false
     for _, group in ipairs(library.groups()) do

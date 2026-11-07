@@ -70,6 +70,30 @@ export const functions: {[string]: any} = {
     ["string.byte"] = function(s: string, i: integer?, j: integer?): ...integer
         return string.byte(s, i, j)
     end,
+    ["coroutine.create"] = function(body: any, ...: any): thread
+        return coroutine.create(body, ...)
+    end,
+    ["coroutine.resume"] = function(co: thread, ...: any): ...any
+        return coroutine.resume(co, ...)
+    end,
+    ["coroutine.yield"] = function(...: any): ...any
+        return coroutine.yield(...)
+    end,
+    ["coroutine.status"] = function(co: thread): string
+        return coroutine.status(co)
+    end,
+    ["coroutine.wrap"] = function(body: any): any
+        return coroutine.wrap(body)
+    end,
+    ["coroutine.running"] = function(): (thread?, boolean)
+        return coroutine.running()
+    end,
+    ["coroutine.isyieldable"] = function(): boolean
+        return coroutine.isyieldable()
+    end,
+    ["coroutine.close"] = function(co: thread): (boolean, any)
+        return coroutine.close(co)
+    end,
     -- The core's debug library: none of its functions yet.
     debug = {},
     ["os.getenv"] = function(name: string): string?
@@ -159,7 +183,7 @@ local mathmembers: {
     [string]: any
 } = {huge = math.huge, pi = math.pi, maxinteger = math.maxinteger, mininteger = math.mininteger}
 local stringmembers: {[string]: any} = {}
-local libraries: {[string]: {[string]: any}} = {math = mathmembers, string = stringmembers, table = {}}
+local libraries: {[string]: {[string]: any}} = {math = mathmembers, string = stringmembers, table = {}, coroutine = {}}
 for name, value in pairs(functions) do
     local library, field = string.match(name, "^(%a+)%.(%a+)$")
     local members = library and libraries[library]
