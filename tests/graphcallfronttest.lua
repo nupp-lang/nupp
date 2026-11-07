@@ -624,6 +624,51 @@ function M.coreClocksUseTheSharedTimerProvider()
     assert(found)
 end
 
+function M.coroutineValuesRetainCheckedPreludeAuthority()
+    local function projection(source, wanted, expected)
+        local path = "=coroutine-value-fixture.nupp"
+        local parsed = parser.parse(source, path)
+        assert(#parsed.errors == 0)
+        local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
+        local diagnostics = checker.check(parsed, path, env, {
+            moduleName = "coroutine_value_fixture",
+            strict = false,
+            lints = {["unused-binding"] = "off"}
+        })
+        for _, diagnostic in ipairs(diagnostics) do
+            assert(diagnostic.severity ~= "error", diagnostic.msg)
+        end
+        local count = 0
+
+        local function walk(node)
+            if type(node) ~= "table" then
+                return
+            end
+            if wanted and node.kind == "dotIndex" and node.name.text == wanted
+                or not wanted and node.kind == "name" and node.token and node.token.text == "coroutine"
+            then
+                count = count + 1
+                assert(graph.libraryValue(node) == expected)
+            end
+            for _, child in ipairs(node) do
+                walk(child)
+            end
+        end
+
+        walk(parsed.root)
+        assert(count == 1)
+    end
+
+    for _, name in ipairs({"create", "resume", "yield", "status", "wrap", "running", "isyieldable", "close"}) do
+        projection("local value = coroutine." .. name .. "; return value", name, "coroutine." .. name)
+    end
+    projection("local coroutine={running=function() return nil end}; return coroutine.running", "running", nil)
+    projection("return coroutine", nil, "coroutine")
+    projection("local coroutine={}; return coroutine", nil, nil)
+    local parsed = parser.parse("local value=coroutine; return value", "=coroutine-table.nupp")
+    assert(graph.mayTakeLibraryValue(parsed.root))
+end
+
 function M.dynamicStringReadsCarryCanonicalLibrary()
     for _, source in ipairs({
         "return getmetatable('abc')",
