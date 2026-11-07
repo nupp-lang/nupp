@@ -10,39 +10,43 @@ local pointer = immutable:ref()
 b:resize(40)
 b:put(string.rep("b", 40))
 @unsafe do
-    assert(snapshot == initial and pointer[0] == 97 and pointer[79] == 97)
+    assert(snapshot == initial and pointer[0] == 97 and pointer[79] == 97, "snapshot pointer survives overlap")
 end
-assert(b:tostring() == string.rep("a", 40) .. string.rep("b", 40))
+assert(b:tostring() == string.rep("a", 40) .. string.rep("b", 40), "overlapping append updates Buffer")
 b:reset()
 b:put("new")
 collectgarbage("collect")
 @unsafe do
-    assert(snapshot == initial and pointer[0] == 97 and pointer[79] == 97)
+    assert(
+        snapshot == initial and pointer[0] == 97 and pointer[79] == 97,
+        "snapshot pointer survives reset and collection"
+    )
 end
-assert(b:tostring() == "new")
+assert(b:tostring() == "new", "reset Buffer accepts new bytes")
 
 local growth = Buffer.create(initial)
+assert(#growth:span() == 80, "Buffer span length before self append")
 growth:put(growth:span())
-assert(growth:tostring() == initial .. initial)
+assert(growth:tostring() == initial .. initial, "self append preserves all initialized bytes")
 local retained = growth:tostring()
 growth:resize(80)
 growth:put(growth:span())
-assert(retained == initial .. initial and growth:tostring() == retained)
+assert(retained == initial .. initial and growth:tostring() == retained, "self append preserves COW snapshot")
 
 local shrink = Buffer.create(initial)
 local frozen = shrink:tostring()
 shrink:resize(0)
 shrink:resize(80)
-assert(frozen == initial and shrink:tostring() == string.rep("\0", 80))
+assert(frozen == initial and shrink:tostring() == string.rep("\0", 80), "zero growth preserves prior snapshot")
 shrink:resize(0)
 shrink:put("after")
-assert(frozen == initial and shrink:tostring() == "after")
+assert(frozen == initial and shrink:tostring() == "after", "append after shrink preserves prior snapshot")
 local state = require("nupp.io.internal.bufferstate")
 local calls = require("nupp.runtime.storagecalls")
 
 local function refuses(borrows operation: function(): nil): nil
     local okay, problem = pcall(operation)
-    assert(not okay and problem ~= nil)
+    assert(not okay and problem ~= nil, "invalid capability is refused")
 end
 
 local private = state.create(initial, 80)
@@ -60,7 +64,7 @@ refuses(function(): nil
 end)
 refuses(function(): nil
     @unsafe do
-        assert(prepared[0] == 97)
+        assert(prepared[0] == 97, "expired prepared view read")
     end
 end)
 refuses(function(): nil
@@ -79,7 +83,7 @@ refuses(function(): nil
     state.commitwrite(private, nexttoken, active, 1, 1)
 end)
 state.commitwrite(private, nexttoken, active, 0, 1)
-assert(state.text(private, 0, 1) == "Z")
+assert(state.text(private, 0, 1) == "Z", "admitted write commits selected bytes")
 refuses(function(): nil
     calls.fill(state.data(private), 1, 1)
 end)
