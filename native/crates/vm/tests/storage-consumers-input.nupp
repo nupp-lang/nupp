@@ -3,10 +3,9 @@ module nupp.tests.vmstorageconsumers
 local probe = {}
 
 function probe.run(): integer
-    local heap = require("nupp.heap")
-    local soa = require("nupp.soa")
+    const Array = table.Array
     local shared = io.SharedBytes
-    local values = heap.alloc(ffi.typeof<int32>(), 2)
+    local values = Array.alloc(ffi.typeof<int32>(), 2)
     do
         local writable = values:write();
         writable[1] = 11
@@ -19,7 +18,7 @@ function probe.run(): integer
     local struct Row
         x: int32
     end
-    local rows = soa.alloc(ffi.typeof<Row>(), 2)
+    local rows = Array.alloc(ffi.typeof<Row>(), 2, "columnar")
     do
         local writable = rows:write();
         writable[1].x = 17
@@ -33,15 +32,15 @@ function probe.run(): integer
     assert(region:tostring() == "ABCD" and region:len() == 4)
     local view = region:viewas(ffi.typeof<uint8>())
     assert(#view == 4 and view[1] == 65 and view[4] == 68)
-    local builder = shared.newbuilder()
-    builder:append("xy")
-    builder:append("z")
+    local builder = io.Buffer.create()
+    builder:put("xy")
+    builder:put("z")
     assert(builder:freeze():tostring() == "xyz")
-    local empty = shared.newbuilder()
+    local empty = io.Buffer.create()
     assert(empty:freeze():tostring() == "")
     assert(
         not pcall(function(): nil
-            local invalid = heap.alloc(ffi.typeof<int32>(), -1)
+            local invalid = Array.alloc(ffi.typeof<int32>(), -1)
         end)
     )
 

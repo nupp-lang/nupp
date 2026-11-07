@@ -4,12 +4,11 @@ const assert2 = require("assert")
 
 const tasks = require("coroutine")
 
--- The standard modules LuaJIT reaches through `ffi`, run on the VM: SoA
--- slabs, heap arrays, shared byte regions, the logging clock, and the host and
--- GPU providers that have nothing attached.
+-- Typed packed and columnar arrays, shared byte regions, the logging clock,
+-- and detached host and GPU providers run on the VM.
 
-local heap = require("nupp.heap")
-local soa = require("nupp.soa")
+const Array = table.Array
+local span = require("binary.span")
 const sharedbytes = io.SharedBytes
 local log = require("debug.log")
 local host = require("os.host")
@@ -18,8 +17,8 @@ local gpu = require("io.gpu")
 local test = {}
 
 local struct Vector
-    x: number
-    y: number
+    x: float64
+    y: float64
 end
 
 local struct Body
@@ -37,7 +36,7 @@ end
 
 local function heapArrays(): nil
     do
-        local values = heap.alloc(ffi.typeof<int32>(), 4)
+        local values = Array.alloc(ffi.typeof<int32>(), 4)
         assert2(values.count == 4)
         do
             local writable = values:write();
@@ -54,33 +53,39 @@ local function heapArrays(): nil
         assert2(total == 100)
     end
     do
-        local wide = heap.alloc(ffi.typeof<number>(), 3)
+        local wide = Array.alloc(ffi.typeof<float64>(), 3)
         do
             local writable = wide:write();
             writable[2] = 2.5
         end
         assert2(wide:read()[1] == 0 and wide:read()[2] == 2.5)
-        local empty = heap.alloc(ffi.typeof<uint8>(), 0)
+        local empty = Array.alloc(ffi.typeof<uint8>(), 0)
         assert2(empty.count == 0 and #empty:read() == 0)
     end
     raises(
         function(): nil
-            local _broken = heap.alloc(ffi.typeof<int32>(), -1)
+            local _broken = Array.alloc(ffi.typeof<int32>(), -1)
         end,
         "nonnegative integer"
     )
 end
 
-local function rowAt(borrows rows: soa.Span<Body>, index: integer): Body
+local function rowAt(borrows rows: span.Span<Body, "columnar">, index: integer): Body
     return rows[index]
 end
 
-local function copyPast(exclusive rows: soa.WriteSpan<Body>, borrows source: soa.Span<Body>): nil
+local function copyPast(
+    exclusive rows: span.WriteSpan<Body, "columnar">,
+    borrows source: span.Span<Body, "columnar">
+): nil
     rows:copyfrom(2, source, 1, 2)
 end
 
 local function soaSlabs(): nil
-    local layout = soa.layoutof(ffi.typeof<Body>())
+    local ordinary = types.layoutof(Body)
+    assert2(ordinary.size == 32 and ordinary.alignment == 8)
+    assert2(ordinary.fields[2].name == "mass" and ordinary.fields[2].offset == 16)
+    local layout = Array.layoutof(ffi.typeof<Body>())
     assert2(layout.name == "Body" and #layout.fields == 4)
     assert2(layout.fields[1].name == "position" and layout.fields[1].elementsize == 16)
     assert2(layout.fields[2].ctype == "float" and layout.fields[2].elementsize == 4)
@@ -92,7 +97,7 @@ local function soaSlabs(): nil
     assert2(instance.segments[3].offset == 60 and instance.segments[4].offset == 72)
     assert2(instance.bytesize == 75)
 
-    local bodies = soa.alloc(ffi.typeof<Body>(), 4)
+    local bodies = Array.alloc(ffi.typeof<Body>(), 4, "columnar")
     assert2(bodies.count == 4 and bodies.fingerprint == layout.fingerprint)
     do
         local rows = bodies:write();
@@ -125,7 +130,7 @@ local function soaSlabs(): nil
     local ids = readable.id
     assert2(#ids == 4 and ids[1] == 100 and ids[4] == 400)
 
-    local copies = soa.alloc(ffi.typeof<Body>(), 2)
+    local copies = Array.alloc(ffi.typeof<Body>(), 2, "columnar")
     do
         local rows = copies:write();
         rows:copyfrom(1, bodies:read(), 3, 2)
@@ -155,16 +160,19 @@ local function sharedRegions(): nil
         "out of bounds"
     )
 
-    local builder = sharedbytes.newbuilder()
+    local builder = io.Buffer.create()
     do
-        local writer = builder:reserve(5);
-        for index = 1, 5 do
-            writer[index] = 64 + index
+        local lease = builder:reserve(5)
+        do
+            local writer = lease:span();
+            for index = 1, 5 do
+                writer[index] = 64 + index
+            end
         end
+        lease:commit(5)
     end
-    builder:commit(5)
-    builder:append("!")
-    builder:append(string.rep("z", 100))
+    builder:put("!")
+    builder:put(string.rep("z", 100))
     local frozen = builder:freeze()
     assert2(frozen:len() == 106 and frozen:slice(0, 6):tostring() == "ABCDE!")
     assert2(frozen:view(5, 2)[1] == string.byte("!"))
@@ -174,7 +182,8 @@ local function sharedRegions(): nil
     assert2(#triples == 6 and triples[1] == 0)
     raises(
         function(): nil
-            words:slice(1, 8):viewas(ffi.typeof<int32>())
+            local misaligned = words:slice(1, 8)
+            misaligned:viewas(ffi.typeof<int32>())
         end,
         "not suitably aligned"
     )
@@ -185,14 +194,18 @@ end
 
 local function logging(): nil
     local lines: {string} = {}
-    log.setsink(function(_: any, module: string, _: integer, message: string): nil
-        lines[#lines + 1] = module .. ": " .. message
-    end)
+    local previous = log.setsink(
+        log.callback(function(_: any, module: string, _: integer, message: string): nil
+            lines[#lines + 1] = module .. ": " .. message
+        end)
+    )
     log.setlevel("info")
     log.named("memory"):info("%d rows", 4)
     log.named("memory"):debug("hidden")
     assert2(#lines == 1 and lines[1] == "memory: 4 rows", lines[1])
     assert2(log.timestamp():match("^%d%d%d%d%-%d%d%-%d%d %d%d:%d%d:%d%d $"), log.timestamp())
+    local installed = log.setsink(previous)
+    own.drop(installed)
 end
 
 -- The storage provider's private view of where an allocation lives: a shared
@@ -204,7 +217,7 @@ local function regionAddress(region: io.SharedBytes): number
     return representation.address(((region as any)._handle as any).data) as number
 end
 
-local function arrayAddress(borrows values: heap.Array<int32>): number
+local function arrayAddress(borrows values: table.Array<int32>): number
     @unsafe do
         return representation.address((values as any).pointer) as number
     end
@@ -227,7 +240,10 @@ function test.makeRegion(text: string): (io.SharedBytes, number)
 end
 
 --- Writes a moved array and moves it back.
-function test.fillMoved(takes frame: heap.Array<int32>, seed: integer): affine(heap.Array<int32>, heap.destroyArray)
+function test.fillMoved(
+    takes frame: affine(table.Array<int32>, table.Array.destroy),
+    seed: integer
+): affine(table.Array<int32>, table.Array.destroy)
     do
         local writable = frame:write();
         for index = 1, #writable do
@@ -239,7 +255,7 @@ function test.fillMoved(takes frame: heap.Array<int32>, seed: integer): affine(h
 end
 
 --- Where a moved array arrived, and the sum of what it holds.
-function test.totalMoved(takes values: heap.Array<int32>): (integer, number)
+function test.totalMoved(takes values: affine(table.Array<int32>, table.Array.destroy)): (integer, number)
     local sum: integer = 0
     do
         local readable = values:read()
@@ -248,16 +264,16 @@ function test.totalMoved(takes values: heap.Array<int32>): (integer, number)
         end
     end
     local address = arrayAddress(values)
-    values:close()
+    own.drop(values)
 
     return sum, address
 end
 
 local function workerRegions(): nil
     local region = sharedbytes.copy("hello, worker")
-    local builder = sharedbytes.newbuilder()
-    builder:append("built ")
-    builder:append("bytes")
+    local builder = io.Buffer.create()
+    builder:put("built ")
+    builder:put("bytes")
     local built = builder:freeze()
     local large = sharedbytes.copy(string.rep("large", 200000))
     do
@@ -285,13 +301,13 @@ local function workerRegions(): nil
 end
 
 local function workerMoves(): nil
-    local frame = heap.alloc(ffi.typeof<int32>(), 1024)
+    local frame = Array.alloc(ffi.typeof<int32>(), 1024)
     const before = arrayAddress(frame)
     do
         local scope = tasks.scope();
         frame = scope:work(frame, 5, test.fillMoved):await()
         -- Moved there and back: the same allocation, not a copy.
-        assert2(arrayAddress(frame) == before, "a heap array moves rather than copies")
+        assert2(arrayAddress(frame) == before, "an owned packed array moves rather than copies")
         assert2(frame:read()[1] == 6 and frame:read()[1024] == 1029)
         local sum, address = scope:work(frame, test.totalMoved):await()
         assert2(sum == (6 + 1029) * 1024 // 2 and address == before, "the worker owns the moved allocation")
