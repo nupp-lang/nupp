@@ -12,6 +12,7 @@ local generate = require("generate")
 local ROOT = assert(os.getenv("NUPP_COMPILER_ROOT"), "set NUPP_COMPILER_ROOT to the checkout root")
 local LUA = assert(os.getenv("NUPP_LUA_REFERENCE"), "set NUPP_LUA_REFERENCE to a Lua 5.5 interpreter")
 local OUT = ROOT .. "/build/core-guests/generated"
+local STAGED = ROOT .. "/build/core-guest-programs/source/nupp/core"
 local BRIDGE = ROOT .. "/build/core-bridge/debug/nupp-core"
 local SCRATCH = 1048576
 
@@ -103,12 +104,14 @@ end
 
 local count = tonumber(arg[1] or "50")
 local first = tonumber(arg[2] or "1")
-os.execute("mkdir -p " .. quote(OUT))
+os.execute("mkdir -p " .. quote(OUT) .. " " .. quote(STAGED))
 local agreed, failed, started = 0, 0, os.time()
 for seed = first, first + count - 1 do
     local name = "generated" .. seed
     local nupp, lua = generate.program(seed, 10 + seed % 12)
     write(OUT .. "/" .. name .. ".nupp", nupp)
+    -- The generated module is nupp.core.<name>, as the shared checker resolves it.
+    write(STAGED .. "/" .. name .. ".nupp", nupp)
     write(OUT .. "/" .. name .. ".lua", lua)
     local expected, problem = reference(OUT .. "/" .. name .. ".lua")
     local ok, selected = pcall(
@@ -143,6 +146,7 @@ for seed = first, first + count - 1 do
     else
         agreed = agreed + 1
         os.remove(OUT .. "/" .. name .. ".nupp")
+        os.remove(STAGED .. "/" .. name .. ".nupp")
         os.remove(OUT .. "/" .. name .. ".lua")
         os.remove(OUT .. "/" .. name .. ".bundle")
         os.remove(OUT .. "/" .. name .. ".out")
