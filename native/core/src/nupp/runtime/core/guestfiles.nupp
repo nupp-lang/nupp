@@ -12,6 +12,8 @@ const METADATA_BYTES: uint64 = 40ULL
 const INITIAL_TEXT_BYTES: uint64 = 256ULL
 const TEXT_ATTEMPTS: uint64 = 8ULL
 const CANONICAL_PATH: uint64 = 1ULL
+const SKIP_LINKS: uint64 = 0ULL
+const FOLLOW_LINKS: uint64 = 1ULL
 
 local function integer(value: uint64): uint64
     if not ints.isInteger(value) then
@@ -44,10 +46,14 @@ local function metadata(ctx: voidptr, op: uint64, a: uint64, b: uint64): uint64
             if b ~= values.TRUE and b ~= values.FALSE then
                 error("filesystem metadata requires a boolean follow argument")
             end
+            local follow = SKIP_LINKS
+            if b == values.TRUE then
+                follow = FOLLOW_LINKS
+            end
             result = os.fileInfo(
                 native.pointer(strings.bytes(source)),
                 strings.length(source),
-                b == values.TRUE and 1ULL or 0ULL,
+                follow,
                 native.pointer(strings.descriptor(lifetime).base)
             )
         else
