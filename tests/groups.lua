@@ -97,7 +97,32 @@ local groups = {
     ] = {"simdwasmtimeconformancetest", "simdwasmalgorithmdifferentialtest", "simdwasmbrowsersmoketest",},
 
     -- Packaging and release delivery.
-    ["packaging"] = {"bundletest", "compilerpacktest", "releasetest", "rocktest", "spipackagetest", "spitest",},
+    [
+        "packaging"
+    ] = {
+        "bundlefactorytest",
+        "bundlecomponenttest",
+        "bundlebootstraptest",
+        "bundleprovidertest",
+        "bundlesignaturetest",
+        "bundlepayloadtest",
+        "bundleworkertest",
+        "bundleschedulertest",
+        "bundlefailuretest",
+        "bundlescopetest",
+        "bundleregiontest",
+        "bundlebuffertest",
+        "bundleforktest",
+        "bundlelifetimetest",
+        "bundletest",
+        "bundlechanneltest",
+        "bundlededicatedtest",
+        "compilerpacktest",
+        "releasetest",
+        "rocktest",
+        "spipackagetest",
+        "spitest",
+    },
 
     -- The benchmark runner's process boundary. Every case starts children and the
     -- replicated one starts twelve, so the suite costs about three minutes where the
@@ -108,7 +133,19 @@ local groups = {
     -- account, the statistics, the fork merge rules -- stays in `benchtest` and runs on
     -- every change, so what this gates is the cost of starting processes rather than
     -- the cover for anything a compiler change can reach.
-    ["measurement"] = {"benchrunnertest"},
+    [
+        "measurement"
+    ] = {
+        "benchgpuprocesstest",
+        "benchrecordsprocesstest",
+        "benchschemaprocesstest",
+        "benchprotocolprocesstest",
+        "benchsuiteprocesstest",
+        "benchhistoryprocesstest",
+        "benchrunnertest",
+        "benchpilotprocesstest",
+        "benchselectionprocesstest"
+    },
 }
 
 -- Scope is a coverage obligation, independent of execution lanes.
@@ -284,6 +321,34 @@ scopes.projecttasktest = "integration"
 scopes.projectsyntaxtest = "component"
 
 scopes.deriveprovidertest = "component"
+
+-- Independent packages retain the original suite obligations.
+scopes.benchgpuprocesstest = "integration"
+scopes.benchrecordsprocesstest = "integration"
+scopes.benchschemaprocesstest = "integration"
+scopes.benchprotocolprocesstest = "integration"
+scopes.benchsuiteprocesstest = "integration"
+scopes.benchhistoryprocesstest = "integration"
+scopes.benchpilotprocesstest = "integration"
+scopes.benchselectionprocesstest = "integration"
+
+-- Independent packages retain the original suite obligations.
+scopes.bundlefactorytest = "delivery"
+scopes.bundlecomponenttest = "delivery"
+scopes.bundlebootstraptest = "delivery"
+scopes.bundleprovidertest = "delivery"
+scopes.bundlesignaturetest = "delivery"
+scopes.bundlepayloadtest = "delivery"
+scopes.bundleworkertest = "delivery"
+scopes.bundleschedulertest = "delivery"
+scopes.bundlefailuretest = "delivery"
+scopes.bundlescopetest = "delivery"
+scopes.bundleregiontest = "delivery"
+scopes.bundlebuffertest = "delivery"
+scopes.bundleforktest = "delivery"
+scopes.bundlelifetimetest = "delivery"
+scopes.bundlechanneltest = "delivery"
+scopes.bundlededicatedtest = "delivery"
 
 return groups, {
     scopes = scopes,

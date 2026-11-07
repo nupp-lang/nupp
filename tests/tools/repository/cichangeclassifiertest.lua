@@ -381,6 +381,9 @@ function M.everyBenchmarkRunnerInputReachesTheMeasurementSurface()
         "src/nupp/tools/benchrunner.nupp",
         "src/nupp/tools/cli/bench.nupp",
         "tests/tools/bench/benchrunnertest.lua",
+        "tests/tools/bench/process/replication/benchrunnertest.lua",
+        "tests/helpers/benchprocess.lua",
+        "tests/fixtures/bench_fixed_records.nupp",
     }) do
         test(
             surfacesOf(path).measurement,
@@ -416,7 +419,23 @@ function M.gatingTheRunnerSuiteDoesNotGateTheRestOfTheBenchSurface()
     local groups = dofile("tests/groups.lua")
     local gated = groups["measurement"]
     test(gated ~= nil, "the measurement group should exist")
-    test(#gated == 1 and gated[1] == "benchrunnertest", "only the runner suite is gated behind measurement")
+    local expected = {
+        benchrunnertest = true,
+        benchgpuprocesstest = true,
+        benchrecordsprocesstest = true,
+        benchschemaprocesstest = true,
+        benchprotocolprocesstest = true,
+        benchsuiteprocesstest = true,
+        benchhistoryprocesstest = true,
+        benchpilotprocesstest = true,
+        benchselectionprocesstest = true,
+    }
+    test.eq(#gated, 9, "all independent process packages retain their measurement gate")
+    for _, name in ipairs(gated) do
+        test(expected[name], name .. " should cover the benchmark process boundary")
+        expected[name] = nil
+    end
+    test(next(expected) == nil, "every process package is gated")
 
     for name, members in pairs(groups) do
         if name ~= "measurement" then

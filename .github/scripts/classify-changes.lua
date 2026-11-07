@@ -128,6 +128,9 @@ local rules = {
     {"^evals/", {"evals"}},
 
     {"^tests/tools/bench/benchrunnertest%.lua$", {"tests", "measurement"}},
+    {"^tests/tools/bench/process/", {"tests", "measurement"}},
+    {"^tests/helpers/benchprocess%.lua$", {"tests", "measurement"}},
+    {"^tests/fixtures/bench_", {"tests", "measurement"}},
     {"^tests/stdlib/serde/json/jsonfuseddifferentialtest%.lua$", {"tests", "aot", "simd"}},
     -- The fixtures below are run by nothing but the Wasm job, so classifying
     -- them as ordinary tests means a change to one is never compiled: one
