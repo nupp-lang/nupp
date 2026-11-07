@@ -3089,9 +3089,22 @@ then
             catalog = discovered,
             selected = suites,
             runner = runnerSource .. source .. (require("nupp.compiler.fs").readFile(dir .. "/groups.lua") or ""),
-            flags = table.concat(arg, "\0"),
+            flags = cacheModule.flags(arg),
         })
         resultCache = opened and value or nil
+        if verbose and not opened then
+            io.stderr:write("result cache unavailable: " .. tostring(value) .. "\n")
+        end
+        if resultCache and verbose then
+            local names = {}
+            for name in pairs(resultCache.reasons) do
+                names[#names + 1] = name
+            end
+            table.sort(names)
+            for _, name in ipairs(names) do
+                io.stderr:write("result cache " .. name .. ": " .. resultCache.reasons[name] .. "\n")
+            end
+        end
         if resultCache and audit then
             local ok, restore = pcall(resultCache.audit)
             if not ok then

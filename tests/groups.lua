@@ -436,12 +436,359 @@ scopes.projectcrossaggregatetest = "integration"
 
 scopes.serdedebugcontracttest = "integration"
 
-return groups, {
-    scopes = scopes,
-    packages = {
-        ["stdlib/io/cache"] = {cache = true},
-        ["compiler/syntax/lexer"] = {cache = true},
-        -- Checker execution can start comptime children; keep it uncached.
-        ["compiler/check/effects/channel"] = {cache = false},
-    },
+-- Closed repository contracts cover generated modules and ordinary child CLI
+-- checks. Git supplies source membership, including untracked source files but
+-- excluding generated build/cache output. Executed artifacts are hashed too.
+local repositoryInputs = {
+    "tests/helpers",
+    "tests/fixtures",
+    "nupp.lua",
+    "bin",
+    "scripts",
+    "templates",
+    "native",
+    "runtime",
+    "host",
+    "Cargo.toml",
+    "Cargo.lock",
+    "rust-toolchain.toml",
+    "bench/serde-spike/contracts",
 }
+local commands = {
+    "sh",
+    "git",
+    "luajit",
+    "mkdir",
+    "rm",
+    "cp",
+    "mv",
+    "ln",
+    "cat",
+    "pwd",
+    "find",
+    "diff",
+    "env",
+    "sed",
+    "grep",
+    "sort",
+    "touch",
+    "chmod",
+    "uname",
+    "node",
+    "lua",
+    "lua51",
+    "lua5.1",
+    "luac",
+    "tar",
+    "gzip",
+    "head",
+    "tail",
+    "tr",
+    "wc",
+    "ls",
+    "tee",
+    "printf",
+    "cut",
+    "awk",
+    "basename",
+    "dirname",
+    "readlink",
+    "realpath",
+    "rmdir",
+    "date",
+    "test",
+    "bin/nupp",
+    "scripts/toolchain"
+}
+
+local function contract(extra, inputs)
+    local sources = {}
+    for _, path in ipairs(repositoryInputs) do
+        sources[#sources + 1] = path
+    end
+    for _, path in ipairs(extra or {}) do
+        sources[#sources + 1] = path
+    end
+
+    local files = {"src"}
+    for _, path in ipairs(inputs or {}) do
+        files[#files + 1] = path
+    end
+
+    return {
+        cache = true,
+        closed = true,
+        toolchain = true,
+        compiled = "src",
+        images = os.getenv("NUPP_VM_CLI_IMAGE") and {os.getenv("NUPP_VM_CLI_IMAGE")} or nil,
+        optionalInputs = {"editors/playground/src/examples"},
+        sources = sources,
+        inputs = files,
+        commands = commands
+    }
+end
+
+local profiles = {
+    pure = {cache = true},
+    repository = contract(),
+    formatting = contract({
+        "tests/tools/fmt",
+        "tests/compiler/syntax",
+        "tests/run.lua"
+    }),
+    documentation = contract({"docs", "evals"}, {
+        ".rocks"
+    }),
+    runner = contract({
+        "tests"
+    }),
+    benchmark = contract({
+        "bench"
+    }),
+    evaluations = contract({"evals"}),
+}
+local packages = {}
+
+local function enable(profile, paths)
+    for path in paths:gmatch("%S+") do
+        packages[path] = profiles[profile]
+    end
+end
+
+enable("pure", [[
+compiler/syntax/lexer
+stdlib/io/cache
+]])
+enable(
+    "repository",
+    [[
+compiler/check
+compiler/check/associated
+compiler/check/effects
+compiler/check/effects/channel
+compiler/check/ownership
+compiler/comptime
+compiler/comptime/derive/acceptance/configuration
+compiler/comptime/derive/acceptance/manifest
+compiler/comptime/derive/acceptance/tecs
+compiler/comptime/derive/diagnostics
+compiler/comptime/derive/emission
+compiler/comptime/derive/identity
+compiler/comptime/derive/limits
+compiler/comptime/derive/providers/exported
+compiler/comptime/derive/providers/external
+compiler/comptime/derive/providers/forwarding
+compiler/comptime/derive/providers/internal
+compiler/comptime/derive/providers/public
+compiler/comptime/derive/runtime
+compiler/lua
+compiler/project
+compiler/project/contracts/compilation
+compiler/project/contracts/check
+compiler/project/contracts/cross/aggregate
+compiler/project/contracts/cross/contracts
+compiler/project/contracts/filesystem
+compiler/project/contracts/hash
+compiler/project/contracts/invalidation
+compiler/project/contracts/manifest
+compiler/project/contracts/materialization/layout/annotations
+compiler/project/contracts/materialization/layout/readers
+compiler/project/contracts/materialization/products
+compiler/project/contracts/modules
+compiler/project/contracts/paths
+compiler/project/contracts/process
+compiler/project/contracts/syntax
+compiler/project/contracts/tasks
+compiler/project/contracts/test
+compiler/types
+integration/providers
+integration/stdlib
+integration/templates/contracts/app
+integration/templates/contracts/lib
+integration/templates/contracts/manifest
+integration/templates/contracts/paths
+integration/templates/contracts/resolution
+integration/templates/contracts/resources
+integration/templates/contracts/sandbox
+integration/templates/contracts/substitution
+integration/templates/contracts/tree
+integration/templates/contracts/variables
+stdlib
+stdlib/assert
+stdlib/bytes
+stdlib/coroutine
+stdlib/events
+stdlib/io
+stdlib/io/cli
+stdlib/io/path
+stdlib/io/process
+stdlib/io/uri
+stdlib/math
+stdlib/nupp
+stdlib/os
+stdlib/package/nupp
+stdlib/serde
+stdlib/serde/contract/bindings
+stdlib/serde/contract/capabilities
+stdlib/serde/contract/checker
+stdlib/serde/contract/debug
+stdlib/serde/contract/documents
+stdlib/serde/contract/protocol
+stdlib/serde/json
+stdlib/string
+stdlib/table
+stdlib/types
+stdlib/warn
+tools
+tools/coverage
+tools/lsp
+tools/packaging/bundle/signature
+tools/toolchain/progress/cli
+tools/toolchain/progress/reporter
+]]
+)
+enable(
+    "formatting",
+    [[
+compiler/syntax
+tools/fmt
+tools/fmt/cli/cache
+tools/fmt/cli/options
+tools/fmt/cli/project
+tools/fmt/contracts/cst
+tools/fmt/contracts/displaywidth
+tools/fmt/contracts/formatter
+tools/fmt/contracts/layout
+tools/fmt/contracts/lexer
+tools/fmt/contracts/main
+tools/fmt/contracts/parser
+tools/fmt/contracts/syntax
+tools/fmt/contracts/types
+tools/fmt/tree/1
+tools/fmt/tree/2
+tools/fmt/tree/3
+tools/fmt/tree/4
+]]
+)
+enable("documentation", [[
+tools/docs
+]])
+enable("runner", [[
+tools/test
+]])
+enable(
+    "benchmark",
+    [[
+stdlib/debug
+tools/bench/process/gpu
+tools/bench/process/history
+tools/bench/process/pilot
+tools/bench/process/protocol
+tools/bench/process/records
+tools/bench/process/replication
+tools/bench/process/schema
+tools/bench/process/selection
+tools/bench/process/suite
+]]
+)
+enable(
+    "evaluations",
+    [[
+integration/compiler/evals/catalog
+integration/compiler/evals/compiler
+integration/compiler/evals/filesystem
+integration/compiler/evals/semantics
+]]
+)
+
+packages[
+    "compiler/interop"
+] = {cache = false, reason = "C headers, SDKs and system link libraries are external inputs."}
+
+packages["compiler/project/contracts/c"] = {cache = false, reason = "External C compiler, SDK and link libraries."}
+packages[
+    "compiler/project/contracts/cargo"
+] = {cache = false, reason = "External Cargo installation and registry state."}
+packages["compiler/project/contracts/clink"] = {cache = false, reason = "External C compiler, SDK and link libraries."}
+
+packages[
+    "compiler/project/contracts/fixpoint"
+] = {cache = false, reason = "Delivery verification always executes from stage zero."}
+packages["compiler/project/contracts/native"] = {cache = false, reason = "External native compiler and link libraries."}
+
+packages[
+    "integration/compiler"
+] = {cache = false, reason = "Self-hosting and external corpus delivery checks always execute."}
+packages["integration/coroutine"] = {cache = false, reason = "Timer scheduling depends on current host load."}
+
+packages[
+    "integration/native"
+] = {cache = false, reason = "Embedding toolchains and system libraries are external inputs."}
+
+packages["integration/simd"] = {cache = false, reason = "Retiring backend; external GPU, Wasm and native toolchains."}
+packages[
+    "integration/templates/contracts/game"
+] = {cache = false, reason = "Builds game dependencies with external native toolchains."}
+packages[
+    "integration/templates/contracts/remote"
+] = {cache = false, reason = "Local Git transport also reads external Git configuration."}
+packages["stdlib/io/gpu"] = {cache = false, reason = "Live GPU capability and driver conformance."}
+packages["stdlib/io/net"] = {cache = false, reason = "Live network, TLS and socket-provider conformance."}
+packages["tools/bench"] = {cache = false, reason = "Builds benchmark projects against external pkg-config libraries."}
+packages["tools/packaging"] = {cache = false, reason = "Release and external packaging/toolchain state."}
+packages[
+    "tools/packaging/bundle/buffers"
+] = {cache = false, reason = "Runs a toolchain-produced Rust host; external toolchain inputs."}
+packages[
+    "tools/packaging/bundle/channels"
+] = {cache = false, reason = "Runs a toolchain-produced Rust host; external toolchain inputs."}
+packages[
+    "tools/packaging/bundle/dedicated"
+] = {cache = false, reason = "Runs a toolchain-produced Rust host; external toolchain inputs."}
+
+packages[
+    "tools/packaging/bundle/forking"
+] = {cache = false, reason = "Runs a toolchain-produced Rust host; external toolchain inputs."}
+packages[
+    "tools/packaging/bundle/lifetime"
+] = {cache = false, reason = "Runs a toolchain-produced Rust host; external toolchain inputs."}
+
+packages[
+    "tools/packaging/bundle/scheduler"
+] = {cache = false, reason = "Runs a toolchain-produced Rust host; external toolchain inputs."}
+packages[
+    "tools/packaging/bundle/scope"
+] = {cache = false, reason = "Runs a toolchain-produced Rust host; external toolchain inputs."}
+packages["tools/repository"] = {cache = false, reason = "Git branches, index and worktree state are test inputs."}
+packages["tools/toolchain"] = {cache = false, reason = "External compiler installations and provisioning state."}
+
+packages["integration/runtime"] = {cache = false, reason = "Compiles dynamic libraries against an external C SDK."}
+
+packages["integration/reload"] = {cache = false, reason = "Compiles replacement libraries against an external C SDK."}
+
+packages["tools/cli"] = {cache = false, reason = "CLI integration includes external C compiler and SDK conformance."}
+
+packages[
+    "tools/packaging/bundle/delivery"
+] = {cache = false, reason = "Builds a rock through the external LuaRocks installation."}
+
+packages[
+    "compiler/types/oracle"
+] = {cache = false, reason = "Independent binary32 C oracle uses an external compiler and SDK."}
+
+packages[
+    "compiler/lua/budget"
+] = {cache = false, reason = "Native binary budget uses the external native link toolchain."}
+
+packages[
+    "tools/packaging/bundle/providers"
+] = {cache = false, reason = "Builds an exact-feature native host with an external Rust SDK."}
+
+packages[
+    "compiler/project/contracts/generators"
+] = {cache = false, reason = "Local generator rocks also read external LuaRocks configuration."}
+
+enable("repository", [[nupp/test]])
+packages["."] = {cache = false, reason = "Native compiler, core ABI and external C oracle inputs share this package."}
+
+return groups, {scopes = scopes, packages = packages}
