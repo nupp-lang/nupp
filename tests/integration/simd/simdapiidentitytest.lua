@@ -71,7 +71,7 @@ end
 
 local SCALE = [[
 local array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local lanes = require(%q)
 @aot
 local function scale(exclusive values: span.WriteSpan<float64>, factor: float64): nil
@@ -128,7 +128,7 @@ end
 
 local WORKGROUP = [[
 local gpu = require(%q)
-local span = require("binary.span")
+local span = require("bytes.span")
 @aot(target = "gpu")
 local function increment(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
     local groups = math.u32.div(math.u32.wrap(#input), math.u32.wrap(4))

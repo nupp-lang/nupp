@@ -1,0 +1,46 @@
+local jobs = require("nupp.tests.channeljobs")
+local effects = require("nupp.runtime.browser.effects")
+local suspension = require("nupp.suspension")
+
+local result: {number} = {}
+local blockStart: number = 0
+do
+    local services = coroutine.scope()
+    local commands, start = services:channel<boolean>(1, 64)
+    local output, input = services:channel<integer>(4, 128)
+    local producerReady, producerStarted = services:channel<boolean>(1, 64)
+    local consumerReady, consumerStarted = services:channel<boolean>(1, 64)
+    local producer = services:worker(start, output, producerReady, jobs.producer)
+    local consumer = services:worker(input, consumerReady, jobs.consumer)
+    assert(producerStarted:receive() == "value")
+    assert(consumerStarted:receive() == "value")
+    producerStarted:close()
+    consumerStarted:close()
+    commands:send(true)
+    commands:close()
+    blockStart = os.monotonic()
+    suspension.suspend("page stall", function(resume: function(any)): function()
+        return effects.request("channeltest", {operation = "block"}, resume)
+    end)
+    assert(producer:await() == 256)
+    result = consumer:await()
+    assert(result[1] == 256 and result[2] == 32896)
+end
+
+-- Cancellation has a control path even when the event channel has no room.
+do
+    local cancelling = coroutine.scope()
+    local events, receive = cancelling:channel<integer>(1, 64)
+    local child = cancelling:worker(events, jobs.blocked)
+    assert(receive:receive() == "value")
+    assert(child:cancel())
+    assert(
+        not pcall(function(): nil
+            child:await()
+        end)
+    )
+    receive:close()
+end
+return (
+    [[{"count":256,"sum":32896,"firstAfterStart":%f,"lastAfterStart":%f,"progressAfterStart":%f,"cancelled":true}]]
+):format(result[3] - blockStart, result[4] - blockStart, result[5] - blockStart)

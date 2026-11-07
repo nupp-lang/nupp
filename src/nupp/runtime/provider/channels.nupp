@@ -1,0 +1,310 @@
+@!internal
+module nupp.runtime.provider.channels
+
+local native = require("nupp.workers.native")
+local suspension = require("nupp.suspension")
+local cancellation = require("nupp.suspension.cancellation")
+local codec = require("nupp.workers.internal.valuecodec")
+local contract = require("nupp.workers.internal.channeltypes")
+
+-- Runtime identities are table identities backed by checked native userdata.
+-- Copying private fields into another table does not mint an endpoint.
+local endpoints: {[any]: any} = setmetatable({}, {__mode = "k"})
+local senderMT = {__index = contract.Sender}
+local receiverMT = {__index = contract.Receiver}
+local transfer: any = nil
+
+local function storage(): any
+    if transfer == nil then
+        transfer = _G.require("nupp.runtime.provider.workers")
+    end
+    return transfer
+end
+
+local function state(endpoint: any, direction: string): any
+    local found = endpoints[endpoint]
+    if found == nil
+        or found.direction ~= direction
+        or found.closed
+        or found.owner ~= nil and found.owner._resourcesClosed
+    then
+        error("nupp: invalid, closed, or moved channel endpoint", 3)
+    end
+
+    return found
+end
+
+local function checkpoint(): nil
+    local requested, deadline = native.workerTaskCheckpoint()
+    if requested then
+        error(cancellation.create("worker task", deadline and "its deadline passed" or nil), 0)
+    end
+end
+
+local function wait(value: any, bytes: integer): nil
+    checkpoint()
+    if native.endpointReady(value.handle, bytes) ~= 1 then
+        return
+    end
+    suspension.suspend("worker channel", function(resume: function(boolean), context: suspension.Context): function()
+        local resumed = false
+
+        local function poll(): integer
+            if resumed then
+                return 0
+            end
+            local cancelled = native.workerTaskCheckpoint()
+            if cancelled or native.endpointReady(value.handle, bytes) ~= 1 then
+                resumed = true
+                resume(true)
+                return 1
+            end
+
+            return 0
+        end
+
+        context:source("nupp.channels", 49, poll, function(timeout: integer): integer
+            native.endpointWait(value.handle, bytes, timeout)
+            return poll()
+        end)
+        poll()
+
+        return function(): nil
+            resumed = true
+        end
+    end)
+    checkpoint()
+end
+
+local function encode(value: any): string
+    local packed = {values = {value}, count = 1}
+    codec.validate({values = {}, count = 0}, packed)
+    return codec.encode(packed)
+end
+
+local function failed(status: integer): nil
+    if status == 3 then
+        error("nupp: channel payload exceeds its byte limit", 3)
+    end
+    error("nupp: invalid, closed, or moved channel endpoint", 3)
+end
+
+local function prepare(value: any): (string, any)
+    if type(value) == "table" then
+        return storage().channelprepare(value)
+    end
+    return encode(value), nil
+end
+
+local function decode(bytes: string, attachments: any): any
+    if attachments ~= nil then
+        return storage().channeldecode(bytes, attachments)
+    end
+    local packed = codec.decode(bytes)
+    if packed.count ~= 1 then
+        error("nupp: invalid channel message", 2)
+    end
+
+    return packed.values[1]
+end
+
+local function trySend(endpoint: any, value: any): (string, any)
+    local pending: any = nil
+    local ok, status, unsent = pcall(function(): (string, any)
+        local owner = state(endpoint, "sender")
+        local bytes, prepared = prepare(value)
+        pending = prepared
+        local result = pending ~= nil and native.messageOffer(owner.handle, pending)
+            or native.endpointSend(owner.handle, bytes)
+        if result == 0 then
+            return "sent", nil
+        end
+        if result ~= 1 and result ~= 2 then
+            failed(result)
+        end
+        if pending ~= nil then
+            local returned, attachments = native.messageTake(pending)
+            value = decode(assert(returned), attachments)
+        end
+
+        return result == 1 and "full" or "closed", value
+    end)
+    if pending ~= nil then
+        native.messageClose(pending)
+    end
+    if not ok then
+        if type(value) == "table" then
+            storage().channeldrop(value)
+        end
+        error(status, 0)
+    end
+
+    return status as string, unsent
+end
+
+local function send(endpoint: any, value: any): nil
+    local pending: any = nil
+    local ok, problem = pcall(function(): nil
+        local owner = state(endpoint, "sender")
+        local bytes, prepared = prepare(value)
+        pending = prepared
+        local retained = pending ~= nil and assert(native.messageSize(pending)) or #bytes
+        while true do
+            checkpoint()
+            local status = pending ~= nil and native.messageOffer(owner.handle, pending)
+                or native.endpointSend(owner.handle, bytes)
+            if status == 0 then
+                return
+            end
+            if status == 2 then
+                error("nupp: channel receiver is closed", 2)
+            end
+            if status ~= 1 then
+                failed(status)
+            end
+            wait(owner, retained)
+        end
+    end)
+    if pending ~= nil then
+        native.messageClose(pending)
+    end
+    if not ok then
+        if type(value) == "table" then
+            storage().channeldrop(value)
+        end
+        error(problem, 0)
+    end
+end
+
+local function tryReceive(endpoint: any): (string, any)
+    local owner = state(endpoint, "receiver")
+    local status, bytes, attachments = native.endpointReceive(owner.handle)
+    if status == 0 then
+        return "value", decode(bytes as string, attachments)
+    end
+    if status == 1 then
+        return "empty", nil
+    end
+    if status == 2 then
+        return "closed", nil
+    end
+    failed(status)
+
+    return "closed", nil
+end
+
+local function receive(endpoint: any): (string, any)
+    local owner = state(endpoint, "receiver")
+    while true do
+        checkpoint()
+        local status, value = tryReceive(endpoint)
+        if status ~= "empty" then
+            return status, value
+        end
+        wait(owner, 0)
+    end
+end
+
+local function close(value: any): nil
+    if not value.closed then
+        value.closed = true
+        native.endpointClose(value.handle)
+    end
+end
+
+local function wrap(owner: any, handle: any, direction: string): any
+    local value = {handle = handle, direction = direction, closed = false, owner = owner}
+    local endpoint
+    if direction == "sender" then
+        endpoint = setmetatable({_state = value, _close = close, send = send, trysend = trySend}, senderMT)
+    else
+        endpoint = setmetatable(
+            {_state = value, _close = close, receive = receive, tryreceive = tryReceive},
+            receiverMT
+        )
+    end
+    endpoints[endpoint] = value
+
+    return endpoint
+end
+
+-- The public scope factory keeps these opaque runtime wrappers private.
+export function create(owner: any, messages: integer, bytes: integer): (any, any)
+    local sending, receiving = native.endpointCreate(messages, bytes)
+    local anchor = native.endpointAnchor(sending)
+    if owner._resourcesClosed then
+        native.channelRelease(anchor)
+        error("nupp: cannot create a channel in a closed scope", 2)
+    end
+    if owner._channels == nil then
+        owner._channels = {}
+    end
+    owner._channels[#owner._channels + 1] = anchor
+
+    return wrap(owner, sending, "sender"), wrap(owner, receiving, "receiver")
+end
+
+export function closeScope(borrows owner: any): nil
+    for _, anchor in ipairs(owner._channels or {}) do
+        native.channelRelease(anchor)
+    end
+    owner._channels = nil
+    owner._resourcesClosed = true
+end
+
+export function identify(endpoint: any): (string?, any, boolean)
+    local value = endpoints[endpoint]
+    if value == nil then
+        return nil, nil, false
+    end
+
+    return value.direction, value.owner, not value.closed
+        and not (value.owner ~= nil and value.owner._resourcesClosed)
+        and native.endpointDirection(value.handle) >= 0
+end
+
+export function contains(...: any): boolean
+    for index = 1, select("#", ...) do
+        if endpoints[(select(index, ...))] ~= nil then
+            return true
+        end
+    end
+
+    return false
+end
+
+export function claim(endpoint: any): (any, integer)
+    local value = endpoints[endpoint]
+    if value == nil or value.closed then
+        error("nupp: invalid or moved channel endpoint", 2)
+    end
+    local moved = native.endpointMove(value.handle)
+    value.closed = true
+
+    return moved, value.direction == "sender" and 1 or 0
+end
+
+export function plant(handle: any, direction: integer): any
+    if (direction ~= 0 and direction ~= 1) or native.endpointDirection(handle) ~= direction then
+        error("nupp: invalid transferred channel endpoint", 2)
+    end
+    return wrap(nil, handle, direction == 1 and "sender" or "receiver")
+end
+
+export function releaseRaw(handle: any): nil
+    native.endpointClose(handle)
+end
+
+export function cleanup(value: any, depth: integer): nil
+    if type(value) ~= "table" or depth > 33 then
+        return
+    end
+    local found = endpoints[value]
+    if found ~= nil then
+        close(found);
+        return
+    end
+    for _, item in next, value as {[any]: any} do
+        cleanup(item, depth + 1)
+    end
+end

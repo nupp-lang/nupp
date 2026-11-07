@@ -64,7 +64,7 @@ end
 
 local PRELUDE = [[
 local soa = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -155,8 +155,8 @@ function M.aCommonRangeRelatesSoAAndContiguousViews()
     local value, code = runs(
         PRELUDE
         .. [[
-local indexed = require("binary.span")
-local span = require("binary.span")
+local indexed = require("bytes.span")
+local span = require("bytes.span")
 const storage = carray(Particle, 3)
 storage[0].x = 2
 storage[1].x = 4
@@ -279,7 +279,7 @@ function M.nestedStructsAndFixedArraysRemainSingleColumns()
     local facts = runs(
         [[
 local soa = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local struct Position
     x: float32
     y: float32
@@ -330,7 +330,7 @@ function M.fieldProjectionIsTypedAndSiblingColumnsCanBeWritten()
     local value = runs(
         PRELUDE
         .. [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local particles = soa.alloc(ffi.typeof<Particle>(), 2, "columnar")
 do
     local rows = particles:write()
@@ -377,7 +377,7 @@ function M.literalBracketsReachColumnsThatCollideWithViewMembers()
     local value = runs(
         [[
 local soa = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local struct Collision
     slice: float32
 end
@@ -737,7 +737,7 @@ function M.nonStructElementsAreRejectedAtTheCall()
         codes(
             [[
 local soa = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local rows = soa.alloc(ffi.typeof<int32>(), 4, "columnar")
 ]]
         ),
@@ -781,14 +781,24 @@ return {rows[1].x, rows[3].x, rows[1].y, rows[3].y, rows[3].dx, rows[3].dy}
     testAssert.deepeq(value, {7, 9, 10, 14, 3, 4}, "explicit vectors preserve ordered field identities and the tail")
     local body
     for _, entry in ipairs(listing) do
-        if entry.name == "advance" then body = entry.image end
+        if entry.name == "advance" then
+            body = entry.image
+        end
     end
-    assert(body and (body:find("Simd load", 1, true) or body:find("SpanLoad", 1, true)), "column loads retain VM vector operations")
-    assert(body:find("Simd store", 1, true) or body:find("SpanStore", 1, true), "column stores retain VM vector operations")
+    assert(
+        body and (body:find("Simd load", 1, true) or body:find("SpanLoad", 1, true)),
+        "column loads retain VM vector operations"
+    )
+    assert(
+        body:find("Simd store", 1, true) or body:find("SpanStore", 1, true),
+        "column stores retain VM vector operations"
+    )
     assert(body:find("  lines ", 1, true), "vector body retains source lines")
     local fields = {}
     for _, token in ipairs(parsed.tokens) do
-        if token.soaColumn then fields[token.soaColumn.identity] = token.soaColumn.ordinal end
+        if token.soaColumn then
+            fields[token.soaColumn.identity] = token.soaColumn.ordinal
+        end
     end
     testAssert.eq(fields["Particle.x"], 1)
     testAssert.eq(fields["Particle.dy"], 4)
@@ -891,7 +901,9 @@ end
     testAssert.eq(value, 15, "the authored scalar cannot collide with column transport")
     local body
     for _, entry in ipairs(listing) do
-        if entry.name == "count" then body = entry.image end
+        if entry.name == "count" then
+            body = entry.image
+        end
     end
     assert(body and body:match("^function count %d+ 2 "), "the VM keeps the view and scalar as two authored arguments")
 end
@@ -900,7 +912,7 @@ function M.managedAndOwnedArraysShareOneTypeAndSpanBrand()
     local value = runs(
         [[
 local Array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local function sum(borrows values: table.Array<int32>): integer
     const rows = values:read()
     local total: integer = 0
@@ -945,7 +957,7 @@ end
 function M.layoutGenericIndexingRequiresAConcreteRepresentation()
     local _, errors = compile(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local function first<T, const L: string>(borrows rows: span.Span<T, L>): T
     return rows[1]
 end

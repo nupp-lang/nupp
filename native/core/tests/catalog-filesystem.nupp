@@ -1,6 +1,6 @@
 module nupp.core.catalogfilesystem
 
-local span = require("binary.span")
+local span = require("bytes.span")
 local scratch = assert(os.mktempdir("nupp-filesystem-", ".test", os.getenv("NUPP_GUEST_TEMP") or "/tmp"))
 local root = scratch:tostring()
 local directory = root .. "/nested/children"

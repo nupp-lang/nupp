@@ -1,0 +1,47 @@
+@!internal
+module nupp.workers.internal.channeltypes
+
+local contracts = require("nupp.workers.contracts")
+
+-- Public aliases expose these types through coroutine. The implementation stays
+-- private. Result tags preserve nil messages and ownership of unsent values.
+
+export record Sender<T> is own.Closeable
+    @private _state: any
+    @private _close: @nosuspend function(any): nil
+
+    --- Sends one message, waiting for channel capacity.
+    ---
+    --- [](coroutine.MessageArguments) preserves the payload's ownership mode.
+    --- An owned payload transfers even if closure or cancellation raises.
+    send: function(borrows self: Sender<T>, ...: unpackof contracts.MessageArguments(T)): nil
+
+    --- Tries to send one message without waiting.
+    ---
+    --- Returns `"sent", nil`, or `"full", value` or `"closed", value` with
+    --- ownership of the unsent payload preserved.
+    trysend: @nosuspend function(
+        borrows self: Sender<T>,
+        ...: unpackof contracts.MessageArguments(T)
+    ): (("sent", nil) | ("full" | "closed", T))
+
+    function close(takes self): nil
+        @nosuspend do
+            self._close(self._state)
+        end
+    end
+end
+
+export record Receiver<T> is own.Closeable
+    @private _state: any
+    @private _close: @nosuspend function(any): nil
+
+    receive: function(borrows self: Receiver<T>): (("value", T) | ("closed", nil))
+    tryreceive: @nosuspend function(borrows self: Receiver<T>): (("value", T) | ("empty" | "closed", nil))
+
+    function close(takes self): nil
+        @nosuspend do
+            self._close(self._state)
+        end
+    end
+end

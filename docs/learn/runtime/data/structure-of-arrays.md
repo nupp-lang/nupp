@@ -123,12 +123,12 @@ NUPP2009: SoA shared rows are read-only
 
 ## Column spans
 
-`rows.x` projects one resolved field as a normal typed [](binary.span) view. A
+`rows.x` projects one resolved field as a normal typed [](bytes.span) view. A
 shared row view returns `span.Span<Field>`, and an exclusive row view returns
 `span.Writable<Field>`.
 
 ```nupp:fragment
-local span = binary.span
+local span = bytes.span
 
 do
     const rows = particles:write()

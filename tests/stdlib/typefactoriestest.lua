@@ -1,3 +1,5 @@
+local byteapi = require("bytes")
+
 local state = require("helpers.providerstate")
 local M = {}
 
@@ -28,7 +30,7 @@ function M.factoriesRemainCallableThroughStoredReferences()
     local io = require("nupp.runtime.standardio")
     local read = io.Reader.of
     local write = io.Writer.of
-    local create = io.Buffer.create
+    local create = byteapi.Buffer.create
     local source = read("held factory")
     assert(source:read(4) == "held")
     source:close()
@@ -38,9 +40,9 @@ function M.factoriesRemainCallableThroughStoredReferences()
     destination:close()
     assert(buffer:tostring() == "beforeafter")
     buffer:close()
-    local binary = require("binary")
-    assert(binary.digest ~= binary.mac, "algorithm factories must not alias")
-    local digest = binary.digest
+    local byteapi = require("bytes")
+    assert(byteapi.digest ~= byteapi.mac, "algorithm factories must not alias")
+    local digest = byteapi.digest
     local context = digest("sha256"):create()
     context:write("abc")
     assert(context:hexdigest() == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")

@@ -1,7 +1,9 @@
 module nupp.core.catalogbufferstate
 
-local span = require("binary.span")
-const Buffer = io.Buffer
+const bytes = require("bytes")
+
+local span = require("bytes.span")
+const Buffer = bytes.Buffer
 local initial = string.rep("a", 80)
 local b = Buffer.create(initial)
 local snapshot = b:tostring()

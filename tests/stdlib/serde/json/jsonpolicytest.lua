@@ -32,13 +32,13 @@ function M.nullDropsOrUsesTheSuppliedValue()
     )
 end
 
--- The public writer appends to an io.Buffer; a provider's own writer to a
--- io.Buffer.
+-- The public writer appends to a bytes.Buffer; a provider's own writer to a
+-- bytes.Buffer.
 local function outputFor(provider, prefix)
     if provider == json then
-        return require("io").Buffer.create(prefix)
+        return require("bytes").Buffer.create(prefix)
     end
-    local output = require("io").Buffer.create()
+    local output = require("bytes").Buffer.create()
     if prefix ~= nil then
         output:put(prefix)
     end
@@ -187,7 +187,7 @@ end
 
 function M.failedWritesLeaveTheWriterAtItsPriorPosition()
     for _, provider in ipairs({require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot"),}) do
-        local output = require("io").Buffer.create()
+        local output = require("bytes").Buffer.create()
         local writer = provider.newwriter(output)
         writer:startarray():write(1)
         assert(
@@ -207,7 +207,7 @@ function M.portableEncodingRejectsInvalidUtf8Everywhere()
         assert(not pcall(json.encodevalue, {[value] = 1}), "the encoder accepted an invalid UTF-8 key")
         assert(not pcall(json.encodedstring, value), "encodedstring accepted invalid UTF-8")
     end
-    local output = require("io").Buffer.create()
+    local output = require("bytes").Buffer.create()
     local writer = json.Writer.of(output)
     writer:startobject()
     assert(not pcall(writer.key, writer, "\255"), "the writer accepted an invalid UTF-8 key")
@@ -254,7 +254,7 @@ function M.providersPreserveWriterTransitionsAndArrayIdentity()
             "json.asarray needs a table"
         )
 
-        local output = require("io").Buffer.create()
+        local output = require("bytes").Buffer.create()
         local writer = provider.newwriter(output)
         writer:startobject()
         rejected(

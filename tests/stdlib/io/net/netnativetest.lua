@@ -26,6 +26,7 @@ local function runOnVm(root, name, source)
 
     return tonumber(output:match("__exit__:(%d+)%s*$")), (output:gsub("__exit__:%d+%s*$", ""))
 end
+
 local HOST = require("nupp.compiler.targetlayout").hostKey() or ""
 local WINDOWS = package.config:sub(1, 1) == "\\"
 local MACOS = HOST:find("apple-darwin", 1, true) ~= nil
@@ -128,7 +129,7 @@ end
 function M.aMalformedReadIntoConsumesNothingFromAConnection()
     local listener, client, served = pair()
     assert(client:write("kept bytes"), "the client writes")
-    local destination = io_.Buffer.create()
+    local destination = require("bytes").Buffer.create()
     test.raises(
         function()
             served:readinto(destination, -1, 4)
@@ -239,7 +240,7 @@ end
 
 function M.aDatagramCrossesWithItsPeer()
     local a, b = datagrams()
-    local buffer = io_.Buffer.create(2048)
+    local buffer = require("bytes").Buffer.create(2048)
     assert(a:sendto({host = "127.0.0.1", port = b:port()}, "ping"), "a sends")
     local message = assert(b:receivefrom(buffer, 2048))
     testAssert.eq(message.len, 4, "b receives the whole datagram")
@@ -255,7 +256,7 @@ function M.aDatagramLargerThanTheStorageIsReportedTruncated()
     -- Against a real socket, because this is the one a protocol must not get
     -- wrong: parsing the first part of a larger message nobody sent.
     local a, b = datagrams()
-    local buffer = io_.Buffer.create(2048)
+    local buffer = require("bytes").Buffer.create(2048)
     assert(a:sendto({host = "127.0.0.1", port = b:port()}, ("x"):rep(600)), "a sends 600 bytes")
     local message = assert(b:receivefrom(buffer, 100))
     testAssert.eq(message.len, 100, "b takes what it offered room for")
@@ -267,7 +268,7 @@ end
 
 function M.anEmptyDatagramArrivesAsAMessage()
     local a, b = datagrams()
-    local buffer = io_.Buffer.create(2048)
+    local buffer = require("bytes").Buffer.create(2048)
     assert(a:sendto({host = "127.0.0.1", port = b:port()}, ""), "a sends an empty datagram")
     local message = assert(b:receivefrom(buffer, 2048))
     testAssert.eq(message.len, 0, "which arrives as zero bytes")
@@ -282,7 +283,7 @@ function M.datagramsKeepTheirBoundaries()
     -- The property that makes this a message transport rather than a stream one:
     -- three sends are three receives, never one run of bytes.
     local a, b = datagrams()
-    local buffer = io_.Buffer.create(2048)
+    local buffer = require("bytes").Buffer.create(2048)
     for index = 1, 3 do
         assert(a:sendto({host = "127.0.0.1", port = b:port()}, ("m%d"):format(index)), "each send is its own datagram")
     end
@@ -813,7 +814,7 @@ function M.aLinkLocalPeerCanBeAnswered()
     end
     local a = assert(net.bind({host = "::", port = 0}))
     local b = assert(net.bind({host = "::", port = 0}))
-    local buffer = io_.Buffer.create(64)
+    local buffer = require("bytes").Buffer.create(64)
     assert(a:sendto({host = zoned, port = b:port()}, "ping"), "a sends to its own link-local address")
     local message = assert(b:receivefrom(buffer, 64))
     testAssert.eq(buffer:readstring(0, message.len), "ping", "b receives it")
@@ -829,11 +830,11 @@ end
 
 function M.streamSpansPreservePayloadAndEndOfStream()
     local listener, client, server = pair()
-    local payload = io_.Buffer.create("native spans")
+    local payload = require("bytes").Buffer.create("native spans")
     assert(client:writespan(payload:span()) == 12)
     assert(client:flush())
     assert(client:shutdownwrite())
-    local result = io_.Buffer.create()
+    local result = require("bytes").Buffer.create()
     local lease = result:reserve(32)
     local output = lease:span()
     local total = 0

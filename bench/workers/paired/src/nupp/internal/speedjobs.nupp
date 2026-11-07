@@ -1,0 +1,19 @@
+module nupp.internal.speedjobs
+
+const heap = table.Array
+local provider = require("nupp.runtime.provider.workers") as any
+local ffi = require("ffi")
+ffi.cdef("int usleep(unsigned int usec);")
+export function mode(enabled: boolean): nil
+    rawset(_G.nupp as table, "__workerGenericArrays", not enabled)
+    collectgarbage("collect")
+    ffi.C.usleep(50000)
+end
+
+export function scalar(value: integer): integer
+    return value
+end
+
+export function bounce(takes value: affine(table.Array<uint8>, heap.destroy)): affine(table.Array<uint8>, heap.destroy)
+    return value
+end

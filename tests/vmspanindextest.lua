@@ -15,7 +15,7 @@ local function fixture(typeName, body, parameters)
         .. name
         .. [[
 
-local {type Span, type WriteSpan, type FixedSpan, type FixedWriteSpan} = require("binary.span")
+local {type Span, type WriteSpan, type FixedSpan, type FixedWriteSpan} = require("bytes.span")
 export function element(]]
         .. (
             parameters or "borrows value: " .. typeName .. ", index: integer"

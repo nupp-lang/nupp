@@ -1,11 +1,11 @@
 @!internal
 
 --[[
-`io` provides paths, URIs, file streams, byte storage, and readers and writers.
+`io` provides paths, URIs, file streams, and readers and writers.
 Its byte interfaces work over buffers, files, and HTTP response bodies.
 
 ```nupp:playground
-local bytes = io.Buffer.create("hello")
+local bytes = bytes.Buffer.create("hello")
 local reader = bytes:reader()
 assert(reader:read(5) == "hello")
 ```
@@ -48,20 +48,6 @@ errors.
 
 --- @namespace io
 module nupp.runtime.standardio
-
-local immutable = require("io.internal.bytestypes")
-
---- Immutable bytes shared across workers without copying.
----
---- Slices retain the same allocation. Positions are zero-based byte offsets; `view` and
---- `viewas` borrow storage, while `tostring` copies it into a Lua string. `copy`
---- creates bytes from a string and `readfile` reads directly into storage.
---- `Buffer:freeze()` consumes a buffer and copies its unread bytes into a region.
---- These operations require the engine host supplied by a stamped binary.
---- `SharedBytes` becomes `string` when workers can share long-string storage.
-export type SharedBytes = immutable.SharedBytes
-
-export const SharedBytes = immutable.SharedBytes
 
 local source1 = require("nupp.io")
 const {type Path as PathType} = require("io.internal.pathtypes")
@@ -206,9 +192,6 @@ export interface FileMethods
     writer: function(exclusive self: io.File): affine(source1.Writer) borrows (self)
 end
 
-export type Buffer = source1.Buffer
-export const Buffer = source1.Buffer
-export type BufferWriteLease = source1.BufferWriteLease
 export type Error = source1.Error
 export type Lines = source1.Lines
 export type Reader = source1.Reader
@@ -568,7 +551,6 @@ end
 
 --- @internal
 export const value: table = do
-    original.SharedBytes = SharedBytes
     original.URI = URI
     original.validateuri = validateuri
     original.cwd = cwd
@@ -579,7 +561,6 @@ export const value: table = do
     original.output = output
     original.Error = Error
     original.Path = Path
-    original.Buffer = Buffer
     original.Reader = Reader
     original.Writer = Writer
     decorateFile(original.stdin)

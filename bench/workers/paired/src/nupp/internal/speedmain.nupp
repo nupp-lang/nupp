@@ -1,0 +1,70 @@
+module nupp.internal.speedmain
+
+const jobs = require("nupp.internal.speedjobs")
+const ffi = require("ffi")
+ffi.cdef("uint64_t nuppNativeMonotonicNs(void);")
+
+local function now(): number
+    return tonumber(ffi.C.nuppNativeMonotonicNs()) as number / 1000
+end
+
+local function laneMode(enabled: boolean): nil
+    local scope = coroutine.scope()
+    scope:work(enabled, jobs.mode):await()
+end
+
+local function configure(enabled: boolean): nil
+    jobs.mode(enabled)
+    local scope = coroutine.scope()
+    for _ = 1, os.info().parallelism do
+        scope:spawn(enabled, laneMode)
+    end
+end
+
+local function scalar(): number
+    local scope = coroutine.scope()
+    for index = 1, 200 do
+        assert(scope:work(index, jobs.scalar):await() == index)
+    end
+    local started = now()
+    for index = 1, 1000 do
+        assert(scope:work(index, jobs.scalar):await() == index)
+    end
+
+    return (now() - started) / 1000
+end
+
+local function moved(size: integer): number
+    local values = table.Array.alloc(ffi.typeof<uint8>(), size)
+    local scope = coroutine.scope()
+    for _ = 1, 200 do
+        values = scope:work(values, jobs.bounce):await()
+    end
+    local started = now()
+    for _ = 1, 1000 do
+        values = scope:work(values, jobs.bounce):await()
+    end
+    local elapsed = (now() - started) / 1000
+    assert(values.count == size)
+    own.drop(values)
+
+    return elapsed
+end
+
+do
+    local scope = coroutine.scope();
+    assert(scope:work(1, jobs.scalar):await() == 1)
+end
+for pair = 1, 8 do
+    for phase = 1, 2 do
+        local enabled = (pair + phase) % 2 == 0
+        configure(enabled)
+        local control = scalar()
+        local small, large = moved(4096), moved(8 * 1024 * 1024)
+        print(
+            (
+                [[{"pair":%d,"fast":%s,"scalar":%.4f,"moved4K":%.4f,"moved8M":%.4f}]]
+            ):format(pair, tostring(enabled), control, small, large)
+        )
+    end
+end

@@ -1,5 +1,5 @@
 @!internal
---[[Built-in incremental digest catalog for `binary.Digest` API 1.
+--[[Built-in incremental digest catalog for `bytes.Digest` API 1.
 
 Module initialization retains the fixed algorithm descriptors from the ordinary
 digest implementation. It creates no mutable algorithm state. Factories return

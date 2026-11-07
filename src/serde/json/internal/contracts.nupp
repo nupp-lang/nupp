@@ -51,7 +51,7 @@ end
 --- A checked incremental JSON writer.
 ---
 --- ```nupp
---- local out = io.Buffer.create()
+--- local out = bytes.Buffer.create()
 --- local writer = serde.json.Writer.of(out)
 --- writer:startobject():key("ok"):write(true):endobject()
 --- writer:close()
@@ -62,7 +62,7 @@ export interface Writer is own.Closeable
     --- Starts an array value.
     ---
     --- ```nupp
-    --- local out = io.Buffer.create()
+    --- local out = bytes.Buffer.create()
     --- local writer = serde.json.Writer.of(out)
     --- writer:startarray():write("first"):endarray()
     --- writer:close()
@@ -75,7 +75,7 @@ export interface Writer is own.Closeable
     --- Starts an object value.
     ---
     --- ```nupp
-    --- local out = io.Buffer.create()
+    --- local out = bytes.Buffer.create()
     --- local writer = serde.json.Writer.of(out)
     --- writer:startobject():endobject()
     --- writer:close()
@@ -88,7 +88,7 @@ export interface Writer is own.Closeable
     --- Selects the next object member.
     ---
     --- ```nupp
-    --- local out = io.Buffer.create()
+    --- local out = bytes.Buffer.create()
     --- local writer = serde.json.Writer.of(out)
     --- writer:startobject():key("answer"):write(42):endobject()
     --- writer:close()
@@ -103,7 +103,7 @@ export interface Writer is own.Closeable
     --- Appends a complete Lua value.
     ---
     --- ```nupp
-    --- local out = io.Buffer.create()
+    --- local out = bytes.Buffer.create()
     --- local writer = serde.json.Writer.of(out)
     --- writer:startarray():write({id = 41}):endarray()
     --- writer:close()
@@ -124,7 +124,7 @@ export interface Writer is own.Closeable
     --- Appends JSON null.
     ---
     --- ```nupp
-    --- local out = io.Buffer.create()
+    --- local out = bytes.Buffer.create()
     --- local writer = serde.json.Writer.of(out)
     --- writer:startarray():null():endarray()
     --- writer:close()
@@ -137,7 +137,7 @@ export interface Writer is own.Closeable
     --- Ends the current array.
     ---
     --- ```nupp
-    --- local out = io.Buffer.create()
+    --- local out = bytes.Buffer.create()
     --- local writer = serde.json.Writer.of(out)
     --- writer:startarray():startobject():endobject():endarray()
     --- writer:close()
@@ -150,7 +150,7 @@ export interface Writer is own.Closeable
     --- Ends the current object.
     ---
     --- ```nupp
-    --- local out = io.Buffer.create()
+    --- local out = bytes.Buffer.create()
     --- local writer = serde.json.Writer.of(out)
     --- writer:startobject():key("items"):startarray():endarray():endobject()
     --- writer:close()
@@ -163,7 +163,7 @@ export interface Writer is own.Closeable
     --- Publishes staged bytes without ending the document.
     ---
     --- ```nupp
-    --- local out = io.Buffer.create()
+    --- local out = bytes.Buffer.create()
     --- local writer = serde.json.Writer.of(out)
     --- writer:startarray():write(1)
     --- writer:flush()
@@ -181,7 +181,7 @@ export interface Writer is own.Closeable
     --- and closing an aborted writer are harmless.
     ---
     --- ```nupp
-    --- local out = io.Buffer.create()
+    --- local out = bytes.Buffer.create()
     --- local writer = serde.json.Writer.of(out)
     --- writer:startarray():write(1)
     --- writer:abort()
@@ -194,7 +194,7 @@ export interface Writer is own.Closeable
     --- Verifies and publishes a complete root, then releases backing state.
     ---
     --- ```nupp
-    --- local out = io.Buffer.create()
+    --- local out = bytes.Buffer.create()
     --- local writer = serde.json.Writer.of(out)
     --- writer:write({ok = true})
     --- writer:close()

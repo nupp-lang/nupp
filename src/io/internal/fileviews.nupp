@@ -2,8 +2,10 @@
 
 module io.internal.fileviews
 
+local byteapi = require("nupp.io.internal.bytes")
+
 local bytes = require("nupp.io.internal.bytes")
-local span = require("binary.span")
+local span = require("bytes.span")
 local physical = require("nupp.runtime.storage")
 
 local DEFAULT_READ: integer = 65536
@@ -74,7 +76,7 @@ local record FileReader is bytes.Reader
 
     function readinto(
         exclusive self,
-        exclusive destination: bytes.Buffer,
+        exclusive destination: byteapi.Buffer,
         offset: integer?,
         wanted: integer?
     ): (integer?, string?)

@@ -2,7 +2,7 @@ module mandelbrot
 
 -- A binary32 point-batch Mandelbrot, expressed as a
 -- one dispatch covers the complete input through 64-thread workgroups.
-local span = binary.span
+local span = require("bytes.span")
 local gpu = io.gpu
 
 const WORKGROUP_SIZE = 64

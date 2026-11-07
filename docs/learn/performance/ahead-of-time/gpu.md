@@ -14,7 +14,7 @@ kernel checks and binds but no device runs it.
 :::
 
 ```nupp
-local span = binary.span
+local span = bytes.span
 
 @aot(target = "gpu")
 local function scale(
@@ -115,7 +115,7 @@ The controller allocates bounded scratch and divides execution into immediate
 `phases:run` callbacks:
 
 ```nupp
-local span = binary.span
+local span = bytes.span
 
 @aot(target = "gpu")
 local function reduce(

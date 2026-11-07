@@ -21,6 +21,8 @@ adapter as written, so a model library's values render without a derive.
 ]]
 module serde.debug
 
+local byteapi = require("nupp.io.internal.bytes")
+
 const assert2 = require("assert")
 
 const reflect = require("types.reflect")
@@ -475,7 +477,7 @@ export interface Renderer
     render: function<T>(self, selectedbinding: core.Binding<T>, borrows value: T): string
 
     --- Appends a rendered value. See [](write).
-    write: function<T>(self, selectedbinding: core.Binding<T>, borrows value: T, exclusive buffer: io.Buffer): nil
+    write: function<T>(self, selectedbinding: core.Binding<T>, borrows value: T, exclusive buffer: byteapi.Buffer): nil
 
     --- Forgets every binding's selections.
     clear: function(self): nil
@@ -492,7 +494,7 @@ local record Implementation is Renderer
         return table.concat(state.parts)
     end
 
-    function write<T>(self, selectedbinding: core.Binding<T>, borrows value: T, exclusive buffer: io.Buffer): nil
+    function write<T>(self, selectedbinding: core.Binding<T>, borrows value: T, exclusive buffer: byteapi.Buffer): nil
         local state = State(cache = self.cache)
         selectedbinding:accept(Render<T>(state = state), value)
         buffer:put(table.concat(state.parts))
@@ -535,7 +537,7 @@ end
 ---     x: float
 ---     y: float
 --- end
---- local output = io.Buffer.create()
+--- local output = bytes.Buffer.create()
 --- debug.write(serde.binding(Vec2), Vec2(1.25, 2.5), output)
 --- assert(output:tostring() == "Vec2 { x = 1.25, y = 2.5 }")
 --- ```
@@ -543,7 +545,7 @@ end
 --- @param selectedbinding the value's binding
 --- @param value the value
 --- @param buffer the buffer to append to
-export function write<T>(selectedbinding: core.Binding<T>, borrows value: T, exclusive buffer: io.Buffer): nil
+export function write<T>(selectedbinding: core.Binding<T>, borrows value: T, exclusive buffer: byteapi.Buffer): nil
     defaultRenderer:write(selectedbinding, value, buffer)
 end
 

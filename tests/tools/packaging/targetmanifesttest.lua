@@ -58,7 +58,7 @@ function M.namedManifestTargetsCarryTheSelectedHostAndVm()
     local source = [[
 local time = require("coroutine")
 local array = table.Array
-local newBuffer: function(integer | string?): affine(io.Buffer) = io.Buffer.create
+local newBuffer: function(integer | string?): affine(bytes.Buffer) = bytes.Buffer.create
 local bytes: function(integer): table.Array<uint8> = array.bytes
 return {newBuffer = newBuffer, now = os.monotonic, bytes = bytes}
 ]]

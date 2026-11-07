@@ -509,6 +509,7 @@ function M.aRecursiveLocalFunctionCallsItselfThroughItsSignature()
         "        return 0, 0",
         "    end",
     }
+
     local function body(lines)
         local source = {}
         for _, line in ipairs(spread) do
@@ -519,8 +520,10 @@ function M.aRecursiveLocalFunctionCallsItselfThroughItsSignature()
         end
         source[#source + 1] = "end"
         source[#source + 1] = "return spread"
+
         return table.concat(source, "\n")
     end
+
     assertClean(body({"    local count, total = spread(n - 1, n, ...)", "    return count + 1, total + n"}))
     testAssert.eq(diagsOf(body({"    local count = spread(n - 1, \"x\", ...)", "    return count, n"})), "NUPP2006:5")
     testAssert.eq(diagsOf(body({"    local count: string = spread(n - 1, n, ...)", "    return n, n"})), "NUPP2001:5")
@@ -2323,7 +2326,7 @@ function M.aNamespaceAliasKeepsTypesAndIntrinsics()
     local env = require("nupp.compiler.project.env").new(here .. "/..")
     local spanSource = table.concat(
         {
-            "local span = binary.span",
+            "local span = bytes.span",
             "local function copy(output: span.WriteSpan<number>, input: span.Span<number>): nil",
             "    for index = 1, #output do output[index] = input[index] end",
             "end",

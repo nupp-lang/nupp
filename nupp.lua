@@ -79,6 +79,14 @@ local RESOURCES = {
     {source = "src/nupp/runtime/structvalue.nupp", output = "nupp/compiler/nupp/runtime/structvalue.nupp"},
     {source = "src/nupp/workers/contracts.nupp", output = "nupp/compiler/nupp/workers/contracts.nupp"},
     {source = "src/nupp/workers/internal/support.nupp", output = "nupp/compiler/nupp/workers/internal/support.nupp"},
+    {
+        source = "src/nupp/workers/internal/channeltypes.nupp",
+        output = "nupp/compiler/nupp/workers/internal/channeltypes.nupp"
+    },
+    {
+        source = "src/nupp/workers/internal/valuecodec.nupp",
+        output = "nupp/compiler/nupp/workers/internal/valuecodec.nupp"
+    },
     {source = "src/nupp/suspension/contracts.nupp", output = "nupp/compiler/nupp/suspension/contracts.nupp"},
     {source = "src/nupp/suspension/selected.nupp", output = "nupp/compiler/nupp/suspension/selected.nupp"},
     {source = "src/io/internal/argumenterror.nupp", output = "nupp/compiler/io/internal/argumenterror.nupp"},
@@ -93,8 +101,10 @@ local RESOURCES = {
     {source = "src/io/internal/files/path.nupp", output = "nupp/compiler/io/internal/files/path.nupp"},
     {source = "src/nupp/gpu/contracts.nupp", output = "nupp/compiler/nupp/gpu/contracts.nupp"},
     {source = "src/nupp/suspension/cancellation.nupp", output = "nupp/compiler/nupp/suspension/cancellation.nupp"},
-    {source = "src/binary/_representation.nupp", output = "nupp/compiler/binary/_representation.nupp"},
+    {source = "src/bytes/_representation.nupp", output = "nupp/compiler/bytes/_representation.nupp"},
     {source = "src/nupp/runtime/provider/workers.nupp", output = "nupp/compiler/nupp/runtime/provider/workers.nupp"},
+    {source = "src/nupp/runtime/provider/channels.nupp", output = "nupp/compiler/nupp/runtime/provider/channels.nupp"},
+    {source = "src/nupp/runtime/browser/channels.nupp", output = "nupp/compiler/nupp/runtime/browser/channels.nupp"},
     {
         source = "src/nupp/runtime/provider/suspension.nupp",
         output = "nupp/compiler/nupp/runtime/provider/suspension.nupp"
@@ -165,7 +175,7 @@ local RESOURCES = {
     {source = "src/nupp/mem/span.nupp", output = "nupp/compiler/nupp/mem/span.nupp"},
     {source = "src/io/gpu/init.nupp", output = "nupp/compiler/io/gpu/init.nupp"},
     {source = "src/math/internal/random.nupp", output = "nupp/compiler/math/internal/random.nupp"},
-    {source = "src/binary/init.nupp", output = "nupp/compiler/binary/init.nupp"},
+    {source = "src/bytes/init.nupp", output = "nupp/compiler/bytes/init.nupp"},
     {source = "src/nupp/runtime/entropy.nupp", output = "nupp/compiler/nupp/runtime/entropy.nupp"},
     {source = "src/nupp/runtime/reflectionshape.nupp", output = "nupp/compiler/nupp/runtime/reflectionshape.nupp"},
     {source = "src/nupp/runtime/hotreload.nupp", output = "nupp/compiler/nupp/runtime/hotreload.nupp"},
@@ -175,8 +185,8 @@ local RESOURCES = {
         source = "src/nupp/serde/internal/valuebuilder.nupp",
         output = "nupp/compiler/nupp/serde/internal/valuebuilder.nupp"
     },
-    {source = "src/io/internal/bytestypes.nupp", output = "nupp/compiler/io/internal/bytestypes.nupp"},
-    {source = "src/io/internal/sharedbytes.nupp", output = "nupp/compiler/io/internal/sharedbytes.nupp"},
+    {source = "src/bytes/internal/bytestypes.nupp", output = "nupp/compiler/bytes/internal/bytestypes.nupp"},
+    {source = "src/bytes/internal/sharedbytes.nupp", output = "nupp/compiler/bytes/internal/sharedbytes.nupp"},
     {
         source = "src/nupp/runtime/provider/coresharedbytes.nupp",
         output = "nupp/compiler/nupp/runtime/provider/coresharedbytes.nupp"
@@ -408,7 +418,7 @@ local RESOURCES = {
     {source = "src/nupp/io/http/init.nupp", output = "nupp/compiler/nupp/io/http/init.nupp"},
     {source = "src/nupp/workers/native.d.nupp", output = "nupp/compiler/nupp/workers/native.d.nupp"},
 
-    {source = "src/binary/span.nupp", output = "nupp/compiler/binary/span.nupp"},
+    {source = "src/bytes/span.nupp", output = "nupp/compiler/bytes/span.nupp"},
     {source = "src/coroutine/sus/host.nupp", output = "nupp/compiler/coroutine/sus/host.nupp"},
     {source = "src/coroutine/sus/init.nupp", output = "nupp/compiler/coroutine/sus/init.nupp"},
     {source = "src/io/http/init.nupp", output = "nupp/compiler/io/http/init.nupp"},
@@ -448,7 +458,6 @@ for _, resource in ipairs({
     "src/nupp/runtime/browser/host.nupp",
     "src/nupp/runtime/browser/hostwire.nupp",
     "src/nupp/runtime/browser/response.nupp",
-    "src/nupp/runtime/browser/workercodec.nupp",
     "src/nupp/runtime/browser/crypto.nupp",
     "src/nupp/runtime/browser/http.nupp",
     "src/nupp/runtime/browser/files.nupp",
@@ -560,7 +569,7 @@ return {
                 sources = {
                     "src/nupp",
                     "src/serde",
-                    "src/binary",
+                    "src/bytes",
                     "src/types",
                     "src/own.nupp",
                     "src/io",

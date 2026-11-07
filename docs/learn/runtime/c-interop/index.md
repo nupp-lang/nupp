@@ -769,7 +769,7 @@ A const pointer becomes a shared span and a mutable pointer becomes a writable
 span. A counted pointer must use `borrows`, and a count currently uses plain
 `uint64`. Strides, byte counts, capacities, prefixes, sentinel termination,
 output pointers, and retained pointers require handwritten `ref()` wrappers. See
-[](binary.span) for construction, slicing, partitioning, and shared-range
+[](bytes.span) for construction, slicing, partitioning, and shared-range
 validation.
 
 ## Export ordinary structs to C

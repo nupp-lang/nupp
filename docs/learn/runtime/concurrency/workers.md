@@ -2,20 +2,18 @@
 order: 150
 ---
 
-# Worker tasks
+# Workers and channels
 
-`coroutine.Scope.work` runs sendable functions in parallel on a shared,
-bounded scheduler whose lanes are native threads, each running its own VM.
-A lane is reached through `work` on an [application task scope](task-scopes.md),
-which owns the worker children it starts. Arguments and results cross as copies,
-while heaps and their globals, userdata, cdata, and mutable module state stay
-isolated. Eligible closure captures cross only as independent copies.
+`coroutine.Scope.work` runs parallel jobs on a shared pool, and
+`coroutine.Scope.worker` runs a dedicated entry until it returns.
+Both start isolated states and return a `coroutine.Task`; bounded channels carry
+messages while an entry runs.
 
 ```nupp
 module jobs
 
-export function hash(bytes: string): string
-    return binary.fnv1a64(bytes)
+export function hash(payload: string): string
+    return bytes.fnv1a64(payload)
 end
 ```
 
@@ -35,11 +33,32 @@ end
 ```
 
 `jobs.hash` is still an ordinary function. Calling `jobs.hash(bytes)` runs it
-in the current VM; passing it to `scope:work` runs it on the worker
+in the current Lua state; passing it to `scope:work` runs it on the worker
 scheduler. There is no worker declaration or parallel version of the function.
 
-Workers run under `nupp run` and in a `binary` target alike: the VM runtime
-carries the scheduler, so nothing has to be configured to use them.
+::: note Workers need a compiler-owned binary, or a browser package
+Natively, workers run only in a `binary` target whose `stub` is `"nupp"`. The
+host supplies the pinned LuaJIT, stamped payload, native scheduler primitives,
+and early machine-code address-space reservation. Builds refuse workers in
+module and bundle targets and with third-party binary stubs. See
+[Compiler-native features](../../projects/build.md#compiler-native-features).
+
+```lua
+-- nupp.lua
+return {
+   include = { "src" },
+   build = {
+      kind = "binary",
+      stub = "nupp",
+      entries = { "main" }
+   }
+}
+```
+
+Browser packages use [the browser backend](#browser-lanes), where a lane is a
+Web Worker rather than a thread. The build binds that implementation for a
+browser target.
+:::
 
 ## Structured scopes
 
@@ -176,16 +195,16 @@ same lanes and pay ten thousand copies to do it.
 
 ## Shared scheduler
 
-The first worker submission creates one scheduler for the process. Its lane
+The first pooled `work` submission creates one scheduler for the process. Its lane
 count is the host's online processor count, capped at 64, and
 `os.info().parallelism` returns that count without opening
 anything. Later and concurrent scopes reuse the same lanes rather than creating
 a pool or a thread per task.
 
 Submission chooses the lane with the fewest unsettled tasks. Each lane runs
-one task at a time in its own VM, while different lanes run in parallel.
+one task at a time in its own Lua state, while different lanes run in parallel.
 The lanes remain alive until process exit so repeated short scopes do not pay
-VM startup for every task.
+Lua-state startup for every task.
 
 The scheduler also owns one suspension readiness source. A poll pass drains
 available replies from every lane and wakes the tasks that settled. Awaiting
@@ -245,13 +264,128 @@ export function countAll(shards: {{string}}): number
 end
 ```
 
-This is an executor, not an actor system. A task is a request-and-response call
-whose inputs and results cross the boundary. Long-lived stateful ownership and
-mailboxes would be a separate abstraction.
+## Dedicated workers
+
+`scope:worker(arguments..., entry)` starts a dedicated thread or Web Worker.
+It uses the same sendable functions, result packs, task methods, and scope
+limits as `work`, with a separate host limit of 64 dedicated workers. Admission
+never queues behind pooled jobs; exhausting the dedicated limit raises an
+admission error.
+
+A service receives commands until its sender closes. This entry returns the
+sum of the commands it processed. Event updates are best effort; a full or
+closed event queue does not stop command processing:
+
+```nupp
+module counter
+
+export function serve(takes commands: coroutine.Receiver<integer>,
+    takes events: coroutine.Sender<integer>): integer
+    local input, output = commands, events
+    local total: integer = 0
+    while true do
+        local kind, value = input:receive()
+        if kind == "closed" then return total end
+        total = total + value
+        output:trysend(total)
+    end
+end
+```
+
+Close the command sender before awaiting a persistent service. Close the event
+receiver too when its remaining messages are no longer needed, so a producer
+waiting for event capacity can finish:
+
+```nupp:fragment
+local counter = require("counter")
+local scope = coroutine.scope()
+local commands, input = scope:channel<integer>(8, 4096)
+local output, events = scope:channel<integer>(8, 4096)
+local service = scope:worker(input, output, counter.serve)
+commands:send(3)
+commands:send(4)
+commands:close()
+events:close()
+print(service:await())
+```
+
+Normal scope exit joins children. It does not send an implicit stop command;
+close commands or cancel a persistent child before leaving its scope. Channels
+remain usable while children settle and are dropped afterward. A child failure,
+deadlines, and explicit cancellation request cancellation before joining.
+
+Workers cannot start other workers. They can open local scopes and run
+cooperative tasks and channels inside their isolated state.
+
+## Channels
+
+`scope:channel<T>(messages, bytes)` creates one `coroutine.Sender<T>` and one
+`coroutine.Receiver<T>`. Both limits must be positive, finite integers. The
+queue bounds accepted messages by count and retained payload bytes; an
+oversized message raises immediately.
+
+```nupp:fragment
+local scope = coroutine.scope()
+local sender, receiver = scope:channel<string?>(2, 1024)
+sender:send(nil)
+local kind, value = receiver:receive()
+assert(kind == "value" and value == nil)
+sender:close()
+assert(receiver:receive() == "closed")
+```
+
+`send` waits for capacity and raises on closure or cancellation. `trysend`
+never waits: it returns `"sent", nil`, or `"full", value` or `"closed", value`
+with the unsent payload. Blocking send owns a movable payload even if it
+raises; unwinding drops that payload once. A failed `trysend` returns its
+ownership to the caller.
+
+The signatures use [](coroutine.MessageArguments), a compile-time type function
+that produces one argument of the channel's message type. It preserves the
+`takes` mode for owned payloads; `any` messages use a plain copied value.
+Calls to `send` and `trysend` pass one message.
+
+`receive` waits and returns `"value", payload` or `"closed", nil`.
+`tryreceive` never waits and also returns `"empty", nil`. The tag distinguishes
+a nil message from an empty or closed queue. Both try operations are
+`@nosuspend`.
+
+Closing the sender lets the receiver drain accepted messages before reporting
+closure. Closing the receiver discards queued messages and wakes blocked
+senders with closure. Cancellation wakes both capacity and receive waits.
+An idle native state sleeps in the host wait; a browser state yields to its
+worker event loop.
+
+Endpoints are affine owners. Passing one as a direct `takes` worker argument
+moves it; subsequent use of the old binding is a compile error. Each endpoint
+borrows the scope that created it, and a worker receiving it must belong to
+that scope. Endpoints cannot cross inside messages, captures, or task results.
+They cannot be cloned, and their payload types cannot be widened through
+`any`.
+
+Mutable messages cross as independent copies. Native channels also support
+published `bytes.SharedBytes` and moved fixed-width arrays under the storage rules
+below. Browser channels carry copied values and refuse native storage
+attachments. A channel typed `any` accepts copied values; declare an explicit
+owning payload type when moving storage, so failed sends preserve its type.
+
+## Browser channels
+
+Browser endpoints use direct `MessagePort` connections established at startup.
+Worker-to-worker messages continue when the page is busy; neither the page nor
+the main Nupp state relays each message. Credits count accepted messages and
+bytes in transit as well as queued messages, and return on consumption or
+discard. General channels require neither `SharedArrayBuffer` nor cross-origin
+isolation. The browser adapter caps one encoded channel message at 512 KiB,
+including its copied value envelope; a smaller channel byte limit still applies.
+
+Channels carry application messages. Device adapters can use their own
+preallocated sample buffers or rings; this API does not promise audio callback
+deadlines or uninterrupted device playback.
 
 ## Functions that can be submitted
 
-The final argument to `work` must be a `@sendable function`. A function read
+The final argument to `work` or `worker` must be a `@sendable function`. A function read
 from a loaded module is sendable with no captures:
 
 ```nupp:fragment
@@ -279,13 +413,13 @@ scope:work(bytes, |input: string| -> imageJobs.resize(input, requestedWidth))
 
 The binding `requestedWidth` must be initialized and never reassigned. Its value
 must be copyable, just like an explicit argument. The source file must declare a
-module so a worker VM has a stable place to load the outlined body. The local
+module so a worker state has a stable place to load the outlined body. The local
 value is still an ordinary closure when called directly; outlining is additional
 worker metadata, not a different local calling convention.
 
 Module locals are reconstructed independently when that module loads in a lane.
-Activation locals are copied as captures. In neither case does an upvalue or
-heap identity cross between VMs.
+Activation locals are copied as captures. In neither case does a Lua upvalue or
+heap identity cross between states.
 
 A callable held as a value keeps the guarantee only where the type says so, so a
 dispatch table names it:
@@ -300,7 +434,7 @@ const handlers: {[string]: @sendable function(string): string} = {
 `nupp reference --section sendable-callables` describes contextual literals,
 effective finality, and how the guarantee travels through types.
 
-The worker requires the module in its own VM and invokes the authored export
+The worker requires the module in its own state and invokes the authored export
 or compiler-registered outline. Top-level module initialization therefore runs
 once in each lane that first uses the module. Treat mutable module state as
 lane-local, not shared state.
@@ -314,7 +448,7 @@ the lane: later tasks sent to it run normally.
 Transferable values are nil, booleans, numbers, strings, and tables recursively
 made from those values with scalar keys. An instance built by an exported Nupp
 record declaration is transferable too. Each receiver decodes an independent
-copy, and a record receives that VM's declaration table as its metatable.
+copy, and a record receives that state's declaration table as its metatable.
 Nil positions in argument and result packs are retained.
 
 A submitted signature is held to this where it is written. A parameter or a
@@ -328,9 +462,8 @@ main.nupp:9:9: error: NUPP2006: argument 1.hook is a function, which cannot
 
 Refused this way: functions, threads, userdata, cdata, C pointers, and any
 parameter carrying an ownership mode, wherever one of them sits inside an
-array, a tuple, a union, or a shape. The one exception is the owned-buffer
-move described [below](#moving-owned-buffers), which is a transfer of
-storage rather than a copy of a value.
+array, a tuple, a union, or a shape. Owned buffers move under the rules [below](#moving-owned-buffers), and channel
+endpoints move as direct startup arguments under the [channel rules](#channels).
 
 A type that says nothing definite is left to the copy. `any`, a bare `table`,
 and a record all describe values that may or may not be copyable. A record built
@@ -443,9 +576,9 @@ instead of returning it consumes it like any affine owner, with
 before rebuilding its owner, and primitive elements move; every other
 ownership mode and element shape keeps the refusal above.
 
-[](io.SharedBytes) shares immutable engine storage with any number of readers; a move
+[](bytes.SharedBytes) shares immutable engine storage with any number of readers; a move
 hands exclusive mutable storage to one lane. Build shared bytes with
-`io.Buffer` and consume its unread bytes with `buffer:freeze()`. On LuaJIT,
+`bytes.Buffer` and consume its unread bytes with `buffer:freeze()`. On LuaJIT,
 freezing copies through a string into engine storage; later worker transfers
 share that storage.
 
@@ -494,8 +627,8 @@ handled where the scope is left, not by awaiting the task that carries it. Where
 each item should keep its own outcome, give each one a scope of its own, as the
 [fan-out](#fanning-out-over-a-list) children do, and catch there.
 
-A running task is not preempted. Running code and foreign calls have no safe
-general interruption point, so leaving a scope waits for a task that is already running.
+A running task is not preempted. Lua and foreign code have no safe general
+interruption point, so leaving a scope waits for a task that is already running.
 A bounded function can cooperate by calling `tasks.checkpoint()`:
 
 ```nupp:fragment
@@ -519,10 +652,48 @@ remains that result or failure.
 Cancelling one child with `Task:cancel` does not cancel its siblings, and
 `scope:cancel` cancels every one. When a sibling fails, the task scope requests
 cancellation for every unfinished worker child, then awaits running cleanup
-through the installed suspension handler. The task scope owns its family of
-lanes privately; `work` is the only way in.
+through the installed suspension handler. The task scope owns its worker children and joins them before returning.
 
 The same rule applies to nontermination: an infinite worker task makes its
-scope infinite. Worker tasks are for bounded CPU work. Durable work, retries
-across process failure, and jobs that outlive the caller belong to a broker or
-[](io.Process), not this scheduler.
+scope infinite. Use `work` for bounded CPU jobs and `worker` for a service that shuts down
+within its scope. Durable work, retries across process failure, and jobs that
+outlive the caller belong to a broker or [](io.Process).
+
+## Browser lanes
+
+The [browser
+implementation](../../performance/ahead-of-time/wasm.md#browser-package)
+uses the same worker API. A lane is a module Web Worker holding its own LuaJIT
+guest, booted from the same verified application package the page loaded. The
+packaging step ships the lane entry point beside the content-addressed runtime.
+A lane
+checks that the manifest it fetches has the digest of the one the page verified,
+so a deploy between page load and a lane's start fails that lane's tasks with
+"the application manifest changed after the page loaded it" rather than pairing
+two builds. Nothing is shared between lanes, so no Wasm threads, no
+`SharedArrayBuffer`, and no cross-origin isolation headers are involved.
+
+The page's pool is bounded by both the package's lane limit and
+`navigator.hardwareConcurrency`, and `os.info().parallelism`
+returns that bound there. Lanes boot as work arrives rather than when the first
+worker is submitted.
+
+Three things a program can observe differ, because a browser gives two Workers no
+synchronous channel:
+
+- a reply reaches the calling state when it next waits, so `Task:isdone` returns
+  as of that point rather than the moment a lane produced the value;
+- `Task:cancel` still reports whether it made the first request, but a queued
+  task settles at the next wait rather than inside the call;
+- reading a cancellation request costs one turn of the lane's event loop, so
+  `tasks.checkpoint()` belongs at a granularity the loop chooses rather than on
+  every iteration of a tight one.
+
+One thing the native scheduler offers is not there. A [moved owned
+buffer](#moving-owned-buffers) cannot transfer its native pointer ownership into
+another guest, so owned storage keeps the copy refusal. Channel endpoints move through
+their direct-port startup protocol rather than copying a native pointer.
+
+Everything else is the same: a scope is fail-fast, a scope deadline reaches a
+lane, and `coroutine.checkpoint()` is where a running lane observes that its
+cancellation was requested.

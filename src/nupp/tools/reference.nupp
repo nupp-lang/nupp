@@ -2226,11 +2226,11 @@ which is what admits them inside `@noraise` code. Arbitrary
 indexes, held frames, and accesses outside the same-function witness stay
 checked.
 
-See the `binary.span` module reference for the complete span contracts.
+See the `bytes.span` module reference for the complete span contracts.
 ]=],
         example = [=[
-local span = binary.span
-local indexed = binary.span
+local span = bytes.span
+local indexed = bytes.span
 local m = {}
 
 local struct Value

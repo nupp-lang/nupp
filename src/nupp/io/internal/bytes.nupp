@@ -2,9 +2,9 @@
 
 module nupp.io.internal.bytes
 
-local immutable = require("io.internal.bytestypes")
+local immutable = require("bytes.internal.bytestypes")
 local physical = require("nupp.runtime.storage")
-local span = require("binary.span")
+local span = require("bytes.span")
 local bufferstate = require("nupp.io.internal.bufferstate")
 -- Raw storage stays private; every lent view retains the buffer as its anchor.
 local foreignRead: function(
@@ -936,16 +936,16 @@ export sealed interface Buffer is own.Closeable
     --- Reads up to 32 bits, with the low bit at the lowest bit offset.
     --- @raises string when the bit range is invalid
     function readbits(borrows self, offset: integer, count: integer): integer
-        local first = bounds.count(offset, "io.Buffer bit offset", 2)
-        local width = bounds.count(count, "io.Buffer bit count", 2)
+        local first = bounds.count(offset, "bytes.Buffer bit offset", 2)
+        local width = bounds.count(count, "bytes.Buffer bit count", 2)
         if width > 32 then
             error("nupp: buffer bit count exceeds 32", 2)
         end
         local extent = self:len() * 8
-        bounds.range(extent, first, width, "io.Buffer bit range", 2)
+        bounds.range(extent, first, width, "bytes.Buffer bit range", 2)
         local result: integer = 0
         for index = 0, width - 1 do
-            local position = bounds.sum(first, index, "io.Buffer bit range", 2)
+            local position = bounds.sum(first, index, "bytes.Buffer bit range", 2)
             local byte = self:readu8(position // 8)
             result = (result + ((byte // (2 ^ (position % 8))) % 2) * (2 ^ index)) as integer
         end
@@ -956,8 +956,8 @@ export sealed interface Buffer is own.Closeable
     --- Writes up to 32 bits without changing adjacent bits.
     --- @raises string when the bit range or value is invalid
     function writebits(exclusive self, offset: integer, count: integer, value: integer): nil
-        local first = bounds.count(offset, "io.Buffer bit offset", 2)
-        local width = bounds.count(count, "io.Buffer bit count", 2)
+        local first = bounds.count(offset, "bytes.Buffer bit offset", 2)
+        local width = bounds.count(count, "bytes.Buffer bit count", 2)
         if width > 32 or value < 0 or value % 1 ~= 0 or value >= 2 ^ width then
             error("nupp: buffer bit value is out of bounds", 2)
         end
@@ -999,27 +999,28 @@ local record HeapBuffer is Buffer
     metamethod __tostring: function(borrows self: HeapBuffer): string
 
     function len(borrows self): integer
-        bounds.opened(bufferstate.closed(self._state), "io.Buffer", 2)
+        bounds.opened(bufferstate.closed(self._state), "bytes.Buffer", 2)
         return bufferstate.length(self._state) - bufferstate.read(self._state)
     end
 
     function reset(exclusive self): Buffer borrows (self)
-        bounds.opened(bufferstate.closed(self._state), "io.Buffer", 2)
+        bounds.opened(bufferstate.closed(self._state), "bytes.Buffer", 2)
         bufferstate.reset(self._state)
         return self
     end
 
     function tostring(borrows self): string
-        bounds.opened(bufferstate.closed(self._state), "io.Buffer", 2)
+        bounds.opened(bufferstate.closed(self._state), "bytes.Buffer", 2)
         local first = bufferstate.read(self._state)
         return bytesAt(self, first, bufferstate.length(self._state) - first)
     end
 
     function get(exclusive self, count: integer?): string
-        bounds.opened(bufferstate.closed(self._state), "io.Buffer", 2)
+        bounds.opened(bufferstate.closed(self._state), "bytes.Buffer", 2)
         local first = bufferstate.read(self._state)
         local available = bufferstate.length(self._state) - first
-        local taking = count == nil and available or math.min(bounds.count(count, "io.Buffer get count", 2), available)
+        local taking = count == nil and available
+            or math.min(bounds.count(count, "bytes.Buffer get count", 2), available)
         local result = bytesAt(self, first, taking)
         bufferstate.setread(self._state, first + taking)
 
@@ -1027,18 +1028,18 @@ local record HeapBuffer is Buffer
     end
 
     function skip(exclusive self, count: integer): Buffer borrows (self)
-        bounds.opened(bufferstate.closed(self._state), "io.Buffer", 2)
+        bounds.opened(bufferstate.closed(self._state), "bytes.Buffer", 2)
         local first = bufferstate.read(self._state)
         bufferstate.setread(
             self._state,
-            first + math.min(bounds.count(count, "io.Buffer skip count", 2), bufferstate.length(self._state) - first)
+            first + math.min(bounds.count(count, "bytes.Buffer skip count", 2), bufferstate.length(self._state) - first)
         )
 
         return self
     end
 
     function put(exclusive self, borrows ...: any): Buffer borrows (self)
-        bounds.opened(bufferstate.closed(self._state), "io.Buffer", 2)
+        bounds.opened(bufferstate.closed(self._state), "bytes.Buffer", 2)
         for index = 1, select("#", ...) do
             local value = select(index, ...)
             if type(value) == "string" or type(value) == "number" then
@@ -1049,7 +1050,7 @@ local record HeapBuffer is Buffer
                 local source = value as span.Span<uint8>
                 local count = #source
                 local at = bufferstate.length(self._state)
-                local _ending = bounds.sum(at, count, "io.Buffer append", 2)
+                local _ending = bounds.sum(at, count, "bytes.Buffer append", 2)
                 local lease = newWriteLease(self, at, count)
                 do
                     local output = lease:span()
@@ -1070,13 +1071,13 @@ local record HeapBuffer is Buffer
 
     -- Trusted compiler entry: refresh a native pointer before virtualizing a span.
     function _spanroot(borrows self): Buffer borrows (self)
-        bounds.opened(bufferstate.closed(self._state), "io.Buffer", 2)
+        bounds.opened(bufferstate.closed(self._state), "bytes.Buffer", 2)
         local _base = bufferstate.data(self._state)
         return self
     end
 
     function span(borrows self, first: integer?, last: integer?): span.Span<uint8> borrows (self)
-        bounds.opened(bufferstate.closed(self._state), "io.Buffer", 2)
+        bounds.opened(bufferstate.closed(self._state), "bytes.Buffer", 2)
         local read = bufferstate.read(self._state)
         local start = first or 1
         local finish = last or (bufferstate.length(self._state) - read)
@@ -1093,42 +1094,42 @@ local record HeapBuffer is Buffer
     end
 
     function reserve(exclusive self, count: integer): affine(BufferWriteLease, destroyLease) borrows (self)
-        bounds.opened(bufferstate.closed(self._state), "io.Buffer", 2)
-        local available = bounds.count(count, "io.Buffer reserve count", 2)
+        bounds.opened(bufferstate.closed(self._state), "bytes.Buffer", 2)
+        local available = bounds.count(count, "bytes.Buffer reserve count", 2)
         local at = bufferstate.length(self._state)
-        local _ending = bounds.sum(at, available, "io.Buffer reservation", 2)
+        local _ending = bounds.sum(at, available, "bytes.Buffer reservation", 2)
 
         return newWriteLease(self, at, available)
     end
 
     function capacity(borrows self): integer
-        bounds.opened(bufferstate.closed(self._state), "io.Buffer", 2)
+        bounds.opened(bufferstate.closed(self._state), "bytes.Buffer", 2)
         return bufferstate.capacity(self._state)
     end
 
     function ensure(exclusive self, minimum: integer): nil
-        bounds.opened(bufferstate.closed(self._state), "io.Buffer", 2)
-        reserve(self, bounds.count(minimum, "io.Buffer capacity", 2))
+        bounds.opened(bufferstate.closed(self._state), "bytes.Buffer", 2)
+        reserve(self, bounds.count(minimum, "bytes.Buffer capacity", 2))
     end
 
     function resize(exclusive self, len: integer): nil
-        bounds.opened(bufferstate.closed(self._state), "io.Buffer", 2)
-        bufferstate.resize(self._state, bounds.count(len, "io.Buffer length", 2))
+        bounds.opened(bufferstate.closed(self._state), "bytes.Buffer", 2)
+        bufferstate.resize(self._state, bounds.count(len, "bytes.Buffer length", 2))
     end
 
     function readstring(borrows self, offset: integer, count: integer?): string
-        bounds.opened(bufferstate.closed(self._state), "io.Buffer", 2)
-        local from, taking = bounds.range(bufferstate.length(self._state), offset, count, "io.Buffer", 2)
+        bounds.opened(bufferstate.closed(self._state), "bytes.Buffer", 2)
+        local from, taking = bounds.range(bufferstate.length(self._state), offset, count, "bytes.Buffer", 2)
         return bytesAt(self, from, taking)
     end
 
     function reader(exclusive self): affine(Reader) borrows (self)
-        bounds.opened(bufferstate.closed(self._state), "io.Buffer", 2)
+        bounds.opened(bufferstate.closed(self._state), "bytes.Buffer", 2)
         return newBufferReader(self)
     end
 
     function writer(exclusive self): affine(Writer) borrows (self)
-        bounds.opened(bufferstate.closed(self._state), "io.Buffer", 2)
+        bounds.opened(bufferstate.closed(self._state), "bytes.Buffer", 2)
         return newWriterOver(self)
     end
 
@@ -1138,12 +1139,12 @@ local record HeapBuffer is Buffer
 end
 writeAt = function(exclusive buffer: Buffer, bytes: string, offset: integer?): nil
     local state = (buffer as any)._state
-    bounds.opened(bufferstate.closed(state), "io.Buffer", 2)
+    bounds.opened(bufferstate.closed(state), "bytes.Buffer", 2)
     if type(bytes) ~= "string" then
-        error("nupp: io.Buffer bytes must be a string", 2)
+        error("nupp: bytes.Buffer bytes must be a string", 2)
     end
-    local from = bounds.count(offset == nil and 0 or offset, "io.Buffer offset", 2)
-    local ending = bounds.sum(from, #bytes, "io.Buffer range", 2)
+    local from = bounds.count(offset == nil and 0 or offset, "bytes.Buffer offset", 2)
+    local ending = bounds.sum(from, #bytes, "bytes.Buffer range", 2)
     if #bytes == 0 then
         if ending > bufferstate.length(state) then
             bufferstate.resize(state, ending)
@@ -1174,9 +1175,9 @@ local record WriteLease is BufferWriteLease
     end
 
     function commit(takes self, written: integer): nil
-        local used = bounds.count(written, "io.Buffer committed byte count", 2)
+        local used = bounds.count(written, "bytes.Buffer committed byte count", 2)
         if used > self.count then
-            error("nupp: io.Buffer committed byte count exceeds its lease", 2)
+            error("nupp: bytes.Buffer committed byte count exceeds its lease", 2)
         end
         local ok, why = pcall(bufferstate.commitwrite, self.state, self.token, self.pointer, self.offset, used)
         if not ok then
@@ -1749,10 +1750,10 @@ end
 --- content, and the buffer is still empty afterwards.
 ---
 --- ```nupp
---- local buffer = io.Buffer.create("hello")
+--- local buffer = bytes.Buffer.create("hello")
 --- assert(buffer:len() == 5)
 ---
---- local sized = io.Buffer.create(4096)
+--- local sized = bytes.Buffer.create(4096)
 --- assert(sized:len() == 0 and sized:capacity() == 4096)
 --- ```
 ---
@@ -1762,10 +1763,10 @@ end
 --- @export
 export function newBuffer(initial: integer | string?): affine(Buffer)
     if initial ~= nil and type(initial) ~= "number" and type(initial) ~= "string" then
-        error("nupp: io.Buffer.create initial value must be bytes or a capacity", 2)
+        error("nupp: bytes.Buffer.create initial value must be bytes or a capacity", 2)
     end
     local bytes = type(initial) == "string" and initial as string or ""
-    local capacity = type(initial) == "number" and bounds.count(initial, "io.Buffer.create capacity", 2) or #bytes
+    local capacity = type(initial) == "number" and bounds.count(initial, "bytes.Buffer.create capacity", 2) or #bytes
 
     return bufferFacade(HeapBuffer(_state = bufferstate.create(bytes, capacity)))
 end
@@ -2048,10 +2049,10 @@ reserveAt_ = function(
     count: integer
 ): affine(BufferWriteLease, destroyLease) borrows (buffer)
     local state = buffer as any
-    bounds.opened(bufferstate.closed(state._state), "io.Buffer", 2)
-    local from = bounds.count(offset, "io.Buffer write offset", 2)
-    local available = bounds.count(count, "io.Buffer write count", 2)
-    local _ending = bounds.sum(from, available, "io.Buffer write range", 2)
+    bounds.opened(bufferstate.closed(state._state), "bytes.Buffer", 2)
+    local from = bounds.count(offset, "bytes.Buffer write offset", 2)
+    local available = bounds.count(count, "bytes.Buffer write count", 2)
+    local _ending = bounds.sum(from, available, "bytes.Buffer write range", 2)
 
     return newWriteLease(buffer, from, available)
 end

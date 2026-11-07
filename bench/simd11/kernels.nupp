@@ -1,6 +1,6 @@
 const assert2 = require("assert")
 
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 local array = table.Array
 

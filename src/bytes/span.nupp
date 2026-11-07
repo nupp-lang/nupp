@@ -1,0 +1,35 @@
+--[[
+Borrowed spans provide rooted, bounds-checked access to typed elements.
+See [bytes.md](docs/learn/runtime/data/bytes.md) for storage, ownership, index
+bases, and copies.
+
+```nupp
+local span = bytes.span
+local text = "hello"
+local bytes = span.fromstring(text)
+assert(#bytes == 5 and bytes[1] == 104)
+```
+]]
+module bytes.span
+
+local source1 = require("nupp.mem.span")
+local source2 = require("nupp.mem.indexed")
+export type ByteWriteSpan = source1.ByteWriteSpan
+export type FixedSpan<T, const N: integer> = source1.FixedSpan<T, N>
+export type FixedWritable<T, const N: integer> = source1.FixedWritable<T, N>
+export type FixedWriteSpan<T, const N: integer> = source1.FixedWriteSpan<T, N>
+export type Span<T, const Layout: string = "packed"> = source1.Span<T, Layout>
+export type Writable<T, const Layout: string = "packed"> = source1.Writable<T, Layout>
+export type WriteSpan<T, const Layout: string = "packed"> = source1.WriteSpan<T, Layout>
+export type WriteSplit<T, const Layout: string = "packed"> = source1.WriteSplit<T, Layout>
+export type WriteToken = source1.WriteToken
+export type Range = source2.Range
+export const WriteSplit = source1.WriteSplit
+export const destroywritespan = source1.destroyWriteSpan
+export const fromcarray = source1.fromCarray
+export const fromfixedcarray = source1.fromFixedCarray
+export const fromstring = source1.fromString
+export const writecarray = source1.writeCarray
+export const writefixedcarray = source1.writeFixedCarray
+export const Range = source2.Range
+export const range = source2.range

@@ -3,8 +3,9 @@
 module io.internal.process.types
 
 const {type Path} = require("io.internal.files.path")
-const {type Buffer, type Error} = require("nupp.io")
-const {type Span} = require("binary.span")
+const {type Buffer} = require("nupp.io.internal.bytes")
+const {type Error} = require("nupp.io")
+const {type Span} = require("bytes.span")
 
 export type StreamMode = "pipe" | "inherit" | "null"
 

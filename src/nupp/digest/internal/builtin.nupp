@@ -14,7 +14,7 @@ module nupp.digest.internal.builtin
 
 const provider = require("nupp.digest.internal.digestprovider")
 const streaming = require("nupp.digest.internal.streaming")
-const span = require("binary.span")
+const span = require("bytes.span")
 const storage = require("nupp.runtime.storage")
 const words = require("nupp.digest.internal.words")
 

@@ -478,7 +478,7 @@ end
 
 function M.aWriterSinkReceivesEachRenderedLine()
     local log = runtime()
-    local buffer = require("io").Buffer.create()
+    local buffer = require("bytes").Buffer.create()
     log.settimestampformat("")
     log.setlevel("debug")
     local previous = log.setsink(log.writersink(buffer:writer()))

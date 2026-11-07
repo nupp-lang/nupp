@@ -1,3 +1,5 @@
+local byteapi = require("bytes")
+
 local __serdeJson = require("serde.json")
 local __serdeCodec = require("serde.codec")
 local core = require("serde")
@@ -10,7 +12,7 @@ local binding = model.binding(model.newModel())
 local codec = json.codec(model.policy(true))
 local value = codec:decode(binding, '{"identifier":"cycle","created":0}')
 value.next = value
-local buffer = io.Buffer.create()
+local buffer = byteapi.Buffer.create()
 buffer:put("prefix")
 
 local ok, problem = pcall(codec.encodeinto, codec, binding, value, buffer)

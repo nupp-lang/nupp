@@ -6,6 +6,23 @@
 --- functions deliberately expose only opaque handles and serialized bytes, so
 --- nothing here can hand a Lua value from one state to another.
 local record native
+    endpointCreate: @nosuspend function(integer, integer): (any, any)
+    endpointClose: @nosuspend function(any): nil
+    endpointMove: @nosuspend function(any): any
+    endpointAnchor: @nosuspend function(any): any
+    channelRelease: @nosuspend function(any): nil
+    endpointSend: @nosuspend function(any, string): integer
+    endpointReceive: @nosuspend function(any): (integer, string?, any)
+    messageCreate: @nosuspend function(): any
+    messageFill: @nosuspend function(any, string, any): boolean
+    messageOffer: @nosuspend function(any, any): integer
+    messageSize: @nosuspend function(any): integer?
+    messageTake: @nosuspend function(any): (string?, any)
+    messageClose: @nosuspend function(any): nil
+    endpointReady: @nosuspend function(any, integer): integer
+    endpointWait: @nosuspend function(any, integer, integer): integer
+    endpointDirection: @nosuspend function(any): integer
+
     channelCreate: @nosuspend function(): any
     channelDestroy: @nosuspend function(any)
     channelClose: @nosuspend function(any)

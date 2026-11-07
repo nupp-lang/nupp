@@ -4,7 +4,7 @@
 -- reaching the nonblocking `poll` and `offer` operations the implementation uses for
 -- `communicate`.  If either public surface drifts, this module stops compiling before
 -- its one runtime assertion can run.
-const {type Buffer} = require("io")
+const {type Buffer} = require("bytes")
 
 local process = require("io")
 

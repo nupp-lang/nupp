@@ -12,7 +12,7 @@ end
 function M.backendPrerequisiteDoesNotChangeImportEffects()
     assert(native.forModule("nupp.compression") == nil)
     assert(surface.classify("nupp.compression").kind == "common")
-    assert(native.forModuleMember("binary", "compress") == "native.compression")
+    assert(native.forModuleMember("bytes", "compress") == "native.compression")
     assert(next(native.expand({})) == nil)
     local effects = native.expand({["native.compression"] = true})
     assert(effects["runtime.native"] and effects["runtime.spanview"] and effects["stdlib.io"])

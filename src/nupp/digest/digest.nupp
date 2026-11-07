@@ -1,10 +1,10 @@
 @!internal
 --[[
-Implements the digest contexts and algorithm catalog exposed by [](binary.Digest).
+Implements the digest contexts and algorithm catalog exposed by [](bytes.Digest).
 
 ```nupp
-print(binary.digest("sha256"):computehex("hello"))
-local running = binary.digest("sha256"):create()
+print(bytes.digest("sha256"):computehex("hello"))
+local running = bytes.digest("sha256"):create()
 running:write("hel")
 running:write("lo")
 print(running:hexdigest())
@@ -16,7 +16,7 @@ factory call and retained for later operations.
 ]]
 module nupp.digest.digest
 
-local {type Span} = require("binary.span")
+local {type Span} = require("bytes.span")
 
 local catalog = require("nupp.digest.internal.catalog")
 

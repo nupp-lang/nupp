@@ -113,17 +113,17 @@ function M.coldExternalProjectsRetainDeclaredStandardLibraryTypes()
             dir .. "/src/coldlibraries.nupp",
             [[
 module coldlibraries
-const gzip = binary.compress("gzip")
+const gzip = bytes.compress("gzip")
 local main = {}
 function main.run(): integer
     assert(gzip ~= nil)
     local facts = os.info()
     assert(facts.pointerbits == 32 or facts.pointerbits == 64)
     assert(facts.parallelism >= 1)
-    local bytes = io.Buffer.create("abc")
-    local reader: io.Reader = bytes:reader()
+    local buffer = bytes.Buffer.create("abc")
+    local reader: io.Reader = buffer:reader()
     assert(reader:read(3) == "abc")
-    local algorithm = binary.digest("sha256")
+    local algorithm = bytes.digest("sha256")
     assert(algorithm.digestsize == 32)
     local context = algorithm:create()
     context:write("abc")

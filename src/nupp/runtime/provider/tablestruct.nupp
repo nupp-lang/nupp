@@ -9,7 +9,7 @@ binary32. `define` combines a compiler-supplied layout with its method table;
 required by generated portable code.
 
 The module reports `referenceValued = true`. It supplies ordinary portable
-struct operations when [](binary._representation) has no physical storage
+struct operations when [](bytes._representation) has no physical storage
 implementation. It is not independently bound to a target and does not
 provide native pointers or a linear-memory ABI.
 

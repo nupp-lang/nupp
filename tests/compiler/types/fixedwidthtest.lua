@@ -166,7 +166,7 @@ return Bad, bad
 
     checkedTree(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local struct Bytes
     signed: int8
     unsigned: uint16
@@ -1067,7 +1067,7 @@ end
 function M.aNarrowUnsignedLoadAccumulatesIntoASignedWidthInsideAot()
     local body = table.concat(
         {
-            'local span = require("binary.span")',
+            'local span = require("bytes.span")',
             "@aot",
             "local function sum(borrows input: span.Span<uint8>, factor: int32): int32",
             "   local carry: int32 = 0",

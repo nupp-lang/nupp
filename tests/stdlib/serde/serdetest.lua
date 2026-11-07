@@ -356,7 +356,7 @@ function M.bufferAndEmbeddedWriterKeepTheirBoundaries()
         .. [[
 local record User id: integer end
 local binding = serde.binding(User)
-local buffer = io.Buffer.create("prefix:")
+local buffer = bytes.Buffer.create("prefix:")
 json.encodeinto(binding, User(id = 7), buffer)
 local first = buffer:tostring()
 buffer:reset()

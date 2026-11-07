@@ -48,7 +48,7 @@ function M.beforeAll()
     -- The VM carries its own provider: the facade reaches it the way a VM
     -- program does.
     provider = os
-    buffers = require("io")
+    buffers = require("bytes")
 end
 
 function M.afterAll()

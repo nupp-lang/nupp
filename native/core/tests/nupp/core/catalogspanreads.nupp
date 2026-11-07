@@ -1,8 +1,11 @@
 module nupp.core.catalogspanreads
 
+const {SharedBytes as SharedBytes2} = require("bytes")
+const {type SharedBytes as SharedBytes2} = require("bytes")
+
 local own = require("own")
-local {type Span} = require("binary.span")
-local SharedBytes = io.SharedBytes
+local {type Span} = require("bytes.span")
+local SharedBytes = SharedBytes2
 local events = 0
 local closed = 0
 
@@ -17,7 +20,7 @@ local record Sink is Closer
     end
 end
 
-local function receiver(borrows region: io.SharedBytes): Span<uint8> borrows (region)
+local function receiver(borrows region: SharedBytes2): Span<uint8> borrows (region)
     events = events * 10 + 1
     return region:view()
 end

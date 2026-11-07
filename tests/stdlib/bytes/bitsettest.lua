@@ -1,0 +1,810 @@
+-- Behavioral tests for bytes.Bitset.
+--
+-- The set-algebra operations mark the population stale rather than tracking it
+-- per word, and `wordcount` is an upper bound rather than the exact high-water
+-- mark. Both are observable only through what they must not change, so most of
+-- this compares against a naive set-of-positions oracle instead of asserting
+-- particular internals.
+
+local check = require("assert")
+local bit = require("bit")
+local bitset = require("bytes")
+local WORD_BITS = 32
+
+local FAR = bit.lshift(1, 20)
+
+local M = {}
+
+-- Lengths where a word boundary, an empty range, or a full word is in play.
+local EDGES = {0, 1, 2, 7, 8, 15, 16, 17, 30, 31, 32, 33, 63, 64, 65, 95, 96, 97, 127, 128, 129}
+
+-- A deterministic generator: the suite must answer the same every run, and
+-- math.random is shared with whatever else the process did first.
+local function seeded(seed)
+    local state = seed
+    return function(bound)
+        state = (state * 1103515245 + 12345) % 2147483648
+        return state % bound
+    end
+end
+
+-- The oracle. A plain table of positions, which is the definition every
+-- operation below is checked against.
+local Oracle = {}
+Oracle.__index = Oracle
+
+local function oracle()
+    return setmetatable({bits = {}}, Oracle)
+end
+
+function Oracle:set(index)
+    self.bits[index] = true
+end
+
+function Oracle:clear(index)
+    self.bits[index] = nil
+end
+
+function Oracle:get(index)
+    return self.bits[index] == true
+end
+
+function Oracle:setRange(low, high)
+    for index = low, high do
+        self.bits[index] = true
+    end
+end
+
+function Oracle:count()
+    local total = 0
+    for _ in pairs(self.bits) do
+        total = total + 1
+    end
+
+    return total
+end
+
+function Oracle:positions()
+    local out = {}
+    for index in pairs(self.bits) do
+        out[#out + 1] = index
+    end
+    table.sort(out)
+
+    return out
+end
+
+function Oracle:orWith(other)
+    for index in pairs(other.bits) do
+        self.bits[index] = true
+    end
+end
+
+function Oracle:andWith(other)
+    for index in pairs(self.bits) do
+        if not other.bits[index] then
+            self.bits[index] = nil
+        end
+    end
+end
+
+function Oracle:andNotWith(other)
+    for index in pairs(other.bits) do
+        self.bits[index] = nil
+    end
+end
+
+function Oracle:xorWith(other)
+    -- Not `self.bits[index] and nil or true`: that expression is always true,
+    -- because `and nil` makes the whole thing fall through to the `or`.
+    for index in pairs(other.bits) do
+        if self.bits[index] then
+            self.bits[index] = nil
+        else
+            self.bits[index] = true
+        end
+    end
+end
+
+-- Every enumeration route must agree with the oracle: the count, the walk, and
+-- a word-at-a-time read reassembled by hand.
+local function assertSame(set, want, label)
+    local positions = want:positions()
+    check.eq(set:count(), #positions, label .. ": count")
+
+    local walked = {}
+    local index = set:nextsetbit(0)
+    while index >= 0 do
+        walked[#walked + 1] = index
+        index = set:nextsetbit(index + 1)
+    end
+    check.eq(#walked, #positions, label .. ": walk length")
+    for at = 1, #positions do
+        check.eq(walked[at], positions[at], label .. ": walk position " .. at)
+    end
+
+    for _, position in ipairs(positions) do
+        check(set:get(position), label .. ": get " .. position)
+    end
+
+    local fromWords = 0
+    for word = 0, set:wordcount() - 1 do
+        local bits = set:wordat(word)
+        for offset = 0, WORD_BITS - 1 do
+            local mask = bit.lshift(1, offset)
+            if bit.band(bits, mask) ~= 0 then
+                fromWords = fromWords + 1
+                check(
+                    want:get(word * WORD_BITS + offset),
+                    label .. ": word " .. word .. " bit " .. offset .. " unexpected"
+                )
+            end
+        end
+    end
+    check.eq(fromWords, #positions, label .. ": words hold exactly the set bits")
+end
+
+function M.publicBitsetPreservesItsTypeAndThirtyTwoBitWords()
+    local implementation = require("nupp.util.internal.bitset")
+    check.eq(bitset.Bitset, implementation.Bitset)
+    check.eq(implementation.WORD_BITS, nil, "word width is not an exported API key")
+    check.eq(WORD_BITS, 32)
+    local set = bitset.Bitset.__nuppCtor1(65)
+    for preceding, current in pairs({
+        andNotWith = "andnotwith",
+        andWith = "andwith",
+        clearAll = "clearall",
+        containsAll = "containsall",
+        copyFrom = "copyfrom",
+        isEmpty = "isempty",
+        nextSetBit = "nextsetbit",
+        orWith = "orwith",
+        positionsInto = "positionsinto",
+        setOnly = "setonly",
+        setRange = "setrange",
+        wordAt = "wordat",
+        wordCount = "wordcount",
+        xorWith = "xorwith",
+    }) do
+        check.eq(set[preceding], nil, "the preceding public method is retired")
+        check.eq(type(set[current]), "function", "the canonical method is available")
+    end
+
+    for _, position in ipairs({31, 32, 63, 64}) do
+        set:set(position)
+    end
+    check.eq(set:count(), 4)
+    check.eq(set:wordcount(), 3)
+    check.eq(set:wordat(0), -2147483648)
+    check.eq(set:wordat(1), -2147483647)
+    check.eq(set:wordat(2), 1)
+end
+
+function M.emptySet()
+    local set = bitset.Bitset.__nuppCtor1()
+    check.eq(set:count(), 0, "empty count")
+    check(set:isempty(), "empty isEmpty")
+    check.eq(set:wordcount(), 0, "empty wordCount")
+    check.eq(set:nextsetbit(0), -1, "empty walk")
+    check(not set:get(0), "empty get 0")
+    check(not set:get(FAR), "empty get far")
+end
+
+function M.setAndGetAcrossWordBoundaries()
+    for _, position in ipairs(EDGES) do
+        local set = bitset.Bitset.__nuppCtor1(8)
+        local want = oracle()
+        set:set(position)
+        want:set(position)
+        assertSame(set, want, "single bit " .. position)
+
+        check(not set:get(position + 1), "neighbour above " .. position)
+        if position > 0 then
+            check(not set:get(position - 1), "neighbour below " .. position)
+        end
+
+        set:clear(position)
+        want:clear(position)
+        assertSame(set, want, "cleared " .. position)
+        check(set:isempty(), "empty after clear " .. position)
+    end
+end
+
+function M.setIsIdempotent()
+    local set = bitset.Bitset.__nuppCtor1()
+    set:set(70)
+    set:set(70)
+    set:set(70)
+    check.eq(set:count(), 1, "count counts distinct positions, not calls")
+end
+
+function M.growthPreservesContents()
+    local set = bitset.Bitset.__nuppCtor1(1)
+    local want = oracle()
+    for _, position in ipairs({0, 5, 31, 32, 200, 1000, 4095}) do
+        set:set(position)
+        want:set(position)
+        assertSame(set, want, "after growing to " .. position)
+    end
+end
+
+function M.rangesCoverEveryShape()
+    -- Inside one word, spanning two, spanning many, and the empty range.
+    local shapes = {
+        {0, 0},
+        {0, 31},
+        {1, 30},
+        {5, 5},
+        {31, 32},
+        {31, 33},
+        {32, 63},
+        {0, 63},
+        {7, 120},
+        {64, 64},
+        {96, 200},
+        {10, 9},
+    }
+    for _, shape in ipairs(shapes) do
+        local low, high = shape[1], shape[2]
+        local label = ("range %d..%d"):format(low, high)
+
+        local set = bitset.Bitset.__nuppCtor1(8)
+        local want = oracle()
+        set:setrange(low, high)
+        want:setRange(low, high)
+        assertSame(set, want, label)
+
+        -- Over a set that already holds overlapping bits, so the count delta is
+        -- exercised rather than a fresh popcount.
+        local overlapping = bitset.Bitset.__nuppCtor1(8)
+        local overlappingWant = oracle()
+        for position = 0, 40, 3 do
+            overlapping:set(position)
+            overlappingWant:set(position)
+        end
+        overlapping:setrange(low, high)
+        overlappingWant:setRange(low, high)
+        assertSame(overlapping, overlappingWant, label .. " over existing bits")
+    end
+end
+
+function M.rangeAfterStaleCount()
+    -- setRange has an exact-delta path and a leave-it-stale path; the stale one
+    -- is only reachable after set algebra.
+    local set = bitset.Bitset.__nuppCtor1(64)
+    local other = bitset.Bitset.__nuppCtor1(64)
+    local want, otherWant = oracle(), oracle()
+    for position = 0, 60, 2 do
+        set:set(position)
+        want:set(position)
+    end
+    for position = 0, 60, 3 do
+        other:set(position)
+        otherWant:set(position)
+    end
+
+    set:andwith(other)
+    want:andWith(otherWant)
+    set:setrange(70, 100)
+    want:setRange(70, 100)
+    assertSame(set, want, "range after a stale population")
+end
+
+function M.clearIsDefinedPastTheEnd()
+    local set = bitset.Bitset.__nuppCtor1(64)
+    set:set(5)
+    set:clear(1000)
+    set:clear(-1)
+    check.eq(set:count(), 1, "clearing past the end changes nothing")
+    check(set:get(5), "the real bit survives")
+end
+
+function M.negativeWritesRaise()
+    local set = bitset.Bitset.__nuppCtor1()
+    check.raises(
+        function()
+            set:set(-1)
+        end,
+        "negative"
+    )
+    check.raises(
+        function()
+            set:setrange(-1, 4)
+        end,
+        "below zero"
+    )
+end
+
+-- Positions are bounded so the word arithmetic, done with 32-bit bit
+-- operations, stays exact. Past the bound a write used to wrap the growth
+-- check and store hundreds of megabytes past the storage, and a read aliased
+-- position 2^32 + k onto k. A NaN position is refused the same way.
+function M.positionsPastTheBoundAreRefused()
+    local LIMIT = 2147483647
+    local TWO32 = 4294967296
+    local nan = 0 / 0
+    local set = bitset.Bitset.__nuppCtor1(128)
+    set:set(0)
+    set:set(100)
+    local before = set:wordcount()
+    for _, bad in ipairs({TWO32 - 1, TWO32, TWO32 + 5, LIMIT + 1, nan, 2.5}) do
+        check.raises(
+            function()
+                set:set(bad)
+            end,
+            "nupp: bitset index",
+            "set " .. tostring(bad)
+        )
+        check.raises(
+            function()
+                set:setonly(bad)
+            end,
+            "bitset index",
+            "setOnly " .. tostring(bad)
+        )
+        set:set(0)
+        set:set(100)
+        check.eq(set:get(bad), false, "get " .. tostring(bad))
+        set:clear(bad)
+        check(set:get(0), "clear " .. tostring(bad) .. " leaves bit 0")
+    end
+    check.raises(
+        function()
+            set:setrange(TWO32 - 40, TWO32 - 1)
+        end,
+        "bitset range",
+        "range near 2^32"
+    )
+    check.raises(
+        function()
+            set:setrange(nan, 4)
+        end,
+        "bitset range",
+        "NaN range start"
+    )
+    check.raises(
+        function()
+            set:setrange(4, nan)
+        end,
+        "bitset range",
+        "NaN range end"
+    )
+    check.raises(
+        function()
+            set:reserve(TWO32)
+        end,
+        "bitset",
+        "reserve 2^32"
+    )
+    check.raises(
+        function()
+            set:reserve(nan)
+        end,
+        "bitset",
+        "reserve NaN"
+    )
+    check.eq(set:wordcount(), before, "storage bound unchanged")
+    check.eq(set:count(), 2, "population unchanged")
+    check.eq(set:nextsetbit(TWO32), -1, "a walk from past the bound finds nothing")
+    check.eq(set:nextsetbit(nan), -1, "a walk from NaN finds nothing")
+    check.eq(set:wordat(nan), 0, "wordAt NaN reads zero")
+end
+
+function M.numericValidationKeepsIntegralFloatsAndIgnoresInvalidReads()
+    local set = bitset.Bitset.__nuppCtor1(8)
+    set:set(31.0)
+    set:setrange(64.0, 65.0)
+    check(set:get(31.0))
+    check.eq(set:wordat(2.0), 3)
+    set:clear(31.0)
+    check.eq(set:get(31), false)
+    local nan = 0.0 / 0.0
+    for _, invalid in ipairs({nan, 1.5, math.huge}) do
+        check.eq(set:get(invalid), false)
+        set:clear(invalid)
+        check.eq(set:wordat(invalid), 0)
+        check.eq(set:nextsetbit(invalid), -1)
+    end
+    check.eq(set:nextsetbit(64.0), 64)
+    check.eq(set:count(), 2)
+end
+
+function M.clearAllKeepsCapacity()
+    local set = bitset.Bitset.__nuppCtor1(8)
+    set:set(4000)
+    check.eq(set:count(), 1, "grew and set")
+    set:clearall()
+    check.eq(set:count(), 0, "cleared")
+    check.eq(set:wordcount(), 0, "bound reset")
+    check.eq(set:nextsetbit(0), -1, "nothing to walk")
+
+    -- Reusing it must not need another growth to reach the same position.
+    set:set(4000)
+    check(set:get(4000), "reusable after clearAll")
+end
+
+function M.setOnlyReplacesEverything()
+    local set = bitset.Bitset.__nuppCtor1()
+    set:setrange(0, 100)
+    set:setonly(500)
+    local want = oracle()
+    want:set(500)
+    assertSame(set, want, "setOnly")
+end
+
+function M.comparisonsMatchTheOracle()
+    local left, right = bitset.Bitset.__nuppCtor1(64), bitset.Bitset.__nuppCtor1(64)
+    local leftWant, rightWant = oracle(), oracle()
+    for position = 0, 100, 2 do
+        left:set(position)
+        leftWant:set(position)
+    end
+    for position = 0, 100, 4 do
+        right:set(position)
+        rightWant:set(position)
+    end
+
+    check(left:containsall(right), "evens contain multiples of four")
+    check(not right:containsall(left), "not the other way")
+    check(left:overlaps(right), "they overlap")
+    check(not left:disjoint(right), "so they are not disjoint")
+
+    local odd = bitset.Bitset.__nuppCtor1(64)
+    odd:set(1)
+    check(not left:overlaps(odd), "evens miss an odd bit")
+    check(left:disjoint(odd), "so they are disjoint")
+
+    local empty = bitset.Bitset.__nuppCtor1()
+    check(left:containsall(empty), "everything contains the empty set")
+    check(not left:overlaps(empty), "nothing overlaps the empty set")
+    check(empty:containsall(empty), "the empty set contains itself")
+    check(empty:disjoint(empty), "and is disjoint from itself")
+end
+
+function M.containsAllAcrossDifferentCapacities()
+    local wide = bitset.Bitset.__nuppCtor1(4096)
+    local narrow = bitset.Bitset.__nuppCtor1(8)
+    wide:set(3)
+    narrow:set(3)
+    check(wide:containsall(narrow), "capacity does not affect containment")
+    check(narrow:containsall(wide), "in either direction")
+
+    narrow:set(5000)
+    check(not wide:containsall(narrow), "a bit beyond is not contained")
+end
+
+function M.containsAllIgnoresClearedTrailingWords()
+    local narrow = bitset.Bitset.__nuppCtor1(8)
+    local formerlyWide = bitset.Bitset.__nuppCtor1(8)
+    narrow:set(3)
+    formerlyWide:set(3)
+    formerlyWide:set(5000)
+    formerlyWide:clear(5000)
+
+    check(narrow:containsall(formerlyWide), "a cleared high bit does not prevent containment")
+
+    formerlyWide:clear(3)
+    check(narrow:containsall(formerlyWide), "a loose bound does not make an empty set nonempty")
+end
+
+function M.copyFromIsIndependent()
+    local source = bitset.Bitset.__nuppCtor1(64)
+    local want = oracle()
+    for position = 0, 200, 7 do
+        source:set(position)
+        want:set(position)
+    end
+
+    local target = bitset.Bitset.__nuppCtor1(4096)
+    target:setrange(0, 3000)
+    target:copyfrom(source)
+    assertSame(target, want, "copied")
+
+    -- Writing through one must not reach the other.
+    target:set(1)
+    check(not source:get(1), "copy does not share storage")
+    check.eq(source:count(), want:count(), "source untouched")
+
+    local fromEmpty = bitset.Bitset.__nuppCtor1(64)
+    fromEmpty:setrange(0, 100)
+    fromEmpty:copyfrom(bitset.Bitset.__nuppCtor1())
+    check.eq(fromEmpty:count(), 0, "copying an empty set empties the target")
+    check.eq(fromEmpty:nextsetbit(0), -1, "and leaves nothing to walk")
+end
+
+function M.setAlgebraMatchesTheOracle()
+    local operations = {"orWith", "andWith", "andNotWith", "xorWith"}
+    for _, operation in ipairs(operations) do
+        for _, width in ipairs({1, 32, 33, 200}) do
+            local next = seeded(width * 7 + #operation)
+            local left, right = bitset.Bitset.__nuppCtor1(8), bitset.Bitset.__nuppCtor1(8)
+            local leftWant, rightWant = oracle(), oracle()
+
+            for _ = 1, 40 do
+                local position = next(width + 1)
+                left:set(position)
+                leftWant:set(position)
+                local other = next(width + 1)
+                right:set(other)
+                rightWant:set(other)
+            end
+
+            local label = ("%s at width %d"):format(operation, width)
+            left[operation:lower()](left, right)
+            leftWant[operation](leftWant, rightWant)
+            assertSame(left, leftWant, label)
+
+            -- The right operand is read, never written.
+            assertSame(right, rightWant, label .. ": operand untouched")
+        end
+    end
+end
+
+function M.setAlgebraWithEmptyOperands()
+    local cases = {"orWith", "andWith", "andNotWith", "xorWith"}
+    for _, operation in ipairs(cases) do
+        local set = bitset.Bitset.__nuppCtor1(64)
+        local want = oracle()
+        for position = 0, 100, 5 do
+            set:set(position)
+            want:set(position)
+        end
+
+        set[operation:lower()](set, bitset.Bitset.__nuppCtor1())
+        want[operation](want, oracle())
+        assertSame(set, want, operation .. " with an empty operand")
+
+        local empty = bitset.Bitset.__nuppCtor1()
+        local emptyWant = oracle()
+        empty[operation:lower()](empty, set)
+        emptyWant[operation](emptyWant, want)
+        assertSame(empty, emptyWant, "empty " .. operation .. " with an operand")
+    end
+end
+
+function M.orGrowsToReachTheOperand()
+    local small = bitset.Bitset.__nuppCtor1(1)
+    local large = bitset.Bitset.__nuppCtor1(64)
+    local want = oracle()
+    large:set(5000)
+    want:set(5000)
+    small:orwith(large)
+    assertSame(small, want, "union grew to reach the operand")
+end
+
+function M.randomOperationSequence()
+    -- The interleaving is what shakes out the stale-population and used-bound
+    -- bookkeeping: no single operation reaches every state.
+    local next = seeded(20260813)
+    local set = bitset.Bitset.__nuppCtor1(8)
+    local want = oracle()
+
+    for step = 1, 4000 do
+        local choice = next(100)
+        if choice < 30 then
+            local position = next(300)
+            set:set(position)
+            want:set(position)
+        elseif choice < 50 then
+            local position = next(300)
+            set:clear(position)
+            want:clear(position)
+        elseif choice < 60 then
+            local low, high = next(200), next(200)
+            set:setrange(low, high)
+            want:setRange(low, high)
+        elseif choice < 75 then
+            local other, otherWant = bitset.Bitset.__nuppCtor1(8), oracle()
+            for _ = 1, 10 do
+                local position = next(300)
+                other:set(position)
+                otherWant:set(position)
+            end
+            local operation = ({"orWith", "andWith", "andNotWith", "xorWith"})[next(4) + 1]
+            set[operation:lower()](set, other)
+            want[operation](want, otherWant)
+        elseif choice < 80 then
+            set:clearall()
+            want = oracle()
+        elseif choice < 90 then
+            -- Reading the count resolves a stale population; the sequence must be
+            -- the same whether or not anyone looked.
+            check.eq(set:count(), want:count(), "count at step " .. step)
+        else
+            local position = next(300)
+            check.eq(set:get(position), want:get(position), "get at step " .. step .. " position " .. position)
+        end
+
+        if step % 200 == 0 then
+            assertSame(set, want, "random sequence at step " .. step)
+        end
+    end
+
+    assertSame(set, want, "random sequence end state")
+end
+
+function M.walkIsStatelessAndNestable()
+    local set = bitset.Bitset.__nuppCtor1(64)
+    for _, position in ipairs({3, 40, 41, 300}) do
+        set:set(position)
+    end
+
+    -- Two walks interleaved. A scan holding state on the set could not do this.
+    local outer = set:nextsetbit(0)
+    local pairsSeen = 0
+    while outer >= 0 do
+        local inner = set:nextsetbit(0)
+        while inner >= 0 do
+            pairsSeen = pairsSeen + 1
+            inner = set:nextsetbit(inner + 1)
+        end
+        outer = set:nextsetbit(outer + 1)
+    end
+    check.eq(pairsSeen, 16, "4 by 4 interleaved walk")
+
+    -- A walk resumed after a mutation still terminates and reports live bits.
+    local index = set:nextsetbit(0)
+    set:clear(40)
+    index = set:nextsetbit(index + 1)
+    check.eq(index, 41, "cleared bit is skipped")
+
+    check.eq(set:nextsetbit(-5), 3, "a negative start reads as zero")
+    check.eq(set:nextsetbit(301), -1, "past the last bit")
+    check.eq(set:nextsetbit(FAR), -1, "far past the end")
+end
+
+function M.wordAtIsBoundedAndSigned()
+    local set = bitset.Bitset.__nuppCtor1(64)
+    check.eq(set:wordat(0), 0, "unset word reads zero")
+    check.eq(set:wordat(-1), 0, "negative word index reads zero")
+    check.eq(set:wordat(FAR), 0, "word index past the end reads zero")
+
+    set:set(WORD_BITS - 1)
+    check(set:wordat(0) < 0, "the top bit of a word reads negative")
+
+    set:set(WORD_BITS)
+    check.eq(set:wordat(1), 1, "the next word holds the next position")
+end
+
+function M.wordCountBoundsEverySetBit()
+    -- The bound may exceed the exact high-water mark, but every set bit must sit
+    -- below it, because that is what the word loops rely on.
+    local set = bitset.Bitset.__nuppCtor1(8)
+    set:setrange(0, 500)
+    set:clear(500)
+    for position = 400, 499 do
+        set:clear(position)
+    end
+
+    local highest = -1
+    local index = set:nextsetbit(0)
+    while index >= 0 do
+        highest = index
+        index = set:nextsetbit(index + 1)
+    end
+    check(set:wordcount() * WORD_BITS > highest, "every set bit is below the bound")
+end
+
+function M.positionsIntoMatchesTheWalk()
+    local storage = require("nupp.runtime.storage")
+    for _, bits in ipairs({1, 32, 33, 200, 4096}) do
+        local set = bitset.Bitset.__nuppCtor1(8)
+        local want = oracle()
+        local step = math.max(1, math.floor(bits / 17))
+        for position = 0, bits - 1, step do
+            set:set(position)
+            want:set(position)
+        end
+
+        local expected = want:positions()
+        local target = storage.allocateArray(storage.scalar("int32"), math.max(1, #expected))
+        local written, resume = set:positionsinto(target, #expected, 0)
+        check.eq(written, #expected, "written at width " .. bits)
+        check.eq(resume, -1, "exhausted at width " .. bits)
+        for at = 1, #expected do
+            check.eq(target[at - 1], expected[at], ("position %d at width %d"):format(at, bits))
+        end
+    end
+end
+
+function M.positionsIntoResumesWhenTargetFills()
+    local storage = require("nupp.runtime.storage")
+    local set = bitset.Bitset.__nuppCtor1(64)
+    local want = oracle()
+    for position = 0, 300, 3 do
+        set:set(position)
+        want:set(position)
+    end
+    local expected = want:positions()
+
+    -- A target smaller than the population, drained in chunks. The chained calls
+    -- have to produce exactly the walk's sequence with nothing lost or repeated.
+    local target = storage.allocateArray(storage.scalar("int32"), 7)
+    local collected, from = {}, 0
+    while from >= 0 do
+        local written, resume = set:positionsinto(target, 7, from)
+        for at = 1, written do
+            collected[#collected + 1] = target[at - 1]
+        end
+        check(resume == -1 or written == 7, "a partial fill means the set was exhausted")
+        from = resume
+    end
+
+    check.eq(#collected, #expected, "chunked total")
+    for at = 1, #expected do
+        check.eq(collected[at], expected[at], "chunked position " .. at)
+    end
+end
+
+function M.positionsIntoEdges()
+    local storage = require("nupp.runtime.storage")
+    local target = storage.allocateArray(storage.scalar("int32"), 4)
+
+    local empty = bitset.Bitset.__nuppCtor1(64)
+    local written, resume = empty:positionsinto(target, 4, 0)
+    check.eq(written, 0, "nothing written for an empty set")
+    check.eq(resume, -1, "and it is exhausted")
+
+    local set = bitset.Bitset.__nuppCtor1(64)
+    set:set(5)
+    set:set(100)
+
+    written, resume = set:positionsinto(target, 0, 0)
+    check.eq(written, 0, "a zero capacity writes nothing")
+    check.eq(resume, 0, "and resumes where it started")
+
+    written, resume = set:positionsinto(target, 4, 6)
+    check.eq(written, 1, "a start past the first position skips it")
+    check.eq(target[0], 100, "and finds the next")
+    check.eq(resume, -1, "then is exhausted")
+
+    written, resume = set:positionsinto(target, 4, 101)
+    check.eq(written, 0, "a start past every position writes nothing")
+    check.eq(resume, -1, "and is exhausted")
+
+    written, resume = set:positionsinto(target, 4, -5)
+    check.eq(written, 2, "a negative start reads as zero")
+    check.eq(target[0], 5, "first position")
+
+    written, resume = set:positionsinto(target, 4, FAR)
+    check.eq(written, 0, "a start far past the end writes nothing")
+    check.eq(resume, -1, "and is exhausted")
+
+    check.raises(
+        function()
+            set:positionsinto(target, -1, 0)
+        end,
+        "capacity"
+    )
+end
+
+function M.positionsIntoAfterSetAlgebra()
+    -- The used bound is an upper bound after intersection, so the extraction has
+    -- to tolerate trailing zero words rather than trusting the bound is tight.
+    local storage = require("nupp.runtime.storage")
+    local set = bitset.Bitset.__nuppCtor1(4096)
+    local other = bitset.Bitset.__nuppCtor1(4096)
+    local want, otherWant = oracle(), oracle()
+    for position = 0, 3000, 7 do
+        set:set(position)
+        want:set(position)
+    end
+    for position = 0, 500, 7 do
+        other:set(position)
+        otherWant:set(position)
+    end
+
+    set:andwith(other)
+    want:andWith(otherWant)
+    local expected = want:positions()
+
+    local target = storage.allocateArray(storage.scalar("int32"), math.max(1, #expected))
+    local written, resume = set:positionsinto(target, #expected, 0)
+    check.eq(written, #expected, "written after intersection")
+    check.eq(resume, -1, "exhausted after intersection")
+    for at = 1, #expected do
+        check.eq(target[at - 1], expected[at], "position " .. at)
+    end
+end
+
+return M

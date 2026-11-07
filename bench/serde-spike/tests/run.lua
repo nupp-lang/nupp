@@ -1,5 +1,5 @@
 local spike = require("serde_spike")
-local output = require("io").Buffer.create()
+local output = require("bytes").Buffer.create()
 
 for _, suffix in ipairs({"Small", "Medium", "Nested"}) do
     local previous = spike["legacyDebug" .. suffix]()
@@ -64,7 +64,7 @@ assert(spike.nativeDecodeMediumUnknown().owner == "example-owner")
 assert(spike.preparedDecodeMediumUnknown().owner == "example-owner")
 
 for _, name in ipairs({"preparedDecodeNested", "preparedDecodeNestedBuffer"}) do
-    local input = name:find("Buffer", 1, true) and require("io").Buffer.create(spike.nestedJson()) or nil
+    local input = name:find("Buffer", 1, true) and require("bytes").Buffer.create(spike.nestedJson()) or nil
     local nested = spike[name](input)
     if input then
         input:close()

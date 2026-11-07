@@ -589,7 +589,7 @@ export function install(c: state.Checker): state.StatHandlers
                 and boundEntry.definition
                 and stat.isConst
                 and rangeExport
-                and (rangeExport.module == "nupp.mem.indexed" or rangeExport.module == "binary.span")
+                and (rangeExport.module == "nupp.mem.indexed" or rangeExport.module == "bytes.span")
                 and rangeExport.member == "range"
                 and indexedRangeCall
             then

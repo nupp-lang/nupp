@@ -581,14 +581,14 @@ function M.standardLibraryRootsSharePrivateImplementationOnlyWithEachOther()
         for _, consumer in ipairs({
             "nupp.tools.consumer",
             "serde.json",
-            "binary.Digest",
+            "bytes.Digest",
             "coroutine.workers",
             "table"
         }) do
             for _, implementation in ipairs({
                 "nupp.serde.internal.value",
                 "serde.internal.codec",
-                "binary.internal.hash"
+                "bytes.internal.hash"
             }) do
                 testAssert.eq(
                     env.moduleAccess(env, consumer, implementation),
@@ -597,11 +597,7 @@ function M.standardLibraryRootsSharePrivateImplementationOnlyWithEachOther()
                 )
             end
         end
-        for _, implementation in ipairs({
-            "nupp.serde.internal.value",
-            "serde.internal.codec",
-            "binary.internal.hash"
-        }) do
+        for _, implementation in ipairs({"nupp.serde.internal.value", "serde.internal.codec", "bytes.internal.hash"}) do
             assert(env.moduleAccess(env, "app.main", implementation), "application must not import " .. implementation)
         end
         assert(
@@ -614,12 +610,19 @@ end
 function M.theNuppImplementationRootIsInternalAcrossStandardRoots()
     withProject({["src/app.nupp"] = "module app\n"}, function(dir)
         local env = projectEnv(dir)
-        for _, name in ipairs({"nupp", "nupp.array", "nupp.tasks", "nupp.compiler.types", "nupp.workers.contracts", "nupp.embedded.private"}) do
+        for _, name in ipairs({
+            "nupp",
+            "nupp.array",
+            "nupp.tasks",
+            "nupp.compiler.types",
+            "nupp.workers.contracts",
+            "nupp.embedded.private"
+        }) do
             local reason = env.moduleAccess(env, "app", name)
             assert(reason and reason:find("internal", 1, true), name)
             testAssert.eq(env.moduleAccess(env, "coroutine", name), nil)
         end
-        for _, name in ipairs({"table", "io", "coroutine", "simd", "binary.span", "io.http", "nupp.embedded"}) do
+        for _, name in ipairs({"table", "io", "coroutine", "simd", "bytes.span", "io.http", "nupp.embedded"}) do
             testAssert.eq(env.moduleAccess(env, "app", name), nil)
         end
         local filename = dir .. "/src/app.nupp"
@@ -781,7 +784,7 @@ end
 function M.shippedImplementationModulesAreNotApplicationImports()
     withProject({["src/app.nupp"] = "module app\n"}, function(dir)
         for _, name in ipairs({
-            "binary._representation",
+            "bytes._representation",
             "nupp.compiler.syntax.lexer",
             "nupp.runtime.browser.effects",
             "nupp.codec.json.provider",
@@ -1226,9 +1229,9 @@ function M.mergedSpanFacadeKeepsTrustedRangeProofsAndRefusals()
     withProject(
         {
             [
-                "src/binary/span.nupp"
+                "src/bytes/span.nupp"
             ] = [[
-module binary.span
+module bytes.span
 local spans = require("nupp.mem.span")
 local indexed = require("nupp.mem.indexed")
 export type Span<T> = spans.Span<T>
@@ -1241,7 +1244,7 @@ export const writecarray = spans.writeCarray
                 "src/main.nupp"
             ] = [[
 module main
-local span = require("binary.span")
+local span = require("bytes.span")
 export struct Cell value: int32 end
 export function work(exclusive output: span.WriteSpan<Cell>): nil
     const values = output
@@ -1288,19 +1291,19 @@ end
             local facadeErrors = check.check(facade, facadePath, env)
             testAssert.eq(#facadeErrors, 0, facadeErrors[1] and facadeErrors[1].msg)
             local loadImage = assert(rawget(_G, "__nupp_load_image"))
-            local oldSpan, preloadSpan = package.loaded["binary.span"], package.preload["binary.span"]
+            local oldSpan, preloadSpan = package.loaded["bytes.span"], package.preload["bytes.span"]
             local oldMain, preloadMain = package.loaded.main, package.preload.main
             local ok, problem = pcall(function()
                 program.installSourceModules()
-                package.loaded["binary.span"] = nil
-                package.preload["binary.span"] = assert(loadImage(program.image(facade, "binary.span", facadePath)))
+                package.loaded["bytes.span"] = nil
+                package.preload["bytes.span"] = assert(loadImage(program.image(facade, "bytes.span", facadePath)))
                 package.loaded.main = nil
                 package.preload.main = assert(loadImage(program.image(parsed, "main", filename)))
                 local callerPath = dir .. "/src/consumer.nupp"
                 local caller = parser.parse(
                     [[
 local main = require("main")
-local span = require("binary.span")
+local span = require("bytes.span")
 const storage = carray(main.Cell, 2)
 main.fill(storage, 2)
 const values = span.writecarray(storage, 2)
@@ -1316,12 +1319,12 @@ return result
                 testAssert.eq(#callerErrors, 0, callerErrors[1] and callerErrors[1].msg)
                 testAssert.eq(program.run(caller, "span-facade-caller", callerPath), 16)
             end)
-            package.loaded["binary.span"], package.preload["binary.span"] = oldSpan, preloadSpan
+            package.loaded["bytes.span"], package.preload["bytes.span"] = oldSpan, preloadSpan
             package.loaded.main, package.preload.main = oldMain, preloadMain
             assert(ok, problem)
             local invalid = parser.parse(
                 [[
-local span = require("binary.span")
+local span = require("bytes.span")
 const rows = span.range(1, 1, {})
 ]],
                 "invalid-span-consumer.nupp"

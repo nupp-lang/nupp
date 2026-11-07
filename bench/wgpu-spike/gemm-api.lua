@@ -1,7 +1,7 @@
 -- Naive f32 GEMM through nupp.gpu's generated binding, validated element-exact
 -- against the CPU kernel from the same source.
 local ffi = require("ffi")
-local span = require("binary.span")
+local span = require("bytes.span")
 local generated = require("gemm")
 local gpu = require("io.gpu")
 

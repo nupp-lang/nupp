@@ -1,6 +1,6 @@
 @!internal
 
---[[Implementation interfaces for `binary.Digest` algorithm catalogs.
+--[[Implementation interfaces for `bytes.Digest` algorithm catalogs.
 
 The facade uses its builtin algorithm catalog. Importing this declaration does
 not load storage or algorithms. The catalog supplies an algorithms map keyed by
@@ -20,7 +20,7 @@ applications requiring collision resistance must choose an appropriate digest.
 ]]
 module nupp.digest.internal.digestprovider
 
-local {type Span, type ByteWriteSpan} = require("binary.span")
+local {type Span, type ByteWriteSpan} = require("bytes.span")
 
 --- Independent incremental state; close consumes its ownership without suspension.
 export interface State is own.Closeable

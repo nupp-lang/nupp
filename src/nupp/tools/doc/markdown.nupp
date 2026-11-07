@@ -111,8 +111,9 @@ local function typeSpan(source: string): string
     if not anchors and not known then
         return codeSpan(source)
     end
-    local prefix = "local value: "
-    local parsed = parser.parse(prefix .. source, "documentation-type-reference.nupp")
+    -- A return position accepts both a single type and a computed pack tail.
+    local prefix = "local function documentation(): "
+    local parsed = parser.parse(prefix .. source .. "\nend", "documentation-type-reference.nupp")
     if #parsed.errors > 0 then
         return codeSpan(source)
     end

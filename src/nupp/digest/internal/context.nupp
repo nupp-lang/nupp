@@ -11,9 +11,9 @@ context operations perform no provider resolution.
 ]]
 module nupp.digest.internal.context
 
-const span = require("binary.span")
+const span = require("bytes.span")
 const storage = require("nupp.runtime.storage")
-const binary = require("nupp.util.internal.encoding")
+const encoding = require("nupp.util.internal.encoding")
 const provider = require("nupp.digest.internal.digestprovider")
 
 local contracts = require("nupp.digest.internal.contracts")
@@ -99,7 +99,7 @@ local record Context is Digest
             local output = span.writecarray(bytes, size)
             owner.state:finish(output)
             own.drop(output)
-            return binary.hexencode(storage.string(bytes, size))
+            return encoding.hexencode(storage.string(bytes, size))
         end
     end
 

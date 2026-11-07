@@ -3,7 +3,7 @@ module nupp.digest.checksum
 
 const _PROVIDER_REQUIRES = "@requires-dynamically nupp.runtime.provider.checksum"
 
-local {type Span} = require("binary.span")
+local {type Span} = require("bytes.span")
 local {type Checksum as ContextChecksum} = require("nupp.digest.internal.contracts")
 const provider = require("nupp.digest.internal.checksumprovider")
 local makeContext: function(provider.Algorithm, string, integer): ContextChecksum
@@ -60,7 +60,7 @@ local record Context is Checksum
         if type(bytes) ~= "string" then
             error("nupp: Checksum:write bytes must be a string", 2)
         end
-        local span = require("binary.span")
+        local span = require("bytes.span")
         local view = span.fromstring(bytes)
         self.state:update(view)
 

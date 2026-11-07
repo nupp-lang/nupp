@@ -6,11 +6,11 @@ title: Digests and checksums
 # Digests and checksums
 
 Message digests produce fixed-size opaque bytes, and checksums produce numeric
-error-detection values. Select a reusable descriptor with [](binary.digest),
-[](binary.checksum), or [](binary.mac).
+error-detection values. Select a reusable descriptor with [](bytes.digest),
+[](bytes.checksum), or [](bytes.mac).
 
 ```nupp
-local algorithm = binary.digest("sha256")
+local algorithm = bytes.digest("sha256")
 assert(algorithm.digestsize == 32)
 local rolling = algorithm:create()
 rolling:write("first chunk")
@@ -22,7 +22,7 @@ A descriptor's `create()` returns independent incremental state. Descriptors
 expose `name` and `digestsize` before construction; a created digest exposes
 `algorithm()` and `digestsize()`.
 
-`binary.formats("digest")` returns sorted canonical names. Selection raises
+`bytes.formats("digest")` returns sorted canonical names. Selection raises
 when an algorithm is unavailable, and repeated selection returns the same
 descriptor.
 
@@ -46,7 +46,7 @@ Every finalization consumes the digest; it neither snapshots nor resets it.
 Scope exit closes an unfinished digest context.
 
 ```nupp
-local rolling = binary.digest("sha256"):create()
+local rolling = bytes.digest("sha256"):create()
 rolling:write("payload")
 local bytes = table.Array.bytes(rolling:digestsize())
 local output = bytes:write()
@@ -62,15 +62,15 @@ is written; pass a slice to choose an offset. A short destination raises before
 any output is written. The digest is consumed and the digest context is closed
 even when finalization fails. The destination remains owned by the caller.
 
-One-shot conveniences are `binary.digest(name):compute(bytes)` and
-`binary.digest(name):computehex(bytes)`. Encoding is also available
+One-shot conveniences are `bytes.digest(name):compute(bytes)` and
+`bytes.digest(name):computehex(bytes)`. Encoding is also available
 separately:
-`binary.hexencode(raw)` or `binary.base64encode(raw)`.
+`bytes.hexencode(raw)` or `bytes.base64encode(raw)`.
 
 ## Checksums and MACs
 
 ```nupp
-local sum = binary.checksum("crc32c"):create()
+local sum = bytes.checksum("crc32c"):create()
 assert(sum:width() == 32)
 sum:write("1234")
 local partial = sum:value()
@@ -89,7 +89,7 @@ It differs from Smithy's `CRC64NVME` algorithm.
 The checksum API chooses no byte order: a protocol writes the value using its
 own scalar serialization rules. Checksums provide no authentication.
 
-`binary.mac("hmac-sha256"):create(key)` accepts a raw-byte key and returns
+`bytes.mac("hmac-sha256"):create(key)` accepts a raw-byte key and returns
 the same writer and consuming finalization as a digest. Its descriptor has
 `digestsize = 32`. Select it once and use `algorithm:compute(key, bytes)` or
 `algorithm:computehex(key, bytes)` for complete messages. The descriptor retains
@@ -101,10 +101,10 @@ construction; SigV4's `AWS4-HMAC-SHA256` names the complete signing scheme.
 
 ## Algorithm catalogs
 
-`binary.formats(kind)` accepts the [](binary.FormatKind) enum: `"digest"`,
+`bytes.formats(kind)` accepts the [](bytes.FormatKind) enum: `"digest"`,
 `"checksum"`, `"mac"`, or `"compression"`. Each call returns an independent sorted
 list. A family unavailable on the target returns an empty list.
-`binary.compress(name)` selects a [](binary.CompressionFormat) with `compress`,
+`bytes.compress(name)` selects a [](bytes.CompressionFormat) with `compress`,
 `decompress`, `reader`, and `writer` methods.
 
 Each family initializes its builtin catalog on first use and retains its

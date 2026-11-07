@@ -1057,7 +1057,7 @@ local coremodules: {
     ["nupp.runtime.bindings.suspension"] = "nupp.runtime.provider.suspension",
     ["nupp.runtime.taskownership"] = "nupp.runtime.provider.coretaskownership",
     ["nupp.vm.files"] = "nupp.runtime.provider.corefiles",
-    ["io.internal.sharedbytes"] = "nupp.runtime.provider.coresharedbytes",
+    ["bytes.internal.sharedbytes"] = "nupp.runtime.provider.coresharedbytes",
     ["nupp.runtime.temporaryhooks"] = "nupp.runtime.provider.coretemporary",
     ["nupp.io.internal.bufferstate"] = "nupp.runtime.provider.heapbuffer",
     ["nupp.io.internal.nativebuffer"] = "nupp.runtime.provider.bufferfallback",

@@ -22,9 +22,10 @@ module nupp.runtime.browser.workers
 @allow("unused-binding")
 const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
 
-local binary = require("binary")
+local byteapi = require("bytes")
 local browserEffects = require("nupp.runtime.browser.effects")
-local codec = require("nupp.runtime.browser.workercodec")
+local codec = require("nupp.workers.internal.valuecodec")
+local appchannels = require("nupp.runtime.browser.channels")
 local suspension = require("nupp.suspension")
 local cancellation = require("nupp.suspension.cancellation")
 local common = require("nupp.workers.internal.support")
@@ -86,6 +87,7 @@ local record TaskImpl
     _error: string?
     _cancelled: any
     _bytes: integer
+    _dedicated: boolean
     _observed: boolean
     _requested: boolean
     _awaiting: boolean
@@ -128,6 +130,9 @@ local unsettled: {[integer]: any} = {}
 local unsettledCount: integer = 0
 local unsettledBytes: integer = 0
 local nextTaskId: integer = 1
+local dedicatedCount: integer = 0
+local dedicatedBytes: integer = 0
+local MAX_DEDICATED: integer = 64
 
 -- True in a lane's own state, where the scheduler loop is what runs. A lane may not
 -- open a worker scope: its state cannot submit back into the page's pool without
@@ -195,8 +200,13 @@ local function release(task: any): nil
         return
     end
     unsettled[task._id] = nil
-    unsettledCount = unsettledCount - 1
-    unsettledBytes = unsettledBytes - (task._bytes as integer)
+    if task._dedicated then
+        dedicatedCount = dedicatedCount - 1
+        dedicatedBytes = dedicatedBytes - (task._bytes as integer)
+    else
+        unsettledCount = unsettledCount - 1
+        unsettledBytes = unsettledBytes - (task._bytes as integer)
+    end
 end
 
 local function settle(task: any, value: any): nil
@@ -206,7 +216,7 @@ local function settle(task: any, value: any): nil
     end
     local status = value ~= nil and value.status or nil
     if status == "done" then
-        local packed = codec.decode((assert(binary.base64decode(value.payload as string))))
+        local packed = codec.decode((assert(byteapi.base64decode(value.payload as string))))
         task._values = packed.values
         task._count = packed.count
         task._state = "done"
@@ -239,7 +249,9 @@ local type Submission = {
     module: string,
     member: string,
     payload: string,
-    deadline: number?
+    deadline: number?,
+    dedicated: boolean?,
+    endpoints: {any}?
 }
 local type SubmissionBatch = {
     operation: string,
@@ -403,7 +415,7 @@ function TaskImpl:await(): ...any
     return unpack(self._values, 1, self._count)
 end
 
-local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
+local function submitImpl(self: workers.Scope, dedicated: boolean, fn: any, ...: any): any
     if self._closed then
         error("nupp: cannot spawn into a closed worker scope", 2)
     end
@@ -414,12 +426,37 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
     local descriptor = sendableDescriptors[fn]
     local captures = descriptor and descriptor.captures or pack()
     local arguments = pack(...)
-    codec.validate(captures, arguments)
-    local submitted = common.concatenate(captures, arguments)
-    local payload = binary.base64encode(codec.encode(submitted))
-    if unsettledCount >= MAX_UNSETTLED or unsettledBytes + #payload > MAX_UNSETTLED_BYTES then
-        -- Backpressure, which awaiting what is already submitted relieves. A pool that
-        -- has closed fails the tasks it held instead of refusing new ones here.
+    local copied: Packed = {values = {}, count = arguments.count}
+    local transfers: {any} = {}
+    local seen: {[any]: boolean} = {}
+    for index = 1, arguments.count do
+        local value = arguments.values[index]
+        local direction, owner, live = appchannels.identify(value)
+        if direction ~= nil then
+            if not live then
+                error("nupp: invalid or moved channel endpoint", 2)
+            end
+            if owner ~= (self._channelOwner or self) then
+                error("nupp: channel endpoint belongs to another scope", 2)
+            end
+            if seen[value] then
+                error("nupp: a startup argument repeats a channel endpoint", 2)
+            end
+            seen[value] = true
+            transfers[#transfers + 1] = {argument = captures.count + index, value = value}
+        else
+            copied.values[index] = value
+        end
+    end
+    codec.validate(captures, copied)
+    local submitted = common.concatenate(captures, copied)
+    local payload = byteapi.base64encode(codec.encode(submitted))
+    if dedicated then
+        if dedicatedCount >= MAX_DEDICATED or dedicatedBytes + #payload > MAX_UNSETTLED_BYTES then
+            error("nupp: dedicated worker admission limit reached (64 workers, 256 MiB)", 2)
+        end
+    elseif unsettledCount >= MAX_UNSETTLED or unsettledBytes + #payload > MAX_UNSETTLED_BYTES then
+        -- Pooled backpressure never spends the separate dedicated-worker budget.
         error("nupp: a worker queue is full", 2)
     end
     local id = nextTaskId
@@ -433,6 +470,7 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
             _error = nil,
             _cancelled = nil,
             _bytes = #payload,
+            _dedicated = dedicated,
             _observed = false,
             _requested = false,
             _awaiting = false,
@@ -446,16 +484,58 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
         },
         TaskMT
     )
+    if dedicated then
+        dedicatedCount = dedicatedCount + 1
+        dedicatedBytes = dedicatedBytes + #payload
+    else
+        unsettledCount = unsettledCount + 1
+        unsettledBytes = unsettledBytes + #payload
+    end
     unsettled[id] = task
-    unsettledCount = unsettledCount + 1
-    unsettledBytes = unsettledBytes + #payload
-    submit({task = id, module = moduleName, member = member, payload = payload, deadline = self._deadline,})
+    local attached: {any} = {}
+    for _, transfer in ipairs(transfers) do
+        attached[
+            #attached + 1
+        ] = {argument = transfer.argument, handle = appchannels.claim(transfer.value, self._channelOwner or self)}
+    end
+    submit({
+        task = id,
+        module = moduleName,
+        member = member,
+        payload = payload,
+        deadline = self._deadline,
+        dedicated = dedicated,
+        endpoints = attached,
+    })
     enlist(self, task)
     if self._observer ~= nil and self._observer.created ~= nil then
         self._observer.created(self._observer, task)
     end
 
     return task
+end
+
+local function submitOwned(self: workers.Scope, dedicated: boolean, fn: any, ...: any): any
+    if not appchannels.contains(...) then
+        return submitImpl(self, dedicated, fn, ...)
+    end
+    local ok, task = pcall(submitImpl, self, dedicated, fn, ...)
+    if not ok then
+        for index = 1, select("#", ...) do
+            appchannels.cleanup(select(index, ...), 0)
+        end
+        error(task, 2)
+    end
+
+    return task
+end
+
+local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
+    return submitOwned(self, false, fn, ...)
+end
+
+local function dedicatedImpl(self: workers.Scope, fn: any, ...: any): any
+    return submitOwned(self, true, fn, ...)
 end
 
 local spawnSurface: function<F is workers.Worker>(
@@ -465,6 +545,15 @@ local spawnSurface: function<F is workers.Worker>(
 ): workers.Task<F>
 @unsafe do
     spawnSurface = spawnImpl as any
+end
+
+local dedicatedSurface: function<F is workers.Worker>(
+    borrows self: workers.Scope,
+    F,
+    ...: unpackof contracts.Submitted(F)
+): workers.Task<F>
+@unsafe do
+    dedicatedSurface = dedicatedImpl as any
 end
 
 --- Settles every child, answering the first failure the body never observed.
@@ -507,6 +596,7 @@ local function closeScope(borrows self: workers.Scope): nil
     end
     self._closed = true
     local firstFailure = settleAll(listed(self), awaitSettlement)
+    appchannels.closeScope(self)
     if firstFailure ~= nil then
         error(firstFailure, 2)
     end
@@ -543,9 +633,12 @@ local function openScope(deadline: number?, observer: any): workers.Scope
     return setmetatable(
         {
             spawn = spawnSurface,
+            worker = dedicatedSurface,
+            _submit = submitImpl,
             close = closeScope,
             _cancelAll = cancelAllScope,
             _settleOldest = settleOldestScope,
+            _dedicated = {},
             _first = nil,
             _last = nil,
             _registered = 0,
@@ -558,6 +651,14 @@ local function openScope(deadline: number?, observer: any): workers.Scope
 end
 
 workers.openscope = openScope
+workers.channel = appchannels.create
+workers.closechannels = appchannels.closeScope
+workers.ownsarguments = appchannels.contains
+workers.cleanuparguments = function(...: any): nil
+    for index = 1, select("#", ...) do
+        appchannels.cleanup(select(index, ...), 0)
+    end
+end
 
 -- How many tasks a scope still lists, for the task scope's lifecycle hook.
 rawset(workers, "__registered", function(scope: any): integer
@@ -603,17 +704,35 @@ end
 local function runFrame(frame: any): any
     checkpointCancelled = false
     checkpointDeadline = false
+    local startup: Packed? = nil
     local ok, answer = xpcall(
         function(): Packed
             local moduleName = frame.module as string
             local member = frame.member as string
             local callable = common.resolve(moduleName, member, outlinedSendables, require)
-            local arguments = codec.decode((assert(binary.base64decode(frame.payload as string))))
+            local arguments = codec.decode((assert(byteapi.base64decode(frame.payload as string))))
+            if #(frame.endpoints or {}) > 0 then
+                startup = arguments
+            end
+            for _, descriptor in ipairs(frame.endpoints or {}) do
+                local index = descriptor.argument
+                if type(index) ~= "number"
+                or index < 1
+                or index > arguments.count
+                or arguments.values[index] ~= nil
+                then
+                    error("nupp: invalid channel endpoint startup slot", 0)
+                end
+                arguments.values[index] = appchannels.plant(descriptor)
+            end
 
             return pack(callable(unpack(arguments.values, 1, arguments.count)))
         end,
         workerFailure
     )
+    if startup ~= nil then
+        appchannels.cleanup(startup.values, 0)
+    end
     if not ok then
         if cancellation.is(answer) then
             local cancelled = answer as any
@@ -643,7 +762,7 @@ local function runFrame(frame: any): any
         operation = "reply",
         task = frame.task,
         status = "done",
-        payload = binary.base64encode(codec.encode(produced)),
+        payload = byteapi.base64encode(codec.encode(produced)),
     }
 end
 

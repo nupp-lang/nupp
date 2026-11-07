@@ -1,6 +1,8 @@
 @!internal
 module nupp.runtime.browser.files
 
+local byteapi = require("nupp.io.internal.bytes")
+
 const systeminfo = require("nupp.runtime.systeminfo")
 
 local effects = require("nupp.runtime.browser.effects")
@@ -10,7 +12,7 @@ local appPaths = require("io.internal.files.path")
 local io = require("io")
 local privateIo = require("nupp.io")
 local scalarAdapters = require("nupp.io.internal.scalars")
-local span = require("binary.span")
+local span = require("bytes.span")
 local suspension = require("nupp.suspension")
 local memory = require("nupp.runtime.browser.memory") as any
 const {type Entries} = require("io.internal.files.contracts")
@@ -264,7 +266,7 @@ local record File is io.Reader, io.Writer
             return nil, "the file is closed"
         end
         local wanted = math.min(positive(count, "File:read count", 2), READ_SIZE)
-        local destination = io.Buffer.create(wanted)
+        local destination = byteapi.Buffer.create(wanted)
         local lease = require("nupp.io.internal.bytes").reserveAt(destination, 0, wanted)
         local got: integer?
         local reason: string?
@@ -308,7 +310,7 @@ local record File is io.Reader, io.Writer
 
     function readinto(
         exclusive self,
-        exclusive destination: io.Buffer,
+        exclusive destination: byteapi.Buffer,
         offset: integer?,
         count: integer?
     ): (integer?, string?)

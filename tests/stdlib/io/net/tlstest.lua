@@ -685,7 +685,7 @@ function M.sessionsExchangeCheckedSpans()
     local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
     assert(clientDone, clientWhy);
     assert(serverDone, serverWhy)
-    local buffers = require("io").Buffer
+    local buffers = require("bytes").Buffer
     local payload = buffers.create("encrypted spans")
     assert(client:writespan(payload:span()) == 15)
     assert(client:flush())

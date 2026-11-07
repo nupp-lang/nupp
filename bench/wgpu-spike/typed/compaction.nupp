@@ -1,7 +1,7 @@
 module compaction
 
 local gpu = io.gpu
-local span = binary.span
+local span = require("bytes.span")
 
 const BLOCK = 256
 

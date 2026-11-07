@@ -1,0 +1,179 @@
+@!internal
+
+--[[Engine-backed operations for the canonical bytes.SharedBytes declarations.
+
+A region's block is an immutable storage allocation the VM shares by
+reference: `copy` copies a string into one, and a region crossing into a worker carries
+the same block, whatever its size.]]
+module bytes.internal.sharedbytes
+
+const assert2 = require("assert")
+
+local span = require("bytes.span")
+local byteTypes = require("bytes.internal.bytestypes")
+export type SharedBytes = byteTypes.SharedBytes
+export const SharedBytes = byteTypes.SharedBytes
+local spanImplementation = require("nupp.mem.span")
+local files = require("nupp.vm.files")
+local storage: any = assert2(
+    require("bytes._representation").storage,
+    "bytes.internal.sharedbytes: no storage implementation is available for the target"
+)
+
+local foreignByteSpan = rawget(
+    spanImplementation as table,
+    "__foreignByteSpan"
+) as @nosuspend function(borrows anchor: any, any, integer, integer): span.Span<uint8> borrows (anchor)
+local foreignSpan = rawget(
+    spanImplementation as table,
+    "__foreignSpan"
+) as function<T>(
+    borrows anchor: any,
+    borrows pointer: voidptr,
+    integer,
+    integer,
+    ctype<T>
+): span.Span<T> borrows (anchor)
+
+-- The declarations keep their fields private to `bytes.internal.bytestypes`, so
+-- this module reads them by name.
+local getfield: function(borrows source: table, key: string): any = rawget as any
+
+-- One block: a read-only byte view over a shared allocation (or, from a
+-- checkpoint written before blocks were shared, an immutable string). Its
+-- identity is this record's, so equal bytes in separate blocks stay unequal.
+local record Block
+    @readonly data: any
+    @readonly regions: {[string]: any}
+end
+
+local function newBlock(data: any): Block
+    return Block(data = data, regions = setmetatable({}, {__mode = "v"}) as {[string]: any})
+end
+
+local function block(borrows value: SharedBytes): Block
+    return getfield(value as table, "_handle") as Block
+end
+
+local function first(borrows value: SharedBytes): integer
+    return getfield(value as table, "_first") as integer
+end
+
+local function length(borrows value: SharedBytes): integer
+    return getfield(value as table, "_length") as integer
+end
+
+-- A storage view `by` elements past `view`. Both operands stay dynamic so the
+-- addition is the view's own, never a numeric one.
+local function advance(view: any, by: any): any
+    return view + by
+end
+
+-- A read-only byte view of the block starting `offset` bytes in.
+local function bytesAt(handle: Block, offset: integer): any
+    return advance(storage.castbytes(handle.data), offset)
+end
+
+-- Two regions are equal when they name the same engine block, offset, and
+-- length; equal bytes in separate blocks are not equal. The VM gives records no
+-- `__eq`, so each block hands out one region per extent, kept while anything
+-- holds it, and identity is that equality.
+local function wrap(handle: Block, offset: integer, count: integer): SharedBytes
+    local key = offset .. ":" .. count
+    local known = handle.regions[key]
+    if known ~= nil then
+        return known as SharedBytes
+    end
+    local region = {_handle = handle, _first = offset, _length = count} as SharedBytes
+    handle.regions[key] = region
+
+    return region
+end
+
+function SharedBytes:len(): integer
+    return length(self)
+end
+
+-- Whether `count` bytes from `offset` lie inside `length`. A NaN fails every
+-- comparison, so each bound is asked for what it must be rather than what it must
+-- not be.
+local function inside(length: integer, offset: integer, count: integer): boolean
+    return offset % 1 == 0 and count % 1 == 0 and offset >= 0 and count >= 0 and offset + count <= length
+end
+
+--- @raises string when the extent falls outside the region
+function SharedBytes:slice(offset: integer, count: integer): SharedBytes
+    if not inside(length(self), offset, count) then
+        error("nupp: a region slice is out of bounds", 2)
+    end
+
+    return wrap(block(self), first(self) + offset, count)
+end
+
+--- @raises string when the extent falls outside the region
+function SharedBytes:view(offset: integer?, count: integer?): span.Span<uint8> borrows (self)
+    local from = offset == nil and 0 or offset as integer
+    local taking = count == nil and length(self) - from or count as integer
+    if not inside(length(self), from, taking) then
+        error("nupp: a region view is out of bounds", 2)
+    end
+
+    return foreignByteSpan(self, block(self).data, first(self) - 1 + from, taking)
+end
+
+--- @raises string when the region is not aligned or is not a whole number of elements
+function SharedBytes:viewas<T>(element: ctype<T>): span.Span<T> borrows (self)
+    local width = storage.sizeof(element) as integer
+    local alignment = (element as any).alignment as integer
+    local byteOffset = first(self) - 1
+    if width < 1 or length(self) % width ~= 0 then
+        error("nupp: a typed region view must contain complete elements", 2)
+    end
+    -- A block starts at the widest alignment storage gives any element, so the
+    -- offset into it is what decides whether the view is aligned.
+    if length(self) > 0 and byteOffset % alignment ~= 0 then
+        error("nupp: a typed region view is not suitably aligned", 2)
+    end
+
+    @unsafe do
+        local start = borrowFrom(bytesAt(block(self), byteOffset) as voidptr, self)
+        return foreignSpan(self, start, 0, length(self) // width, element)
+    end
+end
+
+function SharedBytes:tostring(): string
+    local data = block(self).data
+    local offset = first(self)
+    if type(data) == "string" then
+        return (data as string):sub(offset, offset + length(self) - 1)
+    end
+
+    return storage.string(bytesAt(block(self), offset - 1), length(self)) as string
+end
+
+--- Copies `text` into an engine-owned region.
+function SharedBytes.copy(text: string): SharedBytes
+    return wrap(newBlock(storage.share(text)), 1, #text)
+end
+
+--- Reads a whole file directly into an engine-owned region.
+--- @param path the native path of the file to read
+--- @return the region, or nil when the file cannot be opened, sized, or read
+--- @return why it could not be read, when unsuccessful
+function SharedBytes.readfile(path: string): (SharedBytes?, string?)
+    local text, problem = files.read(path)
+    if text == nil then
+        return nil, tostring(problem)
+    end
+
+    return wrap(newBlock(storage.share(text)), 1, #(text as string)), nil
+end
+
+-- Private transport hooks use the VM's shared block wrapper.
+export function regionparts(region: any): (any, integer, integer)
+    return region._handle, region._first, region._length
+end
+
+export function regionfromparts(handle: any, first: integer, length: integer): any
+    return wrap(handle as Block, first, length)
+end

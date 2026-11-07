@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local span = require("binary.span")
+local span = require("bytes.span")
 local gpu = require("io.gpu")
 local generated = require("quantgemv")
 

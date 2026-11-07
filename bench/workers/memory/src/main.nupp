@@ -1,0 +1,36 @@
+local jobs = require("jobs")
+local ffi = require("ffi")
+ffi.cdef[[int getpid(void); int usleep(unsigned int usec);]]
+local pid = tonumber(ffi.C.getpid()) as integer
+
+local function snapshot(phase: string): nil
+    collectgarbage("collect")
+    collectgarbage("collect")
+    print(([[{"phase":%q,"pid":%d,"luaBytes":%.0f}]]):format(phase, pid, collectgarbage("count") * 1024))
+    io.stdout:flush()
+    ffi.C.usleep(500000)
+end
+
+local function collectOnLane(): nil
+    local scope = coroutine.scope()
+    scope:work(jobs.collect):await()
+end
+
+snapshot("before pool")
+local total: integer = 0
+for _, count in ipairs({1000, 10000, 100000}) do
+    do
+        local scope = coroutine.scope()
+        for index = 1, count do
+            total = total + scope:work(index, jobs.identity):await()
+        end
+    end
+    do
+        local scope = coroutine.scope()
+        for _ = 1, os.info().parallelism do
+            scope:spawn(collectOnLane)
+        end
+    end
+    snapshot("after " .. tostring(count) .. " jobs")
+end
+assert(total > 0)

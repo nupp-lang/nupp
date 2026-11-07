@@ -1,5 +1,5 @@
 local _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
--- Private native storage for io.Buffer. Other hosts use the checked fallback.
+-- Private native storage for bytes.Buffer. Other hosts use the checked fallback.
 local ok, native = pcall(require, table.concat({"string", "buffer"}, "."))
 if not ok then
     return {}
@@ -101,7 +101,7 @@ function M.bind(state)
     local buffer = state._native
     return function(self, ...)
         if state._closed then
-            error("nupp: io.Buffer is closed", 2)
+            error("nupp: bytes.Buffer is closed", 2)
         end
         state._length = put(buffer, ...)
 

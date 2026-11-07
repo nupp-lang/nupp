@@ -61,7 +61,7 @@ decoding is selected. An encode-only mapping can omit required fields.
 `serde.iso8601seconds` maps an integer epoch-seconds field to a timestamp;
 other conversions use an explicit adapter.
 
-`json.encodeinto(binding, value, buffer)` appends to an [](io.Buffer) and
+`json.encodeinto(binding, value, buffer)` appends to an [](bytes.Buffer) and
 restores its previous contents if serialization fails; `json.decodebuffer`
 decodes the text one holds. `json.codec(policy)`
 makes a codec with a model-owned policy and its own bounded cache.

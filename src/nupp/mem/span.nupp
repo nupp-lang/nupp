@@ -1,13 +1,13 @@
 @!internal
 
 --[[
-`binary.span` gives a C array a rooted, one-based, bounds-checked view. A
+`bytes.span` gives a C array a rooted, one-based, bounds-checked view. A
 shared `Span<T>` reads contiguous elements; a writable span adds exclusive
 access and an [affine lifetime](docs/learn/runtime/ownership/index.md), so the pointer
 cannot outlive or overlap its owner.
 
 ```nupp
-local span = binary.span
+local span = bytes.span
 
 const text = "hello"
 const bytes = span.fromstring(text)
@@ -29,7 +29,7 @@ count. `fromstring(source)` returns `Span<uint8>`. Both keep their source
 rooted for the lifetime of the view.
 
 ```nupp
-local span = binary.span
+local span = bytes.span
 
 local struct Point
     x: float
@@ -57,8 +57,8 @@ preserving the exact count for checks and generated code.
 `WriteSpan<T>` contract is what a function accepting exclusive access names:
 
 ```nupp
-local span = binary.span
-local indexed = binary.span
+local span = bytes.span
+local indexed = bytes.span
 
 local struct Point
     x: float
@@ -114,8 +114,8 @@ trusted Span or [SoA view](docs/learn/runtime/data/structure-of-arrays.md) and
 returns a record whose `first` and `last` are ordinary integers:
 
 ```nupp
-local span = binary.span
-local indexed = binary.span
+local span = bytes.span
+local indexed = bytes.span
 
 local struct Value
     n: integer
@@ -734,7 +734,7 @@ function span.fromString(borrows source: string): span.Span<uint8> borrows (sour
     return (SpanImpl(anchor = source, pointer = pointer as any, offset = 0, count = #source)) as span.Span<uint8>
 end
 
--- Private constructor for engine-owned bytes: [](io.SharedBytes) reaches
+-- Private constructor for engine-owned bytes: [](bytes.SharedBytes) reaches
 -- it to lend a checked view over a region's storage, anchored on the region so
 -- the storage outlives every read. Only this module can construct the sealed
 -- implementation, which is why the hook lives here.

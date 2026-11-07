@@ -5,8 +5,8 @@ Shared interfaces for structured worker implementations.
 
 The build binds the worker implementation for the selected target.
 A provider owns its lane scheduler, but uses the canonical Scope, Task, Status,
-and submitted-signature types declared here. A scope is reached only through a
-task scope's `work`, which owns one privately. Generic spawn must
+and submitted-signature types declared here. A task scope owns a provider scope
+privately for pooled and dedicated children. Generic spawn must
 preserve the exact argument and result packs of the sendable function.
 
 Arguments and results cross isolated Lua states as copies. Only explicitly
@@ -34,31 +34,13 @@ module nupp.workers.contracts
 
 const types = require("types")
 
---- Returns child arguments after checking that no owner or borrow is handed off.
-@comptime
-export function Parameters(F: type): typepack
-    if types.kind(F) ~= "function" then
-        return types.error("a task must name a function type")
-    end
-    local described = types.describe(types.parameters(F))
-    for position, mode in ipairs(described.modes or {}) do
-        if mode ~= "plain" then
-            return types.error(
-                "argument " .. tostring(position) .. " is an owner or a borrow, which a child cannot be handed"
-            )
-        end
-    end
-
-    return types.parameters(F)
-end
-
 --- What may actually be submitted: a module member, or an outlined literal whose
 --- effectively-final captures can be copied to another lane. Exported so a task scope
 --- can hold its `work` to the same bound without linking this module.
 export type Worker = @sendable function(...: any): any
 
---- Whether a
---- copies: an owned table.Array of a fixed-width element. The storage lives in
+--- Whether a value can move instead of being copied: an owned table.Array
+--- of a fixed-width element. The storage lives in
 --- neither Lua heap, so handing its pointer to another lane is sound, and the affine
 --- layer consumes the sender's binding where the move is written. The element names
 --- here must agree with the runtime tag map in `nupp.array`.
@@ -100,8 +82,94 @@ local function movableOwner(T: type): boolean
     return movable[element.name as string] == true
 end
 
---- Why a
---- nothing about it rules that out.
+@comptime
+local function channelEndpoint(T: type): boolean
+    if types.kind(T) == "affine" then
+        T = types.elements(T)[1]
+    end
+    local described = types.describe(T) as {[string]: any}
+    if described.kind ~= "reference" then
+        return false
+    end
+    local nominal = described.nominal as {[string]: any}
+
+    return nominal ~= nil
+        and nominal.moduleName == "nupp.workers.internal.channeltypes"
+        and (nominal.name == "Sender" or nominal.name == "Receiver")
+end
+
+@comptime
+local function endpointResult(T: type): boolean
+    local pending = {T}
+    local seen: {[type]: boolean} = {}
+    local index: integer = 1
+    while index <= #pending do
+        local current = pending[index]
+        index = index + 1
+        if not seen[current] then
+            seen[current] = true
+            if channelEndpoint(current) then
+                return true
+            end
+            local kind = types.kind(current)
+            if kind == "affine"
+                or kind == "borrowed"
+                or kind == "pinned"
+                or kind == "const"
+                or kind == "union"
+                or kind == "intersection"
+                or kind == "tuple"
+                or kind == "array"
+            then
+                for _, member in ipairs(types.elements(current)) do
+                    pending[#pending + 1] = member
+                end
+            elseif kind == "shape" or kind == "reference" then
+                local described = types.describe(current) as {[string]: any}
+                local fields = kind == "shape" and described.fields
+                    or described.nominal and described.nominal.fields
+                    or {}
+                for _, field in ipairs(fields) do
+                    if field.read ~= nil and (kind == "shape" or field.stored) then
+                        pending[#pending + 1] = field.read
+                    end
+                end
+            end
+        end
+    end
+
+    return false
+end
+
+--- Returns child arguments after checking that no owner or borrow is handed off.
+@comptime
+export function Parameters(F: type): typepack
+    if types.kind(F) ~= "function" then
+        return types.error("a task must name a function type")
+    end
+    local described = types.describe(types.parameters(F))
+    for position, mode in ipairs(described.modes or {}) do
+        if mode ~= "plain" then
+            return types.error(
+                "argument " .. tostring(position) .. " is an owner or a borrow, which a child cannot be handed"
+            )
+        end
+    end
+
+    for position, member in ipairs(types.describe(types.results(F)).head or {}) do
+        if endpointResult(member) then
+            return types.error(
+                "result " .. tostring(
+                    position
+                ) .. " contains a channel endpoint; endpoints cannot leave through task results"
+            )
+        end
+    end
+
+    return types.parameters(F)
+end
+
+--- Why a declared type cannot cross an isolated-state boundary.
 ---
 --- Arguments and results are copied between isolated Lua states, so a type no copy can
 --- reproduce is a mistake in the signature rather than in a call. Only what can never
@@ -126,7 +194,9 @@ local function unsendable(T: type, label: string): string?
         local item = pending[index]
         index = index + 1
         local kind = types.kind(item.at)
-        if kind == "primitive" then
+        if channelEndpoint(item.at) then
+            return item.path .. " is a channel endpoint, which may move only as a direct worker startup argument"
+        elseif kind == "primitive" then
             local why = named[types.describe(item.at).name]
             if why ~= nil then
                 return item.path .. " is " .. why
@@ -171,6 +241,37 @@ local function unsendable(T: type, label: string): string?
     return nil
 end
 
+@comptime
+export function ChannelMessage(T: type): type
+    local problem = unsendable(T, "message")
+    if problem ~= nil then
+        return types.error(problem)
+    end
+
+    return T
+end
+
+-- Validate the payload without placing a deferred type call inside an endpoint.
+@comptime
+export function ChannelLimits(T: type): typepack
+    local problem = unsendable(T, "message")
+    if problem ~= nil then
+        return types.error(problem)
+    end
+
+    return types.pack({types.integer, types.integer})
+end
+
+-- An any message carries copied values. Requiring an explicit owning payload
+-- type prevents an owned argument from losing its obligation in an any result
+-- when trysend returns it to the caller.
+@comptime
+export function MessageArguments(T: type): typepack
+    local message = ChannelMessage(T)
+    local dynamic = types.kind(T) == "primitive" and types.describe(T).name == "any"
+    return types.pack({message}, nil, {dynamic and "plain" or "takes"})
+end
+
 --- The arguments a submitted function takes, once its whole signature is known to be
 --- copyable. Reached only from `spawn`: naming `Task<F>` describes a handle rather than
 --- a crossing, so a signature is held to this where it is submitted and nowhere else.
@@ -190,7 +291,9 @@ export function Submitted(f: type): typepack
             -- One exception: a `takes` parameter whose type is an engine-backed owner
             -- is a move rather than a copy, and the affine layer consumes the caller's
             -- binding at the spawn. Every other ownership mode keeps the refusal.
-            local moved = mode == "takes" and one.what == "argument" and movableOwner(headTypes[position])
+            local moved = mode == "takes"
+                and one.what == "argument"
+                and (movableOwner(headTypes[position]) or channelEndpoint(headTypes[position]))
             if mode ~= "plain" and not moved then
                 return types.error(
                     one.what .. " " .. tostring(
@@ -200,7 +303,11 @@ export function Submitted(f: type): typepack
             end
         end
         for position, member in ipairs(described.head or {}) do
-            local why = unsendable(member, one.what .. " " .. tostring(position))
+            local endpoint = one.what == "argument"
+                and described.modes
+                and described.modes[position] == "takes"
+                and channelEndpoint(member)
+            local why = not endpoint and unsendable(member, one.what .. " " .. tostring(position)) or nil
             if why ~= nil then
                 return types.error(why .. ", which cannot cross into another Lua state")
             end
@@ -279,6 +386,8 @@ export type Task<F> = TaskType(F)
 --- A family of parallel child tasks, owned by the task scope whose `work` opened it.
 export record Scope
     _scheduler: any
+    _dedicated: {any}
+    _channelOwner: any?
     _first: any
     _last: any
     _registered: integer
@@ -286,8 +395,15 @@ export record Scope
     _deadline: number?
     _observer: any
 
+    -- Structured-task integration already guards the whole admission/handoff.
+    -- Private provider callers keep using the guarded spawn and worker methods.
+    _submit: (function(Scope, boolean, any, ...: any): any)?
+
     --- Starts a sendable function with copied arguments.
     spawn: function<F is Worker>(borrows self: Scope, F, ...: unpackof Submitted(F)): Task<F>
+
+    -- Dedicated entries use the same transfer contract as pooled jobs.
+    worker: function<F is Worker>(borrows self: Scope, F, ...: unpackof Submitted(F)): Task<F>
 
     --- Waits for every child, raising the first failure nothing observed. Idempotent.
     --- Under a suspension handler it parks until every child has settled, and without
@@ -304,6 +420,10 @@ end
 --- Complete worker implementation protocol, including structured-task integration.
 --- Implement generic spawn and ownership guarantees through the shared scope types.
 export interface Provider
+    @readonly channel: (function(owner: any, messages: integer, bytes: integer): (any, any))?
+    @readonly closechannels: (function(borrows owner: any): nil)?
+    @readonly ownsarguments: (function(...: any): boolean)?
+    @readonly cleanuparguments: (function(...: any): nil)?
 
     --- Creates canonical scope state for task integration, with an optional
     --- monotonic deadline and observer.

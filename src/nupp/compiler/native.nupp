@@ -312,6 +312,8 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.io_internal_bytes"
     ] = {
         name = "io_internal_bytes",
+        globals = {"bytes.Buffer.create"},
+        exports = {"bytes.Buffer"},
         runtimeModule = "nupp.io.internal.bytes",
         portableRuntime = true,
         requires = {"stdlib.math", "runtime.spanview"}
@@ -427,7 +429,6 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {
         name = "io",
         globals = {
-            "io.Buffer.create",
             "io.Reader.lines",
             "io.Reader.of",
             "io.Writer.of",
@@ -444,8 +445,8 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.checksum_catalog"
     ] = {
         name = "checksum_catalog",
-        globals = {"binary.checksum"},
-        exports = {"binary.checksum"},
+        globals = {"bytes.checksum"},
+        exports = {"bytes.checksum"},
         runtimeModule = "nupp.runtime.provider.checksum",
         portableRuntime = true,
     },
@@ -453,8 +454,8 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.digest_catalog"
     ] = {
         name = "digest_catalog",
-        globals = {"binary.digest"},
-        exports = {"binary.digest"},
+        globals = {"bytes.digest"},
+        exports = {"bytes.digest"},
         runtimeModule = "nupp.runtime.provider.digest",
         portableRuntime = true,
     },
@@ -462,17 +463,17 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.mac_catalog"
     ] = {
         name = "mac_catalog",
-        globals = {"binary.mac"},
-        exports = {"binary.mac"},
+        globals = {"bytes.mac"},
+        exports = {"bytes.mac"},
         runtimeModule = "nupp.runtime.provider.mac",
         portableRuntime = true,
     },
     [
-        "runtime.binary_formats"
+        "runtime.bytes_formats"
     ] = {
-        name = "binary_formats",
-        globals = {"binary.formats"},
-        exports = {"binary.formats"},
+        name = "bytes_formats",
+        globals = {"bytes.formats"},
+        exports = {"bytes.formats"},
         portableRuntime = true,
         requires = {"runtime.checksum_catalog", "runtime.digest_catalog", "runtime.mac_catalog"},
     },
@@ -752,6 +753,7 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {
         name = "workers",
         module = "nupp.runtime.provider.workers",
+        modules = {"nupp.runtime.provider.channels", "nupp.workers.native"},
         host = "workers",
         binary = true,
         runtimeModule = "nupp.runtime.provider.workers",
@@ -761,10 +763,15 @@ local FEATURES: {[string]: native.Feature} = {
         "native.sharedbytes"
     ] = {
         name = "sharedbytes",
-        globals = {"io.SharedBytes.copy", "io.SharedBytes.readfile", "io.Buffer.freeze"},
+        globals = {"bytes.SharedBytes.copy", "bytes.SharedBytes.readfile", "bytes.Buffer.freeze"},
+        exports = {
+            "bytes.internal.bytestypes.SharedBytes.copy",
+            "bytes.internal.bytestypes.SharedBytes.readfile",
+            "nupp.io.internal.bytes.Buffer.freeze",
+        },
         host = "workers",
         binary = true,
-        runtimeModule = "io.internal.sharedbytes",
+        runtimeModule = "bytes.internal.sharedbytes",
         requires = {"runtime.spanview"},
     },
     -- Span views lower their checked element access through nupp.mem.indexed,
@@ -810,8 +817,8 @@ local FEATURES: {[string]: native.Feature} = {
         "native.compression"
     ] = {
         name = "compression",
-        globals = {"binary.compress"},
-        exports = {"binary.compress"},
+        globals = {"bytes.compress"},
+        exports = {"bytes.compress"},
         modules = {"nupp.runtime.provider.nativecompression"},
         facades = {"nupp.compression"},
         runtimeModule = "nupp.runtime.provider.nativecompression",
@@ -994,6 +1001,17 @@ end
 function native.forModuleMember(name: string, member: string): string?
     local members = byModuleMember[name]
     return members and members[member] or nil
+end
+
+-- A module can expose a factory separately from its instance contract. Keep
+-- method effects on the canonical declaration through both kinds of aliases.
+function native.forNominalMember(t: any, member: string): string?
+    if not t or t.tag ~= "nominal" then
+        return nil
+    end
+    local origin = t.origin or t
+
+    return origin.moduleName and native.forModuleMember(origin.moduleName .. "." .. origin.name, member) or nil
 end
 
 function native.feature(effect: string): native.Feature?

@@ -73,7 +73,7 @@ export function commitwrite(
     used: integer
 ): nil
     if offset ~= calls.viewoffset(prepared) then
-        error("nupp: io.Buffer write capability offset differs", 2)
+        error("nupp: bytes.Buffer write capability offset differs", 2)
     end
     calls.commitwrite(state, token, prepared, used)
 end

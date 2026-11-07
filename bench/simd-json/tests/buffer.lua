@@ -2,7 +2,7 @@ require("compiled")()
 local production = require("production_json_test")
 require("simdjson_bench")
 local native = require("simdjson_bench_native")
-local Buffer = require("io").Buffer
+local Buffer = require("bytes").Buffer
 local source = production.source()
 local input = Buffer.create("skip" .. source)
 input:skip(4)

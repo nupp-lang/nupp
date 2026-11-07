@@ -20,7 +20,7 @@ Process cleanup must remain valid after cancellation, kill, and partial spawn.
 ]]
 module io.internal.process.contracts
 
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local {type SpawnOptions, type Exit, type Interest} = require("io.internal.process.types")
 

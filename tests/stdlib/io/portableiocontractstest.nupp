@@ -1,13 +1,15 @@
+local byteapi = require("bytes")
+
 const assert2 = require("assert")
 
 local standard = require("io")
 local http = require("io.http")
-local span = require("binary.span")
+local span = require("bytes.span")
 local tests = {}
 
 function tests.uploadBodiesUseTheSharedReaderContract(): nil
     local body = http.reader(standard.Reader.of("abcdef"), 6)
-    local destination = standard.Buffer.create()
+    local destination = byteapi.Buffer.create()
     assert2(body.reader:readinto(destination, 0, 3) == 3)
     assert2(destination:tostring() == "abc")
     assert2(body.reader:read(3) == "def")
@@ -15,7 +17,7 @@ function tests.uploadBodiesUseTheSharedReaderContract(): nil
 end
 
 function tests.byteReadersBorrowBuffersAndSpans(): nil
-    local buffer = standard.Buffer.create("before")
+    local buffer = byteapi.Buffer.create("before")
     do
         local reader = standard.Reader.of(buffer)
         assert2(reader:read(2) == "be")
@@ -31,7 +33,7 @@ function tests.byteReadersBorrowBuffersAndSpans(): nil
 end
 
 function tests.byteWriterExclusivelyBorrowsAndAppendsToItsBuffer(): nil
-    local buffer = standard.Buffer.create("old")
+    local buffer = byteapi.Buffer.create("old")
     do
         local writer = standard.Writer.of(buffer)
         assert2(writer:write("new"))
@@ -88,7 +90,7 @@ end
 function tests.customReadersFillBuffersAndWritableSpans(): nil
     local state = {bytes = "abcdef", closes = 0}
     local reader = CustomReader(state = state)
-    local destination = standard.Buffer.create(8)
+    local destination = byteapi.Buffer.create(8)
     assert2(reader:readinto(destination, 0, 3) == 3)
     local lease = destination:reserve(3)
     do
@@ -103,7 +105,7 @@ end
 
 function tests.stringReadersFillWritableSpans(): nil
     local reader = standard.Reader.of("abc")
-    local destination = standard.Buffer.create(3)
+    local destination = byteapi.Buffer.create(3)
     local lease = destination:reserve(3)
     do
         local output = lease:span()
@@ -124,7 +126,7 @@ function tests.linesKeepTerminatorsAndFinalFragments(): nil
 end
 
 function tests.buffersAppendConsumeAndBorrow(): nil
-    local buffer = standard.Buffer.create(4)
+    local buffer = byteapi.Buffer.create(4)
     buffer:put("ab", 12)
     buffer:putf("-%02d", 3)
     assert2(buffer:tostring() == "ab12-03")
@@ -148,7 +150,7 @@ function tests.buffersAppendConsumeAndBorrow(): nil
 end
 
 function tests.bufferReservationsCommitOnlyWrittenBytes(): nil
-    local buffer = standard.Buffer.create("a")
+    local buffer = byteapi.Buffer.create("a")
     do
         local lease = buffer:reserve(3)
         do
@@ -168,7 +170,7 @@ function tests.bufferReservationsCommitOnlyWrittenBytes(): nil
 end
 
 function tests.bufferScalarRangesAndEndianAreExplicit(): nil
-    local buffer = standard.Buffer.create()
+    local buffer = byteapi.Buffer.create()
     buffer:resize(16)
     buffer:writeu16be(0, 0x1234)
     assert2(buffer:readstring(0, 2) == "\18\52")
@@ -185,7 +187,7 @@ end
 function tests.customReadersCanSupplyUploadBodiesWithInheritedReadinto(): nil
     local state = {bytes = "abc", closes = 0}
     local body = http.reader(CustomReader(state = state), 3)
-    local destination = standard.Buffer.create("head")
+    local destination = byteapi.Buffer.create("head")
     assert2(body.reader:readinto(destination:reserve(10)) == 3)
     assert2(destination:tostring() == "headabc")
     body:close()

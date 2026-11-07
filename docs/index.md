@@ -123,7 +123,7 @@ stated. `target = "gpu"` checks a function as a typed resident-buffer kernel;
 the VM has no GPU provider yet, so no device runs one.
 
 ```nupp
-local span = binary.span
+local span = bytes.span
 
 @aot
 local function double(exclusive values: span.WriteSpan<float>): nil

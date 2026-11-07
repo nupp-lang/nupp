@@ -1,6 +1,6 @@
 module quantgemv
 
-local span = binary.span
+local span = require("bytes.span")
 
 -- GPU kernels need 32-bit storage, so the GPU forms read the same bytes as
 -- little-endian uint32 words: weight k is byte k % 4 of word k / 4.

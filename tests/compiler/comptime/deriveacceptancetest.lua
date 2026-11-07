@@ -11,7 +11,8 @@ local HERE = require("helpers.paths").tests
 local env = envMod.new(HERE .. "/..")
 
 local function run(source)
-    source = [[local serde = require("serde")
+    source = [[local byteapi = require("bytes")
+local serde = require("serde")
 local typedJSON = require("serde.json")
 local function decode<T>(binding: serde.Binding<T>, bytes: string): (T?, string?)
     local ok, value = pcall(typedJSON.decode, binding, bytes)
@@ -93,7 +94,7 @@ local corpora = {
 }
 local bytes = {}
 local accepted = true
-local out = io.Buffer.create()
+local out = byteapi.Buffer.create()
 for index, value in ipairs(corpora) do
     local writer = typedJSON.Writer.of(out)
     typedJSON.writevalue(serde.binding(ModuleCache), value, writer)
@@ -158,7 +159,7 @@ local corpus = {
 }
 local bytes, debugged = {}, {}
 local accepted = true
-local out = io.Buffer.create()
+local out = byteapi.Buffer.create()
 for index, request in ipairs(corpus) do
     local writer = typedJSON.Writer.of(out)
     typedJSON.writevalue(serde.binding(TecsMCPRequest), request, writer)

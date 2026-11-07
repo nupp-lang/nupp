@@ -864,7 +864,7 @@ int decodeSerde(lua_State *state) {
 int decodeSerdeBuffer(lua_State *state) {
     auto *schema = checkSerdeSchema(state, 1);
     if (!hasRegisteredMetatable(state, 2, &BUFFER_METATABLE_KEY)) {
-        return luaL_argerror(state, 2, "io.Buffer expected");
+        return luaL_argerror(state, 2, "bytes.Buffer expected");
     }
     // Keep the append lease and both views rooted until parsing finishes.
     lua_getfield(state, 2, "reserve");

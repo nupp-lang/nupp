@@ -198,7 +198,7 @@ function M.hostAndVmBindingsSelectTheTargetImplementationOnce()
             siblings = {"nupp.suspension.host"}
         },
         {
-            module = "binary._representation",
+            module = "bytes._representation",
             native = "nupp.vm.storagebinding",
             -- No other storage ships: a LuaJIT VM takes native storage on either host.
             browser = "fixture.otherstorage",
@@ -364,10 +364,7 @@ function M.hostAndVmBindingsSelectTheTargetImplementationOnce()
             assert(loaded[case.native] == (usesNative and 1 or nil), label .. ": native fallback")
             assert(loaded[case.browser] == (not usesNative and 1 or nil), label .. ": browser fallback")
             if case.cache then
-                assert(
-                    load(case.cache).provider == expected,
-                    label .. ": optional consumers chose another provider"
-                )
+                assert(load(case.cache).provider == expected, label .. ": optional consumers chose another provider")
             end
         end
     end

@@ -1699,7 +1699,7 @@ function M.spansCarryBoundsRootsAndAnAffineWriteExtent()
     assertClean(
         table.concat(
             {
-                "local spans = require(\"binary.span\")",
+                "local spans = require(\"bytes.span\")",
                 "local text = 'bytes'",
                 "local whole = spans.fromstring(text)",
                 "local part = whole:slice(2, 4)",
@@ -1721,7 +1721,7 @@ function M.spansPreserveTheCArrayElementType()
     assertClean(
         table.concat(
             {
-                "local spans = require(\"binary.span\")",
+                "local spans = require(\"bytes.span\")",
                 "local storage = ffi.new<int32[4]>()",
                 "do",
                 "   local view = spans.fromcarray(storage, 4)",
@@ -1740,7 +1740,7 @@ function M.spansExportANameableGenericWithoutTheirRepresentation()
     assertClean(
         table.concat(
             {
-                "local spans = require(\"binary.span\")",
+                "local spans = require(\"bytes.span\")",
                 "local function first(borrows view: spans.Span<int32>): int32",
                 "   return view[1]",
                 "end",
@@ -1757,7 +1757,7 @@ function M.spansExportANameableGenericWithoutTheirRepresentation()
         codes(
             table.concat(
                 {
-                    "local spans = require(\"binary.span\")",
+                    "local spans = require(\"bytes.span\")",
                     "local storage = ffi.new<int32[4]>()",
                     "local view = spans.fromcarray(storage, 4)",
                     "print(view.pointer)",
@@ -1771,7 +1771,7 @@ function M.spansExportANameableGenericWithoutTheirRepresentation()
 
     testAssert.eq(
         codes(
-            table.concat({"local spans = require(\"binary.span\")", "local made = spans.Span()", "print(made)",}, "\n")
+            table.concat({"local spans = require(\"bytes.span\")", "local made = spans.Span()", "print(made)",}, "\n")
         ),
         "NUPP2004",
         "the interface has no public representation to construct"
@@ -1782,7 +1782,7 @@ function M.fixedSpansRefineDynamicSpansWithoutLengthChecks()
     assertClean(
         table.concat(
             {
-                "local spans = require(\"binary.span\")",
+                "local spans = require(\"bytes.span\")",
                 "local function exact(borrows view: spans.FixedSpan<int32, 4>): integer",
                 "   return #view as integer",
                 "end",
@@ -1810,7 +1810,7 @@ function M.fixedSpansRefineDynamicSpansWithoutLengthChecks()
         codes(
             table.concat(
                 {
-                    "local spans = require(\"binary.span\")",
+                    "local spans = require(\"bytes.span\")",
                     "local storage = ffi.new<int32[4]>()",
                     "local view = spans.fromfixedcarray(storage, 3)",
                     "print(#view)",
@@ -1825,7 +1825,7 @@ function M.fixedSpansRefineDynamicSpansWithoutLengthChecks()
     testAssert.eq(
         codes(
             table.concat(
-                {"local spans = require(\"binary.span\")", "local record Forged is spans.Span<int32>", "end",},
+                {"local spans = require(\"bytes.span\")", "local record Forged is spans.Span<int32>", "end",},
                 "\n"
             )
         ),
@@ -1846,7 +1846,7 @@ function M.spanRefsExposeOnlyTheCapabilityTheirViewOwns()
         table.concat(
             {
                 cdecls,
-                "local spans = require(\"binary.span\")",
+                "local spans = require(\"bytes.span\")",
                 "local storage = ffi.new<int32[4]>()",
                 "do",
                 "   local view = spans.fromcarray(storage, 4):slice(2, 3)",
@@ -1872,7 +1872,7 @@ function M.spanRefsExposeOnlyTheCapabilityTheirViewOwns()
             table.concat(
                 {
                     cdecls,
-                    "local spans = require(\"binary.span\")",
+                    "local spans = require(\"bytes.span\")",
                     "local storage = ffi.new<int32[4]>()",
                     "local view = spans.fromcarray(storage, 4)",
                     "local pointer, count = view:ref()",
@@ -1891,7 +1891,7 @@ function M.writeSpanDowngradesAndRefsHoldItsExclusiveBarrier()
         codes(
             table.concat(
                 {
-                    "local spans = require(\"binary.span\")",
+                    "local spans = require(\"bytes.span\")",
                     "local storage = ffi.new<int32[4]>()",
                     "local writable = spans.writecarray(storage, 4)",
                     "local pointer, count = writable:ref()",
@@ -1909,7 +1909,7 @@ function M.writeSpanDowngradesAndRefsHoldItsExclusiveBarrier()
         codes(
             table.concat(
                 {
-                    "local spans = require(\"binary.span\")",
+                    "local spans = require(\"bytes.span\")",
                     "local storage = ffi.new<int32[4]>()",
                     "local writable = spans.writecarray(storage, 4)",
                     "local shared = writable:shared()",
@@ -1929,7 +1929,7 @@ function M.writableSlicesAreAffineChildrenOfTheirWriter()
     assertClean(
         table.concat(
             {
-                "local spans = require(\"binary.span\")",
+                "local spans = require(\"bytes.span\")",
                 "local storage = ffi.new<int32[6]>()",
                 "local writable = spans.writecarray(storage, 6)",
                 "do",
@@ -1956,7 +1956,7 @@ function M.writableSlicesAreAffineChildrenOfTheirWriter()
         codes(
             table.concat(
                 {
-                    "local spans = require(\"binary.span\")",
+                    "local spans = require(\"bytes.span\")",
                     "local storage = ffi.new<int32[4]>()",
                     "local writable = spans.writecarray(storage, 4)",
                     "local child = writable:slice(2, 3)",
@@ -1973,7 +1973,7 @@ function M.writableSlicesAreAffineChildrenOfTheirWriter()
     assertClean(
         table.concat(
             {
-                "local spans = require(\"binary.span\")",
+                "local spans = require(\"bytes.span\")",
                 "local storage = ffi.new<int32[4]>()",
                 "local writable = spans.writefixedcarray(storage, 4)",
                 "local child: spans.Writable<int32> = writable:slice(2, 3)",
@@ -1990,8 +1990,8 @@ function M.commonSpanRangesBorrowEveryInputWithoutBoxingOrConsumption()
     assertClean(
         table.concat(
             {
-                "local spans = require(\"binary.span\")",
-                "local indexed = require(\"binary.span\")",
+                "local spans = require(\"bytes.span\")",
+                "local indexed = require(\"bytes.span\")",
                 "local inputStorage = ffi.new<int32[4]>()",
                 "local outputStorage = ffi.new<int32[4]>()",
                 "const input = spans.fromfixedcarray(inputStorage, 4)",
@@ -2009,8 +2009,8 @@ function M.commonSpanRangesBorrowEveryInputWithoutBoxingOrConsumption()
     assertClean(
         table.concat(
             {
-                "local spans = require(\"binary.span\")",
-                "local indexed = require(\"binary.span\")",
+                "local spans = require(\"bytes.span\")",
+                "local indexed = require(\"bytes.span\")",
                 "local storage = ffi.new<int32[1]>()",
                 "const view = spans.fromcarray(storage, 1)",
                 "local empty = indexed.range(1, 0, view)",
@@ -2024,7 +2024,7 @@ function M.commonSpanRangesBorrowEveryInputWithoutBoxingOrConsumption()
         codes(
             table.concat(
                 {
-                    "local indexed = require(\"binary.span\")",
+                    "local indexed = require(\"bytes.span\")",
                     "const fake = {count = 4}",
                     "local indices = indexed.range(1, 4, fake)",
                     "print(indices.first)",
@@ -2165,7 +2165,7 @@ end
 function M.writeSpansProveSiblingPartitionsAndRejectOverlap()
     local prelude = table.concat(
         {
-            "local spans = require(\"binary.span\")",
+            "local spans = require(\"bytes.span\")",
             "local function pair(exclusive a: spans.WriteSpan<int32>, exclusive b: spans.WriteSpan<int32>): nil",
             "   if #a > 0 then a[1] = 1 as int32 end",
             "   if #b > 0 then b[1] = 2 as int32 end",
@@ -2208,7 +2208,7 @@ function M.writeSpansProveSiblingPartitionsAndRejectOverlap()
     assertClean(
         table.concat(
             {
-                "local spans = require(\"binary.span\")",
+                "local spans = require(\"bytes.span\")",
                 "local storage = ffi.new<int32[2]>()",
                 "local writable = spans.writecarray(storage, 2)",
                 "do",
@@ -2226,7 +2226,7 @@ end
 function M.exclusiveParametersCanBeForwardedWithoutAStoredBorrow()
     local prelude = table.concat(
         {
-            "local spans = require(\"binary.span\")",
+            "local spans = require(\"bytes.span\")",
             "local function inner(exclusive values: spans.WriteSpan<int32>): nil end",
             "local function outer(exclusive values: spans.WriteSpan<int32>): nil",
             "   inner(values)",
@@ -2239,7 +2239,7 @@ function M.exclusiveParametersCanBeForwardedWithoutAStoredBorrow()
     assertClean(
         table.concat(
             {
-                "local spans = require(\"binary.span\")",
+                "local spans = require(\"bytes.span\")",
                 "local function inner(exclusive values: spans.WriteSpan<int32>): nil end",
                 "local function outer(exclusive values: spans.WriteSpan<int32>): nil",
                 "   local element = values[1]",
@@ -2254,7 +2254,7 @@ function M.exclusiveParametersCanBeForwardedWithoutAStoredBorrow()
     assertClean(
         table.concat(
             {
-                "local spans = require(\"binary.span\")",
+                "local spans = require(\"bytes.span\")",
                 "local function inspect(borrows values: spans.WriteSpan<int32>): nil end",
                 "local function outer(exclusive values: spans.WriteSpan<int32>): nil",
                 "   local element = values[1]",
@@ -7990,7 +7990,7 @@ function M.aSharedArgumentMayReadThroughItsExclusiveView()
     assertClean(
         table.concat(
             {
-                "local spans = require(\"binary.span\")",
+                "local spans = require(\"bytes.span\")",
                 "local storage = ffi.new<int32[4]>()",
                 "local writable = spans.writecarray(storage, 4)",
                 "do",
@@ -8006,7 +8006,7 @@ function M.aSharedArgumentMayReadThroughItsExclusiveView()
         codes(
             table.concat(
                 {
-                    "local spans = require(\"binary.span\")",
+                    "local spans = require(\"bytes.span\")",
                     "local storage = ffi.new<int32[4]>()",
                     "local writable = spans.writecarray(storage, 4)",
                     "local pointer = writable:ref()",
@@ -8195,7 +8195,7 @@ function M.aChildSpanCannotOutliveItsWriter()
         codes(
             table.concat(
                 {
-                    "local spans = require(\"binary.span\")",
+                    "local spans = require(\"bytes.span\")",
                     "local storage = ffi.new<int32[4]>()",
                     "local child: spans.Writable<int32>",
                     "do",
@@ -8420,7 +8420,7 @@ end
 function M.columnPointerReborrowsKeepTheirAncestorsAndRejectSiblings()
     local prelude = [[
 local soa = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local struct Particle
     x: float
     y: float
@@ -8846,7 +8846,7 @@ function M.consumingScalarAdaptersKeepTheirBuffersAlive()
         local source = "local function escape(): affine(io."
             .. target
             .. ")\n"
-            .. "    local buffer = io.Buffer.create()\n"
+            .. "    local buffer = bytes.Buffer.create()\n"
             .. "    return "
             .. expression
             .. "\nend"
@@ -8859,7 +8859,7 @@ function M.scalarReadersCannotEscapeBorrowedBuffers()
         codes(
             [[
 local function snapshot(): affine(io.ScalarReader)
-    local buffer = io.Buffer.create()
+    local buffer = bytes.Buffer.create()
     return buffer:reader():scalar()
 end
 ]]
@@ -8876,7 +8876,7 @@ local function wrap(takes writer: io.Writer): affine(io.ScalarWriter)
     return writer:scalar()
 end
 local function escape(): affine(io.ScalarWriter)
-    local buffer = io.Buffer.create()
+    local buffer = bytes.Buffer.create()
     local writer = buffer:writer()
     return wrap(writer)
 end
@@ -8889,7 +8889,7 @@ end
 function M.consumingScalarWritersKeepExclusiveBufferLoans()
     local got = codes(
         [[
-local buffer = io.Buffer.create()
+local buffer = bytes.Buffer.create()
 local scalar = buffer:writer():scalar()
 local overlapping = buffer:writer()
 scalar:writeuint8(1)
@@ -8904,7 +8904,7 @@ function M.scalarWriterReborrowsKeepTheirImmediateHolder()
 local function append(borrows writer: io.ScalarWriter): nil
     writer:writeuint8(33)
 end
-local buffer = io.Buffer.create()
+local buffer = bytes.Buffer.create()
 local writer = buffer:writer():scalar()
 append(writer:writebytes(":"))
 writer:writebytes(":"):writeuint8(33)
@@ -8915,7 +8915,7 @@ end
 function M.readintoConsumesTheLeaseAndReleasesTheBuffer()
     local prefix = [[
 local reader = io.Reader.of("abc")
-local buffer = io.Buffer.create()
+local buffer = bytes.Buffer.create()
 local lease = buffer:reserve(10)
 ]]
     assertClean(prefix .. [[

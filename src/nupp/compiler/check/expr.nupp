@@ -69,6 +69,9 @@ expr.EXPANDS = EXPANDS
 --- @param c the run's state
 function expr.install(c: state.Checker): nil
     local function retainTakenCaptureRoots(node: any, body: any): nil
+        if body == nil or body.takenCaptures == nil or #body.takenCaptures == 0 then
+            return
+        end
         local facts = c.own.capabilityFacts(node)
         local roots, seen = {}, {}
         for _, root in ipairs(facts.roots or {}) do

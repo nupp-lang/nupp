@@ -4,6 +4,7 @@ import test from "node:test";
 
 import { handleBrowserEffects } from "../runtime/wasm/app-runtime.mjs";
 import { createWorkerPool } from "../runtime/wasm/worker-pool.mjs";
+import { createChannelHost } from "../runtime/wasm/channel-host.mjs";
 
 globalThis.crypto ||= webcrypto;
 
@@ -749,6 +750,7 @@ class FakeLane {
 
   postMessage(message) {
     this.posted.push(message);
+    if (message.type === "boot") this.emit("message", {data: {type: "ready"}});
     if (message.type === "task") {
       this.running = message.task;
       this.emit("message", {data: {type: "started", id: message.task.id}});
@@ -807,6 +809,7 @@ test("a worker pool boots at most its lane bound and reuses idle lanes", async (
       manifestDigest: "a".repeat(64),
       entry: "nupp.workers",
       limits: undefined,
+    clockOrigin: performance.timeOrigin,
     });
   }
   FakeLane.opened[0].finish("done", {payload: "Zg=="});
@@ -959,4 +962,91 @@ test("HTTP moves response chunks through a writable transfer lease without base6
   assert.match(result.error, /writable/);
   assert.equal(leases.has(1), false);
   assert.equal(options.httpBodies.size, 0);
+});
+
+
+test("dedicated workers bypass a saturated pool and retire after settlement", async () => {
+  const workers = pool({maxLanes: 1, maxDedicated: 1});
+  workers.perform(submission(1));
+  workers.perform(submission(2));
+  const result = workers.perform(submission(3, {dedicated: true}));
+  assert.deepEqual(result.rejected, []);
+  assert.equal(FakeLane.opened.length, 2);
+  assert.equal(FakeLane.opened[0].running.id, 1);
+  assert.equal(FakeLane.opened[1].running.id, 3);
+  const refused = workers.perform(submission(4, {dedicated: true}));
+  assert.match(refused.rejected[0].error, /dedicated worker admission limit reached/);
+  FakeLane.opened[1].finish("done", {payload: "Aw=="});
+  assert.equal(FakeLane.opened[1].terminated, true);
+  assert.equal((await workers.perform({operation: "await", task: 3})).status, "done");
+  workers.perform(submission(5, {dedicated: true}));
+  assert.equal(FakeLane.opened[2].running.id, 5);
+  assert.equal(FakeLane.opened[0].running.id, 1);
+  workers.close();
+  assert.ok(FakeLane.opened.every((lane) => lane.terminated));
+});
+
+test("dedicated worker failure and cancellation release admission", async () => {
+  const workers = pool({maxDedicated: 1});
+  workers.perform(submission(1, {dedicated: true}));
+  FakeLane.opened[0].emit("error", {message: "dedicated crash"});
+  assert.equal((await workers.perform({operation: "await", task: 1})).status, "failed");
+  workers.perform(submission(2, {dedicated: true}));
+  workers.perform({operation: "cancel", task: 2});
+  assert.equal((await workers.perform({operation: "await", task: 2})).status, "cancelled");
+  assert.equal(FakeLane.opened[1].terminated, true);
+  assert.deepEqual(workers.perform(submission(3, {dedicated: true})).rejected, []);
+  workers.close();
+});
+
+
+test("a dedicated startup posting failure releases its guest and admission", () => {
+  let fail = true;
+  class FailingLane extends FakeLane {
+    postMessage(message) {
+      if (message.type === "task" && fail) {
+        fail = false;
+        throw new Error("startup posting failed");
+      }
+      super.postMessage(message);
+    }
+  }
+  const workers = pool({maxDedicated: 1, WorkerClass: FailingLane});
+  assert.match(workers.perform(submission(1, {dedicated: true})).rejected[0].error, /startup posting failed/);
+  assert.equal(FakeLane.opened[0].terminated, true);
+  assert.deepEqual(workers.perform(submission(2, {dedicated: true})).rejected, []);
+  assert.equal(FakeLane.opened[1].running.id, 2);
+  workers.close();
+});
+
+test("cancellation and boot failure drain an endpoint that never reached a guest", async () => {
+  class BootingLane extends FakeLane {
+    postMessage(message) {
+      if (message.type === "boot") { this.posted.push(message); return; }
+      super.postMessage(message);
+    }
+  }
+  for (const failure of [false, true]) {
+    const channels = createChannelHost();
+    const workers = pool({channels, maxDedicated: 1, WorkerClass: BootingLane});
+    try {
+      const {sender, receiver} = channels.perform({operation: "create", messages: 2, bytes: 8});
+      channels.perform({operation: "send", handle: sender.handle, payload: btoa("before")});
+      workers.perform(submission(1, {dedicated: true, endpoints: [{argument: 1, handle: sender.handle}]}));
+      const lane = FakeLane.opened[0];
+      assert.equal(lane.posted.filter(message => message.type === "task").length, 0);
+      if (failure) lane.emit("message", {data: {type: "failed", error: "boot fixture"}});
+      else workers.perform({operation: "cancel", task: 1});
+      const result = await workers.perform({operation: "await", task: 1});
+      assert.equal(result.status, failure ? "failed" : "cancelled");
+      const packet = await channels.perform({operation: "watch", handle: receiver.handle});
+      assert.equal(atob(packet.payload), "before");
+      channels.perform({operation: "consume", handle: receiver.handle});
+      assert.equal((await channels.perform({operation: "watch", handle: receiver.handle})).closed, true);
+      channels.perform({operation: "close", handle: receiver.handle});
+      assert.equal(lane.terminated, true);
+      await new Promise(resolve => setTimeout(resolve, 5));
+      assert.deepEqual(channels.inspect(), {endpoints: 0, supervisors: 0, resources: 0, watches: 0});
+    } finally { workers.close(); channels.close(); }
+  }
 });

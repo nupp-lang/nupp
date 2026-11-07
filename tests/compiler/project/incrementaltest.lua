@@ -383,7 +383,7 @@ function M.countedPointerLogicalSignaturesCrossModuleSummaries()
         table.concat(
             {
                 "local native = require('native')",
-                "local spans = require(\"binary.span\")",
+                "local spans = require(\"bytes.span\")",
                 "local output = ffi.new<int32[4]>()",
                 "local input = ffi.new<int32[4]>()",
                 "local writer = spans.writecarray(output, 4)",
@@ -979,7 +979,7 @@ function M.bundledModuleTypesResolveThroughTheIncrementalGraph()
     file:write(
         table.concat(
             {
-                [[local buffer = require("io")]],
+                [[local buffer = require("bytes")]],
                 "local record Thing",
                 "   buf: buffer.Buffer",
                 "end",

@@ -1,0 +1,419 @@
+{
+  "method": "Alternating paths in the same persistent pool; experimental global guard only, removed from production",
+  "baselineRevision": "e8b2fe5cc9c6958cee4eda1e87fbd1b544dd36d4",
+  "productionProviderSha256": "cc91a38a3567a9df45d5fbb1c69fd766f26b953c9a0d3bf64545f0b7cbad8aae",
+  "instrumentedProviderSha256": "546b6cb52b16bfe9af6c3c0a18bd4c3372dbf50b8de1cc26489b80d5e40d80b1",
+  "instrumentation": {
+    "old": "if packed.count ~= 1 then",
+    "new": "if rawget(_G.nupp, \"__workerGenericArrays\") == true or packed.count ~= 1 then"
+  },
+  "sourceSha256": {
+    "nupp.lua": "63cad5262d9444f05ca5de7f65403f2943a2e37ad6dde693e80635558480df94",
+    "src/nupp/internal/speedjobs.nupp": "58dcac179d722b41d7b32c3d137fe801f1960cef3ee36c3e5c0de9a00276060b",
+    "src/nupp/internal/speedmain.nupp": "6a93f19da5bb1211fa6ebe70c0104772fe46594a453bc081344a862c4c95ba19"
+  },
+  "binarySha256": "b7c463ae5290a14ac4f19be7428ac6355d5a19e1c8301d14120bb83ce14a5cd6",
+  "rows": [
+    {
+      "process": 1,
+      "pair": 1,
+      "fast": true,
+      "scalar": 23.9206,
+      "moved4K": 17.8213,
+      "moved8M": 15.3508
+    },
+    {
+      "process": 1,
+      "pair": 1,
+      "fast": false,
+      "scalar": 25.4281,
+      "moved4K": 64.913,
+      "moved8M": 49.6462
+    },
+    {
+      "process": 1,
+      "pair": 2,
+      "fast": false,
+      "scalar": 26.8094,
+      "moved4K": 31.3913,
+      "moved8M": 30.6331
+    },
+    {
+      "process": 1,
+      "pair": 2,
+      "fast": true,
+      "scalar": 31.1171,
+      "moved4K": 57.5975,
+      "moved8M": 45.2035
+    },
+    {
+      "process": 1,
+      "pair": 3,
+      "fast": true,
+      "scalar": 11.7597,
+      "moved4K": 19.4715,
+      "moved8M": 19.7077
+    },
+    {
+      "process": 1,
+      "pair": 3,
+      "fast": false,
+      "scalar": 18.1118,
+      "moved4K": 29.5647,
+      "moved8M": 29.1351
+    },
+    {
+      "process": 1,
+      "pair": 4,
+      "fast": false,
+      "scalar": 16.4962,
+      "moved4K": 41.5527,
+      "moved8M": 29.8124
+    },
+    {
+      "process": 1,
+      "pair": 4,
+      "fast": true,
+      "scalar": 24.4595,
+      "moved4K": 24.1247,
+      "moved8M": 22.4375
+    },
+    {
+      "process": 1,
+      "pair": 5,
+      "fast": true,
+      "scalar": 55.9197,
+      "moved4K": 22.8212,
+      "moved8M": 22.6785
+    },
+    {
+      "process": 1,
+      "pair": 5,
+      "fast": false,
+      "scalar": 19.8607,
+      "moved4K": 31.7203,
+      "moved8M": 55.9036
+    },
+    {
+      "process": 1,
+      "pair": 6,
+      "fast": false,
+      "scalar": 48.5418,
+      "moved4K": 31.3601,
+      "moved8M": 26.9043
+    },
+    {
+      "process": 1,
+      "pair": 6,
+      "fast": true,
+      "scalar": 34.0146,
+      "moved4K": 36.3428,
+      "moved8M": 29.0892
+    },
+    {
+      "process": 1,
+      "pair": 7,
+      "fast": true,
+      "scalar": 22.4862,
+      "moved4K": 19.4821,
+      "moved8M": 19.4848
+    },
+    {
+      "process": 1,
+      "pair": 7,
+      "fast": false,
+      "scalar": 51.9903,
+      "moved4K": 38.5686,
+      "moved8M": 38.6887
+    },
+    {
+      "process": 1,
+      "pair": 8,
+      "fast": false,
+      "scalar": 37.7266,
+      "moved4K": 21.4014,
+      "moved8M": 20.6326
+    },
+    {
+      "process": 1,
+      "pair": 8,
+      "fast": true,
+      "scalar": 32.9544,
+      "moved4K": 27.4515,
+      "moved8M": 19.2404
+    },
+    {
+      "process": 2,
+      "pair": 1,
+      "fast": true,
+      "scalar": 13.037,
+      "moved4K": 23.5511,
+      "moved8M": 24.1282
+    },
+    {
+      "process": 2,
+      "pair": 1,
+      "fast": false,
+      "scalar": 12.0174,
+      "moved4K": 25.6346,
+      "moved8M": 22.0422
+    },
+    {
+      "process": 2,
+      "pair": 2,
+      "fast": false,
+      "scalar": 13.7149,
+      "moved4K": 22.9926,
+      "moved8M": 22.2517
+    },
+    {
+      "process": 2,
+      "pair": 2,
+      "fast": true,
+      "scalar": 11.4817,
+      "moved4K": 16.6633,
+      "moved8M": 15.8968
+    },
+    {
+      "process": 2,
+      "pair": 3,
+      "fast": true,
+      "scalar": 12.0776,
+      "moved4K": 16.8437,
+      "moved8M": 17.9175
+    },
+    {
+      "process": 2,
+      "pair": 3,
+      "fast": false,
+      "scalar": 13.5657,
+      "moved4K": 25.1698,
+      "moved8M": 28.3431
+    },
+    {
+      "process": 2,
+      "pair": 4,
+      "fast": false,
+      "scalar": 12.002,
+      "moved4K": 23.9734,
+      "moved8M": 23.0678
+    },
+    {
+      "process": 2,
+      "pair": 4,
+      "fast": true,
+      "scalar": 14.5313,
+      "moved4K": 23.7892,
+      "moved8M": 17.4462
+    },
+    {
+      "process": 2,
+      "pair": 5,
+      "fast": true,
+      "scalar": 13.6105,
+      "moved4K": 22.3403,
+      "moved8M": 23.4804
+    },
+    {
+      "process": 2,
+      "pair": 5,
+      "fast": false,
+      "scalar": 16.8153,
+      "moved4K": 34.6624,
+      "moved8M": 25.6124
+    },
+    {
+      "process": 2,
+      "pair": 6,
+      "fast": false,
+      "scalar": 13.2053,
+      "moved4K": 24.5843,
+      "moved8M": 25.2695
+    },
+    {
+      "process": 2,
+      "pair": 6,
+      "fast": true,
+      "scalar": 12.0336,
+      "moved4K": 29.0993,
+      "moved8M": 20.6159
+    },
+    {
+      "process": 2,
+      "pair": 7,
+      "fast": true,
+      "scalar": 12.795,
+      "moved4K": 23.4297,
+      "moved8M": 24.849
+    },
+    {
+      "process": 2,
+      "pair": 7,
+      "fast": false,
+      "scalar": 12.3679,
+      "moved4K": 22.7203,
+      "moved8M": 21.9723
+    },
+    {
+      "process": 2,
+      "pair": 8,
+      "fast": false,
+      "scalar": 12.0207,
+      "moved4K": 23.1167,
+      "moved8M": 25.6214
+    },
+    {
+      "process": 2,
+      "pair": 8,
+      "fast": true,
+      "scalar": 11.8613,
+      "moved4K": 17.522,
+      "moved8M": 21.6556
+    },
+    {
+      "process": 3,
+      "pair": 1,
+      "fast": true,
+      "scalar": 15.2433,
+      "moved4K": 21.6753,
+      "moved8M": 24.1319
+    },
+    {
+      "process": 3,
+      "pair": 1,
+      "fast": false,
+      "scalar": 17.6274,
+      "moved4K": 25.3384,
+      "moved8M": 28.2167
+    },
+    {
+      "process": 3,
+      "pair": 2,
+      "fast": false,
+      "scalar": 12.2546,
+      "moved4K": 23.5104,
+      "moved8M": 24.058
+    },
+    {
+      "process": 3,
+      "pair": 2,
+      "fast": true,
+      "scalar": 16.5479,
+      "moved4K": 20.2585,
+      "moved8M": 18.0704
+    },
+    {
+      "process": 3,
+      "pair": 3,
+      "fast": true,
+      "scalar": 11.9422,
+      "moved4K": 17.516,
+      "moved8M": 21.8916
+    },
+    {
+      "process": 3,
+      "pair": 3,
+      "fast": false,
+      "scalar": 12.3872,
+      "moved4K": 25.3475,
+      "moved8M": 22.949
+    },
+    {
+      "process": 3,
+      "pair": 4,
+      "fast": false,
+      "scalar": 14.1751,
+      "moved4K": 23.8479,
+      "moved8M": 22.9839
+    },
+    {
+      "process": 3,
+      "pair": 4,
+      "fast": true,
+      "scalar": 12.1605,
+      "moved4K": 16.9899,
+      "moved8M": 19.9184
+    },
+    {
+      "process": 3,
+      "pair": 5,
+      "fast": true,
+      "scalar": 11.9205,
+      "moved4K": 17.3539,
+      "moved8M": 17.5
+    },
+    {
+      "process": 3,
+      "pair": 5,
+      "fast": false,
+      "scalar": 13.0545,
+      "moved4K": 24.022,
+      "moved8M": 24.7793
+    },
+    {
+      "process": 3,
+      "pair": 6,
+      "fast": false,
+      "scalar": 13.557,
+      "moved4K": 26.1079,
+      "moved8M": 24.5106
+    },
+    {
+      "process": 3,
+      "pair": 6,
+      "fast": true,
+      "scalar": 12.9462,
+      "moved4K": 17.9073,
+      "moved8M": 19.672
+    },
+    {
+      "process": 3,
+      "pair": 7,
+      "fast": true,
+      "scalar": 14.032,
+      "moved4K": 19.4064,
+      "moved8M": 18.4347
+    },
+    {
+      "process": 3,
+      "pair": 7,
+      "fast": false,
+      "scalar": 12.3442,
+      "moved4K": 23.8448,
+      "moved8M": 22.2902
+    },
+    {
+      "process": 3,
+      "pair": 8,
+      "fast": false,
+      "scalar": 11.953,
+      "moved4K": 23.1937,
+      "moved8M": 22.7786
+    },
+    {
+      "process": 3,
+      "pair": 8,
+      "fast": true,
+      "scalar": 12.3916,
+      "moved4K": 17.2926,
+      "moved8M": 16.9217
+    }
+  ],
+  "summary": {
+    "scalar": {
+      "medianPairedRatio": 0.9478304887500336,
+      "fasterPairs": 15,
+      "pairs": 24
+    },
+    "moved4K": {
+      "medianPairedRatio": 0.7351488139503048,
+      "fasterPairs": 19,
+      "pairs": 24
+    },
+    "moved8M": {
+      "medianPairedRatio": 0.8092163816756078,
+      "fasterPairs": 20,
+      "pairs": 24
+    }
+  }
+}

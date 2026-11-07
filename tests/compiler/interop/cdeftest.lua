@@ -69,7 +69,7 @@ end
 function M.countedPointerCallsCheckAgainstSpans()
     local source = table.concat(
         {
-            "local spans = require(\"binary.span\")",
+            "local spans = require(\"bytes.span\")",
             "cdef struct CountedPosition",
             "   x: float",
             "end",

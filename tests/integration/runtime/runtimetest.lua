@@ -347,9 +347,14 @@ end
 -- tostring of a function once recursed in the VM until its stack overflowed.
 function M.cliRunPrintsFunctionsAsTheirIdentity()
     withProject(
-        {["nupp.lua"] = "return { include = { 'src' } }\n", ["main.lua"] = [[
+        {
+            ["nupp.lua"] = "return { include = { 'src' } }\n",
+            [
+                "main.lua"
+            ] = [[
 print(tostring(print):match("^function: 0x") ~= nil, tostring(function() end):match("^function: 0x") ~= nil)
-]],},
+]],
+        },
         function(dir)
             local output = dir .. "/output.txt"
             local errors = dir .. "/errors.txt"
@@ -490,7 +495,7 @@ local models = require("runtime_derive_models")
 local record Outer inner: models.Inner end
 local value = Outer(inner = models.Inner())
 print(value:debug())
-local out = io.Buffer.create()
+local out = bytes.Buffer.create()
 local writer = serde.json.Writer.of(out)
 require("serde.json").writevalue(serde.binding(Outer), value, writer)
 writer:close()

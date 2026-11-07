@@ -8,6 +8,8 @@ compiles can call these directly until that release knows the `os` members.
 ]]
 module io.internal.files
 
+const {type Span} = require("bytes.span")
+
 const io = require("nupp.io")
 const paths = require("io.internal.path")
 const contracts = require("io.internal.files.contracts")
@@ -128,7 +130,7 @@ export function glob(pattern: string): ({paths.Path}?, io.Error?)
     return answered(provider.glob(pattern))
 end
 
-export function writeatomic(path: Path, borrows bytes: string | binary.span.Span<uint8>): (boolean, io.Error?)
+export function writeatomic(path: Path, borrows bytes: string | Span<uint8>): (boolean, io.Error?)
     return answered(provider.writeAtomic(path, bytes))
 end
 

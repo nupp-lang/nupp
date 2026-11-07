@@ -184,7 +184,7 @@ end
 function M.numericConsumersKeepIntegerIndicesAndCounts()
     local parsed = checked(
         [[
-local binary = require("binary")
+local bytes = require("bytes")
 local json = require("serde.json")
 local codec = require("serde.codec")
 local generator = math.Xoshiro128(12345)
@@ -199,7 +199,7 @@ for _, value in ipairs(values) do
     sum += value
 end
 assert(sum == 10)
-local set = binary.Bitset(65)
+local set = bytes.Bitset(65)
 set:set(64)
 assert(set:get(64) and set:count() == 1)
 local array: any = {}
@@ -219,7 +219,7 @@ function M.floatingStorageWitnessesHaveExactPhysicalTypes()
     local parsed = checked(
         [[
 local array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local narrow = array.float
 local wide = array.number
 local function fillwide(exclusive values: span.WriteSpan<float64>): nil

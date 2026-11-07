@@ -1,0 +1,341 @@
+@!internal
+module nupp.runtime.browser.channels
+
+local effects = require("nupp.runtime.browser.effects")
+local suspension = require("nupp.suspension")
+local cancellation = require("nupp.suspension.cancellation")
+local byteapi = require("bytes")
+local codec = require("nupp.workers.internal.valuecodec")
+local contract = require("nupp.workers.internal.channeltypes")
+
+local endpoints: {[any]: any} = setmetatable({}, {__mode = "k"})
+local senderMT = {__index = contract.Sender}
+local receiverMT = {__index = contract.Receiver}
+local MAX_WIRE_BYTES: integer = 512 * 1024
+
+local function ignore(_: any): nil
+end
+
+local function state(endpoint: any, direction: string): any
+    local found = endpoints[endpoint]
+    if found == nil
+        or found.direction ~= direction
+        or not found.live
+        or found.owner ~= nil and found.owner._resourcesClosed
+    then
+        error("nupp: invalid, closed, or moved channel endpoint", 3)
+    end
+    if found.failure ~= nil then
+        error(found.failure, 3)
+    end
+    if found.cancelled then
+        error(cancellation.create("worker task", found.deadline and "its deadline passed" or nil), 0)
+    end
+
+    return found
+end
+
+local function notify(value: any): nil
+    local waiting = value.waiters
+    value.waiters = {}
+    for resume in pairs(waiting) do
+        resume(true)
+    end
+end
+
+local function update(value: any, response: any): nil
+    if response == nil or response.ok ~= true then
+        value.failure = "nupp: channel host failed: " .. tostring(response and response.error)
+    else
+        local answer = response.value
+        if answer.cancelled then
+            value.cancelled = true
+            value.deadline = answer.deadline == true
+        else
+            value.closed = value.closed or answer.closed == true
+            value.consumed = math.max(value.consumed, answer.consumed or value.consumed)
+            value.consumedBytes = math.max(value.consumedBytes, answer.consumedBytes or value.consumedBytes)
+            if answer.payload ~= nil then
+                value.staged = assert(byteapi.base64decode(answer.payload))
+            end
+        end
+    end
+    notify(value)
+end
+
+local function watch(value: any): nil
+    if not value.live or value.watching or value.closed or value.failure ~= nil or value.cancelled then
+        return
+    end
+    if value.direction == "receiver" and value.staged ~= nil then
+        return
+    end
+    if value.direction == "sender" and value.sent == value.consumed then
+        return
+    end
+    value.watching = true
+    effects.request(
+        "channel",
+        {operation = "watch", handle = value.handle, consumed = value.consumed, consumedBytes = value.consumedBytes,},
+        function(response: any): nil
+            value.watching = false
+            if value.live then
+                update(value, response)
+            end
+        end
+    )
+end
+
+local function wait(value: any): nil
+    suspension.suspend("worker channel", function(resume: function(boolean)): function()
+        value.waiters[resume] = true
+        watch(value)
+        return function(): nil
+            value.waiters[resume] = nil
+        end
+    end)
+end
+
+local function encode(value: any): string
+    local packed = {values = {value}, count = 1}
+    codec.validate({values = {}, count = 0}, packed)
+    local bytes = codec.encode(packed)
+    if #bytes > MAX_WIRE_BYTES then
+        error("nupp: browser channel payload exceeds 512 KiB", 3)
+    end
+
+    return bytes
+end
+
+local function offer(owner: any, bytes: string): string
+    if #bytes > owner.bytes then
+        error("nupp: channel payload exceeds its byte limit", 3)
+    elseif owner.closed then
+        return "closed"
+    elseif owner.sent - owner.consumed >= owner.messages
+        or owner.sentBytes - owner.consumedBytes + #bytes > owner.bytes
+    then
+        watch(owner)
+        return "full"
+    end
+    owner.sent = owner.sent + 1
+    owner.sentBytes = owner.sentBytes + #bytes
+    effects.request(
+        "channel",
+        {operation = "send", handle = owner.handle, payload = byteapi.base64encode(bytes)},
+        function(response: any): nil
+            if owner.live then
+                update(owner, response)
+            end
+        end
+    )
+    watch(owner)
+
+    return "sent"
+end
+
+local function trySend(endpoint: any, value: any): (string, any)
+    local owner = state(endpoint, "sender")
+    local status = offer(owner, encode(value))
+    if status == "sent" then
+        return status, nil
+    end
+
+    return status, value
+end
+
+local function send(endpoint: any, value: any): nil
+    local bytes = encode(value)
+    while true do
+        local owner = state(endpoint, "sender")
+        local status = offer(owner, bytes)
+        if status == "sent" then
+            return
+        elseif status == "closed" then
+            error("nupp: channel receiver is closed", 2)
+        end
+        wait(owner)
+    end
+end
+
+local function tryReceive(endpoint: any): (string, any)
+    local owner = state(endpoint, "receiver")
+    if owner.staged ~= nil then
+        local packed = codec.decode(owner.staged)
+        if packed.count ~= 1 then
+            error("nupp: invalid channel message", 2)
+        end
+        owner.staged = nil
+        effects.request("channel", {operation = "consume", handle = owner.handle}, function(response: any): nil
+            if owner.live and (response == nil or response.ok ~= true) then
+                update(owner, response)
+            end
+        end)
+        watch(owner)
+        return "value", packed.values[1]
+    elseif owner.closed then
+        return "closed", nil
+    end
+    watch(owner)
+
+    return "empty", nil
+end
+
+local function receive(endpoint: any): (string, any)
+    while true do
+        local owner = state(endpoint, "receiver")
+        local status, value = tryReceive(endpoint)
+        if status ~= "empty" then
+            return status, value
+        end
+        wait(owner)
+    end
+end
+
+local function close(value: any): nil
+    if not value.live then
+        return
+    end
+    value.live = false
+    value.staged = nil
+    effects.request("channel", {operation = "close", handle = value.handle}, ignore)
+    notify(value)
+end
+
+local function wrap(owner: any, descriptor: any): any
+    local value = {
+        owner = owner,
+        handle = descriptor.handle,
+        direction = descriptor.direction,
+        messages = descriptor.messages,
+        bytes = descriptor.bytes,
+        live = true,
+        closed = descriptor.closed,
+        sent = descriptor.sent,
+        sentBytes = descriptor.sentBytes,
+        consumed = descriptor.consumed,
+        consumedBytes = descriptor.consumedBytes,
+        staged = nil,
+        waiters = {},
+        watching = false,
+    }
+    local endpoint
+    if value.direction == "sender" then
+        endpoint = setmetatable({_state = value, _close = close, send = send, trysend = trySend}, senderMT)
+    else
+        endpoint = setmetatable(
+            {_state = value, _close = close, receive = receive, tryreceive = tryReceive},
+            receiverMT
+        )
+    end
+    endpoints[endpoint] = value
+    watch(value)
+
+    return endpoint
+end
+
+export function create(owner: any, messages: integer, bytes: integer): (any, any)
+    if owner._resourcesClosed then
+        error("nupp: cannot create a channel in a closed scope", 2)
+    end
+    local answer: any = suspension.suspend("worker channel create", function(resume: function(any)): function()
+        return effects.request(
+            "channel",
+            {
+                operation = "create",
+                messages = messages,
+                bytes = bytes
+            },
+            resume,
+            function(response: any): nil
+                if response ~= nil and response.ok == true then
+                    for _, descriptor in ipairs({response.value.sender, response.value.receiver}) do
+                        effects.request("channel", {operation = "close", handle = descriptor.handle}, ignore)
+                    end
+                end
+            end
+        )
+    end)
+    if answer == nil or answer.ok ~= true then
+        error("nupp: cannot create channel: " .. tostring(answer and answer.error), 2)
+    end
+
+    if owner._channels == nil then
+        owner._channels = {}
+    end
+    owner._channels[#owner._channels + 1] = answer.value.resource
+
+    return wrap(owner, answer.value.sender), wrap(owner, answer.value.receiver)
+end
+
+export function closeScope(borrows owner: any): nil
+    local resources = owner._channels or {}
+    local offset: integer = 1
+    while offset <= #resources do
+        local batch: {any} = {}
+        for index = offset, math.min(offset + 255, #resources) do
+            batch[#batch + 1] = resources[index]
+        end
+        local result: any = suspension.suspend("worker channel release", function(resume: function(any)): function()
+            return effects.request("channel", {operation = "release", resources = batch}, resume)
+        end)
+        if result == nil or result.ok ~= true then
+            error("nupp: cannot release channel resource", 2)
+        end
+        offset = offset + #batch
+    end
+    owner._channels = nil
+    owner._resourcesClosed = true
+end
+
+export function identify(endpoint: any): (string?, any, boolean)
+    local value = endpoints[endpoint]
+    if value == nil then
+        return nil, nil, false
+    end
+
+    return value.direction, value.owner, value.live and not (value.owner ~= nil and value.owner._resourcesClosed)
+end
+
+export function contains(...: any): boolean
+    for index = 1, select("#", ...) do
+        if endpoints[(select(index, ...))] ~= nil then
+            return true
+        end
+    end
+
+    return false
+end
+
+export function claim(endpoint: any, owner: any): integer
+    local value = endpoints[endpoint]
+    if value == nil or not value.live then
+        error("nupp: invalid or moved channel endpoint", 2)
+    end
+    if value.owner ~= owner then
+        error("nupp: channel endpoint belongs to another scope", 2)
+    end
+    value.live = false
+    value.staged = nil
+    notify(value)
+
+    return value.handle
+end
+
+export function plant(descriptor: any): any
+    return wrap(nil, descriptor)
+end
+
+export function cleanup(value: any, depth: integer): nil
+    if type(value) ~= "table" or depth > 33 then
+        return
+    end
+    local found = endpoints[value]
+    if found ~= nil then
+        close(found);
+        return
+    end
+    for _, item in next, value as {[any]: any} do
+        cleanup(item, depth + 1)
+    end
+end

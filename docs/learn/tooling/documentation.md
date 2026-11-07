@@ -632,13 +632,13 @@ to whatever documents it. The name may be a module, a declaration, or a member,
 and it works the same in a handwritten page, a module blurb, and a `---` run:
 
 ```markdown
-[the span module](binary.span)
-[](binary.span.WriteSplit)
-[the conversion](binary.span.fromstring)
-[](binary.span#writable-spans)
+[the span module](bytes.span)
+[](bytes.span.WriteSplit)
+[the conversion](bytes.span.fromstring)
+[](bytes.span#writable-spans)
 ```
 
-Empty link text stands for the target, so `[](binary.span)` renders that
+Empty link text stands for the target, so `[](bytes.span)` renders that
 name as code and links it, which is the whole cost of a reference in passing.
 
 An unqualified name works wherever it is unambiguous, and a name declared in

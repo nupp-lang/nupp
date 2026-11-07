@@ -10,7 +10,7 @@ uses `simd` to multiply a sequence of values in groups:
 
 ```nupp
 local array = table.Array
-local span = binary.span
+local span = bytes.span
 
 @aot
 local function scale(exclusive output: span.WriteSpan<float32>, borrows input: span.Span<float32>, factor: float32): nil
@@ -106,7 +106,7 @@ these modules to connect its data to those instructions:
   one element type. Contiguous means the elements sit next to each other in
   memory. A *type witness*, such as `array.float`, names the element type
   when passed to an allocation or species constructor.
-- [](binary.span) provides a *span*, a bounds-checked view of
+- [](bytes.span) provides a *span*, a bounds-checked view of
   storage. Its native representation includes an address and an element
   count, so the kernel can read the data without navigating a table.
 - [](simd) provides vector operations. A *species* describes
@@ -118,7 +118,7 @@ kernel becomes a runnable program when supplied with arrays:
 
 ```nupp
 local array = table.Array
-local span = binary.span
+local span = bytes.span
 
 @aot
 local function scale(exclusive output: span.WriteSpan<float32>, borrows input: span.Span<float32>, factor: float32): nil
@@ -398,7 +398,7 @@ with that bound, and values above the upper bound with the upper bound:
 
 ```nupp
 local array = table.Array
-local span = binary.span
+local span = bytes.span
 
 @aot
 local function clamp(exclusive values: span.WriteSpan<float32>, low: float32, high: float32): nil
@@ -468,7 +468,7 @@ The mask named `live` tracks the lanes that still have work:
 
 ```nupp
 local array = table.Array
-local span = binary.span
+local span = bytes.span
 
 @aot
 local function halvings(exclusive output: span.WriteSpan<float64>, borrows input: span.Span<float64>): nil
@@ -642,7 +642,7 @@ The loop has the same structure as the earlier kernels. Passing its mask to
 
 ```nupp
 local array = table.Array
-local span = binary.span
+local span = bytes.span
 
 @aot
 local function total(borrows values: span.Span<float64>): float64
@@ -676,7 +676,7 @@ the products. A dot reducer takes both values for each contribution:
 
 ```nupp
 local array = table.Array
-local span = binary.span
+local span = bytes.span
 
 @aot
 local function dot(borrows left: span.Span<float32>, borrows right: span.Span<float32>): float32
@@ -811,7 +811,7 @@ its one-based position or zero when no byte matches:
 
 ```nupp
 local array = table.Array
-local span = binary.span
+local span = bytes.span
 
 @aot
 local function find(borrows text: span.Span<uint8>, needle: uint32): integer
@@ -858,7 +858,7 @@ number kept, and a mask limits the store to those lanes:
 
 ```nupp
 local array = table.Array
-local span = binary.span
+local span = bytes.span
 
 @aot
 local function above(exclusive output: span.WriteSpan<float32>, borrows input: span.Span<float32>, threshold: float32): integer
@@ -1021,7 +1021,7 @@ The index can depend on the species' lane count:
 
 ```nupp
 local array = table.Array
-local span = binary.span
+local span = bytes.span
 
 @aot
 local function prefix(exclusive out: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): integer
@@ -1220,7 +1220,7 @@ array holds it, and the field is read and written whole through its row, in
 a native kernel and in ordinary code alike:
 
 ```nupp
-local span = binary.span
+local span = bytes.span
 
 local struct Particle
     mass: float32

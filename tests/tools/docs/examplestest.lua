@@ -329,7 +329,7 @@ end
 -- catches forwarding shims whose declarations check but whose values are missing.
 function M.pureFacadeExamplesRunTheirAssertions()
     for _, path in ipairs({
-        "src/binary/span.nupp",
+        "src/bytes/span.nupp",
         "src/types/reflect.nupp",
         "src/own.nupp",
         "src/serde/json/init.nupp",

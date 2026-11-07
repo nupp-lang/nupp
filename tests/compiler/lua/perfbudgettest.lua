@@ -351,7 +351,7 @@ function M.aVectorProgramRunsFromItsBinary()
         dir .. "/src/main.nupp",
         [[
 local array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 
 local function count(borrows text: span.Span<uint8>, needle: uint32): uint32

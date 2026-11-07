@@ -1,5 +1,7 @@
 module main
 
+local byteapi = require("bytes")
+
 -- The stamped host supplies nupp.workers; the ordinary Lua runner remains the
 -- source of discovery, planning, reporting, and the serial fallback used by its
 -- own tests. Keeping that policy in one place prevents the two entry points from
@@ -50,16 +52,16 @@ local _ = terminal.style
 
 -- File-loaded suites share these host facilities in the parent and worker states.
 const carriedrandom = math.Xoshiro128
-require("binary")
+require("bytes")
 const carriedpool = table.Pool
 const carriedentropy = os.randombytes
 const _ = os.info
 require("utf8")
-const carriedcompression = binary.compress
+const carriedcompression = byteapi.compress
 require("serde.json")
 const carriedpath = io.Path.of
 const carrieduri = io.URI.of
-const _carriedbuffer = io.Buffer
+const _carriedbuffer = byteapi.Buffer
 require("coroutine")
 require("io.net")
 const carriedprocess = io.popen

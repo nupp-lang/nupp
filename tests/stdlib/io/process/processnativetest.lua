@@ -30,7 +30,7 @@ end
 
 function M.beforeAll()
     process = require("io")
-    buffers = require("io")
+    buffers = require("bytes")
 end
 
 local function ready()

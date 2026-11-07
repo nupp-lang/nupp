@@ -1,7 +1,10 @@
 module nupp.core.catalogspanwrites
 
+const {type Buffer} = require("bytes")
+const bytes = require("bytes")
+
 local own = require("own")
-local {type Writable} = require("binary.span")
+local {type Writable} = require("bytes.span")
 local closed = 0
 local events = 0
 
@@ -38,7 +41,7 @@ local function rejectedValue(reject: boolean): integer
     return 81
 end
 
-local function failed(exclusive buffer: io.Buffer, rhs: boolean): nil
+local function failed(exclusive buffer: Buffer, rhs: boolean): nil
     local held = Sink(n = 10)
     local lease = buffer:reserve(2)
     local output = lease:span()
@@ -49,7 +52,7 @@ local function failed(exclusive buffer: io.Buffer, rhs: boolean): nil
     end
 end
 
-local buffer = io.Buffer.create("head")
+local buffer = bytes.Buffer.create("head")
 do
     local lease = buffer:reserve(3)
     do

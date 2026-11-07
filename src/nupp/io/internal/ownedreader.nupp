@@ -1,15 +1,17 @@
 @!internal
 module nupp.io.internal.ownedreader
 
+local byteapi = require("nupp.io.internal.bytes")
+
 const assert2 = require("assert")
 
 local bytes = require("nupp.io.internal.bytes")
-local span = require("binary.span")
+local span = require("bytes.span")
 local physical = require("nupp.runtime.storage")
 local type Reader = bytes.Reader
 local Reader = bytes.readerdefaults
 local type Writer = bytes.Writer
-local type Buffer = bytes.Buffer
+local type Buffer = byteapi.Buffer
 local positive = bytes.validatePositive
 local integer_ = bytes.validateInteger
 local DEFAULT_READ = 65536
@@ -118,6 +120,6 @@ bytes.readercompat(MemoryReader as table)
 
 export function newOwnedReader(takes buffer: bytes.OwnedBuffer): Reader
     local state = @unsafe own.release(buffer)
-    assert2(not (state as any)._closed, "nupp: io.Buffer is closed")
+    assert2(not (state as any)._closed, "nupp: bytes.Buffer is closed")
     return MemoryReader(_data = (state as any)._data, _length = (state as any)._length, _at = 0, _closed = false)
 end

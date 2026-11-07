@@ -17,8 +17,8 @@ local function checked(src)
 end
 
 local HEADER = [[
-local span = require("binary.span")
-local indexed = require("binary.span")
+local span = require("bytes.span")
+local indexed = require("bytes.span")
 local struct Cell
     value: int32
 end
@@ -38,7 +38,7 @@ end
 function M.aLookalikeIndexedTypeCannotEnterTheTrustedRange()
     local _, diagnostics = checked(
         [[
-local indexed = require("binary.span")
+local indexed = require("bytes.span")
 local record Fake
     @readonly count: integer
 end
@@ -161,7 +161,7 @@ function M.privateViewBodiesRejectEscapingTablesAndViewReassignment()
     }) do
         local result = checked(
             [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local function work(borrows values: span.Span<uint8>, borrows other: span.Span<uint8>): any
 ]]
             .. operation
@@ -183,7 +183,7 @@ function M.privateArtifactsRejectWideAndMultilineLiterals()
         for _, view in ipairs({false, true}) do
             local parameter = view and "borrows values: span.Span<uint8>" or "value: number"
             local result = checked(
-                'local span = require("binary.span")\nlocal function work('
+                'local span = require("bytes.span")\nlocal function work('
                 .. parameter
                 .. "): "
                 .. case.result
@@ -199,7 +199,7 @@ function M.privateArtifactsRejectWideAndMultilineLiterals()
 end
 
 function M.bufferLengthUsesItsCheckedCount()
-    local result, diagnostics = checked([[local buffer = io.Buffer.create()
+    local result, diagnostics = checked([[local buffer = bytes.Buffer.create()
 buffer:put("abc")
 return #buffer
 ]])
@@ -209,7 +209,7 @@ end
 
 function M.bufferViewsRefreshTheirPointerAndPreserveTheReadCursor()
     local result, diagnostics = checked(
-        [[local b = io.Buffer.create("skip:abc")
+        [[local b = bytes.Buffer.create("skip:abc")
 b:skip(5)
 const bytes = b:span()
 local total: integer = 0

@@ -15,7 +15,7 @@ local M = {}
 
 local PRELUDE = [[
 local array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 ]]
 

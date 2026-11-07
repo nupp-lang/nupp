@@ -1267,22 +1267,22 @@ local function registeredModuleNames(catalog)
 end
 
 function M.dynamicModuleNamesUseFreshSortedCanonicalAliases()
-    local canonical = graph.coremodule("io.internal.sharedbytes")
+    local canonical = graph.coremodule("bytes.internal.sharedbytes")
     local names = graph.coremodulenames(canonical)
     test.eq(#names, 2)
-    test.eq(names[1], "io.internal.sharedbytes")
+    test.eq(names[1], "bytes.internal.sharedbytes")
     test.eq(names[2], canonical)
     names[1] = "changed"
-    test.eq(graph.coremodulenames(canonical)[1], "io.internal.sharedbytes")
+    test.eq(graph.coremodulenames(canonical)[1], "bytes.internal.sharedbytes")
     test.eq(graph.coremodulenames("ordinary.module")[1], "ordinary.module")
 end
 
 function M.dynamicProviderAliasesKeepTheOneCarriedInitializer()
-    local canonical = graph.coremodule("io.internal.sharedbytes")
+    local canonical = graph.coremodule("bytes.internal.sharedbytes")
     local provider = checked("return {answer = 42}", canonical)
     local consumer = checked(
-        [[local declared = require("io.internal.sharedbytes")
-local name = "io.internal.sharedbytes"
+        [[local declared = require("bytes.internal.sharedbytes")
+local name = "bytes.internal.sharedbytes"
 return require(name)]],
         "nupp.core.deferredproviderconsumer"
     )
@@ -1293,17 +1293,17 @@ return require(name)]],
     test.eq(catalog.requires[1].target, catalog.modules[1].chunk)
     local names = registeredModuleNames(catalog)
     test.eq(names[canonical], catalog.modules[1].chunk)
-    test.eq(names["io.internal.sharedbytes"], names[canonical])
+    test.eq(names["bytes.internal.sharedbytes"], names[canonical])
     test.eq(#catalog.modules, 2)
     test.eq(names["not.carried"], nil)
 end
 
 function M.absentProvidersDoNotPublishTheirAliases()
-    local catalog = describe([[local name = "io.internal.sharedbytes"
+    local catalog = describe([[local name = "bytes.internal.sharedbytes"
 return require(name)]])
     local names = registeredModuleNames(catalog)
-    test.eq(names["io.internal.sharedbytes"], nil)
-    test.eq(names[graph.coremodule("io.internal.sharedbytes")], nil)
+    test.eq(names["bytes.internal.sharedbytes"], nil)
+    test.eq(names[graph.coremodule("bytes.internal.sharedbytes")], nil)
     refuses(
         function()
             program.compile(catalog, tagged.forVersion(7))
@@ -1313,11 +1313,11 @@ return require(name)]])
 end
 
 function M.distinctCarriedModulesCannotReplaceProviderAliases()
-    local canonical = graph.coremodule("io.internal.sharedbytes")
+    local canonical = graph.coremodule("bytes.internal.sharedbytes")
     local provider = checked("return 1", canonical)
-    local collision = checked("return 2", "io.internal.sharedbytes")
+    local collision = checked("return 2", "bytes.internal.sharedbytes")
     local consumer = checked(
-        [[local name = "io.internal.sharedbytes"
+        [[local name = "bytes.internal.sharedbytes"
 return require(name)]],
         "conflicting_provider_consumer"
     )
@@ -1326,7 +1326,7 @@ return require(name)]],
         function()
             program.compile(catalog, tagged.forVersion(8))
         end,
-        "dynamic module name has conflicting chunks: io.internal.sharedbytes"
+        "dynamic module name has conflicting chunks: bytes.internal.sharedbytes"
     )
 end
 
@@ -1588,8 +1588,8 @@ local function builtinProjectionFixture(source, withOs, withSharedBase, internal
         [[
 module nupp.runtime.standardio
 export interface Reader end
-export const Buffer = {create = function(): integer return 73 end}
-export const value: table = {Buffer = Buffer}
+export const Reader = {of = function(value: string): integer return #value end}
+export const value: table = {Reader = Reader}
 ]],
         "nupp.runtime.standardio"
     )
@@ -1671,10 +1671,10 @@ end
 function M.checkedBuiltinTablesProjectTheirValueBeforeLegacyLibraryRouting()
     local p, consumer, dependency = builtinProjectionFixture(
         [[
-local Buffer = io.Buffer
+local Reader = io.Reader
 local whole = io
 local alias = whole
-return Buffer, whole == io, alias
+return Reader, whole == io, alias
 ]]
     )
     local projections, eager = 0, 0
@@ -1717,8 +1717,8 @@ end
 
 function M.checkedBuiltinBasePrecedesAnEarlierQualifiedOrExplicitExtensionRead()
     for index, source in ipairs({
-        'local implementation = require("nupp.runtime.standardio")\nlocal first = nupp.runtime.standardio.Buffer\nreturn first, io.Buffer',
-        'local implementation = require("nupp.runtime.standardio")\nreturn implementation, io.Buffer',
+        'local implementation = require("nupp.runtime.standardio")\nlocal first = nupp.runtime.standardio.Reader\nreturn first, io.Reader',
+        'local implementation = require("nupp.runtime.standardio")\nreturn implementation, io.Reader',
     }) do
         local p = builtinProjectionFixture(source, false, false, true)
         local loads = p.qualifiedLoads[p.entry]
@@ -2005,8 +2005,8 @@ function M.checkedBuiltinRequireProjectsTheSameSharedValueAsTheBuiltinName()
             'local imported = require('
             .. literal
             .. ')\n'
-            .. 'local Buffer = imported.Buffer\nlocal make = Buffer.create\n'
-            .. 'return imported == io, Buffer == io.Buffer, make()'
+            .. 'local Reader = imported.Reader\nlocal make = Reader.of\n'
+            .. 'return imported == io, Reader == io.Reader, make("value")'
         )
         local imports, projections = 0, 0
         local loader
@@ -2037,11 +2037,11 @@ function M.checkedBuiltinRequireProjectsTheSameSharedValueAsTheBuiltinName()
         for _, op in ipairs(operations(g, 'K')) do
             keys[g.constants[op.args[1] + 1].value] = true
         end
-        assert(keys.value and keys.Buffer and keys.create)
+        assert(keys.value and keys.Reader and keys.of)
     end
     for _, source in ipairs({
-        'local {Buffer} = require("io")\nreturn Buffer, io.Buffer',
-        'local {type Reader, Buffer as bytes} = require("io")\nreturn bytes, io.Buffer',
+        'local {Reader} = require("io")\nreturn Reader, io.Reader',
+        'local {type Reader, Reader as source} = require("io")\nreturn source, io.Reader',
     }) do
         local p = builtinProjectionFixture(source)
         local patterns = 0
@@ -2049,7 +2049,7 @@ function M.checkedBuiltinRequireProjectsTheSameSharedValueAsTheBuiltinName()
             if imported.projection then
                 patterns = patterns + 1
                 assert(imported.projection.pattern and not imported.projection.pattern.typeOnly)
-                test.eq(imported.projection.pattern.sourceName.text, 'Buffer')
+                test.eq(imported.projection.pattern.sourceName.text, 'Reader')
             end
         end
         test.eq(patterns, 1)
@@ -2065,7 +2065,7 @@ function M.checkedBuiltinRequireProjectsTheSameSharedValueAsTheBuiltinName()
 end
 
 function M.checkedBuiltinRequireRejectsChangedLoaderProjectionAndLocalImportLinks()
-    local p = builtinProjectionFixture('local imported = require("io")\nreturn imported, io.Buffer')
+    local p = builtinProjectionFixture('local imported = require("io")\nreturn imported, io.Reader')
     local imported
     for _, item in ipairs(p.imports) do
         if item.projection then

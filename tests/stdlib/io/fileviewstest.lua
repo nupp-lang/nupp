@@ -1,6 +1,8 @@
+local byteapi = require("bytes")
+
 require("nupp.runtime.standardio")
 local test = require("assert")
-local span = require("binary.span")
+local span = require("bytes.span")
 local views = require("io.internal.fileviews")
 local M = {}
 
@@ -63,13 +65,13 @@ end
 function M.spanAndBufferReadsShareTheNativeCursorAndPreserveOtherBytes()
     withFile("abcdefghi", function(file)
         local reader = views.reader(file)
-        local storage = io.Buffer.create(4)
-        local lease = storage:reservewrite(4, 4)
+        local storage = byteapi.Buffer.create(4)
+        local lease = storage:reserve(4)
         test.eq(reader:readspan(lease:span()), 4)
         lease:commit(4)
-        test.eq(storage:getstring(), "abcd")
+        test.eq(storage:tostring(), "abcd")
         storage:close()
-        local destination = io.Buffer.create("--------")
+        local destination = byteapi.Buffer.create("--------")
         test.eq(reader:readinto(destination, 2, 3), 3)
         test.eq(destination:tostring(), "--efg---")
         test.eq(reader:readinto(destination, 0, 5), 2)

@@ -1,3 +1,5 @@
+local byteapi = require("bytes")
+
 const assert2 = require("assert")
 
 local __serdeJson = require("serde.json")
@@ -32,7 +34,7 @@ assert2(
     end)
 )
 assert2(debug.render(binding, value) == expected)
-local buffer = io.Buffer.create()
+local buffer = byteapi.Buffer.create()
 buffer:put("prefix:")
 debug.write(binding, value, buffer)
 assert2(buffer:tostring() == "prefix:" .. expected)

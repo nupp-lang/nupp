@@ -62,7 +62,7 @@ local tracked = {
     end,
 }
 local warm = json.codec(model.policy(true), 2)
-local input = require("io").Buffer.create('{"identifier":"buffer","created":0}')
+local input = require("bytes").Buffer.create('{"identifier":"buffer","created":0}')
 for _ = 1, 10 do
     local value = warm:decode(tracked, '{"identifier":"warm","created":0}')
     assert(warm:decodebuffer(tracked, input).id == "buffer")

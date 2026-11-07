@@ -174,7 +174,7 @@ for _, mode in ipairs({"under", "over"}) do
         end,
     }
     local selected = setmetatable({adapter = model}, core.Bound)
-    local destination = require("io").Buffer.create()
+    local destination = require("bytes").Buffer.create()
     local sink = jsonSyntax.Writer.of(destination)
     sink:startarray()
     local ok, problem = pcall(function()

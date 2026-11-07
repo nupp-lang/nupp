@@ -13,7 +13,7 @@ local function fixture(typeName, expectedCode)
     local parsed = parser.parse(
         "module "
         .. name
-        .. "\nlocal {type Span, type WriteSpan, type FixedSpan, type FixedWriteSpan, type Writable, type FixedWritable} = require(\"binary.span\")\nexport function length("
+        .. "\nlocal {type Span, type WriteSpan, type FixedSpan, type FixedWriteSpan, type Writable, type FixedWritable} = require(\"bytes.span\")\nexport function length("
         .. "borrows value: "
         .. typeName:gsub(
             "span%.",

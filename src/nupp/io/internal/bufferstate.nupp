@@ -134,17 +134,17 @@ end
 -- Core preparation mints a generation without a writer. Its separate admission
 -- follows the caller's pointer/token publication, and returns without allocating.
 export function preparewrite(borrows state: any, offset: integer, count: integer): (uint8[?] borrows (state), integer)
-    bounds.opened((state as State)._closed, "io.Buffer", 2)
-    reserve(state, bounds.sum(offset, count, "io.Buffer range", 2))
+    bounds.opened((state as State)._closed, "bytes.Buffer", 2)
+    reserve(state, bounds.sum(offset, count, "bytes.Buffer range", 2))
     @unsafe do
         return ((data(state) as uint8*) + offset) as uint8[?], WRITE_TOKEN
     end
 end
 
 export function admitwrite(borrows state: any, token: integer, borrows prepared: uint8[?]): nil
-    bounds.opened((state as State)._closed, "io.Buffer", 2)
+    bounds.opened((state as State)._closed, "bytes.Buffer", 2)
     if token ~= WRITE_TOKEN then
-        error("nupp: io.Buffer invalid write token", 2)
+        error("nupp: bytes.Buffer invalid write token", 2)
     end
 end
 
@@ -162,10 +162,10 @@ export function commitwrite(
     used: integer
 ): nil
     if token ~= WRITE_TOKEN then
-        error("nupp: io.Buffer invalid write token", 2)
+        error("nupp: bytes.Buffer invalid write token", 2)
     end
     local value = state as State
-    bounds.opened(value._closed, "io.Buffer", 2)
+    bounds.opened(value._closed, "bytes.Buffer", 2)
     if used > 0 then
         if offset > value._length then
             @unsafe do
@@ -173,7 +173,7 @@ export function commitwrite(
                 fillBytes((destination as uint8*) + value._length, offset - value._length, 0)
             end
         end
-        local ending = bounds.sum(offset, used, "io.Buffer range", 2)
+        local ending = bounds.sum(offset, used, "bytes.Buffer range", 2)
         if ending > value._length then
             if value._native ~= nil then
                 value._native:commit(ending - value._length)

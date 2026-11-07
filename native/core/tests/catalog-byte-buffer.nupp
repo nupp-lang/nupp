@@ -1,9 +1,11 @@
 module nupp.core.catalogbytebuffer
 
-const Buffer = io.Buffer
+const bytes = require("bytes")
+
+const Buffer = bytes.Buffer
 
 assert(io == _G.io)
-assert(Buffer == _G.io.Buffer)
+assert(Buffer == require("bytes").Buffer)
 
 local b = Buffer.create()
 b:put("a", 1):put("b")

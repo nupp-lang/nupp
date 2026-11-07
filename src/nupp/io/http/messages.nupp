@@ -5,7 +5,7 @@ module nupp.io.http.messages
 const {type Path} = require("io.internal.files.path")
 const uri = require("io.internal.uri")
 const {type Reader} = require("nupp.io")
-const {type SharedBytes} = require("io.internal.bytestypes")
+const {type SharedBytes} = require("bytes.internal.bytestypes")
 
 --- Transport capability flags describing observable HTTP guarantees.
 ---

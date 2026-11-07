@@ -1,8 +1,8 @@
 @!internal
 module nupp.runtime.provider.coresharedbytes
 
-local span = require("binary.span")
-local byteTypes = require("io.internal.bytestypes")
+local span = require("bytes.span")
+local byteTypes = require("bytes.internal.bytestypes")
 export type SharedBytes = byteTypes.SharedBytes
 export const SharedBytes = byteTypes.SharedBytes
 local spanImplementation = require("nupp.mem.span")
@@ -21,7 +21,7 @@ local foreignSpan = rawget(
     "__foreignSpan"
 ) as function<T>(borrows anchor: any, borrows pointer: any, integer, integer, ctype<T>): span.Span<T> borrows (anchor)
 
--- The declarations keep their fields private to `io.internal.bytestypes`, so
+-- The declarations keep their fields private to `bytes.internal.bytestypes`, so
 -- this module reads them by name.
 local getfield: function(borrows source: table, key: string): any = rawget as any
 

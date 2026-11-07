@@ -1,4 +1,4 @@
--- Run through run.sh so the checked kernel and binary.span module are built first.
+-- Run through run.sh so the checked kernel and bytes.span module are built first.
 local ffi = require("ffi")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
@@ -7,7 +7,7 @@ package.path = out .. "runtime/?.lua;" .. out .. "runtime/?/init.lua;" .. packag
 
 local kernelDisabled = assert(loadfile(out .. "disabled/kernel.lua"))()
 local kernelEnabled = assert(loadfile(out .. "enabled/kernel.lua"))()
-local spans = require("binary.span")
+local spans = require("bytes.span")
 
 local count = tonumber(os.getenv("NUPP_SPAN_COUNT") or "200000")
 local steps = tonumber(os.getenv("NUPP_SPAN_STEPS") or "40")

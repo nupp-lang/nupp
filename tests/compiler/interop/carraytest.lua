@@ -230,7 +230,7 @@ function M.publicStringSpanRefsRejectDirectUnsafeStores()
     testAssert.eq(
         diagsOf(
             [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local function use(text: string): nil
     local view = span.fromstring(text)
     local pointer = view:ref()

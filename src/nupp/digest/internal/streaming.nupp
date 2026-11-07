@@ -22,12 +22,12 @@ The streaming algorithms use the target's 32-bit operations. A selected
 `crypto.hmac_sha256` implementation supplies the one-shot HMAC functions.
 The module resolves that optional implementation during initialization.
 
-Public callers use [](binary.Digest) or [](binary.Mac); these snapshot
+Public callers use [](bytes.Digest) or [](bytes.Mac); these snapshot
 engines are private implementation details of their consuming provider contexts.
 ]]
 module nupp.digest.internal.streaming
 
-local span = require("binary.span")
+local span = require("bytes.span")
 local hash = {}
 
 --- A mutable incremental digest. Final reads snapshot the current state.

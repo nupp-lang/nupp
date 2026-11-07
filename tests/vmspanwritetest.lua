@@ -16,7 +16,7 @@ local function checked(body, parameters, returns)
         .. name
         .. [[
 
-local {type Span, type WriteSpan, type FixedWriteSpan} = require("binary.span")
+local {type Span, type WriteSpan, type FixedWriteSpan} = require("bytes.span")
 export function write(]]
         .. (
             parameters or "exclusive output: WriteSpan<uint8>, index: integer"

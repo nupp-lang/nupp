@@ -5,7 +5,7 @@ local M = {}
 local function runtime(storage)
 
     return fixtures.instance(
-        {['binary._representation'] = true, ['nupp.runtime.storage'] = true, ['nupp.runtime.structvalue'] = true,},
+        {['bytes._representation'] = true, ['nupp.runtime.storage'] = true, ['nupp.runtime.structvalue'] = true,},
         -- The VM binds its storage provider by name rather than selecting one.
         {['nupp.vm.storagebinding'] = storage}
     )
@@ -31,13 +31,13 @@ end
 
 function M.incompatibleStorageIsRejectedBeforeUse()
     local load = runtime({representation = 'linear32'})
-    local ok, problem = pcall(load, 'binary._representation')
+    local ok, problem = pcall(load, 'bytes._representation')
     assert(not ok and tostring(problem):find('target requires native pointer storage', 1, true))
 end
 
 function M.canonicalStorageBindingRetainsTheFrozenProviderAndOperations()
     local raw = package.loaded["nupp.runtime.provider.nativestorage"]
-    local selected = require("binary._representation").storage
+    local selected = require("bytes._representation").storage
     local binding = require("nupp.vm.storagebinding")
     assert(raw == binding and selected == raw, "the provider table keeps its identity")
     assert(binding.structs == package.loaded["nupp.runtime.structvalue"])

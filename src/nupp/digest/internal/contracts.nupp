@@ -1,7 +1,7 @@
 @!internal
 module nupp.digest.internal.contracts
 
-local {type ByteWriteSpan} = require("binary.span")
+local {type ByteWriteSpan} = require("bytes.span")
 
 export interface Stream is io.Writer
     --- Takes the context into a scalar writer, loading its adapter on demand.

@@ -14,7 +14,7 @@ its catalog key.
 ]]
 module nupp.compression.contracts
 
-local {type Span, type ByteWriteSpan} = require("binary.span")
+local {type Span, type ByteWriteSpan} = require("bytes.span")
 
 --- Canonical native compression names and their ABI format identifiers.
 export const formatids: {@readonly [string]: integer} = {gzip = 1, zlib = 2, ["deflate-raw"] = 3}

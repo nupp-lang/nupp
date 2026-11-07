@@ -41,11 +41,16 @@ local rules = {
     {"^src/nupp/tools/", {"compiler"}},
     {"^scripts/module%-exports%.lua$", {"compiler"}},
     {"^src/nupp/compiler/", {"compiler"}},
-    {"^src/simd%.nupp$", {"library", "aot", "browser"}},
-    {"^src/simd/", {"library", "aot", "browser"}},
-    {"^src/binary/_representation%.nupp$", {"library", "browser", "native"}},
-    {"^src/nupp/runtime/storage%.nupp$", {"library", "browser", "native"}},
-    {"^src/nupp/runtime/provider/nativestorage%.nupp$", {"library", "browser", "native"}},
+    {"^src/simd%.nupp$", {"library", "aot", "browser", "simd"}},
+    {"^src/simd/", {"library", "aot", "browser", "simd"}},
+    -- The generated conformance programs allocate and view their lanes through
+    -- these modules on both native and Wasm routes.
+    {"^src/nupp/array%.nupp$", {"library", "simd"}},
+    {"^src/nupp/mem/span%.nupp$", {"library", "simd"}},
+    {"^src/nupp/soa%.nupp$", {"library", "simd"}},
+    {"^src/bytes/_representation%.nupp$", {"library", "browser", "native", "simd"}},
+    {"^src/nupp/runtime/storage%.nupp$", {"library", "browser", "native", "simd"}},
+    {"^src/nupp/runtime/provider/nativestorage%.nupp$", {"library", "browser", "native", "simd"}},
     -- The browser and native UUID providers both implement this interface.
     {"^src/nupp/util/spi%.nupp$", {"library", "browser", "native"}},
     {"^src/utf8%.nupp$", {"library"}},

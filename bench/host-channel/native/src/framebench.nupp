@@ -12,7 +12,7 @@ module framebench
 
 local host = os.host
 local events = require("events")
-local span = require("binary.span")
+local span = require("bytes.span")
 local hostevents = require("hostevents")
 
 local packetText: string = ""

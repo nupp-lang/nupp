@@ -208,7 +208,7 @@ end
 --- reads as a URL or as a path is left alone, and so is a name nothing answers
 --- to, so an ordinary link is never captured by accident.
 ---
---- A fragment rides along: `[](binary.span#writable-spans)` resolves the name and
+--- A fragment rides along: `[](bytes.span#writable-spans)` resolves the name and
 --- keeps the anchor, which is how a page names a section of a module page written in
 --- that module's own blurb.
 ---

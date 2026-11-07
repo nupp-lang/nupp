@@ -273,7 +273,7 @@ end
 --- Encodes bytes as standard base64, padded.
 ---
 --- ```nupp
---- assert(binary.base64encode("Nupp") == "TnVwcA==")
+--- assert(bytes.base64encode("Nupp") == "TnVwcA==")
 --- ```
 --- @param value the bytes to encode
 --- @return the encoded text
@@ -286,8 +286,8 @@ end
 --- Returns nil and a reason when the text is not canonical padded Base64.
 ---
 --- ```nupp
---- assert(binary.base64decode("TnVwcA==") == "Nupp")
---- local bytes, reason = binary.base64decode("TnVwcA")
+--- assert(bytes.base64decode("TnVwcA==") == "Nupp")
+--- local bytes, reason = bytes.base64decode("TnVwcA")
 --- assert(bytes == nil and reason ~= nil)
 --- ```
 --- @param text the text to decode

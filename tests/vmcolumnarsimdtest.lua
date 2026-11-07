@@ -12,7 +12,7 @@ function M.columnFieldsUsePackedDescriptorsAndEvaluateArgumentsOnce()
     local parsed = parser.parse(
         [[
 local Array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 local struct Row
     x: float32
@@ -132,7 +132,7 @@ function M.checkedDynamicAndPackedFieldsKeepExplicitBootstrapRefusals()
         local source = [[
 local Array = table.Array
 local simd = require("simd")
-local span = require("binary.span")
+local span = require("bytes.span")
 local struct Row
     x: float32
 end

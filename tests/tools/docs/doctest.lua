@@ -1396,6 +1396,9 @@ export function shape(value: {Widget: number, item: Widget, label: 'Widget'}): M
 export function callback(value: function<Widget>(Widget: Widget): Widget): nil end
 export function generic<T>(value: T): T end
 export function deep(value: Box.Nested.Leaf): Box.Nested.Leaf end
+@comptime export function Submitted(F: type): typepack end
+export function computed<F>(...: unpackof Submitted(F)): unpackof Submitted(F) end
+export function shadowed<Submitted>(...: unpackof Submitted(T)): nil end
 ]],
             "src/model.nupp",
             "model"
@@ -1436,6 +1439,11 @@ export function deep(value: Box.Nested.Leaf): Box.Nested.Leaf end
     for code in convert:gmatch("<pre>(.-)</pre>") do
         assert(not code:find("<a ", 1, true), code)
     end
+    local computed = assert(html:match('id="model.computed"(.-)</section>'), html)
+    local _, computedLinks = computed:gsub('href="#model%.Submitted"', "")
+    assert(computedLinks == 2, "computed argument and result packs must link their type function: " .. computed)
+    local shadowed = assert(html:match('id="model.shadowed"(.-)</section>'), html)
+    assert(not shadowed:find('href="#model.Submitted"', 1, true), "a generic binder linked to a global declaration")
 end
 
 function M.fieldTypesLinkToDocumentedTypes()
@@ -2182,7 +2190,7 @@ function M.hidesPrivateCleanupNamesFromSignatures()
             "end",
             "",
             "--- Byte sources.",
-            "record io.SharedBytes",
+            "record bytes.SharedBytes",
             "   --- Opens a reader over these bytes.",
             "   newReader: function(self: SharedBytes): affine(Reader, __destroyReader)",
             "end",
@@ -2206,7 +2214,7 @@ function M.hidesPrivateCleanupNamesFromSignatures()
     local longLiteral = assert(byName["io.longLiteral"], "the long literal function was not documented")
     assert(longLiteral.signature:find("[[affine(Reader, __destroyReader)]]", 1, true), longLiteral.signature)
     local bytes = assert(byName["SharedBytes"], "the record was not documented")
-    assert(bytes.signature == "record io.SharedBytes", bytes.signature)
+    assert(bytes.signature == "record bytes.SharedBytes", bytes.signature)
     local newReader = assert(bytes.members[1], "the record's member was not documented")
     assert(newReader.type:find("affine(Reader, _)", 1, true), newReader.type)
     assert(not newReader.type:find("__destroyReader", 1, true), newReader.type)
@@ -2524,10 +2532,7 @@ function M.standardIOApiHasCompleteDocumentation()
     local modules = {
         [
             "src/nupp/io.nupp"
-        ] = {
-            types = {Buffer = true, Reader = true, Writer = true, ScalarReader = true, ScalarWriter = true,},
-            functions = {},
-        },
+        ] = {types = {Reader = true, Writer = true, ScalarReader = true, ScalarWriter = true,}, functions = {},},
         [
             "src/io/internal/pathtypes.nupp"
         ] = {types = {Path = true,}, functions = {}, overview = "src/nupp/runtime/standardio.nupp",},
@@ -2576,6 +2581,15 @@ function M.standardIOApiHasCompleteDocumentation()
         for member in pairs(expected.functions) do
             assert(foundFunctions[member], name .. " did not document " .. member)
         end
+    end
+
+    local bytesModule = assert(doc.extract(readFile(HERE .. "/../src/bytes/init.nupp"), "src/bytes/init.nupp", "bytes"))
+    for _, name in ipairs({"Buffer", "BufferWriteLease", "SharedBytes"}) do
+        local documented = false
+        for _, item in ipairs(bytesModule.items) do
+            documented = documented or item.name == name and item.doc.text ~= ""
+        end
+        assert(documented, "bytes did not document " .. name)
     end
 
     -- The declarations own their factory documentation.
@@ -2665,7 +2679,7 @@ end
 function M.hostBoundariesDeclareThemselvesInternal()
     local boundaries = {
         "src/nupp/workers/native.d.nupp",
-        "src/binary/_representation.nupp",
+        "src/bytes/_representation.nupp",
         "src/io/internal/files/messages.nupp",
     }
     for _, relative in ipairs(boundaries) do
@@ -4129,9 +4143,9 @@ end
 function M.affineAliasesLinkToTheGenericWrappedType()
     local modules = aliasModel({
         [
-            "src/binary/span.nupp"
+            "src/bytes/span.nupp"
         ] = [[
-module binary.span
+module bytes.span
 local source = require("internal.span")
 export type Span<T> = source.Span<T>
 export type Writable<T> = source.Writable<T>
@@ -4147,7 +4161,7 @@ end
 export type Writable<T> = affine(Span<T>)
 ]],
     })
-    local module = assert(modules["binary.span"])
+    local module = assert(modules["bytes.span"])
     local writable
     for _, item in ipairs(module.items) do
         if item.name == "Writable" then
@@ -4156,7 +4170,7 @@ export type Writable<T> = affine(Span<T>)
     end
     assert(writable and writable.signature:find("affine(Span<T>)", 1, true), writable and writable.signature)
     local rendered = doc.markdown({module})
-    assert(rendered:find("[`Span`](#binary.span.Span)", 1, true), rendered)
+    assert(rendered:find("[`Span`](#bytes.span.Span)", 1, true), rendered)
 end
 
 function M.directRequireMemberAliasesKeepFunctionContracts()
@@ -6731,6 +6745,52 @@ return declared
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.plainContractsUsePublicNamesForImportedTypes()
+    local modules = aliasModel({
+        [
+            "src/api.nupp"
+        ] = [[
+module api
+local source1 = require("api.internal.streams")
+export type Reader = source1.Reader
+export type Writer = source1.Writer
+export interface File
+    reader: function(exclusive self: File): affine(source1.Reader) borrows (self)
+    writer: function(exclusive self: File): affine(source1.Writer) borrows (self)
+end
+]],
+        [
+            "src/api/internal/streams.nupp"
+        ] = [[
+module api.internal.streams
+export interface Reader
+    read: function(exclusive self: Reader): string
+end
+export interface Writer
+    write: function(exclusive self: Writer, value: string): nil
+end
+]],
+    })
+    local api = assert(modules.api)
+    local file
+    for _, item in ipairs(api.items) do
+        if item.name == "File" then
+            file = item
+        end
+    end
+    assert(file, "the plain interface was omitted")
+    for _, member in ipairs(file.members) do
+        assert(not member.type:find("source1", 1, true), member.type)
+        assert(not member.returns[1].type:find("source1", 1, true), member.returns[1].type)
+    end
+    local markdown = doc.markdown({api})
+    assert(not markdown:find("source1", 1, true), markdown)
+    local html = require("nupp.tools.doc.html").markdownHtml(markdown)
+    for _, name in ipairs({"Reader", "Writer"}) do
+        assert(html:find('href="#api.' .. name .. '"', 1, true), "the public type is not linked: " .. name)
+    end
+end
+
 function M.publicAliasSignaturesUseTheirExportedTypeProvenance()
     local dir = tempProject({
         [
@@ -7013,9 +7073,11 @@ function M.gpuPublicPageExpandsItsExplicitAliases()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
-function M.ioPublicPageKeepsStorageAndScalarContracts()
+function M.bytesAndIoPagesKeepStorageAndScalarContracts()
     local files = {}
     for _, path in ipairs({
+        "bytes/init.nupp",
+        "bytes/internal/bytestypes.nupp",
         "nupp/runtime/standardio.nupp",
         "nupp/io.nupp",
         "nupp/io/internal/bytes.nupp",
@@ -7050,9 +7112,41 @@ function M.ioPublicPageKeepsStorageAndScalarContracts()
         "Buffer.newwriter",
         "# `nupp.io.internal",
         "bytes.Reader",
+        "source1.Reader",
+        "source1.Writer",
         "scalars.ScalarReader"
     }) do
         assert(not text:find(hidden, 1, true), "I/O documentation exposes " .. hidden)
+    end
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.coroutinePageDocumentsComputedPacksAndWorkerExamples()
+    local files = {}
+    for _, path in ipairs({
+        "nupp/runtime/standardcoroutine.nupp",
+        "nupp/tasks.nupp",
+        "nupp/workers/contracts.nupp",
+        "nupp/workers/internal/channeltypes.nupp",
+    }) do
+        files["src/" .. path] = readFile(HERE .. "/../src/" .. path)
+    end
+    local dir = tempProject(files)
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "site", output = "site"}) == 0)
+    local html = readFile(dir .. "/site/modules/coroutine/index.html")
+    local markdown = readFile(dir .. "/site/modules/coroutine/llms.txt")
+    for _, helper in ipairs({"Submitted", "MessageArguments", "ChannelLimits"}) do
+        assert(html:find('id="coroutine.' .. helper .. '"', 1, true), "missing public helper: " .. helper)
+        assert(html:find('#coroutine.' .. helper .. '"', 1, true), "unlinked helper: " .. helper)
+    end
+    for _, hidden in ipairs({"contracts.MessageArguments", "contracts.ChannelLimits", "contracts.Submitted"}) do
+        assert(not markdown:find(hidden, 1, true), "private helper name leaked: " .. hidden)
+    end
+    for method, examples in pairs({work = {"double", "hashes"}, worker = {"request", "events"}}) do
+        local section = assert(markdown:match('::: api%-item coroutine%.Scope%.' .. method .. '\n(.-)\n:::'))
+        for _, example in ipairs(examples) do
+            assert(section:find("module example." .. example, 1, true), "missing " .. method .. " example: " .. example)
+        end
     end
     os.execute("rm -rf '" .. dir .. "'")
 end

@@ -1,7 +1,7 @@
 -- Generated structured-workgroup GEMM compared element-exact with the
 -- generated naive GPU kernel and the CPU reference body.
 local ffi = require("ffi")
-local span = require("binary.span")
+local span = require("bytes.span")
 local generated = require("gemm")
 local gpu = require("io.gpu")
 

@@ -19,7 +19,7 @@ Keep it in step with the decoder when the scan changes there.
 
 local array = table.Array
 local simd = require("simd")
-local span = require("binary.span")
+local span = require("bytes.span")
 
 --- One sixteen-entry nibble table, as the decoder builds it.
 local function nibbleTable(
