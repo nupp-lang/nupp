@@ -1331,8 +1331,7 @@ export function LibCall(
             ops.fail(ctx, frame, pc, ops.INVALID)
             return native.fail()
         end
-        local message, skipped = texts.argumentmessage(ctx, wide.bitsOf(a), b, c, wide.bitsOf(d))
-        guestscope.raise(ctx, message, wide.bitsOf(d) + skipped + 1ULL)
+        texts.argumenterror(ctx, wide.bitsOf(a), b, c, wide.bitsOf(d))
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end

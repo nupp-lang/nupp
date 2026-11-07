@@ -95,15 +95,9 @@ export function moduleNotFound(ctx: voidptr, name: uint64): nil
     end
 end
 
--- Formats an ordinary Nupp library's error from its original checked call.
+-- Raises an ordinary Nupp library's error from its original checked call.
 -- Inputs remain rooted in the active guest frame throughout construction.
-export function argumentmessage(
-    ctx: voidptr,
-    position: uint64,
-    fallback: uint64,
-    detail: uint64,
-    level: uint64
-): (uint64, uint64)
+export function argumenterror(ctx: voidptr, position: uint64, fallback: uint64, detail: uint64, level: uint64): nil
     local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local c = native.loadPointer(ctx, context.CATALOG)
@@ -197,7 +191,8 @@ export function argumentmessage(
             error("not enough memory")
         end
 
-        return values.TAG_OBJ | strings.finish(h, b), skipped
+        local message = values.TAG_OBJ | strings.finish(h, b)
+        guestscope.raise(ctx, message, level + skipped + 1ULL)
     end
 end
 
