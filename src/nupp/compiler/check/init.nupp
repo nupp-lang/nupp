@@ -1304,6 +1304,11 @@ function checkMod.check(
                         ] = {source = descriptor.sources[index], fingerprint = node.referenceFingerprint,}
                     end
                     local source = descriptor.sources[index]
+                    if node.kind == "affine" and source then
+                        permitted[
+                            "argument" .. tostring(position) .. ":" .. tostring(index)
+                        ] = {source = source, fingerprint = node.referenceFingerprint}
+                    end
                     if node.kind == "affine" and source and not source.transferOnly then
                         local cleanup = source.cleanups and source.cleanups[1]
                         if cleanup and cleanup.key then

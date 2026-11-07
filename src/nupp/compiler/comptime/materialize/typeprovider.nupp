@@ -637,6 +637,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
                 and mode ~= "borrowed"
                 and mode ~= "exclusive"
                 and mode ~= "pinned"
+                and mode ~= "takes"
             then
                 return nil, failure("NUPP2415", "types.pack has an invalid mode at " .. tostring(index))
             end
@@ -1255,6 +1256,13 @@ function typeprovider.importDescriptor(
                         inner = inner,
                         transferOnly = transferOnly,
                         terminal = terminal,
+                        -- Inherent method cleanup belongs to the exact input owner.
+                        -- Forward it as a sealed input reference, never a terminal
+                        -- name a type function could invent.
+                        preserveReference = kind == "affine" and not transferOnly and terminal == nil,
+                        source = referencedSource,
+                        referenceId = referencePrefix and referencePrefix .. ":" .. tostring(index) or nil,
+                        fingerprint = node.referenceFingerprint,
                         key = kind == "affine" and composeKey(kind, {
                             keyOf(state, inner),
                             transferOnly and "transfer" or terminal or "-"
@@ -1409,7 +1417,15 @@ local function finalizeGraph(state, root)
         local payload = found.payload
         local node = {kind = payload.kind}
         nodes[index], origins[index] = node, found.provenance
-        if payload.kind == "primitive" then
+        if payload.preserveReference then
+            node.kind = "reference"
+            node.reference = #references + 1
+            node.referenceId = payload.referenceId
+            node.fingerprint = payload.fingerprint
+            references[
+                node.reference
+            ] = {source = payload.source, referenceId = payload.referenceId, fingerprint = payload.fingerprint}
+        elseif payload.kind == "primitive" then
             node.name = payload.name
         elseif payload.kind == "reference" then
             node.reference = #references + 1

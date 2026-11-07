@@ -379,14 +379,13 @@ local types: {
     --- however many values remain.
     ---
     --- `modes` align with the head one for one and default to `"plain"`; the
-    --- others are `"affine"`, `"borrowed"`, `"exclusive"`, and `"pinned"`.
+    --- others are `"affine"`, `"borrowed"`, `"exclusive"`, `"pinned"`, and `"takes"`.
+    --- Use `"takes"` for a consuming parameter in a function's argument pack.
     --- @param head the fixed slot types, in position order
     --- @param tail the type of the remaining values, or nil for a closed pack
     --- @param modes the ownership mode of each fixed slot
     --- @return the pack
-    --- @raises string when there are more modes than slots, or a mode is not one of
-    ---     the
-    ---     five
+    --- @raises string when there are more modes than slots or a mode is invalid
     @readonly pack: @comptime function(head: {type}, tail: type?, modes: {string}?): typepack,
 
     --- Computes the arguments consumed by a literal Lua format string.

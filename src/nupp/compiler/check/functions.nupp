@@ -646,6 +646,11 @@ export function install(c: state.Checker): state.StatHandlers
                     )
                 else
                     local moveNode = {kind = "name", token = token}
+                    local capturedFacts: {[string]: any} = {}
+                    for key, value in pairs(c.own.capabilityFacts(state, nil, false)) do
+                        capturedFacts[key] = value
+                    end
+                    capturedFacts.roots = c.own.rootsOf(moveNode)
                     c.moveExpression(moveNode, valueType, "closure capture", "affine")
                     captures[
                         #captures + 1
@@ -654,6 +659,7 @@ export function install(c: state.Checker): state.StatHandlers
                         token = token,
                         type = valueType,
                         outer = state,
+                        facts = capturedFacts,
                         move = moveNode.automaticOwnerMove,
                     }
                 end
@@ -854,6 +860,13 @@ export function install(c: state.Checker): state.StatHandlers
         for _, capture in ipairs(captures) do
             c.bindVar(capture.name, capture.type, true, capture.token, "variable")
             local entry = c.scope.vars[capture.name]
+            if entry and capture.facts then
+                local facts = c.own.capabilityFacts(entry)
+                for key, value in pairs(capture.facts) do
+                    (facts as any)[key] = value
+                end
+                facts.capturedBorrowRoots = true
+            end
             if entry and entry.automaticOwner then
                 entry.automaticOwner.lowerable = true
                 entry.automaticOwner.capture = true
@@ -1742,6 +1755,12 @@ export function install(c: state.Checker): state.StatHandlers
         local ft = c.checkFuncbody(body)
         local checkedBody: any = body
         local borrowed = checkedBody.borrowCaptures or {}
+        local takenRoots = {}
+        for _, capture in ipairs(checkedBody.takenCaptures or {}) do
+            for _, root in ipairs(capture.facts and capture.facts.roots or {}) do
+                takenRoots[#takenRoots + 1] = root
+            end
+        end
         if #c.diags == diagnosticsBefore then
             preferComptime.check(c, stat, body, false)
         end
@@ -1759,8 +1778,11 @@ export function install(c: state.Checker): state.StatHandlers
         if functionEntry then
             functionEntry.jitTarget = functionEntry.definition
             publishMutationSummary(functionEntry, checkedBody)
-            if #borrowed > 0 then
+            if #borrowed > 0 or #takenRoots > 0 then
                 local roots = {}
+                for _, root in ipairs(takenRoots) do
+                    roots[#roots + 1] = root
+                end
                 for _, capture in ipairs(borrowed) do
                     roots[#roots + 1] = capture.root
                 end

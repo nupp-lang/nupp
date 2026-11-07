@@ -535,8 +535,10 @@ function reflection.describe(root: any, qualifiedName: string?, includeSources: 
         -- the exact permitted nominal identities each graph node came from.
         descriptor.sources = sources
         for index, node in ipairs(types) do
-            if node.nominal then
+            if node.nominal or node.kind == "affine" then
                 node.referenceFingerprint = reflection.describe(sources[index]).fingerprint
+            end
+            if node.nominal then
                 local declaration = sources[index]
                 while declaration and declaration.tag == "nominal" and declaration.origin do
                     declaration = declaration.origin
