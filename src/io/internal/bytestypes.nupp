@@ -67,7 +67,7 @@ export record Bytes
 
     --- A read-only borrowed view over `count` bytes starting `offset` bytes in,
     --- the whole region by default.
-    view: function(borrows self: Bytes, integer?, integer?): span.ByteSpan borrows (self)
+    view: function(borrows self: Bytes, integer?, integer?): span.Span<uint8> borrows (self)
 
     --- A checked zero-copy view of the complete region as physical elements.
     viewas: function<T>(borrows self: Bytes, ctype<T>): span.Span<T> borrows (self)

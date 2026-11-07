@@ -3,7 +3,7 @@ module nupp.digest.checksum
 
 const _PROVIDER_REQUIRES = "@requires-dynamically nupp.runtime.provider.checksum"
 
-local {type ByteSpan} = require("binary.span")
+local {type Span} = require("binary.span")
 local {type Checksum as ContextChecksum} = require("nupp.digest.internal.contracts")
 const provider = require("nupp.digest.internal.checksumprovider")
 local makeContext: function(provider.Algorithm, string, integer): ContextChecksum
@@ -31,12 +31,12 @@ export record ChecksumFormat
     --- Computes a complete value and closes its context.
     --- @param bytes raw message bytes
     --- @return the unsigned checksum value
-    function compute(self, borrows bytes: string | ByteSpan): uint64
+    function compute(self, borrows bytes: string | Span<uint8>): uint64
         local value: Checksum = self:create()
         if type(bytes) == "string" then
             value:write(tostring(bytes))
         else
-            value:writespan(bytes as ByteSpan)
+            value:writespan(bytes as Span<uint8>)
         end
 
         return value:value()
@@ -67,7 +67,7 @@ local record Context is Checksum
         return true, nil
     end
 
-    function writespan(exclusive self, borrows bytes: ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows bytes: Span<uint8>): (integer?, string?)
         self.state:update(bytes)
 
         return #bytes, nil

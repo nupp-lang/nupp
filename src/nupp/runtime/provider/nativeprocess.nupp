@@ -371,7 +371,7 @@ local function create(): contract.Provider
             error("nupp: native process provider returned an invalid write state", 0)
         end,
 
-        writespan = function(self: contract.Provider, stream: any, borrows source: span.ByteSpan): (integer, boolean)
+        writespan = function(self: contract.Provider, stream: any, borrows source: span.Span<uint8>): (integer, boolean)
             local writeFrom = C.nuppNativeProcessStreamWrite as function(
                 handle: any,
                 borrows pointer: const uint8[?],

@@ -104,7 +104,7 @@ local record ProbeWriter is Writer
         return true
     end
 
-    function writespan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows source: span.Span<uint8>): (integer?, string?)
         return #source
     end
 

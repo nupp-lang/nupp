@@ -357,7 +357,7 @@ export record File is io.Reader, io.Writer
     --- @param source bytes valid for the duration of the call
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
-    function writespan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows source: span.Span<uint8>): (integer?, string?)
         if self._closed then
             return nil, "the file is closed"
         end
@@ -758,12 +758,12 @@ local spanText: function(
     count: integer
 ): string = require("nupp.runtime.storage").string as any
 
-local function submitBytes(path: string, borrows bytes: string | span.ByteSpan, mode: integer, output: any): integer
+local function submitBytes(path: string, borrows bytes: string | span.Span<uint8>, mode: integer, output: any): integer
     local payload: string
     if valueType(bytes) == "string" then
         payload = tostring(bytes)
     else
-        local source = bytes as span.ByteSpan;
+        local source = bytes as span.Span<uint8>;
         payload = spanText(source:ref(), #source)
     end
 
@@ -1045,7 +1045,7 @@ end
 --- @return whether the write succeeded
 --- @return a failure reason, when unsuccessful
 --- @export
-export function write(path: string | paths.Path, borrows bytes: string | binary.span.ByteSpan): (boolean, string?)
+export function write(path: string | paths.Path, borrows bytes: string | binary.span.Span<uint8>): (boolean, string?)
     local text = named(path, "path", 2)
     local output = ffi.new("uint64_t[1]")
     local status = submitBytes(text, bytes, 0, output)
@@ -1063,7 +1063,7 @@ end
 --- @return whether the write succeeded
 --- @return a failure reason, when unsuccessful
 --- @export
-export function append(path: string | paths.Path, borrows bytes: string | binary.span.ByteSpan): (boolean, string?)
+export function append(path: string | paths.Path, borrows bytes: string | binary.span.Span<uint8>): (boolean, string?)
     local text = named(path, "path", 2)
     local output = ffi.new("uint64_t[1]")
     local status = submitBytes(text, bytes, 1, output)
@@ -1085,7 +1085,10 @@ end
 --- @return whether the write succeeded
 --- @return a failure reason, when unsuccessful
 --- @export
-export function writeAtomic(path: string | paths.Path, borrows bytes: string | binary.span.ByteSpan): (boolean, string?)
+export function writeAtomic(
+    path: string | paths.Path,
+    borrows bytes: string | binary.span.Span<uint8>
+): (boolean, string?)
     local text = named(path, "path", 2)
     local output = ffi.new("uint64_t[1]")
     local status = submitBytes(text, bytes, 2, output)

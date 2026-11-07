@@ -19,7 +19,7 @@ CRC parameters. Checksums detect corruption and provide no authentication.
 ]]
 module nupp.digest.internal.checksumprovider
 
-local {type ByteSpan} = require("binary.span")
+local {type Span} = require("binary.span")
 
 --- Independent incremental state; close consumes its ownership without suspension.
 export interface State is own.Closeable
@@ -27,7 +27,7 @@ export interface State is own.Closeable
     close: @nosuspend function(takes self: State): nil
 
     --- Processes this borrowed chunk without retaining its bytes.
-    update: function(exclusive self: State, borrows bytes: ByteSpan): nil
+    update: function(exclusive self: State, borrows bytes: Span<uint8>): nil
 
     --- Returns the current unsigned checksum without consuming state.
     value: function(self: State): uint64

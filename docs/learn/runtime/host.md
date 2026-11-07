@@ -57,7 +57,7 @@ borrow cannot cross:
 local host = os.host
 local span = binary.span
 
-local type Digest = function(borrows bytes: span.ByteSpan): (integer, span.ByteSpan)
+local type Digest = function(borrows bytes: span.Span<uint8>): (integer, span.Span<uint8>)
 local digest = host.bind<Digest>("app.digest")
 
 const text = "hello"
@@ -113,7 +113,7 @@ local input: events.MessageBus<integer> = events.MessageBus()
 input:observe(1, PointerMove, |move| -> print(move.x, move.y), "cursor")
 local route = host.route("app.pointer.move", PointerMove, input, 1, "latest")
 
-local type Packet = function(borrows packet: span.ByteSpan): nil
+local type Packet = function(borrows packet: span.Span<uint8>): nil
 local sendPacket = host.bindsend<Packet>("app.render.packet", "latest")
 ```
 

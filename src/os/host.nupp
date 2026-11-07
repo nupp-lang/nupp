@@ -46,7 +46,7 @@ cross, and carry the other values only:
 local host = os.host
 local span = binary.span
 
-local type Digest = function(borrows bytes: span.ByteSpan): (integer, span.ByteSpan)
+local type Digest = function(borrows bytes: span.Span<uint8>): (integer, span.Span<uint8>)
 local digest = host.bind<Digest>("app.digest")
 
 const text = "hello"

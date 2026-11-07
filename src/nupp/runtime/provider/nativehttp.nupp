@@ -950,7 +950,7 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
             bodyLength = concrete:len()
             body = concrete:tostring()
         elseif (require("nupp.mem.span") as any).__sharedRef(concrete) ~= nil then
-            local source = concrete as span.ByteSpan
+            local source = concrete as span.Span<uint8>
             bodyKind = BODY_INLINE
             bodyLength = #source
             body = spanText(source:ref(), #source)

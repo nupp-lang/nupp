@@ -228,7 +228,7 @@ local function create(): contract.TlsProvider
         writespan = function(
             self: contract.TlsProvider,
             session: any,
-            borrows source: span.ByteSpan
+            borrows source: span.Span<uint8>
         ): (integer?, string?)
             local writeFrom = C.nuppNativeTlsWrite as function(
                 handle: any,

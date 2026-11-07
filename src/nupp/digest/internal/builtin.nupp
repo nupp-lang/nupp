@@ -21,7 +21,7 @@ const words = require("nupp.digest.internal.words")
 local record State is provider.State
     @private value: streaming.Hasher
 
-    function update(exclusive self, borrows bytes: span.ByteSpan): nil
+    function update(exclusive self, borrows bytes: span.Span<uint8>): nil
         -- Bound temporary copies for span-backed portable implementations.
         local offset: integer = 1
         while offset <= #bytes do

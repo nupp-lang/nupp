@@ -391,10 +391,10 @@ return result
         [
             "src/acme/api.nupp"
         ] = [[module acme.api
-local {type ByteSpan} = require("binary.span")
+local {type Span} = require("binary.span")
 export interface State is own.Closeable
     close: @nosuspend function(takes self: State): nil
-    update: function(exclusive self: State, borrows bytes: ByteSpan): nil
+    update: function(exclusive self: State, borrows bytes: Span<uint8>): nil
     finish: function(exclusive self: State): string
 end
 export interface Algorithm

@@ -37,7 +37,7 @@ end
 local foreignByteSpan = rawget(
     spanImplementation as table,
     "__foreignByteSpan"
-) as @nosuspend function(any, any, integer, integer): span.ByteSpan
+) as @nosuspend function(any, any, integer, integer): span.Span<uint8>
 local foreignSpan = rawget(
     spanImplementation as table,
     "__foreignSpan"
@@ -92,7 +92,7 @@ function Bytes:slice(offset: integer, count: integer): Bytes
 end
 
 --- @raises string when the extent falls outside the region
-function Bytes:view(offset: integer?, count: integer?): span.ByteSpan
+function Bytes:view(offset: integer?, count: integer?): span.Span<uint8>
     local from = offset == nil and 0 or offset as integer
     local taking = count == nil and length(self) - from or count as integer
     if not inside(length(self), from, taking) then

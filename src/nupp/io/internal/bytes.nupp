@@ -13,7 +13,7 @@ local foreignRead: function(
     pointer: any,
     integer,
     integer
-): span.ByteSpan borrows (owner) = (require("nupp.mem.span") as any).__foreignByteSpan
+): span.Span<uint8> borrows (owner) = (require("nupp.mem.span") as any).__foreignByteSpan
 local foreignWrite: function(
     borrows owner: any,
     pointer: any,
@@ -399,7 +399,7 @@ end
 
 local readSource: function(source: string | ByteQueue): Reader
 local readBuffer: function(exclusive source: Buffer): affine(Reader) borrows (source)
-local readSpan: function(borrows source: span.ByteSpan): affine(Reader) borrows (source)
+local readSpan: function(borrows source: span.Span<uint8>): affine(Reader) borrows (source)
 local readBytes: function(source: immutable.Bytes): Reader
 local writeBuffer: function(exclusive destination: Buffer): affine(Writer) borrows (destination)
 local createBuffer: function(initial: integer | string?): affine(Buffer)
@@ -437,7 +437,7 @@ export interface Writer is own.Closeable
     --- @param source bytes valid for the duration of the call
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
-    writespan: function(exclusive self: Writer, borrows source: span.ByteSpan): (integer?, string?)
+    writespan: function(exclusive self: Writer, borrows source: span.Span<uint8>): (integer?, string?)
 
     --- Nothing is buffered behind this writer, so this only reports whether it is open.
     --- @param self this writer
@@ -513,7 +513,7 @@ export interface Reader is own.Closeable
     end
 
     --- Borrows a span without copying its bytes.
-    function of(borrows source: span.ByteSpan): affine(Reader) borrows (source)
+    function of(borrows source: span.Span<uint8>): affine(Reader) borrows (source)
         return readSpan(source)
     end
 
@@ -760,7 +760,7 @@ export sealed interface Buffer is own.Closeable
         return result
     end
 
-    span: function(borrows self: Buffer, first: integer?, last: integer?): span.ByteSpan borrows (self)
+    span: function(borrows self: Buffer, first: integer?, last: integer?): span.Span<uint8> borrows (self)
     reserve: function(exclusive self: Buffer, count: integer): affine(BufferWriteLease, destroyLease) borrows (self)
     capacity: function(borrows self: Buffer): integer
     ensure: function(exclusive self: Buffer, minimum: integer): nil
@@ -1110,7 +1110,7 @@ local record HeapBuffer is Buffer
             elseif (value as any).tostring ~= nil then
                 writeAt(self, (value as Buffer):tostring(), self._length)
             else
-                local source = value as span.ByteSpan
+                local source = value as span.Span<uint8>
                 local count = #source
                 reserve(self, sizeSum(self._length, count, "io.Buffer append", 2))
                 @unsafe do
@@ -1137,7 +1137,7 @@ local record HeapBuffer is Buffer
         return self
     end
 
-    function span(borrows self, first: integer?, last: integer?): span.ByteSpan borrows (self)
+    function span(borrows self, first: integer?, last: integer?): span.Span<uint8> borrows (self)
         opened(self._closed, "io.Buffer", 2)
         syncNative(self)
         local start = first or 1
@@ -1341,7 +1341,7 @@ local record BufferWriter is Writer
         return true, nil
     end
 
-    function writespan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows source: span.Span<uint8>): (integer?, string?)
         if self._closed then
             return nil, "the writer is closed"
         end
@@ -1415,11 +1415,11 @@ local spanText: function(borrows source: const uint8[?], count: integer): string
 
 -- A Bytes source is a retained immutable value; a Span source carries its
 -- caller's borrow. The reader uses one implementation for both.
-local function heldSpan(borrows source: any): span.ByteSpan borrows (source)
+local function heldSpan(borrows source: any): span.Span<uint8> borrows (source)
     if source.view ~= nil and source.viewas ~= nil then
         return (source as immutable.Bytes):view()
     end
-    return source as span.ByteSpan
+    return source as span.Span<uint8>
 end
 
 local record SpanReader is Reader
@@ -1981,7 +1981,7 @@ export function newQueueReader(source: ByteQueue): Reader
     return QueueReader(_source = source, _buffer = false, _closed = false)
 end
 
-local function newSpanReader(borrows source: span.ByteSpan): affine(Reader) borrows (source)
+local function newSpanReader(borrows source: span.Span<uint8>): affine(Reader) borrows (source)
     return SpanReader(_source = source, _at = 0, _closed = false)
 end
 
@@ -2009,7 +2009,7 @@ end
 --- Opens a byte reader, retaining the source's borrow when needed.
 export const newReader: function(source: string | ByteQueue): Reader
     & function(exclusive source: Buffer): affine(Reader) borrows (source)
-    & function(borrows source: span.ByteSpan): affine(Reader) borrows (source)
+    & function(borrows source: span.Span<uint8>): affine(Reader) borrows (source)
     & function(source: immutable.Bytes): Reader = openReader as any
 
 readSource = openReader as any

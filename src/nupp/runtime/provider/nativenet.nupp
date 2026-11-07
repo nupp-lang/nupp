@@ -339,7 +339,11 @@ local function create(): contract.Provider
             return tonumber(count[0]) as integer
         end,
 
-        writespan = function(self: contract.Provider, stream: any, borrows source: span.ByteSpan): (integer?, string?)
+        writespan = function(
+            self: contract.Provider,
+            stream: any,
+            borrows source: span.Span<uint8>
+        ): (integer?, string?)
             local writeFrom = C.nuppNativeNetStreamWrite as function(
                 handle: any,
                 borrows pointer: const uint8[?],

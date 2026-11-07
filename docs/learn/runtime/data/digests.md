@@ -33,10 +33,10 @@ The built-ins are `md5` (16 bytes), `sha1` (20), `sha256` (32), and
 must not be used where collision resistance is required.
 
 A digest is an [`io.Writer`](io.Writer): `write(string)` and
-`writespan(ByteSpan)` accept chunks without retaining input views, and the state
-stays bounded as the message grows. Anything that fills a writer fills a digest,
-so `reader:transferto(rolling)` hashes a file or a response body a window at a
-time.
+`writespan(Span<uint8>)` accept chunks without retaining input views, and the
+state stays bounded as the message grows. Anything that fills a writer fills a
+digest, so `reader:transferto(rolling)` hashes a file or a response body a window
+at a time.
 
 ## Finalization and caller storage
 

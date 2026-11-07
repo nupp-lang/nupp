@@ -57,7 +57,7 @@ assert(buffer:tostring() == "c")
 ## Borrowing and ownership
 
 A span retains its source and checks every index against its count.
-[](binary.span.fromstring) lends a read-only `ByteSpan`; `array:read()`
+[](binary.span.fromstring) lends a read-only `Span<uint8>`; `array:read()`
 lends `Span<T>`, and `array:write()` lends the affine `Writable<T>` wrapper
 around `WriteSpan<T>`. Functions receiving writable access name
 `exclusive bytes: binary.span.ByteWriteSpan` or

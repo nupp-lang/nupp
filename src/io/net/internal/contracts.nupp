@@ -91,7 +91,7 @@ export interface TlsProvider
     @readonly write: function(self: TlsProvider, session: any, bytes: string): (integer?, string?)
 
     @readonly writespan: (
-        function(self: TlsProvider, session: any, borrows source: span.ByteSpan): (integer?, string?)
+        function(self: TlsProvider, session: any, borrows source: span.Span<uint8>): (integer?, string?)
     )?
 
     --- Returns true when encrypted output has drained, false while pending,

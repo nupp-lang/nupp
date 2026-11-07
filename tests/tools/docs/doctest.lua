@@ -1740,20 +1740,20 @@ function M.documentsBorrowedResultsWithoutRepeatingTheirSources()
             "--- Views a byte range.",
             "--- @param source The array backing the view.",
             "--- @return The checked view.",
-            "function view(borrows source: uint8[?]): ByteSpan borrows (source)",
-            "   return nil as ByteSpan",
+            "function view(borrows source: uint8[?]): Span<uint8> borrows (source)",
+            "   return nil as Span<uint8>",
             "end",
         },
         "\n"
     )
     local module = assert(doc.extract(source, "src/view.nupp", "view", {includePrivate = true}))
     local view = assert(module.items[1])
-    assert(view.signature == "function view(borrows source: uint8[?]): ByteSpan", view.signature)
-    assert(view.returns[1].type == "ByteSpan", view.returns[1].type)
+    assert(view.signature == "function view(borrows source: uint8[?]): Span<uint8>", view.signature)
+    assert(view.returns[1].type == "Span<uint8>", view.returns[1].type)
 
     local markdown = doc.markdown({module})
-    assert(markdown:find("function(borrows source: uint8[?]): ByteSpan", 1, true), markdown)
-    assert(not markdown:find("ByteSpan borrows (source)", 1, true), markdown)
+    assert(markdown:find("function(borrows source: uint8[?]): Span<uint8>", 1, true), markdown)
+    assert(not markdown:find("Span<uint8> borrows (source)", 1, true), markdown)
 end
 
 function M.documentsDeprecatedMigrationMetadata()
@@ -4185,7 +4185,6 @@ function M.affineAliasesLinkToTheGenericWrappedType()
         ] = [[
 module binary.span
 local source = require("internal.span")
-export type ByteSpan = source.ByteSpan
 export type Span<T> = source.Span<T>
 export type Writable<T> = source.Writable<T>
 ]],
@@ -4197,7 +4196,6 @@ module internal.span
 export interface Span<T>
     get: function(self: Span<T>, index: integer): T
 end
-export type ByteSpan = Span<uint8>
 export type Writable<T> = affine(Span<T>)
 ]],
     })

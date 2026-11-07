@@ -1,6 +1,6 @@
 --[[
 `utf8` reads Unicode scalars out of strings and
-[](binary.span.ByteSpan) values. Reach for it to count, decode,
+[](binary.span.Span) values with `uint8` elements. Reach for it to count, decode,
 validate or truncate text whose bytes came from somewhere else.
 
 ```nupp
@@ -80,7 +80,7 @@ module utf8
 
 local valueType: function(borrows value: any): string = type as any
 
-const {type ByteSpan} = require("binary.span")
+const {type Span} = require("binary.span")
 
 -- `string.byte` by name rather than as a method. Written `source:byte(at)` the
 -- name is looked up on the string metatable before every call; a loop long enough
@@ -91,20 +91,20 @@ local stringByte = string.byte
 
 local REPLACEMENT: integer = 65533
 
-local function byteLength(borrows value: string | ByteSpan): integer
+local function byteLength(borrows value: string | Span<uint8>): integer
     if valueType(value) == "string" then
         return #(value as string)
     end
-    local view = value as ByteSpan
+    local view = value as Span<uint8>
 
     return #view
 end
 
-local function byteAt(borrows value: string | ByteSpan, at: integer): integer?
+local function byteAt(borrows value: string | Span<uint8>, at: integer): integer?
     if valueType(value) == "string" then
         return stringByte(tostring(value), at)
     end
-    local source = value as ByteSpan
+    local source = value as Span<uint8>
     if at < 1 or at > byteLength(source) then
         return nil
     end
@@ -113,7 +113,7 @@ local function byteAt(borrows value: string | ByteSpan, at: integer): integer?
 end
 
 --- @raises string when at is not an integer, or is outside the value
-local function offset(borrows value: string | ByteSpan, at: integer, allowEnd: boolean): integer
+local function offset(borrows value: string | Span<uint8>, at: integer, allowEnd: boolean): integer
     if at ~= math.floor(at) then
         error("nupp: UTF-8 byte offset must be an integer", 3)
     end
@@ -128,7 +128,7 @@ end
 -- The codepoint starting at `at`, and where the next one starts. A malformed
 -- sequence answers the replacement character and advances exactly one byte, so the
 -- caller always makes progress.
-local function decode(borrows source: string | ByteSpan, at: integer): (integer?, integer)
+local function decode(borrows source: string | Span<uint8>, at: integer): (integer?, integer)
     local first = byteAt(source, at)
     if not first then
         return nil, at
@@ -171,7 +171,7 @@ end
 -- lead byte alone cannot settle is the second byte: the four named here are the
 -- ones where it is what rules out an overlong form, a surrogate half, or a value
 -- past the maximum.
-local function scan(borrows source: string | ByteSpan, limit: integer): integer
+local function scan(borrows source: string | Span<uint8>, limit: integer): integer
     local at: integer = 1
     while at <= limit do
         local lead = byteAt(source, at) as integer
@@ -232,7 +232,7 @@ end
 ---
 --- @param value the bytes to measure
 --- @return the codepoint count
-export function len(borrows value: string | ByteSpan): integer
+export function len(borrows value: string | Span<uint8>): integer
     local source = value
     local count: integer = 0
     local at: integer = 1
@@ -265,7 +265,7 @@ end
 --- @return the codepoint, or nil at the end of the value
 --- @return the byte the next codepoint starts at
 --- @raises string when byteoffset is not an integer, or is outside the value
-export function decodeat(borrows value: string | ByteSpan, byteoffset: integer): (integer?, integer)
+export function decodeat(borrows value: string | Span<uint8>, byteoffset: integer): (integer?, integer)
     local source = value
 
     return decode(source, offset(source, byteoffset, true))
@@ -290,7 +290,7 @@ end
 --- @return the codepoint, or nil at the start of the value
 --- @return the byte that codepoint starts at
 --- @raises string when byteoffset is not an integer, or is outside the value
-export function decodebefore(borrows value: string | ByteSpan, byteoffset: integer): (integer?, integer)
+export function decodebefore(borrows value: string | Span<uint8>, byteoffset: integer): (integer?, integer)
     local source = value
     local at = offset(source, byteoffset, true)
     if at == 1 then
@@ -361,7 +361,7 @@ end
 ---
 --- @param value the bytes to test
 --- @return whether every sequence is well formed
-export function isvalid(borrows value: string | ByteSpan): boolean
+export function isvalid(borrows value: string | Span<uint8>): boolean
     local source = value
 
     return scan(source, byteLength(source)) == byteLength(source)
@@ -380,7 +380,7 @@ end
 --- @param maxbytes the most bytes the prefix may use
 --- @return the prefix length, in bytes
 --- @raises string when maxbytes is not an integer
-export function validprefixlen(borrows value: string | ByteSpan, maxbytes: integer): integer
+export function validprefixlen(borrows value: string | Span<uint8>, maxbytes: integer): integer
     local source = value
     if maxbytes ~= math.floor(maxbytes) or maxbytes == math.huge or maxbytes == -math.huge then
         error("nupp: UTF-8 byte limit must be an integer", 2)

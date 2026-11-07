@@ -34,7 +34,7 @@ local record AdlerState is provider.State
     @private high: integer
     @private low: integer
 
-    function update(exclusive self, borrows bytes: span.ByteSpan): nil
+    function update(exclusive self, borrows bytes: span.Span<uint8>): nil
         for index = 1, #bytes do
             self.low = (self.low + bytes[index]) % 65521
             self.high = (self.high + self.low) % 65521
@@ -53,7 +53,7 @@ local record CrcState is provider.State
     @private id: integer
     @private words: any
 
-    function update(exclusive self, borrows bytes: span.ByteSpan): nil
+    function update(exclusive self, borrows bytes: span.Span<uint8>): nil
         crcUpdate(self.id, 0, self.words, bytes:ref(), #bytes)
     end
 

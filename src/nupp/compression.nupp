@@ -232,7 +232,7 @@ local record Writer is CompressionWriter
         return true, nil
     end
 
-    function writespan(exclusive self, borrows input: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows input: span.Span<uint8>): (integer?, string?)
         local at: integer = 1
         while at <= #input do
             local remaining = input:slice(at, #input)
@@ -653,7 +653,7 @@ export record CompressionFormat
     --- @raises string when options are invalid or compression fails
     function compress(
         self,
-        borrows bytes: span.ByteSpan,
+        borrows bytes: span.Span<uint8>,
         exclusive destination: io.Buffer,
         options: CompressionWriterOptions?
     ): nil
@@ -680,7 +680,7 @@ export record CompressionFormat
 
     --- Compresses a borrowed span into a new string.
     --- @raises string when options are invalid or compression fails
-    function compress(self, borrows bytes: span.ByteSpan, options: CompressionWriterOptions?): string
+    function compress(self, borrows bytes: span.Span<uint8>, options: CompressionWriterOptions?): string
         local destination = io.Buffer.create()
         self:compress(bytes, destination, options)
         local answer = destination:tostring()
@@ -701,7 +701,7 @@ export record CompressionFormat
     ---     exceeded
     function decompress(
         self,
-        borrows bytes: span.ByteSpan,
+        borrows bytes: span.Span<uint8>,
         exclusive destination: io.Buffer,
         options: CompressionReaderOptions?
     ): nil
@@ -727,7 +727,7 @@ export record CompressionFormat
     --- Decompresses a borrowed span into a new string with a 64 MiB default cap.
     --- @raises string when options are invalid, the stream is invalid or a limit is
     ---     exceeded
-    function decompress(self, borrows bytes: span.ByteSpan, options: CompressionReaderOptions?): string
+    function decompress(self, borrows bytes: span.Span<uint8>, options: CompressionReaderOptions?): string
         local destination = io.Buffer.create()
         self:decompress(bytes, destination, options)
         local answer = destination:tostring()

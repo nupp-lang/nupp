@@ -432,7 +432,7 @@ export record TlsSession is io.Reader, io.Writer
     end
 
     --- Appends bytes from a checked shared span.
-    function writespan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows source: span.Span<uint8>): (integer?, string?)
         if self._closed then
             return nil, "the session is closed"
         end

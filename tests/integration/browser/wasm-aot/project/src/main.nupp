@@ -142,7 +142,7 @@ local rotatedLeft, rotatedRight = rotateWide(1 as uint64, 1)
 assert2(rotatedLeft == (2 as uint64) and tostring(rotatedRight) == "9223372036854775808")
 
 @aot
-local function copyBytes(exclusive destination: span.WriteSpan<uint8>, borrows source: span.ByteSpan): nil
+local function copyBytes(exclusive destination: span.WriteSpan<uint8>, borrows source: span.Span<uint8>): nil
     if #destination ~= #source then
         error("length mismatch", 2)
     end

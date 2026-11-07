@@ -199,7 +199,7 @@ directly:
 ```nupp
 module app.read
 
-export function view(borrows text: string): binary.span.ByteSpan borrows (text)
+export function view(borrows text: string): binary.span.Span<uint8> borrows (text)
     return binary.span.fromstring(text)
 end
 ```

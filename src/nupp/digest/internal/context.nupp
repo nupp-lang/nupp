@@ -54,7 +54,7 @@ local record Context is Digest
         return true, nil
     end
 
-    function writespan(exclusive self, borrows bytes: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows bytes: span.Span<uint8>): (integer?, string?)
         self.state:update(bytes)
 
         return #bytes, nil
