@@ -585,6 +585,7 @@ local RAISES = {
 -- The twins that run commands: the reference interpreter they run under is
 -- built with LUA_USE_POSIX (see `posixreference`).
 local POSIXTWINS = {
+    ["catalog-call-arguments"] = true,
     ["catalog-process-execute"] = true,
     ["catalog-process-popen"] = true,
     ["catalog-process-exit"] = true,
@@ -878,6 +879,9 @@ local function stage()
             write(base .. "/source/nupp/runtime/core/guestaudit.nupp", read(TESTS .. "/guest-lifecycle-audit.nupp"))
         end
         for _, fixture in ipairs({
+            "catalog-strings-library",
+            "catalog-threads-meta",
+            "catalog-tables-library-meta",
             "catalog-string-dynamic",
             "catalog-string-metatable-only",
             "catalog-string-metatable",
