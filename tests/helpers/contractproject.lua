@@ -34,6 +34,15 @@ function M.open(root)
     end
 
     function project.run(file, capturePrint)
+        if capturePrint then
+            -- VM print calls target the runtime directly. Capture real child output.
+            local executable = require("helpers.paths").absoluteTests .. "/../bin/nupp"
+            local status, output = require("nupp.compiler.process").capture({executable, "run", absolute(file)}, {
+                cwd = root
+            })
+            assert(status == 0, output)
+            return output
+        end
         local loadImage = assert(rawget(_G, "__nupp_load_image"), "contract fixtures run on the VM")
 
         local function compiled(path, e, name, source)
@@ -58,16 +67,6 @@ function M.open(root)
             end,
             loadCompiled
         )
-        local printed, originalPrint = {}, print
-        if capturePrint then
-            print = function(...)
-                local values = {}
-                for index = 1, select("#", ...) do
-                    values[index] = tostring(select(index, ...))
-                end
-                printed[#printed + 1] = table.concat(values, "\t") .. "\n"
-            end
-        end
         local ok, problem = pcall(function()
             local path = absolute(file)
             local chunk
@@ -78,7 +77,6 @@ function M.open(root)
             end
             chunk()
         end)
-        print = originalPrint
         remove()
         -- These are fixture modules, never the shared compiler or stdlib.
         for name in pairs(package.loaded) do
@@ -88,7 +86,7 @@ function M.open(root)
         end
         assert(ok, problem)
 
-        return table.concat(printed)
+        return ""
     end
 
     return project

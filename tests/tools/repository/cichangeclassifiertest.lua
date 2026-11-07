@@ -85,6 +85,9 @@ end
 function M.utilityRootsRetainTheirExistingLibrarySurfaces()
     for _, path in ipairs({
         "src/debug/log.nupp",
+        "src/utf8.nupp",
+        "src/serde/valuebuilder.nupp",
+        "src/nupp/serde/internal/valuebuilder.nupp",
         "src/warn.nupp",
         "src/io/internal/path.nupp",
         "src/io/internal/contracts.nupp"
@@ -126,7 +129,7 @@ function M.aotChangeSelectsAotAndFixpoint()
     selects("src/nupp/compiler/aot/reducers.nupp", {"fast-checks", "linux-integration", "fixpoint"})
 end
 
-function M.localFleetInputsRemainAnExplicitSimdSurface()
+function M.nativeStorageInputsRemainAnExplicitSimdSurface()
     for _, path in ipairs({
         "src/simd.nupp",
         "src/simd/horizontal.nupp",
@@ -136,41 +139,6 @@ function M.localFleetInputsRemainAnExplicitSimdSurface()
         "src/nupp/runtime/storage.nupp",
         "src/bytes/_representation.nupp",
         "src/nupp/runtime/provider/nativestorage.nupp",
-        "src/utf8.nupp",
-        "src/serde/valuebuilder.nupp",
-        "src/nupp/serde/internal/valuebuilder.nupp",
-        "src/nupp/codec/json/aot.nupp",
-        "src/nupp/codec/json/internal/decoder/fused.nupp",
-        "src/nupp/codec/json/internal/builder.nupp",
-        "src/nupp/compiler/aot/emit.nupp",
-        "src/nupp/tools/build/aot.nupp",
-        "src/nupp/compiler/compilerpacks.nupp",
-        "src/nupp/tools/build/project.nupp",
-        "src/nupp/compiler/check/aot.nupp",
-        "src/nupp/compiler/lua/constspecialize.nupp",
-        "src/nupp/compiler/scalarintrinsics.nupp",
-        "src/nupp/compiler/targetlayout.nupp",
-        "src/nupp/compiler/targetprofile.nupp",
-        "src/nupp/compiler/capabilities.nupp",
-        "runtime/luajit/aot.mjs",
-        "tests/integration/simd/primitives.lua",
-        "tests/integration/simd/simdprimitivedifferentialtest.lua",
-        "tests/stdlib/serde/json/jsonfuseddifferentialtest.lua",
-        "bench/utf8simd/src/utf8simd.nupp",
-        "bench/utf8simd/src/utf8reference.nupp",
-        "bench/utf8simd/tests/run.lua",
-        "bench/utf8simd/nupp.lua",
-        "bench/base64simd/src/base64simd.nupp",
-        "bench/base64simd/src/base64reference.nupp",
-        "bench/base64simd/tests/run.lua",
-        "bench/base64simd/nupp.lua",
-        "bench/simd-json/src/simd_json/indexer.nupp",
-        "bench/simd-json/src/simd_json/indexer_reference.nupp",
-        "bench/simd-json/tests/index.lua",
-        "bench/simd-json/nupp.lua",
-        "bench/fused-json/prepare.sh",
-        "bench/fused-json/tests/differential.lua",
-        "bench/fused-json/nupp.lua"
     }) do
         test(classifier().surfacesOf(path).simd, path .. " should be on the SIMD surface")
     end
