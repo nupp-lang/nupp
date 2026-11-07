@@ -638,6 +638,24 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         block = nil
     end
 
+    -- A profile's guarded operation uses the same binding transport as source
+    -- branches, including values held across its callback.
+    ctx.when = function(node: any, condition: integer, action: any): nil
+        local before = need(block, "conditional operation after terminator")
+        need(profile.valueKind(g, condition) == profile.booleanKind, "conditional operation requires a Boolean")
+        local yes, done = branch(), branch()
+        before.term = {kind = "branch", value = condition, edges = {yes.edge, done.edge}, pos = position(node)}
+        resume(yes)
+        context()
+        action(ctx, node)
+        block = ctx.block
+        if block then
+            jump(done, node)
+        end
+        resume(done)
+        context()
+    end
+
     -- A loop a library form builds, table.sort's comparator calls: `step`
     -- answers a value whose truth goes round again, and `body` emits one
     -- iteration. What either needs across iterations it holds.

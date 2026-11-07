@@ -58,6 +58,7 @@ local GUEST_ENV = "NUPP_GUEST_PROBE=core-environment NUPP_GUEST_SCALE=3 NUPP_GUE
 ) .. " NUPP_GUEST_TEMP=" .. OUT .. "/temp" .. " "
 
 local CASES = {
+    {"optionalmethodcleanups", 0x7FFF000000000001},
     {"stringdynamic", 0x7FFF000000000001},
     {"stringmetaonly", 0x7FFF000000000001},
     {"stringmetatable", 0x7FFF000000000001},
@@ -324,6 +325,7 @@ end
 -- spaced by a share of what lives, so the full-scale workloads stay linear;
 -- records and strings, at seconds a run there, run so in normal mode alone.
 local STRESS = {
+    optionalmethodcleanups = true,
     stringdynamic = true,
     stringmetaonly = true,
     stringmetatable = true,
@@ -599,6 +601,7 @@ local POSIXTWINS = {
     ["catalog-os-files"] = true
 }
 local FIXTURES = {
+    "catalog-optional-method-cleanups",
     "catalog-string-dynamic",
     "catalog-string-metatable-only",
     "catalog-string-metatable",
@@ -892,6 +895,7 @@ local function stage()
             "catalog-strings-library",
             "catalog-threads-meta",
             "catalog-tables-library-meta",
+            "catalog-optional-method-cleanups",
             "catalog-string-dynamic",
             "catalog-string-metatable-only",
             "catalog-string-metatable",

@@ -21,13 +21,15 @@ function cleanup.type(t: any): any
     need(t.inner and (t.inner.tag ~= "union" or optional), "conditional owner cleanup is unsupported")
     need(#(t.cleanups or {}) > 0, "owner lacks an exact cleanup chain")
     -- An optional owner holds nil or its value; Destroy passes nil by, so a
-    -- free function's cleanup needs no test. A method is found through the
-    -- owned value itself, which nil has none of.
+    -- free function's cleanup needs no test. Optional methods require the
+    -- profile to guard both the receiver lookup and terminal call.
     for _, item in ipairs(t.cleanups) do
         need(
             item.kind == "function" and item.functionType
-            or not optional and item.kind == "method" and type(item.name) == "string",
-            "only checked free-function or method cleanup is supported, and only free functions for an optional owner"
+            or item.kind == "method"
+            and type(item.name) == "string"
+            and (not optional or item.id == "method:" .. item.name),
+            "only checked free-function or canonical method cleanup is supported"
         )
     end
 

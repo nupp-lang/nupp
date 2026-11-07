@@ -301,7 +301,7 @@ export function cleanupProfile(base: any): any
                 need(item.kind == "method", "a method cleanup chain mixes in a function")
                 names[#names + 1] = item.name
             end
-            return {names = names}
+            return {names = names, optional = inner.tag == "union"}
         end
         -- Cleanups that are not the record's own methods are functions read
         -- from the core's registry by key.
@@ -338,10 +338,21 @@ export function cleanupProfile(base: any): any
     profile.cleanupRun = function(ctx: any, node: any, plan: any, value: integer, reason: string): nil
         local held = ctx.hold(value)
         if plan.names then
-            for index = #plan.names, 1, -1 do
-                local key = ctx.emit(node, "K", {pool(ctx, "str", plan.names[index])}, "tagged")
-                local callee = ctx.emit(node, "GetIdx", {ctx.readHeld(held), key}, "tagged")
-                ctx.emit(node, "Destroy", {callee, ctx.readHeld(held)}, nil)
+            local function destroy(ctx: any, node: any): nil
+                for index = #plan.names, 1, -1 do
+                    local key = ctx.emit(node, "K", {pool(ctx, "str", plan.names[index])}, "tagged")
+                    local callee = ctx.emit(node, "GetIdx", {ctx.readHeld(held), key}, "tagged")
+                    ctx.emit(node, "Destroy", {callee, ctx.readHeld(held)}, nil)
+                end
+            end
+
+            if plan.optional then
+                local none = ctx.emit(node, "Nil", {}, "tagged")
+                local absent = ctx.emit(node, "Eq", {ctx.readHeld(held), none}, "tagged")
+                local present = ctx.emit(node, "Not", {absent}, "tagged")
+                ctx.when(node, present, destroy)
+            else
+                destroy(ctx, node)
             end
             ctx.release(held)
             return

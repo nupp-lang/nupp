@@ -1,0 +1,65 @@
+module nupp.core.catalogoptionalmethodcleanups
+
+local own = require("own")
+local closed = 0
+local interface Closer is own.Affine<self.close>
+    close: function(takes self: Closer): nil
+end
+local record Sink is Closer
+    n: integer
+    function close(takes self): nil
+        local state = @unsafe own.release(self)
+        closed += state.n
+    end
+end
+
+local function acquire(present: boolean, n: integer): affine(Sink?)
+    if present then
+        return Sink(n = n)
+    end
+    return nil
+end
+
+local function forward(present: boolean, n: integer): affine(Sink?)
+    return acquire(present, n)
+end
+
+local function consume(takes value: Sink): nil
+    value:close()
+end
+
+do
+    local missing = acquire(false, 1)
+end
+assert(closed == 0)
+do
+    local present = acquire(true, 2)
+end
+assert(closed == 2)
+do
+    local narrowed = assert(acquire(true, 4))
+    assert(narrowed.n == 4)
+end
+assert(closed == 6)
+consume(assert(forward(true, 8)))
+assert(closed == 14)
+local marker = "optional cleanup body failure"
+local nilok, nilerror = pcall(function(): nil
+    local missing = acquire(false, 16)
+    error(marker, 0)
+end)
+assert(not nilok and nilerror == marker and closed == 14)
+local liveok, liveerror = pcall(function(): nil
+    local present = acquire(true, 32)
+    error(marker, 0)
+end)
+assert(not liveok and liveerror == marker and closed == 46)
+local assertion = pcall(function(): nil
+    local missing = assert(acquire(false, 64))
+end)
+assert(not assertion and closed == 46)
+do
+    local missing = forward(false, 128)
+end
+assert(closed == 46)
+export = 1
