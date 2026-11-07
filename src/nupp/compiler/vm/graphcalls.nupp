@@ -1371,11 +1371,6 @@ export function expandsResults(expr: any): boolean
         return false
     end
     local called = expr.calleeType or expr.signatureType
-    -- Ordinary methods expand here only for the finite alternatives this
-    -- profile can preserve; existing fixed-result method policy stays unchanged.
-    if expr.kind == "methodCall" then
-        return called ~= nil and alternativeresults(called)
-    end
     if called ~= nil and alternativeresults(called) then
         return true
     end

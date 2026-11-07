@@ -17,6 +17,61 @@ local function count(...: any): integer
     return select("#", ...)
 end
 
+local methodBytes = {("abc"):byte(1, -1)}
+assert(#methodBytes == 3 and methodBytes[1] == 97 and methodBytes[3] == 99)
+assert(select("#", ("abc"):byte(1, -1)) == 3)
+assert(count(("abc"):byte(1, -1)) == 3)
+assert(count((("abc"):byte(1, -1))) == 1)
+local nonfinal = {("abc"):byte(1, -1), 101}
+assert(#nonfinal == 2 and nonfinal[1] == 97 and nonfinal[2] == 101)
+
+local function forwardbytes(): ...integer
+    return ("abc"):byte(1, -1)
+end
+
+assert(count(forwardbytes()) == 3)
+
+local record Results
+    function empty(self): ()
+    end
+
+    function pair(self): (integer, integer)
+        return 107, 109
+    end
+
+    function consume(self, ...: any): integer
+        return select("#", ...)
+    end
+end
+
+local receiver = Results()
+assert(count(receiver:empty()) == 0 and count(receiver:pair()) == 2)
+assert(receiver:consume(103, receiver:empty()) == 1)
+assert(receiver:consume(("abc"):byte(1, -1)) == 3)
+local pairs = {receiver:pair()}
+assert(#pairs == 2 and pairs[1] == 107 and pairs[2] == 109)
+assert(select("#", receiver:empty()) == 0 and select("#", receiver:pair()) == 2)
+local padded, firstpair, secondpair = 101, receiver:pair()
+assert(padded == 101 and firstpair == 107 and secondpair == 109)
+
+local drops: integer = 0
+
+local function release(takes value: Results): nil
+    drops = drops + 1
+    collectgarbage("collect")
+end
+
+local function acquire(): affine(Results, release)
+    return Results()
+end
+
+local function owningbytes(): ...integer
+    local value = acquire()
+    return ("abc"):byte(1, -1)
+end
+
+assert(count(owningbytes()) == 3 and drops == 1)
+
 local function both(): (integer, integer)
     return table.unpack({10, 20})
 end

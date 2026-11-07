@@ -20,6 +20,59 @@ local wrapped = primitives.wrap(function(value: any): any
     return value * 2
 end)
 assert(wrapped(3) == 6)
+
+local function noarguments(): ()
+end
+
+local directempty = coroutine.create(
+    function(value: any): any
+        return value
+    end,
+    noarguments()
+)
+local directok, directvalue = coroutine.resume(directempty, 13)
+assert(directok and directvalue == 13)
+
+local empty = primitives.create(
+    function(value: any): any
+        return value
+    end,
+    noarguments()
+)
+local emptyok, emptyvalue = primitives.resume(empty, 17)
+assert(emptyok and emptyvalue == 17)
+local boundnil = primitives.create(
+    function(...: any): (integer, any)
+        return select("#", ...), ...
+    end,
+    nil
+)
+local nilok, nilcount, nilvalue = primitives.resume(boundnil, 19)
+assert(nilok and nilcount == 1 and nilvalue == nil)
+local boundzero = primitives.create(
+    function(value: any): any
+        return value
+    end,
+    0
+)
+local zerook, zerovalue = primitives.resume(boundzero, 23)
+assert(zerook and zerovalue == 0)
+local boundmany = primitives.create(
+    function(...: any): (integer, any, any, any)
+        local count = select("#", ...)
+        local first, second, third = ...
+        local resumed = primitives.yield(count, first, second, third)
+        return count, first, third, resumed
+    end,
+    29,
+    31,
+    nil
+)
+local manyok, manycount, manyfirst, manysecond, manythird = primitives.resume(boundmany, 37)
+assert(manyok and manycount == 3 and manyfirst == 29 and manysecond == 31 and manythird == nil)
+local manydone, finalcount, finalfirst, finalthird, resumed = primitives.resume(boundmany, 41)
+assert(manydone and finalcount == 3 and finalfirst == 29 and finalthird == nil and resumed == 41)
+
 local score = 0
 local before = clock.now()
 local epoch = os.walltime()

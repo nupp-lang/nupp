@@ -704,7 +704,7 @@ end
 function M.stringMethodsReadTheCurrentCallee()
     local p = checked(
         [[local function typed(value: string): string return value:sub(2) end
-return ('abc'):sub(2), typed('abc')]]
+return ('abc'):sub(2), typed('abc'), ('abc'):byte(1, -1)]]
     )
     local count = 0
     for _, site in ipairs(p.calls) do
@@ -716,16 +716,17 @@ return ('abc'):sub(2), typed('abc')]]
             count = count + 1
         end
     end
-    assert(count == 2)
+    assert(count == 3)
     local compiled = program.compile(p, tagged.forVersion(8))
     local invoked = 0
     for _, g in ipairs(compiled.graphs) do
         invoked = invoked + #calls(g)
         for _, op in ipairs(operations(g, "LibCall")) do
             assert(op.args[1] ~= require("nupp.compiler.vm.corelibrary").id("STRING_SUB"))
+            assert(op.args[1] ~= require("nupp.compiler.vm.corelibrary").id("STRING_BYTE"))
         end
     end
-    assert(invoked >= 2)
+    assert(invoked >= 3)
 end
 
 function M.privateStringIteratorCallsUseCanonicalIds()

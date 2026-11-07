@@ -1031,7 +1031,12 @@ end
 export function call(ctx: voidptr, id: uint64, a: uint64, b: uint64): uint64
     if id == librarycalls.COROUTINE_CREATE then
         -- create(f, ...): the arguments after f come as one pack.
-        return create(ctx, a, native.chooseWord(b == values.NIL, 0ULL, b), 0ULL)
+        -- An empty expansion is the same call as create(f).
+        if b == values.NIL or b == 0ULL or ints.bitsOf(tables.get(b & values.PAYLOAD, values.TAG_INTEGER)) == 0ULL then
+            return create(ctx, a, 0ULL, 0ULL)
+        end
+
+        return create(ctx, a, b, 0ULL)
     elseif id == librarycalls.COROUTINE_STATUS then
         return status(ctx, a)
     elseif id == librarycalls.COROUTINE_WRAP then

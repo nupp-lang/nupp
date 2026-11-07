@@ -549,8 +549,7 @@ function tagged.forVersion(version: integer): any
             if appends then
                 -- The tail's values go at the next positions, from its pack.
                 local held = ctx.hold(result)
-                local pack = tail.value.kind == "vararg" and ctx.varargPack()
-                    or invoke(ctx, tail.value, true, true, nil, true)
+                local pack = tail.value.kind == "vararg" and ctx.varargPack() or taggedcalls.openinvoke(ctx, tail.value)
                 if pack == nil or ctx.block == nil then
                     ctx.release(held)
                     return nil as any
@@ -1271,10 +1270,7 @@ function tagged.forVersion(version: integer): any
                     and last.runtimeLoader ~= "require"
                     and graph.coreLibraryCall(last) == nil
                     and (ctx.fn.signature.retPack.alternatives == nil or lastSite and not lastSite.construct)
-                    or ctx.fn.signature.retPack.alternatives ~= nil
-                    and last.kind == "methodCall"
-                    and lastSite
-                    and lastSite.method
+                    or last.kind == "methodCall" and lastSite and lastSite.method
                     or graph.packedcall(last)
                 )
             if openReturn then
@@ -1432,7 +1428,7 @@ function tagged.forVersion(version: integer): any
                     if args[2].kind == "vararg" then
                         return ctx.varargPack()
                     end
-                    return invoke(ctx, args[2], true, true, nil, true)
+                    return taggedcalls.openinvoke(ctx, args[2])
                 end
 
                 local first = args[1]

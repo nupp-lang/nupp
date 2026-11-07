@@ -54,6 +54,65 @@ assert(typed("abc") == "index" and dynamic("abc") == "index")
 assert(typedalias("abc")("abc", 2) == "index")
 meta.__index = originalindex
 assert(typed("abc") == "bc" and changed("abc", 2) == "library")
+
+local function count(...: any): integer
+    return select("#", ...)
+end
+
+local function bytes(value: string): ...integer
+    return value:byte(1, -1)
+end
+
+local function dynamicbytes(value: any): ...any
+    return value:byte(1, -1)
+end
+
+local anyreceiver: any = "abc"
+local originalbyte = library.byte
+assert(count(bytes("abc")) == 3 and count(dynamicbytes("abc")) == 3)
+for size = 0, 3 do
+    library.byte = function(value: any, first: any, last: any): ...integer
+        assert(value == "abc" and first == 1 and last == -1)
+        if size == 0 then
+            return
+        end
+        if size == 1 then
+            return 107
+        end
+        if size == 2 then
+            return 107, 109
+        end
+
+        return 107, 109, 113
+    end
+    collectgarbage("collect")
+    assert(count(bytes("abc")) == size and count(dynamicbytes("abc")) == size)
+    assert(count(anyreceiver:byte(1, -1)) == size)
+    assert(count((anyreceiver:byte(1, -1))) == 1)
+    assert(select("#", anyreceiver:byte(1, -1)) == size)
+    local dynamicpacked = {anyreceiver:byte(1, -1)}
+    assert(#dynamicpacked == size)
+    assert(select("#", ("abc"):byte(1, -1)) == size)
+    local packed = {("abc"):byte(1, -1)}
+    assert(#packed == size)
+    if size > 0 then
+        assert(packed[1] == 107)
+    end
+end
+library.byte = function(value: any, first: any, last: any): ...integer
+    assert(value == "abc" and first == 1 and last == -1)
+    return 107, 109
+end
+
+local function byteargument(): integer
+    library.byte = originalbyte
+    return 1
+end
+
+assert(count(("abc"):byte(byteargument(), -1)) == 2)
+
+assert(count(bytes("abc")) == 3)
+
 local string = {
     sub = function()
         return "shadow"

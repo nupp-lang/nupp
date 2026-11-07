@@ -151,6 +151,71 @@ return 0
 
 end
 
+function M.methodResultShapesReachEveryOpenConsumer()
+    local p = checked(
+        [[
+local record Values
+    function empty(self): () end
+    function one(self): integer return 7 end
+    function pair(self): (integer, integer) return 11, 13 end
+    function many(self): ...integer return 17, 19, 23 end
+    function consume(self, ...: any): integer return select("#", ...) end
+end
+local function target(): integer return select("#", Values():many()) end
+local function tableTail(): {integer} return {Values():pair()} end
+local function forwarded(): ...integer return Values():many() end
+local function nested(): integer return Values():consume(29, Values():empty()) end
+local function dynamic(value: any): ...any return value:many() end
+local function anyTail(value: any): integer return Values():consume(value:many()) end
+local function anyTable(value: any): {any} return {value:many()} end
+local function anySelect(value: any): integer return select("#", value:many()) end
+local function parentheses(): integer return Values():consume((Values():pair())) end
+local function single(): integer return Values():consume(Values():one()) end
+local function nonfinal(): {integer} return {Values():pair(), 31} end
+return 0
+]]
+    )
+    local compiled = program.compile(p, tagged.forVersion(8))
+    executable.validate(executable.fromChecked(compiled, 8))
+    local expected = {
+        target = "many",
+        tableTail = "pair",
+        forwarded = "many",
+        nested = "empty",
+        dynamic = "many",
+        anyTail = "many",
+        anyTable = "many",
+        anySelect = "many"
+    }
+    for name, method in pairs(expected) do
+        local owner = program.select(p, p.modules[1].name, name)
+        local found = false
+        for _, block in ipairs(compiled.graphs[owner.id + 1].blocks) do
+            local term = block.term
+            if term.kind == "invoke"
+                and term.contract.call.kind == "methodCall"
+                and term.contract.call.name.text == method
+            then
+                assert(term.open, name .. " must preserve the method's actual result count")
+                found = true
+            end
+        end
+        assert(found, "missing method invocation in " .. name)
+    end
+    for _, name in ipairs({"parentheses", "nonfinal", "single"}) do
+        local owner = program.select(p, p.modules[1].name, name)
+        local found = false
+        for _, block in ipairs(compiled.graphs[owner.id + 1].blocks) do
+            local term = block.term
+            if term.kind == "invoke" and term.contract.call.kind == "methodCall" then
+                assert(not term.open, name .. " must keep exactly one result")
+                found = true
+            end
+        end
+        assert(found)
+    end
+end
+
 function M.olderProfilesAndChangedCheckedSignaturesStayRefused()
     local p, owner = checked()
     refuses(
