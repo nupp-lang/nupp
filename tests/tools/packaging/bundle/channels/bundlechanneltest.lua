@@ -2,7 +2,6 @@ local fixture = require("helpers.bundlefixture")
 local NUPP = fixture.NUPP
 local tempProject = fixture.tempProject
 local run = fixture.run
-local stampRustHost = fixture.stampRustHost
 
 local test = require("helpers.bundlefixture").test
 local EXECUTABLE = require("helpers.bundlefixture").EXECUTABLE
@@ -132,7 +131,7 @@ print("channels-ok")
     })
     local built, builtOk = run(dir, "'" .. NUPP .. "' build")
     assert(builtOk, "the channel binary builds: " .. built)
-    local output, ranOk = run(dir, stampRustHost(dir, dir .. "/build/app.payload.lua"))
+    local output, ranOk = run(dir, EXECUTABLE)
     assert(ranOk and output == "channels-ok\n", "channel waits cooperate and cancel: " .. output)
     os.execute("rm -rf '" .. dir .. "'")
 end
