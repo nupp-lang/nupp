@@ -236,13 +236,17 @@ function M.generatedIndexesAreDeterministicAndReportWriteFailures()
         assert(discovery.write(dir, "out", entries))
         local generated = assert(fs.readFile(dir .. "/out/generated/package/nupp/index.nupp"))
         local expected = [[module package.nupp.index
-const _DYNAMIC_REQUIRES = "@requires-dynamically z.second @requires-dynamically a.first @requires-dynamically z.first"
+local _DYNAMIC_REQUIRES = "@requires-dynamically z.second @requires-dynamically a.first @requires-dynamically z.first"
 export = {
     ["a.Api"] = {"a.first"},
     ["z.Api"] = {"z.second", "z.first"},
 }
 ]]
         assert(generated == expected, generated)
+        local parsed = require("nupp.compiler.syntax.parser").parse(generated, "generated.nupp")
+        require("nupp.compiler.compat").syntax(parsed, function(_, reason)
+            error("the generated index must remain portable: " .. reason)
+        end)
         assert(discovery.write(dir, "out", entries), "rewriting the same index failed")
 
         assert(fs.writeFile(dir .. "/blocked", "not a directory"))

@@ -189,7 +189,7 @@ function spi.write(root: string, outDir: string, entries: {any}): (boolean?, str
     end
     local lines = {
         "module package.nupp.index",
-        "const _DYNAMIC_REQUIRES = " .. string.format("%q", table.concat(dependencies, " ")),
+        "local _DYNAMIC_REQUIRES = " .. string.format("%q", table.concat(dependencies, " ")),
         "export = {",
     }
     for _, name in ipairs(names) do
