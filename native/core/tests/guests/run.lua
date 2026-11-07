@@ -27,6 +27,7 @@ end
 local HERE = debug.getinfo(1, "S").source:match("^@(/.*)/[^/]*$") or cwd()
 -- Another spelling of the root runs this again under its own (compilerroot).
 local ROOT = require("nupp.core.compilerroot").resolve(arg[0], arg)
+local shardplan = dofile(ROOT .. "/native/core/tests/guests/shardplan.lua")
 local OUT = ROOT .. "/build/core-guests"
 local TESTS = ROOT .. "/native/core/tests"
 -- The guest runtime is built through the service catalog and the unit code
@@ -1075,47 +1076,14 @@ local function shards(selectedCases, bridge, guard)
     for _, item in ipairs(AUDITS) do
         audited[item[1]] = true
     end
-    local order = {}
+    local names = {}
     for index, case in ipairs(selectedCases) do
-        order[index] = case[1]
+        names[index] = case[1]
     end
-    table.sort(order, function(a, b)
-        local ca, cb = cost[a] or 1, cost[b] or 1
-        if ca ~= cb then
-            return ca > cb
-        end
-
-        return a < b
-    end)
-    local load, members = {}, {}
-    for index = 1, count do
-        load[index], members[index] = 0, {}
-    end
-    -- The audits' runtime and programs, which the first shard alone builds.
-    for name in pairs(audited) do
-        load[1] = load[1] + (cost["audit " .. name] or 10)
-    end
-
-    local function place(index, name)
-        members[index][#members[index] + 1] = name
-        load[index] = load[index] + (cost[name] or 1)
-    end
-
-    for _, name in ipairs(order) do
-        if audited[name] then
-            place(1, name)
-        end
-    end
-    for _, name in ipairs(order) do
-        if not audited[name] then
-            local least = 1
-            for index = 2, count do
-                if load[index] < load[least] then
-                    least = index
-                end
-            end
-            place(least, name)
-        end
+    local members = shardplan.plan(names, cost, audited, count)
+    count = #members
+    if count < 2 then
+        return false
     end
     os.execute("rm -f " .. quote(OUT) .. "/costs/*")
     local commands = {}
