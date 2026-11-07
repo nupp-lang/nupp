@@ -29,13 +29,11 @@ if [ ! -s "$paths" ]; then
     echo "No changed paths; no checks selected."
     exit 0
 fi
-# Use the already selected interpreter. A plain classifier needs no compiler build.
-if command -v luajit >/dev/null 2>&1; then
-    interpreter=$(command -v luajit)
-else
-    interpreter="$(./scripts/toolchain luajit)/bin/luajit"
-fi
-"$interpreter" scripts/test-selection.lua "$paths" > "$selection"
+# The classifier is plain Lua. Use the verified native seed without rebuilding
+# the checkout or fetching another language runtime to select its checks.
+pair=$(./scripts/toolchain stage0-seed | tr -d '\r')
+python3 scripts/bootstrap-seed run "$pair" exec "$pair/compiler.image" \
+    nupp.tools.vm.root run scripts/test-selection.lua "$paths" > "$selection"
 set --
 fixpoint=no
 while IFS= read -r obligation; do
