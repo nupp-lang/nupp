@@ -19,10 +19,10 @@ local function total(first: integer, last: integer, step: integer): integer
     return sum
 end
 
-assert(total(1, 5, 2) == 9)
-assert(total(5, 1, -2) == 9)
-assert(total(5, 1, 2) == 0)
-assert(total(1, 5, -2) == 0)
+assert(total(1, 5, 2) == 9, "ascending initial step")
+assert(total(5, 1, -2) == 9, "descending initial step")
+assert(total(5, 1, 2) == 0, "positive empty loop")
+assert(total(1, 5, -2) == 0, "negative empty loop")
 
 local function floating(first: float64, last: float64, step: float64): float64
     local sum: float64 = 0.0
@@ -33,10 +33,10 @@ local function floating(first: float64, last: float64, step: float64): float64
     return sum
 end
 
-assert(floating(0.5, 2.0, 0.5) == 5.0)
-assert(floating(2.0, 0.5, -0.5) == 5.0)
+assert(floating(0.5, 2.0, 0.5) == 5.0, "floating increasing step")
+assert(floating(2.0, 0.5, -0.5) == 5.0, "floating decreasing step")
 local nan = 0.0 * (1e308 * 10.0)
-assert(floating(1.0, 1.0, nan) == 1.0)
+assert(floating(1.0, 1.0, nan) == 1.0, "NaN step single iteration")
 
 local function iterations(first: integer, last: integer, step: integer): integer
     local count: integer = 0
@@ -47,8 +47,8 @@ local function iterations(first: integer, last: integer, step: integer): integer
     return count
 end
 
-assert(iterations(math.maxinteger - 1, math.maxinteger, 2) == 1)
-assert(iterations(math.mininteger + 1, math.mininteger, -2) == 1)
+assert(iterations(math.maxinteger - 1, math.maxinteger, 2) == 1, "positive integer overflow")
+assert(iterations(math.mininteger + 1, math.mininteger, -2) == 1, "negative integer overflow")
 
 local function zero(step: integer, last: any): nil
     local resource = Owner()
@@ -58,9 +58,9 @@ local function zero(step: integer, last: any): nil
 end
 
 local ok, problem = pcall(zero, 0, {})
-assert(not ok and string.find(tostring(problem), "'for' step is zero", 1, true) ~= nil)
-assert(closed == 1)
+assert(not ok and string.find(tostring(problem), "'for' step is zero", 1, true) ~= nil, "zero step before bad limit")
+assert(closed == 1, "zero step closes owner")
 local limitOk, limitProblem = pcall(zero, 1, {})
-assert(not limitOk and string.find(tostring(limitProblem), "bad 'for' limit", 1, true) ~= nil)
-assert(closed == 2)
+assert(not limitOk and string.find(tostring(limitProblem), "bad 'for' limit", 1, true) ~= nil, "invalid limit raises")
+assert(closed == 2, "invalid limit closes owner")
 export = 1
