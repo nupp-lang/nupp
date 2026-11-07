@@ -103,4 +103,17 @@ assert(not calls.aligned("abcd", 0, 0))
 assert(not calls.aligned("abcd", 0, 3))
 assert(not calls.aligned("abcd", 0, 16))
 assert(not calls.aligned(4, 0, 1))
+
+local function deferred(name: string): any
+    return require(name)
+end
+
+local implementation = deferred("io.internal.sharedbytes")
+assert(implementation.SharedBytes == SharedBytes, "the deferred provider preserves the public declaration")
+collectgarbage("collect")
+assert(implementation == deferred("io.internal.sharedbytes"), "the loaded provider stays cached and rooted")
+refuses(function(): nil
+    deferred("nupp.core.notcarried")
+end)
+
 export = 1

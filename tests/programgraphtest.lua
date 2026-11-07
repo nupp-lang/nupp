@@ -1246,6 +1246,90 @@ return imported]],
     )
 end
 
+local function registeredModuleNames(catalog)
+    local complete = program.compile(catalog, tagged.forVersion(8))
+    local g = complete.graphs[catalog.entry + 1]
+    local constants, names = {}, {}
+    for _, instruction in ipairs(operations(g)) do
+        if instruction.op == "K" then
+            constants[instruction.dst] = g.constants[instruction.args[1] + 1].value
+        elseif instruction.op == "SetIdx" then
+            local name = constants[instruction.args[2]]
+            local chunk = constants[instruction.args[3]]
+            if type(name) == "string" and chunk ~= nil then
+                names[name] = tonumber(chunk)
+            end
+        end
+    end
+    assert(require("nupp.compiler.vm.coregraphexecutable").fromChecked(complete, 8))
+
+    return names, complete
+end
+
+function M.dynamicModuleNamesUseFreshSortedCanonicalAliases()
+    local canonical = graph.coremodule("io.internal.sharedbytes")
+    local names = graph.coremodulenames(canonical)
+    test.eq(#names, 2)
+    test.eq(names[1], "io.internal.sharedbytes")
+    test.eq(names[2], canonical)
+    names[1] = "changed"
+    test.eq(graph.coremodulenames(canonical)[1], "io.internal.sharedbytes")
+    test.eq(graph.coremodulenames("ordinary.module")[1], "ordinary.module")
+end
+
+function M.dynamicProviderAliasesKeepTheOneCarriedInitializer()
+    local canonical = graph.coremodule("io.internal.sharedbytes")
+    local provider = checked("return {answer = 42}", canonical)
+    local consumer = checked(
+        [[local declared = require("io.internal.sharedbytes")
+local name = "io.internal.sharedbytes"
+return require(name)]],
+        "nupp.core.deferredproviderconsumer"
+    )
+    local catalog = program.describe({provider, consumer}, consumer.name)
+    test.eq(catalog.dynamicRequires, true)
+    test.eq(#catalog.requires, 1)
+    test.eq(catalog.requires[1].module, canonical)
+    test.eq(catalog.requires[1].target, catalog.modules[1].chunk)
+    local names = registeredModuleNames(catalog)
+    test.eq(names[canonical], catalog.modules[1].chunk)
+    test.eq(names["io.internal.sharedbytes"], names[canonical])
+    test.eq(#catalog.modules, 2)
+    test.eq(names["not.carried"], nil)
+end
+
+function M.absentProvidersDoNotPublishTheirAliases()
+    local catalog = describe([[local name = "io.internal.sharedbytes"
+return require(name)]])
+    local names = registeredModuleNames(catalog)
+    test.eq(names["io.internal.sharedbytes"], nil)
+    test.eq(names[graph.coremodule("io.internal.sharedbytes")], nil)
+    refuses(
+        function()
+            program.compile(catalog, tagged.forVersion(7))
+        end,
+        "only checked static require calls are supported"
+    )
+end
+
+function M.distinctCarriedModulesCannotReplaceProviderAliases()
+    local canonical = graph.coremodule("io.internal.sharedbytes")
+    local provider = checked("return 1", canonical)
+    local collision = checked("return 2", "io.internal.sharedbytes")
+    local consumer = checked(
+        [[local name = "io.internal.sharedbytes"
+return require(name)]],
+        "conflicting_provider_consumer"
+    )
+    local catalog = program.describe({provider, collision, consumer}, consumer.name)
+    refuses(
+        function()
+            program.compile(catalog, tagged.forVersion(8))
+        end,
+        "dynamic module name has conflicting chunks: io.internal.sharedbytes"
+    )
+end
+
 function M.taggedDynamicAndShadowedLoadersRefuse()
     -- A require of a computed name is no require site: from profile v8 the
     -- core looks the name up among the image's modules when it runs; the
@@ -1681,9 +1765,9 @@ function M.checkedBuiltinIoAndOsAliasesShareOnlyTheirOwnCanonicalInitializers()
     assert(require("nupp.compiler.vm.coregraphcontracts").normalize(program.compile(p, tagged.forVersion(8)), 8))
 end
 
-function M.checkedBuiltinSharedBaseMovesBeforeEveryEarlierExtension()
-    local p = builtinProjectionFixture(
-        'local extension = require("nupp.runtime.standardtable")\nlocal earlier = nupp.runtime.standardtable.value\nlocal numeric = math\nlocal collection = table\nreturn earlier, numeric, collection',
+function M.checkedBuiltinSharedBasePreloadsOnceBeforeEveryExtension()
+    local p, consumer = builtinProjectionFixture(
+        'local earlier = nupp.runtime.standardtable.value\nlocal numeric = math\nlocal collection = table\nreturn earlier, numeric, collection',
         false,
         true,
         true
@@ -1693,7 +1777,7 @@ function M.checkedBuiltinSharedBaseMovesBeforeEveryEarlierExtension()
     test.eq(loads[1].module, "nupp.runtime.libraryvalues")
     test.eq(loads[2].module, "nupp.runtime.standardtable")
     test.eq(loads[3].module, "nupp.runtime.standardmath")
-    assert(loads[2].node[1].offset < loads[1].node[1].offset, "fixture must first schedule a qualified extension")
+    test.eq(loads[1].node[1], require("nupp.compiler.syntax.cst").firstToken(consumer.parsed.root))
     assert(require("nupp.compiler.vm.coregraphcontracts").normalize(program.compile(p, tagged.forVersion(8)), 8))
 end
 

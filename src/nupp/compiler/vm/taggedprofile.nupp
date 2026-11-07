@@ -382,10 +382,18 @@ function tagged.forVersion(version: integer): any
         local entry = p.modules[#p.modules]
         if p.dynamicRequires and entry and entry.chunk == ctx.fn.id then
             local names = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
+            local registered: {[string]: integer} = {}
             for _, module in ipairs(p.modules) do
-                local key = ctx.emit(node, "K", {pool(ctx, "str", module.name)}, "tagged")
-                local chunk = ctx.emit(node, "K", {pool(ctx, "int64", tostring(module.chunk))}, "tagged")
-                ctx.emit(node, "SetIdx", {ctx.readHeld(names), key, chunk}, nil)
+                for _, name in ipairs(graph.coremodulenames(module.name)) do
+                    need(
+                        registered[name] == nil or registered[name] == module.chunk,
+                        "dynamic module name has conflicting chunks: " .. name
+                    )
+                    registered[name] = module.chunk
+                    local key = ctx.emit(node, "K", {pool(ctx, "str", name)}, "tagged")
+                    local chunk = ctx.emit(node, "K", {pool(ctx, "int64", tostring(module.chunk))}, "tagged")
+                    ctx.emit(node, "SetIdx", {ctx.readHeld(names), key, chunk}, nil)
+                end
             end
             ctx.emit(node, "LibCall", {corelibrary.id("MODULE_NAMES"), ctx.readHeld(names)}, "tagged")
             ctx.release(names)

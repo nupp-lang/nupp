@@ -187,6 +187,7 @@ export const corecallmodule = graphcalls.corecallmodule
 export const erased = graphcalls.erased
 export const hoistedFunctionName = graphcalls.hoistedFunctionName
 export const coremodule = graphcalls.coremodule
+export const coremodulenames = graphcalls.coremodulenames
 export const dynamicRequire = graphcalls.dynamicRequire
 export const coreLibraryField = graphcalls.coreLibraryField
 export const coreLibraryCall = graphcalls.coreLibraryCall

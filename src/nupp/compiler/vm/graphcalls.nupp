@@ -1013,6 +1013,18 @@ export function coremodule(name: string): string
     return coremodules[name] or name
 end
 
+export function coremodulenames(name: string): {string}
+    local names = {name}
+    for alias, target in pairs(coremodules) do
+        if target == name then
+            names[#names + 1] = alias
+        end
+    end
+    table.sort(names)
+
+    return names
+end
+
 -- A `require` whose module the checker could not name: of a computed name,
 -- or of any name through `_G`. The core looks it up among the image's.
 export function dynamicRequire(call: any): boolean
