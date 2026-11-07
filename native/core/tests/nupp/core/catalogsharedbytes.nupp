@@ -7,9 +7,9 @@ const bytes = require("bytes")
 local ffi = require("ffi")
 local calls = require("nupp.runtime.storagecalls")
 local SharedBytes = SharedBytes2
-local importedio = require("io")
-assert(importedio == io, "the io require shares its builtin table")
-assert(importedio.SharedBytes == SharedBytes, "the io require keeps shared byte identity")
+local importedbytes = require("bytes")
+assert(importedbytes == bytes, "the bytes require shares its canonical table")
+assert(importedbytes.SharedBytes == SharedBytes, "the bytes require keeps shared byte identity")
 
 local function refuses(borrows operation: function(): nil): nil
     local okay, why = pcall(operation)
