@@ -11,6 +11,9 @@ export function new(): any
     -- The retained compiler shares a fixed guest budget with its temporary graphs.
     -- Start collection before those temporaries double the live compiler heap.
     collectgarbage("setpause", 100)
+    -- Finish incremental cycles while checking an imported module graph, before
+    -- its temporary allocations exhaust the compiler guest's fixed memory.
+    collectgarbage("setstepmul", 400)
     return Browser.new({
         layoutTarget = "i686-unknown-linux-gnu",
         compilerServices = {
