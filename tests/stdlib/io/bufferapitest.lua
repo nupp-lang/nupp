@@ -320,4 +320,77 @@ function M.positionalLeasesKeepPayloadOffsetsAndZeroOnlyTheirGap()
     buffer:close()
 end
 
+function M.luaReadersAcceptBothBuffersAndLeases()
+    local io = require("io")
+    local source = io.Buffer.create("abcdef")
+    source.get = function()
+        error("unexpected string bridge")
+    end
+    local reader = source:reader()
+    local destination = io.Buffer.create("head")
+    assert(reader:readinto(destination:reserve(2)) == 2)
+    assert(destination:tostring() == "headab")
+    assert(reader:readinto(destination, 0, 2) == 2)
+    assert(destination:tostring() == "cdadab")
+    reader:close()
+    source:close()
+    destination:close()
+end
+
+function M.leaseReadsCommitOrDropExactlyOnce()
+    local io = require("io")
+    for _, outcome in ipairs({"success", "eof", "failure", "throw", "negative", "overflow", "fraction"}) do
+        local reader = io.Reader.of("abc")
+        local destination = io.Buffer.create("head")
+        local lease = destination:reserve(10)
+        local drops, commits = 0, 0
+        local drop, commit = lease.drop, lease.commit
+        lease.drop = function(self)
+            drops = drops + 1
+            return drop(self)
+        end
+        lease.commit = function(self, count)
+            commits = commits + 1
+            return commit(self, count)
+        end
+        reader.readspan = function(_, output)
+            local pointer = output:ref()
+            pointer[0] = 65
+            if outcome == "throw" then
+                error("read exploded")
+            end
+            if outcome == "failure" then
+                return nil, "unavailable"
+            end
+            if outcome == "negative" then
+                return -1
+            end
+            if outcome == "overflow" then
+                return 11
+            end
+            if outcome == "fraction" then
+                return 0.5
+            end
+
+            return outcome == "eof" and 0 or 1
+        end
+        local ok, count, reason = pcall(function()
+            return reader:readinto(lease)
+        end)
+        local succeeded = outcome == "success" or outcome == "eof"
+        assert(commits == (succeeded and 1 or 0), outcome .. " commits: " .. commits)
+        assert(drops == (succeeded and 0 or 1), outcome .. " drops: " .. drops)
+        if succeeded then
+            assert(ok and count == (outcome == "eof" and 0 or 1))
+        elseif outcome == "failure" then
+            assert(ok and count == nil and reason == "unavailable")
+        else
+            assert(not ok, outcome)
+        end
+        assert(destination:tostring() == (outcome == "success" and "headA" or "head"))
+        reader:close()
+        destination:close()
+    end
+end
+
 return M

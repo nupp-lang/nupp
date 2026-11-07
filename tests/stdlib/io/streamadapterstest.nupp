@@ -483,4 +483,103 @@ function M.readAllDrainsAReaderWithinItsLimit(): nil
     assert2(failing.closes == 1, "the reader is closed when it fails")
 end
 
+local record LeaseReader is Reader
+    state: any
+
+    function read(exclusive self, count: integer): (string?, string?)
+        error("lease reads must use readspan")
+    end
+
+    function readspan(exclusive self, exclusive destination: span.ByteWriteSpan): (integer?, string?)
+        self.state.calls = self.state.calls + 1
+        self.state.available = #destination
+        destination[1] = 65
+        if self.state.throws then
+            error("lease read failed")
+        end
+        if self.state.failure ~= nil then
+            return nil, self.state.failure
+        end
+
+        return self.state.count, nil
+    end
+
+    function close(takes self): nil
+        self.state.closes = self.state.closes + 1
+    end
+end
+
+function M.readintoConsumesAnAppendLeaseAndCommitsAShortRead(): nil
+    local reader = io2.Reader.of("abc")
+    local destination = io2.Buffer.create("head")
+    local count, reason = reader:readinto(destination:reserve(10))
+    assert2(count == 3 and reason == nil)
+    assert2(destination:tostring() == "headabc")
+    assert2(reader:readinto(destination:reserve(2)) == 0)
+    assert2(destination:tostring() == "headabc")
+    destination:put("!")
+    assert2(destination:tostring() == "headabc!")
+end
+
+function M.readintoLeasesUseInheritedSpanReads(): nil
+    local state = {calls = 0, closes = 0, count = 1}
+    local reader = LeaseReader(state = state)
+    local destination = io2.Buffer.create("head")
+    assert2(reader:readinto(destination:reserve(10)) == 1)
+    assert2(state.calls == 1 and state.available == 10)
+    assert2(destination:tostring() == "headA")
+    reader:close()
+    assert2(state.closes == 1)
+end
+
+function M.failedLeaseReadsLeaveTheBufferLengthUnchanged(): nil
+    local state = {calls = 0, closes = 0, failure = "unavailable"}
+    local reader = LeaseReader(state = state)
+    local destination = io2.Buffer.create("head")
+    local count, reason = reader:readinto(destination:reserve(10))
+    assert2(count == nil and reason == "unavailable")
+    assert2(destination:tostring() == "head")
+    destination:put("!")
+    assert2(destination:tostring() == "head!")
+end
+
+function M.throwingLeaseReadsAbandonTheirReservation(): nil
+    local state = {calls = 0, closes = 0, throws = true}
+    local reader = LeaseReader(state = state)
+    local destination = io2.Buffer.create("head")
+    local ok, reason = pcall(function(): nil
+        reader:readinto(destination:reserve(10))
+    end)
+    assert2(not ok and tostring(reason):find("lease read failed", 1, true) ~= nil)
+    assert2(destination:tostring() == "head")
+    destination:put("!")
+    assert2(destination:tostring() == "head!")
+end
+
+function M.invalidLeaseReadCountsNeverExtendTheBuffer(): nil
+    for _, count in ipairs({-1, 11}) do
+        local state = {calls = 0, closes = 0, count = count}
+        local reader = LeaseReader(state = state)
+        local destination = io2.Buffer.create("head")
+        local ok = pcall(function(): nil
+            reader:readinto(destination:reserve(10))
+        end)
+        assert2(not ok)
+        assert2(destination:tostring() == "head")
+        destination:put("!")
+    end
+end
+
+function M.emptyLeaseReadsAreRefusedBeforeReading(): nil
+    local state = {calls = 0, closes = 0, count = 1}
+    local reader = LeaseReader(state = state)
+    local destination = io2.Buffer.create("head")
+    local ok = pcall(function(): nil
+        reader:readinto(destination:reserve(0))
+    end)
+    assert2(not ok and state.calls == 0)
+    assert2(destination:tostring() == "head")
+    destination:put("!")
+end
+
 return M

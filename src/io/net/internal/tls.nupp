@@ -550,6 +550,8 @@ export record TlsSession is io.Reader, io.Writer
     end
 end
 
+require("nupp.io.internal.bytes").readercompat(TlsSession as table)
+
 --- Encrypts a connection as the client.
 ---
 --- Every option is optional. Verification is on unless `verify` is false, and a

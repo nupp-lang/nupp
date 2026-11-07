@@ -185,6 +185,8 @@ function FileWriter.close(takes self: FileWriter): nil
     end
 end
 
+bytes.readercompat(FileReader as table)
+
 export function reader(exclusive file: any): affine(bytes.Reader) borrows (file)
     return FileReader(anchor = file, _closed = false)
 end

@@ -882,13 +882,25 @@ function http.Client._releaseSource(self: http.Client): nil
     end
 end
 
+require("nupp.io.internal.bytes").readercompat(http.Body as table)
+
 local function readUpload(
     borrows source: io.Reader,
     exclusive destination: io.Buffer,
     offset: integer,
     count: integer
 ): (integer?, string?)
-    local got, reason = source:readinto(destination, offset, count)
+    local got: integer?
+    local reason: string?
+    -- Lua readers supplied by applications keep their ordinary method entry.
+    local legacy: (
+        function(borrows source: io.Reader, exclusive destination: io.Buffer, integer, integer): (integer?, string?)
+    )? = (source as any).readinto as any
+    if legacy ~= nil then
+        got, reason = legacy(source, destination, offset, count)
+    else
+        got, reason = source:readinto(destination, offset, count)
+    end
     if got ~= nil and (type(got) ~= "number" or got ~= math.floor(got) or got < 0 or got > count) then
         error("nupp: HTTP request reader returned an invalid byte count", 3)
     end

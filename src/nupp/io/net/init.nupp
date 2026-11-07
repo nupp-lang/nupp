@@ -1261,6 +1261,9 @@ local function takeStreamHandle(takes source: Stream): any
     return stream._handle
 end
 
+require("nupp.io.internal.bytes").readercompat(DirectionView as table)
+require("nupp.io.internal.bytes").readercompat(Stream as table)
+
 layering.takeStreamHandle = takeStreamHandle
 
 --- Advances the selected network reactor.

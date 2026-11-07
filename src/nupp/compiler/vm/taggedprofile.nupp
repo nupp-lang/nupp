@@ -9,6 +9,7 @@ local indexedviews = require("nupp.compiler.types.indexedviews")
 local taggedvalues = require("nupp.compiler.vm.taggedvalues")
 local taggedcalls = require("nupp.compiler.vm.taggedcalls")
 local taggedstatements = require("nupp.compiler.vm.taggedstatements")
+local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local tagged = {booleanKind = "tagged"}
 local binary = taggedstatements.binary
 local binding = taggedvalues.binding
@@ -45,6 +46,11 @@ local stringSpec = taggedcalls.stringSpec
 local typeKind = taggedvalues.typeKind
 local valuespack = taggedcalls.valuespack
 local typeNames = taggedvalues.typeNames
+
+local function scalarwitness(ctx: any, node: any): any
+    local described = catalog(ctx).scalartypes
+    return described and described.witnesses[node] or nil
+end
 
 function tagged.initializeModule(fn: any, options: any): any
     need(options.program and options.program.owners[fn.id + 1] == fn, "checked module owner required")
@@ -243,11 +249,30 @@ function tagged.call(ctx: any, node: any, expected: string?): integer
         return ctx.emit(node, "Require", {pool(ctx, "str", item.module)}, "tagged")
     end
 
+    local witness = scalarwitness(ctx, node)
+    if witness then
+        local checked = scalartypeof.describe(node)
+        need(
+            checked
+            and checked.definition == witness.definition
+            and checked.subject == witness.subject
+            and checked.kind == witness.kind
+            and witness.owner == ctx.fn.id,
+            "scalar witness identity differs"
+        )
+        local module = ctx.emit(node, "Require", {pool(ctx, "str", scalartypeof.MODULE)}, "tagged")
+        local member = ctx.emit(node, "K", {pool(ctx, "str", scalartypeof.MEMBER)}, "tagged")
+        local callee = ctx.emit(node, "GetIdx", {module, member}, "tagged")
+        local kind = ctx.emit(node, "K", {pool(ctx, "str", witness.kind)}, "tagged")
+        local contract = graph.invokeContract(witness.target, witness.call)
+        return landed(ctx, node, ctx.invoke(node, callee, {kind}, contract, true)) as integer
+    end
+
     return invoke(ctx, node, true) as integer
 end
 
 function tagged.statementCall(ctx: any, node: any): nil
-    if node.runtimeLoader == "require" then
+    if node.runtimeLoader == "require" or scalarwitness(ctx, node) then
         tagged.call(ctx, node, nil)
     else
         invoke(ctx, node, false)
@@ -1076,6 +1101,17 @@ function tagged.forVersion(version: integer): any
         end
         -- `count` results of a call, for `local a, b = f()` and its kin.
         profile.callResults = function(ctx: any, node: any, count: integer): {integer}?
+            if scalarwitness(ctx, node) then
+                local first = tagged.call(ctx, node, "tagged")
+                if first == nil then
+                    return nil
+                end
+                local values = {first}
+                for index = 2, count do
+                    values[index] = ctx.emit(node, "Nil", {}, "tagged")
+                end
+                return values
+            end
             if node.ownershipIntrinsic then
                 return ownership(ctx, node, count)
             end
@@ -1152,7 +1188,9 @@ function tagged.forVersion(version: integer): any
             end
             local declared: integer = ctx.fn.signature and #ctx.fn.signature.rets or 1
             local lastSite = catalog(ctx).callByNode[last]
+            local scalarLast = scalarwitness(ctx, last) ~= nil
             local spreads = last.kind == "call"
+                and not scalarLast
                 and last.runtimeLoader ~= "require"
                 and graph.coreLibraryCall(last) == nil
                 or last.kind == "methodCall" and lastSite ~= nil and lastSite.method
@@ -1160,7 +1198,8 @@ function tagged.forVersion(version: integer): any
             -- A function with open results (`R...`) returns every result of a
             -- call last in its return, as a pack the return spreads: a library
             -- call with several results (`string.byte`) too.
-            local openReturn = ctx.fn.signature
+            local openReturn = not scalarLast
+                and ctx.fn.signature
                 and ctx.fn.signature.retPack
                 and ctx.fn.signature.retPack.tail ~= nil
                 and (
@@ -1248,6 +1287,9 @@ function tagged.forVersion(version: integer): any
             ctx.block = nil
         end
         profile.call = function(ctx: any, node: any, expected: string?): integer
+            if scalarwitness(ctx, node) then
+                return tagged.call(ctx, node, expected)
+            end
             if node.ownershipIntrinsic then
                 local results = ownership(ctx, node, 1)
                 if results == nil then
@@ -1585,7 +1627,7 @@ function tagged.forVersion(version: integer): any
         end
         profile.statementCall = function(ctx: any, node: any): nil
             local site = catalog(ctx).callByNode[node]
-            if graph.dynamicRequire(node) or node.ownershipIntrinsic then
+            if graph.dynamicRequire(node) or node.ownershipIntrinsic or scalarwitness(ctx, node) then
                 profile.call(ctx, node, nil)
             elseif node.runtimeLoader == "require" then
                 tagged.statementCall(ctx, node)

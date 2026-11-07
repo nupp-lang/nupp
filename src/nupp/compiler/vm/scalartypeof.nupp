@@ -1,0 +1,133 @@
+module nupp.compiler.vm.scalartypeof
+
+local cst = require("nupp.compiler.syntax.cst")
+local lexer = require("nupp.compiler.syntax.lexer")
+export const MODULE = "nupp.runtime.provider.heapstorage"
+export const MEMBER = "scalar"
+
+-- These are the physical scalar kinds the canonical storage provider accepts.
+local KINDS: {
+    [string]: string
+} = {
+    uint8 = "uint8",
+    int8 = "int8",
+    uint16 = "uint16",
+    int16 = "int16",
+    uint32 = "uint32",
+    int32 = "int32",
+    uint64 = "uint64",
+    int64 = "int64",
+    float32 = "float32",
+    float64 = "number"
+}
+
+export function describe(node: any): any
+    if node.kind ~= "call" or node.ffiIntrinsic ~= "typeof" then
+        return nil
+    end
+    local callee = node.obj
+    local base = callee and callee.kind == "dotIndex" and callee.obj
+    local token = base and base.kind == "name" and base.token
+    local definition = token and token.definition
+    local syntax = callee and callee.ffiTypeArg
+    local witness = node.inferredType
+    local subject = witness and witness.tag == "ctype" and witness.of
+    local kind = subject and KINDS[subject.tag]
+    if not kind
+        or not token
+        or not definition
+        or definition.requiredModule ~= "ffi"
+        or definition.reassigned
+        or not definition.lexical
+        or not callee.name
+        or callee.name.text ~= "typeof"
+        or not syntax
+        or syntax ~= node.ffiTypeNode
+        or syntax.resolvedType ~= subject
+        or not node.args
+        or node.args.kind ~= "args"
+        or #(node.args.exprs or {}) ~= 0
+        or node.args.str
+        or node.args.table
+    then
+        return nil
+    end
+
+    return {node = node, base = base, definition = definition, subject = subject, kind = kind}
+end
+
+-- Only a literal ffi import whose value is used exclusively by authenticated
+-- scalar witnesses can load the storage provider instead. Mixed FFI stays FFI.
+export function imports(root: any): {any}
+    local candidates = {}
+    local find: function(any): nil
+    find = function(node: any): nil
+        if cst.isToken(node) then
+            return
+        end
+        if node.kind == "localStmt" and not node.pattern and #node.names == 1 and #(node.exprs or {}) == 1 then
+            local token = node.names[1]
+            local definition = token.definition
+            local loader = node.exprs[1]
+            local arguments = loader.args and loader.args.exprs or {}
+            local argument = arguments[1]
+            local token = argument and (argument.kind == "string" or argument.kind == "dedentString") and argument.token
+                or #arguments == 0 and loader.args and loader.args.str
+            local text = token and lexer.literalstring(token.text, argument ~= nil and argument.kind == "dedentString")
+            if definition
+                and definition.requiredModule == "ffi"
+                and not definition.reassigned
+                and loader.kind == "call"
+                and loader.runtimeLoader == "require"
+                and loader.requiredModule == "ffi"
+                and not loader.typeOnlyRequire
+                and (
+                    #arguments == 1 and not loader.args.str and not loader.args.table
+                    or #arguments == 0 and loader.args.str ~= nil and not loader.args.table
+                )
+                and text == "ffi"
+            then
+                candidates[#candidates + 1] = {definition = definition, loader = loader, sites = {}}
+            end
+        end
+        for _, child in ipairs(node) do
+            find(child)
+        end
+    end
+    find(root)
+    local result = {}
+    for _, candidate in ipairs(candidates) do
+        local valid = true
+        local uses: function(any): nil
+        uses = function(node: any): nil
+            if cst.isToken(node) then
+                return
+            end
+            local witness = describe(node)
+            if witness and witness.definition == candidate.definition then
+                candidate.sites[#candidate.sites + 1] = witness
+                return
+            end
+            if node.kind == "name" and node.token then
+                local token = node.token
+                if token ~= candidate.definition.token
+                    and (
+                        token.definition == candidate.definition
+                        or token.definition == nil and token.text == candidate.definition.name
+                    )
+                then
+                    valid = false
+                end
+            end
+            for _, child in ipairs(node) do
+                uses(child)
+            end
+        end
+        uses(root)
+        if valid and #candidate.sites > 0 then
+            result[#result + 1] = candidate
+        end
+    end
+
+    return result
+end

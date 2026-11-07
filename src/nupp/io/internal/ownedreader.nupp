@@ -114,6 +114,8 @@ local record MemoryReader is Reader
     end
 end
 
+bytes.readercompat(MemoryReader as table)
+
 export function newOwnedReader(takes buffer: bytes.OwnedBuffer): Reader
     local state = @unsafe own.release(buffer)
     assert2(not (state as any)._closed, "nupp: io.Buffer is closed")

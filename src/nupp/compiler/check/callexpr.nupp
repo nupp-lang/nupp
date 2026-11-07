@@ -348,23 +348,14 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
     -- Reading arguments
     ---------------------------------------------------------------------
 
-    local function literalToken(token: Token?): string?
-        if not token then
-            return nil
-        end
-        local chunk = loadstring("return " .. token.text)
-        if not chunk then
-            return nil
-        end
-        local ok, value = pcall(chunk)
-
-        return ok and type(value) == "string" and value or nil
+    local function literalToken(token: Token?, dedent: boolean?): string?
+        return token and lexer.literalstring(token.text, dedent) or nil
     end
 
     local function literalString(expr: Node?): string?
-        local token = expr and expr.kind == "string" and expr.token or nil
+        local token = expr and (expr.kind == "string" or expr.kind == "dedentString") and expr.token or nil
 
-        return literalToken(token)
+        return literalToken(token, expr ~= nil and expr.kind == "dedentString")
     end
 
     ---------------------------------------------------------------------
@@ -1007,10 +998,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         if calleeName == "require" and stableRequire then
             (node as any).runtimeLoader = "require"
             local first = argExprs[1]
-            requireToken = first and first.kind == "string" and first.token or argStr
+            requireToken = first and (first.kind == "string" or first.kind == "dedentString") and first.token or argStr
             if requireToken then
-                local text = requireToken.text
-                node.requiredModule = text:match('^"(.*)"$') or text:match("^'(.*)'$")
+                node.requiredModule = literalToken(requireToken, first ~= nil and first.kind == "dedentString")
             end
         end
         if calleeName == "require" and stableRequire and c.env and c.env.resolveModule then
@@ -1021,8 +1011,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
             local tok = requireToken
             if tok then
-                local text = tok.text
-                local modname = text:match('^"(.*)"$') or text:match("^'(.*)'$")
+                local modname = node.requiredModule
                 if modname then
                     local access = c.env.moduleAccess and c.env.moduleAccess(c.env, c.result.moduleName, modname)
                     if access and not c.opts.generatedSource then

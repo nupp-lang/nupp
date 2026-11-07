@@ -10,6 +10,7 @@ local opcodes = require("nupp.compiler.vm.opcodes")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local graphemit = require("nupp.compiler.vm.graphemit")
 local lower = require("nupp.compiler.vm.lower")
+local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local program = {}
 
 local typeSyntax = {
@@ -193,14 +194,7 @@ local function literal(node: any): any
         end
         return {kind = "num", text = text, bytes = graphimage.floatBytes(number)}
     elseif value.kind == "string" then
-        local raw = value.token.text
-        local bytes = lexer.stringValue(raw)
-        if bytes == nil then
-            local equals = need(raw:match("^%[(=*)%["), "unsupported string literal")
-            local decoded = raw:sub(#equals + 3, -#equals - 3):gsub("\r\n", "\n"):gsub("\n\r", "\n"):gsub("\r", "\n")
-            bytes = decoded:gsub("^\n", "")
-        end
-        return {kind = "str", bytes = bytes}
+        return {kind = "str", bytes = need(lexer.literalstring(value.token.text), "unsupported string literal")}
     elseif value.kind == "dedentString" then
         return {kind = "str", bytes = lexer.dedentLongString(value.token.text)}
     elseif value.kind == "trueExpr" or value.kind == "falseExpr" or value.kind == "nilExpr" then
@@ -287,6 +281,7 @@ function program.describe(modules: {any}, entryModule: string): any
         imports = {},
         requires = {},
         requireByNode = {},
+        scalartypes = {imports = {}, definitions = {}, witnesses = {}},
         qualifiedLoads = {},
         calls = {},
         callByNode = {},
@@ -354,6 +349,13 @@ function program.describe(modules: {any}, entryModule: string): any
         end
         local module = {name = input.name, path = input.path, chunk = owner.id, parsed = parsed}
         p.modules[#p.modules + 1], moduleNames[input.name] = module, module
+        for _, imported in ipairs(scalartypeof.imports(parsed.root)) do
+            p.scalartypes.imports[imported.loader] = imported
+            p.scalartypes.definitions[imported.definition] = imported
+            for _, witness in ipairs(imported.sites) do
+                p.scalartypes.witnesses[witness.node] = witness
+            end
+        end
         if input.name == entryModule then
             p.entry = owner.id
         end
@@ -546,10 +548,53 @@ function program.describe(modules: {any}, entryModule: string): any
         local required = b.definition.requiredModule
         if required and not graph.corecallmodule(required) then
             local target = need(
-                moduleNames[graph.coremodule(required)],
+                moduleNames[
+                    p.scalartypes.definitions[b.definition] and scalartypeof.MODULE or graph.coremodule(required)
+                ],
                 "required checked module is missing: " .. required
             )
             p.imports[#p.imports + 1] = {binding = b.id, target = target.chunk}
+        end
+    end
+
+    local scalarTarget: any = nil
+    if next(p.scalartypes.witnesses) ~= nil then
+        for _, owner in ipairs(p.owners) do
+            if owner.kind == "function"
+                and owner.scope.name == scalartypeof.MODULE
+                and owner.name == scalartypeof.MEMBER
+            then
+                need(scalarTarget == nil, "ambiguous scalar storage factory")
+                scalarTarget = owner
+            end
+        end
+        need(scalarTarget and scalarTarget.definition, "checked scalar storage factory is missing")
+        need(
+            #scalarTarget.signature.params == 1
+            and scalarTarget.signature.params[1].tag == "string"
+            and #scalarTarget.signature.rets == 1
+            and scalarTarget.signature.rets[1].tag == "any",
+            "scalar storage factory signature differs"
+        )
+        for _, witness in pairs(p.scalartypes.witnesses) do
+            local token = cst.firstToken(witness.node)
+            witness.target = scalarTarget
+            witness.call = {
+                kind = "call",
+                token = token,
+                obj = {kind = "name", token = {text = scalartypeof.MEMBER, definition = scalarTarget.definition}},
+                calleeType = scalarTarget.signature,
+                args = {
+                    kind = "args",
+                    exprs = {
+                        {
+                            kind = "string",
+                            token = {text = string.format("%q", witness.kind)},
+                            inferredType = scalarTarget.signature.params[1]
+                        }
+                    }
+                }
+            }
         end
     end
 
@@ -686,6 +731,11 @@ function program.describe(modules: {any}, entryModule: string): any
         local bodyOwner = p.byBody[node]
         if bodyOwner then
             owner = bodyOwner
+        end
+        local witness = p.scalartypes.witnesses[node]
+        if witness then
+            witness.owner = owner.id
+            return
         end
         if node.kind == "isExpr"
             and not node.provenStatically
@@ -1057,7 +1107,9 @@ function program.describe(modules: {any}, entryModule: string): any
             p.dynamicRequires = true
         end
         if loader then
-            local name = node.requiredModule and graph.coremodule(node.requiredModule)
+            local scalarImport = p.scalartypes.imports[node]
+            local name = scalarImport and scalartypeof.MODULE
+                or node.requiredModule and graph.coremodule(node.requiredModule)
             local target = name and moduleNames[name]
             local item = {
                 id = #p.requires,
@@ -1065,7 +1117,8 @@ function program.describe(modules: {any}, entryModule: string): any
                 node = node,
                 module = name,
                 typeOnly = node.typeOnlyRequire == true,
-                target = target and target.chunk or nil
+                target = target and target.chunk or nil,
+                scalarImport = scalarImport
             }
             -- A core call module loads nothing; its binding is nil.
             item.corecalls = graph.corecallmodule(node.requiredModule) or nil
@@ -1268,6 +1321,64 @@ function program.verify(p: any): boolean
         )
         modules[module.name] = owner
     end
+    local currentScalarImports, currentScalarWitnesses = {}, {}
+    for _, module in ipairs(p.modules) do
+        for _, imported in ipairs(scalartypeof.imports(module.parsed.root)) do
+            currentScalarImports[imported.loader] = imported
+            for _, witness in ipairs(imported.sites) do
+                currentScalarWitnesses[witness.node] = witness
+            end
+        end
+    end
+    for loader, imported in pairs(p.scalartypes.imports) do
+        local current = need(currentScalarImports[loader], "scalar import no longer has exclusive checked witnesses")
+        need(
+            imported.loader == loader
+            and imported.definition == current.definition
+            and p.scalartypes.definitions[imported.definition] == imported
+            and #imported.sites == #current.sites,
+            "scalar import declaration differs"
+        )
+    end
+    for loader in pairs(currentScalarImports) do
+        need(p.scalartypes.imports[loader], "scalar import is missing from the catalog")
+    end
+    for node, witness in pairs(p.scalartypes.witnesses) do
+        local current = need(currentScalarWitnesses[node], "scalar witness no longer has its checked identity")
+        local target = witness.target
+        need(
+            witness.node == node
+            and witness.definition == current.definition
+            and witness.subject == current.subject
+            and witness.kind == current.kind
+            and p.scalartypes.definitions[witness.definition]
+            and p.owners[witness.owner + 1],
+            "scalar witness identity differs"
+        )
+        need(
+            target
+            and p.owners[target.id + 1] == target
+            and target.kind == "function"
+            and target.scope.name == scalartypeof.MODULE
+            and target.name == scalartypeof.MEMBER
+            and p.functionsByDefinition[target.definition] == target,
+            "scalar factory declaration differs"
+        )
+        local call = witness.call
+        need(
+            call.obj.token.definition == target.definition
+            and call.calleeType == target.signature
+            and #call.args.exprs == 1
+            and call.args.exprs[1].kind == "string"
+            and call.args.exprs[1].token.text == string.format("%q", witness.kind)
+            and call.args.exprs[1].inferredType == target.signature.params[1],
+            "scalar factory argument differs"
+        )
+        graph.invokeContract(target, call)
+    end
+    for node in pairs(currentScalarWitnesses) do
+        need(p.scalartypes.witnesses[node], "scalar witness is missing from the catalog")
+    end
     for definition, b in pairs(p.byDefinition) do
         need(b.definition == definition and p.bindings[b.id + 1] == b, "stale binding identity map")
     end
@@ -1367,7 +1478,11 @@ function program.verify(p: any): boolean
             )
             need(
                 p.requireByNode[node] == item
-                and item.module == (node.requiredModule and graph.coremodule(node.requiredModule))
+                and item.scalarImport == p.scalartypes.imports[node]
+                and item.module == (
+                    item.scalarImport and scalartypeof.MODULE
+                    or node.requiredModule and graph.coremodule(node.requiredModule)
+                )
                 and item.typeOnly == (node.typeOnlyRequire == true),
                 "require callsite metadata mismatch"
             )
@@ -1492,7 +1607,11 @@ function program.verify(p: any): boolean
         local b = need(p.bindings[imported.binding + 1], "invalid import binding")
         local target = need(p.owners[imported.target + 1], "invalid import initializer")
         need(
-            target.kind == "module" and graph.coremodule(b.definition.requiredModule) == target.scope.name,
+            target.kind == "module"
+            and (
+                p.scalartypes.definitions[b.definition] and scalartypeof.MODULE
+                or graph.coremodule(b.definition.requiredModule)
+            ) == target.scope.name,
             "checked import target mismatch"
         )
     end

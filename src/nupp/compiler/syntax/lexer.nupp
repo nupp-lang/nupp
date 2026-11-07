@@ -1146,4 +1146,28 @@ function lexer.dedentLongString(text: string): string
     return body
 end
 
+-- The value of one complete literal, using the existing escape and dedent
+-- decoders. A forged token cannot hide a second expression after its delimiter.
+function lexer.literalstring(text: string, dedent: boolean?): string?
+    local decoded = not dedent and lexer.stringValue(text) or nil
+    if decoded ~= nil then
+        return decoded
+    end
+    local equals = text:match("^%[(=*)%[")
+    if equals == nil then
+        return nil
+    end
+    local closing = "]" .. equals .. "]"
+    local at = text:find(closing, #equals + 3, true)
+    if at == nil or at + #closing - 1 ~= #text then
+        return nil
+    end
+    if dedent then
+        return lexer.dedentLongString(text)
+    end
+    local body = text:sub(#equals + 3, -#equals - 3):gsub("\r\n", "\n"):gsub("\n\r", "\n"):gsub("\r", "\n")
+
+    return (body:gsub("^\n", ""))
+end
+
 export = lexer

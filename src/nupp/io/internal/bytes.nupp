@@ -414,6 +414,29 @@ export sealed interface Lines is own.Closeable
     close: @nosuspend function(takes self: Lines): nil
 end
 
+-- A lease is handed out by the buffer it borrows, so its terminal has to be declared
+-- ahead of both. One generic terminal over the shape the lease record shares with its
+-- interface is written once, ahead of them.
+local interface LeaseOwner
+    drop: @nosuspend function(takes self: LeaseOwner): nil
+end
+
+--- Aborts a buffer write lease. Every lease is handed out under this exact cleanup,
+--- which is why a caller never names it.
+local function destroyLease<T is LeaseOwner>(takes self: T): nil
+    self:drop()
+end
+
+--- An exclusive prepared region of a buffer. Its span may be written, then the
+--- lease is committed with the number of bytes that actually landed. Dropping a
+--- lease aborts it without changing the buffer's logical length.
+--- @export
+export sealed interface BufferWriteLease
+    drop: @nosuspend function(takes self: BufferWriteLease): nil
+    span: function(exclusive self: BufferWriteLease): span.Writable<uint8> borrows (self)
+    commit: function(takes self: BufferWriteLease, written: integer): nil
+end
+
 local makeLines: function(takes source: Reader, limit: integer?): affine(Lines)
 local readThrough: function(
     exclusive source: Reader,
@@ -490,6 +513,40 @@ export interface Reader is own.Closeable
         return readThrough(self, destination, offset, count)
     end
 
+    --- Reads into a reservation and commits the number of bytes received.
+    ---
+    --- Takes the lease on success or failure. End of input commits zero bytes;
+    --- failure abandons the reservation without extending the buffer.
+    --- @param self this reader
+    --- @param destination the positive-sized reservation to fill
+    --- @raises string when the reservation is empty or the reader returns an invalid
+    ---     count
+    --- @return how many bytes were read, or nil on failure
+    --- @return why the read failed, when unsuccessful
+    function readinto(exclusive self, takes destination: affine(BufferWriteLease, destroyLease)): (integer?, string?)
+        local lease = destination
+        local landed: integer?
+        local reason: string?
+        local available: integer
+        do
+            local output = lease:span()
+            available = positive(#output, "Reader:readinto reservation length", 2)
+            landed, reason = self:readspan(output)
+            own.drop(output)
+        end
+        if landed == nil then
+            own.drop(lease)
+            return nil, reason
+        end
+        local written = integer_(landed, "Reader:readinto byte count", 2)
+        if written > available then
+            error("nupp: io.Reader returned more bytes than its reservation", 2)
+        end
+        lease:commit(written)
+
+        return landed, reason
+    end
+
     --- Writes everything left to a writer.
     ---
     --- This default moves the bytes through `read` and `write`; a reader holding
@@ -544,6 +601,39 @@ end
 --- @internal
 export const readerdefaults = Reader
 
+local function readIntoBuffer(
+    exclusive source: Reader,
+    exclusive destination: Buffer,
+    offset: integer?,
+    count: integer?
+): (integer?, string?)
+    return source:readinto(destination, offset, count)
+end
+
+local function readIntoLease(
+    exclusive source: Reader,
+    takes destination: affine(BufferWriteLease, destroyLease)
+): (integer?, string?)
+    return source:readinto(destination)
+end
+
+-- Checked callers select an overload directly. Lua callers keep the plain
+-- method, which dispatches to those same bodies instead of losing overrides.
+local function readIntoLua(source: any, destination: any, offset: any, count: any): (integer?, string?)
+    if type(destination) == "table" and type(destination.commit) == "function" then
+        if offset ~= nil or count ~= nil then
+            error("nupp: Reader:readinto takes no offset or count with a reservation", 2)
+        end
+        return (readIntoLease as any)(source, @unsafe own.release(destination))
+    end
+
+    return (readIntoBuffer as any)(source, @unsafe own.release(destination), offset, count)
+end
+
+export function readercompat(declaration: table): nil
+    rawset(declaration, "readinto", readIntoLua)
+end
+
 --- Carries the writer default methods through the bootstrap compiler.
 --- @internal
 export const writerdefaults = Writer
@@ -560,19 +650,6 @@ export const scalarwriterdefaults = ScalarWriter
 --- @internal
 export const scalarstreamdefaults = ScalarStream
 
--- A lease is handed out by the buffer it borrows, so its terminal has to be declared
--- ahead of both. One generic terminal over the shape the lease record shares with its
--- interface is written once, ahead of them.
-local interface LeaseOwner
-    drop: @nosuspend function(takes self: LeaseOwner): nil
-end
-
---- Aborts a buffer write lease. Every lease is handed out under this exact cleanup,
---- which is why a caller never names it.
-local function destroyLease<T is LeaseOwner>(takes self: T): nil
-    self:drop()
-end
-
 -- Declared ahead of the records because their methods call them, and defined below
 -- because they name the records. The types are the contract either way.
 local reserve: function(borrows self: Buffer, minimum: integer): nil
@@ -580,16 +657,6 @@ local bytesAt: function(borrows self: Buffer, offset: integer, count: integer): 
 local newReaderOver: function(bytes: string): Reader
 local newWriterOver: function(borrows buffer: Buffer): affine(Writer) borrows (buffer)
 local newBufferReader: function(exclusive buffer: Buffer): affine(Reader) borrows (buffer)
-
---- An exclusive prepared region of a buffer. Its span may be written, then the
---- lease is committed with the number of bytes that actually landed. Dropping a
---- lease aborts it without changing the buffer's logical length.
---- @export
-export sealed interface BufferWriteLease
-    drop: @nosuspend function(takes self: BufferWriteLease): nil
-    span: function(exclusive self: BufferWriteLease): span.Writable<uint8> borrows (self)
-    commit: function(takes self: BufferWriteLease, written: integer): nil
-end
 
 local function bigEndian(bytes: string): string
     if physical.encodeUint16(1):byte(1) == 1 then
@@ -1562,6 +1629,11 @@ function WriteLease.drop(takes self: WriteLease): nil
     end
 end
 
+readercompat(Reader as table)
+readercompat(SpanReader as table)
+readercompat(StringReader as table)
+readercompat(BufferReader as table)
+
 function BufferWriter.close(takes self: BufferWriter): nil
     local state = @unsafe own.release(self)
     state._closed = true
@@ -1946,20 +2018,7 @@ readThrough = function(
     const from = bounds.count(offset or 0, "Reader:readinto offset", 4)
     const wanted = bounds.positive(count or DEFAULT_READ, "Reader:readinto count", 4)
     const lease = reserveAt_(destination, from, wanted)
-    local landed: integer?
-    local reason: string?
-    do
-        const output = lease:span()
-        landed, reason = source:readspan(output)
-        own.drop(output)
-    end
-    if landed == nil then
-        own.drop(lease)
-        return nil, reason
-    end
-    lease:commit(landed)
-
-    return landed
+    return source:readinto(lease)
 end
 
 -- The default `transferto`.

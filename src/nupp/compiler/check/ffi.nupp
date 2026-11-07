@@ -181,6 +181,7 @@ export function install(c: state.Checker): Intrinsic
             end
             local name = memberName
             local argT = c.resolveType(typeArg)
+            typeArg.resolvedType = argT
             if name == "istype" then
                 node.typeTestTarget = argT
             end
@@ -257,6 +258,18 @@ export function install(c: state.Checker): Intrinsic
                 end
                 return argT
             elseif name == "typeof" then
+                -- The intrinsic returns before ordinary callee inference. Retain
+                -- the namespace's normal binding for checked backend projections.
+                local callee = node.kind == "call" and (node as cst.Call).obj or nil
+                if callee
+                    and callee.kind == "dotIndex"
+                    and callee.obj
+                    and callee.obj.kind == "name"
+                    and callee.obj.token
+                    and c.lookupEntry(callee.obj.token.text) ~= nil
+                then
+                    c.infer(callee.obj)
+                end
                 return T.ctype(argT)
             elseif name == "istype" then
                 return T.boolean

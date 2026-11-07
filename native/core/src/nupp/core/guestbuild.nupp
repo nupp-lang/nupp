@@ -12,6 +12,7 @@ local checker: any = require("nupp.compiler.check")
 local environment: any = require("nupp.compiler.project.env")
 local cst = require("nupp.compiler.syntax.cst")
 local program = require("nupp.compiler.vm.programgraph")
+local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local tagged = require("nupp.compiler.vm.taggedprofile")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
 require("nupp.compiler.hostservices")
@@ -574,6 +575,9 @@ local function requiredmodules(root: any, source: string, follow: boolean): ({st
         end
     end
     walk(root)
+    if #scalartypeof.imports(root) > 0 then
+        found[#found + 1] = scalartypeof.MODULE
+    end
     if follow then
         for list in source:gmatch("@requires%-dynamically ([%w%._, ]+)") do
             for name in list:gmatch("[%w%._]+") do

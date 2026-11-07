@@ -182,4 +182,14 @@ function tests.bufferScalarRangesAndEndianAreExplicit(): nil
     assert2(buffer:readstring(12, 4) == string.rep("\255", 4))
 end
 
+function tests.customReadersCanSupplyUploadBodiesWithInheritedReadinto(): nil
+    local state = {bytes = "abc", closes = 0}
+    local body = http.reader(CustomReader(state = state), 3)
+    local destination = standard.Buffer.create("head")
+    assert2(body.reader:readinto(destination:reserve(10)) == 3)
+    assert2(destination:tostring() == "headabc")
+    body:close()
+    assert2(state.closes == 1)
+end
+
 return tests
