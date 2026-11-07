@@ -115,6 +115,35 @@ function M.launcherFallsBackToTheFetchedStageZero()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.sourceBackedRuntimeLoadersMaterializeWithoutRunningTheirBodies()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+    local source = assert(io.open(dir .. "/compiler.lua", "wb"))
+    source:write(
+        [=[
+local sources = {fixture = 'error("loader body must not run")'}
+package.preload["fixture.source"] = assert(loadstring(sources.fixture, "@fixture.source"))
+package.preload["nupp.tools.build.native"] = function() error("provider body must not run") end
+rawset(_G, "__nuppCompilerModuleArtifacts", {fixture = {source = sources.fixture}})
+error("entry must not run")
+]=]
+    )
+    source:close()
+    local output, ok = capture(
+        (
+            "luajit '%s/scripts/stage0-runtime.lua' '%s/compiler.lua' '%s/runtime.lua' '%s/materialized' '%s/stamp' 2>&1"
+        ):format(ROOT, dir, dir, dir, dir)
+    )
+    assert(ok, output)
+    local loader = assert(loadfile(dir .. "/materialized/build/fixture/source.lua"))
+    assert(debug.getupvalue(loader, 1) == nil, "the loader retained a constructor capture")
+    local ran, reason = pcall(loader)
+    assert(not ran and tostring(reason):find("loader body must not run", 1, true), tostring(reason))
+    assert(readFile(dir .. "/materialized/build/nupp/tools/build/native.lua"))
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- A tree carrying the launcher and two compilers that do nothing but say which
 -- one they are. What these cases test is the launcher's choice between them and
 -- what it waits for on the way, and a real pair would take a build to produce

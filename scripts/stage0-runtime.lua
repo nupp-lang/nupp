@@ -12,11 +12,26 @@ end
 
 local stopped = {}
 local modules = {}
-local environment = setmetatable({package = {preload = modules}}, {
-    __index = function()
-        error(stopped, 0)
-    end,
-})
+-- Source-backed runtime loaders compile strings while the catalog is registered.
+-- Their bodies still must not run, and the bundle's globals stay private.
+local globals = {}
+local environment = setmetatable(
+    {
+        package = {preload = modules},
+        assert = assert,
+        loadstring = loadstring,
+        _G = globals,
+        rawset = function(target, key, value)
+            assert(target == globals, 'compiler catalog writes outside its private globals')
+            return rawset(target, key, value)
+        end,
+    },
+    {
+        __index = function()
+            error(stopped, 0)
+        end,
+    }
+)
 local input = assert(io.open(source, 'rb'))
 local stage0 = assert(input:read('*a'))
 assert(input:close())
