@@ -50,14 +50,17 @@ end
 assert(iterations(math.maxinteger - 1, math.maxinteger, 2) == 1)
 assert(iterations(math.mininteger + 1, math.mininteger, -2) == 1)
 
-local function zero(step: integer): nil
+local function zero(step: integer, last: any): nil
     local resource = Owner()
-    for value = 5, 1, step do
+    for value = 5, last, step do
         error("zero step reached the body", 0)
     end
 end
 
-local ok, problem = pcall(zero, 0)
+local ok, problem = pcall(zero, 0, {})
 assert(not ok and string.find(tostring(problem), "'for' step is zero", 1, true) ~= nil)
 assert(closed == 1)
+local limitOk, limitProblem = pcall(zero, 1, {})
+assert(not limitOk and string.find(tostring(limitProblem), "bad 'for' limit", 1, true) ~= nil)
+assert(closed == 2)
 export = 1

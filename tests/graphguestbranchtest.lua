@@ -810,7 +810,7 @@ local function interpret(result)
             regs[ins[2]] = not regs[ins[3]]
         elseif op == "LibCall" then
             test.eq(ins[3], require("nupp.compiler.vm.corelibrary").id("ERROR"))
-            error(regs[ins[4]], 0)
+            error(regs[ins[4] + 1], 0)
         elseif op == "Jmp" then
             pc = pc + ins[2]
         elseif op == "JmpIf" then
