@@ -1,0 +1,7 @@
+local scope = coroutine.scope()
+const task = scope:spawn(function(): integer
+    return 42
+end)
+local raw: thread = task
+assert(type(task) == "thread")
+assert(task:await() == 42)

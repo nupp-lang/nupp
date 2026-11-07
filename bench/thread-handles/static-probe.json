@@ -1,0 +1,16 @@
+{
+  "ok": false,
+  "expectedDiagnostic": "NUPP2001",
+  "diagnostics": [
+    {
+      "code": "NUPP2603",
+      "line": 5,
+      "message": "borrowed value needs a matching ownership annotation"
+    },
+    {
+      "code": "NUPP2001",
+      "line": 5,
+      "message": "cannot initialize raw: {@readonly await: function(any): integer, @readonly cancel: function(any, string?): boolean, @readonly isdone: function(any): boolean, @readonly status: function(any): \"cancelled\" | \"done\" | \"failed\" | \"queued\" | \"running\"} is not a thread"
+    }
+  ]
+}

@@ -1,0 +1,135 @@
+diff --git a/src/nupp/tasks.nupp b/src/nupp/tasks.nupp
+index 521ad5450..eaeb42b40 100644
+--- a/src/nupp/tasks.nupp
++++ b/src/nupp/tasks.nupp
+@@ -87,0 +88,19 @@ local timeModule: any = loadedTime or {now = missingTime, wakeat = missingTime}
++-- Experimental LuaJIT representation. Live coroutine frames keep their Child
++-- alive. Only a dead coroutine needs an environment anchor; installing it while
++-- running would also change the environment inherited by loadstring chunks.
++local rawResume = coroutine.resume
++local managedStates: any = setmetatable({}, {__mode = "kv"})
++local managedKey: any = {}
++local globalEnvironment: any = {__index = _G}
++local coroutineHost: any = rawget(_G, "coroutine")
++local threadEnvironment: any = debug
++
++local function anchorCompleted(co: thread, value: any): nil
++    const original = threadEnvironment.getfenv(co)
++    const environment: any = {[managedKey] = value}
++    threadEnvironment.setfenv(
++        co,
++        setmetatable(environment, original == _G and globalEnvironment or {__index = original})
++    )
++end
++
+@@ -553,0 +573,4 @@ local function settleChild(owner: ScopeState, child: Child, status: string): nil
++    const co = child.thread
++    if co ~= nil and managedStates[co] == child and coroutine.status(co) == "dead" then
++        anchorCompleted(co, child)
++    end
+@@ -704 +727 @@ local function resumeChild(owner: ScopeState, child: Child): nil
+-    const ok, answer = coroutine.resume(co)
++    const ok, answer = rawResume(co)
+@@ -977,4 +999,0 @@ TaskMT.__index = TaskMT
+-local function newTask(owner: ScopeState, child: Child): any
+-    return setmetatable({_owner = owner, _child = child,}, TaskMT)
+-end
+-
+@@ -982 +1001 @@ function TaskMT.isdone(self: any): boolean
+-    const status = (self._child as Child).status
++    const status = (managedStates[self] as Child).status
+@@ -988 +1007 @@ function TaskMT.status(self: any): string
+-    return (self._child as Child).status
++    return (managedStates[self] as Child).status
+@@ -992,2 +1011,2 @@ function TaskMT.cancel(self: any, reason: string?): boolean
+-    const child = self._child as Child
+-    const owner = self._owner as ScopeState
++    const child = managedStates[self] as Child
++    const owner = child.scope as ScopeState
+@@ -1015,2 +1034,2 @@ function TaskMT.await(self: any): ...any
+-    const owner = self._owner as ScopeState
+-    const child = self._child as Child
++    const child = managedStates[self] as Child
++    const owner = child.scope as ScopeState
+@@ -1175 +1194,7 @@ end
+-local function spawnRaw(owner: ScopeState, name: string, body: any, arguments: Packed?): Child
++local function spawnRaw(
++    owner: ScopeState,
++    name: string,
++    body: any,
++    arguments: Packed?,
++    managed: boolean?
++): Child, thread
+@@ -1198,0 +1224,2 @@ local function spawnRaw(owner: ScopeState, name: string, body: any, arguments: P
++        body = nil
++        arguments = nil
+@@ -1233,0 +1261,3 @@ local function spawnRaw(owner: ScopeState, name: string, body: any, arguments: P
++    if managed then
++        managedStates[co] = child
++    end
+@@ -1249 +1279 @@ local function spawnRaw(owner: ScopeState, name: string, body: any, arguments: P
+-    return child
++    return child, co
+@@ -1253 +1283,3 @@ local function spawnChild(owner: ScopeState, name: string, body: any, arguments:
+-    return newTask(owner, spawnRaw(owner, name, body, arguments))
++    const _, co = spawnRaw(owner, name, body, arguments, true)
++
++    return co
+@@ -1295 +1327 @@ function ForkMT.isdone(self: any): boolean
+-    return (self._task as any):isdone()
++    return (managedStates[self]._task as any):isdone()
+@@ -1299 +1331 @@ function ForkMT.status(self: any): string
+-    return (self._task as any):status()
++    return (managedStates[self]._task as any):status()
+@@ -1303 +1335 @@ function ForkMT.cancel(self: any, reason: string?): boolean
+-    return (self._task as any):cancel(reason)
++    return (managedStates[self]._task as any):cancel(reason)
+@@ -1307 +1339 @@ function ForkMT.await(self: any): ...any
+-    const owner = self._owner as ScopeState
++    const owner = managedStates[self]._owner as ScopeState
+@@ -1311 +1343 @@ function ForkMT.await(self: any): ...any
+-    )(self._task)
++    )(managedStates[self]._task)
+@@ -1324,0 +1357,31 @@ end
++-- The metatable is shared by LuaJIT threads. Raw coroutines retain their prior
++-- index behavior, and managed handles select the existing task method family.
++const probe = coroutine.create(function(): nil
++    return nil
++end)
++local threadMethods: any = debug.getmetatable(probe) or {}
++const previousIndex = threadMethods.__index
++threadMethods.__index = function(self: any, key: any): any
++    const state = managedStates[self]
++    if state ~= nil then
++        const methods = state._task ~= nil and ForkMT or TaskMT
++
++        return methods[key]
++    end
++    if type(previousIndex) == "function" then
++        return previousIndex(self, key)
++    elseif type(previousIndex) == "table" then
++        return previousIndex[key]
++    end
++
++    return nil
++end
++debug.setmetatable(probe, threadMethods)
++coroutineHost.resume = function(co: any, ...: any): ...any
++    if managedStates[co] ~= nil then
++        return false, "nupp: a managed task is resumed by its scope; use await"
++    end
++
++    return rawResume(co, ...)
++end
++
+@@ -1349 +1412,9 @@ local function startWorker(scope: any, dedicated: boolean, fn: any, ...: any): a
+-    return setmetatable({_owner = owner, _task = task,}, ForkMT)
++    const state = {_owner = owner, _task = task,}
++    -- A local completion proxy owns the provider handle through its initial
++    -- closure. The job still executes in the provider's isolated VM.
++    const co = coroutine.create(function(): any
++        return state
++    end)
++    managedStates[co] = state
++
++    return co
