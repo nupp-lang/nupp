@@ -181,6 +181,7 @@ local CASES: {[string]: {
     bufferstate = {fixture = "nupp/core/catalogbufferstate", version = 8, follow = true},
     sharedbytes = {fixture = "nupp/core/catalogsharedbytes", version = 8, follow = true},
     spanreads = {fixture = "nupp/core/catalogspanreads", version = 8, follow = true},
+    spanwrites = {fixture = "nupp/core/catalogspanwrites", version = 8, follow = true},
     modulesdynamic = {fixture = "catalog-modules-dynamic", version = 8, modules = {"catalog-modules-geometry"},},
     modulescycle = {
         fixture = "catalog-modules-cycle",

@@ -675,14 +675,26 @@ function tagged.forVersion(version: integer): any
                 return {receiver = object, index = key, kind = "tagged"}
             end
             need(node.kind == "bracketIndex", "only keyed assignment targets are admitted")
+            local access = catalog(ctx).indexedByNode[node]
+            if access ~= nil or indexedaccess.write(node) ~= nil then
+                need(access ~= nil and access.writing, "indexed span lacks its issued setter")
+                indexedaccess.verify(access, node, ctx.fn.id)
+            end
             local operands = ctx.operands({node.obj, node.expr}, {"tagged", "tagged"})
             if operands == nil then
                 return {receiver = 0, kind = "tagged"}
             end
 
-            return {receiver = operands[1], index = operands[2], kind = "tagged"}
+            return {receiver = operands[1], index = operands[2], kind = "tagged", indexed = access}
         end
         profile.assignTarget = function(ctx: any, node: any, target: any, receiver: integer, value: integer): nil
+            if target.indexed then
+                local access = target.indexed
+                indexedaccess.verify(access, node, ctx.fn.id)
+                invokeMethod(ctx, access.call, false, nil, {receiver, ctx.readHeld(target.heldIndex), value})
+                return
+            end
+            need(indexedaccess.write(node) == nil, "indexed span lacks its issued setter")
             ctx.emit(node, "SetIdx", {receiver, ctx.readHeld(target.heldIndex), value}, nil)
         end
 

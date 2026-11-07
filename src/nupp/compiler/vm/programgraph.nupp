@@ -806,6 +806,23 @@ function program.describe(modules: {any}, entryModule: string): any
         return eager
     end
 
+    local function registerindexed(indexed: any): nil
+        if indexed == nil then
+            return
+        end
+        need(p.indexedByNode[indexed.node] == nil, "indexed span has duplicate access plans")
+        p.indexedByNode[indexed.node] = indexed
+        local item = {
+            id = #p.calls,
+            owner = indexed.owner,
+            node = indexed.call,
+            method = true,
+            dynamic = true,
+            indexed = indexed
+        }
+        p.calls[#p.calls + 1], p.callByNode[indexed.call] = item, item
+    end
+
     local collect: function(any, any): nil
     collect = function(node: any, owner: any): nil
         if cst.isToken(node) or typeSyntax[node.kind] or graph.erased(node) then
@@ -815,18 +832,11 @@ function program.describe(modules: {any}, entryModule: string): any
         if bodyOwner then
             owner = bodyOwner
         end
-        local indexed = indexedaccess.prepare(node, owner.id)
-        if indexed then
-            p.indexedByNode[node] = indexed
-            local item = {
-                id = #p.calls,
-                owner = owner.id,
-                node = indexed.call,
-                method = true,
-                dynamic = true,
-                indexed = indexed
-            }
-            p.calls[#p.calls + 1], p.callByNode[indexed.call] = item, item
+        registerindexed(indexedaccess.prepare(node, owner.id))
+        if node.kind == "assignStmt" then
+            for index, target in ipairs(node.targets) do
+                registerindexed(indexedaccess.preparewrite(target, owner.id, node, index))
+            end
         end
         local witness = p.scalartypes.witnesses[node]
         if witness then

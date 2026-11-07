@@ -378,7 +378,10 @@ function M.writingContractsDoNotIssueReadCalls()
     )
     assert(node.indexedAccess.writing, "fixture must be a genuine checked write")
     local p = describe()
-    assert(p.indexedByNode[node] == nil, "write must not issue a read call")
+    assert(
+        p.indexedByNode[node].writing and p.indexedByNode[node].call.name.text == "set",
+        "write must issue only its setter"
+    )
     refuses(
         function()
             indexed.read(node)

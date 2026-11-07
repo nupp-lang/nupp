@@ -1,0 +1,108 @@
+module nupp.core.catalogspanwrites
+
+local own = require("own")
+local {type Writable} = require("binary.span")
+local closed = 0
+local events = 0
+
+local function position(index: integer): (integer, integer)
+    events = events * 10 + index
+    return index, 99
+end
+
+local function values(): (integer, integer)
+    events = events * 10 + 4
+    return 67, 68
+end
+
+local interface Closer is own.Affine<self.close>
+    close: function(takes self: Closer): nil
+end
+local record Sink is Closer
+    n: integer
+    function close(takes self): nil
+        local state = @unsafe own.release(self)
+        closed += state.n
+    end
+end
+
+local function write(exclusive output: Writable<uint8>, index: any): nil
+    local held = Sink(n = 1)
+    output[index] = 88
+end
+
+local function rejectedValue(reject: boolean): integer
+    if reject then
+        error("span write RHS failed")
+    end
+    return 81
+end
+
+local function failed(exclusive buffer: io.Buffer, rhs: boolean): nil
+    local held = Sink(n = 10)
+    local lease = buffer:reserve(2)
+    local output = lease:span()
+    if rhs then
+        output[1] = rejectedValue(rhs)
+    else
+        output[0] = 90
+    end
+end
+
+local buffer = io.Buffer.create("head")
+do
+    local lease = buffer:reserve(3)
+    do
+        local output = lease:span()
+        write(output, 1)
+        output[2], output[3] = 65, 66
+        assert(output[1] == 88 and output[2] == 65 and output[3] == 66)
+        events = 0
+        output[position(2)], output[position(3)] = values()
+        assert(
+            events == 234 and output[2] == 67 and output[3] == 68,
+            "all addresses precede one RHS and keep its distinct results"
+        )
+        events = 0
+        output[position(2)], output[position(2)] = values()
+        assert(
+            events == 224 and output[2] == 67,
+            "duplicate destinations store right to left without evaluating an index twice"
+        )
+        for _, index in ipairs({0, 4, 1.5}) do
+            local okay, why = pcall(write, output, index)
+            assert(not okay and type(why) == "string", "set bounds must raise")
+            assert((why as string):find("write span index out of bounds", 1, true) ~= nil)
+        end
+    end
+    lease:commit(2)
+end
+assert(closed == 4, "set success and errors close their live owners")
+assert(buffer:tostring() == "headXC" and buffer:len() == 6, "commit publishes only the written prefix")
+for _, rhs in ipairs({false, true}) do
+    local okay, why = pcall(failed, buffer, rhs)
+    assert(not okay and type(why) == "string", "failed writes must unwind the lease")
+    assert((why as string):find(rhs and "span write RHS failed" or "write span index out of bounds", 1, true) ~= nil)
+    assert(buffer:tostring() == "headXC" and buffer:len() == 6, "failed writes do not publish reserved bytes")
+    do
+        local lease = buffer:reserve(1)
+        do
+            local output = lease:span()
+            output[1] = rejectedValue(false)
+            assert(output[1] == 81, "the fallible RHS also has a real successful value")
+        end
+        own.drop(lease)
+    end
+    assert(buffer:len() == 6, "dropping a populated lease does not commit")
+end
+assert(closed == 24, "both failed writes close owners and drop their leases")
+do
+    local lease = buffer:reserve(1)
+    do
+        local output = lease:span()
+        output[1] = 90
+    end
+    lease:commit(1)
+end
+assert(buffer:tostring() == "headXCZ", "a new write can reuse storage after error and drop")
+export = 1

@@ -2,6 +2,7 @@ module nupp.compiler.vm.indexedaccess
 
 local cst = require("nupp.compiler.syntax.cst")
 local indexedviews = require("nupp.compiler.types.indexedviews")
+local T = require("nupp.compiler.types")
 local need = require("nupp.compiler.vm.taggedvalues").need
 
 local issued: {[any]: any} = setmetatable({}, {__mode = "k"})
@@ -28,7 +29,7 @@ export function descriptor(receiver: any, marked: any, message: string): any
     return view
 end
 
-export function read(node: any): any
+local function checked(node: any, writing: boolean): any
     if node.kind ~= "bracketIndex" then
         return nil
     end
@@ -43,30 +44,38 @@ export function read(node: any): any
         view.adapter == "span"
         and marked.element == view.element
         and marked.writable == view.writable
-        and not marked.writing
+        and marked.writing == writing
+        and (not writing or view.writable)
         and marked.indexDefinition == definition
         and node.usesIndexContract == true
         and node.containerTag == "span",
-        "indexed span read differs from its checked contract"
+        writing and "indexed span write differs from its checked contract"
+        or "indexed span read differs from its checked contract"
     )
 
     return view
 end
 
+export function read(node: any): any
+    return checked(node, false)
+end
+
+export function write(node: any): any
+    return checked(node, true)
+end
+
 -- This call is issued only for a checked operator, not added to the source tree.
 -- The parenthesized index is one value even when its expression is variadic.
-export function prepare(node: any, owner: integer): any
-    if node.kind == "bracketIndex" and type(node.indexedAccess) == "table" and node.indexedAccess.writing then
-        return nil
-    end
-    local view = read(node)
+local function issue(node: any, owner: integer, assignment: any?, targetIndex: integer?): any
+    local writing = assignment ~= nil
+    local view = checked(node, writing)
     if view == nil then
         return nil
     end
     local token = need(cst.firstToken(node), "indexed span lacks a source position")
     local member: any = {
         kind = "name",
-        text = "get",
+        text = writing and "set" or "get",
         line = token.line,
         col = token.col,
         offset = token.offset,
@@ -74,6 +83,17 @@ export function prepare(node: any, owner: integer): any
     }
     local index: any = {node.expr, kind = "paren", expr = node.expr, inferredType = node.expr.inferredType}
     local args: any = {index, kind = "args", exprs = {index}}
+    local source, ordinal, value: any = nil, nil, nil
+    if writing then
+        need(
+            assignment.kind == "assignStmt" and assignment.targets[targetIndex] == node and #assignment.exprs > 0,
+            "indexed span write lacks its assignment source"
+        )
+        local sourceIndex = math.min(targetIndex as integer, #assignment.exprs)
+        source, ordinal = assignment.exprs[sourceIndex], (targetIndex as integer) - sourceIndex + 1
+        value = {source, kind = "paren", expr = source, inferredType = node.inferredType}
+        args[2], args.exprs[2] = value, value
+    end
     local call: any = {
         node.obj,
         member,
@@ -82,15 +102,25 @@ export function prepare(node: any, owner: integer): any
         obj = node.obj,
         name = member,
         args = args,
-        inferredType = node.inferredType,
+        inferredType = writing and T.nil_ or node.inferredType,
         statementOwner = node.statementOwner
     }
-    local access: any = {node = node, owner = owner, call = call}
+    local access: any = {node = node, owner = owner, call = call, writing = writing}
     issued[
         access
     ] = {
         node = node,
         owner = owner,
+        writing = writing,
+        assignment = assignment,
+        targets = assignment and assignment.targets,
+        sources = assignment and assignment.exprs,
+        targetCount = assignment and #assignment.targets,
+        sourceCount = assignment and #assignment.exprs,
+        targetIndex = targetIndex,
+        source = source,
+        ordinal = ordinal,
+        value = value,
         object = node.obj,
         index = node.expr,
         marker = node.indexedAccess,
@@ -107,10 +137,22 @@ export function prepare(node: any, owner: integer): any
         argument = index,
         expressions = args.exprs,
         result = node.inferredType,
+        callResult = call.inferredType,
         statementOwner = node.statementOwner
     }
 
     return access
+end
+
+export function prepare(node: any, owner: integer): any
+    if node.kind == "bracketIndex" and type(node.indexedAccess) == "table" and node.indexedAccess.writing then
+        return nil
+    end
+    return issue(node, owner, nil, nil)
+end
+
+export function preparewrite(node: any, owner: integer, assignment: any, targetIndex: integer): any
+    return issue(node, owner, assignment, targetIndex)
 end
 
 export function verify(access: any, node: any, owner: integer): boolean
@@ -118,6 +160,7 @@ export function verify(access: any, node: any, owner: integer): boolean
     need(
         access.node == node
         and snapshot.node == node
+        and access.writing == snapshot.writing
         and access.owner == owner
         and snapshot.owner == owner
         and node.obj == snapshot.object
@@ -129,7 +172,7 @@ export function verify(access: any, node: any, owner: integer): boolean
         and node.inferredType == snapshot.result,
         "indexed span source identity mismatch"
     )
-    local view = need(read(node), "indexed span no longer has its checked contract")
+    local view = need(checked(node, snapshot.writing), "indexed span no longer has its checked contract")
     need(
         view.nominal == snapshot.nominal
         and view.element == snapshot.element
@@ -137,7 +180,32 @@ export function verify(access: any, node: any, owner: integer): boolean
         and view.fixedCount == snapshot.fixedCount,
         "indexed span descriptor changed after issue"
     )
+    if snapshot.writing then
+        local assignment = snapshot.assignment
+        local sourceIndex = math.min(snapshot.targetIndex, #snapshot.sources)
+        need(
+            assignment.kind == "assignStmt"
+            and assignment.targets == snapshot.targets
+            and assignment.exprs == snapshot.sources
+            and #snapshot.targets == snapshot.targetCount
+            and #snapshot.sources == snapshot.sourceCount
+            and snapshot.targets[snapshot.targetIndex] == node
+            and snapshot.sources[sourceIndex] == snapshot.source
+            and snapshot.ordinal == snapshot.targetIndex - sourceIndex + 1,
+            "indexed span assignment changed after issue"
+        )
+        local value = snapshot.value
+        need(
+            value.kind == "paren"
+            and #value == 1
+            and value[1] == snapshot.source
+            and value.expr == snapshot.source
+            and value.inferredType == snapshot.result,
+            "indexed span assigned value changed after issue"
+        )
+    end
     local call = access.call
+    local count = snapshot.writing and 2 or 1
     need(
         call == snapshot.call
         and call.kind == "methodCall"
@@ -148,27 +216,28 @@ export function verify(access: any, node: any, owner: integer): boolean
         and call.obj == snapshot.object
         and call.name == snapshot.member
         and call.name.kind == "name"
-        and call.name.text == "get"
+        and call.name.text == (snapshot.writing and "set" or "get")
         and call.name.definition == nil
         and call.overloadMember == nil
         and call.trailingCallableMember == nil
         and call.args == snapshot.args
         and call.args.kind == "args"
-        and #call.args == 1
+        and #call.args == count
         and call.args.exprs == snapshot.expressions
-        and #call.args.exprs == 1
+        and #call.args.exprs == count
         and call.args[1] == snapshot.argument
         and call.args.exprs[1] == snapshot.argument
+        and (not snapshot.writing or call.args[2] == snapshot.value and call.args.exprs[2] == snapshot.value)
         and snapshot.argument.kind == "paren"
         and #snapshot.argument == 1
         and snapshot.argument.expr == snapshot.index
         and snapshot.argument[1] == snapshot.index
         and call.args.str == nil
         and call.args.table == nil
-        and call.inferredType == snapshot.result
+        and call.inferredType == snapshot.callResult
         and call.statementOwner == snapshot.statementOwner
         and node.statementOwner == snapshot.statementOwner,
-        "indexed span getter call changed after issue"
+        "indexed span operator call changed after issue"
     )
 
     return true
