@@ -863,6 +863,9 @@ local function stage()
             write(base .. "/source/nupp/runtime/core/guestaudit.nupp", read(TESTS .. "/guest-lifecycle-audit.nupp"))
         end
         for _, fixture in ipairs({
+            "catalog-scalar-math",
+            "catalog-scalar-mutation",
+            "catalog-scalar-random",
             "catalog-system-provider",
             "catalog-system-info",
             "catalog-entropy",
