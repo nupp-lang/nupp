@@ -266,10 +266,10 @@ end
 
 function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
     local env = envMod.new("/private/tmp/nupp-bundled-layout-consumer", {config = {include = {"src"}}, cache = false})
+    testAssert.eq(env.bundledImplementation("debug.profile"), nil, "LuaJIT profiling is retired")
+    testAssert.eq(env.bundledImplementation("debug.profile.zone"), nil, "LuaJIT profiling is retired")
     local sources = {
         ["nupp.runtime.contracts"] = "/nupp/runtime/contracts.nupp",
-        ["debug.profile"] = "/debug/profile/init.nupp",
-        ["debug.profile.zone"] = "/debug/profile/zone.nupp",
         ["bytes"] = "/bytes/init.nupp",
         ["bytes.span"] = "/bytes/span.nupp",
         ["nupp.runtime.entropy"] = "/nupp/runtime/entropy.nupp",

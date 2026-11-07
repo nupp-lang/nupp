@@ -1286,7 +1286,7 @@ end
             inspect(parsed.root)
             assert(rangeProof, "the merged facade retains the trusted indexed range")
             assert(factoryProof, "the final factory retains its checked view producer")
-            local facadePath = dir .. "/src/binary/span.nupp"
+            local facadePath = dir .. "/src/bytes/span.nupp"
             local facade = parser.parse(readFile(facadePath), facadePath)
             local facadeErrors = check.check(facade, facadePath, env)
             testAssert.eq(#facadeErrors, 0, facadeErrors[1] and facadeErrors[1].msg)

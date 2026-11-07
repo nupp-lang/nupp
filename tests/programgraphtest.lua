@@ -1588,6 +1588,7 @@ local function builtinProjectionFixture(source, withOs, withSharedBase, internal
         [[
 module nupp.runtime.standardio
 export interface Reader end
+export interface Writer end
 export const Reader = {of = function(value: string): integer return #value end}
 export const value: table = {Reader = Reader}
 ]],
@@ -2041,7 +2042,7 @@ function M.checkedBuiltinRequireProjectsTheSameSharedValueAsTheBuiltinName()
     end
     for _, source in ipairs({
         'local {Reader} = require("io")\nreturn Reader, io.Reader',
-        'local {type Reader, Reader as source} = require("io")\nreturn source, io.Reader',
+        'local {type Writer, Reader as source} = require("io")\nreturn source, io.Reader',
     }) do
         local p = builtinProjectionFixture(source)
         local patterns = 0
