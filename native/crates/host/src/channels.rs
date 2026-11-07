@@ -267,23 +267,23 @@ mod tests {
     }
 }
 
+// The host adapter also supplies storage and names these types in every feature
+// profile, even when worker bindings are disabled.
+
 /// A direction has one live capability generation. Moving it invalidates every
 /// old wrapper, including wrappers retained by a dynamically typed caller.
-#[cfg(any(feature = "workers", test))]
 struct Capability<T> {
     queue: std::sync::Arc<BoundedQueue<T>>,
     generation: std::sync::atomic::AtomicU64,
     sender: bool,
 }
 
-#[cfg(any(feature = "workers", test))]
 pub(crate) struct Endpoint<T> {
     capability: std::sync::Arc<Capability<T>>,
     generation: u64,
 }
 
 #[derive(Debug, Eq, PartialEq)]
-#[cfg(any(feature = "workers", test))]
 pub(crate) enum SendError<T> {
     Invalid(T),
     Closed(T),
@@ -292,7 +292,6 @@ pub(crate) enum SendError<T> {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-#[cfg(any(feature = "workers", test))]
 pub(crate) enum Receive<T> {
     Value(T),
     Empty,
@@ -302,7 +301,6 @@ pub(crate) enum Receive<T> {
 
 #[repr(i32)]
 #[derive(Debug, Eq, PartialEq)]
-#[cfg(any(feature = "workers", test))]
 pub(crate) enum Readiness {
     Ready = 0,
     Waiting = 1,
@@ -311,7 +309,6 @@ pub(crate) enum Readiness {
     Invalid = 4,
 }
 
-#[cfg(any(feature = "workers", test))]
 impl<T> Endpoint<T> {
     pub(crate) fn pair(
         messages: usize,
@@ -498,7 +495,6 @@ impl<T> Endpoint<T> {
     }
 }
 
-#[cfg(any(feature = "workers", test))]
 impl<T> Drop for Endpoint<T> {
     fn drop(&mut self) {
         self.close();
