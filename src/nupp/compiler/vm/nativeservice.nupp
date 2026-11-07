@@ -81,6 +81,7 @@ local osNames = {
     processUnwatch = true,
     processReap = true,
     processKill = true,
+    processsignal = true,
     processExit = true,
     wallClock = true,
     cpuClock = true,

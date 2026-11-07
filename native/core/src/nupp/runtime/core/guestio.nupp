@@ -202,7 +202,9 @@ export function files(ctx: voidptr, op: uint64, a: uint64, b: uint64, c: uint64)
     if operation >= librarylayouts.REACTOR_FIRST and operation <= librarylayouts.REACTOR_LAST then
         return guestreactor.call(ctx, operation, a, b, c)
     end
-    if operation >= librarylayouts.PROCESS_FIRST and operation <= librarylayouts.PROCESS_LAST then
+    if operation >= librarylayouts.PROCESS_FIRST and operation <= librarylayouts.PROCESS_LAST
+        or operation == librarylayouts.PROCESS_SIGNAL
+    then
         return guestprocess.call(ctx, operation, a, b)
     end
     if operation >= librarylayouts.GC_FIRST and operation <= librarylayouts.GC_LAST then

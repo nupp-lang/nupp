@@ -279,6 +279,11 @@ export function processKill(scope: voidptr, pid: uint64, signal: uint64): int64
     return os.processKill(pid, signal)
 end
 
+export function processsignal(scope: voidptr, pid: uint64, signal: uint64): int64
+    local _ = scope
+    return os.processsignal(pid, signal)
+end
+
 export function processExit(scope: voidptr, code: uint64): int64
     local _ = scope
     return os.processExit(code)

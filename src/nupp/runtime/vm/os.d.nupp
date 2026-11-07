@@ -199,6 +199,10 @@ local record Os
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     processKill: function(pid: uint64, signal: uint64): int64
 
+    -- Signals only this child, preserving descendants' ordinary lifetime.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    processsignal: function(pid: uint64, signal: uint64): int64
+
     --- Ends this process with status `code`; it does not return.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     processExit: function(code: uint64): int64

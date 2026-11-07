@@ -62,6 +62,38 @@ local function callOf(owner)
     return owner.body.body.stats[1].exprs[1]
 end
 
+function M.directChildSignalPreservesGroupKillAndItsExactABI()
+    fixture(
+        [[
+export function direct(pid: uint64, signal: uint64): int64
+    return os.processsignal(pid, signal)
+end
+export function group(pid: uint64, signal: uint64): int64
+    return os.processKill(pid, signal)
+end
+]],
+        function(_, functions)
+            for _, spec in ipairs({{"direct", 59}, {"group", 33}}) do
+                local owner = functions[spec[1]]
+                local call = nativeos.call(owner, callOf(owner))
+                assert(nativeos.slot(call, owner) == spec[2])
+                assert(#call.params == 2 and call.params[1] == "uint64" and call.params[2] == "uint64")
+                assert(call.result == "int64" and nativeos.result(call) == nil)
+                call.params[1] = "int64"
+                refuses(
+                    function()
+                        nativeos.validate(call)
+                    end,
+                    "changed"
+                )
+                call.params[1] = "uint64"
+                assert(nativeos.validate(call))
+            end
+            assert(nativeos.importCount() == 60)
+        end
+    )
+end
+
 function M.filesystemCallsRetainTheirExactSlotsAndStatusSignatures()
     local specifications = {
         {

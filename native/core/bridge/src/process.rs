@@ -294,6 +294,19 @@ pub extern "C" fn process_kill(pid: u64, signal: u64) -> u64 {
     if unsafe { kill(-(pid as c_int), signal as c_int) } != 0 { last() } else { 0 }
 }
 
+/// Sends `signal` to the direct child only: zero or the negated system error.
+/// Reject wide IDs before the C conversion so they cannot target another PID.
+pub extern "C" fn process_signal(pid: u64, signal: u64) -> u64 {
+    if pid == 0 || pid > c_int::MAX as u64 || signal > c_int::MAX as u64 {
+        return failed(EINVAL);
+    }
+    if unsafe { kill(pid as c_int, signal as c_int) } != 0 {
+        last()
+    } else {
+        0
+    }
+}
+
 /// Ends this process with status `code`, as C's exit does. Everything the
 /// guest wrote has reached its file already.
 pub extern "C" fn process_exit(code: u64) -> u64 {
@@ -341,6 +354,127 @@ mod tests {
 
     unsafe extern "C" {
         fn close(fd: c_int) -> c_int;
+    }
+
+    struct OwnedFd(u64);
+
+    impl Drop for OwnedFd {
+        fn drop(&mut self) {
+            if (self.0 as i64) >= 0 {
+                unsafe { close(self.0 as c_int) };
+            }
+        }
+    }
+
+    // Keep the direct child unreaped until its whole test-owned group is
+    // cleaned, so its PID cannot be reused underneath the fallback guard.
+    struct OwnedChild {
+        pid: u64,
+        reaped: bool,
+    }
+
+    impl Drop for OwnedChild {
+        fn drop(&mut self) {
+            const KILL: u64 = 9;
+            if self.reaped || (self.pid as i64) <= 0 {
+                return;
+            }
+            process_kill(self.pid, KILL);
+            let mut status = 0;
+            loop {
+                if unsafe { waitpid(self.pid as c_int, &mut status, 0) } >= 0 {
+                    break;
+                }
+                if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+                    break;
+                }
+            }
+        }
+    }
+
+    fn pipe_text(fd: u64, marker: &[u8]) -> Vec<u8> {
+        const MAX_ATTEMPTS: usize = 500;
+        const WAIT_MILLIS: u64 = 10;
+        const AGAIN_MACOS: i64 = -35;
+        const AGAIN_LINUX: i64 = -11;
+        let mut received = Vec::new();
+        for _ in 0..MAX_ATTEMPTS {
+            let mut bytes = [0u8; 64];
+            let count = unsafe {
+                crate::files::file_read(fd, bytes.as_mut_ptr() as u64, bytes.len() as u64)
+            } as i64;
+            if count > 0 {
+                received.extend_from_slice(&bytes[..count as usize]);
+                if received.windows(marker.len()).any(|part| part == marker) {
+                    return received;
+                }
+            } else {
+                assert!(
+                    count == AGAIN_MACOS || count == AGAIN_LINUX,
+                    "pipe read ended before marker: {count}"
+                );
+            }
+            std::thread::sleep(std::time::Duration::from_millis(WAIT_MILLIS));
+        }
+        panic!("pipe did not produce marker: {received:?}");
+    }
+
+    #[test]
+    fn direct_signal_leaves_descendant_alive_and_group_cleanup_still_works() {
+        const KILL: u64 = 9;
+        const EXIT_TIMEOUT_NANOS: u64 = 5_000_000_000;
+        assert_eq!(process_signal(0, KILL) as i64, -EINVAL);
+        assert_eq!(process_signal(c_int::MAX as u64 + 1, KILL) as i64, -EINVAL);
+        let output = process_pipe(KEEP_READ_END);
+        assert!((output as i64) >= 0);
+        let output_read = OwnedFd(output & poll::READ_END);
+        let output_write = OwnedFd(output >> poll::WRITE_END);
+        let input = process_pipe(KEEP_WRITE_END);
+        assert!((input as i64) >= 0);
+        let input_read = OwnedFd(input & poll::READ_END);
+        let input_write = OwnedFd(input >> poll::WRITE_END);
+        let input_fd = input_read.0.to_string();
+        let output_fd = output_write.0.to_string();
+        let command =
+            r#"sh -c 'IFS= read -r token; printf alive; sleep 30' <&0 & printf '%s\n' "$!"; wait"#;
+        let pid = shell(command, &[(b'0', &input_fd), (b'1', &output_fd)]);
+        let mut child = OwnedChild { pid, reaped: false };
+        assert!((pid as i64) > 0);
+        drop(input_read);
+        drop(output_write);
+        let announced = pipe_text(output_read.0, b"\n");
+        let descendant = std::str::from_utf8(&announced)
+            .unwrap()
+            .trim()
+            .parse::<u64>()
+            .unwrap();
+        assert!(descendant > 0 && descendant != pid);
+        let poller = OwnedFd(poll::poll_open());
+        assert!((poller.0 as i64) >= 0);
+        assert_eq!(poll::process_watch(poller.0, pid), 0);
+        assert_eq!(process_signal(pid, 0), 0);
+        assert_eq!(process_signal(pid, KILL), 0);
+        assert_eq!(
+            poll::poll_wait(poller.0, EXIT_TIMEOUT_NANOS),
+            pid << poll::EVENT_BITS | poll::EXITED
+        );
+        // The descendant must execute after the parent's confirmed death;
+        // kill(pid, 0) alone could mistake an already-dead zombie for survival.
+        let token = b"continue\n";
+        assert_eq!(
+            unsafe {
+                crate::files::file_write(input_write.0, token.as_ptr() as u64, token.len() as u64)
+            },
+            token.len() as u64
+        );
+        assert!(pipe_text(output_read.0, b"alive").ends_with(b"alive"));
+        assert_eq!(process_kill(pid, KILL), 0);
+        let status = process_reap(pid);
+        if status != RUNNING && (status as i64) >= 0 {
+            child.reaped = true;
+        }
+        assert_eq!(status, REASON_SIGNAL << REASON_BITS | KILL);
+        assert_eq!(poll::process_unwatch(poller.0, pid), 0);
     }
 
     #[test]

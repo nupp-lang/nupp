@@ -39,6 +39,9 @@ local record processcalls
     --- Sends `signal` to every process in the group child `process` leads: 0.
     kill: function(process: integer, signal: integer): integer
 
+    -- Sends a signal to the child alone, independently of its process group.
+    signal: function(process: integer, signal: integer): integer
+
     --- Ends this program with status `code`. It does not return.
     exit: function(code: integer): nil
 

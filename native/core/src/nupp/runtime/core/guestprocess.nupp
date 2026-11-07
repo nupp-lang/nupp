@@ -52,6 +52,8 @@ export function call(ctx: voidptr, operation: uint64, a: uint64, b: uint64): uin
             return ints.make(h, native.word(os.processReap(integerOf(a))))
         elseif operation == librarylayouts.PROCESS_KILL then
             return ints.make(h, native.word(os.processKill(integerOf(a), integerOf(b))))
+        elseif operation == librarylayouts.PROCESS_SIGNAL then
+            return ints.make(h, native.word(os.processsignal(integerOf(a), integerOf(b))))
         elseif operation == librarylayouts.PROCESS_EXIT then
             local _ = os.processExit(integerOf(a))
             return values.NIL

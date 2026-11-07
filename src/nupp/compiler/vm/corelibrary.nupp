@@ -751,6 +751,14 @@ local grouprows: {Group} = {
         operations = {{name = "CLOCK_WALLTIME", library = "clockcalls.walltime", operation = 47, arguments = 0}}
     },
     {
+        -- Public Process controls signal the direct child; the private process
+        -- group's old kill operation remains separate and unchanged.
+        name = "SIGNAL",
+        call = "HOST_FILES",
+        modules = {"processcalls"},
+        operations = {{name = "PROCESS_SIGNAL", library = "processcalls.signal", operation = 48, arguments = 2}}
+    },
+    {
         -- The scheduler's primitives (nupp.runtime.taskcalls), which the
         -- TASKS call takes: a task of a function and the pack of its
         -- arguments; running one until it returns, fails, parks or yields,

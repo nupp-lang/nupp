@@ -75,7 +75,8 @@ local definitions = {
         params = {"uint64", "voidptr", "uint64", "voidptr", "uint64"},
         result = "int64",
         cResult = "int64"
-    }
+    },
+    processsignal = {slot = 59, params = {"uint64", "uint64"}, result = "int64", cResult = "int64"}
 }
 
 local function need(value: any, message: string): any
