@@ -93,7 +93,7 @@ end
 -- A checked builtin table read selects the extension's shared host table.
 -- The declaration anchors distinguish it from an authored local of that name.
 function program.builtinprojection(node: any): any
-    if node.kind ~= "name" or node.standardRoot == nil then
+    if (node.kind ~= "name" and node.kind ~= "call") or node.standardRoot == nil then
         return nil
     end
     local root = node.standardRoot
@@ -103,18 +103,37 @@ function program.builtinprojection(node: any): any
     if module == nil then
         return nil
     end
-    local token = node.token
+    local loader = node.kind == "call"
+    if loader and node.typeOnlyRequire then
+        return nil
+    end
+    local token = loader and node.obj and node.obj.kind == "name" and node.obj.token or node.token
     local definition = token and token.definition
+    local name = loader and "require" or root
     need(
         token
-        and token.text == root
+        and token.text == name
         and definition
         and definition.filename == "nupp:lua.d.nupp"
-        and definition.name == root
+        and definition.name == name
         and definition.token
-        and definition.token.text == root,
+        and definition.token.text == name,
         "checked builtin projection lacks its prelude declaration"
     )
+    if loader then
+        local args = node.args
+        local exprs = args and args.exprs or {}
+        local argument = #exprs == 1 and not args.str and not args.table and exprs[1] or nil
+        local literal = argument and (argument.kind == "string" or argument.kind == "dedentString") and argument.token
+            or #exprs == 0 and args and not args.table and args.str
+        need(
+            node.runtimeLoader == "require"
+            and node.requiredModule == root
+            and literal
+            and lexer.literalstring(literal.text, argument ~= nil and argument.kind == "dedentString") == root,
+            "checked builtin projection lacks its literal loader"
+        )
+    end
     need(
         node.namespacePath == root
         and node.qualifiedModule == module
@@ -130,8 +149,64 @@ function program.builtinprojection(node: any): any
         token = token,
         definition = definition,
         declaration = definition.token,
-        members = {"value"}
+        members = {"value"},
+        loader = loader
     }
+end
+
+function program.importmodule(p: any, b: any): string?
+    local imported = b.builtinImport
+    if imported then
+        local declaration, index = imported.declaration, imported.index
+        local node = imported.node
+        local current = program.builtinprojection(node)
+        local original = imported.projection
+        local site = p.requireByNode[node]
+        need(
+            declaration.kind == "localStmt"
+            and declaration.names[index] == b.token
+            and (
+                not imported.pattern and not declaration.pattern and declaration.exprs[index] == node
+                or imported.pattern
+                and declaration.pattern
+                and declaration.pattern[index] == imported.pattern
+                and not imported.pattern.typeOnly
+                and declaration.patternSource == node
+                and (imported.pattern.alias or imported.pattern.sourceName) == b.token
+            )
+            and b.token == b.definition.token
+            and p.byDefinition[b.definition] == b
+            and imported.owner == b.owner
+            and site
+            and site.owner == b.owner
+            and site.node == node
+            and site.builtin
+            and site.qualified
+            and site.builtin.root == original.root
+            and site.builtin.module == original.module
+            and site.builtin.token == original.token
+            and site.builtin.definition == original.definition
+            and site.builtin.declaration == original.declaration
+            and site.builtin.loader == true
+            and current
+            and current.loader
+            and current.root == b.definition.requiredModule
+            and current.root == original.root
+            and current.module == original.module
+            and original.loader == true
+            and #original.members == 1
+            and original.members[1] == "value"
+            and current.token == original.token
+            and current.definition == original.definition
+            and current.declaration == original.declaration
+            and site.module == current.module,
+            "checked builtin import differs from its initializer"
+        )
+        return current.module
+    end
+
+    return p.scalartypes.definitions[b.definition] and scalartypeof.MODULE
+        or graph.coremodule(b.definition.requiredModule)
 end
 
 -- Whether the core runs ownership intrinsic call `node`.
@@ -510,6 +585,25 @@ function program.describe(modules: {any}, entryModule: string): any
         for _, child in ipairs(node) do
             discover(child, owner)
         end
+        if node.kind == "localStmt" then
+            for index, token in ipairs(node.names) do
+                local pattern = node.pattern and node.pattern[index]
+                local value = pattern and not pattern.typeOnly and node.patternSource
+                    or not pattern and node.exprs and node.exprs[index]
+                local projection = value and program.builtinprojection(value)
+                if projection and projection.loader then
+                    local b = need(p.byDefinition[token.definition], "builtin import declaration missing")
+                    b.builtinImport = {
+                        declaration = node,
+                        index = index,
+                        node = value,
+                        owner = owner.id,
+                        projection = projection,
+                        pattern = pattern
+                    }
+                end
+            end
+        end
     end
     -- All module and function identities exist before references are resolved.
     for _, module in ipairs(p.modules) do
@@ -541,19 +635,6 @@ function program.describe(modules: {any}, entryModule: string): any
     if next(p.hoistedFunctions) ~= nil then
         for _, module in ipairs(p.modules) do
             hoistedReferences(module.parsed.root)
-        end
-    end
-
-    for _, b in ipairs(p.bindings) do
-        local required = b.definition.requiredModule
-        if required and not graph.corecallmodule(required) then
-            local target = need(
-                moduleNames[
-                    p.scalartypes.definitions[b.definition] and scalartypeof.MODULE or graph.coremodule(required)
-                ],
-                "required checked module is missing: " .. required
-            )
-            p.imports[#p.imports + 1] = {binding = b.id, target = target.chunk}
         end
     end
 
@@ -830,8 +911,7 @@ function program.describe(modules: {any}, entryModule: string): any
             end
             local rootDefinition = root and root.kind == "name" and root.token and root.token.definition
             if root
-                and root.kind == "name"
-                and (projection or rootDefinition == nil or rootDefinition.kind == "module")
+                and (projection or root.kind == "name" and (rootDefinition == nil or rootDefinition.kind == "module"))
             then
                 local item = {
                     id = #p.requires,
@@ -851,12 +931,14 @@ function program.describe(modules: {any}, entryModule: string): any
                     local name = graph.libraryModule(projection.root)
                     local module = need(moduleNames[name], "checked builtin base module is missing: " .. name)
                     if not seen[name] then
-                        seen[name] = eagerLoad(currentChunk, module, root.token, false)
+                        seen[name] = eagerLoad(currentChunk, module, projection.token, false)
                     end
                     base = seen[name]
                 end
                 if not seen[node.qualifiedModule] then
-                    seen[node.qualifiedModule] = eagerLoad(currentChunk, qualified, root.token, false)
+                    seen[
+                        node.qualifiedModule
+                    ] = eagerLoad(currentChunk, qualified, projection and projection.token or root.token, false)
                 end
                 if projection then
                     local extension = seen[node.qualifiedModule]
@@ -1288,6 +1370,17 @@ function program.describe(modules: {any}, entryModule: string): any
         end
         collect(module.parsed.root, currentChunk)
     end
+    for _, b in ipairs(p.bindings) do
+        local required = b.definition.requiredModule
+        if required and not graph.corecallmodule(required) then
+            local target = need(
+                moduleNames[program.importmodule(p, b)],
+                "required checked module is missing: " .. required
+            )
+            p.imports[#p.imports + 1] = {binding = b.id, target = target.chunk, projection = b.builtinImport}
+        end
+    end
+
     -- An image carrying the module behind `warn` and the finalizers loads it
     -- as its entry starts, so it is installed before any finalizer runs: one
     -- eager require, as a qualified path's.
@@ -1447,6 +1540,7 @@ function program.verify(p: any): boolean
                     and current.token == original.token
                     and current.definition == original.definition
                     and current.declaration == original.declaration
+                    and current.loader == original.loader
                     and #original.members == 1
                     and original.members[1] == "value"
                     and item.library == nil,
@@ -1484,7 +1578,7 @@ function program.verify(p: any): boolean
                     item.library ~= nil and (node.kind == "name" or node.kind == "dotIndex")
                     or (
                         node.kind == "dotIndex"
-                        or item.builtin and node.kind == "name"
+                        or item.builtin and (node.kind == "name" or node.kind == "call")
                         or item.eager and node.kind == "qualifiedLoad"
                     )
                     and node.qualifiedModule == item.module
@@ -1630,10 +1724,8 @@ function program.verify(p: any): boolean
         local target = need(p.owners[imported.target + 1], "invalid import initializer")
         need(
             target.kind == "module"
-            and (
-                p.scalartypes.definitions[b.definition] and scalartypeof.MODULE
-                or graph.coremodule(b.definition.requiredModule)
-            ) == target.scope.name,
+            and imported.projection == b.builtinImport
+            and program.importmodule(p, b) == target.scope.name,
             "checked import target mismatch"
         )
     end

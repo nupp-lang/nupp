@@ -241,6 +241,10 @@ end
 function tagged.call(ctx: any, node: any, expected: string?): integer
     need(expected == nil or expected == "tagged", "call requires tagged destination")
     if node.runtimeLoader == "require" then
+        local projected = qualifiedvalue(ctx, node)
+        if projected ~= nil then
+            return projected
+        end
         local item = requireSite(ctx, node)
         need(not item.typeOnly, "type-only require cannot produce a runtime value")
         if item.corecalls then

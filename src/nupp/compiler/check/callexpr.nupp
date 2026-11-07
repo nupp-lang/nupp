@@ -996,6 +996,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         local stableRequire = requireGlobal and requireEntry and requireGlobal.definition == requireEntry.definition
         local requireToken = nil
         if calleeName == "require" and stableRequire then
+            if callee and callee.kind == "name" and callee.token then
+                callee.token.definition = requireGlobal.definition
+            end
             (node as any).runtimeLoader = "require"
             local first = argExprs[1]
             requireToken = first and (first.kind == "string" or first.kind == "dedentString") and first.token or argStr

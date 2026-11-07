@@ -1587,6 +1587,7 @@ local function builtinProjectionFixture(source, withOs, withSharedBase, internal
     local dependency = checked(
         [[
 module nupp.runtime.standardio
+export interface Reader end
 export const Buffer = {create = function(): integer return 73 end}
 export const value: table = {Buffer = Buffer}
 ]],
@@ -1996,6 +1997,162 @@ function M.stringMetatableDependencyRejectsChangedTarget()
         end,
         "require callsite target mismatch"
     )
+end
+
+function M.checkedBuiltinRequireProjectsTheSameSharedValueAsTheBuiltinName()
+    for _, literal in ipairs({'"io"', '"\\105o"', '[=[io]=]'}) do
+        local p = builtinProjectionFixture(
+            'local imported = require('
+            .. literal
+            .. ')\n'
+            .. 'local Buffer = imported.Buffer\nlocal make = Buffer.create\n'
+            .. 'return imported == io, Buffer == io.Buffer, make()'
+        )
+        local imports, projections = 0, 0
+        local loader
+        for _, imported in ipairs(p.imports) do
+            if imported.projection then
+                imports = imports + 1
+                loader = imported.projection.node
+                test.eq(program.importmodule(p, p.bindings[imported.binding + 1]), 'nupp.runtime.standardio')
+                test.eq(imported.projection.projection.members[1], 'value')
+            end
+        end
+        for _, site in ipairs(p.requires) do
+            if site.builtin then
+                projections = projections + 1
+                test.eq(site.module, 'nupp.runtime.standardio')
+                test.eq(site.builtin.members[1], 'value')
+                test.eq(site.initializers.base, p.qualifiedLoads[p.entry][1])
+                test.eq(site.initializers.extension, p.qualifiedLoads[p.entry][2])
+            end
+        end
+        test.eq(imports, 1)
+        assert(projections >= 3)
+        assert(loader and loader.obj.token.definition.filename == 'nupp:lua.d.nupp')
+        local complete = program.compile(p, tagged.forVersion(8))
+        assert(require('nupp.compiler.vm.coregraphexecutable').fromChecked(complete, 8))
+        local g = complete.graphs[p.entry + 1]
+        local keys = {}
+        for _, op in ipairs(operations(g, 'K')) do
+            keys[g.constants[op.args[1] + 1].value] = true
+        end
+        assert(keys.value and keys.Buffer and keys.create)
+    end
+    for _, source in ipairs({
+        'local {Buffer} = require("io")\nreturn Buffer, io.Buffer',
+        'local {type Reader, Buffer as bytes} = require("io")\nreturn bytes, io.Buffer',
+    }) do
+        local p = builtinProjectionFixture(source)
+        local patterns = 0
+        for _, imported in ipairs(p.imports) do
+            if imported.projection then
+                patterns = patterns + 1
+                assert(imported.projection.pattern and not imported.projection.pattern.typeOnly)
+                test.eq(imported.projection.pattern.sourceName.text, 'Buffer')
+            end
+        end
+        test.eq(patterns, 1)
+        assert(require('nupp.compiler.vm.coregraphexecutable').fromChecked(program.compile(p, tagged.forVersion(8)), 8))
+    end
+    local p = builtinProjectionFixture('return function(): table return require("io") end')
+    local projected = false
+    for _, site in ipairs(p.requires) do
+        projected = projected or site.builtin and site.builtin.loader
+    end
+    assert(projected)
+    assert(require('nupp.compiler.vm.coregraphexecutable').fromChecked(program.compile(p, tagged.forVersion(8)), 8))
+end
+
+function M.checkedBuiltinRequireRejectsChangedLoaderProjectionAndLocalImportLinks()
+    local p = builtinProjectionFixture('local imported = require("io")\nreturn imported, io.Buffer')
+    local imported
+    for _, item in ipairs(p.imports) do
+        if item.projection then
+            imported = item
+        end
+    end
+    assert(imported)
+    local link = imported.projection
+    local node = link.node
+    local site = p.requireByNode[node]
+
+    local function mutation(object, key, value)
+        local old = object[key]
+        object[key] = value
+        local ok = pcall(program.verify, p)
+        object[key] = old
+        test.eq(ok, false)
+        assert(program.verify(p))
+    end
+
+    mutation(node, 'runtimeLoader', nil)
+    mutation(node, 'requiredModule', 'os')
+    mutation(node, 'standardRoot', 'os')
+    mutation(node, 'namespacePath', 'os')
+    mutation(node, 'qualifiedModule', 'nupp.runtime.standardos')
+    mutation(node, 'qualifiedMembers', {'functions', 'io'})
+    mutation(node, 'typeOnlyRequire', true)
+    mutation(node.args.exprs[1].token, 'text', '"os"')
+    mutation(node.obj.token, 'definition', {filename = 'authored.nupp', name = 'require', token = node.obj.token})
+    mutation(site, 'builtin', nil)
+    mutation(site, 'owner', p.entry - 1)
+    mutation(imported, 'projection', nil)
+    mutation(link, 'index', 2)
+    mutation(link, 'node', {})
+    mutation(link, 'owner', p.entry - 1)
+    mutation(link.projection, 'members', {'functions'})
+end
+
+function M.checkedBuiltinRequireDoesNotAuthorizeShadowedAliasedOrUnprojectedLoaders()
+    for _, source in ipairs({
+        'local require = function(name: string): table return {} end\nreturn require("io")',
+        'local loader = require\nreturn loader("io")',
+        'return _G.require("io")',
+    }) do
+        local input = checked(source)
+
+        local function walk(node)
+            if type(node) ~= 'table' then
+                return
+            end
+            if node.kind == 'call' then
+                test.eq(program.builtinprojection(node), nil)
+            end
+            for _, child in ipairs(node) do
+                walk(child)
+            end
+        end
+
+        walk(input.parsed.root)
+    end
+    local input = checked('local require = function(name: string): table return {} end\nreturn require("io")')
+    local call = input.parsed.root.blocks[1].stats[2].exprs[1]
+    call.standardRoot, call.namespacePath = 'io', 'io'
+    call.runtimeLoader, call.requiredModule = 'require', 'io'
+    call.qualifiedModule, call.qualifiedMembers = 'nupp.runtime.standardio', {'value'}
+    refuses(
+        function()
+            program.builtinprojection(call)
+        end,
+        'prelude declaration'
+    )
+    call.standardRoot = nil
+    test.eq(program.builtinprojection(call), nil)
+    local p = builtinProjectionFixture('local imported = require("io")\nreturn imported')
+    for _, imported in ipairs(p.imports) do
+        if imported.projection then
+            local node = imported.projection.node
+            node.standardRoot = nil
+            test.eq(program.builtinprojection(node), nil)
+            refuses(
+                function()
+                    program.verify(p)
+                end,
+                'builtin'
+            )
+        end
+    end
 end
 
 return M
