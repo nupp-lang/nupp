@@ -477,6 +477,8 @@ end
 -- `graph.coremodule` maps one.
 const VM_HOST_PREFIX = "nupp.vm."
 
+const NATIVE_HOST_LOADER = "nupp.runtime.native"
+
 -- The library module under `src/` that module `name` loads from on the
 -- core, or nil when none does: a declaration file, or a host module the
 -- core does not answer.
@@ -622,18 +624,23 @@ local function requiredmodules(root: any, source: string, follow: boolean): ({st
     return found, dynamic
 end
 
--- Whether a library module can run on the core: one that requires a VM host
--- module the core does not answer, itself or through what it requires
--- (`nupp.vm.compression` behind the native compression provider), is the
--- VM's alone. A module reaches the program only dynamically that way,
--- through the provider a facade selects at run time.
+-- Whether optional discovery can carry a library module. Known unavailable
+-- VM hosts and the versioned native loader make a provider nonportable, even
+-- when its loader has source. Mandatory checked dependencies bypass this
+-- filter.
 local function portable(root: string, library: string, seen: {[string]: boolean}?): boolean
+    local graph: any = require("nupp.compiler.vm.graph")
+    if library == "src/" .. NATIVE_HOST_LOADER:gsub("%.", "/")
+        and graph.coremodule(NATIVE_HOST_LOADER) == NATIVE_HOST_LOADER
+        and not graph.corecallmodule(NATIVE_HOST_LOADER)
+    then
+        return false
+    end
     local visited = seen or {}
     if visited[library] then
         return true
     end
     visited[library] = true
-    local graph: any = require("nupp.compiler.vm.graph")
     local source = read(root .. "/" .. library .. (library:sub(-4) == ".lua" and "" or ".nupp"))
     for name in source:gmatch("require%(%s*[\"']([%w%._]+)[\"']%s*%)") do
         local found = librarypath(root, name)
