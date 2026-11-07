@@ -22,8 +22,18 @@ export record Producer
     descriptor: Descriptor
 end
 
-export function describe(t: Type): Descriptor?
+local function payload(t: Type): Type
     local raw = T.unwrapOwnership(t)
+    while raw ~= t do
+        t = raw
+        raw = T.unwrapOwnership(t)
+    end
+
+    return raw
+end
+
+export function describe(t: Type): Descriptor?
+    local raw = payload(t)
     if raw.tag == "intersection" then
         for _, member in ipairs(raw.members) do
             local found = describe(member)
@@ -171,7 +181,7 @@ end
 
 --- A layout parameter must be concrete before an indexed operation can select its ABI.
 export function unknownLayout(t: Type): boolean
-    local raw = T.unwrapOwnership(t)
+    local raw = payload(t)
     if raw.tag ~= "nominal" then
         return false
     end

@@ -6,14 +6,14 @@ local tagged = require("nupp.compiler.vm.taggedprofile")
 local M = {}
 local sequence = 0
 
-local function fixture(typeName)
+local function fixture(typeName, expectedCode)
     sequence = sequence + 1
     local name = "vmspanlengthfixture" .. sequence
     local path = "=" .. name .. ".nupp"
     local parsed = parser.parse(
         "module "
         .. name
-        .. "\nlocal {type Span, type WriteSpan, type FixedSpan, type FixedWriteSpan} = require(\"binary.span\")\nexport function length("
+        .. "\nlocal {type Span, type WriteSpan, type FixedSpan, type FixedWriteSpan, type Writable, type FixedWritable} = require(\"binary.span\")\nexport function length("
         .. "borrows value: "
         .. typeName:gsub(
             "span%.",
@@ -32,8 +32,16 @@ local function fixture(typeName)
         }),
         {moduleName = name, strict = false, lints = {["unused-binding"] = "off"}}
     )
+    local matched = false
     for _, diagnostic in ipairs(diagnostics) do
-        assert(diagnostic.severity ~= "error", diagnostic.msg)
+        if diagnostic.severity == "error" then
+            assert(expectedCode == diagnostic.code, diagnostic.msg)
+            matched = true
+        end
+    end
+    if expectedCode then
+        assert(matched, "expected diagnostic " .. expectedCode)
+        return
     end
     local length
 
@@ -82,6 +90,9 @@ function M.checkedSpanLengthsProjectTheirCount()
         "span.WriteSpan<uint8>",
         "span.FixedSpan<uint8, 4>",
         "span.FixedWriteSpan<uint8, 4>",
+        "span.Writable<uint8>",
+        "span.FixedWritable<uint8, 4>",
+        'span.Writable<uint8, "columnar">',
         "span.Span<uint8, \"columnar\">"
     }) do
         local p, node, owner = fixture(typeName)
@@ -102,6 +113,11 @@ function M.checkedSpanLengthsProjectTheirCount()
         end
         assert(found, "checked span count field was not projected")
     end
+end
+
+function M.nestedOwnershipKeepsLayoutRefusals()
+    fixture('span.Writable<uint8, "unpacked">', "NUPP2403")
+    fixture('span.Span<uint8, "unpacked">', "NUPP2403")
 end
 
 function M.ordinaryLuaLengthsKeepTheirOperator()
