@@ -11,8 +11,9 @@ local graph = require("nupp.compiler.vm.graph")
 local lower = require("nupp.compiler.vm.lower")
 local M = {}
 
-local function checked(source)
-    local name, path = "callfront_fixture", "=callfront_fixture.nupp"
+local function checked(source, name)
+    name = name or "callfront_fixture"
+    local path = "=" .. name .. ".nupp"
     local parsed = parser.parse(source, path)
     assert(#parsed.errors == 0, parsed.errors[1] and parsed.errors[1].msg)
     local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
@@ -82,7 +83,33 @@ local function constant(g, text)
     error("missing fixture constant " .. text)
 end
 
-function M.scalarLibraryAliasesKeepTheirCheckedIdentity()
+function M.scalarNamespacesCarryTheirRuntimeTables()
+    for _, source in ipairs({
+        "return math.i32.wrap(1)",
+        "local widths = math.u32; return widths.wrap(1)",
+        "local narrow = math.f32.narrow; return narrow(1)",
+        "return math.u64.sub"
+    }) do
+        assert(graph.mayTakeLibraryValue(parser.parse(source, "=scalar-value-scan.nupp").root))
+    end
+    assert(not graph.mayTakeLibraryValue(parser.parse("return math.floor(1)", "=scalar-value-scan.nupp").root))
+end
+
+function M.privateScalarCallsKeepCanonicalLibraryIdentity()
+    local catalog = checked(
+        [[
+local calls = require("nupp.runtime.scalarcalls")
+return function(value: integer) return calls.i32wrap(value) end
+]],
+        "nupp.runtime.scalarcallfront"
+    )
+    local node = catalog.owners[2].body.body.stats[1].exprs[1]
+    assert(graph.corecallmodule("nupp.runtime.scalarcalls"))
+    assert(graph.coreLibraryCall(node) == "scalarcalls.i32wrap")
+    assert(not node.scalarIntrinsic)
+end
+
+function M.scalarLibraryAliasesInvokeTheirCurrentFunctionValue()
     local cases = {
         {
             "local widths = math.i32\nreturn function(value: integer): int32 return math.i32.wrap(value) end",
@@ -105,7 +132,36 @@ function M.scalarLibraryAliasesKeepTheirCheckedIdentity()
         local catalog = checked(case[1])
         local node = catalog.owners[2].body.body.stats[1].exprs[1]
         assert(node.scalarIntrinsic, "fixture lost its checked scalar identity")
-        assert(graph.coreLibraryCall(node) == case[2], "scalar alias became an ordinary call")
+        assert(graph.coreLibraryCall(node) == nil, "mutable public scalar call bypassed its function value")
+        local contract = graph.dynamicInvokeContract(node)
+        assert(contract.dynamic and contract.callSignature == node.calleeType)
+        local identity = node.scalarIntrinsic
+        node.scalarIntrinsic = "u64.unknown"
+        refuses(
+            function()
+                graph.dynamicInvokeContract(node)
+            end,
+            "dynamic invoke call identity differs"
+        )
+        node.scalarIntrinsic = identity
+        local callee = node.obj
+        node.obj = {kind = "name", token = {definition = {}}}
+        refuses(
+            function()
+                graph.dynamicInvokeContract(node)
+            end,
+            "dynamic invoke call identity differs"
+        )
+        node.obj = callee
+        local foreign = node.calleeType.foreign
+        node.calleeType.foreign = true
+        refuses(
+            function()
+                graph.dynamicInvokeContract(node)
+            end,
+            "foreign or compile-time signature"
+        )
+        node.calleeType.foreign = foreign
     end
     local catalog = checked(
         [[

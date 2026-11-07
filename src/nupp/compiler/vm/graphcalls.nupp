@@ -271,6 +271,30 @@ local anySignatures: {[any]: any} = setmetatable({}, {__mode = "k"})
 -- many values out as it keeps, all `any`.
 local methodsignatures: {[any]: any} = setmetatable({}, {__mode = "k"})
 
+-- Scalar markers describe checked types, not an immutable public callee.
+-- Implemented families pass through the ordinary function-value contract.
+local function scalarValueCall(call: any, called: any): boolean
+    local operation = corelibrary.scalar(call.scalarIntrinsic)
+    local callee = call.obj
+    local identity = callee and callee.scalarIntrinsic
+        or callee
+        and callee.kind == "name"
+        and callee.token
+        and callee.token.definition
+        and callee.token.definition.scalarIntrinsic
+
+    return operation ~= nil
+        and identity == call.scalarIntrinsic
+        and call.kind == "call"
+        and not call.cdefCall
+        and not call.affineClosureCall
+        and type(called) == "table"
+        and called.tag == "func"
+        and type(called.params) == "table"
+        and #called.params == operation.min
+        and operation.min == operation.max
+end
+
 export function checkcontract(contract: any): nil
     checkingcall = contract.call
     if contract.dynamic then
@@ -364,7 +388,7 @@ export function checkcontract(contract: any): nil
                 or callback and argument and argument.inferredType == called
                 or not protected and not callback and (call.calleeType == called or anySignatures[call] == called)
             )
-            and not call.scalarIntrinsic
+            and (not call.scalarIntrinsic or not protected and not callback and scalarValueCall(call, called))
             and not call.ownershipIntrinsic
             and not call.runtimeLoader,
             "dynamic invoke call identity differs"
@@ -544,7 +568,6 @@ end
 -- an operation: `math.floor` on the prelude's `math`. Otherwise nil.
 local coreLibrary: {[string]: boolean} = {
     ["math.floor"] = true,
-    ["math.f32.narrow"] = true,
     ["buffercalls.create"] = true,
     ["buffercalls.length"] = true,
     ["buffercalls.capacity"] = true,
@@ -573,8 +596,6 @@ local coreLibrary: {[string]: boolean} = {
     ["storagecalls.elements"] = true,
     ["storagecalls.elementkind"] = true,
     ["storagecalls.packedkind"] = true,
-    ["math.u32.wrap"] = true,
-    ["math.i32.wrap"] = true,
     assert = true,
     rawequal = true,
     next = true,
@@ -815,6 +836,21 @@ export function mayUseIo(root: any): boolean
     return found
 end
 
+-- The public scalar namespaces need their actual tables even when a field
+-- is used directly as a callee. Derive the families from the call catalog.
+local scalarNamespaces: {[string]: boolean} = {}
+for _, subject in ipairs(corelibrary.subjects()) do
+    for _, operation in ipairs(subject.calls) do
+        if operation.scalar and operation.call then
+            coreLibrary[operation.call] = true
+            local family = operation.scalar:match("^([^.]+)%.")
+            if family then
+                scalarNamespaces[family] = true
+            end
+        end
+    end
+end
+
 -- Whether an unchecked tree may take a library function as a value: a name
 -- or field spelled as one, outside a call's callee. A builder reads it to
 -- carry `nupp.runtime.libraryvalues`; carrying it needlessly costs nothing.
@@ -835,7 +871,10 @@ export function mayTakeLibraryValue(root: any): boolean
                 and node.obj
                 and node.obj.kind == "name"
                 and node.obj.token
-                and libraryValues[node.obj.token.text .. "." .. node.name.text]
+                and (
+                    libraryValues[node.obj.token.text .. "." .. node.name.text]
+                    or node.obj.token.text == "math" and scalarNamespaces[node.name.text]
+                )
             then
                 found = true
                 return
@@ -862,7 +901,8 @@ local corecallmodules: {
 } = {
     ["nupp.runtime.storagecalls"] = "storagecalls",
     ["nupp.runtime.hostcalls"] = "hostcalls",
-    ["nupp.runtime.buffercalls"] = "buffercalls"
+    ["nupp.runtime.buffercalls"] = "buffercalls",
+    ["nupp.runtime.scalarcalls"] = "scalarcalls"
 }
 
 for name, short in pairs(corelibrary.callmodules()) do
@@ -981,17 +1021,9 @@ export function coreLibraryField(node: any): string?
     return nil
 end
 
--- These checker identities retain the same operation through namespace aliases.
-local scalarLibrary: {
-    [string]: string
-} = {["f32.narrow"] = "math.f32.narrow", ["u32.wrap"] = "math.u32.wrap", ["i32.wrap"] = "math.i32.wrap"}
-
 export function coreLibraryCall(call: any): string?
     if dynamicRequire(call) then
         return "require.dynamic"
-    end
-    if call and call.kind == "call" and scalarLibrary[call.scalarIntrinsic or ""] then
-        return scalarLibrary[call.scalarIntrinsic]
     end
     local name
     if call and call.kind == "methodCall" and call.name and stringType(call.obj and call.obj.inferredType) then
