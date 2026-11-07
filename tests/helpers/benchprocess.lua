@@ -150,21 +150,15 @@ local function benchmarkProgram(name)
     local source = read(HERE .. "/fixtures/" .. name .. ".nupp")
     local key = "benchmark-program-" .. digest(programIdentity .. "\0" .. name .. "\0" .. source)
     local directory, artifact, reused = testAssert.suite.fixture(key, function(directory)
-        assert(os.execute(("mkdir -p %q"):format(directory .. "/src")) == 0)
+        assert(os.execute(("mkdir -p %q %q"):format(directory .. "/src", directory .. "/out")) == 0)
         local file = assert(io.open(directory .. "/src/" .. name .. ".nupp", "wb"))
         file:write(source)
         file:close()
         file = assert(io.open(directory .. "/nupp.lua", "wb"))
-        file:write(
-            (
-                [[return {include = {"src", %q}, build = {default = "app", targets = {
-app = {kind = "modules", entries = {%q}, sources = {%q}, outDir = "out"}
-}}}]]
-            ):format(NUPP_SRC, name, "src/" .. name .. ".nupp")
-        )
+        file:write(("return {include = {\"src\", %q}}\n"):format(NUPP_SRC))
         file:close()
-        testAssert.eq(require("nupp.tools.build.project").build(directory), 0, "build the shared benchmark program")
-        -- Execute the image built once for this fixture in every real child process.
+        -- Compile one image for this fixture and execute it in every real child
+        -- process.
         local path = directory .. "/src/" .. name .. ".nupp"
         local env = require("nupp.compiler.project.env").new(directory)
         local diagnostics = {}
