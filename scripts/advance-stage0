@@ -1,0 +1,254 @@
+#!/usr/bin/env bash
+# Publish an accepting native image, refresh verified host seeds, then move pins.
+set -euo pipefail
+
+MAX_TAG_DEPTH=8
+RUN_POLL_ATTEMPTS=30
+RUN_POLL_INTERVAL=2
+RUN_WATCH_INTERVAL=20
+
+# Native jq writes CRLF in Git Bash unless binary output is selected.
+if test "${OS:-}" = Windows_NT || test "${RUNNER_OS:-}" = Windows; then
+    jq() { command jq --binary "$@"; }
+fi
+
+fail() { printf 'advance-stage0: %s\n' "$*" >&2; exit 1; }
+usage() {
+    cat <<'EOF'
+Usage: scripts/advance-stage0 TOPIC [OPTIONS]
+       scripts/advance-stage0 --resume RECEIPT [--run RUN_ID] [--publish-only]
+
+Prepare emits a three-stage fixpoint image and an immutable preparation receipt.
+Publish pushes no source: the exact source commit must already be on origin.
+The default then dispatches refresh-native-bootstrap-seed.yml and waits for it.
+Resume verifies all three published host archives, checks the current host's
+published pair with fixpoint, and commits only scripts/bootstrap-seeds.json.
+Nothing pushes the pin commit or changes the latest/product release.
+
+--prepare-only  Stop before creating a prerelease.
+--publish-only  Publish/verify the image, print the owner dispatch command, stop.
+--resume       Continue a preparation receipt without emitting another image.
+--run          Use an existing successful refresh run instead of dispatching one.
+--version      Explicit version base; otherwise use the current native pin tags.
+EOF
+}
+sha256() {
+    if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d' ' -f1
+    elif command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
+    else fail 'shasum or sha256sum is required'; fi
+}
+valid_sha() { [[ "$1" =~ ^[0-9a-f]{64}$ ]]; }
+require_clean() {
+    test "$(git rev-parse HEAD)" = "$revision" || fail 'source revision changed'
+    test -z "$(git status --porcelain)" || fail 'a clean committed checkout is required'
+}
+verify_tag() {
+    local object kind found depth=0
+    object=$(gh api "repos/$repository/git/ref/tags/$tag")
+    kind=$(jq -er '.object.type' <<< "$object")
+    found=$(jq -er '.object.sha' <<< "$object")
+    while test "$kind" = tag; do
+        test "$depth" -lt "$MAX_TAG_DEPTH" || fail 'tag nesting limit exceeded'
+        object=$(gh api "repos/$repository/git/tags/$found")
+        kind=$(jq -er '.object.type' <<< "$object")
+        found=$(jq -er '.object.sha' <<< "$object")
+        depth=$((depth + 1))
+    done
+    test "$kind" = commit && test "$found" = "$revision" || fail 'tag does not target the prepared source'
+}
+verify_release() {
+    verify_tag
+    gh api "repos/$repository/releases/tags/$tag" > "$out/release.json.tmp"
+    jq -e --arg tag "$tag" --arg asset "$asset" \
+        '.tag_name == $tag and .prerelease == true and .draft == false
+         and ([.assets[] | select(.name == $asset)] | length == 1)' \
+        "$out/release.json.tmp" >/dev/null || fail 'expected an immutable image prerelease'
+    mv "$out/release.json.tmp" "$out/release.json"
+}
+check_preparation() {
+    require_clean
+    test "$(sha256 "$root/scripts/bootstrap-seeds.json")" = "$pins_sha" || fail 'bootstrap pins changed since preparation'
+    test "$(sha256 "$out/pins-before.json")" = "$pins_sha" || fail 'saved bootstrap pins changed'
+    test "$(sha256 "$image")" = "$image_sha" || fail 'prepared compiler image changed'
+    test "$(sha256 "$compressed")" = "$compressed_sha" || fail 'compressed compiler image changed'
+    gzip -dc "$compressed" > "$out/checked.image.tmp"
+    test "$(sha256 "$out/checked.image.tmp")" = "$image_sha" || fail 'compressed image has the wrong contents'
+    rm "$out/checked.image.tmp"
+}
+
+topic= version= resume= run_id= prepare_only=0 publish_only=0
+while test "$#" -gt 0; do
+    case "$1" in
+        -h|--help) usage; exit 0 ;;
+        --version|--resume|--run)
+            test "$#" -ge 2 || fail "$1 needs a value"
+            case "$1" in --version) version=$2 ;; --resume) resume=$2 ;; --run) run_id=$2 ;; esac
+            shift 2 ;;
+        --prepare-only) prepare_only=1; shift ;;
+        --publish-only) publish_only=1; shift ;;
+        --*) fail "unknown option $1" ;;
+        *) test -z "$topic" || fail 'one topic is required'; topic=$1; shift ;;
+    esac
+done
+for tool in git gh jq gzip tar; do command -v "$tool" >/dev/null || fail "$tool is required"; done
+root=$(git rev-parse --show-toplevel); cd "$root"
+export NUPP_COMPILER_ROOT="$root"
+test -f scripts/bootstrap-seeds.json && test -x bin/nupp || fail 'run in a native Nupp checkout'
+revision=$(git rev-parse HEAD)
+require_clean
+repository=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+[[ "$repository" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || fail 'invalid GitHub repository'
+hosts='["aarch64-apple-darwin","x86_64-pc-windows-gnu","x86_64-unknown-linux-gnu"]'
+jq -e --argjson hosts "$hosts" '.format == "nupp-bootstrap-seed-1" and (.hosts | keys | sort) == ($hosts | sort)' scripts/bootstrap-seeds.json >/dev/null || fail 'expected all three native host pins'
+
+if test -z "$resume"; then
+    [[ "$topic" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || fail 'supply an experimental release topic'
+    test -z "$run_id" || fail '--run requires --resume'
+    if test -z "$version"; then
+        version=$(jq -er '[.hosts[].url | capture("/v(?<version>[0-9]+\\.[0-9]+\\.[0-9]+)-[^/]+/").version] | unique | if length == 1 then .[0] else error("native pin version bases differ; use --version") end' scripts/bootstrap-seeds.json)
+    fi
+    [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail 'version must be X.Y.Z'
+    # Include unpublished tags too: a failed publication still spends a tag.
+    tags=$(git ls-remote --tags origin)
+    sequence=1
+    while :; do
+        tag="v$version-$topic.$sequence"
+        if ! git show-ref --verify --quiet "refs/tags/$tag" && ! awk -v ref="refs/tags/$tag" '$2 == ref || $2 == ref "^{}" {found=1} END {exit !found}' <<< "$tags"; then break; fi
+        sequence=$((sequence + 1))
+    done
+    test "${#tag}" -le 46 || fail 'tag is too long for the pin commit title'
+    out="$root/build/stage0/$tag"
+    mkdir -p "$(dirname "$out")"
+    mkdir "$out" || fail 'preparation directory already exists; resume its receipt or choose another tag'
+    image="$out/nupp-stage0-$tag.image"
+    compressed="$image.gz"; asset=$(basename "$compressed")
+    cp scripts/bootstrap-seeds.json "$out/pins-before.json"
+    pins_sha=$(sha256 "$out/pins-before.json")
+    started=$(date -u +%Y-%m-%dT%H:%M:%SZ); before=$SECONDS
+    ./bin/nupp fixpoint --emit-stage0 "$image" > "$out/emit.log" 2>&1 || fail "fixpoint failed; see $out/emit.log"
+    require_clean
+    test "$(sha256 scripts/bootstrap-seeds.json)" = "$pins_sha" || fail 'pins changed during emission'
+    test -s "$image" || fail 'fixpoint emitted no compiler image'
+    image_sha=$(sha256 "$image")
+    gzip -9 -n -c "$image" > "$compressed"
+    compressed_sha=$(sha256 "$compressed")
+    receipt="$out/receipt.json"
+    jq -n --arg root "$root" --arg repository "$repository" --arg revision "$revision" \
+        --arg tag "$tag" --arg started "$started" --arg image "$image" --arg imageSha "$image_sha" \
+        --arg compressed "$compressed" --arg compressedSha "$compressed_sha" --arg pinsSha "$pins_sha" \
+        --argjson seconds "$((SECONDS - before))" \
+        '{format:"nupp-stage0-advance-1",root:$root,repository:$repository,sourceRevision:$revision,tag:$tag,
+          started:$started,emitSeconds:$seconds,image:$image,imageSha256:$imageSha,
+          compressed:$compressed,compressedImageSha256:$compressedSha,pinsBeforeSha256:$pinsSha}' > "$receipt"
+else
+    test -z "$topic" && test -z "$version" || fail 'resume takes no topic or version'
+    test "$prepare_only" = 0 || fail '--prepare-only cannot resume'
+    receipt=$(cd "$(dirname "$resume")" && pwd)/$(basename "$resume")
+    out=$(dirname "$receipt")
+    jq -e --arg root "$root" --arg repository "$repository" --arg revision "$revision" \
+        '.format == "nupp-stage0-advance-1" and .root == $root and .repository == $repository and .sourceRevision == $revision' "$receipt" >/dev/null || fail 'receipt belongs to a different checkout, repository or source'
+    tag=$(jq -er .tag "$receipt"); image=$(jq -er .image "$receipt"); compressed=$(jq -er .compressed "$receipt")
+    image_sha=$(jq -er .imageSha256 "$receipt"); compressed_sha=$(jq -er .compressedImageSha256 "$receipt")
+    pins_sha=$(jq -er .pinsBeforeSha256 "$receipt"); asset=$(basename "$compressed")
+fi
+[[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || fail 'only experimental prerelease tags are allowed'
+for value in "$image_sha" "$compressed_sha" "$pins_sha"; do valid_sha "$value" || fail 'invalid receipt digest'; done
+check_preparation
+printf 'Prepared %s at %s\nReceipt: %s\n' "$tag" "$revision" "$receipt"
+if test "$prepare_only" = 1; then exit 0; fi
+
+# Never push a source branch or recreate an existing tag from this helper.
+gh api "repos/$repository/commits/$revision" --jq .sha | \
+    awk -v sha="$revision" '$0 == sha {ok=1} END {exit !ok}' || fail 'push the exact source commit to an experimental branch before publishing'
+if gh api "repos/$repository/releases/tags/$tag" > "$out/release-existing.json" 2> "$out/release-existing.err"; then
+    verify_release
+else
+    # Only a confirmed missing release may be created. Authentication/network
+    # failures must not turn into a second publication attempt.
+    grep -q 'HTTP 404' "$out/release-existing.err" || fail 'cannot establish that the release is absent'
+    if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then verify_tag; fi
+    gh release create "$tag" "$compressed" --repo "$repository" --target "$revision" \
+        --prerelease --latest=false --title "$tag (experimental native stage zero)" \
+        --notes "Accepting native compiler image from $revision. Image SHA-256: $image_sha. Host seeds retain their pinned execution runtimes."
+    verify_release
+fi
+mkdir -p "$out/published-image"
+if ! test -e "$out/published-image/$asset"; then gh release download "$tag" --repo "$repository" --pattern "$asset" --dir "$out/published-image"; fi
+test "$(sha256 "$out/published-image/$asset")" = "$compressed_sha" || fail 'published image bytes differ'
+printf 'Owner dispatch: gh workflow run refresh-native-bootstrap-seed.yml --repo %q --ref %q -f tag=%q -f source_revision=%q -f image_sha256=%q\n' "$repository" "$tag" "$tag" "$revision" "$image_sha"
+if test "$publish_only" = 1; then exit 0; fi
+
+if test -z "$run_id"; then
+    gh workflow run refresh-native-bootstrap-seed.yml --repo "$repository" --ref "$tag" \
+        -f "tag=$tag" -f "source_revision=$revision" -f "image_sha256=$image_sha"
+    for ((attempt=0; attempt<RUN_POLL_ATTEMPTS; attempt++)); do
+        run_id=$(gh api "repos/$repository/actions/workflows/refresh-native-bootstrap-seed.yml/runs?event=workflow_dispatch&head_sha=$revision&per_page=100" | \
+            jq -er --arg tag "$tag" '[.workflow_runs[] | select(.head_branch == $tag)] | if length == 1 then .[0].id else empty end' || true)
+        test -z "$run_id" || break
+        sleep "$RUN_POLL_INTERVAL"
+    done
+    test -n "$run_id" || fail "run ID not found; resume $receipt with --run ID"
+fi
+[[ "$run_id" =~ ^[0-9]+$ ]] || fail 'run ID must be numeric'
+gh run watch "$run_id" --repo "$repository" --exit-status --interval "$RUN_WATCH_INTERVAL"
+gh api "repos/$repository/actions/runs/$run_id" > "$out/run.json"
+jq -e --arg revision "$revision" --arg tag "$tag" \
+    '.event == "workflow_dispatch" and .head_sha == $revision and .head_branch == $tag
+     and .path == ".github/workflows/refresh-native-bootstrap-seed.yml"
+     and .status == "completed" and .conclusion == "success"' "$out/run.json" >/dev/null || fail 'wrong or unsuccessful refresh run'
+workflow=$(mktemp -d "$out/workflow.XXXXXXXX")
+mkdir -p "$out/archives"
+gh run download "$run_id" --repo "$repository" --pattern "native-bootstrap-refresh-*-$revision" --dir "$workflow"
+cp "$out/pins-before.json" "$out/pins-next.json"
+for host in $(jq -r '.[]' <<< "$hosts"); do
+    proof="$workflow/native-bootstrap-refresh-$host-$revision/receipt.json"
+    archive_asset="nupp-seed-$host-$revision.tar.gz"
+    archive_url="https://github.com/$repository/releases/download/$tag/$archive_asset"
+    jq -e --arg host "$host" --arg revision "$revision" --arg tag "$tag" --arg image "$image_sha" \
+        --arg compressed "$compressed_sha" --arg asset "$asset" --arg url "$archive_url" \
+        --slurpfile pins "$out/pins-before.json" --slurpfile release "$out/release.json" \
+        '.host == $host and .sourceRevision == $revision and .tag == $tag and .url == $url
+         and .imageSha256 == $image and .compressedImageSha256 == $compressed and .imageAsset == $asset
+         and .releaseId == $release[0].id and .workflowRevision == $revision
+         and .previousPin == $pins[0].hosts[$host] and .runtimeSha256 == .previousPin.runtimeSha256
+         and (.sha256 | test("^[0-9a-f]{64}$"))' "$proof" >/dev/null || fail "invalid $host workflow receipt"
+    archive="$out/archives/$archive_asset"
+    if ! test -e "$archive"; then gh release download "$tag" --repo "$repository" --pattern "$archive_asset" --dir "$out/archives"; fi
+    test "$(sha256 "$archive")" = "$(jq -r .sha256 "$proof")" || fail "$host archive digest mismatch"
+    # Inspect every member without extracting archive paths onto the filesystem.
+    expected=$'NOTICE.md\ncompiler.image\nmanifest.json\nnotices/LuaJIT-COPYRIGHT.txt\nnotices/Rust-dependencies.html\nnotices/libffi-LICENSE.txt\nnotices/lunajson-LICENSE.txt\nruntime'
+    test "$(tar -tzf "$archive" | LC_ALL=C sort)" = "$expected" || fail "$host archive member set differs"
+    tar -tvzf "$archive" | awk 'substr($0,1,1) != "-" {bad=1} END {exit bad}' || fail "$host archive has nonregular members"
+    tar -tvzf "$archive" runtime | awk 'substr($0,4,1) != "x" {bad=1} END {exit bad}' || fail "$host runtime is not executable"
+    metadata="$out/archives/$host-manifest.json"
+    tar -xOzf "$archive" manifest.json > "$metadata"
+    jq -e --arg host "$host" --arg revision "$revision" --arg image "$image_sha" --slurpfile proof "$proof" \
+        '.format == "nupp-bootstrap-seed-1" and .host == $host and .sourceRevision == $revision
+         and .execution == "new-images-with-aot-disabled" and .imageSha256 == $image
+         and .runtimeSha256 == $proof[0].runtimeSha256
+         and (.files | keys | sort) == ["NOTICE.md","compiler.image","notices/LuaJIT-COPYRIGHT.txt","notices/Rust-dependencies.html","notices/libffi-LICENSE.txt","notices/lunajson-LICENSE.txt","runtime"]' \
+        "$metadata" >/dev/null || fail "$host member manifest differs"
+    while IFS= read -r member; do
+        tar -xOzf "$archive" "$member" > "$out/archives/member.tmp"
+        test "$(sha256 "$out/archives/member.tmp")" = "$(jq -r --arg member "$member" '.files[$member]' "$metadata")" || fail "$host $member digest mismatch"
+    done < <(jq -r '.files | keys[]' "$metadata")
+    test "$(jq -r '.files.runtime' "$metadata")" = "$(jq -r .runtimeSha256 "$metadata")" || fail 'runtime member digest differs'
+    test "$(jq -r '.files["compiler.image"]' "$metadata")" = "$image_sha" || fail 'image member digest differs'
+    jq --arg host "$host" --slurpfile proof "$proof" \
+        '.hosts[$host] = ($proof[0] | {url,sha256,runtimeSha256,imageSha256})' "$out/pins-next.json" > "$out/pins-next.json.tmp"
+    mv "$out/pins-next.json.tmp" "$out/pins-next.json"
+done
+rm -f "$out/archives/member.tmp"
+check_preparation
+# The pin file is changed only after the published pair bootstraps successfully.
+NUPP_BOOTSTRAP_SEED_MANIFEST="$out/pins-next.json" ./scripts/toolchain stage0-seed > "$out/published-pair.txt"
+NUPP_BOOTSTRAP_SEED_MANIFEST="$out/pins-next.json" ./bin/nupp fixpoint > "$out/pinned-fixpoint.log" 2>&1 || fail "published-pair fixpoint failed; see $out/pinned-fixpoint.log"
+check_preparation
+cp "$out/pins-next.json" scripts/bootstrap-seeds.json.next
+mv scripts/bootstrap-seeds.json.next scripts/bootstrap-seeds.json
+git diff --check
+git add scripts/bootstrap-seeds.json
+git commit -m "Move the stage-zero pin to $tag"
+jq -n --arg tag "$tag" --arg source "$revision" --arg commit "$(git rev-parse HEAD)" --arg run "$run_id" \
+    --arg receipt "$receipt" '{tag:$tag,sourceRevision:$source,pinCommit:$commit,runId:$run,preparation:$receipt,publishedPairFixpoint:true}' > "$out/pin-commit.json"
+printf 'Committed native bootstrap pins for %s; receipt: %s\n' "$tag" "$out/pin-commit.json"
