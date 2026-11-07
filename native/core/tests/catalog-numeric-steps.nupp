@@ -58,7 +58,9 @@ local function zero(step: integer, last: any): nil
 end
 
 local ok, problem = pcall(zero, 0, {})
-assert(not ok and string.find(tostring(problem), "'for' step is zero", 1, true) ~= nil, "zero step before bad limit")
+if ok or string.find(tostring(problem), "'for' step is zero", 1, true) == nil then
+    error("zero step result: " .. tostring(ok) .. " / " .. tostring(problem), 0)
+end
 assert(closed == 1, "zero step closes owner")
 local limitOk, limitProblem = pcall(zero, 1, {})
 assert(not limitOk and string.find(tostring(limitProblem), "bad 'for' limit", 1, true) ~= nil, "invalid limit raises")
