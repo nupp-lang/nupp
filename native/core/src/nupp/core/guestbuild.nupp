@@ -8,6 +8,7 @@ module nupp.core.guestbuild
 local service = require("nupp.compiler.vm.nativeservice")
 local runner = require("nupp.core.unitrunner")
 local parser = require("nupp.compiler.syntax.parser")
+local lexer = require("nupp.compiler.syntax.lexer")
 local checker: any = require("nupp.compiler.check")
 local environment: any = require("nupp.compiler.project.env")
 local cst = require("nupp.compiler.syntax.cst")
@@ -548,21 +549,45 @@ end
 local function requiredmodules(root: any, source: string, follow: boolean): ({string}, {[string]: boolean})
     local found: {string} = {}
     local dynamic: {[string]: boolean} = {}
+    local mandatory: {[string]: boolean} = {}
+
+    local function add(name: string, optional: boolean): nil
+        found[#found + 1] = name
+        if optional then
+            if not mandatory[name] then
+                dynamic[name] = true
+            end
+        else
+            mandatory[name] = true
+            dynamic[name] = nil
+        end
+    end
+
     local walk: function(any): nil
     walk = function(node: any): nil
         if type(node) ~= "table" then
             return
         end
+        local graph: any = require("nupp.compiler.vm.graph")
         if node.kind == "call"
             and node.runtimeLoader == "require"
             and type(node.requiredModule) == "string"
             and not node.typeOnlyRequire
         then
-            found[#found + 1] = node.requiredModule
+            add(node.requiredModule, false)
+        elseif follow and graph.dynamicRequire(node) then
+            local args = node.args
+            local exprs = args and args.exprs or {}
+            local argument = #exprs == 1 and not args.str and not args.table and exprs[1] or nil
+            local token = argument and (argument.kind == "string" or argument.kind == "dedentString") and argument.token
+                or #exprs == 0 and args and not args.table and args.str
+            local name = token and lexer.literalstring(token.text, argument ~= nil and argument.kind == "dedentString")
+            if name then
+                add(name, true)
+            end
         end
         -- A library call the core makes itself (`assert(v)`) loads nothing,
         -- whatever module its name is checked through.
-        local graph: any = require("nupp.compiler.vm.graph")
         if node.kind == "call" and graph.coreLibraryCall(node) ~= nil then
             for _, argument in ipairs(node.args and node.args.exprs or {}) do
                 walk(argument)
@@ -573,10 +598,10 @@ local function requiredmodules(root: any, source: string, follow: boolean): ({st
         -- naming a type (`io.Writer`) loads nothing, as the graph sees it.
         local projection = program.builtinprojection(node)
         if projection then
-            found[#found + 1] = graph.libraryModule(projection.root)
-            found[#found + 1] = projection.module
+            add(graph.libraryModule(projection.root), false)
+            add(projection.module, false)
         elseif node.kind == "dotIndex" and type(node.qualifiedModule) == "string" then
-            found[#found + 1] = node.qualifiedModule
+            add(node.qualifiedModule, false)
         end
         for _, child in ipairs(node) do
             walk(child)
@@ -584,13 +609,12 @@ local function requiredmodules(root: any, source: string, follow: boolean): ({st
     end
     walk(root)
     if #scalartypeof.imports(root) > 0 then
-        found[#found + 1] = scalartypeof.MODULE
+        add(scalartypeof.MODULE, false)
     end
     if follow then
         for list in source:gmatch("@requires%-dynamically ([%w%._, ]+)") do
             for name in list:gmatch("[%w%._]+") do
-                found[#found + 1] = name
-                dynamic[name] = true
+                add(name, true)
             end
         end
     end
