@@ -28,6 +28,7 @@ export function lifetime(minorFirst: uint64): uint64
     local nested = strings.Builder(0ULL, 0ULL)
     local finalBase: uint64 = 0ULL
     local finalCap: uint64 = 0ULL
+    local finalDescriptor: uint64 = 0ULL
     local answer: uint64 = 0ULL
     do
         local a = arena.open(MAPPED)
@@ -90,6 +91,7 @@ export function lifetime(minorFirst: uint64): uint64
                 end
                 -- Finish allocates while the byte owner is reachable only by
                 -- its handle. The returned string needs no collecting cleanup.
+                finalDescriptor = native.address(d as voidptr)
                 finalBase = d.base
                 finalCap = d.cap
                 h.stress = true
@@ -117,8 +119,19 @@ export function lifetime(minorFirst: uint64): uint64
                 | bit(h.liveCount == 0ULL and h.released.count == 0ULL, 128ULL)
                 | bit(oracle, 256ULL)
             local reused = backing.wordBackingTake(h, (finalCap + 7ULL) // 8ULL)
-            answer = answer | bit(reused == finalBase and reused ~= 0ULL, 512ULL)
+            local reusedDescriptor = backing.wordBackingTake(h, (native.sizeOf<storage.Storage>() + 7ULL) // 8ULL)
+            -- Both allocations now share a size class. Reclaim both owners
+            -- without prescribing their order in the backing pool.
+            local reclaimed = reused ~= 0ULL
+                and reusedDescriptor ~= 0ULL
+                and reused ~= reusedDescriptor
+                and (
+                    (reused == finalBase and reusedDescriptor == finalDescriptor)
+                    or (reused == finalDescriptor and reusedDescriptor == finalBase)
+                )
+            answer = answer | bit(reclaimed, 512ULL)
             backing.wordBackingRelease(reused)
+            backing.wordBackingRelease(reusedDescriptor)
             heap.destroy(h)
         end
     end
