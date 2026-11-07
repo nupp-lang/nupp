@@ -1583,6 +1583,9 @@ local NESTED_DECLARATIONS = table.concat(
         "      --- @param text The text to apply to.",
         "      --- @return The result.",
         "      apply: function(self: Settings, text: string): string",
+        "",
+        "      --- Resets the settings.",
+        "      reset: function(self: Settings): nil",
         "   end",
         "end",
     },
@@ -4824,6 +4827,7 @@ function M.siteMatchesTheNuppdocPageModel()
         ["docs/details.md"] = "# Details\n\nA deeper reference.\n\n" .. "<<< @docs/snippet.abnf\n",
         ["docs/snippet.abnf"] = 'rule = "literal" / other\n',
         ["src/math.nupp"] = SOURCE,
+        ["src/config.d.nupp"] = NESTED_DECLARATIONS,
         [
             "src/engine/init.nupp"
         ] = table.concat(
@@ -5027,6 +5031,17 @@ function M.siteMatchesTheNuppdocPageModel()
         ),
         module
     )
+    local config = readFile(dir .. "/site/modules/config/index.html")
+    assert(
+        config:find(
+            '<a href="#config.Config.Settings.apply" title="apply">apply</a></li>'
+            .. '<li class="nuppdoc-outline-function">'
+            .. '<a href="#config.Config.Settings.reset" title="reset">reset</a>',
+            1,
+            true
+        ),
+        config
+    )
     assert(
         module:find(
             '<li class="nuppdoc-outline-section"><details open><summary>'
@@ -5187,6 +5202,7 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(script:find('event.key.toLowerCase() === "k"', 1, true), script)
     assert(script:find('sidebar?.querySelector(\'a[aria-current="page"]\')', 1, true), script)
     assert(script:find("sidebar.scrollTop +=", 1, true), script)
+    assert(script:find('outlinePanel?.querySelectorAll("details")', 1, true), script)
     assert(script:find('const mobileNavHistoryKey = "nuppMobileNavOpen"', 1, true), script)
     assert(script:find("history.pushState(", 1, true), script)
     assert(script:find("addEventListener(\"popstate\"", 1, true), script)
