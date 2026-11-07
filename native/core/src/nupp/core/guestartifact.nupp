@@ -432,7 +432,8 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
             local diagnostic = code.diagnostics[index]
             fields("CallDiagnostic", (diagnosticOffset + (index - 1) * layouts.CallDiagnostic.size) as integer, {
                 method = diagnostic.method and 1 or 0,
-                name = diagnostic.name and assert(stringOffsets[diagnostic.name]) or 0
+                name = diagnostic.name and assert(stringOffsets[diagnostic.name]) or 0,
+                forward = diagnostic.forward
             })
         end
     end

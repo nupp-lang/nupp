@@ -5,6 +5,7 @@ local graph = require("nupp.compiler.vm.graph")
 local schema = require("nupp.compiler.vm.coregraphschema")
 local semantic = require("nupp.compiler.vm.coregraphverify")
 local cst = require("nupp.compiler.syntax.cst")
+local lexer = require("nupp.compiler.syntax.lexer")
 local contracts = {}
 local bounds = schema.limits()
 
@@ -283,6 +284,119 @@ local function intern(signatures: any, index: any, signature: any): integer
     signatures[id + 1], index[key] = signature, id
 
     return id
+end
+
+-- Forward only the private host-binding calls of a checked standard installer.
+-- These rows affect error context alone, never call targets or signatures.
+const FORWARD_NONE = 0
+const FORWARD_CALL = 1
+const FORWARD_RECEIVER = 2
+
+local forwarding: {
+    [string]: {[string]: string}
+} = {
+    [
+        "nupp.runtime.standardio"
+    ] = {
+        openFile = "open",
+        fileLines = "lines",
+        inputFile = "input",
+        outputFile = "output",
+        closeFile = "close",
+        fileType = "type",
+        readFile = "read",
+        writeFile = "write",
+        flushFile = "flush"
+    },
+    ["nupp.runtime.standardos"] = {remove = "remove", rename = "rename"}
+}
+
+local function localinitializer(p: any, chunk: any, definition: any): any
+    local binding = definition and p.byDefinition[definition]
+    if not binding or binding.owner ~= chunk.id then
+        return nil
+    end
+    for _, block in ipairs(chunk.body.blocks) do
+        for _, stat in ipairs(block.stats or {}) do
+            if stat.kind == "localStmt" then
+                for index, token in ipairs(stat.names or {}) do
+                    if token.definition == definition and token == definition.token then
+                        return stat.exprs and stat.exprs[index]
+                    end
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+local function forwardcontext(p: any, owner: any, call: any): integer
+    local methods = forwarding[owner.scope.name]
+    local member = methods and methods[owner.name]
+    if not member or owner.kind ~= "function" then
+        return FORWARD_NONE
+    end
+    local declaration = owner.node.kind == "localFuncStmt" and owner.node.name
+        or owner.node.kind == "funcStmt" and #owner.node.name == 1 and owner.node.name[1]
+    if not declaration
+        or not owner.definition
+        or p.functionsByDefinition[owner.definition] ~= owner
+        or p.byBody[owner.body] ~= owner
+        or declaration.definition ~= owner.definition
+        or declaration.text ~= owner.name
+    then
+        return FORWARD_NONE
+    end
+    local chunk = p.owners[owner.parent + 1]
+    if not chunk or chunk.kind ~= "module" or chunk.scope ~= owner.scope then
+        return FORWARD_NONE
+    end
+    local root = owner.scope.name == "nupp.runtime.standardio" and "io" or "os"
+    if call.kind == "methodCall" then
+        local receiver = call.obj and call.obj.kind == "name" and call.obj.token
+        local expected = owner.name == "writeFile" and "processOutput" or "processInput"
+        if (owner.name == "readFile" or owner.name == "writeFile" or owner.name == "fileLines")
+            and call.name.text == member
+            and receiver
+            and receiver.text == expected
+            and localinitializer(p, chunk, receiver.definition) ~= nil
+        then
+            return FORWARD_RECEIVER
+        end
+        return FORWARD_NONE
+    end
+    local callee = call.kind == "call" and call.obj
+    local definition = callee and callee.kind == "name" and callee.token.definition
+    local value = localinitializer(p, chunk, definition)
+    if not value
+        or value.kind ~= "dotIndex"
+        or value.name.text ~= member
+        or value.obj.kind ~= "name"
+        or definition.reassigned
+    then
+        return FORWARD_NONE
+    end
+    local original = localinitializer(p, chunk, value.obj.token.definition)
+    if not original
+        or original.kind ~= "call"
+        or original.obj.kind ~= "name"
+        or original.obj.token.text ~= "rawget"
+        or not original.obj.token.definition
+        or original.obj.token.definition.filename ~= "nupp:lua.d.nupp"
+        or #original.args.exprs ~= 2
+        or original.args.exprs[1].kind ~= "name"
+        or original.args.exprs[1].token.text ~= "_G"
+        or not original.args.exprs[1].token.definition
+        or original.args.exprs[1].token.definition.filename ~= "nupp:lua.d.nupp"
+        or value.obj.token.definition.reassigned
+        or original.args.exprs[2].kind ~= "string"
+        or lexer.stringValue(original.args.exprs[2].token.text) ~= root
+    then
+        return FORWARD_NONE
+    end
+
+    return FORWARD_CALL
 end
 
 -- Diagnostic names describe the issued source call, never its runtime target.
@@ -567,7 +681,17 @@ function contracts.normalize(compiled: any, version: integer?): (any, any)
                     -- xpcall(f, handler, ...): its handler is staged apart.
                     handled = source.handled == true or nil
                 }
-                diagnostics[id + 1] = diagnostic(source.call, source.protected == true)
+                local row = diagnostic(source.call, source.protected == true)
+                row.forward = forwardcontext(p, p.owners[index], source.call)
+                if row.forward ~= FORWARD_NONE then
+                    local owner = p.owners[index]
+                    local methods = forwarding[owner.scope.name]
+                    local member = methods and methods[owner.name]
+                    need(member ~= nil, "checked forwarding member missing")
+                    local root = owner.scope.name == "nupp.runtime.standardio" and "io" or "os"
+                    row.name = root .. "." .. (member as string)
+                end
+                diagnostics[id + 1] = row
                 block.term.contract = id
                 record.effect = 1
                 if not source.dynamic then

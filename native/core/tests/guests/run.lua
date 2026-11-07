@@ -188,7 +188,7 @@ local CASES = {
     {"errorsruntime", 0x7FFF00000000001F},
     {"hostlibrary", 0x7FFF0000000000FF},
     {"benchforms", 0x7FFF00000000003F},
-    {"callarguments", 0x7FFF000003FFFFFF},
+    {"callarguments", 0x7FFF00001FFFFFFF},
     {"iofiles", 0x7FFF3FFFFFFFFFFF},
     {"iostandard", 0x7FFF00000000000F},
     {"reactorpipes", 0x7FFF00000007FFFF},
@@ -1590,7 +1590,7 @@ local function main()
                     check(seen.Le and seen.Add and seen.JmpIf and backward, label .. " numeric loop shape")
                 end
                 if name == "callarguments" then
-                    local wordBytes, diagnosticBytes = 8, 16
+                    local wordBytes, diagnosticBytes = 8, 24
                     local v3Bytes, formatWord, rowsWord, countWord = 152, 16, 17, 18
                     local rows, count = get64(data, rowsWord * wordBytes), get64(data, countWord * wordBytes)
                     check(get64(data, 4 * wordBytes) == v3Bytes, label .. " V3 record offset")
@@ -1607,6 +1607,7 @@ local function main()
                     invalid("offset", rowsWord * wordBytes, u64(rows + wordBytes))
                     invalid("count", countWord * wordBytes, u64(count - 1))
                     invalid("method", rows, u64(2))
+                    invalid("forward", rows + 2 * wordBytes, u64(3))
                     invalid("name-metadata", rows + wordBytes, u64(v3Bytes))
                     local named
                     for i = 0, count - 1 do

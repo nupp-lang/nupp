@@ -96,14 +96,16 @@ fails(
     end,
     "bad argument #1 to 'read' (FILE* expected, got table)"
 )
-ok, message = pcall(io.open, {}, 'r')
-check(not ok and message == "bad argument #1 to 'io.open' (string expected, got table)")
+-- Runtime argument validation crosses an intentionally dynamic callable.
+local protectedOpen = io.open
+ok, message = pcall(protectedOpen, false, 'r')
+check(not ok and message == "bad argument #1 to 'io.open' (string expected, got boolean)")
 local opener = io.open
 fails(
     function()
-        return opener({}, 'r')
+        return opener(false, 'r')
     end,
-    "bad argument #1 to 'opener' (string expected, got table)"
+    "bad argument #1 to 'opener' (string expected, got boolean)"
 )
 local before = io.input()
 io.input(f)
@@ -112,6 +114,26 @@ fails(
         return io.read('x')
     end,
     "bad argument #1 to 'read' (invalid format)"
+)
+local globalReader = io.read
+fails(
+    function()
+        return globalReader('x')
+    end,
+    "bad argument #1 to 'globalReader' (invalid format)"
+)
+local globalOk, globalMessage = pcall(globalReader, 'x')
+check(not globalOk and globalMessage == "bad argument #1 to 'io.read' (invalid format)")
+
+local function readFile(value)
+    return globalReader(value)
+end
+
+fails(
+    function()
+        return readFile('x')
+    end,
+    "bad argument #1 to 'globalReader' (invalid format)"
 )
 io.input(before)
 fails(
@@ -139,8 +161,8 @@ check(
     and type(message) == 'string'
     and message:sub(-#"bad argument #1 to 'read' (invalid format)") == "bad argument #1 to 'read' (invalid format)"
 )
-ok, message = pcall(opener, {}, 'r')
-check(not ok and message == "bad argument #1 to 'io.open' (string expected, got table)")
+ok, message = pcall(opener, false, 'r')
+check(not ok and message == "bad argument #1 to 'io.open' (string expected, got boolean)")
 fails(
     function()
         for value in f:lines('x') do

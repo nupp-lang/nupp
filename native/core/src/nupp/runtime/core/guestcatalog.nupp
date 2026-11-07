@@ -48,6 +48,9 @@ end
 -- The diagnostic envelope preserves every preceding descriptor field.
 export const DIAGNOSTIC_FORMAT: uint64 = 3ULL
 export const DIAGNOSTIC_NAME_LIMIT: uint64 = 65536ULL
+export const FORWARD_NONE: uint64 = 0ULL
+export const FORWARD_CALL: uint64 = 1ULL
+export const FORWARD_RECEIVER: uint64 = 2ULL
 export struct DescriptorV3
     version: uint64
     bytes: uint64
@@ -73,6 +76,7 @@ end
 export struct CallDiagnostic
     method: uint64
     name: uint64
+    forward: uint64
 end
 
 export struct Function
@@ -556,7 +560,11 @@ local function valid(data: voidptr, bytes: uint64): uint64
             local row = native.offset(data, native.index(diagnosticOffset + index * native.sizeOf<CallDiagnostic>()))
             local method = native.load64(row, native.fieldOffset<CallDiagnostic>("method"))
             local name = native.load64(row, native.fieldOffset<CallDiagnostic>("name"))
-            if method > 1ULL
+            local forward = native.load64(row, native.fieldOffset<CallDiagnostic>("forward"))
+            if forward > FORWARD_RECEIVER
+                or forward ~= FORWARD_NONE and name == 0ULL
+                or forward == FORWARD_RECEIVER and method ~= 1ULL
+                or method > 1ULL
                 or method == 1ULL
                 and native.load64(
                     native.offset(data, native.index(calls + index * native.sizeOf<Callsite>())),

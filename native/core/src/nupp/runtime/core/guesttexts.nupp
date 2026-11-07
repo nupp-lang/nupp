@@ -97,7 +97,13 @@ end
 
 -- Formats an ordinary Nupp library's error from its original checked call.
 -- Inputs remain rooted in the active guest frame throughout construction.
-export function argumentmessage(ctx: voidptr, position: uint64, fallback: uint64, detail: uint64, level: uint64): uint64
+export function argumentmessage(
+    ctx: voidptr,
+    position: uint64,
+    fallback: uint64,
+    detail: uint64,
+    level: uint64
+): (uint64, uint64)
     local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local c = native.loadPointer(ctx, context.CATALOG)
@@ -108,37 +114,61 @@ export function argumentmessage(ctx: voidptr, position: uint64, fallback: uint64
         local frame = guesterrors.frameat(ctx, level)
         local method: uint64 = 0ULL
         local name: uint64 = 0ULL
-        if frame ~= 0ULL
-            and native.load64(
+        local skipped: uint64 = 0ULL
+        local adjustment: uint64 = 0ULL
+        local forwardname: uint64 = 0ULL
+        while frame ~= 0ULL do
+            if native.load64(
                 native.pointer(frame),
                 native.fieldOffset<frames.Frame>("resultKind")
-            ) ~= frames.PROTECTED_DESTINATION
-        then
-            local parent = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("previous"))
-            if parent ~= 0ULL then
-                local owner = native.load64(native.pointer(parent), native.fieldOffset<frames.Frame>("functionId"))
-                local resume = native.load64(native.pointer(parent), native.fieldOffset<frames.Frame>("resumePC"))
-                if owner < native.load64(c, native.fieldOffset<catalog.Catalog>("count")) and resume ~= 0ULL then
-                    local fn = native.pointer(
-                        native.load64(
-                            c,
-                            native.fieldOffset<catalog.Catalog>("records")
-                        ) + owner * native.sizeOf<catalog.Function>()
-                    )
-                    local site = catalog.callsite(c, fn, resume - 1ULL)
-                    if site ~= 0ULL then
-                        local id = native.load64(native.pointer(site), native.fieldOffset<catalog.Callsite>("id"))
-                        local row = native.pointer(rows + id * native.sizeOf<catalog.CallDiagnostic>())
-                        method = native.load64(row, native.fieldOffset<catalog.CallDiagnostic>("method"))
-                        name = native.load64(row, native.fieldOffset<catalog.CallDiagnostic>("name"))
-                    end
-                end
+            ) == frames.PROTECTED_DESTINATION then
+                break
             end
+            local parent = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("previous"))
+            if parent == 0ULL then
+                break
+            end
+            local owner = native.load64(native.pointer(parent), native.fieldOffset<frames.Frame>("functionId"))
+            local resume = native.load64(native.pointer(parent), native.fieldOffset<frames.Frame>("resumePC"))
+            if owner >= native.load64(c, native.fieldOffset<catalog.Catalog>("count")) or resume == 0ULL then
+                break
+            end
+            local fn = native.pointer(
+                native.load64(
+                    c,
+                    native.fieldOffset<catalog.Catalog>("records")
+                ) + owner * native.sizeOf<catalog.Function>()
+            )
+            local site = catalog.callsite(c, fn, resume - 1ULL)
+            if site == 0ULL then
+                break
+            end
+            local id = native.load64(native.pointer(site), native.fieldOffset<catalog.Callsite>("id"))
+            local row = native.pointer(rows + id * native.sizeOf<catalog.CallDiagnostic>())
+            local forward = native.load64(row, native.fieldOffset<catalog.CallDiagnostic>("forward"))
+            if forward == catalog.FORWARD_NONE then
+                method = native.load64(row, native.fieldOffset<catalog.CallDiagnostic>("method"))
+                name = native.load64(row, native.fieldOffset<catalog.CallDiagnostic>("name"))
+                break
+            end
+            -- A receiver inserted by a wrapper is absent from its public arguments.
+            forwardname = native.load64(row, native.fieldOffset<catalog.CallDiagnostic>("name"))
+            if forward == catalog.FORWARD_RECEIVER then
+                adjustment = adjustment + 1ULL
+            end
+            skipped = skipped + 1ULL
+            frame = parent
+        end
+        if name == 0ULL then
+            name = forwardname
+        end
+        if position < adjustment + method then
+            error("invalid argument diagnostic mapping")
         end
         local h = guestHeap(ctx)
         local lifetime = strings.open(h, state as strings.Builder*)
         local b = state as strings.Builder*
-        local shown = position - method
+        local shown = position - adjustment - method
         local refused: uint64 = 0ULL
         if shown == 0ULL then
             refused = librarytexts.append(h, b, librarytexts.TEXT_CALLING)
@@ -167,7 +197,7 @@ export function argumentmessage(ctx: voidptr, position: uint64, fallback: uint64
             error("not enough memory")
         end
 
-        return values.TAG_OBJ | strings.finish(h, b)
+        return values.TAG_OBJ | strings.finish(h, b), skipped
     end
 end
 
