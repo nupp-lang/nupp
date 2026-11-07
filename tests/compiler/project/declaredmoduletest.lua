@@ -570,6 +570,7 @@ function M.standardLibraryRootsSharePrivateImplementationOnlyWithEachOther()
             "nupp.tools.consumer",
             "serde.json",
             "binary.Digest",
+            "bytes.Digest",
             "coroutine.workers",
             "table"
         }) do
@@ -577,7 +578,8 @@ function M.standardLibraryRootsSharePrivateImplementationOnlyWithEachOther()
                 "nupp.runtime.packages",
                 "nupp.serde.internal.value",
                 "serde.internal.codec",
-                "binary.internal.hash"
+                "binary.internal.hash",
+                "bytes.internal.hash"
             }) do
                 testAssert.eq(
                     env.moduleAccess(env, consumer, implementation),
