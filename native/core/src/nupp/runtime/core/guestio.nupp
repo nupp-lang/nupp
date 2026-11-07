@@ -20,6 +20,7 @@ const librarylayouts = require("nupp.runtime.core.librarylayouts")
 const guestprocess = require("nupp.runtime.core.guestprocess")
 const guestgc = require("nupp.runtime.core.guestgc")
 const guesttime = require("nupp.runtime.core.guesttime")
+const guestfiles = require("nupp.runtime.core.guestfiles")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 
 local function heapOf(ctx: voidptr): heap.Heap*
@@ -195,6 +196,9 @@ end
 -- number, as the bridge's system call answered it.
 export function files(ctx: voidptr, op: uint64, a: uint64, b: uint64, c: uint64): uint64
     local operation = integerOf(op)
+    if operation >= librarylayouts.FILESYSTEM_FIRST and operation <= librarylayouts.FILESYSTEM_LAST then
+        return guestfiles.call(ctx, operation, a, b)
+    end
     if operation >= librarylayouts.REACTOR_FIRST and operation <= librarylayouts.REACTOR_LAST then
         return guestreactor.call(ctx, operation, a, b, c)
     end

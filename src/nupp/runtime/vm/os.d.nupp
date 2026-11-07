@@ -296,5 +296,32 @@ local record Os
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     wallMillis: function(): uint64
 
+    -- Raw filesystem results are zero/counts or the negated OS error.
+    -- Metadata output is exactly five little-endian 64-bit words.
+    -- Text queries size at a zero range; short ranges publish no bytes.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    fileInfo: function(path: voidptr, bytes: uint64, follow: uint64, out: voidptr): int64
+
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    fileStatus: function(fd: uint64, out: voidptr): int64
+
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    readLink: function(path: voidptr, bytes: uint64, out: voidptr, room: uint64): int64
+
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    makeDirectory: function(path: voidptr, bytes: uint64, mode: uint64): int64
+
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    makeSymlink: function(target: voidptr, targetBytes: uint64, link: voidptr, linkBytes: uint64): int64
+
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    changeMode: function(path: voidptr, bytes: uint64, mode: uint64): int64
+
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    syncFile: function(fd: uint64): int64
+
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    pathQuery: function(which: uint64, path: voidptr, bytes: uint64, out: voidptr, room: uint64): int64
+
 end
 return Os

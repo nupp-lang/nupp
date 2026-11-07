@@ -24,6 +24,7 @@ const corestorage = require("nupp.runtime.core.corestorage")
 const modules = require("nupp.runtime.core.modules")
 const texts = require("nupp.runtime.core.guesttexts")
 const librarycalls = require("nupp.runtime.core.librarycalls")
+const storagelibrary = require("nupp.runtime.core.storagelibrary")
 const librarylayouts = require("nupp.runtime.core.librarylayouts")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 const guesttables = require("nupp.runtime.core.guesttables")
@@ -1565,9 +1566,11 @@ export function LibCall(
         slots.writeValue(frame, regs, dst, numbers.forlimit(ctx, a))
     elseif libraryId == librarycalls.TONUMBER_BASE then
         slots.writeValue(frame, regs, dst, numbers.tonumberbase(ctx, a, b))
-    elseif libraryId == librarycalls.STORAGE_ALLOCBYTES then
+    elseif libraryId == storagelibrary.STORAGE_ALLOCBYTES then
         slots.writeValue(frame, regs, dst, gueststorage.allocate(ctx, values.TAG_INTEGER | corestorage.UINT8, a))
-    elseif libraryId == librarycalls.STORAGE_ALLOCATE then
+    elseif libraryId == storagelibrary.STORAGE_ALIGNED then
+        slots.writeValue(frame, regs, dst, gueststorage.aligned(ctx, a, b, c))
+    elseif libraryId == storagelibrary.STORAGE_ALLOCATE then
         slots.writeValue(frame, regs, dst, gueststorage.allocate(ctx, a, b))
     elseif libraryId == librarycalls.TABLE_NEWARRAY then
         slots.writeValue(

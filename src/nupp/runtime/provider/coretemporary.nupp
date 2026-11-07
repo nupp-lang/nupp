@@ -1,0 +1,73 @@
+@!internal
+module nupp.runtime.provider.coretemporary
+
+const calls = require("nupp.runtime.filesystemcalls")
+const filecalls = require("nupp.runtime.filecalls")
+const errors = require("nupp.runtime.filesystemerror")
+const filesystem = require("nupp.runtime.filesystem")
+const entropy = require("nupp.runtime.provider.coreentropy")
+local {type Hooks} = require("nupp.runtime.temporaryhooks")
+
+const descriptors = require("nupp.runtime.filesystemfd")
+const FILE_FLAGS = descriptors.WRITING + descriptors.CREATING + descriptors.EXCLUSIVE
+const PRIVATE_DIRECTORY_MODE = 448
+const INVALID = -22
+const RANDOM_BYTES = 8
+
+local function candidate(directory: boolean, prefix: string, suffix: string, within: string): (string?, string?)
+    local _ = directory
+    if prefix:find("/", 1, true)
+        or suffix:find("/", 1, true)
+        or prefix:find("\0", 1, true)
+        or suffix:find("\0", 1, true)
+    then
+        return nil, "temporary name fragments must not contain a path separator or NUL (os error 22)"
+    end
+    local root = within
+    if root == "" then
+        root = os.getenv("TMPDIR") or "/tmp"
+    end
+    local stamp = entropy.randombytes(RANDOM_BYTES)
+    local hex: {string} = {}
+    for index = #stamp, 1, -1 do
+        hex[#hex + 1] = ("%02x"):format(stamp:byte(index))
+    end
+
+    return filesystem.join(root, prefix .. table.concat(hex) .. suffix), nil
+end
+
+-- The caller has published an inactive affine path owner before this call.
+-- Successful admission returns an immediate status, without allocating.
+export function admitfile(path: string, restricted: boolean): integer
+    if path:find("\0", 1, true) then
+        return INVALID
+    end
+    local flags = FILE_FLAGS + (restricted and descriptors.PRIVATE or 0)
+    local result = filecalls.open(path, flags)
+    if result >= 0 then
+        -- Close consumes the descriptor even on failure, as the native drop does.
+        filecalls.close(result)
+        return 0
+    end
+
+    return result
+end
+
+local function admit(path: string, directory: boolean): (integer, string?)
+    local result: integer
+    if directory then
+        result = calls.mkdir(path, PRIVATE_DIRECTORY_MODE)
+    else
+        result = admitfile(path, true)
+    end
+    if result < 0 then
+        return result, errors.reason(result)
+    end
+
+    return result, nil
+end
+
+local prepared: Hooks = {candidate = candidate, admit = admit}
+export function hooks(): Hooks?
+    return prepared
+end

@@ -1,0 +1,162 @@
+@!internal
+module nupp.runtime.filesystem
+
+const calls = require("nupp.runtime.filesystemcalls")
+const filecalls = require("nupp.runtime.filecalls")
+const errors = require("nupp.runtime.filesystemerror")
+const descriptors = require("nupp.runtime.filesystemfd")
+
+export type Info = {
+    kind: string,
+    size: integer,
+    modified: number,
+    readOnly: boolean,
+    mode: integer
+}
+export type Entry = {
+    name: string,
+    kind: string
+}
+
+const WORD_BYTES = 8
+const BYTE_RADIX = 256
+const SIGN_BIT = 128
+const MILLISECONDS_PER_SECOND = 1000
+const NANOSECONDS_PER_MILLISECOND = 1000000
+const METADATA_BYTES = 40
+const KINDS: {[integer]: string} = {[1] = "file", [2] = "directory", [3] = "symlink", [4] = "other"}
+const WRITE_MASK = 146
+const PERMISSION_MASK = 4095
+const DIRECTORY_MODE = 511
+const WORKING_DIRECTORY = 0
+const CANONICAL_PATH = 1
+const EXECUTABLE_PATH = 2
+const DIRECTORY_FLAGS = descriptors.READING + descriptors.DIRECTORY
+
+local function word(bytes: string, slot: integer, signed: boolean?): integer
+    local first = slot * WORD_BYTES + 1
+    local value: integer = signed and bytes:byte(first + WORD_BYTES - 1) >= SIGN_BIT and -1 or 0
+    for index = first + WORD_BYTES - 1, first, -1 do
+        value = value * BYTE_RADIX + bytes:byte(index)
+    end
+
+    return value
+end
+
+local function decode(raw: string | integer): (Info?, string?)
+    if type(raw) ~= "string" then
+        return nil, errors.reason(raw as integer)
+    end
+    local bytes = raw as string
+    if #bytes ~= METADATA_BYTES then
+        error("filesystem metadata has an invalid extent")
+    end
+    local kind, size = word(bytes, 0), word(bytes, 1)
+    local seconds, nanos, mode = word(bytes, 2, true), word(bytes, 3), word(bytes, 4)
+    local modified = (seconds as integer) >= 0
+        and (seconds as integer) * MILLISECONDS_PER_SECOND + (nanos as integer) / NANOSECONDS_PER_MILLISECOND
+        or 0
+
+    return {
+        kind = assert(KINDS[kind as integer]),
+        size = size as integer,
+        modified = modified,
+        readOnly = (mode as integer) & WRITE_MASK == 0,
+        mode = (mode as integer) & PERMISSION_MASK
+    }, nil
+end
+
+export function info(path: string, follow: boolean): (Info?, string?)
+    return decode(calls.info(path, follow))
+end
+
+export function status(descriptor: integer): (Info?, string?)
+    return decode(calls.status(descriptor))
+end
+
+local function text(raw: string | integer): (string?, string?)
+    if type(raw) ~= "string" then
+        return nil, errors.reason(raw as integer)
+    end
+    return raw as string, nil
+end
+
+export function readlink(path: string): (string?, string?)
+    return text(calls.readlink(path))
+end
+
+export function cwd(): (string?, string?)
+    return text(calls.query(WORKING_DIRECTORY, ""))
+end
+
+export function canonicalize(path: string): (string?, string?)
+    return text(calls.query(CANONICAL_PATH, path))
+end
+
+export function executable(): (string?, string?)
+    return text(calls.query(EXECUTABLE_PATH, ""))
+end
+
+export function symlink(target: string, link: string): (boolean, string?)
+    return errors.done(calls.symlink(target, link))
+end
+
+export function chmod(path: string, mode: integer): (boolean, string?)
+    return errors.done(calls.chmod(path, mode))
+end
+
+export function sync(descriptor: integer): (boolean, string?)
+    return errors.done(calls.sync(descriptor))
+end
+
+export function join(parent: string, name: string): string
+    return parent == "" and name or parent:sub(-1) == "/" and parent .. name or parent .. "/" .. name
+end
+
+export function mkdir(path: string): (boolean, string?)
+    local prefix = path:sub(1, 1) == "/" and "/" or ""
+    local found = false
+    for component in path:gmatch("[^/]+") do
+        found = true
+        prefix = join(prefix, component)
+        local result = calls.mkdir(prefix, DIRECTORY_MODE)
+        if result < 0 then
+            local existing = info(prefix, true)
+            if existing == nil or existing.kind ~= "directory" then
+                return false, errors.reason(result)
+            end
+        end
+    end
+    if not found then
+        local existing, reason = info(path, true)
+        return existing ~= nil and existing.kind == "directory", reason
+    end
+
+    return true, nil
+end
+
+export function list(path: string): ({Entry}?, string?)
+    local descriptor, reason = descriptors.open(path, DIRECTORY_FLAGS)
+    if descriptor == nil then
+        return nil, reason
+    end
+    local raw = filecalls.names(descriptors.value(descriptor))
+    if type(raw) ~= "string" then
+        return nil, errors.reason(raw as integer)
+    end
+    local bytes = raw as string
+    local entries: {Entry} = {}
+    local offset = 1
+    while offset <= #bytes do
+        local stop = assert(bytes:find("\0", offset, true), "filesystem entry lacks its terminator")
+        local name = bytes:sub(offset, stop - 1)
+        local entry, failure = info(join(path, name), false)
+        if entry == nil then
+            return nil, failure
+        end
+        entries[#entries + 1] = {name = name, kind = entry.kind}
+        offset = stop + 1
+    end
+
+    return entries, nil
+end

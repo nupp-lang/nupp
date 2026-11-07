@@ -1,0 +1,88 @@
+@!internal
+module nupp.runtime.filepaths
+
+const system = require("nupp.runtime.system")
+const filesystem = require("nupp.runtime.filesystem")
+const CONFIGURATION = 0
+const DATA = 1
+const CACHE = 2
+const HOME = 0
+
+local function configured(name: string): string?
+    local value = os.getenv(name)
+    return value ~= "" and value or nil
+end
+
+local function home(): (string?, string?)
+    local value = configured(system.platform == "windows" and "USERPROFILE" or "HOME")
+    return value, value == nil and "the home directory is not set" or nil
+end
+
+export function application(which: integer): (string?, string?)
+    if which ~= CONFIGURATION and which ~= DATA and which ~= CACHE then
+        return nil, "unknown application base"
+    end
+    if system.platform == "windows" then
+        local name = which == CONFIGURATION and "APPDATA" or "LOCALAPPDATA"
+        local root = configured(name)
+        if root == nil then
+            return nil, name .. " is not set"
+        end
+        return which == CACHE and filesystem.join(root, "Temp") or root, nil
+    end
+    local base, why = home()
+    if base == nil then
+        return nil, why
+    end
+    if system.platform == "macos" then
+        local suffix = which == CONFIGURATION and "Library/Preferences"
+            or which == DATA and "Library/Application Support"
+            or "Library/Caches"
+        return filesystem.join(base, suffix), nil
+    end
+    local variable = which == CONFIGURATION and "XDG_CONFIG_HOME"
+        or which == DATA and "XDG_DATA_HOME"
+        or "XDG_CACHE_HOME"
+    local root = configured(variable)
+    if root ~= nil and root:sub(1, 1) == "/" then
+        return root, nil
+    end
+    local suffix = which == CONFIGURATION and ".config" or which == DATA and ".local/share" or ".cache"
+
+    return filesystem.join(base, suffix), nil
+end
+
+export function user(which: integer): (string?, string?)
+    local base, why = home()
+    if base == nil then
+        return nil, why
+    end
+    if which == HOME then
+        return base, nil
+    end
+    local names: {
+        [integer]: {string}
+    } = {
+        [1] = {"XDG_DOCUMENTS_DIR", "Documents", "Documents"},
+        [2] = {"XDG_DOWNLOAD_DIR", "Downloads", "Downloads"},
+        [3] = {"XDG_DESKTOP_DIR", "Desktop", "Desktop"},
+        [4] = {"XDG_PICTURES_DIR", "Pictures", "Pictures"},
+        [5] = {"XDG_MUSIC_DIR", "Music", "Music"},
+        [6] = {"XDG_VIDEOS_DIR", "Movies", "Videos"}
+    }
+    local row = names[which]
+    if row == nil then
+        return nil, "unknown user folder"
+    end
+    local value: string?
+    if system.platform ~= "windows" and system.platform ~= "macos" then
+        value = configured(row[1])
+    end
+    value = value or filesystem.join(base, system.platform == "macos" and row[2] or row[3])
+    local found = filesystem.info(value, true)
+    if found == nil or found.kind ~= "directory" then
+        return nil, "the platform has no such folder"
+    end
+
+    return value, nil
+end

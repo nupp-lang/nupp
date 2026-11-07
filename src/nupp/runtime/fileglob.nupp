@@ -1,0 +1,182 @@
+@!internal
+module nupp.runtime.fileglob
+
+const filesystem = require("nupp.runtime.filesystem")
+const MAX_WALK_DEPTH = 512
+
+local function classend(pattern: string, at: integer): integer?
+    if at > #pattern then
+        return nil
+    end
+    local first = pattern:sub(at, at)
+    if first == "!" or first == "^" then
+        at = at + 1
+    end
+    if pattern:sub(at, at) == "]" then
+        at = at + 1
+    end
+
+    return (pattern:find("]", at, true))
+end
+
+local function accepts(pattern: string, at: integer, stop: integer, candidate: integer): boolean
+    local first = pattern:sub(at, at)
+    local negated = first == "!" or first == "^"
+    if negated then
+        at = at + 1
+    end
+    local found = false
+    while at < stop do
+        local low = pattern:byte(at)
+        at = at + 1
+        if at + 1 < stop and pattern:sub(at, at) == "-" then
+            local high = pattern:byte(at + 1)
+            at = at + 2
+            found = found or low <= candidate and candidate <= high
+        else
+            found = found or low == candidate
+        end
+    end
+
+    return negated and not found or not negated and found
+end
+
+local function matches(pattern: string, name: string): boolean
+    local at: integer, index: integer = 1, 1
+    local star: integer, afterstar: integer = 0, 0
+    while index <= #name do
+        local matched = false
+        if at <= #pattern then
+            local character = pattern:sub(at, at)
+            if character == "*" then
+                star, afterstar = at, index
+                at = at + 1
+                matched = true
+            elseif character == "?" or character ~= "[" and character == name:sub(index, index) then
+                at, index = at + 1, index + 1
+                matched = true
+            elseif character == "[" then
+                local stop = classend(pattern, at + 1)
+                if stop and accepts(pattern, at + 1, stop, name:byte(index)) then
+                    at, index = stop + 1, index + 1
+                    matched = true
+                end
+            end
+        end
+        if not matched then
+            if star == 0 then
+                return false
+            end
+            afterstar = afterstar + 1
+            at, index = star + 1, afterstar
+        end
+    end
+    while pattern:sub(at, at) == "*" do
+        at = at + 1
+    end
+
+    return at > #pattern
+end
+
+local function wildcard(component: string): boolean
+    return component:find("*", 1, true) ~= nil
+        or component:find("?", 1, true) ~= nil
+        or component:find("[", 1, true) ~= nil
+end
+
+local function components(pattern: string): ({string}?, string?)
+    local parts: {string} = {}
+    for component in pattern:gmatch("[^/]+") do
+        local at: integer = 1
+        while at <= #component do
+            if component:sub(at, at) == "[" then
+                local stop = classend(component, at + 1)
+                if stop == nil then
+                    return nil, "the pattern has an unclosed ["
+                end
+                at = stop
+            elseif component:sub(at, at + 1) == "**" and component ~= "**" then
+                return nil, "a recursive wildcard must be a whole path component"
+            end
+            at = at + 1
+        end
+        if component ~= "**" or parts[#parts] ~= "**" then
+            parts[#parts + 1] = component
+        end
+    end
+    if #parts == 0 and pattern:sub(1, 1) ~= "/" then
+        return nil, "the pattern names no path"
+    end
+    if #parts > MAX_WALK_DEPTH then
+        return nil, "the pattern has more components than a path may have"
+    end
+
+    return parts, nil
+end
+
+export function expand(pattern: string): ({string}?, string?)
+    local parts, why = components(pattern)
+    if parts == nil then
+        return nil, why
+    end
+    local found: {[string]: boolean} = {}
+    local expanded: {[string]: boolean} = {}
+    local walk: function(prefix: string, component: integer, depth: integer): string?
+    walk = function(prefix: string, component: integer, depth: integer): string?
+        if component > #parts then
+            if prefix ~= "" and filesystem.info(prefix, false) ~= nil then
+                found[prefix] = true
+            end
+            return nil
+        end
+        local part = parts[component]
+        if part == "**" then
+            if depth == 0 then
+                return "the directory tree is deeper than " .. tostring(MAX_WALK_DEPTH) .. " levels"
+            end
+            local key = tostring(component) .. "\0" .. prefix
+            if expanded[key] then
+                return nil
+            end
+            expanded[key] = true
+            local failure = walk(prefix, component + 1, depth)
+            if failure then
+                return failure
+            end
+            local entries = filesystem.list(prefix == "" and "." or prefix)
+            for _, entry in ipairs(entries or {}) do
+                if entry.kind == "directory" then
+                    local reason = walk(filesystem.join(prefix, entry.name), component, depth - 1)
+                    if reason then
+                        return reason
+                    end
+                end
+            end
+        elseif not wildcard(part) then
+            return walk(filesystem.join(prefix, part), component + 1, depth)
+        else
+            local entries = filesystem.list(prefix == "" and "." or prefix)
+            for _, entry in ipairs(entries or {}) do
+                if matches(part, entry.name) then
+                    local reason = walk(filesystem.join(prefix, entry.name), component + 1, depth)
+                    if reason then
+                        return reason
+                    end
+                end
+            end
+        end
+
+        return nil
+    end
+    local failure = walk(pattern:sub(1, 1) == "/" and "/" or "", 1, MAX_WALK_DEPTH)
+    if failure then
+        return nil, failure
+    end
+    local paths: {string} = {}
+    for path in pairs(found) do
+        paths[#paths + 1] = path
+    end
+    table.sort(paths)
+
+    return paths, nil
+end

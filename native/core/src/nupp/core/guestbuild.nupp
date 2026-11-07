@@ -175,6 +175,7 @@ local CASES: {[string]: {
     entropy = {fixture = "catalog-entropy", version = 8, follow = true},
     entropyfailure = {fixture = "catalog-entropy-failure", version = 8, follow = true},
     bufferstate = {fixture = "nupp/core/catalogbufferstate", version = 8, follow = true},
+    sharedbytes = {fixture = "nupp/core/catalogsharedbytes", version = 8, follow = true},
     modulesdynamic = {fixture = "catalog-modules-dynamic", version = 8, modules = {"catalog-modules-geometry"},},
     modulescycle = {
         fixture = "catalog-modules-cycle",
@@ -242,6 +243,7 @@ local CASES: {[string]: {
     -- and main's recursive os.remove and io.Path arguments.
     ostime = {fixture = "catalog-os-time", version = 8},
     osfiles = {fixture = "catalog-os-files", version = 8},
+    filesystem = {fixture = "catalog-filesystem", version = 8, follow = true},
     osremove = {fixture = "catalog-os-remove", version = 8},
     -- The bench harness's own entry: the bench/vm workloads under debug.bench.
     benchworkloads = {

@@ -18,6 +18,13 @@ const WRITE: u64 = 2;
 const CREATE: u64 = 4;
 const TRUNCATE: u64 = 8;
 const APPEND: u64 = 16;
+const EXCLUSIVE: u64 = 32;
+const PRIVATE: u64 = 64;
+const DIRECTORY: u64 = 128;
+#[cfg(target_os = "macos")]
+const DIRECTORY_FLAG: i32 = 0x0010_0000;
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+const DIRECTORY_FLAG: i32 = 0o40000;
 
 fn failed(error: std::io::Error) -> u64 {
     // An error with no number (a name holding a NUL) is C's EINVAL.
@@ -51,8 +58,10 @@ pub unsafe extern "C" fn file_open(path: u64, bytes: u64, flags: u64) -> u64 {
         .write(flags & WRITE != 0 && flags & APPEND == 0)
         .append(flags & APPEND != 0)
         .create(flags & CREATE != 0)
+        .create_new(flags & EXCLUSIVE != 0)
         .truncate(flags & TRUNCATE != 0)
-        .mode(0o666);
+        .mode(if flags & PRIVATE != 0 { 0o600 } else { 0o666 })
+        .custom_flags(if flags & DIRECTORY != 0 { DIRECTORY_FLAG } else { 0 });
     match options.open(std::ffi::OsStr::from_bytes(name)) {
         Ok(file) => file.into_raw_fd() as u64,
         Err(error) => failed(error),

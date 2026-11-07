@@ -62,7 +62,20 @@ local definitions = {
     atomiccas64 = {slot = 47, params = {"voidptr", "int64", "uint64", "uint64"}, result = "uint64", cResult = "uint64"},
     securefill = {slot = 48, params = {"voidptr", "uint64"}, result = "int64", cResult = "int64"},
     systemquery = {slot = 49, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    wallMillis = {slot = 50, params = {}, result = "uint64", cResult = "uint64"}
+    wallMillis = {slot = 50, params = {}, result = "uint64", cResult = "uint64"},
+    fileInfo = {slot = 51, params = {"voidptr", "uint64", "uint64", "voidptr"}, result = "int64", cResult = "int64"},
+    fileStatus = {slot = 52, params = {"uint64", "voidptr"}, result = "int64", cResult = "int64"},
+    readLink = {slot = 53, params = {"voidptr", "uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    makeDirectory = {slot = 54, params = {"voidptr", "uint64", "uint64"}, result = "int64", cResult = "int64"},
+    makeSymlink = {slot = 55, params = {"voidptr", "uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    changeMode = {slot = 56, params = {"voidptr", "uint64", "uint64"}, result = "int64", cResult = "int64"},
+    syncFile = {slot = 57, params = {"uint64"}, result = "int64", cResult = "int64"},
+    pathQuery = {
+        slot = 58,
+        params = {"uint64", "voidptr", "uint64", "voidptr", "uint64"},
+        result = "int64",
+        cResult = "int64"
+    }
 }
 
 local function need(value: any, message: string): any

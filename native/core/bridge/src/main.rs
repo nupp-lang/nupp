@@ -1,6 +1,7 @@
 //! Standalone, opaque native-code transport. Nupp owns all execution semantics.
 mod entropy;
 mod files;
+mod filesystem;
 mod platform;
 mod poll;
 mod pool;
@@ -212,6 +213,14 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, Failure> {
         entropy::secure_fill as *const () as u64,
         system::system_query as *const () as u64,
         time::wall_millis as *const () as u64,
+        filesystem::file_info as *const () as u64,
+        filesystem::file_status as *const () as u64,
+        filesystem::read_link as *const () as u64,
+        filesystem::make_directory as *const () as u64,
+        filesystem::make_symlink as *const () as u64,
+        filesystem::change_mode as *const () as u64,
+        filesystem::sync_file as *const () as u64,
+        filesystem::path_query as *const () as u64,
     ];
     #[cfg(test)]
     let imports = shared::imports(imports);

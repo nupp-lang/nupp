@@ -1,0 +1,123 @@
+module nupp.core.catalogfilesystem
+
+local span = require("binary.span")
+local scratch = assert(os.mktempdir("nupp-filesystem-", ".test", os.getenv("NUPP_GUEST_TEMP") or "/tmp"))
+local root = scratch:tostring()
+local directory = root .. "/nested/children"
+assert(os.mkdir(directory))
+assert(os.mkdir(directory))
+assert(os.stat(directory) == "directory")
+local path = directory .. "/a.dat"
+local payload = "first\0second"
+assert(os.writeatomic(path, payload))
+local kind, size, modified, readonly, problem = os.stat(path)
+assert(
+    kind == "file" and size == #payload and modified ~= nil and modified > 0 and readonly == false and problem == nil
+)
+local missing, why = os.exists(root .. "/absent")
+assert(missing == false and why == nil)
+local absentkind, _, _, _, absenterror = os.stat(root .. "/absent")
+assert(absentkind == nil and absenterror ~= nil)
+local invalid, invaliderror = os.exists("invalid\0path")
+assert(invalid == nil and invaliderror ~= nil)
+
+local function read(path: string): string
+    local file = assert(io.open(path, "rb"))
+    return assert(file:read("a"))
+end
+
+assert(read(path) == payload)
+local canonical = assert(io.Path.of(path):canonicalize())
+assert(canonical:isabsolute() and read(canonical:tostring()) == payload)
+assert(assert(io.Path.of("."):absolute()):isabsolute())
+local copied = directory .. "/b.dat"
+assert(os.copy(path, copied))
+assert(read(copied) == payload)
+local replacement = "new\0bytes"
+assert(os.writeatomic(path, span.fromstring(replacement)))
+assert(read(path) == replacement and read(copied) == payload)
+local malformed, malformederror = os.writeatomic(path .. "\0ignored", "must not replace")
+assert(not malformed and malformederror ~= nil and read(path) == replacement)
+local link = root .. "/file-link"
+assert(os.symlink(path, link, "file"))
+assert(os.stat(link) == "file" and os.stat(link, true) == "symlink")
+assert(assert(os.readlink(link)):tostring() == path)
+local dirlink = root .. "/directory-link"
+assert(os.symlink(directory, dirlink, "directory"))
+local entries: {[string]: string} = {}
+for name, entrykind in os.list(root) do
+    entries[name] = entrykind
+end
+assert(entries["file-link"] == "symlink" and entries["directory-link"] == "symlink" and entries.nested == "directory")
+local linkedentries: {[string]: boolean} = {}
+for name in os.list(dirlink) do
+    linkedentries[name] = true
+end
+assert(linkedentries["a.dat"] and linkedentries["b.dat"])
+local simple = assert(os.glob(directory .. "/[ab].?at"))
+assert(#simple == 2 and simple[1]:tostring() == path and simple[2]:tostring() == copied)
+local excluded = assert(os.glob(directory .. "/[!a]*"))
+assert(#excluded == 1 and excluded[1]:tostring() == copied)
+assert(os.symlink(root, directory .. "/cycle", "directory"))
+local recursive = assert(os.glob(root .. "/**/**/*.dat"))
+assert(#recursive == 2 and recursive[1]:tostring() == path and recursive[2]:tostring() == copied)
+assert(#assert(os.glob(root .. "/missing/*.dat")) == 0)
+local badglob, globerror = os.glob(root .. "/unclosed[")
+assert(badglob == nil and globerror ~= nil)
+local failedwrite, writeerror = os.writeatomic(directory, "cannot replace a directory")
+assert(not failedwrite and writeerror ~= nil and os.stat(directory) == "directory")
+for name in os.list(root .. "/nested") do
+    assert(name == "children")
+end
+
+local released: string
+do
+    local temporary = assert(os.mktemp("prefix-", ".suffix", root))
+    released = temporary:tostring()
+    assert(os.exists(temporary:path()) and released:sub(-7) == ".suffix")
+end
+assert(os.exists(released) == false)
+local durable = root .. "/persisted"
+do
+    local temporary = assert(os.mktemp(nil, nil, root))
+    assert(temporary:persist(durable))
+    assert(temporary:isreleased())
+end
+assert(os.exists(durable))
+local invalidtemp, temperror = os.mktemp("bad/name", nil, root)
+assert(invalidtemp == nil and temperror ~= nil)
+local beforeappid, _ = os.appid()
+assert(beforeappid == nil)
+local unset, unseterror = os.appdir("data")
+assert(unset == nil and unseterror ~= nil)
+local app = scratch:path():filename() as string
+os.setappid("nupp-filesystem-test", app)
+local organization, actualapp = os.appid()
+assert(organization == "nupp-filesystem-test" and actualapp == app)
+local config = assert(os.appdir("config"))
+local data = assert(os.appdir("data"))
+local cache = assert(os.appdir("cache"))
+assert(
+    config:tostring() ~= data:tostring()
+    and config:tostring() ~= cache:tostring()
+    and data:tostring() ~= cache:tostring()
+)
+assert(config == assert(os.appdir("config")))
+assert(os.persiststorage())
+assert(os.remove(config, true))
+assert(os.remove(data, true))
+assert(os.remove(cache, true))
+local accepted = pcall(function(): nil
+    local stat: any = os.stat
+    stat(path, "not boolean")
+end)
+assert(not accepted)
+local listed = pcall(function(): nil
+    os.list(path)
+end)
+assert(not listed)
+-- Recursive cleanup removes links, including the cycle, without following them.
+local oldroot = root
+scratch:close()
+assert(os.exists(oldroot) == false)
+export = 1

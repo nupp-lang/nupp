@@ -1,0 +1,16 @@
+@!internal
+module nupp.runtime.filesystemerror
+
+const calls = require("nupp.runtime.filecalls")
+
+export function reason(result: integer): string
+    local code = -result
+    return calls.reason(code) .. " (os error " .. tostring(code) .. ")"
+end
+
+export function done(result: integer): (boolean, string?)
+    if result < 0 then
+        return false, reason(result)
+    end
+    return true, nil
+end

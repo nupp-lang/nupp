@@ -1,0 +1,13 @@
+@!internal
+module nupp.runtime.temporaryhooks
+
+export type Hooks = {
+    candidate: function(directory: boolean, prefix: string, suffix: string, within: string): (string?, string?),
+    admit: function(path: string, directory: boolean): (integer, string?)
+}
+
+-- The frozen host keeps its existing temporary implementation. The core
+-- specializes this private hook before selecting the filesystem provider.
+export function hooks(): Hooks?
+    return nil
+end

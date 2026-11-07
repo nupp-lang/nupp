@@ -97,7 +97,15 @@ local osNames = {
     atomiccas64 = true,
     securefill = true,
     systemquery = true,
-    wallMillis = true
+    wallMillis = true,
+    fileInfo = true,
+    fileStatus = true,
+    readLink = true,
+    makeDirectory = true,
+    makeSymlink = true,
+    changeMode = true,
+    syncFile = true,
+    pathQuery = true
 }
 
 local function need(ok: any, message: string): any

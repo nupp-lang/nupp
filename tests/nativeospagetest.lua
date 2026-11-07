@@ -62,6 +62,83 @@ local function callOf(owner)
     return owner.body.body.stats[1].exprs[1]
 end
 
+function M.filesystemCallsRetainTheirExactSlotsAndStatusSignatures()
+    local specifications = {
+        {
+            "fileInfo",
+            51,
+            'path: voidptr, bytes: uint64, follow: uint64, out: voidptr',
+            'path, bytes, follow, out',
+            {"voidptr", "uint64", "uint64", "voidptr"}
+        },
+        {"fileStatus", 52, 'fd: uint64, out: voidptr', 'fd, out', {"uint64", "voidptr"}},
+        {
+            "readLink",
+            53,
+            'path: voidptr, bytes: uint64, out: voidptr, room: uint64',
+            'path, bytes, out, room',
+            {"voidptr", "uint64", "voidptr", "uint64"}
+        },
+        {
+            "makeDirectory",
+            54,
+            'path: voidptr, bytes: uint64, mode: uint64',
+            'path, bytes, mode',
+            {"voidptr", "uint64", "uint64"}
+        },
+        {
+            "makeSymlink",
+            55,
+            'target: voidptr, targetBytes: uint64, path: voidptr, pathBytes: uint64',
+            'target, targetBytes, path, pathBytes',
+            {"voidptr", "uint64", "voidptr", "uint64"}
+        },
+        {
+            "changeMode",
+            56,
+            'path: voidptr, bytes: uint64, mode: uint64',
+            'path, bytes, mode',
+            {"voidptr", "uint64", "uint64"}
+        },
+        {"syncFile", 57, 'fd: uint64', 'fd', {"uint64"}},
+        {
+            "pathQuery",
+            58,
+            'which: uint64, path: voidptr, bytes: uint64, out: voidptr, room: uint64',
+            'which, path, bytes, out, room',
+            {"uint64", "voidptr", "uint64", "voidptr", "uint64"}
+        }
+    }
+    local body = {}
+    for _, spec in ipairs(specifications) do
+        body[
+            #body + 1
+        ] = 'export function ' .. spec[
+            1
+        ] .. '(' .. spec[3] .. '): int64\nreturn os.' .. spec[1] .. '(' .. spec[4] .. ')\nend\n'
+    end
+    fixture(table.concat(body), function(_, functions)
+        for _, spec in ipairs(specifications) do
+            local owner = functions[spec[1]]
+            local issued = nativeos.call(owner, callOf(owner))
+            assert(nativeos.slot(issued, owner) == spec[2])
+            assert(#issued.params == #spec[5] and issued.result == 'int64' and nativeos.result(issued) == nil)
+            for index, kind in ipairs(spec[5]) do
+                assert(issued.params[index] == kind)
+            end
+            issued.params[1] = 'int64'
+            refuses(
+                function()
+                    nativeos.validate(issued)
+                end,
+                'changed'
+            )
+            issued.params[1] = spec[5][1]
+            assert(nativeos.validate(issued))
+        end
+    end)
+end
+
 function M.systemQueriesRetainTheirExactSelectorLoanAndStatusABI()
     fixture(
         [[

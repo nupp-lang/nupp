@@ -1,0 +1,145 @@
+module nupp.runtime.core.guestfiles
+
+const native = require("nupp.runtime.vm.intrinsics")
+const values = require("nupp.runtime.vm.values")
+const os = require("nupp.runtime.vm.os")
+const strings = require("nupp.runtime.core.corestrings")
+const ints = require("nupp.runtime.core.coreintegers")
+const guestvalues = require("nupp.runtime.core.guestvalues")
+const layouts = require("nupp.runtime.core.librarylayouts")
+
+const METADATA_BYTES: uint64 = 40ULL
+const INITIAL_TEXT_BYTES: uint64 = 256ULL
+const TEXT_ATTEMPTS: uint64 = 8ULL
+const CANONICAL_PATH: uint64 = 1ULL
+
+local function integer(value: uint64): uint64
+    if not ints.isInteger(value) then
+        error("filesystem calls require integer arguments")
+    end
+    return ints.bitsOf(value)
+end
+
+local function string(value: uint64): uint64
+    local s = strings.header(value)
+    if s == 0ULL then
+        error("filesystem calls require string arguments")
+    end
+
+    return s
+end
+
+local function metadata(ctx: voidptr, op: uint64, a: uint64, b: uint64): uint64
+    local state = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local h = guestvalues.guestheap(ctx)
+        local lifetime = strings.open(h, state as strings.Builder*)
+        local builder = state as strings.Builder*
+        if strings.reserve(h, builder, METADATA_BYTES) ~= 0ULL then
+            error("not enough memory")
+        end
+        local result: int64 = 0
+        if op == layouts.FS_INFO then
+            local source = string(a)
+            if b ~= values.TRUE and b ~= values.FALSE then
+                error("filesystem metadata requires a boolean follow argument")
+            end
+            result = os.fileInfo(
+                native.pointer(strings.bytes(source)),
+                strings.length(source),
+                b == values.TRUE and 1ULL or 0ULL,
+                native.pointer(strings.descriptor(lifetime).base)
+            )
+        else
+            result = os.fileStatus(integer(a), native.pointer(strings.descriptor(lifetime).base))
+        end
+        if result < 0 then
+            return ints.make(h, native.word(result))
+        end
+        if strings.commit(builder, METADATA_BYTES) ~= 0ULL then
+            error("not enough memory")
+        end
+        return values.TAG_OBJ | strings.finish(h, builder)
+    end
+end
+
+local function text(ctx: voidptr, op: uint64, a: uint64, b: uint64): uint64
+    local state = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local h = guestvalues.guestheap(ctx)
+        local lifetime = strings.open(h, state as strings.Builder*)
+        local builder = state as strings.Builder*
+        local room = INITIAL_TEXT_BYTES
+        local attempt = 0ULL
+        while attempt < TEXT_ATTEMPTS do
+            if strings.reserve(h, builder, room) ~= 0ULL then
+                error("not enough memory")
+            end
+            local result: int64 = 0
+            local out = native.pointer(strings.descriptor(lifetime).base)
+            local capacity = strings.descriptor(lifetime).cap
+            if op == layouts.FS_READLINK then
+                local source = string(a)
+                result = os.readLink(native.pointer(strings.bytes(source)), strings.length(source), out, capacity)
+            else
+                local which = integer(a)
+                local source = string(b)
+                local base: voidptr = native.pointer(0ULL)
+                local bytes: uint64 = 0ULL
+                if which == CANONICAL_PATH then
+                    base = native.pointer(strings.bytes(source))
+                    bytes = strings.length(source)
+                elseif strings.length(source) ~= 0ULL then
+                    error("filesystem path query requires an empty source")
+                end
+                result = os.pathQuery(which, base, bytes, out, capacity)
+            end
+            if result < 0 then
+                return ints.make(h, native.word(result))
+            end
+            if native.word(result) <= capacity then
+                if strings.commit(builder, native.word(result)) ~= 0ULL then
+                    error("not enough memory")
+                end
+                return values.TAG_OBJ | strings.finish(h, builder)
+            end
+            room = native.word(result)
+            attempt = attempt + 1ULL
+        end
+    end
+    error("filesystem path changed repeatedly while it was read")
+
+    return values.NIL
+end
+
+export function call(ctx: voidptr, op: uint64, a: uint64, b: uint64): uint64
+    if op < layouts.FILESYSTEM_FIRST or op > layouts.FILESYSTEM_LAST then
+        error("filesystem calls: no such operation")
+    end
+    if op == layouts.FS_INFO or op == layouts.FS_STATUS then
+        return metadata(ctx, op, a, b)
+    elseif op == layouts.FS_READLINK or op == layouts.FS_QUERY then
+        return text(ctx, op, a, b)
+    end
+    @unsafe do
+        local h = guestvalues.guestheap(ctx)
+        if op == layouts.FS_SYNC then
+            return ints.make(h, native.word(os.syncFile(integer(a))))
+        end
+        local source = string(a)
+        local base = native.pointer(strings.bytes(source))
+        local bytes = strings.length(source)
+        local result: int64 = 0
+        if op == layouts.FS_MKDIR then
+            result = os.makeDirectory(base, bytes, integer(b))
+        elseif op == layouts.FS_SYMLINK then
+            local link = string(b)
+            result = os.makeSymlink(base, bytes, native.pointer(strings.bytes(link)), strings.length(link))
+        elseif op == layouts.FS_CHMOD then
+            result = os.changeMode(base, bytes, integer(b))
+        else
+            error("filesystem calls: no such operation")
+        end
+        return ints.make(h, native.word(result))
+    end
+end

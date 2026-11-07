@@ -35,6 +35,7 @@ export type Call = {
 export type Subject = {
     name: string,
     range: boolean,
+    output: string?,
     calls: {Call}
 }
 
@@ -467,9 +468,11 @@ local subjectrows: {Subject} = {
         -- The storage calls: allocbytes(count) and allocate(kind, count).
         name = "storage",
         range = false,
+        output = "storagelibrary",
         calls = {
             {name = "STORAGE_ALLOCBYTES", id = 94, call = "storagecalls.allocbytes", min = 1, max = 1},
-            {name = "STORAGE_ALLOCATE", id = 95, call = "storagecalls.allocate", min = 2, max = 2}
+            {name = "STORAGE_ALLOCATE", id = 95, call = "storagecalls.allocate", min = 2, max = 2},
+            {name = "STORAGE_ALIGNED", id = 204, call = "storagecalls.aligned", min = 3, max = 3}
         }
     },
     {
@@ -632,6 +635,21 @@ export type Group = {
 }
 
 local grouprows: {Group} = {
+    {
+        name = "FILESYSTEM",
+        call = "HOST_FILES",
+        modules = {"filesystemcalls"},
+        operations = {
+            {name = "FS_INFO", library = "filesystemcalls.info", operation = 39, arguments = 2},
+            {name = "FS_STATUS", library = "filesystemcalls.status", operation = 40, arguments = 1},
+            {name = "FS_READLINK", library = "filesystemcalls.readlink", operation = 41, arguments = 1},
+            {name = "FS_MKDIR", library = "filesystemcalls.mkdir", operation = 42, arguments = 2},
+            {name = "FS_SYMLINK", library = "filesystemcalls.symlink", operation = 43, arguments = 2},
+            {name = "FS_CHMOD", library = "filesystemcalls.chmod", operation = 44, arguments = 2},
+            {name = "FS_SYNC", library = "filesystemcalls.sync", operation = 45, arguments = 1},
+            {name = "FS_QUERY", library = "filesystemcalls.query", operation = 46, arguments = 2}
+        }
+    },
     {
         name = "FILES",
         call = "HOST_FILES",
@@ -1052,7 +1070,7 @@ export function subjects(): {Subject}
                 meta = entry.meta
             }
         end
-        result[index] = {name = subject.name, range = subject.range, calls = calls}
+        result[index] = {name = subject.name, range = subject.range, output = subject.output, calls = calls}
     end
 
     return result

@@ -16,12 +16,15 @@ local privateIo = require("nupp.io")
 const span = require("binary.span")
 const messages = require("io.internal.files.messages")
 const appPaths = require("io.internal.files.path")
+const temporaryHooks = require("nupp.runtime.temporaryhooks")
 
 export type FileKind = messages.FileKind
 export type Mode = messages.Mode
 export type Origin = messages.Origin
 
 const MAX_EXACT_INTEGER = 9007199254740991
+const TEMPORARY_ATTEMPTS = 64
+const ALREADY_EXISTS = -17
 local MODES: {[string]: boolean} = {r = true, w = true, a = true, ["r+"] = true, ["w+"] = true, ["a+"] = true,}
 local ORIGINS: {[string]: string} = {set = "set", current = "current", ["end"] = "end",}
 local APP_BASES: {[string]: integer} = {configuration = 0, data = 1, cache = 2,}
@@ -420,12 +423,17 @@ export function open(path: string | paths.Path, mode: Mode?): (affine(File?), st
     if not MODES[selected] then
         error("nupp: io has no mode named " .. tostring(mode), 2)
     end
+    local owner: affine(File) = File(_handle = -1, _closed = true)
     local handle, reason = host.open(text, selected)
     if handle == nil then
         return nil, reason
     end
+    -- Core descriptors fit the immediate integer range. Existing field
+    -- stores publish only an integer and a bool after the OS acquisition.
+    owner._handle = handle
+    owner._closed = false
 
-    return File(_handle = handle, _closed = false), nil
+    return owner, nil
 end
 
 --- @raises string when value is neither nil nor a string
@@ -449,6 +457,28 @@ export function createTemporary(
     within: any?
 ): (affine(TemporaryPath?), string?)
     local root = within ~= nil and named(within, "temporary directory", 2) or ""
+    local prepared = temporaryHooks.hooks()
+    if prepared ~= nil then
+        local before, after = fragment(prefix, "prefix", 2), fragment(suffix, "suffix", 2)
+        local last: string? = nil
+        for _ = 1, TEMPORARY_ATTEMPTS do
+            local text, why = prepared.candidate(directory, before, after, root)
+            if text == nil then
+                return nil, why
+            end
+            local owner: affine(TemporaryPath) = TemporaryPath(_text = text, _directory = directory, _closed = true)
+            local status, failure = prepared.admit(text, directory)
+            if status == 0 then
+                owner._closed = false
+                return owner, nil
+            end
+            if status ~= ALREADY_EXISTS then
+                return nil, failure
+            end
+            last = failure
+        end
+        return nil, last
+    end
     local text, reason = host.createTemporary(
         root,
         fragment(prefix, "prefix", 2),

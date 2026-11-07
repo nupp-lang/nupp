@@ -1,0 +1,89 @@
+@!internal
+module nupp.runtime.provider.corefiles
+
+const filesystem = require("nupp.runtime.filesystem")
+const transfers = require("nupp.runtime.filetransfers")
+const globs = require("nupp.runtime.fileglob")
+const paths = require("nupp.runtime.filepaths")
+const files = require("nupp.runtime.files")
+const calls = require("nupp.runtime.filecalls")
+const errors = require("nupp.runtime.filesystemerror")
+
+const INVALID = -22
+const WRITE_MASK = 146
+const OWNER_WRITE = 128
+
+export const info = filesystem.info
+export const readLink = filesystem.readlink
+export const createDirectory = filesystem.mkdir
+export const list = filesystem.list
+export const glob = globs.expand
+export const read = transfers.read
+export const write = transfers.write
+export const append = transfers.append
+export const writeAtomic = transfers.writeatomic
+export const copy = transfers.copy
+export const open = transfers.open
+export const fileRead = transfers.fileread
+export const fileWrite = transfers.filewrite
+export const fileSeek = transfers.fileseek
+export const filePosition = transfers.fileposition
+export const fileSize = transfers.filesize
+export const fileFlush = transfers.fileflush
+export const fileClose = transfers.fileclose
+export const currentDirectory = filesystem.cwd
+export const canonicalize = filesystem.canonicalize
+export const userFolder = paths.user
+export const applicationBase = paths.application
+export const executablePath = filesystem.executable
+
+export function createSymlink(target: string, link: string, directory: boolean): (boolean, string?)
+    local _ = directory
+    return filesystem.symlink(target, link)
+end
+
+export function setReadOnly(path: string, readonly: boolean): (boolean, string?)
+    local found, why = filesystem.info(path, true)
+    if found == nil then
+        return false, why
+    end
+
+    return filesystem.chmod(path, readonly and found.mode & ~WRITE_MASK or found.mode | OWNER_WRITE)
+end
+
+export function remove(path: string, recursive: boolean): (boolean, string?)
+    if path:find("\0", 1, true) then
+        return false, errors.reason(INVALID)
+    end
+    if recursive then
+        local status = files.removetree(path)
+        if status == files.TOODEEP then
+            return false, "the directory tree is deeper than " .. tostring(files.DEPTH) .. " levels"
+        end
+        return status == 0, status ~= 0 and errors.reason(-status) or nil
+    end
+
+    return errors.done(calls.remove(path))
+end
+
+export function rename(from: string, to: string): (boolean, string?)
+    if from:find("\0", 1, true) or to:find("\0", 1, true) then
+        return false, errors.reason(INVALID)
+    end
+    return errors.done(calls.rename(from, to))
+end
+
+-- Core clients prepare their affine TemporaryPath before admission through
+-- temporaryhooks. Calling the frozen, one-step constructor is refused here.
+export function createTemporary(
+    directory: string,
+    prefix: string,
+    suffix: string,
+    isDirectory: boolean
+): (string?, string?)
+    local _ = directory
+    local _ = prefix
+    local _ = suffix
+    local _ = isDirectory
+    error("core temporary creation requires prepared owner admission")
+end

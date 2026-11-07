@@ -1,0 +1,19 @@
+@!internal
+
+local record FilesystemCalls
+    -- A metadata payload or the negated OS error. The five little-endian
+    -- words are kind, size, signed Unix seconds, nanoseconds and mode.
+    info: function(path: string, follow: boolean): string | integer
+    status: function(descriptor: integer): string | integer
+    readlink: function(path: string): string | integer
+    mkdir: function(path: string, mode: integer): integer
+    symlink: function(target: string, link: string): integer
+    chmod: function(path: string, mode: integer): integer
+    sync: function(descriptor: integer): integer
+    -- Query 0 is cwd, 1 canonicalizes source, 2 is the executable. Queries
+    -- 0 and 2 require an empty source; failures are negated OS errors.
+    query: function(which: integer, source: string): string | integer
+end
+
+local calls: FilesystemCalls
+return calls

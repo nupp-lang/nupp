@@ -171,6 +171,7 @@ local CASES = {
     {"libraryvalues", 0x7FFF00000000003F},
     {"bytebuffer", 0x7FFF000000000003},
     {"bufferstate", 0x7FFF000000000001},
+    {"sharedbytes", 0x7FFF000000000001},
     {"librarybasics", 0x7FFF00000000007F},
     {"cleanupfunctions", 0x7FFF000000000003},
     {"coreoperators", 0x7FFF0000000003FF},
@@ -225,6 +226,7 @@ local CASES = {
     -- main's recursive os.remove and io.Path arguments.
     {"ostime", 0x7FFF00003FFFFFFF},
     {"osfiles", 0x7FFF00000003FFFF},
+    {"filesystem", 0x7FFF000000000001},
     {"osremove", 0x7FFF000000001FFF},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
@@ -365,6 +367,7 @@ local STRESS = {
     threadsstacks = true,
     bytebuffer = true,
     bufferstate = true,
+    sharedbytes = true,
     librarybasics = true,
     storagebasics = true,
     storageprovider = true,
@@ -414,6 +417,7 @@ local STRESS = {
     errorsuncaught = true,
     ostime = true,
     osfiles = true,
+    filesystem = true,
     osremove = true
 }
 -- Shell statements a case's runs start with: the io and pool cases may hold

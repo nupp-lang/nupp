@@ -17,6 +17,16 @@ export const METHOD_SHIFT: uint64 = 7ULL
 export const ARGUMENTS: uint64 = 4ULL
 
 -- The operations HOST_FILES takes first, by group.
+export const FS_INFO: uint64 = 39ULL
+export const FS_STATUS: uint64 = 40ULL
+export const FS_READLINK: uint64 = 41ULL
+export const FS_MKDIR: uint64 = 42ULL
+export const FS_SYMLINK: uint64 = 43ULL
+export const FS_CHMOD: uint64 = 44ULL
+export const FS_SYNC: uint64 = 45ULL
+export const FS_QUERY: uint64 = 46ULL
+export const FILESYSTEM_FIRST: uint64 = 39ULL
+export const FILESYSTEM_LAST: uint64 = 46ULL
 export const FILE_OPEN: uint64 = 1ULL
 export const FILE_READ: uint64 = 2ULL
 export const FILE_WRITE: uint64 = 3ULL

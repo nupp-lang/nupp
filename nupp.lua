@@ -177,6 +177,10 @@ local RESOURCES = {
     {source = "src/io/internal/bytestypes.nupp", output = "nupp/compiler/io/internal/bytestypes.nupp"},
     {source = "src/io/internal/sharedbytes.nupp", output = "nupp/compiler/io/internal/sharedbytes.nupp"},
     {
+        source = "src/nupp/runtime/provider/coresharedbytes.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/coresharedbytes.nupp"
+    },
+    {
         source = "src/nupp/serde/internal/json/values.nupp",
         output = "nupp/compiler/nupp/serde/internal/json/values.nupp"
     },
@@ -453,6 +457,16 @@ for _, resource in ipairs({
     "src/nupp/runtime/browser/workers.nupp",
     "src/nupp/runtime/provider/lunajson.nupp",
     "src/nupp/runtime/provider/scalarbitops.nupp",
+    "src/nupp/runtime/filesystemerror.nupp",
+    "src/nupp/runtime/filesystemfd.nupp",
+    "src/nupp/runtime/filesystem.nupp",
+    "src/nupp/runtime/filetransfers.nupp",
+    "src/nupp/runtime/fileglob.nupp",
+    "src/nupp/runtime/filepaths.nupp",
+    "src/nupp/runtime/temporaryhooks.nupp",
+    "src/nupp/runtime/provider/corefiles.nupp",
+    "src/nupp/runtime/provider/coretemporary.nupp",
+    "src/nupp/runtime/filesystemcalls.d.nupp",
     "src/nupp/runtime/storage.nupp",
     "src/nupp/runtime/managed.nupp",
     "src/nupp/runtime/vendor/lunajson/decoder.lua",

@@ -22,6 +22,7 @@ export const representation = "native"
 local type Descriptor = {
     kind: integer,
     size: integer,
+    alignment: integer,
     name: string
 }
 
@@ -52,7 +53,7 @@ export function scalar(kind: string): any
     if found == nil then
         local code = kinds[kind]
         assert(code ~= nil, "nupp: storage has no scalar kind " .. kind)
-        found = {kind = code, size = widths[code], name = kind}
+        found = {kind = code, size = widths[code], alignment = widths[code], name = kind}
         descriptors[kind] = found
     end
 
@@ -66,7 +67,7 @@ export function descriptor(value: any): any
     local code = calls.elementkind(value)
     local found = byKind[code]
     if found == nil then
-        found = {kind = code, size = widths[code], name = tostring(code)}
+        found = {kind = code, size = widths[code], alignment = widths[code], name = tostring(code)}
         byKind[code] = found
     end
 

@@ -1,0 +1,283 @@
+@!internal
+module nupp.runtime.filetransfers
+
+const files = require("nupp.runtime.files")
+const calls = require("nupp.runtime.filecalls")
+const descriptors = require("nupp.runtime.filesystemfd")
+const filesystem = require("nupp.runtime.filesystem")
+const errors = require("nupp.runtime.filesystemerror")
+const temporary = require("nupp.runtime.provider.coretemporary")
+
+const READ_BYTES = 65536
+const MAX_EXACT_INTEGER = 9007199254740991
+const INVALID = -22
+const HERE = "current"
+const START = "set"
+const END = "end"
+const TEMPORARY_ATTEMPTS = 64
+const ALREADY_EXISTS = -17
+
+export function open(path: string, mode: string): (integer?, string?)
+    local modes: {
+        [string]: integer
+    } = {
+        r = descriptors.READING,
+        w = descriptors.WRITING + descriptors.CREATING + descriptors.TRUNCATING,
+        a = descriptors.WRITING + descriptors.CREATING + descriptors.APPENDING,
+        ["r+"] = descriptors.READING + descriptors.WRITING,
+        ["w+"] = descriptors.READING + descriptors.WRITING + descriptors.CREATING + descriptors.TRUNCATING,
+        ["a+"] = descriptors.READING + descriptors.WRITING + descriptors.CREATING + descriptors.APPENDING
+    }
+    local flags = modes[mode]
+    if flags == nil then
+        return nil, "invalid file mode"
+    end
+    local owner, why = descriptors.open(path, flags)
+    if owner == nil then
+        return nil, why
+    end
+
+    return descriptors.take(owner), nil
+end
+
+export function fileread(descriptor: integer, count: integer): (string?, string?)
+    local completion = files.read(descriptor, count)
+    if completion.code ~= 0 then
+        return nil, errors.reason(-completion.code)
+    end
+
+    return completion.text, nil
+end
+
+export function filewrite(descriptor: integer, bytes: string): (integer?, string?)
+    local completion = files.write(descriptor, bytes, 1)
+    if completion.code ~= 0 then
+        return nil, errors.reason(-completion.code)
+    end
+
+    return completion.value, nil
+end
+
+export function filesize(descriptor: integer): (integer?, string?)
+    local found, why = filesystem.status(descriptor)
+    return found and found.size or nil, why
+end
+
+export function fileposition(descriptor: integer): (integer?, string?)
+    local completion = files.seek(descriptor, 0, files.FROMHERE)
+    if completion.code ~= 0 then
+        return nil, errors.reason(-completion.code)
+    end
+
+    return completion.value, nil
+end
+
+export function fileseek(descriptor: integer, offset: integer, origin: string): (integer?, string?)
+    local base: integer? = 0
+    local why: string?
+    if origin == HERE then
+        base, why = fileposition(descriptor)
+    elseif origin == END then
+        base, why = filesize(descriptor)
+    elseif origin ~= START then
+        return nil, errors.reason(INVALID)
+    end
+    if base == nil then
+        return nil, why
+    end
+    if offset > 0 and base > MAX_EXACT_INTEGER - offset or offset < 0 and base < -offset then
+        return nil, "the file cursor would be outside Nupp's exact integer range"
+    end
+    local completion = files.seek(descriptor, base + offset, files.FROMSTART)
+    if completion.code ~= 0 then
+        return nil, errors.reason(-completion.code)
+    end
+
+    return completion.value, nil
+end
+
+export function fileflush(descriptor: integer): (boolean, string?)
+    local found, why = filesystem.status(descriptor)
+    return found ~= nil, why
+end
+
+export function fileclose(descriptor: integer): nil
+    calls.close(descriptor)
+end
+
+local function writeall(borrows owner: descriptors.Descriptor, bytes: string): (boolean, string?)
+    local first: integer = 1
+    while first <= #bytes do
+        local completion = files.write(descriptors.value(owner), bytes, first)
+        if completion.code ~= 0 then
+            return false, errors.reason(-completion.code)
+        end
+        if completion.value <= 0 or completion.value > #bytes - first + 1 then
+            return false, "the file write made invalid progress"
+        end
+        first = first + completion.value
+    end
+
+    return true, nil
+end
+
+export function read(path: string): (string?, string?)
+    local owner, why = descriptors.open(path, descriptors.READING)
+    if owner == nil then
+        return nil, why
+    end
+    local pieces: {string} = {}
+    while true do
+        local bytes, failure = fileread(descriptors.value(owner), READ_BYTES)
+        if bytes == nil then
+            return nil, failure
+        end
+        if #bytes == 0 then
+            return table.concat(pieces), nil
+        end
+        pieces[#pieces + 1] = bytes
+    end
+end
+
+local function store(path: string, bytes: string, append: boolean): (boolean, string?)
+    local flags = descriptors.WRITING + descriptors.CREATING + (
+        append and descriptors.APPENDING or descriptors.TRUNCATING
+    )
+    local owner, why = descriptors.open(path, flags)
+    if owner == nil then
+        return false, why
+    end
+
+    return writeall(owner, bytes)
+end
+
+export function write(path: string, bytes: string): (boolean, string?)
+    return store(path, bytes, false)
+end
+
+export function append(path: string, bytes: string): (boolean, string?)
+    return store(path, bytes, true)
+end
+
+export function copy(from: string, to: string): (boolean, string?)
+    local source, why = descriptors.open(from, descriptors.READING)
+    if source == nil then
+        return false, why
+    end
+    local info, failure = filesystem.status(descriptors.value(source))
+    if info == nil then
+        return false, failure
+    end
+    if info.kind ~= "file" then
+        return false, errors.reason(INVALID)
+    end
+    local destination, problem = descriptors.open(
+        to,
+        descriptors.WRITING + descriptors.CREATING + descriptors.TRUNCATING
+    )
+    if destination == nil then
+        return false, problem
+    end
+    while true do
+        local bytes, readfailure = fileread(descriptors.value(source), READ_BYTES)
+        if bytes == nil then
+            return false, readfailure
+        end
+        if #bytes == 0 then
+            break
+        end
+        local written, writefailure = writeall(destination, bytes)
+        if not written then
+            return false, writefailure
+        end
+    end
+
+    return filesystem.chmod(to, info.mode)
+end
+
+local record Temporary is own.Closeable
+    @private _path: string
+    @private _active: boolean
+    close: @nosuspend function(takes self: Temporary): nil
+end
+
+function Temporary.close(takes self: Temporary): nil
+    local state = @unsafe own.release(self)
+    if state._active then
+        state._active = false
+        calls.remove(state._path)
+    end
+end
+
+local function prepare(parent: string, restricted: boolean): (affine(Temporary?), string?)
+    local hook = assert(temporary.hooks())
+    local last: string? = nil
+    for _ = 1, TEMPORARY_ATTEMPTS do
+        local candidate, why = hook.candidate(false, ".nupp-write-", "", parent)
+        if candidate == nil then
+            return nil, why
+        end
+        local owner: affine(Temporary) = Temporary(_path = candidate, _active = false)
+        local status = temporary.admitfile(candidate, restricted)
+        if status == 0 then
+            owner._active = true
+            return owner, nil
+        end
+        local failure = errors.reason(status)
+        if status ~= ALREADY_EXISTS then
+            return nil, failure
+        end
+        last = failure
+    end
+
+    return nil, last
+end
+
+export function writeatomic(path: string, bytes: string): (boolean, string?)
+    if path:find("\0", 1, true) then
+        return false, errors.reason(INVALID)
+    end
+    local parent = path:match("^(.*)/[^/]*$")
+    if parent == nil or parent == "" then
+        parent = path:sub(1, 1) == "/" and "/" or "."
+    end
+    -- Main snapshots permissions before admission. New targets retain the
+    -- ordinary creation mode after umask; replacements stay private until chmod.
+    local existing = filesystem.info(path, true)
+    local prepared, why = prepare(parent, existing ~= nil)
+    if prepared == nil then
+        return false, why
+    end
+    local destination, failure = descriptors.open(prepared._path, descriptors.WRITING + descriptors.TRUNCATING)
+    if destination == nil then
+        return false, failure
+    end
+    if existing ~= nil then
+        local changed, reason = filesystem.chmod(prepared._path, existing.mode)
+        if not changed then
+            return false, reason
+        end
+    end
+    local written, problem = writeall(destination, bytes)
+    if not written then
+        return false, problem
+    end
+    local synced, syncfailure = filesystem.sync(descriptors.value(destination))
+    if not synced then
+        return false, syncfailure
+    end
+    descriptors.Descriptor.close(destination)
+    local renamed = calls.rename(prepared._path, path)
+    if renamed < 0 then
+        return false, errors.reason(renamed)
+    end
+    prepared._active = false
+    -- A parent-sync failure reports failure after replacement, as main does.
+    -- The temporary has already been consumed and must not be removed again.
+    local directory, directoryfailure = descriptors.open(parent, descriptors.READING + descriptors.DIRECTORY)
+    if directory == nil then
+        return false, directoryfailure
+    end
+
+    return filesystem.sync(descriptors.value(directory))
+end

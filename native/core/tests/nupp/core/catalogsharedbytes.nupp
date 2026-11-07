@@ -1,0 +1,106 @@
+module nupp.core.catalogsharedbytes
+
+local ffi = require("ffi")
+local calls = require("nupp.runtime.storagecalls")
+local SharedBytes = io.SharedBytes
+
+local function refuses(borrows operation: function(): nil): nil
+    local okay, why = pcall(operation)
+    assert(not okay and why ~= nil, "invalid shared-byte operation must refuse")
+end
+
+local function typedview<T>(borrows region: io.SharedBytes, element: ctype<T>, width: integer): boolean
+    local okay = pcall(function(): nil
+        local words = region:viewas(element)
+        assert(#words == 48 // width)
+    end)
+
+    return okay
+end
+
+for _, payload in ipairs({"", "a\0b", string.rep("x", 40), string.rep("y", 41), string.rep("z", 128)}) do
+    local region = SharedBytes.copy(payload)
+    assert(region:len() == #payload and region:tostring() == payload)
+    assert(region ~= SharedBytes.copy(payload), "copy retains distinct logical block identity")
+    assert(region:slice(0, #payload) == region, "same block and extent retains identity")
+    local view = region:view()
+    assert(#view == #payload)
+    collectgarbage("collect")
+    if #payload > 0 then
+        assert(view[1] == payload:byte(1) and view[#payload] == payload:byte(#payload))
+    end
+end
+
+local nul = SharedBytes.copy("a\0b")
+local nulview = nul:view()
+assert(nulview[2] == 0 and nul:slice(1, 1):tostring() == "\0")
+refuses(function(): nil
+    nul:slice(-1, 1)
+end)
+refuses(function(): nil
+    nul:view(0, 4)
+end)
+refuses(function(): nil
+    nul:viewas(ffi.typeof<uint16>())
+end)
+local empty = nul:slice(1, 0)
+assert(#empty:viewas(ffi.typeof<uint64>()) == 0, "empty typed ranges do not require alignment")
+
+local function retained(): io.SharedBytes
+    local source = SharedBytes.copy(string.rep("q", 128))
+    return source:slice(8, 64)
+end
+
+local slice = retained()
+local view = slice:view()
+local pointer = view:ref()
+collectgarbage("collect")
+@unsafe do
+    assert(pointer[0] == 113 and pointer[63] == 113, "slice and view retain their immutable owner")
+end
+refuses(function(): nil
+    calls.fill(pointer, 1, 0)
+end)
+local mutable = calls.allocbytes(1)
+calls.fill(mutable, 1, 90)
+refuses(function(): nil
+    calls.copy(pointer, mutable, 1)
+end)
+refuses(function(): nil
+    local text = "immutable"
+    local dynamic = calls.view(text, 1, 0, 9)
+    dynamic[0] = 0
+end)
+@unsafe do
+    assert(mutable[0] == 90 and pointer[0] == 113)
+end
+
+-- Buffer snapshots can begin at every byte offset of an aligned shared block.
+-- The region's own offset is independent of that source offset.
+for sourceoffset = 0, 7 do
+    local buffer = io.Buffer.create(string.rep("a", 128))
+    buffer:get(sourceoffset)
+    local snapshot = buffer:get(64)
+    local region = SharedBytes.copy(snapshot)
+    buffer:reset()
+    buffer:put("changed")
+    for regionoffset = 0, 7 do
+        local part = region:slice(regionoffset, 48)
+        assert(typedview(part, ffi.typeof<uint16>(), 2) == ((sourceoffset + regionoffset) % 2 == 0))
+        assert(typedview(part, ffi.typeof<uint32>(), 4) == ((sourceoffset + regionoffset) % 4 == 0))
+        assert(typedview(part, ffi.typeof<uint64>(), 8) == ((sourceoffset + regionoffset) % 8 == 0))
+    end
+    assert(region:tostring() == string.rep("a", 64))
+    collectgarbage("collect")
+    local stable = region:view()
+    assert(stable[1] == 97 and stable[64] == 97)
+end
+
+assert(calls.aligned("abcd", 0, 1))
+assert(not calls.aligned("abcd", -1, 1))
+assert(not calls.aligned("abcd", 5, 1))
+assert(not calls.aligned("abcd", 0, 0))
+assert(not calls.aligned("abcd", 0, 3))
+assert(not calls.aligned("abcd", 0, 16))
+assert(not calls.aligned(4, 0, 1))
+export = 1

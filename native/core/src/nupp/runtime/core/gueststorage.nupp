@@ -18,6 +18,7 @@ const guestvalues = require("nupp.runtime.core.guestvalues")
 
 -- No index: an error was raised instead.
 const NOINDEX: uint64 = 0xffffffffffffffffULL
+const MAX_SCALAR_ALIGNMENT: uint64 = 8ULL
 
 -- The element a key names in storage `object`, zero-based, or NOINDEX once
 -- "index out of range" is raised for a key that names none.
@@ -95,6 +96,40 @@ export function storageset(ctx: voidptr, subject: uint64, key: uint64, value: ui
     corestorage.writeelement(object, index, bits)
 
     return 0ULL
+end
+
+-- This predicate exposes no raw address. Invalid ownership, unreadable extents,
+-- non-scalar alignments and overflowing address arithmetic all answer false.
+export function aligned(ctx: voidptr, subject: uint64, offset: uint64, alignment: uint64): uint64
+    local object = strings.header(subject)
+    if object == 0ULL then
+        if not corestorage.isstorage(subject) then
+            return values.FALSE
+        end
+        object = subject & values.PAYLOAD
+    end
+    if not ints.isInteger(offset) or not ints.isInteger(alignment) then
+        return values.FALSE
+    end
+    local by = ints.bitsOf(offset)
+    local boundary = ints.bitsOf(alignment)
+    if boundary == 0ULL
+        or boundary > MAX_SCALAR_ALIGNMENT
+        or boundary & (boundary - 1ULL) ~= 0ULL
+        or by > corestorage.bytelength(object)
+        or not corestorage.readable(object, by, 0ULL)
+    then
+        return values.FALSE
+    end
+    local base = corestorage.storagebase(object)
+    if base > NOINDEX - by then
+        return values.FALSE
+    end
+    if (base + by) % boundary == 0ULL then
+        return values.TRUE
+    end
+
+    return values.FALSE
 end
 
 -- New zeroed storage of `n` elements of `kind`, an integer value.

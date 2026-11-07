@@ -375,3 +375,56 @@ export function close(scope: voidptr): uint64
 
     return 1ULL
 end
+
+export function fileInfo(scope: voidptr, path: voidptr, bytes: uint64, follow: uint64, out: voidptr): int64
+    local _ = scope
+    return os.fileInfo(path, bytes, follow, out)
+end
+
+export function fileStatus(scope: voidptr, fd: uint64, out: voidptr): int64
+    local _ = scope
+    return os.fileStatus(fd, out)
+end
+
+export function readLink(scope: voidptr, path: voidptr, bytes: uint64, out: voidptr, room: uint64): int64
+    local _ = scope
+    return os.readLink(path, bytes, out, room)
+end
+
+export function makeDirectory(scope: voidptr, path: voidptr, bytes: uint64, mode: uint64): int64
+    local _ = scope
+    return os.makeDirectory(path, bytes, mode)
+end
+
+export function makeSymlink(
+    scope: voidptr,
+    target: voidptr,
+    targetBytes: uint64,
+    link: voidptr,
+    linkBytes: uint64
+): int64
+    local _ = scope
+    return os.makeSymlink(target, targetBytes, link, linkBytes)
+end
+
+export function changeMode(scope: voidptr, path: voidptr, bytes: uint64, mode: uint64): int64
+    local _ = scope
+    return os.changeMode(path, bytes, mode)
+end
+
+export function syncFile(scope: voidptr, fd: uint64): int64
+    local _ = scope
+    return os.syncFile(fd)
+end
+
+export function pathQuery(
+    scope: voidptr,
+    which: uint64,
+    path: voidptr,
+    bytes: uint64,
+    out: voidptr,
+    room: uint64
+): int64
+    local _ = scope
+    return os.pathQuery(which, path, bytes, out, room)
+end

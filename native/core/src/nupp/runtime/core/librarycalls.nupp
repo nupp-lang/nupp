@@ -161,10 +161,6 @@ export const PACK_COPY: uint64 = 21ULL
 export const PACK_NAMED: uint64 = 73ULL
 export const PACK_APPEND: uint64 = 74ULL
 
--- storage
-export const STORAGE_ALLOCBYTES: uint64 = 94ULL
-export const STORAGE_ALLOCATE: uint64 = 95ULL
-
 -- views
 export const STORAGE_VIEW: uint64 = 96ULL
 export const STORAGE_COPY: uint64 = 97ULL

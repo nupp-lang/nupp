@@ -1,0 +1,58 @@
+@!internal
+module nupp.runtime.filesystemfd
+
+const calls = require("nupp.runtime.filecalls")
+const errors = require("nupp.runtime.filesystemerror")
+const INVALID = -22
+export const READING = 1
+export const WRITING = 2
+export const CREATING = 4
+export const TRUNCATING = 8
+export const APPENDING = 16
+export const EXCLUSIVE = 32
+export const PRIVATE = 64
+export const DIRECTORY = 128
+
+export record Descriptor is own.Closeable
+    @private _value: integer
+    @private _closed: boolean
+    close: @nosuspend function(takes self: Descriptor): nil
+end
+
+function Descriptor.close(takes self: Descriptor): nil
+    local state = @unsafe own.release(self)
+    if not state._closed then
+        state._closed = true
+        calls.close(state._value)
+    end
+end
+
+export function open(path: string, flags: integer): (affine(Descriptor?), string?)
+    local owner: affine(Descriptor) = Descriptor(_value = -1, _closed = true)
+    if path:find("\0", 1, true) then
+        return nil, errors.reason(INVALID)
+    end
+    local result = calls.open(path, flags)
+    if result < 0 then
+        return nil, errors.reason(result)
+    end
+    -- The already-present fields hold only immediate descriptor/bool values.
+    -- Their stores require neither allocation nor an object write barrier.
+    owner._value = result
+    owner._closed = false
+
+    return owner, nil
+end
+
+export function value(borrows owner: Descriptor): integer
+    if owner._closed then
+        error("the file is closed", 2)
+    end
+    return owner._value
+end
+
+export function take(takes owner: Descriptor): integer
+    local state = @unsafe own.release(owner)
+    state._closed = true
+    return state._value
+end

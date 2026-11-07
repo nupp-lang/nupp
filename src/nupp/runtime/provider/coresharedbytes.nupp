@@ -1,0 +1,166 @@
+@!internal
+module nupp.runtime.provider.coresharedbytes
+
+local span = require("binary.span")
+local byteTypes = require("io.internal.bytestypes")
+export type SharedBytes = byteTypes.SharedBytes
+export const SharedBytes = byteTypes.SharedBytes
+local spanImplementation = require("nupp.mem.span")
+local files = require("nupp.vm.files")
+local storage = require("nupp.runtime.provider.heapstorage")
+local calls = require("nupp.runtime.storagecalls")
+
+const SCALAR_KIND_COUNT = 10
+
+local foreignByteSpan = rawget(
+    spanImplementation as table,
+    "__foreignByteSpan"
+) as @nosuspend function(borrows anchor: any, any, integer, integer): span.Span<uint8> borrows (anchor)
+local foreignSpan = rawget(
+    spanImplementation as table,
+    "__foreignSpan"
+) as function<T>(borrows anchor: any, borrows pointer: any, integer, integer, ctype<T>): span.Span<T> borrows (anchor)
+
+-- The declarations keep their fields private to `io.internal.bytestypes`, so
+-- this module reads them by name.
+local getfield: function(borrows source: table, key: string): any = rawget as any
+
+-- Each logical block retains an immutable guest string. Its identity is this
+-- record, so two copies stay unequal even when their immutable bytes alias.
+-- Cross-worker transport and direct file-to-block reads remain separate work.
+local record Block
+    @readonly data: string
+    @readonly regions: {[string]: any}
+end
+
+local function newblock(data: string): Block
+    return Block(data = data, regions = setmetatable({}, {__mode = "v"}) as {[string]: any})
+end
+
+local function block(borrows value: SharedBytes): Block
+    return getfield(value as table, "_handle") as Block
+end
+
+local function first(borrows value: SharedBytes): integer
+    return getfield(value as table, "_first") as integer
+end
+
+local function length(borrows value: SharedBytes): integer
+    return getfield(value as table, "_length") as integer
+end
+
+-- A storage view `by` elements past `view`. Both operands stay dynamic so the
+-- addition is the view's own, never a numeric one.
+local function advance(borrows view: any, by: integer): any borrows (view)
+    return view + by
+end
+
+-- A read-only byte view of the block starting `offset` bytes in.
+local function bytesat(borrows handle: Block, offset: integer): any borrows (handle)
+    return advance(storage.castbytes(handle.data), offset)
+end
+
+-- Two regions are equal when they name the same engine block, offset, and
+-- length; equal bytes in separate blocks are not equal. The VM gives records no
+-- `__eq`, so each block hands out one region per extent, kept while anything
+-- holds it, and identity is that equality.
+local function wrap(handle: Block, offset: integer, count: integer): SharedBytes
+    local key = offset .. ":" .. count
+    local known = handle.regions[key]
+    if known ~= nil then
+        return known as SharedBytes
+    end
+    local region = {_handle = handle, _first = offset, _length = count} as SharedBytes
+    handle.regions[key] = region
+
+    return region
+end
+
+function SharedBytes:len(): integer
+    return length(self)
+end
+
+-- Whether `count` bytes from `offset` lie inside `length`. A NaN fails every
+-- comparison, so each bound is asked for what it must be rather than what it must
+-- not be.
+local function inside(length: integer, offset: integer, count: integer): boolean
+    return offset % 1 == 0
+        and count % 1 == 0
+        and offset >= 0
+        and count >= 0
+        and offset <= length
+        and count <= length - offset
+end
+
+function SharedBytes:slice(offset: integer, count: integer): SharedBytes
+    if not inside(length(self), offset, count) then
+        error("nupp: a region slice is out of bounds", 2)
+    end
+
+    return wrap(block(self), first(self) + offset, count)
+end
+
+function SharedBytes:view(offset: integer?, count: integer?): span.Span<uint8> borrows (self)
+    local from = offset == nil and 0 or offset as integer
+    local taking = count == nil and length(self) - from or count as integer
+    if not inside(length(self), from, taking) then
+        error("nupp: a region view is out of bounds", 2)
+    end
+
+    return foreignByteSpan(self, block(self).data, first(self) - 1 + from, taking)
+end
+
+function SharedBytes:viewas<T>(element: ctype<T>): span.Span<T> borrows (self)
+    local descriptor = element as any
+    local width = descriptor.size as integer
+    local kind = descriptor.kind
+    local alignment = descriptor.alignment
+    if type(kind) ~= "number"
+        or kind % 1 ~= 0
+        or kind < 1
+        or kind > SCALAR_KIND_COUNT
+        or type(width) ~= "number"
+        or type(alignment) ~= "number"
+        or alignment ~= width
+    then
+        error("nupp: typed region views require a scalar storage type on the native core", 2)
+    end
+    local byteOffset = first(self) - 1
+    if width < 1 or length(self) % width ~= 0 then
+        error("nupp: a typed region view must contain complete elements", 2)
+    end
+    local handle = block(self)
+    -- A retained string can itself be an unaligned immutable Buffer snapshot.
+    if length(self) > 0 and not calls.aligned(handle.data, byteOffset, alignment) then
+        error("nupp: a typed region view is not suitably aligned", 2)
+    end
+
+    return foreignSpan(self, bytesat(handle, byteOffset), 0, length(self) // width, element)
+end
+
+function SharedBytes:tostring(): string
+    local offset = first(self)
+    return block(self).data:sub(offset, offset + length(self) - 1)
+end
+
+function SharedBytes.copy(text: string): SharedBytes
+    return wrap(newblock(text), 1, #text)
+end
+
+function SharedBytes.readfile(path: string): (SharedBytes?, string?)
+    local text, problem = files.read(path)
+    if text == nil then
+        return nil, tostring(problem)
+    end
+
+    return wrap(newblock(text as string), 1, #(text as string)), nil
+end
+
+-- These parts name local managed ownership only; they are not a worker wire format.
+export function regionparts(region: any): (any, integer, integer)
+    return region._handle, region._first, region._length
+end
+
+export function regionfromparts(handle: any, first: integer, length: integer): any
+    return wrap(handle as Block, first, length)
+end

@@ -32,6 +32,9 @@ local record storagecalls
     --- Byte storage holding a copy of `s`, read-only.
     fromstring: function(borrows s: string): const uint8[?] borrows (s)
 
+    -- Whether a readable managed byte offset has the requested scalar alignment.
+    aligned: function(borrows storage: any, offset: integer, alignment: integer): boolean
+
     --- How many elements `storage` holds.
     elements: function(borrows storage: any): integer
 
