@@ -1,0 +1,288 @@
+{
+  "platform": "macOS-26.6-arm64-arm-64bit",
+  "runs": [
+    {
+      "variant": "before",
+      "run": 1,
+      "snapshots": [
+        {
+          "phase": "before pool",
+          "pid": 58061,
+          "luaBytes": 966802,
+          "rssBytes": 5668864,
+          "threads": 2
+        },
+        {
+          "phase": "after 1000 jobs",
+          "pid": 58061,
+          "luaBytes": 1110230,
+          "rssBytes": 32817152,
+          "threads": 20
+        },
+        {
+          "phase": "after 10000 jobs",
+          "pid": 58061,
+          "luaBytes": 1139682,
+          "rssBytes": 34111488,
+          "threads": 20
+        },
+        {
+          "phase": "after 100000 jobs",
+          "pid": 58061,
+          "luaBytes": 1158910,
+          "rssBytes": 34144256,
+          "threads": 20
+        }
+      ]
+    },
+    {
+      "variant": "after",
+      "run": 1,
+      "snapshots": [
+        {
+          "phase": "before pool",
+          "pid": 58120,
+          "luaBytes": 1103422,
+          "rssBytes": 5783552,
+          "threads": 2
+        },
+        {
+          "phase": "after 1000 jobs",
+          "pid": 58120,
+          "luaBytes": 1235030,
+          "rssBytes": 37109760,
+          "threads": 20
+        },
+        {
+          "phase": "after 10000 jobs",
+          "pid": 58120,
+          "luaBytes": 1257054,
+          "rssBytes": 38420480,
+          "threads": 20
+        },
+        {
+          "phase": "after 100000 jobs",
+          "pid": 58120,
+          "luaBytes": 1272526,
+          "rssBytes": 38453248,
+          "threads": 20
+        }
+      ]
+    },
+    {
+      "variant": "after",
+      "run": 2,
+      "snapshots": [
+        {
+          "phase": "before pool",
+          "pid": 58134,
+          "luaBytes": 1103422,
+          "rssBytes": 5767168,
+          "threads": 2
+        },
+        {
+          "phase": "after 1000 jobs",
+          "pid": 58134,
+          "luaBytes": 1233206,
+          "rssBytes": 37158912,
+          "threads": 20
+        },
+        {
+          "phase": "after 10000 jobs",
+          "pid": 58134,
+          "luaBytes": 1253062,
+          "rssBytes": 38453248,
+          "threads": 20
+        },
+        {
+          "phase": "after 100000 jobs",
+          "pid": 58134,
+          "luaBytes": 1259094,
+          "rssBytes": 38486016,
+          "threads": 20
+        }
+      ]
+    },
+    {
+      "variant": "before",
+      "run": 2,
+      "snapshots": [
+        {
+          "phase": "before pool",
+          "pid": 58155,
+          "luaBytes": 966802,
+          "rssBytes": 5668864,
+          "threads": 2
+        },
+        {
+          "phase": "after 1000 jobs",
+          "pid": 58155,
+          "luaBytes": 1090806,
+          "rssBytes": 33161216,
+          "threads": 20
+        },
+        {
+          "phase": "after 10000 jobs",
+          "pid": 58155,
+          "luaBytes": 1108562,
+          "rssBytes": 34013184,
+          "threads": 20
+        },
+        {
+          "phase": "after 100000 jobs",
+          "pid": 58155,
+          "luaBytes": 1118958,
+          "rssBytes": 34029568,
+          "threads": 20
+        }
+      ]
+    },
+    {
+      "variant": "before",
+      "run": 3,
+      "snapshots": [
+        {
+          "phase": "before pool",
+          "pid": 58178,
+          "luaBytes": 966802,
+          "rssBytes": 5668864,
+          "threads": 2
+        },
+        {
+          "phase": "after 1000 jobs",
+          "pid": 58178,
+          "luaBytes": 1093158,
+          "rssBytes": 33259520,
+          "threads": 20
+        },
+        {
+          "phase": "after 10000 jobs",
+          "pid": 58178,
+          "luaBytes": 1120370,
+          "rssBytes": 34029568,
+          "threads": 20
+        },
+        {
+          "phase": "after 100000 jobs",
+          "pid": 58178,
+          "luaBytes": 1137674,
+          "rssBytes": 33701888,
+          "threads": 20
+        }
+      ]
+    },
+    {
+      "variant": "after",
+      "run": 3,
+      "snapshots": [
+        {
+          "phase": "before pool",
+          "pid": 58208,
+          "luaBytes": 1103422,
+          "rssBytes": 5767168,
+          "threads": 2
+        },
+        {
+          "phase": "after 1000 jobs",
+          "pid": 58208,
+          "luaBytes": 1210542,
+          "rssBytes": 37011456,
+          "threads": 20
+        },
+        {
+          "phase": "after 10000 jobs",
+          "pid": 58208,
+          "luaBytes": 1230386,
+          "rssBytes": 38256640,
+          "threads": 20
+        },
+        {
+          "phase": "after 100000 jobs",
+          "pid": 58208,
+          "luaBytes": 1243402,
+          "rssBytes": 38305792,
+          "threads": 20
+        }
+      ]
+    }
+  ],
+  "medians": {
+    "before": [
+      {
+        "phase": "before pool",
+        "rssBytes": 5668864,
+        "luaBytes": 966802,
+        "threads": 2
+      },
+      {
+        "phase": "after 1000 jobs",
+        "rssBytes": 33161216,
+        "luaBytes": 1093158,
+        "threads": 20
+      },
+      {
+        "phase": "after 10000 jobs",
+        "rssBytes": 34029568,
+        "luaBytes": 1120370,
+        "threads": 20
+      },
+      {
+        "phase": "after 100000 jobs",
+        "rssBytes": 34029568,
+        "luaBytes": 1137674,
+        "threads": 20
+      }
+    ],
+    "after": [
+      {
+        "phase": "before pool",
+        "rssBytes": 5767168,
+        "luaBytes": 1103422,
+        "threads": 2
+      },
+      {
+        "phase": "after 1000 jobs",
+        "rssBytes": 37109760,
+        "luaBytes": 1233206,
+        "threads": 20
+      },
+      {
+        "phase": "after 10000 jobs",
+        "rssBytes": 38420480,
+        "luaBytes": 1253062,
+        "threads": 20
+      },
+      {
+        "phase": "after 100000 jobs",
+        "rssBytes": 38453248,
+        "luaBytes": 1259094,
+        "threads": 20
+      }
+    ]
+  },
+  "comparison": {
+    "beforeRevision": "b5646cb02a3aac40395adf63e19c33bb3ba4332d",
+    "afterRevision": "e0470c1fa2a37ff6df695869ac07bf7250875479",
+    "hardware": {
+      "cpu": "Apple M5 Pro",
+      "physicalCores": 18,
+      "logicalCores": 18,
+      "memoryBytes": 51539607552,
+      "os": "macOS 26.6 (25G72)"
+    },
+    "sourceSha256": {
+      "bench/workers/src/main.nupp": "84d976c6e919138e3eef2c64899b184431677e6f40176ae69c21c2f352a3a370",
+      "bench/workers/src/jobs.nupp": "2d85ce921071dd2f6c8072597e4f42ca5947fda241394b6cfc97bb250927f8c9",
+      "bench/workers/memory/src/main.nupp": "01467a5ec5f3586e14f66c065316973e4ad71dd633f1faf4fc42f96809b1ae84",
+      "bench/workers/memory/src/jobs.nupp": "6a15fe4c584b416964445c67a52effb0eb335fd868ee80fcd54b0c032ca6e146"
+    }
+  },
+  "binaries": {
+    "before": {
+      "sha256": "befa9f723016e0497acaace8810f64077b9bc3186b8fec9cbdeb9ea1bff5d76b"
+    },
+    "after": {
+      "sha256": "b53813075fd6c732b0209a3fdfa9c03f0c5234c2f38e5b0723d7a2db974b99b9"
+    }
+  }
+}

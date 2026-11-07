@@ -1,0 +1,598 @@
+{
+  "platform": "macOS-26.6-arm64-arm-64bit",
+  "binaries": {
+    "before": {
+      "path": "/private/tmp/nupp-workers-channels-baseline/bench/workers/worker-benchmark",
+      "sha256": "ed13c21422a23e34be36819e521d4b8f6f90ff9c6847b5f8efc8c85b0e144142"
+    },
+    "after": {
+      "path": "/private/tmp/nupp-workers-and-channels/bench/workers/worker-benchmark",
+      "sha256": "7e1069339b9485e79448f0adfa7c21608749a3b2772b5c79847f0214e1b8a6a6"
+    }
+  },
+  "runs": [
+    {
+      "variant": "before",
+      "run": 1,
+      "rows": {
+        "cold scheduler": {
+          "value": 19.15,
+          "unit": "ms"
+        },
+        "scalar round-trip": {
+          "value": 11.31,
+          "unit": "us/op"
+        },
+        "text 4 KiB": {
+          "value": 11.97,
+          "unit": "us/op"
+        },
+        "record 4 KiB": {
+          "value": 13.99,
+          "unit": "us/op"
+        },
+        "record via any": {
+          "value": 13.84,
+          "unit": "us/op"
+        },
+        "record dynamic": {
+          "value": 13.72,
+          "unit": "us/op"
+        },
+        "optional 4 KiB": {
+          "value": 14.2,
+          "unit": "us/op"
+        },
+        "text 1 MiB": {
+          "value": 85.24,
+          "unit": "us/op"
+        },
+        "region 1 MiB": {
+          "value": 12.97,
+          "unit": "us/op"
+        },
+        "region scan 1 MiB": {
+          "value": 404.75,
+          "unit": "us/op"
+        },
+        "text scan 1 MiB": {
+          "value": 495.58,
+          "unit": "us/op"
+        },
+        "moved 4 KiB": {
+          "value": 16.64,
+          "unit": "us/op"
+        },
+        "moved 8 MiB": {
+          "value": 14.07,
+          "unit": "us/op"
+        },
+        "text 8 MiB": {
+          "value": 556.29,
+          "unit": "us/op"
+        },
+        "CPU serial": {
+          "value": 657.46,
+          "unit": "ms"
+        },
+        "CPU parallel": {
+          "value": 53.03,
+          "unit": "ms"
+        }
+      },
+      "stdout": "worker benchmark: 18 lanes, median of 9 samples\ncold scheduler         19.15 ms               -  first fork\nscalar round-trip      11.31 us/op      0.00 MiB/s  sequential warm spawn + await\ntext 4 KiB             11.97 us/op    652.72 MiB/s  request + response bytes\nrecord 4 KiB           13.99 us/op    558.32 MiB/s  record metatable + fields\nrecord via any         13.84 us/op    564.29 MiB/s  exact record detected at runtime\nrecord dynamic         13.72 us/op    569.26 MiB/s  plain table through the codec fallback\noptional 4 KiB         14.20 us/op    550.10 MiB/s  record with an absent optional field\ntext 1 MiB             85.24 us/op  23463.43 MiB/s  request + response bytes\nregion 1 MiB           12.97 us/op 154167.33 MiB/s  engine region crossed by reference\nregion scan 1 MiB     404.75 us/op   4941.34 MiB/s  worker counts newlines through a view\ntext scan 1 MiB       495.58 us/op   4035.66 MiB/s  worker counts newlines in a copied string\nmoved 4 KiB            16.64 us/op    469.58 MiB/s  owned buffer moved there and back\nmoved 8 MiB            14.07 us/op 1137440.94 MiB/s  owned buffer moved there and back\ntext 8 MiB            556.29 us/op  28762.11 MiB/s  the same working set copied both ways\nCPU serial            657.46 ms               -  18 jobs\nCPU parallel           53.03 ms               -  12.40x speedup\n",
+      "stderr": ""
+    },
+    {
+      "variant": "after",
+      "run": 1,
+      "rows": {
+        "cold scheduler": {
+          "value": 31.6,
+          "unit": "ms"
+        },
+        "scalar round-trip": {
+          "value": 11.74,
+          "unit": "us/op"
+        },
+        "text 4 KiB": {
+          "value": 12.85,
+          "unit": "us/op"
+        },
+        "record 4 KiB": {
+          "value": 15.31,
+          "unit": "us/op"
+        },
+        "record via any": {
+          "value": 15.66,
+          "unit": "us/op"
+        },
+        "record dynamic": {
+          "value": 14.7,
+          "unit": "us/op"
+        },
+        "optional 4 KiB": {
+          "value": 15.43,
+          "unit": "us/op"
+        },
+        "text 1 MiB": {
+          "value": 93.03,
+          "unit": "us/op"
+        },
+        "region 1 MiB": {
+          "value": 14.85,
+          "unit": "us/op"
+        },
+        "region scan 1 MiB": {
+          "value": 404.08,
+          "unit": "us/op"
+        },
+        "text scan 1 MiB": {
+          "value": 480.83,
+          "unit": "us/op"
+        },
+        "moved 4 KiB": {
+          "value": 19.31,
+          "unit": "us/op"
+        },
+        "moved 8 MiB": {
+          "value": 16.22,
+          "unit": "us/op"
+        },
+        "text 8 MiB": {
+          "value": 559.25,
+          "unit": "us/op"
+        },
+        "CPU serial": {
+          "value": 665.04,
+          "unit": "ms"
+        },
+        "CPU parallel": {
+          "value": 52.9,
+          "unit": "ms"
+        }
+      },
+      "stdout": "worker benchmark: 18 lanes, median of 9 samples\ncold scheduler         31.60 ms               -  first fork\nscalar round-trip      11.74 us/op      0.00 MiB/s  sequential warm spawn + await\ntext 4 KiB             12.85 us/op    608.13 MiB/s  request + response bytes\nrecord 4 KiB           15.31 us/op    510.13 MiB/s  record metatable + fields\nrecord via any         15.66 us/op    498.98 MiB/s  exact record detected at runtime\nrecord dynamic         14.70 us/op    531.36 MiB/s  plain table through the codec fallback\noptional 4 KiB         15.43 us/op    506.20 MiB/s  record with an absent optional field\ntext 1 MiB             93.03 us/op  21499.34 MiB/s  request + response bytes\nregion 1 MiB           14.85 us/op 134715.40 MiB/s  engine region crossed by reference\nregion scan 1 MiB     404.08 us/op   4949.51 MiB/s  worker counts newlines through a view\ntext scan 1 MiB       480.83 us/op   4159.48 MiB/s  worker counts newlines in a copied string\nmoved 4 KiB            19.31 us/op    404.58 MiB/s  owned buffer moved there and back\nmoved 8 MiB            16.22 us/op 986302.79 MiB/s  owned buffer moved there and back\ntext 8 MiB            559.25 us/op  28609.53 MiB/s  the same working set copied both ways\nCPU serial            665.04 ms               -  18 jobs\nCPU parallel           52.90 ms               -  12.57x speedup\n",
+      "stderr": ""
+    },
+    {
+      "variant": "after",
+      "run": 2,
+      "rows": {
+        "cold scheduler": {
+          "value": 18.49,
+          "unit": "ms"
+        },
+        "scalar round-trip": {
+          "value": 11.65,
+          "unit": "us/op"
+        },
+        "text 4 KiB": {
+          "value": 12.34,
+          "unit": "us/op"
+        },
+        "record 4 KiB": {
+          "value": 15.13,
+          "unit": "us/op"
+        },
+        "record via any": {
+          "value": 15.41,
+          "unit": "us/op"
+        },
+        "record dynamic": {
+          "value": 14.95,
+          "unit": "us/op"
+        },
+        "optional 4 KiB": {
+          "value": 14.85,
+          "unit": "us/op"
+        },
+        "text 1 MiB": {
+          "value": 92.8,
+          "unit": "us/op"
+        },
+        "region 1 MiB": {
+          "value": 14.84,
+          "unit": "us/op"
+        },
+        "region scan 1 MiB": {
+          "value": 410.62,
+          "unit": "us/op"
+        },
+        "text scan 1 MiB": {
+          "value": 491.14,
+          "unit": "us/op"
+        },
+        "moved 4 KiB": {
+          "value": 19.22,
+          "unit": "us/op"
+        },
+        "moved 8 MiB": {
+          "value": 18.11,
+          "unit": "us/op"
+        },
+        "text 8 MiB": {
+          "value": 564.01,
+          "unit": "us/op"
+        },
+        "CPU serial": {
+          "value": 669.95,
+          "unit": "ms"
+        },
+        "CPU parallel": {
+          "value": 52.56,
+          "unit": "ms"
+        }
+      },
+      "stdout": "worker benchmark: 18 lanes, median of 9 samples\ncold scheduler         18.49 ms               -  first fork\nscalar round-trip      11.65 us/op      0.00 MiB/s  sequential warm spawn + await\ntext 4 KiB             12.34 us/op    633.00 MiB/s  request + response bytes\nrecord 4 KiB           15.13 us/op    516.19 MiB/s  record metatable + fields\nrecord via any         15.41 us/op    506.81 MiB/s  exact record detected at runtime\nrecord dynamic         14.95 us/op    522.48 MiB/s  plain table through the codec fallback\noptional 4 KiB         14.85 us/op    525.95 MiB/s  record with an absent optional field\ntext 1 MiB             92.80 us/op  21552.76 MiB/s  request + response bytes\nregion 1 MiB           14.84 us/op 134759.54 MiB/s  engine region crossed by reference\nregion scan 1 MiB     410.62 us/op   4870.66 MiB/s  worker counts newlines through a view\ntext scan 1 MiB       491.14 us/op   4072.12 MiB/s  worker counts newlines in a copied string\nmoved 4 KiB            19.22 us/op    406.48 MiB/s  owned buffer moved there and back\nmoved 8 MiB            18.11 us/op 883570.96 MiB/s  owned buffer moved there and back\ntext 8 MiB            564.01 us/op  28368.44 MiB/s  the same working set copied both ways\nCPU serial            669.95 ms               -  18 jobs\nCPU parallel           52.56 ms               -  12.75x speedup\n",
+      "stderr": ""
+    },
+    {
+      "variant": "before",
+      "run": 2,
+      "rows": {
+        "cold scheduler": {
+          "value": 17.11,
+          "unit": "ms"
+        },
+        "scalar round-trip": {
+          "value": 10.72,
+          "unit": "us/op"
+        },
+        "text 4 KiB": {
+          "value": 11.65,
+          "unit": "us/op"
+        },
+        "record 4 KiB": {
+          "value": 14.25,
+          "unit": "us/op"
+        },
+        "record via any": {
+          "value": 14.25,
+          "unit": "us/op"
+        },
+        "record dynamic": {
+          "value": 13.83,
+          "unit": "us/op"
+        },
+        "optional 4 KiB": {
+          "value": 14.31,
+          "unit": "us/op"
+        },
+        "text 1 MiB": {
+          "value": 92.12,
+          "unit": "us/op"
+        },
+        "region 1 MiB": {
+          "value": 13.7,
+          "unit": "us/op"
+        },
+        "region scan 1 MiB": {
+          "value": 413.98,
+          "unit": "us/op"
+        },
+        "text scan 1 MiB": {
+          "value": 496.1,
+          "unit": "us/op"
+        },
+        "moved 4 KiB": {
+          "value": 15.54,
+          "unit": "us/op"
+        },
+        "moved 8 MiB": {
+          "value": 13.69,
+          "unit": "us/op"
+        },
+        "text 8 MiB": {
+          "value": 563.05,
+          "unit": "us/op"
+        },
+        "CPU serial": {
+          "value": 674.28,
+          "unit": "ms"
+        },
+        "CPU parallel": {
+          "value": 52.88,
+          "unit": "ms"
+        }
+      },
+      "stdout": "worker benchmark: 18 lanes, median of 9 samples\ncold scheduler         17.11 ms               -  first fork\nscalar round-trip      10.72 us/op      0.00 MiB/s  sequential warm spawn + await\ntext 4 KiB             11.65 us/op    670.55 MiB/s  request + response bytes\nrecord 4 KiB           14.25 us/op    548.26 MiB/s  record metatable + fields\nrecord via any         14.25 us/op    548.21 MiB/s  exact record detected at runtime\nrecord dynamic         13.83 us/op    564.84 MiB/s  plain table through the codec fallback\noptional 4 KiB         14.31 us/op    545.90 MiB/s  record with an absent optional field\ntext 1 MiB             92.12 us/op  21711.53 MiB/s  request + response bytes\nregion 1 MiB           13.70 us/op 145945.45 MiB/s  engine region crossed by reference\nregion scan 1 MiB     413.98 us/op   4831.16 MiB/s  worker counts newlines through a view\ntext scan 1 MiB       496.10 us/op   4031.45 MiB/s  worker counts newlines in a copied string\nmoved 4 KiB            15.54 us/op    502.78 MiB/s  owned buffer moved there and back\nmoved 8 MiB            13.69 us/op 1168829.70 MiB/s  owned buffer moved there and back\ntext 8 MiB            563.05 us/op  28416.59 MiB/s  the same working set copied both ways\nCPU serial            674.28 ms               -  18 jobs\nCPU parallel           52.88 ms               -  12.75x speedup\n",
+      "stderr": ""
+    },
+    {
+      "variant": "before",
+      "run": 3,
+      "rows": {
+        "cold scheduler": {
+          "value": 17.59,
+          "unit": "ms"
+        },
+        "scalar round-trip": {
+          "value": 11.28,
+          "unit": "us/op"
+        },
+        "text 4 KiB": {
+          "value": 11.16,
+          "unit": "us/op"
+        },
+        "record 4 KiB": {
+          "value": 14.61,
+          "unit": "us/op"
+        },
+        "record via any": {
+          "value": 14.87,
+          "unit": "us/op"
+        },
+        "record dynamic": {
+          "value": 14.44,
+          "unit": "us/op"
+        },
+        "optional 4 KiB": {
+          "value": 14.32,
+          "unit": "us/op"
+        },
+        "text 1 MiB": {
+          "value": 92.16,
+          "unit": "us/op"
+        },
+        "region 1 MiB": {
+          "value": 13.76,
+          "unit": "us/op"
+        },
+        "region scan 1 MiB": {
+          "value": 414.45,
+          "unit": "us/op"
+        },
+        "text scan 1 MiB": {
+          "value": 483.33,
+          "unit": "us/op"
+        },
+        "moved 4 KiB": {
+          "value": 16.98,
+          "unit": "us/op"
+        },
+        "moved 8 MiB": {
+          "value": 16.62,
+          "unit": "us/op"
+        },
+        "text 8 MiB": {
+          "value": 565.29,
+          "unit": "us/op"
+        },
+        "CPU serial": {
+          "value": 674.7,
+          "unit": "ms"
+        },
+        "CPU parallel": {
+          "value": 52.61,
+          "unit": "ms"
+        }
+      },
+      "stdout": "worker benchmark: 18 lanes, median of 9 samples\ncold scheduler         17.59 ms               -  first fork\nscalar round-trip      11.28 us/op      0.00 MiB/s  sequential warm spawn + await\ntext 4 KiB             11.16 us/op    700.27 MiB/s  request + response bytes\nrecord 4 KiB           14.61 us/op    534.85 MiB/s  record metatable + fields\nrecord via any         14.87 us/op    525.30 MiB/s  exact record detected at runtime\nrecord dynamic         14.44 us/op    540.92 MiB/s  plain table through the codec fallback\noptional 4 KiB         14.32 us/op    545.58 MiB/s  record with an absent optional field\ntext 1 MiB             92.16 us/op  21700.37 MiB/s  request + response bytes\nregion 1 MiB           13.76 us/op 145356.17 MiB/s  engine region crossed by reference\nregion scan 1 MiB     414.45 us/op   4825.72 MiB/s  worker counts newlines through a view\ntext scan 1 MiB       483.33 us/op   4137.97 MiB/s  worker counts newlines in a copied string\nmoved 4 KiB            16.98 us/op    460.07 MiB/s  owned buffer moved there and back\nmoved 8 MiB            16.62 us/op 962647.20 MiB/s  owned buffer moved there and back\ntext 8 MiB            565.29 us/op  28304.11 MiB/s  the same working set copied both ways\nCPU serial            674.70 ms               -  18 jobs\nCPU parallel           52.61 ms               -  12.82x speedup\n",
+      "stderr": ""
+    },
+    {
+      "variant": "after",
+      "run": 3,
+      "rows": {
+        "cold scheduler": {
+          "value": 18.8,
+          "unit": "ms"
+        },
+        "scalar round-trip": {
+          "value": 10.91,
+          "unit": "us/op"
+        },
+        "text 4 KiB": {
+          "value": 12.33,
+          "unit": "us/op"
+        },
+        "record 4 KiB": {
+          "value": 15.54,
+          "unit": "us/op"
+        },
+        "record via any": {
+          "value": 15.74,
+          "unit": "us/op"
+        },
+        "record dynamic": {
+          "value": 15.0,
+          "unit": "us/op"
+        },
+        "optional 4 KiB": {
+          "value": 15.17,
+          "unit": "us/op"
+        },
+        "text 1 MiB": {
+          "value": 91.52,
+          "unit": "us/op"
+        },
+        "region 1 MiB": {
+          "value": 14.94,
+          "unit": "us/op"
+        },
+        "region scan 1 MiB": {
+          "value": 415.12,
+          "unit": "us/op"
+        },
+        "text scan 1 MiB": {
+          "value": 487.42,
+          "unit": "us/op"
+        },
+        "moved 4 KiB": {
+          "value": 19.64,
+          "unit": "us/op"
+        },
+        "moved 8 MiB": {
+          "value": 17.92,
+          "unit": "us/op"
+        },
+        "text 8 MiB": {
+          "value": 565.62,
+          "unit": "us/op"
+        },
+        "CPU serial": {
+          "value": 677.34,
+          "unit": "ms"
+        },
+        "CPU parallel": {
+          "value": 52.99,
+          "unit": "ms"
+        }
+      },
+      "stdout": "worker benchmark: 18 lanes, median of 9 samples\ncold scheduler         18.80 ms               -  first fork\nscalar round-trip      10.91 us/op      0.00 MiB/s  sequential warm spawn + await\ntext 4 KiB             12.33 us/op    633.55 MiB/s  request + response bytes\nrecord 4 KiB           15.54 us/op    502.69 MiB/s  record metatable + fields\nrecord via any         15.74 us/op    496.20 MiB/s  exact record detected at runtime\nrecord dynamic         15.00 us/op    520.79 MiB/s  plain table through the codec fallback\noptional 4 KiB         15.17 us/op    515.08 MiB/s  record with an absent optional field\ntext 1 MiB             91.52 us/op  21852.52 MiB/s  request + response bytes\nregion 1 MiB           14.94 us/op 133897.46 MiB/s  engine region crossed by reference\nregion scan 1 MiB     415.12 us/op   4817.89 MiB/s  worker counts newlines through a view\ntext scan 1 MiB       487.42 us/op   4103.25 MiB/s  worker counts newlines in a copied string\nmoved 4 KiB            19.64 us/op    397.69 MiB/s  owned buffer moved there and back\nmoved 8 MiB            17.92 us/op 893023.41 MiB/s  owned buffer moved there and back\ntext 8 MiB            565.62 us/op  28287.29 MiB/s  the same working set copied both ways\nCPU serial            677.34 ms               -  18 jobs\nCPU parallel           52.99 ms               -  12.78x speedup\n",
+      "stderr": ""
+    }
+  ],
+  "medians": {
+    "before": {
+      "cold scheduler": {
+        "value": 17.59,
+        "unit": "ms"
+      },
+      "scalar round-trip": {
+        "value": 11.28,
+        "unit": "us/op"
+      },
+      "text 4 KiB": {
+        "value": 11.65,
+        "unit": "us/op"
+      },
+      "record 4 KiB": {
+        "value": 14.25,
+        "unit": "us/op"
+      },
+      "record via any": {
+        "value": 14.25,
+        "unit": "us/op"
+      },
+      "record dynamic": {
+        "value": 13.83,
+        "unit": "us/op"
+      },
+      "optional 4 KiB": {
+        "value": 14.31,
+        "unit": "us/op"
+      },
+      "text 1 MiB": {
+        "value": 92.12,
+        "unit": "us/op"
+      },
+      "region 1 MiB": {
+        "value": 13.7,
+        "unit": "us/op"
+      },
+      "region scan 1 MiB": {
+        "value": 413.98,
+        "unit": "us/op"
+      },
+      "text scan 1 MiB": {
+        "value": 495.58,
+        "unit": "us/op"
+      },
+      "moved 4 KiB": {
+        "value": 16.64,
+        "unit": "us/op"
+      },
+      "moved 8 MiB": {
+        "value": 14.07,
+        "unit": "us/op"
+      },
+      "text 8 MiB": {
+        "value": 563.05,
+        "unit": "us/op"
+      },
+      "CPU serial": {
+        "value": 674.28,
+        "unit": "ms"
+      },
+      "CPU parallel": {
+        "value": 52.88,
+        "unit": "ms"
+      }
+    },
+    "after": {
+      "cold scheduler": {
+        "value": 18.8,
+        "unit": "ms"
+      },
+      "scalar round-trip": {
+        "value": 11.65,
+        "unit": "us/op"
+      },
+      "text 4 KiB": {
+        "value": 12.34,
+        "unit": "us/op"
+      },
+      "record 4 KiB": {
+        "value": 15.31,
+        "unit": "us/op"
+      },
+      "record via any": {
+        "value": 15.66,
+        "unit": "us/op"
+      },
+      "record dynamic": {
+        "value": 14.95,
+        "unit": "us/op"
+      },
+      "optional 4 KiB": {
+        "value": 15.17,
+        "unit": "us/op"
+      },
+      "text 1 MiB": {
+        "value": 92.8,
+        "unit": "us/op"
+      },
+      "region 1 MiB": {
+        "value": 14.85,
+        "unit": "us/op"
+      },
+      "region scan 1 MiB": {
+        "value": 410.62,
+        "unit": "us/op"
+      },
+      "text scan 1 MiB": {
+        "value": 487.42,
+        "unit": "us/op"
+      },
+      "moved 4 KiB": {
+        "value": 19.31,
+        "unit": "us/op"
+      },
+      "moved 8 MiB": {
+        "value": 17.92,
+        "unit": "us/op"
+      },
+      "text 8 MiB": {
+        "value": 564.01,
+        "unit": "us/op"
+      },
+      "CPU serial": {
+        "value": 669.95,
+        "unit": "ms"
+      },
+      "CPU parallel": {
+        "value": 52.9,
+        "unit": "ms"
+      }
+    }
+  },
+  "comparison": {
+    "beforeRevision": "b5646cb02a3aac40395adf63e19c33bb3ba4332d",
+    "afterRevision": "e0470c1fa2a37ff6df695869ac07bf7250875479",
+    "hardware": {
+      "cpu": "Apple M5 Pro",
+      "physicalCores": 18,
+      "logicalCores": 18,
+      "memoryBytes": 51539607552,
+      "os": "macOS 26.6 (25G72)"
+    },
+    "sourceSha256": {
+      "bench/workers/src/main.nupp": "84d976c6e919138e3eef2c64899b184431677e6f40176ae69c21c2f352a3a370",
+      "bench/workers/src/jobs.nupp": "2d85ce921071dd2f6c8072597e4f42ca5947fda241394b6cfc97bb250927f8c9",
+      "bench/workers/memory/src/main.nupp": "01467a5ec5f3586e14f66c065316973e4ad71dd633f1faf4fc42f96809b1ae84",
+      "bench/workers/memory/src/jobs.nupp": "6a15fe4c584b416964445c67a52effb0eb335fd868ee80fcd54b0c032ca6e146"
+    }
+  }
+}

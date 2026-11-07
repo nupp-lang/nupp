@@ -1,0 +1,13 @@
+module jobs
+
+local ffi = require("ffi")
+ffi.cdef[[int usleep(unsigned int usec);]]
+
+export function identity(value: integer): integer
+    return value
+end
+
+export function collect(): nil
+    ffi.C.usleep(100000)
+    collectgarbage("collect")
+end

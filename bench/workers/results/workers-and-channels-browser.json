@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "result": {
+    "count": 256,
+    "sum": 32896,
+    "firstAfterStart": 75.500049,
+    "lastAfterStart": 1625.200049,
+    "progressAfterStart": 606.200049,
+    "cancelled": true
+  },
+  "blockMs": 3000,
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+  "isolated": false,
+  "browserErrors": []
+}
