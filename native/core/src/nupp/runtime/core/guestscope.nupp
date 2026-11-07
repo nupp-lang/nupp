@@ -308,6 +308,12 @@ export function open(
             slot = slot + 1ULL
         end
         collector.register(h, world, native.sizeOf<instances.World>() // 8ULL)
+        -- Errors survive positioning, cleanup calls and recovery until their
+        -- destination frame holds them. The fields between them are scalars.
+        native.store64(services, native.fieldOffset<Services>("raised"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("lastError"), 0ULL)
+        collector.register(h, native.address(native.offset(services, native.fieldOffset<Services>("raised"))), 1ULL)
+        collector.register(h, native.address(native.offset(services, native.fieldOffset<Services>("lastError"))), 1ULL)
         native.store64(services, native.fieldOffset<Services>("running"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("main"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("loaded"), 0ULL)
@@ -345,7 +351,6 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("oraclefailures"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("heap"), native.address(h))
         native.store64(services, native.fieldOffset<Services>("arena"), native.address(a))
-        native.store64(services, native.fieldOffset<Services>("raised"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("raisedLevel"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("fault"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("metaCallee"), 0ULL)

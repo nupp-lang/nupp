@@ -371,6 +371,11 @@ export function recoverEntry(ctx: voidptr): uint64
         native.store64(services, native.fieldOffset<guestscope.Services>("raised"), 0ULL)
         native.store64(services, native.fieldOffset<guestscope.Services>("raisedLevel"), 0ULL)
         native.store64(services, native.fieldOffset<guestscope.Services>("fault"), 0ULL)
+        if own == 0ULL and landing == 0ULL then
+            -- Protected results now root the error, including xpcall's
+            -- hidden error slot when only its status was requested.
+            native.store64(services, native.fieldOffset<guestscope.Services>("lastError"), 0ULL)
+        end
         access.refresh(state, native.pointer(parent), ctx)
         return access.pc(state, native.pointer(parent))
     end
@@ -404,6 +409,7 @@ export function recovered(ctx: voidptr): nil
         native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorSite"), 0ULL)
         native.store64(services, native.fieldOffset<guestscope.Services>("raised"), 0ULL)
         native.store64(services, native.fieldOffset<guestscope.Services>("raisedLevel"), 0ULL)
+        native.store64(services, native.fieldOffset<guestscope.Services>("lastError"), 0ULL)
         native.store64(services, native.fieldOffset<guestscope.Services>("fault"), 0ULL)
         native.store64(services, native.fieldOffset<guestscope.Services>("libraryRaised"), 0ULL)
         native.store64(services, native.fieldOffset<guestscope.Services>("libraryActive"), 0ULL)

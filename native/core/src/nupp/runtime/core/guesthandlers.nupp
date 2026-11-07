@@ -2616,7 +2616,7 @@ export function XPHandle(
     if slots.readValue(frame, regs, status) == values.FALSE then
         local top = native.index(count - 4ULL)
         slots.writeValue(frame, regs, top, slots.readValue(frame, regs, handlerSlot))
-        slots.writeValue(frame, regs, top + 1, guestscope.lastError(ctx))
+        slots.writeValue(frame, regs, top + 1, slots.readValue(frame, regs, status + 1))
         local resultSlot = count - 1ULL
         if wanted >= 2 then
             resultSlot = native.word(status) + 1ULL

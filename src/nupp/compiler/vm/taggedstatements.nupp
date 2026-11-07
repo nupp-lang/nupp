@@ -21,6 +21,8 @@ local pool = taggedvalues.pool
 local scalarType = taggedvalues.scalarType
 local typeKind = taggedvalues.typeKind
 
+const DIRECTION: integer = 4
+
 -- Typed scalar operators use exactly the library operation public calls use.
 export function scalar(ctx: any, node: any, identity: string, arguments: any, signed: boolean?): integer
     local entry = need(corelibrary.scalar(identity), "unsupported checked scalar operator")
@@ -246,7 +248,7 @@ export function numericFor(ctx: any, stat: any, version: integer): any
             ctx.release(handle)
         end
         local zero = ctx.emit(stat, "K", {pool(ctx, "int64", "0")}, "tagged")
-        values[4] = ctx.emit(stat, "Lt", {zero, values[3]}, "tagged")
+        values[DIRECTION] = ctx.emit(stat, "Lt", {zero, values[3]}, "tagged")
     end
     if integerMode then
         checkedLimit()
@@ -278,18 +280,18 @@ export function numericFor(ctx: any, stat: any, version: integer): any
         values = values,
         first = function(c: any, node: any, v: any): (integer, boolean)
             if integerMode then
-                return compare(c, node, v[1], v[2], v[4])
+                return compare(c, node, v[1], v[2], v[DIRECTION])
             end
             if sign == nil then
                 local up = c.emit(node, "Lt", {v[2], v[1]}, "tagged")
                 local down = c.emit(node, "Lt", {v[1], v[2]}, "tagged")
-                return c.select(node, v[4], up, down), true
+                return c.select(node, v[DIRECTION], up, down), true
             end
 
             return c.emit(node, "Lt", sign > 0 and {v[2], v[1]} or {v[1], v[2]}, "tagged"), true
         end,
         test = function(c: any, node: any, v: any): (integer, boolean)
-            return compare(c, node, v[1], v[2], v[4])
+            return compare(c, node, v[1], v[2], v[DIRECTION])
         end,
         advance = function(c: any, node: any, v: any): (integer, integer?)
             local advanced = c.emit(node, "Add", {v[1], v[3]}, "tagged")
@@ -301,7 +303,7 @@ export function numericFor(ctx: any, stat: any, version: integer): any
                 local held = c.hold(advanced)
                 local up = c.emit(node, "Lt", {advanced, v[1]}, "tagged")
                 local down = c.emit(node, "Lt", {v[1], advanced}, "tagged")
-                local wrapped = c.select(node, v[4], up, down)
+                local wrapped = c.select(node, v[DIRECTION], up, down)
                 advanced = c.readHeld(held)
                 c.release(held)
                 return advanced, wrapped

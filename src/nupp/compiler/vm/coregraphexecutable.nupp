@@ -217,7 +217,7 @@ local function derive(g: any, catalog: any): any
                 maximumArguments = math.max(maximumArguments, #block.term.args + 1) as integer
             end
             if contract and contract.handled then
-                local results: integer = math.max(#block.term.args - 1, #(block.term.results or {}), 1) as integer
+                local results: integer = math.max(#block.term.args - 1, #(block.term.results or {}), 2) as integer
                 maximumArguments = math.max(maximumArguments, results + 5) as integer
                 metaCalls = true
             end
@@ -463,18 +463,19 @@ local function derive(g: any, catalog: any): any
                     emit({"Move", callBase + index, physical(term.args[index])}, position)
                 end
                 local wanted: integer = term.results and #term.results or 1
+                local captured: integer = contract.handled and math.max(wanted, 2) or wanted
                 -- An open call takes every result as one pack: its instruction
                 -- wants none, and its one slot holds the pack.
                 local encoded = term.open and 0 or wanted
                 -- xpcall's handler: past the arguments and the results.
-                local handlerSlot = callBase + 1 + math.max(nargs, wanted)
+                local handlerSlot = callBase + 1 + math.max(nargs, captured)
                 if contract.handled then
                     emit({"Move", handlerSlot, physical(term.args[#term.args])}, position)
                 end
                 local at: integer
                 if contract.protected then
                     need(not term.spread, "pcall cannot spread `...` yet")
-                    at = emit({"PCall", contract.target, callBase, callBase, nargs, wanted}, position)
+                    at = emit({"PCall", contract.target, callBase, callBase, nargs, captured}, position)
                     if contract.handled then
                         -- After a failure, the handler's answer replaces the error.
                         emit({"XPHandle", callBase + 1, handlerSlot, wanted}, position)
@@ -498,7 +499,7 @@ local function derive(g: any, catalog: any): any
                     argumentBase = callBase,
                     argumentCount = nargs,
                     resultSlot = callBase + 1,
-                    wanted = wanted,
+                    wanted = captured,
                     spread = term.spread ~= nil,
                     discarded = term.result == nil,
                     inLoop = inLoop[block.id] == true

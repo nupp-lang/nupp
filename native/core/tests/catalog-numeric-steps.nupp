@@ -65,4 +65,45 @@ assert(closed == 1, "zero step closes owner")
 local limitOk, limitProblem = pcall(zero, 1, {})
 assert(not limitOk and string.find(tostring(limitProblem), "bad 'for' limit", 1, true) ~= nil, "invalid limit raises")
 assert(closed == 2, "invalid limit closes owner")
+local weak: any = setmetatable({}, {__mode = "v"})
+
+local function forgetcall(): nil
+    local function fail(): nil
+        local value = {marker = 1}
+        weak[1] = value
+        error(value, 0)
+    end
+
+    local ok = pcall(fail)
+    assert(not ok, "status-only pcall fails")
+end
+
+forgetcall()
+collectgarbage("collect")
+assert(weak[1] == nil, "caught error is released")
+
+local function forgethandled(): nil
+    local handled = false
+
+    local function fail(): nil
+        local value = {marker = 2}
+        weak[2] = value
+        error(value, 0)
+    end
+
+    local function handle(value: any): nil
+        local hold = {value}
+        collectgarbage("collect")
+        assert(hold[1] == value and value.marker == 2, "xpcall handler receives error")
+        handled = true
+    end
+
+    local ok = xpcall(fail, handle)
+    assert(not ok and handled, "status-only xpcall handles error")
+end
+
+forgethandled()
+collectgarbage("collect")
+assert(weak[2] == nil, "handled error is released")
+
 export = 1
