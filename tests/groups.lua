@@ -241,6 +241,50 @@ for name in (
 ):gmatch("%S+") do
     scopes[name] = "delivery"
 end
+
+-- Independent packages retain the original suite obligations.
+scopes.derivemanifesttest = "component"
+scopes.derivetecstest = "component"
+
+-- Independent packages retain the original suite obligations.
+scopes.derivediagnostictest = "component"
+scopes.deriveidentitytest = "component"
+scopes.derivelimittest = "component"
+scopes.deriveemissiontest = "component"
+
+-- Independent packages retain the original suite obligations.
+scopes.deriveinternalprovidertest = "integration"
+scopes.deriveexportprovidertest = "component"
+scopes.derivepublicprovidertest = "component"
+scopes.deriveexternalprovidertest = "integration"
+
+-- Independent packages retain the original suite obligations.
+scopes.projecthashtest = "component"
+scopes.projectaotscopetest = "integration"
+scopes.projectmoduletest = "component"
+scopes.projectpathtest = "integration"
+scopes.projectprocesstest = "integration"
+scopes.projectmaterializationtest = "integration"
+scopes.projectmanifesttest = "component"
+scopes.projectcrosstest = "integration"
+scopes.projectnativetest = "integration"
+scopes.projectchecktest = "integration"
+scopes.projectinvalidationtest = "integration"
+scopes.projectctest = "integration"
+scopes.projectbinarytest = "integration"
+scopes.projectfixpointtest = "integration"
+scopes.projectaottest = "integration"
+scopes.projectclinktest = "integration"
+scopes.projectcargotest = "integration"
+scopes.projectgeneratortest = "integration"
+scopes.projectfilesystemtest = "integration"
+scopes.projectrocktest = "integration"
+scopes.projecttestcommandtest = "integration"
+scopes.projecttasktest = "integration"
+scopes.projectsyntaxtest = "component"
+
+scopes.deriveprovidertest = "component"
+
 return groups, {
     scopes = scopes,
     packages = {

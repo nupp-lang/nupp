@@ -2411,6 +2411,19 @@ end
 -- new suite reaches one. Shell calls instead choose reusable process workers:
 -- several suites share each worker, and a failed case does not end its queue.
 local PROCESS_ISOLATED = {
+    deriveinternalprovidertest = true,
+    deriveexportprovidertest = true,
+    derivepublicprovidertest = true,
+    deriveexternalprovidertest = true,
+
+    derivediagnostictest = true,
+    deriveidentitytest = true,
+    derivelimittest = true,
+    deriveemissiontest = true,
+
+    derivemanifesttest = true,
+    derivetecstest = true,
+
     -- These exercise worker hosting or runner descriptor behavior even when the
     -- operation is built as a source fixture rather than called by the Lua test.
     bundletest = true,
@@ -2469,6 +2482,31 @@ local processCalls = {
 
 local shellCalls = {"os.execute", "io.popen",}
 local SHELLING = {
+    projecthashtest = true,
+    projectaotscopetest = true,
+    projectmoduletest = true,
+    projectpathtest = true,
+    projectprocesstest = true,
+    projectmaterializationtest = true,
+    projectmanifesttest = true,
+    projectcrosstest = true,
+    projectnativetest = true,
+    projecttest = true,
+    projectchecktest = true,
+    projectinvalidationtest = true,
+    projectctest = true,
+    projectbinarytest = true,
+    projectfixpointtest = true,
+    projectaottest = true,
+    projectclinktest = true,
+    projectcargotest = true,
+    projectgeneratortest = true,
+    projectfilesystemtest = true,
+    projectrocktest = true,
+    projecttestcommandtest = true,
+    projecttasktest = true,
+    projectsyntaxtest = true,
+
     serdecontracttest = true,
     serdecapabilitycontracttest = true,
     -- Shelling happens in the helper so source inspection would otherwise rely
