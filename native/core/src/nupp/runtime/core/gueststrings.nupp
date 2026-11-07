@@ -467,8 +467,9 @@ local function gmatchstep(ctx: voidptr, stateValue: uint64, pack: uint64): uint6
                 local captures = patterns.level(ms)
                 if captures == 0ULL then
                     local value = values.TAG_OBJ | strings.make(h, at, e - at)
-                    guestvalues.packput(h, state, librarylayouts.GMATCH_CAPTURES, value)
-                    if pack ~= 0ULL then
+                    if pack == 0ULL then
+                        guestvalues.packput(h, state, librarylayouts.GMATCH_CAPTURES, value)
+                    else
                         guestvalues.packput(h, pack, 1ULL, value)
                     end
                     count = 1ULL
@@ -476,8 +477,9 @@ local function gmatchstep(ctx: voidptr, stateValue: uint64, pack: uint64): uint6
                 local i: uint64 = 0ULL
                 while i < captures do
                     local value = capture(h, ms, subject, i)
-                    guestvalues.packput(h, state, librarylayouts.GMATCH_CAPTURES + i, value)
-                    if pack ~= 0ULL then
+                    if pack == 0ULL then
+                        guestvalues.packput(h, state, librarylayouts.GMATCH_CAPTURES + i, value)
+                    else
                         guestvalues.packput(h, pack, i + 1ULL, value)
                     end
                     i = i + 1ULL

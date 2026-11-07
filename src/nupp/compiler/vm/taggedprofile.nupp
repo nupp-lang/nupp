@@ -663,38 +663,6 @@ function tagged.forVersion(version: integer): any
         -- metatable could tell apart; the core has none yet.
         profile.genericFor = function(ctx: any, stat: any): any
             local source = stat.exprs[1]
-            -- `for a, b in s:gmatch(p)`: a state table {s, p, src, last}
-            -- advanced by the gmatch step, which leaves the match from key 5.
-            if #stat.exprs == 1 and graph.coreLibraryCall(source) == "string.gmatch" then
-                need(#(source.args.exprs or {}) == 1 and #stat.names <= 4, "gmatch takes one pattern")
-                local operands = ctx.operands({source.obj, source.args.exprs[1]}, {"tagged", "tagged"})
-                if operands == nil then
-                    return nil
-                end
-                local held = {ctx.hold(operands[1]), ctx.hold(operands[2])}
-                local keys = {corelibrary.key("GMATCH", "SUBJECT"), corelibrary.key("GMATCH", "PATTERN")}
-                local state = ctx.emit(stat, "NewTable", {}, "tagged")
-                for index, handle in ipairs(held) do
-                    local key = ctx.emit(stat, "K", {pool(ctx, "int64", tostring(keys[index]))}, "tagged")
-                    ctx.emit(stat, "SetIdx", {state, key, ctx.readHeld(handle)}, nil)
-                    ctx.release(handle)
-                end
-                local srcKey = ctx.emit(
-                    stat,
-                    "K",
-                    {pool(ctx, "int64", tostring(corelibrary.key("GMATCH", "SOURCE")))},
-                    "tagged"
-                )
-                local zero = ctx.emit(stat, "K", {pool(ctx, "int64", "0")}, "tagged")
-                ctx.emit(stat, "SetIdx", {state, srcKey, zero}, nil)
-
-                return stepped(
-                    stat,
-                    state,
-                    corelibrary.id("STRING_GMATCH_NEXT"),
-                    corelibrary.key("GMATCH", "CAPTURES") - 1
-                )
-            end
             -- `for k, v in pairs(t)`: a state table {t, key, k, v} the next
             -- step advances, leaving the pair at keys 3 and 4.
             if #stat.exprs == 1 and source.kind == "call" and source.resolvedGlobal == "pairs" then

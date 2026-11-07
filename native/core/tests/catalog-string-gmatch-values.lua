@@ -1,5 +1,7 @@
 local library = string
 local make = library.gmatch
+local direct = string.gmatch
+assert(direct == make)
 local each = make("a1 b22", "(%a)(%d+)")
 local a, b = each()
 assert(a == "a" and b == "1")
@@ -39,6 +41,11 @@ for position, char in ("abc"):gmatch("()(%a)") do
     sum = sum + position + #char
 end
 assert(sum == 9)
+sum = 0
+for char in string.gmatch("ab", ".") do
+    sum = sum + #char
+end
+assert(sum == 2)
 local dynamic = "ab"
 sum = 0
 for char in dynamic:gmatch(".") do
@@ -56,6 +63,8 @@ library.gmatch = function(subject, pattern)
     end
 end
 assert(("ab"):gmatch(".")() == "replacement")
+assert(string.gmatch == library.gmatch and string.gmatch("ab", ".")() == "replacement")
+assert(direct("ab", ".")() == "a")
 assert(dynamic:gmatch(".")() == "replacement")
 local retained = held("ab", ".")
 assert(retained() == "a" and retained() == "b" and select("#", retained()) == 0)

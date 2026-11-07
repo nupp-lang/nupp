@@ -11,7 +11,7 @@ local graph = require("nupp.compiler.vm.graph")
 local lower = require("nupp.compiler.vm.lower")
 local M = {}
 
-local function checked(source, name)
+local function checked(source, name, asModule)
     name = name or "callfront_fixture"
     local path = "=" .. name .. ".nupp"
     local parsed = parser.parse(source, path)
@@ -26,7 +26,12 @@ local function checked(source, name)
         assert(diagnostic.severity ~= "error", diagnostic.msg)
     end
 
-    return program.describe({{name = name, path = path, parsed = parsed, diagnostics = diagnostics}}, name)
+    local module = {name = name, path = path, parsed = parsed, diagnostics = diagnostics}
+    if asModule then
+        return module
+    end
+
+    return program.describe({module}, name)
 end
 
 local function compile(source, profile)
@@ -769,6 +774,35 @@ return ('abc').sub, alias('abc')]])
         end
     end
     assert(refused, "string field assignment lost its checker refusal")
+end
+
+function M.directStringIteratorReadsCurrentFunction()
+    local entry = checked([[local n=0
+for char in string.gmatch('ab', '.') do n=n+#char end
+return n]], nil, true)
+    local base = checked(
+        [[module nupp.runtime.libraryvalues
+export const functions: {[string]: any} = {string={}}]],
+        "nupp.runtime.libraryvalues",
+        true
+    )
+    local p = program.describe({base, entry}, "callfront_fixture")
+    local iterator, direct = 0, 0
+    for _, site in ipairs(p.calls) do
+        if site.iterator then
+            iterator = iterator + 1
+            assert(graph.genericiterator(site.node))
+        elseif site.node.kind == "call" and site.node.obj.kind == "dotIndex" then
+            direct = direct + 1
+            assert(graph.coreLibraryCall(site.node) == nil and site.field)
+            local root = p.requireByNode[site.node.obj.obj]
+            assert(root and root.library == "string")
+            assert(p.requireByNode[site.node.obj] == nil, "direct call bypassed the current library table")
+        end
+    end
+    assert(iterator == 1 and direct == 1)
+    local compiled = program.compile(p, tagged.forVersion(8))
+    assert(#calls(compiled.graphs[2]) == 2)
 end
 
 return M
