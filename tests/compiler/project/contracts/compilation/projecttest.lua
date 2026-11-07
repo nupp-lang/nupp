@@ -1,6 +1,7 @@
 local fixture = require("helpers.projectfixture")
 local testAssert = fixture.testAssert
 local project = fixture.project
+local compilerEnv = fixture.compilerEnv
 local write = fixture.write
 local read = fixture.read
 local exists = fixture.exists
