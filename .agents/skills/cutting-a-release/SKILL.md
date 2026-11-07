@@ -74,6 +74,28 @@ below.
 
 ## Moving the stage-zero pin
 
+Use `scripts/advance-stage0 TOPIC` from a clean committed native checkout. It
+emits a three-stage fixpoint image, chooses the next immutable experimental tag,
+publishes with `--prerelease --latest=false`, runs the native seed refresh, checks
+all three host receipts and archive members, then runs fixpoint from the
+published pair before committing only `scripts/bootstrap-seeds.json`. It never
+pushes the source or pin commit. The source must already be on an experimental
+remote branch before publication. Use `--version X.Y.Z` when changing the tag's
+version base; otherwise it comes from the current native pin URLs.
+
+`--prepare-only` stops before publication. `--publish-only` publishes and verifies
+the image, prints the exact owner dispatch command, and stops before dispatch.
+Use it when this session cannot dispatch the workflow; do not retry a denied
+action through the helper. After the owner runs the printed command, continue
+with `scripts/advance-stage0 --resume RECEIPT --run RUN_ID`. Resuming checks the
+same source, saved pins, image bytes, release target and successful workflow
+before any pin change. Keep the receipt and logs under `build/stage0/TAG/`.
+Archive them with the pin-move evidence before removing the worktree.
+
+Never use a Lua bundle or the legacy sentinel pins to update this native route.
+Publish an accepting predecessor before compiler sources adopt the feature it
+accepts; a helper cannot make an older seed understand those sources.
+
 A checkout bootstraps from the published runtime and compiler image paired in
 `scripts/bootstrap-seeds.json`. Each entry under `hosts` names one archive URL
 and its `sha256`, plus `runtimeSha256` and `imageSha256` for its members:
