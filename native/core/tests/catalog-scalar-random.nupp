@@ -1,0 +1,34 @@
+module nupp.core.catalogscalarrandom
+
+local generator = math.Xoshiro128(12345)
+local expected = {
+    0.25454781646840274,
+    0.047265402274206281,
+    0.87110176053829491,
+    0.88562377681955695,
+    0.97293841186910868,
+    0.18865043367259204,
+    0.31380670145153999,
+    0.94012095988728106
+}
+for index = 1, #expected do
+    assert(generator:next() == expected[index], "seeded scalar draw differs")
+end
+local state = generator:state()
+assert(state[1] == 522211826 and state[2] == 1785743282 and state[3] == 676026232 and state[4] == -1112538433)
+generator:reseed(12345)
+local integers = {26, 5, 88, 89, 98, 19, 32, 95, 87, 90, 75, 51}
+for index = 1, #integers do
+    assert(generator:integer(1, 100) == integers[index], "seeded scalar integer differs")
+end
+local positive = math.Xoshiro128(2147483648)
+local negative = math.Xoshiro128(-2147483648)
+for _ = 1, 20 do
+    assert(positive:next() == negative:next())
+end
+local saved = positive:state()
+local first, second = positive:next(), positive:next()
+positive:setstate(saved)
+collectgarbage("collect")
+assert(positive:next() == first and positive:next() == second)
+export = 1

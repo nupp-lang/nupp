@@ -47,6 +47,9 @@ local CASES: {[string]: {
     rooted: boolean?,
     module: string?
 }} = {
+    scalarmath = {fixture = "catalog-scalar-math", version = 8, follow = true},
+    scalarrandom = {fixture = "catalog-scalar-random", version = 8, follow = true},
+    scalarmutation = {fixture = "catalog-scalar-mutation", version = 8, follow = true},
     boolean = {fixture = "catalog-boolean", version = 2},
     nilValue = {fixture = "catalog-nil", version = 2},
     live = {fixture = "catalog-live", version = 2},

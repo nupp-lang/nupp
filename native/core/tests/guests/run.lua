@@ -58,6 +58,9 @@ local GUEST_ENV = "NUPP_GUEST_PROBE=core-environment NUPP_GUEST_SCALE=3 NUPP_GUE
 ) .. " NUPP_GUEST_TEMP=" .. OUT .. "/temp" .. " "
 
 local CASES = {
+    {"scalarmath", 0x7FFF000000000001},
+    {"scalarrandom", 0x7FFF000000000001},
+    {"scalarmutation", 0x7FFF000000000001},
     {"systemprovider", 0x7FFF000000000007},
     {"systeminfo", 0x7FFF00000000000F},
     {"entropy", 0x7FFF00000000000F},
@@ -314,6 +317,9 @@ end
 -- spaced by a share of what lives, so the full-scale workloads stay linear;
 -- records and strings, at seconds a run there, run so in normal mode alone.
 local STRESS = {
+    scalarmath = true,
+    scalarrandom = true,
+    scalarmutation = true,
     systemprovider = true,
     systeminfo = true,
     entropy = true,
@@ -572,6 +578,9 @@ local POSIXTWINS = {
     ["catalog-os-files"] = true
 }
 local FIXTURES = {
+    "catalog-scalar-math",
+    "catalog-scalar-random",
+    "catalog-scalar-mutation",
     "catalog-system-provider",
     "catalog-system-info",
     "catalog-entropy",

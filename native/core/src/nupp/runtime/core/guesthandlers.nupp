@@ -1534,6 +1534,8 @@ export function LibCall(
         slots.writeValue(frame, regs, dst, guestio.arguments(ctx))
     elseif libraryId >= librarycalls.WIDTHS_FIRST and libraryId <= librarycalls.WIDTHS_LAST then
         slots.writeValue(frame, regs, dst, numbers.widthcall(ctx, libraryId, a))
+    elseif libraryId >= librarycalls.SCALAR_FIRST and libraryId <= librarycalls.SCALAR_LAST then
+        slots.writeValue(frame, regs, dst, numbers.scalarcall(ctx, libraryId, a, b))
     elseif libraryId >= librarycalls.BITS_FIRST and libraryId <= librarycalls.BITS_LAST then
         slots.writeValue(frame, regs, dst, numbers.bitcall(ctx, libraryId, a, b))
     elseif libraryId == librarycalls.FOR_LIMIT then

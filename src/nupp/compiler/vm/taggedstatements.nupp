@@ -21,12 +21,43 @@ local pool = taggedvalues.pool
 local scalarType = taggedvalues.scalarType
 local typeKind = taggedvalues.typeKind
 
+-- Typed scalar operators use exactly the library operation public calls use.
+export function scalar(ctx: any, node: any, identity: string, arguments: any, signed: boolean?): integer
+    local entry = need(corelibrary.scalar(identity), "unsupported checked scalar operator")
+    local result = libraryCall(ctx, node, entry.id, arguments)
+    if result == nil or not signed then
+        return result
+    end
+    -- An int32 logical shift first computes the unsigned bit pattern.
+    local convert = need(corelibrary.scalar("i32.fromU32"), "missing scalar signed conversion")
+
+    return taggedvalues.landed(ctx, node, ctx.emit(node, "LibCall", {convert.id, result}, "tagged")) as integer
+end
+
 -- Before v6 only float addition and less-than are admitted. v6 admits the
 -- dynamic numeric operators over checked integer, float or number operands;
 -- `a > b` evaluates both operands in order and then compares as `b < a`.
 export function binary(ctx: any, node: any, expected: string?, version: integer): integer
     local operation = node.op.text
     need(expected == nil or expected == "tagged", "tagged result required")
+    if version >= 8 then
+        if node.fixedArithmetic then
+            return scalar(ctx, node, node.fixedArithmetic, {node.lhs, node.rhs})
+        end
+        if typeKind(node.inferredType) == "int32" then
+            local operation = ({
+                ["&"] = "andBits",
+                ["|"] = "orBits",
+                ["~"] = "xorBits",
+                ["<<"] = "shiftLeft",
+                [">>"] = "shiftRightLogical"
+            })[node.op.text]
+            if operation then
+                local logical = operation == "shiftRightLogical"
+                return scalar(ctx, node, (logical and "u32." or "i32.") .. operation, {node.lhs, node.rhs}, logical)
+            end
+        end
+    end
     -- From v8 `..`, `/`, `//` and the bitwise operators are core library
     -- calls (gueststrings, guestnumbers).
     local library = version >= 8

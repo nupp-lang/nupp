@@ -10,6 +10,7 @@ this module when it takes a library function as a value.
 ]]
 
 local hostcalls = require("nupp.runtime.hostcalls")
+local scalarcalls = require("nupp.runtime.scalarcalls")
 
 export const functions: {[string]: any} = {
     -- The ambient `package` table: its `loaded` and `preload` as Lua's, empty
@@ -154,13 +155,10 @@ export const functions: {[string]: any} = {
 
 -- The library tables by name, `math` and `string` and `table`: the functions
 -- above under their field names, and `math`'s constants.
-local libraries: {
-    [string]: {[string]: any}
-} = {
-    math = {huge = math.huge, pi = math.pi, maxinteger = math.maxinteger, mininteger = math.mininteger},
-    string = {},
-    table = {}
-}
+local mathmembers: {
+    [string]: any
+} = {huge = math.huge, pi = math.pi, maxinteger = math.maxinteger, mininteger = math.mininteger}
+local libraries: {[string]: {[string]: any}} = {math = mathmembers, string = {}, table = {}}
 for name, value in pairs(functions) do
     local library, field = string.match(name, "^(%a+)%.(%a+)$")
     local members = library and libraries[library]
@@ -168,6 +166,133 @@ for name, value in pairs(functions) do
         members[field as string] = value
     end
 end
+-- Scalar functions and namespace aliases read these same canonical tables.
+mathmembers.i32 = {}
+mathmembers.i32.wrap = function(value: integer): int32
+    return scalarcalls.i32wrap(value)
+end
+mathmembers.i32.add = function(a: int32, b: int32): int32
+    return scalarcalls.i32add(a, b)
+end
+mathmembers.i32.sub = function(a: int32, b: int32): int32
+    return scalarcalls.i32sub(a, b)
+end
+mathmembers.i32.mul = function(a: int32, b: int32): int32
+    return scalarcalls.i32mul(a, b)
+end
+mathmembers.i32.andbits = function(a: int32, b: int32): int32
+    return scalarcalls.i32andbits(a, b)
+end
+mathmembers.i32.orbits = function(a: int32, b: int32): int32
+    return scalarcalls.i32orbits(a, b)
+end
+mathmembers.i32.xorbits = function(a: int32, b: int32): int32
+    return scalarcalls.i32xorbits(a, b)
+end
+mathmembers.i32.notbits = function(a: int32): int32
+    return scalarcalls.i32notbits(a)
+end
+mathmembers.i32.shiftleft = function(a: int32, count: integer): int32
+    return scalarcalls.i32shiftleft(a, count)
+end
+mathmembers.i32.shiftrightarithmetic = function(a: int32, count: integer): int32
+    return scalarcalls.i32shiftrightarithmetic(a, count)
+end
+mathmembers.i32.rotateleft = function(a: int32, count: integer): int32
+    return scalarcalls.i32rotateleft(a, count)
+end
+mathmembers.i32.rotateright = function(a: int32, count: integer): int32
+    return scalarcalls.i32rotateright(a, count)
+end
+mathmembers.i32.lessthan = function(a: int32, b: int32): boolean
+    return scalarcalls.i32lessthan(a, b)
+end
+mathmembers.i32.lessorequal = function(a: int32, b: int32): boolean
+    return scalarcalls.i32lessorequal(a, b)
+end
+mathmembers.i32.fromu32 = function(a: uint32): int32
+    return scalarcalls.i32fromu32(a)
+end
+mathmembers.i32.tou32 = function(a: int32): uint32
+    return scalarcalls.i32tou32(a)
+end
+mathmembers.u32 = {}
+mathmembers.u32.wrap = function(value: integer): uint32
+    return scalarcalls.u32wrap(value)
+end
+mathmembers.u32.add = function(a: uint32, b: uint32): uint32
+    return scalarcalls.u32add(a, b)
+end
+mathmembers.u32.sub = function(a: uint32, b: uint32): uint32
+    return scalarcalls.u32sub(a, b)
+end
+mathmembers.u32.mul = function(a: uint32, b: uint32): uint32
+    return scalarcalls.u32mul(a, b)
+end
+mathmembers.u32.div = function(a: uint32, b: uint32): uint32
+    return scalarcalls.u32div(a, b)
+end
+mathmembers.u32.mod = function(a: uint32, b: uint32): uint32
+    return scalarcalls.u32mod(a, b)
+end
+mathmembers.u32.andbits = function(a: uint32, b: uint32): uint32
+    return scalarcalls.u32andbits(a, b)
+end
+mathmembers.u32.orbits = function(a: uint32, b: uint32): uint32
+    return scalarcalls.u32orbits(a, b)
+end
+mathmembers.u32.xorbits = function(a: uint32, b: uint32): uint32
+    return scalarcalls.u32xorbits(a, b)
+end
+mathmembers.u32.notbits = function(a: uint32): uint32
+    return scalarcalls.u32notbits(a)
+end
+mathmembers.u32.shiftleft = function(a: uint32, count: integer): uint32
+    return scalarcalls.u32shiftleft(a, count)
+end
+mathmembers.u32.shiftrightlogical = function(a: uint32, count: integer): uint32
+    return scalarcalls.u32shiftrightlogical(a, count)
+end
+mathmembers.u32.rotateleft = function(a: uint32, count: integer): uint32
+    return scalarcalls.u32rotateleft(a, count)
+end
+mathmembers.u32.rotateright = function(a: uint32, count: integer): uint32
+    return scalarcalls.u32rotateright(a, count)
+end
+mathmembers.u32.lessthan = function(a: uint32, b: uint32): boolean
+    return scalarcalls.u32lessthan(a, b)
+end
+mathmembers.u32.lessorequal = function(a: uint32, b: uint32): boolean
+    return scalarcalls.u32lessorequal(a, b)
+end
+mathmembers.u32.fromi32 = function(a: int32): uint32
+    return scalarcalls.u32fromi32(a)
+end
+mathmembers.u32.toi32 = function(a: uint32): int32
+    return scalarcalls.u32toi32(a)
+end
+mathmembers.u32.popcount = function(a: uint32): uint32
+    return scalarcalls.u32popcount(a)
+end
+mathmembers.u32.trailingzeros = function(a: uint32): uint32
+    return scalarcalls.u32trailingzeros(a)
+end
+mathmembers.u32.leadingzeros = function(a: uint32): uint32
+    return scalarcalls.u32leadingzeros(a)
+end
+mathmembers.u64 = {}
+mathmembers.u64.andbits = function(a: uint64, b: uint64): uint64
+    return scalarcalls.u64andbits(a, b)
+end
+mathmembers.u64.sub = function(a: uint64, b: uint64): uint64
+    return scalarcalls.u64sub(a, b)
+end
+mathmembers.f32 = {
+    narrow = function(value: number): float32
+        return scalarcalls.f32narrow(value)
+    end
+}
+
 for library, members in pairs(libraries) do
     functions[library] = members
 end

@@ -1634,6 +1634,11 @@ function tagged.forVersion(version: integer): any
             end
         end
         profile.unary = function(ctx: any, node: any, expected: string?): integer
+            if node.fixedArithmetic then
+                return taggedstatements.scalar(ctx, node, node.fixedArithmetic, {node.operand})
+            elseif node.op and node.op.text == "~" and typeKind(node.inferredType) == "int32" then
+                return taggedstatements.scalar(ctx, node, "i32.notBits", {node.operand})
+            end
             if node.op and node.op.text == "not" then
                 need(expected == nil or expected == "tagged", "negation requires tagged destination")
                 local operand = ctx.expression(node.operand, "tagged")

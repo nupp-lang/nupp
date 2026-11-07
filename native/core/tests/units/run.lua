@@ -1099,6 +1099,20 @@ UNITS[#UNITS + 1] = {
 }
 
 UNITS[#UNITS + 1] = {
+    name = "scalarunits",
+    modules = {"scalarunits", "unitentry"},
+    entries = {{"scalarunits", "boundaries", 1}},
+    cases = function()
+        local cases = {}
+        for which = 1, 45 do
+            cases[#cases + 1] = {"boundaries", {which}, 1}
+        end
+
+        return cases
+    end
+}
+
+UNITS[#UNITS + 1] = {
     name = "systemunits",
     modules = {"systemunits", "unitentry", "nupp.runtime.core.coretables"},
     paths = {["nupp.runtime.core.coretables"] = ROOT .. "/native/core/src/nupp/runtime/core/coretables.nupp"},

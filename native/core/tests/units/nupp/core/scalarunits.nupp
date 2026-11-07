@@ -1,0 +1,347 @@
+module nupp.core.scalarunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const values = require("nupp.runtime.vm.values")
+const numbers = require("nupp.runtime.core.guestnumbers")
+const calls = require("nupp.runtime.core.librarycalls")
+const scalarkinds = require("nupp.runtime.core.scalarkinds")
+
+export function boundaries(which: uint64): uint64
+    if which == 1ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_I32_WRAP), 0x80000000ULL, 0ULL) == 0xffffffff80000000ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 2ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_U32_WRAP), 0xffffffffffffffffULL, 0ULL) == 0xffffffffULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 3ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_I32_ADD), 0x7fffffffULL, 1ULL) == 0xffffffff80000000ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 4ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_I32_SUB), 0x80000000ULL, 1ULL) == 0x7fffffffULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 5ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_I32_MUL), 0x7fffffffULL, 0x7fffffffULL) == 1ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 6ULL then
+        return native.chooseWord(
+            numbers.scalarbits(
+                scalarkinds.selector(calls.MATH_I32_ANDBITS),
+                0xffffffffULL,
+                0x80000000ULL
+            ) == 0xffffffff80000000ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 7ULL then
+        return native.chooseWord(
+            numbers.scalarbits(
+                scalarkinds.selector(calls.MATH_I32_ORBITS),
+                0x80000000ULL,
+                1ULL
+            ) == 0xffffffff80000001ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 8ULL then
+        return native.chooseWord(
+            numbers.scalarbits(
+                scalarkinds.selector(calls.MATH_I32_XORBITS),
+                0xffffffffULL,
+                0x80000000ULL
+            ) == 0x7fffffffULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 9ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_I32_NOTBITS), 0ULL, 0ULL) == 0xffffffffffffffffULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 10ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_I32_SHIFTLEFT), 1ULL, 31ULL) == 0xffffffff80000000ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 11ULL then
+        return native.chooseWord(
+            numbers.scalarbits(
+                scalarkinds.selector(calls.MATH_I32_SHIFTRIGHTARITHMETIC),
+                0xfffffff8ULL,
+                1ULL
+            ) == 0xfffffffffffffffcULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 12ULL then
+        return native.chooseWord(
+            numbers.scalarbits(
+                scalarkinds.selector(calls.MATH_I32_SHIFTRIGHTARITHMETIC),
+                0xfffffff8ULL,
+                0xffffffffffffffffULL
+            ) == 0xffffffffffffffffULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 13ULL then
+        return native.chooseWord(
+            numbers.scalarbits(
+                scalarkinds.selector(calls.MATH_I32_ROTATELEFT),
+                1ULL,
+                0xffffffffffffffffULL
+            ) == 0xffffffff80000000ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 14ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_I32_ROTATERIGHT), 0x80000000ULL, 31ULL) == 1ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 15ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_I32_LESSTHAN), 0xffffffffULL, 1ULL) == values.TRUE,
+            1ULL,
+            0ULL
+        )
+    elseif which == 16ULL then
+        return native.chooseWord(
+            numbers.scalarbits(
+                scalarkinds.selector(calls.MATH_I32_LESSOREQUAL),
+                0x80000000ULL,
+                0x80000000ULL
+            ) == values.TRUE,
+            1ULL,
+            0ULL
+        )
+    elseif which == 17ULL then
+        return native.chooseWord(
+            numbers.scalarbits(
+                scalarkinds.selector(calls.MATH_I32_FROMU32),
+                0xffffffffULL,
+                0ULL
+            ) == 0xffffffffffffffffULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 18ULL then
+        return native.chooseWord(
+            numbers.scalarbits(
+                scalarkinds.selector(calls.MATH_I32_TOU32),
+                0xffffffffffffffffULL,
+                0ULL
+            ) == 0xffffffffULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 19ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_U32_ADD), 0xffffffffULL, 1ULL) == 0ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 20ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_U32_SUB), 0ULL, 1ULL) == 0xffffffffULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 21ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_U32_MUL), 0xffffffffULL, 0xffffffffULL) == 1ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 22ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_U32_DIV), 0xffffffffULL, 65536ULL) == 65535ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 23ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_U32_MOD), 0xffffffffULL, 65536ULL) == 65535ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 24ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_U32_DIV), 17ULL, 0ULL) == 0ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 25ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_U32_MOD), 17ULL, 0ULL) == 0ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 26ULL then
+        return native.chooseWord(
+            numbers.scalarbits(
+                scalarkinds.selector(calls.MATH_U32_ANDBITS),
+                0xffffffffULL,
+                0x80000000ULL
+            ) == 0x80000000ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 27ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_U32_ORBITS), 0x80000000ULL, 1ULL) == 0x80000001ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 28ULL then
+        return native.chooseWord(
+            numbers.scalarbits(
+                scalarkinds.selector(calls.MATH_U32_XORBITS),
+                0xffffffffULL,
+                0x80000000ULL
+            ) == 0x7fffffffULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 29ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_U32_NOTBITS), 0ULL, 0ULL) == 0xffffffffULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 30ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_U32_SHIFTLEFT), 1ULL, 32ULL) == 1ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 31ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_U32_SHIFTRIGHTLOGICAL), 0x80000000ULL, 31ULL) == 1ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 32ULL then
+        return native.chooseWord(
+            numbers.scalarbits(
+                scalarkinds.selector(calls.MATH_U32_SHIFTRIGHTLOGICAL),
+                0x80000000ULL,
+                32ULL
+            ) == 0x80000000ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 33ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_U32_ROTATELEFT), 0x80000000ULL, 1ULL) == 1ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 34ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_U32_ROTATERIGHT), 1ULL, 0ULL) == 1ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 35ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_U32_LESSTHAN), 0xffffffffULL, 1ULL) == values.FALSE,
+            1ULL,
+            0ULL
+        )
+    elseif which == 36ULL then
+        return native.chooseWord(
+            numbers.scalarbits(
+                scalarkinds.selector(calls.MATH_U32_LESSOREQUAL),
+                0xffffffffULL,
+                0xffffffffULL
+            ) == values.TRUE,
+            1ULL,
+            0ULL
+        )
+    elseif which == 37ULL then
+        return native.chooseWord(
+            numbers.scalarbits(
+                scalarkinds.selector(calls.MATH_U32_FROMI32),
+                0xffffffffffffffffULL,
+                0ULL
+            ) == 0xffffffffULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 38ULL then
+        return native.chooseWord(
+            numbers.scalarbits(
+                scalarkinds.selector(calls.MATH_U32_TOI32),
+                0xffffffffULL,
+                0ULL
+            ) == 0xffffffffffffffffULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 39ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_U32_POPCOUNT), 0xffffffffULL, 0ULL) == 32ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 40ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_U32_TRAILINGZEROS), 0ULL, 0ULL) == 32ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 41ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_U32_LEADINGZEROS), 0ULL, 0ULL) == 32ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 42ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_U32_TRAILINGZEROS), 0x80000000ULL, 0ULL) == 31ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 43ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_U32_LEADINGZEROS), 1ULL, 0ULL) == 31ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 44ULL then
+        return native.chooseWord(
+            numbers.scalarbits(
+                scalarkinds.selector(calls.MATH_U64_ANDBITS),
+                0xffffffffffffffffULL,
+                0x8000000000000000ULL
+            ) == 0x8000000000000000ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 45ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_U64_SUB), 0ULL, 1ULL) == 0xffffffffffffffffULL,
+            1ULL,
+            0ULL
+        )
+    end
+
+    return 0ULL
+end

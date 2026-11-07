@@ -1,0 +1,29 @@
+module nupp.core.catalogscalarmutation
+
+local widths = math.i32
+local original = widths.wrap
+local replacement: @nosuspend function(integer): int32 = function(value: integer): int32
+    return 7
+end
+widths.wrap = replacement
+assert(widths.wrap(123) == 7 and math.i32.wrap(123) == 7)
+math.i32.wrap = original
+assert(widths.wrap(123) == 123)
+rawset(widths, "wrap", replacement)
+assert(widths.wrap(123) == 7 and math.i32.wrap(123) == 7)
+rawset(widths, "wrap", original)
+assert(widths.wrap(123) == 123)
+local call = original
+call = replacement
+assert(call(123) == 7)
+local nested = original
+
+local function change(): nil
+    nested = replacement
+end
+
+change()
+assert(nested(123) == 7)
+local math = {i32 = {wrap = replacement}}
+assert(math.i32.wrap(123) == 7)
+export = 1

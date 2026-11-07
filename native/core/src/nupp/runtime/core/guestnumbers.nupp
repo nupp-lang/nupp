@@ -18,6 +18,7 @@ const tables = require("nupp.runtime.core.coretables")
 const os = require("nupp.runtime.vm.os")
 const guestvalues = require("nupp.runtime.core.guestvalues")
 const librarycalls = require("nupp.runtime.core.librarycalls")
+const scalarkinds = require("nupp.runtime.core.scalarkinds")
 const corestorage = require("nupp.runtime.core.corestorage")
 
 -- Lua's unary minus of a number: integers wrap, floats change sign.
@@ -661,22 +662,159 @@ export function bitcall(ctx: voidptr, id: uint64, a: uint64, b: uint64): uint64
     end
 end
 
+-- Signed32 words are sign extended only at the boundary; the common kernel
+-- computes on exact low32 bit patterns, never through binary64 arithmetic.
+local function signed32(bits: uint64): uint64
+    local low = bits & 0xffffffffULL
+    return native.chooseWord(low >= 0x80000000ULL, low | 0xffffffff00000000ULL, low)
+end
+
+-- The generated selector identifies a checked family and operation. Comparisons
+-- return tagged booleans; all other operations return exact integer bits.
+export function scalarbits(selector: uint64, left: uint64, right: uint64): uint64
+    local family = selector >> 32ULL
+    local operation = selector & 0xffffffffULL
+    if family == scalarkinds.U64 then
+        if operation == scalarkinds.ANDBITS then
+            return left & right
+        elseif operation == scalarkinds.SUB then
+            return left - right
+        end
+        error("invalid64-bit scalar operation")
+    end
+    if family ~= scalarkinds.I32 and family ~= scalarkinds.U32 then
+        error("invalid scalar family")
+    end
+    local a = left & 0xffffffffULL
+    local b = right & 0xffffffffULL
+    local count = b & 31ULL
+    local result = a
+    if operation == scalarkinds.ADD then
+        result = a + b
+    elseif operation == scalarkinds.SUB then
+        result = a - b
+    elseif operation == scalarkinds.MUL then
+        result = a * b
+    elseif operation == scalarkinds.ANDBITS then
+        result = a & b
+    elseif operation == scalarkinds.ORBITS then
+        result = a | b
+    elseif operation == scalarkinds.XORBITS then
+        result = a ~ b
+    elseif operation == scalarkinds.NOTBITS then
+        result = a ~ 0xffffffffULL
+    elseif operation == scalarkinds.SHIFTLEFT then
+        result = a << count
+    elseif operation == scalarkinds.SHIFTRIGHTLOGICAL then
+        result = a >> count
+    elseif operation == scalarkinds.SHIFTRIGHTARITHMETIC then
+        result = a >> count
+        if a >= 0x80000000ULL then
+            result = result | (0xffffffffULL << (32ULL - count))
+        end
+    elseif operation == scalarkinds.ROTATELEFT then
+        result = (a << count) | (a >> ((32ULL - count) & 31ULL))
+    elseif operation == scalarkinds.ROTATERIGHT then
+        result = (a >> count) | (a << ((32ULL - count) & 31ULL))
+    elseif operation == scalarkinds.LESSTHAN or operation == scalarkinds.LESSOREQUAL then
+        local less = a < b
+        if family == scalarkinds.I32 then
+            less = native.index(signed32(a)) < native.index(signed32(b))
+        end
+        return native.chooseWord(less or operation == scalarkinds.LESSOREQUAL and a == b, values.TRUE, values.FALSE)
+    elseif operation == scalarkinds.DIV or operation == scalarkinds.MOD then
+        if b == 0ULL then
+            result = 0ULL
+        elseif operation == scalarkinds.DIV then
+            result = a // b
+        else
+            result = a % b
+        end
+    elseif operation == scalarkinds.POPCOUNT then
+        result = 0ULL
+        local rest = a
+        while rest ~= 0ULL do
+            result = result + 1ULL
+            rest = rest & (rest - 1ULL)
+        end
+    elseif operation == scalarkinds.TRAILINGZEROS or operation == scalarkinds.LEADINGZEROS then
+        result = 32ULL
+        if a ~= 0ULL then
+            result = 0ULL
+            local probe = native.chooseWord(operation == scalarkinds.LEADINGZEROS, 0x80000000ULL, 1ULL)
+            while a & probe == 0ULL do
+                result = result + 1ULL
+                if operation == scalarkinds.LEADINGZEROS then
+                    probe = probe >> 1ULL
+                else
+                    probe = probe << 1ULL
+                end
+            end
+        end
+    elseif operation ~= scalarkinds.WRAP
+        and operation ~= scalarkinds.FROMU32
+        and operation ~= scalarkinds.TOU32
+        and operation ~= scalarkinds.FROMI32
+        and operation ~= scalarkinds.TOI32
+    then
+        error("invalid32-bit scalar operation")
+    end
+    local signed = family == scalarkinds.I32
+    if operation == scalarkinds.TOU32 or operation == scalarkinds.FROMI32 then
+        signed = false
+    elseif operation == scalarkinds.FROMU32 or operation == scalarkinds.TOI32 then
+        signed = true
+    end
+
+    return native.chooseWord(signed, signed32(result), result & 0xffffffffULL)
+end
+
+local function scalarword(ctx: voidptr, value: uint64, position: uint64): uint64
+    if value == values.NIL then
+        texts.argumentError(ctx, position, librarytexts.TEXT_NUMBER, 0ULL, value)
+    end
+    return native.word(guestvalues.intarg(ctx, value, 0, position))
+end
+
+export function scalarcall(ctx: voidptr, id: uint64, a: uint64, b: uint64): uint64
+    local selector = scalarkinds.selector(id)
+    if selector == 0ULL then
+        error("invalid scalar library call")
+    end
+    local operation = selector & 0xffffffffULL
+    local left = scalarword(ctx, a, 1ULL)
+    local right: uint64 = 0ULL
+    if operation == scalarkinds.ADD
+        or operation == scalarkinds.SUB
+        or operation == scalarkinds.MUL
+        or operation == scalarkinds.ANDBITS
+        or operation == scalarkinds.ORBITS
+        or operation == scalarkinds.XORBITS
+        or operation == scalarkinds.SHIFTLEFT
+        or operation == scalarkinds.SHIFTRIGHTLOGICAL
+        or operation == scalarkinds.SHIFTRIGHTARITHMETIC
+        or operation == scalarkinds.ROTATELEFT
+        or operation == scalarkinds.ROTATERIGHT
+        or operation == scalarkinds.LESSTHAN
+        or operation == scalarkinds.LESSOREQUAL
+        or operation == scalarkinds.DIV
+        or operation == scalarkinds.MOD
+    then
+        right = scalarword(ctx, b, 2ULL)
+    end
+    local result = scalarbits(selector, left, right)
+    if operation == scalarkinds.LESSTHAN or operation == scalarkinds.LESSOREQUAL then
+        return result
+    end
+
+    return guestscope.integer(ctx, result)
+end
+
 -- The fixed-width call `id` (math.f32.narrow, math.u32.wrap or
 -- math.i32.wrap) of `a`.
 export function widthcall(ctx: voidptr, id: uint64, a: uint64): uint64
     if id == librarycalls.MATH_F32_NARROW then
         return guestvalues.floatvalue(corestorage.narrow(guestvalues.floatof(guestvalues.numarg(ctx, a, 1ULL))))
     end
-    if a == values.NIL then
-        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_NUMBER, 0ULL, a)
-    end
-    local low = native.word(guestvalues.intarg(ctx, a, 0, 1ULL)) & 0xffffffffULL
-    if id == librarycalls.MATH_I32_WRAP and low >= 0x80000000ULL then
-        low = low | 0xffffffff00000000ULL
-    end
-    @unsafe do
-        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
-        local h = native.pointer(native.load64(services, native.fieldOffset<guestscope.Services>("heap"))) as heap.Heap*
-        return ints.make(h, low)
-    end
+    return scalarcall(ctx, id, a, values.NIL)
 end
