@@ -771,10 +771,11 @@ end
 -- A record method call, `c:m(...)`: the method is loaded from the table the
 -- record's name holds and called with the receiver first. With `count`, it
 -- keeps that many results and answers them as a list.
-export function invokeMethod(ctx: any, node: any, keepResult: boolean, count: integer?): any
+export function invokeMethod(ctx: any, node: any, keepResult: boolean, count: integer?, prepared: {integer}?): any
     local p = catalog(ctx)
     local site = need(p.callByNode[node], "method call lacks checked callsite")
     need(site.method and site.owner == ctx.fn.id, "method callsite belongs to another owner")
+    need(prepared == nil or site.indexed ~= nil and #prepared == 2, "prepared method operands lack indexed authority")
     local contract
     if site.dynamic then
         contract = graph.dynamicmethodcontract(node, count)
@@ -798,7 +799,7 @@ export function invokeMethod(ctx: any, node: any, keepResult: boolean, count: in
     local args: any = nil
     if site.dynamic then
         -- The method the receiver answers for its name.
-        local receiver = ctx.expression(node.obj, "tagged")
+        local receiver = prepared and prepared[1] or ctx.expression(node.obj, "tagged")
         if receiver == nil then
             return nil
         end
@@ -807,7 +808,7 @@ export function invokeMethod(ctx: any, node: any, keepResult: boolean, count: in
         local callee = ctx.hold(ctx.emit(node, "GetIdx", {ctx.readHeld(heldReceiver), key}, "tagged"))
         table.remove(exprs, 1)
         table.remove(kinds, 1)
-        local rest = ctx.operands(exprs, kinds)
+        local rest = prepared and {prepared[2]} or ctx.operands(exprs, kinds)
         value = ctx.readHeld(callee)
         ctx.release(callee)
         local first = ctx.readHeld(heldReceiver)

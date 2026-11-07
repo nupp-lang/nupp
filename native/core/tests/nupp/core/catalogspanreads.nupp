@@ -1,0 +1,51 @@
+module nupp.core.catalogspanreads
+
+local own = require("own")
+local {type Span} = require("binary.span")
+local SharedBytes = io.SharedBytes
+local events = 0
+local closed = 0
+
+local interface Closer is own.Affine<self.close>
+    close: function(takes self: Closer): nil
+end
+local record Sink is Closer
+    n: integer
+    function close(takes self): nil
+        local state = @unsafe own.release(self)
+        closed += state.n
+    end
+end
+
+local function receiver(borrows region: io.SharedBytes): Span<uint8> borrows (region)
+    events = events * 10 + 1
+    return region:view()
+end
+
+local function position(): (integer, integer)
+    events = events * 10 + 2
+    return 2, 99
+end
+
+local region = SharedBytes.copy("a\0bc")
+assert(receiver(region)[position()] == 0, "index keeps only the first result")
+assert(events == 12, "receiver and index evaluate once in source order")
+collectgarbage("collect")
+local view = region:view()
+assert(view[1] == 97 and view[4] == 99, "one-based endpoints retain their source")
+
+local function element(borrows values: Span<uint8>, index: integer): integer
+    local held = Sink(n = 1)
+    return values[index]
+end
+
+assert(element(view, 1) == 97 and closed == 1, "successful indexed calls close their owners")
+for _, index in ipairs({0, 5}) do
+    local okay, why = pcall(element, view, index)
+    assert(not okay and type(why) == "string", "out-of-range span reads raise")
+    assert((why as string):find("span index out of bounds", 1, true) ~= nil, "get supplies the bounds error")
+end
+assert(closed == 3, "both indexed bounds errors land and close the live owner")
+assert(view[2] == 0 and view[3] == 98, "failed reads leave the view intact")
+
+export = 1

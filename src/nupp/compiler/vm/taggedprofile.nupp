@@ -6,6 +6,7 @@ local corelibrary = require("nupp.compiler.vm.corelibrary")
 local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
 local indexedviews = require("nupp.compiler.types.indexedviews")
+local indexedaccess = require("nupp.compiler.vm.indexedaccess")
 local taggedvalues = require("nupp.compiler.vm.taggedvalues")
 local taggedcalls = require("nupp.compiler.vm.taggedcalls")
 local taggedstatements = require("nupp.compiler.vm.taggedstatements")
@@ -554,6 +555,17 @@ function tagged.forVersion(version: integer): any
         end
         profile.indexRead = function(ctx: any, node: any, expected: string?): integer
             need(expected == nil or expected == "tagged", "index requires tagged destination")
+            local access = catalog(ctx).indexedByNode[node]
+            if access ~= nil or indexedaccess.read(node) ~= nil then
+                need(access ~= nil, "indexed span lacks its issued catalog entry")
+                indexedaccess.verify(access, node, ctx.fn.id)
+                -- As in the VM adapter: receiver, index, then getter lookup.
+                local arguments = ctx.operands({node.obj, node.expr}, {"tagged", "tagged"})
+                if arguments == nil then
+                    return nil as any
+                end
+                return invokeMethod(ctx, access.call, true, nil, arguments) as integer
+            end
             local operands = ctx.operands({node.obj, node.expr}, {"tagged", "tagged"})
             if operands == nil then
                 return nil as any
@@ -1686,22 +1698,9 @@ function tagged.forVersion(version: integer): any
                 local view = indexedviews.describe(node.operand.inferredType)
                 local marked = node.indexedLength
                 if marked ~= nil or view ~= nil then
-                    local descriptor = type(marked) == "table" and marked.descriptor or nil
-                    local receiver = node.operand.kind == "name"
-                        and node.operand.token
-                        and node.operand.token.definition
-                        or nil
-                    need(
-                        type(marked) == "table"
-                        and view ~= nil
-                        and type(descriptor) == "table"
-                        and marked.adapter == view.adapter
-                        and descriptor.adapter == view.adapter
-                        and descriptor.nominal == view.nominal
-                        and descriptor.element == view.element
-                        and descriptor.writable == view.writable
-                        and descriptor.fixedCount == view.fixedCount
-                        and marked.receiverDefinition == receiver,
+                    indexedaccess.descriptor(
+                        node.operand,
+                        marked,
                         "indexed length lacks its checked sealed view descriptor"
                     )
                     local slot = fieldSlot(ctx, node.operand.inferredType, "count")

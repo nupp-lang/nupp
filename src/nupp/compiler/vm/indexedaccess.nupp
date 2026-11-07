@@ -1,0 +1,175 @@
+module nupp.compiler.vm.indexedaccess
+
+local cst = require("nupp.compiler.syntax.cst")
+local indexedviews = require("nupp.compiler.types.indexedviews")
+local need = require("nupp.compiler.vm.taggedvalues").need
+
+local issued: {[any]: any} = setmetatable({}, {__mode = "k"})
+
+-- Length and element access use the same checked sealed-view identity.
+export function descriptor(receiver: any, marked: any, message: string): any
+    local view = receiver and receiver.inferredType and indexedviews.describe(receiver.inferredType)
+    local described = type(marked) == "table" and marked.descriptor
+    local definition = receiver and receiver.kind == "name" and receiver.token and receiver.token.definition or nil
+    need(
+        type(marked) == "table"
+        and view ~= nil
+        and type(described) == "table"
+        and marked.adapter == view.adapter
+        and described.adapter == view.adapter
+        and described.nominal == view.nominal
+        and described.element == view.element
+        and described.writable == view.writable
+        and described.fixedCount == view.fixedCount
+        and marked.receiverDefinition == definition,
+        message
+    )
+
+    return view
+end
+
+export function read(node: any): any
+    if node.kind ~= "bracketIndex" then
+        return nil
+    end
+    local marked = node.indexedAccess
+    local view = node.obj and node.obj.inferredType and indexedviews.describe(node.obj.inferredType)
+    if not (view and view.adapter == "span") and not (type(marked) == "table" and marked.adapter == "span") then
+        return nil
+    end
+    view = descriptor(node.obj, marked, "indexed span lacks its checked sealed view descriptor")
+    local definition = node.expr and node.expr.kind == "name" and node.expr.token and node.expr.token.definition or nil
+    need(
+        view.adapter == "span"
+        and marked.element == view.element
+        and marked.writable == view.writable
+        and not marked.writing
+        and marked.indexDefinition == definition
+        and node.usesIndexContract == true
+        and node.containerTag == "span",
+        "indexed span read differs from its checked contract"
+    )
+
+    return view
+end
+
+-- This call is issued only for a checked operator, not added to the source tree.
+-- The parenthesized index is one value even when its expression is variadic.
+export function prepare(node: any, owner: integer): any
+    if node.kind == "bracketIndex" and type(node.indexedAccess) == "table" and node.indexedAccess.writing then
+        return nil
+    end
+    local view = read(node)
+    if view == nil then
+        return nil
+    end
+    local token = need(cst.firstToken(node), "indexed span lacks a source position")
+    local member: any = {
+        kind = "name",
+        text = "get",
+        line = token.line,
+        col = token.col,
+        offset = token.offset,
+        trivia = {}
+    }
+    local index: any = {node.expr, kind = "paren", expr = node.expr, inferredType = node.expr.inferredType}
+    local args: any = {index, kind = "args", exprs = {index}}
+    local call: any = {
+        node.obj,
+        member,
+        args,
+        kind = "methodCall",
+        obj = node.obj,
+        name = member,
+        args = args,
+        inferredType = node.inferredType,
+        statementOwner = node.statementOwner
+    }
+    local access: any = {node = node, owner = owner, call = call}
+    issued[
+        access
+    ] = {
+        node = node,
+        owner = owner,
+        object = node.obj,
+        index = node.expr,
+        marker = node.indexedAccess,
+        descriptor = node.indexedAccess.descriptor,
+        receiverDefinition = node.indexedAccess.receiverDefinition,
+        indexDefinition = node.indexedAccess.indexDefinition,
+        nominal = view.nominal,
+        element = view.element,
+        writable = view.writable,
+        fixedCount = view.fixedCount,
+        call = call,
+        member = member,
+        args = args,
+        argument = index,
+        expressions = args.exprs,
+        result = node.inferredType,
+        statementOwner = node.statementOwner
+    }
+
+    return access
+end
+
+export function verify(access: any, node: any, owner: integer): boolean
+    local snapshot = need(issued[access], "indexed span call was not issued")
+    need(
+        access.node == node
+        and snapshot.node == node
+        and access.owner == owner
+        and snapshot.owner == owner
+        and node.obj == snapshot.object
+        and node.expr == snapshot.index
+        and node.indexedAccess == snapshot.marker
+        and node.indexedAccess.descriptor == snapshot.descriptor
+        and node.indexedAccess.receiverDefinition == snapshot.receiverDefinition
+        and node.indexedAccess.indexDefinition == snapshot.indexDefinition
+        and node.inferredType == snapshot.result,
+        "indexed span source identity mismatch"
+    )
+    local view = need(read(node), "indexed span no longer has its checked contract")
+    need(
+        view.nominal == snapshot.nominal
+        and view.element == snapshot.element
+        and view.writable == snapshot.writable
+        and view.fixedCount == snapshot.fixedCount,
+        "indexed span descriptor changed after issue"
+    )
+    local call = access.call
+    need(
+        call == snapshot.call
+        and call.kind == "methodCall"
+        and #call == 3
+        and call[1] == call.obj
+        and call[2] == call.name
+        and call[3] == call.args
+        and call.obj == snapshot.object
+        and call.name == snapshot.member
+        and call.name.kind == "name"
+        and call.name.text == "get"
+        and call.name.definition == nil
+        and call.overloadMember == nil
+        and call.trailingCallableMember == nil
+        and call.args == snapshot.args
+        and call.args.kind == "args"
+        and #call.args == 1
+        and call.args.exprs == snapshot.expressions
+        and #call.args.exprs == 1
+        and call.args[1] == snapshot.argument
+        and call.args.exprs[1] == snapshot.argument
+        and snapshot.argument.kind == "paren"
+        and #snapshot.argument == 1
+        and snapshot.argument.expr == snapshot.index
+        and snapshot.argument[1] == snapshot.index
+        and call.args.str == nil
+        and call.args.table == nil
+        and call.inferredType == snapshot.result
+        and call.statementOwner == snapshot.statementOwner
+        and node.statementOwner == snapshot.statementOwner,
+        "indexed span getter call changed after issue"
+    )
+
+    return true
+end

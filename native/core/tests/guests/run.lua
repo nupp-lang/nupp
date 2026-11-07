@@ -173,6 +173,7 @@ local CASES = {
     {"bytebuffer", 0x7FFF000000000003},
     {"bufferstate", 0x7FFF000000000001},
     {"sharedbytes", 0x7FFF000000000001},
+    {"spanreads", 0x7FFF000000000001},
     {"librarybasics", 0x7FFF00000000007F},
     {"cleanupfunctions", 0x7FFF000000000003},
     {"coreoperators", 0x7FFF0000000003FF},

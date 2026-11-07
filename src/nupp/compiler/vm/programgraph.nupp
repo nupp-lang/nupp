@@ -11,6 +11,7 @@ local graphimage = require("nupp.compiler.vm.graphimage")
 local graphemit = require("nupp.compiler.vm.graphemit")
 local lower = require("nupp.compiler.vm.lower")
 local scalartypeof = require("nupp.compiler.vm.scalartypeof")
+local indexedaccess = require("nupp.compiler.vm.indexedaccess")
 local program = {}
 
 local typeSyntax = {
@@ -360,6 +361,7 @@ function program.describe(modules: {any}, entryModule: string): any
         qualifiedLoads = {},
         calls = {},
         callByNode = {},
+        indexedByNode = {},
         -- Per cleanup site (a local's statement), the record
         -- declaration whose destructor it runs, mapped to a synthetic
         -- reference to that record's name.
@@ -812,6 +814,19 @@ function program.describe(modules: {any}, entryModule: string): any
         local bodyOwner = p.byBody[node]
         if bodyOwner then
             owner = bodyOwner
+        end
+        local indexed = indexedaccess.prepare(node, owner.id)
+        if indexed then
+            p.indexedByNode[node] = indexed
+            local item = {
+                id = #p.calls,
+                owner = owner.id,
+                node = indexed.call,
+                method = true,
+                dynamic = true,
+                indexed = indexed
+            }
+            p.calls[#p.calls + 1], p.callByNode[indexed.call] = item, item
         end
         local witness = p.scalartypes.witnesses[node]
         if witness then
@@ -1817,7 +1832,20 @@ function program.verify(p: any): boolean
     for index, item in ipairs(p.calls) do
         local node = item.node
         need(item.id == index - 1 and p.owners[item.owner + 1], "invalid callsite owner")
-        if item.scalarWitness then
+        if item.indexed then
+            local access = item.indexed
+            need(
+                p.indexedByNode[access.node] == access
+                and p.callByNode[node] == item
+                and node == access.call
+                and item.method
+                and item.dynamic
+                and item.definition == nil,
+                "indexed span callsite identity mismatch"
+            )
+            indexedaccess.verify(access, access.node, item.owner)
+        elseif item.scalarWitness then
+
             local witness = item.scalarWitness
             need(
                 p.scalartypes.witnesses[witness.node] == witness
@@ -1895,6 +1923,11 @@ function program.verify(p: any): boolean
                 "callsite does not belong to its checked owner"
             )
         end
+    end
+    for node, access in pairs(p.indexedByNode) do
+        local site = need(p.callByNode[access.call], "indexed span lacks its issued callsite")
+        need(site.indexed == access, "indexed span callsite points to another operator")
+        indexedaccess.verify(access, node, site.owner)
     end
     for node, item in pairs(p.callByNode) do
         need(item.node == node and p.calls[item.id + 1] == item, "stale callsite map")

@@ -180,6 +180,7 @@ local CASES: {[string]: {
     entropyfailure = {fixture = "catalog-entropy-failure", version = 8, follow = true},
     bufferstate = {fixture = "nupp/core/catalogbufferstate", version = 8, follow = true},
     sharedbytes = {fixture = "nupp/core/catalogsharedbytes", version = 8, follow = true},
+    spanreads = {fixture = "nupp/core/catalogspanreads", version = 8, follow = true},
     modulesdynamic = {fixture = "catalog-modules-dynamic", version = 8, modules = {"catalog-modules-geometry"},},
     modulescycle = {
         fixture = "catalog-modules-cycle",
