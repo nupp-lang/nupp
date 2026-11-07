@@ -1416,14 +1416,17 @@ function M.internalNuppSuitesKeepTheirPackageNamespace()
     assert(fs.mkdir(dir .. "/tests/nupp/test"))
     write(dir .. "/nupp.lua", 'return {include = {"src"}}\n')
     write(dir .. "/src/nupp/fixture.nupp", '@!internal\nmodule nupp.fixture\nexport const answer: integer = 42\n')
-    write(dir .. "/tests/nupp/test/ownedtest.nupp", [[
+    write(
+        dir .. "/tests/nupp/test/ownedtest.nupp",
+        [[
 local implementation = require("nupp.fixture")
 local M = {}
 function M.readsPrivateModule(): nil
     assert(implementation.answer == 42)
 end
 return M
-]])
+]]
+    )
     local output, invocation = capturedRun(
         ("cd %q && %q run tests/run.lua ownedtest --jobs=1 --json 2>/dev/null"):format(dir, NUPP)
     )
@@ -1432,13 +1435,14 @@ return M
     test.eq(report.total, 1)
     test.eq(report.passed, 1)
     test.eq(report.tests[1].id, "ownedtest/readsPrivateModule")
-    write(dir .. "/tests/publictest.nupp", [[
+    write(
+        dir .. "/tests/publictest.nupp",
+        [[
 local implementation = require("nupp.fixture")
 return {refused = function(): nil assert(implementation.answer == 42) end}
-]])
-    local refused, refusal = capturedRun(
-        ("cd %q && %q run tests/run.lua publictest --jobs=1 2>&1"):format(dir, NUPP)
+]]
     )
+    local refused, refusal = capturedRun(("cd %q && %q run tests/run.lua publictest --jobs=1 2>&1"):format(dir, NUPP))
     test(refusal.status ~= 0, evidence(refusal))
     test.matches(refused, "internal to package namespace")
     os.remove(dir, true)
@@ -2073,6 +2077,31 @@ return M
     test.matches(output, "beforeAll")
     test.eq(read(trace), "beforeAll\nafterAll\n")
     os.execute("rm -rf " .. string.format("%q", dir))
+end
+
+function M.scopesKeepDeliveryExplicitAndRejectUnassignedSuites()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute(("mkdir -p %q"):format(dir .. "/tests")) == 0)
+    local path = dir .. "/tests/run.lua"
+    write(path, read(ROOT .. "/tests/run.lua"))
+    write(dir .. "/tests/unittest.lua", "return {passes = function() end}\n")
+    write(dir .. "/tests/shiptest.lua", "return {ships = function() end}\n")
+    write(dir .. "/tests/groups.lua", 'return {}, {scopes = {unittest = "unit", shiptest = "delivery"}}\n')
+    local json = require("testjson")
+    local ordinary = json.decode(runJson(path, "--jobs=1 --fresh --json"))
+    test.eq(ordinary.total, 1)
+    test.eq(ordinary.tests[1].scope, "unit")
+    local delivery = json.decode(runJson(path, "shiptest --jobs=1 --json"))
+    test.eq(delivery.total, 1)
+    test.eq(delivery.tests[1].scope, "delivery")
+    test.eq(json.decode(runJson(path, "--scope=all --jobs=1 --json")).total, 2)
+    test.eq(json.decode(runJson(path, "--scope=unit --jobs=1 --json")).total, 1)
+    write(dir .. "/tests/groups.lua", 'return {}, {scopes = {unittest = "unit"}}\n')
+    test.matches(run(path, "--list-suites"), "shiptest has no valid scope")
+    os.remove(dir .. "/tests/groups.lua")
+    test.eq(json.decode(runJson(path, "--jobs=1 --json")).total, 2)
+    os.execute(("rm -rf %q"):format(dir))
 end
 
 return M

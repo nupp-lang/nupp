@@ -516,6 +516,9 @@ local excludedGroups = {}
 -- around its runtime state. A full run combines the latter two on one process
 -- worker queue, but they remain separate answers to `--lane`.
 local lane = nil
+local scope = nil
+local fresh = false
+local audit = false
 -- `--list-suites` and `--list-groups` answer what a run would cover without
 -- running it, which is what a workflow author and its review need.
 local listing = nil
@@ -547,6 +550,21 @@ for _, argument in ipairs(arg) do
             os.exit(2)
         end
         workerReportPath = path
+    elseif argument == "--fresh" then
+        fresh = true
+    elseif argument == "--audit" then
+        audit, fresh = true, true
+    elseif argument:match("^%-%-scope=") then
+        scope = argument:sub(#"--scope=" + 1)
+        if scope ~= "unit"
+            and scope ~= "component"
+            and scope ~= "integration"
+            and scope ~= "delivery"
+            and scope ~= "all"
+        then
+            io.stderr:write("nupp: --scope must be unit, component, integration, delivery, or all\n")
+            os.exit(2)
+        end
     elseif argument == "--verbose" then
         verbose = true
     elseif argument == "--color" then
@@ -1319,9 +1337,18 @@ suiteCatalog = table.concat(suiteCatalog, "\n")
 --- Absent is only reachable from a runner copied out of the repository, which is
 --- how the runner's own suite exercises it; a copy that names no group needs no
 --- group definitions.
+local repositoryPolicy = nil
+
 local function groupDefinitions()
-    local loaded, definitions = pcall(dofile, dir .. "/groups.lua")
+    local loaded, definitions, policy = pcall(dofile, dir .. "/groups.lua")
+    repositoryPolicy = loaded and policy or nil
     if not loaded or type(definitions) ~= "table" then
+        local present = io.open(dir .. "/groups.lua", "rb")
+        if present then
+            present:close()
+            io.stderr:write("nupp: cannot load test groups: " .. tostring(definitions) .. "\n")
+            os.exit(2)
+        end
         return {}
     end
 
@@ -1373,6 +1400,21 @@ do
         return definitions
     end
 
+    definitionsOnce()
+    if repositoryPolicy and repositoryPolicy.scopes then
+        local valid = {unit = true, component = true, integration = true, delivery = true}
+        for _, info in ipairs(discovered) do
+            info.scope = repositoryPolicy.scopes[info.name]
+            if not valid[info.scope] then
+                io.stderr:write("nupp: test suite " .. info.name .. " has no valid scope in tests/groups.lua\n")
+                os.exit(2)
+            end
+        end
+    elseif scope and scope ~= "all" then
+        io.stderr:write("nupp: --scope requires scope definitions in tests/groups.lua\n")
+        os.exit(2)
+    end
+
     for _, name in ipairs(chosenGroups) do
         chosenSet = chosenSet or {}
         for suite in pairs(expandGroup(name, definitionsOnce())) do
@@ -1416,7 +1458,12 @@ do
 
     for _, info in ipairs(discovered) do
         local name = info.name
+        local explicit = chosenSet ~= nil or wanted ~= nil or queueDir ~= nil or #chosenGroups > 0
+        local includedScope = scope == "all"
+            or scope and scope == info.scope
+            or not scope and (info.scope ~= "delivery" or explicit)
         if not removed[name]
+            and includedScope
             and (not chosenSet or chosenSet[name])
             and (not wanted or wanted[name])
             and not queueDir
@@ -1434,11 +1481,28 @@ end)
 -- the VM, where a worker shares no Lua state with the runner, processes.
 local sharedWorkers = workerHost and "Nupp workers" or engine == "vm" and "VM processes" or "Nupp workers"
 
+-- Audit test code and hooks, excluding capture files and runner bookkeeping.
+local function audited(fn, ...)
+    if not audit then
+        return pcall(fn, ...)
+    end
+    local previous = rawget(_G, "__NUPP_TEST_AUDIT_ACTIVE")
+    rawset(_G, "__NUPP_TEST_AUDIT_ACTIVE", true)
+    local ok, first, second = pcall(fn, ...)
+    rawset(_G, "__NUPP_TEST_AUDIT_ACTIVE", previous)
+
+    return ok, first, second
+end
+
 local function loadSuite(suite)
     local path = dir .. "/" .. suite.path
     installVmModules()
     if suite.extension == "lua" then
-        return dofile(path)
+        local ok, loaded, cleanup = audited(dofile, path)
+        if not ok then
+            error(loaded, 0)
+        end
+        return loaded, cleanup
     end
 
     -- On the VM a Nupp suite is lowered to an image by the VM's own lowering,
@@ -1466,7 +1530,12 @@ local function loadSuite(suite)
             error("cannot load Nupp test suite " .. path .. ": " .. tostring(loadErr), 0)
         end
 
-        return chunk(), nil
+        local ok, loaded = audited(chunk)
+        if not ok then
+            error(loaded, 0)
+        end
+
+        return loaded, nil
     end
 
     error("Nupp test suites run on the VM: " .. path, 0)
@@ -1623,7 +1692,7 @@ local function call(fn)
     if fn == nil then
         return true
     end
-    return pcall(fn)
+    return audited(fn)
 end
 
 --- The shell that runs one worker: the command, in a process group of its own,
@@ -2076,7 +2145,8 @@ local function recordResult(suite, name, defined, ok, err, stdout, stderr, elaps
         file = file,
         line = line,
         durationMs = elapsed,
-        status = ok and "passed" or "failed"
+        status = ok and "passed" or "failed",
+        scope = byName[suite] and byName[suite].scope,
     }
     if context ~= nil then
         local metrics = {}
@@ -2614,6 +2684,13 @@ local function planWork(list, shards, timings)
                 pieces = math.min(pieces, #names)
             end
         end
+        local info = byName[item.name]
+        local packageName = info and (info.path:match("^(.*)/") or ".")
+        local policy = repositoryPolicy and repositoryPolicy.packages and repositoryPolicy.packages[packageName]
+        -- A reusable package runs whole suites; slices are incomplete results.
+        if policy and policy.cache then
+            pieces = 1
+        end
         if pieces > 1 then
             -- Evenly, when there is nothing measured to pack from. Otherwise from the
             -- assignment the child will make, so the plan costs a slice at what that
@@ -2731,7 +2808,7 @@ local processCalls = {
 }
 
 local shellCalls = {"os.execute", "io.popen",}
-local SHELLING = {serdecontracttest = true,}
+local SHELLING = {serdecontracttest = true, serdecapabilitycontracttest = true}
 local sourceBySuite = {}
 
 local function suiteSource(suiteInfo)
@@ -2867,11 +2944,67 @@ local sharded = nil
 -- an ordinary nested runner must keep its usual process isolation.
 local coverageFile = os.getenv("NUPP_COVERAGE_FILE")
 local coverage = coverageFile and rawget(_G, "__nuppCoverage") or nil
+local resultCache, restoreAudit = nil, nil
+local cachedCount, cachedPackages = 0, 0
+if not listing
+    and #shard == 0
+    and not queueDir
+    and not embedded
+    and chosenCaseCount == 0
+    and not rerunReport
+    and not coverage
+    and (not fresh or audit)
+    and repositoryPolicy
+    and repositoryPolicy.packages
+then
+    local source = require("nupp.compiler.fs").readFile(dir .. "/cache.lua")
+        or require("nupp.compiler.bundled").source("/nupp/test/cache.lua")
+    if source then
+        local runnerSource = require("nupp.compiler.fs").readFile(dir .. "/run.lua")
+            or require("nupp.compiler.bundled").source("/nupp/test/runner.lua")
+            or ""
+        local cacheModule = assert(loadstring(source, "@nupp:test-cache"))()
+        -- Unknown/failed cache reads cost a fresh run, never a failed test run.
+        local opened, value = pcall(cacheModule.open, {
+            json = testJson,
+            runtime = rawget(_G, "__NUPP_EXECUTABLE"),
+            workerHost = workerHost,
+            root = dir,
+            build = buildRoot,
+            policies = repositoryPolicy.packages,
+            catalog = discovered,
+            selected = suites,
+            runner = runnerSource .. source .. (require("nupp.compiler.fs").readFile(dir .. "/groups.lua") or ""),
+            flags = table.concat(arg, "\0"),
+        })
+        resultCache = opened and value or nil
+        if resultCache and audit then
+            local ok, restore = pcall(resultCache.audit)
+            if not ok then
+                io.stderr:write("nupp: " .. tostring(restore) .. "\n")
+                os.exit(2)
+            end
+            restoreAudit = restore
+            jobs = 1
+        elseif resultCache then
+            local kept = {}
+            for _, info in ipairs(suites) do
+                local packageName = info.path:match("^(.*)/") or "."
+                local package = resultCache.packages[packageName]
+                if not package or not package.hit then
+                    kept[#kept + 1] = info
+                end
+            end
+            suites = kept
+        end
+    end
+end
 if #shard == 0
     and #suites > 0
     and chosenCaseCount == 0
     and ((workerHost and not processIsolated(only and byName[only])) or (#chosen ~= 1 and #suites > 1 and jobs ~= 1))
     and not coverage
+    and not audit
 then
     do
         local shareable, alone, shelling = {}, {}, {}
@@ -3576,6 +3709,8 @@ local function runSuite(suiteInfo, slices)
         #suiteRecords + 1
     ] = {
         suite = suiteInfo.name,
+        scope = suiteInfo.scope,
+        package = suiteInfo.path:match("^(.*)/") or ".",
         durationMs = now() - suiteBefore + (loaded ~= nil and loadElapsed or 0),
         loadMs = loadElapsed,
         hooksMs = setupElapsed + afterElapsed,
@@ -3949,6 +4084,27 @@ if #shard == 0 and not queueDir then
     rememberTimings(suiteRecords, results)
 end
 
+if restoreAudit then
+    restoreAudit()
+end
+if resultCache and not audit then
+    pcall(resultCache.save, results, suiteRecords)
+    for _, package in pairs(resultCache.packages) do
+        if package.hit then
+            cachedPackages = cachedPackages + 1
+            for _, record in ipairs(package.hit.tests) do
+                record.status = "cached"
+                results[#results + 1] = record
+                total, cachedCount = total + 1, cachedCount + 1
+            end
+            for _, row in ipairs(package.hit.suites) do
+                row.status = "cached"
+                suiteRecords[#suiteRecords + 1] = row
+            end
+        end
+    end
+end
+
 -- Coverage-generated modules share one small global counter table.  The runner owns
 -- the process boundary, so it is the right place to turn that in-memory table into a
 -- shard the parent `nupp test --coverage` command can merge after the test process
@@ -3996,7 +4152,7 @@ end)
 
 local metricTotalsByKey = {}
 for _, record in ipairs(results) do
-    for _, metric in ipairs(record.metrics or {}) do
+    for _, metric in ipairs(record.status ~= "cached" and record.metrics or {}) do
         local key = metric.name .. "\0" .. (metric.unit or "")
         local totalMetric = metricTotalsByKey[key]
         if totalMetric == nil then
@@ -4041,7 +4197,21 @@ local function timingReport()
 
     local work = 0
     for _, record in ipairs(suiteRecords) do
-        work = work + (tonumber(record.durationMs) or 0)
+        if record.status ~= "cached" then
+            work = work + (tonumber(record.durationMs) or 0)
+        end
+    end
+    local packages = {}
+    for _, record in ipairs(suiteRecords) do
+        local packageName = record.package
+            or (byName[record.suite] and byName[record.suite].path:match("^(.*)/"))
+            or "."
+        packages[packageName] = (packages[packageName] or 0) + (tonumber(record.durationMs) or 0)
+    end
+    for name, elapsed in pairs(packages) do
+        if elapsed > 60000 then
+            say(("  package %s exceeds 60s of suite work (%s)\n"):format(name, seconds(elapsed)))
+        end
     end
     local headline = (
         "\n%s %s wall, %s of suite work"
@@ -4152,6 +4322,8 @@ local report = {
     ok = failed == 0,
     total = total,
     passed = passed,
+    cached = cachedCount,
+    cachedPackages = cachedPackages,
     skipped = skipped,
     notExecuted = notExecutedCount,
     failed = failed,
@@ -4174,6 +4346,8 @@ elseif asJson then
         ok = report.ok,
         total = total,
         passed = passed,
+        cached = cachedCount,
+        cachedPackages = cachedPackages,
         skipped = skipped,
         notExecuted = notExecutedCount,
         failed = failed,
@@ -4219,6 +4393,9 @@ else
             "%d tests, %d passed, %d skipped, %d not executed, %d failed (%.1fms)"
         ):format(total, passed, skipped, notExecutedCount, failed, duration)
         or ("%d tests, %d passed, %d skipped, %d failed (%.1fms)"):format(total, passed, skipped, failed, duration)
+    if cachedCount > 0 then
+        summary = summary .. (", %d cached (%d packages)"):format(cachedCount, cachedPackages)
+    end
     io.write("\n" .. paint(failed == 0 and "1;32" or "1;31", summary) .. "\n")
     if timingRows > 0 and #suiteRecords > 0 then
         io.write(timingReport())

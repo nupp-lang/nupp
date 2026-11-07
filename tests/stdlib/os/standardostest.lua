@@ -1,6 +1,12 @@
 local test = require("assert")
 local providerstate = require("helpers.providerstate")
 local M = {}
+local sharedEnv
+
+local function environment()
+    sharedEnv = sharedEnv or require("nupp.compiler.project.env").new(require("helpers.paths").root)
+    return sharedEnv
+end
 
 function M.fileOperationsRemainUsableWithoutAClockProvider()
     local removed, renamed
@@ -152,8 +158,7 @@ function M.checkedInfoAndServicesUseThePrivateContract()
     local parser = require("nupp.compiler.syntax.parser")
     local checker = require("helpers.fragment")
     local program = require("program")
-    local environment = require("nupp.compiler.project.env")
-    local env = environment.new(assert(environment.compilerRoot()))
+    local env = environment()
     local source = [[
 local function describe(value: os.Info): string return value.platform end
 local facts: os.Info = os.info()
@@ -188,11 +193,13 @@ return describe(facts), monotonic, wall, random, ordered, bytes
     test.eq(#bytes, 7)
     test.eq(os.randombytes, require("nupp.runtime.entropy").randombytes)
     test.eq(require("os"), os)
+end
+
 function M.onlyLazySystemFieldsCanSuspend()
     local parser = require("nupp.compiler.syntax.parser")
     local checker = require("helpers.fragment")
     local root = require("helpers.paths").tests .. "/.."
-    local env = require("nupp.compiler.project.env").new(root, {cache = false})
+    local env = environment()
     for _, field in ipairs({"platform", "arch", "endianness", "pointerbits", "parallelism", "fs"}) do
         local source = "local function read(facts: os.Info): nil\n"
             .. "    @nosuspend do print(facts."
@@ -210,8 +217,6 @@ function M.onlyLazySystemFieldsCanSuspend()
         end
         test.eq(suspensions, (field == "parallelism" or field == "fs") and 1 or 0, field)
     end
-end
-
 end
 
 local function fileSurface(host, provider, browser)
@@ -317,7 +322,7 @@ function M.fileMutationsAcceptPathTypesAndRetainTheirRuntimeFeatures()
     }) do
         local parsed = parser.parse(source, "file-mutations.nupp")
         test.eq(#parsed.errors, 0)
-        local env = require("nupp.compiler.project.env").new(root, {cache = false})
+        local env = environment()
         local diagnostics = checker.check(parsed, "file-mutations.nupp", env)
         test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
         assert(parsed.effects["runtime.files"], "file mutations must package their provider path")
@@ -328,7 +333,7 @@ function M.temporaryNamesReportDeprecation()
     local parser = require("nupp.compiler.syntax.parser")
     local checker = require("helpers.fragment")
     local root = require("helpers.paths").tests .. "/.."
-    local env = require("nupp.compiler.project.env").new(root, {cache = false})
+    local env = environment()
     for _, source in ipairs({
         "return os.tmpname()",
         "local system = os\nreturn system.tmpname()",
@@ -345,7 +350,7 @@ function M.temporaryNamesReportDeprecation()
     end
     local source = "local os = {tmpname = function(): string return 'local' end}\nreturn os.tmpname()"
     local parsed = parser.parse(source, "shadowed-temporary-name.nupp")
-    local env = require("nupp.compiler.project.env").new(root, {cache = false})
+    local env = environment()
     test.eq(#checker.check(parsed, "shadowed-temporary-name.nupp", env), 0)
 end
 
@@ -373,7 +378,7 @@ function M.filesystemFunctionsTypeAsTheirTuplesAndIterators()
     for _, source in ipairs(accepted) do
         local parsed = parser.parse(source, "filesystem-surface.nupp")
         test.eq(#parsed.errors, 0, source)
-        local env = require("nupp.compiler.project.env").new(root, {cache = false})
+        local env = environment()
         local diagnostics = checker.check(parsed, "filesystem-surface.nupp", env)
         test.eq(#diagnostics, 0, (diagnostics[1] and diagnostics[1].msg or "") .. "\n" .. source)
     end
@@ -390,7 +395,7 @@ function M.filesystemFunctionsTypeAsTheirTuplesAndIterators()
         'print(os.userdir, os.setreadonly)',
     }) do
         local parsed = parser.parse(source, "filesystem-refused.nupp")
-        local env = require("nupp.compiler.project.env").new(root, {cache = false})
+        local env = environment()
         local diagnostics = checker.check(parsed, "filesystem-refused.nupp", env)
         assert(#diagnostics > 0, "the checker accepted: " .. source)
     end

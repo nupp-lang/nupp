@@ -50,6 +50,8 @@ local REPORT_SCHEMA = {
         ok = {type = "boolean"},
         total = {type = "integer"},
         passed = {type = "integer"},
+        cached = {type = "integer", description = "Cases reused from complete passing packages."},
+        cachedPackages = {type = "integer"},
         skipped = {type = "integer"},
         notExecuted = {type = "integer"},
         failed = {type = "integer"},
@@ -65,8 +67,9 @@ local REPORT_SCHEMA = {
                     },
                     suite = {type = "string", description = "The test file, without its extension."},
                     name = {type = "string"},
-                    status = {type = "string", enum = {"passed", "skipped", "not-executed", "failed"}},
+                    status = {type = "string", enum = {"passed", "cached", "skipped", "not-executed", "failed"}},
                     durationMs = {type = "number"},
+                    scope = {type = "string", enum = {"unit", "component", "integration", "delivery"}},
                     file = {type = "string", description = "Where the test is defined."},
                     line = {type = "integer", description = "1-based, as everywhere else."},
                     failure = {
@@ -132,6 +135,9 @@ local REPORT_SCHEMA = {
                 type = "object",
                 properties = {
                     suite = {type = "string"},
+                    scope = {type = "string", enum = {"unit", "component", "integration", "delivery"}},
+                    package = {type = "string"},
+                    status = {type = "string", enum = {"cached"}},
                     durationMs = {
                         type = "number",
                         description = "Wall-clock milliseconds for the whole suite, loading included."
@@ -443,6 +449,7 @@ end
 --- repeated `--group=NAME`, `--exclude=SUITE`, `--exclude-group=NAME`, one of
 --- `--lane=shared|shell|isolated`, `--list-suites`, `--list-cases`,
 --- `--list-groups`, `--case=SUITE/CASE`, `--rerun=REPORT`, and
+--- `--scope=unit|component|integration|delivery|all`, `--fresh`, `--audit`, and
 --- `--timings[=N]`. Those remain forwarded arguments rather than fields of this
 --- command because a project may configure a different test executable.
 ---

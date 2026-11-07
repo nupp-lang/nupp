@@ -283,7 +283,7 @@ jobs:
         run: ./bin/nupp check
 
       - name: Run the shared-process suites
-        run: ./bin/nupp test --lane=shared
+        run: ./bin/nupp test --fresh --scope=all --lane=shared
 
       # Saved explicitly rather than through the action's post step, so a run
       # that fails a suite still keeps the compiler build the next run would
@@ -453,7 +453,7 @@ jobs:
           test -f "$sh_path"
           NUPP_TEST_BASH=$(cygpath -w "$bash_path") \
           NUPP_TEST_SH=$(cygpath -w "$sh_path") \
-          ./bin/nupp test --jobs=1 --group=windows-preflight
+          ./bin/nupp test --fresh --scope=all --jobs=1 --group=windows-preflight
 
       # Name the Rust-native release boundary before the broad suite: each
       # resource owner's stress and cancellation tests on the retained platform
@@ -470,7 +470,7 @@ jobs:
       - name: Run the native core suites
         if: runner.os != 'Windows'
         shell: bash
-        run: ./bin/nupp test --jobs=1 --group=native-runtime
+        run: ./bin/nupp test --fresh --scope=all --jobs=1 --group=native-runtime
 
       # Keep the external corpus and the C importer explicit. A configured
       # corpus used to be absent and silently skipped, while an import-c failure
@@ -495,7 +495,7 @@ jobs:
             NUPP_TEST_BASH=$(cygpath -w "$bash_path")
             NUPP_TEST_SH=$(cygpath -w "$sh_path")
           fi
-          ./bin/nupp test --jobs=1 --group=external-corpus
+          ./bin/nupp test --fresh --scope=all --jobs=1 --group=external-corpus
 
       # Three minutes of starting child processes, and the only thing that can
       # change what they answer is bench code. `measurement` is the surface every
@@ -512,7 +512,7 @@ jobs:
           runner.os == 'Linux'
           && contains(needs.classify.outputs.selection, '"measurement"')
         shell: bash
-        run: ./bin/nupp test --jobs=1 --group=measurement
+        run: ./bin/nupp test --fresh --scope=all --jobs=1 --group=measurement
 
       # The runner defaults to one shard per core. On macOS and Windows, run
       # shell suites with two workers: benchmark checks spawn their own children,
@@ -531,12 +531,12 @@ jobs:
         run: |
           set -euo pipefail
           ulimit -c unlimited || true
-          ./bin/nupp test --lane=isolated \
+          ./bin/nupp test --fresh --scope=all --lane=isolated \
             --exclude-group=external-corpus,measurement,native-runtime
           if [ "$RUNNER_OS" != Linux ]; then
-            ./bin/nupp test --lane=shared \
+            ./bin/nupp test --fresh --scope=all --lane=shared \
               --exclude-group=external-corpus,measurement,native-runtime
-            ./bin/nupp test --lane=shell --jobs=2 \
+            ./bin/nupp test --fresh --scope=all --lane=shell --jobs=2 \
               --exclude-group=external-corpus,measurement,native-runtime
           fi
 
@@ -612,11 +612,11 @@ jobs:
           NUPP_TEST_BASH=$(cygpath -w "$bash_path")
           NUPP_TEST_SH=$(cygpath -w "$sh_path")
           export NUPP_TEST_BASH NUPP_TEST_SH
-          ./bin/nupp test --lane=isolated \
+          ./bin/nupp test --fresh --scope=all --lane=isolated \
             --exclude-group=external-corpus,windows-preflight,measurement,native-runtime
-          ./bin/nupp test --lane=shared \
+          ./bin/nupp test --fresh --scope=all --lane=shared \
             --exclude-group=external-corpus,windows-preflight,measurement,native-runtime
-          ./bin/nupp test --lane=shell --jobs=2 \
+          ./bin/nupp test --fresh --scope=all --lane=shell --jobs=2 \
             --exclude-group=external-corpus,windows-preflight,measurement,native-runtime
 
       # What the suite saved, named in the log so a reader knows what the
@@ -764,7 +764,7 @@ jobs:
         run: ./bin/nupp build --target docs
 
       - name: Regenerate and verify the documentation
-        run: ./bin/nupp test --group=docs
+        run: ./bin/nupp test --fresh --scope=all --group=docs
 
       - name: Save the VM compiler
         if: always()
