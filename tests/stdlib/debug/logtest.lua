@@ -62,22 +62,26 @@ function M.severityContainsOnlyEmittedLevels()
 end
 
 function M.writerSinkCarriesTheWriterOwnership()
-    local source = [[
-local file = assert(io.tmpfile())
+    local path = os.tmpname()
+    local source = (
+        [[
+local file = assert(io.open(%q, "w+"))
 local previous = debug.log.setsink(debug.log.writersink(io.Writer.of(file)))
 debug.log.info("hello")
 local installed = debug.log.setsink(previous)
 own.drop(installed)
 return true
 ]]
-    local code = compile(source, "writer-sink")
-    local run = assert(loadstring(code, "@writer-sink"))
+    ):format(path)
     local log = runtime()
     local previousLevel = log.setlevel("info")
-    local result = run()
+    local ok, result = pcall(function()
+        return assert(program.load(checked(source, "writer-sink"), "writer-sink"))()
+    end)
     log.setlevel(previousLevel)
+    os.remove(path)
+    assert(ok, result)
     assert(result)
-
 end
 
 function M.formatDirectivesAreCheckedAtTheCallSite()
