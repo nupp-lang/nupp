@@ -903,11 +903,7 @@ local function measuresuite(
     announcerun(name)
     collectgarbage("collect")
     for _ = 1, warmups do
-        callvariant(
-            variant,
-            Invocation(name = spec.name, data = spec.data, parameters = parameters),
-            iterations
-        )
+        callvariant(variant, Invocation(name = spec.name, data = spec.data, parameters = parameters), iterations)
     end
 
     local invocation = Invocation(name = spec.name, data = spec.data, parameters = parameters)

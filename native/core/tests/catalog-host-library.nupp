@@ -34,7 +34,9 @@ local option: any = "bogus"
 local ok, message = pcall(function(): number
     return collectgarbage(option as "count")
 end)
-if not ok and string.find(tostring(message), "bad argument #1 to 'collectgarbage' (invalid option 'bogus')", 1, true) then
+if not ok
+    and string.find(tostring(message), "bad argument #1 to 'collectgarbage' (invalid option 'bogus')", 1, true)
+then
     score = score + 64
 end
 local arguments: any = rawget(_G, "arg")

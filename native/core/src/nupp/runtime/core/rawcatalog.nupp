@@ -17,8 +17,11 @@ const policy = require("nupp.runtime.core.rawcatalogpolicy")
 -- queue, and a bitmap of owners whose lexical parents reach the entry. All
 -- linear in owners and records, never in owners squared.
 local function catalogBytes(): uint64
-    return (policy.signatures >> 3ULL) + (policy.calls >> 2ULL) + (policy.owners + 1ULL) * 8ULL
-        + wire.recordsLimit * 8ULL + policy.owners * 16ULL + (policy.owners >> 3ULL)
+    return (
+        policy.signatures >> 3ULL
+    ) + (
+        policy.calls >> 2ULL
+    ) + (policy.owners + 1ULL) * 8ULL + wire.recordsLimit * 8ULL + policy.owners * 16ULL + (policy.owners >> 3ULL)
 end
 
 export function workspaceBytes(records: uint64, strings: uint64): uint64
@@ -264,13 +267,7 @@ local function termShape(descriptor: voidptr, term: uint64, positions: uint64): 
 end
 
 -- The callee owner of a well-formed invoke, or `fields.absent`.
-local function invoke(
-    descriptor: voidptr,
-    term: uint64,
-    ownerId: uint64,
-    blockId: uint64,
-    used: voidptr
-): uint64
+local function invoke(descriptor: voidptr, term: uint64, ownerId: uint64, blockId: uint64, used: voidptr): uint64
     local id = row(descriptor, wire.S_terms, term, fields.F_terms_contract)
     if id >= count(descriptor, wire.S_contracts) then
         return fields.absent
@@ -301,13 +298,7 @@ end
 -- Owners are scanned in order, so the call edges arrive grouped by caller:
 -- each owner's offset is the edge count before its scan. Every edge consumes
 -- a distinct contract, which bounds the edges by the contract records.
-local function graphs(
-    descriptor: voidptr,
-    used: voidptr,
-    offsets: voidptr,
-    targets: voidptr,
-    degree: voidptr
-): uint64
+local function graphs(descriptor: voidptr, used: voidptr, offsets: voidptr, targets: voidptr, degree: voidptr): uint64
     local index, edges = 0ULL, 0ULL
     while index < count(descriptor, wire.S_catalog) do
         native.store64(offsets, native.index(index * 8ULL), edges)
