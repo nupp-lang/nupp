@@ -76,7 +76,7 @@ elseif name == "base64simd" then
     corpus = body(snapshot("bench/base64simd/tests/run.lua"), "local checks = 0", 'print(("ok - %d base64')
     local removed
     corpus, removed = corpus:gsub(
-        '\n    if shipped%.base64encode%(value%) ~= want then\n        error%(%(%"reference disagrees with binary%.base64encode on %%s %(%%d bytes%)%"%):format%(what, #value%), 0%)\n    end',
+        '\n    if shipped%.base64encode%(value%) ~= want then\n        error%(%(%"reference disagrees with bytes%.base64encode on %%s %(%%d bytes%)%"%):format%(what, #value%), 0%)\n    end',
         ""
     )
     assert(removed == 1, "missing shipped Base64 comparison")

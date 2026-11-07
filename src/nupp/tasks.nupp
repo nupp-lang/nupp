@@ -294,10 +294,10 @@ record tasks.Scope is own.Closeable
     ---
     --- export function run(): nil
     ---     local scope = coroutine.scope()
-    ---     const left = scope:work("left", |text: string| -> binary.fnv1a64(text))
-    ---     const right = scope:work("right", |text: string| -> binary.fnv1a64(text))
-    ---     assert(left:await() == binary.fnv1a64("left"))
-    ---     assert(right:await() == binary.fnv1a64("right"))
+    ---     const left = scope:work("left", |text: string| -> bytes.fnv1a64(text))
+    ---     const right = scope:work("right", |text: string| -> bytes.fnv1a64(text))
+    ---     assert(left:await() == bytes.fnv1a64("left"))
+    ---     assert(right:await() == bytes.fnv1a64("right"))
     --- end
     --- ```
     work: function<F is Worker>(
