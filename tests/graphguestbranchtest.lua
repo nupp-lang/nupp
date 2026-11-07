@@ -804,6 +804,11 @@ local function interpret(result)
             regs[ins[2]] = regs[ins[3]] <= regs[ins[4]]
         elseif op == "Eq" then
             regs[ins[2]] = regs[ins[3]] == regs[ins[4]]
+        elseif op == "Not" then
+            regs[ins[2]] = not regs[ins[3]]
+        elseif op == "LibCall" then
+            test.eq(ins[3], require("nupp.compiler.vm.corelibrary").id("ERROR"))
+            error(regs[ins[4]], 0)
         elseif op == "Jmp" then
             pc = pc + ins[2]
         elseif op == "JmpIf" then
@@ -818,17 +823,22 @@ local function interpret(result)
     end
 end
 
-local function numericProgram(source, path)
-    local complete = compile(path and source or "module guestnumericfixture\n" .. source, path, tagged.forVersion(6))
+local function numericProgram(source, path, version)
+    version = version or 6
+    local complete = compile(
+        path and source or "module guestnumericfixture\n" .. source,
+        path,
+        tagged.forVersion(version)
+    )
     for _, g in ipairs(complete.graphs) do
         graph.verify(g)
         graph.prune(g)
         graph.verify(g)
     end
-    local normalized = contracts.normalize(complete, 6)
+    local normalized = contracts.normalize(complete, version)
     semantic.semantic(normalized)
-    test.eq(normalized.schema.version, 6)
-    local result = executable.fromChecked(complete, 6)
+    test.eq(normalized.schema.version, version)
+    local result = executable.fromChecked(complete, version)
     executable.validate(result)
 
     return result, complete
@@ -859,6 +869,34 @@ function M.checkedNumericForRunsLuaIntegerAndFloatLoops()
         if case[2] ~= nil then
             same(interpret(numericProgram(case[1])), case[2])
         end
+    end
+end
+
+function M.checkedDynamicNumericStepsKeepDirectionAndInitialControls()
+    local cases = {
+        {"local s = 2\nlocal t = 0\nfor i = 1, 5, s do t = t + i s = -1 end\nexport = t", 9},
+        {"local s = -2\nlocal t = 0\nfor i = 5, 1, s do t = t + i s = 1 end\nexport = t", 9},
+        {"local s = 2\nlocal t = 0\nfor i = 5, 1, s do t = t + i end\nexport = t", 0},
+        {"local s = -2\nlocal t = 0\nfor i = 1, 5, s do t = t + i end\nexport = t", 0},
+        {"local s = 0.5\nlocal t = 0.0\nfor i = 0.5, 2.0, s do t = t + i end\nexport = t", 5.0},
+        {"local s = -0.5\nlocal t = 0.0\nfor i = 2.0, 0.5, s do t = t + i end\nexport = t", 5.0},
+        {"local s = 2\nlocal t = 0.0\nfor i = 1.0, 5.0, s do t = t + i end\nexport = t", 9.0},
+        {"local s = 0.0 * (1e308 * 10.0)\nlocal t = 0\nfor i = 1.0, 1.0, s do t = t + 1 end\nexport = t", 1},
+        {
+            "local s = -0.5\nlocal nan = 0.0 * (1e308 * 10.0)\nlocal t = 0\nfor i = 1.0, nan, s do t = t + 1 end\nexport = t",
+            1
+        },
+    }
+    for _, case in ipairs(cases) do
+        same(interpret(numericProgram(case[1], nil, 8)), case[2])
+    end
+    for _, zero in ipairs({"0", "0.0", "-0.0"}) do
+        refuses(
+            function()
+                interpret(numericProgram("local s = " .. zero .. "\nfor i = 5, 1, s do end\nexport = 0", nil, 8))
+            end,
+            "'for' step is zero"
+        )
     end
 end
 

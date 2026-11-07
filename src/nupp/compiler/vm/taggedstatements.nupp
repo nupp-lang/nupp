@@ -158,17 +158,16 @@ export function checkStatement(ctx: any, stat: any, version: integer): nil
     need(not stat.comptimeFunction and not stat.comptimeTok, "compile-time declarations are unsupported")
 end
 
-local function stepSign(ctx: any, stat: any): integer
+local function stepSign(ctx: any, stat: any, version: integer): integer?
     if stat.step == nil then
         return 1
     end
     local constant = catalog(ctx).byNode[stat.step]
-    -- A dynamic step needs the runtime zero-step error and a runtime
-    -- direction; both wait for guest errors.
-    need(
-        constant and (constant.kind == "int64" or constant.kind == "num"),
-        "numeric for step must be a numeric literal"
-    )
+    if constant == nil or constant.kind ~= "int64" and constant.kind ~= "num" then
+        need(version >= 8, "numeric for step must be a numeric literal")
+        need(numericType(stat.step.inferredType), "numeric for step must be a number")
+        return nil
+    end
     local value = need(tonumber(constant.text), "numeric for step literal")
     need(value == value and value ~= 0, "'for' step is zero")
 
@@ -178,8 +177,8 @@ end
 -- Lua's integer mode depends on the initial value and the step, never the
 -- limit; any other combination runs in floating point. Controls whose
 -- subtype is only known at run time are refused until math.type exists.
-export function numericFor(ctx: any, stat: any): any
-    local sign = stepSign(ctx, stat)
+export function numericFor(ctx: any, stat: any, version: integer): any
+    local sign = stepSign(ctx, stat, version)
     local startType = stat.start.inferredType
     local integerMode = integerType(startType) and (stat.step == nil or integerType(stat.step.inferredType))
     need(
@@ -215,6 +214,27 @@ export function numericFor(ctx: any, stat: any): any
     if stat.step == nil then
         values[3] = ctx.emit(stat, "K", {pool(ctx, "int64", "1")}, "tagged")
     end
+    if sign == nil then
+        local held = {}
+        for index, value in ipairs(values) do
+            held[index] = ctx.hold(value)
+        end
+        local zero = ctx.emit(stat, "K", {pool(ctx, "int64", "0")}, "tagged")
+        local invalid = ctx.emit(stat, "Eq", {values[3], zero}, "tagged")
+        ctx.when(stat, invalid, function(c: any, node: any): nil
+            local message = c.emit(node, "K", {pool(c, "str", "'for' step is zero")}, "tagged")
+            taggedvalues.landed(c, node, c.emit(node, "LibCall", {corelibrary.id("ERROR"), message}, "tagged"))
+            local none = c.emit(node, "Nil", {}, "tagged")
+            c.block.term = {kind = "return", value = none, edges = {}, pos = c.position(node)}
+            c.block = nil
+        end)
+        for index, handle in ipairs(held) do
+            values[index] = ctx.readHeld(handle)
+            ctx.release(handle)
+        end
+        local zero = ctx.emit(stat, "K", {pool(ctx, "int64", "0")}, "tagged")
+        values[4] = ctx.emit(stat, "Lt", {zero, values[3]}, "tagged")
+    end
     if values[1] <= ctx.g.nparams then
         values[1] = ctx.emit(stat, "Move", {values[1]}, "tagged")
     end
@@ -223,8 +243,13 @@ export function numericFor(ctx: any, stat: any): any
     -- loop continues while not counter < limit, which also runs on toward the
     -- minimum integer for a NaN limit, as Lua's limit clipping does. A float
     -- loop's guard is "not past the limit", so NaN controls run it once.
-    local function compare(c: any, node: any, counter: integer, limit: integer): (integer, boolean)
-        if sign > 0 then
+    local function compare(c: any, node: any, counter: integer, limit: integer, ascending: integer?): (integer, boolean)
+        if sign == nil then
+            local up = c.emit(node, "Le", {counter, limit}, "tagged")
+            local down = integerMode and c.emit(node, "Not", {c.emit(node, "Lt", {counter, limit}, "tagged")}, "tagged")
+                or c.emit(node, "Le", {limit, counter}, "tagged")
+            return c.select(node, ascending, up, down), false
+        elseif sign > 0 then
             return c.emit(node, "Le", {counter, limit}, "tagged"), false
         elseif integerMode then
             return c.emit(node, "Lt", {counter, limit}, "tagged"), true
@@ -237,12 +262,18 @@ export function numericFor(ctx: any, stat: any): any
         values = values,
         first = function(c: any, node: any, v: any): (integer, boolean)
             if integerMode then
-                return compare(c, node, v[1], v[2])
+                return compare(c, node, v[1], v[2], v[4])
             end
+            if sign == nil then
+                local up = c.emit(node, "Lt", {v[2], v[1]}, "tagged")
+                local down = c.emit(node, "Lt", {v[1], v[2]}, "tagged")
+                return c.select(node, v[4], up, down), true
+            end
+
             return c.emit(node, "Lt", sign > 0 and {v[2], v[1]} or {v[1], v[2]}, "tagged"), true
         end,
         test = function(c: any, node: any, v: any): (integer, boolean)
-            return compare(c, node, v[1], v[2])
+            return compare(c, node, v[1], v[2], v[4])
         end,
         advance = function(c: any, node: any, v: any): (integer, integer?)
             local advanced = c.emit(node, "Add", {v[1], v[3]}, "tagged")
@@ -250,6 +281,15 @@ export function numericFor(ctx: any, stat: any): any
                 return advanced, nil
             end
             -- Integer counters wrap at 64 bits; a wrapped sum ends the loop.
+            if sign == nil then
+                local held = c.hold(advanced)
+                local up = c.emit(node, "Lt", {advanced, v[1]}, "tagged")
+                local down = c.emit(node, "Lt", {v[1], advanced}, "tagged")
+                local wrapped = c.select(node, v[4], up, down)
+                advanced = c.readHeld(held)
+                c.release(held)
+                return advanced, wrapped
+            end
             local wrapped = c.emit(node, "Lt", sign > 0 and {advanced, v[1]} or {v[1], advanced}, "tagged")
 
             return advanced, wrapped

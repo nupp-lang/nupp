@@ -61,6 +61,7 @@ local GUEST_ENV = "NUPP_GUEST_PROBE=core-environment NUPP_GUEST_SCALE=3 NUPP_GUE
 local CASES = {
     {"bindingconditions", 0x7FFB000000000000},
     {"optionalmethodcleanups", 0x7FFF000000000001},
+    {"numericsteps", 0x7FFF000000000001},
     {"stringdynamic", 0x7FFF000000000001},
     {"stringmetaonly", 0x7FFF000000000001},
     {"stringmetatable", 0x7FFF000000000001},
@@ -333,6 +334,7 @@ end
 -- records and strings, at seconds a run there, run so in normal mode alone.
 local STRESS = {
     optionalmethodcleanups = true,
+    numericsteps = true,
     stringdynamic = true,
     stringmetaonly = true,
     stringmetatable = true,

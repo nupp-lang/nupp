@@ -656,6 +656,19 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         context()
     end
 
+    -- Select already evaluated values through the ordinary binding transport.
+    ctx.select = function(node: any, condition: integer, yes: integer, no: integer): integer
+        local selected, alternative = ctx.hold(no), ctx.hold(yes)
+        ctx.when(node, condition, function(c: any, site: any): nil
+            bindings[selected] = c.readHeld(alternative)
+        end)
+        local result = ctx.readHeld(selected)
+        ctx.release(alternative)
+        ctx.release(selected)
+
+        return result
+    end
+
     -- A loop a library form builds, table.sort's comparator calls: `step`
     -- answers a value whose truth goes round again, and `body` emits one
     -- iteration. What either needs across iterations it holds.
@@ -1771,7 +1784,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                     local function test(hook: any): (integer, boolean)
                         context()
                         local value, negate = hook(ctx, stat, controls())
-                        need(ctx.block == block, "numeric for test must stay in its block")
+                        block = ctx.block
                         return value, negate == true
                     end
 
@@ -1822,7 +1835,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                     resume(latch)
                     context()
                     local advanced, wrapped = plan.advance(ctx, stat, controls())
-                    need(ctx.block == block, "numeric for advance must stay in its block")
+                    block = ctx.block
                     bindings[held[1]] = advanced
                     if wrapped then
                         local stay = branch()

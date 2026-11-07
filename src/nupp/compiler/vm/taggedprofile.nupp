@@ -467,7 +467,7 @@ function tagged.forVersion(version: integer): any
     end
     if version >= 6 then
         profile.numericFor = function(ctx: any, stat: any, expected: any): any
-            return numericFor(ctx, stat)
+            return numericFor(ctx, stat, version)
         end
     end
     -- v8 tables: empty constructors, keyed reads and writes, and length.

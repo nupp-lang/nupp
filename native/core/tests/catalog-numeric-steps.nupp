@@ -1,0 +1,63 @@
+module nupp.core.catalognumericsteps
+
+local own = require("own")
+local closed = 0
+local record Owner is own.Closeable
+    function close(takes self): nil
+        @unsafe own.release(self)
+        closed += 1
+    end
+end
+
+local function total(first: integer, last: integer, step: integer): integer
+    local sum: integer = 0
+    for value = first, last, step do
+        sum += value
+        step = -step
+    end
+
+    return sum
+end
+
+assert(total(1, 5, 2) == 9)
+assert(total(5, 1, -2) == 9)
+assert(total(5, 1, 2) == 0)
+assert(total(1, 5, -2) == 0)
+
+local function floating(first: float64, last: float64, step: float64): float64
+    local sum: float64 = 0.0
+    for value = first, last, step do
+        sum += value
+    end
+
+    return sum
+end
+
+assert(floating(0.5, 2.0, 0.5) == 5.0)
+assert(floating(2.0, 0.5, -0.5) == 5.0)
+local nan = 0.0 * (1e308 * 10.0)
+assert(floating(1.0, 1.0, nan) == 1.0)
+
+local function iterations(first: integer, last: integer, step: integer): integer
+    local count: integer = 0
+    for value = first, last, step do
+        count += 1
+    end
+
+    return count
+end
+
+assert(iterations(math.maxinteger - 1, math.maxinteger, 2) == 1)
+assert(iterations(math.mininteger + 1, math.mininteger, -2) == 1)
+
+local function zero(step: integer): nil
+    local resource = Owner()
+    for value = 5, 1, step do
+        error("zero step reached the body", 0)
+    end
+end
+
+local ok, problem = pcall(zero, 0)
+assert(not ok and string.find(tostring(problem), "'for' step is zero", 1, true) ~= nil)
+assert(closed == 1)
+export = 1
