@@ -25,6 +25,7 @@ type native.Feature = {
     override: boolean?,
     requires: {string}?,
     runtimeModule: string?,
+    facades: {string}?,
 
     --- Whether `runtimeModule` compiles for a target the compiler did not build
     --- itself for. A feature that says so is compiled for that target; one that
@@ -812,6 +813,7 @@ local FEATURES: {[string]: native.Feature} = {
         globals = {"binary.compress"},
         exports = {"binary.compress"},
         modules = {"nupp.runtime.provider.nativecompression"},
+        facades = {"nupp.compression"},
         runtimeModule = "nupp.runtime.provider.nativecompression",
         provider = "nupp_native",
         providerDriver = "native-rust",
@@ -863,6 +865,39 @@ local FEATURES: {[string]: native.Feature} = {
         "native.crypto"
     ] = {name = "crypto", module = "nupp.runtime.provider.nativecrypto", requires = {"runtime.native"},},
 }
+
+-- Facades can load their backend by a computed name. This relation is a
+-- prerequisite for optional source discovery, separate from feature effects.
+local function modulename(name: string): boolean
+    if name == "" or name:sub(1, 1) == "." or name:sub(-1) == "." or name:find("..", 1, true) then
+        return false
+    end
+    for part in name:gmatch("[^.]+") do
+        if not part:match("^[%a_][%w_]*$") then
+            return false
+        end
+    end
+
+    return true
+end
+
+local function backends(features: {[string]: native.Feature}): {[string]: string}
+    local found: {[string]: string} = {}
+    for _, feature in pairs(features) do
+        for _, facade in ipairs(feature.facades or {}) do
+            assert(modulename(facade), "invalid backend facade module")
+            local implementation = feature.runtimeModule
+            assert(implementation ~= nil and modulename(implementation), "backend facade requires a runtime module")
+            assert(facade ~= implementation, "backend facade requires a distinct runtime module")
+            assert(found[facade] == nil, "duplicate backend facade module")
+            found[facade] = implementation as string
+        end
+    end
+
+    return found
+end
+
+local byFacade = backends(FEATURES)
 
 local byGlobal: {[string]: string} = {}
 local byModule, byModuleMember = {}, {}
@@ -945,6 +980,11 @@ function native.decorateGlobals(globals: {[string]: any}, globalTypes: {[string]
     end
 
     return effects
+end
+
+-- A declared backend prerequisite does not attach a feature effect to imports.
+function native.backend(name: string): string?
+    return byFacade[name]
 end
 
 function native.forModule(name: string): string?

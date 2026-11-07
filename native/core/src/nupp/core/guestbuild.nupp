@@ -642,6 +642,23 @@ local function portable(root: string, library: string, seen: {[string]: boolean}
     end
     visited[library] = true
     local source = read(root .. "/" .. library .. (library:sub(-4) == ".lua" and "" or ".nupp"))
+    local parsed = parser.parse(source, root .. "/" .. library)
+    if #parsed.errors > 0 then
+        return false
+    end
+    local declared = cst.declaredModule(parsed.root)
+    local backend = declared and require("nupp.compiler.native").backend(declared)
+    if backend then
+        local implementation = librarypath(root, backend)
+        if implementation then
+            if not portable(root, implementation, visited) then
+                return false
+            end
+        elseif not graph.corecallmodule(backend) then
+            return false
+        end
+    end
+
     for name in source:gmatch("require%(%s*[\"']([%w%._]+)[\"']%s*%)") do
         local found = librarypath(root, name)
         if found ~= nil then
