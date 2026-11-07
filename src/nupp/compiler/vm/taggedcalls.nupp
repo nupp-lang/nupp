@@ -953,6 +953,13 @@ export function invokeMethod(
     return landed(ctx, node, ctx.invoke(node, value, args, contract, keepResult, pack, open))
 end
 
+-- A bare return keeps zero values where the checked pack permits them.
+export function emptyreturn(signature: any): boolean
+    local pack = signature and signature.retPack
+
+    return pack ~= nil and (pack.alternatives ~= nil or #pack.head == 0)
+end
+
 -- An empty result pack uses the existing open return transport.
 export function emptyresults(ctx: any, node: any): integer
     local pack = ctx.emit(node, "NewTable", {}, "tagged")

@@ -72,6 +72,18 @@ end
 
 assert(count(owningbytes()) == 3 and drops == 1)
 
+local function owningbare(): ...integer
+    local value = acquire()
+    return
+end
+
+local function owningfallthrough(): ()
+    local value = acquire()
+end
+
+assert(count(owningbare()) == 0 and drops == 2, "owned bare return keeps zero results")
+assert(count(owningfallthrough()) == 0 and drops == 3, "owned fallthrough keeps zero results")
+
 local function both(): (integer, integer)
     return table.unpack({10, 20})
 end

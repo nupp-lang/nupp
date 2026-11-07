@@ -398,7 +398,7 @@ export function cleanupProfile(base: any): any
         end
         local exprs = not falling and node.exprs or {}
         if #exprs == 0 then
-            if ctx.fn.signature and ctx.fn.signature.retPack.alternatives then
+            if taggedcalls.emptyreturn(ctx.fn.signature) then
                 return {values = {taggedcalls.emptyresults(ctx, node)}, spread = true}
             end
             return {values = {}}

@@ -1203,12 +1203,12 @@ function tagged.forVersion(version: integer): any
 
             return invoke(ctx, node, true, true, count)
         end
-        -- A bare `return`, or the end of a body, answers nil. A last call
+        -- A bare return follows its checked result pack. A last call
         -- supplies as many results as the function declares, as Lua passes
         -- every result of `return f()` on.
         profile.returnStatement = function(ctx: any, stat: any): nil
             if #stat.exprs == 0 then
-                if ctx.fn.signature and ctx.fn.signature.retPack.alternatives then
+                if taggedcalls.emptyreturn(ctx.fn.signature) then
                     local pack = taggedcalls.emptyresults(ctx, stat)
                     ctx.block.term = {
                         kind = "return",
@@ -1348,7 +1348,7 @@ function tagged.forVersion(version: integer): any
             ctx.block = nil
         end
         profile.fallthrough = function(ctx: any, node: any): nil
-            if not ctx.exports and ctx.fn.signature and ctx.fn.signature.retPack.alternatives then
+            if not ctx.exports and taggedcalls.emptyreturn(ctx.fn.signature) then
                 local pack = taggedcalls.emptyresults(ctx, node)
                 ctx.block.term = {
                     kind = "return",

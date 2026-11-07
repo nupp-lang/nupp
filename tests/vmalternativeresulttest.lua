@@ -216,6 +216,40 @@ return 0
     end
 end
 
+function M.zeroResultPacksKeepBareReturnsAndFallthroughEmpty()
+    local p = checked(
+        [[
+local function target(): () end
+local function fixedbare(): () return end
+local function openfalling(): ...integer end
+local function openbare(): ...integer return end
+local function onenil(): nil return nil end
+return 0
+]]
+    )
+    local compiled = program.compile(p, tagged.forVersion(8))
+    local catalog = executable.fromChecked(compiled, 8)
+    executable.validate(catalog)
+    for _, name in ipairs({"target", "fixedbare", "openfalling", "openbare"}) do
+        local owner = program.select(p, p.modules[1].name, name)
+        local found = false
+        for _, instruction in ipairs(catalog.functions[owner.id + 1].instructions) do
+            assert(instruction[1] ~= "Ret", name .. " fabricated one nil result")
+            if instruction[1] == "RetV" then
+                assert(instruction[3] == 0, name .. " fabricated fixed results")
+                found = true
+            end
+        end
+        assert(found, name .. " lost its empty result pack")
+    end
+    local owner = program.select(p, p.modules[1].name, "onenil")
+    local found = false
+    for _, instruction in ipairs(catalog.functions[owner.id + 1].instructions) do
+        found = found or instruction[1] == "Ret"
+    end
+    assert(found, "explicit nil must retain its one result")
+end
+
 function M.olderProfilesAndChangedCheckedSignaturesStayRefused()
     local p, owner = checked()
     refuses(
