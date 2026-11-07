@@ -47,6 +47,6 @@ while IFS= read -r obligation; do
 done < "$selection"
 if [ "$#" -gt 0 ]; then
     # Optional flags expand to zero or one fixed argument, never user text.
-    ./bin/nupp test "$@" ${fresh:+"$fresh"} ${listing:+"$listing"}
+    ./bin/nupp test --internal-runner "$@" ${fresh:+"$fresh"} ${listing:+"$listing"}
 fi
 if [ "$fixpoint" = yes ] && [ -z "$listing" ]; then ./bin/nupp fixpoint; fi
