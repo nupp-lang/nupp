@@ -467,6 +467,7 @@ for _, resource in ipairs({
     "src/nupp/runtime/temporaryhooks.nupp",
     "src/nupp/runtime/provider/corefiles.nupp",
     "src/nupp/runtime/provider/coretemporary.nupp",
+    "src/nupp/runtime/provider/coretaskownership.nupp",
     "src/nupp/runtime/filesystemcalls.d.nupp",
     "src/nupp/runtime/storage.nupp",
     "src/nupp/runtime/managed.nupp",

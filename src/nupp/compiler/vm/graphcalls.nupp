@@ -1000,6 +1000,7 @@ local coremodules: {
     ["nupp.runtime.bindings.clock"] = "nupp.runtime.provider.coretime",
     ["debug.internal.clock"] = "nupp.runtime.provider.corelogclock",
     ["nupp.runtime.bindings.suspension"] = "nupp.runtime.provider.suspension",
+    ["nupp.runtime.taskownership"] = "nupp.runtime.provider.coretaskownership",
     ["nupp.vm.files"] = "nupp.runtime.provider.corefiles",
     ["io.internal.sharedbytes"] = "nupp.runtime.provider.coresharedbytes",
     ["nupp.runtime.temporaryhooks"] = "nupp.runtime.provider.coretemporary",
