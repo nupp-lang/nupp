@@ -68,3 +68,7 @@ pinned-bootstrap fixpoint rebuilds byte-identically.
 Bytecode inspection still reports the worker dispatch loop's captured-upvalue
 close (`jit/loop-upvalue-close`). This change leaves that loop intact and adds
 no loops to the direct transfer helpers.
+
+The fixture uses an explicit `heap` binding for destructor policies. Worker
+return policies written as `table.Array.destroy` fail on both transfer paths;
+[issue 82](https://github.com/nupp-lang/nupp/issues/82) tracks that failure.
