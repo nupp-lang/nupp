@@ -14,9 +14,7 @@ const assert2 = require("assert")
 
 const {type Process as NativeProcess} = require("io.internal.process")
 
-local type ProcessHost = {
-    spawn: function({string}, ChildOptions): (affine(NativeProcess)?, string?, integer?)
-}
+local type ProcessHost = {spawn: function({string}, ChildOptions): (affine(NativeProcess)?, string?, integer?)}
 
 -- Only isolated children need the native provider. Retain its fingerprint and
 -- its ownership contract when loading it on demand.
