@@ -460,6 +460,8 @@ export record File is io.Reader, io.Writer
     close: @nosuspend function(takes self: File): nil
 end
 
+require("nupp.io.internal.bytes").readercompat(File as table)
+
 function File.close(takes self: File): nil
     local state = @unsafe own.release(self)
     if state._closed then

@@ -567,6 +567,8 @@ record process.Writer is byteio.Writer
     end
 end
 
+require("nupp.io.internal.bytes").readercompat(process.Reader as table)
+
 function process.Reader.unread(self: process.Reader, bytes: string): nil
     self.pending = bytes .. self.pending
     self.eof = false

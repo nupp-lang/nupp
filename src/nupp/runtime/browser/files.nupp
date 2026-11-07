@@ -468,6 +468,8 @@ local function closeOrphan(response: any): nil
     end
 end
 
+require("nupp.io.internal.bytes").readercompat(File as table)
+
 export function open(path: any, mode: messages.Mode?): (affine(File?), string?)
     local selected = mode or "r"
     if MODES[selected] == nil then

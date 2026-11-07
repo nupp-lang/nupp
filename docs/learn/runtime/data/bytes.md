@@ -134,6 +134,20 @@ lease:commit(3)
 assert(buffer:tostring() == "ABC")
 ```
 
+A reader can take the lease and commit the bytes it receives. The reservation
+must have positive length. End of input commits zero bytes; a failed read or
+an exception abandons the reservation without extending the buffer.
+
+```nupp
+local reader = io.Reader.of("ABC")
+local buffer = io.Buffer.create("prefix:")
+assert(reader:readinto(buffer:reserve(10)) == 3)
+assert(buffer:tostring() == "prefix:ABC")
+```
+
+The call consumes the lease and releases its exclusive borrow of the buffer.
+Use `readinto(buffer, offset, count)` to read at a storage offset instead.
+
 ## Copies
 
 On LuaJIT, strings are interned, so producing a string copies bytes.

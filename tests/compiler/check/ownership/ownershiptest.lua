@@ -8979,4 +8979,27 @@ writer:writebytes(":"):writeuint8(33)
     )
 end
 
+function M.readintoConsumesTheLeaseAndReleasesTheBuffer()
+    local prefix = [[
+local reader = io.Reader.of("abc")
+local buffer = io.Buffer.create()
+local lease = buffer:reserve(10)
+]]
+    assertClean(prefix .. [[
+reader:readinto(lease)
+buffer:put("done")
+]])
+    local reused = codes(prefix .. [[
+reader:readinto(lease)
+lease:commit(0)
+]])
+    assert(reused:find("NUPP2601", 1, true), reused)
+    local borrowed = codes(prefix .. [[
+local output = lease:span()
+reader:readinto(lease)
+output[1] = 65
+]])
+    assert(borrowed:find("NUPP2602", 1, true) or borrowed:find("NUPP2607", 1, true), borrowed)
+end
+
 return M

@@ -152,7 +152,7 @@ const http.capabilities = provider.capabilities
 function http.reader(takes reader: Reader, len: integer?, contenttype: string?): http.ReaderBody
     if type(reader) ~= "table"
         or type((reader as any).read) ~= "function"
-        or type((reader as any).readinto) ~= "function"
+        or (type((reader as any).readinto) ~= "function" and type((reader as any).readspan) ~= "function")
         or type((reader as any).close) ~= "function"
     then
         error("nupp: HTTP reader body needs a reader", 2)

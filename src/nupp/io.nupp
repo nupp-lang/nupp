@@ -33,7 +33,9 @@ const bytes = require("nupp.io.internal.bytes")
 --- `readspan(writable)` fills a positive-sized checked writable span.
 --- `readinto(buffer, offset, count)` returns zero at EOF and reads 64 KiB when
 --- given no count; an explicit count must be positive. A failed or EOF read
---- does not extend the destination. `transferto(writer)` copies the entire
+--- does not extend the destination. `readinto(lease)` takes a positive-sized
+--- buffer reservation and commits the bytes received; failure abandons it.
+--- `transferto(writer)` copies the entire
 --- remaining source and returns the byte count. `readall(maxbytes)` takes the
 --- reader, closes it, and returns its remaining bytes as a string.
 ---

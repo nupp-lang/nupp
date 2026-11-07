@@ -571,6 +571,8 @@ local record Reader is io.Reader
     end
 end
 
+require("nupp.io.internal.bytes").readercompat(Reader as table)
+
 function Reader.refill(self: Reader): (boolean?, string?)
     local writable = span.writecarray(self.input, self.capacity)
     local count, reason = self.source:readspan(writable)
