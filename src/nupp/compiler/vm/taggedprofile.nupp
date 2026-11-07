@@ -260,7 +260,7 @@ function tagged.call(ctx: any, node: any, expected: string?): integer
             and witness.owner == ctx.fn.id,
             "scalar witness identity differs"
         )
-        local module = ctx.emit(node, "Require", {pool(ctx, "str", scalartypeof.MODULE)}, "tagged")
+        local module = ctx.expression(witness.base, "tagged")
         local member = ctx.emit(node, "K", {pool(ctx, "str", scalartypeof.MEMBER)}, "tagged")
         local callee = ctx.emit(node, "GetIdx", {module, member}, "tagged")
         local kind = ctx.emit(node, "K", {pool(ctx, "str", witness.kind)}, "tagged")

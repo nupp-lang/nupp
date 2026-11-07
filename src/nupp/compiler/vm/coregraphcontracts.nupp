@@ -5,6 +5,7 @@ local graph = require("nupp.compiler.vm.graph")
 local schema = require("nupp.compiler.vm.coregraphschema")
 local semantic = require("nupp.compiler.vm.coregraphverify")
 local cst = require("nupp.compiler.syntax.cst")
+local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local lexer = require("nupp.compiler.syntax.lexer")
 local contracts = {}
 local bounds = schema.limits()
@@ -582,7 +583,10 @@ function contracts.normalize(compiled: any, version: integer?): (any, any)
                 type(binding) == "table"
                 and type(binding.definition) == "table"
                 and target ~= nil
-                and graph.coremodule(binding.definition.requiredModule) == target.name,
+                and (
+                    p.scalartypes.definitions[binding.definition] and scalartypeof.MODULE
+                    or graph.coremodule(binding.definition.requiredModule)
+                ) == target.name,
                 "checked import target or source identity differs"
             )
         end

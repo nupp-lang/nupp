@@ -5,9 +5,10 @@ local program = require("nupp.compiler.vm.programgraph")
 local tagged = require("nupp.compiler.vm.taggedprofile")
 local projection = require("nupp.compiler.vm.scalartypeof")
 local types = require("nupp.compiler.types")
+local executable = require("nupp.compiler.vm.coregraphexecutable")
 local M = {}
 local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
-local provider
+local actualModules = {}
 local unitsEnvironment
 
 local function checked(source, path, name)
@@ -28,16 +29,16 @@ local function checked(source, path, name)
     return {name = name, path = path, parsed = parsed, diagnostics = diagnostics}
 end
 
-local function actualprovider()
-    if provider == nil then
-        local path = root .. "/src/nupp/runtime/provider/heapstorage.nupp"
+local function actualmodule(name)
+    if actualModules[name] == nil then
+        local path = root .. "/src/" .. name:gsub("%.", "/") .. ".nupp"
         local file = assert(io.open(path, "rb"))
         local source = file:read("*a")
         file:close()
-        provider = checked(source, path, projection.MODULE)
+        actualModules[name] = checked(source, path, name)
     end
 
-    return provider
+    return actualModules[name]
 end
 
 local function fixture(body)
@@ -46,7 +47,10 @@ local function fixture(body)
 end
 
 local function catalog(module)
-    return program.describe({actualprovider(), module}, module.name)
+    return program.describe(
+        {actualmodule("nupp.runtime.libraryvalues"), actualmodule(projection.MODULE), module},
+        module.name
+    )
 end
 
 local function compile(module)
@@ -99,6 +103,150 @@ function M.realPhysicalScalarWitnessesCallTheActualCanonicalFactory()
     for _, kind in ipairs(kinds) do
         assert(seen[string.format("%q", kind == "float64" and "number" or kind)])
     end
+end
+
+function M.scalarWitnessesSurviveCompleteProgramAndExecutableValidation()
+    local described = catalog(
+        fixture([[local ffi=require('ffi')
+export function entry(): ctype<uint32> return ffi.typeof<uint32>() end]])
+    )
+    local complete = program.compile(described, tagged.forVersion(8))
+    assert(#complete.graphs == #described.owners)
+    local output = executable.fromChecked(complete, 8)
+    executable.validate(output)
+    assert(#output.functions == #described.owners)
+end
+
+function M.syntheticScalarCallsitesRetainTheirSourceOwnerAndFactory()
+    local described = catalog(
+        fixture([[local ffi=require('ffi')
+export function entry(): ctype<uint16> return ffi.typeof<uint16>() end]])
+    )
+    local _, witness = next(described.scalartypes.witnesses)
+    local site = assert(described.callByNode[witness.call])
+    assert(site.scalarWitness == witness and site.owner == witness.owner)
+    assert(described.calls[site.id + 1] == site)
+    assert(site.definition == witness.target.definition)
+
+    described.callByNode[witness.call] = nil
+    assert(
+        refused(function()
+            program.verify(described)
+        end):find("scalar witness lacks its checked callsite", 1, true)
+    )
+    local canonical = described.calls[site.id + 1]
+    described.calls[site.id + 1] = nil
+    assert(
+        refused(function()
+            program.verify(described)
+        end):find("scalar witness lacks its checked callsite", 1, true)
+    )
+    described.calls[site.id + 1] = canonical
+    described.callByNode[witness.call] = site
+
+    local owner = site.owner
+    site.owner = witness.target.id
+    assert(
+        refused(function()
+            program.verify(described)
+        end):find("scalar witness callsite differs", 1, true)
+    )
+    witness.owner = site.owner
+    assert(
+        refused(function()
+            program.verify(described)
+        end):find("scalar callsite lacks its checked source witness", 1, true)
+    )
+    site.owner, witness.owner = owner, owner
+
+    local base = witness.base
+    witness.base = {kind = "name", token = base.token}
+    assert(
+        refused(function()
+            program.verify(described)
+        end):find("scalar witness identity differs", 1, true)
+    )
+    witness.base = base
+
+    local definition = site.definition
+    site.definition = witness.definition
+    assert(
+        refused(function()
+            program.verify(described)
+        end):find("scalar witness callsite differs", 1, true)
+    )
+    site.definition = definition
+
+    site.scalarWitness = {}
+    assert(
+        refused(function()
+            program.verify(described)
+        end):find("scalar witness callsite differs", 1, true)
+    )
+    site.scalarWitness = witness
+
+    local node = site.node
+    site.node = witness.node
+    assert(
+        refused(function()
+            program.verify(described)
+        end):find("scalar witness callsite differs", 1, true)
+    )
+    site.node = node
+
+    described.calls[site.id + 1] = {}
+    assert(
+        refused(function()
+            program.verify(described)
+        end):find("scalar witness callsite differs", 1, true)
+    )
+    described.calls[site.id + 1] = site
+    assert(program.verify(described))
+end
+
+function M.scalarExecutableImportsRejectForeignTargetsAndChangedSourceSites()
+    local described = catalog(
+        fixture([[local ffi=require('ffi')
+export function entry(): ctype<uint32> return ffi.typeof<uint32>() end]])
+    )
+    local complete = program.compile(described, tagged.forVersion(8))
+    local loader, imported = next(described.scalartypes.imports)
+    local site = assert(described.requireByNode[loader])
+    local source = site.scalarImport
+    site.scalarImport = {}
+    refused(function()
+        executable.fromChecked(complete, 8)
+    end)
+    site.scalarImport = source
+
+    local target = site.target
+    site.target = described.entry
+    refused(function()
+        executable.fromChecked(complete, 8)
+    end)
+    site.target = target
+
+    local mapped = described.scalartypes.definitions[imported.definition]
+    described.scalartypes.definitions[imported.definition] = nil
+    refused(function()
+        executable.fromChecked(complete, 8)
+    end)
+    described.scalartypes.definitions[imported.definition] = mapped
+
+    local binding
+    for _, item in ipairs(described.imports) do
+        if described.bindings[item.binding + 1].definition == imported.definition then
+            binding = item
+        end
+    end
+    assert(binding)
+    local savedTarget = binding.target
+    binding.target = described.entry
+    refused(function()
+        executable.fromChecked(complete, 8)
+    end)
+    binding.target = savedTarget
+    executable.validate(executable.fromChecked(complete, 8))
 end
 
 function M.separateLexicalImportsKeepTheirOwnCheckedDeclarations()

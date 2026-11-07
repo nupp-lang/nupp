@@ -735,6 +735,15 @@ function program.describe(modules: {any}, entryModule: string): any
         local witness = p.scalartypes.witnesses[node]
         if witness then
             witness.owner = owner.id
+            reference(witness.base.token, owner)
+            local item = {
+                id = #p.calls,
+                owner = owner.id,
+                node = witness.call,
+                definition = witness.target.definition,
+                scalarWitness = witness
+            }
+            p.calls[#p.calls + 1], p.callByNode[witness.call] = item, item
             return
         end
         if node.kind == "isExpr"
@@ -1348,6 +1357,7 @@ function program.verify(p: any): boolean
         local target = witness.target
         need(
             witness.node == node
+            and witness.base == current.base
             and witness.definition == current.definition
             and witness.subject == current.subject
             and witness.kind == current.kind
@@ -1366,13 +1376,25 @@ function program.verify(p: any): boolean
         )
         local call = witness.call
         need(
-            call.obj.token.definition == target.definition
+            call.kind == "call"
+            and call.token == cst.firstToken(node)
+            and call.obj.kind == "name"
+            and call.obj.token.definition == target.definition
             and call.calleeType == target.signature
             and #call.args.exprs == 1
             and call.args.exprs[1].kind == "string"
             and call.args.exprs[1].token.text == string.format("%q", witness.kind)
             and call.args.exprs[1].inferredType == target.signature.params[1],
             "scalar factory argument differs"
+        )
+        local site = need(p.callByNode[call], "scalar witness lacks its checked callsite")
+        need(
+            site.node == call
+            and p.calls[site.id + 1] == site
+            and site.scalarWitness == witness
+            and site.owner == witness.owner
+            and site.definition == target.definition,
+            "scalar witness callsite differs"
         )
         graph.invokeContract(target, call)
     end
@@ -1703,7 +1725,18 @@ function program.verify(p: any): boolean
     for index, item in ipairs(p.calls) do
         local node = item.node
         need(item.id == index - 1 and p.owners[item.owner + 1], "invalid callsite owner")
-        if item.method and item.dynamic then
+        if item.scalarWitness then
+            local witness = item.scalarWitness
+            need(
+                p.scalartypes.witnesses[witness.node] == witness
+                and node == witness.call
+                and p.callByNode[node] == item
+                and item.definition == witness.target.definition
+                and item.owner == witness.owner
+                and referenceOwners[witness.base.token] == item.owner,
+                "scalar callsite lacks its checked source witness"
+            )
+        elseif item.method and item.dynamic then
             need(
                 node.kind == "methodCall"
                 and p.callByNode[node] == item
