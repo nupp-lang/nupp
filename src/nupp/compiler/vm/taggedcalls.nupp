@@ -106,6 +106,30 @@ export function requireSite(ctx: any, node: any): any
     return item
 end
 
+-- Cleanup preparation can branch. Keep the complete call alive across it,
+-- including a nested call's result pack, before issuing the invoke.
+local function beforecall(ctx: any, node: any, value: integer, args: any, pack: integer?): (integer, any, integer?)
+    local held = ctx.hold(value)
+    local heldArgs = {}
+    for index, arg in ipairs(args) do
+        heldArgs[index] = ctx.hold(arg)
+    end
+    local heldPack = pack ~= nil and ctx.hold(pack) or nil
+    ctx.beforeCall(node)
+    value = ctx.readHeld(held)
+    ctx.release(held)
+    for index, handle in ipairs(heldArgs) do
+        args[index] = ctx.readHeld(handle)
+        ctx.release(handle)
+    end
+    if heldPack ~= nil then
+        pack = ctx.readHeld(heldPack)
+        ctx.release(heldPack)
+    end
+
+    return value, args, pack
+end
+
 -- A checked call. With `count`, it keeps that many results and answers them
 -- as a list.
 -- With `open`, it keeps every result as one pack.
@@ -180,7 +204,7 @@ export function invoke(
         if protectedcall(exprs[#exprs]) then
             pack = protectedpack(ctx, exprs[#exprs])
         else
-            pack = invoke(ctx, exprs[#exprs], true, true, nil, true)
+            pack = openinvoke(ctx, exprs[#exprs])
         end
         for index, handle in ipairs(held) do
             args[index] = ctx.readHeld(handle)
@@ -194,7 +218,7 @@ export function invoke(
     local value = ctx.readHeld(callee)
     ctx.release(callee)
     if cleanupGraphs[ctx.g] and node.kind == "call" then
-        ctx.beforeCall(node)
+        value, args, pack = beforecall(ctx, node, value, args, pack)
     end
     if count then
         return landed(ctx, node, ctx.invokeMany(node, value, args, contract, count, pack))
@@ -524,7 +548,7 @@ export function valuespack(ctx: any, node: any, exprs: any, texts: boolean?): in
         elseif protectedcall(last) then
             values = protectedpack(ctx, last)
         else
-            values = invoke(ctx, last, true, true, nil, true)
+            values = openinvoke(ctx, last)
         end
         if values == nil or ctx.block == nil then
             ctx.release(held)
@@ -771,7 +795,14 @@ end
 -- A record method call, `c:m(...)`: the method is loaded from the table the
 -- record's name holds and called with the receiver first. With `count`, it
 -- keeps that many results and answers them as a list.
-export function invokeMethod(ctx: any, node: any, keepResult: boolean, count: integer?, prepared: {integer}?): any
+export function invokeMethod(
+    ctx: any,
+    node: any,
+    keepResult: boolean,
+    count: integer?,
+    prepared: {integer}?,
+    open: boolean?
+): any
     local p = catalog(ctx)
     local site = need(p.callByNode[node], "method call lacks checked callsite")
     need(site.method and site.owner == ctx.fn.id, "method callsite belongs to another owner")
@@ -789,10 +820,12 @@ export function invokeMethod(ctx: any, node: any, keepResult: boolean, count: in
     -- A `...` last spreads its whole pack after the other arguments.
     local arguments = node.args.exprs or {}
     local spreads = #arguments > 0 and arguments[#arguments].kind == "vararg"
+    local expands = not spreads and graph.spreadsLast(node)
+    need(not expands or prepared == nil, "prepared indexed operands cannot spread")
     local exprs, kinds = {node.obj}, {"tagged"}
     for index, argument in ipairs(arguments) do
         need(argument.kind ~= "vararg" or index == #arguments, "`...` spreads only last")
-        if not (spreads and index == #arguments) then
+        if not ((spreads or expands) and index == #arguments) then
             exprs[#exprs + 1], kinds[#kinds + 1] = argument, "tagged"
         end
     end
@@ -877,6 +910,7 @@ export function invokeMethod(ctx: any, node: any, keepResult: boolean, count: in
     local called = contract.callSignature
     if not site.dynamic
         and not spreads
+        and not expands
         and type(called) == "table"
         and called.params
         and graph.omits(called, #args - 1)
@@ -886,25 +920,51 @@ export function invokeMethod(ctx: any, node: any, keepResult: boolean, count: in
         end
     end
     local pack = spreads and ctx.varargPack() or nil
-    -- In a function that owns affine values a method call moves what it
-    -- takes, and an error lands at it, as at any call.
-    if cleanupGraphs[ctx.g] then
+    if expands then
         local held = ctx.hold(value)
         local heldArgs = {}
         for index, arg in ipairs(args) do
             heldArgs[index] = ctx.hold(arg)
         end
-        ctx.beforeCall(node)
+        if protectedcall(arguments[#arguments]) then
+            pack = protectedpack(ctx, arguments[#arguments])
+        else
+            pack = openinvoke(ctx, arguments[#arguments])
+        end
         value = ctx.readHeld(held)
         ctx.release(held)
         for index, handle in ipairs(heldArgs) do
             args[index] = ctx.readHeld(handle)
             ctx.release(handle)
         end
+        if pack == nil or ctx.block == nil then
+            return nil
+        end
+    end
+    -- In a function that owns affine values a method call moves what it
+    -- takes, and an error lands at it, as at any call.
+    if cleanupGraphs[ctx.g] then
+        value, args, pack = beforecall(ctx, node, value, args, pack)
     end
     if count then
         return landed(ctx, node, ctx.invokeMany(node, value, args, contract, count, pack))
     end
 
-    return landed(ctx, node, ctx.invoke(node, value, args, contract, keepResult, pack))
+    return landed(ctx, node, ctx.invoke(node, value, args, contract, keepResult, pack, open))
+end
+
+-- An empty result pack uses the existing open return transport.
+export function emptyresults(ctx: any, node: any): integer
+    local pack = ctx.emit(node, "NewTable", {}, "tagged")
+    local zero = ctx.emit(node, "K", {pool(ctx, "int64", "0")}, "tagged")
+    ctx.emit(node, "SetIdx", {pack, zero, zero}, nil)
+    return pack
+end
+
+export function openinvoke(ctx: any, node: any): any
+    if node.kind == "methodCall" and not graph.packedcall(node) then
+        return invokeMethod(ctx, node, true, nil, nil, true)
+    end
+
+    return invoke(ctx, node, true, true, nil, true)
 end

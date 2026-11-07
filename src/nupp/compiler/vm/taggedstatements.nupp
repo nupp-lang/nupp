@@ -398,12 +398,21 @@ export function cleanupProfile(base: any): any
         end
         local exprs = not falling and node.exprs or {}
         if #exprs == 0 then
+            if ctx.fn.signature and ctx.fn.signature.retPack.alternatives then
+                return {values = {taggedcalls.emptyresults(ctx, node)}, spread = true}
+            end
             return {values = {}}
         end
         local last = exprs[#exprs]
         local declared: integer = ctx.fn.signature and #ctx.fn.signature.rets or 1
-        local open = ctx.fn.signature and ctx.fn.signature.retPack and ctx.fn.signature.retPack.tail ~= nil
-        local spreads = last.kind == "vararg" or open and graph.expandsResults(last)
+        local pack = ctx.fn.signature and ctx.fn.signature.retPack
+        local alternatives = pack and pack.alternatives ~= nil
+        local open = pack and (pack.tail ~= nil or alternatives)
+        local site = alternatives and catalog(ctx).callByNode[last]
+        local forward = graph.expandsResults(last)
+            or alternatives and last.kind == "methodCall" and site and site.method
+        forward = forward and not (alternatives and site and site.construct)
+        local spreads = last.kind == "vararg" or open and forward
         local expands = not spreads and declared > #exprs and graph.expandsResults(last)
         local fixed, kinds = {}, {}
         for index, expr in ipairs(exprs) do
@@ -428,7 +437,7 @@ export function cleanupProfile(base: any): any
             if last.kind == "vararg" then
                 tail = ctx.varargPack()
             elseif spreads then
-                tail = invoke(ctx, last, true, true, nil, true)
+                tail = taggedcalls.openinvoke(ctx, last)
             else
                 tail = base.callResults(ctx, last, declared - #exprs + 1)
             end

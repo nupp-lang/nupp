@@ -178,7 +178,14 @@ local function typeSignature(signature: any, numeric: boolean, dynamic: boolean,
         end
     end
     local params, result = {}, nil
-    for _, pack in ipairs(resultsIgnored and {signature.paramPack} or {signature.paramPack, signature.retPack}) do
+    local alternatives = not resultsIgnored and signature.retPack and signature.retPack.alternatives ~= nil
+    if alternatives then
+        need(dynamic, "finite result alternatives require dynamic values")
+        graph.validatesignature(signature)
+    end
+    for _, pack in ipairs((
+        resultsIgnored or alternatives
+    ) and {signature.paramPack} or {signature.paramPack, signature.retPack}) do
         -- Open results (`R...`) are as many as the caller keeps.
         -- An unannotated function's results are open: any number of values.
         need(
@@ -209,8 +216,11 @@ local function typeSignature(signature: any, numeric: boolean, dynamic: boolean,
     if resultsIgnored then
         need(dense(signature.params, 239) == #signature.paramPack.head, "checked parameter pack differs")
         result = "value"
+    elseif alternatives then
+        results = 0
+        result = "value"
     else
-        results = dense(signature.rets, dynamic and 16 or 1)
+        results = dense(signature.rets, dynamic and graph.MAX_RESULTS or 1)
         if signature.retPack.tail ~= nil and #signature.retPack.head == 0 then
             results = 0
         end

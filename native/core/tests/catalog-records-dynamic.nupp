@@ -76,6 +76,107 @@ assert((firstKey == "x" and firstValue == 5) or (firstKey == "y" and firstValue 
 assert((secondKey == "x" and secondValue == 5) or (secondKey == "y" and secondValue == 9))
 assert(recordIterator() == nil and recordIterator() == nil)
 
+-- Finite result alternatives keep zero, one nil and two values distinct.
+local function results(which: integer): (() | (nil) | (integer, string))
+    if which == 0 then
+        return
+    end
+    if which == 1 then
+        return nil
+    end
+
+    return 41, "result"
+end
+
+local function forward(which: integer): (() | (nil) | (integer, string))
+    return results(which)
+end
+
+local record Results
+    function get(self, which: integer): (() | (nil) | (integer, string))
+        return results(which)
+    end
+
+    function forward(self, which: integer): (() | (nil) | (integer, string))
+        return self:get(which)
+    end
+
+    function consume(self, ...: any): integer
+        return select("#", ...)
+    end
+end
+
+local receiverResults = Results()
+for which = 0, 2 do
+    assert(count(results(which)) == which)
+    assert(count(forward(which)) == which)
+    assert(count(receiverResults:get(which)) == which)
+    assert(count(receiverResults:forward(which)) == which)
+end
+local callOrder: integer = 0
+
+local function consuming(): Results
+    callOrder = callOrder * 10 + 1
+    return receiverResults
+end
+
+local function producing(): Results
+    callOrder = callOrder * 10 + 2
+    return receiverResults
+end
+
+for which = 0, 2 do
+    callOrder = 0
+    assert(consuming():consume(producing():get(which)) == which)
+    assert(callOrder == 12)
+    assert(receiverResults:consume(13, receiverResults:get(which)) == which + 1)
+end
+assert(
+    receiverResults:consume(
+        pcall(function(): integer
+            return 53
+        end)
+    ) == 2
+)
+assert(
+    receiverResults:consume(
+        pcall(function(): nil
+            error("protected method argument")
+        end)
+    ) == 2
+)
+local resultNumber, resultText = receiverResults:forward(2)
+assert(resultNumber == 41 and resultText == "result")
+
+local drops: integer = 0
+
+local function release(takes point: Point): nil
+    drops = drops + 1
+    collectgarbage("collect")
+end
+
+local function acquire(): affine(Point, release)
+    return Point(1)
+end
+
+local function owning(which: integer): (() | (nil) | (integer, string))
+    local resource = acquire()
+    if which < 0 then
+        error("alternative return cleanup")
+    end
+
+    return results(which)
+end
+
+for which = 0, 2 do
+    assert(count(owning(which)) == which)
+    assert(drops == which + 1)
+end
+local okay = pcall(function()
+    owning(-1)
+end)
+assert(not okay and drops == 4)
+
 local order: integer = 0
 
 local function receiver(): Point

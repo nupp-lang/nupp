@@ -58,7 +58,7 @@ function tagged.initializeModule(fn: any, options: any): any
     return graph.new(0)
 end
 
-function tagged.initialize(fn: any, options: any): any
+local function initialize(fn: any, options: any, alternatives: boolean): any
     need(options.program and options.program.owners[fn.id + 1] == fn, "checked function owner required")
     need(
         fn.node.kind == "localFuncStmt"
@@ -70,12 +70,15 @@ function tagged.initialize(fn: any, options: any): any
     )
     -- Plain type parameters erase, and so do const ones (`const N: integer`):
     -- a const parameter is a type, never a value the body reads.
-    need(
-        -- A constructor's results are dropped: its construction is the instance.
-        -- Open results (`R...`) return as many as there are.
-        fn.node.kind == "constructorDecl" or #fn.signature.rets <= 16 and not fn.signature.retPack.alternatives,
-        "correlated result alternatives are unsupported"
-    )
+    if fn.node.kind ~= "constructorDecl" and fn.signature.retPack.alternatives then
+        need(alternatives, "correlated result alternatives are unsupported")
+        graph.validatesignature(fn.signature)
+    else
+        need(
+            fn.node.kind == "constructorDecl" or #fn.signature.rets <= graph.MAX_RESULTS,
+            "a function returns at most sixteen results"
+        )
+    end
     ordinaryCaptures(fn)
     local params = graph.parameters(fn.body)
     for index, parameter in ipairs(params) do
@@ -90,6 +93,10 @@ function tagged.initialize(fn: any, options: any): any
     end
 
     return graph.new(#params)
+end
+
+function tagged.initialize(fn: any, options: any): any
+    return initialize(fn, options, false)
 end
 
 function tagged.valueKind(g: any, id: integer): string
@@ -465,6 +472,9 @@ function tagged.forVersion(version: integer): any
     end
     -- v8 tables: empty constructors, keyed reads and writes, and length.
     if version >= 8 then
+        profile.initialize = function(fn: any, options: any): any
+            return initialize(fn, options, true)
+        end
         -- A binding condition keeps false and rejects only nil.
         profile.bindingCondition = function(ctx: any, clause: any, value: integer): integer
             local none = ctx.emit(clause, "Nil", {}, "tagged")
@@ -1199,6 +1209,18 @@ function tagged.forVersion(version: integer): any
         -- every result of `return f()` on.
         profile.returnStatement = function(ctx: any, stat: any): nil
             if #stat.exprs == 0 then
+                if ctx.fn.signature and ctx.fn.signature.retPack.alternatives then
+                    local pack = taggedcalls.emptyresults(ctx, stat)
+                    ctx.block.term = {
+                        kind = "return",
+                        value = pack,
+                        spread = pack,
+                        edges = {},
+                        pos = ctx.position(stat)
+                    }
+                    ctx.block = nil
+                    return
+                end
                 local value = ctx.emit(stat, "Nil", {}, "tagged")
                 ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(stat)}
                 ctx.block = nil
@@ -1243,9 +1265,16 @@ function tagged.forVersion(version: integer): any
             local openReturn = not scalarLast
                 and ctx.fn.signature
                 and ctx.fn.signature.retPack
-                and ctx.fn.signature.retPack.tail ~= nil
+                and (ctx.fn.signature.retPack.tail ~= nil or ctx.fn.signature.retPack.alternatives ~= nil)
                 and (
-                    last.kind == "call" and last.runtimeLoader ~= "require" and graph.coreLibraryCall(last) == nil
+                    last.kind == "call"
+                    and last.runtimeLoader ~= "require"
+                    and graph.coreLibraryCall(last) == nil
+                    and (ctx.fn.signature.retPack.alternatives == nil or lastSite and not lastSite.construct)
+                    or ctx.fn.signature.retPack.alternatives ~= nil
+                    and last.kind == "methodCall"
+                    and lastSite
+                    and lastSite.method
                     or graph.packedcall(last)
                 )
             if openReturn then
@@ -1262,7 +1291,7 @@ function tagged.forVersion(version: integer): any
                 for index, value in ipairs(operands) do
                     held[index] = ctx.hold(value)
                 end
-                local pack = invoke(ctx, last, true, true, nil, true)
+                local pack = taggedcalls.openinvoke(ctx, last)
                 if pack == nil or ctx.block == nil then
                     for _, handle in ipairs(held) do
                         ctx.release(handle)
@@ -1323,6 +1352,18 @@ function tagged.forVersion(version: integer): any
             ctx.block = nil
         end
         profile.fallthrough = function(ctx: any, node: any): nil
+            if not ctx.exports and ctx.fn.signature and ctx.fn.signature.retPack.alternatives then
+                local pack = taggedcalls.emptyresults(ctx, node)
+                ctx.block.term = {
+                    kind = "return",
+                    value = pack,
+                    spread = pack,
+                    edges = {},
+                    pos = ctx.position(node.eof or node)
+                }
+                ctx.block = nil
+                return
+            end
             -- A module with named exports answers its export table.
             local value = ctx.exports and ctx.readHeld(ctx.exports) or ctx.emit(node, "Nil", {}, "tagged")
             ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(node.eof or node)}

@@ -9,6 +9,8 @@ local graphnative = require("nupp.compiler.vm.graphnative")
 local dense = graphsignatures.dense
 local nativeContract = graphnative.nativeContract
 
+export const MAX_RESULTS = 16
+
 -- Whether a call giving `given` arguments leaves off only parameters that
 -- admit nil, which Lua then passes: `f()` of `f(size: integer?)`.
 export function omits(called: any, given: integer): boolean
@@ -171,6 +173,34 @@ invokeScalar = function(t: any): nil
     )
 end
 
+-- Canonical finite alternatives retain their own arity, modes and types.
+-- This lists the checked arms without combining their slots.
+local function checkedresultpacks(signature: any): {any}
+    local pack = signature.retPack
+    assert(type(pack) == "table", "checked result pack required")
+    if pack.alternatives == nil then
+        return {pack}
+    end
+    dense(pack.head)
+    dense(pack.modes)
+    dense(pack.alternatives)
+    assert(
+        not pack.tail and #pack.head == 0 and #pack.modes == 0 and #pack.alternatives >= 2,
+        "invalid finite result alternatives"
+    )
+    local seen = {}
+    for _, arm in ipairs(pack.alternatives) do
+        assert(
+            type(arm) == "table" and arm ~= pack and not arm.alternatives and not arm.tail,
+            "result alternatives require closed arms"
+        )
+        assert(not seen[arm], "duplicate result alternative")
+        seen[arm] = true
+    end
+
+    return pack.alternatives
+end
+
 -- `resultsIgnored`: a constructor's results, which its construction drops, may
 -- be open.
 local function invokeSignature(signature: any, resultsIgnored: boolean?): nil
@@ -218,7 +248,13 @@ local function invokeSignature(signature: any, resultsIgnored: boolean?): nil
     -- A borrowed result is what its source keeps alive, a static fact: at
     -- run time it is a value, which the collector keeps alive itself.
     -- Open results (`R...`) are as many as the caller keeps.
-    for _, pack in ipairs(resultsIgnored and {signature.paramPack} or {signature.paramPack, signature.retPack}) do
+    local packs = {signature.paramPack}
+    if not resultsIgnored then
+        for _, pack in ipairs(checkedresultpacks(signature)) do
+            packs[#packs + 1] = pack
+        end
+    end
+    for _, pack in ipairs(packs) do
         assert(
             type(pack) == "table"
             and (not pack.tail or pack == signature.paramPack and signature.vararg or pack == signature.retPack)
@@ -228,7 +264,15 @@ local function invokeSignature(signature: any, resultsIgnored: boolean?): nil
         dense(pack.head)
         dense(pack.modes)
         assert(#pack.modes == #pack.head, "invoke pack modes differ")
+        assert(
+            pack == signature.paramPack or #pack.head <= MAX_RESULTS,
+            "invoke requires at most sixteen checked scalar results"
+        )
         for index, t in ipairs(pack.head) do
+            assert(
+                signature.retPack.alternatives == nil or pack == signature.paramPack or pack.modes[index] == "plain",
+                "result alternative ownership mode is unsupported"
+            )
             -- A scoped callback cannot escape, and a borrowed argument stays
             -- its caller's; at run time each passes as a value.
             assert(
@@ -248,12 +292,14 @@ local function invokeSignature(signature: any, resultsIgnored: boolean?): nil
         -- None is a function that returns nothing: a caller keeping one
         -- reads nil, and one taking them all takes none. An unannotated
         -- function's are open, any number of values.
+        local alternatives = signature.retPack.alternatives ~= nil
         local open = signature.retPack.tail ~= nil and #signature.retPack.head == 0
         assert(
-            (#signature.retPack.head == #signature.rets or open) and #signature.rets <= 16,
+            (#signature.retPack.head == #signature.rets or open) and #signature.rets <= MAX_RESULTS,
             "invoke requires at most sixteen checked scalar results"
         )
-        if not open then
+        assert(not alternatives or #signature.rets == 0, "alternative result summary differs")
+        if not open and not alternatives then
             for index, t in ipairs(signature.rets) do
                 assert(signature.retPack.head[index] == t, "invoke result pack identity differs")
             end
@@ -263,6 +309,8 @@ local function invokeSignature(signature: any, resultsIgnored: boolean?): nil
         assert(signature.paramPack.head[index] == t, "invoke parameter pack identity differs")
     end
 end
+
+export const validatesignature = invokeSignature
 
 -- The signatures calls through `any` values are checked against, one per
 -- call so a contract's identity check finds it.
@@ -328,7 +376,7 @@ export function checkcontract(contract: any): nil
             invokeSignature(called)
             assert(call.args and call.args.kind == "args", "invoke requires explicit positional arguments")
             dense(call.args.exprs)
-            local spreads = #call.args.exprs > 0 and call.args.exprs[#call.args.exprs].kind == "vararg"
+            local spreads = spreadsLast(call)
             assert(
                 #call.args.exprs + 1 == #called.params + (spreads and 1 or 0) and (called.vararg == true) == spreads,
                 "dynamic method arity differs"
@@ -509,10 +557,17 @@ export function checkcontract(contract: any): nil
     invokeSignature(contract.signature, construct)
     invokeSignature(contract.callSignature)
     local signature, called = contract.signature, contract.callSignature
+    local alternatives = not construct and (signature.retPack.alternatives ~= nil or called.retPack.alternatives ~= nil)
+    assert(not alternatives or signature.retPack == called.retPack, "invoke checked result alternatives differ")
     -- A construction answers its instance whatever the constructor returns.
     assert(
         #signature.params == #called.params
-        and (construct or signature.rets[1] == called.rets[1] or sameValue(signature.rets[1], called.rets[1])),
+        and (
+            construct
+            or alternatives
+            or signature.rets[1] == called.rets[1]
+            or sameValue(signature.rets[1], called.rets[1])
+        ),
         "invoke checked call signature differs: "
         .. #signature.params
         .. " and "
@@ -1248,7 +1303,7 @@ export function dynamicmethodcontract(call: any, count: integer?): any
         -- A `...` last passes its values after the others, as a variadic
         -- callee takes them.
         local exprs = call.args and call.args.exprs or {}
-        local spreads = #exprs > 0 and exprs[#exprs].kind == "vararg"
+        local spreads = spreadsLast(call)
         local params, modes = {{tag = "any"}}, {"plain"}
         for index = 1, #exprs - (spreads and 1 or 0) do
             params[index + 1], modes[index + 1] = {tag = "any"}, "plain"
@@ -1308,10 +1363,19 @@ export function expandsResults(expr: any): boolean
     if packedcall(expr) then
         return true
     end
-    if expr == nil or expr.kind ~= "call" or expr.runtimeLoader ~= nil or coreLibraryCall(expr) ~= nil then
+    if expr == nil
+        or (expr.kind ~= "call" and expr.kind ~= "methodCall")
+        or expr.runtimeLoader ~= nil
+        or coreLibraryCall(expr) ~= nil
+    then
         return false
     end
-    local called = expr.calleeType
+    local called = expr.calleeType or expr.signatureType
+    -- Ordinary methods expand here only for the finite alternatives this
+    -- profile can preserve; existing fixed-result method policy stays unchanged.
+    if expr.kind == "methodCall" then
+        return called ~= nil and alternativeresults(called)
+    end
     if called ~= nil and alternativeresults(called) then
         return true
     end
