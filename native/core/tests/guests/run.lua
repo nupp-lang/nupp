@@ -602,60 +602,6 @@ local POSIXTWINS = {
     -- os.tmpname: mkstemp under /tmp, where the generic build calls tmpnam.
     ["catalog-os-files"] = true
 }
-local FIXTURES = {
-    "catalog-optional-method-cleanups",
-    "catalog-log-warn",
-    "catalog-string-dynamic",
-    "catalog-string-metatable-only",
-    "catalog-string-metatable",
-    "catalog-string-methods",
-    "catalog-string-gmatch-values",
-    "catalog-strings-anchors",
-    "catalog-strings-gsubfn",
-    "catalog-scalar-math",
-    "catalog-scalar-random",
-    "catalog-scalar-mutation",
-    "catalog-clock-provider",
-    "catalog-system-provider",
-    "catalog-system-info",
-    "catalog-entropy",
-    "catalog-entropy-failure",
-    "nupp/core/catalogbufferstate",
-    "catalog-boolean",
-    "catalog-nil",
-    "catalog-live",
-    "catalog-fresh",
-    "catalog-nested",
-    "catalog-branch-true",
-    "catalog-branch-false",
-    "catalog-branch-elseif",
-    "catalog-branch-live",
-    "catalog-module-prefix",
-    "catalog-module-main",
-    "catalog-module-middle",
-    "catalog-module-triple",
-    "catalog-number-add",
-    "catalog-number-negative-zero",
-    "catalog-number-nan",
-    "catalog-number-branch",
-    "catalog-number-loop",
-    "catalog-number-loop-zero",
-    "catalog-numeric-for",
-    "catalog-numeric-float",
-    "catalog-numeric-modzero",
-    "catalog-numeric-overflow",
-    "catalog-numeric-control",
-    "catalog-workload-loops",
-    "catalog-workload-fib",
-    "catalog-calls-numeric",
-    "catalog-tables-basic",
-    "catalog-workload-closures",
-    "catalog-workload-tables",
-    "catalog-workload-records",
-    "catalog-workload-strings",
-    "catalog-strings-basic",
-    "catalog-integers-wide"
-}
 local AUDITS = {
     {"fresh", "success"},
     {"nilValue", "success"},
@@ -859,6 +805,7 @@ end
 -- Stage the source snapshots the closed guest builds read: the canonical core
 -- sources, the negative module and the module fixtures.
 local function stage()
+    local fixtures = guestbuild.fixtures()
     local canonical = {}
     for _, name in ipairs({
         "arena",
@@ -877,8 +824,8 @@ local function stage()
         canonical[#canonical + 1] = "src/nupp/runtime/vm/" .. name
     end
     canonical[#canonical + 1] = "native/core/tests/guest-contract-negatives.nupp"
-    for _, fixture in ipairs(FIXTURES) do
-        canonical[#canonical + 1] = "native/core/tests/" .. fixture .. ".nupp"
+    for _, fixture in ipairs(fixtures) do
+        canonical[#canonical + 1] = fixture.path
     end
     for _, directory in ipairs({"core-guest-programs", "core-guest-audit"}) do
         local base = ROOT .. "/build/" .. directory
@@ -894,100 +841,17 @@ local function stage()
             names[#names + 1] = "native/core/tests/guest-lifecycle-audit.nupp"
             write(base .. "/source/nupp/runtime/core/guestaudit.nupp", read(TESTS .. "/guest-lifecycle-audit.nupp"))
         end
-        for _, fixture in ipairs({
-            "catalog-strings-library",
-            "catalog-threads-meta",
-            "catalog-tables-library-meta",
-            "catalog-optional-method-cleanups",
-            "catalog-string-dynamic",
-            "catalog-string-metatable-only",
-            "catalog-string-metatable",
-            "catalog-string-methods",
-            "catalog-string-gmatch-values",
-            "catalog-strings-anchors",
-            "catalog-strings-gsubfn",
-            "catalog-scalar-math",
-            "catalog-scalar-mutation",
-            "catalog-scalar-random",
-            "catalog-clock-provider",
-            "catalog-system-provider",
-            "catalog-system-info",
-            "catalog-entropy",
-            "catalog-entropy-failure",
-            "catalog-module-prefix",
-            "catalog-module-main",
-            "catalog-module-middle",
-            "catalog-module-triple",
-            "catalog-modules-shapes",
-            "catalog-modules-counter",
-            "catalog-modules-main",
-            "catalog-modules-geometry",
-            "catalog-modules-named",
-            "catalog-modules-pattern",
-            "catalog-modules-boxes",
-            "catalog-modules-records",
-            "catalog-records-callable",
-            "catalog-modules-ping",
-            "catalog-modules-pong",
-            "catalog-modules-cycle",
-            "catalog-modules-qualified",
-            "catalog-modules-dynamic",
-            "catalog-modules-tally",
-            "catalog-modules-faulty",
-            "catalog-modules-retry",
-            "catalog-library-values",
-            "catalog-byte-buffer",
-            "catalog-library-basics",
-            "catalog-cleanup-functions",
-            "catalog-serde-json",
-            "catalog-core-operators",
-            "catalog-method-cleanups",
-            "catalog-owner-reinit",
-            "catalog-core-forms",
-            "catalog-storage-basics",
-            "catalog-storage-provider",
-            "catalog-tables-frozen",
-            "catalog-tables-packed",
-            "catalog-tables-packed-semantics",
-            "catalog-host-library",
-            "catalog-output-write",
-            "catalog-io-files",
-            "catalog-call-arguments",
-            "catalog-io-standard",
-            "catalog-reactor-driver",
-            "catalog-reactor-pipes",
-            "catalog-reactor-files",
-            "catalog-tasks-basic",
-            "catalog-tasks-cancel",
-            "catalog-tasks-scopes",
-            "catalog-tasks-reactor",
-            "catalog-process-execute",
-            "catalog-process-popen",
-            "catalog-process-handle",
-            "catalog-process-exit",
-            "catalog-errors-uncaught",
-            "catalog-process-layer",
-            "catalog-gc-weak",
-            "catalog-gc-finalizers",
-            "catalog-gc-options",
-            "catalog-gc-end",
-            "catalog-gc-exit",
-            "catalog-log-warn",
-            "catalog-gc-warn",
-            "catalog-gc-raise",
-            "catalog-os-time",
-            "catalog-os-files",
-            "catalog-os-remove"
-        }) do
-            write(
-                base .. "/source/nupp/core/" .. fixture:gsub("-", "") .. ".nupp",
-                read(TESTS .. "/" .. fixture .. ".nupp")
-            )
+        local directories = {}
+        for _, fixture in ipairs(fixtures) do
+            local path = base .. "/source/" .. fixture.module:gsub("%.", "/") .. ".nupp"
+            local directory = assert(path:match("^(.*)/[^/]+$"))
+            if not directories[directory] then
+                os.execute("mkdir -p " .. quote(directory))
+                directories[directory] = true
+            end
+            write(path, fixture.source)
+            assert(read(path) == fixture.source, "staged guest source differs: " .. fixture.path)
         end
-        write(base .. "/source/nupp/core/catalogbufferstate.nupp", read(TESTS .. "/nupp/core/catalogbufferstate.nupp"))
-        -- A module under a root of its own, which a qualified path names.
-        os.execute("mkdir -p " .. quote(base .. "/source/atlas"))
-        write(base .. "/source/atlas/geometry.nupp", read(TESTS .. "/catalog-atlas-geometry.nupp"))
         local sources = {}
         for _, name in ipairs(names) do
             sources[name] = assert(read(ROOT .. "/" .. name), name)
@@ -1352,8 +1216,8 @@ local function main()
     local bridge, guard = os.getenv("NUPP_GUEST_BRIDGE"), os.getenv("NUPP_GUEST_GUARD")
     if not shard then
         timing.phase = "tools"
-        bridge, guard = tools()
         stage()
+        bridge, guard = tools()
         if shards(selectedCases, bridge, guard) then
             return
         end

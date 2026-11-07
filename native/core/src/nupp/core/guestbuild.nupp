@@ -65,8 +65,12 @@ local CASES: {[string]: {
     branchFalse = {fixture = "catalog-branch-false", version = 2},
     branchElseif = {fixture = "catalog-branch-elseif", version = 2},
     branchLive = {fixture = "catalog-branch-live", version = 2},
-    modulePair = {fixture = "catalog-module-main", version = 2},
-    moduleTriple = {fixture = "catalog-module-triple", version = 2},
+    modulePair = {fixture = "catalog-module-main", version = 2, modules = {"catalog-module-prefix"}},
+    moduleTriple = {
+        fixture = "catalog-module-triple",
+        version = 2,
+        modules = {"catalog-module-prefix", "catalog-module-middle"}
+    },
     numberAdd = {fixture = "catalog-number-add", version = 3},
     numberNegativeZero = {fixture = "catalog-number-negative-zero", version = 3},
     numberNaN = {fixture = "catalog-number-nan", version = 3},
@@ -623,6 +627,48 @@ local function modulePath(root: string, name: string): string
     return root .. "/native/core/tests/" .. name .. ".nupp"
 end
 
+-- The static sources the runner snapshots and stages, named by their parsed
+-- module declarations. Generated and checkout-root cases keep their own paths.
+function build.fixtures(): {{
+    path: string,
+    module: string,
+    source: string
+}}
+    local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
+    local paths: {[string]: boolean} = {}
+    for _, case in pairs(CASES) do
+        if case.generated ~= true and case.rooted ~= true then
+            paths[case.fixture] = true
+            for _, name in ipairs(case.modules or {}) do
+                paths[name] = true
+            end
+        end
+    end
+    local names: {string} = {}
+    for name in pairs(paths) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    local fixtures: {{
+        path: string,
+        module: string,
+        source: string
+    }} = {}
+    local declared: {[string]: string} = {}
+    for _, name in ipairs(names) do
+        local path = modulePath(root, name)
+        local source = read(path)
+        local parsed = parser.parse(source, path)
+        assert(#parsed.errors == 0, "guest fixture parse failed: " .. path)
+        local module = assert(cst.declaredModule(parsed.root), "guest fixture module required: " .. path)
+        assert(declared[module] == nil or declared[module] == source, "conflicting guest fixture module: " .. module)
+        declared[module] = source
+        fixtures[#fixtures + 1] = {path = "native/core/tests/" .. name .. ".nupp", module = module, source = source}
+    end
+
+    return fixtures
+end
+
 -- One project for the process's multi-module programs: the library modules
 -- they carry are checked once, not once per case. Its staged fixtures are
 -- written before the first case and not changed after.
@@ -652,9 +698,7 @@ end
 -- The checked program for a case, compiled to the core executable.
 local function compileProgram(caseName: string, fixture: string, version: integer): any
     local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
-    local names = caseName == "modulePair" and {"catalog-module-prefix", fixture}
-        or caseName == "moduleTriple" and {"catalog-module-prefix", "catalog-module-middle", fixture}
-        or {fixture}
+    local names = {fixture}
     -- A case's other modules come first, so the modules it requires precede it.
     local declared = CASES[caseName]
     local others = declared and declared.modules
