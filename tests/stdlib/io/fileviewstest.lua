@@ -1,7 +1,9 @@
+local byteapi = require("bytes")
+
 require("nupp.runtime.standardio")
 local test = require("assert")
 local ffi = require("ffi")
-local span = require("binary.span")
+local span = require("bytes.span")
 local views = require("io.internal.fileviews")
 local M = {}
 
@@ -57,7 +59,7 @@ function M.spanAndBufferReadsShareTheNativeCursorAndPreserveOtherBytes()
         local writable = span.writecarray(storage, 4)
         test.eq(reader:readspan(writable), 4)
         test.eq(ffi.string(storage, 4), "abcd")
-        local destination = io.Buffer.create("--------")
+        local destination = byteapi.Buffer.create("--------")
         test.eq(reader:readinto(destination, 2, 3), 3)
         test.eq(destination:tostring(), "--efg---")
         test.eq(reader:readinto(destination, 0, 5), 2)

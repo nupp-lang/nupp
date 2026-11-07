@@ -10,7 +10,7 @@ uses `simd` to multiply a sequence of values in groups:
 
 ```nupp
 local array = table.Array
-local span = binary.span
+local span = bytes.span
 
 @aot
 local function scale(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, factor: float): nil
@@ -109,7 +109,7 @@ kernel uses these modules to connect its data to those instructions:
   one element type. Contiguous means the elements sit next to each other in
   memory. A *type witness*, such as `array.float`, names the element type
   when passed to an allocation or species constructor.
-- [](binary.span) provides a *span*, a bounds-checked view of
+- [](bytes.span) provides a *span*, a bounds-checked view of
   storage. Its native representation includes an address and an element
   count, so the kernel can read the data without navigating a Lua table.
 - [](simd) provides vector operations. A *species* describes
@@ -122,7 +122,7 @@ kernel becomes a runnable program when supplied with arrays:
 
 ```nupp
 local array = table.Array
-local span = binary.span
+local span = bytes.span
 
 @aot
 local function scale(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, factor: float): nil
@@ -296,7 +296,7 @@ The same function written as a plain loop, with no `simd` operations,
 also lowers to vector multiplies in this NEON build:
 
 ```nupp
-local span = binary.span
+local span = bytes.span
 
 @aot
 local function scale(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, factor: float): nil
@@ -484,7 +484,7 @@ with that bound, and values above the upper bound with the upper bound:
 
 ```nupp
 local array = table.Array
-local span = binary.span
+local span = bytes.span
 
 @aot
 local function clamp(exclusive values: span.WriteSpan<float>, low: float, high: float): nil
@@ -554,7 +554,7 @@ The mask named `live` tracks the lanes that still have work:
 
 ```nupp
 local array = table.Array
-local span = binary.span
+local span = bytes.span
 
 @aot
 local function halvings(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>): nil
@@ -729,7 +729,7 @@ The loop has the same structure as the earlier kernels. Passing its mask to
 
 ```nupp
 local array = table.Array
-local span = binary.span
+local span = bytes.span
 
 @aot
 local function total(borrows values: span.Span<number>): number
@@ -763,7 +763,7 @@ the products. A dot reducer takes both values for each contribution:
 
 ```nupp
 local array = table.Array
-local span = binary.span
+local span = bytes.span
 
 @aot
 local function dot(borrows left: span.Span<float>, borrows right: span.Span<float>): float
@@ -898,7 +898,7 @@ its one-based position or zero when no byte matches:
 
 ```nupp
 local array = table.Array
-local span = binary.span
+local span = bytes.span
 
 @aot
 local function find(borrows text: span.Span<uint8>, needle: uint32): integer
@@ -945,7 +945,7 @@ number kept, and a mask limits the store to those lanes:
 
 ```nupp
 local array = table.Array
-local span = binary.span
+local span = bytes.span
 
 @aot
 local function above(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, threshold: float): integer
@@ -1108,7 +1108,7 @@ The index can depend on the species' lane count:
 
 ```nupp
 local array = table.Array
-local span = binary.span
+local span = bytes.span
 
 @aot
 local function prefix(exclusive out: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): integer
@@ -1310,7 +1310,7 @@ array holds it, and the field is read and written whole through its row, in
 a native kernel and as ordinary Lua alike:
 
 ```nupp
-local span = binary.span
+local span = bytes.span
 
 local struct Particle
     mass: float

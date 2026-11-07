@@ -15,7 +15,7 @@ The independent decoder and encoder factories require neither FFI nor the `io`
 library. Lunajson handles JSON syntax, numbers, and escaping. This adapter
 validates UTF-8 and supplies Nupp's array/object markers, projection, verified
 fragments, and the writer backed by the shared
-[](io.Buffer) contract.
+[](bytes.Buffer) contract.
 
 Import through [](serde.json). The facade retains this provider's functions
 and marker objects for the lifetime of the loaded module. Markers and verified

@@ -4,7 +4,7 @@ local ffi = require("ffi")
 local indexer = require("simd_json.indexer")
 local parser = require("simd_json.parser")
 local fused = require("simd_json.fused")
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local arena = {}
 

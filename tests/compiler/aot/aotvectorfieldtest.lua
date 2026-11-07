@@ -58,7 +58,7 @@ end
 
 local PARTICLES = [[
 module particles
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 
 --- A storage struct: a scalar beside a four-lane vector and a three-lane one,
@@ -110,7 +110,7 @@ local CHECK = [[
 package.path = "build/native/?.lua;" .. package.path
 local m = require("particles")
 local ffi = require("ffi")
-local span = require("binary.span")
+local span = require("bytes.span")
 local compiled = rawget(_G, "__nuppAotCompiled") or {}
 local rows = ffi.new(ffi.typeof("$[?]", m.Particle), 3)
 for i = 0, 2 do

@@ -3,9 +3,9 @@
 -- to the harness.
 const assert2 = require("assert")
 
-local span = require("binary.span")
+local span = require("bytes.span")
 local soa = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 

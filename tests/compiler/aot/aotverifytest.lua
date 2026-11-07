@@ -98,7 +98,7 @@ return {decode = decode}
 ]]
 
 local MAP = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 @aot
 local function copy(
     exclusive out: span.WriteSpan<number>,
@@ -119,7 +119,7 @@ return {copy = copy}
 function M.exactReducerVerifierPreservesItsInputAndResultContracts()
     local program = lowered(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 @aot
 local function total(borrows input: span.Span<uint32>, seed: uint32): uint32
@@ -152,7 +152,7 @@ end
 function M.floatReducerVerifierHoldsEveryOperandToBinary32()
     local program = lowered(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 @aot
@@ -273,7 +273,7 @@ end
 function M.simdConversionRechecksWidthsAndLaneCounts()
     local program = lowered(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 @aot
@@ -308,7 +308,7 @@ end
 function M.scatterRechecksUniquenessAndAddressing()
     local program = lowered(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 @aot
@@ -354,7 +354,7 @@ end
 function M.aGuardedBlockCannotKeepCrossSpanLoadsWithoutItsRelations()
     local program = lowered(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 @aot
 local function orderedDot(borrows left: span.Span<number>, borrows right: span.Span<number>): number
@@ -378,7 +378,7 @@ end
 
 function M.gpuRelationsAreReverifiedAsSpanFacts()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 @aot(target = "gpu")
 local function copy(
     exclusive out: span.WriteSpan<uint32>,
@@ -462,7 +462,7 @@ function M.aLoopBodyReassigningACursorRetiresTheEnclosingProof()
 end
 
 local AND_TAIL = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 @aot
 local function scan(borrows cps: span.Span<uint32>, borrows other: span.Span<uint32>): integer
     local cursor: uint32 = 0
@@ -475,7 +475,7 @@ return {scan = scan}
 ]]
 
 local CARRIED = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 @aot
 local function total(borrows values: span.Span<uint32>): uint32
     local sum: uint32 = 0
@@ -549,7 +549,7 @@ function M.aLoopNamesExactlyTheOuterLocalsItsBodyAssigns()
 end
 
 local COUNTED = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 @aot
 local function fill(exclusive output: span.WriteSpan<uint64>, delta: uint64): nil
     local total: uint64 = delta
@@ -641,7 +641,7 @@ function M.anAndBoundsItsRightSpanReadByItsLeftAlone()
 end
 
 local VECTOR_MAP = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 @aot
@@ -658,7 +658,7 @@ return {add = add}
 
 function M.derivedVectorOffsetsRequireEnoughExactRoom()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 @aot
@@ -1249,7 +1249,7 @@ function M.aLaneWiseCallTakesOnlyLocalsOfItsSpecies()
     -- local reads the same every time.
     local program = lowered(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 local function bump(value: number): number
@@ -1310,7 +1310,7 @@ function M.laneArithmeticRechecksItsElementAndArity()
     -- integer species' alone.
     local program = lowered(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 @aot
@@ -1372,7 +1372,7 @@ end
 function M.aMaskConversionKeepsTheLaneCount()
     local program = lowered(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 @aot
@@ -1411,7 +1411,7 @@ end
 function M.aFieldAccessNamesAFieldOfItsElement()
     local program = lowered(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 local struct Pair
@@ -1454,7 +1454,7 @@ return {copy = copy}
 end
 
 local REGION = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 @aot
@@ -1727,7 +1727,7 @@ function M.reducerRegionsRecheckSpeciesMasksArityAndNesting()
 end
 
 local LAST_MAP = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 @aot
 local function add(exclusive output: span.WriteSpan<uint8>, borrows input: span.Span<uint8>, first: integer, last: integer): nil
     assert(#output == #input, "length mismatch")
@@ -1790,7 +1790,7 @@ end
 -- intrinsics each op may name. Both are things a rewrite can get wrong
 -- silently, because a packing operation against the wrong mask still emits.
 local CROSS_LANE = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 @aot
@@ -1918,7 +1918,7 @@ end
 -- A byte triple read and a quad written through one cursor each, under the
 -- literal guards that prove the elements past the cursor.
 local DISPLACED_TAIL = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 @aot
 local function triples(exclusive output: span.WriteSpan<uint8>, borrows source: span.Span<uint8>): uint32
     local at: uint32 = 0
@@ -2020,7 +2020,7 @@ end
 -- A three-wide window over `rgb` at a cursor bounded by `#grey`, in range
 -- because the guard relates the two counts through a factor of three.
 local FACTOR_WINDOW = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 @aot
 local function box3(exclusive grey: span.WriteSpan<uint8>, borrows rgb: span.Span<uint8>): nil
     assert(#rgb == 3 * #grey)
@@ -2071,7 +2071,7 @@ end
 function M.aGpuGuardRelationCarriesNoFactor()
     local program = lowered(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 @aot(target = "gpu")
 local function copy(exclusive out: span.WriteSpan<float>, borrows input: span.Span<float>): nil
     assert(#out == #input)
@@ -2177,7 +2177,7 @@ end
 
 local SHARED_DOMAIN = [[
 local gpu = require("io.gpu")
-local span = require("binary.span")
+local span = require("bytes.span")
 @aot(target = "gpu")
 local function fill(exclusive output: span.WriteSpan<float>): nil
     local groups = math.u32.div(math.u32.wrap(#output), math.u32.wrap(4))

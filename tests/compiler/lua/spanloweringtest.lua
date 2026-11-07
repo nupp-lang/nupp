@@ -27,8 +27,8 @@ local function compile(src, options)
 end
 
 local HEADER = [[
-local span = require("binary.span")
-local indexed = require("binary.span")
+local span = require("bytes.span")
+local indexed = require("bytes.span")
 local struct Cell
     value: int32
 end
@@ -37,7 +37,7 @@ end
 local M = {}
 
 function M.writableSpanExposesOnlyTheCanonicalSplitMethod()
-    local span = require("binary.span")
+    local span = require("bytes.span")
     local ffi = require("ffi")
     local values = span.writecarray(ffi.new("int32_t[2]"), 2)
     assert(type(values.splitat) == "function" and values.splitAt == nil)
@@ -308,7 +308,7 @@ return work
 
     local bytes = compile(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local function work(borrows source: string): integer
     const values = span.fromstring(source)
     local total = 0
@@ -333,7 +333,7 @@ end
 function M.aRootEscapingFromANestedFunctionKeepsItsSafeWrapper()
     local escaping, remarks = compile(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local probe = {}
 const TEXT = "abc"
 const BYTES = span.fromstring(TEXT)
@@ -359,7 +359,7 @@ return probe
 
     local transported = compile(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local probe = {}
 const TEXT = "abc"
 const BYTES = span.fromstring(TEXT)
@@ -418,7 +418,7 @@ function M.soaRootsComposeWithResolvedFieldProjection()
     local code = compile(
         [[
 local soa = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local struct Particle
     x: float
     y: float
@@ -473,7 +473,7 @@ end
 function M.virtualRootValidationAndBoundsRunAtTheAuthoredAccess()
     local _, _, raw = compile(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local Runtime = {}
 function Runtime.read(borrows storage: int32[?], count: integer, index: integer): int32
     const values = span.fromcarray(storage, count)
@@ -576,7 +576,7 @@ function M.soaWholeRowsGatherAndScatterWithoutAViewWrapper()
     local code = compile(
         [[
 local soa = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local struct Particle
     x: float
     y: float
@@ -762,8 +762,8 @@ end
 function M.effectfulDenseAcquisitionKeepsDirtyTrackingBeforeDirectStores()
     local compact, _, raw = compile(
         [[
-local span = require("binary.span")
-local indexed = require("binary.span")
+local span = require("bytes.span")
+local indexed = require("bytes.span")
 local R3 = {}
 local dirtyX = 0
 local dirtyY = 0
@@ -839,7 +839,7 @@ end
 function M.fixedSpansUseTheCommonAdapter()
     local code = compile(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local struct Cell
     value: uint8
 end
@@ -868,7 +868,7 @@ end
 function M.aLookalikeIndexedTypeCannotEnterTheTrustedRange()
     local _, diagnostics = checked(
         [[
-local indexed = require("binary.span")
+local indexed = require("bytes.span")
 local record Fake
     @readonly count: integer
 end
@@ -892,7 +892,7 @@ end
 -- wrapper methods at -O0, and leave the storage as it was.
 function M.nanAndFractionalIndexesAreRefused()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local Probe = {}
 function Probe.writeTail(exclusive storage: int32[?], index: integer): nil
     const values = span.writecarray(storage, 4)
@@ -988,7 +988,7 @@ end
 function M.importedBorrowedHelpersUseTheExistingScalarViewAbi()
     local code, remarks, raw = compile(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local D = require("tests.fixtures.crossmodulefacts")
 local function work(text: string): number
     const values = span.fromstring(text)
@@ -1014,7 +1014,7 @@ end
 function M.importedAccessBoundsStayCheckedWithoutCallerEvidence()
     local code = compile(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local D = require("tests.fixtures.crossmodulefacts")
 local function work(text: string, index: integer): integer
     const values = span.fromstring(text)
@@ -1050,7 +1050,7 @@ function M.privateViewBodiesRejectEscapingTablesAndViewReassignment()
     }) do
         local result = checked(
             [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local function work(borrows values: span.Span<uint8>, borrows other: span.Span<uint8>): any
 ]]
             .. operation
@@ -1071,7 +1071,7 @@ function M.importedPrivateViewsPreserveCheckedFailures()
     local ok, problem = pcall(function()
         package.loaded["tests.fixtures.crossmodulefacts"] = assert(loadstring(providerCode))()
         local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local D = require("tests.fixtures.crossmodulefacts")
 local function work(text: string, index: integer): integer
     const values = span.fromstring(text)
@@ -1110,7 +1110,7 @@ function M.privateArtifactsRejectWideAndMultilineLiterals()
         for _, view in ipairs({false, true}) do
             local parameter = view and "borrows values: span.Span<uint8>" or "value: number"
             local result = checked(
-                'local span = require("binary.span")\nlocal function work('
+                'local span = require("bytes.span")\nlocal function work('
                 .. parameter
                 .. "): "
                 .. case.result
@@ -1126,7 +1126,7 @@ function M.privateArtifactsRejectWideAndMultilineLiterals()
 end
 
 function M.bufferLengthUsesItsCheckedCountOnLua51()
-    local code = compile([[local buffer = io.Buffer.create()
+    local code = compile([[local buffer = bytes.Buffer.create()
 buffer:put("abc")
 return #buffer
 ]])
@@ -1135,7 +1135,7 @@ end
 
 function M.bufferViewsRefreshTheirPointerAndPreserveTheReadCursor()
     local code, _, original = compile(
-        [[local b = io.Buffer.create("skip:abc")
+        [[local b = bytes.Buffer.create("skip:abc")
 b:skip(5)
 const bytes = b:span()
 local total: integer = 0

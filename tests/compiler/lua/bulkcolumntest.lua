@@ -48,7 +48,7 @@ end
 -- One source, reused: a column of particles written as a single copy and read
 -- back into fresh memory, with the fingerprint carried alongside.
 local COLUMN = [[
-const sb = require("io")
+const sb = require("bytes")
 
 local struct Particle
     x: float
@@ -57,7 +57,7 @@ local struct Particle
     vy: float
 end
 
-local function header(exclusive input: io.Buffer): string
+local function header(exclusive input: bytes.Buffer): string
     local text = ""
     while true do
         local byte = input:get(1)
@@ -67,7 +67,7 @@ local function header(exclusive input: io.Buffer): string
     end
 end
 
-local function writeColumn(cells: any, count: integer, exclusive out: io.Buffer): nil
+local function writeColumn(cells: any, count: integer, exclusive out: bytes.Buffer): nil
     const layout = types.layoutof(Particle)
     out:put(layout.fingerprint, "\n", count, "\n")
     const lease = out:reserve(layout.size * count)
@@ -80,7 +80,7 @@ local function writeColumn(cells: any, count: integer, exclusive out: io.Buffer)
     lease:commit(layout.size * count)
 end
 
-local function readColumn(exclusive inp: io.Buffer, cells: any): integer
+local function readColumn(exclusive inp: bytes.Buffer, cells: any): integer
     const layout = types.layoutof(Particle)
     const saved = header(inp)
     if saved ~= layout.fingerprint then

@@ -9,7 +9,7 @@ assert(
     "build bench/gpu-costs with aot=require before measuring; the GPU binding is missing"
 )
 local ffi = require("ffi")
-local span = require("binary.span")
+local span = require("bytes.span")
 local gpu = require("io.gpu")
 local bench = require("debug.bench")
 

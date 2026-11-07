@@ -29,7 +29,7 @@ on:
       - 'native/crates/abi/**'
       - 'native/crates/checksum/**'
       - 'src/nupp/checksum/**'
-      - 'src/binary/checksum/**'
+      - 'src/bytes/**'
       - 'host/notices/**'
       - 'src/nupp/compiler/**'
       - 'src/nupp/tools/**'

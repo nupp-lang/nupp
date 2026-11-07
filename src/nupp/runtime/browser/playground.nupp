@@ -31,7 +31,7 @@ local platformLibraries = {
         return require("nupp.runtime.provider.mac")
     end,
     function()
-        return require("binary")
+        return require("bytes")
     end,
     function()
         return table.Pool
@@ -85,13 +85,13 @@ local platformLibraries = {
         return require("nupp.runtime.standardmath")
     end,
     function()
-        return require("binary").mac
+        return require("bytes").mac
     end,
     function()
-        return require("binary").digest
+        return require("bytes").digest
     end,
     function()
-        return require("binary")
+        return require("bytes")
     end,
     function()
         return require("nupp.io.storage")

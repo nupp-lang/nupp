@@ -21,7 +21,7 @@ the contract `indexer_reference` states in the plain form.
 
 local array = table.Array
 local simd = require("simd")
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local indexer = {}
 

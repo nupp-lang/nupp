@@ -1,6 +1,6 @@
 local ffi = require("ffi")
 local soa = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local kernel = require("kernel")
 
 local struct Entity

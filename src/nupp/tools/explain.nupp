@@ -138,8 +138,8 @@ local ENTRIES: {any} = {
         rule = "A private field is representation available only while checking the "
         .. "canonical module that declares its record. Expose a public method when "
         .. "another module needs an operation without revealing that representation.",
-        wrong = "local function inspect(bytes: io.SharedBytes): any\n    return bytes._handle\nend\nreturn inspect\n",
-        right = "local function inspect(bytes: io.SharedBytes): string\n    return bytes:tostring()\nend\nreturn inspect\n",
+        wrong = "local function inspect(bytes: bytes.SharedBytes): any\n    return bytes._handle\nend\nreturn inspect\n",
+        right = "local function inspect(bytes: bytes.SharedBytes): string\n    return bytes:tostring()\nend\nreturn inspect\n",
         related = {"NUPP2004", "NUPP2202"},
         docs = "docs/learn/language/types/records-and-structs.md#private-fields",
     },
@@ -717,9 +717,9 @@ local ENTRIES: {any} = {
         .. "prove. Only a declaration in the interface's own module may explicitly name "
         .. "it after `is`; structural lookalikes do not satisfy it. Obtain the value from "
         .. "that module's constructors instead of declaring another implementation.",
-        wrong = "local spans = require(\"binary.span\")\n\n"
+        wrong = "local spans = require(\"bytes.span\")\n\n"
         .. "local record Forged is spans.Span<int32>\nend\n\nreturn Forged\n",
-        right = "local spans = require(\"binary.span\")\n\n"
+        right = "local spans = require(\"bytes.span\")\n\n"
         .. "local storage = ffi.new<int32[4]>()\n"
         .. "local view = spans.fromfixedcarray(storage, 4)\n\nreturn #view\n",
         related = {"NUPP2001", "NUPP2117"},
@@ -1618,7 +1618,7 @@ ENTRIES[
 -- and their examples are checked under one, pinned to aarch64 so a tier's lanes are
 -- the same on every machine that runs the test.
 -- A preferred species reads one vector; LANE names the lane taken out of it.
-local SIMD_LANE = "local array = table.Array\nlocal span = require(\"binary.span\")\n"
+local SIMD_LANE = "local array = table.Array\nlocal span = require(\"bytes.span\")\n"
     .. "local simd = require(\"simd\")\n\n@aot\n"
     .. "local function lane(borrows input: span.Span<float>): number\n"
     .. "    if species = simd.vectors(array.float) then\n        if species.lanes <= #input then\n"
@@ -1626,7 +1626,7 @@ local SIMD_LANE = "local array = table.Array\nlocal span = require(\"binary.span
     .. "return {lane = lane}\n"
 
 -- A GPU map kernel with one uniform, PARAMETER, and one stored VALUE.
-local GPU_SCALE = "local span = require(\"binary.span\")\n\n@aot(target = \"gpu\")\nlocal function scale(\n"
+local GPU_SCALE = "local span = require(\"bytes.span\")\n\n@aot(target = \"gpu\")\nlocal function scale(\n"
     .. "    exclusive output: span.WriteSpan<float>,\n    borrows input: span.Span<float>,\n    PARAMETER\n): nil\n"
     .. "    assert(#output == #input, \"length mismatch\")\n    for index = 1, #output do\n"
     .. "        output[index] = VALUE\n    end\nend\n\nreturn {scale = scale}\n"
@@ -1729,7 +1729,7 @@ ENTRIES[
     .. "local function fromLua(): simd.Vector<float, simd.Preferred>\n"
     .. "    local species = simd.species(array.float)\n    return twice(species:splat(1.0))\nend\n\n"
     .. "return {twice = twice, fromLua = fromLua}\n",
-    right = "local array = table.Array\nlocal span = require(\"binary.span\")\n"
+    right = "local array = table.Array\nlocal span = require(\"bytes.span\")\n"
     .. "local simd = require(\"simd\")\n\n@aot\n"
     .. "local function twice(value: simd.Vector<float, simd.Preferred>): simd.Vector<float, simd.Preferred>\n"
     .. "    return value + value\nend\n\n@aot\n"

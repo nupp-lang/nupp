@@ -1,4 +1,4 @@
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function signed(first: int32, last: int32): (number, number)

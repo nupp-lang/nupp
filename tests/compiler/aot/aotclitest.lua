@@ -287,7 +287,7 @@ end
 -- A register-resident scalar loop: sixteen bytes read once, then arithmetic
 -- over locals that touches no memory.
 local COMPUTE = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local struct Point
     re: float
@@ -349,7 +349,7 @@ function M.gpuTargetEmitsShaderAndTypedHostBinding()
         [
             "gpu.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function doubled(
@@ -413,7 +413,7 @@ function M.gpuIntegerSignednessUsesBitcastAndJsonBindingIsUtf8()
         [
             "gpu.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 @aot(target = "gpu")
 local function convert(
     exclusive output: span.WriteSpan<uint32>,
@@ -487,7 +487,7 @@ function M.gpuRepeatKeepsItsTrailingTestAndBodyScope()
         [
             "gpu.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function shrink(
@@ -549,7 +549,7 @@ function M.gpuTargetEmitsWebGpuIntegerArtifact()
         [
             "gpu.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function xorMask(
@@ -591,7 +591,7 @@ return xorMask
         [
             "gpu.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function doubled(
@@ -617,7 +617,7 @@ function M.webGpuNamesCannotCollideWithSourceOrKeywords()
         [
             "gpu.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function reservedNames(
@@ -663,7 +663,7 @@ function M.gpuShadersRebuildTheIndexOfAFoldedDispatch()
         [
             "gpu.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function increment(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
@@ -713,7 +713,7 @@ function M.gpuBindingNamesCannotCollideWithSourceParameters()
         [
             "gpu.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function bindingNames(
@@ -759,7 +759,7 @@ function M.gpuBindingDeclaresEachRecordBeforeItIsNamed()
         [
             "gpu.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function addMask(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>, mask: uint32): nil
@@ -809,7 +809,7 @@ return {
         [
             "run.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local gpu = require("io.gpu")
 
@@ -878,7 +878,7 @@ function M.gpuTargetHonoursPerFunctionFpContraction()
         [
             "relaxed.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @relax("fp-contract")
 @aot(target = "gpu")
@@ -910,7 +910,7 @@ function M.aotUsesNativeTranscendentalsOnlyWhenGranted()
         [
             "native-exp.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @relax("fp-transcendentals")
 @aot(target = "gpu")
@@ -959,7 +959,7 @@ function M.gpuTargetRefusesNarrowStorage()
         [
             "half.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function roundTripCpu(
@@ -993,7 +993,7 @@ return {roundTripCpu = roundTripCpu, roundTripBf16Cpu = roundTripBf16Cpu}
         [
             "halfgpu.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function roundTrip(
@@ -1010,7 +1010,7 @@ return {roundTrip = roundTrip}
         [
             "signedgpu.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local struct Pixel
     level: int8
@@ -1054,7 +1054,7 @@ function M.gpuTargetUsesTheIrPolynomialExponential()
         [
             "exp.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function exponential(
@@ -1113,7 +1113,7 @@ function M.gpuTargetTakesManyBuffersAndProvedCursors()
         [
             "gemm.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function gemm(
@@ -1159,7 +1159,7 @@ function M.cpuTargetTakesPartialGuardsAndProvedCursors()
         [
             "gather.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function gather(
@@ -1203,7 +1203,7 @@ function M.cpuCursorUsesTheSharedCountOfGuardedSpans()
         [
             "shared-count.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function copyFirst(
@@ -1238,7 +1238,7 @@ function M.gpuTargetExposesItsLoopIndexAndUnsignedDivision()
         [
             "coordinates.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function coordinates(
@@ -1326,7 +1326,7 @@ function M.gpuTargetEmitsStructuredWorkgroupPhasesAndFixedTreeReduction()
             "reduce.nupp"
         ] = [[
 local gpu = require("io.gpu")
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function reduce(
@@ -1395,7 +1395,7 @@ function M.gpuTargetSkipsBarriersForScratchFreeWorkgroups()
             "map.nupp"
         ] = [[
 local gpu = require("io.gpu")
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function map(
@@ -1429,7 +1429,7 @@ function M.gpuTargetLoadsReadonlyStructOnce()
             "fields.nupp"
         ] = [[
 local gpu = require("io.gpu")
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local struct Pair
     left: float
@@ -1478,7 +1478,7 @@ function M.gpuTargetEmitsDeterministicInclusiveScan()
             "scan.nupp"
         ] = [[
 local gpu = require("io.gpu")
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function scan(exclusive output: span.WriteSpan<uint32>): nil
@@ -1518,7 +1518,7 @@ function M.gpuTargetRefusesNonDisjointWorkgroupScratchWrites()
             "bad-phase.nupp"
         ] = [[
 local gpu = require("io.gpu")
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function bad(exclusive output: span.WriteSpan<float>): nil
@@ -1546,7 +1546,7 @@ function M.gpuTargetRefusesSamePhaseCrossLaneScratchRace()
             "racy-phase.nupp"
         ] = [[
 local gpu = require("io.gpu")
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function racy(exclusive output: span.WriteSpan<float>): nil
@@ -1583,7 +1583,7 @@ function M.gpuTargetRefusesDispatchIndexingAnUnguardedSpan()
         [
             "fill.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function fill(
@@ -1606,7 +1606,7 @@ end
 -- Nothing relates their lengths, and before this was refused here it reached the IR
 -- verifier and came back as a Lua traceback with no source position in it.
 local UNPROVED_SPAN = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function fill(
@@ -1627,7 +1627,7 @@ return {fill = fill}
 -- and "invalid store root" -- rather than being refused against the line that wrote
 -- them.
 local UNCOUNTED_LOAD = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function readIt(borrows values: span.Span<number>): number
@@ -1642,7 +1642,7 @@ return {readIt = readIt}
 ]]
 
 local UNCOUNTED_STORE = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function writeIt(exclusive out: span.WriteSpan<number>): nil
@@ -1658,7 +1658,7 @@ return {writeIt = writeIt}
 -- already refused; the write was not checked at all, so this one reached the
 -- verifier even though the loop had a perfectly good bound -- just not this span's.
 local UNPROVED_STORE = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function crossWrite(
@@ -1676,7 +1676,7 @@ return {crossWrite = crossWrite}
 -- Two compiled entries, one calling the other. The callee is scalar in and scalar
 -- out, which is what this IR can carry across a call.
 local ENTRY_CALL = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function scale(value: number, factor: number): number
@@ -1702,7 +1702,7 @@ return {apply = apply, scale = scale}
 -- The same shape with almost no arithmetic: two fields in, two fields out, one multiply
 -- and add each. Not marked, so it compiles scalar and nothing has to decide that.
 local STREAMING = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local struct Position
     x: float
@@ -1741,7 +1741,7 @@ return {advance = advance, Position = Position, Velocity = Velocity,}
 ]]
 
 local GENERIC_EXPLICIT_SIMD = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -1806,7 +1806,7 @@ local function assertOracle(llvm, symbol, where)
 end
 
 local BYTE_CLASSIFIER = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function classify(
@@ -1832,7 +1832,7 @@ return {classify = classify}
 -- A non-JSON variable-rate block kernel. Its output cursor advances only under
 -- the count check that authorizes the following one-based span store.
 local DELIMITERS = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function delimiters(
@@ -1857,7 +1857,7 @@ return {delimiters = delimiters}
 ]]
 
 local MUTATED_WHILE_CURSOR = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function afterIncrement(borrows source: span.Span<uint8>): uint32
@@ -1874,7 +1874,7 @@ return {afterIncrement = afterIncrement}
 ]]
 
 local SCOPED_SIMD = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 local array = table.Array
 
@@ -2088,7 +2088,7 @@ function M.aRangeGuardDoesNotNeedALengthGuard()
         [
             "rows.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function rowSums(
@@ -2119,7 +2119,7 @@ function M.transitiveLengthAndRangeFactsReachLowering()
         [
             "transitive.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function copy(
@@ -2178,7 +2178,7 @@ end
 
 function M.aGuardCannotDiscardAnEvaluatedArgument()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local function message(): string return "length mismatch" end
 @aot
 local function copy(
@@ -2199,7 +2199,7 @@ end
 
 function M.aShadowedGuardNameEstablishesNoAotFact()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local function assert(ok: boolean, message: string): boolean return true end
 @aot
 local function copy(
@@ -2265,7 +2265,7 @@ function M.aGpuKernelMayOnlyRelateSpanLengths()
         [
             "compute.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local struct Cell value: float end
 
@@ -2296,7 +2296,7 @@ function M.aGpuBindingChecksEveryWrittenSpanRelation()
         [
             "compute.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function fill(
@@ -2364,7 +2364,7 @@ end
 
 function M.exactReducersKeepNativeWidthAndLogicalPositionsAtEveryTier()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 @aot
 local function folds(borrows input: span.Span<uint64>, seed: uint64): (uint64, integer, uint64, boolean)
@@ -2520,7 +2520,7 @@ end
 
 function M.narrowIntegerVectorsRetainPhysicalLaneWidth()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -2567,7 +2567,7 @@ end
 --- as it always was.
 function M.byteVectorsTakeBitwiseOperatorsWithScalarOperands()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -2637,7 +2637,7 @@ end
 
 function M.structuralVectorOperationsHaveScalarReferenceSemantics()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -2697,7 +2697,7 @@ return {transform = transform}
 end
 
 local CONVERT_SIMD = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 @aot
@@ -2761,7 +2761,7 @@ function M.preferredSimdConversionsPreserveLanesAndReinterpretWithoutArithmetic(
 end
 
 local INDEXED_SIMD = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 @aot
@@ -3001,7 +3001,7 @@ end
 
 function M.compositeLaneExtractionKeepsNativeVectorsWhole()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -3269,7 +3269,7 @@ end
 
 function M.compensatedReducerCarriesTheRoundingErrorEachAdditionDiscards()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 
 @aot
@@ -3326,7 +3326,7 @@ end
 
 function M.provedFixedVectorsCopyOnlyTheirLogicalLanes()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -3377,7 +3377,7 @@ end
 function M.readOnlySoaRowsHaveContiguousExplicitLoads()
     local source = [[
 local soa = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -3480,7 +3480,7 @@ end
 -- at the species' vector for both.
 function M.genericHelpersPreserveSpeciesInTheKernelAndItsOracle()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -3520,7 +3520,7 @@ end
 
 function M.explicitLaneAndBitmaskOperationsKeepOneBasedLaneIdentity()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -3568,7 +3568,7 @@ end
 
 function M.uint64MaskBitsReplaceTheFixedSixtyFourBitHelperSurface()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -3997,7 +3997,7 @@ function M.anUnestablishedOperandIsStillRefused()
         [
             "scale.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function scale(borrows input: span.Span<float>, exclusive out: span.WriteSpan<float>, k: number): nil
@@ -4140,7 +4140,7 @@ function M.rootedByteViewsCarryTheSameCursorProof()
 local array = table.Array
 local builder = require("serde.valuebuilder")
 local simd = require("simd")
-local {type Buffer} = require("io")
+local {type Buffer} = require("bytes")
 
 @aot
 local function quotes(borrows source: string | Buffer, nullValue: any): (any, uint32, uint32)
@@ -4196,7 +4196,7 @@ end
 -- comparisons are then dispatched is the code generator's to decide.
 function M.fixedWidthSwitchesCompareAtTheSelectorsWidth()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local struct Signed
     value: int32
@@ -4271,7 +4271,7 @@ function M.binary64SwitchesKeepComparisonBranches()
         [
             "switch.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local struct Value
     value: int32
@@ -4333,7 +4333,7 @@ end
 
 -- Two scalar functions over one struct and two arithmetic widths.
 local TWO = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local struct Sample
     value: float
@@ -4450,7 +4450,7 @@ function M.aCountedLoopRefusesAValueOnlyTheVmCanHold()
         [
             "loop.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function scale(exclusive out: span.WriteSpan<float>, borrows input: span.Span<float>): nil
@@ -4861,7 +4861,7 @@ function M.assignedCountedIndicesDoNotKeepTheirSpanProof()
         [
             "changed.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 @aot
 local function acc(borrows input: span.Span<uint32>): number
     local total = 0
@@ -5056,7 +5056,7 @@ function M.aNestedLoopInAMapEntryIsProvedByItsOwnBound()
     -- used to be checked against the map's guarded spans and refused with a
     -- guard that compared `weights` with itself.
     local body = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function rows(
@@ -5186,7 +5186,7 @@ function M.aLoopBodyReassigningACursorRetiresTheEnclosingProof()
     -- left it. Both the lowerer and the verifier used to carry the enclosing
     -- proof into every iteration.
     local body = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function decode(borrows source: span.Span<uint8>): uint32
@@ -5230,7 +5230,7 @@ function M.aNestedLoopMovingACursorRetiresTheEnclosingProof()
         [
             "annotated.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function scan(borrows bytes: span.Span<number>, exclusive out: span.WriteSpan<number>): number
@@ -5265,7 +5265,7 @@ end
 
 function M.pairedRearrangementsAndTransposeKeepNativeResultsAtEveryTier()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 @aot
@@ -5347,7 +5347,7 @@ return {bad = bad}
 end
 
 local CONDITIONAL_SCAN = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -5468,7 +5468,7 @@ function M.aProvenVectorAccessIsOneCopyAndAnIntegerCompare()
         [
             "map.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -5557,7 +5557,7 @@ function M.aProofNeedsTheGuardAndTheCursorItLeft()
         [
             "unproven.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -5627,7 +5627,7 @@ function M.aGuardProvesASpanTheEntryGuardsHoldNoShorter()
         [
             "related.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -5691,7 +5691,7 @@ return {equal = equal, longer = longer, shorter = shorter}
         [
             "tail.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function tail(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>): nil
@@ -5722,7 +5722,7 @@ function M.aGuardedCursorLoopIsVersionedWhereItsCursorCannotWrap()
         [
             "wide.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -5794,7 +5794,7 @@ function M.anIntegerCompareFeedingAnyIsOneReductionAndAFlagStaysAFlag()
         [
             "scan.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -5846,7 +5846,7 @@ function M.aByteLookupOverFourTablesIsOneTableInstruction()
         [
             "lookup.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -5891,7 +5891,7 @@ function M.anInterleavedLoadIsOneLd3AndTheStoreOneSt4()
         [
             "records.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -5967,7 +5967,7 @@ return {widen = widen}
         [
             "misplaced.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -5993,7 +5993,7 @@ function M.anUnrolledLoopChecksItsBoundOncePerGroup()
         [
             "unrolled.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -6059,7 +6059,7 @@ function M.aLoopCarriedMaskStaysInItsRegister()
         [
             "halve.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -6114,7 +6114,7 @@ function M.aBaselineMaskAcrossRegistersIsNeverRepacked()
         [
             "refine.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -6167,7 +6167,7 @@ function M.aSpeciesBindingIsTheOnlyPlaceItsSpeciesLives()
         [
             "outside.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -6185,7 +6185,7 @@ return {lanes = lanes}
         [
             "other.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local function limit(): integer?
     return nil
@@ -6205,7 +6205,7 @@ return {first = first}
         [
             "witness.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 
 @aot
@@ -6252,7 +6252,7 @@ function M.columnLoadsUnderAFullOverChunkAreUnmasked()
 local array = table.Array
 local simd = require("simd")
 local soa = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local struct Particle
     x: float
@@ -6295,7 +6295,7 @@ function M.anAssertedSpeciesIsTheSpeciesWhereThereAreVectorsAndOneLaneWhereThere
         [
             "optional.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -6316,7 +6316,7 @@ return {total = total}
         [
             "required.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -6385,7 +6385,7 @@ function M.anAndProvesItsRightSpanReadOnlyByTheShapeItPromises()
     -- side just tested. Any other left, a different span, or a different
     -- offset is not that proof.
     local body = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function scan(borrows cps: span.Span<uint32>, borrows other: span.Span<uint32>): integer
@@ -6459,7 +6459,7 @@ function M.siblingFieldLoadsBecomeOneDeinterleavingLoad()
         [
             "fields.nupp"
         ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 

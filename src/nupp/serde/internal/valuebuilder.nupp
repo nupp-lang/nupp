@@ -51,7 +51,7 @@ generated code is allowed to do.
 module nupp.serde.internal.valuebuilder
 
 const utf8 = require("utf8")
-const {type Span} = require("binary.span")
+const {type Span} = require("bytes.span")
 
 ----------------------------------------------------------------------------
 -- Reading encoded values
@@ -349,7 +349,7 @@ end
 --- of one is refused, because the C name the load addresses is the
 --- parameter's.
 ---
---- In ordinary Lua the span is the same checked view `binary.span.fromstring`
+--- In ordinary Lua the span is the same checked view `bytes.span.fromstring`
 --- returns, and the bytes have to be a string: a view roots nothing itself, so
 --- there is no rooted string for a buffer's unread bytes to be viewed through.
 --- Every vector path is inside a `simd.species` guard, which is nil there, so
@@ -366,7 +366,7 @@ function valuebuilder.bytes(borrows bytes: any): Span<uint8> borrows (bytes)
         error("value stream bytes need a rooted string outside an AOT entry", 2)
     end
 
-    return require("binary.span").fromstring(bytes as string)
+    return require("bytes.span").fromstring(bytes as string)
 end
 
 --- Reads a byte at a zero-based offset.

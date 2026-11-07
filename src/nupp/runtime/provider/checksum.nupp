@@ -1,5 +1,5 @@
 @!internal
---[[Built-in incremental checksum catalog for `binary.Checksum` API 1.
+--[[Built-in incremental checksum catalog for `bytes.Checksum` API 1.
 
 Module initialization retains the fixed algorithm descriptors from the ordinary
 checksum implementation. It creates no mutable algorithm state. Factories return

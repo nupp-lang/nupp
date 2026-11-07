@@ -177,10 +177,10 @@ local function compileRunner(case)
     local input
     if suffix then
         local getter = suffix:sub(1, 1):lower() .. suffix:sub(2) .. "Json"
-        input = require("io").Buffer.create(spike[getter]())
+        input = require("bytes").Buffer.create(spike[getter]())
         case.buffer = input
     elseif outputCases[case.call] then
-        input = require("io").Buffer.create()
+        input = require("bytes").Buffer.create()
         case.buffer = input
     end
     local source = (

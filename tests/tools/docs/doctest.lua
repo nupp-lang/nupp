@@ -2190,7 +2190,7 @@ function M.hidesPrivateCleanupNamesFromSignatures()
             "end",
             "",
             "--- Byte sources.",
-            "record io.SharedBytes",
+            "record bytes.SharedBytes",
             "   --- Opens a reader over these bytes.",
             "   newReader: function(self: SharedBytes): affine(Reader, __destroyReader)",
             "end",
@@ -2214,7 +2214,7 @@ function M.hidesPrivateCleanupNamesFromSignatures()
     local longLiteral = assert(byName["io.longLiteral"], "the long literal function was not documented")
     assert(longLiteral.signature:find("[[affine(Reader, __destroyReader)]]", 1, true), longLiteral.signature)
     local bytes = assert(byName["SharedBytes"], "the record was not documented")
-    assert(bytes.signature == "record io.SharedBytes", bytes.signature)
+    assert(bytes.signature == "record bytes.SharedBytes", bytes.signature)
     local newReader = assert(bytes.members[1], "the record's member was not documented")
     assert(newReader.type:find("affine(Reader, _)", 1, true), newReader.type)
     assert(not newReader.type:find("__destroyReader", 1, true), newReader.type)
@@ -2573,10 +2573,7 @@ function M.standardIOApiHasCompleteDocumentation()
     local modules = {
         [
             "src/nupp/io.nupp"
-        ] = {
-            types = {Buffer = true, Reader = true, Writer = true, ScalarReader = true, ScalarWriter = true,},
-            functions = {},
-        },
+        ] = {types = {Reader = true, Writer = true, ScalarReader = true, ScalarWriter = true,}, functions = {},},
         [
             "src/io/internal/pathtypes.nupp"
         ] = {types = {Path = true,}, functions = {}, overview = "src/nupp/runtime/standardio.nupp",},
@@ -2625,6 +2622,15 @@ function M.standardIOApiHasCompleteDocumentation()
         for member in pairs(expected.functions) do
             assert(foundFunctions[member], name .. " did not document " .. member)
         end
+    end
+
+    local bytesModule = assert(doc.extract(readFile(HERE .. "/../src/bytes/init.nupp"), "src/bytes/init.nupp", "bytes"))
+    for _, name in ipairs({"Buffer", "BufferWriteLease", "SharedBytes"}) do
+        local documented = false
+        for _, item in ipairs(bytesModule.items) do
+            documented = documented or item.name == name and item.doc.text ~= ""
+        end
+        assert(documented, "bytes did not document " .. name)
     end
 
     -- The declarations own their factory documentation.
@@ -2714,7 +2720,7 @@ end
 function M.hostBoundariesDeclareThemselvesInternal()
     local boundaries = {
         "src/nupp/workers/native.d.nupp",
-        "src/binary/_representation.nupp",
+        "src/bytes/_representation.nupp",
         "src/io/internal/files/messages.nupp",
     }
     for _, relative in ipairs(boundaries) do
@@ -4192,9 +4198,9 @@ end
 function M.affineAliasesLinkToTheGenericWrappedType()
     local modules = aliasModel({
         [
-            "src/binary/span.nupp"
+            "src/bytes/span.nupp"
         ] = [[
-module binary.span
+module bytes.span
 local source = require("internal.span")
 export type Span<T> = source.Span<T>
 export type Writable<T> = source.Writable<T>
@@ -4210,7 +4216,7 @@ end
 export type Writable<T> = affine(Span<T>)
 ]],
     })
-    local module = assert(modules["binary.span"])
+    local module = assert(modules["bytes.span"])
     local writable
     for _, item in ipairs(module.items) do
         if item.name == "Writable" then
@@ -4219,7 +4225,7 @@ export type Writable<T> = affine(Span<T>)
     end
     assert(writable and writable.signature:find("affine(Span<T>)", 1, true), writable and writable.signature)
     local rendered = doc.markdown({module})
-    assert(rendered:find("[`Span`](#binary.span.Span)", 1, true), rendered)
+    assert(rendered:find("[`Span`](#bytes.span.Span)", 1, true), rendered)
 end
 
 function M.directRequireMemberAliasesKeepFunctionContracts()
@@ -7174,9 +7180,11 @@ function M.gpuPublicPageExpandsItsExplicitAliases()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
-function M.ioPublicPageKeepsStorageAndScalarContracts()
+function M.bytesAndIoPagesKeepStorageAndScalarContracts()
     local files = {}
     for _, path in ipairs({
+        "bytes/init.nupp",
+        "bytes/internal/bytestypes.nupp",
         "nupp/runtime/standardio.nupp",
         "nupp/io.nupp",
         "nupp/io/internal/bytes.nupp",

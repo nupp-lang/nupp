@@ -28,12 +28,12 @@ local target = require("nupp.runtime.target")
 
 const byteio = require("nupp.io")
 const {type Reader as Reader2} = require("nupp.io")
-const {type Buffer} = require("nupp.io")
+const {type Buffer} = require("nupp.io.internal.bytes")
 const {type Writer as Writer2} = require("nupp.io")
 
 local suspension = require("nupp.suspension")
 local physical = require("nupp.runtime.storage")
-local span = require("binary.span")
+local span = require("bytes.span")
 local spanStringValue: function(borrows source: const uint8[?], count: integer): string = physical.string as any
 
 const contract = require("io.internal.process.contracts")

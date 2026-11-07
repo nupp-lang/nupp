@@ -20,7 +20,7 @@ imports this implementation; individual TLS operations use the retained session.
 ]]
 module nupp.runtime.provider.nativetls
 
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local contract = require("io.net.internal.contracts")
 local ffi = require("ffi")

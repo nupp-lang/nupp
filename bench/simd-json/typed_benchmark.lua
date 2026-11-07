@@ -5,7 +5,7 @@ require("simdjson_bench")
 local simdjson = require("simdjsonbench")
 local control = simdjson.compileSerde(production.controlPlan(), "reject")
 local source = production.source()
-local input = require("io").Buffer.create(source)
+local input = require("bytes").Buffer.create(source)
 local samples = tonumber(arg[1]) or 21
 local target = 0.1
 local sink = 0

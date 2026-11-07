@@ -1,6 +1,6 @@
 --[[
 `utf8` reads Unicode scalars out of strings and
-[](binary.span.Span) values with `uint8` elements. Reach for it to count, decode,
+[](bytes.span.Span) values with `uint8` elements. Reach for it to count, decode,
 validate or truncate text whose bytes came from somewhere else.
 
 ```nupp
@@ -16,7 +16,7 @@ codepoint value to its bytes.
 
 Offsets here are 1-based, so they compose with Lua string positions and with
 `string.sub` on the same text. This is the opposite of the zero-based offsets a
-[buffer](io.Buffer) uses, because those are offsets into storage rather
+[buffer](bytes.Buffer) uses, because those are offsets into storage rather
 than positions in text.
 
 ## Decoding a scalar
@@ -80,7 +80,7 @@ module utf8
 
 local valueType: function(borrows value: any): string = type as any
 
-const {type Span} = require("binary.span")
+const {type Span} = require("bytes.span")
 
 -- `string.byte` by name rather than as a method. Written `source:byte(at)` the
 -- name is looked up on the string metatable before every call; a loop long enough

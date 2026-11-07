@@ -1,8 +1,10 @@
+local byteapi = require("bytes")
+
 const assert2 = require("assert")
 
 const io2 = require("io")
 
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local valuebuilder = require("serde.valuebuilder")
 
@@ -32,8 +34,8 @@ end
 
 assert2(copyString("Lua-builder in Wasm", nil) == "Lua-builder in Wasm")
 assert2(copyString("", nil) == "")
-assert2(binary.base64encode("browser bytes\0\255") == "YnJvd3NlciBieXRlcwD/")
-assert2(binary.base64decode("YnJvd3NlciBieXRlcwD/") == "browser bytes\0\255")
+assert2(byteapi.base64encode("browser bytes\0\255") == "YnJvd3NlciBieXRlcwD/")
+assert2(byteapi.base64decode("YnJvd3NlciBieXRlcwD/") == "browser bytes\0\255")
 local description = describe("wasm", 3)
 assert2(description.name == "wasm" and description.count == 3 and description.values[3] == 3)
 
@@ -151,7 +153,7 @@ local function copyBytes(exclusive destination: span.WriteSpan<uint8>, borrows s
     end
 end
 
-local byteBuffer = io2.Buffer.create(4)
+local byteBuffer = require("bytes").Buffer.create(4)
 local byteLease = byteBuffer:reserve(4)
 do
     local bytes = byteLease:span()

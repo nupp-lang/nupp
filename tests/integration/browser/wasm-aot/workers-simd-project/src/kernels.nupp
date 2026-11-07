@@ -8,7 +8,7 @@ module kernels
 -- to prove registration happens at each. Explicit Wasm SIMD coverage is in
 -- `simd-project` next door.
 
-const span = require("binary.span")
+const span = require("bytes.span")
 const array = table.Array
 
 local struct Sample

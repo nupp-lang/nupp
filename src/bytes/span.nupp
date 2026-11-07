@@ -4,13 +4,13 @@ See [bytes.md](docs/learn/runtime/data/bytes.md) for storage, ownership, index
 bases, and copies.
 
 ```nupp
-local span = binary.span
+local span = bytes.span
 local text = "hello"
 local bytes = span.fromstring(text)
 assert(#bytes == 5 and bytes[1] == 104)
 ```
 ]]
-module binary.span
+module bytes.span
 
 local source1 = require("nupp.mem.span")
 local source2 = require("nupp.mem.indexed")

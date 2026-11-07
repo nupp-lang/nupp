@@ -15,7 +15,7 @@ function M.theRetiredNamespaceIsNotDeclared()
 end
 
 function M.theCanonicalBufferWorksWithoutARequire()
-    local tree = parser.parse([[local b = io.Buffer.create()
+    local tree = parser.parse([[local b = bytes.Buffer.create()
 b:put("a", 12)
 return b:tostring()]], "test.nupp")
     for _, diagnostic in ipairs(check.check(tree, "test.nupp", env)) do

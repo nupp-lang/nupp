@@ -11,8 +11,8 @@ and performs no SPI resolution itself. MD5 and SHA-1 serve interoperability uses
 module nupp.digest.internal.words
 
 const bit = require("nupp.runtime.bitops")
-const span = require("binary.span")
-const binary = require("nupp.util.internal.encoding")
+const span = require("bytes.span")
+const encoding = require("nupp.util.internal.encoding")
 const streaming = require("nupp.digest.internal.streaming")
 const constants = require("nupp.digest.internal.constants")
 
@@ -264,7 +264,7 @@ function Engine.digest(self: Engine): string
 end
 
 function Engine.hex(self: Engine): string
-    return binary.hexencode(self:digest())
+    return encoding.hexencode(self:digest())
 end
 
 export function create(name: string): streaming.Hasher

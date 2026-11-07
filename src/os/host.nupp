@@ -34,7 +34,7 @@ arguments straight through rather than gathering them into a table.
 Arguments and results are each a count of flat values: `nil`, booleans,
 numbers, strings and byte spans. Every position is kept, so interior and
 trailing `nil`s arrive as written. A number must be finite and a string must be
-UTF-8 text; arbitrary bytes are a [](binary.span) of bytes, never a string
+UTF-8 text; arbitrary bytes are a [](bytes.span) of bytes, never a string
 holding binary. Tables and functions are refused, naming the argument's
 position. Structured data is encoded into bytes by the library that owns it.
 
@@ -44,7 +44,7 @@ cross, and carry the other values only:
 
 ```nupp:fragment
 local host = os.host
-local span = binary.span
+local span = bytes.span
 
 local type Digest = function(borrows bytes: span.Span<uint8>): (integer, span.Span<uint8>)
 local digest = host.bind<Digest>("app.digest")

@@ -3852,7 +3852,7 @@ local function fieldAccess(
     )
 end
 
---- `s:load(bytes, i[, m])` where `bytes` is `valuebuilder.bytes(source)`: the
+--- `s:load(bytes, i[, m])` where `binary` is `valuebuilder.bytes(source)`: the
 --- same vector load, addressed through the pointer and length a rooted string
 --- or buffer parameter already arrives with.
 ---

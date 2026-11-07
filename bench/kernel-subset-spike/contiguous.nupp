@@ -1,5 +1,5 @@
 -- Exact-width contiguous span load used to inspect vector load folding.
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function scale(

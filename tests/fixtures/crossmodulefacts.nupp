@@ -1,6 +1,6 @@
 module tests.fixtures.crossmodulefacts
 
-local span = require("binary.span")
+local span = require("bytes.span")
 
 export function scale(value: number): number
     return value * 2

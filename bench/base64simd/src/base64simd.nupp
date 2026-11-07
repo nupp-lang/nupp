@@ -20,10 +20,12 @@ get their padding after that.
 ]]
 module base64simd
 
+local byteapi = require("bytes")
+
 const io = require("io")
 local array = table.Array
 local simd = require("simd")
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local base64simd = {}
 
@@ -135,7 +137,7 @@ end
 --- @export
 function base64simd.encode(value: string): string
     local bound = encodedLength(value)
-    local buffer = io.Buffer.create(bound)
+    local buffer = byteapi.Buffer.create(bound)
     local lease = buffer:reserve(bound)
     local target = lease:span()
     local written = encode(target, span.fromstring(value), ALPHABET_BYTES)
@@ -156,7 +158,7 @@ end
 --- @export
 function base64simd.allocOnly(value: string): string
     local bound = encodedLength(value)
-    local buffer = io.Buffer.create(bound)
+    local buffer = byteapi.Buffer.create(bound)
     local lease = buffer:reserve(math.max(bound, 1))
     local target = lease:span()
     target[1] = #value % 256

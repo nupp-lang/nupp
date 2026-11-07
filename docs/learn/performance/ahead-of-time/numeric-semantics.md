@@ -382,7 +382,7 @@ initializers, assignments, arguments, return values, and loop conditions, when:
   predicate it never evaluated.
 
 ```nupp
-local span = binary.span
+local span = bytes.span
 
 local struct Code
     value: int32

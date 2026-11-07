@@ -1,6 +1,6 @@
 -- Exercise gpu at the same point-array boundary as simd-mandelbrot.
 local ffi = require("ffi")
-local span = require("binary.span")
+local span = require("bytes.span")
 local generated = require("mandelbrot")
 local gpu = require("io.gpu")
 

@@ -93,7 +93,7 @@ building a Lua table or a complete result string. `endarray()` and
 leaving the document open, and consuming `close()` requires one complete root:
 
 ```nupp
-local out = io.Buffer.create()
+local out = bytes.Buffer.create()
 local writer = serde.json.Writer.of(out)
 writer:startobject():key("items"):startarray():write(1):write(2):endarray():endobject()
 writer:close()
@@ -116,6 +116,8 @@ string-only form accepted by both `key` and `write`; these handles are interned,
 so repeated schema keys share their encoded representation.
 ]==]
 module serde.json
+
+local byteapi = require("nupp.io.internal.bytes")
 
 local core = require("nupp.serde.internal.value")
 local publication = require("nupp.serde.internal.publication")
@@ -184,7 +186,7 @@ local record Write<T, M is core.Member> is WriteOperation<T>
 end
 
 -- Writes a value straight into a caller's byte buffer in the writer's batches.
-local function appendTo<T>(selected: WriteOperation<T>, borrows value: T, exclusive buffer: io.Buffer): nil
+local function appendTo<T>(selected: WriteOperation<T>, borrows value: T, exclusive buffer: byteapi.Buffer): nil
     const sink = json.newBufferWriter(buffer)
     selected:writeValue(value, sink)
     sink:close()
@@ -294,13 +296,18 @@ export interface Codec
     encode: function<T>(self, binding: core.Binding<T>, borrows value: T): string
 
     --- Appends a value to a buffer. See [](encodeinto).
-    encodeinto: function<T>(self, binding: core.Binding<T>, borrows value: T, exclusive buffer: io.Buffer): nil
+    encodeinto: function<T>(self, binding: core.Binding<T>, borrows value: T, exclusive buffer: byteapi.Buffer): nil
 
     --- Decodes a value. See [](decode).
     decode: function<T>(self, binding: core.Binding<T>, bytes: string, context: core.Context?): T
 
     --- Decodes a value from a buffer. See [](decodebuffer).
-    decodebuffer: function<T>(self, binding: core.Binding<T>, exclusive input: io.Buffer, context: core.Context?): T
+    decodebuffer: function<T>(
+        self,
+        binding: core.Binding<T>,
+        exclusive input: byteapi.Buffer,
+        context: core.Context?
+    ): T
 
     --- Forgets every binding's selections.
     clear: function(self): nil
@@ -366,7 +373,7 @@ local record Cached is Codec
         return self:writing(binding):encode(value)
     end
 
-    function encodeinto<T>(self, binding: core.Binding<T>, borrows value: T, exclusive buffer: io.Buffer): nil
+    function encodeinto<T>(self, binding: core.Binding<T>, borrows value: T, exclusive buffer: byteapi.Buffer): nil
         const mark = buffer:len()
         const ok, problem = pcall(appendTo, self:writing(binding), value, buffer)
         if not ok then
@@ -380,7 +387,7 @@ local record Cached is Codec
         return self:reading(binding):read(bytes, context)
     end
 
-    function decodebuffer<T>(self, binding: core.Binding<T>, exclusive input: io.Buffer, context: core.Context?): T
+    function decodebuffer<T>(self, binding: core.Binding<T>, exclusive input: byteapi.Buffer, context: core.Context?): T
         return self:reading(binding):read(input:tostring(), context)
     end
 
@@ -503,7 +510,7 @@ export function encode<T>(binding: core.Binding<T>, borrows value: T): string
     return shared:encode(binding, value)
 end
 
---- Appends a value's JSON text to an [](io.Buffer).
+--- Appends a value's JSON text to an [](bytes.Buffer).
 ---
 --- On failure the buffer is left as it was.
 ---
@@ -511,7 +518,7 @@ end
 --- @param value the value
 --- @param buffer the buffer to append to
 --- @raises serde.Error when a value cannot be represented, at its path
-export function encodeinto<T>(binding: core.Binding<T>, borrows value: T, exclusive buffer: io.Buffer): nil
+export function encodeinto<T>(binding: core.Binding<T>, borrows value: T, exclusive buffer: byteapi.Buffer): nil
     shared:encodeinto(binding, value, buffer)
 end
 
@@ -539,14 +546,14 @@ export function decode<T>(binding: core.Binding<T>, bytes: string, context: core
     return shared:decode(binding, bytes, context)
 end
 
---- Decodes the JSON text an [](io.Buffer) holds.
+--- Decodes the JSON text an [](bytes.Buffer) holds.
 ---
 --- @param binding the binding to construct through
 --- @param input the buffer holding the JSON text
 --- @param context a parent for the context the decoder attaches, or nil
 --- @return the value
 --- @raises serde.Error with the path and byte offset of the failure
-export function decodebuffer<T>(binding: core.Binding<T>, exclusive input: io.Buffer, context: core.Context?): T
+export function decodebuffer<T>(binding: core.Binding<T>, exclusive input: byteapi.Buffer, context: core.Context?): T
     return shared:decodebuffer(binding, input, context)
 end
 
@@ -558,7 +565,7 @@ end
 --- local record Tag
 ---     name: string
 --- end
---- local buffer = io.Buffer.create()
+--- local buffer = bytes.Buffer.create()
 --- local writer = json.Writer.of(buffer)
 --- writer:startarray()
 --- json.writevalue(serde.binding(Tag), Tag(name = "x"), writer)
@@ -632,7 +639,7 @@ export type JSONEncodable = json.JSONEncodable
 --- A checked incremental JSON writer, created by `Writer.of`.
 ---
 --- ```nupp
---- local out = io.Buffer.create()
+--- local out = bytes.Buffer.create()
 --- local writer = serde.json.Writer.of(out)
 --- writer:startobject():key("ok"):write(true):endobject()
 --- writer:close()
@@ -643,7 +650,7 @@ export interface Writer is json.Writer
     --- Adapts caller-owned output storage for incremental JSON writing.
     ---
     --- ```nupp
-    --- local out = io.Buffer.create()
+    --- local out = bytes.Buffer.create()
     --- local writer = serde.json.Writer.of(out)
     --- writer:write(true)
     --- writer:close()
@@ -652,7 +659,7 @@ export interface Writer is json.Writer
     --- @param out the output storage borrowed until the writer closes
     --- @param nullvalue the value to encode as JSON null
     --- @return the incremental JSON writer
-    function of(exclusive out: io.Buffer, nullvalue: any?): affine(Writer) borrows (out)
+    function of(exclusive out: byteapi.Buffer, nullvalue: any?): affine(Writer) borrows (out)
         return json.newBufferWriter(out, nullvalue)
     end
 end

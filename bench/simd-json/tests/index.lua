@@ -14,7 +14,7 @@
 -- `--time` adds a timing run over the indexer and the reference.
 local math = arg[1] == "--time" and _G.math or assert(loadfile("../../tests/integration/simd/corpusmath.lua"))()
 local ffi = require("ffi")
-local span = require("binary.span")
+local span = require("bytes.span")
 local indexer = require("simd_json.indexer")
 local reference = require("simd_json.indexer_reference")
 

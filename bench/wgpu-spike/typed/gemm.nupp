@@ -7,7 +7,7 @@ const assert2 = assert
 -- converted to a zero-based row and column, and every a/b access is a proved
 -- cursor whose bound check the shader keeps, so the matrix buffers may have the
 -- independently sized dimensions the uniforms describe.
-local span = binary.span
+local span = require("bytes.span")
 local gpu = io.gpu
 
 -- Small conformance kernels separate storage binding and scalar-uniform

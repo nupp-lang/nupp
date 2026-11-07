@@ -1,3 +1,5 @@
+local byteapi = require("bytes")
+
 const jobs = require("jobs")
 const ffi = require("ffi")
 const tasks = require("coroutine")
@@ -205,7 +207,7 @@ rows[
     note = "record with an absent optional field"
 }
 
-const sharedbytes = io.SharedBytes
+const sharedbytes = byteapi.SharedBytes
 
 local lined = ("abcdefg\n"):rep(131072)
 local corpus = sharedbytes.copy(lined)

@@ -157,7 +157,7 @@ function imports.new(environment: any?, enabled: boolean?): any
         -- Builtin namespaces already have their public names. Keep direct aliases
         -- and qualified accesses instead of turning them into authored imports.
         -- Public carried modules also cover roots without an ambient value, such as
-        -- binary.span; extension implementations retain the builtin root's identity.
+        -- bytes.span; extension implementations retain the builtin root's identity.
         local function builtinAccess(moduleName: string?, path: {any}): boolean
             local root = path[1]
             local entry = root and env.globals and env.globals[root.text]

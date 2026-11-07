@@ -715,7 +715,7 @@ function M.hostAndVmBindingsIgnoreAdvertisedOverrides()
             siblings = {"nupp.suspension.host"}
         },
         {
-            module = "binary._representation",
+            module = "bytes._representation",
             interface = "package.nupp.CstorageProvider",
             native = "nupp.runtime.provider.nativestorage",
             -- No other storage ships: a LuaJIT VM takes native storage on either host.

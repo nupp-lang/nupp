@@ -6,12 +6,12 @@ local indexer = require("simd_json.indexer")
 local parser = require("simd_json.parser")
 local scanner = require("simd_json.scanner")
 local simdjsonBench = require("simdjson_bench")
-local span = require("binary.span")
+local span = require("bytes.span")
 local valueBuilder = require("serde.valuebuilder")
 
 local production = require("production_json_test")
 production.run()
-local input = require("io").Buffer.create(production.source())
+local input = require("bytes").Buffer.create(production.source())
 assert(production.preparedBufferDecode(input).id == 41)
 assert(production.preparedBufferCopyDecode(input).id == 41)
 local nativeControl = require("simdjson_bench_native")
@@ -404,13 +404,13 @@ do
         "serialized empty-container sentinels did not round trip"
     )
 
-    local out = require("io").Buffer.create()
+    local out = require("bytes").Buffer.create()
     local writer = simdjsonBench.writer(out, nullValue)
     writer:startObject():key("items"):startArray():write(1)
     writer:null():write(simdjsonBench.EMPTY_OBJECT):endArray():key("empty"):write(simdjsonBench.EMPTY_ARRAY):endObject()
     writer:close()
     check(out:tostring() == [[{"items":[1,null,{}],"empty":[]}]], "streaming writer emitted the wrong chunks")
-    out = require("io").Buffer.create()
+    out = require("bytes").Buffer.create()
     local key = simdjsonBench.encodedString('quoted"key')
     local trustedWriter = simdjsonBench.writer(out)
     trustedWriter:startObject():key(key):write(simdjsonBench.verified("1")):endObject()
@@ -424,7 +424,7 @@ do
     )
     check(
         not pcall(function()
-            local invalidOut = require("io").Buffer.create()
+            local invalidOut = require("bytes").Buffer.create()
             simdjsonBench.writer(invalidOut):startObject():write(true)
         end),
         "streaming writer accepted an object value without a key"

@@ -1,13 +1,13 @@
 local browserTime = require("coroutine")
-local digest = require("binary").digest
-local mac = require("binary").mac
-local checksum = require("binary").checksum
+local digest = require("bytes").digest
+local mac = require("bytes").mac
+local checksum = require("bytes").checksum
 local uuid = os
 local json = require("serde.json")
 local system = os.info()
-local binary = require("binary")
-assert(table.concat(binary.formats("digest"), ",") == "md5,sha1,sha256,sha512")
-assert(#binary.formats("compression") == 0)
+local byteapi = require("bytes")
+assert(table.concat(byteapi.formats("digest"), ",") == "md5,sha1,sha256,sha512")
+assert(#byteapi.formats("compression") == 0)
 
 local started = os.monotonic()
 browserTime.sleep(1)

@@ -1,3 +1,5 @@
+local byteapi = require("bytes")
+
 local testAssert = require("assert")
 local assertions = require("helpers.assertions")
 local parser = require("nupp.compiler.syntax.parser")
@@ -41,7 +43,7 @@ function M.digestFinalizationConsumesButChecksumReadsDoNot()
         local _, diagnostics = diagsOf(
             table.concat(
                 {
-                    "local rolling = binary.digest('sha256'):create()",
+                    "local rolling = bytes.digest('sha256'):create()",
                     "local result = rolling:" .. finalizer,
                     "rolling:write('too late')",
                 },
@@ -59,7 +61,7 @@ function M.digestFinalizationConsumesButChecksumReadsDoNot()
     assertClean(
         table.concat(
             {
-                "local sum = binary.checksum('crc32c'):create()",
+                "local sum = bytes.checksum('crc32c'):create()",
                 "local before = sum:value()",
                 "sum:write('still open')",
                 "local after = sum:value()",
@@ -72,10 +74,10 @@ end
 -- Every owner the standard library hands out has a cleanup policy, and
 -- `own.drop` runs it early without adding a public `drop` on each resource.
 local FORMER_DROP_OWNERS = {
-    "local owner = io.Buffer.create('bytes')",
-    "local source = io.Buffer.create('bytes')\nlocal owner = source:reader()",
+    "local owner = bytes.Buffer.create('bytes')",
+    "local source = bytes.Buffer.create('bytes')\nlocal owner = source:reader()",
     "local owner = io.Reader.of('abcd'):scalar()",
-    "local destination = io.Buffer.create(); local owner = destination:writer():scalar()",
+    "local destination = bytes.Buffer.create(); local owner = destination:writer():scalar()",
     "local owner = io.Reader.of('one'):lines()",
     "local owner = assert(io.open('input.bin'))",
     "local owner = assert(os.mktemp())",
@@ -132,7 +134,7 @@ end
 -- An invalid argument raises with the prefix every other standard module uses.
 function M.memAndUtilRefusalsCarryTheLibraryPrefix()
     local ffi = require("ffi")
-    local spans = require("binary.span")
+    local spans = require("bytes.span")
     for label, refused in pairs({
         heap = function()
             require("nupp.runtime.standardtable").Array.alloc(ffi.typeof("int32_t"), -1)
@@ -144,7 +146,7 @@ function M.memAndUtilRefusalsCarryTheLibraryPrefix()
             spans.fromcarray(ffi.new("int32_t[1]"), -1)
         end,
         indexed = function()
-            require("binary.span").range(0, 1)
+            require("bytes.span").range(0, 1)
         end,
     }) do
         local ok, reason = pcall(refused)
@@ -155,7 +157,7 @@ end
 
 function M.formerResultClosesAnswerNothing()
     local io = require("io")
-    local buffer = io.Buffer.create("abc")
+    local buffer = byteapi.Buffer.create("abc")
     testAssert.eq(select("#", io.Reader.of("abcd"):scalar():close()), 0, "ScalarReader:close answers nothing")
     testAssert.eq(select("#", buffer:writer():scalar():close()), 0, "a borrowing ScalarWriter answers nothing")
     testAssert.eq(buffer:isreleased(), false, "a borrowing scalar writer leaves its buffer open")
@@ -164,7 +166,7 @@ function M.formerResultClosesAnswerNothing()
 end
 
 function M.closedBufferReleasesItsAllocationWhileMetadataSurvives()
-    local buffer = require("io").Buffer.create(string.rep("x", 1048576))
+    local buffer = require("bytes").Buffer.create(string.rep("x", 1048576))
     local allocation = setmetatable({buffer._data}, {__mode = "v"})
     buffer:close()
     collectgarbage("collect")
@@ -285,7 +287,7 @@ end
 
 function M.wasmViewsLowerThroughTheOpaqueCheckedSurface()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local struct Sample
    value: float
@@ -406,7 +408,7 @@ function M.digestUsesPortableBitops()
     assertClean(
         table.concat(
             {
-                "local digest = require('binary').digest",
+                "local digest = require('bytes').digest",
                 "local rolling = digest('sha256'):create()",
                 "rolling:write('message')",
                 "return rolling:hexdigest()",
@@ -419,7 +421,7 @@ end
 function M.oneShotHmacUsesOrdinaryCode()
     local source = table.concat(
         {
-            "local mac = require('binary').mac",
+            "local mac = require('bytes').mac",
             "return mac('hmac-sha256'):computehex('key', 'message'), #mac('hmac-sha256'):compute('key', 'message')",
         },
         "\n"
@@ -1075,11 +1077,11 @@ function M.browserCryptoRejectsMalformedHostValues()
             return returned[kind]
         end,
     })
-    local binary = require("binary")
+    local byteapi = require("bytes")
 
-    returned.random = {bytesBase64 = binary.base64encode("\0")}
+    returned.random = {bytesBase64 = byteapi.base64encode("\0")}
     testAssert.eq(browser.randombytes(1), "\0")
-    returned.random = {bytesBase64 = binary.base64encode("short")}
+    returned.random = {bytesBase64 = byteapi.base64encode("short")}
     local ok, problem = pcall(browser.randombytes, 6)
     assert(not ok and tostring(problem):find("bytesBase64", 1, true), tostring(problem))
     returned.random = {bytesBase64 = "not base64"}
@@ -1092,16 +1094,16 @@ function M.browserCryptoRejectsMalformedHostValues()
     ok, problem = pcall(browser.sha256, "value")
     assert(not ok and tostring(problem):find("SHA-256", 1, true), tostring(problem))
 
-    returned["hmac-sha256"] = {digestBase64 = binary.base64encode(string.rep("x", 32))}
+    returned["hmac-sha256"] = {digestBase64 = byteapi.base64encode(string.rep("x", 32))}
     testAssert.eq(#browser.digest("key", "value"), 32)
-    returned["hmac-sha256"] = {digestBase64 = binary.base64encode("short")}
+    returned["hmac-sha256"] = {digestBase64 = byteapi.base64encode("short")}
     ok, problem = pcall(browser.digest, "key", "value")
     assert(not ok and tostring(problem):find("digestBase64", 1, true), tostring(problem))
 
-    returned.random = {bytesBase64 = binary.base64encode(string.rep("\0", 10)), wallTimeMs = 1.5}
+    returned.random = {bytesBase64 = byteapi.base64encode(string.rep("\0", 10)), wallTimeMs = 1.5}
     ok, problem = pcall(browser.uuid7)
     assert(not ok and tostring(problem):find("wall time", 1, true), tostring(problem))
-    returned.random = {bytesBase64 = binary.base64encode(string.rep("\0", 10)), wallTimeMs = 281474976710656}
+    returned.random = {bytesBase64 = byteapi.base64encode(string.rep("\0", 10)), wallTimeMs = 281474976710656}
     ok, problem = pcall(browser.uuid7)
     assert(not ok and tostring(problem):find("wall time", 1, true), tostring(problem))
 end
@@ -1309,7 +1311,7 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
         local headers = response:headers()
         headers["x-test"] = "changed"
         testAssert.eq(response:headers()["x-test"], "one, two", "headers returns a fresh mapping")
-        local destination = require("io").Buffer.create()
+        local destination = require("bytes").Buffer.create()
         testAssert.eq(response.body:readinto(destination, 0, 2), 2)
         testAssert.eq(destination:tostring(), "ab")
         testAssert.eq(response.body:read(3), "c", "the returned response owns a live ordinary reader")
@@ -1494,7 +1496,7 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
     local browser = require("helpers.providerstate").browserGpu(host, memory)
     local context = browser.open()
     local ffi = require("ffi")
-    local spans = require("binary.span")
+    local spans = require("bytes.span")
     element = require("nupp.runtime.standardtable").Array.uint32
     local input = context:buffer(element, 1)
     local output = context:buffer(element, 1)
@@ -2156,9 +2158,9 @@ function M.nativeFeaturesAreResolvedEffects()
     assert(native.feature("runtime.int64").runtimeModule == nil, "wide integers have no runtime module")
 
     local shadowed = effectsOf(
-        table.concat({"local binary = {digest = {hexDigest = function() end}}", "binary.digest.hexDigest()",}, "\n")
+        table.concat({"local bytes = {digest = {hexDigest = function() end}}", "bytes.digest.hexDigest()",}, "\n")
     )
-    assert(not shadowed["native.sha256"], "a local binary is not the global facility")
+    assert(not shadowed["native.sha256"], "a local bytes table is not the global facility")
 
     local shadowedIOSource = "local io = {sep = function(): string return '/' end}\nio.sep()"
     assertClean(shadowedIOSource)
@@ -2174,7 +2176,7 @@ function M.nativeFeaturesAreResolvedEffects()
         ["serde.json.encodevalue({answer = 42})"] = "native.json",
         ["serde.json.pull('{}', {answer = true})"] = "native.json",
         ["utf8.len('hello')"] = "runtime.data_utf8",
-        ["io.Buffer.create('hello')"] = "stdlib.io",
+        ["bytes.Buffer.create('hello')"] = "runtime.io_internal_bytes",
         ["coroutine.sleep(0)"] = "runtime.time",
         [
             "coroutine.suspend('ready', function(resume: function(integer)): function()? resume(42) return nil end)"
@@ -2408,8 +2410,8 @@ function M.digestAndMacSurfacesAreBundledOutsideThisCheckout()
     local isolated = envMod.new(os.tmpname() .. "-nupp-streaming-hash-surface")
     local source = table.concat(
         {
-            "local digest = require('binary').digest",
-            "local mac = require('binary').mac",
+            "local digest = require('bytes').digest",
+            "local mac = require('bytes').mac",
             "local rolling = digest('sha256'):create()",
             "rolling:write('message')",
             "assert(#rolling:digest() == 32)",
@@ -2439,7 +2441,7 @@ assert(serde.document.into(binding, document).text == "value")
 local native = serde.native.encode(binding, value)
 assert(serde.native.decode(binding, native).text == "value")
 local json = serde.json.codec()
-local buffer = io.Buffer.create('{"text":"buffer"}')
+local buffer = bytes.Buffer.create('{"text":"buffer"}')
 assert(json:decodebuffer(binding, buffer).text == "buffer")
 ]]
     local result = parser.parse(source, "outside.nupp")
@@ -2504,7 +2506,8 @@ function M.compilerProvidedPureLibraries()
             bootstrap
             .. [[
       local io = require("io")
-      local buffer = io.Buffer.create("hello")
+      local bytes = require("bytes")
+      local buffer = bytes.Buffer.create("hello")
       local writer = buffer:reset():writer()
       assert(writer:write("world"))
       assert(buffer:tostring() == "world")
@@ -2527,9 +2530,9 @@ function M.compilerProvidedPureLibraries()
       assert(math.lerp(10, 20, 0.25) == 12.5)
       assert(math.lerp(10, 20, 1) == 20)
       assert(math.lerp(10, 20, 1.5) == 25)
-      local checksum = require("binary").checksum
-      local digest = require("binary").digest
-      local hash = require("binary")
+      local checksum = require("bytes").checksum
+      local digest = require("bytes").digest
+      local hash = require("bytes")
       assert(hash.fnv1a64("hello") == "a430d84680aabd0b")
       assert(checksum("crc32"):compute("123456789") == 3421780262ULL)
       assert(digest("sha256"):computehex("abc") ==
@@ -2611,7 +2614,7 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
     assertClean(
         table.concat(
             {
-                "local buffer = io.Buffer.create()",
+                "local buffer = bytes.Buffer.create()",
                 "local reader = io.Reader.of('abc')",
                 "local moved: integer? = reader:readinto(buffer)",
                 "local kind, size = os.stat('x')",
@@ -2761,7 +2764,8 @@ function M.bufferAppendsInAmortizedConstantTime()
         loadstring(
             [[
       local io = require("io")
-      local buffer = io.Buffer.create()
+      local bytes = require("bytes")
+      local buffer = bytes.Buffer.create()
       local writer = buffer:writer()
       local piece = string.rep("x", 64)
       for _ = 1, 100000 do assert(writer:write(piece)) end
@@ -2824,7 +2828,7 @@ function M.theJsonModuleLoadsItsNuppProviderOnRequire()
         assert(json.encodevalue(json.asarray({})) == "[]")
         assert(json.decodevalue("[1,null,2]")[2] == 2)
         assert(json.decodevalue("null", json.NULL) == json.NULL)
-        local buffer = require("io").Buffer.create()
+        local buffer = require("bytes").Buffer.create()
         local name = json.encodedstring('quoted"key')
         assert(name == json.encodedstring('quoted"key'), "encoded keys are interned")
         local writer = json.Writer.of(buffer)
@@ -2832,7 +2836,7 @@ function M.theJsonModuleLoadsItsNuppProviderOnRequire()
         writer:close()
         assert(buffer:tostring() == [[{"quoted\"key":4.20e1}]])
 
-        local partial = require("io").Buffer.create()
+        local partial = require("bytes").Buffer.create()
         local streaming = json.Writer.of(partial)
         streaming:startarray():write(1)
         streaming:flush()
@@ -2842,12 +2846,12 @@ function M.theJsonModuleLoadsItsNuppProviderOnRequire()
         assert(partial:tostring() == "[1,2]", "close publishes the completed root")
         assert(not pcall(streaming.write, streaming, 3), "a closed writer stays stale")
 
-        local incomplete = json.Writer.of(require("io").Buffer.create())
+        local incomplete = json.Writer.of(require("bytes").Buffer.create())
         incomplete:startobject()
         assert(not pcall(incomplete.close, incomplete), "close rejects an incomplete root")
         assert(not pcall(incomplete.endobject, incomplete), "a failed consuming close still leaves a terminal writer")
 
-        local replacement = json.Writer.of(require("io").Buffer.create())
+        local replacement = json.Writer.of(require("bytes").Buffer.create())
         replacement:write(true)
         replacement:close()
         assert(not pcall(streaming.write, streaming, false), "a stale identity cannot reach pooled backing state")
@@ -2957,7 +2961,7 @@ end
 
 function M.utf8ByteSpansAndBudgetsMatchStrings()
     local utf8 = require("utf8")
-    local buffer = require("io").Buffer.create("A\xe2\x82\xacZ")
+    local buffer = require("bytes").Buffer.create("A\xe2\x82\xacZ")
     local view = buffer:span()
     testAssert.eq(utf8.len(view), 3, "byte-view length")
     testAssert.eq(utf8.isvalid(view), true, "byte-view validation")
@@ -3477,10 +3481,10 @@ function M.ioFacadeKeepsRichContractsAndPrivateState()
     assertClean(
         [[
 const io = require("io")
-local function copy(borrows source: io.Reader, exclusive target: io.Buffer): nil
+local function copy(borrows source: io.Reader, exclusive target: bytes.Buffer): nil
     source:readinto(target, 0, 16)
 end
-local function write(exclusive target: io.Writer, borrows source: binary.span.Span<uint8>): nil
+local function write(exclusive target: io.Writer, borrows source: bytes.span.Span<uint8>): nil
     target:writespan(source)
 end
 ]]
@@ -3517,7 +3521,7 @@ function M.filesystemTypesArePublicOnlyThroughOs()
 end
 
 function M.ioCanonicalStorageMembersHaveNoPrecedingRuntimeAliases()
-    local storage = io.Buffer.create("abcd")
+    local storage = byteapi.Buffer.create("abcd")
     for _, names in ipairs({
         {"getString", "tostring"},
         {"setString", "writestring"},

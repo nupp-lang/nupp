@@ -112,7 +112,7 @@ Credentials { user = "ada", password = <redacted> }
 
 Debug owns its selection policy. Skipped and redacted fields are never read,
 and a field that Debug can render need not have a JSON representation. A caller
-can also render an explicit binding or append to an existing [](io.Buffer):
+can also render an explicit binding or append to an existing [](bytes.Buffer):
 
 ```nupp
 local debug = serde.debug
@@ -121,7 +121,7 @@ local struct Vec2
     y: float
 end
 local binding = serde.binding(Vec2)
-local output = io.Buffer.create()
+local output = bytes.Buffer.create()
 debug.write(binding, Vec2(1.25, 2.5), output)
 assert(output:tostring() == "Vec2 { x = 1.25, y = 2.5 }")
 ```

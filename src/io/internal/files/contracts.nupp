@@ -1,6 +1,8 @@
 @!internal
 module io.internal.files.contracts
 
+const {type Span} = require("bytes.span")
+
 local scalarAdapters = require("nupp.io.internal.scalars")
 
 local io = require("nupp.io")
@@ -70,9 +72,9 @@ export interface Provider
     @readonly list: function(path: any): (Entries?, string?)
     @readonly glob: function(pattern: string): ({paths.Path}?, string?)
     @readonly read: function(path: any): (string?, string?)
-    @readonly write: function(path: any, borrows bytes: string | binary.span.Span<uint8>): (boolean, string?)
-    @readonly append: function(path: any, borrows bytes: string | binary.span.Span<uint8>): (boolean, string?)
-    @readonly writeAtomic: function(path: any, borrows bytes: string | binary.span.Span<uint8>): (boolean, string?)
+    @readonly write: function(path: any, borrows bytes: string | Span<uint8>): (boolean, string?)
+    @readonly append: function(path: any, borrows bytes: string | Span<uint8>): (boolean, string?)
+    @readonly writeAtomic: function(path: any, borrows bytes: string | Span<uint8>): (boolean, string?)
     @readonly copy: function(from: any, to: any): (boolean, string?)
     @readonly pendingTransfers: function(): integer
     @readonly open: function(path: any, mode: messages.Mode?): (affine(File?), string?)

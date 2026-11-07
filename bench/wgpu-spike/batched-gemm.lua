@@ -2,7 +2,7 @@
 -- across every batch. The generated kernel receives the views' explicit
 -- strides, so no transpose or broadcast materialization is needed.
 local ffi = require("ffi")
-local span = require("binary.span")
+local span = require("bytes.span")
 local generated = require("gemm")
 local gpu = require("io.gpu")
 ffi.cdef("float fmaf(float, float, float);")

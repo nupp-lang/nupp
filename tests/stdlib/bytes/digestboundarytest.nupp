@@ -1,4 +1,4 @@
-local digest = require("binary").digest
+local digest = require("bytes").digest
 local M = {}
 
 -- Expected bytes independently generated with Node's OpenSSL-backed crypto.

@@ -7,7 +7,7 @@ local OUT = here .. "build/mix/"
 package.path = OUT .. "fallback/?.lua;" .. OUT .. "fallback/?/init.lua;" .. package.path
 
 local ordinary = require("mix")
-local spans = require("binary.span")
+local spans = require("bytes.span")
 
 ffi.cdef[[
 void ks_mix(double *output, const double *input,

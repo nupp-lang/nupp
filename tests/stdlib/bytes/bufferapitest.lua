@@ -1,18 +1,23 @@
+local byteapi = require("bytes")
+
 local M = {}
 
 function M.luaConsumersSeeUnreadLengthAndText()
-    local buffer = require("io").Buffer.create()
+    local buffer = require("bytes").Buffer.create()
     buffer:put("abc", 12)
     assert(#buffer == 5 and tostring(buffer) == "abc12")
     assert(buffer:get(2) == "ab")
     assert(#buffer == 3 and tostring(buffer) == "c12")
     buffer:reset()
     assert(#buffer == 0)
+    buffer:put("xyz")
+    byteapi.Buffer.writeu8(buffer, 1, 90)
+    assert(byteapi.Buffer.readu8(buffer, 1) == 90)
     buffer:close()
 end
 
 function M.bufferReadersConsumeWithoutTakingTheBuffer()
-    local buffer = require("io").Buffer.create("abcdef")
+    local buffer = require("bytes").Buffer.create("abcdef")
     local reader = buffer:reader()
     assert(reader:read(2) == "ab")
     reader:close()
@@ -27,7 +32,7 @@ function M.nativeAndFallbackBuffersKeepTheSameStorageSemantics()
     local fallback = isolated({["nupp.io.internal.bytes"] = true}, {
         ["nupp.io.internal.nativebuffer"] = {},
     })("nupp.io.internal.bytes").Buffer
-    for _, Buffer in ipairs({require("io").Buffer, fallback}) do
+    for _, Buffer in ipairs({require("bytes").Buffer, fallback}) do
         local b = Buffer.create("head")
         b:put("tail", 42)
         assert(b:get(4) == "head")
@@ -54,7 +59,7 @@ function M.borrowedSpansRetainNativeStorageAcrossCollection()
     local weak = setmetatable({}, {__mode = "v"})
 
     local function lend()
-        local buffer = require("io").Buffer.create("rooted bytes")
+        local buffer = require("bytes").Buffer.create("rooted bytes")
         weak[1] = buffer
         return buffer:span()
     end
@@ -97,7 +102,7 @@ function M.nativeAndFallbackAgreeOnRandomFifoSequences()
 
     local values = {"", "a", "hello", "\0\255", 0, -1, 1.5, 1e100, 2 ^ 53}
     for _ = 1, 500 do
-        local left, right = require("io").Buffer.create(), fallback.create()
+        local left, right = require("bytes").Buffer.create(), fallback.create()
         for _ = 1, 24 do
             local op = draw(6)
             if op < 2 then
@@ -130,7 +135,7 @@ function M.spanReadersKeepTheirSourceRootedUntilClosed()
     local weak = setmetatable({}, {__mode = "v"})
 
     local function lend()
-        local buffer = require("io").Buffer.create("rooted reader")
+        local buffer = require("bytes").Buffer.create("rooted reader")
         weak[1] = buffer
         return require("io").Reader.of(buffer:span())
     end
@@ -144,12 +149,12 @@ function M.spanReadersKeepTheirSourceRootedUntilClosed()
 end
 
 function M.bufferReadersFillSpansWithoutCallingGet()
-    local source = require("io").Buffer.create("abcdef")
+    local source = require("bytes").Buffer.create("abcdef")
     source.get = function()
         error("unexpected string bridge")
     end
     local reader = source:reader()
-    local destination = require("io").Buffer.create()
+    local destination = require("bytes").Buffer.create()
     local lease = destination:reserve(3)
     local output = lease:span()
     assert(reader:readspan(output) == 3)
@@ -163,12 +168,12 @@ end
 
 function M.luaReadersAcceptBothBuffersAndLeases()
     local io = require("io")
-    local source = io.Buffer.create("abcdef")
+    local source = byteapi.Buffer.create("abcdef")
     source.get = function()
         error("unexpected string bridge")
     end
     local reader = source:reader()
-    local destination = io.Buffer.create("head")
+    local destination = byteapi.Buffer.create("head")
     assert(reader:readinto(destination:reserve(2)) == 2)
     assert(destination:tostring() == "headab")
     assert(reader:readinto(destination, 0, 2) == 2)
@@ -182,7 +187,7 @@ function M.leaseReadsCommitOrDropExactlyOnce()
     local io = require("io")
     for _, outcome in ipairs({"success", "eof", "failure", "throw", "negative", "overflow", "fraction"}) do
         local reader = io.Reader.of("abc")
-        local destination = io.Buffer.create("head")
+        local destination = byteapi.Buffer.create("head")
         local lease = destination:reserve(10)
         local drops, commits = 0, 0
         local drop, commit = lease.drop, lease.commit

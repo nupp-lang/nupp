@@ -1,6 +1,8 @@
 @!internal
 module nupp.compression
 
+local byteapi = require("nupp.io.internal.bytes")
+
 const assert2 = require("assert")
 
 local target = require("nupp.runtime.target")
@@ -8,7 +10,7 @@ local target = require("nupp.runtime.target")
 const _PROVIDER_REQUIRES = "@requires-dynamically nupp.runtime.provider.nativecompression"
 
 const io = require("nupp.io")
-const span = require("binary.span")
+const span = require("bytes.span")
 const storage = require("nupp.runtime.storage")
 const provider = require("nupp.compression.contracts")
 
@@ -515,7 +517,7 @@ local record Reader is io.Reader
 
     function readinto(
         exclusive self,
-        exclusive destination: io.Buffer,
+        exclusive destination: byteapi.Buffer,
         offset: integer?,
         count: integer?
     ): (integer?, string?)
@@ -656,7 +658,7 @@ export record CompressionFormat
     function compress(
         self,
         borrows bytes: span.Span<uint8>,
-        exclusive destination: io.Buffer,
+        exclusive destination: byteapi.Buffer,
         options: CompressionWriterOptions?
     ): nil
         local sink = destination:writer()
@@ -675,7 +677,12 @@ export record CompressionFormat
 
     --- Compresses a string into a destination buffer.
     --- @raises string when options are invalid or compression fails
-    function compress(self, bytes: string, exclusive destination: io.Buffer, options: CompressionWriterOptions?): nil
+    function compress(
+        self,
+        bytes: string,
+        exclusive destination: byteapi.Buffer,
+        options: CompressionWriterOptions?
+    ): nil
         local input = span.fromstring(bytes)
         self:compress(input, destination, options)
     end
@@ -683,7 +690,7 @@ export record CompressionFormat
     --- Compresses a borrowed span into a new string.
     --- @raises string when options are invalid or compression fails
     function compress(self, borrows bytes: span.Span<uint8>, options: CompressionWriterOptions?): string
-        local destination = io.Buffer.create()
+        local destination = byteapi.Buffer.create()
         self:compress(bytes, destination, options)
         local answer = destination:tostring()
         destination:close()
@@ -704,7 +711,7 @@ export record CompressionFormat
     function decompress(
         self,
         borrows bytes: span.Span<uint8>,
-        exclusive destination: io.Buffer,
+        exclusive destination: byteapi.Buffer,
         options: CompressionReaderOptions?
     ): nil
         local source = io.Reader.of(storage.string(bytes:ref(), #bytes))
@@ -721,7 +728,12 @@ export record CompressionFormat
     --- Decompresses a string into a destination buffer.
     --- @raises string when options are invalid, the stream is invalid or a limit is
     ---     exceeded
-    function decompress(self, bytes: string, exclusive destination: io.Buffer, options: CompressionReaderOptions?): nil
+    function decompress(
+        self,
+        bytes: string,
+        exclusive destination: byteapi.Buffer,
+        options: CompressionReaderOptions?
+    ): nil
         local input = span.fromstring(bytes)
         self:decompress(input, destination, options)
     end
@@ -730,7 +742,7 @@ export record CompressionFormat
     --- @raises string when options are invalid, the stream is invalid or a limit is
     ---     exceeded
     function decompress(self, borrows bytes: span.Span<uint8>, options: CompressionReaderOptions?): string
-        local destination = io.Buffer.create()
+        local destination = byteapi.Buffer.create()
         self:decompress(bytes, destination, options)
         local answer = destination:tostring()
         destination:close()
@@ -770,7 +782,7 @@ local function initialize(providerName: string): nil
     if initialized then
         return
     end
-    assert2(target.host == "native", "binary.compress: no implementation is available")
+    assert2(target.host == "native", "bytes.compress: no implementation is available")
     local selected = _G.require(providerName) as provider.Provider
     validate(selected)
     for name, implementation in pairs(selected.formats) do

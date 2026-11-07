@@ -78,7 +78,7 @@ add('fmaMethod64', 'a:fma(b, c)', 'a, b, c', 'fmaReference64(left, right, third)
 
 local common = [[
 local array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 local u32 = math.u32
 local negativeZero = -1 / math.huge

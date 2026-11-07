@@ -49,13 +49,13 @@ most 64 KiB; anything else is bytes. Tables and functions are refused, naming
 the argument's position. Structured data is encoded into bytes by the library
 that owns it, for example with [](serde).
 
-Bytes are a [](binary.span) of bytes. A span is a borrow, so it crosses through
+Bytes are a [](bytes.span) of bytes. A span is a borrow, so it crosses through
 a bound kind whose signature says so; `call` and `post` take `any`, which a
 borrow cannot cross:
 
 ```nupp:fragment
 local host = os.host
-local span = binary.span
+local span = bytes.span
 
 local type Digest = function(borrows bytes: span.Span<uint8>): (integer, span.Span<uint8>)
 local digest = host.bind<Digest>("app.digest")
@@ -101,7 +101,7 @@ order:
 
 ```nupp:fragment
 local host = os.host
-local span = binary.span
+local span = bytes.span
 
 @derive(events.event)
 local struct PointerMove

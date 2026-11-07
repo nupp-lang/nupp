@@ -1,6 +1,6 @@
 @!internal
 
---[[Implementation interfaces for `binary.Checksum` algorithm catalogs.
+--[[Implementation interfaces for `bytes.Checksum` algorithm catalogs.
 
 The facade uses its builtin algorithm catalog. Importing this declaration does
 not load storage or algorithms. The catalog supplies an algorithms map keyed by
@@ -19,7 +19,7 @@ CRC parameters. Checksums detect corruption and provide no authentication.
 ]]
 module nupp.digest.internal.checksumprovider
 
-local {type Span} = require("binary.span")
+local {type Span} = require("bytes.span")
 
 --- Independent incremental state; close consumes its ownership without suspension.
 export interface State is own.Closeable

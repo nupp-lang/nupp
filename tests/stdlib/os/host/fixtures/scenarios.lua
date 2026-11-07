@@ -6,7 +6,7 @@
 
 require("nupp.runtime.standardcoroutine")
 local host = require("os.host")
-local span = require("binary.span")
+local span = require("bytes.span")
 local tasks = require("coroutine")
 local time = require("coroutine")
 local ffi = require("ffi")

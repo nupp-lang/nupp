@@ -2,7 +2,7 @@ module tier2eval
 
 const assert2 = require("assert")
 
-const digest2 = require("binary").digest
+const digest2 = require("bytes").digest
 
 -- Tier 2: export a commit's parent without Git history, carry its tests forward,
 -- and grade whether an agent can rediscover the implementation without editing

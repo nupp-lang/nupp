@@ -1288,7 +1288,7 @@ function M.explicitTypeArgumentsErase()
     )
     testAssert.eq(
         printed(
-            "local ffi = require('ffi')\nlocal span = binary.span\nlocal s = ffi.new('uint8_t[?]', 4) as any\n"
+            "local ffi = require('ffi')\nlocal span = bytes.span\nlocal s = ffi.new('uint8_t[?]', 4) as any\n"
             .. "local v = span.fromcarray<uint8>(s, 4)\nprint(#v)"
         ),
         "4"

@@ -1,5 +1,7 @@
 module contract.breadth
 
+local byteapi = require("bytes")
+
 const assert2 = require("assert")
 
 local __serdeJson = require("serde.json")
@@ -30,7 +32,7 @@ local function bindingCases(name, binding, input, policy)
     local canonical = codec:encode(binding, value)
     assert2(codec:encode(binding, codec:decode(binding, canonical)) == canonical)
     -- One buffer reused across iterations; a managed alias lets each task borrow it.
-    local buffer = own.manage(io.Buffer.create()):alias()
+    local buffer = own.manage(byteapi.Buffer.create()):alias()
     task(name .. "/encode", function()
         return codec:encode(binding, value)
     end)
@@ -38,14 +40,14 @@ local function bindingCases(name, binding, input, policy)
         return codec:decode(binding, input)
     end)
     task(name .. "/buffer", function()
-        return buffer:withexclusive(function(exclusive target: io.Buffer): integer
+        return buffer:withexclusive(function(exclusive target: byteapi.Buffer): integer
             target:reset()
             codec:encodeinto(binding, value, target)
             return target:len()
         end)
     end)
     task(name .. "/fresh-buffer", function()
-        local fresh = io.Buffer.create()
+        local fresh = byteapi.Buffer.create()
         codec:encodeinto(binding, value, fresh)
         local size = fresh:len()
         fresh:close()
@@ -53,7 +55,7 @@ local function bindingCases(name, binding, input, policy)
         return size
     end)
     task(name .. "/embedded", function()
-        return buffer:withexclusive(function(exclusive target: io.Buffer): integer
+        return buffer:withexclusive(function(exclusive target: byteapi.Buffer): integer
             target:reset()
             local sink = syntax.Writer.of(target)
             sink:startarray()
@@ -239,22 +241,22 @@ bindingCases(
 )
 local richContents = documentAdapter:contents()
 local richCanonical = richCodec:encode(richContents, rich)
-local richBuffer = own.manage(io.Buffer.create()):alias()
+local richBuffer = own.manage(byteapi.Buffer.create()):alias()
 assert2(
-    richBuffer:withexclusive(function(exclusive target: io.Buffer): boolean
+    richBuffer:withexclusive(function(exclusive target: byteapi.Buffer): boolean
         richCodec:encodeinto(richContents, rich, target)
         return target:tostring() == richCanonical
     end)
 )
 task("rich/blob-buffer", function()
-    return richBuffer:withexclusive(function(exclusive target: io.Buffer): integer
+    return richBuffer:withexclusive(function(exclusive target: byteapi.Buffer): integer
         target:reset()
         richCodec:encodeinto(richContents, rich, target)
         return target:len()
     end)
 end)
 task("rich/blob-fresh-buffer", function()
-    local fresh = io.Buffer.create()
+    local fresh = byteapi.Buffer.create()
     richCodec:encodeinto(richContents, rich, fresh)
     local size = fresh:len()
     fresh:close()
@@ -262,7 +264,7 @@ task("rich/blob-fresh-buffer", function()
     return size
 end)
 task("rich/blob-embedded", function()
-    return richBuffer:withexclusive(function(exclusive target: io.Buffer): integer
+    return richBuffer:withexclusive(function(exclusive target: byteapi.Buffer): integer
         target:reset()
         local sink = syntax.Writer.of(target)
         sink:startarray()

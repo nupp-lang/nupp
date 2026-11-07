@@ -35,7 +35,7 @@ end
 local NUPP = HERE .. "/../bin/nupp"
 
 local KERNEL = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local struct Sample
     value: float
@@ -101,7 +101,7 @@ return {
 ]]
 
 local CORRECTED_KERNEL = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local struct Sample
     a: float
@@ -143,7 +143,7 @@ return {corrected = corrected, Sample = Sample, Result = Result}
 ]]
 
 local SIMD_KERNEL = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 local array = table.Array
 
@@ -465,7 +465,7 @@ return {
 ]]
 
 local ALIASED_KERNEL = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local struct Sample
     value: uint32
@@ -653,7 +653,7 @@ return {
         [[
 module gpucheck
 
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function copy(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
@@ -724,7 +724,7 @@ end
 local HALF_KERNEL = [[
 module halfkernel
 
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function roundTrip(
@@ -803,7 +803,7 @@ end
 local LENGTH_ONLY = [[
 module lengthonly
 
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function lengthOnly(borrows values: span.Span<number>): number
@@ -1286,7 +1286,7 @@ function M.gpuCountedLoopUnsupportedBoundsAndStepsHaveJsonPositions()
             file:write(
                 [[
 module gpucheck
-local span = require("binary.span")
+local span = require("bytes.span")
 @aot(target = "gpu")
 local function kernel(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>, limit: uint32): nil
     assert(#output == #input)
@@ -1376,7 +1376,7 @@ function M.gpuDispatchesPastOneDimensionsWorkgroupLimit()
         [[
 module gpucheck
 
-local span = require("binary.span")
+local span = require("bytes.span")
 local gpu = require("io.gpu")
 
 @aot(target = "gpu")
@@ -1416,7 +1416,7 @@ io.stdout:setvbuf("no")
 require("nupp.runtime.standardcoroutine")
 local ffi = require("ffi")
 local gpu = require("io.gpu")
-local span = require("binary.span")
+local span = require("bytes.span")
 local gpucheck = require("gpucheck")
 local opened, context = pcall(gpu.open)
 if not opened then
@@ -1518,7 +1518,7 @@ function M.gpuWorkgroupsRunTheGroupsTheirCpuDefinitionRuns()
         [[
 module gpucheck
 
-local span = require("binary.span")
+local span = require("bytes.span")
 local gpu = require("io.gpu")
 
 @aot(target = "gpu")
@@ -1545,7 +1545,7 @@ export const tiledCpu = tiledCpu
         .. [[
 local ffi = require("ffi")
 local gpu = require("io.gpu")
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local gpucheck = require("gpucheck")
 local opened, context = pcall(gpu.open)
@@ -1600,7 +1600,7 @@ function M.gpuOverlayIsCheckedFromTheSameTypedShaderSchema()
     local source = [[
 module gpuoverlay
 
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local struct Input value: float end
 local struct Output value: float end
@@ -2350,7 +2350,7 @@ end
 -- every element width, indexed memory, and a rearrangement. Each is a shape a
 -- Windows worker has died on.
 local WIDE_SIMD = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -2529,7 +2529,7 @@ function M.aStatementfulLoopConditionBuildsAsScalarControlFlow()
     local source = assert(io.open(dir .. "/src/conditional.nupp", "wb"))
     source:write(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function run(exclusive out: span.WriteSpan<number>): nil
@@ -2926,7 +2926,7 @@ function M.wasmConstFamiliesBindEveryKernelSpecializationAndRefuseBuilders()
         [=[
 module wasmconst
 local valueBuilder = require("serde.valuebuilder")
-local {type Buffer} = require("io")
+local {type Buffer} = require("bytes")
 @aot
 local function measured<const Bump: integer>(borrows source: string | Buffer, bump: Bump): uint32
     return math.u32.add(valueBuilder.len(source), math.u32.wrap(bump as integer))
@@ -3351,7 +3351,7 @@ function M.aKernelThatOnlyReadsALengthStillBuilds()
 
     local script = [[
       local ffi = require("ffi")
-      local spans = require("binary.span")
+      local spans = require("bytes.span")
       local mod = require("lengthonly")
       local answers = {}
       for _, count in ipairs({0, 1, 7, 64}) do
@@ -3389,7 +3389,7 @@ function M.scalarLogicalOperatorsReturnValuesAndPreserveEffects()
         source:write(
             [[
 module logical
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 @aot
@@ -3480,7 +3480,7 @@ export = {logical = logical, guarded = guarded, stringValue = stringValue, rever
         local script = [[
             local m = require("logical")
             local ffi = require("ffi")
-            local span = require("binary.span")
+            local span = require("bytes.span")
             local values = ffi.new("uint32_t[2]", 2147483649, 42)
             local input = span.fromcarray(values, 2)
             print(m.logical(true, 7, 9))
@@ -3517,7 +3517,7 @@ function M.provenSimdCursorsKeepWrappedIndicesOnLargeSpans()
     local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
     handle:write(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 local array = table.Array
 local struct Pair
@@ -3636,7 +3636,7 @@ function M.displacedCursorAccessesRunCheckFreeAndAgreeWithTheOracle()
     local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
     handle:write(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 @aot
 local function triples(exclusive output: span.WriteSpan<uint8>, borrows source: span.Span<uint8>): uint32
     local at: uint32 = 0
@@ -3727,7 +3727,7 @@ function M.aFactorGuardCarriesCursorRoomInCompiledCode()
     local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
     handle:write(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 @aot
 local function box3(exclusive grey: span.WriteSpan<uint8>, borrows rgb: span.Span<uint8>): nil
     assert(#rgb == 3 * #grey)
@@ -3805,7 +3805,7 @@ return {
         source:write(
             [[
 module carry
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function signed(borrows input: span.Span<uint8>, factor: int32, seed: int32): int32
@@ -3825,7 +3825,7 @@ export const signed = signed
         test.eq(code, 0, ("the aot=%s carry fixture at %s builds: %s"):format(policy, dir, out))
         local script = [[
             local carry = require("carry")
-            local span = require("binary.span")
+            local span = require("bytes.span")
             local out = {}
             for _, case in ipairs({{16777216, 0}, {1, 2147483600}, {-3, -2147483640}}) do
                 out[#out + 1] = tostring(carry.signed(span.fromstring("\200\100\050\255"), case[1], case[2]))
@@ -4024,7 +4024,7 @@ function M.binary16StorageConversionsAgreeInCompiledCode()
     test.eq(code, 0, out)
     local script = [[
       local ffi = require("ffi")
-      local spans = require("binary.span")
+      local spans = require("bytes.span")
       local half = require("halfkernel")
       local values = {0x0000, 0x8000, 0x0001, 0x03ff, 0x0400, 0x3c00, 0xc000, 0x7c00, 0xfc00, 0x7e01}
       local input = ffi.new("uint16_t[?]", #values)
@@ -4647,21 +4647,21 @@ function M.aBorrowedStringOrBufferEntryCompilesAndRuns()
 return {
    include = {"src"},
    build = {targets = {native = {
-      kind = "modules", entries = {"bytes"}, outDir = "build/native",
+      kind = "modules", entries = {"measurebytes"}, outDir = "build/native",
       aot = "require",
    }}},
 }
 ]]
     )
     manifest:close()
-    local source = assert(io.open(dir .. "/src/bytes.nupp", "wb"))
+    local source = assert(io.open(dir .. "/src/measurebytes.nupp", "wb"))
     source:write(
         [[
-module bytes
+module measurebytes
 
-local text = require("io")
+local text = require("bytes")
 local valueBuilder = require("serde.valuebuilder")
-local {type Buffer} = require("io")
+local {type Buffer} = require("bytes")
 
 --- Counts the bytes of a string or a buffer, plus a const bump.
 @aot
@@ -4688,7 +4688,7 @@ export = {measureString = measureString, measureBuffer = measureBuffer}
 
     local out, code = build(dir)
     test.eq(code, 0, out)
-    local generated = assert(read(dir .. "/build/native/bytes.lua"))
+    local generated = assert(read(dir .. "/build/native/measurebytes.lua"))
     assert(
         generated:find("local function __nuppConst_measure_", 1, true),
         "the dispatcher forwards to private native wrappers"
@@ -4696,7 +4696,7 @@ export = {measureString = measureString, measureBuffer = measureBuffer}
 
     local script = searchPathPrelude()
         .. [[
-      local mod = require("bytes")
+      local mod = require("measurebytes")
       assert(mod.measureString("hello") == 5, "string side")
       assert(mod.measureBuffer("hello") == 6, "buffer side")
       local compiled = 0
@@ -4984,7 +4984,7 @@ end
 function M.exactLoopReducersAgreeAcrossLuaScalarAndVectorExecution()
     local ffi = require("ffi")
     local cases, exports = {}, {}
-    local source = {'local span = require("binary.span")', 'local simd = require("simd")'}
+    local source = {'local span = require("bytes.span")', 'local simd = require("simd")'}
 
     local function add(name, element, ctype, construction, method, result, resultC, predicate, first, corpora)
         local constructor = construction:gsub("TYPE", element)
@@ -5150,7 +5150,7 @@ end
     -- The AOT-off body executes the Lua reducers over the same physical inputs;
     -- neither scalar-source nor lane native code participates in its arithmetic.
     local reference = assert(loadfile(ordinary .. "/build/native/kernel.lua"))()
-    local spans = require("binary.span")
+    local spans = require("bytes.span")
 
     local function expectedPosition(name, ctype, values, seed, expected)
         local input = ffi.new(ctype .. "[?]", #values, values)
@@ -5296,7 +5296,7 @@ function M.numericSimdConversionsMatchLuaJitAndIndependentScalarResults()
     local cases, modules = {}, {}
     for _, from in ipairs(types) do
         local source = {
-            'local span = require("binary.span")',
+            'local span = require("bytes.span")',
             'local array = table.Array',
             'local simd = require("simd")',
         }
@@ -5433,7 +5433,7 @@ function M.indexedSimdMemoryMatchesAnIndependentScalarReference()
     local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
     handle:write(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 @aot
@@ -5514,7 +5514,7 @@ function M.speciesIsOneLaneUnderAotOffAndVectorsIsNil()
     -- tests it takes the scalar continuation it wrote for that answer, and
     -- one that asserts it raises, with the message it gave.
     local body = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -5593,7 +5593,7 @@ end
 --- Two `@aot` functions over one struct, which is what used to produce a
 --- binding that declared its layout constant twice and did not compile.
 local TWO = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local struct Point
     x: float
@@ -5689,7 +5689,7 @@ function M.countedLoopsPreserveBoundAndInductionSemantics()
 -- a different integer/float mode for negative zero after warmup.
 jit.off()
 local ffi = require("ffi")
-local spans = require("binary.span")
+local spans = require("bytes.span")
 local m = require("kernel")
 local compiled = rawget(_G, "__nuppAotCompiled") or {}
 for _, name in ipairs({"signed", "general", "unsigned", "indexed", "vector", "scalarVector", "vectorWide", "literal", "negativeZero", "uniformAssigned", "unsignedVector", "signedVector", "signedReadonly", "regions", "liveness"}) do
@@ -5887,7 +5887,7 @@ function M.theDispatchedModuleAnswersWhatTheInterpretedOneDoes()
       local NUPP = %q
       local spans = (function()
          package.path = NUPP .. ";" .. package.path
-         return require("binary.span")
+         return require("bytes.span")
       end)()
       local count = 4096
       local function run(which)
@@ -5957,7 +5957,7 @@ function M.theLibraryTravelsWithWhatWasBuilt()
             [[
       local ffi = require("ffi")
       package.path = %q .. "/?.lua;" .. %q .. ";" .. package.path
-      local spans = require("binary.span")
+      local spans = require("bytes.span")
       local mod = require("kernel")
       local count = 64
       local src = ffi.new("struct { float value; float weight; }[?]", count)
@@ -6123,7 +6123,7 @@ return {
     local main = assert(io.open(dir .. "/src/main.nupp", "wb"))
     main:write(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local kernel = require("kernel")
 
 const count: integer = 8
@@ -6289,7 +6289,7 @@ function M.rearrangementsPreserveEveryLaneBitInNativeAndScalarCode()
         {"uint64", "uint64_t"},
     }) do
         local source = {
-            'local span = require("binary.span")',
+            'local span = require("bytes.span")',
             'local array = table.Array',
             'local simd = require("simd")',
         }
@@ -6408,7 +6408,7 @@ return {total = reached.total}
 ]]
 
 local SCOPED_REACHED = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function total(borrows values: span.Span<uint8>): number
@@ -6424,7 +6424,7 @@ return {total = total}
 ]]
 
 local SCOPED_UNREACHED = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local struct Sample
     value: float
@@ -6508,7 +6508,7 @@ function M.aTargetLowersWhatItBundlesAndNothingElse()
 end
 
 local GENERIC_VOCABULARY_KERNEL = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -6754,7 +6754,7 @@ return {
 ]]
 
 local STRIP_MINED_KERNEL = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 local array = table.Array
 
@@ -6863,7 +6863,7 @@ end
 --- register held in sixteen bits, and a prefix sum carrying its last lane
 --- without naming how many lanes the species has.
 local WIDTH_COUPLED_KERNEL = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -7329,7 +7329,7 @@ require("jit").off(M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecu
 -- half of a product. Each kernel is called through its lane symbol and its
 -- forced-scalar twin over one corpus, and both are held to Lua's answer.
 local LANE_VOCABULARY_KERNEL = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -7617,7 +7617,7 @@ require("jit").off(M.laneArithmeticAgreesAcrossLuaScalarAndLaneExecution, true)
 -- calling both symbols over one corpus is what holds the vector forms to their
 -- references and both to Lua.
 local CROSS_LANE_KERNEL = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 
@@ -7870,7 +7870,7 @@ return {include={"src"},build={targets={native={kind="bundle",entries={"main"},
         "src/main.nupp",
         [[
 local soa = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local struct Particle
     x: float
 end
@@ -7894,7 +7894,7 @@ end
 
 function M.homogeneousFieldPairsPreserveNativeValuesAndTails()
     local dir = project("require")
-    local source = {'local span = require("binary.span")'}
+    local source = {'local span = require("bytes.span")'}
     local variants = {
         {"Float", "float", "float", "vld2q_f32"},
         {"Double", "number", "double", "vld2q_f64"},
@@ -8003,7 +8003,7 @@ function M.explicitFieldLoadsReadTheirOwnElementAtEveryTail()
             extra = {"tag", "uint32", "uint32_t"},
         },
     }
-    local source = {'local span = require("binary.span")', 'local array = table.Array', 'local simd = require("simd")',}
+    local source = {'local span = require("bytes.span")', 'local array = table.Array', 'local simd = require("simd")',}
     local exports = {}
     for _, v in ipairs(variants) do
         local members = {}

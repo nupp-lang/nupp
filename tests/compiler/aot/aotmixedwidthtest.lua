@@ -22,7 +22,7 @@ function M.mapAndExplicitWidthsShareOneTranslationUnit()
     write(
         dir .. "/src/mixed.nupp",
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 local array = table.Array
 @aot
@@ -49,7 +49,7 @@ return {map = map, fixed = fixed}
     assert(status == 0, dir .. ": " .. read(dir .. "/build.log"))
     local runSource = [[
 package.path="build/native/?.lua;" .. package.path
-local m, ffi, span = require("mixed"), require("ffi"), require("binary.span")
+local m, ffi, span = require("mixed"), require("ffi"), require("bytes.span")
 assert(__nuppAotCompiled[m.map] and __nuppAotCompiled[m.fixed])
 for count = 0, 35 do
     local input, output = ffi.new("double[36]"), ffi.new("double[36]")

@@ -1,7 +1,7 @@
 # Byte buffer migration measurements
 
 These runs compare compiler self-builds and AOT text emission while replacing
-public LuaJIT buffers with `io.Buffer`. The baseline is `6d245946f`.
+public LuaJIT buffers with `bytes.Buffer`. The baseline is `6d245946f`.
 
 ```sh
 ./bin/nupp build --target compiler --output build/byte-measure/compiler --json
@@ -55,7 +55,7 @@ loop took roughly 18 ms through the private factory against 21–22 ms through
 the original factory for 100,000 results.
 
 The compiler therefore keeps a private native storage implementation behind
-`io.Buffer`, with a cached lazy binding for generated text builders. The lazy
+`bytes.Buffer`, with a cached lazy binding for generated text builders. The lazy
 binding avoids initialization cycles; caching keeps repeated `require` calls
 out of hot loops. Fixed argument reads avoid LuaJIT's unrecordable vararg loop.
 Other hosts use the checked buffer implementation. Public buffers retain the

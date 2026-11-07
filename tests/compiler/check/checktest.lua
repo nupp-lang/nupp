@@ -2244,7 +2244,7 @@ function M.aNamespaceAliasKeepsTypesAndIntrinsics()
     local env = require("nupp.compiler.project.env").new(here .. "/..")
     local spanSource = table.concat(
         {
-            "local span = binary.span",
+            "local span = bytes.span",
             "local function copy(output: span.WriteSpan<number>, input: span.Span<number>): nil",
             "    for index = 1, #output do output[index] = input[index] end",
             "end",

@@ -387,7 +387,7 @@ function M.unsupportedPrimitiveDomainsHavePositionedRefusals()
         local source = [[
 local simd = require("simd")
 local array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 @aot
 local function refused(borrows input: span.Span<float>): number
     ]]

@@ -75,7 +75,7 @@ end
 function M.countedPointersBuildOneCheckedWrapperOverThePhysicalBinding()
     local source = table.concat(
         {
-            "local spans = require(\"binary.span\")",
+            "local spans = require(\"bytes.span\")",
             "cdef struct CountedPosition",
             "   x: float",
             "end",
@@ -126,7 +126,7 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
 
     local declaration = table.concat(
         {
-            "local spans = require(\"binary.span\")",
+            "local spans = require(\"bytes.span\")",
             "cdef function counted_pointer_reset() from\"" .. library .. "\"",
             "cdef function counted_pointer_call_count(): uint64 from\"" .. library .. "\"",
             "cdef function counted_pointer_transform(",
@@ -218,7 +218,7 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
     testAssert.eq(tonumber(sharedLast), 18, "shared downgrade preserves its full range")
 
     local transform = run(declaration .. "\nreturn counted_pointer_transform")
-    local spans = require("binary.span")
+    local spans = require("bytes.span")
     local ffi = require("ffi")
     local output = ffi.new("int32_t[1]")
     local input = ffi.new("int32_t[2]")

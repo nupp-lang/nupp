@@ -70,7 +70,7 @@ function M.beforeAll()
     _G.nupp = nil
     assert(loadstring(source))()
     provider = os
-    buffers = require("io")
+    buffers = require("bytes")
 end
 
 function M.afterAll()

@@ -1,5 +1,5 @@
 -- Holds the vector encoder to the scalar reference on one corpus, and both
--- to `binary.base64encode`, so a shared misreading of the format cannot agree
+-- to `bytes.base64encode`, so a shared misreading of the format cannot agree
 -- its way past the check.
 --
 -- The corpus is built from the cases the vector encoder branches on: every
@@ -15,7 +15,7 @@
 local math = arg[1] == "--time" and _G.math or assert(loadfile("../../tests/integration/simd/corpusmath.lua"))()
 local simd = require("base64simd")
 local reference = require("base64reference")
-local shipped = require("binary")
+local shipped = require("bytes")
 
 local proveNative = assert(loadfile("../../tests/integration/simd/nativeproof.lua"))()
 proveNative("base64simd", function()
@@ -39,7 +39,7 @@ local function agree(value, what)
         )
     end
     if shipped.base64encode(value) ~= want then
-        error(("reference disagrees with binary.base64encode on %s (%d bytes)"):format(what, #value), 0)
+        error(("reference disagrees with bytes.base64encode on %s (%d bytes)"):format(what, #value), 0)
     end
     checks = checks + 1
 end
@@ -118,7 +118,7 @@ if arg[1] == "--time" then
     end
 
     print("")
-    print(("%10s %12s %12s %12s"):format("bytes", "nupp-simd", "reference", "binary.base64encode"))
+    print(("%10s %12s %12s %12s"):format("bytes", "nupp-simd", "reference", "bytes.base64encode"))
     for _, size in ipairs({64, 1024, 65536, 1048576}) do
         local value = random(size)
         local vec = measure(simd.encode, value, 0.5) / size * 1e9

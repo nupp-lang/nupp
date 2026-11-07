@@ -1,4 +1,4 @@
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local json = require("serde.json")
 

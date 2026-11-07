@@ -8,7 +8,7 @@ local parser = require("simd_json.parser")
 local scanner = require("simd_json.scanner")
 local simdjsonBench = require("simdjson_bench")
 local nuppJson = require("serde.json")
-local span = require("binary.span")
+local span = require("bytes.span")
 
 io.stdout:setvbuf("no")
 

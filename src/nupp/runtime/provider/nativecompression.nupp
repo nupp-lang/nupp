@@ -9,7 +9,7 @@ module nupp.runtime.provider.nativecompression
 
 const contract = require("nupp.compression.contracts")
 const native = require("nupp.runtime.native")
-const span = require("binary.span")
+const span = require("bytes.span")
 
 native.ffi.cdef[[
 int32_t nuppNativeCompressionEncoderCreate(uint32_t, uint32_t, uint64_t *);

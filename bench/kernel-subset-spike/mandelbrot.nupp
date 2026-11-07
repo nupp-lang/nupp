@@ -11,7 +11,7 @@
 -- The complex plane is an input rather than something the kernel derives from a
 -- pixel index, which keeps this a map over two spans and leaves the grid the
 -- caller's business.
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local struct Point
     re: float

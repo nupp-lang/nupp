@@ -158,8 +158,8 @@ function M.algorithmFactoryReferencesCarryTheirSelectedProviders()
         [
             "src/app/main.nupp"
         ] = [[
-local {checksum, compress} = require("binary")
-local catalog = require("binary")
+local {checksum, compress} = require("bytes")
+local catalog = require("bytes")
 local {digest, mac, formats} = catalog
 assert(checksum("crc32"):compute("123456789") == 0xcbf43926ULL)
 assert(digest("sha256"):computehex("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
@@ -194,7 +194,7 @@ function M.formatListingsDoNotNeedAlgorithmFactoryReferences()
             [
                 "src/app/main.nupp"
             ] = [[
-local {formats} = require("binary")
+local {formats} = require("bytes")
 assert(table.concat(formats("digest"), ",") == "md5,sha1,sha256,sha512")
 assert(table.concat(formats("checksum"), ",") == "adler32,crc32,crc32c,crc64-ecma,crc64nvme")
 assert(table.concat(formats("mac"), ",") == "hmac-sha256")
@@ -224,7 +224,7 @@ function M.aComponentInstallsBeforeItsEntryRuns()
             "src/app/main.nupp"
         ] = [[
 local json = require("serde.json")
-local {type Checksum, type CompressionFormat, hexencode} = require("binary")
+local {type Checksum, type CompressionFormat, hexencode} = require("bytes")
 local unusedCompression: CompressionFormat? = nil
 assert(unusedCompression == nil)
 assert(hexencode("Nu") == "4e75")
@@ -724,9 +724,9 @@ export function echoSparse(value: Sparse): Sparse
     return value
 end
 
-const sharedbytes = io.SharedBytes
+const sharedbytes = bytes.SharedBytes
 
-export function firstByte(region: io.SharedBytes): integer
+export function firstByte(region: bytes.SharedBytes): integer
     return region:view(0, 1)[1]
 end
 
@@ -776,7 +776,7 @@ module nupp.internal.workerapp
 const capture = require("capture")
 const jobs = require("jobs")
 const tasks = require("coroutine")
-const sharedbytes = io.SharedBytes
+const sharedbytes = bytes.SharedBytes
 
 -- Exercise the private bootstrap and its resource counts directly.
 const provider = require("nupp.runtime.workersprovider").provider as any
@@ -960,7 +960,7 @@ assert(loaded:len() == 13 and loaded:tostring() == "engine\0bytes\255")
 local absent, missingReason = sharedbytes.readfile("missing-shared-bytes.bin")
 assert(absent == nil and type(missingReason) == "string")
 
-local builder = io.Buffer.create()
+local builder = bytes.Buffer.create()
 local lease = builder:reserve(3)
 do local writer = lease:span() ;
     writer[1] = 104
@@ -976,7 +976,7 @@ local rawShared = require("nupp.mem.sharedbytes.native") as Accounted
 collectgarbage("collect")
 collectgarbage("collect")
 local before = rawShared.accounted()
-local grown: io.SharedBytes? = sharedbytes.copy(("y"):rep(65536))
+local grown: bytes.SharedBytes? = sharedbytes.copy(("y"):rep(65536))
 print(rawShared.accounted() - before == 65536, grown ~= nil)
 grown = nil
 collectgarbage("collect")
@@ -1381,9 +1381,9 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
 module jobs
 
 const heap = table.Array
-const sharedbytes = io.SharedBytes
+const sharedbytes = bytes.SharedBytes
 
-export function inspect(takes frame: affine(table.Array<uint8>, table.Array.destroy), region: io.SharedBytes): integer
+export function inspect(takes frame: affine(table.Array<uint8>, table.Array.destroy), region: bytes.SharedBytes): integer
     local count = frame.count
     own.drop(frame)
     return count + region:len()
@@ -1394,7 +1394,7 @@ end
         ] = [[
 const jobs = require("jobs")
 const heap = table.Array
-const sharedbytes = io.SharedBytes
+const sharedbytes = bytes.SharedBytes
 const tasks = require("coroutine")
 
 local region = sharedbytes.copy("abc")
@@ -1434,16 +1434,16 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
         [
             "src/main.nupp"
         ] = [[
-local function freeze(takes buffer: io.Buffer): io.SharedBytes
+local function freeze(takes buffer: bytes.Buffer): bytes.SharedBytes
     return buffer:freeze()
 end
 local function reader(): io.Reader
-    local buffer = io.Buffer.create("skipabc\0def")
+    local buffer = bytes.Buffer.create("skipabc\0def")
     buffer:skip(4)
     return io.Reader.of(freeze(buffer))
 end
 local input = reader()
-local output = io.Buffer.create()
+local output = bytes.Buffer.create()
 assert(input:readinto(output, 0, 7) == 7)
 assert(output:tostring() == "abc\0def")
 input:close()
@@ -2028,12 +2028,12 @@ do
     local kind, arrived = receiver:receive()
     assert(kind == "value" and arrived:read():get(1) == 23)
     storage.channeldrop(arrived)
-    local published = io.SharedBytes.copy("a\0b")
+    local published = bytes.SharedBytes.copy("a\0b")
     assert(sender:trysend(published) == "sent")
     kind, arrived = receiver:receive()
     assert(kind == "value" and arrived:tostring() == "a\0b")
     assert(published:tostring() == "a\0b")
-    local large = io.SharedBytes.copy(string.rep("x", 4096))
+    local large = bytes.SharedBytes.copy(string.rep("x", 4096))
     assert(not pcall(sender.send, sender, large:slice(0, 1)))
     receiver:close()
     local refused = table.Array.alloc(ffi.typeof<uint8>(), 4)

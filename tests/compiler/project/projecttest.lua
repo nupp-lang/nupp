@@ -161,9 +161,9 @@ end
 
 local AOT_SCOPE_MODEL = [[
 module model
-local binary = require("binary")
+local bytes = require("bytes")
 export type Shape = {value: integer}
-export const encoding = binary.base64encode
+export const encoding = bytes.base64encode
 @aot
 local function twice(value: number): number
     return value * 2.0
@@ -252,7 +252,7 @@ export const value = model.doubled(2.0)
 ]]
     )
     assert(scope[fs.normalize(dir .. "/src/model.nupp")], "the value-imported AOT body is executable")
-    for _, name in ipairs({"binary", "serde.valuebuilder"}) do
+    for _, name in ipairs({"bytes", "serde.valuebuilder"}) do
         local path = session.inc.modulePath(name)
         assert(path and scope[fs.normalize(path)], name .. " remains in the actual runtime closure")
     end
@@ -3062,7 +3062,7 @@ function M.byteIoBundleOmitsUnusedProcessAndClockProviders()
         [
             "src/main.nupp"
         ] = [[
-local buffer = io.Buffer.create("portable bytes")
+local buffer = bytes.Buffer.create("portable bytes")
 assert(buffer:tostring() == "portable bytes")
 buffer:close()
 ]],
@@ -3071,7 +3071,7 @@ buffer:close()
     local payload = read(dir .. "/out/app.lua")
     for _, name in ipairs({
         "io.internal.process",
-        "io.internal.sharedbytes",
+        "bytes.internal.sharedbytes",
         "nupp.runtime.provider.nativeprocess",
         "nupp.runtime.provider.nativetime",
         "nupp.io.path.pathtext"
@@ -3588,7 +3588,7 @@ function M.anAotEntryCallsAnotherEntryOfItsFile()
             "src/main.nupp"
         ] = [[
 local array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function curve(x: number): number

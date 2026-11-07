@@ -136,7 +136,7 @@ that page:
 | Annotations | [annotations.md](../learn/language/annotations.md) | `NUPP2108`, `NUPP2112`, `NUPP2113`, `NUPP2119`, `NUPP2707`, `NUPP2901`, `NUPP2902`, `NUPP2903` |
 | Associated types | [associated-types.md](../learn/language/types/associated-types.md) | `NUPP2127`, `NUPP2128`, `NUPP2129`, `NUPP2134`, `NUPP2135`, `NUPP2511` |
 | C interop | [c-interop.md](../learn/runtime/c-interop/index.md) | `NUPP2201`, `NUPP2402`, `NUPP2403`, `NUPP2904` |
-| Checked spans | [](binary.span) | `NUPP2001`, `NUPP2004`, `NUPP2602`, `NUPP2604` |
+| Checked spans | [](bytes.span) | `NUPP2001`, `NUPP2004`, `NUPP2602`, `NUPP2604` |
 | Comptime | [comptime.md](../learn/language/comptime.md) | `NUPP2410` through `NUPP2416`, `NUPP2419`, `NUPP2420`, `NUPP2421` |
 | Comptime types | [type-level-computation.md](../learn/language/types/comptime-types.md) | `NUPP2001` |
 | Constrained types | [constrained.md](../learn/language/types/constrained.md) | `NUPP2001`, `NUPP2013`, `NUPP2422` |

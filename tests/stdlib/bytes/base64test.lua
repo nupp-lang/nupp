@@ -11,7 +11,7 @@
 -- twelve-byte block the compiled entry reads as three words.
 
 local check = require("assert")
-local binary = require("binary")
+local byteapi = require("bytes")
 
 local M = {}
 
@@ -28,8 +28,8 @@ local VECTORS = {
 
 function M.publishedVectorsEncodeAndDecode()
     for _, vector in ipairs(VECTORS) do
-        check.eq(binary.base64encode(vector[1]), vector[2])
-        check.eq(binary.base64decode(vector[2]), vector[1])
+        check.eq(byteapi.base64encode(vector[1]), vector[2])
+        check.eq(byteapi.base64decode(vector[2]), vector[1])
     end
 end
 
@@ -40,9 +40,9 @@ function M.everyAlphabetPositionRoundTrips()
         bytes[#bytes + 1] = string.char(value)
     end
     local all = table.concat(bytes)
-    local encoded = binary.base64encode(all)
+    local encoded = byteapi.base64encode(all)
     check.eq(#encoded, 344)
-    check.eq(binary.base64decode(encoded), all)
+    check.eq(byteapi.base64decode(encoded), all)
 end
 
 --- Every length across the group boundary and the block the entry reads as
@@ -51,22 +51,22 @@ function M.everyLengthThroughTwoBlocksRoundTrips()
     local bytes = {}
     for length = 0, 64 do
         local value = table.concat(bytes)
-        check.eq(binary.base64decode(binary.base64encode(value)), value)
-        check.eq(#binary.base64encode(value) % 4, 0)
+        check.eq(byteapi.base64decode(byteapi.base64encode(value)), value)
+        check.eq(#byteapi.base64encode(value) % 4, 0)
         bytes[#bytes + 1] = string.char(length % 256)
     end
 end
 
 function M.paddingIsExactlyWhatTheRemainderAsksFor()
-    check.eq(binary.base64encode("a"):sub(-2), "==")
-    check.eq(binary.base64encode("ab"):sub(-1), "=")
-    check.eq(binary.base64encode("abc"):sub(-1) == "=", false)
+    check.eq(byteapi.base64encode("a"):sub(-2), "==")
+    check.eq(byteapi.base64encode("ab"):sub(-1), "=")
+    check.eq(byteapi.base64encode("abc"):sub(-1) == "=", false)
 end
 
 -- Text that is not base64 is an ordinary answer, nil and the reason, as
--- binary.hexdecode gives, rather than a raise.
+-- bytes.hexdecode gives, rather than a raise.
 local function refused(text)
-    local value, reason = binary.base64decode(text)
+    local value, reason = byteapi.base64decode(text)
     check.eq(value, nil, text)
     check.eq(type(reason), "string", text)
     return reason

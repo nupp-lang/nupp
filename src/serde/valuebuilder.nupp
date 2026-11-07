@@ -146,7 +146,7 @@ export const len = implementation.length
 --- of one is refused, because the C name the load addresses is the
 --- parameter's.
 ---
---- In ordinary Lua the span is the same checked view `binary.span.fromstring`
+--- In ordinary Lua the span is the same checked view `bytes.span.fromstring`
 --- returns, and the bytes have to be a string: a view roots nothing itself, so
 --- there is no rooted string for a buffer's unread bytes to be viewed through.
 --- Every vector path is inside a `simd.species` guard, which is nil there, so

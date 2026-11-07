@@ -20,7 +20,7 @@ handle even when a process is killed or a caller stops reading its output.
 ]]
 module nupp.runtime.provider.nativeprocess
 
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local contract = require("io.internal.process.contracts")
 local shared = require("io.internal.process.types")

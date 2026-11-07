@@ -4,7 +4,7 @@
 -- store keeps components in columns instead: one span per component,
 -- contiguous. Loads here cross consecutive structs, so this is the strided
 -- layout `columns-soa` is measured against.
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local struct Position
     x: float

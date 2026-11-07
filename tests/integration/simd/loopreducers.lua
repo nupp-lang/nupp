@@ -186,7 +186,7 @@ function M.generate(types, mode, width)
     end
     local source = {[[
 local array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 ]]}
     if floatingCases then

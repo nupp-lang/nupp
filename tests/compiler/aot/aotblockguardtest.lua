@@ -16,7 +16,7 @@ function M.blockSpanGuardsRejectBeforeExecutingTheBody()
         dir .. "/src/guarded.nupp",
         [[
 module guarded
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 @aot
 local function dot(borrows left: span.Span<number>, borrows right: span.Span<number>): number
@@ -44,7 +44,7 @@ export = {dot = dot, fill = fill}
 package.path = "build/native/?.lua;" .. package.path
 local m = require("guarded")
 local ffi = require("ffi")
-local span = require("binary.span")
+local span = require("bytes.span")
 if arg[1] == "require" then
     for name, fn in pairs(m) do assert(__nuppAotCompiled[fn], name .. " is interpreted") end
 end
@@ -94,7 +94,7 @@ function M.factorGuardsRejectAtTheCallBoundary()
         dir .. "/src/factored.nupp",
         [[
 module factored
-local span = require("binary.span")
+local span = require("bytes.span")
 @aot
 local function box3(exclusive grey: span.WriteSpan<uint8>, borrows rgb: span.Span<uint8>): nil
     assert(#rgb == 3 * #grey)
@@ -124,7 +124,7 @@ export = {box3 = box3, padded = padded}
 package.path = "build/native/?.lua;" .. package.path
 local m = require("factored")
 local ffi = require("ffi")
-local span = require("binary.span")
+local span = require("bytes.span")
 if arg[1] == "require" then
     for name, fn in pairs(m) do assert(__nuppAotCompiled[fn], name .. " is interpreted") end
 end

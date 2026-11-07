@@ -1,3 +1,5 @@
+local byteapi = require("bytes")
+
 -- Declaration bindings, document contexts, and Debug through browser providers.
 const assert2 = require("assert")
 
@@ -27,7 +29,7 @@ local binding = serde.binding(
 )
 
 local function encodedText(value: Reading): string
-    local out = io.Buffer.create()
+    local out = byteapi.Buffer.create()
     local writer = json.Writer.of(out)
     typedJSON.writevalue(binding, value, writer)
     writer:close()

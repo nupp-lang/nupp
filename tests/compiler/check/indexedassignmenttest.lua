@@ -22,7 +22,7 @@ end
 local M = {}
 function M.spanAssignmentsPreserveLocationsOrderAndTupleAdjustment()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local u32 = math.u32
 local function apply(exclusive values: span.WriteSpan<number>, trace: {number}): number
     local function index(mark: number): uint32
@@ -68,7 +68,7 @@ end
 
 function M.mixedAssignmentsFreezeTableReceiversBeforeRebinding()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local u32 = math.u32
 local function apply(exclusive values: span.WriteSpan<number>, trace: {number}): number
     local current: {number} = {10}
@@ -108,7 +108,7 @@ end
 
 function M.optimizedVirtualViewsKeepSimultaneousStores()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local function apply(exclusive storage: number[?]): number
     const values = span.writecarray(storage, 2)
     values[1], values[2] = 3, 4
@@ -131,7 +131,7 @@ end
 
 function M.temporaryStructFieldReceiversRemainRefused()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local u32 = math.u32
 local struct Cell value: number end
 local function apply(factory: function(): span.WriteSpan<Cell>, trace: {number}): nil
@@ -164,7 +164,7 @@ end
 
 function M.rootedStructFieldsEvaluateIndicesOnce()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local u32 = math.u32
 local struct Cell value: number end
 local function apply(exclusive values: span.WriteSpan<Cell>, trace: {number}): nil

@@ -1,11 +1,13 @@
+local byteapi = require("bytes")
+
 -- Browser providers keep the Nupp API in checked source. Their work crosses
 -- one suspension boundary to the application Worker and its browser APIs.
 
 coroutine.sleep(10)
 local key = os.uuid(4)
-local digest = binary.digest("sha256"):computehex(os.randombytes(32))
+local digest = byteapi.digest("sha256"):computehex(os.randombytes(32))
 print(key, digest)
-print(binary.mac("hmac-sha256"):computehex("key", "browser message"))
+print(byteapi.mac("hmac-sha256"):computehex("key", "browser message"))
 
 -- try breaking it: pass a negative count to randombytes and read the checked
 -- provider error

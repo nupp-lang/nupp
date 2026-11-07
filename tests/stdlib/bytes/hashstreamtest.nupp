@@ -1,10 +1,10 @@
-local binary = require("binary")
-local digest = binary.digest
-local mac = binary.mac
-local checksum = binary.checksum
+local byteapi = require("bytes")
+local digest = byteapi.digest
+local mac = byteapi.mac
+local checksum = byteapi.checksum
 local io = require("io")
 local array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local test = require("assert")
 local M = {}
 
@@ -12,10 +12,10 @@ function M.hashFamiliesKeepSeparateAlgorithmCatalogs(): nil
     test(not pcall(checksum, "sha256"))
     test(not pcall(digest, "crc32"))
     test(not pcall(mac, "sha256"))
-    test(checksum == require("binary").checksum)
-    test(digest == require("binary").digest)
-    test(mac == require("binary").mac)
-    test(binary == require("binary"))
+    test(checksum == require("bytes").checksum)
+    test(digest == require("bytes").digest)
+    test(mac == require("bytes").mac)
+    test(byteapi == require("bytes"))
 end
 
 function M.descriptorsAreReusableAndDoNotRetainMacKeys(): nil
@@ -33,14 +33,14 @@ function M.descriptorsAreReusableAndDoNotRetainMacKeys(): nil
 end
 
 function M.publishedFnv1a64VectorsAndByteSpans(): nil
-    test(binary.fnv1a64("") == "cbf29ce484222325")
-    test(binary.fnv1a64("a") == "af63dc4c8601ec8c")
-    test(binary.fnv1a64("foobar") == "85944171f73967e8")
-    test(binary.fnv1a64("a\0b\255c") == "3e5746fc83766ddc")
+    test(byteapi.fnv1a64("") == "cbf29ce484222325")
+    test(byteapi.fnv1a64("a") == "af63dc4c8601ec8c")
+    test(byteapi.fnv1a64("foobar") == "85944171f73967e8")
+    test(byteapi.fnv1a64("a\0b\255c") == "3e5746fc83766ddc")
 
-    local bytes = io.Buffer.create("\0\1\127\128\255")
+    local bytes = byteapi.Buffer.create("\0\1\127\128\255")
     local view = bytes:span()
-    test(binary.fnv1a64(view) == "a5bcd1d1065f84b6")
+    test(byteapi.fnv1a64(view) == "a5bcd1d1065f84b6")
     test(digest("sha256"):computehex(view) == digest("sha256"):computehex("\0\1\127\128\255"))
     test(checksum("crc32"):compute(view) == checksum("crc32"):compute("\0\1\127\128\255"))
     test(mac("hmac-sha256"):computehex("key", view) == mac("hmac-sha256"):computehex("key", "\0\1\127\128\255"))
@@ -108,7 +108,7 @@ function M.wordDigestPaddingBoundariesMatchIndependentVectors(): nil
 end
 
 function M.metadataAndIndependentContexts(): nil
-    test(table.concat(binary.formats("digest"), ",") == "md5,sha1,sha256,sha512")
+    test(table.concat(byteapi.formats("digest"), ",") == "md5,sha1,sha256,sha512")
     test(not pcall(digest, "unknown"))
     local algorithm = digest("sha256")
     test(algorithm.name == "sha256" and algorithm.digestsize == 32)
@@ -120,7 +120,7 @@ function M.metadataAndIndependentContexts(): nil
     first:write("bc")
     test(first:digest() == second:digest())
 
-    test(table.concat(binary.formats("mac"), ",") == "hmac-sha256")
+    test(table.concat(byteapi.formats("mac"), ",") == "hmac-sha256")
     test(not pcall(mac, "unknown"))
     local macAlgorithm = mac("hmac-sha256")
     test(macAlgorithm.name == "hmac-sha256" and macAlgorithm.digestsize == 32)
@@ -133,7 +133,7 @@ function M.metadataAndIndependentContexts(): nil
 end
 
 function M.overloadedFinalizationWritesOnlyTheSuppliedSlice(): nil
-    for _, name in ipairs(binary.formats("digest")) do
+    for _, name in ipairs(byteapi.formats("digest")) do
         local algorithm = digest(name)
         local bytes = array.bytes(algorithm.digestsize + 2)
         local output = bytes:write()
@@ -169,7 +169,7 @@ function M.shortDestinationIsRejected(): nil
 end
 
 function M.chunkingAndBinaryInput(): nil
-    for _, name in ipairs(binary.formats("digest")) do
+    for _, name in ipairs(byteapi.formats("digest")) do
         for length = 0, 260 do
             local input = string.rep("a\0b\255c", 53):sub(1, length)
             local rolling = digest(name):create()
@@ -210,10 +210,10 @@ function M.hmacRfc4231AndBinaryInput(): nil
 end
 
 function M.checksumVectorsAndNonConsumingReads(): nil
-    test(table.concat(binary.formats("checksum"), ",") == "adler32,crc32,crc32c,crc64-ecma,crc64nvme")
-    local listed = binary.formats("checksum")
+    test(table.concat(byteapi.formats("checksum"), ",") == "adler32,crc32,crc32c,crc64-ecma,crc64nvme")
+    local listed = byteapi.formats("checksum")
     listed[1] = "changed"
-    test(binary.formats("checksum")[1] == "adler32")
+    test(byteapi.formats("checksum")[1] == "adler32")
     test(not pcall(checksum, "unknown"))
     test.raises(
         function(): nil
@@ -233,7 +233,7 @@ function M.checksumVectorsAndNonConsumingReads(): nil
     test(checksum("crc64-ecma").width == 64)
     test(checksum("crc64nvme"):compute("123456789") == 0xae8b14860a799888ULL)
     test(checksum("crc64nvme").width == 64)
-    for _, name in ipairs(binary.formats("checksum")) do
+    for _, name in ipairs(byteapi.formats("checksum")) do
         test(checksum(name) == checksum(name))
         local rolling = checksum(name):create()
         test(rolling:algorithm() == name)
@@ -260,16 +260,16 @@ function M.hexCodecIsStrictAndRoundTripsBytes(): nil
         parts[#parts + 1] = string.char(byte)
     end
     local input = table.concat(parts)
-    local encoded = binary.hexencode(input)
+    local encoded = byteapi.hexencode(input)
     test(#encoded == 512 and not encoded:find("[^0-9a-f]"))
-    test(binary.hexdecode(encoded) == input)
-    test(binary.hexdecode(encoded:upper()) == input)
-    test(binary.hexdecode("") == "")
-    local decoded, reason = binary.hexdecode("0")
+    test(byteapi.hexdecode(encoded) == input)
+    test(byteapi.hexdecode(encoded:upper()) == input)
+    test(byteapi.hexdecode("") == "")
+    local decoded, reason = byteapi.hexdecode("0")
     test(decoded == nil and reason == "hex input must contain an even number of digits")
-    decoded, reason = binary.hexdecode("0x")
+    decoded, reason = byteapi.hexdecode("0x")
     test(decoded == nil and reason == "hex input contains a non-hexadecimal digit")
-    decoded, reason = binary.hexdecode("00 1")
+    decoded, reason = byteapi.hexdecode("00 1")
     test(decoded == nil and reason == "hex input contains a non-hexadecimal digit")
 end
 

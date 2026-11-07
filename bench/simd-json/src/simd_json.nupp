@@ -2,7 +2,7 @@ const utf8 = require("utf8")
 
 local scanner = require("simd_json.scanner")
 local arena = require("simd_json.arena")
-local span = require("binary.span")
+local span = require("bytes.span")
 local ffi = require("ffi")
 
 local json = {}

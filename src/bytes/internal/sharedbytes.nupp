@@ -1,10 +1,10 @@
 @!internal
 
---[[Engine-backed operations for the canonical io.SharedBytes declarations.]]
-module io.internal.sharedbytes
+--[[Engine-backed operations for the canonical bytes.SharedBytes declarations.]]
+module bytes.internal.sharedbytes
 
-local span = require("binary.span")
-local byteTypes = require("io.internal.bytestypes")
+local span = require("bytes.span")
+local byteTypes = require("bytes.internal.bytestypes")
 export type SharedBytes = byteTypes.SharedBytes
 export const SharedBytes = byteTypes.SharedBytes
 local spanImplementation = require("nupp.mem.span")
@@ -29,7 +29,7 @@ local function initialize(): nil
     local moduleName = "nupp.mem.sharedbytes.native"
     local nativeModule = require("nupp.runtime.optional").load(moduleName)
     if nativeModule == nil then
-        error("nupp: io.SharedBytes needs the Nupp engine host, which a stamped binary provides", 0)
+        error("nupp: bytes.SharedBytes needs the Nupp engine host, which a stamped binary provides", 0)
     end
     native = nativeModule as Native
 end

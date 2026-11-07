@@ -7,7 +7,7 @@ order: 632
 An `@aot` CPU kernel keeps numeric and span data in a pointer-free native entry. Its loops lower to LLVM IR, which the code generator in `nupp` optimizes and compiles.
 
 ```nupp
-local span = binary.span
+local span = bytes.span
 
 @aot
 local function scale(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, factor: float): nil

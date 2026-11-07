@@ -489,7 +489,7 @@ end
 
 `own.region(parent, child, first, last)` erases to `child`. It grants no bounds
 check of its own and therefore requires `@unsafe`, and dynamic bounds produce
-an unknown overlapping interval. `binary.span` splitting uses the same algebra
+an unknown overlapping interval. `bytes.span` splitting uses the same algebra
 rather than receiving ownership privilege from method names.
 
 ### Loop-carried capabilities

@@ -156,7 +156,7 @@ function M.compressionNamesUseCanonicalKeysOnly()
     assert(contract.needinput == NEED_INPUT and contract.needoutput == NEED_OUTPUT and contract.finished == FINISHED)
     assert(contract.NEED_INPUT == nil and contract.NEED_OUTPUT == nil and contract.FINISHED == nil)
     local load = state.family("compression", {})
-    local format = load("binary").compress("gzip")
+    local format = load("bytes").compress("gzip")
     assert(type(format.reader) == "function" and format.newReader == nil)
     assert(type(format.writer) == "function" and format.newWriter == nil)
     local native = nativeProvider()
@@ -183,7 +183,7 @@ function M.decoderEofCanFillMoreThanOneOutputSpan()
             end)
         ),
     })
-    local reader = load("binary").compress("fixture"):reader(io2.Reader.of("input"), {
+    local reader = load("bytes").compress("fixture"):reader(io2.Reader.of("input"), {
         workspacebytes = 1,
         unbounded = true
     })
@@ -203,7 +203,7 @@ function M.rejectsInvalidProviderAndSourceProgress()
         end,
     }) do
         local load = state.family("compression", {provider("fixture", decoder(finishInput))})
-        local reader = load("binary").compress("fixture"):reader(io2.Reader.of("input"), {
+        local reader = load("bytes").compress("fixture"):reader(io2.Reader.of("input"), {
             workspacebytes = 1,
             unbounded = true
         })
@@ -227,7 +227,7 @@ function M.rejectsInvalidProviderAndSourceProgress()
         close = function()
         end,
     }
-    local reader = load("binary").compress("fixture"):reader(source, {workspacebytes = 1, unbounded = true})
+    local reader = load("bytes").compress("fixture"):reader(source, {workspacebytes = 1, unbounded = true})
     local bytes, reason = reader:read(1)
     assert(bytes == nil and reason:find("source reader", 1, true), tostring(reason))
     reader:close()
@@ -242,7 +242,7 @@ function M.rejectsMalformedUntypedOptions()
             end)
         )
     })
-    local format = load("binary").compress("fixture")
+    local format = load("bytes").compress("fixture")
 
     local function rejects(options, expected)
         local source = io2.Reader.of("")
@@ -259,7 +259,7 @@ function M.rejectsMalformedUntypedOptions()
     rejects({unbounded = "yes"}, "unbounded must be a boolean")
     rejects({maxexpansionratio = "1"}, "maxexpansionratio must be positive and finite")
 
-    local destination = io2.Buffer.create()
+    local destination = require("bytes").Buffer.create()
     local sink = destination:writer()
     local ok, problem = pcall(format.writer, format, sink, false)
     if ok then
@@ -305,7 +305,7 @@ function M.cleanupContinuesAfterProviderReleaseFailure()
             },
         },
     }
-    local format = state.family("compression", {fixture})("binary").compress("fixture")
+    local format = state.family("compression", {fixture})("bytes").compress("fixture")
     local destination = {
         flush = function()
             return true
@@ -335,8 +335,8 @@ end
 
 function M.targetBindingRetainsCatalogWithoutDiscovery()
     local load, counts = state.family("compression")
-    local api = load("binary")
-    assert(counts.resolutions == 0, "loading binary does not initialize compression")
+    local api = load("bytes")
+    assert(counts.resolutions == 0, "loading bytes does not initialize compression")
     assert(api.compression == nil and api.compressionformats == nil, "retired factories have no aliases")
     local names = api.formats("compression")
     assert(table.concat(names, ",") == "deflate-raw,gzip,zlib")
@@ -346,7 +346,7 @@ function M.targetBindingRetainsCatalogWithoutDiscovery()
     assert(api.compress("gzip"))
     assert(api.compress("zlib"))
     assert(api.compress("deflate-raw"))
-    assert(load("binary") == api)
+    assert(load("bytes") == api)
     assert(counts.resolutions == 1, "builtin implementation initializes once")
 end
 
@@ -406,7 +406,7 @@ end
 
 function M.unavailableTargetsListNoCompressionWithoutLoadingTheBackend()
     local load = state.instance(
-        {["binary"] = true, ["nupp.compression"] = true},
+        {["bytes"] = true, ["nupp.compression"] = true},
         {["nupp.runtime.target"] = {dialect = "luajit", host = "browser"},},
         {
             ["nupp.runtime.provider.nativecompression"] = function()
@@ -414,7 +414,7 @@ function M.unavailableTargetsListNoCompressionWithoutLoadingTheBackend()
             end,
         }
     )
-    assert(#load("binary").formats("compression") == 0)
+    assert(#load("bytes").formats("compression") == 0)
 end
 
 return M

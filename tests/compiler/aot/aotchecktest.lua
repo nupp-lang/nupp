@@ -27,7 +27,7 @@ local REFUSED = {
     [
         "aggregatespan.nupp"
     ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 
 local struct Pair
@@ -48,7 +48,7 @@ return {first = first, Pair = Pair}
         "vectorfieldload.nupp"
     ] = [[
 local array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 
 local struct Particle
@@ -70,7 +70,7 @@ return {first = first, Particle = Particle}
         "vectorsoa.nupp"
     ] = [[
 local soa = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 
 local struct Particle
@@ -151,7 +151,7 @@ return {shifted = shifted}
         "lane.nupp"
     ] = [[
 local array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 
 @aot
@@ -169,7 +169,7 @@ return {lane = lane}
     [
         "kernel.nupp"
     ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function scale(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, enabled: boolean): nil
@@ -200,7 +200,7 @@ return repeated(1.0, 1) + repeated(1.0, 2) + repeated(1.0, 3) + repeated(1.0, 4)
     [
         "cursorpast.nupp"
     ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function past(borrows source: span.Span<uint8>): uint32
@@ -220,7 +220,7 @@ return {past = past}
     [
         "factorpast.nupp"
     ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function past(exclusive grey: span.WriteSpan<uint8>, borrows rgb: span.Span<uint8>): nil
@@ -238,7 +238,7 @@ return {past = past}
     [
         "cursorstorepast.nupp"
     ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function storePast(exclusive output: span.WriteSpan<uint8>): uint32
@@ -261,7 +261,7 @@ local ADMITTED = {
     [
         "vectorfield.nupp"
     ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 
 local struct Particle
@@ -287,7 +287,7 @@ return {damp = damp, Particle = Particle}
         "vectorentry.nupp"
     ] = [[
 local array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 
 @aot
@@ -310,7 +310,7 @@ return {twice = twice, apply = apply}
     [
         "floatread.nupp"
     ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function scale(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, factor: float): nil
@@ -327,7 +327,7 @@ return {scale = scale}
     [
         "floatlocal.nupp"
     ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function halve(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
@@ -346,7 +346,7 @@ return {halve = halve}
         "aggregate.nupp"
     ] = [[
 local array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 
 local struct Pair
@@ -396,7 +396,7 @@ local _ = pair
         "globalwitness.nupp"
     ] = [[
 local array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 
 @aot
@@ -440,7 +440,7 @@ return {clamp = clamp}
     [
         "bytecarry.nupp"
     ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function signed(borrows input: span.Span<uint8>, factor: int32): int32
@@ -469,7 +469,7 @@ return {signed = signed, unsigned = unsigned}
     [
         "factorguards.nupp"
     ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function box3(exclusive grey: span.WriteSpan<uint8>, borrows rgb: span.Span<uint8>): nil
@@ -513,7 +513,7 @@ return {box3 = box3, first = first, padded = padded}
     [
         "cursorsteps.nupp"
     ] = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function triples(exclusive output: span.WriteSpan<uint8>, borrows source: span.Span<uint8>): uint32

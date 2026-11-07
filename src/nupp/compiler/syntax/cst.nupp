@@ -215,7 +215,7 @@ interface cst.Hints
     --- assume the operands are strings and numbers.
     plainConcat: boolean?
 
-    --- A string accumulator lowered to a `io.Buffer` buffer by `OPT-5`.
+    --- A string accumulator lowered to a `bytes.Buffer` buffer by `OPT-5`.
     concatBuffer: any
 
     --- An immediate return of a completed concatenation buffer.

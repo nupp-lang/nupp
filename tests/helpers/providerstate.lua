@@ -58,7 +58,9 @@ local function instance(owned, replacements, preloads, globals)
 end
 
 function M.load(kind, provider)
-    local facade = kind == "files" and "io.internal.files" or kind == "process" and "io.internal.process" or "nupp.io." .. kind
+    local facade = kind == "files" and "io.internal.files"
+        or kind == "process" and "io.internal.process"
+        or "nupp.io." .. kind
     setmetatable(provider, {
         __index = function(_, name)
             if name == "priority" then
@@ -182,7 +184,7 @@ end
 -- Each fixture owns the target implementation and a private module cache.
 function M.family(kind, implementations)
     local hash = kind == "checksum" or kind == "digest" or kind == "mac"
-    local facade = (kind == "compression" or hash) and "binary" or "nupp." .. kind
+    local facade = (kind == "compression" or hash) and "bytes" or "nupp." .. kind
     local implementation = "nupp.runtime.provider." .. (kind == "compression" and "nativecompression" or kind)
     assert(not implementations or #implementations <= 1, "builtin fixtures bind one implementation")
     local counts = {resolutions = 0}

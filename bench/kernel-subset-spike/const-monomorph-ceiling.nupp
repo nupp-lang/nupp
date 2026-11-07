@@ -1,6 +1,6 @@
 -- A manual ceiling for const monomorphization. `rounds4` is the body the
 -- compiler could derive from `general` after learning `rounds == 4` at a call.
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function general(

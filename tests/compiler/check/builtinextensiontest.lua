@@ -31,8 +31,8 @@ local function withExtension(callback, assertionSource, ioSource, coroutineOverr
         or [[
 @!internal
 module nupp.runtime.standardio
-export type Buffer = {label: string}
-export const Buffer = {create = function(value: string): Buffer return {label = value} end}
+export type Reader = {label: string}
+export const Reader = {create = function(value: string): Reader return {label = value} end}
 export type Style = {label: string}
 export type ColorMode = "auto" | "always" | "never"
 export type Alignment = "left" | "right"
@@ -43,7 +43,7 @@ export function columns(): integer return 73 end
 export const value: table = do
     local original = rawget(_G, "io") as any
     original.columns = columns
-    original.Buffer = Buffer
+    original.Reader = Reader
     yield original
 end
 ]]
@@ -100,7 +100,7 @@ end
     local name = "nupp.runtime.standardio"
     local nativePopen = require(name).popen
     local loaded, preload, columns = package.loaded[name], package.preload[name], rawget(io, "columns")
-    local bufferType = rawget(io, "Buffer")
+    local bufferType = rawget(io, "Reader")
     local ioError = rawget(io, "Error")
     local coroutineName = "nupp.runtime.standardcoroutine"
     local coroutineLoaded, coroutinePreload = package.loaded[coroutineName], package.preload[coroutineName]
@@ -124,7 +124,7 @@ end
     end)
     package.loaded[name], package.preload[name] = loaded, preload
     rawset(io, "columns", columns)
-    rawset(io, "Buffer", bufferType)
+    rawset(io, "Reader", bufferType)
     rawset(io, "Error", ioError)
     package.loaded[coroutineName], package.preload[coroutineName] = coroutineLoaded, coroutinePreload
     rawset(coroutine, "checkpoint", checkpoint)
@@ -139,7 +139,7 @@ function M.preservesTheHostTableThroughAliasesAndRequire()
         local source = [[
 local original = io
 local imported = require("io")
-return original == io, original == imported, imported.Buffer.create("ready").label, original.stdout == imported.stdout
+return original == io, original == imported, imported.Reader.create("ready").label, original.stdout == imported.stdout
 ]]
         local code = compile(source, "extension-consumer.nupp", env)
         local global, imported, label, stdout = assert(loadstring(code))()
@@ -367,9 +367,9 @@ module consumer]]
                 .. index
                 .. "\n"
                 .. [[
-const {type Buffer} = require("io")
-export type SelectedBuffer = Buffer
-export function identity(value: Buffer): Buffer return value end
+const {type Reader} = require("io")
+export type SelectedReader = Reader
+export function identity(value: Reader): Reader return value end
 ]]
             )
             local checked = inc.checkFile(path)
@@ -382,7 +382,7 @@ export function identity(value: Buffer): Buffer return value end
             end
             test.eq(table.concat(errors, "\n"), "")
             local exports = inc.q:get("moduleExports", "nupp.runtime.standardio")
-            test.eq(checked.result.moduleExports.types.SelectedBuffer, exports.types.Buffer)
+            test.eq(checked.result.moduleExports.types.SelectedReader, exports.types.Reader)
             local reached = {}
             for _, dependency in ipairs(inc.moduleDependencies(path)) do
                 reached[dependency] = true
@@ -428,13 +428,13 @@ function M.incrementalRequiredAliasesShareHoistedTypesAndInvalidate()
                 path,
                 (
                     "module alias%d\nconst %s = require(\"io\")\n"
-                    .. "export function identity(value: %s.Buffer): %s.Buffer return value end\n"
-                    .. "export type Selected = %s.Buffer\n"
+                    .. "export function identity(value: %s.Reader): %s.Reader return value end\n"
+                    .. "export type Selected = %s.Reader\n"
                 ):format(index, alias, alias, alias, alias)
             )
             local result = checked(path)
             local exports = inc.q:get("moduleExports", "nupp.runtime.standardio")
-            test.eq(result.result.moduleExports.types.Selected, exports.types.Buffer)
+            test.eq(result.result.moduleExports.types.Selected, exports.types.Reader)
         end
         local old = checked(paths[1]).result.moduleExports.types.Selected
         local implementation = env.rootDir .. "/src/nupp/runtime/standardio.nupp"
@@ -443,15 +443,15 @@ function M.incrementalRequiredAliasesShareHoistedTypesAndInvalidate()
             [[
 @!internal
 module nupp.runtime.standardio
-export type Buffer = {count: integer}
-export const Buffer = {create = function(value: string): Buffer return {count = #value} end}
+export type Reader = {count: integer}
+export const Reader = {create = function(value: string): Reader return {count = #value} end}
 export const value: table = rawget(_G, "io") as table
 ]]
         )
         for _, path in ipairs(paths) do
             local result = checked(path)
             local exports = inc.q:get("moduleExports", "nupp.runtime.standardio")
-            test.eq(result.result.moduleExports.types.Selected, exports.types.Buffer)
+            test.eq(result.result.moduleExports.types.Selected, exports.types.Reader)
             test.eq(result.result.moduleExports.types.Selected == old, false)
             local reached = {}
             for _, dependency in ipairs(inc.moduleDependencies(path)) do
@@ -490,9 +490,9 @@ function M.incrementalBuiltinExportCyclesKeepPendingNominalIdentity()
             [[
 module dependent
 const streams = require("io")
-export function identity(value: streams.Buffer.Nested): streams.Buffer.Nested return value end
-export type Selected = streams.Buffer
-export type Nested = streams.Buffer.Nested
+export function identity(value: streams.Reader.Nested): streams.Reader.Nested return value end
+export type Selected = streams.Reader
+export type Nested = streams.Reader.Nested
 ]]
         )
         inc.changeDocument(
@@ -500,7 +500,7 @@ export type Nested = streams.Buffer.Nested
             [[
 @!internal
 module nupp.runtime.standardio
-export record Buffer
+export record Reader
     record Nested count: integer end
     label: string
 end
@@ -516,8 +516,8 @@ export const value: table = rawget(_G, "io") as table
         local exports = inc.q:get("moduleExports", "nupp.runtime.standardio")
         test.eq(inc.q:get("moduleExports", "io"), exports)
         test.eq(inc.moduleSemantic("io").exports, exports)
-        test.eq(result.result.moduleExports.types.Selected, exports.types.Buffer)
-        test.eq(result.result.moduleExports.types.Nested, exports.types.Buffer.nestedTypes.Nested)
+        test.eq(result.result.moduleExports.types.Selected, exports.types.Reader)
+        test.eq(result.result.moduleExports.types.Nested, exports.types.Reader.nestedTypes.Nested)
         inc.changeDocument(implementation, "return {}")
         test.eq(require("nupp.compiler.builtinextensions").implementation(inc.env, "io"), nil)
         local refused = false
@@ -557,19 +557,19 @@ function M.lowercaseByteFactoriesPreserveBuiltinIdentityAndTypeExports()
         local code, parsed = compile(
             [[
 module byteconsumer
-const {type Buffer} = require("io")
-export type SelectedBuffer = Buffer
+const {type Reader} = require("io")
+export type SelectedReader = Reader
 export function run(): (boolean, string)
     local original = io
     local imported = require("io")
-    local buffer: io.Buffer = imported.Buffer.create("kept")
+    local buffer: io.Reader = imported.Reader.create("kept")
     return original == imported, buffer.label
 end
 ]],
             "byte-consumer.nupp",
             env
         )
-        test.eq(parsed.moduleExports.types.SelectedBuffer, env.globalTypes["io.Buffer"])
+        test.eq(parsed.moduleExports.types.SelectedReader, env.globalTypes["io.Reader"])
         local same, label = assert(loadstring(code))().run()
         test.eq(same, true)
         test.eq(label, "kept")

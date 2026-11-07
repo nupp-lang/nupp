@@ -23,7 +23,7 @@ must agree with their native representation.
 ]]
 module nupp.runtime.provider.nativenet
 
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local contract = require("io.net.internal.contracts")
 local shared = require("nupp.io.net.types")

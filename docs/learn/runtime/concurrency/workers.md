@@ -12,8 +12,8 @@ messages while an entry runs.
 ```nupp
 module jobs
 
-export function hash(bytes: string): string
-    return binary.fnv1a64(bytes)
+export function hash(payload: string): string
+    return bytes.fnv1a64(payload)
 end
 ```
 
@@ -364,7 +364,7 @@ They cannot be cloned, and their payload types cannot be widened through
 `any`.
 
 Mutable messages cross as independent copies. Native channels also support
-published `io.SharedBytes` and moved fixed-width arrays under the storage rules
+published `bytes.SharedBytes` and moved fixed-width arrays under the storage rules
 below. Browser channels carry copied values and refuse native storage
 attachments. A channel typed `any` accepts copied values; declare an explicit
 owning payload type when moving storage, so failed sends preserve its type.
@@ -576,9 +576,9 @@ instead of returning it consumes it like any affine owner, with
 before rebuilding its owner, and primitive elements move; every other
 ownership mode and element shape keeps the refusal above.
 
-[](io.SharedBytes) shares immutable engine storage with any number of readers; a move
+[](bytes.SharedBytes) shares immutable engine storage with any number of readers; a move
 hands exclusive mutable storage to one lane. Build shared bytes with
-`io.Buffer` and consume its unread bytes with `buffer:freeze()`. On LuaJIT,
+`bytes.Buffer` and consume its unread bytes with `buffer:freeze()`. On LuaJIT,
 freezing copies through a string into engine storage; later worker transfers
 share that storage.
 

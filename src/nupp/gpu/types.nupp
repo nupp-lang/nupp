@@ -3,7 +3,7 @@ module nupp.gpu.types
 
 local {type Layout as TensorLayout} = require("nupp.gpu.layout")
 local api = require("nupp.gpu.api")
-local {type Span} = require("binary.span")
+local {type Span} = require("bytes.span")
 local limits = require("nupp.gpu.limits")
 local gpu = {}
 

@@ -52,9 +52,9 @@ local function codes(source)
 end
 
 local PRELUDE = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local soa = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 local ffi = require("ffi")
@@ -172,8 +172,8 @@ function M.aCommonRangeRelatesSoAAndContiguousViews()
     local value, code = runs(
         PRELUDE
         .. [[
-local indexed = require("binary.span")
-local span = require("binary.span")
+local indexed = require("bytes.span")
+local span = require("bytes.span")
 const storage = carray(Particle, 3)
 storage[0].x = 2
 storage[1].x = 4
@@ -299,7 +299,7 @@ function M.nestedStructsAndFixedArraysRemainSingleColumns()
     local facts = runs(
         [[
 local soa = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local ffi = require("ffi")
 local struct Position
     x: float
@@ -351,7 +351,7 @@ function M.fieldProjectionIsTypedAndSiblingColumnsCanBeWritten()
     local value = runs(
         PRELUDE
         .. [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local particles = soa.alloc(ffi.typeof<Particle>(), 2, "columnar")
 do
     local rows = particles:write()
@@ -398,7 +398,7 @@ function M.literalBracketsReachColumnsThatCollideWithViewMembers()
     local value = runs(
         [[
 local soa = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local ffi = require("ffi")
 local struct Collision
     slice: float
@@ -765,7 +765,7 @@ function M.nonStructElementsAreRejectedAtTheCall()
         codes(
             [[
 local soa = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local ffi = require("ffi")
 local rows = soa.alloc(ffi.typeof<int32>(), 4, "columnar")
 ]]
@@ -1099,7 +1099,7 @@ function M.managedAndOwnedArraysShareOneTypeAndSpanBrand()
     local value = runs(
         [[
 local Array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local function sum(borrows values: table.Array<int32>): integer
     const rows = values:read()
     local total: integer = 0
@@ -1144,7 +1144,7 @@ end
 function M.layoutGenericIndexingRequiresAConcreteRepresentation()
     local _, errors = compile(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local function first<T, const L: string>(borrows rows: span.Span<T, L>): T
     return rows[1]
 end

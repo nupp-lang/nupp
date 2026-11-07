@@ -94,8 +94,8 @@ function M.keptGraphsFollowPublicRootDependenciesWithoutReadingOtherOutputs()
         ["nupp/compiler/entry.lua"] = 'return require("serde.json")',
         ["nupp/runtime/part.lua"] = 'return "private"',
         ["nupp/runtime/unrelated.lua"] = 'return "other private"',
-        ["serde/json.lua"] = 'return require("binary")',
-        ["binary.lua"] = 'return require("nupp.runtime.part")',
+        ["serde/json.lua"] = 'return require("bytes")',
+        ["bytes.lua"] = 'return require("nupp.runtime.part")',
         ["application.lua"] = 'return "application"',
         ["cache/generated.lua"] = 'return "cache"',
         ["test-runner/generated.lua"] = 'return "test runner"',
@@ -132,7 +132,7 @@ function M.keptGraphsFollowPublicRootDependenciesWithoutReadingOtherOutputs()
     editFixture(dir, "test-runner/generated.lua", 'return "changed test runner"')
     local unrelated, unrelatedWhole = fixtureStamp(dir, cacheDir)
     assert(unrelated == first and unrelatedWhole == whole, "unrelated outputs entered the compiler graph")
-    editFixture(dir, "binary.lua", 'local marker = "changed public"; return require("nupp.runtime.part")')
+    editFixture(dir, "bytes.lua", 'local marker = "changed public"; return require("nupp.runtime.part")')
     local public = fixtureStamp(dir, cacheDir)
     assert(public ~= first, "the kept graph ignored a changed transitive public dependency")
     editFixture(dir, "nupp/runtime/part.lua", 'return "changed private"')

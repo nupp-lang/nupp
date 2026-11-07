@@ -49,7 +49,7 @@ end
 ]],
         ["span.nupp"] = [[
 module app.span
-export type Span<T> = binary.span.Span<T>
+export type Span<T> = bytes.span.Span<T>
 ]],
     }
     for name, source in pairs(sources) do
@@ -77,13 +77,13 @@ function M.retainsBuiltinNamespaceCalls()
 end
 
 function M.builtinTypeAccessRemainsQualifiedAndErased()
-    local source = 'local function count(value: binary.span.Span<uint8>): integer\nreturn #value\nend\nreturn count\n'
+    local source = 'local function count(value: bytes.span.Span<uint8>): integer\nreturn #value\nend\nreturn count\n'
     local output = formatted(source)
     assert(not output:find("require", 1, true), output)
-    assert(output:find('value: binary.span.Span<uint8>', 1, true), output)
+    assert(output:find('value: bytes.span.Span<uint8>', 1, true), output)
     local before, after = compile(source), compile(output)
-    assert(not before:find('require("binary.span")', 1, true), before)
-    assert(not after:find('require("binary.span")', 1, true), after)
+    assert(not before:find('require("bytes.span")', 1, true), before)
+    assert(not after:find('require("bytes.span")', 1, true), after)
 end
 
 function M.keepsDirectBuiltinAliases()
@@ -174,9 +174,9 @@ end
 
 function M.keepsDirectBuiltinTypeAliases()
     local output = formatted(
-        'local type Bytes = binary.span.Span\nlocal function count(values: Bytes<uint8>): integer\nreturn #values\nend\nreturn count\n'
+        'local type Bytes = bytes.span.Span\nlocal function count(values: Bytes<uint8>): integer\nreturn #values\nend\nreturn count\n'
     )
-    assert(output:find('local type Bytes = binary.span.Span', 1, true), output)
+    assert(output:find('local type Bytes = bytes.span.Span', 1, true), output)
     assert(not output:find('require', 1, true), output)
     compile(output)
 end
@@ -186,10 +186,7 @@ function M.constructsTheSameRecordThroughItsBuiltinNamespace()
     local output = formatted(source)
     assert(not output:find('require', 1, true), output)
     assert(output:find('io.http.FileBody', 1, true), output)
-    local baseline = 'local files = require("io.http")\n' .. source:gsub(
-        "io%.http%.FileBody",
-        "files.FileBody"
-    )
+    local baseline = 'local files = require("io.http")\n' .. source:gsub("io%.http%.FileBody", "files.FileBody")
     local original = assert(loadstring(compile(baseline)))()
     local rewritten = assert(loadstring(compile(output)))()
     assert(original.path == rewritten.path)
@@ -197,7 +194,7 @@ function M.constructsTheSameRecordThroughItsBuiltinNamespace()
 end
 
 function M.formatsIsolatedSignaturesWithoutImportsWhenRequested()
-    local source = 'local value: binary.span.Span<uint8>\n'
+    local source = 'local value: bytes.span.Span<uint8>\n'
     local output, errors = fmt.format(source, "signature.nupp", {bindImports = false})
     assert(#errors == 0)
     assert(output == source, output)
@@ -278,7 +275,7 @@ local function fake(io)
     return io.http.file("shadow")
 end
 local files = io.http
-local type Bytes = binary.span.Span
+local type Bytes = bytes.span.Span
 return app.files.read("user"), io.http.file("builtin"), files, fake
 ]]
     )
@@ -286,11 +283,8 @@ return app.files.read("user"), io.http.file("builtin"), files, fake
     assert(output:find('io.http.file("shadow")', 1, true), output)
     assert(output:find('io.http.file("builtin")', 1, true), output)
     assert(output:find('local files = io.http', 1, true), output)
-    assert(output:find('local type Bytes = binary.span.Span', 1, true), output)
-    assert(
-        not output:find('require("io.http")', 1, true) and not output:find('require("binary.span")', 1, true),
-        output
-    )
+    assert(output:find('local type Bytes = bytes.span.Span', 1, true), output)
+    assert(not output:find('require("io.http")', 1, true) and not output:find('require("bytes.span")', 1, true), output)
 end
 
 function M.keepsBuiltinScopeBorrowingAndCallableLastSubmission()

@@ -310,7 +310,7 @@ function M.aStandardFacilityDoesNotDisplaceAFilesOwnDeclarations()
     _G.nupp = nil
     local ok = pcall(function()
         assert(loadstring(stdlib.bootstrap({["stdlib.io"] = true})))()
-        local buffer = require("io").Buffer.create("probe")
+        local buffer = require("bytes").Buffer.create("probe")
         return buffer:len()
     end)
     _G.nupp = previous

@@ -1,7 +1,7 @@
 -- Fixed-tree reduction benchmark: one declared 256-lane tree is generated for
 -- the GPU and executed in the same stage order by the ordinary CPU control.
 local ffi = require("ffi")
-local span = require("binary.span")
+local span = require("bytes.span")
 local gpu = require("io.gpu")
 local generated = require("reduction")
 

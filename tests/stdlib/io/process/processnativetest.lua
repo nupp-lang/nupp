@@ -79,7 +79,7 @@ function M.beforeAll()
     preloadProvider(libraryPath)
     assert(loadstring(stdlib.bootstrap({["native.process"] = true, ["stdlib.io"] = true,})))()
     process = require("io")
-    buffers = require("io")
+    buffers = require("bytes")
 end
 
 function M.afterAll()

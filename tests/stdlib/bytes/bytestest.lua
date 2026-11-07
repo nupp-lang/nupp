@@ -1,8 +1,8 @@
 local M = {}
 local ffi = require("ffi")
 
-local moduleName = "io.internal.sharedbytes"
-local typesName = "io.internal.bytestypes"
+local moduleName = "bytes.internal.sharedbytes"
+local typesName = "bytes.internal.bytestypes"
 local priorTypes
 local nativeName = "nupp.mem.sharedbytes.native"
 local priorModule, priorNative, priorRegionMetatable, bytes
@@ -69,18 +69,18 @@ function M.publicFactoriesAndIOUseTheCanonicalBytesType()
     checked(
         [[
 local http = require("io.http")
-local function freeze(takes buffer: io.Buffer): io.SharedBytes
+local function freeze(takes buffer: bytes.Buffer): bytes.SharedBytes
     return buffer:freeze()
 end
 local function reader(): io.Reader
-    local region = io.SharedBytes.copy("payload")
+    local region = bytes.SharedBytes.copy("payload")
     return io.Reader.of(region)
 end
-local function request(region: io.SharedBytes): http.Request
+local function request(region: bytes.SharedBytes): http.Request
     return http.Request(url = assert(io.URI.of("https://example.com")), body = region)
 end
-const copy: function(string): io.SharedBytes = io.SharedBytes.copy
-const readfile: function(string): (io.SharedBytes?, string?) = io.SharedBytes.readfile
+const copy: function(string): bytes.SharedBytes = bytes.SharedBytes.copy
+const readfile: function(string): (bytes.SharedBytes?, string?) = bytes.SharedBytes.readfile
 return freeze, reader, request, copy, readfile
 ]]
     )
@@ -88,16 +88,16 @@ end
 
 function M.theRetiredBuilderIsUnavailable()
     local refused = false
-    for _, diagnostic in ipairs(diagnostics("return io.SharedBytes.Builder()")) do
+    for _, diagnostic in ipairs(diagnostics("return bytes.SharedBytes.Builder()")) do
         refused = refused or diagnostic.severity == "error"
     end
-    assert(refused and bytes.Builder == nil, "io.Buffer replaces the public byte builder")
+    assert(refused and bytes.Builder == nil, "bytes.Buffer replaces the public byte builder")
 end
 
 function M.applicationImportsCannotReachThePrivateBytesImplementation()
     local denied = false
     for _, diagnostic in ipairs(
-        diagnostics('module app.main\nlocal implementation = require("io.internal.sharedbytes")\n')
+        diagnostics('module app.main\nlocal implementation = require("bytes.internal.sharedbytes")\n')
     ) do
         denied = denied or diagnostic.code == "NUPP2144"
     end
@@ -225,7 +225,7 @@ function M.loadingThePublicBytesTypeDoesNotInitializeTheEngine()
         hostIo[name] = value
     end
     local load = require("helpers.providerstate").instance(
-        {[typesName] = true, [moduleName] = true, ["nupp.runtime.standardio"] = true},
+        {[typesName] = true, [moduleName] = true, ["bytes"] = true},
         nil,
         {
             [nativeName] = function()
@@ -235,10 +235,10 @@ function M.loadingThePublicBytesTypeDoesNotInitializeTheEngine()
         },
         {nupp = {}, io = hostIo}
     )
-    local public = load("nupp.runtime.standardio").SharedBytes
-    assert(public == load(typesName).SharedBytes, "io exposes the canonical bytes record")
+    local public = load("bytes").SharedBytes
+    assert(public == load(typesName).SharedBytes, "bytes exposes the canonical bytes record")
     assert(type(public.copy) == "function" and public.Builder == nil)
-    assert(attempts == 0, "loading io.SharedBytes must not load its native bridge")
+    assert(attempts == 0, "loading bytes.SharedBytes must not load its native bridge")
 end
 
 local function withNativeBridge(loader, body)
@@ -264,7 +264,7 @@ function M.constructingBytesWithoutTheEngineReportsTheHostRequirement()
         local ok, problem = pcall(public.copy, "payload")
         assert(not ok)
         assert(
-            problem == "nupp: io.SharedBytes needs the Nupp engine host, which a stamped binary provides",
+            problem == "nupp: bytes.SharedBytes needs the Nupp engine host, which a stamped binary provides",
             tostring(problem)
         )
     end)

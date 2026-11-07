@@ -6,10 +6,10 @@ order: 165
 
 Strings hold immutable bytes, arrays hold mutable typed elements, spans borrow
 windows over storage, and readers and writers move bytes between sources.
-Use `io.Buffer` when bytes arrive or are built a chunk at a time.
+Use `bytes.Buffer` when bytes arrive or are built a chunk at a time.
 
 ```nupp:playground
-local buffer = io.Buffer.create()
+local buffer = bytes.Buffer.create()
 buffer:put("hello", " ", "world")
 assert(#buffer == 11)
 assert(buffer:get(6) == "hello ")
@@ -47,7 +47,7 @@ span, buffer, or shared bytes. A buffer reader consumes its read cursor, while
 a span reader keeps its own position. Custom sources implement `io.Reader`.
 
 ```nupp
-local buffer = io.Buffer.create("abc")
+local buffer = bytes.Buffer.create("abc")
 local reader = buffer:reader()
 assert(reader:read(2) == "ab")
 reader:close()
@@ -57,14 +57,14 @@ assert(buffer:tostring() == "c")
 ## Borrowing and ownership
 
 A span retains its source and checks every index against its count.
-[](binary.span.fromstring) lends a read-only `Span<uint8>`; `array:read()`
+[](bytes.span.fromstring) lends a read-only `Span<uint8>`; `array:read()`
 lends `Span<T>`, and `array:write()` lends the affine `Writable<T>` wrapper
 around `WriteSpan<T>`. Functions receiving writable access name
-`exclusive bytes: binary.span.ByteWriteSpan` or
-`exclusive values: binary.span.WriteSpan<T>`.
+`exclusive bytes: bytes.span.ByteWriteSpan` or
+`exclusive values: bytes.span.WriteSpan<T>`.
 
 ```nupp
-local buffer = io.Buffer.create("abc")
+local buffer = bytes.Buffer.create("abc")
 do
     local bytes = buffer:span()
     assert(bytes[1] == 97)
@@ -78,7 +78,7 @@ dropping the storage. See [ownership.md](../ownership/index.md) for ownership
 modes and [borrowing.md](../ownership/borrowing.md) for borrow lifetimes.
 
 ```nupp:refused
-local buffer = io.Buffer.create("abc")
+local buffer = bytes.Buffer.create("abc")
 local bytes = buffer:span()
 buffer:put("d")
 assert(bytes[1] == 97)
@@ -124,7 +124,7 @@ span before committing how many bytes arrived; dropping the lease without a
 commit aborts the reservation.
 
 ```nupp
-local buffer = io.Buffer.create()
+local buffer = bytes.Buffer.create()
 local lease = buffer:reserve(3)
 do
     local bytes = lease:span()
@@ -140,7 +140,7 @@ an exception abandons the reservation without extending the buffer.
 
 ```nupp
 local reader = io.Reader.of("ABC")
-local buffer = io.Buffer.create("prefix:")
+local buffer = bytes.Buffer.create("prefix:")
 assert(reader:readinto(buffer:reserve(10)) == 3)
 assert(buffer:tostring() == "prefix:ABC")
 ```
@@ -157,7 +157,7 @@ Borrowing a view does not make a string snapshot.
 | --- | --- | --- |
 | `buffer:tostring()` and `buffer:get(n)` | Yes | Result is an independent string |
 | `buffer:span()` and `array:read()` | No | Span retains its source |
-| `binary.span.fromstring(text)` | No | Span retains the string |
+| `bytes.span.fromstring(text)` | No | Span retains the string |
 | `io.Reader.of(span)` | No at construction | Reader retains the span |
 | `io.Reader.of(region)` | No at construction | Reader retains the immutable region |
 | `SharedBytes:view()` and `SharedBytes:slice()` | No | View or region retains the block |
@@ -170,12 +170,12 @@ pass span pointers to their native ABI; `read` still returns a string.
 
 ## Shared bytes between workers
 
-`io.SharedBytes` holds an immutable region of reference-counted engine storage.
+`bytes.SharedBytes` holds an immutable region of reference-counted engine storage.
 It crosses [worker boundaries](../concurrency/workers.md) without copying its
 payload and requires the engine host supplied by a stamped binary.
 
 ```nupp
-local buffer = io.Buffer.create()
+local buffer = bytes.Buffer.create()
 buffer:put("payload")
 local bytes = buffer:freeze()
 local reader = io.Reader.of(bytes)
@@ -186,6 +186,6 @@ reader:close()
 `freeze` consumes the buffer and preserves only its unread bytes. An HTTP
 request can hold a `SharedBytes` region directly as its body.
 
-`io.SharedBytes` is transitional: it becomes `string` when workers can share long
+`bytes.SharedBytes` is transitional: it becomes `string` when workers can share long
 strings. Until then, keep it for shared immutable worker payloads and use
 ordinary strings for immutable bytes within one lane.

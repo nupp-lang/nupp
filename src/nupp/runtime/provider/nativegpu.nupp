@@ -22,7 +22,7 @@ module nupp.runtime.provider.nativegpu
 local native = require("nupp.runtime.native")
 local suspension = require("nupp.suspension")
 local layoutFacts = require("nupp.gpu.layoutfacts").layoutFacts
-local span = require("binary.span")
+local span = require("bytes.span")
 local ffi = native.ffi
 local C = native.C
 native.ffi.cdef[[

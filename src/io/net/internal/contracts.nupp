@@ -44,7 +44,7 @@ or switch providers.
 ]]
 module io.net.internal.contracts
 
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local source1 = require("nupp.io.net.contracts")
 export type Provider = source1.Provider

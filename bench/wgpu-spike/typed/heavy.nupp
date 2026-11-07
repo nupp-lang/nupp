@@ -1,4 +1,4 @@
-local span = binary.span
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function heavy(

@@ -501,7 +501,7 @@ m.lunneg = lunneg
 return m
 ]=],
     stores = [=[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local m = {}
 
@@ -736,7 +736,7 @@ local DRIVER = [=[
 local repoBuild, group = REPO_BUILD, arg[1]
 package.path = repoBuild .. "/?.lua;" .. package.path
 local ffi = require("ffi")
-local span = require("binary.span")
+local span = require("bytes.span")
 local base = package.path
 
 local function load(out, modname)

@@ -21,11 +21,13 @@ transport directly and do not revisit the service registry.
 ]]
 module nupp.runtime.provider.nativehttp
 
+local byteapi = require("nupp.io.internal.bytes")
+
 local suspension = require("nupp.suspension")
 local tasks = require("coroutine")
 local io = require("io")
 local privateIo = require("nupp.io")
-local span = require("binary.span")
+local span = require("bytes.span")
 local spanText: function(
     borrows source: const uint8[?],
     count: integer
@@ -420,7 +422,7 @@ record http.Body is io.Reader
     ---     body
     function readinto(
         exclusive self,
-        exclusive destination: io.Buffer,
+        exclusive destination: byteapi.Buffer,
         offset: integer?,
         count: integer?
     ): (integer?, string?)
@@ -887,7 +889,7 @@ require("nupp.io.internal.bytes").readercompat(http.Body as table)
 
 local function readUpload(
     borrows source: io.Reader,
-    exclusive destination: io.Buffer,
+    exclusive destination: byteapi.Buffer,
     offset: integer,
     count: integer
 ): (integer?, string?)
@@ -895,7 +897,12 @@ local function readUpload(
     local reason: string?
     -- Lua readers supplied by applications keep their ordinary method entry.
     local legacy: (
-        function(borrows source: io.Reader, exclusive destination: io.Buffer, integer, integer): (integer?, string?)
+        function(
+            borrows source: io.Reader,
+            exclusive destination: byteapi.Buffer,
+            integer,
+            integer
+        ): (integer?, string?)
     )? = (source as any).readinto as any
     if legacy ~= nil then
         got, reason = legacy(source, destination, offset, count)
@@ -1045,7 +1052,7 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
     end
     local head, problem
     if reader ~= nil then
-        local scratch = io.Buffer.create(UPLOAD_SIZE)
+        local scratch = byteapi.Buffer.create(UPLOAD_SIZE)
         local uploadTransfer = transfer
 
         local function uploadAndWait(): any takes (scratch)

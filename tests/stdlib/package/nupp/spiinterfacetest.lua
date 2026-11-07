@@ -72,7 +72,7 @@ function M.httpResponseBodiesRetainOwnedIoSignatures()
 local contracts = require("io.http")
 local io = require("io")
 local function copy(borrows response: contracts.Response): nil
-local destination = io.Buffer.create()
+local destination = bytes.Buffer.create()
 response.body:readinto(destination, 0, 8)
 local lease = destination:reserve(8)
 local output = lease:span()
@@ -95,7 +95,7 @@ function M.httpUploadsUseTheSharedOwnedReaderContract()
 local http = require("io.http")
 local io = require("io")
 local function inspectReader(borrows reader: io.Reader): nil
-    local buffer = io.Buffer.create()
+    local buffer = bytes.Buffer.create()
     reader:readinto(buffer, 0, 8)
 end
 local function inspect(borrows body: http.ReaderBody): nil
@@ -127,9 +127,9 @@ function M.bundledAliasesShareStagedNominalTypes()
             main,
             [[
 module nupp.test.aliases
-local {type Buffer} = require("io")
+local {type Buffer} = require("bytes")
 local contracts = require("serde.json.internal.contracts")
-local function writer(exclusive out: io.Buffer, nullValue: any?): any
+local function writer(exclusive out: bytes.Buffer, nullValue: any?): any
     out:put("value")
     return nil
 end

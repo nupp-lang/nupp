@@ -679,7 +679,7 @@ and it works the same in a handwritten page, a module blurb, and a `---` run:
 [the zone module](debug.profile.zone)
 [](debug.profile.zone.Zone)
 [the guard's field](debug.profile.zone.Zone.active)
-[](binary.span#writable-spans)
+[](bytes.span#writable-spans)
 ```
 
 Empty link text stands for the target, so `[](debug.profile.zone)` renders that

@@ -1,7 +1,7 @@
 @!internal
 
 --[[
-Implements the byte storage and reader/writer contracts exposed by [](io).
+Implements the reader and writer contracts exposed by [](io).
 ]]
 module nupp.io
 
@@ -12,7 +12,7 @@ const bytes = require("nupp.io.internal.bytes")
 --- A forward-only byte source.
 ---
 --- `io.Reader.of(source)` accepts a string, a buffer, a span, or
---- `io.SharedBytes`. A buffer reader exclusively borrows and consumes its source;
+--- `bytes.SharedBytes`. A buffer reader exclusively borrows and consumes its source;
 --- a span reader retains its borrow, and a shared-byte reader retains its region.
 --- Closing a reader ends its borrow or drops its retained reference.
 --- See [bytes.md](docs/learn/runtime/data/bytes.md) for storage and copies.
@@ -21,7 +21,7 @@ const bytes = require("nupp.io.internal.bytes")
 --- local reader = io.Reader.of("abcdef")
 --- assert(reader:read(2) == "ab")
 ---
---- local destination = io.Buffer.create()
+--- local destination = bytes.Buffer.create()
 --- assert(reader:readinto(destination, 0, 3) == 3)
 --- assert(destination:tostring() == "cde")
 --- assert(reader:read(8) == "f")
@@ -59,12 +59,12 @@ export const Reader = bytes.readerdefaults
 --- is gone:
 ---
 --- ```nupp
---- local destination = io.Buffer.create()
+--- local destination = bytes.Buffer.create()
 --- do
 ---     local writer = io.Writer.of(destination)
 ---     assert(writer:write("prefix:"))
 ---
----     local payload = io.Buffer.create("body")
+---     local payload = bytes.Buffer.create("body")
 ---     assert(writer:writespan(payload:span()) == 4)
 ---     assert(writer:flush())
 --- end
@@ -85,42 +85,6 @@ export type Writer = bytes.Writer
 
 --- @internal
 export const Writer = bytes.writerdefaults
-
---- An exclusive prepared region of a buffer. Its span may be written, then the
---- lease is committed with the number of bytes that actually landed. Dropping a
---- lease aborts it without changing the buffer's logical length.
---- @export
-export type BufferWriteLease = bytes.BufferWriteLease
-
---- Growable byte storage.
----
---- Its pointer and logical length never escape separately. A buffer uses a
---- native array on LuaJIT or a rooted allocation in a Wasm application.
----
---- `Buffer.create()` creates an empty growable buffer. A string supplies initial
---- bytes; an integer reserves capacity without changing the length.
----
---- ```nupp
---- local bytes = io.Buffer.create("hello")
---- bytes:put("!")
---- assert(bytes:tostring() == "hello!")
---- ```
----
---- Buffer offsets are zero-based, as they are wherever a count is an offset
---- into storage rather than a position in a Lua string. See [Byte
---- positions](docs/learn/runtime/data/standard-library.md#byte-positions) for
---- the rule and where the other convention applies.
----
---- `readstring(offset, count)` copies a physical range. `writestring` overwrites
---- within the existing extent. `get` and `skip` consume unread bytes; `span`
---- borrows them without copying. A reservation lease appends bytes only after
---- its writer is dropped and the lease is committed.
----
---- @export
-export type Buffer = bytes.Buffer
-
---- @internal
-export const Buffer = bytes.Buffer
 
 --- Why an io operation failed: a kind to branch on and a message to show.
 ---
@@ -263,7 +227,7 @@ end
 --- the machine's byte order.
 ---
 --- ```nupp
---- local stored = io.Buffer.create()
+--- local stored = bytes.Buffer.create()
 --- do
 ---     local writer = stored:writer():scalar()
 ---     writer:writeuint32(1447383632):writefloat64(1.5)
@@ -304,7 +268,7 @@ export type ScalarReader = bytes.ScalarReader
 --- dropped:
 ---
 --- ```nupp
---- local destination = io.Buffer.create()
+--- local destination = bytes.Buffer.create()
 --- do
 ---     local writer = destination:writer():scalar()
 ---     writer:writeuint8(33)

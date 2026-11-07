@@ -37,11 +37,11 @@ const io = require("nupp.io")
 local scalarAdapters = require("nupp.io.internal.scalars")
 const {type Reader} = require("nupp.io")
 const {type Writer} = require("nupp.io")
-const {type Buffer} = require("nupp.io")
+const {type Buffer} = require("nupp.io.internal.bytes")
 const {type Path} = require("io.internal.files.path")
 
 local suspension = require("nupp.suspension")
-local span = require("binary.span")
+local span = require("bytes.span")
 local physical = require("nupp.runtime.storage")
 local spanStringValue: function(borrows source: const uint8[?], count: integer): string = physical.string as any
 

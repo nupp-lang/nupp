@@ -50,7 +50,7 @@ kernel() {
     cat <<EOF
 module k$1
 
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function scale$1(exclusive out: span.WriteSpan<float>, borrows input: span.Span<float>, factor: number): nil

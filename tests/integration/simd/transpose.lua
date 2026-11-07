@@ -29,7 +29,7 @@ function M.generate(options)
             local source = {
                 [[
 local array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 local u32 = math.u32
 ]]

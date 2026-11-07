@@ -4,8 +4,8 @@
 -- its length error and replaces only the handwritten range guard with the standard
 -- witness. The benchmark driver supplies the handwritten direct form so this file
 -- remains ordinary checked Nupp.
-local span = require("binary.span")
-local indexed = require("binary.span")
+local span = require("bytes.span")
+local indexed = require("bytes.span")
 
 local kernel = {}
 

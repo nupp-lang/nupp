@@ -318,7 +318,7 @@ end
 function M.pureFacadeExamplesRunTheirAssertions()
     local gen = require("nupp.compiler.lua.gen")
     for _, path in ipairs({
-        "src/binary/span.nupp",
+        "src/bytes/span.nupp",
         "src/types/reflect.nupp",
         "src/own.nupp",
         "src/serde/json/init.nupp",

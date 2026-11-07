@@ -177,7 +177,7 @@ for _, invalid in ipairs({
 end
 
 -- Cached writers retain the same dynamic paths and transactional output.
-local buffer = byteio.Buffer.create()
+local buffer = require("bytes").Buffer.create()
 buffer:put("prefix:")
 value.rows[2].value = -1
 local ok, failure = pcall(json.encodeinto, fixture.collectionsBinding, value, buffer)
@@ -197,9 +197,9 @@ assert(not ok and failure.code == "limit", tostring(failure))
 assert(failure.path:find('$["items"][', 1, true) == 1, failure.path)
 assert(buffer:tostring() == "prefix:")
 
--- An io.Buffer decodes through the string route, reading its text once, and fails
+-- A bytes.Buffer decodes through the string route, reading its text once, and fails
 -- at the same path and byte as the string it holds.
-local inputBuffer = byteio.Buffer.create('{"name":"buffer","child":{"value":"nested"}}')
+local inputBuffer = require("bytes").Buffer.create('{"name":"buffer","child":{"value":"nested"}}')
 local facade = json.codec()
 assert(facade:decodebuffer(fixture.recordBinding, inputBuffer).name == "buffer")
 inputBuffer:reset()

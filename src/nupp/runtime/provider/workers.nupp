@@ -253,7 +253,7 @@ local function movedAttachment(value: any): {any}
     return flat
 end
 
-local sharedbytesModule = require("io.internal.sharedbytes") as any
+local sharedbytesModule = require("bytes.internal.sharedbytes") as any
 local regionParts = sharedbytesModule.regionparts
 local regionFromParts = sharedbytesModule.regionfromparts
 local sharedbytesNative = require("nupp.mem.sharedbytes.native") as any

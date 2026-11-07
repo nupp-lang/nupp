@@ -569,7 +569,7 @@ function M.standardLibraryRootsSharePrivateImplementationOnlyWithEachOther()
         for _, consumer in ipairs({
             "nupp.tools.consumer",
             "serde.json",
-            "binary.Digest",
+            "bytes.Digest",
             "coroutine.workers",
             "table"
         }) do
@@ -577,7 +577,7 @@ function M.standardLibraryRootsSharePrivateImplementationOnlyWithEachOther()
                 "nupp.runtime.packages",
                 "nupp.serde.internal.value",
                 "serde.internal.codec",
-                "binary.internal.hash"
+                "bytes.internal.hash"
             }) do
                 testAssert.eq(
                     env.moduleAccess(env, consumer, implementation),
@@ -590,7 +590,7 @@ function M.standardLibraryRootsSharePrivateImplementationOnlyWithEachOther()
             "nupp.runtime.packages",
             "nupp.serde.internal.value",
             "serde.internal.codec",
-            "binary.internal.hash"
+            "bytes.internal.hash"
         }) do
             assert(env.moduleAccess(env, "app.main", implementation), "application must not import " .. implementation)
         end
@@ -609,7 +609,7 @@ function M.theNuppImplementationRootIsInternalAcrossStandardRoots()
             assert(reason and reason:find("internal", 1, true), name)
             testAssert.eq(env.moduleAccess(env, "coroutine", name), nil)
         end
-        for _, name in ipairs({"table", "io", "coroutine", "simd", "binary.span", "io.http"}) do
+        for _, name in ipairs({"table", "io", "coroutine", "simd", "bytes.span", "io.http"}) do
             testAssert.eq(env.moduleAccess(env, "app", name), nil)
         end
         local filename = dir .. "/src/app.nupp"
@@ -770,7 +770,7 @@ end
 function M.shippedImplementationModulesAreNotApplicationImports()
     withProject({["src/app.nupp"] = "module app\n"}, function(dir)
         for _, name in ipairs({
-            "binary._representation",
+            "bytes._representation",
             "nupp.compiler.syntax.lexer",
             "nupp.runtime.browser.effects",
             "nupp.codec.json.provider",
@@ -1215,9 +1215,9 @@ function M.mergedSpanFacadeKeepsTrustedRangeProofsAndRefusals()
     withProject(
         {
             [
-                "src/binary/span.nupp"
+                "src/bytes/span.nupp"
             ] = [[
-module binary.span
+module bytes.span
 local spans = require("nupp.mem.span")
 local indexed = require("nupp.mem.indexed")
 export type Span<T> = spans.Span<T>
@@ -1230,7 +1230,7 @@ export const writecarray = spans.writeCarray
                 "src/main.nupp"
             ] = [[
 module main
-local span = require("binary.span")
+local span = require("bytes.span")
 export struct Cell value: int32 end
 export function work(exclusive output: span.WriteSpan<Cell>): nil
     const values = output
@@ -1267,7 +1267,7 @@ end
             assert(compact:find("[0+index-1].value=7", 1, true), "the final factory retains direct stores")
             local invalid = parser.parse(
                 [[
-local span = require("binary.span")
+local span = require("bytes.span")
 const rows = span.range(1, 1, {})
 ]],
                 "invalid-span-consumer.nupp"

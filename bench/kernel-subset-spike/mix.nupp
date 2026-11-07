@@ -1,6 +1,6 @@
 -- A four-round literal loop and its written-out control. Fixed-trip unrolling
 -- has succeeded only when their IR and measured native bodies agree.
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function mix(

@@ -5,7 +5,7 @@ local NUPP = HERE .. "/../bin/nupp"
 local M = {}
 local SOURCE = [[
 module conditions
-local span = require("binary.span")
+local span = require("bytes.span")
 @aot
 local function before(exclusive output: span.WriteSpan<number>, exclusive checks: span.WriteSpan<number>, borrows limits: span.Span<number>): nil
     assert(#output == #limits and #checks == #limits)
@@ -82,7 +82,7 @@ export = {before = before, after = after, enclosing = enclosing, uniform = unifo
 local SCRIPT = [[
 local m = require("conditions")
 local ffi = require("ffi")
-local span = require("binary.span")
+local span = require("bytes.span")
 if arg[1] == "require" then
     local compiled = assert(rawget(_G, "__nuppAotCompiled"), "missing native registry")
     for name, fn in pairs(m) do assert(compiled[fn], name .. " was not compiled") end

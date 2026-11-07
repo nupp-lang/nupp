@@ -917,7 +917,7 @@ static void appendToBuffer(
     lua_call(L, 1, 2);
     const void *storage = lua_topointer(L, -2);
     if (storage == nullptr || luaL_checknumber(L, -1) < bytes.size()) {
-        luaL_error(L, "io.Buffer lease returned too little storage");
+        luaL_error(L, "bytes.Buffer lease returned too little storage");
     }
     char *destination = *static_cast<char *const *>(storage);
     std::memcpy(destination, bytes.data(), bytes.size());
@@ -1507,7 +1507,7 @@ static int luaVerifiedString(lua_State *L) {
 
 static int luaNewWriter(lua_State *L) {
     if (!hasRegisteredMetatable(L, 1, &BUFFER_METATABLE_KEY)) {
-        return luaL_argerror(L, 1, "io.Buffer expected");
+        return luaL_argerror(L, 1, "bytes.Buffer expected");
     }
     void *storage = lua_newuserdata(L, sizeof(luaWriter));
     auto *writer = new (storage) luaWriter{};
@@ -1573,7 +1573,7 @@ static void installBufferMetatable(lua_State *L) {
     lua_remove(L, -2);
     lua_call(L, 0, 1);
     if (!lua_getmetatable(L, -1)) {
-        luaL_error(L, "io.Buffer.create() returned a value without a metatable");
+        luaL_error(L, "bytes.Buffer.create() returned a value without a metatable");
     }
     lua_pushlightuserdata(L, &BUFFER_METATABLE_KEY);
     lua_pushvalue(L, -2);

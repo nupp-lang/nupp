@@ -223,7 +223,7 @@ end
 
 local SPAN_SOURCE = [[
 local array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 @aot
 local function fill(exclusive values: span.WriteSpan<float>): nil
     for i = 1, #values do values[i] = 3.0 end

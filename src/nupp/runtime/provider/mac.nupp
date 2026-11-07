@@ -1,5 +1,5 @@
 @!internal
---[[Built-in HMAC-SHA256 catalog for `binary.Mac` API 1.
+--[[Built-in HMAC-SHA256 catalog for `bytes.Mac` API 1.
 
 Initialization creates only the immutable 32-byte algorithm descriptor. Each
 factory invocation creates independent keyed incremental state through the fixed

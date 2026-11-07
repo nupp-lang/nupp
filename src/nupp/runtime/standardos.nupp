@@ -72,6 +72,8 @@ Origin Private File System and stays evictable unless `persiststorage` succeeds.
 --- @namespace os
 module nupp.runtime.standardos
 
+const {type Span} = require("bytes.span")
+
 local systeminfo = require("nupp.runtime.systeminfo")
 local clocks = require("nupp.runtime.timeprovider").provider
 local entropy = require("nupp.runtime.entropy")
@@ -305,10 +307,10 @@ end
 --- @param bytes the byte string or view to write
 --- @return whether the file was replaced
 --- @return the failure, when unsuccessful
-export function writeatomic(path: Path, borrows bytes: string | binary.span.Span<uint8>): (boolean, io.Error?)
+export function writeatomic(path: Path, borrows bytes: string | Span<uint8>): (boolean, io.Error?)
     local write = filesystem().writeatomic as function(
         path: Path,
-        borrows bytes: string | binary.span.Span<uint8>
+        borrows bytes: string | Span<uint8>
     ): (boolean, io.Error?)
 
     return write(path, bytes)

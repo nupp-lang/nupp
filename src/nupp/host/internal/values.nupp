@@ -10,7 +10,7 @@ embedding host refuse exactly the same things with exactly the same message.
 module nupp.host.internal.values
 
 local ffi = require("ffi")
-local span = require("binary.span")
+local span = require("bytes.span")
 local spanImplementation = require("nupp.mem.span")
 local utf8 = require("utf8")
 

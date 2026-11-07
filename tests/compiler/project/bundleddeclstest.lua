@@ -40,7 +40,7 @@ local BUNDLED = {
     "nupp.array.internal.api",
     "nupp.util.internal.pool",
     "nupp.util.internal.structpool",
-    "io.internal.sharedbytes",
+    "bytes.internal.sharedbytes",
     "events",
     "nupp.runtime.contracts",
     "os.host",
@@ -75,30 +75,62 @@ function M.tlsOverviewExampleChecksAgainstItsPublicApi()
     testAssert.eq(diagsUnderPrelude(example), "")
 end
 
-function M.compressionFactoriesAndTypesLiveOnBinary()
+function M.byteStorageMovesWithoutChangingItsNominalIdentity()
+    local env = envMod.new("/private/tmp/nupp-bytes-consumer", {cache = false})
+    local storage = assert(env.resolveModuleExports(env, "nupp.io.internal.bytes"))
+    local public = assert(env.resolveModuleExports(env, "bytes"))
+    local streams = assert(env.resolveModuleExports(env, "nupp.runtime.standardio"))
+    testAssert.eq(T.unwrapOwnership(public.types.Buffer), T.unwrapOwnership(storage.types.Buffer))
+    testAssert.eq(T.unwrapOwnership(public.types.BufferWriteLease), T.unwrapOwnership(storage.types.BufferWriteLease))
+    testAssert.eq(streams.types.Buffer, nil)
+    testAssert.eq(streams.values.Buffer, nil)
+    testAssert.eq(streams.types.SharedBytes, nil)
+    testAssert(not env.bundled["binary"])
+    testAssert(not env.bundled["binary.span"])
+    testAssert.eq(T.unwrapOwnership(streams.types.Reader), T.unwrapOwnership(storage.types.Reader))
+    testAssert.eq(T.unwrapOwnership(streams.types.Writer), T.unwrapOwnership(storage.types.Writer))
     testAssert.eq(
         diagsUnderPrelude(
             [[
-local {compress, formats, type CompressionFormat,
-    type CompressionReaderOptions, type CompressionWriterOptions} = require("binary")
-local gzip: CompressionFormat = compress("gzip")
-local writerOptions: CompressionWriterOptions = {gzip = {level = 6}}
-local readerOptions: CompressionReaderOptions = {maxoutputbytes = 1024}
-assert(gzip:decompress(gzip:compress("hello", writerOptions), readerOptions) == "hello")
-assert(#formats("compression") == 3)
-assert(gzip is binary.CompressionFormat)
+local buffer = bytes.Buffer.create("hello")
+bytes.Buffer.writeu8(buffer, 0, 72)
+buffer:put("!")
+do
+    local view = buffer:span()
+    assert(#view == 6)
+    assert(view[1] == 72)
+end
+buffer:close()
 ]]
         ),
         ""
     )
 end
 
-function M.binaryDescriptorsAndFamilyEnumCheckOutsideTheCheckout()
+function M.compressionFactoriesAndTypesLiveOnBytes()
+    testAssert.eq(
+        diagsUnderPrelude(
+            [[
+local {compress, formats, type CompressionFormat,
+    type CompressionReaderOptions, type CompressionWriterOptions} = require("bytes")
+local gzip: CompressionFormat = compress("gzip")
+local writerOptions: CompressionWriterOptions = {gzip = {level = 6}}
+local readerOptions: CompressionReaderOptions = {maxoutputbytes = 1024}
+assert(gzip:decompress(gzip:compress("hello", writerOptions), readerOptions) == "hello")
+assert(#formats("compression") == 3)
+assert(gzip is bytes.CompressionFormat)
+]]
+        ),
+        ""
+    )
+end
+
+function M.bytesDescriptorsAndFamilyEnumCheckOutsideTheCheckout()
     testAssert.eq(
         diagsUnderPrelude(
             [[
 local {digest, checksum, mac, formats, type FormatKind,
-    type DigestFormat, type ChecksumFormat, type MacFormat} = require("binary")
+    type DigestFormat, type ChecksumFormat, type MacFormat} = require("bytes")
 local sha: DigestFormat = digest("sha256")
 local crc: ChecksumFormat = checksum("crc32c")
 local hmac: MacFormat = mac("hmac-sha256")
@@ -111,13 +143,13 @@ assert(#hmac:compute("key", "hello") == 32)
         ),
         ""
     )
-    assert(diagsUnderPrelude('binary.formats("unknown")'):find("NUPP2006", 1, true))
+    assert(diagsUnderPrelude('bytes.formats("unknown")'):find("NUPP2006", 1, true))
     for _, expression in ipairs({
-        "binary.compression",
-        "binary.compressionformats",
-        "binary.Digest.create",
-        "binary.Checksum.compute",
-        "binary.Mac.Algorithm"
+        "bytes.compression",
+        "bytes.compressionformats",
+        "bytes.Digest.create",
+        "bytes.Checksum.compute",
+        "bytes.Mac.Algorithm"
     }) do
         assert(diagsUnderPrelude("return " .. expression):find("NUPP2004", 1, true), expression)
     end
@@ -135,12 +167,12 @@ function M.retiredNamespacesAreNotBundled()
         "nupp.mem.soa",
         "nupp.mem.sharedbytes",
         "package.nupp",
-        "binary.checksum.spi",
-        "binary.digest.spi",
-        "binary.mac.spi",
-        "binary.compress",
-        "binary.compress.internal.contracts",
-        "binary.compress.spi",
+        "bytes.checksum.spi",
+        "bytes.digest.spi",
+        "bytes.mac.spi",
+        "bytes.compress",
+        "bytes.compress.internal.contracts",
+        "bytes.compress.spi",
         "serde.json.spi",
         "io.spi",
         "io.files.spi",
@@ -163,10 +195,10 @@ function M.retiredNamespacesAreNotBundled()
         "io.path.spi",
         "io.net.tls",
         "io.net.tls.spi",
-        "binary.hash",
-        "binary.hash.digest",
-        "binary.hash.checksum",
-        "binary.hash.mac",
+        "bytes.hash",
+        "bytes.hash.digest",
+        "bytes.hash.checksum",
+        "bytes.hash.mac",
         "nupp.host",
         "nupp.host.pump",
         "os.host.pump",
@@ -241,8 +273,8 @@ function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
         ["nupp.runtime.contracts"] = "/nupp/runtime/contracts.nupp",
         ["debug.profile"] = "/debug/profile/init.nupp",
         ["debug.profile.zone"] = "/debug/profile/zone.nupp",
-        ["binary"] = "/binary/init.nupp",
-        ["binary.span"] = "/binary/span.nupp",
+        ["bytes"] = "/bytes/init.nupp",
+        ["bytes.span"] = "/bytes/span.nupp",
         ["nupp.runtime.entropy"] = "/nupp/runtime/entropy.nupp",
         ["nupp.runtime.standardtable"] = "/nupp/runtime/standardtable.nupp",
         ["coroutine.sus"] = "/coroutine/sus/init.nupp",
@@ -319,7 +351,7 @@ end
 function M.finalNamespaceHomesKeepCheckedTypesOutsideTheCheckout()
     local env = envMod.new("/private/tmp/nupp-bundled-layout-consumer", {config = {include = {"src"}}, cache = false})
     local source = [[
-local binary = require("binary")
+local bytes = require("bytes")
 local client: io.net.TlsClientOptions = {hostname = "example.com"}
 local server: io.net.TlsServerOptions = {certificate = "certificate", privatekey = "key"}
 local function ready(borrows session: io.net.TlsSession): boolean
@@ -330,7 +362,7 @@ local {Pool} = require("table")
 local record Value
     number: integer
 end
-local bits: binary.Bitset = binary.Bitset(64)
+local bits: bytes.Bitset = bytes.Bitset(64)
 local values: Pool<Value> = Pool(Value, 4)
 local qualified: table.Pool<Value> = table.Pool(Value, 4)
 local bytes: string = os.randombytes(0)
@@ -346,9 +378,9 @@ return bits, values, qualified, bytes
     end
     testAssert.eq(table.concat(errors, "\n"), "")
     assert(parsed.effects["runtime.crypto"])
-    local binary = env.resolveModuleExports(env, "binary")
+    local bytes = env.resolveModuleExports(env, "bytes")
     local private = env.resolveModuleExports(env, "nupp.util.internal.bitset")
-    testAssert.eq(binary.types.Bitset, private.types.Bitset)
+    testAssert.eq(bytes.types.Bitset, private.types.Bitset)
 end
 
 function M.providerContractImportErasesWithoutLoadingAnImplementation()
@@ -584,7 +616,7 @@ function M.stringBufferKeepsItsMembersUnderStrict()
     local env = strictEnv()
     local result = parser.parse(
         [[
-const sb = require("io")
+const sb = require("bytes")
 const b = sb.Buffer.create()
 b:put("x")
 return b:tostring()
@@ -958,10 +990,10 @@ function M.retiredUtilRootIsNotCarriedButItsPrivateOwnersRemain()
         "retired module is not bundled: nupp.util.internal.protected"
     )
     testAssert.eq(env.resolveModuleExports(env, "nupp.util"), nil)
-    local binary = assert(env.resolveModuleExports(env, "binary"))
+    local bytes = assert(env.resolveModuleExports(env, "bytes"))
     local bitset = assert(env.resolveModuleExports(env, "nupp.util.internal.bitset"))
-    testAssert.eq(binary.types.Bitset, bitset.types.Bitset)
-    testAssert.eq(binary.values.WORD_BITS, nil)
+    testAssert.eq(bytes.types.Bitset, bitset.types.Bitset)
+    testAssert.eq(bytes.values.WORD_BITS, nil)
     testAssert.eq(bitset.values.WORD_BITS, nil)
 end
 

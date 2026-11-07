@@ -1,10 +1,10 @@
 --[[General-purpose noncryptographic hashing. For message digests use
-binary.Digest; for error-detection checksums use binary.Checksum.]]
+bytes.Digest; for error-detection checksums use bytes.Checksum.]]
 module nupp.util.internal.hash
 
 local valueType: function(borrows value: any): string = type as any
 
-const {type Span} = require("binary.span")
+const {type Span} = require("bytes.span")
 const bit = require("bit")
 
 local function hashString(borrows bytes: string | Span<uint8>): string

@@ -1,3 +1,5 @@
+local byteapi = require("bytes")
+
 const assert2 = require("assert")
 
 local json = require("serde.json")
@@ -13,7 +15,7 @@ local function decoded<T>(binding: serde.Binding<T>, bytes: string): (T?, string
     return value as T, nil
 end
 
-local newBuffer = require("io").Buffer.create
+local newBuffer = require("bytes").Buffer.create
 
 -- Malformed text and an unmatched shape are answered, not raised.
 local function refused(value: any, reason: string?): boolean
@@ -189,7 +191,7 @@ function test.run(): nil
     end
     assert2(json.pull([[{"field-70":70}]], wideShape)["field-70"] == 70)
 
-    local out = io.Buffer.create()
+    local out = byteapi.Buffer.create()
     local writer = json.Writer.of(out)
     writer:startobject():key(json.encodedstring('a"b')):write(json.verified("42")):endobject()
     writer:close()
@@ -208,11 +210,11 @@ function test.preparedDecode(): FastEnvelope
     return (assert2(decoded(fastPrepared, fastSource)))
 end
 
-function test.preparedBufferDecode(exclusive input: io.Buffer): FastEnvelope
+function test.preparedBufferDecode(exclusive input: byteapi.Buffer): FastEnvelope
     return require("serde.json").decodebuffer(fastPrepared, input)
 end
 
-function test.preparedBufferCopyDecode(borrows input: io.Buffer): FastEnvelope
+function test.preparedBufferCopyDecode(borrows input: byteapi.Buffer): FastEnvelope
     return (assert2(decoded(fastPrepared, input:tostring())))
 end
 

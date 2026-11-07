@@ -431,7 +431,7 @@ local models = require("runtime_derive_models")
 local record Outer inner: models.Inner end
 local value = Outer(inner = models.Inner())
 print(value:debug())
-local out = io.Buffer.create()
+local out = bytes.Buffer.create()
 local writer = serde.json.Writer.of(out)
 require("serde.json").writevalue(serde.binding(Outer), value, writer)
 writer:close()

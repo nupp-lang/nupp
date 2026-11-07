@@ -6,10 +6,10 @@ order: 180
 
 Nupp's standard library provides types, text, data formats, I/O, and application
 tools. Its APIs live in builtin tables such as `math` and in declared modules
-such as `binary`.
+such as `bytes`.
 
 ```nupp:playground
-local digest = binary.digest("sha256"):computehex("payload")
+local digest = bytes.digest("sha256"):computehex("payload")
 print(#digest, math.lerp(10, 20, 0.25))
 ```
 
@@ -17,14 +17,14 @@ print(#digest, math.lerp(10, 20, 0.25))
 
 Compiler intrinsics live in their subject namespaces, such as `types`, `simd`,
 and `own`. The compiler selects their implementations from the members checked
-source reaches. Typed storage uses [](table.Array); [](io.Buffer) owns growable
+source reaches. Typed storage uses [](table.Array); [](bytes.Buffer) owns growable
 byte buffers. See [bytes.md](bytes.md) for storage, spans, ownership, and copies.
 
 Nupp-authored libraries outside that surface are ordinary declared modules on
 disk. A qualified module path loads one only when the source uses it:
 
 ```nupp
-const span = binary.span
+const span = bytes.span
 
 const text = "four"
 local bytes = span.fromstring(text)
@@ -35,11 +35,11 @@ binding:
 
 ```nupp
 const text = "four"
-local bytes = binary.span.fromstring(text)
+local bytes = bytes.span.fromstring(text)
 ```
 
 It lowers to one hidden `require` in the containing module. It does not build a
-global `binary.span` table and does not add a load check at every call. The same
+global `bytes.span` table and does not add a load check at every call. The same
 rule applies to a dependency root such as `tecs`. See [modules.md](../../language/modules.md)
 for how a declared module is named and resolved.
 
@@ -48,17 +48,17 @@ for how a declared module is named and resolved.
 The standard surface is deliberately small. These pages cover both the
 intrinsic namespaces and the declared modules:
 
-- [](binary.digest) provides incremental MD5, SHA-1, SHA-256 and SHA-512
+- [](bytes.digest) provides incremental MD5, SHA-1, SHA-256 and SHA-512
   with algorithm lookup, output-size metadata and consuming finalization.
-- [](binary.checksum) provides Adler-32 and explicitly named CRC variants
+- [](bytes.checksum) provides Adler-32 and explicitly named CRC variants
   as numeric values; protocols choose their serialization byte order.
-- [](binary.mac) provides keyed authentication, including HMAC-SHA256.
-- [](binary.fnv1a64) hashes bytes with FNV-1a.
-- [](serde.json) and [](binary) encode and decode
+- [](bytes.mac) provides keyed authentication, including HMAC-SHA256.
+- [](bytes.fnv1a64) hashes bytes with FNV-1a.
+- [](serde.json) and [](bytes) encode and decode
   representations. [](serde.valuebuilder) supports codec authors.
 - [](utf8) validates and walks UTF-8 text.
 - [](serde) binds application types to reusable serialization schemas.
-- [](binary.Bitset) is a growable set of bit positions. [](table.Pool) leases
+- [](bytes.Bitset) is a growable set of bit positions. [](table.Pool) leases
   cleared records or zero-filled struct rows of one declaration;
   [](table.Pool) creates one. Released instances become reusable immediately,
   and an idle pool resets without discarding its allocations.
@@ -72,15 +72,15 @@ intrinsic namespaces and the declared modules:
   application, for something by kind, and carries streams between them.
   [](os.host) runs an embedded component's operations for a host-owned
   loop. See [host.md](../host.md).
-- [](io) owns byte buffers, readers, writers, and typed scalar reads and writes
-  over them. [](io.SharedBytes) shares immutable engine storage across workers and
-  lends byte views without copying.
+- [](bytes.Buffer) owns growable byte storage. [](io) provides readers, writers,
+  and typed scalar reads and writes. [](bytes.SharedBytes) shares immutable
+  engine storage across workers and lends byte views without copying.
 - [](os) owns the filesystem: metadata, directories, links, temporary paths, and app storage roots.
 - [](io.net) owns listeners, plain connections, and TLS sessions.
 - [](io) models filesystem paths and resource identifiers.
 - [](debug.log) owns leveled logging over a swappable destination.
 - [](math) owns scalar and two-dimensional vector helpers.
-- [](binary.span) owns rooted, bounds-checked shared and writable C array views.
+- [](bytes.span) owns rooted, bounds-checked shared and writable C array views.
 - [](table.Array) holds mutable typed elements, with packed and
   [columnar](structure-of-arrays.md) layouts.
 - [](io.gpu) owns resident buffers, generated kernel dispatches, and tensor views.
@@ -149,11 +149,11 @@ automatic detection unless the packaging requires otherwise.
 ## Byte positions
 
 Storage offsets count from zero; element indexes count from one. Storage is a
-[](io.Buffer), an
-[](io.SharedBytes) or an open file: a range in one is
+[](bytes.Buffer), an
+[](bytes.SharedBytes) or an open file: a range in one is
 a zero-based offset and a count, because an offset names a distance from the
 beginning and maps directly onto a native byte range. An element view, a
-[span](binary.span) or a [SoA](structure-of-arrays.md) view, and text, a Lua
+[span](bytes.span) or a [SoA](structure-of-arrays.md) view, and text, a Lua
 string or [](utf8), use 1-based positions, as a Lua array and
 `string.sub` do. Do not pass a `string.find` position to a buffer method.
 
@@ -162,13 +162,13 @@ string or [](utf8), use 1-based positions, as a Lua array and
 Check each operation's return signature before handling a failure. The typed
 file, process, network, TLS and HTTP services use [](io.Error), whose `kind`
 identifies failures such as `"notfound"`. The Lua stream function `io.open`
-and `io.SharedBytes.readfile` return string reasons. Invalid arguments may
+and `bytes.SharedBytes.readfile` return string reasons. Invalid arguments may
 raise instead of returning a failure value.
 
 A result declared `affine(...)` has a cleanup obligation: its local scope drops
 it, and `own.drop` ends its lifetime early. Other values have different storage
 lifetimes. `table.Array` and struct pool pages use managed storage; shared-byte
-regions retain engine references. `io.Buffer` is affine and releases its
+regions retain engine references. `bytes.Buffer` is affine and releases its
 storage when its owner is dropped.
 
 A writer that buffers output reports delivery failures through `flush`. Check

@@ -382,7 +382,7 @@ function-like macros.
 - [describe lifetime
   behavior](../learn/runtime/c-interop/index.md#describe-lifetime-behavior) for what each
   parameter mode promises
-- [](binary.span) for bounds-checked views over C storage
+- [](bytes.span) for bounds-checked views over C storage
 :::
 
 ## Tooling in one binary

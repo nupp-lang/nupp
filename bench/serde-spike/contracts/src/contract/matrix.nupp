@@ -1,3 +1,5 @@
+local byteapi = require("bytes")
+
 const assert2 = require("assert")
 
 local serde = require("serde")
@@ -50,7 +52,7 @@ local function operationFor(target)
         decode = function(bytes)
             return codec:decode(binding, bytes)
         end,
-        append = function(value: any, exclusive buffer: io.Buffer)
+        append = function(value: any, exclusive buffer: byteapi.Buffer)
             codec:encodeinto(binding, value, buffer)
         end
     }
@@ -63,9 +65,9 @@ local function add(name, target, input)
     local value = operation.decode(input)
     local canonical = operation.encode(value)
     assert2(operation.encode(operation.decode(canonical)) == canonical)
-    local append = operation.append as function(value: any, exclusive buffer: io.Buffer): nil
+    local append = operation.append as function(value: any, exclusive buffer: byteapi.Buffer): nil
     -- One buffer reused across iterations; a managed alias lets the case borrow it.
-    local buffer = own.manage(io.Buffer.create()):alias()
+    local buffer = own.manage(byteapi.Buffer.create()):alias()
     cases[#cases + 1] = {
         name = name,
         input = input,
@@ -77,7 +79,7 @@ local function add(name, target, input)
             return operation.decode(input)
         end,
         buffer = function()
-            return buffer:withexclusive(function(exclusive target: io.Buffer): integer
+            return buffer:withexclusive(function(exclusive target: byteapi.Buffer): integer
                 target:reset()
                 append(value, target)
                 return target:len()

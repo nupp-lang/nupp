@@ -74,7 +74,7 @@ extern int luaL_error(lua_State *L, const char *format, ...);
 
 static const unsigned char *ks_lua_bytes(lua_State *L, int index, size_t *length) {
     if (lua_type(L, index) == 4) { return (const unsigned char *)luaL_checklstring(L, index, length); }
-    if (lua_type(L, index) != 5 && lua_type(L, index) != 7) { return (const unsigned char *)(uintptr_t)luaL_error(L, "string or io.Buffer expected"); }
+    if (lua_type(L, index) != 5 && lua_type(L, index) != 7) { return (const unsigned char *)(uintptr_t)luaL_error(L, "string or bytes.Buffer expected"); }
     lua_getfield(L, index, "tostring"); if (lua_type(L, -1) != 6) { return (const unsigned char *)(uintptr_t)luaL_error(L, "buffer tostring method expected"); }
     lua_pushvalue(L, index); lua_call(L, 1, 1);
     if (lua_type(L, -1) != 4) { return (const unsigned char *)(uintptr_t)luaL_error(L, "buffer tostring must return a string"); }

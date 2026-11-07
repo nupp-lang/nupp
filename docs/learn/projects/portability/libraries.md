@@ -85,7 +85,7 @@ modules.
 
 Storage and struct operations use private runtime contracts. Their layouts and
 scalar codecs agree with the representation compiled into the program.
-[](io.Buffer) owns growable FIFO byte storage on native and browser hosts.
+[](bytes.Buffer) owns growable FIFO byte storage on native and browser hosts.
 Borrowed spans retain its storage for the duration of their loan. Serialization
 belongs to [](serde).
 

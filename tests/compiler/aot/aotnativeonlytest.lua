@@ -80,7 +80,7 @@ export = {twice = twice, positive = positive, loads = loads}
 local MAIN = [[
 module main
 local array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 local vec = require("vec")
 local twice = vec.twice
@@ -105,7 +105,7 @@ local CHECK = [[
 package.path = "build/native/?.lua;" .. package.path
 local m = require("main")
 local ffi = require("ffi")
-local span = require("binary.span")
+local span = require("bytes.span")
 local compiled = rawget(_G, "__nuppAotCompiled") or {}
 local input = ffi.new("float[6]", {1, -2, 3, -4, 5, 6})
 local output = ffi.new("float[6]")
@@ -151,7 +151,7 @@ end
 
 local FLOATS = [[
 module floats
-local span = require("binary.span")
+local span = require("bytes.span")
 
 --- One binary32 product.
 @aot
@@ -176,7 +176,7 @@ local FLOAT_CHECK = [[
 package.path = "build/native/?.lua;" .. package.path
 local m = require("floats")
 local ffi = require("ffi")
-local span = require("binary.span")
+local span = require("bytes.span")
 local input = ffi.new("float[4]", {1, 2, 3, 4})
 local output = ffi.new("float[4]")
 m.apply(span.writecarray(output, 4), span.fromcarray(input, 4), 10)
@@ -199,7 +199,7 @@ end
 local AGGREGATE = [[
 module complex
 local array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 
 --- A vector of complex numbers, as two vectors.
@@ -250,7 +250,7 @@ local AGGREGATE_CHECK = [[
 package.path = "build/native/?.lua;" .. package.path
 local m = require("complex")
 local ffi = require("ffi")
-local span = require("binary.span")
+local span = require("bytes.span")
 local compiled = rawget(_G, "__nuppAotCompiled") or {}
 local cre = ffi.new("float[6]", {0, 1, -1, 0.25, 2, -0.5})
 local cim = ffi.new("float[6]", {0, 1, 0, 0.25, 0, 0.5})

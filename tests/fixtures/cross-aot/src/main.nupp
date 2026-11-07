@@ -1,5 +1,5 @@
 local array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function triangular(count: integer): number

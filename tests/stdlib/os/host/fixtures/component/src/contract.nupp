@@ -9,7 +9,7 @@ module contract
 
 local host = os.host
 local json = require("serde.json")
-local _span = require("binary.span")
+local _span = require("bytes.span")
 local _tasks = require("coroutine")
 local _time = require("coroutine")
 local _events = require("events")

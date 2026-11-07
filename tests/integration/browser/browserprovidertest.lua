@@ -453,10 +453,10 @@ function M.aWorkerScopeListsOnlyWhatItStillOwes()
                     end
                     return 0, {ok = true, value = {started = started}}
                 elseif request.operation == "await" then
-                    local binary = app.load("binary")
+                    local byteapi = app.load("bytes")
                     local codec = app.load("nupp.workers.internal.valuecodec")
                     local payload = payloads[request.task]
-                    local arguments = codec.decode(assert(binary.base64decode(payload)))
+                    local arguments = codec.decode(assert(byteapi.base64decode(payload)))
                     if arguments.values[1] == "fail" then
                         return 0, {ok = true, value = {status = "failed", error = "the lane failed"}}
                     end

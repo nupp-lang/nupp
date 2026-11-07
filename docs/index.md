@@ -132,7 +132,7 @@ span maps can become lane-parallel, while `target = "gpu"` produces typed
 resident-buffer kernels and native or WebGPU artifacts.
 
 ```nupp
-local span = binary.span
+local span = bytes.span
 
 @aot
 local function double(exclusive values: span.WriteSpan<float>): nil

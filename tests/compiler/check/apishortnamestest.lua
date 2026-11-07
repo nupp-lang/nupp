@@ -58,7 +58,7 @@ function M.soaAllocKeepsTheExistingAllocationOperation()
     local env = envMod.new(ROOT)
     local source = [[
 local soa = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local ffi = require("ffi")
 local struct Row
     x: int32

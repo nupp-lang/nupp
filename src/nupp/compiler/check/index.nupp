@@ -193,7 +193,7 @@ export function install(c: state.Checker): state.ExprHandlers
                 node.qualifiedMembers = suffix
                 -- The whole path names a module, so a local bound to it holds that
                 -- module the way one bound to `require` does: `local span =
-                -- binary.span` makes `span.WriteSpan` its exported type.
+                -- bytes.span` makes `span.WriteSpan` its exported type.
                 if #suffix == 0 then
                     (node as any).requiredModule = candidate
                 end
@@ -963,7 +963,8 @@ export function install(c: state.Checker): state.ExprHandlers
         -- recorded against the declaration `T` and found through it.
         local effects = c.env and c.env.featureEffects or nil
         local featureFields = effects and (effects[base] or staticOwner and effects[staticOwner]) or nil
-        local effect = featureFields and featureFields[memberName] or nil
+        local effect = featureFields and featureFields[memberName]
+            or native.forNominalMember(staticOwner or base, memberName)
         if not effect and target.kind == "name" and target.token then
             local holder = c.lookupEntry(target.token.text)
             if holder and holder.requiredModule then

@@ -129,7 +129,7 @@ local function endpoint(path)
 end
 
 local function readAll(body, chunkSize)
-    local destination = buffers.Buffer.create()
+    local destination = require("bytes").Buffer.create()
     while true do
         local count, reason = body:readinto(destination, destination:len(), chunkSize)
         assert(count, reason)
@@ -167,7 +167,7 @@ end
 function M.buffersViewsAndFilesKeepTheirConcreteUploadPaths()
     local client = ready()
     local payload = string.rep("concrete-", 8192)
-    local buffer = buffers.Buffer.create(payload)
+    local buffer = require("bytes").Buffer.create(payload)
     for _, body in ipairs({buffer, buffer:span()}) do
         local response, reason = client:send({url = endpoint("/echo"), method = "POST", body = body,})
         assert(response, reason)
@@ -382,7 +382,7 @@ function M.genericReadersAndLargeDownloadsStayProgressive()
     test.eq(#repeated, 2)
     test.eq(repeated[1], "one")
     test.eq(repeated[2], "two")
-    local downloaded = buffers.Buffer.create(4 * 1024 * 1024)
+    local downloaded = require("bytes").Buffer.create(4 * 1024 * 1024)
     local writer = downloaded:writer()
     local copied, copyReason = response.body:transferto(writer)
     assert(copied, copyReason)

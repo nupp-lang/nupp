@@ -6,7 +6,7 @@ local M = {}
 
 local SOURCE = [[
 module expressions
-local span = require("binary.span")
+local span = require("bytes.span")
 const STRING_COMMAND = "ready\0go"
 @aot
 local function choose(value: number): number
@@ -496,7 +496,7 @@ assert(m.repeatedStringSelector("stop", 10000) == 10000)
 assert(m.countedHeaders() == 69)
 assert(m.countedHeaderExits() == 24)
 local ffi = require("ffi")
-local span = require("binary.span")
+local span = require("bytes.span")
 for _, count in ipairs({0, 1, 3, 17, 64}) do
     local input = ffi.new("double[?]", math.max(1, count))
     local output = ffi.new("double[?]", math.max(1, count))

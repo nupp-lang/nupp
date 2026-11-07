@@ -9,7 +9,7 @@ specification. Native targets emit SPIR-V for the Rust WGPU provider, while
 browser targets emit WGSL from the same checked operation sequence.
 
 ```nupp
-local span = binary.span
+local span = bytes.span
 
 @aot(target = "gpu")
 local function scale(
@@ -110,7 +110,7 @@ The controller allocates bounded scratch and divides execution into immediate
 `phases:run` callbacks:
 
 ```nupp
-local span = binary.span
+local span = bytes.span
 
 @aot(target = "gpu")
 local function reduce(
@@ -194,11 +194,11 @@ the buffer.
 ## Browser GPU kernels
 
 A browser target combines `host = "browser"` and `aot = "require-wasm"`. GPU
-kernels use `binary.span.Span` and `binary.span.WriteSpan`; the Worker transfers
+kernels use `bytes.span.Span` and `bytes.span.WriteSpan`; the Worker transfers
 bounded copies between guest storage and WebGPU buffers:
 
 ```nupp
-local span = binary.span
+local span = bytes.span
 local array = table.Array
 
 @aot(target = "gpu")

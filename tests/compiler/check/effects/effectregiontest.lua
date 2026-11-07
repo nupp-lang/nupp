@@ -170,8 +170,8 @@ function M.aCheckedRangeDischargesMatchingSpanBoundsOnly()
     local found = refusals(
         table.concat(
             {
-                "local span = require(\"binary.span\")",
-                "local indexed = require(\"binary.span\")",
+                "local span = require(\"bytes.span\")",
+                "local indexed = require(\"bytes.span\")",
                 "local struct Value n: integer end",
                 "const storage = carray(Value, 4)",
                 "const values = span.fromcarray(storage, 4)",
@@ -193,8 +193,8 @@ function M.rangeProofsRequireStableSpanIdentities()
     local found = refusals(
         table.concat(
             {
-                "local span = require(\"binary.span\")",
-                "local indexed = require(\"binary.span\")",
+                "local span = require(\"bytes.span\")",
+                "local indexed = require(\"bytes.span\")",
                 "local struct Value n: integer end",
                 "const storage = carray(Value, 2)",
                 "local values = span.fromcarray(storage, 2)",
@@ -213,8 +213,8 @@ function M.rangeProofsDoNotEnterNestedFunctions()
     local found = refusals(
         table.concat(
             {
-                "local span = require(\"binary.span\")",
-                "local indexed = require(\"binary.span\")",
+                "local span = require(\"bytes.span\")",
+                "local indexed = require(\"bytes.span\")",
                 "local struct Value n: integer end",
                 "const storage = carray(Value, 2)",
                 "const values = span.fromcarray(storage, 2)",
@@ -438,7 +438,7 @@ function M.importedRegionAndReturnPathsUseArgumentPositions()
 end
 
 local RELATIONAL_PROVIDER = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local M = {}
 function M.get(borrows values: span.Span<uint8>, index: integer): integer
     return values[index]
@@ -457,7 +457,7 @@ end
 return M
 ]]
 local RELATIONAL_CALLER = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local D = require("dep")
 const values = span.fromstring("abc")
 ]]
@@ -671,7 +671,7 @@ end
 
 function M.forgedArgumentMappingsDoNotEstablishBounds()
     local source = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local D = require("tests.fixtures.crossmodulefacts")
 const values = span.fromstring("abc")
 for index = 1, #values do

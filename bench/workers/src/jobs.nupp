@@ -1,5 +1,7 @@
 module jobs
 
+local byteapi = require("bytes")
+
 export record Payload
     id: integer
     label: string
@@ -33,13 +35,13 @@ export function echoSparse(value: Sparse): Sparse
     return value
 end
 
-const sharedbytes = io.SharedBytes
+const sharedbytes = byteapi.SharedBytes
 
-export function regionSize(corpus: io.SharedBytes): integer
+export function regionSize(corpus: byteapi.SharedBytes): integer
     return corpus:len()
 end
 
-export function countRange(corpus: io.SharedBytes, offset: integer, count: integer): integer
+export function countRange(corpus: byteapi.SharedBytes, offset: integer, count: integer): integer
     const bytes = corpus:view(offset, count)
     local count: integer = 0
     for index = 1, #bytes do

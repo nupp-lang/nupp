@@ -142,7 +142,7 @@ do
             f:close()
         end
 
-        local prelude = "local span = require(\"binary.span\")\n"
+        local prelude = "local span = require(\"bytes.span\")\n"
         local helper = [[
 local function sum(borrows values: span.Span<uint8>): number
     local total = 0

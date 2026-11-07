@@ -1,4 +1,4 @@
--- Behavioral tests for binary.Bitset.
+-- Behavioral tests for bytes.Bitset.
 --
 -- The set-algebra operations mark the population stale rather than tracking it
 -- per word, and `wordcount` is an upper bound rather than the exact high-water
@@ -8,7 +8,7 @@
 
 local check = require("assert")
 local bit = require("bit")
-local bitset = require("binary")
+local bitset = require("bytes")
 local WORD_BITS = 32
 
 local FAR = bit.lshift(1, 20)

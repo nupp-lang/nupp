@@ -2106,7 +2106,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         end
         local indexedExport = node.kind == "call" and callee and callee.exactCallExport or nil
         if indexedExport
-            and (indexedExport.module == "nupp.mem.indexed" or indexedExport.module == "binary.span")
+            and (indexedExport.module == "nupp.mem.indexed" or indexedExport.module == "bytes.span")
             and indexedExport.member == "range"
         then
             local views, valid = {}, #argExprs >= 3
@@ -2180,6 +2180,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 or rawReceiver.tag == "nominal" and rawReceiver.origin and featureEffects[rawReceiver.origin]
             )
         local feature = featureFields and featureFields[member.text]
+            or native.forNominalMember(rawReceiver, member.text)
         if feature and c.recordEffect then
             (node as any).compilerFeatureEffect = feature
             c.recordEffect(feature)

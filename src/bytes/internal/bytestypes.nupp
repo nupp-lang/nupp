@@ -4,7 +4,7 @@ Shared-byte regions retain immutable engine-owned storage.
 They require the Nupp engine host supplied by a stamped binary.
 
 ```nupp
-const SharedBytes = io.SharedBytes
+const SharedBytes = bytes.SharedBytes
 
 const region = SharedBytes.copy("hello, region")
 const hello = region:slice(0, 5)
@@ -13,29 +13,29 @@ assert(hello:len() == 5 and hello:tostring() == "hello")
 
 A region names an extent of one reference-counted engine block. It crosses
 worker boundaries by reference, slices without copying, and is read in place
-through a borrowed [](binary.span) byte view; converting it to a Lua string
+through a borrowed [](bytes.span) byte view; converting it to a Lua string
 is one explicit call.
 
 A region is storage, so its positions are zero-based offsets and counts, as a
-[](io.Buffer)'s are: `slice(offset, count)` and `view(offset, count)`
+[](bytes.Buffer)'s are: `slice(offset, count)` and `view(offset, count)`
 name `count` bytes starting `offset` bytes in.
 
-Use `io.Buffer` to build a region and `freeze()` to consume the buffer:
+Use `bytes.Buffer` to build a region and `freeze()` to consume the buffer:
 
 ```nupp
-local buffer = io.Buffer.create()
+local buffer = bytes.Buffer.create()
 buffer:put("ABCDE", "!")
 assert(buffer:freeze():tostring() == "ABCDE!")
 ```
 
-`io.SharedBytes` is transitional. Shared long strings replace it when workers can
+`bytes.SharedBytes` is transitional. Shared long strings replace it when workers can
 share string storage; use strings for immutable bytes that stay in one lane.
 ]]
-module io.internal.bytestypes
+module bytes.internal.bytestypes
 
-local span = require("binary.span")
+local span = require("bytes.span")
 
-const _FACTORY_REQUIRES = "@requires-dynamically io.internal.sharedbytes"
+const _FACTORY_REQUIRES = "@requires-dynamically bytes.internal.sharedbytes"
 local factory: any = nil
 
 local function implementation(name: string): any
@@ -77,13 +77,13 @@ export record SharedBytes
 end
 
 function SharedBytes.copy(text: string): SharedBytes
-    local create: function(string): SharedBytes = implementation("io.internal.sharedbytes").SharedBytes.copy
+    local create: function(string): SharedBytes = implementation("bytes.internal.sharedbytes").SharedBytes.copy
     return create(text)
 end
 
 function SharedBytes.readfile(path: string): (SharedBytes?, string?)
     local read: function(
         string
-    ): (SharedBytes?, string?) = implementation("io.internal.sharedbytes").SharedBytes.readfile
+    ): (SharedBytes?, string?) = implementation("bytes.internal.sharedbytes").SharedBytes.readfile
     return read(path)
 end

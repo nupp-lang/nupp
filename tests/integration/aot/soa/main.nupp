@@ -1,7 +1,7 @@
 const assert2 = require("assert")
 
 local soa = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local array = table.Array
 local simd = require("simd")
 local ffi = require("ffi")

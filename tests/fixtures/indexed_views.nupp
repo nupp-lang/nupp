@@ -1,7 +1,7 @@
 const assert2 = require("assert")
 
-local span = require("binary.span")
-local indexed = require("binary.span")
+local span = require("bytes.span")
+local indexed = require("bytes.span")
 
 local struct Point
     x: float

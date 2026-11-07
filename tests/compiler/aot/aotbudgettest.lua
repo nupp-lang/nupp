@@ -134,7 +134,7 @@ function M.aWasmKernelModuleStaysSmall()
             {
                 "module k",
                 "",
-                'local span = require("binary.span")',
+                'local span = require("bytes.span")',
                 "",
                 "@aot",
                 "local function scale(exclusive out: span.WriteSpan<float>, borrows input: span.Span<float>, factor: number): nil",

@@ -5,7 +5,7 @@
 local bench = require("debug.bench")
 const {type Invocation} = require("debug.bench")
 local soa = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local ffi = require("ffi")
 
 local struct Particle

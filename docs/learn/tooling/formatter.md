@@ -53,7 +53,7 @@ does not add imports for them:
 
 ::: code-group
 ```nupp [Written]
-local function count(values: binary.span.Span<uint8>): integer
+local function count(values: bytes.span.Span<uint8>): integer
     return #values
 end
 
@@ -61,7 +61,7 @@ return io.http.file("notes.txt"), count
 ```
 
 ```nupp [Formatted]
-local function count(values: binary.span.Span<uint8>): integer
+local function count(values: bytes.span.Span<uint8>): integer
     return #values
 end
 

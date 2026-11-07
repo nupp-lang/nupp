@@ -1,4 +1,4 @@
--- Incremental string construction compared with io.Buffer.
+-- Incremental string construction compared with bytes.Buffer.
 -- Run: ./bin/nupp run bench/concat.lua
 --
 -- Evidence for concat lowering (docs/guides/performance.md, Allocation). It is not
@@ -39,7 +39,7 @@
 -- it measured a 100x pessimization that did not exist. bench/presize.lua
 -- carries the same warning from the allocation-sinking side.
 
-local buffer = require("io")
+local buffer = require("bytes")
 
 local ROUNDS = 5
 local OUTER = 200000

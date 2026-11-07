@@ -91,7 +91,7 @@ function M.generate(options)
         modules[#modules + 1] = module
         local names, source = {}, {
             'local array = table.Array',
-            'local span = require("binary.span")',
+            'local span = require("bytes.span")',
             'local simd = require("simd")',
         }
         local valueCount = floating and 13 or 4 + #INTEGER

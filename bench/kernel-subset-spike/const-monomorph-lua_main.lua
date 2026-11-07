@@ -9,7 +9,7 @@ local out = here .. "build/const-monomorph-ceiling/"
 package.path = out .. "fallback/?.lua;" .. out .. "fallback/?/init.lua;" .. package.path
 
 local ordinary = require("const-monomorph-ceiling")
-local spans = require("binary.span")
+local spans = require("bytes.span")
 
 local function input(count)
     local values = ffi.new("double[?]", math.max(count, 1))

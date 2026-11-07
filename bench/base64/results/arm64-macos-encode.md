@@ -373,7 +373,7 @@ measures. The de-interleave is a paired `swizzle` with a stride-three index
 vector and a second swizzle into the third vector; the alphabet is four
 sixteen-lane vectors read by two paired swizzles whose out-of-range lanes are
 zero, joined by `|`; the output order is two rounds of `interleave` and four
-proven stores into a `span.WriteSpan<uint8>` leased from an `io.Buffer`. The
+proven stores into a `span.WriteSpan<uint8>` leased from an `bytes.Buffer`. The
 entry is plain `@aot`, and `../base64simd/run.sh` holds it to an independent
 per-triple scalar reference on 80,744 inputs.
 
@@ -405,7 +405,7 @@ at 64 KiB.
 
 **The wrapper is a microsecond.** The byte form published from a one-slot
 scratch that the emitter proved could be reused; the general form leases a
-`WriteSpan` from an `io.Buffer`, calls the entry, drops the span, commits and
+`WriteSpan` from an `bytes.Buffer`, calls the entry, drops the span, commits and
 reads the string back. Measured on the allocation-only ablation that is 1.23
 microseconds per call against 0.42, and the encode of 64 bytes is 1.5
 against 0.47. Most of it is the affine-scope machinery -- the closures and

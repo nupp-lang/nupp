@@ -1,10 +1,10 @@
 -- Width, view-count, and arithmetic-shape coverage for OPT-6. The five-way
 -- representative comparison remains in kernel.nupp/main.lua.
-local span = require("binary.span")
-local indexed = require("binary.span")
+local span = require("bytes.span")
+local indexed = require("bytes.span")
 local heap = table.Array
 local soa = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local matrix = {}
 

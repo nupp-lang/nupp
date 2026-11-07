@@ -66,7 +66,7 @@ end
 
 function M.namedManifestTargetsCarryTheSelectedHostAndVm()
     local source = [[
-local text = require("io")
+local text = require("bytes")
 local time = require("coroutine")
 local array = table.Array
 return {newBuffer = text.Buffer.create, now = os.monotonic, bytes = array.bytes}
@@ -380,18 +380,18 @@ local algorithm = assert(provider.algorithms["hmac-sha256"])
 assert(algorithm.digestsize == 32)
 local rolling = algorithm:create("key")
 local first, second = "The quick brown fox ", "jumps over the lazy dog"
-local firstbytes = binary.span.fromstring(first)
-local secondbytes = binary.span.fromstring(second)
+local firstbytes = bytes.span.fromstring(first)
+local secondbytes = bytes.span.fromstring(second)
 rolling:update(firstbytes)
 rolling:update(secondbytes)
-local result = binary.hexencode(rolling:finish())
+local result = bytes.hexencode(rolling:finish())
 rolling:close()
 return result
 ]],
         [
             "src/acme/api.nupp"
         ] = [[module acme.api
-local {type Span} = require("binary.span")
+local {type Span} = require("bytes.span")
 export interface State is own.Closeable
     close: @nosuspend function(takes self: State): nil
     update: function(exclusive self: State, borrows bytes: Span<uint8>): nil

@@ -291,7 +291,7 @@ end
 function M.borrowedSpansCannotBeSent()
     refuses(
         [[
-local spans = require("binary.span")
+local spans = require("bytes.span")
 export function wrong(borrows sender: Sender<spans.Span<int32>>, borrows view: spans.Span<int32>): nil
     sender:send(view)
 end

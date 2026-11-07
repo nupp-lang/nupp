@@ -4,7 +4,7 @@ module nupp.runtime.browser.channels
 local effects = require("nupp.runtime.browser.effects")
 local suspension = require("nupp.suspension")
 local cancellation = require("nupp.suspension.cancellation")
-local binary = require("binary")
+local byteapi = require("bytes")
 local codec = require("nupp.workers.internal.valuecodec")
 local contract = require("nupp.workers.internal.channeltypes")
 
@@ -56,7 +56,7 @@ local function update(value: any, response: any): nil
             value.consumed = math.max(value.consumed, answer.consumed or value.consumed)
             value.consumedBytes = math.max(value.consumedBytes, answer.consumedBytes or value.consumedBytes)
             if answer.payload ~= nil then
-                value.staged = assert(binary.base64decode(answer.payload))
+                value.staged = assert(byteapi.base64decode(answer.payload))
             end
         end
     end
@@ -122,7 +122,7 @@ local function offer(owner: any, bytes: string): string
     owner.sentBytes = owner.sentBytes + #bytes
     effects.request(
         "channel",
-        {operation = "send", handle = owner.handle, payload = binary.base64encode(bytes)},
+        {operation = "send", handle = owner.handle, payload = byteapi.base64encode(bytes)},
         function(response: any): nil
             if owner.live then
                 update(owner, response)

@@ -274,7 +274,7 @@ Each pass has a stable `OPT-n` code:
 | `OPT-2` | numeric-ipairs | -O1 | Use a numeric loop for a proved stable dense array |
 | `OPT-3` | constant-fold | -O1 | Fold exact primitives, branches, dead loops, and immutable paths |
 | `OPT-4` | static-callable | -O1 | Bind repeated immutable dotted callees at first use |
-| `OPT-5` | concat-buffer | -O1 | Append through io.Buffer instead of rebuilding a string each pass |
+| `OPT-5` | concat-buffer | -O1 | Append through bytes.Buffer instead of rebuilding a string each pass |
 | `OPT-6` | indexed-range | -O1 | Remove repeated bounds checks and temporary view objects |
 | `OPT-7` | inline-return-helper | -O1 | Inline a module's own single-return local helpers where they are called |
 | `OPT-8` | const-monomorphize | -O1 | Specialize functions for known constant arguments |
@@ -702,7 +702,7 @@ same block.
 
 ### `OPT-5`, concat buffer
 
-A loop that appends to a string uses a private builder behind `io.Buffer`.
+A loop that appends to a string uses a private builder behind `bytes.Buffer`.
 The equivalent public operations are:
 
 ::: code-group
@@ -719,7 +719,7 @@ end
 ```nupp [Equivalent buffer operations]
 
 function m.join(items: {string}): string
-    local __nuppBuf_1 = io.Buffer.create()
+    local __nuppBuf_1 = bytes.Buffer.create()
     for _, item in ipairs(items) do
         __nuppBuf_1:put(item, ",")
     end
@@ -745,7 +745,7 @@ the string again, so such a loop keeps its concatenation.
 
 ### `OPT-6`, indexed views
 
-[](binary.span.range) validates an inclusive range for trusted Span or SoA
+[](bytes.span.range) validates an inclusive range for trusted Span or SoA
 views. Matching accesses in the numeric loop become non-raising at every level,
 including in `@noraise` code. At `-O1`, they also become direct FFI accesses:
 

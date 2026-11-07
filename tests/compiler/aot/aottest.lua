@@ -354,7 +354,7 @@ function M.ordinaryLoopShapesCompile()
     -- functions.
     reports(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function map(
@@ -427,7 +427,7 @@ end
 function M.gpuIsAnExecutionTargetRatherThanALaneWidth()
     reports(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function map(
@@ -460,7 +460,7 @@ end
 function M.gpuTargetBindsACompilerGeneratedTypedObject()
     reportsGpu(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local gpu = require("io.gpu")
 local array = table.Array
 
@@ -488,7 +488,7 @@ return true
 
     reportsGpu(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local gpu = require("io.gpu")
 
 local struct Input value: float end
@@ -521,7 +521,7 @@ end
 
 function M.gpuResourcesAreClosableChildrenOfTheirContext()
     local header = [[
-local span = require("binary.span")
+local span = require("bytes.span")
 local gpu = require("io.gpu")
 local array = table.Array
 
@@ -687,7 +687,7 @@ end
 function M.gpuTargetWithoutRequiredLinkingRemainsAnOrdinaryFunction()
     reports(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot(target = "gpu")
 local function copy(
@@ -769,7 +769,7 @@ function M.spanMethodCallsAreAdmitted()
     -- pass that knows the receiver's type.
     reports(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function total(values: span.Span<float>): number
@@ -789,7 +789,7 @@ return {total = total}
 
     reports(
         [[
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function double(exclusive values: span.WriteSpan<float>): nil

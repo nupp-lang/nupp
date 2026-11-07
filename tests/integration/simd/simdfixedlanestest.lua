@@ -18,7 +18,7 @@ local M = {}
 
 local PRELUDE = [[
 local array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 ]]
 
@@ -613,7 +613,7 @@ end
 local FIXED = [[
 module fixed
 local array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local simd = require("simd")
 
 --- Every lane of a four-lane species in one kernel: a loop-carried vector,
@@ -642,7 +642,7 @@ local FIXED_CHECK = [[
 package.path = "build/native/?.lua;" .. package.path
 local m = require("fixed")
 local ffi = require("ffi")
-local span = require("binary.span")
+local span = require("bytes.span")
 local compiled = rawget(_G, "__nuppAotCompiled") or {}
 local input = ffi.new("float[7]", {1, 2, 3, 4, 5, 6, 7})
 local out = ffi.new("float[7]")

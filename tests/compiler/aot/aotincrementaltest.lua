@@ -50,7 +50,7 @@ local function kernel(index)
         [[
 module k%d
 
-local span = require("binary.span")
+local span = require("bytes.span")
 
 @aot
 local function scale%d(exclusive out: span.WriteSpan<float>, borrows input: span.Span<float>, factor: number): nil

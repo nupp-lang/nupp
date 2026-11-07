@@ -1,4 +1,4 @@
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local struct Transform2D
     x: float

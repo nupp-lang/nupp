@@ -19,7 +19,7 @@ representation; selection cannot make unrelated transport handles interoperable.
 ]]
 module nupp.io.net.contracts
 
-local span = require("binary.span")
+local span = require("bytes.span")
 
 local {type Address} = require("nupp.io.net.types")
 

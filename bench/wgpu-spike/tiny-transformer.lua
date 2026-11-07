@@ -2,7 +2,7 @@
 -- Q/K/V projections, scores, polynomial softmax, and value mixing are queued
 -- without an intermediate CPU boundary; one allocation supplies six dense views.
 local ffi = require("ffi")
-local span = require("binary.span")
+local span = require("bytes.span")
 local gemm = require("gemm")
 local transformer = require("transformer")
 local gpu = require("io.gpu")

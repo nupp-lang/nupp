@@ -19,8 +19,10 @@ use the retained client and effect transport directly.
 ]]
 module nupp.runtime.browser.http
 
+local byteapi = require("nupp.io.internal.bytes")
+
 local effects = require("nupp.runtime.browser.effects")
-local span = require("binary.span")
+local span = require("bytes.span")
 local response = require("nupp.runtime.browser.response")
 local suspension = require("nupp.suspension")
 local uri = require("io.internal.uri")
@@ -391,7 +393,7 @@ record http.Client is contracts.Client
             releaseBody(body)
             return nil, privateIo.toError(headersProblem)
         end
-        local storage = io.Buffer.create(bodyBytes)
+        local storage = byteapi.Buffer.create(bodyBytes)
         local lease = require("nupp.io.internal.bytes").reserveAt(storage, 0, bodyBytes)
         do
             local output = lease:span()

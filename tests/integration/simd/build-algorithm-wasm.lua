@@ -88,7 +88,7 @@ elseif name == "simd-json" then
         "src/tape.nupp",
         [[
 local array = table.Array
-local span = require("binary.span")
+local span = require("bytes.span")
 local indexer = require("simd_json.indexer")
 local u32 = math.u32
 local function indexed(source: string, capacity: integer): ({number}, number, number)
