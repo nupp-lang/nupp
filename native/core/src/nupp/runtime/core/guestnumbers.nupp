@@ -662,18 +662,24 @@ export function bitcall(ctx: voidptr, id: uint64, a: uint64, b: uint64): uint64
     end
 end
 
+const U32_BITS: uint64 = 32ULL
+const U32_MASK: uint64 = 0xffffffffULL
+const I32_SIGN_BIT: uint64 = 0x80000000ULL
+const I32_SIGN_EXTENSION: uint64 = 0xffffffff00000000ULL
+const U32_COUNT_MASK: uint64 = 31ULL
+
 -- Signed32 words are sign extended only at the boundary; the common kernel
 -- computes on exact low32 bit patterns, never through binary64 arithmetic.
 local function signed32(bits: uint64): uint64
-    local low = bits & 0xffffffffULL
-    return native.chooseWord(low >= 0x80000000ULL, low | 0xffffffff00000000ULL, low)
+    local low = bits & U32_MASK
+    return native.chooseWord(low >= I32_SIGN_BIT, low | I32_SIGN_EXTENSION, low)
 end
 
 -- The generated selector identifies a checked family and operation. Comparisons
 -- return tagged booleans; all other operations return exact integer bits.
 export function scalarbits(selector: uint64, left: uint64, right: uint64): uint64
-    local family = selector >> 32ULL
-    local operation = selector & 0xffffffffULL
+    local family = selector >> scalarkinds.SELECTOR_SHIFT
+    local operation = selector & scalarkinds.SELECTOR_MASK
     if family == scalarkinds.U64 then
         if operation == scalarkinds.ANDBITS then
             return left & right
@@ -685,9 +691,9 @@ export function scalarbits(selector: uint64, left: uint64, right: uint64): uint6
     if family ~= scalarkinds.I32 and family ~= scalarkinds.U32 then
         error("invalid scalar family")
     end
-    local a = left & 0xffffffffULL
-    local b = right & 0xffffffffULL
-    local count = b & 31ULL
+    local a = left & U32_MASK
+    local b = right & U32_MASK
+    local count = b & U32_COUNT_MASK
     local result = a
     if operation == scalarkinds.ADD then
         result = a + b
@@ -702,20 +708,20 @@ export function scalarbits(selector: uint64, left: uint64, right: uint64): uint6
     elseif operation == scalarkinds.XORBITS then
         result = a ~ b
     elseif operation == scalarkinds.NOTBITS then
-        result = a ~ 0xffffffffULL
+        result = a ~ U32_MASK
     elseif operation == scalarkinds.SHIFTLEFT then
         result = a << count
     elseif operation == scalarkinds.SHIFTRIGHTLOGICAL then
         result = a >> count
     elseif operation == scalarkinds.SHIFTRIGHTARITHMETIC then
         result = a >> count
-        if a >= 0x80000000ULL then
-            result = result | (0xffffffffULL << (32ULL - count))
+        if a >= I32_SIGN_BIT then
+            result = result | (U32_MASK << (U32_BITS - count))
         end
     elseif operation == scalarkinds.ROTATELEFT then
-        result = (a << count) | (a >> ((32ULL - count) & 31ULL))
+        result = (a << count) | (a >> ((U32_BITS - count) & U32_COUNT_MASK))
     elseif operation == scalarkinds.ROTATERIGHT then
-        result = (a >> count) | (a << ((32ULL - count) & 31ULL))
+        result = (a >> count) | (a << ((U32_BITS - count) & U32_COUNT_MASK))
     elseif operation == scalarkinds.LESSTHAN or operation == scalarkinds.LESSOREQUAL then
         local less = a < b
         if family == scalarkinds.I32 then
@@ -738,10 +744,10 @@ export function scalarbits(selector: uint64, left: uint64, right: uint64): uint6
             rest = rest & (rest - 1ULL)
         end
     elseif operation == scalarkinds.TRAILINGZEROS or operation == scalarkinds.LEADINGZEROS then
-        result = 32ULL
+        result = U32_BITS
         if a ~= 0ULL then
             result = 0ULL
-            local probe = native.chooseWord(operation == scalarkinds.LEADINGZEROS, 0x80000000ULL, 1ULL)
+            local probe = native.chooseWord(operation == scalarkinds.LEADINGZEROS, I32_SIGN_BIT, 1ULL)
             while a & probe == 0ULL do
                 result = result + 1ULL
                 if operation == scalarkinds.LEADINGZEROS then
@@ -766,7 +772,7 @@ export function scalarbits(selector: uint64, left: uint64, right: uint64): uint6
         signed = true
     end
 
-    return native.chooseWord(signed, signed32(result), result & 0xffffffffULL)
+    return native.chooseWord(signed, signed32(result), result & U32_MASK)
 end
 
 local function scalarword(ctx: voidptr, value: uint64, position: uint64): uint64
@@ -781,7 +787,7 @@ export function scalarcall(ctx: voidptr, id: uint64, a: uint64, b: uint64): uint
     if selector == 0ULL then
         error("invalid scalar library call")
     end
-    local operation = selector & 0xffffffffULL
+    local operation = selector & scalarkinds.SELECTOR_MASK
     local left = scalarword(ctx, a, 1ULL)
     local right: uint64 = 0ULL
     if operation == scalarkinds.ADD

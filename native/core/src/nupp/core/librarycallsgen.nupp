@@ -2,6 +2,9 @@ module nupp.core.librarycallsgen
 
 local corelibrary = require("nupp.compiler.vm.corelibrary")
 local coretexts = require("nupp.compiler.vm.coretexts")
+const SELECTOR_BITS: integer = 32
+const SELECTOR_BASE: integer = 4294967296
+
 local generator = {}
 
 local function constant(lines: {string}, name: string, value: integer): nil
@@ -98,6 +101,8 @@ function generator.scalars(): string
     table.sort(families)
     table.sort(operations)
     local familyIds, operationIds = {}, {}
+    constant(lines, "SELECTOR_SHIFT", SELECTOR_BITS)
+    constant(lines, "SELECTOR_MASK", SELECTOR_BASE - 1)
     lines[#lines + 1] = ""
     for index, name in ipairs(families) do
         familyIds[name] = index
@@ -117,7 +122,7 @@ function generator.scalars(): string
         lines[#lines + 1] = (index == 1 and "    if" or "    elseif") .. " id == calls." .. row.entry.name .. " then"
         lines[
             #lines + 1
-        ] = "        return " .. tostring(familyIds[row.family] * 4294967296 + operationIds[row.operation]) .. "ULL"
+        ] = "        return " .. tostring(familyIds[row.family] * SELECTOR_BASE + operationIds[row.operation]) .. "ULL"
     end
     lines[#lines + 1] = "    end"
     lines[#lines + 1] = ""
