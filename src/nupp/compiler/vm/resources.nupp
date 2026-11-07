@@ -21,9 +21,7 @@ local function expand(root: string, pattern: string): {string}
     return paths
 end
 
---- Carry the resources of the target `selfHost.target` names -- the compiler's
---- own -- in its VM image. A manifest naming none falls back to `compiler`.
-function resources.source(root: string, config: table): string
+local function collect(root: string, config: table): ({[string]: string}, {string})
     local selfHost = config.selfHost as {target: string?}?
     local name = selfHost and selfHost.target or "compiler"
     local target = assert(
@@ -60,6 +58,11 @@ function resources.source(root: string, config: table): string
         end
     end
     table.sort(keys)
+
+    return values, keys
+end
+
+local function encode(values: {[string]: string}, keys: {string}): string
     local source = {"return {"}
     for _, key in ipairs(keys) do
         source[#source + 1] = ("[%q] = %q,"):format(key, values[key])
@@ -67,6 +70,24 @@ function resources.source(root: string, config: table): string
     source[#source + 1] = "}"
 
     return table.concat(source, "\n")
+end
+
+--- Carry the resources of the target `selfHost.target` names -- the compiler's
+--- own -- in its VM image. A manifest naming none falls back to `compiler`.
+function resources.source(root: string, config: table): string
+    local values, keys = collect(root, config)
+    return encode(values, keys)
+end
+
+-- Bind the exact declaration inputs before the self-hosting environment exists.
+function resources.prepare(root: string, config: table): string
+    local values, keys = collect(root, config)
+    require("nupp.compiler.bundled").bind(values)
+    package.preload["nupp.embedded"] = function(): {[string]: string}
+        return values
+    end
+
+    return encode(values, keys)
 end
 
 export = resources

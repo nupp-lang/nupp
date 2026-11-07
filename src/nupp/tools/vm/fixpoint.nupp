@@ -103,22 +103,42 @@ function fixpoint.run(
         os.remove(stage)
         -- The seed by its whole path, since which image started is the claim.
         say(("stage %d: %s lowers %s"):format(index, index == 1 and previous or fs.basename(previous), root))
-        local status = process.run(
-            {
+        local command: {
+            string
+        } = {
+            "python3",
+            fs.join(root, "scripts/bootstrap-seed"),
+            "run",
+            pair as string,
+            "run",
+            previous,
+            "nupp.tools.vm.project",
+            "emit",
+            root,
+            "nupp.tools.vm.root",
+            vmProject.ROOT_EXTRAS,
+            "--output",
+            stage
+        }
+        if index == 1 then
+            command = {
                 "python3",
                 fs.join(root, "scripts/bootstrap-seed"),
                 "run",
                 pair as string,
-                "run",
+                "exec",
                 previous,
-                "nupp.tools.vm.project",
+                "nupp.tools.vm.root",
+                "run",
+                fs.join(root, "scripts/bootstrap-compiler.lua"),
                 "emit",
                 root,
-                "nupp.tools.vm.root",
-                vmProject.ROOT_EXTRAS,
-                "--output",
-                stage
-            },
+                stage,
+                vmProject.ROOT_EXTRAS
+            }
+        end
+        local status = process.run(
+            command,
             -- From the sources alone: no stage replays what an earlier emit kept.
             {
                 cwd = root,

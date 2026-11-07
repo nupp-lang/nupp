@@ -1,0 +1,16 @@
+#!/bin/sh
+# Bootstrap from the verified seed with this checkout's declaration data,
+# then let that compiler lower and link its own sources through vm-cli.
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+cd "$ROOT"
+PAIR=$(sh scripts/toolchain stage0-seed)
+python3 scripts/bootstrap-seed verify "$PAIR"
+mkdir -p build/vm-cli
+export NUPP_COMPILER_ROOT="$ROOT" NO_JIT=1 NO_AOT=1 SIMD_INTERPRET=1
+export NUPP_VM_EMIT_CACHE=
+"$PAIR/runtime" exec "$PAIR/compiler.image" nupp.tools.vm.root run \
+    "$ROOT/scripts/bootstrap-compiler.lua" emit "$ROOT" "$ROOT/build/vm-cli/bootstrap.image"
+python3 scripts/vm-cli install --runtime "$PAIR/runtime" --image build/vm-cli/bootstrap.image
+unset NO_AOT SIMD_INTERPRET
+exec python3 scripts/vm-cli build --seed vm "$@"

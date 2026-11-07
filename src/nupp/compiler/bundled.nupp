@@ -52,6 +52,10 @@ local function readFile(path: string): string?
 end
 
 local embedded: any = nil
+-- Self-hosting reads the checkout's declaration data with the pinned reader.
+function bundled.bind(files: {[string]: string}): nil
+    embedded = files
+end
 
 --- Where the compiler's carried files sit in a bundle whose entry is elsewhere in
 --- `nupp`: the packager keys a file outside the entry's directory from the directory

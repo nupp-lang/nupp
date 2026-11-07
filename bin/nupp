@@ -51,7 +51,7 @@ if [ -z "${NUPP_VM_CLI_IMAGE:-}" ] \
         # as it does for the rebuild below: an interpreter-only runtime.
         no_aot=
         [ "${NUPP_VM_AUTO_LINK:-1}" != 0 ] || no_aot=--no-aot
-        python3 "$ROOT/scripts/vm-cli" build --seed image $no_aot >&2
+        sh "$ROOT/scripts/bootstrap-compiler" $no_aot >&2
         bootstrap_status=$?
         rm -rf "$ROOT/.nupp/vm-cli-bootstrap.lock"
         [ "$bootstrap_status" -eq 0 ] || exit "$bootstrap_status"

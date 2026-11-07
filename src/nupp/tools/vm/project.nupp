@@ -359,7 +359,7 @@ local function emitFrom(
         assert(type(config) == "table", "manifest must return a table")
     end
     local carried = entry == "nupp.tools.vm.root"
-        and {["nupp.vm.cliResources"] = require("nupp.compiler.vm.resources").source(root, config)}
+        and {["nupp.vm.cliResources"] = require("nupp.compiler.vm.resources").prepare(root, config)}
         or nil
 
     return emitProject(root, config, entry, names(extras), hostBootstrap, carried, nil, nil, cacheDir)
