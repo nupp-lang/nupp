@@ -156,6 +156,7 @@ end
 
 function M.cleanupContinuesAfterProviderReleaseFailure()
     local released = {encoder = 0, decoder = 0, destination = 0, source = 0}
+    local decoderFailure = true
     local fixture = {
         formats = {
             fixture = {
@@ -181,7 +182,9 @@ function M.cleanupContinuesAfterProviderReleaseFailure()
                         end,
                         close = function()
                             released.decoder = released.decoder + 1
-                            error("decoder release failed")
+                            if decoderFailure then
+                                error("decoder release failed")
+                            end
                         end,
                     }
                 end,
@@ -202,18 +205,45 @@ function M.cleanupContinuesAfterProviderReleaseFailure()
     assert(not ok and tostring(problem):find("encoder release failed", 1, true), tostring(problem))
     assert(released.encoder == 1 and released.destination == 1)
 
-    local source = {
-        readspan = function()
-            return 0
-        end,
-        close = function()
-            released.source = released.source + 1
-        end,
-    }
-    local reader = format:reader(source, {workspacebytes = 1, unbounded = true})
-    ok, problem = pcall(reader.close, reader)
+    local function input(failure)
+        return {
+            readspan = function()
+                return 0
+            end,
+            close = function()
+                released.source = released.source + 1
+                if failure then
+                    error("source release failed")
+                end
+            end,
+        }
+    end
+
+    local function closeReader(failure)
+        local reader = format:reader(input(failure), {workspacebytes = 1, unbounded = true})
+        return pcall(reader.close, reader)
+    end
+
+    ok, problem = closeReader(false)
     assert(not ok and tostring(problem):find("decoder release failed", 1, true), tostring(problem))
     assert(released.decoder == 1 and released.source == 1)
+
+    ok, problem = closeReader(true)
+    assert(
+        not ok and tostring(problem):find("decoder release failed (suppressed 1 cleanup failure)", 1, true),
+        tostring(problem)
+    )
+    assert(released.decoder == 2 and released.source == 2)
+
+    decoderFailure = false
+    ok, problem = closeReader(true)
+    assert(not ok and tostring(problem):find("source release failed", 1, true), tostring(problem))
+    assert(not tostring(problem):find("suppressed", 1, true), tostring(problem))
+    assert(released.decoder == 3 and released.source == 3)
+
+    ok, problem = closeReader(false)
+    assert(ok, tostring(problem))
+    assert(released.decoder == 4 and released.source == 4)
 end
 
 function M.targetBindingRetainsCatalogWithoutDiscovery()

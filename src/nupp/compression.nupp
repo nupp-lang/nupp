@@ -174,13 +174,13 @@ local function decoderOptions(settings: CompressionReaderOptions, name: string):
     return options
 end
 
+local function closeOne(takes value: own.Closeable): nil
+    value:close()
+end
+
 local function closeBoth(takes first: own.Closeable, takes second: own.Closeable): nil
-    local firstOk, firstFailure = pcall(function(): nil takes (first)
-        first:close()
-    end)
-    local secondOk, secondFailure = pcall(function(): nil takes (second)
-        second:close()
-    end)
+    local firstOk, firstFailure = pcall(closeOne, first)
+    local secondOk, secondFailure = pcall(closeOne, second)
     if not firstOk then
         if not secondOk then
             error(tostring(firstFailure) .. " (suppressed 1 cleanup failure)", 0)
