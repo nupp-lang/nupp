@@ -2411,6 +2411,25 @@ end
 -- new suite reaches one. Shell calls instead choose reusable process workers:
 -- several suites share each worker, and a failed case does not end its queue.
 local PROCESS_ISOLATED = {
+    evalfilesystemtest = true,
+    evalcatalogtest = true,
+    evalsemanticstest = true,
+    templateresolutiontest = true,
+    templatesubstitutiontest = true,
+    templatemanifesttest = true,
+    templatevariabletest = true,
+    templatetreetest = true,
+    templatesandboxtest = true,
+    templatepathtest = true,
+    templateresourcetest = true,
+    templateremotetest = true,
+    templatetest = true,
+    templatelibtest = true,
+    templatebrowsertest = true,
+    templatesimdtest = true,
+    templatelovetest = true,
+    templategametest = true,
+
     bundlefactorytest = true,
     bundlecomponenttest = true,
     bundlebootstraptest = true,
@@ -2499,6 +2518,19 @@ local processCalls = {
 
 local shellCalls = {"os.execute", "io.popen",}
 local SHELLING = {
+    buildprogresstest = true,
+    buildprogressspecializationtest = true,
+    buildprogressclitest = true,
+
+    fmttreetest = true,
+    fmttree2test = true,
+    fmttree3test = true,
+    fmttree4test = true,
+
+    fmtclitest = true,
+    fmtoptionclitest = true,
+    fmtcacheclitest = true,
+
     benchgpuprocesstest = true,
     benchrecordsprocesstest = true,
     benchschemaprocesstest = true,

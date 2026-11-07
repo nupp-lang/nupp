@@ -79,7 +79,21 @@ local groups = {
         "lua51compattest",
         "portableiocontractstest",
         "targetprofiletest",
+        "templateresolutiontest",
+        "templatesubstitutiontest",
+        "templatemanifesttest",
+        "templatevariabletest",
+        "templatetreetest",
+        "templatesandboxtest",
+        "templatepathtest",
+        "templateresourcetest",
+        "templateremotetest",
         "templatetest",
+        "templatelibtest",
+        "templatebrowsertest",
+        "templatesimdtest",
+        "templatelovetest",
+        "templategametest",
     },
 
     ["gpu"] = {"gputest"},
@@ -349,6 +363,55 @@ scopes.bundleforktest = "delivery"
 scopes.bundlelifetimetest = "delivery"
 scopes.bundlechanneltest = "delivery"
 scopes.bundlededicatedtest = "delivery"
+
+-- Independent packages retain the original suite obligations.
+scopes.templateresolutiontest = "component"
+scopes.templatesubstitutiontest = "component"
+scopes.templatemanifesttest = "component"
+scopes.templatevariabletest = "component"
+scopes.templatetreetest = "integration"
+scopes.templatesandboxtest = "integration"
+scopes.templatepathtest = "integration"
+scopes.templateresourcetest = "integration"
+scopes.templateremotetest = "integration"
+scopes.templatelibtest = "integration"
+scopes.templatebrowsertest = "integration"
+scopes.templatesimdtest = "integration"
+scopes.templatelovetest = "integration"
+scopes.templategametest = "integration"
+
+-- Independent packages retain the original suite obligations.
+scopes.fmtlayouttest = "component"
+scopes.fmttypetest = "component"
+scopes.fmtselflexertest = "component"
+scopes.fmtselfcsttest = "component"
+scopes.fmtselfparsertest = "component"
+scopes.fmtselfdisplaywidthtest = "component"
+scopes.fmtselfformattertest = "component"
+scopes.fmtselfmaintest = "component"
+
+-- Independent packages retain the original suite obligations.
+scopes.fmtoptionclitest = "integration"
+scopes.fmtcacheclitest = "integration"
+
+-- Independent packages retain the original suite obligations.
+scopes.fmttree2test = "integration"
+scopes.fmttree3test = "integration"
+scopes.fmttree4test = "integration"
+
+-- Independent packages retain the original suite obligations.
+scopes.buildprogressspecializationtest = "integration"
+scopes.buildprogressclitest = "integration"
+
+scopes.buildprogresstest = "unit"
+
+scopes.evalsemanticstest = "component"
+
+scopes.evalstest = "integration"
+
+scopes.evalcatalogtest = "integration"
+
+scopes.evalfilesystemtest = "integration"
 
 return groups, {
     scopes = scopes,

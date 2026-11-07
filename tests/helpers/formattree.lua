@@ -68,22 +68,13 @@ local function checkPart(part)
     assert(status == 0, ("this tree is not formatted; run `nupp fmt --write`:\n%s"):format(out))
 end
 
-local M = {}
-
-function M.everySourceIsFormattedPart1()
-    checkPart(1)
-end
-
-function M.everySourceIsFormattedPart2()
-    checkPart(2)
-end
-
-function M.everySourceIsFormattedPart3()
-    checkPart(3)
-end
-
-function M.everySourceIsFormattedPart4()
-    checkPart(4)
-end
-
-return M
+return {
+    envMod = envMod,
+    HERE = HERE,
+    ROOT = ROOT,
+    NUPP = NUPP,
+    PARTS = PARTS,
+    sources = sources,
+    sourceFiles = sourceFiles,
+    checkPart = checkPart,
+}

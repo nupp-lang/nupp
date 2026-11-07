@@ -5,7 +5,7 @@ local M = {}
 
 function M.theEvaluationHarnessIsImplementedAndTestedInNupp()
     local output = os.tmpname()
-    local status = os.execute(("'%s' run tests/fixtures/evals_selftest.nupp > '%s' 2>&1"):format(NUPP, output))
+    local status = os.execute(("'%s' run tests/fixtures/evals/compiler.nupp > '%s' 2>&1"):format(NUPP, output))
     local file = assert(io.open(output, "rb"))
     local text = file:read("*a")
     file:close()

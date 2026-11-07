@@ -1,0 +1,35 @@
+const assert2 = require("assert")
+
+local harness = require("harness")
+local tier1 = require("tier1eval")
+local batch = require("batcheval")
+local tier2 = require("tier2eval")
+local json = require("serde.json")
+
+local function equal(got: any, expected: any, label: string): nil
+    if got ~= expected then
+        error(("%s: expected %s, got %s"):format(label, tostring(expected), tostring(got)), 2)
+    end
+end
+
+local diffRoot = harness.temporaryDirectory("nupp-eval-selftest-")
+harness.write(harness.join(diffRoot, "before", "src", "sample.nupp"), "return 1\n")
+harness.write(harness.join(diffRoot, "after", "src", "sample.nupp"), "return 2\n")
+local diff = tier2.directoryDiff(diffRoot)
+local copied = harness.join(diffRoot, "copied")
+harness.copyTree(harness.join(diffRoot, "before"), copied)
+equal(harness.read(harness.join(copied, "src", "sample.nupp")), "return 1\n", "recursive filesystem copy")
+harness.remove(diffRoot)
+assert2(diff:find("diff --git a/src/sample.nupp b/src/sample.nupp", 1, true), "diff paths are stable")
+assert2(diff:find("-return 1", 1, true), "diff contains the prior source")
+assert2(diff:find("+return 2", 1, true), "diff contains the repaired source")
+
+local jsonRoot = harness.temporaryDirectory("nupp-eval-json-selftest-")
+local jsonPath = harness.join(jsonRoot, "record.json")
+harness.writeJson(jsonPath, {z = 2, a = json.asarray({1, 2}),})
+local encoded = harness.read(jsonPath)
+harness.remove(jsonRoot)
+assert2(encoded:find('^%{\n  "a": %['), "records are readable JSON")
+assert2(encoded:find('\n  "z": 2\n%}\n$'), "record keys are stable")
+
+print("evaluation harness self-test passed")

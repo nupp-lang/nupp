@@ -1,0 +1,26 @@
+const assert2 = require("assert")
+
+local harness = require("harness")
+local tier1 = require("tier1eval")
+local batch = require("batcheval")
+local tier2 = require("tier2eval")
+local json = require("serde.json")
+
+local function equal(got: any, expected: any, label: string): nil
+    if got ~= expected then
+        error(("%s: expected %s, got %s"):format(label, tostring(expected), tostring(got)), 2)
+    end
+end
+
+local compiler = harness.absolute("bin/nupp")
+local runnable = batch.runnable(compiler, 4)
+local hasBindingTask = false
+for _, code in ipairs(runnable) do
+    if code == "NUPP2001" then
+        hasBindingTask = true
+        break
+    end
+end
+assert2(hasBindingTask, "the concurrent corpus scan keeps runnable diagnostics")
+
+print("evaluation harness self-test passed")

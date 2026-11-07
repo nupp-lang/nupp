@@ -1,0 +1,26 @@
+const assert2 = require("assert")
+
+local harness = require("harness")
+local tier1 = require("tier1eval")
+local batch = require("batcheval")
+local tier2 = require("tier2eval")
+local json = require("serde.json")
+
+local function equal(got: any, expected: any, label: string): nil
+    if got ~= expected then
+        error(("%s: expected %s, got %s"):format(label, tostring(expected), tostring(got)), 2)
+    end
+end
+
+local compiler = harness.absolute("bin/nupp")
+local taskRoot = harness.temporaryDirectory("nupp-eval-tier1-selftest-")
+local catalogEntry = tier1.loadTask(compiler, "NUPP2001")
+local workspace = tier1.makeWorkspace(taskRoot, compiler, catalogEntry)
+local actualBefore = tier1.check(compiler, workspace, catalogEntry)
+assert2(#actualBefore > 0 and actualBefore[1].code == "NUPP2001", "the catalogue example reports its code")
+harness.write(harness.join(workspace, "sample.nupp"), catalogEntry.right)
+local actualAfter = tier1.check(compiler, workspace, catalogEntry)
+equal(#actualAfter, 0, "the catalogue repair checks cleanly")
+harness.remove(taskRoot)
+
+print("evaluation harness self-test passed")
