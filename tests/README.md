@@ -36,3 +36,21 @@ name. Use `require("helpers.paths")` in Lua suites for the repository root or
 shared test directory, rather than counting parent directories from a suite.
 The `tests` field preserves relative paths; use `absoluteTests` for commands that
 change their working directory, and `root` for the absolute repository root.
+
+## Validation
+
+`scripts/test-changed [REF]` selects the union of a batch's CI surfaces. Use
+`--list-suites` to inspect its selection and `--fresh` for an authoritative run.
+The default base is `origin/main`; working-tree and untracked files count too.
+
+`tests/groups.lua` returns named groups and repository policy. Its scope map
+assigns every suite a coverage obligation; `--scope=NAME` selects that obligation,
+while `--lane=NAME` selects its execution constraints. Delivery is explicit and
+CI uses `--scope=all --fresh` to keep its coverage.
+
+Package result caching is opt-in. Add `cache = true` only after its complete
+inputs are covered, and declare shared files with `inputs`. Dynamic loads,
+subprocesses and unresolved modules remain uncached. See
+[testing.md](../docs/learn/projects/testing.md#passing-result-cache) for the flags
+and cache contract. Timing output reports packages over 60 seconds of aggregate
+suite wall time; that is a splitting signal, not a CPU measurement.

@@ -17,6 +17,12 @@ lines under 72 characters.
 
 Before every commit, run `./bin/nupp fmt --write` on all changed code files.
 
+When validation costs more than the changes, batch up to three or four related
+changes behind one validation or stage-zero boundary. Keep a separate, buildable,
+formatted commit for each change. Run the union of their affected checks once on
+the finished batch before pushing; that run validates its tip, not every earlier
+commit. Bisect a failing batch by commit. Ordinary changes still land individually.
+
 Main moving underneath you while you integrate, and the rebase that follows,
 is the expected, natural consequence of other agents working in parallel out
 of their own worktrees. Do not report this or call it out as needing
@@ -175,6 +181,14 @@ unfinished work that was asked to be completed, complete it. For work that
 truly needs a concerted followup, add a GitHub issue to track it.
 
 ## Verification
+
+`scripts/test-changed [REF]` validates the union of the CI surfaces reached by
+commits since `REF` (default `origin/main`), staged, unstaged, and untracked
+files. It uses the CI classifier, runs each selected group once, and runs
+fixpoint when selected. `--list-suites` previews the selection; `--fresh`
+forces execution instead of passing-result reuse. Markdown and CSS changes
+call for direct inspection. Compiler changes still select broadly.
+
 
 `.githooks/pre-push` refuses a push carrying source `nupp fmt` would rewrite,
 asking only about the files that push adds or changes. `scripts/worktree` points

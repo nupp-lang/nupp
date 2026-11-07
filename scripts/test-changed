@@ -1,0 +1,54 @@
+#!/bin/sh
+# Validate the union of a batch's CI surfaces, including working-tree edits.
+set -eu
+root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+cd "$root"
+base=origin/main
+fresh=
+listing=
+seen_ref=no
+for argument in "$@"; do
+    case "$argument" in
+        --fresh) fresh=--fresh ;;
+        --list-suites) listing=--list-suites ;;
+        -*) echo "usage: scripts/test-changed [REF] [--fresh] [--list-suites]" >&2; exit 2 ;;
+        *) [ "$seen_ref" = no ] || { echo "only one base ref is allowed" >&2; exit 2; }
+           base=$argument; seen_ref=yes ;;
+    esac
+done
+base=$(git rev-parse --verify "$base^{commit}")
+paths=$(mktemp)
+selection=$(mktemp)
+trap 'rm -f "$paths" "$selection"' EXIT HUP INT TERM
+git diff --name-only -z --no-renames "$base" HEAD > "$paths"
+git log -m --format= --name-only -z --no-renames "$base..HEAD" >> "$paths"
+git diff --name-only -z --no-renames >> "$paths"
+git diff --cached --name-only -z --no-renames >> "$paths"
+git ls-files --others --exclude-standard -z >> "$paths"
+if [ ! -s "$paths" ]; then
+    echo "No changed paths; no checks selected."
+    exit 0
+fi
+# Use the already selected interpreter. A plain classifier needs no compiler build.
+if command -v luajit >/dev/null 2>&1; then
+    interpreter=$(command -v luajit)
+else
+    interpreter="$(./scripts/toolchain luajit)/bin/luajit"
+fi
+"$interpreter" scripts/test-selection.lua "$paths" > "$selection"
+set --
+fixpoint=no
+while IFS= read -r obligation; do
+    case "$obligation" in
+        all) set -- "$@" --scope=all ;;
+        group=*) set -- "$@" "--group=${obligation#group=}" ;;
+        suite=*) set -- "$@" "${obligation#suite=}" ;;
+        fixpoint) fixpoint=yes ;;
+        inspect) echo "Documentation-only change: inspect the affected content or styling directly." ;;
+    esac
+done < "$selection"
+if [ "$#" -gt 0 ]; then
+    # Optional flags expand to zero or one fixed argument, never user text.
+    ./bin/nupp test "$@" ${fresh:+"$fresh"} ${listing:+"$listing"}
+fi
+if [ "$fixpoint" = yes ] && [ -z "$listing" ]; then ./bin/nupp fixpoint; fi

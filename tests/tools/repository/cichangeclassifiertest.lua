@@ -435,4 +435,20 @@ function M.gatingTheRunnerSuiteDoesNotGateTheRestOfTheBenchSurface()
     )
 end
 
+function M.localBatchSelectionUsesTheCiSurfaceUnion()
+    local localPolicy = dofile("scripts/test-selection.lua")
+    test(localPolicy.select({"src/nupp/compiler/check/callexpr.nupp"}).all)
+    test(localPolicy.select({"some/new/place"}).all)
+    test(localPolicy.select({"some/new/style.css"}).all)
+    test(localPolicy.select({"tests/stdlib/serde/serdetest.lua"}).all)
+    local batch = localPolicy.select({"docs/learn/language/types.md", "src/nupp/compiler/check/callexpr.nupp"})
+    test(batch.all and batch.fixpoint)
+    local prose = localPolicy.select({"docs/learn/language/types.md", "src/nupp/tools/doc/theme.css"})
+    test(prose.inspect and not prose.all and #prose.groups == 0)
+    local measurement = localPolicy.select({"bench/serde-spike/matrix.lua"})
+    test.eq(measurement.groups[1], "measurement")
+    test.eq(measurement.suites[1], "benchtest")
+    test.eq(#localPolicy.select({}).groups, 0)
+end
+
 return M
