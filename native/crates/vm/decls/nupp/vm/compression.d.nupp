@@ -1,13 +1,13 @@
 -- The compression primitives the VM's compression provider is written over.
 -- Steps read and write the spans they are given in place and answer the
 -- crate's progress: bytes consumed, bytes written and the step status.
-local {type ByteSpan, type ByteWriteSpan} = require("binary.span")
+local {type Span, type ByteWriteSpan} = require("binary.span")
 
 local record Host
     encoderCreate: function(format: integer, level: integer): (integer?, string?)
     encoderWrite: function(
         encoder: integer,
-        borrows input: ByteSpan,
+        borrows input: Span<uint8>,
         exclusive output: ByteWriteSpan
     ): (integer?, integer?, integer?, string?)
     encoderFlush: function(encoder: integer, exclusive output: ByteWriteSpan): (integer?, integer?, string?)
@@ -16,7 +16,7 @@ local record Host
     decoderCreate: function(format: integer, concatenatedMembers: boolean): (integer?, string?)
     decoderRead: function(
         decoder: integer,
-        borrows input: ByteSpan,
+        borrows input: Span<uint8>,
         exclusive output: ByteWriteSpan
     ): (integer?, integer?, integer?, string?)
     decoderFinishInput: function(decoder: integer, exclusive output: ByteWriteSpan): (integer?, integer?, string?)

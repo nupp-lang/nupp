@@ -11,7 +11,7 @@ local nativeBridge
 
 function M.beforeAll()
     if onVm then
-        bytes = require(moduleName).Bytes
+        bytes = require(moduleName).SharedBytes
         return
     end
     local nextIdentity = 0
@@ -277,15 +277,17 @@ function M.constructingBytesWithoutTheEngineReportsTheHostRequirement()
     if onVm then
         local actual = require("binary._representation")
         local representation = {storage = false}
-        local load = require("helpers.providerstate").instance(
-            {[typesName] = true, [moduleName] = true},
-            {["binary._representation"] = representation}
-        )
-        local public = load(typesName).Bytes
+        local load = require("helpers.providerstate").instance({[typesName] = true, [moduleName] = true}, {
+            ["binary._representation"] = representation
+        })
+        local public = load(typesName).SharedBytes
         assert(type(public) == "table", "the type loads before its storage provider")
         local ok, problem = pcall(public.copy, "payload")
         assert(not ok)
-        assert(tostring(problem):find("no storage implementation is available for the target", 1, true), tostring(problem))
+        assert(
+            tostring(problem):find("no storage implementation is available for the target", 1, true),
+            tostring(problem)
+        )
         representation.storage = actual.storage
         local recovered = public.copy("payload")
         assert(recovered:tostring() == "payload", "a failed initialization must not poison the factory")
@@ -310,16 +312,17 @@ function M.nativeInitializationErrorsRetainTheirIdentity()
         local fail = true
         local marker = {}
         local actual = require("binary._representation")
-        local load = require("helpers.providerstate").instance(
-            {[typesName] = true, [moduleName] = true},
-            nil,
-            {["binary._representation"] = function()
+        local load = require("helpers.providerstate").instance({[typesName] = true, [moduleName] = true}, nil, {
+            ["binary._representation"] = function()
                 attempts = attempts + 1
-                if fail then error(marker, 0) end
+                if fail then
+                    error(marker, 0)
+                end
+
                 return actual
-            end}
-        )
-        local public = load(typesName).Bytes
+            end
+        })
+        local public = load(typesName).SharedBytes
         assert(attempts == 0, "requiring the type must leave storage initialization untouched")
         local ok, problem = pcall(public.copy, "payload")
         assert(not ok and problem == marker, "storage initialization errors retain their exact identity")
@@ -354,16 +357,19 @@ function M.typedViewsUseTheAddressAlignmentRatherThanTheElementWidth()
     if onVm then
         local parser = require("nupp.compiler.syntax.parser")
         local environment = require("nupp.compiler.project.env").new(require("helpers.paths").tests .. "/..")
-        local parsed = parser.parse([[
+        local parsed = parser.parse(
+            [[
 local struct Triple
     a: int32
     b: int32
     c: int32
 end
-local region = io.Bytes.copy(string.rep("\0", 28)):slice(4, 24)
+local region = io.SharedBytes.copy(string.rep("\0", 28)):slice(4, 24)
 local values = region:viewas(ffi.typeof<Triple>())
 return #values
-]], "bytes-alignment.nupp")
+]],
+            "bytes-alignment.nupp"
+        )
         assert(#parsed.errors == 0)
         for _, diagnostic in ipairs(require("helpers.fragment").check(parsed, "bytes-alignment.nupp", environment)) do
             assert(diagnostic.severity ~= "error", diagnostic.msg)
