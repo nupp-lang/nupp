@@ -356,6 +356,30 @@ function M.componentsShareOneRuntimeAndRejectNameCollisions()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.aBootstrapCompilerRetainsPublicRuntimeArtifacts()
+    local dir = tempProject({
+        ["build/nupp/tools/main.lua"] = 'return _G.__nuppCompilerModuleArtifacts["debug.log"].source',
+        ["build/debug/log.lua"] = "return 17",
+    })
+    local target = {kind = "modules", outDir = "build", entries = {"nupp.tools.main"}}
+    local modules = {
+        ["nupp.tools.main"] = {output = dir .. "/build/nupp/tools/main.lua"},
+        ["debug.log"] = {output = dir .. "/build/debug/log.lua"},
+    }
+    local text = assert(packaging.bundleText(dir, {}, target, nil, modules))
+    local savedArtifacts = rawget(_G, "__nuppCompilerModuleArtifacts")
+    local savedMain, savedMainLoaded = package.preload["nupp.tools.main"], package.loaded["nupp.tools.main"]
+    local savedLog, savedLogLoaded = package.preload["debug.log"], package.loaded["debug.log"]
+    package.loaded["nupp.tools.main"] = nil
+    local ok, result = pcall(assert(loadstring(text)))
+    package.preload["nupp.tools.main"], package.loaded["nupp.tools.main"] = savedMain, savedMainLoaded
+    package.preload["debug.log"], package.loaded["debug.log"] = savedLog, savedLogLoaded
+    rawset(_G, "__nuppCompilerModuleArtifacts", savedArtifacts)
+    os.execute("rm -rf '" .. dir .. "'")
+    assert(ok, result)
+    assert(result == "return 17", "a bootstrap compiler can reuse its public runtime without a module directory")
+end
+
 function M.compilerHostPreambleMasksUniversalStubFeaturesBeforeUserCode()
     local dir = tempProject({
         [

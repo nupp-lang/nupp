@@ -152,14 +152,13 @@ local function bundleText(
         hash: string,
         name: string
     }} = {}
-    local compilerArtifactBundle = target.kind == "binary" and target.stub == "nupp" and mainName == "nupp.tools.main"
+    local compilerArtifactBundle = mainName == "nupp.tools.main"
     if compilerArtifactBundle then
         chunks[#chunks + 1] = "local __nuppCompilerSources = {}\n"
     end
 
     local function compilerArtifact(name: string): boolean
         return compilerArtifactBundle
-            and name:match("^nupp%.") ~= nil
             and name:match("^nupp%.tools%.") == nil
             and (name:match("^nupp%.compiler%.") == nil or name:match("^nupp%.compiler%.runtime%.") ~= nil)
     end
@@ -305,7 +304,7 @@ local function bundleText(
         end
     end
 
-    -- A stamped compiler has no module directory to lend a later component build.
+    -- A self-contained compiler has no module directory to lend a later build.
     -- Keep its generated module source and the exact runtime graph generation
     -- recorded for it. The same source string created the compiler's preload above,
     -- so this makes it reusable without storing a second copy in the executable.
