@@ -158,7 +158,8 @@ export const functions: {[string]: any} = {
 local mathmembers: {
     [string]: any
 } = {huge = math.huge, pi = math.pi, maxinteger = math.maxinteger, mininteger = math.mininteger}
-local libraries: {[string]: {[string]: any}} = {math = mathmembers, string = {}, table = {}}
+local stringmembers: {[string]: any} = {}
+local libraries: {[string]: {[string]: any}} = {math = mathmembers, string = stringmembers, table = {}}
 for name, value in pairs(functions) do
     local library, field = string.match(name, "^(%a+)%.(%a+)$")
     local members = library and libraries[library]
@@ -296,6 +297,9 @@ mathmembers.f32 = {
 for library, members in pairs(libraries) do
     functions[library] = members
 end
+
+-- Builtin strings share this mutable metatable and the actual public library.
+hostcalls.stringmeta({__index = stringmembers})
 
 -- `_G`: the library functions above by their global names, and itself.
 local globals: {[string]: any} = {}

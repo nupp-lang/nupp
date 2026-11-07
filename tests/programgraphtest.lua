@@ -1862,4 +1862,56 @@ return Child()
     issued[2].node[1] = anchor
 end
 
+local function stringmetagraph(source)
+    local base = checked(
+        "module nupp.runtime.libraryvalues\nexport const functions: {[string]: any} = {}",
+        graph.libraryModule("string")
+    )
+    local entry = checked(source, "nupp.core.stringmetainit")
+    local p = program.describe({base, entry}, entry.name)
+    local owner = p.owners[p.modules[2].chunk + 1]
+    local loads = p.qualifiedLoads[owner.id] or {}
+    test.eq(#loads, 1)
+    test.eq(loads[1].module, base.name)
+    test.eq(loads[1].target, p.modules[1].chunk)
+    test.eq(loads[1].eager, true)
+    test.eq(#(p.qualifiedLoads[p.modules[1].chunk] or {}), 0)
+    test.eq(program.verify(p), true)
+
+    return p, loads[1]
+end
+
+function M.dynamicStringReadsInitializeCanonicalLibraryOnce()
+    for _, source in ipairs({
+        "local function use(value: any): any return value:sub(2) end; return use('abc')",
+        "return getmetatable('abc')",
+        "local get=getmetatable; local a=get('abc'); return a==getmetatable('def')",
+        "local get=_G.getmetatable; return get('abc')"
+    }) do
+        stringmetagraph(source)
+    end
+end
+
+function M.stringMetatableDependencyRejectsChangedModule()
+    local p, load = stringmetagraph("return getmetatable('abc')")
+    load.node.qualifiedModule = "changed.module"
+    refuses(
+        function()
+            program.verify(p)
+        end,
+        "qualified path lacks its checked module"
+    )
+end
+
+function M.stringMetatableDependencyRejectsChangedTarget()
+    local p, load = stringmetagraph("return getmetatable('abc')")
+    load.target = p.entry
+    refuses(
+        function()
+            program.verify(p)
+        end,
+        "require callsite target mismatch"
+    )
+end
+
 return M

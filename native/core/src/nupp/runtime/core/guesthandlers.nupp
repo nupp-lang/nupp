@@ -1552,6 +1552,8 @@ export function LibCall(
         slots.writeValue(frame, regs, dst, guestio.systemtext(ctx, a))
     elseif libraryId == librarycalls.HOST_SYSTEM_INTEGER then
         slots.writeValue(frame, regs, dst, guestio.systeminteger(ctx, a))
+    elseif libraryId == librarycalls.STRING_METATABLE then
+        slots.writeValue(frame, regs, dst, guestmeta.stringmeta(ctx, a))
     elseif libraryId == librarycalls.HOST_ARGUMENTS then
         slots.writeValue(frame, regs, dst, guestio.arguments(ctx))
     elseif libraryId >= librarycalls.WIDTHS_FIRST and libraryId <= librarycalls.WIDTHS_LAST then

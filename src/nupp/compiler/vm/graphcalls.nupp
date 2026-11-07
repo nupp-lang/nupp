@@ -606,6 +606,7 @@ local coreLibrary: {[string]: boolean} = {
     ["os.monotonic"] = true,
     collectgarbage = true,
     ["hostcalls.arguments"] = true,
+    ["hostcalls.stringmeta"] = true,
     ["hostcalls.argerror"] = true,
     ["hostcalls.randombytes"] = true,
     ["hostcalls.systemtext"] = true,
@@ -854,12 +855,33 @@ end
 
 -- Whether an unchecked tree may take a library function as a value: a name
 -- or field spelled as one, outside a call's callee. A builder reads it to
--- carry `nupp.runtime.libraryvalues`; carrying it needlessly costs nothing.
-export function mayTakeLibraryValue(root: any): boolean
+-- carry `nupp.runtime.libraryvalues` conservatively before checked lowering.
+export function mayTakeLibraryValue(root: any, dynamic: boolean?): boolean
     local found = false
     local walk: function(any, boolean): nil
     walk = function(node: any, callee: boolean): nil
         if found or type(node) ~= "table" then
+            return
+        end
+        -- Unchecked dynamic receivers may be strings, whose fields need the
+        -- canonical library's builtin metatable. This is dependency discovery,
+        -- not authority to dispatch a call through a builtin.
+        if dynamic ~= false
+            and (
+                node.kind == "methodCall"
+                or node.kind == "bracketIndex"
+                or node.kind == "safeIndex"
+                or node.kind == "name" and node.token and node.token.text == "getmetatable"
+                or node.kind == "dotIndex"
+                and node.obj
+                and (
+                    node.obj.kind ~= "name"
+                    or node.obj.token
+                    and (node.obj.token.text == "_G" or not coreLibrary[node.obj.token.text .. "." .. node.name.text])
+                )
+            )
+        then
+            found = true
             return
         end
         if not callee then

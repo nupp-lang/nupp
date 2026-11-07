@@ -1216,8 +1216,14 @@ function program.describe(modules: {any}, entryModule: string): any
             end
         end
     end
+    local stringbase = moduleNames[graph.libraryModule("string")]
     for _, module in ipairs(p.modules) do
         currentChunk = p.owners[module.chunk + 1]
+        if stringbase and stringbase ~= module and graph.mayTakeLibraryValue(module.parsed.root) then
+            local seen = loaded[currentChunk] or {}
+            loaded[currentChunk] = seen
+            seen[stringbase.name] = eagerLoad(currentChunk, stringbase, cst.firstToken(module.parsed.root), true)
+        end
         collect(module.parsed.root, currentChunk)
     end
     -- An image carrying the module behind `warn` and the finalizers loads it

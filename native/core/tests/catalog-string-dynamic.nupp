@@ -1,0 +1,10 @@
+module nupp.core.catalogstringdynamic
+
+-- No string namespace value, getmetatable or protected-call alias carries the
+-- library for this dynamic read: the receiver alone requires its metatable.
+local function use(value: any): any
+    return value:sub(2)
+end
+
+assert(use("abcd") == "bcd")
+export = 1

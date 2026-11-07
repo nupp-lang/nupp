@@ -47,6 +47,9 @@ local CASES: {[string]: {
     rooted: boolean?,
     module: string?
 }} = {
+    stringdynamic = {fixture = "catalog-string-dynamic", version = 8},
+    stringmetaonly = {fixture = "catalog-string-metatable-only", version = 8},
+    stringmetatable = {fixture = "catalog-string-metatable", version = 8},
     scalarmath = {fixture = "catalog-scalar-math", version = 8, follow = true},
     scalarrandom = {fixture = "catalog-scalar-random", version = 8, follow = true},
     scalarmutation = {fixture = "catalog-scalar-mutation", version = 8, follow = true},
@@ -806,7 +809,7 @@ local function compileProgram(caseName: string, fixture: string, version: intege
             -- What it carries may take a library function as a value.
             local values = root .. "/src/nupp/runtime/libraryvalues"
             local graph: any = require("nupp.compiler.vm.graph")
-            if graph.mayTakeLibraryValue(parser.parse(source, path).root) then
+            if graph.mayTakeLibraryValue(parser.parse(source, path).root, version >= 8) then
                 enqueue(values)
             end
             -- And it may read Lua's `io` or `os`, which the core carries as

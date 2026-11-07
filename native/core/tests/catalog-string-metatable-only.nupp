@@ -1,0 +1,7 @@
+module nupp.core.catalogstringmetatableonly
+
+local first = getmetatable("abc")
+assert(type(first) == "table" and first == getmetatable(""))
+local get = getmetatable
+assert(first == get("def") and first == _G.getmetatable("ghi"))
+export = 1

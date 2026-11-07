@@ -24,8 +24,8 @@ const instances = require("nupp.runtime.core.instances")
 const stacks = require("nupp.runtime.core.stacks")
 
 -- The Services fields the collector roots, from `running` through
--- `finalcall`.
-const ROOTED_FIELDS: uint64 = 12ULL
+-- `stringmeta`.
+const ROOTED_FIELDS: uint64 = 13ULL
 
 -- The scope comes first, so a Services address is also its scope's address.
 export struct Services
@@ -109,6 +109,8 @@ export struct Services
     -- The function finalizers run through, once `nupp.runtime.luawarn`
     -- installs it (`guestgc`), or 0.
     finalcall: uint64
+    -- The builtin string metatable installed by the canonical library values.
+    stringmeta: uint64
     -- 1 while coroutine.close unwinds a suspended thread: its error lands at
     -- every frame that owns affine values, and no protected call takes it.
     closing: uint64
@@ -318,6 +320,7 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("closetask"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("gcanswer"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("finalcall"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("stringmeta"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("closing"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replay"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replaycursor"), 0ULL)

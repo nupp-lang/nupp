@@ -58,6 +58,9 @@ local GUEST_ENV = "NUPP_GUEST_PROBE=core-environment NUPP_GUEST_SCALE=3 NUPP_GUE
 ) .. " NUPP_GUEST_TEMP=" .. OUT .. "/temp" .. " "
 
 local CASES = {
+    {"stringdynamic", 0x7FFF000000000001},
+    {"stringmetaonly", 0x7FFF000000000001},
+    {"stringmetatable", 0x7FFF000000000001},
     {"scalarmath", 0x7FFF000000000001},
     {"scalarrandom", 0x7FFF000000000001},
     {"scalarmutation", 0x7FFF000000000001},
@@ -319,6 +322,9 @@ end
 -- spaced by a share of what lives, so the full-scale workloads stay linear;
 -- records and strings, at seconds a run there, run so in normal mode alone.
 local STRESS = {
+    stringdynamic = true,
+    stringmetaonly = true,
+    stringmetatable = true,
     scalarmath = true,
     scalarrandom = true,
     scalarmutation = true,
@@ -512,6 +518,9 @@ local NUMERIC = {
     modulesretry = "catalog-modules-retry",
     errorsruntime = "catalog-errors-runtime",
     tablespackedsemantics = "catalog-tables-packed-semantics",
+    stringdynamic = "catalog-string-dynamic",
+    stringmetaonly = "catalog-string-metatable-only",
+    stringmetatable = "catalog-string-metatable",
     callarguments = "catalog-call-arguments",
     iofiles = "catalog-io-files",
     iostandard = "catalog-io-standard",
@@ -583,6 +592,9 @@ local POSIXTWINS = {
     ["catalog-os-files"] = true
 }
 local FIXTURES = {
+    "catalog-string-dynamic",
+    "catalog-string-metatable-only",
+    "catalog-string-metatable",
     "catalog-scalar-math",
     "catalog-scalar-random",
     "catalog-scalar-mutation",
@@ -866,6 +878,9 @@ local function stage()
             write(base .. "/source/nupp/runtime/core/guestaudit.nupp", read(TESTS .. "/guest-lifecycle-audit.nupp"))
         end
         for _, fixture in ipairs({
+            "catalog-string-dynamic",
+            "catalog-string-metatable-only",
+            "catalog-string-metatable",
             "catalog-scalar-math",
             "catalog-scalar-mutation",
             "catalog-scalar-random",

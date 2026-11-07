@@ -493,13 +493,29 @@ export function threadMeta(ctx: voidptr, value: uint64): uint64
     end
 end
 
--- The table a thread's or a userdata's fields are read from: its
--- metatable's __index, or 0 when that is not a table.
-export function objectIndex(ctx: voidptr, value: uint64): uint64
-    local meta = tableOf(threadMeta(ctx, value))
-    if meta == 0ULL then
-        meta = tableOf(coreuserdata.meta(value))
+-- All non-table builtin metatables use the same field lookup and protection.
+local function objectmeta(ctx: voidptr, value: uint64): uint64
+    if strings.header(value) ~= 0ULL then
+        @unsafe do
+            local meta = native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("stringmeta"))
+            if meta == 0ULL then
+                return values.NIL
+            end
+            return meta
+        end
     end
+    local meta = threadMeta(ctx, value)
+
+    if meta ~= values.NIL then
+        return meta
+    end
+
+    return coreuserdata.meta(value)
+end
+
+-- The table a builtin object's fields are read from, or 0.
+export function objectIndex(ctx: voidptr, value: uint64): uint64
+    local meta = tableOf(objectmeta(ctx, value))
     if meta == 0ULL then
         return 0ULL
     end
@@ -507,10 +523,9 @@ export function objectIndex(ctx: voidptr, value: uint64): uint64
     return tableOf(tables.get(meta, metaKey(ctx, META_INDEX)))
 end
 
--- A userdata's __index when that is a function, which its fields are read
--- through, or 0.
+-- A builtin object's non-table __index value, or 0.
 export function objectIndexer(ctx: voidptr, value: uint64): uint64
-    local meta = tableOf(coreuserdata.meta(value))
+    local meta = tableOf(objectmeta(ctx, value))
     if meta == 0ULL then
         return 0ULL
     end
@@ -520,6 +535,19 @@ export function objectIndexer(ctx: voidptr, value: uint64): uint64
     end
 
     return index
+end
+
+-- Installing a builtin metatable is distinct from attaching one to a user
+-- table: the builtin string metatable stays mutable, as on Lua and the VM.
+export function stringmeta(ctx: voidptr, meta: uint64): uint64
+    if tableOf(meta) == 0ULL then
+        error("string metatable must be a table")
+    end
+    @unsafe do
+        native.store64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("stringmeta"), meta)
+    end
+
+    return values.NIL
 end
 
 -- A checked record test uses actual construction identity, past __metatable
@@ -539,15 +567,15 @@ end
 export function getMetatable(ctx: voidptr, value: uint64): uint64
     local t = tableOf(value)
     if t == 0ULL then
-        local own = tableOf(coreuserdata.meta(value))
-        if own ~= 0ULL then
-            local shown = tables.get(own, metaKey(ctx, META_METATABLE))
-            if shown ~= values.NIL then
-                return shown
-            end
-            return values.TAG_OBJ | own
+        local own = tableOf(objectmeta(ctx, value))
+        if own == 0ULL then
+            return values.NIL
         end
-        return threadMeta(ctx, value)
+        local shown = tables.get(own, metaKey(ctx, META_METATABLE))
+        if shown ~= values.NIL then
+            return shown
+        end
+        return values.TAG_OBJ | own
     end
     local protected = metaField(ctx, t, META_METATABLE)
     if protected ~= values.NIL then

@@ -232,6 +232,7 @@ export const OS_GETENV: uint64 = 10ULL
 export const OS_MONOTONIC: uint64 = 117ULL
 export const HOST_ARGUMENTS: uint64 = 119ULL
 export const ARGUMENT_ERROR: uint64 = 200ULL
+export const STRING_METATABLE: uint64 = 201ULL
 export const HOST_FILES: uint64 = 120ULL
 export const HOST_RANDOM_BYTES: uint64 = 127ULL
 export const HOST_SYSTEM_TEXT: uint64 = 128ULL

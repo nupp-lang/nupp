@@ -615,4 +615,31 @@ function M.coreClocksUseTheSharedTimerProvider()
     assert(found)
 end
 
+function M.dynamicStringReadsCarryCanonicalLibrary()
+    for _, source in ipairs({
+        "return getmetatable('abc')",
+        "return _G.getmetatable('abc')",
+        "local get=getmetatable; return get('abc')",
+        "local function use(value) return value:sub(2) end; return use('abc')",
+        "local function use(value,key) return value[key] end; return use('abc','sub')",
+        "local function use(value) return value.sub end; return use('abc')"
+    }) do
+        assert(graph.mayTakeLibraryValue(parser.parse(source, "=string-meta-discovery.nupp").root), source)
+        if not source:find("_G", 1, true) and not source:find("local get=", 1, true) then
+            assert(not graph.mayTakeLibraryValue(parser.parse(source, "=string-meta-discovery.nupp").root, false))
+        end
+    end
+end
+
+function M.privateStringMetatableCallUsesCanonicalId()
+    local catalog = checked(
+        [[local calls = require("nupp.runtime.hostcalls")
+return calls.stringmeta({})]],
+        "nupp.core.stringmetacallfixture"
+    )
+    local complete = program.compile(catalog, tagged.forVersion(8))
+    local found = operations(complete.graphs[1], "LibCall")
+    assert(#found == 1 and found[1].args[1] == require("nupp.compiler.vm.corelibrary").id("STRING_METATABLE"))
+end
+
 return M

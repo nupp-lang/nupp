@@ -1,0 +1,59 @@
+module nupp.core.catalogstringmetatable
+
+local function use(value: any, key: any): any
+    return value[key]
+end
+
+local function call(value: any, first: integer): any
+    return value:sub(first)
+end
+
+local text: any = "abcdef"
+local meta: any = getmetatable(text)
+local library: any = string
+assert(meta == getmetatable("") and meta.__index == library)
+assert(meta.__index == _G.string)
+assert(call(text, 3) == "cdef")
+local sub = use(text, "sub")
+assert(sub(text, 2, 4) == "bcd")
+assert(use(text, "missing-string-field") == nil)
+local missing = pcall(function(): any
+    return text:missingStringMethod()
+end)
+assert(not missing)
+local replacement = function(value: any, first: any): string
+    assert(value == text and first == 2)
+    return "replaced"
+end
+library.sub = replacement
+assert(use(text, "sub") == replacement and call(text, 2) == "replaced")
+assert(sub(text, 2, 4) == "bcd")
+rawset(library, "sub", sub)
+assert(call(text, 3) == "cdef")
+local original = meta.__index
+meta.__index = function(value: any, key: any): any
+    if key == "size" then
+        return #value
+    end
+    return original[key]
+end
+collectgarbage("collect")
+assert(use(text, "size") == 6 and call(text, 3) == "cdef")
+meta.__index = original
+assert(use(text, "size") == nil)
+local ok = pcall(function(): any
+    local attach: any = setmetatable
+    return attach(text, {})
+end)
+assert(not ok)
+meta.__metatable = "protected string metatable"
+assert(getmetatable(text) == "protected string metatable")
+meta.__metatable = nil
+text = nil
+meta = nil
+collectgarbage("collect")
+collectgarbage("collect")
+local fresh: any = "uvwxyz"
+local freshmeta: any = getmetatable(fresh)
+assert(freshmeta.__index == library and call(fresh, 3) == "wxyz")
+export = 1

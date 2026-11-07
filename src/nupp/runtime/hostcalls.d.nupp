@@ -8,6 +8,9 @@ local record hostcalls
     --- then its arguments from 1, a new table each call.
     arguments: function(): {[integer]: string}
 
+    -- Installs the rooted builtin string metatable, without user-table attachment.
+    stringmeta: function(meta: {[string]: any}): nil
+
     -- Raises an argument error using the original library call's checked site.
     argerror: function(position: integer, fallback: string, detail: string, level: integer): nil
 

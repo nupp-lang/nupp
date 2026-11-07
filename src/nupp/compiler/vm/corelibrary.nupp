@@ -583,6 +583,7 @@ local subjectrows: {Subject} = {
             {name = "OS_MONOTONIC", id = 117},
             {name = "HOST_ARGUMENTS", id = 119},
             {name = "ARGUMENT_ERROR", id = 200, call = "hostcalls.argerror", min = 4, max = 4},
+            {name = "STRING_METATABLE", id = 201, call = "hostcalls.stringmeta", min = 1, max = 1},
             {name = "HOST_FILES", id = 120},
             {name = "HOST_RANDOM_BYTES", id = 127, call = "hostcalls.randombytes", min = 1, max = 1},
             {name = "HOST_SYSTEM_TEXT", id = 128, call = "hostcalls.systemtext", min = 1, max = 1},
