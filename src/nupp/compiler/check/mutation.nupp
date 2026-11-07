@@ -955,6 +955,11 @@ export function writtenAfter(token: any, offset: integer, path: string): boolean
     return false
 end
 
+-- Whether the prescan found a write to this binding or any of its members.
+export function written(token: any): boolean
+    return token ~= nil and #(token.writes or {}) > 0
+end
+
 --- What the pass built for a call's callee: by its path, by the literal
 --- called where it stands, or by the method name when the call goes through a
 --- receiver or a field.

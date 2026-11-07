@@ -601,12 +601,6 @@ export function install(c: state.Checker): state.StatHandlers
                 and initNode.token
                 and initNode.token.definition
                 and initNode.token.definition.scalarIntrinsic
-            if boundEntry and scalarIdentity then
-                boundEntry.scalarIntrinsic = scalarIdentity
-                if boundEntry.definition then
-                    boundEntry.definition.scalarIntrinsic = scalarIdentity
-                end
-            end
             -- A local bound to a namespace path, `local i32 = math.i32`, keeps
             -- the path its members are spelled under, so intrinsic identities read
             -- through it reach the same entries the full spelling does.
@@ -617,7 +611,20 @@ export function install(c: state.Checker): state.StatHandlers
                 and initNode.token
                 and initNode.token.definition
                 and initNode.token.definition.namespacePath
-            if boundEntry and boundEntry.definition and namespacePath then
+            -- The mutation prescan sees later and nested writes before this
+            -- binding can lend an exact scalar or namespace identity.
+            local stableIdentity = true
+            if scalarIdentity or namespacePath then
+                facts.summaries()
+                stableIdentity = not mutation.written(nameTok)
+            end
+            if boundEntry and scalarIdentity and stableIdentity then
+                boundEntry.scalarIntrinsic = scalarIdentity
+                if boundEntry.definition then
+                    boundEntry.definition.scalarIntrinsic = scalarIdentity
+                end
+            end
+            if boundEntry and boundEntry.definition and namespacePath and stableIdentity then
                 boundEntry.definition.namespacePath = namespacePath
             end
             -- `local kind = node.kind` copies a discriminant out of the value it
