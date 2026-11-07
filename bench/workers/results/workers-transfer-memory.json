@@ -1,0 +1,276 @@
+{
+  "platform": "macOS-26.6-arm64-arm-64bit",
+  "runs": [
+    {
+      "variant": "before",
+      "run": 1,
+      "snapshots": [
+        {
+          "phase": "before pool",
+          "pid": 50523,
+          "luaBytes": 1103406,
+          "rssBytes": 5767168,
+          "threads": 2
+        },
+        {
+          "phase": "after 1000 jobs",
+          "pid": 50523,
+          "luaBytes": 1233318,
+          "rssBytes": 37109760,
+          "threads": 20
+        },
+        {
+          "phase": "after 10000 jobs",
+          "pid": 50523,
+          "luaBytes": 1256482,
+          "rssBytes": 38420480,
+          "threads": 20
+        },
+        {
+          "phase": "after 100000 jobs",
+          "pid": 50523,
+          "luaBytes": 1274258,
+          "rssBytes": 38453248,
+          "threads": 20
+        }
+      ]
+    },
+    {
+      "variant": "after",
+      "run": 1,
+      "snapshots": [
+        {
+          "phase": "before pool",
+          "pid": 50557,
+          "luaBytes": 1105154,
+          "rssBytes": 5750784,
+          "threads": 2
+        },
+        {
+          "phase": "after 1000 jobs",
+          "pid": 50557,
+          "luaBytes": 1227650,
+          "rssBytes": 38600704,
+          "threads": 20
+        },
+        {
+          "phase": "after 10000 jobs",
+          "pid": 50557,
+          "luaBytes": 1242090,
+          "rssBytes": 39862272,
+          "threads": 20
+        },
+        {
+          "phase": "after 100000 jobs",
+          "pid": 50557,
+          "luaBytes": 1246854,
+          "rssBytes": 39895040,
+          "threads": 20
+        }
+      ]
+    },
+    {
+      "variant": "after",
+      "run": 2,
+      "snapshots": [
+        {
+          "phase": "before pool",
+          "pid": 50578,
+          "luaBytes": 1105154,
+          "rssBytes": 5750784,
+          "threads": 2
+        },
+        {
+          "phase": "after 1000 jobs",
+          "pid": 50578,
+          "luaBytes": 1234310,
+          "rssBytes": 37175296,
+          "threads": 20
+        },
+        {
+          "phase": "after 10000 jobs",
+          "pid": 50578,
+          "luaBytes": 1247290,
+          "rssBytes": 38469632,
+          "threads": 20
+        },
+        {
+          "phase": "after 100000 jobs",
+          "pid": 50578,
+          "luaBytes": 1254126,
+          "rssBytes": 38486016,
+          "threads": 20
+        }
+      ]
+    },
+    {
+      "variant": "before",
+      "run": 2,
+      "snapshots": [
+        {
+          "phase": "before pool",
+          "pid": 50606,
+          "luaBytes": 1103406,
+          "rssBytes": 5783552,
+          "threads": 2
+        },
+        {
+          "phase": "after 1000 jobs",
+          "pid": 50606,
+          "luaBytes": 1211586,
+          "rssBytes": 37109760,
+          "threads": 20
+        },
+        {
+          "phase": "after 10000 jobs",
+          "pid": 50606,
+          "luaBytes": 1235534,
+          "rssBytes": 38371328,
+          "threads": 20
+        },
+        {
+          "phase": "after 100000 jobs",
+          "pid": 50606,
+          "luaBytes": 1248234,
+          "rssBytes": 38404096,
+          "threads": 20
+        }
+      ]
+    },
+    {
+      "variant": "before",
+      "run": 3,
+      "snapshots": [
+        {
+          "phase": "before pool",
+          "pid": 50899,
+          "luaBytes": 1103406,
+          "rssBytes": 5767168,
+          "threads": 2
+        },
+        {
+          "phase": "after 1000 jobs",
+          "pid": 50899,
+          "luaBytes": 1230466,
+          "rssBytes": 37126144,
+          "threads": 20
+        },
+        {
+          "phase": "after 10000 jobs",
+          "pid": 50899,
+          "luaBytes": 1260238,
+          "rssBytes": 38289408,
+          "threads": 20
+        },
+        {
+          "phase": "after 100000 jobs",
+          "pid": 50899,
+          "luaBytes": 1282898,
+          "rssBytes": 38486016,
+          "threads": 20
+        }
+      ]
+    },
+    {
+      "variant": "after",
+      "run": 3,
+      "snapshots": [
+        {
+          "phase": "before pool",
+          "pid": 50926,
+          "luaBytes": 1105154,
+          "rssBytes": 5750784,
+          "threads": 2
+        },
+        {
+          "phase": "after 1000 jobs",
+          "pid": 50926,
+          "luaBytes": 1243290,
+          "rssBytes": 37175296,
+          "threads": 20
+        },
+        {
+          "phase": "after 10000 jobs",
+          "pid": 50926,
+          "luaBytes": 1262870,
+          "rssBytes": 38469632,
+          "threads": 20
+        },
+        {
+          "phase": "after 100000 jobs",
+          "pid": 50926,
+          "luaBytes": 1277426,
+          "rssBytes": 38518784,
+          "threads": 20
+        }
+      ]
+    }
+  ],
+  "medians": {
+    "before": [
+      {
+        "phase": "before pool",
+        "rssBytes": 5767168,
+        "luaBytes": 1103406,
+        "threads": 2
+      },
+      {
+        "phase": "after 1000 jobs",
+        "rssBytes": 37109760,
+        "luaBytes": 1230466,
+        "threads": 20
+      },
+      {
+        "phase": "after 10000 jobs",
+        "rssBytes": 38371328,
+        "luaBytes": 1256482,
+        "threads": 20
+      },
+      {
+        "phase": "after 100000 jobs",
+        "rssBytes": 38453248,
+        "luaBytes": 1274258,
+        "threads": 20
+      }
+    ],
+    "after": [
+      {
+        "phase": "before pool",
+        "rssBytes": 5750784,
+        "luaBytes": 1105154,
+        "threads": 2
+      },
+      {
+        "phase": "after 1000 jobs",
+        "rssBytes": 37175296,
+        "luaBytes": 1234310,
+        "threads": 20
+      },
+      {
+        "phase": "after 10000 jobs",
+        "rssBytes": 38469632,
+        "luaBytes": 1247290,
+        "threads": 20
+      },
+      {
+        "phase": "after 100000 jobs",
+        "rssBytes": 38518784,
+        "luaBytes": 1254126,
+        "threads": 20
+      }
+    ]
+  },
+  "baselineRevision": "e8b2fe5cc9c6958cee4eda1e87fbd1b544dd36d4",
+  "productionProviderSha256": "cc91a38a3567a9df45d5fbb1c69fd766f26b953c9a0d3bf64545f0b7cbad8aae",
+  "conditions": "No concurrent build from this task; other users of the machine caused substantial process-to-process variation",
+  "binaries": {
+    "before": {
+      "path": "/private/tmp/workers-speed-baseline-memory",
+      "sha256": "01bf557782d6921fe23075be3648597f9932267c6fb85e08315c07403a57acd8"
+    },
+    "after": {
+      "path": "/private/tmp/workers-speed-array-memory",
+      "sha256": "7d8436c7d608e745e1e60f9d74254f0fc3201bd6c10bee994cbdba9b40e01c13"
+    }
+  }
+}

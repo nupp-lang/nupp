@@ -27,3 +27,6 @@ Retained-memory sampling has a separate [workload and runner](memory/README.md).
 
 The [workers and channels acceptance record](results/macos-arm64-workers-and-channels.md)
 records the implementation comparison, including its transfer and memory costs.
+
+The [array transfer follow-up](results/macos-arm64-workers-transfer-follow-up.md)
+records the retained optimization, rejected candidates and timing limitations.

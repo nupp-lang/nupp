@@ -230,6 +230,29 @@ local heapArrayParts = rawget(heapModule as table, "__heapArrayParts")
 local heapArrayFromParts = rawget(heapModule as table, "__heapArrayFromParts")
 local heapArrayFree = rawget(heapModule as table, "__heapArrayFree")
 
+-- Nonnegative frame counts carry the general codec's result pack. A negative
+-- count reserves a single moved array, whose only payload is its attachment.
+local SINGLE_MOVED = -1
+
+local function singleMoved(packed: Packed): boolean
+    if packed.count ~= 1 then
+        return false
+    end
+    local value = packed.values[1]
+
+    return type(value) == "table"
+        and getmetatable(value) == rawget(heapModule as table, "__arrayMetatable")
+        and (heapArrayMovable as function(any): integer?)(value) ~= nil
+end
+
+local function movedAttachment(value: any): {any}
+    -- Allocate the spine before taking the source allocation. The native push
+    -- then owns its pointer on both acceptance and refusal.
+    local flat: {any} = {false, 0, 0}
+    flat[1], flat[2], flat[3] = (heapArrayParts as function(any): (string?, integer?, integer?))(value)
+    return flat
+end
+
 local sharedbytesModule = require("io.internal.sharedbytes") as any
 local regionParts = sharedbytesModule.regionparts
 local regionFromParts = sharedbytesModule.regionfromparts
@@ -807,6 +830,25 @@ local function plantPayload(packed: Packed, attachments: any): (Packed?, string?
 end
 
 local function decodePackedFrame(source: Channel, count: number, bytes: string, attachments: any): (Packed?, string?)
+    if count == SINGLE_MOVED then
+        local pointer = type(attachments) == "table" and attachments[1] or nil
+        if pointer == nil or #attachments ~= 3 or type(pointer) ~= "userdata" or getmetatable(pointer) ~= nil then
+            releaseArrivedMoved(attachments)
+            return nil, "a single moved array requires one moved attachment"
+        end
+        local ok, value = pcall(
+            heapArrayFromParts as function(any, integer, integer): any,
+            pointer,
+            attachments[2] as integer,
+            attachments[3] as integer
+        )
+        if not ok or value == nil then
+            releaseArrivedMoved(attachments)
+            return nil, ok and "a moved buffer's element layout is not supported by this lane" or tostring(value)
+        end
+        attachments[1] = false
+        return {values = {value}, count = 1}, nil
+    end
     local unresolved: {[any]: string}? = nil
     if count ~= 0 then
         local ready, codec = pcall(readyCodec, source)
@@ -1573,7 +1615,8 @@ local function submitImpl(self: workers.Scope, dedicated: boolean, fn: any, ...:
             or preparedInput == "string" and type(arguments.values[1]) == "string"
         )
     local transfer: TransferState? = nil
-    if not prepared then
+    local moved = not prepared and captures.count == 0 and singleMoved(arguments)
+    if not prepared and not moved then
         transfer = validatedTaskTransfer(captures, arguments, self._channelOwner or self)
     end
     local submittedArguments = common.concatenate(captures, arguments)
@@ -1645,6 +1688,18 @@ local function submitImpl(self: workers.Scope, dedicated: boolean, fn: any, ...:
                 moduleName,
                 member,
                 arguments.values[1] as string
+            ) then
+                error(refusal(lane.inbox), 3)
+            end
+        elseif moved then
+            if not native.channelPushBufferTask(
+                lane.inbox.handle,
+                id,
+                moduleName,
+                member,
+                SINGLE_MOVED,
+                "",
+                movedAttachment(arguments.values[1])
             ) then
                 error(refusal(lane.inbox), 3)
             end
@@ -2023,7 +2078,8 @@ local function workerReply(outbox: Channel, id: integer, ok: boolean, answer: an
         )
     local transfer: TransferState? = nil
     local rejected: string? = nil
-    if not prepared then
+    local moved = not prepared and singleMoved(packed)
+    if not prepared and not moved then
         transfer = {seen = {}, records = nil, addresses = nil}
         rejected = unsendable(answer, "results", 0, transfer)
     end
@@ -2036,6 +2092,16 @@ local function workerReply(outbox: Channel, id: integer, ok: boolean, answer: an
         end
     elseif preparedOutput == "string" and prepared then
         if not native.channelPushStringReply(outbox.handle, id, packed.values[1] as string) then
+            error(refusal(outbox), 3)
+        end
+    elseif moved then
+        if not native.channelPushBufferReply(
+            outbox.handle,
+            id,
+            SINGLE_MOVED,
+            "",
+            movedAttachment(packed.values[1])
+        ) then
             error(refusal(outbox), 3)
         end
     else

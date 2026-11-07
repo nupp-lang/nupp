@@ -138,3 +138,6 @@ fixpoint starts from the pinned `v0.0.15-workers.1` release and rebuilds
 byte-identically. Four Wasm/browser checks were unavailable in the broad run;
 the separate Chromium channel package above supplies the real-browser channel
 acceptance evidence.
+
+The [array transfer follow-up](macos-arm64-workers-transfer-follow-up.md) records
+the subsequent direct-array optimization and its measurement limits.

@@ -2113,6 +2113,17 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
         ] = [[
 module nupp.internal.servicejobs
 local {type Sender, type Receiver} = require("nupp.workers.internal.channeltypes")
+const heap = table.Array
+
+export function bounceArray(
+    takes values: affine(table.Array<int32>, heap.destroy)
+): affine(table.Array<int32>, heap.destroy)
+    return values
+end
+
+export function echo(value: integer): integer
+    return value
+end
 
 export function service(takes incoming: Receiver<integer>, takes outgoing: Sender<integer>): integer
     local commands = incoming
@@ -2292,6 +2303,44 @@ do
     commands:close()
     services:close()
 end
+-- Empty and populated arrays preserve their layout and ownership in both directions.
+for _, count in ipairs({0, 1, 31}) do
+    local scope = coroutine.scope()
+    local values = table.Array.alloc(ffi.typeof<int32>(), count)
+    if count > 0 then
+        local view = values:write()
+        view[count] = count * 17
+        own.drop(view)
+    end
+    values = scope:work(values, jobs.bounceArray):await()
+    assert(values.count == count)
+    if count > 0 then
+        local view = values:read()
+        assert(view[count] == count * 17)
+    end
+    own.drop(values)
+end
+
+-- Refuse the native handoff after it takes the array, then reuse the same lane.
+do
+    local closed = native.channelCreate()
+    native.channelClose(closed)
+    local push = native.channelPushBufferTask
+    native.channelPushBufferTask = function(handle: any, id: integer, moduleName: string,
+        member: string, count: number, bytes: string, attachments: any): boolean
+        return push(closed, id, moduleName, member, count, bytes, attachments)
+    end
+    local services = provider.openscope(nil, nil)
+    local values = table.Array.alloc(ffi.typeof<int32>(), 4)
+    local raw: any = @unsafe own.release(values)
+    local accepted = pcall(services.spawn, services, jobs.bounceArray, raw)
+    native.channelPushBufferTask = push
+    assert(not accepted and raw.closed)
+    assert(services:spawn(jobs.echo, 17):await() == 17)
+    services:close()
+    native.channelDestroy(closed)
+end
+
 print("services-ok")
 ]],
     })
