@@ -1,6 +1,7 @@
 local fixture = require("helpers.derive")
 local testAssert = fixture.testAssert
 local parser = fixture.parser
+local HERE = fixture.HERE
 local check = fixture.check
 local env = fixture.env
 local compileAt = fixture.compileAt
