@@ -148,7 +148,7 @@ local CASES = {
     {"errorsMethods", 0x7FFF00000000000F},
     {"recordsAffineReturns", 0x7FFF001A27644F86},
     {"threadsbasic", 0x7FFF000000000FFF},
-    {"coroutineinheritance", 0x7FFF00000000003F},
+    {"coroutineinheritance", 0x7FFF00000000007F},
     {"threadscalls", 0x7FFF00000000003F},
     {"threadsclose", 0x7FFF00000000007F},
     {"threadsiterate", 0x7FFF00000000001F},
@@ -1473,9 +1473,13 @@ local function main()
                 if name == "callarguments" then
                     local wordBytes, diagnosticBytes = 8, 24
                     local v3Bytes, formatWord, rowsWord, countWord = 152, 16, 17, 18
+                    local diagnosticFormat, legacyFormat, methodFlag, tailFlag = 4, 3, 1, 2
                     local rows, count = get64(data, rowsWord * wordBytes), get64(data, countWord * wordBytes)
                     check(get64(data, 4 * wordBytes) == v3Bytes, label .. " V3 record offset")
-                    check(get64(data, formatWord * wordBytes) == 3 and count > 0, label .. " diagnostic format")
+                    check(
+                        get64(data, formatWord * wordBytes) == diagnosticFormat and count > 0,
+                        label .. " diagnostic format"
+                    )
                     local prefix = bundleBytes:sub(1, 72 + codeBytes)
 
                     local function invalid(suffix, offset, bytes)
@@ -1484,10 +1488,10 @@ local function main()
                         guarded(label .. " diagnostic " .. suffix, path, empty, highWater, nil, 1)
                     end
 
-                    invalid("format", formatWord * wordBytes, u64(4))
+                    invalid("format", formatWord * wordBytes, u64(diagnosticFormat + 1))
                     invalid("offset", rowsWord * wordBytes, u64(rows + wordBytes))
                     invalid("count", countWord * wordBytes, u64(count - 1))
-                    invalid("method", rows, u64(2))
+                    invalid("method", rows, u64(methodFlag + tailFlag + 1))
                     invalid("forward", rows + 2 * wordBytes, u64(3))
                     invalid("name-metadata", rows + wordBytes, u64(v3Bytes))
                     local named
@@ -1501,6 +1505,20 @@ local function main()
                     check(named ~= nil, label .. " named diagnostic")
                     invalid("name-bound", named, u64(65537))
                     invalid("name-terminator", named + wordBytes + get64(data, named), string.char(1))
+                    local legacy = {data:sub(1, rows)}
+                    for i = 0, count - 1 do
+                        local offset = rows + i * diagnosticBytes
+                        legacy[#legacy + 1] = u64(get64(data, offset) % (methodFlag + 1))
+                        legacy[#legacy + 1] = data:sub(offset + wordBytes + 1, offset + diagnosticBytes)
+                    end
+                    legacy[#legacy + 1] = data:sub(rows + count * diagnosticBytes + 1)
+                    local legacyData = put(table.concat(legacy), formatWord * wordBytes, u64(legacyFormat))
+                    local legacyPath = OUT .. "/" .. label .. "-diagnostic-legacy.bundle"
+                    write(legacyPath, prefix .. legacyData)
+                    guarded(label .. " diagnostic legacy", legacyPath, empty, highWater, expected, nil)
+                    local invalidLegacy = OUT .. "/" .. label .. "-diagnostic-legacy-tail.bundle"
+                    write(invalidLegacy, prefix .. put(legacyData, rows, u64(tailFlag)))
+                    guarded(label .. " diagnostic legacy tail", invalidLegacy, empty, highWater, nil, 1)
                 end
                 if name == "modulePair" then
                     local modules = get64(data, 15 * 8)

@@ -1323,12 +1323,12 @@ function M.distinctCarriedModulesCannotReplaceProviderAliases()
 return require(name)]],
         "conflicting_provider_consumer"
     )
-    local catalog = program.describe({provider, collision, consumer}, consumer.name)
     refuses(
         function()
+            local catalog = program.describe({provider, collision, consumer}, consumer.name)
             program.compile(catalog, tagged.forVersion(8))
         end,
-        "dynamic module name has conflicting chunks: bytes.internal.sharedbytes"
+        "duplicate module bytes.internal.sharedbytes"
     )
 end
 
@@ -1749,6 +1749,52 @@ function M.checkedBuiltinAliasesRetainTheirSourceAndMappedTarget()
         end,
         "checked builtin projection differs from its extension"
     )
+end
+
+function M.guestTailCallsRetainReturnSyntaxAndCleanupBoundaries()
+    local p = describe(
+        [[
+local function leaf(level: integer): nil error("tail", level) end
+local function plain(level: integer): nil return leaf(level) end
+local function parenthesized(level: integer): nil return (leaf(level)) end
+local record Guard
+    constructor(self): affine(Guard, Guard.destroy) end
+    function destroy(takes self): nil end
+end
+local function guarded(level: integer): nil
+    const guard = Guard()
+    return leaf(level)
+end
+local record Box
+    function ping(self, level: integer): nil leaf(level) end
+end
+local function method(box: Box, level: integer): nil return box:ping(level) end
+return plain, parenthesized, guarded, method
+]]
+    )
+    local result = require(
+        "nupp.compiler.vm.coregraphexecutable"
+    ).fromChecked(program.compile(p, tagged.forVersion(8)), 8)
+    assert(result.diagnostics, "tail calls need diagnostics without an argument-error intrinsic")
+    local seen = {}
+    for index, contract in ipairs(result.semantic.contracts) do
+        local call = p.calls[contract.callsite + 1].node
+        if call.kind == "call" and call.obj.kind == "name" and call.obj.token.text == "leaf"
+            or call.kind == "methodCall" and call.name.text == "ping"
+        then
+            local name = p.owners[contract.owner + 1].name
+            if name ~= "Box.ping" then
+                seen[name] = true
+                test.eq(result.diagnostics[index].tail, (name == "plain" or name == "method") and true or nil)
+                if name == "method" then
+                    test.eq(result.diagnostics[index].method, true)
+                end
+            end
+        end
+    end
+    for _, name in ipairs({"plain", "parenthesized", "guarded", "method"}) do
+        assert(seen[name], name)
+    end
 end
 
 function M.checkedBuiltinBasePrecedesAnEarlierQualifiedOrExplicitExtensionRead()

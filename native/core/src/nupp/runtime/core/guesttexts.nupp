@@ -105,7 +105,8 @@ export function argumenterror(ctx: voidptr, position: uint64, fallback: uint64, 
         if rows == 0ULL then
             error("argument errors require the diagnostic envelope")
         end
-        local frame = guesterrors.frameat(ctx, level)
+        -- Argument forwarding has its own checked physical-call walk.
+        local frame = guesterrors.physicalframeat(ctx, level)
         local method: uint64 = 0ULL
         local name: uint64 = 0ULL
         local skipped: uint64 = 0ULL
@@ -141,7 +142,7 @@ export function argumenterror(ctx: voidptr, position: uint64, fallback: uint64, 
             local row = native.pointer(rows + id * native.sizeOf<catalog.CallDiagnostic>())
             local forward = native.load64(row, native.fieldOffset<catalog.CallDiagnostic>("forward"))
             if forward == catalog.FORWARD_NONE then
-                method = native.load64(row, native.fieldOffset<catalog.CallDiagnostic>("method"))
+                method = native.load64(row, native.fieldOffset<catalog.CallDiagnostic>("method")) & catalog.CALL_METHOD
                 name = native.load64(row, native.fieldOffset<catalog.CallDiagnostic>("name"))
                 break
             end

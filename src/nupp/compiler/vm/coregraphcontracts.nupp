@@ -518,6 +518,36 @@ local function diagnostic(call: any, protected: boolean): any
     return {method = false}
 end
 
+local function tailcalls(p: any, owner: any): {[any]: boolean}
+    local found: {[any]: boolean} = {}
+    if p.cleanupOwners[owner.id] then
+        return found
+    end
+    local walk: function(any): nil
+    walk = function(node: any): nil
+        if type(node) ~= "table" then
+            return
+        end
+        local nested = p.byBody[node]
+        if nested and nested ~= owner then
+            return
+        end
+        if node.kind == "returnStmt" and #node.exprs == 1 then
+            local call = node.exprs[1]
+            local site = (call.kind == "call" or call.kind == "methodCall") and p.callByNode[call]
+            if site and site.owner == owner.id then
+                found[call] = true
+            end
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+    walk(owner.body)
+
+    return found
+end
+
 function contracts.normalize(compiled: any, version: integer?): (any, any)
     local v: integer = version or 2
     local numeric, loops = v >= 3, v >= 5
@@ -704,6 +734,7 @@ function contracts.normalize(compiled: any, version: integer?): (any, any)
     for index, g in ipairs(output.graphs) do
         need(g.programOwner == index - 1, "graph owner order differs")
         local record = output.catalog[index]
+        local tails = v >= 8 and tailcalls(p, p.owners[index]) or {}
         for bi, block in ipairs(g.blocks) do
             for at, op in ipairs(block.op) do
                 local policy = need(admitted[op], "unsupported operation " .. op)
@@ -783,6 +814,7 @@ function contracts.normalize(compiled: any, version: integer?): (any, any)
                     handled = source.handled == true or nil
                 }
                 local row = diagnostic(source.call, source.protected == true)
+                row.tail = tails[source.call] == true or nil
                 row.forward = forwardcontext(p, p.owners[index], source.call)
                 if row.forward ~= FORWARD_NONE then
                     local owner = p.owners[index]

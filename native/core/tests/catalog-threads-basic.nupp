@@ -80,7 +80,8 @@ if w1 == 2 and w2 == 10 then
     score = score + 32
 end
 local dead, deadmessage = pcall(function(): number
-    return gen(0)
+    gen(0)
+    return 0
 end)
 if not dead and string.sub(tostring(deadmessage), -33) == ":83: cannot resume dead coroutine" then
     score = score + 64
@@ -91,7 +92,7 @@ end)
 local raised, raisedmessage = pcall(function(): nil
     raising()
 end)
-if not raised and string.sub(tostring(raisedmessage), -11) == ":92: inside" then
+if not raised and string.sub(tostring(raisedmessage), -11) == ":93: inside" then
     score = score + 128
 end
 

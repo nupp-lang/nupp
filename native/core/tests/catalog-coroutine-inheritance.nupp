@@ -119,7 +119,10 @@ do
     local ok, problem = coroutine.resume(child)
     assert(ok, problem)
 end
-if cancelled == 1 and coroutine.iscancellation(raised) and coroutine.status(parked) == "dead" then
+if cancelled == 1
+    and raised == "nupp: cancel inherited wait was cancelled: the handled extent ended"
+    and coroutine.status(parked) == "dead"
+then
     score = score + 16
 end
 
@@ -139,6 +142,16 @@ local first = pack(gen("start", nil, nil))
 local last = pack(gen("resume", nil, nil))
 if first[0] == 4 and first[1] == "yielded" and first[3] == 3 and last[0] == 3 and last[2] == "done" then
     score = score + 32
+end
+
+local failure = wrap(function(): nil
+    error("tail-wrapped failure", 0)
+end)
+local caught, message = pcall(function(): nil
+    return failure()
+end)
+if not caught and message == "tail-wrapped failure" then
+    score = score + 64
 end
 
 export = score

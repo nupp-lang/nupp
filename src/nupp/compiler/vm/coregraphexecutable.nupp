@@ -751,6 +751,9 @@ function executable.fromChecked(compiled: any, version: integer?): any
     need(normalized.modules[#normalized.modules].chunk == normalized.entry, "entry module must initialize last")
     local result = deriveCatalog(normalized)
     local required = false
+    for _, diagnostic in ipairs(diagnostics) do
+        required = required or diagnostic.tail == true
+    end
     for _, g in ipairs(normalized.graphs) do
         for _, block in ipairs(g.blocks) do
             for at, op in ipairs(block.op) do

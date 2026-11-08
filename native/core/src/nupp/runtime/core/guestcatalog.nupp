@@ -46,7 +46,10 @@ export struct Descriptor
 end
 
 -- The diagnostic envelope preserves every preceding descriptor field.
-export const DIAGNOSTIC_FORMAT: uint64 = 3ULL
+export const LEGACY_DIAGNOSTIC_FORMAT: uint64 = 3ULL
+export const DIAGNOSTIC_FORMAT: uint64 = 4ULL
+export const CALL_METHOD: uint64 = 1ULL
+export const CALL_TAIL: uint64 = 2ULL
 export const DIAGNOSTIC_NAME_LIMIT: uint64 = 65536ULL
 export const FORWARD_NONE: uint64 = 0ULL
 export const FORWARD_CALL: uint64 = 1ULL
@@ -74,6 +77,7 @@ export struct DescriptorV3
 end
 
 export struct CallDiagnostic
+    -- Format 3 stores a boolean; format 4 also carries CALL_TAIL.
     method: uint64
     name: uint64
     forward: uint64
@@ -236,12 +240,15 @@ local function valid(data: voidptr, bytes: uint64): uint64
     end
     -- Canonical record offsets discriminate the two profile-8 envelopes.
     local diagnosticOffset: uint64 = 0ULL
+    local diagnosticFormat: uint64 = 0ULL
     if version == 8ULL
         and native.load64(data, native.fieldOffset<Descriptor>("records")) == native.sizeOf<DescriptorV3>()
     then
-        if bytes < native.sizeOf<DescriptorV3>()
-            or native.load64(data, native.fieldOffset<DescriptorV3>("format")) ~= DIAGNOSTIC_FORMAT
-        then
+        if bytes < native.sizeOf<DescriptorV3>() then
+            return 0ULL
+        end
+        diagnosticFormat = native.load64(data, native.fieldOffset<DescriptorV3>("format"))
+        if diagnosticFormat ~= DIAGNOSTIC_FORMAT and diagnosticFormat ~= LEGACY_DIAGNOSTIC_FORMAT then
             return 0ULL
         end
         headerBytes = native.sizeOf<DescriptorV3>()
@@ -563,9 +570,10 @@ local function valid(data: voidptr, bytes: uint64): uint64
             local forward = native.load64(row, native.fieldOffset<CallDiagnostic>("forward"))
             if forward > FORWARD_RECEIVER
                 or forward ~= FORWARD_NONE and name == 0ULL
-                or forward == FORWARD_RECEIVER and method ~= 1ULL
-                or method > 1ULL
-                or method == 1ULL
+                or forward == FORWARD_RECEIVER and method & CALL_METHOD ~= CALL_METHOD
+                or method > (CALL_METHOD | CALL_TAIL)
+                or diagnosticFormat == LEGACY_DIAGNOSTIC_FORMAT and method > CALL_METHOD
+                or method & CALL_METHOD == CALL_METHOD
                 and native.load64(
                     native.offset(data, native.index(calls + index * native.sizeOf<Callsite>())),
                     native.fieldOffset<Callsite>("argumentCount")

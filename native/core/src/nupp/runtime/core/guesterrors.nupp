@@ -13,8 +13,60 @@ const catalog = require("nupp.runtime.core.guestcatalog")
 const frames = require("nupp.runtime.core.frames")
 const guestscope = require("nupp.runtime.core.guestscope")
 
--- A logical frame at the same error level positioned() uses. A protected
--- target is visible, but walking past its C-like boundary is refused.
+-- Physical frames for the argument-forwarding contract. A protected target
+-- is visible, but walking past its C-like boundary is refused.
+export function physicalframeat(ctx: voidptr, level: uint64): uint64
+    local state = native.loadPointer(ctx, context.STATE)
+    local frame = native.load64(state, native.fieldOffset<frames.State>("active"))
+    local k: uint64 = 1ULL
+    if level == 0ULL then
+        return 0ULL
+    end
+    while k < level do
+        if frame == 0ULL
+            or native.load64(
+                native.pointer(frame),
+                native.fieldOffset<frames.Frame>("resultKind")
+            ) == frames.PROTECTED_DESTINATION
+        then
+            return 0ULL
+        end
+        frame = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("previous"))
+        k = k + 1ULL
+    end
+
+    return frame
+end
+
+local function tailcaller(ctx: voidptr, frame: uint64): boolean
+    local c = native.loadPointer(ctx, context.CATALOG)
+    local rows = catalog.diagnostics(c)
+    if rows == 0ULL then
+        return false
+    end
+    local owner = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("functionId"))
+    local resume = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("resumePC"))
+    if owner >= native.load64(c, native.fieldOffset<catalog.Catalog>("count")) or resume == 0ULL then
+        return false
+    end
+    local fn = native.pointer(
+        native.load64(c, native.fieldOffset<catalog.Catalog>("records")) + owner * native.sizeOf<catalog.Function>()
+    )
+    if native.load64(fn, native.fieldOffset<catalog.Function>("lands")) ~= 0ULL then
+        return false
+    end
+    local site = catalog.callsite(c, fn, resume - 1ULL)
+    if site == 0ULL then
+        return false
+    end
+    local id = native.load64(native.pointer(site), native.fieldOffset<catalog.Callsite>("id"))
+    local row = native.pointer(rows + id * native.sizeOf<catalog.CallDiagnostic>())
+
+    return native.load64(row, native.fieldOffset<catalog.CallDiagnostic>("method")) & catalog.CALL_TAIL ~= 0ULL
+end
+
+-- Tail-returned guest calls hide their caller without changing physical roots
+-- or cleanup. A protected target remains visible, but its boundary does not.
 export function frameat(ctx: voidptr, level: uint64): uint64
     local state = native.loadPointer(ctx, context.STATE)
     local frame = native.load64(state, native.fieldOffset<frames.State>("active"))
@@ -32,6 +84,15 @@ export function frameat(ctx: voidptr, level: uint64): uint64
             return 0ULL
         end
         frame = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("previous"))
+        while frame ~= 0ULL and tailcaller(ctx, frame) do
+            if native.load64(
+                native.pointer(frame),
+                native.fieldOffset<frames.Frame>("resultKind")
+            ) == frames.PROTECTED_DESTINATION then
+                return 0ULL
+            end
+            frame = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("previous"))
+        end
         k = k + 1ULL
     end
 
