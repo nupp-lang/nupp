@@ -1170,6 +1170,30 @@ return f
     test.eq(g.blocks[1].term.value, closure.dst)
 end
 
+function M.qualifiedRecordMethodsCaptureTheirInitializedClass()
+    local p = describe(
+        [[
+local box = {}
+record box.R
+    value: integer
+    constructor(self, value: integer)
+        self.value = value
+    end
+    function copy(self): box.R
+        return box.R(self.value)
+    end
+end
+return box.R(4):copy().value
+]]
+    )
+    local compiled = program.compile(p, tagged.forVersion(8))
+    local copy = owner(p, "copy")
+    test.eq(#copy.captures, 1)
+    test.eq(copy.captures[1].definition.name, "R")
+    test.eq(copy.captures[1].storage, "cell")
+    require("nupp.compiler.vm.coregraphexecutable").fromChecked(compiled, 8)
+end
+
 function M.taggedMutationAndForwardingKeepOneCellIdentity()
     local p = describe(
         [[

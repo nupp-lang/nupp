@@ -1,0 +1,18 @@
+module nupp.core.catalogqualifiedrecordcapture
+
+local namespace = {}
+record namespace.Counter
+    value: integer
+
+    constructor(self, value: integer)
+        self.value = value
+    end
+
+    function copy(self): namespace.Counter
+        return namespace.Counter(self.value)
+    end
+end
+
+local first = namespace.Counter(4)
+local second = first:copy()
+export = first.value + second.value

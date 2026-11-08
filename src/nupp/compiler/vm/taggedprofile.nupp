@@ -980,13 +980,9 @@ function tagged.forVersion(version: integer): any
         end
         -- `record t.R`: the record's table, stored in the table `t` names
         -- under R, where `new t.R` and `function t.R:m()` find it.
-        profile.qualifiedRecord = function(ctx: any, stat: any): nil
+        profile.qualifiedRecord = function(ctx: any, stat: any, value: integer): nil
             local qualifier = stat.qualifiers[1]
             need(#stat.qualifiers == 1 and qualifier.definition ~= nil, "a qualified record names one table")
-            local value = recordTable(ctx, stat)
-            if value == nil or ctx.block == nil then
-                return
-            end
             local held = ctx.hold(value)
             local owner = ctx.expression({kind = "name", token = qualifier, qualifier}, "tagged")
             if owner == nil or ctx.block == nil then

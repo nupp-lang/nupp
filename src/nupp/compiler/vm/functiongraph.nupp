@@ -261,7 +261,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
     local currentEdge: function(any): any
     local expression: function(any, string?): integer?
     local statements: function(any): nil
-    local declareRecord: function(any): nil
+    local declareRecord: function(any, boolean?): nil
     -- The cells the module's hoisted exports were bound to as it started.
     local hoistedCells: {[any]: integer} = {}
     local unwind: function(integer, any, string, any?): nil
@@ -1311,7 +1311,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
     -- A record's name can hold a table of its methods. A nested record with
     -- methods of its own is one too, made first: the declaration's methods
     -- call it through its name, and its table is stored on the declaration's.
-    declareRecord = function(stat: any): nil
+    declareRecord = function(stat: any, qualified: boolean?): nil
         for _, entry in ipairs(stat.entries or {}) do
             if block and entry.kind == "recordDecl" and entry.declKind == "record" and ownsFunctions(entry) then
                 declareRecord(entry)
@@ -1334,6 +1334,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 writeBinding(stat, key, value)
             else
                 ctx.bind(key, initializeBinding(stat, key, value))
+            end
+            if qualified then
+                invoke("qualifiedRecord", stat, value)
             end
         end
     end
@@ -1952,8 +1955,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 and profile.qualifiedRecord
             then
                 -- `record t.R`: its table is stored in the table `t` names.
-                invoke("erasedStatement", stat, nil)
-                invoke("qualifiedRecord", stat, nil)
+                declareRecord(stat, true)
             elseif stat.kind == "recordDecl"
                 and (stat.declKind ~= "interface" or defaultMethods(stat) or nestsFunctions(stat))
                 and profile.recordValue
