@@ -2146,35 +2146,45 @@ function program.verifyGraphs(p: any, graphs: {any}): nil
     end
 end
 
+-- The externals no execution binding answers, each with where it is first used.
+local function unboundExternals(p: any): {string}
+    local names = {}
+    for _, external in ipairs(p.externals) do
+        names[
+            #names + 1
+        ] = tostring(external.definition and external.definition.name) .. " (" .. tostring(external.first) .. ")"
+    end
+
+    return names
+end
+
+-- The intrinsics the profile cannot execute, each with its source position.
+local function unexecutableIntrinsics(p: any): {string}
+    local names = {}
+    for _, intrinsic in ipairs(p.intrinsics) do
+        if not executable(intrinsic.node) then
+            local token = cst.firstToken(intrinsic.node)
+            names[
+                #names + 1
+            ] = tostring(
+                intrinsic.operation
+            ) .. " (" .. tostring(
+                p.owners[intrinsic.owner + 1].scope.path
+            ) .. ":" .. tostring(token and token.line) .. ")"
+        end
+    end
+
+    return names
+end
+
 -- No graph is omitted, and no image is returned after a partial lowering.
 -- Profiles must explicitly support real module initializer owners.
 function program.compile(p: any, profile: any): any
     program.verify(p)
-    if #p.externals ~= 0 then
-        local names = {}
-        for _, external in ipairs(p.externals) do
-            names[
-                #names + 1
-            ] = tostring(external.definition and external.definition.name) .. " (" .. tostring(external.first) .. ")"
-        end
-        need(false, "external execution bindings are not established: " .. table.concat(names, ", "))
-    end
-    do
-        local names = {}
-        for _, intrinsic in ipairs(p.intrinsics) do
-            if not executable(intrinsic.node) then
-                local token = cst.firstToken(intrinsic.node)
-                names[
-                    #names + 1
-                ] = tostring(
-                    intrinsic.operation
-                ) .. " (" .. tostring(
-                    p.owners[intrinsic.owner + 1].scope.path
-                ) .. ":" .. tostring(token and token.line) .. ")"
-            end
-        end
-        need(#names == 0, "intrinsic execution is not established: " .. table.concat(names, ", "))
-    end
+    local externals = unboundExternals(p)
+    need(#externals == 0, "external execution bindings are not established: " .. table.concat(externals, ", "))
+    local intrinsics = unexecutableIntrinsics(p)
+    need(#intrinsics == 0, "intrinsic execution is not established: " .. table.concat(intrinsics, ", "))
     -- The whole catalog is verified and every intrinsic established above, and
     -- no external is bound, so no owner holds an external reference: each
     -- owner lowers without verifying the catalog again, which made compiling
@@ -2190,6 +2200,31 @@ function program.compile(p: any, profile: any): any
     program.verifyGraphs(p, graphs)
 
     return {graphs = graphs, header = {shapes = {}, modules = modules, entry = p.entry}, catalog = p}
+end
+
+--- Everything that keeps a program from compiling, gathered rather than raised
+--- at the first: unbound externals, intrinsics the profile cannot execute, and
+--- each owner whose lowering refuses. Owners lower independently of whether
+--- the program as a whole could, so a refusal names its own cause. Returns no
+--- image; a program with an empty inventory compiles with `compile`.
+function program.inventory(p: any, profile: any): any
+    program.verify(p)
+    local refused = {}
+    for _, owner in ipairs(p.owners) do
+        local ok, problem = pcall(ownerGraph, p, owner, profile)
+        if not ok then
+            refused[
+                #refused + 1
+            ] = {
+                owner = owner.id,
+                kind = owner.kind,
+                path = owner.scope and owner.scope.path,
+                problem = tostring(problem)
+            }
+        end
+    end
+
+    return {externals = unboundExternals(p), intrinsics = unexecutableIntrinsics(p), owners = refused}
 end
 
 function program.image(p: any, profile: any): string

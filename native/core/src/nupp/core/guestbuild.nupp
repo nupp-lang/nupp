@@ -767,9 +767,10 @@ local function checkedProject(root: string): any
             nativeCompilerServices = false,
             -- Its output is not the build directory the staged sources sit
             -- in, which the project index would leave out, and a qualified
-            -- path resolves only modules the index declares.
+            -- path resolves only modules the index declares. The test runner's
+            -- root is the repository's, so the runner checks as `main` there.
             config = {
-                include = {"src", "build/core-guest-programs/source"},
+                include = {"src", "build/core-guest-programs/source", "tests/tools/test/runner"},
                 build = {outDir = "build/core-guest-programs/out"},
             }
         })
@@ -778,8 +779,8 @@ local function checkedProject(root: string): any
     return sharedProject
 end
 
--- The checked program for a case, compiled to the core executable.
-local function compileProgram(caseName: string, fixture: string, version: integer): any
+-- The checked program catalog for a case: its entry after every module it carries.
+local function programCatalog(caseName: string, fixture: string, version: integer): any
     local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
     local names = {fixture}
     -- A case's other modules come first, so the modules it requires precede it.
@@ -963,24 +964,45 @@ local function compileProgram(caseName: string, fixture: string, version: intege
     -- The entry is last, after the modules it requires.
     modules[#modules + 1] = assert(entry, "guest entry module missing")
     moduleName = entry.name
-    local catalog = program.describe(modules, moduleName)
 
+    return program.describe(modules, moduleName)
+end
+
+local function profileFor(version: integer): any
+    return version >= 5 and tagged.forVersion(version) or tagged
+end
+
+-- The checked program for a case, compiled to the core executable.
+local function compileProgram(caseName: string, fixture: string, version: integer): any
     return executable.fromChecked(
-        program.compile(catalog, version >= 5 and tagged.forVersion(version) or tagged),
+        program.compile(programCatalog(caseName, fixture, version), profileFor(version)),
         version
     )
 end
 
 -- A case's program alone, compiled to the core executable, without the
 -- runtime a guest links: what a builder reads to see what the core refuses.
-function build.program(caseName: string): any
-    local case = assert(CASES[caseName], "unknown guest case: " .. caseName)
+local function caseFixture(case: any): string
     local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
-    local fixture = case.rooted == true and root .. "/" .. case.fixture
+
+    return case.rooted == true and root .. "/" .. case.fixture
         or case.generated == true and root .. "/build/core-guests/generated/" .. case.fixture
         or case.fixture
+end
 
-    return compileProgram(caseName, fixture, case.version)
+function build.program(caseName: string): any
+    local case = assert(CASES[caseName], "unknown guest case: " .. caseName)
+
+    return compileProgram(caseName, caseFixture(case), case.version)
+end
+
+-- Everything that keeps a case's program from compiling for the core, gathered
+-- across its whole closure rather than stopping at the first refusal.
+function build.inventory(caseName: string): any
+    local case = assert(CASES[caseName], "unknown guest case: " .. caseName)
+    local catalog = programCatalog(caseName, caseFixture(case), case.version)
+
+    return program.inventory(catalog, profileFor(case.version))
 end
 
 -- The modules a case names beside its entry, as written for a generated case.
