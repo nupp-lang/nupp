@@ -349,6 +349,10 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             return 1
         end
     end
+    -- Modules are checked and nothing is generated from them: a VM program's
+    -- image is lowered from the sources themselves, and a coverage build's sites
+    -- are numbered where it is.
+    (target as any)._skipConstSpecialization = true
     -- A target without a kind is a library, which is its source: building one
     -- checks its modules and records them, and produces nothing beside them.
     local checkOnly = opts.checkOnly
@@ -506,10 +510,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     if checkOnly and target.aot == "require" and checkedTargetNeedsGpu(root, config, opts.paths) then
         session.stageGpuRuntime()
     end
-    -- Modules are checked and nothing is generated from them: a VM program's
-    -- image is lowered from the sources themselves, and a coverage build's sites
-    -- are numbered where it is.
-    (target as any)._skipConstSpecialization = true
     local result, buildErr = buildModules(
         root,
         outDir,
