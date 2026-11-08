@@ -23,19 +23,11 @@ end
 -- files are, rather than owners.
 local popen: any = io.popen
 
--- Main's io.popen makes its handle a full userdata only where newproxy
--- does; elsewhere the handle is a table io.type still names a file.
-local proxied = rawget(_G, "newproxy") ~= nil
-
-local function named(handle: any, text: string): boolean
-    return (proxied and tostring(handle) == text) or (not proxied and type(handle) == "table")
-end
-
 -- An argument vector, read as a file, closed as Lua's pclose answers.
 do
     local child = assert(popen({"printf", "%s-%s", "a b", "$HOME"}))
     check(type(child.pid) == "number" and child.pid > 0)
-    check(io.type(child) == "file" and named(child, "file (process " .. tostring(child.pid) .. ")"))
+    check(io.type(child) == "file" and child.stdin == nil and child.stdout ~= nil and child.stderr == nil)
     check(child:read("a") == "a b-$HOME")
     local ok, how, code = child:close()
     check(ok == true and how == "exit" and code == 0 and io.type(child) == "closed file")
