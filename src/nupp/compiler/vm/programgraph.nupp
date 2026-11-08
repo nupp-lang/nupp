@@ -3,7 +3,6 @@ module nupp.compiler.vm.programgraph
 local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
 local graph = require("nupp.compiler.vm.graph")
-local graphcalls = require("nupp.compiler.vm.graphcalls")
 local construction = require("nupp.compiler.vm.construction")
 local builtinextensions = require("nupp.compiler.builtinextensions")
 local taggedvalues = require("nupp.compiler.vm.taggedvalues")
@@ -1031,7 +1030,7 @@ function program.describe(modules: {any}, entryModule: string): any
         end
         -- Library intrinsics the core implements as operations (math.floor) are
         -- forms too: the global they name is never read.
-        if node.kind == "call" and graph.coreLibraryCall(node) and not graphcalls.spreadsLibrary(node) then
+        if node.kind == "call" and graph.coreLibraryCall(node) then
             loopForms[node] = true
         end
         -- So are the library constants it folds (math.pi).

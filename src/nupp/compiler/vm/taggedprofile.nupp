@@ -1,7 +1,6 @@
 module nupp.compiler.vm.taggedprofile
 
 local graph = require("nupp.compiler.vm.graph")
-local graphcalls = require("nupp.compiler.vm.graphcalls")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
 local cst = require("nupp.compiler.syntax.cst")
@@ -1427,9 +1426,20 @@ function tagged.forVersion(version: integer): any
                 return tagged.call(ctx, node, expected)
             end
             local library = graph.coreLibraryCall(node)
-            -- A library call spreading `...` or a call's results last calls the
-            -- library function's value with that pack, as Lua does.
-            if graphcalls.spreadsLibrary(node) then
+            -- A library call spreading `...` or a call's results last, other than
+            -- the forms that take a pack, calls the library function's value
+            -- with that pack, as Lua does.
+            local arguments = node.args and node.args.exprs or {}
+            local last = arguments[#arguments]
+            if library ~= nil
+                and node.kind == "call"
+                and library ~= "string.format"
+                and library ~= "table.move"
+                and last ~= nil
+                and (last.kind == "vararg" or graph.expandsResults(last))
+                and catalog(ctx).callByNode[node] ~= nil
+                and catalog(ctx).requireByNode[node.obj] ~= nil
+            then
                 return taggedcalls.invoke(ctx, node, true, true) as integer
             end
             if library == "tostring" or library == "table.concat" then
