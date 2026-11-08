@@ -234,14 +234,15 @@ mod tests {
 #[test]
 fn settlement_keeps_other_completions_and_spends_only_its_ticket() {
         let _serial = TEST_LOCK.lock().unwrap();
-    let _awake = pool_start(2);
+    let awake = pool_start(2);
     let path = b"/dev/null";
     let first = unsafe { pool_submit(OPEN, 1, path.as_ptr() as u64, path.len() as u64) };
     let second = unsafe { pool_submit(OPEN, 1, path.as_ptr() as u64, path.len() as u64) };
     let first_fd = pool_settle(first);
     assert!((first_fd as i64) >= 0);
     assert_eq!(pool_settle(first) as i64, -EINVAL);
-    let second_fd = pool_settle(second);
+    assert_eq!(gather(awake, 1), [second]);
+    let second_fd = unsafe { pool_finish(second, 0, 0) };
     assert!((second_fd as i64) >= 0);
     assert_eq!(pool_take(), 0);
     unsafe {

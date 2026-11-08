@@ -17,7 +17,7 @@ export const CHILD: uint64 = 3ULL
 export const JOB: uint64 = 4ULL
 export const TAKEN: uint64 = 5ULL
 export const CAPACITY: uint64 = 256ULL
-export const OPEN: uint64 = 1ULL
+export const JOB_OPEN: uint64 = 1ULL
 export const CLOSED: uint64 = 2ULL
 
 export function entry(base: voidptr, index: uint64): voidptr

@@ -25,7 +25,7 @@ export struct ServiceScope
     errorSite: uint64
     retainBacking: uint64
     resources: uint64
-    resourcePhase: uint64
+    resourcephase: uint64
 end
 
 -- All spans are borrowed mapped capabilities from the retained entry. This
@@ -93,7 +93,7 @@ end
 -- Reserve all metadata before an OS acquisition. Once acquired, publication
 -- into this record cannot allocate, charge work, suspend or call guest code.
 local function reserve(scope: voidptr): uint64
-    if native.load64(scope, native.fieldOffset<ServiceScope>("resourcePhase")) == journal.CLOSED then
+    if native.load64(scope, native.fieldOffset<ServiceScope>("resourcephase")) == journal.CLOSED then
         return 0ULL
     end
     local base = native.load64(scope, native.fieldOffset<ServiceScope>("resources"))
@@ -153,7 +153,7 @@ end
 -- settles native work first, then closes descriptors. Each child remains
 -- owned until a terminal reap; only the direct child is signaled.
 local function drain(scope: voidptr): boolean
-    native.store64(scope, native.fieldOffset<ServiceScope>("resourcePhase"), journal.CLOSED)
+    native.store64(scope, native.fieldOffset<ServiceScope>("resourcephase"), journal.CLOSED)
     local base = native.load64(scope, native.fieldOffset<ServiceScope>("resources"))
     if base == 0ULL then
         return true
@@ -191,7 +191,7 @@ local function drain(scope: voidptr): boolean
             local canceled = os.poolCancel(ticket)
             if canceled ~= 1 then
                 local result = os.poolsettle(ticket)
-                if operation == journal.OPEN and result >= 0 then
+                if operation == journal.JOB_OPEN and result >= 0 then
                     local _ = os.fileClose(native.word(result))
                 end
             end
@@ -412,7 +412,7 @@ export function poolFinish(scope: voidptr, ticket: uint64, out: voidptr, room: u
     local item = native.pointer(record)
     local operation = journal.operation(item)
     local result = os.poolFinish(ticket, out, room)
-    if operation == journal.OPEN then
+    if operation == journal.JOB_OPEN then
         return acquired(record, journal.FILE, result, 0ULL)
     end
     journal.put(item, journal.EMPTY, 0ULL, 0ULL)

@@ -89,7 +89,7 @@ end
                 call.params[1] = "uint64"
                 assert(nativeos.validate(call))
             end
-            assert(nativeos.importCount() == 60)
+            assert(nativeos.importCount() == 61)
         end
     )
 end
