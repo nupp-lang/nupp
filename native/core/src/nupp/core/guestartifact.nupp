@@ -5,6 +5,7 @@ local targetLayout = require("nupp.compiler.targetlayout")
 local literal = require("s0.literal")
 local schema = require("nupp.compiler.vm.coregraphschema")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
+local bytecode = require("nupp.compiler.vm.corebytecode")
 local artifact = {}
 -- The constant-word tag of a v8 string constant; the payload is its offset.
 local STRING_CONSTANT = 0x7ffe000000000000
@@ -15,6 +16,9 @@ local INTEGER_CONSTANT = 0xfffe000000000000
 -- The most bytes an artifact may hold, which the bridge's regions admit.
 local ARTIFACT_BOUND: integer = schema.artifactBytes()
 local ZERO_WORD = string.rep("\0", 8)
+-- A dispatch table's handlers, and an instruction's bytes.
+const HANDLERS = 256
+const INSTRUCTION_BYTES = 16
 -- Zero padding is joined from runs of this many bytes at most.
 local ZERO_RUN = string.rep("\0", 65536)
 
@@ -472,6 +476,42 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
         codeOffsets = codeOffsets,
         constantOffsets = constantOffsets
     }
+end
+
+-- A binary chunk (Lua's `load`): a program of its own, which the core's
+-- loader installs into the running one (nupp.runtime.core.guestloader).
+-- Its header is the loader's magic, the artifact's bytes and the number of
+-- relocations; then the artifact, whose dispatch table the running
+-- program's stands in for; then a word per relocation, each its kind over
+-- the artifact offset of an instruction's function operand, in order.
+function artifact.chunk(code: any, scopes: any): string
+    local loader = assert(scopes["nupp.runtime.core.guestloader"], "guest loader scope")
+
+    local function constant(name: string): integer
+        return literal.integer((assert(loader.exportedConstants[name], "guest loader constant " .. name)))
+    end
+
+    local dispatch: {integer} = {}
+    for index = 1, HANDLERS do
+        dispatch[index] = 0
+    end
+    local packed = artifact.encode(code, scopes, dispatch, INSTRUCTION_BYTES)
+    local operands = bytecode.functionOperands()
+    local shift = constant("RELOCATION_SHIFT")
+    local words: {string} = {}
+    for index, fn in ipairs(code.functions) do
+        local base = packed.codeOffsets[index] as integer
+        for pc = 0, (fn.instructionCount as integer) - 1 do
+            local operand = operands[(fn.code as string):byte(pc * INSTRUCTION_BYTES + 1)]
+            if operand then
+                local kind = operand.bytes == 8 and constant("RELOCATE_FUNCTION") or constant("RELOCATE_MODULE")
+                words[#words + 1] = encode((kind << shift) | (base + pc * INSTRUCTION_BYTES + operand.offset))
+            end
+        end
+    end
+    local bytes = packed.bytes as string
+
+    return encode(constant("MAGIC")) .. encode(#bytes) .. encode(#words) .. bytes .. table.concat(words)
 end
 
 export = artifact

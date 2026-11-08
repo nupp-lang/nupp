@@ -1,0 +1,69 @@
+module nupp.core.catalogloadbinary
+
+-- Lua's loaders over a binary chunk (catalog-load-chunk) the runner compiled
+-- beside this program and wrote where NUPP_GUEST_TEMP names: its functions
+-- join the program's, call back into it, keep their own constants and
+-- lines, and a second load is a second copy. The modes refuse as Lua's do.
+const path = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/catalog-load-chunk.chunk"
+
+local function cites(message: any, text: string): boolean
+    return string.find(tostring(message), text, 1, true) ~= nil
+end
+
+local score: integer = 0
+local file = assert(io.open(path, "rb"))
+local bytes: string = file:read("a") or ""
+file:close()
+local make, problem = load(bytes, "=chunk", "b")
+if make ~= nil and problem == nil then
+    score = score + 1
+end
+local answer: any = make(
+    function(n: integer): integer
+        return n + 100
+    end,
+    5
+)
+if answer.text == "hello from a chunk!" then
+    score = score + 2
+end
+if answer.wide == 0x123456789ABCD then
+    score = score + 4
+end
+if answer.total == 13 then
+    score = score + 8
+end
+if answer.called == 105 then
+    score = score + 16
+end
+if answer.bump() == 3 then
+    score = score + 32
+end
+local ok, message = pcall(answer.fail)
+if not ok and cites(message, ":31: chunk failure") then
+    score = score + 64
+end
+local again: any = assert(loadfile(path, "b"))
+local other: any = again(
+    function(n: integer): integer
+        return n
+    end,
+    1
+)
+if other.total == 5 and other.bump() == 3 and answer.bump() == 4 then
+    score = score + 128
+end
+local refused, reason = load(bytes, "=chunk", "t")
+if refused == nil and reason == "attempt to load a binary chunk (mode is 't')" then
+    score = score + 256
+end
+local text, why = load("return 1")
+if text == nil and type(why) == "string" then
+    score = score + 512
+end
+local bad, badReason = load("\27Nupp, but not a chunk")
+if bad == nil and cites(badReason, "bad binary format") then
+    score = score + 1024
+end
+
+export const result = score

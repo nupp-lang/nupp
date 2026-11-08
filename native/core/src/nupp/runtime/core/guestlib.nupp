@@ -25,6 +25,7 @@ const guesterrors = require("nupp.runtime.core.guesterrors")
 const guestlanding = require("nupp.runtime.core.guestlanding")
 const guestmeta = require("nupp.runtime.core.guestmeta")
 const guestbuffer = require("nupp.runtime.core.guestbuffer")
+const loader = require("nupp.runtime.core.guestloader")
 
 -- One step of `for k, v in pairs(t)` over a state table {t, key, k, v}:
 -- advances key and stores the pair at 3 and 4. Answers true or false.
@@ -387,6 +388,13 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         )
     elseif id == librarycalls.LANDED then
         return guestlanding.takeLanded(ctx)
+    elseif id == librarycalls.MODULE_INSTALL then
+        -- A binary chunk's entry, which MODULE_START runs, or nil.
+        local installed = loader.install(ctx, a)
+        if installed == 0ULL then
+            return values.NIL
+        end
+        return values.TAG_INTEGER | (installed - 1ULL)
     elseif id == librarycalls.TYPE then
         return guesterrors.typeName(ctx, a)
     elseif id == librarycalls.UNM then

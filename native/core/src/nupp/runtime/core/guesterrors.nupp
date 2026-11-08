@@ -131,7 +131,7 @@ export function positioned(ctx: voidptr, message: uint64, level: uint64, failedO
         if line == 0ULL then
             return message
         end
-        local at = data + (chunk & values.PAYLOAD)
+        local at = catalog.base(c, owner) + (chunk & values.PAYLOAD)
         local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
         local builderLifetime = strings.open(h, state0 as strings.Builder*)
         local builder = state0 as strings.Builder*

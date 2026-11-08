@@ -572,7 +572,12 @@ local subjectrows: {Subject} = {
             -- registration of the image's modules by name that it looks the
             -- name up in.
             {name = "MODULE_REQUIRE", id = 85, text = "NAME_REQUIRE"},
-            {name = "MODULE_NAMES", id = 86}
+            {name = "MODULE_NAMES", id = 86},
+            -- A binary chunk (`load`) installed into the running program,
+            -- answering its entry's id, or nil when the bytes are not one;
+            -- and that entry started as a required module's chunk starts.
+            {name = "MODULE_INSTALL", id = 205, call = "hostcalls.install", min = 1, max = 1},
+            {name = "MODULE_START", id = 206, call = "hostcalls.start", min = 1, max = 1}
         }
     },
     {

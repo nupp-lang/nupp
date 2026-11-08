@@ -18,6 +18,7 @@ local ownedcallables = require("nupp.compiler.vm.ownedcallables")
 local tagged = require("nupp.compiler.vm.taggedprofile")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
+local writer = require("nupp.core.guestartifact")
 require("nupp.compiler.hostservices")
 local build = {}
 -- Processor seconds by phase across this process's builds, for the runner's
@@ -49,7 +50,10 @@ local CASES: {[string]: {
     -- The fixture is a source under the checkout root, checked where it
     -- lives and named `module` (a benchmark program declares no module).
     rooted: boolean?,
-    module: string?
+    module: string?,
+    -- Fixtures compiled as binary chunks beside the program, which the
+    -- runner writes where NUPP_GUEST_TEMP names, as `<fixture>.chunk`.
+    chunks: {string}?
 }} = {
     bindingconditions = {fixture = "catalog-binding-conditions", version = 8},
     optionalmethodcleanups = {fixture = "catalog-optional-method-cleanups", version = 8},
@@ -264,6 +268,8 @@ local CASES: {[string]: {
     osfiles = {fixture = "catalog-os-files", version = 8},
     filesystem = {fixture = "catalog-filesystem", version = 8, follow = true},
     osremove = {fixture = "catalog-os-remove", version = 8},
+    -- Lua's loaders over a binary chunk installed into the running program.
+    loadbinary = {fixture = "catalog-load-binary", version = 8, chunks = {"catalog-load-chunk"}},
     -- The packaged test runner (nupp.lua build.targets.testRunner): the
     -- delivery path runs it on the core.
     testrunner = {fixture = "tests/tools/test/runner/main", version = 8, follow = true, rooted = true, module = "main"},
@@ -365,7 +371,8 @@ local RUNTIME = {
     "guestops",
     "guesthandlers",
     "guestscope",
-    "coretables"
+    "coretables",
+    "guestloader"
 }
 
 -- One runtime build and selection per mode for the process: every case
@@ -527,6 +534,32 @@ end
 -- anywhere counts; carrying it needlessly costs a module that loads first.
 local function readswarn(source: string): boolean
     return source:find("__gc", 1, true) ~= nil or source:find("%f[%w_]warn%f[^%w_]") ~= nil
+end
+
+-- Lua's loaders, which `nupp.runtime.luaload` carries.
+local LOADERS: {[string]: boolean} = {load = true, loadstring = true, loadfile = true, dofile = true}
+
+-- Whether an unchecked tree may call Lua's loaders: a name spelled as one
+-- anywhere, a local of that name included. A builder reads it to carry
+-- `nupp.runtime.luaload`; carrying it needlessly costs a module.
+local function readsload(root: any): boolean
+    local found = false
+    local walk: function(any): nil
+    walk = function(node: any): nil
+        if found or type(node) ~= "table" then
+            return
+        end
+        if node.kind == "name" and node.token and LOADERS[node.token.text] then
+            found = true
+            return
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+    walk(root)
+
+    return found
 end
 
 -- The `os` functions the core calls itself, which need no library carried.
@@ -729,6 +762,9 @@ function build.fixtures(): {{
             for _, name in ipairs(case.modules or {}) do
                 paths[name] = true
             end
+            for _, name in ipairs(case.chunks or {}) do
+                paths[name] = true
+            end
         end
     end
     local names: {string} = {}
@@ -815,16 +851,22 @@ local function programCatalog(caseName: string, fixture: string, version: intege
         end
         -- One that reads Lua's `io` or `os` carries the core's, over its
         -- process and file layers and the reactor beneath them.
-        local usesio, usesos, useswarn = false, false, false
+        local usesio, usesos, useswarn, usesload = false, false, false, false
         for _, name in ipairs(names) do
             local source = read(modulePath(root, name))
             local tree = parser.parse(source, modulePath(root, name)).root
             usesio = usesio or graph.mayUseIo(tree)
             usesos = usesos or readsos(tree)
             useswarn = useswarn or readswarn(source)
+            usesload = usesload or readsload(tree)
         end
         if useswarn then
             table.insert(names, #names, "src/nupp/runtime/luawarn")
+        end
+        -- The loaders read files through Lua's `io`.
+        if usesload then
+            table.insert(names, #names, "src/nupp/runtime/luaload")
+            usesio = true
         end
         if usesio or usesos then
             -- Named as following a require names them, so a program that
@@ -963,6 +1005,10 @@ local function programCatalog(caseName: string, fixture: string, version: intege
             if readswarn(source) then
                 enqueue(luawarn)
             end
+            local luaload = "src/nupp/runtime/luaload"
+            if readsload(parser.parse(source, path).root) then
+                enqueue(luaload)
+            end
         end
     end
     -- The entry is last, after the modules it requires.
@@ -1010,6 +1056,18 @@ function build.inventory(caseName: string): any
     local catalog = programCatalog(caseName, caseFixture(case), case.version)
 
     return program.inventory(catalog, profileFor(case.version))
+end
+
+-- Fixture `name` compiled at profile `version` as a binary chunk's program:
+-- a program of its own, which a case loads (`chunks`).
+function build.chunk(name: string, version: integer): any
+    local compiled = programs[name]
+    if compiled == nil then
+        compiled = compileProgram(name, name, version)
+        programs[name] = compiled
+    end
+
+    return compiled
 end
 
 -- The modules a case names beside its entry, as written for a generated case.
@@ -1062,6 +1120,11 @@ function build.guest(caseName: string, mode: string, cacheDirectory: string?, au
         program = compileProgram(caseName, case.fixture, case.version)
         programs[key] = program
     end
+    -- Its chunks compile before the runtime's selection, as its program
+    -- does: a chunk checked after the runtime's session is refused.
+    for _, name in ipairs(case.chunks or {}) do
+        build.chunk(name, case.version)
+    end
     local compiled = os.clock()
     local held = runtime(mode, cacheDirectory, audited == true)
     build.timings.compile = (build.timings.compile or 0) + compiled - began
@@ -1069,6 +1132,14 @@ function build.guest(caseName: string, mode: string, cacheDirectory: string?, au
     local resolved = {}
     for name, owner in pairs(held.owners) do
         resolved[name] = {owner = owner}
+    end
+    -- Its chunks, each a program of its own, written as binary chunks.
+    local chunks: {{
+        name: string,
+        bytes: string
+    }} = {}
+    for _, name in ipairs(case.chunks or {}) do
+        chunks[#chunks + 1] = {name = name, bytes = writer.chunk(build.chunk(name, case.version), held.scopes)}
     end
 
     return {
@@ -1083,7 +1154,8 @@ function build.guest(caseName: string, mode: string, cacheDirectory: string?, au
         timings = held.timings,
         metrics = held.metrics,
         -- The runtime's literal raises, whose texts the guest's errors carry.
-        raises = held.raises
+        raises = held.raises,
+        chunks = chunks
     }
 end
 

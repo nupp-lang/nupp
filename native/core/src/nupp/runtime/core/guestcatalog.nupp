@@ -147,6 +147,18 @@ export struct Catalog
     instanceCapacity: uint64
     frameDepth: uint64
     phase: uint64
+    -- Zero until a binary chunk loads (`guestloader`), which moves the arrays
+    -- above into mappings with room past their rows: the rows each holds
+    -- room for, by function, signature and call site.
+    capacity: uint64
+    signatureCapacity: uint64
+    contractCapacity: uint64
+    -- By function id, the base its tagged constant words (STRING_CONSTANT,
+    -- INTEGER_CONSTANT, a record's chunk) name offsets from, or zero while
+    -- every function's is `data`.
+    bases: uint64
+    -- The call diagnostics by call site id, or zero while they are data's.
+    rows: uint64
 end
 
 export const BOOLEAN: uint64 = 1ULL
@@ -626,6 +638,10 @@ end
 
 -- The envelope's validated diagnostic rows, or zero for a legacy catalog.
 export function diagnostics(c: voidptr): uint64
+    local rows = native.load64(c, native.fieldOffset<Catalog>("rows"))
+    if rows ~= 0ULL then
+        return rows
+    end
     local data = native.loadPointer(c, native.fieldOffset<Catalog>("data"))
     if native.load64(data, native.fieldOffset<Descriptor>("version")) ~= 8ULL
         or native.load64(data, native.fieldOffset<Descriptor>("records")) ~= native.sizeOf<DescriptorV3>()
@@ -634,6 +650,47 @@ export function diagnostics(c: voidptr): uint64
     end
 
     return native.address(data) + native.load64(data, native.fieldOffset<DescriptorV3>("diagnostics"))
+end
+
+-- The address function `id`'s tagged constant words name offsets from.
+export function base(c: voidptr, id: uint64): uint64
+    local bases = native.load64(c, native.fieldOffset<Catalog>("bases"))
+    if bases == 0ULL then
+        return native.load64(c, native.fieldOffset<Catalog>("data"))
+    end
+
+    return native.load64(native.pointer(bases), native.index(id * 8ULL))
+end
+
+-- Fills fresh `info` and `plan` for function `id` from its record at
+-- `record`, whose code is at `code` and whose signature takes `nparams`.
+-- Answers 1, or 0 when the plan refuses the function.
+export function describe(
+    info: voidptr,
+    plan: voidptr,
+    id: uint64,
+    record: uint64,
+    code: uint64,
+    nparams: uint64
+): uint64
+    local fn = native.pointer(record)
+    native.store64(info, native.fieldOffset<frames.FunctionInfo>("version"), 1ULL)
+    native.store64(info, native.fieldOffset<frames.FunctionInfo>("id"), id)
+    native.store64(info, native.fieldOffset<frames.FunctionInfo>("bodyOwner"), record)
+    native.store64(info, native.fieldOffset<frames.FunctionInfo>("code"), code)
+    native.store64(
+        info,
+        native.fieldOffset<frames.FunctionInfo>("instructionCount"),
+        native.load64(fn, native.fieldOffset<Function>("instructionCount"))
+    )
+    native.store64(info, native.fieldOffset<frames.FunctionInfo>("nparams"), nparams)
+    native.store64(
+        info,
+        native.fieldOffset<frames.FunctionInfo>("valueCount"),
+        native.load64(fn, native.fieldOffset<Function>("valueCount"))
+    )
+
+    return frames.planFixed(info, plan)
 end
 
 -- Storage is fresh, exclusively borrowed and disjoint from immutable data and
@@ -671,34 +728,14 @@ export function initialize(data: voidptr, bytes: uint64, storage: voidptr, avail
         local signature = native.pointer(
             signatures + native.load64(fn, native.fieldOffset<Function>("signature")) * native.sizeOf<Signature>()
         )
-        native.store64(info, native.fieldOffset<frames.FunctionInfo>("version"), 1ULL)
-        native.store64(info, native.fieldOffset<frames.FunctionInfo>("id"), i)
-        native.store64(
+        if describe(
             info,
-            native.fieldOffset<frames.FunctionInfo>("bodyOwner"),
-            records + i * native.sizeOf<Function>()
-        )
-        native.store64(
-            info,
-            native.fieldOffset<frames.FunctionInfo>("code"),
-            source + native.load64(fn, native.fieldOffset<Function>("code"))
-        )
-        native.store64(
-            info,
-            native.fieldOffset<frames.FunctionInfo>("instructionCount"),
-            native.load64(fn, native.fieldOffset<Function>("instructionCount"))
-        )
-        native.store64(
-            info,
-            native.fieldOffset<frames.FunctionInfo>("nparams"),
+            plan,
+            i,
+            records + i * native.sizeOf<Function>(),
+            source + native.load64(fn, native.fieldOffset<Function>("code")),
             native.load64(signature, native.fieldOffset<Signature>("parameterCount"))
-        )
-        native.store64(
-            info,
-            native.fieldOffset<frames.FunctionInfo>("valueCount"),
-            native.load64(fn, native.fieldOffset<Function>("valueCount"))
-        )
-        if frames.planFixed(info, plan) == 0ULL then
+        ) == 0ULL then
             return 0ULL
         end
         i = i + 1ULL

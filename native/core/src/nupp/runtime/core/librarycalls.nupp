@@ -222,6 +222,8 @@ export const TASKS: uint64 = 123ULL
 export const MODULE_PUBLISH: uint64 = 84ULL
 export const MODULE_REQUIRE: uint64 = 85ULL
 export const MODULE_NAMES: uint64 = 86ULL
+export const MODULE_INSTALL: uint64 = 205ULL
+export const MODULE_START: uint64 = 206ULL
 
 -- host
 export const OS_GETENV: uint64 = 10ULL

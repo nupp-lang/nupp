@@ -22,6 +22,15 @@ local record hostcalls
     --- private provider validates zero and the public maximum before calling.
     randombytes: function(count: integer): string
 
+    --- Installs binary chunk `chunk` (what `nupp.core.guestartifact` writes
+    --- as `chunk`) into the running program: the id of its entry, which
+    --- `start` runs, or nil when the bytes are not a chunk this core loads.
+    install: function(chunk: string): integer?
+
+    --- Runs installed chunk entry `entry` as a require runs a module's
+    --- chunk: the value it answers.
+    start: function(entry: integer): any
+
     --- Executing platform, architecture or byte order, selected privately by 0, 1 or 2.
     systemtext: function(field: integer): string
 
