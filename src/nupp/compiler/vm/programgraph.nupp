@@ -1271,14 +1271,14 @@ function program.describe(modules: {any}, entryModule: string): any
             }
             -- A core call module loads nothing; its binding is nil.
             item.corecalls = graph.corecallmodule(node.requiredModule) or nil
-            -- A module no source provides (`ffi` here) is required by name
-            -- when the call runs, so it fails there as Lua's require does.
+            -- A module the program does not carry (`ffi`, which no source
+            -- provides) is required by name when the call runs, so it fails
+            -- there as Lua's require does.
             if target == nil
                 and not item.typeOnly
                 and not item.corecalls
                 and not scalarImport
                 and type(node.requiredModule) == "string"
-                and graph.coremodule(node.requiredModule) == nil
             then
                 item.module, item.absent = node.requiredModule, true
                 p.dynamicRequires = true
