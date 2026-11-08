@@ -66,4 +66,4 @@ local dynamic: any = widths.div
 local ok, quotient = pcall(dynamic, 17, 0)
 assert(ok and quotient == 0)
 assert(not pcall(dynamic, nil, 1))
-export = 1
+export const result = 1

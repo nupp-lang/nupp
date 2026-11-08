@@ -7,14 +7,14 @@ local probe = os.getenv("NUPP_GUEST_PROBE")
 local unset = os.getenv("NUPP_GUEST_PROBE_UNSET")
 local long = os.getenv("NUPP_GUEST_LONG") or ""
 local scale = tonumber(os.getenv("NUPP_GUEST_SCALE") or "1") or 1
-local result = 0
+local tally = 0
 if probe == "core-environment" then
-    result = result + 1
+    tally = tally + 1
 end
 if unset == nil then
-    result = result + 10
+    tally = tally + 10
 end
 if probe ~= nil then
-    result = result + #probe * 100
+    tally = tally + #probe * 100
 end
-export = result + scale * 100000 + #long * 1000000
+export const result = tally + scale * 100000 + #long * 1000000

@@ -22,4 +22,4 @@ local function last(...: integer): integer
 end
 
 local apply: function(integer, ...: integer): integer = sum
-export = sum(1, 2, 3, 4) + sum(5) * 100000 + last(7, 8, 9) * 10000000 + last() + apply(1, 1) * 1000000000
+export const result = sum(1, 2, 3, 4) + sum(5) * 100000 + last(7, 8, 9) * 10000000 + last() + apply(1, 1) * 1000000000

@@ -28,4 +28,4 @@ end
 if string.upper(half as string) == "1.5" and string.sub(12345 as any as string, 2, 3) == "23" then
     score = score + 8
 end
-export = score
+export const result = score

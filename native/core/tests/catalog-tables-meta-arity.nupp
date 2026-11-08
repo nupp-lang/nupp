@@ -27,4 +27,4 @@ score = score + (packed + 1)
 if packed .. "x" == "c1" then
     score = score + 1000
 end
-export = score
+export const result = score

@@ -36,4 +36,4 @@ end)
 if not ok and string.find(tostring(e), "attempt to call a number value", 1, true) ~= nil then
     score = score + 100000
 end
-export = score
+export const result = score

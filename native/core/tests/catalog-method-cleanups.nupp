@@ -69,4 +69,4 @@ end
 if depth("x", 4) == 4 then
     score = score + 16
 end
-export = score
+export const result = score

@@ -24,4 +24,4 @@ end
 if 1_000 == 1000 then
     score = score + 2000000
 end
-export = score
+export const result = score

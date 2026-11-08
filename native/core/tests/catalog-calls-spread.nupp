@@ -32,7 +32,7 @@ local x, y, z = all(4, 5, 6)
 local p, q = firstTwo(7)
 local r, s = firstTwo(8, 9, 10)
 local u, v, w = all(1)
-export = forward(
+export const result = forward(
     1,
     2,
     3

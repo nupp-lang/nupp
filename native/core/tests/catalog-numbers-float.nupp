@@ -8,9 +8,9 @@ local zero = 0.0
 local s = tostring(1.5) .. "," .. tostring(10 / 4) .. "," .. tostring(3.0) .. "," .. tostring(-zero)
 s = s .. "," .. tostring(1e100) .. "," .. tostring(0.1) .. "," .. tostring(1 / 3)
 s = s .. "," .. tostring(123456789012345678.0) .. "," .. tostring(1 / zero) .. "," .. tostring(-1 / zero)
-local result = #s * 100000000
+local tally = #s * 100000000
 if s == "1.5,2.5,3.0,-0.0,1e100,0.1,0.3333333333333333,1.2345678901234568e17,inf,-inf" then
-    result = result + 1
+    tally = tally + 1
 end
 local total = 0.0
 local missing = 0
@@ -34,6 +34,6 @@ read("nan")
 read("1e")
 read("abc")
 if tonumber("9223372036854775808") == 9223372036854775808.0 then
-    result = result + 10
+    tally = tally + 10
 end
-export = result + math.floor(total * 2) * 100 + missing * 10000000
+export const result = tally + math.floor(total * 2) * 100 + missing * 10000000

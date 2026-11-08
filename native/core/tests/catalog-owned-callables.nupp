@@ -90,4 +90,4 @@ okay, problem = pcall(unpublished)
 assert(not okay and problem == marker, "outer failure identity")
 assert(#closed == 7 and closed[7] == 7, "outer failure releases uncalled closure")
 
-export = 1
+export const result = 1

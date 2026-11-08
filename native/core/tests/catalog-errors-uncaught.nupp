@@ -54,4 +54,4 @@ end
 fails(1)
 print("never")
 
-export = 0
+export const result = 0

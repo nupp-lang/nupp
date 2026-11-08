@@ -38,4 +38,4 @@ local c1, c2, c3 = bytes("abc")
 if c1 == 97 and c2 == 98 and c3 == 99 then
     score = score + 10000
 end
-export = score
+export const result = score

@@ -81,4 +81,4 @@ end
 arguments[32] = nil
 local packedOk, packedProblem = relay(table.unpack(arguments, 1, 63))
 assert(not packedOk and packedProblem == marker)
-export = score + handled * 10000
+export const result = score + handled * 10000

@@ -154,4 +154,4 @@ for i = 1, #text do
     sum = (sum * 31 + string.byte(text, i)) % 1000000007
 end
 
-export = sum
+export const result = sum

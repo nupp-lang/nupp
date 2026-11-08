@@ -28,4 +28,4 @@ end
 if others == "nil true false" then
     score = score + 32
 end
-export = score
+export const result = score

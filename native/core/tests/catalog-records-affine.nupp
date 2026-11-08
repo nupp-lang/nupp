@@ -30,4 +30,4 @@ local function scoped(n: integer): integer
 end
 
 local doubled = scoped(3)
-export = closed * 10000 + order * 10 + doubled
+export const result = closed * 10000 + order * 10 + doubled

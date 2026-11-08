@@ -84,4 +84,4 @@ const ok5, e5 = pcall(resuming)
 if not ok5 and string.find(tostring(e5), "inside") ~= nil and closed == before + 1 then
     score = score + 80000
 end
-export = score
+export const result = score

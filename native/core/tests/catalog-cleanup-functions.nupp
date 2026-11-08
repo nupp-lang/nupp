@@ -30,4 +30,4 @@ end
 if released == 11 then
     score = score + 2
 end
-export = score
+export const result = score

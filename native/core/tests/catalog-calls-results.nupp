@@ -29,6 +29,6 @@ for i = 1, 5 do
     local a, b = pair(i)
     acc = acc + a * b
 end
-export = (
+export const result = (
     x + y * 3 + p * 5 + q * 7 + r * 11 + u * 13 + v * 17 + only * 19 + s * 23 + t * 29 + d1 * 31 + d2 * 37
 ) * 1000 + acc

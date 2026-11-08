@@ -12,4 +12,4 @@ local found = 0
 for _ in joined:gmatch("l+") do
     found = found + 1
 end
-export = #joined * 100 + found
+export const result = #joined * 100 + found

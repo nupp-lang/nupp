@@ -35,4 +35,4 @@ end
 local a, b = pair()
 local x, y, z = three()
 local p, q = echo(7, 8)
-export = closed * 100000000 + (a + b) * 1000000 + (x + y + z) * 1000 + p * 10 + q
+export const result = closed * 100000000 + (a + b) * 1000000 + (x + y + z) * 1000 + p * 10 + q

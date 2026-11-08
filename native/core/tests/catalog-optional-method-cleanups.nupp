@@ -62,4 +62,4 @@ do
     local missing = forward(false, 128)
 end
 assert(closed == 46)
-export = 1
+export const result = 1

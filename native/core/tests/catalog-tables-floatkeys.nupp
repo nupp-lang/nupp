@@ -22,4 +22,4 @@ local missing = 0
 if t[nan] == nil then
     missing = 1
 end
-export = r + count * 100000 + missing * 100000000
+export const result = r + count * 100000 + missing * 100000000

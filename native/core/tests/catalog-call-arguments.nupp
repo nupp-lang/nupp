@@ -201,4 +201,4 @@ fails(
     "bad argument #2 to 'setvbuf' (invalid option 'bogus')"
 )
 child:close()
-export = score
+export const result = score

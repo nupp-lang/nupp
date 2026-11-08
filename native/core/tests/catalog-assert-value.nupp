@@ -16,4 +16,4 @@ assert(a == "module" and b == nil and c == 9)
 local x, y, z = original("retained", nil, 11)
 assert(x == "retained" and y == nil and z == 11)
 
-export = 1
+export const result = 1

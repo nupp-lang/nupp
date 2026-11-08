@@ -31,4 +31,4 @@ local first, second = positive:next(), positive:next()
 positive:setstate(saved)
 collectgarbage("collect")
 assert(positive:next() == first and positive:next() == second)
-export = 1
+export const result = 1

@@ -192,4 +192,4 @@ end
 receiver().x = replacement()
 assert(order == 12 and named.x == 23 and named[1] == 91)
 
-export = score
+export const result = score

@@ -141,4 +141,4 @@ end)
 if table.concat(store, ",") == "d,c,b,a" then
     score = score + 512
 end
-export = score
+export const result = score
