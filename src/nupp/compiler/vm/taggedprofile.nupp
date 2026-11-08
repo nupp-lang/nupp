@@ -1272,12 +1272,15 @@ function tagged.forVersion(version: integer): any
             local declared: integer = ctx.fn.signature and #ctx.fn.signature.rets or 1
             local lastSite = catalog(ctx).callByNode[last]
             local scalarLast = scalarwitness(ctx, last) ~= nil
+            local libraryLast = graph.coreLibraryCall(last)
             local spreads = last.kind == "call"
                 and not scalarLast
                 and last.runtimeLoader ~= "require"
-                and graph.coreLibraryCall(last) == nil
+                and libraryLast == nil
                 or last.kind == "methodCall" and lastSite ~= nil and lastSite.method
-                or (last.kind == "call" or last.kind == "methodCall") and packSpec(graph.coreLibraryCall(last)) ~= nil
+                or (last.kind == "call" or last.kind == "methodCall") and packSpec(libraryLast) ~= nil
+                or libraryLast == "pcall"
+                or libraryLast == "xpcall"
             -- A function with open results (`R...`) returns every result of a
             -- call last in its return, as a pack the return spreads: a library
             -- call with several results (`string.byte`) too.
