@@ -536,8 +536,9 @@ local profiles = {
         "tests/compiler/syntax",
         "tests/run.lua"
     }),
-    documentation = contract({"docs", "evals"}, {
-        ".rocks"
+    documentation = contract({
+        "docs",
+        "evals"
     }),
     runner = contract({
         "tests"

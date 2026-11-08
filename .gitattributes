@@ -12,6 +12,7 @@ host/notices/*.txt text eol=lf
 # one checkout spelling.
 tests/run.lua text eol=lf
 tests/cache.lua text eol=lf
+src/nupp/runtime/provider/arraystorage.lua text eol=lf
 src/nupp/tools/doc/theme.css text eol=lf
 src/nupp/runtime/vendor/lunajson/*.lua text eol=lf
 templates/** text eol=lf

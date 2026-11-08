@@ -462,7 +462,8 @@ if package.config:sub(1, 1) == "\\" then
         -- The public process API takes argv directly. Sending its Bash launch
         -- through cmd.exe quotes it a second time and fails before Bash starts.
         -- A copied runner on plain LuaJIT still uses the CRT string interface.
-        local pipe = assert(rawPopen(nativePopen and {bash, path} or invocation(path), mode))
+        local launch = nativePopen and {bash, path} or ('"' .. invocation(path) .. '"')
+        local pipe = assert(rawPopen(launch, mode))
         local proxy = {}
         function proxy:read(...)
             return pipe:read(...)
