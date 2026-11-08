@@ -175,6 +175,12 @@ function M.thePageHostSelectsTheInProcessSuites()
     selects("runtime/wasm/app-runtime.mjs", {"fast-checks", "linux-integration"})
 end
 
+function M.pageArtifactCachesSelectTheSiteJob()
+    selects("scripts/pages-cache.mjs", {"docs-site"})
+    selects("tests/tools/packaging/pages-cache.test.mjs", {"docs-site"})
+    doesNotSelect("scripts/pages-cache.mjs", {"fast-checks", "linux-integration"})
+end
+
 function M.gpuChangeSelectsBothAdapters()
     selects("src/nupp/gpu/kernel.nupp", {"gpu-linux", "gpu-windows", "fast-checks", "linux-integration"})
     selects("src/io/gpu/kernel.nupp", {"gpu-linux", "gpu-windows", "fast-checks", "linux-integration"})

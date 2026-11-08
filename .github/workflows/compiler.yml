@@ -733,6 +733,14 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v5
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Validate native Pages artifacts
+        run: node --test tests/tools/packaging/pages-cache.test.mjs
+
       - name: Restore the pinned build tools
         uses: actions/cache@v4
         with:

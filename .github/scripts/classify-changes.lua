@@ -21,6 +21,7 @@ local rules = {
     {"%.md$", {"docs"}},
     {"^about%.toml$", {"docs", "packaging"}},
     {"^scripts/build%-pages%.mjs$", {"docs"}},
+    {"^scripts/pages%-cache%.mjs$", {"docs"}},
     {"^scripts/docs%-serve%.mjs$", {"docs"}},
     {"^scripts/rust%-dependency%-notices", {"docs", "packaging"}},
 
@@ -97,14 +98,15 @@ local rules = {
     {"^tests/stdlib/serde/json/jsonfuseddifferentialtest%.lua$", {"tests", "aot"}},
     {"^tests/integration/simd/", {"tests", "aot"}},
     {"^tests/integration/acceptance/", {"tests"}},
-    {"^tests/", {"tests"}},
+    {"^tests/tools/packaging/pages%-cache%.test%.mjs$", {"docs"}},
+    {"^tests/", {"tests"}, {["tests/tools/packaging/pages-cache.test.mjs"] = true}},
 
     -- Everything below decides how the whole tree is built, tested or released,
     -- so it has no smaller blast radius than "all of it".
     {"^%.github/", {"everything"}},
     {"^%.githooks/", {"everything"}},
     {"^scripts/toolchain", {"everything"}},
-    {"^scripts/", {"everything"}},
+    {"^scripts/", {"everything"}, {["scripts/pages-cache.mjs"] = true}},
     {"^nupp%.lua$", {"everything"}},
     {"^Cargo%.toml$", {"everything"}},
     {"^Cargo%.lock$", {"everything"}},
