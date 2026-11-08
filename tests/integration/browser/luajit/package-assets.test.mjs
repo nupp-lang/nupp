@@ -11,6 +11,7 @@ import {copyGuest, digest, verifyGuest} from '../../../../runtime/luajit/package
 import {prepareArchive} from './prepare-archive.mjs';
 import {packageBrowserApp} from '../../../../runtime/luajit/package-browser-app.mjs';
 import {assemblePages} from '../../../../scripts/build-pages.mjs';
+import {restoreArtifact, saveArtifact} from '../../../../scripts/pages-cache.mjs';
 
 function fixture(t) {
   const root = mkdtempSync(path.join(tmpdir(), 'nupp-runtime-package-'));
@@ -87,6 +88,44 @@ test('Pages assembly preserves hashed runtime notices while decorating site page
     assert.match(published, /<meta property="og:site_name" content="Nupp">/, name);
     assert.match(published, /<meta name="twitter:card" content="summary_large_image">/, name);
   }
+});
+
+test('Pages reuses the complete verified playground and rebuilds damaged or stale packages', t => {
+  const f = fixture(t);
+  execFileSync('git', ['init', '-q', f.repo]);
+  f.write(f.repo, '.gitignore', '/build/\n/editors/playground/dist/\n');
+  const dist = path.join(f.repo, 'editors/playground/dist');
+  const relative = `luajit/${f.manifest.buildKey}/guest-manifest.json`;
+  copyGuest(f.repo, f.guest, path.dirname(path.join(dist, relative)));
+  for (const name of ['app.js', 'doc-app.js', 'worker.js', 'app-worker.js', 'index.html']) f.write(dist, name, name);
+  const payload = {guestManifest: relative, compiler: 'compiler.gz', compilerBytes: 8,
+    compilerSha256: digest('compiler'), appRuntime: 'runtime.gz', appRuntimeBytes: 7, appRuntimeSha256: digest('runtime')};
+  f.write(dist, payload.compiler, 'compiler');
+  f.write(dist, payload.appRuntime, 'runtime');
+  f.write(dist, 'nupp-playground-assets.json', JSON.stringify({luajit: payload}));
+  saveArtifact('playground', f.repo);
+  rmSync(dist, {recursive: true});
+  f.write(f.repo, 'docs/new-page.md', '# New page');
+  assert.equal(restoreArtifact('playground', f.repo), true);
+  assert.equal(readFileSync(path.join(dist, 'app.js'), 'utf8'), 'app.js');
+  const published = path.join(f.root, 'published');
+  f.write(f.root, 'docs/index.html', '<html><head></head><body>Updated docs</body></html>');
+  assemblePages({docs: path.join(f.root, 'docs'), playground: dist, output: published});
+  verifyGuest(f.repo, path.dirname(path.join(published, 'playground', relative)));
+  assert.match(readFileSync(path.join(published, 'index.html'), 'utf8'), /Updated docs/);
+
+  const cache = path.join(f.repo, 'build/pages-playground');
+  f.write(path.join(cache, 'files/editors/playground/dist'), payload.compiler, 'damaged');
+  assert.equal(restoreArtifact('playground', f.repo), false, 'modified compiler payload');
+  saveArtifact('playground', f.repo);
+  const manifestFile = path.join(cache, 'manifest.json');
+  const manifest = JSON.parse(readFileSync(manifestFile, 'utf8'));
+  delete manifest.files['editors/playground/dist/app.js'];
+  writeFileSync(manifestFile, JSON.stringify(manifest));
+  assert.equal(restoreArtifact('playground', f.repo), false, 'incomplete inventory');
+  saveArtifact('playground', f.repo);
+  f.write(f.repo, 'src/checker.nupp', 'changed compiler');
+  assert.equal(restoreArtifact('playground', f.repo), false, 'compiler change');
 });
 
 test('runtime verification rejects missing notices, matching sources and snapshot assets', t => {
