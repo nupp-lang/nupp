@@ -4,6 +4,8 @@ module nupp.compiler.vm.graphcalls
 --- invoke keeps, and which calls are the core's library calls.
 local corelibrary = require("nupp.compiler.vm.corelibrary")
 
+local RAW_COROUTINE_MODULE = "nupp.runtime.rawcoroutine"
+
 local graphsignatures = require("nupp.compiler.vm.graphsignatures")
 local graphnative = require("nupp.compiler.vm.graphnative")
 local dense = graphsignatures.dense
@@ -996,6 +998,7 @@ end
 local corecallmodules: {
     [string]: string
 } = {
+    [RAW_COROUTINE_MODULE] = "coroutine",
     ["nupp.runtime.storagecalls"] = "storagecalls",
     ["nupp.runtime.hostcalls"] = "hostcalls",
     ["nupp.runtime.buffercalls"] = "buffercalls",
