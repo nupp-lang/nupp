@@ -793,8 +793,8 @@ end
 ---
 --- @param body what the coroutine runs
 --- @return the coroutine
-function suspension.create<A..., R...>(body: function(A...): R...): thread
-    local co = coroutines.create(body)
+function suspension.create<A..., R...>(body: function(A...): R..., ...: any): thread
+    local co = coroutines.create(body, ...)
     -- The installation, not just its handler: a park the new coroutine accepts belongs
     -- to the extent that was in force where it was created, and has to be cancelled
     -- when that extent ends.

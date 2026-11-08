@@ -2,6 +2,7 @@
 module nupp.suspension.internal.coroutines
 
 local rawCoroutine = require("nupp.runtime.rawcoroutine")
+local rawCreate: function(any, ...: any): thread = rawCoroutine.create as any
 local coroutines = {}
 
 function coroutines.localMap(_: string): any
@@ -12,8 +13,8 @@ function coroutines.localState(_: string, initialize: function(): any): any
     return initialize()
 end
 
-function coroutines.create(body: any): thread
-    return rawCoroutine.create(body)
+function coroutines.create(body: any, ...: any): thread
+    return rawCreate(body, ...)
 end
 
 export = coroutines

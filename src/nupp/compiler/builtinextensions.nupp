@@ -39,6 +39,7 @@ local ROOTS = {
     },
     coroutine = {
         module = "nupp.runtime.standardcoroutine",
+        replace = {create = true, wrap = true},
         members = {
             Context = true,
             Source = true,
