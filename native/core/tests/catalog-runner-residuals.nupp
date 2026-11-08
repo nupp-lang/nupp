@@ -1,8 +1,8 @@
 module nupp.core.catalogrunnerresiduals
 
 -- Forms the packaged runner's compiler closure uses that core lowering refused:
--- a loop-local taken from a parameter and reassigned in the loop. Each check
--- is a bit of the score.
+-- a loop-local taken from a parameter and reassigned in the loop, and a switch
+-- expression in a function that owns a value. Each check is a bit of the score.
 local score = 0
 local bit = 1
 
@@ -27,9 +27,31 @@ local function last(value: integer?, items: {integer}): integer
     return out
 end
 
+local closed = 0
+
+local record Token is own.Closeable
+    function close(takes self): nil
+        closed = closed + 1
+    end
+end
+
+-- A switch expression in a function owning a value, whose arms own nothing.
+local function label(kind: integer): string
+    const token = Token()
+    local text = switch kind do
+        case 1 -> "one"
+        case 2 -> "two"
+        else -> "many"
+    end
+    token:close()
+
+    return text
+end
+
 do
     check(last(nil, {1, 2, 3}) == 6)
     check(last(10, {1, 2}) == 20)
+    check(label(1) == "one" and label(2) == "two" and label(7) == "many" and closed == 3)
 end
 
 export const result = score
