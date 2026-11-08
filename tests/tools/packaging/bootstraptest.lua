@@ -76,20 +76,17 @@ function M.aDamagedCachedStageZeroImageIsFetchedAgain()
     plant("planted.image", "a planted stage-zero image\n")
     local digest = capture(
         ("shasum -a 256 '%s/planted.image' 2>/dev/null || sha256sum '%s/planted.image'"):format(dir, dir)
-    ):match("^(%x+)")
+    )
+        :match("^(%x+)")
     assert(os.execute(("mkdir -p '%s/supplied'"):format(dir)) == 0)
     assert(
-        os.execute(
-            ("gzip -c '%s/planted.image' > '%s/supplied/nupp-stage0-%s.image.gz'"):format(dir, dir, tag)
-        ) == 0
+        os.execute(("gzip -c '%s/planted.image' > '%s/supplied/nupp-stage0-%s.image.gz'"):format(dir, dir, tag)) == 0
     )
     plant("scripts/toolchain.pins", (pins:gsub("\nSTAGE0_IMAGE_SHA256=%x+", "\nSTAGE0_IMAGE_SHA256=" .. digest)))
 
-    local toolchain = ("%s NUPP_HOST_SOURCE_DIR='%s/supplied' '%s/scripts/toolchain' stage0-image 2>&1"):format(
-        env,
-        dir,
-        dir
-    )
+    local toolchain = (
+        "%s NUPP_HOST_SOURCE_DIR='%s/supplied' '%s/scripts/toolchain' stage0-image 2>&1"
+    ):format(env, dir, dir)
     local out, ok = capture(toolchain)
     assert(ok, "the planted stage-zero image did not install: " .. out)
     local cached = dir .. "/toolchain/stage0-image/" .. digest .. "/compiler.image"
@@ -156,6 +153,20 @@ function M.embeddedResourcesHaveOneCheckoutSpelling()
     end
     attributes:close()
     assert(#unspelled == 0, "embedded resources with no eol=lf in .gitattributes: " .. table.concat(unspelled, ", "))
+end
+
+function M.nativeCompilerResourcesCarryTheCliTestHarness()
+    local targets = assert(loadfile(ROOT .. "/nupp.lua"))().build.targets
+    for _, name in ipairs({"dist", "testRunner"}) do
+        local target = assert(targets[name])
+        assert(target.kind == "binary" and target.stub == "nupp")
+        local found = {}
+        for _, resource in ipairs(target.resources) do
+            local path = type(resource) == "table" and resource.source or resource
+            found[path] = true
+        end
+        assert(found["tests/run.lua"] and found["tests/cache.lua"], name .. " omits the CLI test harness")
+    end
 end
 
 return M

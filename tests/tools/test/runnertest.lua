@@ -2104,4 +2104,74 @@ function M.scopesKeepDeliveryExplicitAndRejectUnassignedSuites()
     os.execute(("rm -rf %q"):format(dir))
 end
 
+function M.windowsShellUsesArgumentVectorsForNativePipes()
+    local source = read(ROOT .. "/tests/run.lua")
+    local first = assert(source:find("-- The suites predate Windows support", 1, true))
+    first = assert(source:find('if package.config:sub(1, 1)', first, true))
+    local last = assert(source:find("local caseDefinitions", first, true))
+    local setup = source:sub(first, last - 1)
+    for _, native in ipairs({true, false}) do
+        local received, closed, path
+
+        local function popen(command, mode)
+            received = {command, mode}
+            return {
+                read = function()
+                    return "worker report"
+                end,
+                close = function()
+                    closed = true;
+                    return true
+                end,
+            }
+        end
+
+        local environment = setmetatable(
+            {
+                package = {
+                    config = "\\",
+                    loaded = {
+                        ["nupp.runtime.standardio"] = {
+                            popen = native and popen or function()
+                            end
+                        }
+                    }
+                },
+                io = {open = io.open, popen = popen},
+                os = {
+                    execute = function()
+                    end,
+                    getenv = function(name)
+                        if name == "NUPP_TEST_BASH" then
+                            return "C:/Program Files/Git/bin/bash.exe"
+                        end
+                    end,
+                    tmpname = function()
+                        path = os.tmpname() .. ".sh";
+                        return path:sub(1, -4)
+                    end,
+                    remove = os.remove,
+                },
+            },
+            {__index = _G}
+        )
+        environment._G = environment
+        assert(setfenv(assert(loadstring(setup, "@nupp:test-runner")), environment))()
+        local pipe = environment.io.popen("printf 'worker report'", "r")
+        if native then
+            test.eq(type(received[1]), "table", "native pipes start Bash directly")
+            test.eq(received[1][1], "C:/Program Files/Git/bin/bash.exe")
+            test.eq(received[1][2], path)
+        else
+            test.eq(received[1], ('""C:/Program Files/Git/bin/bash.exe" "%s""'):format(path))
+        end
+        test.eq(received[2], "r")
+        test.eq(read(path), "printf 'worker report'\n")
+        test.eq(pipe:read("*a"), "worker report")
+        test.eq(pipe:close(), true)
+        test.eq(closed, true)
+        test.eq(io.open(path, "rb"), nil, "closing the pipe removes its script")
+    end
+end
+
 return M

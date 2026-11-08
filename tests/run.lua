@@ -350,6 +350,8 @@ end
 -- paths for the Windows programs those commands start.
 if package.config:sub(1, 1) == "\\" then
     local rawExecute, rawPopen = os.execute, io.popen
+    local standardIO = package.loaded["nupp.runtime.standardio"]
+    local nativePopen = standardIO and rawPopen == standardIO.popen
     -- Rejected empty as well as absent: an undefined workflow variable reaches a
     -- step as the empty string, which is true in Lua, so a bare `assert` let it
     -- through and every shelled-out command became `""` instead.
@@ -457,7 +459,10 @@ if package.config:sub(1, 1) == "\\" then
             }
         end
         local path = script(command)
-        local pipe = assert(rawPopen(invocation(path), mode))
+        -- The public process API takes argv directly. Sending its Bash launch
+        -- through cmd.exe quotes it a second time and fails before Bash starts.
+        -- A copied runner on plain LuaJIT still uses the CRT string interface.
+        local pipe = assert(rawPopen(nativePopen and {bash, path} or invocation(path), mode))
         local proxy = {}
         function proxy:read(...)
             return pipe:read(...)

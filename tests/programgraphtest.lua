@@ -10,9 +10,9 @@ local tagged = require("nupp.compiler.vm.taggedprofile")
 local json = require("serde.json")
 local M = {}
 
-local function checked(source, name, preparedEnvironment)
+local function checked(source, name, preparedEnvironment, path)
     name = name or "programgraph_fixture"
-    local path = "=" .. name .. ".nupp"
+    path = path or "=" .. name .. ".nupp"
     local parsed = parser.parse(source, path)
     test.eq(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
     local env = preparedEnvironment or environment.new(".", {
@@ -160,7 +160,7 @@ assert(early() == 7)
 end
 
 function M.ownershipCaptureContractsKeepTheirCheckedOuterAndInnerBindings()
-    local p = describe(
+    local input = checked(
         [[
 local record Resource
     value: integer
@@ -178,6 +178,10 @@ print(callback() + os.time())
 own.drop(borrowed)
 ]]
     )
+    local module = require("nupp.compiler.vm.ownedcallables").MODULE
+    local path = assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/src/" .. module:gsub("%.", "/") .. ".nupp"
+    local factory = checked(assert(require("nupp.compiler.fs").readFile(path)), module, nil, path)
+    local p = program.describe({input, factory}, input.name)
     test.eq(#owner(p, "close").captures, 0)
     -- Constructing a plain record reads the record's table, which becomes
     -- the instance's metatable: `open` captures the record's name.
@@ -189,12 +193,8 @@ own.drop(borrowed)
                 found[capture.mode] = capture
                 test.eq(capture.ownership.outer.definition, capture.definition)
                 assert(capture.storage == "value" or capture.storage == "cell")
-                refuses(
-                    function()
-                        program.functionGraph(p, f, tagged)
-                    end,
-                    "taking captures require ownership cleanup and lifetime lowering"
-                )
+                local lowered = program.functionGraph(p, f, tagged.forVersion(8))
+                assert(#lowered.blocks > 0, "checked taking and borrowing captures lower together")
             end
         end
     end
