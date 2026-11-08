@@ -1052,6 +1052,9 @@ end
 -- chain). Nothing in it calls back or recurses, so its catalog's frame
 -- depth is that bound. Each source is staged where the guest project reads
 -- it as well.
+-- Its modules set their values with `export =`: an export table is published
+-- through a library call, which the depth bound must assume may call back,
+-- so named exports would bound its frames at the recursion limit instead.
 local MANY_DEPTH = 18
 
 local function modulesmany()
@@ -1071,7 +1074,7 @@ local function modulesmany()
         for k = 2, 16 do
             lines[#lines + 1] = ("local function f%d(): boolean\n    return f%d()\nend"):format(k, k - 1)
         end
-        lines[#lines + 1] = "export const ready = f16()"
+        lines[#lines + 1] = "export = f16()"
         local text = table.concat(lines, "\n") .. "\n"
         write(OUT .. "/generated/" .. name .. ".nupp", text)
         write(staged .. "/catalog" .. name .. ".nupp", text)
@@ -1079,9 +1082,9 @@ local function modulesmany()
     -- More modules than a chunk may have locals, so none is kept in one.
     main[#main + 1] = "local all = true"
     for _, name in ipairs(names) do
-        main[#main + 1] = ("if not require(\"nupp.core.catalog%s\").ready then\n    all = false\nend"):format(name)
+        main[#main + 1] = ("if not require(\"nupp.core.catalog%s\") then\n    all = false\nend"):format(name)
     end
-    main[#main + 1] = "export const result = all"
+    main[#main + 1] = "export = all"
     local text = table.concat(main, "\n") .. "\n"
     write(OUT .. "/generated/modulesmany.nupp", text)
     write(staged .. "/catalogmodulesmany.nupp", text)
