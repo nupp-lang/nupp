@@ -1428,6 +1428,12 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                                 registerCleanup(stat, owner, owner.type, value, exprs[index] == nil and not spread)
                             end
                         end
+                        -- A reassigned local never shares a parameter's value: the
+                        -- loops and branches that change it carry it, and they
+                        -- carry no parameter.
+                        if value <= g.nparams and key.reassigned then
+                            value = ctx.emit(stat, "Move", {value}, profile.valueKind(g, value))
+                        end
                         ctx.bind(key, initializeBinding(stat, key, value))
                     end
                     for index = #values, 1, -1 do

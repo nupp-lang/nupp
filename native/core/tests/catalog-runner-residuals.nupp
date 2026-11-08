@@ -1,0 +1,35 @@
+module nupp.core.catalogrunnerresiduals
+
+-- Forms the packaged runner's compiler closure uses that core lowering refused:
+-- a loop-local taken from a parameter and reassigned in the loop. Each check
+-- is a bit of the score.
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+-- A local declared in a loop from a parameter, then reassigned in that loop.
+local function last(value: integer?, items: {integer}): integer
+    local out: integer = 0
+    for _, item in ipairs(items) do
+        local current = value
+        if current == nil then
+            current = item
+        end
+        out = out + current
+    end
+
+    return out
+end
+
+do
+    check(last(nil, {1, 2, 3}) == 6)
+    check(last(10, {1, 2}) == 20)
+end
+
+export const result = score
