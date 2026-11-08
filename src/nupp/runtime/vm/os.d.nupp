@@ -331,5 +331,21 @@ local record Os
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     pathQuery: function(which: uint64, path: voidptr, bytes: uint64, out: voidptr, room: uint64): int64
 
+    --- The C library's dynamic loader, for foreign calls: dlopen of the
+    --- NUL-terminated `path` (null for the program itself) with `mode`.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    dlopen: function(path: voidptr, mode: int64): voidptr
+
+    --- dlsym of the NUL-terminated `name` in `library`: its address, or null.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    dlsym: function(library: voidptr, name: voidptr): voidptr
+
+    --- dlclose of what dlopen answered: 0, or nonzero when it failed.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    dlclose: function(library: voidptr): int64
+
+    --- Where the calling thread's C `errno` lives, a 32-bit integer.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    errnoLocation: function(): voidptr
 end
 return Os

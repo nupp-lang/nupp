@@ -2,6 +2,7 @@
 mod entropy;
 mod files;
 mod filesystem;
+mod library;
 mod platform;
 mod poll;
 mod pool;
@@ -161,6 +162,7 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, Failure> {
     code.executable()?;
     // The guest's `arg[0]`, when no command line set its arguments.
     let _ = platform::ARGUMENTS.set(vec![bundle.as_os_str().to_owned()]);
+    let library = library::imports();
     let imports = [
         platform::map_pages as *const () as u64,
         platform::unmap_pages as *const () as u64,
@@ -223,6 +225,11 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, Failure> {
         filesystem::path_query as *const () as u64,
         process::process_signal as *const () as u64,
         pool::pool_settle as *const () as u64,
+        library[0],
+        library[1],
+        library[2],
+        library[3],
+        library[4],
     ];
     #[cfg(test)]
     let imports = shared::imports(imports);
