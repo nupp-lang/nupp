@@ -7,6 +7,7 @@ local testAssert = require("assert")
 -- the test supplies the platform and the module supplies the behaviour.
 local processTypes = require("io.internal.process.types")
 local suspension = require("nupp.runtime.standardcoroutine").value
+local suspensionState = require("nupp.suspension")
 local suspensionHost = require("coroutine.host")
 
 local function spawnOn(provider, options)
@@ -1479,7 +1480,7 @@ local inactiveWaitSource = nil
 local inactiveWaitCalls = 0
 
 local function retainInactiveWaitSource()
-    testAssert.eq(suspension.handled(), false, "the process wait has no outer handler")
+    testAssert.eq(suspensionState.handled(), false, "the process wait has no outer handler")
     assert(inactiveWaitSource == nil, "the previous inactive source was released")
     inactiveWaitCalls = 0
     inactiveWaitSource = suspension.source(

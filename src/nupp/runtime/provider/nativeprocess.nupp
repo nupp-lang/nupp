@@ -3,9 +3,10 @@ module nupp.runtime.provider.nativeprocess
 local host = require("nupp.vm.process")
 local shared = require("io.internal.process.types")
 local provider = {}
+const SIGNAL_BASE = 128
 
--- The VM host reports a failed start by its reason alone, so the platform error
--- code the contract allows is never set here.
+-- Older VM hosts report a failed start by its reason alone; the core also
+-- returns the platform error code.
 function provider.spawn(_: any, options: shared.SpawnOptions): (any?, any?, any?, any?, integer, string?, integer?)
     -- Public option names stop here; the frozen host consumes this private descriptor.
     return host.spawn({
@@ -23,6 +24,10 @@ end
 function provider.poll(_: any, child: any): shared.Exit?
     local code, killed, signal = host.poll(child)
     if code ~= nil then
+        -- The frozen Unix host encodes a signal as 128 plus its number.
+        if signal == nil and killed and package.config:sub(1, 1) ~= "\\" and code >= SIGNAL_BASE then
+            signal = code - SIGNAL_BASE
+        end
         return {exitcode = code, killed = killed, timedout = false, signal = signal}
     end
 end

@@ -12,7 +12,8 @@ local type SpawnOptions = {
     timeoutMs: integer?
 }
 local record Host
-    spawn: function(options: SpawnOptions): (any?, any?, any?, any?, integer, string?)
+    -- Older hosts omit the optional platform error code.
+    spawn: function(options: SpawnOptions): (any?, any?, any?, any?, integer, string?, integer?)
     -- Older hosts omit the optional terminating signal.
     poll: function(child: any): (integer?, boolean, integer?)
     kill: function(child: any, force: boolean): nil

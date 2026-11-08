@@ -18,6 +18,7 @@ const MAX_WAIT_MS = 2147483647
 const READABLE = 1
 const WRITABLE = 2
 const READ_SIZE = 65536
+const INVALID = 22
 const MODES: {
     [string]: integer
 } = {inherit = processes.INHERIT, pipe = processes.PIPE, null = processes.NULL, stdout = processes.MERGE}
@@ -32,22 +33,22 @@ end
 
 -- Only the existing private host descriptor uses clearEnv; public process
 -- options and the process state machine remain in their shared modules.
-export function spawn(options: any): (any?, any?, any?, any?, integer, string?)
+export function spawn(options: any): (any?, any?, any?, any?, integer, string?, integer?)
     for _, argument in ipairs(options.args) do
         if argument:find("\0", 1, true) then
-            return nil, nil, nil, nil, 0, "process argument contains NUL"
+            return nil, nil, nil, nil, 0, "process argument contains NUL", INVALID
         end
     end
     local directory: string? = options.cwd ~= nil and tostring(options.cwd) or nil
     if directory ~= nil and directory:find("\0", 1, true) then
-        return nil, nil, nil, nil, 0, "process directory contains NUL"
+        return nil, nil, nil, nil, 0, "process directory contains NUL", INVALID
     end
     local environment: {string}? = nil
     if options.env ~= nil or options.clearEnv == true then
         environment = {}
         for name, value in pairs(options.env or {}) do
             if name:find("\0", 1, true) or value:find("\0", 1, true) then
-                return nil, nil, nil, nil, 0, "process environment contains NUL"
+                return nil, nil, nil, nil, 0, "process environment contains NUL", INVALID
             end
             environment[#environment + 1] = name .. "=" .. value
         end
@@ -62,10 +63,10 @@ export function spawn(options: any): (any?, any?, any?, any?, integer, string?)
         stderr = MODES[options.stderr or "inherit"]
     })
     if child == nil then
-        return nil, nil, nil, nil, 0, files.reason(code)
+        return nil, nil, nil, nil, 0, files.reason(code), code
     end
 
-    return child, stream(child.stdin), stream(child.stdout), stream(child.stderr), child.id, nil
+    return child, stream(child.stdin), stream(child.stdout), stream(child.stderr), child.id, nil, nil
 end
 
 export function poll(child: any): (integer?, boolean, integer?)

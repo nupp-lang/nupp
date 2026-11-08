@@ -922,8 +922,9 @@ local function compileProgram(caseName: string, fixture: string, version: intege
         end
         do
             -- Checked value dependencies are mandatory in every profile. Only
-            -- optional dynamic discovery depends on the case following sources.
-            local required, dynamic = requiredmodules(parsed.root or parsed, source, follow)
+            -- Carried libraries retain their declared and literal dynamic
+            -- dependencies. The case flag controls discovery in fixture code.
+            local required, dynamic = requiredmodules(parsed.root or parsed, source, follow or libraryModule(name))
             for _, name in ipairs(required) do
                 local library = librarypath(root, name)
                 if library and (not dynamic[name] or portable(root, library)) then
