@@ -224,7 +224,7 @@ export function main(arg: {string}): integer
         .. runtimehash
         .. '"}'
     local selected = hash.sha256(key)
-    local temporary = assert(os.mktempdir(PACKAGES))
+    local temporary = assert(os.mktempdir(".install-", nil, PACKAGES))
     local stage = temporary:path():tostring()
     copy(runtime, stage .. "/runtime", true)
     copy(image, stage .. "/compiler.image")

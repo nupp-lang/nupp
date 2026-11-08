@@ -202,4 +202,11 @@ function M.emitsMergedSidecarWithPortableEscaping()
     test.eq(text:find('\\u{a}', 1, true) ~= nil, true)
 end
 
+function M.registersGcMapsForEveryReplicatedFunctionAddress()
+    local text = aot.sidecar(DIGEST, {0, 3}, "maps", {{fid = 3, part = 2}})
+    test.eq(text:find("fn nupp_p02_3();", 1, true) ~= nil, true)
+    test.eq(text:find("(3, nupp_p02_3 as *const () as usize),", 1, true) ~= nil, true)
+    test.eq(text:find("out.push((*address,len,maps.clone()))", 1, true) ~= nil, true)
+end
+
 return M

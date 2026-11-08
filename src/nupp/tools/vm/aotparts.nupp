@@ -348,8 +348,8 @@ function parts.rename(text: string, replacements: {[string]: string}): string
     return table.concat(pieces)
 end
 
-function parts.sidecar(digest: string, fids: {number}, maps: string): string
-    local declarations, entries, starts, bytes = {}, {}, {}, {}
+function parts.sidecar(digest: string, fids: {number}, maps: string, duplicates: {any}?): string
+    local declarations, entries, starts, bytes, copies = {}, {}, {}, {}, {}
     for index = 1, #digest, 2 do
         bytes[#bytes + 1] = decimal(assert(tonumber(digest:sub(index, index + 1), 16)))
     end
@@ -358,6 +358,11 @@ function parts.sidecar(digest: string, fids: {number}, maps: string): string
         declarations[#declarations + 1] = "fn nupp_aot_" .. fid .. "();"
         entries[#entries + 1] = "(" .. fid .. ", nupp_aot_" .. fid .. " as *const () as usize as u64),"
         starts[#starts + 1] = "(" .. fid .. ", nupp_aot_" .. fid .. " as *const () as usize),"
+    end
+    for _, copy in ipairs(duplicates or {}) do
+        local name = ("nupp_p%02d_"):format(copy.part) .. decimal(copy.fid)
+        declarations[#declarations + 1] = "fn " .. name .. "();"
+        copies[#copies + 1] = "(" .. decimal(copy.fid) .. ", " .. name .. " as *const () as usize),"
     end
 
     return "pub const ABI_VERSION: u32 = " .. ABI .. ";\nunsafe extern \"C\" {\n" .. table.concat(
@@ -379,12 +384,15 @@ function parts.sidecar(digest: string, fids: {number}, maps: string): string
             starts
         ) .. "].into_iter().collect();\n" .. "let data = include_bytes!(" .. ruststring(
             maps
+        ) .. ");\nlet copies: &[(u32,usize)] = &[" .. table.concat(
+            copies
         )
-        .. ");\n"
+        .. "];\n"
         .. "let mut pos=0usize; let mut next=|| {let n=u32::from_le_bytes(data[pos..pos+4].try_into().unwrap());pos+=4;n};\n"
         .. "let count=next(); let mut out=Vec::with_capacity(count as usize); for _ in 0..count {\n"
         .. "let fid=next();let len=next() as usize;let nmap=next();let mut maps=Vec::with_capacity(nmap as usize);\n"
         .. "for _ in 0..nmap {let off=next();let span=next();let nslots=next();let slots=(0..nslots).map(|_|next()).collect();maps.push((off,span,slots));}\n"
+        .. "for (copyfid,address) in copies {if *copyfid==fid {out.push((*address,len,maps.clone()));}}\n"
         .. "out.push((starts[&fid],len,maps));}out}\n"
 end
 
@@ -455,8 +463,10 @@ function parts.compile(tool: string, image: string, output: string, options: any
     end
     local ar = options.ar or os.getenv("AR") or "ar"
     local probe = directory .. "/archive-probe.a"
+    local member = directory .. "/archive-member"
     os.remove(probe)
-    local arcode = process.run({ar, "rcs", probe}, {env = {ZERO_AR_DATE = "1"}})
+    write(member, "nupp archive probe\n")
+    local arcode = process.capture({ar, "rcs", probe, member}, {env = {ZERO_AR_DATE = "1"}})
     local archive = fs.readFile(probe)
     if arcode ~= 0 or not archive or archive:sub(1, 8) ~= "!<arch>\n" then
         return serial("usable archiver unavailable")
@@ -500,7 +510,7 @@ function parts.compile(tool: string, image: string, output: string, options: any
         hash.sha256(read(image)) == digest and hash.sha256(read(tool)) == toolhash,
         "AOT inputs changed during compilation"
     )
-    local union, objects, owned = {}, {}, {}
+    local union, objects, owned, duplicates = {}, {}, {}, {}
     for index, group in ipairs(groups) do
         parts.manifest(read(group.path .. ".manifest"), digest, #functions, group.fids)
         local maps = parts.maps(read(group.path .. ".maps"), group.fids)
@@ -513,6 +523,7 @@ function parts.compile(tool: string, image: string, output: string, options: any
                 owned[fid] = true
             else
                 replacements["nupp_aot_" .. decimal(fid)] = ("nupp_p%02d_"):format(index) .. decimal(fid)
+                duplicates[#duplicates + 1] = {fid = fid, part = index}
             end
         end
         local object = group.path .. ".renamed.o"
@@ -534,7 +545,7 @@ function parts.compile(tool: string, image: string, output: string, options: any
     assert(process.run(command, {env = {ZERO_AR_DATE = "1"}}) == 0, "AOT archive construction failed")
     write(output .. ".maps", table.concat(maps))
     write(output .. ".manifest", table.concat(manifest, "\n") .. "\n")
-    write(output .. ".rs", parts.sidecar(digest, all, fs.absolute(options.maps or output .. ".maps")))
+    write(output .. ".rs", parts.sidecar(digest, all, fs.absolute(options.maps or output .. ".maps"), duplicates))
     assert(os.rename(output .. ".new", output))
     local workers = {}
     for _, group in ipairs(groups) do
