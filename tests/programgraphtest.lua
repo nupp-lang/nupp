@@ -1718,6 +1718,39 @@ return Reader, whole == io, alias
     )
 end
 
+function M.checkedBuiltinAliasesRetainTheirSourceAndMappedTarget()
+    local name = "nupp.runtime.luacoroutine"
+    local extension = checked("module " .. name .. "\nexport const value: table = {}", name)
+    local base = checked(
+        "module nupp.runtime.libraryvalues\nexport const functions = {coroutine = {}}",
+        "nupp.runtime.libraryvalues"
+    )
+    local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
+    local original = "nupp.runtime.standardcoroutine"
+    env.ensureProjectIndex(env).declaredModules[original] = true
+    env.loaded[original] = {type = extension.type, exports = extension.parsed.moduleExports}
+    local consumer = checked("local whole = coroutine; return whole", "nupp.core.aliasprojection", env)
+    local p = program.describe({base, extension, consumer}, consumer.name)
+    local site
+    for _, candidate in ipairs(p.requires) do
+        if candidate.builtin then
+            site = candidate
+        end
+    end
+    assert(site, "checked builtin projection required")
+    test.eq(site.node.qualifiedModule, original)
+    test.eq(site.builtin.module, original)
+    test.eq(site.module, name)
+    assert(require("nupp.compiler.vm.coregraphcontracts").normalize(program.compile(p, tagged.forVersion(8)), 8))
+    site.node.qualifiedModule = "nupp.runtime.standardio"
+    refuses(
+        function()
+            program.verify(p)
+        end,
+        "checked builtin projection differs from its extension"
+    )
+end
+
 function M.checkedBuiltinBasePrecedesAnEarlierQualifiedOrExplicitExtensionRead()
     for index, source in ipairs({
         'local implementation = require("nupp.runtime.standardio")\nlocal first = nupp.runtime.standardio.Reader\nreturn first, io.Reader',

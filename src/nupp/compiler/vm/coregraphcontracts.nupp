@@ -574,7 +574,12 @@ function contracts.normalize(compiled: any, version: integer?): (any, any)
                 and (
                     (
                         site.node.runtimeLoader == "require"
-                        or site.qualified and (site.library ~= nil or site.node.qualifiedModule == site.module)
+                        or site.qualified
+                        and (
+                            site.library ~= nil
+                            or site.node.qualifiedModule ~= nil
+                            and graph.coremodule(site.node.qualifiedModule) == site.module
+                        )
                     )
                 )
                 and p.requireByNode[site.node] == site,
