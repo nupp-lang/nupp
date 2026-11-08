@@ -91,7 +91,7 @@ local spreadOk, first, middle, last = relay(1, nil, 3)
 assert(spreadOk and first == 1 and middle == nil and last == 3)
 
 local function failed(...: any): integer
-    error((...))
+    error((...), 0)
     return 0
 end
 
