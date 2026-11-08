@@ -1953,10 +1953,10 @@ function M.byteIoInstallerDoesNotSelectStructuredProcesses()
     local file = assert(io.open(path, "rb"))
     local source = file:read("*a")
     file:close()
+    local env = envMod.new(HERE .. "/..", {cache = false})
     for _, level in ipairs({0, 1, 2}) do
         local result = parser.parse(source, path)
         testAssert.eq(#result.errors, 0, "the actual byte I/O installer parses")
-        local env = envMod.new(HERE .. "/..", {cache = false})
         testAssert.eq(#check.check(result, path, env), 0, "the actual byte I/O installer checks")
         optimize.run(result, {level = level})
         local code, diagnostics, _, emitted = gen.generate(result, path)
@@ -2092,12 +2092,12 @@ function M.popenAliasesKeepTheirExplicitProcessFeature()
         "module nupp.fixture\nlocal channel = require('nupp.runtime.standardio')\nlocal open = channel.popen\n"
         .. "do local child = open({'fixture-child'}) end",
     }
+    local env = envMod.new(HERE .. "/..", {cache = false})
     for _, source in ipairs(sources) do
         local path = source:match("^module nupp%.fixture") and HERE .. "/../src/nupp/fixture.nupp"
             or "popen-features.nupp"
         local result = parser.parse(source, path)
         testAssert.eq(#result.errors, 0, source)
-        local env = envMod.new(HERE .. "/..", {cache = false})
         local messages = {}
         for _, diagnostic in ipairs(check.check(result, path, env)) do
             messages[#messages + 1] = diagnostic.code .. ": " .. diagnostic.msg

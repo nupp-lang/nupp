@@ -5,11 +5,15 @@ local check = require("nupp.compiler.check")
 local gen = require("nupp.compiler.lua.gen")
 
 local M = {}
-local sharedEnv = nil
+local sharedEnv, userEnv, userDir
+
+local function environment()
+    sharedEnv = sharedEnv or envMod.new(".")
+    return sharedEnv
+end
 
 local function formatted(source, env)
-    sharedEnv = sharedEnv or envMod.new(".")
-    local formatter = fmt.new({environment = env or sharedEnv})
+    local formatter = fmt.new({environment = env or environment()})
     local output, errors = formatter:format(source, "format.nupp")
     assert(#errors == 0, errors[1] and errors[1].msg)
     local again, problems = formatter:format(output, "format.nupp")
@@ -20,7 +24,10 @@ local function formatted(source, env)
 end
 
 local function compile(source, environment)
-    local env = environment or envMod.new(".")
+    if not environment then
+        sharedEnv = sharedEnv or envMod.new(".")
+    end
+    local env = environment or sharedEnv
     local result = parser.parse(source, "format.nupp")
     local errors = check.check(result, "format.nupp", env)
     for _, err in ipairs(errors) do
@@ -33,6 +40,9 @@ local function compile(source, environment)
 end
 
 local function withUserModules(run)
+    if userEnv then
+        return run(userEnv)
+    end
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "/src/app'") == 0)
@@ -57,11 +67,17 @@ export type Span<T> = bytes.span.Span<T>
         file:write(source)
         file:close()
     end
-    local ok, result = pcall(run, envMod.new(dir, {cache = false, config = {include = {"src"}}}))
-    os.execute("rm -rf '" .. dir .. "'")
-    assert(ok, result)
+    userDir = dir
+    userEnv = envMod.new(dir, {cache = false, config = {include = {"src"}}})
 
-    return result
+    return run(userEnv)
+end
+
+function M.afterAll()
+    if userDir then
+        assert(os.remove(userDir, true))
+    end
+    userEnv, userDir, sharedEnv = nil, nil, nil
 end
 
 local function userFormatted(source)
@@ -234,7 +250,7 @@ return kind
 end
 
 function M.ambientDeclarationsKeepTheirQualifiedNamespaces()
-    local env = envMod.new(".")
+    local env = environment()
     local formatter = fmt.new({environment = env})
     local source = '@comptime local function read(): io.http.FileBody return io.http.file("a") end\n'
     local declared, errors = formatter:format(source, "prelude.d.nupp")
