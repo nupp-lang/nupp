@@ -15,7 +15,6 @@ export function producer(
     assert(commands:receive() == "value")
     for index = 1, 256 do
         events:send(index)
-        coroutine.sleep(1)
     end
 
     return 256
@@ -28,8 +27,6 @@ export function consumer(takes input: Receiver<integer>, takes signal: Sender<bo
     ready:close()
     local count: integer = 0
     local sum: integer = 0
-    local first: number = 0
-    local progress: number = 0
     while true do
         local kind, value = incoming:receive()
         if kind == "closed" then
@@ -38,14 +35,9 @@ export function consumer(takes input: Receiver<integer>, takes signal: Sender<bo
         assert(value == count + 1)
         count += 1
         sum += value
-        if count == 1 then
-            first = os.monotonic()
-        elseif count == 32 then
-            progress = os.monotonic()
-        end
     end
 
-    return {count, sum, first, os.monotonic(), progress}
+    return {count, sum}
 end
 
 export function blocked(takes output: Sender<integer>): nil

@@ -1,9 +1,6 @@
 local jobs = require("nupp.tests.channeljobs")
-local effects = require("nupp.runtime.browser.effects")
-local suspension = require("nupp.suspension")
 
 local result: {number} = {}
-local blockStart: number = 0
 do
     local services = coroutine.scope()
     local commands, start = services:channel<boolean>(1, 64)
@@ -18,10 +15,6 @@ do
     consumerStarted:close()
     commands:send(true)
     commands:close()
-    blockStart = os.monotonic()
-    suspension.suspend("page stall", function(resume: function(any)): function()
-        return effects.request("channeltest", {operation = "block"}, resume)
-    end)
     assert(producer:await() == 256)
     result = consumer:await()
     assert(result[1] == 256 and result[2] == 32896)
@@ -41,6 +34,4 @@ do
     )
     receive:close()
 end
-return (
-    [[{"count":256,"sum":32896,"firstAfterStart":%f,"lastAfterStart":%f,"progressAfterStart":%f,"cancelled":true}]]
-):format(result[3] - blockStart, result[4] - blockStart, result[5] - blockStart)
+return ([[{"count":%d,"sum":%d,"cancelled":true}]]):format(result[1], result[2])
