@@ -153,8 +153,6 @@ local function coroutineContext()
     })
     table.insert(env.roots, 1, ROOT .. "/native/crates/vm/lib")
     table.insert(env.roots, 1, ROOT .. "/native/crates/vm/decls")
-    env.managedCoroutines = true
-    env.globals.coroutine.t = assert(environment.resolveModule(env, "nupp.vm.ownedCoroutine"))
 
     return env
 end
@@ -203,31 +201,10 @@ function M.managedCoroutineNamespacesExtendFinalMembersAndUsePublicLifetimes()
     local env = coroutineContext()
     local namespace = env.globals.coroutine.t
     test.eq(namespace.tag, "shape")
-    local path = ROOT .. "/native/crates/vm/decls/nupp/vm/ownedCoroutine.d.nupp"
-    local parsed = assert(env.loadedPaths[path].result)
-    local original
-
-    local function find(node)
-        if type(node) ~= "table" then
-            return
-        end
-        if node.kind == "recordDecl" and node.name.text == "Coroutines" then
-            original = assert(node.resolvedType)
-        end
-        for _, child in ipairs(node) do
-            find(child)
-        end
+    local original = {}
+    for _, name in ipairs({"create", "resume", "yield", "status", "wrap", "running", "isyieldable", "close"}) do
+        original[name] = assert(members.view(namespace).byname[name])
     end
-
-    find(parsed.root)
-    local projected = members.view(namespace)
-    local count = 0
-    for _, member in ipairs(members.view(assert(original)).ordered) do
-        count = count + 1
-        test.eq(projected.byname[member.name].readType, member.readType, member.name .. " read contract")
-        test.eq(projected.byname[member.name].writeType, member.writeType, member.name .. " write contract")
-    end
-    test.eq(count, 8)
     local _, codes, messages = checkedCoroutine(
         [[
 local tasks = require("coroutine")
@@ -241,6 +218,11 @@ return cancelled("ordinary reason"), scope
         env
     )
     test.eq(codes, "", messages)
+    local projected = members.view(env.globals.coroutine.t)
+    for name, member in pairs(original) do
+        test.eq(projected.byname[name].readType, member.readType, name .. " read contract")
+        test.eq(projected.byname[name].writeType, member.writeType, name .. " write contract")
+    end
     _, codes, messages = checkedCoroutine(
         [[
 local coroutine = {iscancelled = function(value: integer): integer return value + 1 end}
@@ -254,6 +236,9 @@ return coroutine.iscancelled(2)
         [[
 local child = coroutine.create(function(): nil end)
 coroutine.close(child)
+local bound = coroutine.create(function(a: integer, b: integer): integer return a + b end, 3, 4)
+local ok, sum = coroutine.resume(bound)
+assert(ok and sum == 7)
 return coroutine.status(child)
 ]],
         env

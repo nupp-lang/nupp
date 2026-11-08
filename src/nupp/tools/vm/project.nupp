@@ -201,10 +201,6 @@ local function emitProject(
         end
     end
     table.insert(assert(env.roots), compilerRoot .. "/src")
-    env.managedCoroutines = true
-    -- The VM coroutine surface participates in ordinary affine cleanup.
-    env.globals["coroutine"].t = assert(envMod.resolveModule(env, "nupp.vm.ownedCoroutine"))
-
     -- What an earlier emit lowered and nothing it read has changed since is
     -- replayed rather than checked and lowered again (`nupp.tools.vm.emitcache`).
     local started = os.time()
