@@ -35,6 +35,7 @@ on:
       - 'src/nupp/tools/**'
       - 'src/nupp/runtime/vendor/lunajson/**'
       - 'scripts/prelude-image'
+      - 'scripts/pages-cache.mjs'
       - 'nupp.lua'
       - '.github/workflows/browser-guest.yml'
   workflow_dispatch:
@@ -92,7 +93,7 @@ jobs:
           npx --prefix editors/playground playwright install --with-deps firefox webkit
       - name: Test transport boundaries
         run: |
-          node --test tests/integration/browser/luajit/transport.test.mjs tests/integration/browser/luajit/native.test.mjs tests/integration/browser/luajit/package-assets.test.mjs
+          node --test tests/integration/browser/luajit/transport.test.mjs tests/integration/browser/luajit/native.test.mjs tests/integration/browser/luajit/package-assets.test.mjs tests/integration/browser/luajit/pages-cache.test.mjs
           python3 tests/integration/browser/luajit/toolchain_test.py
           python3 tests/integration/browser/luajit/cold_checkout_test.py
       - name: Install the guest build tools

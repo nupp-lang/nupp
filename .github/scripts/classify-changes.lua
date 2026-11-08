@@ -21,6 +21,7 @@ local rules = {
     {"%.md$", {"docs"}},
     {"^about%.toml$", {"docs", "packaging"}},
     {"^scripts/build%-pages%.mjs$", {"docs"}},
+    {"^scripts/pages%-cache%.mjs$", {"docs", "browser"}},
     {"^scripts/docs%-serve%.mjs$", {"docs"}},
     {"^scripts/rust%-dependency%-notices", {"docs", "packaging"}},
 

@@ -18,7 +18,7 @@ concurrency:
 jobs:
   build:
     name: Build website
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Check out the repository
@@ -31,33 +31,143 @@ jobs:
           cache: npm
           cache-dependency-path: editors/playground/package-lock.json
 
-      # The docs build loads the native host. Install its exact toolchain before
-      # `cargo --version` is captured by scripts/toolchain: rustup's first-run
-      # progress otherwise becomes part of the captured version and aborts the
-      # build before the site can publish.
+      - name: Validate Pages artifact reuse
+        run: node --test tests/integration/browser/luajit/pages-cache.test.mjs
+
+      - name: Identify the artifact inputs
+        id: inputs
+        run: node scripts/pages-cache.mjs keys
+
+      - name: Restore the provisioned toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            .nupp-cache/toolchain
+            !.nupp-cache/toolchain/llvm
+            !.nupp-cache/toolchain/sources/llvm-project-*
+            !.nupp-cache/toolchain/browser-guest
+            !.nupp-cache/toolchain/browser-sources
+            !.nupp-cache/toolchain/archives
+          key: >-
+            pages-toolchain-v1-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+          restore-keys: |
+            pages-toolchain-v1-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Restore the Rust build outputs
+        uses: actions/cache@v4
+        with:
+          path: build/rust
+          key: >-
+            nupp-rust-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml',
+            'native/**/Cargo.toml', 'scripts/toolchain', 'scripts/toolchain.pins') }}
+          restore-keys: |
+            nupp-rust-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Restore the documentation rocks
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/nupp-ci-tools
+            .rocks
+          key: >-
+            nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'rocks/**') }}
+
+      - name: Restore the compiler analysis cache
+        uses: actions/cache@v4
+        with:
+          path: build/cache
+          key: >-
+            nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('src/**', 'nupp.lua', 'scripts/toolchain.pins') }}
+          restore-keys: |
+            nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Restore the completed compiler
+        uses: actions/cache@v4
+        with:
+          path: build/pages-compiler
+          key: pages-compiler-v1-${{ steps.inputs.outputs.compiler }}
+
+      - name: Verify the completed compiler
+        run: node scripts/pages-cache.mjs restore compiler
+
+      - name: Restore the completed playground
+        uses: actions/cache@v4
+        with:
+          path: build/pages-playground
+          key: pages-playground-v1-${{ steps.inputs.outputs.playground }}
+
+      - name: Verify the completed playground
+        id: playground
+        run: node scripts/pages-cache.mjs restore playground
+
+      # Install before scripts/toolchain captures cargo --version. The guest
+      # target and multilib packages are needed only on a playground cache miss.
       - name: Install the pinned Rust toolchain
         shell: bash
         run: |
           channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
-          rustup toolchain install "$channel" --profile minimal --target i686-unknown-linux-musl
-
-      - name: Install the guest build tools
-        run: sudo apt-get update && sudo apt-get install -y gcc-multilib g++-multilib flex bison libelf-dev libssl-dev
+          rustup toolchain install "$channel" --profile minimal
 
       - name: Build pinned host dependencies
-        shell: bash
         run: ./scripts/toolchain --all
 
-      - name: Install playground dependencies
-        run: npm ci --prefix editors/playground
-
-      # The rocks come from the rockspecs in rocks/, each pinned to one archive
-      # and its digest. Installing one by name first, from a rock server, would
-      # leave the build nothing to check: it takes an installed version as is.
-      - name: Install documentation dependencies
+      # This also refreshes pinned rock dependencies. On a verified compiler
+      # hit it does not bootstrap the compiler again for checkout timestamps.
+      - name: Prepare documentation dependencies
         run: ./bin/nupp build --target docs
 
-      - name: Build the website
+      - name: Record the completed compiler
+        env:
+          PAGES_COMPILER_KEY: ${{ steps.inputs.outputs.compiler }}
+        run: node scripts/pages-cache.mjs save compiler
+
+      - name: Restore the browser guest and snapshots
+        if: steps.playground.outputs.reused != 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            .nupp-cache/toolchain/browser-guest
+            .nupp-cache/toolchain/browser-sources
+            .nupp-cache/toolchain/archives
+          key: pages-guest-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.inputs.outputs.guest }}
+          restore-keys: |
+            pages-guest-v1-${{ runner.os }}-${{ runner.arch }}-
+
+      # Snapshot recipes also depend on the browser driver and Playwright.
+      # Restore these only for an exact match; partial kernel-cache restores
+      # must not carry old snapshots under an otherwise unchanged guest key.
+      - name: Restore the browser snapshots
+        if: steps.playground.outputs.reused != 'true'
+        uses: actions/cache@v4
+        with:
+          path: build/browser-delivery
+          key: pages-snapshots-v1-${{ steps.inputs.outputs.snapshots }}
+
+      - name: Install the guest build tools
+        if: steps.playground.outputs.reused != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib g++-multilib flex bison libelf-dev libssl-dev
+          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
+          rustup target add --toolchain "$channel" i686-unknown-linux-musl
+
+      - name: Build the playground
+        if: steps.playground.outputs.reused != 'true'
+        env:
+          PAGES_PLAYGROUND_KEY: ${{ steps.inputs.outputs.playground }}
+        run: |
+          npm ci --prefix editors/playground
+          node --test tests/integration/browser/luajit/package-assets.test.mjs
+          node editors/playground/build.mjs
+          node scripts/pages-cache.mjs save playground
+
+      - name: Generate documentation and assemble the website
+        env:
+          NUPP_PLAYGROUND_ALREADY_BUILT: '1'
         run: node scripts/build-pages.mjs
 
       - name: Configure GitHub Pages
@@ -71,7 +181,7 @@ jobs:
   deploy:
     name: Deploy website
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment:
       name: github-pages

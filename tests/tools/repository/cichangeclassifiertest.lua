@@ -190,6 +190,7 @@ function M.runtimeChangeSelectsBrowserAndNativeCoverage()
 end
 
 function M.browserChangeSelectsThePortableCompilerAndTheWasmJob()
+    selects("scripts/pages-cache.mjs", {"docs-site", "browser-wasm"})
     selects("runtime/wasm/loader.js", {"fast-checks", "linux-integration", "portable-compiler", "browser-wasm"})
     selects("editors/playground/src/worker.ts", {"browser-wasm"})
     selects("templates/browser/nupp.lua", {"browser-wasm"})
