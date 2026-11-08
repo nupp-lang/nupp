@@ -105,7 +105,7 @@ const CONTRACT = {
   refusals: (value) => /argument 1 is not a finite number/.test(value.nan) &&
     /no host answers test\.nobody/.test(value.unknown) && /failed because why/.test(value.failed),
   bytes: (value) => value.small && value.large && value.three && value.made && value.empty,
-  slowCallBesideADeadline: (value) => value.slow === 4096 && value.firedAfter >= 50 && value.firedAfter < 1000,
+  slowCallBesideADeadline: (value) => value.slow === 4096 && value.firedAfter >= 50 && value.resumedAfterDeadline === true,
   lateReleases: (value) => /deadline/.test(value.cancelled) && value.live === 0,
   lateCannotWait: (value) => value.echoed === "still answering" && value.live === 1,
   cancelBeforeShipping: (value) => value.cancelled === true && value.seen === 0,

@@ -26,6 +26,8 @@ export function testHost() {
   const packets = [];
   let nextResource = 1;
   let ended = 0;
+  let releaseHeldCall;
+  let holdReleased = false;
   const note = (kind) => seen.set(kind, (seen.get(kind) || 0) + 1);
   const handlers = {
     "test.echo": (args) => { note("test.echo"); return args; },
@@ -53,6 +55,10 @@ export function testHost() {
       release: ([id]) => { live.delete(id); released.push(id); },
     },
     "test.slow": async ([bytes, ms]) => { await sleep(ms); return bytes.length; },
+    "test.hold": ([bytes]) => holdReleased ? bytes.length : new Promise(resolve => {
+      releaseHeldCall = () => resolve(bytes.length);
+    }),
+    "test.releaseHold": () => { holdReleased = true; releaseHeldCall?.(); },
     "test.open": ([ms]) => {
       const open = () => {
         const id = nextResource++;

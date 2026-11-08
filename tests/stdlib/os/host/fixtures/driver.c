@@ -41,6 +41,9 @@ static int seen_count;
 static char notes[4096];
 static char outbound[4096];
 static uint64_t last_request;
+static uint64_t held_request;
+static size_t held_length;
+static int hold_released;
 
 static double now_ms(void) {
     struct timespec spec;
@@ -149,6 +152,21 @@ static void handle(nupp_runtime *owner, uint64_t request, const char *kind,
         free(data);
     } else if (strcmp(kind, "test.slow") == 0) {
         defer(request, args[1].number, 0, (double)args[0].length);
+    } else if (strcmp(kind, "test.hold") == 0) {
+        held_length = args[0].length;
+        if (hold_released) {
+            nupp_value value = number((double)held_length);
+            answer(request, &value, 1);
+        } else {
+            held_request = request;
+        }
+    } else if (strcmp(kind, "test.releaseHold") == 0) {
+        hold_released = 1;
+        if (held_request) {
+            nupp_value value = number((double)held_length);
+            answer(held_request, &value, 1);
+            held_request = 0;
+        }
     } else if (strcmp(kind, "test.open") == 0) {
         defer(request, args[0].number, 1, 0);
     } else if (strcmp(kind, "test.close") == 0) {
@@ -255,6 +273,7 @@ static const char *state_of(const nupp_value *value) {
 
 static const char *const KINDS[] = {
     "test.echo", "test.results", "test.fail", "test.digest", "test.count", "test.make", "test.slow",
+    "test.hold", "test.releaseHold",
     "test.open", "test.close", "test.live", "test.seen", "test.note", "test.notes", "test.pushInput",
     "test.packet", "test.log", "test.block", "test.outbound", NULL,
 };

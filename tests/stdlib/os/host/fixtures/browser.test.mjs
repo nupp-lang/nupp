@@ -45,6 +45,8 @@ function testHost() {
   let push = null;
   let nextResource = 1;
   let ended = 0;
+  let releaseHeldCall;
+  let holdReleased = false;
   const note = (kind) => seen.set(kind, (seen.get(kind) || 0) + 1);
   const handlers = {
     "test.echo": (args) => { note("test.echo"); return args; },
@@ -70,6 +72,10 @@ function testHost() {
       release: ([id]) => { live.delete(id); released.push(id); },
     },
     "test.slow": async ([bytes, ms]) => { await sleep(ms); return bytes.length; },
+    "test.hold": ([bytes]) => holdReleased ? bytes.length : new Promise(resolve => {
+      releaseHeldCall = () => resolve(bytes.length);
+    }),
+    "test.releaseHold": () => { holdReleased = true; releaseHeldCall?.(); },
     "test.open": ([ms]) => {
       const open = () => {
         const id = nextResource++;
@@ -176,7 +182,8 @@ test("bytes cross in both directions, chunked past one MiB", async () => {
 test("a slow call carrying bytes does not hold a deadline beside it", async () => {
   const {value} = await scenario("slowCallBesideADeadline");
   assert.equal(value.slow, 4096);
-  assert.ok(value.firedAfter >= 50 && value.firedAfter < 400, `the deadline fired after ${value.firedAfter} ms`);
+  assert.ok(value.firedAfter >= 50, `the deadline fired early: ${value.firedAfter} ms`);
+  assert.equal(value.resumedAfterDeadline, true);
 });
 
 test("late releases what an abandoned call opened", async () => {

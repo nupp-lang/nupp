@@ -7,6 +7,7 @@ try {
   const results = [];
   for (const profile of ['runner', 'runner', 'compiler']) {
     let wasmMemoryBytes, fallback;
+    const startedSeconds = Math.floor(Date.now() / 1000);
     const guest = createGuest({manifestUrl: './guest-manifest.json', app, profile, deadlineMs: 180000,
       onProgress: message => {
         if (message.log) terminal.textContent = message.log;
@@ -17,7 +18,11 @@ try {
       const result = await guest.receive();
       if (result.type !== 'done' || !result.result.ok) throw new Error(JSON.stringify(result));
       if (manifest.snapshots?.[profile] && fallback) throw new Error(`${profile} snapshot did not restore: ${fallback}`);
-      if (Math.abs(result.result.value.wallSeconds - Date.now() / 1000) > 60) throw new Error('Guest wall time was not refreshed');
+      const wallSeconds = result.result.value.wallSeconds;
+      // Allow guest clock skew without requiring delivery within that window.
+      if (!Number.isFinite(wallSeconds) || wallSeconds < startedSeconds - 60 || wallSeconds > Math.ceil(Date.now() / 1000) + 60) {
+        throw new Error('Guest wall time was not refreshed');
+      }
       results.push({...result.result.value, profile, wasmMemoryBytes});
     } finally { guest.close(); }
   }

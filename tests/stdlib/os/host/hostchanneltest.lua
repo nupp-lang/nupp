@@ -219,7 +219,8 @@ end
 function M.anEmbedderAnswersLaterFromItsLoop()
     local value = embedded("slowCallBesideADeadline")
     check.eq(value.slow, 4096)
-    check(value.firedAfter >= 50 and value.firedAfter < 400, "the deadline fired after " .. value.firedAfter)
+    check(value.firedAfter >= 50, "the deadline fired early: " .. value.firedAfter)
+    check.eq(value.resumedAfterDeadline, true)
 end
 
 function M.embeddedLateReleasesWhatItOpened()

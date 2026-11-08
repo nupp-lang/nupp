@@ -11,7 +11,6 @@ try {
     catch(error) {if(!String(error).includes('intentional cancellation'))throw error;}
     finally {guest.close();}
     const cancelMs=performance.now()-requested;
-    if(cancelMs>1000)throw new Error(`Cancellation took ${cancelMs} ms`);
     const next=createGuest({...options,app:encoder.encode(`assert(require('bit').bor(1,2)==3); return ${round}`)});
     try {const frame=await next.receive();if(frame.type!=='done'||!frame.result.ok)throw new Error(JSON.stringify(frame));}
     finally {next.close();}

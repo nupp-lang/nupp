@@ -37,6 +37,21 @@ local function pattern(size, seed)
     return ffi.string(buffer, size)
 end
 
+local function matchesPattern(view, size, seed)
+    local pointer, count = view:ref()
+    if count ~= size then
+        return false
+    end
+    local bytes = ffi.cast("const uint8_t *", pointer)
+    for index = 0, count - 1 do
+        if bytes[index] ~= (index * 31 + seed) % 251 then
+            return false
+        end
+    end
+
+    return true
+end
+
 local function sum(text)
     local total = 0
     local pointer = ffi.cast("const uint8_t *", text)
@@ -111,32 +126,39 @@ function scenarios.bytes()
         small = length == #small and total == sum(small) and bytesOf(back) == small,
         large = largeLength == #large and largeTotal == sum(large),
         three = count == 3 * 1024 * 1024,
-        made = lengthOf(made) == 8 * 1024 * 1024 and bytesOf(made) == pattern(8 * 1024 * 1024, 11),
+        -- Check every byte without allocating copies beside the 8 MiB result.
+        made = matchesPattern(made, 8 * 1024 * 1024, 11),
         empty = lengthOf(empty) == 0,
     }
 end
 
--- A slow call holding its bytes must not hold the frame: a deadline beside it
--- fires on time, and the slow call still gets its whole answer.
+-- A held call must not hold the frame: the deadline's continuation releases
+-- its answer. Blocking the frame deadlocks instead of racing a timing cutoff.
 function scenarios.slowCallBesideADeadline()
     local started = os.monotonic()
     local firedAfter
     local slowAnswer
+    local resumedAfterDeadline
     local outer = tasks.scope()
     local slow = outer:spawn(function()
-        local length = host.call("test.slow", span.fromstring(pattern(4096, 1)), 1000)
+        local length = host.call("test.hold", span.fromstring(pattern(4096, 1)))
+        resumedAfterDeadline = firedAfter ~= nil
         return length
     end)
     outer:spawn(function()
-        scoped(50, function()
-            time.sleep(5000)
+        local ok, problem = scoped(50, function()
+            while true do
+                time.sleep(5000)
+            end
         end)
+        assert(not ok and tostring(problem):find("deadline", 1, true), tostring(problem))
         firedAfter = os.monotonic() - started
+        host.post("test.releaseHold")
     end)
     slowAnswer = slow:await()
     outer:close()
 
-    return {firedAfter = firedAfter, slow = slowAnswer}
+    return {firedAfter = firedAfter, slow = slowAnswer, resumedAfterDeadline = resumedAfterDeadline}
 end
 
 local function openedRelease(id)
