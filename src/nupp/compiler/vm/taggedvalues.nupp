@@ -123,7 +123,9 @@ end
 -- records, the slot every member gives it when they all agree.
 export function fieldSlot(ctx: any, t: any, name: string?): integer?
     local slot = recordSlot(ownrecord(ctx, t), name)
-    while slot == nil and t and (t.tag == "literal" or t.tag == "const") do
+    while slot == nil
+        and t
+        and (t.tag == "literal" or t.tag == "const" or t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned") do
         t = t.tag == "literal" and t.base or t.inner
     end
     if slot ~= nil or not t or t.tag ~= "union" or #(t.members or {}) == 0 then

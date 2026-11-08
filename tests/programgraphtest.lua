@@ -1194,6 +1194,31 @@ return box.R(4):copy().value
     require("nupp.compiler.vm.coregraphexecutable").fromChecked(compiled, 8)
 end
 
+function M.borrowedRecordUnionsKeepTheirSharedFieldSlots()
+    local p = describe(
+        [[
+local record Reader
+    closed: boolean
+end
+local record Writer
+    closed: boolean
+end
+local function release(borrows stream: Reader | Writer | nil): nil
+    if stream == nil or stream.closed then return end
+    stream.closed = true
+end
+local reader = Reader(closed = false)
+release(reader)
+return reader.closed
+]]
+    )
+    local compiled = program.compile(p, tagged.forVersion(8))
+    local released = compiled.graphs[owner(p, "release").id + 1]
+    test.eq(#operations(released, "GetIdx"), 1)
+    test.eq(#operations(released, "SetIdx"), 1)
+    require("nupp.compiler.vm.coregraphexecutable").fromChecked(compiled, 8)
+end
+
 function M.taggedMutationAndForwardingKeepOneCellIdentity()
     local p = describe(
         [[
