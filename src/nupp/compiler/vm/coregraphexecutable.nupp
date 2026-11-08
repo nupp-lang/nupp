@@ -7,6 +7,7 @@ local bytecode = require("nupp.compiler.vm.corebytecode")
 local opcodes = require("nupp.compiler.vm.opcodes")
 local schema = require("nupp.compiler.vm.coregraphschema")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
+local graphimage = require("nupp.compiler.vm.graphimage")
 local executable = {}
 local issued = setmetatable({}, {__mode = "k"})
 local bounds = schema.limits()
@@ -251,7 +252,7 @@ local function derive(g: any, catalog: any): any
     local constants = copy(g.constants)
 
     local function integerConstant(value: integer): integer
-        local text = tostring(value)
+        local text = graphimage.wideTextBytes(tostring(value))
         for index, constant in ipairs(constants) do
             if constant.kind == "int64" and constant.value == text then
                 return index - 1

@@ -1269,6 +1269,11 @@ return relay
         local output = require("nupp.compiler.vm.coregraphexecutable").fromChecked(compiled, 8)
         local found = false
         for _, fn in ipairs(output.functions) do
+            for _, constant in ipairs(fn.constants) do
+                if constant.kind == "int64" then
+                    test.eq(#constant.value, 8)
+                end
+            end
             for _, instruction in ipairs(fn.instructions) do
                 if instruction[1] == "PCall" then
                     test.eq(instruction[6], 0)
