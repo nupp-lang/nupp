@@ -45,7 +45,15 @@ local recipes: any = {
         {"v", "use", 5, 1}
     },
     RetV = {{"v", "use", 1, 1}, {"n", "use", 2, 1}, {"v", "use", 3, 1}},
-    PCall = {{"fn", "use", 8, 8}, {"v", "use", 1, 1}, {"v", "def", 2, 1}, {"n", "use", 3, 1}, {"n", "use", 4, 1}},
+    -- Byte 5 is zero without a spread, otherwise the pack's register plus one.
+    PCall = {
+        {"fn", "use", 8, 8},
+        {"v", "use", 1, 1},
+        {"v", "def", 2, 1},
+        {"n", "use", 3, 1},
+        {"n", "use", 4, 1},
+        {"n", "use", 5, 1}
+    },
     XPHandle = {{"v", "use", 1, 1}, {"v", "use", 2, 1}, {"n", "use", 3, 1}},
     Destroy = {{"v", "use", 1, 1}, {"v", "use", 2, 1}},
     Jmp = {{"j", "use", 4, 4}},
@@ -163,6 +171,9 @@ function bytecode.encode(instruction: any): string
     bytes[1] = ids[name]
     for index, field in ipairs(fields) do
         local value = instruction[index + 1]
+        if name == "PCall" and index == #fields and value == nil then
+            value = 0
+        end
         assert(type(value) == "number" and value % 1 == 0, "encoded operand must be an integer")
         if field[1] == "j" then
             assert(value >= -2147483648 and value <= 2147483647, "encoded branch exceeds signed32")
@@ -206,6 +217,9 @@ function bytecode.encode(instruction: any): string
         case "PCall" -> do
             assert(instruction[5] <= 63 and instruction[6] >= 1 and instruction[6] <= 16, "fixed PCall required")
             assert(instruction[4] + math.max(instruction[5], instruction[6], 1) < 250, "encoded PCall window capacity")
+            local pack = instruction[7] or 0
+            assert(pack <= 250, "encoded protected pack register capacity")
+            assert(pack == 0 or instruction[4] + 64 < 250, "encoded protected spread window capacity")
             yield nil
         end
         case "RetV" -> do

@@ -218,6 +218,9 @@ local function derive(g: any, catalog: any): any
             end
             if contract and contract.handled then
                 local results: integer = math.max(#block.term.args - 1, #(block.term.results or {}), 2) as integer
+                if block.term.spread then
+                    results = math.max(results, 63) as integer
+                end
                 maximumArguments = math.max(maximumArguments, results + 5) as integer
                 metaCalls = true
             end
@@ -468,14 +471,24 @@ local function derive(g: any, catalog: any): any
                 -- wants none, and its one slot holds the pack.
                 local encoded = term.open and 0 or wanted
                 -- xpcall's handler: past the arguments and the results.
-                local handlerSlot = callBase + 1 + math.max(nargs, captured)
+                local handlerSlot = callBase + 1 + math.max(term.spread and 63 or nargs, captured)
                 if contract.handled then
                     emit({"Move", handlerSlot, physical(term.args[#term.args])}, position)
                 end
                 local at: integer
                 if contract.protected then
-                    need(not term.spread, "pcall cannot spread `...` yet")
-                    at = emit({"PCall", contract.target, callBase, callBase, nargs, captured}, position)
+                    at = emit(
+                        {
+                            "PCall",
+                            contract.target,
+                            callBase,
+                            callBase,
+                            nargs,
+                            captured,
+                            term.spread and physical(term.spread) + 1 or 0
+                        },
+                        position
+                    )
                     if contract.handled then
                         -- After a failure, the handler's answer replaces the error.
                         emit({"XPHandle", callBase + 1, handlerSlot, wanted}, position)

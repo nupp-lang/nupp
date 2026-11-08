@@ -2482,6 +2482,7 @@ export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
     end
     local calleeSlot = program.readByte(pc, 1)
     local base, nargs = program.readByte(pc, 2), program.readByte(pc, 3)
+    local packed = program.readByte(pc, 5)
     local wanted = program.readByte(pc, 4)
     local hint = program.readWord(pc, 8)
     if calleeSlot ~= base then
@@ -2499,6 +2500,31 @@ export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
     if wanted < 1 or native.word(wanted) > frames.MAX_RESULTS then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
+    end
+    if packed ~= 0 then
+        if native.word(base) + 64ULL > native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+            or native.word(packed - 1) >= native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+        then
+            ops.fail(ctx, frame, pc, ops.INVALID)
+            return native.fail()
+        end
+        local pack = slots.readValue(frame, regs, packed - 1) & values.PAYLOAD
+        local extra = wide.bitsOf(tables.get(pack, values.TAG_INTEGER))
+        if native.word(nargs) + extra > 63ULL then
+            ops.fail(ctx, frame, pc, ops.RESOURCE)
+            return native.fail()
+        end
+        local index: uint64 = 0ULL
+        while index < extra do
+            slots.writeValue(
+                frame,
+                regs,
+                base + nargs + 1 + native.index(index),
+                tables.get(pack, values.TAG_INTEGER | (index + 1ULL))
+            )
+            index = index + 1ULL
+        end
+        nargs = nargs + native.index(extra)
     end
     local callee = slots.readValue(frame, regs, calleeSlot)
     -- pcall of a wrapped coroutine's closure resumes its thread: true and its

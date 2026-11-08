@@ -1200,6 +1200,7 @@ function M.borrowedRecordUnionsKeepTheirSharedFieldSlots()
 local record Reader
     closed: boolean
 end
+
 local record Writer
     closed: boolean
 end
@@ -1217,6 +1218,34 @@ return reader.closed
     test.eq(#operations(released, "GetIdx"), 1)
     test.eq(#operations(released, "SetIdx"), 1)
     require("nupp.compiler.vm.coregraphexecutable").fromChecked(compiled, 8)
+end
+
+function M.protectedCallsForwardTrailingPacks()
+    for _, call in ipairs({"pcall(values, ...)", "xpcall(values, function(e: any): any return e end, ...)"}) do
+        local p = describe(
+            [[
+local function values(...: any): (any, any, any) return ... end
+local function relay(...: any): (boolean, any, any, any)
+    return ]]
+            .. call
+            .. [[
+
+end
+return relay(1, nil, 3)
+]]
+        )
+        local compiled = program.compile(p, tagged.forVersion(8))
+        local executable = require("nupp.compiler.vm.coregraphexecutable").fromChecked(compiled, 8)
+        local found = false
+        for _, fn in ipairs(executable.functions) do
+            for _, instruction in ipairs(fn.instructions) do
+                if instruction[1] == "PCall" and instruction[7] > 0 then
+                    found = true
+                end
+            end
+        end
+        test.eq(found, true)
+    end
 end
 
 function M.taggedMutationAndForwardingKeepOneCellIdentity()

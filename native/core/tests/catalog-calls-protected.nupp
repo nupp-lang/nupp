@@ -78,4 +78,35 @@ end)
 if not ok8 then
     score = score + 10000000
 end
+
+local function values(...: any): (any, any, any)
+    return ...
+end
+
+local function relay(...: any): (boolean, any, any, any)
+    return pcall(values, ...)
+end
+
+local spreadOk, first, middle, last = relay(1, nil, 3)
+assert(spreadOk and first == 1 and middle == nil and last == 3)
+
+local function failed(...: any): integer
+    error((...))
+    return 0
+end
+
+local function handled(...: any): (boolean, any)
+    return xpcall(
+        failed,
+        function(problem: any): any
+            return problem
+        end,
+        ...
+    )
+end
+
+local spreadFailed, problem = handled("spread failure", nil, 3)
+assert(not spreadFailed and problem == "spread failure")
+local tailOk, tailFirst, tailMiddle, tailLast = pcall(values, values(4, nil, 6))
+assert(tailOk and tailFirst == 4 and tailMiddle == nil and tailLast == 6)
 export = score + deep(2) * 100000000

@@ -50,6 +50,46 @@ local function protectedcall(expr: any): boolean
     return library == "pcall" or library == "xpcall"
 end
 
+-- Evaluate fixed arguments before a final expanding call or vararg pack.
+-- The caller holds its callee (and any handler) across this evaluation.
+local function callOperands(ctx: any, node: any, first: integer): (any, integer?)
+    local exprs = node.args.exprs
+    local tail = #exprs >= first and graph.spreadsLast(node)
+    local fixed, kinds = {}, {}
+    for index = first, #exprs do
+        if index < #exprs or not tail then
+            fixed[#fixed + 1], kinds[#kinds + 1] = exprs[index], "tagged"
+        end
+    end
+    local args = ctx.operands(fixed, kinds)
+    if args == nil or not tail then
+        return args, nil
+    end
+    local last = exprs[#exprs]
+    if last.kind == "vararg" then
+        return args, ctx.varargPack()
+    end
+    local held = {}
+    for index, arg in ipairs(args) do
+        held[index] = ctx.hold(arg)
+    end
+    local pack: integer?
+    if protectedcall(last) then
+        pack = protectedpack(ctx, last)
+    else
+        pack = openinvoke(ctx, last)
+    end
+    for index, handle in ipairs(held) do
+        args[index] = ctx.readHeld(handle)
+        ctx.release(handle)
+    end
+    if pack == nil or ctx.block == nil then
+        return nil, nil
+    end
+
+    return args, pack
+end
+
 -- A core library call (guestlib): its arguments staged as values.
 export function libraryCall(ctx: any, node: any, id: integer, arguments: any): integer
     -- gsub with a function replacement calls it, so it is a loop.
@@ -179,44 +219,18 @@ export function invoke(
     local callee = ctx.hold(ctx.expression(node.obj, "tagged"))
     -- A `...` last spreads its whole pack after the fixed arguments, and so
     -- does a call last that gives other than one result.
-    local exprs = node.args.exprs
-    local spreads = #exprs > 0 and exprs[#exprs].kind == "vararg"
-    local expands = #exprs > 0 and not spreads and (graph.expandsResults(exprs[#exprs]) or protectedcall(exprs[#exprs]))
-    local fixed, kinds = {}, {}
-    for index, expr in ipairs(exprs) do
-        if index < #exprs or not spreads and not expands then
-            fixed[#fixed + 1], kinds[#kinds + 1] = expr, "tagged"
-        end
-    end
-    local args = ctx.operands(fixed, kinds)
+    local args, pack = callOperands(ctx, node, 1)
     -- Parameters the call leaves off are nil, as Lua passes them.
-    if args ~= nil and not spreads and not expands and graph.omits(contract.callSignature, #args) then
+    if args ~= nil and pack == nil and graph.omits(contract.callSignature, #args) then
         while #args < #contract.callSignature.params do
             args[#args + 1] = ctx.emit(node, "Nil", {}, "tagged")
         end
     end
-    local pack = spreads and ctx.varargPack() or nil
-    if expands and args ~= nil then
-        local held = {}
-        for index, arg in ipairs(args) do
-            held[index] = ctx.hold(arg)
-        end
-        if protectedcall(exprs[#exprs]) then
-            pack = protectedpack(ctx, exprs[#exprs])
-        else
-            pack = openinvoke(ctx, exprs[#exprs])
-        end
-        for index, handle in ipairs(held) do
-            args[index] = ctx.readHeld(handle)
-            ctx.release(handle)
-        end
-        if pack == nil or ctx.block == nil then
-            ctx.release(callee)
-            return nil
-        end
-    end
     local value = ctx.readHeld(callee)
     ctx.release(callee)
+    if args == nil then
+        return nil
+    end
     if cleanupGraphs[ctx.g] and node.kind == "call" then
         value, args, pack = beforecall(ctx, node, value, args, pack)
     end
@@ -366,40 +380,42 @@ export function invokeProtected(ctx: any, node: any, keepResult: boolean, count:
     local held = ctx.hold(callee)
     local handled = graph.coreLibraryCall(node) == "xpcall"
     need(not handled or #exprs >= 2, "xpcall takes a function and a message handler")
-    local rest, kinds = {}, {}
-    for index = 2, #exprs do
-        need(exprs[index].kind ~= "vararg", "pcall cannot spread `...` yet")
-        rest[#rest + 1], kinds[#kinds + 1] = exprs[index], "tagged"
+    local handler: any = nil
+    if handled then
+        local value = ctx.expression(exprs[2], "tagged")
+        if value == nil then
+            ctx.release(held)
+            return nil
+        end
+        handler = ctx.hold(value)
     end
-    local operands = ctx.operands(rest, kinds)
+    local args, pack = callOperands(ctx, node, handled and 3 or 2)
     local value = ctx.readHeld(held)
     ctx.release(held)
-    if operands == nil then
+    local messageHandler: any = nil
+    if handler ~= nil then
+        messageHandler = ctx.readHeld(handler)
+        ctx.release(handler)
+    end
+    if args == nil then
         return nil
     end
-    local args = operands
-    if handled then
-        args = {}
-        for index = 2, #operands do
-            args[#args + 1] = operands[index]
-        end
-    end
     -- Parameters the call leaves off are nil, as Lua passes them.
-    if graph.omits(contract.callSignature, #args) then
+    if pack == nil and graph.omits(contract.callSignature, #args) then
         while #args < #contract.callSignature.params do
             args[#args + 1] = ctx.emit(node, "Nil", {}, "tagged")
         end
     end
     if handled then
-        args[#args + 1] = operands[1]
+        args[#args + 1] = messageHandler
     end
     -- A protected call takes errors, but not a closing coroutine's
     -- unwinding, which lands here when this function owns affine values.
     if count then
-        return landed(ctx, node, ctx.invokeMany(node, value, args, contract, count))
+        return landed(ctx, node, ctx.invokeMany(node, value, args, contract, count, pack))
     end
 
-    return landed(ctx, node, ctx.invoke(node, value, args, contract, keepResult))
+    return landed(ctx, node, ctx.invoke(node, value, args, contract, keepResult, pack))
 end
 
 -- All of protected call `node`'s results as one pack, the count at key 0:
