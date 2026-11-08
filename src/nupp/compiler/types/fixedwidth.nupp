@@ -52,7 +52,7 @@ local COMPOSITE: {
 --- Finds a storage-only width that escaped into a value-shaped type. Pointers,
 --- C arrays, structs, and standard span element positions are the physical leaves
 --- where those names are meaningful and deliberately stop the walk.
-export function storageOnlyValue(t: T.Type?, seen: {[any]: boolean}?): T.Type?
+export function storageOnlyValue(t: T.Type?, seen: {[string]: boolean}?): T.Type?
     if not t then
         return nil
     end
@@ -68,6 +68,11 @@ export function storageOnlyValue(t: T.Type?, seen: {[any]: boolean}?): T.Type?
     if not COMPOSITE[raw.tag] then
         return nil
     end
+    seen = seen or {}
+    if seen[raw.id] then
+        return nil
+    end
+    seen[raw.id] = true
     if raw.tag == "nominal" then
         local origin = (raw.origin or raw) as T.Nominal
         if raw.declKind == "struct"
@@ -77,15 +82,6 @@ export function storageOnlyValue(t: T.Type?, seen: {[any]: boolean}?): T.Type?
         then
             return nil
         end
-    end
-    -- Interned structural types and recursive nominals already have object
-    -- identities. Their often large textual IDs need no hashing on this walk.
-    seen = seen or {}
-    if seen[raw] then
-        return nil
-    end
-    seen[raw] = true
-    if raw.tag == "nominal" then
         for _, name in ipairs(raw.fieldOrder or {}) do
             local found = storageOnlyValue(raw.byname and raw.byname[name], seen)
             if found then
