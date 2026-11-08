@@ -17,6 +17,7 @@ const NANOSECONDS_PER_MILLISECOND = 1000000
 const MAX_WAIT_MS = 2147483647
 const READABLE = 1
 const WRITABLE = 2
+const READ_SIZE = 65536
 const MODES: {
     [string]: integer
 } = {inherit = processes.INHERIT, pipe = processes.PIPE, null = processes.NULL, stdout = processes.MERGE}
@@ -90,7 +91,8 @@ export function read(input: any, count: integer): string?
     if input.closed then
         return nil
     end
-    local result = filecalls.read(input.descriptor, count)
+    local wanted = math.max(1, math.min(READ_SIZE, count)) as integer
+    local result = filecalls.read(input.descriptor, wanted)
     if type(result) == "string" then
         local bytes = result as string
         return #bytes > 0 and bytes or nil
