@@ -432,6 +432,19 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             yields[#yields + 1] = {done = done, kind = resultKind}
             statements(node.body.stats)
             yields[#yields] = nil
+            -- A body that ends in a call that never returns (`error(...)`)
+            -- yields nothing: the block ends there, unreachably.
+            local final = node.body.stats[#node.body.stats]
+            if block
+                and final
+                and final.kind == "callStmt"
+                and final.expr.inferredType
+                and final.expr.inferredType.tag == "never"
+            then
+                local none = ctx.emit(final, "Nil", {}, profile.kind(nil))
+                block.term = {kind = "return", value = none, edges = {}, pos = position(final)}
+                block = nil
+            end
             need(block == nil, "a do expression ends without a yield")
             resume(done)
             context()

@@ -50,6 +50,9 @@ local function width(kind: string): integer
             end
             yield 4
         end
+        case "never" -> do
+            error("never " .. kind, 0)
+        end
         else -> 0
     end
 end
@@ -73,6 +76,8 @@ do
     check(label(1) == "one" and label(2) == "two" and label(7) == "many" and closed == 3)
     check(width("byte") == 1 and width("word") == 8 and width("other") == 0)
     check(width("bit") == 0 and width("flag") == 0)
+    local ok, message = pcall(width, "never")
+    check(not ok and message == "never never")
 end
 
 export const result = score
