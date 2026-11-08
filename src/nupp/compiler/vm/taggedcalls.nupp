@@ -213,7 +213,7 @@ export function invoke(
         )
         landed(ctx, node, ctx.emit(node, "LibCall", {corelibrary.id("ERROR"), message}, "tagged"))
 
-        return ctx.emit(node, "Nil", {}, "tagged")
+        return open and emptyresults(ctx, node) or ctx.emit(node, "Nil", {}, "tagged")
     end
     if target == nil and dynamic then
         -- From v8 a call through a function value is resolved when it runs.
