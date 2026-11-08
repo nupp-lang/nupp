@@ -64,6 +64,26 @@ local function compilerDigest(root: string): string
     return digestOf(table.concat(parts, "\0"))
 end
 
+-- The inner loop may pin the compiler part of every key: NUPP_UNIT_COMPILER_PIN
+-- names a file holding it, written on first use. A lowering edit then reuses
+-- the code the previous compiler selected, and a handler edit still misses by
+-- its own module. Batch gates and milestones leave it unset, so every key there
+-- follows the compiler exactly.
+local function keyedCompiler(root: string): string
+    local pin = os.getenv("NUPP_UNIT_COMPILER_PIN")
+    if pin == nil or pin == "" then
+        return compilerDigest(root)
+    end
+    local held = readFile(pin)
+    if held ~= nil and held ~= "" then
+        return held
+    end
+    local computed = compilerDigest(root)
+    writeFile(pin, computed)
+
+    return computed
+end
+
 -- A module's source and, transitively, the sources of the modules it requires
 -- within the build. Unrelated edits (another fixture) leave the key unchanged.
 local function moduleDigests(paths: {[string]: string}): {[string]: string}
@@ -187,7 +207,7 @@ function runner.select(
         paths[owner.scope.name] = owner.scope.path
         owner.nativeABI = handlers and handlers[name] and "handler" or "leaf"
     end
-    local compiler = compilerDigest(root)
+    local compiler = keyedCompiler(root)
     -- Handlers read the dispatch table through the context layout.
     if context then
         compiler = digestOf(compiler .. "\0" .. (readFile(context.path) or ""))
