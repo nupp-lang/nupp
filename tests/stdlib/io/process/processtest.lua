@@ -466,21 +466,27 @@ function M.aChildThatCannotStartIsAnAnswerNotARaise()
     testAssert.eq(instance.Process.__nuppCtor1, nil, "and no public constructor stands beside spawn")
 end
 
+-- A handler that answers a park by driving the pumps itself, counting the
+-- passes it drove.
+local function drivingHandler()
+    local handler = {drove = 0}
+    function handler:park(waiting)
+        while not waiting:ready() do
+            self.drove = self.drove + 1
+            suspensionHost.poll()
+            if self.drove > 100 then
+                error("handler gave up", 0)
+            end
+        end
+    end
+
+    return handler
+end
+
 function M.waitingWorksUnderAHandler()
     -- The point of the whole exercise: the same call parks under a scheduler and
     -- blocks without one. Here a handler answers by driving the pumps itself.
-    local drove = 0
-    local handler = {
-        park = function(_self, waiting)
-            while not waiting:ready() do
-                drove = drove + 1
-                suspensionHost.poll()
-                if drove > 100 then
-                    error("handler gave up", 0)
-                end
-            end
-        end,
-    }
+    local handler = drivingHandler()
     local backend = fakeBackend({out = {"handled"}, exitAfter = 2})
     local installation = suspensionHost.install(handler)
     local child = spawnOn(backend, {args = {"echo"}})
@@ -488,7 +494,7 @@ function M.waitingWorksUnderAHandler()
     child:_drop()
     installation:close()
     testAssert.eq(result.output, "handled", "the output came back through a handled wait")
-    assert(drove > 0, "and the handler is what drove it")
+    assert(handler.drove > 0, "and the handler is what drove it")
 end
 
 function M.makesProgressOnAllThreeStreamsTogether()
@@ -1441,6 +1447,32 @@ function M.aReadInsideATaskScopeKeepsTheChunkThatWokeIt()
     scope:close()
     child:_drop()
     testAssert.eq(chunk, "first", "the readiness probe's bytes reach the waiting read")
+end
+
+function M.processLinesParkUnderAHandlerWhileOutputIsLate()
+    -- Lua file iteration on a process waits as its reads do: a step with no output
+    -- yet parks under a scheduler rather than blocking the caller's thread.
+    -- Each chunk stays late for more polls than a byte read's own pumping absorbs.
+    local handler = drivingHandler()
+    local backend = fakeBackend({out = {"first\n", "second\n"}, err = {}, outDelay = 6, exitAfter = 64, code = 0})
+    local installation = suspensionHost.install(handler)
+    local child = spawnOn(backend, {args = {"slow"}})
+    local lines = {}
+    local ok, reason = pcall(function()
+        for line in child:lines() do
+            lines[#lines + 1] = line
+        end
+    end)
+    installation:close()
+    if not ok then
+        child:_drop()
+        error(reason, 0)
+    end
+    -- Settled outside the handler, so no pump outlives the case.
+    local closed = child:close()
+    testAssert.eq(closed, true, "the child settled and closed")
+    testAssert.eq(table.concat(lines, ","), "first,second", "every line arrived")
+    assert(handler.drove > 0, "and the handler is what drove the waiting steps")
 end
 
 function M.drainingInsideATaskScopeSleepsInThePlatformRatherThanSpinning()

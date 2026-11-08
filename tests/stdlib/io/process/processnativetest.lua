@@ -468,15 +468,17 @@ function M.communicateSendsBufferedFileWritesBeforeItsInputExactlyOnce()
     assertExit(child, 0)
 end
 
-function M.luaFileIterationDoesNotParkUnderASuspensionHandler()
+function M.luaFileIterationParksUnderASuspensionHandler()
     local public = ready()
     local host = require("coroutine.host")
-    local child = assert(public.popen(shell("sleep 0.1; printf 'first\\nsecond\\n'")))
+    local child = assert(public.popen(shell("sleep 0.1; printf 'first\nsecond\n'")))
     local parked = 0
     local installation = host.install({
-        park = function()
+        park = function(_self, waiting)
             parked = parked + 1
-            error("a Lua file iterator must not park", 0)
+            while not waiting:ready() do
+                host.poll()
+            end
         end,
     })
     local lines = {}
@@ -490,7 +492,7 @@ function M.luaFileIterationDoesNotParkUnderASuspensionHandler()
         child:_drop()
         error(reason, 0)
     end
-    test.eq(parked, 0)
+    assert(parked > 0, "a step waiting for output parks")
     test.eq(table.concat(lines, ","), "first,second")
     assertExit(child, 0)
 end

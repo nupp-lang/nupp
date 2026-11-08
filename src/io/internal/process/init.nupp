@@ -688,7 +688,7 @@ local record Child
     file: any
 end
 
--- Lua file iterators and close do not suspend their caller. Process controls
+-- A Lua file close does not suspend its caller. Process controls, iteration
 -- and byte-stream operations keep the scheduler-aware path.
 local function blockingFileCall(state: any, operation: any, ...: any): ...any
     local previous = state.forceBlocking
@@ -775,19 +775,10 @@ record process.Process is io.File, own.Affine<self._drop>
     end
 
     --- Iterates over stdout using Lua file formats.
-    --- The iterator blocks like a Lua file iterator. Use `stdout:read` or
-    --- `communicate` for reads that suspend under a scheduler.
-    function lines(self, ...: any): @nosuspend function(): any
-        local nextline = file.lines(self, ...)
-        local state = self.state
-
-        local function iterate(): ...any
-            return blockingFileCall(state, nextline)
-        end
-
-        -- The transport stays on its blocking path for every iterator step.
-
-        return iterate as any
+    --- A step that waits for output suspends under a scheduler, as `read` does,
+    --- and blocks without one.
+    function lines(self, ...: any): function(): ...any
+        return file.lines(self, ...)
     end
 
     --- Writes strings and numbers to stdin and returns this process.
@@ -1026,6 +1017,9 @@ record process.Process is io.File, own.Affine<self._drop>
     @private teardown: function(borrows self: process.Process): nil
 
     --- Closes the pipes and waits for normal child completion, as Lua popen does.
+    ---
+    --- Like every close, it does not suspend: it blocks until the child exits. Under
+    --- a scheduler, `wait` first; a close after the exit is settled returns at once.
     --- @raises string when the process is already closed
     --- @return whether the child exited successfully
     --- @return "exit" or "signal", or an I/O failure message
