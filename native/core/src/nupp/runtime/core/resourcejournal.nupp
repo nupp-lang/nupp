@@ -1,0 +1,72 @@
+module nupp.runtime.core.resourcejournal
+
+-- Entry-owned records live in a mapped ledger allocation, outside guest
+-- frames and the collector. Only the raw service boundary mutates them.
+const native = require("nupp.runtime.vm.intrinsics")
+
+export struct Record
+    kind: uint64
+    value: uint64
+    operation: uint64
+end
+
+export const EMPTY: uint64 = 0ULL
+export const RESERVED: uint64 = 1ULL
+export const FILE: uint64 = 2ULL
+export const CHILD: uint64 = 3ULL
+export const JOB: uint64 = 4ULL
+export const TAKEN: uint64 = 5ULL
+export const CAPACITY: uint64 = 256ULL
+export const OPEN: uint64 = 1ULL
+export const CLOSED: uint64 = 2ULL
+
+export function entry(base: voidptr, index: uint64): voidptr
+    return native.offset(base, native.index(index * native.sizeOf<Record>()))
+end
+
+export function kind(record: voidptr): uint64
+    return native.load64(record, native.fieldOffset<Record>("kind"))
+end
+
+export function value(record: voidptr): uint64
+    return native.load64(record, native.fieldOffset<Record>("value"))
+end
+
+export function operation(record: voidptr): uint64
+    return native.load64(record, native.fieldOffset<Record>("operation"))
+end
+
+export function put(record: voidptr, tag: uint64, word: uint64, op: uint64): nil
+    native.store64(record, native.fieldOffset<Record>("value"), word)
+    native.store64(record, native.fieldOffset<Record>("operation"), op)
+    native.store64(record, native.fieldOffset<Record>("kind"), tag)
+end
+
+export function reserve(base: voidptr): uint64
+    local index: uint64 = 0ULL
+    while index < CAPACITY do
+        local record = entry(base, index)
+        if kind(record) == EMPTY then
+            put(record, RESERVED, 0ULL, 0ULL)
+            return native.address(record)
+        end
+        index = index + 1ULL
+    end
+
+    return 0ULL
+end
+
+export function find(base: voidptr, tag: uint64, word: uint64): uint64
+    local index: uint64 = 0ULL
+    while index < CAPACITY do
+        local record = entry(base, index)
+        if native.load64(record, native.fieldOffset<Record>("kind")) == tag
+            and native.load64(record, native.fieldOffset<Record>("value")) == word
+        then
+            return native.address(record)
+        end
+        index = index + 1ULL
+    end
+
+    return 0ULL
+end

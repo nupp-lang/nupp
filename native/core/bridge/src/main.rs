@@ -222,6 +222,7 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, Failure> {
         filesystem::sync_file as *const () as u64,
         filesystem::path_query as *const () as u64,
         process::process_signal as *const () as u64,
+        pool::pool_settle as *const () as u64,
     ];
     #[cfg(test)]
     let imports = shared::imports(imports);

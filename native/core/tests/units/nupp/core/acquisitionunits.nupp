@@ -1,0 +1,76 @@
+module nupp.core.acquisitionunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const os = require("nupp.runtime.vm.os")
+const service = require("nupp.runtime.core.servicescope")
+const journal = require("nupp.runtime.core.resourcejournal")
+const context = require("nupp.runtime.core.context")
+const frames = require("nupp.runtime.core.frames")
+const ops = require("nupp.runtime.core.guestops")
+
+const PIPE: uint64 = 1ULL
+const CHILD: uint64 = 2ULL
+const POOL: uint64 = 3ULL
+const QUOTA: uint64 = 4ULL
+const REUSE: uint64 = 5ULL
+const READ: uint64 = 1ULL
+const SPEC_BYTES: uint64 = 16ULL
+const PATH_BYTES: uint64 = 9ULL
+const ORIGINAL: uint64 = 88ULL
+const HEAD: uint64 = 0x6c756e2f7665642fULL
+const TAIL: uint64 = 0x6cULL
+const SPEC_HEAD: uint64 = 0x6c732f6e69622f61ULL
+const SPEC_TAIL: uint64 = 0x30366100706565ULL
+
+-- The observer owns this disjoint scratch until the entry closes.
+export function acquire(address: uint64, mode: uint64, cancel: uint64): uint64
+    local scope = native.pointer(address)
+    local extra = native.offset(scope, native.index(native.sizeOf<service.ServiceScope>()))
+    local path = native.offset(extra, 64)
+    native.store64(path, 0, HEAD)
+    native.store64(path, 8, TAIL)
+    local result: int64 = -1
+    local other: uint64 = 0ULL
+    if mode == CHILD then
+        native.store64(path, 0, SPEC_HEAD)
+        native.store64(path, 8, SPEC_TAIL)
+        result = os.processSpawn(path, SPEC_BYTES, 0ULL)
+    elseif mode == PIPE then
+        result = os.processPipe(0ULL)
+        other = native.word(result) >> 32ULL
+    elseif mode == POOL then
+        local _ = os.poolStart(1ULL)
+        result = os.poolSubmit(READ, READ, path, PATH_BYTES)
+    else
+        result = os.fileOpen(path, PATH_BYTES, READ)
+        if mode == REUSE and result >= 0 then
+            local fd = native.word(result)
+            local _ = os.fileClose(fd)
+            -- The released slot must not retain authority over a reused FD.
+            result = os.fileOpen(path, PATH_BYTES, READ)
+        elseif mode == QUOTA and result >= 0 then
+            local base = native.loadPointer(scope, native.fieldOffset<service.ServiceScope>("resources"))
+            local index: uint64 = 0ULL
+            while index < journal.CAPACITY do
+                local _ = journal.reserve(base)
+                index = index + 1ULL
+            end
+            other = native.word(os.fileOpen(path, PATH_BYTES, READ))
+        end
+    end
+    native.store64(extra, 0, mode)
+    native.store64(extra, 8, native.word(result))
+    native.store64(extra, 16, other)
+    native.store64(extra, 24, cancel)
+    -- The next actual instruction charge refuses before guest publication.
+    -- Its owner and PC remain unchanged through the raw fallback drain.
+    local ctx = native.offset(extra, 128)
+    local frame = native.offset(extra, 256)
+    native.store64(frame, native.fieldOffset<frames.Frame>("functionId"), ORIGINAL)
+    native.store64(frame, native.fieldOffset<frames.Frame>("code"), native.address(path))
+    native.store64(ctx, context.CANCELLED, cancel)
+    native.store64(ctx, context.REMAINING, 0ULL)
+    service.fail(scope, ORIGINAL, ORIGINAL, ORIGINAL)
+
+    return ops.charge(ctx, frame, path)
+end

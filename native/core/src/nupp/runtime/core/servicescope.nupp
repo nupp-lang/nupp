@@ -3,6 +3,17 @@ module nupp.runtime.core.servicescope
 const native = require("nupp.runtime.vm.intrinsics")
 const pages = require("nupp.runtime.core.pagemappings")
 const os = require("nupp.runtime.vm.os")
+const journal = require("nupp.runtime.core.resourcejournal")
+
+const RESOURCE_REFUSAL: int64 = -24
+const CLEANUP_FAILURE: uint64 = 4ULL
+const INVALID: int64 = -22
+const NO_CHILD: int64 = -10
+const INTERRUPTED: int64 = -4
+const TERMINATE: uint64 = 9ULL
+const REAP_WAIT: uint64 = 1000000ULL
+const PIPE_SHIFT: uint64 = 32ULL
+const PIPE_MASK: uint64 = 0xffffffffULL
 
 -- Borrowed mapped storage outside the page ledger, frame pool and helper
 -- arena. Entry owns its lifetime. Allocating services may neither suspend nor
@@ -13,6 +24,8 @@ export struct ServiceScope
     errorOwner: uint64
     errorSite: uint64
     retainBacking: uint64
+    resources: uint64
+    resourcePhase: uint64
 end
 
 -- All spans are borrowed mapped capabilities from the retained entry. This
@@ -75,6 +88,129 @@ export function fail(scope: voidptr, code: uint64, owner: uint64, site: uint64):
         native.store64(scope, native.fieldOffset<ServiceScope>("errorSite"), site)
         native.store64(scope, native.fieldOffset<ServiceScope>("error"), code)
     end
+end
+
+-- Reserve all metadata before an OS acquisition. Once acquired, publication
+-- into this record cannot allocate, charge work, suspend or call guest code.
+local function reserve(scope: voidptr): uint64
+    if native.load64(scope, native.fieldOffset<ServiceScope>("resourcePhase")) == journal.CLOSED then
+        return 0ULL
+    end
+    local base = native.load64(scope, native.fieldOffset<ServiceScope>("resources"))
+    if base == 0ULL then
+        local size = journal.CAPACITY * native.sizeOf<journal.Record>()
+        local mapped = pages.map(native.loadPointer(scope, native.fieldOffset<ServiceScope>("pages")), size)
+        if mapped == nil then
+            return 0ULL
+        end
+        base = native.address(mapped)
+        native.store64(scope, native.fieldOffset<ServiceScope>("resources"), base)
+    end
+
+    return journal.reserve(native.pointer(base))
+end
+
+local function find(scope: voidptr, kind: uint64, value: uint64): uint64
+    local base = native.load64(scope, native.fieldOffset<ServiceScope>("resources"))
+    if base == 0ULL then
+        return 0ULL
+    end
+
+    return journal.find(native.pointer(base), kind, value)
+end
+
+local function consume(scope: voidptr, kind: uint64, value: uint64): nil
+    local record = find(scope, kind, value)
+    if record ~= 0ULL then
+        journal.put(native.pointer(record), journal.EMPTY, 0ULL, 0ULL)
+    end
+end
+
+local function acquired(record: uint64, kind: uint64, result: int64, operation: uint64): int64
+    if result < 0 then
+        journal.put(native.pointer(record), journal.EMPTY, 0ULL, 0ULL)
+    else
+        journal.put(native.pointer(record), kind, native.word(result), operation)
+    end
+
+    return result
+end
+
+local function pipeacquired(first: uint64, second: uint64, result: int64): int64
+    if result < 0 then
+        journal.put(native.pointer(first), journal.EMPTY, 0ULL, 0ULL)
+        journal.put(native.pointer(second), journal.EMPTY, 0ULL, 0ULL)
+    else
+        local ends = native.word(result)
+        journal.put(native.pointer(first), journal.FILE, ends & PIPE_MASK, 0ULL)
+        journal.put(native.pointer(second), journal.FILE, ends >> PIPE_SHIFT, 0ULL)
+    end
+
+    return result
+end
+
+-- No guest cleanup can run after work/cancellation refusal. The fallback
+-- settles native work first, then closes descriptors. Each child remains
+-- owned until a terminal reap; only the direct child is signaled.
+local function drain(scope: voidptr): boolean
+    native.store64(scope, native.fieldOffset<ServiceScope>("resourcePhase"), journal.CLOSED)
+    local base = native.load64(scope, native.fieldOffset<ServiceScope>("resources"))
+    if base == 0ULL then
+        return true
+    end
+    local complete = true
+    local index: uint64 = 0ULL
+    while index < journal.CAPACITY do
+        local record = journal.entry(native.pointer(base), index)
+        if journal.kind(record) == journal.CHILD then
+            local pid = journal.value(record)
+            local status = os.processReap(pid)
+            if status == 0 then
+                local _ = os.processsignal(pid, TERMINATE)
+            end
+            while status == 0 or status == INTERRUPTED do
+                local _ = os.sleepNanos(REAP_WAIT)
+                status = os.processReap(pid)
+            end
+            if status > 0 or status == NO_CHILD then
+                journal.put(record, journal.EMPTY, 0ULL, 0ULL)
+            else
+                complete = false
+                fail(scope, CLEANUP_FAILURE, 0ULL, 0ULL)
+            end
+        end
+        index = index + 1ULL
+    end
+    index = 0ULL
+    while index < journal.CAPACITY do
+        local record = journal.entry(native.pointer(base), index)
+        local kind = journal.kind(record)
+        if kind == journal.JOB or kind == journal.TAKEN then
+            local ticket = journal.value(record)
+            local operation = journal.operation(record)
+            local canceled = os.poolCancel(ticket)
+            if canceled ~= 1 then
+                local result = os.poolsettle(ticket)
+                if operation == journal.OPEN and result >= 0 then
+                    local _ = os.fileClose(native.word(result))
+                end
+            end
+            journal.put(record, journal.EMPTY, 0ULL, 0ULL)
+        end
+        index = index + 1ULL
+    end
+    index = 0ULL
+    while index < journal.CAPACITY do
+        local record = journal.entry(native.pointer(base), index)
+        if journal.kind(record) == journal.FILE then
+            local fd = journal.value(record)
+            journal.put(record, journal.EMPTY, 0ULL, 0ULL)
+            local _ = os.fileClose(fd)
+        end
+        index = index + 1ULL
+    end
+
+    return complete
 end
 
 -- These wrappers are the exact replacements for the checked OS declarations
@@ -175,8 +311,12 @@ export function argument(scope: voidptr, index: uint64, out: voidptr, room: uint
 end
 
 export function fileOpen(scope: voidptr, path: voidptr, bytes: uint64, flags: uint64): int64
-    local _ = scope
-    return os.fileOpen(path, bytes, flags)
+    local record = reserve(scope)
+    if record == 0ULL then
+        return RESOURCE_REFUSAL
+    end
+
+    return acquired(record, journal.FILE, os.fileOpen(path, bytes, flags), 0ULL)
 end
 
 export function fileRead(scope: voidptr, fd: uint64, out: voidptr, room: uint64): int64
@@ -195,7 +335,7 @@ export function fileSeek(scope: voidptr, fd: uint64, offset: uint64, whence: uin
 end
 
 export function fileClose(scope: voidptr, fd: uint64): int64
-    local _ = scope
+    consume(scope, journal.FILE, fd)
     return os.fileClose(fd)
 end
 
@@ -205,8 +345,12 @@ export function errorText(scope: voidptr, code: uint64, out: voidptr, room: uint
 end
 
 export function pollOpen(scope: voidptr): int64
-    local _ = scope
-    return os.pollOpen()
+    local record = reserve(scope)
+    if record == 0ULL then
+        return RESOURCE_REFUSAL
+    end
+
+    return acquired(record, journal.FILE, os.pollOpen(), 0ULL)
 end
 
 export function pollArm(scope: voidptr, poller: uint64, fd: uint64, interest: uint64): int64
@@ -220,8 +364,17 @@ export function pollWait(scope: voidptr, poller: uint64, nanos: uint64): int64
 end
 
 export function pipeOpen(scope: voidptr): int64
-    local _ = scope
-    return os.pipeOpen()
+    local first = reserve(scope)
+    if first == 0ULL then
+        return RESOURCE_REFUSAL
+    end
+    local second = reserve(scope)
+    if second == 0ULL then
+        journal.put(native.pointer(first), journal.EMPTY, 0ULL, 0ULL)
+        return RESOURCE_REFUSAL
+    end
+
+    return pipeacquired(first, second, os.pipeOpen())
 end
 
 export function poolStart(scope: voidptr, threads: uint64): int64
@@ -230,33 +383,73 @@ export function poolStart(scope: voidptr, threads: uint64): int64
 end
 
 export function poolSubmit(scope: voidptr, kind: uint64, word: uint64, base: voidptr, bytes: uint64): int64
-    local _ = scope
-    return os.poolSubmit(kind, word, base, bytes)
+    local record = reserve(scope)
+    if record == 0ULL then
+        return RESOURCE_REFUSAL
+    end
+
+    return acquired(record, journal.JOB, os.poolSubmit(kind, word, base, bytes), kind)
 end
 
 export function poolTake(scope: voidptr): int64
-    local _ = scope
-    return os.poolTake()
+    local ticket = os.poolTake()
+    if ticket > 0 then
+        local record = find(scope, journal.JOB, native.word(ticket))
+        if record ~= 0ULL then
+            local item = native.pointer(record)
+            journal.put(item, journal.TAKEN, native.word(ticket), journal.operation(item))
+        end
+    end
+
+    return ticket
 end
 
 export function poolFinish(scope: voidptr, ticket: uint64, out: voidptr, room: uint64): int64
-    local _ = scope
-    return os.poolFinish(ticket, out, room)
+    local record = find(scope, journal.TAKEN, ticket)
+    if record == 0ULL then
+        return INVALID
+    end
+    local item = native.pointer(record)
+    local operation = journal.operation(item)
+    local result = os.poolFinish(ticket, out, room)
+    if operation == journal.OPEN then
+        return acquired(record, journal.FILE, result, 0ULL)
+    end
+    journal.put(item, journal.EMPTY, 0ULL, 0ULL)
+
+    return result
 end
 
 export function poolCancel(scope: voidptr, ticket: uint64): int64
-    local _ = scope
-    return os.poolCancel(ticket)
+    local result = os.poolCancel(ticket)
+    if result == 1 then
+        consume(scope, journal.JOB, ticket)
+    end
+
+    return result
 end
 
 export function processPipe(scope: voidptr, keep: uint64): int64
-    local _ = scope
-    return os.processPipe(keep)
+    local first = reserve(scope)
+    if first == 0ULL then
+        return RESOURCE_REFUSAL
+    end
+    local second = reserve(scope)
+    if second == 0ULL then
+        journal.put(native.pointer(first), journal.EMPTY, 0ULL, 0ULL)
+        return RESOURCE_REFUSAL
+    end
+
+    return pipeacquired(first, second, os.processPipe(keep))
 end
 
 export function processSpawn(scope: voidptr, spec: voidptr, bytes: uint64, flags: uint64): int64
-    local _ = scope
-    return os.processSpawn(spec, bytes, flags)
+    local record = reserve(scope)
+    if record == 0ULL then
+        return RESOURCE_REFUSAL
+    end
+
+    return acquired(record, journal.CHILD, os.processSpawn(spec, bytes, flags), 0ULL)
 end
 
 export function processWatch(scope: voidptr, poller: uint64, pid: uint64): int64
@@ -270,8 +463,12 @@ export function processUnwatch(scope: voidptr, poller: uint64, pid: uint64): int
 end
 
 export function processReap(scope: voidptr, pid: uint64): int64
-    local _ = scope
-    return os.processReap(pid)
+    local status = os.processReap(pid)
+    if status > 0 or status == NO_CHILD then
+        consume(scope, journal.CHILD, pid)
+    end
+
+    return status
 end
 
 export function processKill(scope: voidptr, pid: uint64, signal: uint64): int64
@@ -339,13 +536,21 @@ export function fileRename(scope: voidptr, from: voidptr, fromBytes: uint64, to:
 end
 
 export function fileTemporary(scope: voidptr, out: voidptr, room: uint64): int64
-    local _ = scope
-    return os.fileTemporary(out, room)
+    local record = reserve(scope)
+    if record == 0ULL then
+        return RESOURCE_REFUSAL
+    end
+
+    return acquired(record, journal.FILE, os.fileTemporary(out, room), 0ULL)
 end
 
 export function dirOpen(scope: voidptr, fd: uint64, path: voidptr, bytes: uint64): int64
-    local _ = scope
-    return os.dirOpen(fd, path, bytes)
+    local record = reserve(scope)
+    if record == 0ULL then
+        return RESOURCE_REFUSAL
+    end
+
+    return acquired(record, journal.FILE, os.dirOpen(fd, path, bytes), 0ULL)
 end
 
 export function dirNames(scope: voidptr, fd: uint64, out: voidptr, room: uint64): int64
@@ -371,12 +576,18 @@ export function close(scope: voidptr): uint64
     if native.load64(scope, native.fieldOffset<ServiceScope>("retainBacking")) ~= 0ULL then
         return 0ULL
     end
+    if not drain(scope) then
+        native.store64(scope, native.fieldOffset<ServiceScope>("retainBacking"), 1ULL)
+        return 0ULL
+    end
     local status = pages.close(native.loadPointer(scope, native.fieldOffset<ServiceScope>("pages")))
     if status ~= 1ULL then
         native.store64(scope, native.fieldOffset<ServiceScope>("retainBacking"), 1ULL)
         fail(scope, 2ULL, 0ULL, 0ULL)
         return 0ULL
     end
+
+    native.store64(scope, native.fieldOffset<ServiceScope>("resources"), 0ULL)
 
     return 1ULL
 end

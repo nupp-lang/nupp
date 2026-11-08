@@ -160,6 +160,10 @@ local record Os
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     poolCancel: function(ticket: uint64): int64
 
+    -- Entry teardown settles only its own outstanding I/O ticket.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    poolsettle: function(ticket: uint64): int64
+
     --- Sleeps for `nanos` nanoseconds: the scheduler's wait while nothing but
     --- its timers can wake it. Answers 0.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)

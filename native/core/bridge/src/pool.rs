@@ -39,6 +39,7 @@ struct State {
 struct Pool {
     state: Mutex<State>,
     work: Condvar,
+    settled: Condvar,
     /// The wake pipe's ends: the reactor polls the first, workers write the
     /// second.
     awake: u64,
@@ -81,6 +82,7 @@ fn work(pool: &'static Pool) {
             let job = state.jobs.get_mut(&ticket).unwrap();
             (job.result, job.bytes, job.done) = (result, out, true);
             state.finished.push_back(ticket);
+            pool.settled.notify_all();
         }
         // A full wake pipe already says results are waiting.
         let byte = [1u8];
@@ -101,7 +103,7 @@ pub extern "C" fn pool_start(threads: u64) -> u64 {
         if (ends as i64) < 0 {
             return Err(ends);
         }
-        Ok(Pool { state: Mutex::default(), work: Condvar::new(), awake: ends & crate::poll::READ_END, wake: ends >> crate::poll::WRITE_END })
+        Ok(Pool { state: Mutex::default(), work: Condvar::new(), settled: Condvar::new(), awake: ends & crate::poll::READ_END, wake: ends >> crate::poll::WRITE_END })
     });
     let pool = match pool {
         Ok(pool) => pool,
@@ -170,6 +172,23 @@ pub unsafe extern "C" fn pool_finish(ticket: u64, out: u64, room: u64) -> u64 {
     job.result
 }
 
+/// Settles exactly this entry-owned ticket, including a result already taken
+/// from the completion queue. No other entry's completion is consumed. The
+/// caller retains descriptors until all of its tickets have settled.
+pub extern "C" fn pool_settle(ticket: u64) -> u64 {
+    let Some(pool) = started() else { return failed(EINVAL) };
+    let mut state = pool.state.lock().unwrap();
+    loop {
+        match state.jobs.get(&ticket) {
+            None => return failed(EINVAL),
+            Some(job) if job.done => break,
+            _ => state = pool.settled.wait(state).unwrap(),
+        }
+    }
+    state.finished.retain(|finished| *finished != ticket);
+    state.jobs.remove(&ticket).unwrap().result
+}
+
 /// Withdraws a job no worker has started: 1, and its ticket is spent; 0 when
 /// it has started or finished, and it is still to be taken and collected.
 pub extern "C" fn pool_cancel(ticket: u64) -> u64 {
@@ -185,6 +204,7 @@ pub extern "C" fn pool_cancel(ticket: u64) -> u64 {
 mod tests {
     use super::*;
     use std::ffi::c_int;
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     unsafe extern "C" {
         fn close(fd: c_int) -> c_int;
@@ -211,8 +231,44 @@ mod tests {
         tickets
     }
 
+#[test]
+fn settlement_keeps_other_completions_and_spends_only_its_ticket() {
+        let _serial = TEST_LOCK.lock().unwrap();
+    let _awake = pool_start(2);
+    let path = b"/dev/null";
+    let first = unsafe { pool_submit(OPEN, 1, path.as_ptr() as u64, path.len() as u64) };
+    let second = unsafe { pool_submit(OPEN, 1, path.as_ptr() as u64, path.len() as u64) };
+    let first_fd = pool_settle(first);
+    assert!((first_fd as i64) >= 0);
+    assert_eq!(pool_settle(first) as i64, -EINVAL);
+    let second_fd = pool_settle(second);
+    assert!((second_fd as i64) >= 0);
+    assert_eq!(pool_take(), 0);
+    unsafe {
+        assert_eq!(crate::files::file_close(first_fd), 0);
+        assert_eq!(crate::files::file_close(second_fd), 0);
+    }
+}
+
+#[test]
+fn settlement_waits_for_inflight_io_before_descriptor_release() {
+        let _serial = TEST_LOCK.lock().unwrap();
+    use std::io::Write;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::net::UnixStream;
+    let _awake = pool_start(2);
+    let (reader, mut writer) = UnixStream::pair().unwrap();
+    let ticket = unsafe { pool_submit(READ, reader.as_raw_fd() as u64, 0, 1) };
+    let wait = std::thread::spawn(move || pool_settle(ticket));
+    writer.write_all(b"x").unwrap();
+    assert_eq!(wait.join().unwrap(), 1);
+    assert_eq!(pool_settle(ticket) as i64, -EINVAL);
+    assert_eq!(pool_take(), 0);
+}
+
     #[test]
     fn jobs_open_write_and_read_off_the_calling_thread() {
+        let _serial = TEST_LOCK.lock().unwrap();
         let awake = pool_start(2);
         assert!((awake as i64) >= 0);
         assert_eq!(pool_start(8), awake);

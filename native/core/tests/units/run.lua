@@ -91,6 +91,23 @@ end
 -- and cases of {function, arguments, expected result}.
 local UNITS = {
     {
+        name = "acquisitionunits",
+        modules = {"acquisitionunits", "acquisitionentry", "unitentry"},
+        observeLanding = true,
+        observerEntry = "nupp.core.acquisitionentry",
+        entries = {{"acquisitionunits", "acquire", 3}},
+        cases = function()
+            local cases = {}
+            for mode = 0, 5 do
+                for cancel = 0, 1 do
+                    cases[#cases + 1] = {"acquire", {0, mode, cancel}, 1}
+                end
+            end
+
+            return cases
+        end
+    },
+    {
         name = "bufferviewunits",
         modules = {
             "nupp.core.bufferviewunits",
