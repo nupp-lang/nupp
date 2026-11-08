@@ -8,7 +8,6 @@ local nativeos = require("nupp.compiler.vm.nativeos")
 local contract = require("nupp.compiler.vm.nativeframecontract")
 local sink = require("nupp.compiler.s0.nativegraph")
 local targetLayout = require("nupp.compiler.targetlayout")
-local shim = {}
 
 local function checkedInteger(value: any): integer
     assert(
@@ -26,7 +25,7 @@ end
 -- This boundary transports mappings and invokes original checked Nupp bodies.
 -- It does not construct a Heap/Frame, run a collector, or interpret guest ops.
 -- All entry-owned data survives a failed call independently of bridge scratch.
-function shim.build(source: any, selected: {[string]: any}, stress: boolean, scenario: string): any
+export function build(source: any, selected: {[string]: any}, stress: boolean, scenario: string): any
     assert(
         scenario == "cell"
         or scenario == "cell-phase-refusal"
@@ -465,5 +464,3 @@ function shim.build(source: any, selected: {[string]: any}, stress: boolean, sce
         layouts = layouts
     }
 end
-
-export = shim

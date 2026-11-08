@@ -1,11 +1,10 @@
 module nupp.core.rawshapegen
 
 local schema = require("nupp.compiler.vm.coregraphschema")
-local generator = {}
 
 -- Each packed rule is offset:8, action:4, target:5, countOffset:7,
 -- reserved:8, limit:32. Values come only from canonical wire descriptors.
-function generator.source(): string
+export function source(): string
     local wire = schema.wire()
     local lines = {
         "module nupp.runtime.core.rawroles",
@@ -70,5 +69,3 @@ function generator.source(): string
 
     return table.concat(lines, "\n") .. "\n"
 end
-
-export = generator

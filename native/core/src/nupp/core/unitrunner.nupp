@@ -18,7 +18,6 @@ local linker = require("nupp.core.link")
 local fingerprint = require("nupp.compiler.project.fingerprint")
 local json = require("serde.json")
 local targetlayout = require("nupp.compiler.targetlayout")
-local runner = {}
 
 local function readFile(path: string): string?
     local file = io.open(path, "rb")
@@ -179,7 +178,7 @@ end
 -- content-addressed code cache. `handlers` names the owners lowered with the
 -- handler ABI; every other owner is a leaf. Answers each function's code and
 -- owner by qualified name.
-function runner.select(
+export function select(
     build: any,
     mode: string,
     cacheDirectory: string?,
@@ -291,7 +290,7 @@ end
 
 -- `fixtures` is a list of {moduleName, path, include}; `entries` lists the
 -- fixture functions in dispatch order as {moduleName, name, arity}.
-function runner.build(
+export function build(
     fixtures: any,
     entries: any,
     mode: string,
@@ -327,7 +326,7 @@ function runner.build(
     local build = service.buildUnits(fixtures, roots)
 
     phase("session")
-    local chosen = runner.select(build, mode, cacheDirectory, nil, phase)
+    local chosen = select(build, mode, cacheDirectory, nil, phase)
     if sharedhandoff then
         local consumer = assert(chosen.owners["nupp.core.sharedbackingunits.afterscope"])
         assert(
@@ -509,5 +508,3 @@ function runner.build(
         timings = timings
     }
 end
-
-export = runner

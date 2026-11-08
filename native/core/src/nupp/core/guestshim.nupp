@@ -6,7 +6,6 @@ local nativeos = require("nupp.compiler.vm.nativeos")
 local targetLayout = require("nupp.compiler.targetlayout")
 local opcodes = require("nupp.compiler.vm.opcodes")
 local context = require("nupp.runtime.core.context")
-local shim = {}
 
 local function align(value: integer): integer
     return (value + 15) & -16
@@ -37,7 +36,7 @@ end
 -- fresh Context/Storage, then completes before the next starts. The World and
 -- immutable image persist across runs; only the final result is published.
 -- Entry, call, return and cleanup policy remains selected Nupp code.
-function shim.build(source: any, selected: {[string]: any}, capacity: integer?, raw: boolean?): any
+export function build(source: any, selected: {[string]: any}, capacity: integer?, raw: boolean?): any
     local scratchBytes = capacity or 65536
     assert(
         raw and source.caseName == "raw" and scratchBytes == 33554432
@@ -730,5 +729,3 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
 
     return result
 end
-
-export = shim

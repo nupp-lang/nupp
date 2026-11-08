@@ -5,7 +5,6 @@ local targetLayout = require("nupp.compiler.targetlayout")
 local literal = require("s0.literal")
 local schema = require("nupp.compiler.vm.coregraphschema")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
-local artifact = {}
 -- The constant-word tag of a v8 string constant; the payload is its offset.
 local STRING_CONSTANT = 0x7ffe000000000000
 -- A wide integer constant (past the 48-bit immediate) over its eight bytes'
@@ -19,7 +18,7 @@ local ZERO_WORD = string.rep("\0", 8)
 local ZERO_RUN = string.rep("\0", 65536)
 
 -- A word's eight little-endian bytes.
-local function encode(value: int64): string
+local function wordbytes(value: int64): string
     return string.char(
         value & 255,
         (value >> 8) & 255,
@@ -77,7 +76,7 @@ end
 -- owners through final publication; a structurally copied layout grants nothing.
 -- `raises` lists the runtime's literal raises ({id, site, literal}), whose
 -- texts a v8 program carries for the errors they raise.
-function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes: integer, raises: {any}?): any
+export function encode(code: any, scopes: any, dispatch: {integer}, codeBytes: integer, raises: {any}?): any
     executable.validate(code)
     assert(#dispatch >= 1 and #dispatch <= 256, "guest dispatch extent")
     local scope = assert(scopes["nupp.runtime.core.guestcatalog"])
@@ -252,14 +251,14 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
 
     local function word(at: integer, value: int64): nil
         assert(at % 8 == 0)
-        place(at, encode(value))
+        place(at, wordbytes(value))
     end
 
     -- The words a value per instruction, or per parameter, makes, at `at`.
     local function run(at: integer, list: {any}, map: (function(any): int64)?): nil
         local words: {string} = {}
         for index, value in ipairs(list) do
-            words[index] = encode(map and map(value) or value as int64)
+            words[index] = wordbytes(map and map(value) or value as int64)
         end
         if #words > 0 then
             assert(at % 8 == 0)
@@ -274,7 +273,7 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
             words[index] = ZERO_WORD
         end
         for key, value in pairs(values) do
-            words[(assert(layout.offsets[key], "catalog field") as integer) // 8 + 1] = encode(value)
+            words[(assert(layout.offsets[key], "catalog field") as integer) // 8 + 1] = wordbytes(value)
         end
         for _, field in ipairs(layout.fields) do
             assert(values[field.name] ~= nil, "missing catalog field " .. field.name)
@@ -457,7 +456,7 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
         run(raiseOffset, raised)
     end
     for _, text in ipairs(stringOrder) do
-        place(assert(stringOffsets[text]), encode(#text) .. text)
+        place(assert(stringOffsets[text]), wordbytes(#text) .. text)
     end
     for _, raw in ipairs(integerOrder) do
         assert(#raw == 8, "checked integer constant width")
@@ -473,5 +472,3 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
         constantOffsets = constantOffsets
     }
 end
-
-export = artifact

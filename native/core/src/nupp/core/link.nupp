@@ -3,11 +3,10 @@ module nupp.core.link
 local arm = require("s0.arm64")
 local selector = require("s0.select")
 local nativeos = require("nupp.compiler.vm.nativeos")
-local link = {}
 
 -- Build-time local Nupp calls only. Typed callers and targets are checked by
 -- the graph sink before selection; this layer resolves code offsets and extent.
-local function assemble(
+local function resolve(
     prefix: {integer},
     roots: {any},
     functions: {[string]: any},
@@ -148,7 +147,7 @@ end
 -- Legacy mechanical code remains supported. An original issued Code cannot
 -- accidentally enter this route; copied/reselected raw words are unissued host
 -- artifacts and cannot claim the closed final-frame producer's proof.
-function link.assemble(prefix: {integer}, roots: {any}, functions: {[string]: any}, available: integer): any
+export function assemble(prefix: {integer}, roots: {any}, functions: {[string]: any}, available: integer): any
     local sink = require("nupp.compiler.s0.nativegraph")
     for _, code in ipairs(roots) do
         sink.refuseLegacyCode(code)
@@ -157,13 +156,13 @@ function link.assemble(prefix: {integer}, roots: {any}, functions: {[string]: an
         sink.refuseLegacyCode(code)
     end
 
-    return assemble(prefix, roots, functions, available, nil, nil)
+    return resolve(prefix, roots, functions, available, nil, nil)
 end
 
 -- Transport-only prefix words remain trusted builder input. All Nupp bodies
 -- and direct call fixups must retain the original compilerGraph Result, owner
 -- and graph; identical names/signatures or replacement word arrays do not bind.
-function link.assembleAuthenticated(
+export function assembleAuthenticated(
     prefix: {integer},
     roots: {any},
     functions: {[string]: any},
@@ -173,13 +172,13 @@ function link.assembleAuthenticated(
     local sink = require("nupp.compiler.s0.nativegraph")
     local imports = sink.verifyLinkInputs(roots, functions)
 
-    return assemble(prefix, roots, functions, available, imports, extentError)
+    return resolve(prefix, roots, functions, available, imports, extentError)
 end
 
 -- Trusted build-time linking for the core's own code (runtime plan,
 -- "Direction": tests, not proofs). OS import slots come from the selector's
 -- `core_os_<slot>` fixup names; nothing is re-verified here.
-function link.assembleTrusted(
+export function assembleTrusted(
     prefix: {integer},
     roots: {any},
     functions: {[string]: any},
@@ -209,7 +208,5 @@ function link.assembleTrusted(
         bind(code)
     end
 
-    return assemble(prefix, roots, functions, available, imports, extentError)
+    return resolve(prefix, roots, functions, available, imports, extentError)
 end
-
-export = link

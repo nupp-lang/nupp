@@ -3,28 +3,29 @@ module nupp.core.shim
 local arm = require("s0.arm64")
 local context = require("nupp.runtime.core.context")
 local linker = require("nupp.core.link")
-local shim = {}
 
 -- Context 0..127; frame header 128..159: predecessor, function, PC, extent.
 -- A 32-byte gap separates the opaque header from the tagged value window.
 -- Each window has 256 eight-byte slots; no Frame is inferred from a window.
 -- Floats and vectors reserve distinct future regions; neither is a root here.
-shim.scratchBytes = 65536
-shim.contextOffset, shim.frameOffset, shim.taggedOffset = 0, 128, 192
-shim.integerOffset, shim.floatOffset, shim.vectorOffset = 2240, 4288, 6336
-shim.dispatchOffset, shim.spillOffset = 8384, 8496
+export const scratchBytes = 65536
+export const contextOffset = 0
+export const frameOffset = 128
+export const taggedOffset = 192
+export const integerOffset = 2240
+export const floatOffset = 4288
+export const vectorOffset = 6336
+export const dispatchOffset = 8384
+export const spillOffset = 8496
 
 -- Input code and initialized program data are trusted, verified build artifacts.
 -- Entry extent checks do not authenticate arbitrary replacement code or data.
-local function build(codes: {any}, functions: {[string]: any}?, capacity: integer?, authenticated: boolean): any
-    local scratchBytes = capacity or shim.scratchBytes
-    assert(
-        scratchBytes >= shim.scratchBytes and scratchBytes <= 1048576 and scratchBytes % 65536 == 0,
-        "core shim scratch bound"
-    )
-    assert(context.SIZE <= shim.frameOffset and context.DISPATCH_TABLE + 8 <= context.SIZE, "core shim context extent")
+local function assemble(codes: {any}, functions: {[string]: any}?, capacity: integer?, authenticated: boolean): any
+    local scratch = capacity or scratchBytes
+    assert(scratch >= scratchBytes and scratch <= 1048576 and scratch % 65536 == 0, "core shim scratch bound")
+    assert(context.SIZE <= frameOffset and context.DISPATCH_TABLE + 8 <= context.SIZE, "core shim context extent")
     assert(#codes >= 1 and #codes <= 256, "core shim handler count")
-    local spillOffset = (shim.dispatchOffset + #codes * 8 + 15) & -16
+    local spill = (dispatchOffset + #codes * 8 + 15) & -16
     local words: {integer} = {}
 
     local function emit(word: integer): nil
@@ -53,7 +54,7 @@ local function build(codes: {any}, functions: {[string]: any}?, capacity: intege
         at: integer,
         condition: integer
     }} = {}
-    for _, check in ipairs({{0, 1, 1}, {48, scratchBytes, 3}, {88, 1, 3}, {32, 48 + #codes * 8, 3}, {80, 2, 8}}) do
+    for _, check in ipairs({{0, 1, 1}, {48, scratch, 3}, {88, 1, 3}, {32, 48 + #codes * 8, 3}, {80, 2, 8}}) do
         emit(arm.ldr(8, 16, 0, check[1]))
         local value = check[2]
         emit(arm.movz(64, 17, value >= 65536 and (value >> 16) or value, value >= 65536 and 1 or 0))
@@ -65,9 +66,9 @@ local function build(codes: {any}, functions: {[string]: any}?, capacity: intege
     emit(arm.ldr(8, 14, 0, 24))
     emit(arm.ldr(8, 19, 0, 40))
     emit(arm.ldr(8, 22, 0, 56))
-    offset(20, 19, shim.frameOffset)
-    offset(21, 19, shim.dispatchOffset)
-    offset(23, 19, spillOffset)
+    offset(20, 19, frameOffset)
+    offset(21, 19, dispatchOffset)
+    offset(23, 19, spill)
     emit(arm.str(8, 21, 19, context.DISPATCH_TABLE))
     emit(arm.str(8, 15, 20, 8))
     offset(17, 14, 32)
@@ -102,9 +103,9 @@ local function build(codes: {any}, functions: {[string]: any}?, capacity: intege
         emit(arm.str(8, 16, 21, index * 8))
     end
     offset(0, 14, 32)
-    offset(1, 19, shim.taggedOffset)
-    offset(2, 19, shim.integerOffset)
-    offset(3, 19, shim.floatOffset)
+    offset(1, 19, taggedOffset)
+    offset(2, 19, integerOffset)
+    offset(3, 19, floatOffset)
     emit(arm.mov_reg(64, 4, 19))
     emit(arm.mov_reg(64, 5, 20))
     emit(arm.ldr(1, 16, 0, 0))
@@ -138,27 +139,24 @@ local function build(codes: {any}, functions: {[string]: any}?, capacity: intege
     end
     emit(arm.add_imm(64, 31, 31, 176, 0))
     emit(arm.ret(30))
-    local linked = authenticated
-        and linker.assembleAuthenticated(words, codes, functions or {}, scratchBytes - spillOffset)
-        or linker.assemble(words, codes, functions or {}, scratchBytes - spillOffset)
+    local linked = authenticated and linker.assembleAuthenticated(words, codes, functions or {}, scratch - spill)
+        or linker.assemble(words, codes, functions or {}, scratch - spill)
 
     return {
         words = linked.words,
         offsets = linked.offsets,
         frames = linked.frames,
         callBytes = linked.callBytes,
-        scratchBytes = scratchBytes,
-        spillOffset = spillOffset,
+        scratchBytes = scratch,
+        spillOffset = spill,
         entry = 0
     }
 end
 
-function shim.build(codes: {any}, functions: {[string]: any}?, capacity: integer?): any
-    return build(codes, functions, capacity, false)
+export function build(codes: {any}, functions: {[string]: any}?, capacity: integer?): any
+    return assemble(codes, functions, capacity, false)
 end
 
-function shim.buildAuthenticated(codes: {any}, functions: {[string]: any}?, capacity: integer?): any
-    return build(codes, functions, capacity, true)
+export function buildAuthenticated(codes: {any}, functions: {[string]: any}?, capacity: integer?): any
+    return assemble(codes, functions, capacity, true)
 end
-
-export = shim
