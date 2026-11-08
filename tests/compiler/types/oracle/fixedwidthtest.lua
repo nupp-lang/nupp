@@ -199,6 +199,18 @@ function M.storageOnlyWidthsCannotHideBehindWritableShapeMembers()
     testAssert.eq(fixed.storageOnlyValue(indexer), types.int16)
 end
 
+function M.storageOnlyWalkHandlesCyclesAndFreshNominalMembers()
+    local owner = types.nominal("RecursiveWidths", "record")
+    owner.fieldOrder = {"self"}
+    owner.byname.self = owner
+    testAssert.eq(fixed.storageOnlyValue(owner), nil)
+    owner.fieldOrder[2] = "value"
+    owner.byname.value = types.uint8
+    testAssert.eq(fixed.storageOnlyValue(owner), types.uint8)
+    owner.byname.value = types.number
+    testAssert.eq(fixed.storageOnlyValue(owner), nil)
+end
+
 function M.recordFactsDoNotSurviveGradualErasure()
     testAssert.eq(
         errorCodes(
