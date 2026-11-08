@@ -180,11 +180,18 @@ end
 
 -- Ownership qualifiers (affine, borrowed, pinned) wrap the type a value
 -- has at run time, as `const` does.
-export function typeKind(t: any): string
+-- `t` without its literal, const and ownership qualifiers.
+local function unqualified(t: any): any
     while t
         and (t.tag == "literal" or t.tag == "const" or t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned") do
         t = t.tag == "literal" and t.base or t.inner
     end
+
+    return t
+end
+
+export function typeKind(t: any): string
+    t = unqualified(t)
 
     return t and t.tag or "missing"
 end
@@ -213,10 +220,7 @@ end
 -- Whether a value of type `t` is an interface's: a table its fields are
 -- read from by name.
 export function interfacetype(t: any): boolean
-    while t
-        and (t.tag == "literal" or t.tag == "const" or t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned") do
-        t = t.tag == "literal" and t.base or t.inner
-    end
+    t = unqualified(t)
 
     return t ~= nil and t.tag == "nominal" and t.declKind == "interface"
 end
@@ -237,9 +241,24 @@ const KEYED_KINDS: {[string]: boolean} = {
 }
 
 -- Whether a field of a value of type `t` is its string key: a plain table's,
--- a declaration's, an interface's, or one read through a record's name.
+-- a declaration's, an interface's, or one read through a record's name. A
+-- union is when every member but nil is: each member's runtime adapter answers
+-- the name, whichever slot its own layout gives it, and nil raises Lua's error.
 export function keyedByName(t: any): boolean
-    return KEYED_KINDS[typeKind(t)] == true or interfacetype(t) or recordOrigin(t) ~= nil
+    if KEYED_KINDS[typeKind(t)] == true or interfacetype(t) or recordOrigin(t) ~= nil then
+        return true
+    end
+    t = unqualified(t)
+    if not t or t.tag ~= "union" or #(t.members or {}) == 0 then
+        return false
+    end
+    for _, member in ipairs(t.members) do
+        if typeKind(member) ~= "nil" and not keyedByName(member) then
+            return false
+        end
+    end
+
+    return true
 end
 
 -- Fixed widths are integers and floats at run time; uint64 is not, since
