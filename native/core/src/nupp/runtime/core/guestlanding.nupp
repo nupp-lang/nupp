@@ -101,12 +101,7 @@ local function landingFrame(ctx: voidptr, state: voidptr): uint64
         local closing = native.load64(services, native.fieldOffset<guestscope.Services>("closing")) == 1ULL
         local at = native.load64(state, native.fieldOffset<frames.State>("active"))
         while at ~= 0ULL do
-            if native.load64(
-                native.pointer(at),
-                native.fieldOffset<frames.Frame>("resultKind")
-            ) == frames.PROTECTED_DESTINATION
-                and not closing
-            then
+            if frames.isprotected(native.pointer(at)) and not closing then
                 return 0ULL
             end
             local parent = native.load64(native.pointer(at), native.fieldOffset<frames.Frame>("previous"))
@@ -186,10 +181,7 @@ local function protectedFrame(state: voidptr): uint64
     @unsafe do
         local at = native.load64(state, native.fieldOffset<frames.State>("active"))
         while at ~= 0ULL do
-            if native.load64(
-                native.pointer(at),
-                native.fieldOffset<frames.Frame>("resultKind")
-            ) == frames.PROTECTED_DESTINATION then
+            if frames.isprotected(native.pointer(at)) then
                 return at
             end
             at = native.load64(native.pointer(at), native.fieldOffset<frames.Frame>("previous"))
@@ -358,7 +350,17 @@ export function recoverEntry(ctx: voidptr): uint64
                 native.store64(services, native.fieldOffset<guestscope.Services>("landed"), 1ULL)
             end
         elseif native.load64(services, native.fieldOffset<guestscope.Services>("closing")) == 0ULL then
-            parent = frames.recover(state, value)
+            local destination = protectedFrame(state)
+            local result = value
+            if destination ~= 0ULL
+                and native.load64(
+                    native.pointer(destination),
+                    native.fieldOffset<frames.Frame>("resultKind")
+                ) == frames.PROTECTED_PACK_DESTINATION
+            then
+                result = guestscope.failedvalues(ctx, value)
+            end
+            parent = frames.recover(state, result)
         end
         if parent == 0ULL then
             native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("error"), scopeError)

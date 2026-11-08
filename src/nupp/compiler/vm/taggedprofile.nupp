@@ -1223,21 +1223,27 @@ function tagged.forVersion(version: integer): any
 
             return invoke(ctx, node, true, true, count)
         end
+
+        local function emptyReturn(ctx: any, node: any, at: any?): nil
+            local value = version >= 8 and ctx.emit(node, "Nil", {}, "tagged") or taggedcalls.emptyresults(ctx, node)
+            ctx.block.term = {
+                kind = "return",
+                value = value,
+                values = version >= 8 and {} or nil,
+                spread = version < 8 and value or nil,
+                edges = {},
+                pos = ctx.position(at or node)
+            }
+            ctx.block = nil
+        end
+
         -- A bare return follows its checked result pack. A last call
         -- supplies as many results as the function declares, as Lua passes
         -- every result of `return f()` on.
         profile.returnStatement = function(ctx: any, stat: any): nil
             if #stat.exprs == 0 then
-                if taggedcalls.emptyreturn(ctx.fn.signature) then
-                    local pack = taggedcalls.emptyresults(ctx, stat)
-                    ctx.block.term = {
-                        kind = "return",
-                        value = pack,
-                        spread = pack,
-                        edges = {},
-                        pos = ctx.position(stat)
-                    }
-                    ctx.block = nil
+                if taggedcalls.emptyreturn(ctx.fn.signature, version >= 8) then
+                    emptyReturn(ctx, stat)
                     return
                 end
                 local value = ctx.emit(stat, "Nil", {}, "tagged")
@@ -1295,6 +1301,8 @@ function tagged.forVersion(version: integer): any
                     and (ctx.fn.signature.retPack.alternatives == nil or lastSite and not lastSite.construct)
                     or last.kind == "methodCall" and lastSite and lastSite.method
                     or graph.packedcall(last)
+                    or libraryLast == "pcall"
+                    or libraryLast == "xpcall"
                 )
             if openReturn then
                 local fixed, kinds = {}, {}
@@ -1371,16 +1379,8 @@ function tagged.forVersion(version: integer): any
             ctx.block = nil
         end
         profile.fallthrough = function(ctx: any, node: any): nil
-            if not ctx.exports and taggedcalls.emptyreturn(ctx.fn.signature) then
-                local pack = taggedcalls.emptyresults(ctx, node)
-                ctx.block.term = {
-                    kind = "return",
-                    value = pack,
-                    spread = pack,
-                    edges = {},
-                    pos = ctx.position(node.eof or node)
-                }
-                ctx.block = nil
+            if not ctx.exports and taggedcalls.emptyreturn(ctx.fn.signature, version >= 8) then
+                emptyReturn(ctx, node, node.eof or node)
                 return
             end
             -- A module with named exports answers its export table.

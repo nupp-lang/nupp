@@ -153,6 +153,14 @@ export const LIBRARY_DESTINATION: uint64 = 8ULL
 -- A __tostring the entry calls on an error no protected call took
 -- (`guestreport`): its first result ends the entry, which reports it.
 export const REPORT_DESTINATION: uint64 = 9ULL
+-- A protected caller retaining its complete status/result pack in one slot.
+export const PROTECTED_PACK_DESTINATION: uint64 = 10ULL
+
+export function isprotected(frame: voidptr): boolean
+    local kind = native.load64(frame, native.fieldOffset<Frame>("resultKind"))
+    return kind == PROTECTED_DESTINATION or kind == PROTECTED_PACK_DESTINATION
+end
+
 -- The most results a caller frame may want from one call.
 export const MAX_RESULTS: uint64 = 16ULL
 
@@ -1464,6 +1472,7 @@ export function rootRangeCount(
             mark = native.offset(parent, native.fieldOffset<Frame>("childMark"))
             if native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= CALLER_DESTINATION
                 and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= PROTECTED_DESTINATION
+                and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= PROTECTED_PACK_DESTINATION
                 and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= TRUTH_DESTINATION
                 and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= PACK_DESTINATION
                 and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= MODULE_DESTINATION
@@ -1621,6 +1630,15 @@ export function protect(state: voidptr, child: voidptr): uint64
     return 1ULL
 end
 
+export function protectpack(state: voidptr, child: voidptr): uint64
+    if prepared(state, child) == 0ULL then
+        return 0ULL
+    end
+    native.store64(child, native.fieldOffset<Frame>("resultKind"), PROTECTED_PACK_DESTINATION)
+
+    return 1ULL
+end
+
 -- Unwinds an error to `target`, a frame on the active chain waiting on a
 -- call: every frame above it is retired, the call it waits on answers
 -- nils, and it is active again, to resume after that call. Answers target,
@@ -1679,7 +1697,7 @@ export function recover(state: voidptr, value: uint64): uint64
     local protected: uint64 = 0ULL
     local at = active
     while at ~= 0ULL and protected == 0ULL do
-        if native.load64(native.pointer(at), native.fieldOffset<Frame>("resultKind")) == PROTECTED_DESTINATION then
+        if isprotected(native.pointer(at)) then
             protected = at
         else
             at = native.load64(native.pointer(at), native.fieldOffset<Frame>("previous"))
@@ -1703,19 +1721,24 @@ export function recover(state: voidptr, value: uint64): uint64
     local parent = native.load64(frame, native.fieldOffset<Frame>("previous"))
     local slot = native.load64(frame, native.fieldOffset<Frame>("resultSlot"))
     local wanted = native.load64(frame, native.fieldOffset<Frame>("resultCount"))
+    local packed = native.load64(frame, native.fieldOffset<Frame>("resultKind")) == PROTECTED_PACK_DESTINATION
     if abortActive(state, frame) ~= 1ULL then
         return 0ULL
     end
     local slots = native.loadPointer(native.pointer(parent), native.fieldOffset<Frame>("values"))
-    native.store64(slots, native.index(slot * 8ULL), values.FALSE)
-    local i: uint64 = 1ULL
-    while i < wanted do
-        local result = values.NIL
-        if i == 1ULL then
-            result = value
+    if packed then
+        native.store64(slots, native.index(slot * 8ULL), value)
+    else
+        native.store64(slots, native.index(slot * 8ULL), values.FALSE)
+        local i: uint64 = 1ULL
+        while i < wanted do
+            local result = values.NIL
+            if i == 1ULL then
+                result = value
+            end
+            native.store64(slots, native.index((slot + i) * 8ULL), result)
+            i = i + 1ULL
         end
-        native.store64(slots, native.index((slot + i) * 8ULL), result)
-        i = i + 1ULL
     end
     native.store64(state, native.fieldOffset<State>("lastResultCount"), 2ULL)
 

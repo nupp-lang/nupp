@@ -113,10 +113,7 @@ export function argumenterror(ctx: voidptr, position: uint64, fallback: uint64, 
         local adjustment: uint64 = 0ULL
         local forwardname: uint64 = 0ULL
         while frame ~= 0ULL do
-            if native.load64(
-                native.pointer(frame),
-                native.fieldOffset<frames.Frame>("resultKind")
-            ) == frames.PROTECTED_DESTINATION then
+            if frames.isprotected(native.pointer(frame)) then
                 break
             end
             local parent = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("previous"))

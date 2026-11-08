@@ -7,6 +7,7 @@ local bytecode = require("nupp.compiler.vm.corebytecode")
 local opcodes = require("nupp.compiler.vm.opcodes")
 local schema = require("nupp.compiler.vm.coregraphschema")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
+local graphimage = require("nupp.compiler.vm.graphimage")
 local executable = {}
 local issued = setmetatable({}, {__mode = "k"})
 local bounds = schema.limits()
@@ -248,6 +249,20 @@ local function derive(g: any, catalog: any): any
     local highest = callBase + math.max(maximumArguments, 1)
     need(highest < 250, "physical slots including call/copy scratch exceed capacity")
     local instructions, positions, starts, patches, calls = {}, {}, {}, {}, {}
+    local constants = copy(g.constants)
+
+    local function integerConstant(value: integer): integer
+        local text = graphimage.wideTextBytes(tostring(value))
+        for index, constant in ipairs(constants) do
+            if constant.kind == "int64" and constant.value == text then
+                return index - 1
+            end
+        end
+        constants[#constants + 1] = {kind = "int64", value = text}
+
+        return #constants - 1
+    end
+
     -- The module chunks this function's static requires name.
     local requires: {integer} = {}
     local closureCount: integer = 0
@@ -434,7 +449,7 @@ local function derive(g: any, catalog: any): any
                         emit({"Move", callBase + index - 1, physical(value)}, position)
                     end
                     emit({"RetV", callBase, #(term.values or {}), physical(term.spread)}, position)
-                elseif term.values and #term.values > 1 then
+                elseif term.values and #term.values ~= 1 then
                     for index, value in ipairs(term.values) do
                         emit({"Move", callBase + index - 1, physical(value)}, position)
                     end
@@ -466,7 +481,7 @@ local function derive(g: any, catalog: any): any
                     emit({"Move", callBase + index, physical(term.args[index])}, position)
                 end
                 local wanted: integer = term.results and #term.results or 1
-                local captured: integer = contract.handled and math.max(wanted, 2) or wanted
+                local captured: integer = term.open and 1 or contract.handled and math.max(wanted, 2) or wanted
                 -- An open call takes every result as one pack: its instruction
                 -- wants none, and its one slot holds the pack.
                 local encoded = term.open and 0 or wanted
@@ -485,14 +500,25 @@ local function derive(g: any, catalog: any): any
                             callBase,
                             callBase,
                             nargs,
-                            captured,
+                            term.open and 0 or captured,
                             term.spread and physical(term.spread) + 1 or 0
                         },
                         position
                     )
                     if contract.handled then
                         -- After a failure, the handler's answer replaces the error.
-                        emit({"XPHandle", callBase + 1, handlerSlot, wanted}, position)
+                        emit({"XPHandle", callBase + 1, handlerSlot, term.open and 0 or wanted}, position)
+                        if term.open then
+                            -- The handler's first answer replaces only the error
+                            -- in the existing two-value failure pack.
+                            local key, status = callBase + 3, callBase + 4
+                            emit({"K", key, integerConstant(1)}, position)
+                            emit({"GetIdx", status, callBase + 1, key}, position)
+                            local success = emit({"JmpIf", status, 0}, position)
+                            emit({"K", key, integerConstant(2)}, position)
+                            emit({"SetIdx", callBase + 1, key, callBase + 2}, position)
+                            instructions[success][3] = #instructions - success
+                        end
                     end
                 elseif term.spread then
                     at = emit(
@@ -563,7 +589,7 @@ local function derive(g: any, catalog: any): any
         lines = lines,
         chunk = chunk,
         blockPCs = blockPCs,
-        constants = copy(g.constants),
+        constants = constants,
         calls = calls,
         metaCalls = metaCalls,
         requires = requires,

@@ -23,12 +23,7 @@ export function physicalframeat(ctx: voidptr, level: uint64): uint64
         return 0ULL
     end
     while k < level do
-        if frame == 0ULL
-            or native.load64(
-                native.pointer(frame),
-                native.fieldOffset<frames.Frame>("resultKind")
-            ) == frames.PROTECTED_DESTINATION
-        then
+        if frame == 0ULL or frames.isprotected(native.pointer(frame)) then
             return 0ULL
         end
         frame = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("previous"))
@@ -75,20 +70,12 @@ export function frameat(ctx: voidptr, level: uint64): uint64
         return 0ULL
     end
     while k < level do
-        if frame == 0ULL
-            or native.load64(
-                native.pointer(frame),
-                native.fieldOffset<frames.Frame>("resultKind")
-            ) == frames.PROTECTED_DESTINATION
-        then
+        if frame == 0ULL or frames.isprotected(native.pointer(frame)) then
             return 0ULL
         end
         frame = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("previous"))
         while frame ~= 0ULL and tailcaller(ctx, frame) do
-            if native.load64(
-                native.pointer(frame),
-                native.fieldOffset<frames.Frame>("resultKind")
-            ) == frames.PROTECTED_DESTINATION then
+            if frames.isprotected(native.pointer(frame)) then
                 return 0ULL
             end
             frame = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("previous"))

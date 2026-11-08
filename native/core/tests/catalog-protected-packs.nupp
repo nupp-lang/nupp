@@ -1,0 +1,117 @@
+module nupp.core.catalogprotectedpacks
+
+local function pack(...: any): any
+    return {n = select("#", ...), ...}
+end
+
+local function values(...: any): ...any
+    return ...
+end
+
+local function protect(value: any, ...: any): ...any
+    return pcall(value, ...)
+end
+
+local function handle(value: any, ...: any): ...any
+    return xpcall(
+        value,
+        function(problem: any): any
+            return problem
+        end,
+        ...
+    )
+end
+
+local empty = pack(protect(values))
+assert(empty.n == 1 and empty[1] == true)
+local one = pack(protect(values, nil))
+assert(one.n == 2 and one[1] == true and one[2] == nil)
+
+local arguments: any = {}
+for index = 1, 24 do
+    arguments[index] = index
+end
+arguments[12] = nil
+local many = pack(protect(values, table.unpack(arguments, 1, 24)))
+assert(many.n == 25 and many[1] == true and many[13] == nil and many[25] == 24)
+local handledMany = pack(handle(values, table.unpack(arguments, 1, 24)))
+assert(handledMany.n == 25 and handledMany[1] == true and handledMany[13] == nil and handledMany[25] == 24)
+
+local function none(): nil
+end
+
+local function explicit(): nil
+    return nil
+end
+
+assert(pack(protect(none)).n == 1)
+assert(pack(protect(explicit)).n == 2)
+
+local function fail(problem: any): ...any
+    error(problem, 0)
+    return
+end
+
+local marker = {code = 99}
+local failed = pack(protect(fail, marker))
+assert(failed.n == 2 and failed[1] == false and failed[2] == marker)
+local nilFailure = pack(handle(fail, nil))
+assert(nilFailure.n == 2 and nilFailure[1] == false and nilFailure[2] == nil)
+
+local function zeroHandler(value: any, ...: any): ...any
+    return xpcall(
+        value,
+        function(problem: any): number
+            return 0.0
+        end,
+        ...
+    )
+end
+
+local zero = pack(zeroHandler(fail, marker))
+assert(zero.n == 2 and zero[1] == false and zero[2] == 0.0)
+
+local wrapped = coroutine.wrap(values)
+local wrappedPack = pack(protect(wrapped, 7, nil, 9))
+assert(
+    wrappedPack.n == 4
+    and wrappedPack[1] == true
+    and wrappedPack[2] == 7
+    and wrappedPack[3] == nil
+    and wrappedPack[4] == 9
+)
+
+local record Resource
+    value: integer
+end
+local closed = 0
+
+local function close(takes value: Resource): nil
+    closed = closed + value.value
+end
+
+local function open(): affine(Resource, close)
+    return Resource(value = 1)
+end
+
+local function owned(): ...any
+    local resource = open()
+    return pcall(values, 7, nil, 9)
+end
+
+local ownedPack = pack(owned())
+assert(
+    ownedPack.n == 4
+    and ownedPack[1] == true
+    and ownedPack[2] == 7
+    and ownedPack[3] == nil
+    and ownedPack[4] == 9
+    and closed == 1
+)
+
+local function ownedNone(): nil
+    local resource = open()
+end
+
+assert(pack(protect(ownedNone)).n == 1 and closed == 2)
+export = 1
