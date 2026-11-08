@@ -5872,11 +5872,14 @@ function lower.emit(
         return root
     end
 
-    -- How many locals a body declares, nested functions included (an
-    -- over-count only costs a register in a function that did not need it).
+    -- The caller only needs the spill decision. Stop descending after the
+    -- threshold; nested declarations still count conservatively as before.
     local function declarationCount(body)
         local n = 0
         walkSyntax(body, {}, function(node)
+            if n > SPILL_AT then
+                return false
+            end
             if node.kind == "localStmt" then
                 n = n + #(node.names or {})
             elseif node.kind == "localFuncStmt"
