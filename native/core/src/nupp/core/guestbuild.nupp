@@ -142,6 +142,7 @@ local CASES: {[string]: {
     threadsbasic = {fixture = "catalog-threads-basic", version = 8},
     coroutineinheritance = {fixture = "catalog-coroutine-inheritance", version = 8, follow = true},
     qualifiedrecordcapture = {fixture = "catalog-qualified-record-capture", version = 8},
+    assertvalue = {fixture = "catalog-assert-value", version = 8, follow = true},
     threadscalls = {fixture = "catalog-threads-calls", version = 8},
     threadsclose = {fixture = "catalog-threads-close", version = 8},
     threadsiterate = {fixture = "catalog-threads-iterate", version = 8},

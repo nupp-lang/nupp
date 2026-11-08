@@ -795,6 +795,7 @@ local libraryValues: {
     tonumber = true,
     type = true,
     error = true,
+    assert = true,
     rawget = true,
     rawset = true,
     setmetatable = true,

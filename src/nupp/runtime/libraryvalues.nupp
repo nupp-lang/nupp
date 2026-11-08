@@ -33,6 +33,21 @@ export const functions: {[string]: any} = {
     error = function(value: any, level: integer?): nil
         error(value, level or 1)
     end,
+    assert = function(...: any): ...any
+        local count = select("#", ...)
+        if count == 0 then
+            error("bad argument #1 to 'assert' (value expected)", 2)
+        end
+        local value, message = ...
+        if not value then
+            if count < 2 then
+                message = "assertion failed!"
+            end
+            error(message, 2)
+        end
+
+        return ...
+    end,
     rawget = function(t: table, key: any): any
         return rawget(t, key)
     end,
