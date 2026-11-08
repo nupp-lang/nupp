@@ -249,6 +249,25 @@ function M.byteRecipesBindCanonicalOperandsAndFieldOffsets()
     )
 end
 
+function M.protectedCallsEncodeTheirOptionalSpreadRegister()
+    local fixed = bytecode.encode({"PCall", 7, 10, 10, 3, 2})
+    local spread = bytecode.encode({"PCall", 7, 10, 10, 3, 2, 9})
+    test.eq(fixed:byte(6), 0)
+    test.eq(spread:byte(6), 9)
+    refuses(
+        function()
+            bytecode.encode({"PCall", 7, 10, 10, 3, 2, 251})
+        end,
+        "pack register"
+    )
+    refuses(
+        function()
+            bytecode.encode({"PCall", 7, 190, 190, 3, 2, 9})
+        end,
+        "spread window"
+    )
+end
+
 function M.copiedOrMutatedExecutableDoesNotRetainCheckedBinding()
     local output = executable.fromChecked(identity("boolean", "true"))
     local fake = {}
