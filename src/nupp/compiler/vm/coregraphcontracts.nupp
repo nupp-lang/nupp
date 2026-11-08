@@ -584,12 +584,18 @@ function contracts.normalize(compiled: any, version: integer?): (any, any)
             byname[module.name], bychunk[module.chunk] = module, module
         end
         need(type(p.requireByNode) == "table", "checked require source required")
-        -- A require that selects only types is erased: it loads nothing.
+        -- A require that selects only types is erased: it loads nothing, and nor
+        -- does one of a module the program does not carry, which is required by
+        -- name when it runs.
         local loading = {}
         for _, site in ipairs(p.requires) do
             if not (
                 type(site) == "table"
-                and (site.typeOnly and type(site.node) == "table" and site.node.typeOnlyRequire or site.corecalls)
+                and (
+                    site.typeOnly and type(site.node) == "table" and site.node.typeOnlyRequire
+                    or site.corecalls
+                    or site.absent and site.target == nil and site.node.runtimeLoader == "require"
+                )
             ) then
                 loading[#loading + 1] = site
             end
