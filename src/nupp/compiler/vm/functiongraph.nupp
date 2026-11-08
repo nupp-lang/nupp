@@ -396,11 +396,19 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
 
             for _, arm in ipairs(node.cases) do
                 need(
-                    arm.patternKind == "static" and not arm.guard and #arm.values == 1,
-                    "numeric switch admits one unguarded static value per arm"
+                    arm.patternKind == "static" and not arm.guard and #arm.values >= 1,
+                    "numeric switch admits unguarded static values"
                 )
                 context()
                 local matched = profile.switchCase(ctx, arm.values[1], ctx.readHeld(handle), selectorKind)
+                -- `case a, b ->` matches when any of its values does.
+                for index = 2, #arm.values do
+                    local held = ctx.hold(matched)
+                    local also = profile.switchCase(ctx, arm.values[index], ctx.readHeld(handle), selectorKind)
+                    local first = ctx.readHeld(held)
+                    ctx.release(held)
+                    matched = ctx.select(arm, first, first, also)
+                end
                 need(block ~= nil and profile.valueKind(g, matched) == profile.booleanKind, "numeric switch match kind")
                 local parent = block
                 local yes, no = branch(), branch()
