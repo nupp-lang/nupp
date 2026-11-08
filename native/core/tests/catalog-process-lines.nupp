@@ -1,0 +1,138 @@
+module nupp.core.catalogprocesslines
+
+-- A process's Lua line iterator under coroutine.scope, as main's io.popen
+-- answers it: a step waiting for the child's output parks its task, so a
+-- runnable task and a timer's task run meanwhile; formats and EOF answer as
+-- without a scheduler; wait parks and a close after it returns the exit at
+-- once; and a task cancelled while its iteration waits leaves the handle to
+-- kill and close, many times in turn under a small descriptor limit. Each
+-- check is a bit of the score.
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+-- io.popen through its value: its handles are plain values here, as Lua's
+-- files are, rather than owners.
+local popen: any = io.popen
+
+-- A task with work and no waits, logging that it ran.
+local function other(log: {string}): function(): nil
+    return function(): nil
+        log[#log + 1] = "other"
+    end
+end
+
+-- A waiting step parks: the runnable task and the timer's task both run
+-- before the child's first line arrives.
+do
+    local log: {string} = {}
+    local closed: any = nil
+    do
+        local scope = coroutine.scope()
+        scope:spawn(function(): nil
+            local child = assert(popen("sleep 0.1; printf 'first\\nsecond\\n'"))
+            for line in child:lines() do
+                log[#log + 1] = line as string
+            end
+            closed = {child:close()}
+        end)
+        scope:spawn(other(log))
+        scope:spawn(function(): nil
+            coroutine.sleep(10)
+            log[#log + 1] = "tick"
+        end)
+    end
+    check(table.concat(log, ",") == "other,tick,first,second")
+    check(closed ~= nil and closed[1] == true and closed[2] == "exit" and closed[3] == 0)
+end
+
+-- Formats and EOF under the scheduler, as Lua's file iterator answers them.
+do
+    local seen: {string} = {}
+    local after: any = "unset"
+    do
+        local scope = coroutine.scope()
+        scope:spawn(function(): nil
+            local child = assert(popen("sleep 0.05; printf '1 one\\n2 two\\n'"))
+            local step = child:lines("n", "l")
+            while true do
+                local number, text = step()
+                if number == nil then
+                    break
+                end
+                seen[#seen + 1] = tostring(number) .. ":" .. tostring(text)
+            end
+            after = child:read("a")
+            child:close()
+        end)
+    end
+    check(table.concat(seen, ",") == "1: one,2: two")
+    check(after == "")
+end
+
+-- Wait parks while the child runs; the close that follows returns at once.
+do
+    local log: {string} = {}
+    local how: any = nil
+    local closing = 0
+    do
+        local scope = coroutine.scope()
+        scope:spawn(function(): nil
+            local child = assert(popen("sleep 0.1; exit 3"))
+            local exit = child:wait()
+            log[#log + 1] = "waited " .. tostring(exit.exitcode)
+            local began = os.monotonic()
+            how = {child:close()}
+            closing = os.monotonic() - began
+        end)
+        scope:spawn(other(log))
+    end
+    check(table.concat(log, ",") == "other,waited 3")
+    check(how ~= nil and how[1] == nil and how[2] == "exit" and how[3] == 3)
+    check(closing < 50)
+end
+
+-- A task cancelled while its iteration waits ends cancelled; the handle it
+-- left is killed and closed, and doing so many times exhausts no descriptor.
+do
+    local cancelled = 0
+    local reaped = 0
+    local began = os.monotonic()
+    for _ = 1, 20 do
+        local child = assert(popen("sleep 10; printf late"))
+        local ok: boolean, problem: any = true, nil
+        do
+            local scope = coroutine.scope()
+            const reader = scope:spawn(function(): nil
+                for _ in child:lines() do
+                end
+            end)
+            scope:spawn(function(): nil
+                coroutine.sleep(1)
+                scope:cancel("enough")
+            end)
+            ok, problem = pcall(function(): nil
+                reader:await()
+            end)
+        end
+        if not ok and coroutine.iscancelled(problem) then
+            cancelled = cancelled + 1
+        end
+        local killed = child:kill(true)
+        local status, kind, number = child:close()
+        if killed == true and status == nil and kind == "signal" and number == 9 then
+            reaped = reaped + 1
+        end
+    end
+    check(cancelled == 20)
+    check(reaped == 20)
+    check(os.monotonic() - began < 5000)
+end
+
+export = score

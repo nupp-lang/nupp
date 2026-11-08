@@ -238,6 +238,7 @@ local CASES: {[string]: {
     processexecute = {fixture = "catalog-process-execute", version = 8},
     processpopen = {fixture = "catalog-process-popen", version = 8},
     processhandle = {fixture = "catalog-process-handle", version = 8},
+    processlines = {fixture = "catalog-process-lines", version = 8},
     processexit = {fixture = "catalog-process-exit", version = 8},
     gcweak = {fixture = "catalog-gc-weak", version = 8},
     gcfinalizers = {fixture = "catalog-gc-finalizers", version = 8},

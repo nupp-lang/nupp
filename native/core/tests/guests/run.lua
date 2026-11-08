@@ -213,6 +213,7 @@ local CASES = {
     {"processexecute", 0x7FFF000000001FFF},
     {"processpopen", 0x7FFF00003FFFFFFF},
     {"processhandle", 0x7FFF000001FFFFFF},
+    {"processlines", 0x7FFF0000000003FF},
     {"processlayer", 0x7FFF000000FFFFFF},
     -- os.exit(3): the program ends there, publishing nothing (EXITS).
     {"processexit", 0},
@@ -425,6 +426,7 @@ local STRESS = {
     processexecute = true,
     processpopen = true,
     processhandle = true,
+    processlines = true,
     processlayer = true,
     processexit = true,
     gcweak = true,
@@ -449,6 +451,7 @@ local SETUP = {
     iofiles = "ulimit -n 64; ",
     reactorfiles = "ulimit -n 64; ",
     processpopen = "ulimit -n 64; ",
+    processlines = "ulimit -n 64; ",
     processlayer = "ulimit -n 64; ",
     benchworkloads = "export BENCH_SCALE=-9; "
 }
