@@ -21,7 +21,6 @@ local generators = require("nupp.tools.build.generators")
 local modules = require("nupp.tools.build.modules")
 local buildPlatform = require("nupp.tools.build.platform")
 local storeMod = require("nupp.compiler.project.store")
-local native = require("nupp.tools.build.native")
 local materializeObserve = require("nupp.compiler.comptime.materialize.observe")
 local progressMod = require("nupp.tools.build.progress")
 
@@ -59,6 +58,9 @@ type project.BuildOptions = {
     --- Build instrumented for coverage. Folded into the build key, so an ordinary cache
     --- entry can never satisfy a coverage run.
     coverage: boolean?,
+
+    -- Reuse a completed native test image after validating its inputs.
+    testBuild: boolean?,
 
     --- How many modules were checked, generated and reused.
     stats: Stats?,
@@ -436,6 +438,69 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         return 1
     end
     newState.generators = generated
+    local testBuild = require("nupp.tools.build.testbuild")
+    local testInput: string? = nil
+    if opts.testBuild and not checkOnly and not selectedPlatform and opts.paths == nil then
+        report:at("test-build:lookup")
+        testInput = testBuild.input(root, outDir, config, target, newState, contentDigest)
+        local previous = oldState.testBuild
+        if testBuild.intact(previous, testInput, contentDigest) then
+            local available = {}
+            for path in pairs(previous.outputs) do
+                available[path] = true
+            end
+            local host, hostError = testBuild.refresh(previous, available)
+            if host == nil then
+                say(opts, "NUPP0004", "nupp: " .. tostring(hostError) .. "\n")
+                return 1
+            end
+            if host ~= previous.host then
+                previous = nil
+            end
+            if testBuild.intact(previous, testInput, contentDigest) then
+                for _, diagnostic in ipairs(previous.diagnostics or {}) do
+                    if opts.diagnostics then
+                        opts.diagnostics[#opts.diagnostics + 1] = diagnostic
+                    else
+                        require("nupp.compiler.diagnostics").report({diagnostic})
+                    end
+                end
+                if package.config:sub(1, 1) ~= "\\" then
+                    local code, problem = process.capture({"chmod", "+x", previous.produced.artifact})
+                    if code ~= 0 then
+                        say(
+                            opts,
+                            "NUPP0004",
+                            "nupp: cannot make the test artifact executable: " .. tostring(problem) .. "\n"
+                        )
+                        return 1
+                    end
+                end
+                report:counted(0, previous.modules)
+                if opts.stats then
+                    opts.stats.checkedModules, opts.stats.generatedModules = 0, 0
+                    opts.stats.reusedModules = previous.modules
+                end
+                if opts.produced then
+                    for name, value in pairs(previous.produced) do
+                        opts.produced[name] = value
+                    end
+                    opts.produced.testBuildReused = true
+                end
+                local completed, completionError = os.rename(pendingCompletionPath, completionPath)
+                if not completed then
+                    say(opts, "NUPP0001", "nupp: " .. tostring(completionError) .. "\n")
+                    return 1
+                end
+                report:finish("reused", targetKey)
+                if opts.produced then
+                    opts.produced.timing = report:timing()
+                end
+                return 0
+            end
+        end
+    end
+
     local session = modules.session(root, outDir, config, target, dependencies, report)
 
     if checkOnly and target.aot == "require" and checkedTargetNeedsGpu(root, config, opts.paths) then
@@ -489,6 +554,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
 
     -- A binary is its program image stamped onto the VM runtime, which carries
     -- every native facility itself.
+    local testHost: string? = nil
+    local testHostHash: string? = nil
+    local testRuntime: any = nil
     local primaryArtifact: string? = nil
     if target.kind == "binary" then
         report:at("bundle")
@@ -543,18 +611,22 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 named[#named + 1] = facility
             end
         end
-        local stubPath, hostErr
-        if vector then
-            local payloadPath = join(root, join(outDir, ".nupp-vm-program.payload"))
+        local payloadPath: string? = nil
+        if vector or opts.testBuild then
+            payloadPath = join(root, join(outDir, ".nupp-vm-program.payload"))
             local written, writeErr = writeFile(payloadPath, text)
             if not written then
                 say(opts, "NUPP0001", "nupp: " .. tostring(writeErr) .. "\n")
                 return 1
             end
-            stubPath, hostErr = native.vmProgramRuntime(named, payloadPath)
-        else
-            stubPath, hostErr = native.vmRuntime(named)
+            newState.outputs[payloadPath] = true
         end
+        local available = {}
+        for path in pairs(newState.outputs) do
+            available[path] = true
+        end
+        testRuntime = {facilities = named, vector = vector, payload = payloadPath}
+        local stubPath, hostErr = testBuild.refresh(testRuntime, available)
         if not stubPath then
             say(opts, "NUPP0004", "nupp: " .. tostring(hostErr) .. "\n")
             return 1
@@ -564,6 +636,8 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             say(opts, "NUPP0001", ("nupp: cannot read the stub %s: %s\n"):format(stubPath, tostring(stubErr)))
             return 1
         end
+        testHost = stubPath
+        testHostHash = contentDigest(stub)
         local stamped, stampErr = package.stampFile(output, stub, text, package.payloadFlagVmProgram)
         if not stamped then
             say(opts, "NUPP0004", "nupp: " .. tostring(stampErr) .. "\n")
@@ -635,6 +709,35 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         opts.produced.outputs = mine
         opts.produced.materializations = materializeObserve.public(result.materializations)
         opts.produced.derives = result.derives
+    end
+    if testInput ~= nil and testRuntime ~= nil then
+        local after = testBuild.input(root, outDir, config, target, newState, contentDigest)
+        local outputs = testBuild.outputs(mine, contentDigest)
+        if after == testInput and outputs ~= nil then
+            local diagnostics, count, effects = {}, 0, {}
+            for _, record in pairs(newState.modules) do
+                count = count + 1
+                for _, diagnostic in ipairs(record.diags or {}) do
+                    diagnostics[#diagnostics + 1] = diagnostic
+                end
+            end
+            for name in pairs(result.effects or {}) do
+                effects[name] = true
+            end
+            newState.testBuild = {
+                key = testInput,
+                outputs = outputs,
+                effects = effects,
+                facilities = testRuntime.facilities,
+                vector = testRuntime.vector,
+                payload = testRuntime.payload,
+                host = testHost,
+                hostHash = testHostHash,
+                modules = count,
+                diagnostics = diagnostics,
+                produced = opts.produced or {},
+            }
+        end
     end
     report:at("write")
     local ok, stateErr = saveState(statePath, newState)
@@ -746,6 +849,7 @@ function project.test(root: string?, args: {string}?, opts: project.TestOptions?
     local produced: {[string]: any} = {}
     if project.build(root, {
         target = test.build,
+        testBuild = true,
         outDir = asked.outDir,
         coverage = asked.coverage,
         produced = produced,

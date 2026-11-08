@@ -58,6 +58,8 @@ function M.open(options)
         end
     end
     local environment, environmentNames = {}, {}
+    -- Tool-call transport IDs are not test inputs. Audit reports a test that
+    -- reads that excluded name, like any undeclared environment read.
     -- Include all NUPP_* variables, including ones a new runtime introduces.
     -- Reading the entire environment also covers ordinary library/tool variables.
     local pipe = io.popen("env -0", "r")
@@ -71,7 +73,7 @@ function M.open(options)
     end
     for item in values:gmatch("([^%z]+)") do
         local name = item:match("^([^=]+)=")
-        if name then
+        if name and name ~= "CODEX_TOOL_CALL_ID" then
             environment[#environment + 1] = item;
             environmentNames[name] = true
         end
@@ -112,14 +114,23 @@ function M.open(options)
         end
         identity[#identity + 1] = digest(bytes)
     end
-    identity[#identity + 1] = fingerprint.subsystemFingerprint({"assert"})
+    identity[#identity + 1] = fingerprint.subsystemFingerprint({"assert"}, nil, digest)
     local base = digest(table.concat(identity, "\0"))
     local store = fs.absolute(options.build) .. "/.nupp-test-results"
     local cache = {packages = {}, reasons = {}}
     local env
     -- Share reads within one snapshot, then discard them before validating the
     -- post-run snapshot. A test or concurrent edit must invalidate a stored pass.
-    local snapshots, listings, programs, sourceListings = {}, {}, {}, {}
+    local snapshots, listings, programs, sourceListings, contracts = {}, {}, {}, {}, {}
+    -- Dependency analysis is pure data under source bytes and the parser/header
+    -- implementation. Reuse the compiler's sealed store, never a learned graph.
+    local analyses = require(
+        "nupp.compiler.project.store"
+    ).open(
+        store .. "/sources.buf",
+        digest(options.runner .. fingerprint.subsystemFingerprint({"nupp.compiler.project.header"}, nil, digest))
+    )
+    local sourceFacts = {}
 
     local function snapshot(path)
         local saved = snapshots[path]
@@ -279,90 +290,101 @@ function M.open(options)
             return cache.source(path, add, module)
         end
 
+        local shared = contracts[policy]
+        if not shared then
+            for _, input in ipairs(policy.inputs or {}) do
+                if not tree(input) then
+                    return nil, recent, inputs, "missing declared input: " .. input
+                end
+            end
+            for _, input in ipairs(policy.sources or {}) do
+                local paths = sources(input)
+                if not paths then
+                    return nil, recent, inputs, "unavailable source root: " .. input
+                end
+                for _, path in ipairs(paths) do
+                    if not tree(path) then
+                        return nil, recent, inputs, "unreadable source: " .. path
+                    end
+                end
+            end
+            for _, input in ipairs(policy.optionalInputs or {}) do
+                if files.stat(input) then
+                    if not tree(input) then
+                        return nil, recent, inputs, "unreadable optional input: " .. input
+                    end
+                else
+                    inputs[fs.absolute(input)] = "missing"
+                end
+            end
+            if policy.toolchain then
+                local prefix = os.getenv("NUPP_LAUNCHER_TOOLCHAIN_PREFIX")
+                inputs["<toolchain-prefix>"] = prefix or "missing"
+                if prefix then
+                    for _, name in ipairs({"luajit", "lua51", "luarocks", "lpeg"}) do
+                        local path = fs.absolute(prefix .. "/" .. name)
+                        if files.stat(path) then
+                            if not tree(path) then
+                                return nil, recent, inputs, "unreadable toolchain: " .. path
+                            end
+                        else
+                            inputs[path] = "missing"
+                        end
+                    end
+                end
+            end
+            -- A closed contract replaces inference for generated source, loadfile,
+            -- and subprocesses. It must name their source/fixture roots and tools.
+            if policy.closed
+                and (
+                    (not policy.compiled and not policy.images)
+                    or #(policy.inputs or {}) + #(policy.sources or {}) == 0
+                    or #(policy.commands or {}) == 0
+                )
+            then
+                return nil, recent, inputs, "incomplete closed input contract"
+            end
+            if policy.images then
+                if #policy.images == 0 then
+                    return nil, recent, inputs, "missing compiled images"
+                end
+                for _, image in ipairs(policy.images) do
+                    if type(image) ~= "string" or not add(image) then
+                        return nil, recent, inputs, "unreadable compiled image: " .. tostring(image)
+                    end
+                end
+            elseif policy.compiled then
+                for _, source in ipairs(listing(fs.absolute(policy.compiled))) do
+                    if source:match("%.nupp$") or source:match("%.lua$") then
+                        local relative = source:sub(#fs.absolute(policy.compiled) + 2):gsub("%.nupp$", ".lua")
+                        local artifact = fs.absolute(options.build .. "/" .. relative)
+                        if not add(artifact) then
+                            if files.stat(artifact) then
+                                return nil, recent, inputs, "unreadable compiled artifact: " .. artifact
+                            end
+                            inputs[artifact] = "missing"
+                        end
+                    end
+                end
+            end
+            for _, name in ipairs(policy.commands or {}) do
+                local path = program(name)
+                inputs["<command:" .. name .. ">"] = path or "missing"
+                if path and not add(path) then
+                    return nil, recent, inputs, "unreadable command: " .. name
+                end
+            end
+            local pieces = {}
+            for path, hash in pairs(inputs) do
+                pieces[#pieces + 1] = path .. "\0" .. hash
+            end
+            table.sort(pieces)
+            shared = {inputs = inputs, recent = recent, key = digest(table.concat(pieces, "\0"))}
+            contracts[policy] = shared
+        end
+        inputs, recent = {}, shared.recent
         if not tree(root .. "/" .. directory, true) then
             return nil, recent, inputs
-        end
-        for _, input in ipairs(policy.inputs or {}) do
-            if not tree(input) then
-                return nil, recent, inputs, "missing declared input: " .. input
-            end
-        end
-        for _, input in ipairs(policy.sources or {}) do
-            local paths = sources(input)
-            if not paths then
-                return nil, recent, inputs, "unavailable source root: " .. input
-            end
-            for _, path in ipairs(paths) do
-                if not tree(path) then
-                    return nil, recent, inputs, "unreadable source: " .. path
-                end
-            end
-        end
-        for _, input in ipairs(policy.optionalInputs or {}) do
-            if files.stat(input) then
-                if not tree(input) then
-                    return nil, recent, inputs, "unreadable optional input: " .. input
-                end
-            else
-                inputs[fs.absolute(input)] = "missing"
-            end
-        end
-        if policy.toolchain then
-            local prefix = os.getenv("NUPP_LAUNCHER_TOOLCHAIN_PREFIX")
-            inputs["<toolchain-prefix>"] = prefix or "missing"
-            if prefix then
-                for _, name in ipairs({"luajit", "lua51", "luarocks", "lpeg"}) do
-                    local path = fs.absolute(prefix .. "/" .. name)
-                    if files.stat(path) then
-                        if not tree(path) then
-                            return nil, recent, inputs, "unreadable toolchain: " .. path
-                        end
-                    else
-                        inputs[path] = "missing"
-                    end
-                end
-            end
-        end
-        -- A closed contract replaces inference for generated source, loadfile,
-        -- and subprocesses. It must name their source/fixture roots and tools.
-        if policy.closed
-            and (
-                not policy.compiled
-                or #(policy.inputs or {}) + #(policy.sources or {}) == 0
-                or #(policy.commands or {}) == 0
-            )
-        then
-            return nil, recent, inputs, "incomplete closed input contract"
-        end
-        if policy.images then
-            if #policy.images == 0 then
-                return nil, recent, inputs, "missing compiled images"
-            end
-            for _, image in ipairs(policy.images) do
-                if not add(image) then
-                    return nil, recent, inputs, "unreadable compiled image: " .. image
-                end
-            end
-        elseif policy.compiled then
-            for _, source in ipairs(listing(fs.absolute(policy.compiled))) do
-                if source:match("%.nupp$") or source:match("%.lua$") then
-                    local relative = source:sub(#fs.absolute(policy.compiled) + 2):gsub("%.nupp$", ".lua")
-                    local artifact = fs.absolute(options.build .. "/" .. relative)
-                    if not add(artifact) then
-                        if files.stat(artifact) then
-                            return nil, recent, inputs, "unreadable compiled artifact: " .. artifact
-                        end
-                        inputs[artifact] = "missing"
-                    end
-                end
-            end
-        end
-        for _, name in ipairs(policy.commands or {}) do
-            local path = program(name)
-            inputs["<command:" .. name .. ">"] = path or "missing"
-            if path and not add(path) then
-                return nil, recent, inputs, "unreadable command: " .. name
-            end
         end
         local complete = true
         for _, suite in ipairs(options.catalog) do
@@ -374,18 +396,22 @@ function M.open(options)
             return nil, recent, inputs, "opaque or unresolved module inputs"
         end
         if compiler then
-            inputs["<compiler>"] = fingerprint.subsystemFingerprint({
-                "nupp.compiler.project.env",
-                "nupp.tools.cli.compile"
-            })
+            inputs[
+                "<compiler>"
+            ] = fingerprint.subsystemFingerprint({"nupp.compiler.project.env", "nupp.tools.cli.compile"}, nil, digest)
         end
-        local pieces = {base}
+        local pieces = {base, shared.key}
         for path, hash in pairs(inputs) do
             pieces[#pieces + 1] = path .. "\0" .. hash
         end
         table.sort(pieces)
 
-        return digest(table.concat(pieces, "\0")), recent, inputs
+        local answer = digest(table.concat(pieces, "\0"))
+        for path, hash in pairs(shared.inputs) do
+            inputs[path] = hash
+        end
+
+        return answer, recent, inputs
     end
 
     function cache.source(path, add, module)
@@ -393,6 +419,32 @@ function M.open(options)
         text = text or fs.readFile(path)
         if not ok or not text then
             return false
+        end
+        local id = digest(path .. "\0" .. text)
+        local facts = sourceFacts[id] or analyses.get(id)
+        local valid = type(facts) == "table"
+            and type(facts.complete) == "boolean"
+            and type(facts.dependencies) == "table"
+        if valid then
+            for index, name in pairs(facts.dependencies) do
+                if type(index) ~= "number"
+                    or index < 1
+                    or index > #facts.dependencies
+                    or index ~= math.floor(index)
+                    or type(name) ~= "string"
+                then
+                    valid = false;
+                    break
+                end
+            end
+        end
+        if valid then
+            sourceFacts[id] = facts
+            local complete = facts.complete
+            for _, name in ipairs(facts.dependencies) do
+                complete = module(name) and complete
+            end
+            return complete
         end
         local parsed = parser.parse(text, path)
         if #parsed.errors > 0 then
@@ -436,8 +488,12 @@ function M.open(options)
                 opaque = true
             end
         end
+        local dependencies = header.of(path, nil, parsed).dependencies
+        facts = {complete = not opaque, dependencies = dependencies}
+        sourceFacts[id] = facts
+        analyses.put(id, facts)
         local complete = not opaque
-        for _, name in ipairs(header.of(path, nil, parsed).dependencies) do
+        for _, name in ipairs(dependencies) do
             complete = module(name) and complete
         end
 
@@ -530,8 +586,10 @@ function M.open(options)
         end
     end
 
+    analyses.save()
+
     function cache.save(results, suites)
-        snapshots, listings, programs, sourceListings = {}, {}, {}, {}
+        snapshots, listings, programs, sourceListings, contracts = {}, {}, {}, {}, {}
         for directory, item in pairs(cache.packages) do
             if not item.hit and not item.recent then
                 local tests, rows, ok = {}, {}, true

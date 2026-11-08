@@ -1,0 +1,270 @@
+module nupp.tools.build.testbuild
+
+local fs = require("nupp.compiler.fs")
+local deps = require("nupp.tools.build.deps")
+local stable = require("nupp.compiler.stable")
+local reuse = {}
+
+-- This is a completed test build, above the module cache. Dependency resolution
+-- and generators still run before lookup; native providers and the host are
+-- refreshed before accepting a hit. Unknown input surfaces use the normal build.
+function reuse.input(
+    root: string,
+    outDir: string,
+    config: any,
+    target: any,
+    state: any,
+    digest: function(string): string
+): string?
+    if target.kind ~= "binary"
+        or target.stub ~= "nupp"
+        or target.reload
+        or target.standalone
+        or target.host ~= "native"
+        or (target.aot ~= nil and target.aot ~= "off")
+        or config._coverage
+        or #(config.include or {}) == 0
+    then
+        return nil
+    end
+    for _, record in pairs(state.modules or {}) do
+        if #(record.externalInputs or {}) > 0 then
+            return nil
+        end
+    end
+    local pipe = io.popen("env -0", "r")
+    if not pipe then
+        return nil
+    end
+    local environment = pipe:read("*a") or ""
+    local closed = pipe:close()
+    if not closed or not environment:find("\0", 1, true) then
+        return nil
+    end
+    local values = {}
+    for item in environment:gmatch("([^%z]+)") do
+        -- An agent changes this transport ID on every tool call. It cannot
+        -- affect source compilation; native drivers still validate their inputs.
+        if item:match("^([^=]+)=") ~= "CODEX_TOOL_CALL_ID" then
+            values[#values + 1] = item
+        end
+    end
+    table.sort(values)
+    local parts = {
+        state.compilerHash or "",
+        state.moduleCompilerHash or "",
+        stable(config),
+        stable(state.dependencies),
+        stable(state.generators),
+        table.concat(values, "\0"),
+        tostring(jit and jit.os),
+        tostring(jit and jit.arch)
+    }
+    local seen: {[string]: boolean} = {}
+    local output = fs.absolute(fs.join(root, outDir))
+    local valid = true
+
+    local function add(path: string): nil
+        path = fs.absolute(path)
+        if seen[path] then
+            return
+        end
+        seen[path] = true
+        local text = fs.readFile(path)
+        if text == nil then
+            valid = false;
+            return
+        end
+        parts[#parts + 1] = path .. "\0" .. digest(text)
+    end
+
+    local function tree(path: string): nil
+        local paths = fs.listFiles(path, function(name: string): boolean
+            return name == ".git" or name == ".DS_Store"
+        end)
+        if #paths == 0 then
+            if fs.readFile(path) ~= nil then
+                add(path)
+            else
+                parts[#parts + 1] = fs.absolute(path) .. "\0missing-or-empty"
+            end
+        end
+        for _, file in ipairs(paths) do
+            local absolute = fs.absolute(file)
+            if absolute ~= output and absolute:sub(1, #output + 1) ~= output .. "/" then
+                add(file)
+            end
+        end
+    end
+
+    for _, directory in ipairs(config.include) do
+        if directory == "." or directory == "" then
+            return nil
+        end
+        tree(fs.join(root, directory))
+    end
+    tree(fs.join(root, "nupp"))
+    for _, directory in ipairs(config.typeRoots or {}) do
+        tree(fs.join(root, directory))
+    end
+    for _, entry in ipairs(target.entries or {}) do
+        if entry:find("[/\\]") or entry:match("%.nupp$") or entry:match("%.lua$") then
+            add(fs.join(root, entry))
+        end
+    end
+    for _, pattern in ipairs(target.sources or {}) do
+        for _, path in ipairs(deps.expandGlob(root, pattern)) do
+            tree(path)
+        end
+    end
+    for _, resource in ipairs(target.resources or {}) do
+        local pattern = type(resource) == "string" and resource or resource.source
+        for _, path in ipairs(deps.expandGlob(root, pattern)) do
+            tree(path)
+        end
+    end
+    for _, dependency in pairs(state.dependencies or {}) do
+        for _, field in ipairs({"tree", "typeRoot", "typesRoot", "output", "binding", "staticOutput"}) do
+            if dependency[field] then
+                tree(dependency[field])
+            end
+        end
+    end
+    for _, generator in pairs(state.generators or {}) do
+        for _, path in ipairs(generator.files or {}) do
+            add(path)
+        end
+    end
+    -- Carried sources include public modules as well as the compiler's private
+    -- runtime. Their bytes are not all covered by the compiler-code digest.
+    local bundled = require("nupp.compiler.bundled")
+    for _, path in ipairs(require("nupp.compiler.bundledlist").list("/")) do
+        parts[#parts + 1] = "<carried>" .. path .. "\0" .. digest(bundled.source(path) or "missing")
+    end
+    -- Native images and their execution runtime replace generated Lua inputs.
+    for _, name in ipairs({"NUPP_VM_CLI_IMAGE", "NUPP_VM_BINARY"}) do
+        local path = os.getenv(name)
+        if path == nil or path == "" then
+            return nil
+        end
+        add(path)
+    end
+    if not valid then
+        return nil
+    end
+    table.sort(parts)
+
+    return digest(table.concat(parts, "\0"))
+end
+
+function reuse.outputs(paths: {string}, digest: function(string): string): {[string]: string}?
+    local hashes: {[string]: string} = {}
+    for _, path in ipairs(paths) do
+        local text = fs.readFile(path)
+        if text == nil then
+            return nil
+        end
+        hashes[path] = digest(text)
+    end
+
+    return hashes
+end
+
+-- The retained program image is the compiled-module availability proof. Native
+-- drivers still validate source/toolchain/SDK inputs before accepting a hit.
+function reuse.refresh(record: any, available: {[string]: boolean}): string?, string?
+    if record.payload ~= nil and not available[record.payload] then
+        return nil, "the completed test build has no retained native image"
+    end
+    local native = require("nupp.tools.build.native")
+    if record.vector then
+        if type(record.payload) ~= "string" then
+            return nil, "the vector test build has no retained native image"
+        end
+        return native.vmProgramRuntime(record.facilities, record.payload)
+    end
+
+    return native.vmRuntime(record.facilities)
+end
+
+function reuse.intact(record: any, key: string?, digest: function(string): string): boolean
+    if key == nil
+        or type(record) ~= "table"
+        or record.key ~= key
+        or type(record.outputs) ~= "table"
+        or type(record.produced) ~= "table"
+        or type(record.effects) ~= "table"
+        or type(record.facilities) ~= "table"
+        or type(record.vector) ~= "boolean"
+        or type(record.payload) ~= "string"
+        or record.outputs[record.payload] == nil
+        or type(record.modules) ~= "number"
+        or record.modules < 0
+        or record.modules ~= math.floor(record.modules)
+        or type(record.produced.outputs) ~= "table"
+        or (record.host ~= nil and type(record.produced.artifact) ~= "string")
+        or type(record.diagnostics) ~= "table"
+        or (record.host ~= nil and (type(record.host) ~= "string" or type(record.hostHash) ~= "string"))
+        or next(record.outputs) == nil
+    then
+        return false
+    end
+    local facilities: integer = 0
+    for index, facility in pairs(record.facilities) do
+        if type(index) ~= "number"
+            or index < 1
+            or index ~= math.floor(index)
+            or index > #record.facilities
+            or type(facility) ~= "string"
+        then
+            return false
+        end
+        facilities += 1
+    end
+    if facilities ~= #record.facilities then
+        return false
+    end
+    for name, enabled in pairs(record.effects) do
+        if type(name) ~= "string" or type(enabled) ~= "boolean" then
+            return false
+        end
+    end
+    local count = 0
+    for _, path in ipairs(record.produced.outputs) do
+        if type(path) ~= "string" or record.outputs[path] == nil then
+            return false
+        end
+        count = count + 1
+    end
+    local actual = 0
+    for _ in pairs(record.outputs) do
+        actual = actual + 1
+    end
+    if count ~= actual then
+        return false
+    end
+    for _, diagnostic in ipairs(record.diagnostics) do
+        if type(diagnostic) ~= "table" or type(diagnostic.code) ~= "string" then
+            return false
+        end
+    end
+    for path, expected in pairs(record.outputs) do
+        if type(path) ~= "string" or type(expected) ~= "string" then
+            return false
+        end
+        local text = fs.readFile(path)
+        if text == nil or digest(text) ~= expected then
+            return false
+        end
+    end
+    if record.host then
+        local text = fs.readFile(record.host)
+        if text == nil or digest(text) ~= record.hostHash then
+            return false
+        end
+    end
+
+    return true
+end
+
+export = reuse

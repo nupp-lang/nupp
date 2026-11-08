@@ -10,8 +10,15 @@ local T = require("nupp.compiler.types")
 local HERE = require("helpers.paths").tests
 local M = {}
 
+local sharedEnv
+
 local function finalEnv(root)
-    return envMod.new(root or HERE .. "/..", {config = {include = {"src"}}})
+    if root then
+        return envMod.new(root, {config = {include = {"src"}}})
+    end
+    sharedEnv = sharedEnv or envMod.new(HERE .. "/..", {config = {include = {"src"}}})
+
+    return sharedEnv
 end
 
 local function compile(source, env, filename)
@@ -71,7 +78,7 @@ function M.preservesOneNominalAndOneEvaluatorLibrary()
 end
 
 function M.preservesFinalContractsAndThePrivateDebugAlias()
-    local env = envMod.new(HERE .. "/..", {config = {include = {"src"}}})
+    local env = finalEnv()
     test.eq(env.globalTypes["nupp.Closeable"], nil)
     test.eq(env.globalTypes["nupp.Debug"], nil)
     local _, errors = compile(
@@ -171,7 +178,7 @@ return own.manage(types.reflect(types.reflect(1)) + 1)
 end
 
 local function runtimeEnv()
-    local env = finalEnv()
+    local env = finalEnv(HERE .. "/..")
     local values = {
         entry = T.func({T.any}, {
             T.any
@@ -531,7 +538,7 @@ return comptime do return types.kind(List(types.string)) end
 end
 
 function M.closesAmbientCompilerImportsBeforeModuleResolutionIsInstalled()
-    local env = finalEnv()
+    local env = finalEnv(HERE .. "/..")
     env.resolveModule = nil
     local _, errors = compile(
         [[

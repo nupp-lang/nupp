@@ -199,6 +199,9 @@ export type State = {
     --- leftovers without removing another's.
     targets: {[string]: {string}},
 
+    -- Completed test artifact and the content proof used to reuse it.
+    testBuild: any?,
+
     compilerHash: string?,
 
     --- The digest of the part of the compiler that compiles a module, which is what

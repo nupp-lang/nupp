@@ -134,7 +134,7 @@ end
 function M.environmentAndRuntimeArtifactChangesInvalidateResults()
     fixture(function(root, options, results, suites)
         local getenv, popen = os.getenv, io.popen
-        local setting = "before"
+        local setting, transport = "before", "first-call"
         local binary = root .. "/runtime"
         fs.writeFile(binary, "runtime one")
         os.getenv = function(name)
@@ -147,7 +147,7 @@ function M.environmentAndRuntimeArtifactChangesInvalidateResults()
             if command == "env -0" then
                 return {
                     read = function()
-                        return "NUPP_TEST_INPUT=" .. setting .. "\0"
+                        return "NUPP_TEST_INPUT=" .. setting .. "\0CODEX_TOOL_CALL_ID=" .. transport .. "\0"
                     end,
                     close = function()
                     end
@@ -160,6 +160,23 @@ function M.environmentAndRuntimeArtifactChangesInvalidateResults()
         cache.save(results, suites)
         local _, unchanged = opened(options)
         assert(unchanged.hit)
+        transport = "another-call"
+        assert(select(2, opened(options)).hit, "tool-call bookkeeping does not invalidate a pass")
+        options.selected[1].path = options.catalog[1].path
+        local restore = cache.audit()
+        local messages, stderr = {}, io.stderr
+        io.stderr = {
+            write = function(_, message)
+                messages[#messages + 1] = message
+            end
+        }
+        local active = rawget(_G, "__NUPP_TEST_AUDIT_ACTIVE")
+        rawset(_G, "__NUPP_TEST_AUDIT_ACTIVE", true)
+        os.getenv("CODEX_TOOL_CALL_ID")
+        rawset(_G, "__NUPP_TEST_AUDIT_ACTIVE", active)
+        restore()
+        io.stderr = stderr
+        assert(table.concat(messages):find("audit: environment lookup CODEX_TOOL_CALL_ID", 1, true))
         setting = "after"
         local _, changed = opened(options)
         test.eq(changed.hit, nil)
@@ -431,6 +448,42 @@ function M.repositoryPackagesHaveExplicitContractsOrExclusions()
     table.sort(unresolved)
     assert(#unresolved == 0, table.concat(unresolved, "\n"))
     assert(enabled > 100, "repository cache rollout must cover ordinary packages, not only a pilot")
+end
+
+function M.sourceAnalysisIsReusedByContentWhilePackagesInvalidateIndependently()
+    fixture(function(root, options, results, suites)
+        fs.mkdir(root .. "/tests/two")
+        fs.writeFile(root .. "/tests/two/betatest.lua", 'return {passes = function() end}\n')
+        options.catalog[2] = {name = "betatest", path = "two/betatest.lua"}
+        options.selected[2] = {name = "betatest"}
+        -- Share one declared input contract, keeping separate package results.
+        options.policies.two = options.policies.one
+        results[2] = {suite = "betatest", name = "passes", id = "betatest/passes", status = "passed", durationMs = 1}
+        suites[2] = {suite = "betatest", tests = 1}
+        local cache = assert(cacheModule.open(options))
+        cache.save(results, suites)
+        local parser = require("nupp.compiler.syntax.parser")
+        local original, parses = parser.parse, 0
+        parser.parse = function(...)
+            parses = parses + 1
+            return original(...)
+        end
+        local ok, why = pcall(function()
+            local warm = assert(cacheModule.open(options))
+            assert(warm.packages.one.hit and warm.packages.two.hit)
+            test.eq(parses, 0, "unchanged source analysis comes from the content store")
+            fs.writeFile(root .. "/tests/one/alphatest.lua", 'require("helpers.missing")\nreturn {}\n')
+            local changed = assert(cacheModule.open(options))
+            assert(parses > 0, "changed source must be analyzed again")
+            test.eq(changed.packages.one, nil, "an unresolved new dependency cannot reuse a passing result")
+            assert(changed.packages.two.hit, "another package retains its own fingerprint")
+            fs.writeFile(root .. "/shared", "changed shared input")
+            local shared = assert(cacheModule.open(options))
+            assert(not shared.packages.two.hit, "a shared contract change invalidates its readers")
+        end)
+        parser.parse = original
+        assert(ok, why)
+    end)
 end
 
 return M
