@@ -222,6 +222,7 @@ local CASES = {
     {"processexecute", 0x7FFF000000001FFF},
     {"processpopen", 0x7FFF00003FFFFFFF},
     {"processhandle", 0x7FFF000001FFFFFF},
+    {"runnerlowering", 0x7FFF0000000000FF},
     {"processlines", 0x7FFF000000000FFF},
     {"processlayer", 0x7FFF000000FFFFFF},
     -- os.exit(3): the program ends there, publishing nothing (EXITS).
@@ -435,6 +436,7 @@ local STRESS = {
     processexecute = true,
     processpopen = true,
     processhandle = true,
+    runnerlowering = true,
     processlines = true,
     processlayer = true,
     processexit = true,

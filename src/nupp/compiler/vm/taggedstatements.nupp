@@ -177,14 +177,19 @@ local function stepSign(ctx: any, stat: any, version: integer): integer?
 end
 
 -- Lua's integer mode depends on the initial value and the step, never the
--- limit; any other combination runs in floating point. Controls whose
--- subtype is only known at run time remain outside this profile.
+-- limit; any other combination runs in floating point. An initial value whose
+-- subtype is only known at run time takes the floating-point shape, whose
+-- generic comparisons and additions keep integers integers. That matches Lua
+-- except at its edges: no wrap check near the maximum integer, a NaN limit with
+-- integer controls runs once rather than not at all, and an integer start with
+-- a float step yields the integer first.
 export function numericFor(ctx: any, stat: any, version: integer): any
     local sign = stepSign(ctx, stat, version)
     local startType = stat.start.inferredType
     local integerMode = integerType(startType) and (stat.step == nil or integerType(stat.step.inferredType))
+    local runtimeMode = not integerMode and (numericType(startType) or typeKind(startType) == "any")
     need(
-        integerMode or numberType(startType) and typeKind(startType) == "float64",
+        integerMode or runtimeMode or numberType(startType) and typeKind(startType) == "float64",
         "numeric for needs a statically integer or float initial value"
     )
     -- A limit of no static number type is checked as the loop starts.

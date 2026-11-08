@@ -1,0 +1,85 @@
+module nupp.core.catalogrunnerlowering
+
+-- What the packaged runner's closure needed from core lowering: a field read
+-- and written through a union of records that keep it in different slots, an
+-- optional union, and numeric for loops whose initial value is only a number
+-- until run time. Each check is a bit of the score.
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+local record Leaf
+    kind: string
+    value: integer
+end
+
+local record Branch
+    left: integer
+    right: integer
+    kind: string
+    value: integer
+end
+
+local function kindOf(node: Leaf | Branch): string
+    return node.kind
+end
+
+local function bump(node: Leaf | Branch): nil
+    node.value = node.value + 1
+end
+
+local function maybe(node: (Leaf | Branch)?): integer
+    if node == nil then
+        return -1
+    end
+
+    return node.value
+end
+
+-- Fields through a union whose members place them differently.
+do
+    local leaf = Leaf(kind = "leaf", value = 1)
+    local branch = Branch(left = 2, right = 3, kind = "branch", value = 10)
+    check(kindOf(leaf) == "leaf" and kindOf(branch) == "branch")
+    bump(leaf)
+    bump(branch)
+    check(leaf.value == 2 and branch.value == 11 and branch.left == 2)
+    check(maybe(nil) == -1 and maybe(branch) == 11)
+end
+
+local function sum(first: number, last: number): (number, string)
+    local total = 0
+    local mode = "none"
+    for index = first, last do
+        total = total + index
+        mode = math.type(index) as string
+    end
+
+    return total, mode
+end
+
+-- A number-typed initial value: integer and float at run time.
+do
+    local total, mode = sum(1, 4)
+    check(total == 10 and mode == "integer")
+    local fraction, fmode = sum(0.5, 2)
+    check(fraction == 2.0 and fmode == "float")
+    local clipped = sum(1, 2.5)
+    check(clipped == 3)
+    local offset: number = 3
+    local seen = {}
+    for index = offset + 1, 1, -1 do
+        seen[#seen + 1] = index
+    end
+    check(table.concat(seen, ",") == "4,3,2,1")
+    local none = sum(5, 1)
+    check(none == 0)
+end
+
+export = score
