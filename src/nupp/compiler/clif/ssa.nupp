@@ -17,21 +17,19 @@ is. Printing is in reverse postorder, so every value's definition precedes its
 uses and unreachable blocks never print.
 ]]
 
-local ssa = {}
-
 local function need(ok: any, message: string): any
     assert(ok, "lower: " .. message)
     return ok
 end
 
 --- One basic block under construction.
-record ssa.Block
+export record Block
     id: number
     params: {string}
     paramTypes: {string}
     lines: {string}
     term: any
-    preds: {ssa.Block}
+    preds: {Block}
     sealed: boolean
     defs: any
     incomplete: any
@@ -41,35 +39,35 @@ end
 --- One function under construction. `current` is the block instructions are
 --- appended to; it is nil after a terminator, so code after one is
 --- unreachable and the lowering can refuse it.
-record ssa.Builder
-    current: ssa.Block?
+export record Builder
+    current: Block?
     fresh: function(): string
-    newBlock: function(): ssa.Block
-    addParam: function(block: ssa.Block, kind: string): string
+    newBlock: function(): Block
+    addParam: function(block: Block, kind: string): string
     emit: function(text: string): string
     effect: function(text: string): nil
     constant: function(kind: string, text: string): string
-    jump: function(to: ssa.Block, args: {string}): nil
-    branch: function(cond: string, yes: ssa.Block, no: ssa.Block): nil
-    dispatch: function(index: string, targets: {ssa.Block}): nil
+    jump: function(to: Block, args: {string}): nil
+    branch: function(cond: string, yes: Block, no: Block): nil
+    dispatch: function(index: string, targets: {Block}): nil
     finish: function(values: {string}): nil
     terminate: function(text: string): nil
-    here: function(): ssa.Block
+    here: function(): Block
     declare: function(variable: any, kind: string): nil
     typeOf: function(variable: any): string?
-    read: function(variable: any, block: ssa.Block): string
-    write: function(variable: any, block: ssa.Block, value: string): nil
-    seal: function(block: ssa.Block): nil
+    read: function(variable: any, block: Block): string
+    write: function(variable: any, block: Block, value: string): nil
+    seal: function(block: Block): nil
     print: function(name: string, signature: string, preamble: {string}): string
 end
 
 --- A builder for one function. The entry block is created sealed and made
 --- current.
-function ssa.new(): ssa.Builder
-    local blocks: {ssa.Block} = {}
+export function new(): Builder
+    local blocks: {Block} = {}
     local counter = 0
     local varTypes: any = {}
-    local b: ssa.Builder
+    local b: Builder
 
     local function fresh(): string
         local value = "v" .. tostring(counter)
@@ -77,8 +75,8 @@ function ssa.new(): ssa.Builder
         return value
     end
 
-    local function newBlock(): ssa.Block
-        local block = ssa.Block(
+    local function newBlock(): Block
+        local block = Block(
             id = #blocks,
             params = {},
             paramTypes = {},
@@ -95,15 +93,15 @@ function ssa.new(): ssa.Builder
         return block
     end
 
-    local function addParam(block: ssa.Block, kind: string): string
+    local function addParam(block: Block, kind: string): string
         local value = fresh()
         block.params[#block.params + 1] = value
         block.paramTypes[#block.paramTypes + 1] = kind
         return value
     end
 
-    local function here(): ssa.Block
-        return need(b.current, "emission outside a block") as ssa.Block
+    local function here(): Block
+        return need(b.current, "emission outside a block") as Block
     end
 
     local function emit(text: string): string
@@ -122,18 +120,18 @@ function ssa.new(): ssa.Builder
         return emit("iconst." .. kind .. " " .. text)
     end
 
-    local function link(from: ssa.Block, to: ssa.Block): nil
+    local function link(from: Block, to: Block): nil
         to.preds[#to.preds + 1] = from
     end
 
-    local function jump(to: ssa.Block, args: {string}): nil
+    local function jump(to: Block, args: {string}): nil
         local block = here()
         block.term = {kind = "jump", targets = {{block = to, args = args}}}
         link(block, to)
         b.current = nil
     end
 
-    local function branch(cond: string, yes: ssa.Block, no: ssa.Block): nil
+    local function branch(cond: string, yes: Block, no: Block): nil
         local block = here()
         block.term = {kind = "brif", cond = cond, targets = {{block = yes, args = {}}, {block = no, args = {}}}}
         link(block, yes)
@@ -141,7 +139,7 @@ function ssa.new(): ssa.Builder
         b.current = nil
     end
 
-    local function dispatch(index: string, targets: {ssa.Block}): nil
+    local function dispatch(index: string, targets: {Block}): nil
         need(#targets > 0, "switch without default")
         local block = here()
         local edges, seen = {}, {}
@@ -179,11 +177,11 @@ function ssa.new(): ssa.Builder
 
     local read
 
-    local function write(variable: any, block: ssa.Block, value: string): nil
+    local function write(variable: any, block: Block, value: string): nil
         block.defs[variable] = value
     end
 
-    local function addOperands(variable: any, block: ssa.Block, param: string): nil
+    local function addOperands(variable: any, block: Block, param: string): nil
         for _, pred in ipairs(block.preds) do
             local value = read(variable, pred)
             for _, target in ipairs(pred.term.targets) do
@@ -194,7 +192,7 @@ function ssa.new(): ssa.Builder
         end
     end
 
-    read = function(variable: any, block: ssa.Block): string
+    read = function(variable: any, block: Block): string
         local known = block.defs[variable]
         if known then
             return known
@@ -219,7 +217,7 @@ function ssa.new(): ssa.Builder
         return value
     end
 
-    local function seal(block: ssa.Block): nil
+    local function seal(block: Block): nil
         for variable, param in pairs(block.incomplete) do
             addOperands(variable, block, param)
         end
@@ -243,7 +241,7 @@ function ssa.new(): ssa.Builder
         end
 
         -- The blocks whose incoming arguments name a value.
-        local users: {[string]: {ssa.Block}} = {}
+        local users: {[string]: {Block}} = {}
         for _, block in ipairs(blocks) do
             for _, pred in ipairs(block.preds) do
                 for _, t in ipairs(pred.term.targets) do
@@ -260,8 +258,8 @@ function ssa.new(): ssa.Builder
                 end
             end
         end
-        local queued: {[ssa.Block]: boolean} = {}
-        local work: {ssa.Block} = {}
+        local queued: {[Block]: boolean} = {}
+        local work: {Block} = {}
         for _, block in ipairs(blocks) do
             if next(block.phis) ~= nil then
                 work[#work + 1] = block
@@ -348,7 +346,7 @@ function ssa.new(): ssa.Builder
         -- Reverse postorder from the entry.
         local order, visited = {}, {}
 
-        local function visit(block: ssa.Block): nil
+        local function visit(block: Block): nil
             if visited[block] then
                 return
             end
@@ -418,7 +416,7 @@ function ssa.new(): ssa.Builder
         return text
     end
 
-    b = ssa.Builder(
+    b = Builder(
         current = nil,
         fresh = fresh,
         newBlock = newBlock,
@@ -445,5 +443,3 @@ function ssa.new(): ssa.Builder
 
     return b
 end
-
-export = ssa

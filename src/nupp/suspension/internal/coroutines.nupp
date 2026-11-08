@@ -2,18 +2,15 @@
 module nupp.suspension.internal.coroutines
 
 local rawCoroutine = require("nupp.runtime.rawcoroutine")
-local coroutines = {}
 
-function coroutines.localMap(_: string): any
+export function localMap(_: string): any
     return setmetatable({}, {__mode = "k"})
 end
 
-function coroutines.localState(_: string, initialize: function(): any): any
+export function localState(_: string, initialize: function(): any): any
     return initialize()
 end
 
-function coroutines.create(body: any, ...: any): thread
+export function create(body: any, ...: any): thread
     return rawCoroutine.create(body, ...)
 end
-
-export = coroutines

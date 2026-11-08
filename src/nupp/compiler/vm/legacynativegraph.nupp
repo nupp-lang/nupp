@@ -12,7 +12,6 @@ local slotcontract = require("nupp.compiler.vm.slotcontract")
 local helpercontract = require("nupp.compiler.vm.helpercontract")
 local framecontract = require("nupp.compiler.vm.framecontract")
 
-local nativegraph = {}
 local admitted = {
     GetCell = true,
     GetUpval = true,
@@ -219,7 +218,7 @@ end
 ---
 --- Admission is independent of the signature so a changed signature fails
 --- graph compilation instead of selecting the temporary direct lowering.
-function nativegraph.admits(fn: any): boolean
+export function admits(fn: any): boolean
     if fn.scope == nil then
         return false
     end
@@ -236,14 +235,14 @@ function nativegraph.admits(fn: any): boolean
         )
         or (fn.scope.name == "nupp.runtime.vm.byteops" and byteAdmitted[fn.name] == true)
         or (fn.scope.name == "nupp.runtime.vm.records" and recordAdmitted[fn.name] == true)
-        or nativegraph.isLeaf(fn)
+        or isLeaf(fn)
 end
 
-function nativegraph.isSupport(fn: any): boolean
+export function isSupport(fn: any): boolean
     return fn.scope ~= nil and fn.scope.name == "nupp.runtime.vm.modules" and fn.name == "requireSlow"
 end
 
-function nativegraph.isLeaf(fn: any): boolean
+export function isLeaf(fn: any): boolean
     return fn.scope ~= nil
         and (
             (fn.scope.name == "nupp.runtime.core.entry" and (fn.name == "CoreStop" or fn.name == "CoreFloatStop"))
@@ -286,11 +285,11 @@ end
 --- Branches and joins carry checked local bindings through graph parameters.
 --- Positions and dispatch identity survive without another SSA builder.
 --- @raises string when an admitted handler contains unsupported checked syntax
-function nativegraph.compile(fn: any, options: any): any
-    need(nativegraph.admits(fn), "function is outside the admitted handler slice")
+export function compile(fn: any, options: any): any
+    need(admits(fn), "function is outside the admitted handler slice")
     local body = fn.body
-    local leaf = nativegraph.isLeaf(fn)
-    local support = nativegraph.isSupport(fn)
+    local leaf = isLeaf(fn)
+    local support = isSupport(fn)
     local declaration = graph.hasNativeLeafDeclaration(fn.scope.name, fn.name)
         and graph.nativeLeafDeclaration(fn.scope.name, fn.name)
     if declaration then
@@ -515,7 +514,7 @@ function nativegraph.compile(fn: any, options: any): any
             if moduleName and name and graph.hasNativeLeafDeclaration(moduleName, name) then
                 local home = options.modules and options.modules[moduleName]
                 local target = localTarget or home and home.exports and home.exports[name]
-                need(target and nativegraph.isLeaf(target), "checked leaf definition required")
+                need(target and isLeaf(target), "checked leaf definition required")
                 local declaration = graph.nativeLeafDeclaration(moduleName as string, name as string)
                 signature(n, declaration.params, declaration.result)
                 need(expected == nil or expected == declaration.result, "leaf call changes exact result kind")
@@ -977,5 +976,3 @@ function nativegraph.compile(fn: any, options: any): any
 
     return g
 end
-
-export = nativegraph

@@ -4,7 +4,6 @@ local graph = require("nupp.compiler.vm.graph")
 local cst = require("nupp.compiler.syntax.cst")
 local cleanup = require("nupp.compiler.vm.functioncleanup")
 local construction = require("nupp.compiler.vm.construction")
-local frontend = {}
 
 -- Whether `node` is a call whose fresh affine result owns a cleanup until a
 -- local, an argument or a field takes it. A construction is not one: the
@@ -2093,7 +2092,7 @@ end
 
 local located = " at [^ ]+:%d+:%d+$"
 
-function frontend.compile(fn: any, options: any, profile: any): any
+export function compile(fn: any, options: any, profile: any): any
     -- Until a statement is lowered, a refusal names the function itself.
     local site = {
         node = type(fn) == "table" and fn.node or nil,
@@ -2109,5 +2108,3 @@ function frontend.compile(fn: any, options: any, profile: any): any
     end
     error(result, 0)
 end
-
-export = frontend

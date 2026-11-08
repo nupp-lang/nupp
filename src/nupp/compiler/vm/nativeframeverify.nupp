@@ -2,7 +2,6 @@ module nupp.compiler.vm.nativeframeverify
 
 -- Final-core facts are separate from legacy VM FrameRecover conventions.
 -- The caller is the private source issuer. This verifier never issues roles.
-local verifier = {}
 
 local function need(ok: any, message: string): any
     assert(ok, "native final frame: " .. message)
@@ -30,7 +29,7 @@ local function clone(state: any): any
     }
 end
 
-function verifier.verify(g: any, calls: any, entry: any?): nil
+export function verify(g: any, calls: any, entry: any?): nil
     need(g.native.abi == "handler" and g.nparams == 6, "final probe handler signature")
     local atoms, inputs, degree, queue = {}, {}, {}, {}
 
@@ -598,5 +597,3 @@ function verifier.verify(g: any, calls: any, entry: any?): nil
     end
     need(#queue == #pending, "cyclic final-frame continuation is not admitted")
 end
-
-export = verifier

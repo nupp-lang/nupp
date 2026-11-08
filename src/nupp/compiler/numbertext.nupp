@@ -1,9 +1,8 @@
 module nupp.compiler.numbertext
 
 -- Exact numeric text for compiler constants and generated source.
-local numbertext = {}
 
-function numbertext.literal(value: number): string
+export function literal(value: number): string
     if math.type(value) == "integer" then
         if value == math.mininteger then
             return "0x8000000000000000"
@@ -22,8 +21,6 @@ function numbertext.literal(value: number): string
 end
 
 -- Constant identities retain numeric subtype and the sign of zero.
-function numbertext.key(value: number): string
-    return tostring(math.type(value)) .. ":" .. numbertext.literal(value)
+export function key(value: number): string
+    return tostring(math.type(value)) .. ":" .. literal(value)
 end
-
-export = numbertext

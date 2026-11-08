@@ -2,7 +2,6 @@ module nupp.compiler.vm.nativecellcontract
 
 -- Rooted construction consumes the closed service catalog's exact checked
 -- identities. It is not an owner/effect registration API or a raw-code loader.
-local contract = {}
 
 local function need(ok: any, message: string): any
     assert(ok, "native cell: " .. message)
@@ -17,7 +16,7 @@ end
 -- The resolved map is the original factory-owned owner -> graph map. Every
 -- transitive edge must have the service issuer's checked target and a graph in
 -- that same unit. Examining only the selected root's result is insufficient.
-function contract.hasManaged(g: any, resolved: any): boolean
+export function hasManaged(g: any, resolved: any): boolean
     local service = services()
     local pending, visited = {g}, {[g] = true}
     local cursor: integer = 1
@@ -179,7 +178,7 @@ end
 -- Path-sensitive validation of this one reviewed, acyclic constructor. The
 -- graph verifier supplies SSA/type correctness; this proof supplies the exact
 -- publication interval and object/root identities, including held phis.
-function contract.verifyConstruct(g: any): any
+export function verifyConstruct(g: any): any
     local service = services()
     service.verifyScope(g)
     local roles = need(service.cellRoles(g), "exact checked CELL constructor required")
@@ -398,10 +397,10 @@ function contract.verifyConstruct(g: any): any
     return proof
 end
 
-function contract.validate(proof: any, g: any): nil
+export function validate(proof: any, g: any): nil
     local held = need(proofs[proof], "unissued rooted constructor proof")
     need(held.graph == g and services().cellRoles(g).owner == held.owner, "rooted constructor proof owner changed")
-    contract.verifyConstruct(g)
+    verifyConstruct(g)
 end
 
 -- This is an identity/order check over the original source-issued graph, not
@@ -636,7 +635,7 @@ local function verifyInput(g: any, roles: any): nil
     need(count == 1, "input predicate live-slot query differs")
 end
 
-function contract.verifyEntry(g: any, resolved: any): any
+export function verifyEntry(g: any, resolved: any): any
     local service = services()
     service.verifyScope(g)
     local roles = need(service.entryRoles(g), "only the original source-created Heap entry is executable")
@@ -649,7 +648,7 @@ function contract.verifyEntry(g: any, resolved: any): any
         "entry source boundary differs"
     )
     local constructor = need(resolved[roles.construct], "entry constructor is outside its retained unit")
-    contract.verifyConstruct(constructor)
+    verifyConstruct(constructor)
     local cell = service.cellRoles(constructor)
     verifyInput(need(resolved[cell.validInput], "input predicate graph missing"), cell)
     local facts, calls, byOwner = entryFacts(g), {}, {}
@@ -852,15 +851,13 @@ function contract.verifyEntry(g: any, resolved: any): any
     return true
 end
 
-function contract.requireEntry(g: any, resolved: any): nil
-    if not contract.hasManaged(g, resolved) then
+export function requireEntry(g: any, resolved: any): nil
+    if not hasManaged(g, resolved) then
         return
     end
     -- Only the original source-created Heap entry can close this lifetime.
     -- The authenticated linker separately retains the original graph/owner;
     -- calling this validation function on a public graph cannot issue entry
     -- authority. The fixed C boundary must lend retained, disjoint mappings.
-    contract.verifyEntry(g, resolved)
+    verifyEntry(g, resolved)
 end
-
-export = contract

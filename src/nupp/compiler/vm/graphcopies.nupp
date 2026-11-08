@@ -1,8 +1,6 @@
 module nupp.compiler.vm.graphcopies
 
-local copies = {}
-
-function copies.schedule(destinations: {integer}, sources: {integer}, scratch: integer): {{integer}}
+export function schedule(destinations: {integer}, sources: {integer}, scratch: integer): {{integer}}
     assert(#destinations == #sources, "parallel copy columns differ")
     local pending, order, output = {}, {}, {}
     for index, to in ipairs(destinations) do
@@ -58,5 +56,3 @@ function copies.schedule(destinations: {integer}, sources: {integer}, scratch: i
 
     return output
 end
-
-export = copies

@@ -7,12 +7,10 @@ local triviaarena = require("nupp.compiler.syntax.triviaarena")
 local tableProvider = require("nupp.compiler.syntax.triviaarena.table")
 local lower = require("nupp.compiler.vm.lower")
 
-local bench = {}
-
 --- Parse, check and emit a closed input module on the runtime itself.
 --- The resulting image is loaded by a fresh VM in the integration test.
 --- @raises string when parsing, checking or lowering the input fails.
-function bench.emit(source: string, moduleName: string?): string
+export function emit(source: string, moduleName: string?): string
     triviaarena.install(tableProvider)
     local entry = moduleName or "vm.input"
     local path = entry:gsub("%.", "/") .. ".nupp"
@@ -43,8 +41,6 @@ function bench.emit(source: string, moduleName: string?): string
 end
 
 --- A second emission must not reuse the first call's lowering state.
-function bench.repeatable(source: string): boolean
-    return bench.emit(source) == bench.emit(source)
+export function repeatable(source: string): boolean
+    return emit(source) == emit(source)
 end
-
-export = bench

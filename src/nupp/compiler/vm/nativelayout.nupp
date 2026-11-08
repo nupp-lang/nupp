@@ -2,8 +2,6 @@ module nupp.compiler.vm.nativelayout
 
 local targetLayout = require("nupp.compiler.targetlayout")
 
-local nativelayout = {}
-
 -- Physical layout is a property of the checked Nupp type and the native target.
 local function checkedLayout(node: any, arguments: integer, explicitTarget: string?): any
     assert(node.typeArgs and #node.typeArgs == 1, "native layout requires one explicit type argument")
@@ -16,11 +14,11 @@ local function checkedLayout(node: any, arguments: integer, explicitTarget: stri
     return measured
 end
 
-function nativelayout.constant(node: any, property: "size" | "alignment", target: string?): string
+export function constant(node: any, property: "size" | "alignment", target: string?): string
     return tostring(checkedLayout(node, 0, target)[property])
 end
 
-function nativelayout.fieldOffset(node: any, target: string?): string
+export function fieldOffset(node: any, target: string?): string
     local measured = checkedLayout(node, 1, target)
     local argument = node.args.exprs[1]
     assert(argument.kind == "string", "native field offset requires a literal field name")
@@ -33,5 +31,3 @@ function nativelayout.fieldOffset(node: any, target: string?): string
     end
     error("native field offset: unknown field " .. name, 0)
 end
-
-export = nativelayout

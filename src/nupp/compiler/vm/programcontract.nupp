@@ -1,6 +1,5 @@
 module nupp.compiler.vm.programcontract
 
-local contract = {}
 local kinds = {
     uint8 = {result = "int64", width = 1},
     int32 = {result = "int64", width = 4},
@@ -16,7 +15,7 @@ local kinds = {
 --- This contract does not classify function tables or heap-bearing constants.
 --- Folding still requires a proven retained body identity in the Nupp graph.
 --- @raises string when the declaration is missing or inconsistent
-function contract.read(definition: any, name: string): {
+export function read(definition: any, name: string): {
     source: string,
     kind: string,
     lifetime: string,
@@ -58,5 +57,3 @@ function contract.read(definition: any, name: string): {
         width = kind.width
     }
 end
-
-export = contract

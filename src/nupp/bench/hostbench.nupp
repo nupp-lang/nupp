@@ -4,10 +4,8 @@ module nupp.bench.hostbench
 --- task and resumes with the completion.
 local host = require("nupp.bench.host")
 
-local bench = {}
-
 --- Reads one file; its length, or -1 when it could not be read.
-function bench.readOne(path: string): number
+export function readOne(path: string): number
     local text = host.readFile(path)
     if text == nil then
         return -1
@@ -17,7 +15,7 @@ function bench.readOne(path: string): number
 end
 
 --- Reads every path in turn on one task: the sum of their lengths.
-function bench.readMany(paths: {string}): number
+export function readMany(paths: {string}): number
     local total = 0
     for _, p in ipairs(paths) do
         local text = host.readFile(p)
@@ -31,7 +29,7 @@ end
 
 --- `n` empty round trips through the host on one task: the cost of a
 --- park, a request, a completion and a resume with no work between.
-function bench.pingMany(n: number): number
+export function pingMany(n: number): number
     local i = 0
     while i < n do
         host.sleep(0)
@@ -42,16 +40,14 @@ function bench.pingMany(n: number): number
 end
 
 --- Sleeps, then answers `v`.
-function bench.sleepThen(ms: number, v: number): number
+export function sleepThen(ms: number, v: number): number
     host.sleep(ms)
     return v
 end
 
 --- The environment, the clock and a command, for the immediate services.
-function bench.probe(): (number, string?)
+export function probe(): (number, string?)
     local t = host.now()
     local home = host.getenv("HOME")
     return t, home
 end
-
-export = bench

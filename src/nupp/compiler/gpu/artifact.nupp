@@ -13,9 +13,7 @@ local maps = require("nupp.compiler.vm.maps")
 local spirv = require("nupp.compiler.gpu.spirv")
 local wgsl = require("nupp.compiler.gpu.wgsl")
 
-local artifact = {}
-
-record artifact.Param
+export record Param
     name: string
     kind: 'read_span' | 'write_span' | 'uniform'
 
@@ -23,13 +21,13 @@ record artifact.Param
     type: string
 end
 
-record artifact.Artifact
+export record Artifact
     spirv: string
     wgsl: string
     entrypoint: string
-    readonly: {artifact.Param}
-    writable: {artifact.Param}
-    uniforms: {artifact.Param}
+    readonly: {Param}
+    writable: {Param}
+    uniforms: {Param}
     uniformBytes: integer
     threads: integer
 
@@ -46,33 +44,33 @@ local function identifier(value: string): string
 end
 
 --- The artifacts of a verified map graph, or nil with the reason it has none.
-function artifact.build(g: any, symbol: string): (artifact.Artifact?, string?)
+export function build(g: any, symbol: string): (Artifact?, string?)
     local ok, abi = pcall(maps.verify, g)
     if not ok then
         return nil, tostring(abi)
     end
     local entrypoint = identifier(symbol) .. "_gpu"
-    local readonly: {artifact.Param} = {}
-    local writable: {artifact.Param} = {}
-    local uniforms: {artifact.Param} = {}
+    local readonly: {Param} = {}
+    local writable: {Param} = {}
+    local uniforms: {Param} = {}
     local exactCounts: {[string]: boolean} = {}
     for _, p in ipairs(abi.readonly) do
         local name = g.parameters[p].name
-        readonly[#readonly + 1] = artifact.Param(name = name, kind = "read_span", type = "uint32")
+        readonly[#readonly + 1] = Param(name = name, kind = "read_span", type = "uint32")
         exactCounts[name] = true
     end
     for _, p in ipairs(abi.writable) do
         local name = g.parameters[p].name
-        writable[#writable + 1] = artifact.Param(name = name, kind = "write_span", type = "uint32")
+        writable[#writable + 1] = Param(name = name, kind = "write_span", type = "uint32")
         exactCounts[name] = true
     end
     for _, p in ipairs(abi.uniforms) do
-        uniforms[#uniforms + 1] = artifact.Param(name = g.parameters[p].name, kind = "uniform", type = "uint32")
+        uniforms[#uniforms + 1] = Param(name = g.parameters[p].name, kind = "uniform", type = "uint32")
     end
     local shader = wgsl.emit(g, entrypoint, abi)
     local binary = spirv.emit(g, entrypoint, abi)
 
-    return artifact.Artifact(
+    return Artifact(
         spirv = binary,
         wgsl = shader,
         entrypoint = entrypoint,
@@ -85,5 +83,3 @@ function artifact.build(g: any, symbol: string): (artifact.Artifact?, string?)
         exactCounts = exactCounts
     ), nil
 end
-
-export = artifact

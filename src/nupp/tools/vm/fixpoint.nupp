@@ -20,10 +20,8 @@ local hash = require("nupp.compiler.hash")
 local process = require("nupp.compiler.process")
 local vmProject = require("nupp.tools.vm.project")
 
-local fixpoint = {}
-
 --- What a run found.
-type fixpoint.Result = {
+export type Result = {
     --- Whether stages two and three agree.
     ok: boolean,
 
@@ -37,7 +35,7 @@ type fixpoint.Result = {
     reason: string?
 }
 
-local function failed(reason: string): fixpoint.Result
+local function failed(reason: string): Result
     return {ok = false, reason = reason}
 end
 
@@ -46,7 +44,7 @@ end
 --- @param root where the command runs
 --- @param bootstrap the command, split on spaces
 --- @return the pair's directory, or nil and why there is none
-function fixpoint.stageZero(root: string, bootstrap: string): string?, string?
+export function stageZero(root: string, bootstrap: string): string?, string?
     local command: {string} = {}
     for word in bootstrap:gmatch("%S+") do
         command[#command + 1] = word
@@ -80,13 +78,8 @@ end
 --- @param say receives one line per stage
 --- @param bootstrap the manifest's `selfHost.bootstrap`, which names the seed
 --- @return what the run found
-function fixpoint.run(
-    root: string,
-    outDir: string,
-    say: function(line: string): nil,
-    bootstrap: string?
-): fixpoint.Result
-    local pair, problem = fixpoint.stageZero(root, bootstrap or "sh scripts/toolchain stage0-seed")
+export function run(root: string, outDir: string, say: function(line: string): nil, bootstrap: string?): Result
+    local pair, problem = stageZero(root, bootstrap or "sh scripts/toolchain stage0-seed")
     if pair == nil then
         return failed(tostring(problem))
     end
@@ -173,5 +166,3 @@ function fixpoint.run(
 
     return {ok = true, image = image, digest = hash.digest(third as string)}
 end
-
-export = fixpoint

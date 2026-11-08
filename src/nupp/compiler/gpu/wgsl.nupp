@@ -2,13 +2,12 @@ module nupp.compiler.gpu.wgsl
 
 local maps = require("nupp.compiler.vm.maps")
 local regions = require("nupp.compiler.vm.regions")
-local wgsl = {}
 local VALUE_NAMES: {string} = {}
 
 -- The graph is consumed directly, with the existing GPU buffer/uniform ABI.
 -- Edges assign block parameters simultaneously; no slot hints are needed here.
 
-function wgsl.emit(g: any, symbol: string, verified: any?): (string, any)
+export function emit(g: any, symbol: string, verified: any?): (string, any)
     local abi = verified or maps.verify(g)
     -- One flat buffer of pieces, joined once. A line is its indent, its
     -- text and a newline; nothing is concatenated per line.
@@ -248,5 +247,3 @@ function wgsl.emit(g: any, symbol: string, verified: any?): (string, any)
 
     return table.concat(parts), abi
 end
-
-export = wgsl

@@ -9,8 +9,6 @@ local tableProvider = require("nupp.compiler.syntax.triviaarena.table")
 local lower = require("nupp.compiler.vm.lower")
 local chunks = require("nupp.compiler.vm.chunks")
 
-local project = {}
-
 local function names(csv: string?): {string}
     local out: {string} = {}
     for name in (csv or ""):gmatch("[^,]+") do
@@ -87,7 +85,7 @@ local VM_PROVIDERS: {
 --- VM's own implementations first, the modules the VM supplies left to run
 --- time, the browser runtime never. A soft dependency (a provider chosen at run
 --- time) is taken only where the VM supplies its own implementation of it.
-function project.resolve(env: table, compilerRoot: string, name: string, soft: boolean?): string?
+export function resolve(env: table, compilerRoot: string, name: string, soft: boolean?): string?
     if soft then
         return VM_PROVIDERS[name] and envMod.findRuntimeModulePath(env as any, name) or nil
     end
@@ -254,7 +252,7 @@ local function emitProject(
             -- What the project's roots resolve wins, so the VM's own spelling of a
             -- standard module stays the one carried; a build's generated module is
             -- found through the path the build recorded.
-            local found = project.resolve(env, compilerRoot, name, soft)
+            local found = resolve(env, compilerRoot, name, soft)
             if found == nil and sources and sources[name] then
                 return sources[name]
             end
@@ -364,19 +362,19 @@ end
 --- Read, check and lower a project using the compiler's module resolver.
 --- Explicit include roots allow bootstrapping before manifest execution.
 --- `NUPP_VM_EMIT_CACHE`, when set, names where the emit keeps what it lowered
---- and finds what an earlier one kept (`project.emitCached`).
+--- and finds what an earlier one kept (`emitCached`).
 --- @raises string when a source cannot be read, checked or lowered.
-function project.emit(root: string, entry: string, extras: string?, includes: string?, hostBootstrap: boolean?): string
+export function emit(root: string, entry: string, extras: string?, includes: string?, hostBootstrap: boolean?): string
     local cacheDir = os.getenv("NUPP_VM_EMIT_CACHE")
 
     return emitFrom(root, entry, extras, includes, hostBootstrap, cacheDir ~= "" and cacheDir or nil)
 end
 
---- `project.emit`, keeping per-module lowering under `cacheDir` and replaying
+--- `emit`, keeping per-module lowering under `cacheDir` and replaying
 --- what an earlier emit kept there whose inputs are unchanged. The image is the
 --- one an emit without the cache writes, byte for byte.
 --- @raises string when a source cannot be read, checked or lowered.
-function project.emitCached(root: string, entry: string, extras: string?, includes: string?, cacheDir: string): string
+export function emitCached(root: string, entry: string, extras: string?, includes: string?, cacheDir: string): string
     return emitFrom(root, entry, extras, includes, nil, cacheDir)
 end
 
@@ -423,7 +421,7 @@ const NATIVE_OPS = {
 --- what is unchanged (`nupp.tools.vm.emitcache`). A replayed module is not
 --- lowered, so the facilities it needs cannot be seen; `seeded` carries the
 --- last build's, which a caller passes only with a cache it wrote.
-function project.program(
+export function program(
     root: string,
     config: table,
     entry: string,
@@ -521,7 +519,7 @@ end
 --- it reaches on every call (half a minute for a benchmark that requires
 --- `nupp.bench`).
 --- @raises string when the source or its dependencies cannot be compiled.
-function project.inspect(root: string, path: string, text: string?): ({any}, string)
+export function inspect(root: string, path: string, text: string?): ({any}, string)
     triviaarena.installDefault(tableProvider)
     chunks.install()
     local env = envMod.new(root)
@@ -576,7 +574,7 @@ end
 --- v0.0.15-vm.2. So is `nupp.runtime.standardos`, which the compiler's
 --- `os.info` and `os.monotonic` reach as builtin extension members: the
 --- pinned stage zero's closure does not follow those.
-project.ROOT_EXTRAS = "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,"
+export const ROOT_EXTRAS = "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,"
     .. "nupp.runtime.standardos,"
     .. "nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,"
     .. "nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess,"
@@ -590,8 +588,8 @@ project.ROOT_EXTRAS = "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler
 
 --- Rebuild the compiler image, including its computed module dependencies.
 --- @raises string when the compiler sources fail to compile.
-function project.rebuild(root: string, hostBootstrap: boolean?): string
-    return project.emit(
+export function rebuild(root: string, hostBootstrap: boolean?): string
+    return emit(
         root,
         "nupp.tools.vm.project",
         "nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache",
@@ -602,7 +600,7 @@ end
 
 --- Evaluate a manifest through the installed source loader.
 --- @raises string when a manifest cannot be loaded or does not return a table.
-function project.manifest(path: string): table
+export function manifest(path: string): table
     triviaarena.install(tableProvider)
     chunks.install()
     local chunk, problem = assert(rawget(_G, "loadfile"))(path)
@@ -612,5 +610,3 @@ function project.manifest(path: string): table
 
     return config
 end
-
-export = project

@@ -2,7 +2,6 @@ module nupp.compiler.clif.graph
 
 local graph = require("nupp.compiler.vm.graph")
 local recipes = require("nupp.compiler.vm.machinerecipes")
-local emitter = {}
 local integerOps = {
     IAdd = "iadd",
     ISub = "isub",
@@ -48,7 +47,7 @@ end
 --- Graph values and block parameters retain their identities. Temporary
 --- machine addresses occupy fresh ids beyond the graph's values.
 --- @raises string when the graph requires an unsupported machine operation
-function emitter.emit(g: any, options: any): string
+export function emit(g: any, options: any): string
     require("nupp.compiler.vm.nativeframecontract").refuse(g, "frozen CLIF")
     graph.verify(g)
     need(g.nativePhysical == nil, "physical graphs require owned machine emission")
@@ -520,5 +519,3 @@ function emitter.emit(g: any, options: any): string
 
     return table.concat(out, "\n") .. "\n"
 end
-
-export = emitter

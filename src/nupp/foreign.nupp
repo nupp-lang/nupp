@@ -22,22 +22,18 @@ flight, or the next one, returns.
 
 local native = require("nupp.vm.foreign")
 
-local foreign = {}
-
 --- Retains `f` as a C callback until `release`.
-function foreign.retain(f: any): any
+export function retain(f: any): any
     return native.callback(nil, f)
 end
 
 --- Makes a retained callback call `f`; the pointer C holds does not change.
 --- @raises string when `callback` is not a retained callback or was released.
-function foreign.rebind(callback: any, f: any): nil
+export function rebind(callback: any, f: any): nil
     native.setCallback(callback, f)
 end
 
 --- Releases a retained callback. C calling it afterwards is refused.
-function foreign.release(callback: any): nil
+export function release(callback: any): nil
     native.close(callback)
 end
-
-export = foreign

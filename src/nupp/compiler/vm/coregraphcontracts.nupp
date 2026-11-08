@@ -6,7 +6,6 @@ local schema = require("nupp.compiler.vm.coregraphschema")
 local semantic = require("nupp.compiler.vm.coregraphverify")
 local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
-local contracts = {}
 local bounds = schema.limits()
 
 local function need(ok: any, message: string): any
@@ -548,7 +547,7 @@ local function tailcalls(p: any, owner: any): {[any]: boolean}
     return found
 end
 
-function contracts.normalize(compiled: any, version: integer?): (any, any)
+export function normalize(compiled: any, version: integer?): (any, any)
     local v: integer = version or 2
     local numeric, loops = v >= 3, v >= 5
     fields(compiled, "graphs header catalog")
@@ -870,5 +869,3 @@ function contracts.normalize(compiled: any, version: integer?): (any, any)
 
     return output, diagnostics
 end
-
-export = contracts
