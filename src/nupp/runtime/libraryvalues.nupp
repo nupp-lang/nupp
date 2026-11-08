@@ -120,6 +120,21 @@ export const functions: {[string]: any} = {
     next = function(t: table, key: any): (any, any)
         return next(t, key)
     end,
+    -- ipairs as a value: Lua's step through t[1], t[2], ... until a nil,
+    -- read with the indexing t's metatable gives.
+    ipairs = function(t: any): (function(any, integer): (integer?, any), any, integer)
+        local function step(source: any, index: integer): (integer?, any)
+            local following = index + 1
+            local value = source[following]
+            if value == nil then
+                return nil, nil
+            end
+
+            return following, value
+        end
+
+        return step, t, 0
+    end,
     pairs = function(borrows t: table): PairIterator borrows (t)
         -- The builtin traverses synchronously and retains no table beyond the call.
         local nextPair = next as @nosuspend function(borrows source: table, key: any?): (any, any)

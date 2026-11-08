@@ -78,6 +78,13 @@ do
     check(width("bit") == 0 and width("flag") == 0)
     local ok, message = pcall(width, "never")
     check(not ok and message == "never never")
+    -- ipairs taken as a value, as comptime's adapter calls it.
+    local walk: any = ipairs
+    local total = 0
+    for _, value in walk({10, 20, 30}) do
+        total = total + (value as integer)
+    end
+    check(total == 60)
 end
 
 export const result = score
