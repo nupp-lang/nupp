@@ -1,0 +1,33 @@
+@!internal
+module nupp.runtime.luacoroutine
+
+local constructors = require("nupp.runtime.coroutineconstructors")
+local suspension = require("nupp.suspension")
+local cancellation = require("nupp.suspension.cancellation")
+local libraries = require("nupp.runtime.libraryvalues")
+
+export const create = constructors.create
+export const wrap = constructors.wrap
+export const Context = suspension.Context
+export const Source = suspension.Source
+export const source = suspension.source
+export const suspend = suspension.suspend
+export const cansuspend = suspension.canSuspend
+export const newcancellation = cancellation.create
+export const iscancellation = cancellation.is
+
+export const functions: {[string]: any} = {["coroutine.create"] = create, ["coroutine.wrap"] = wrap,}
+
+export const value: table = do
+    local original = libraries.functions.coroutine
+    original.create = create
+    original.wrap = wrap
+    original.Context = Context
+    original.Source = Source
+    original.source = source
+    original.suspend = suspend
+    original.cansuspend = cansuspend
+    original.newcancellation = newcancellation
+    original.iscancellation = iscancellation
+    yield original
+end

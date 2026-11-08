@@ -608,6 +608,10 @@ local function requiredmodules(root: any, source: string, follow: boolean): ({st
         -- A qualified path loads its module only where it is a value; one
         -- naming a type (`io.Writer`) loads nothing, as the graph sees it.
         local projection = program.builtinprojection(node)
+        local libraryValue = graph.libraryValue(node)
+        if libraryValue then
+            add(graph.libraryModule(libraryValue), false)
+        end
         if projection then
             add(graph.libraryModule(projection.root), false)
             add(projection.module, false)

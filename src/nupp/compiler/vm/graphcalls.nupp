@@ -850,7 +850,9 @@ end
 -- `nupp.runtime.luaos`, and `warn` is `nupp.runtime.luawarn`'s; the task
 -- surface is the scheduler's; the others are `nupp.runtime.libraryvalues`.
 export function libraryModule(name: string): string
-    if name == "io" then
+    if name == "coroutine.create" or name == "coroutine.wrap" then
+        return "nupp.runtime.luacoroutine"
+    elseif name == "io" then
         return "nupp.runtime.luaio"
     elseif name == "os" then
         return "nupp.runtime.luaos"
@@ -937,6 +939,17 @@ export function mayTakeLibraryValue(root: any, dynamic: boolean?): boolean
     local walk: function(any, boolean): nil
     walk = function(node: any, callee: boolean): nil
         if found or type(node) ~= "table" then
+            return
+        end
+        if node.kind == "dotIndex"
+            and node.name
+            and node.obj
+            and node.obj.kind == "name"
+            and node.obj.token
+            and node.obj.token.text == "coroutine"
+            and (node.name.text == "create" or node.name.text == "wrap")
+        then
+            found = true
             return
         end
         -- Unchecked dynamic receivers may be strings, whose fields need the
@@ -1065,6 +1078,7 @@ local coremodules: {
     ["nupp.runtime.bindings.clock"] = "nupp.runtime.provider.coretime",
     ["debug.internal.clock"] = "nupp.runtime.provider.corelogclock",
     ["nupp.runtime.bindings.suspension"] = "nupp.runtime.provider.suspension",
+    ["nupp.runtime.standardcoroutine"] = "nupp.runtime.luacoroutine",
     ["nupp.runtime.taskownership"] = "nupp.runtime.provider.coretaskownership",
     ["nupp.vm.files"] = "nupp.runtime.provider.corefiles",
     ["bytes.internal.sharedbytes"] = "nupp.runtime.provider.coresharedbytes",
@@ -1140,6 +1154,7 @@ export function coreLibraryCall(call: any): string?
         return "require.dynamic"
     end
     local name
+    local rawConstructor = false
     if call
         and call.kind == "methodCall"
         and call.name
@@ -1182,6 +1197,7 @@ export function coreLibraryCall(call: any): string?
     then
         -- A core call module's function: `calls.allocbytes(n)`.
         name = tostring(corecallmodules[call.obj.obj.token.definition.requiredModule]) .. "." .. call.obj.name.text
+        rawConstructor = call.obj.obj.token.definition.requiredModule == RAW_COROUTINE_MODULE
     elseif call and call.kind == "call" and call.obj and call.obj.namespacePath == "math.random" then
         -- `math.random` is also a standard module path, which the checker
         -- resolves as one: its root is then not the prelude's name.
@@ -1190,6 +1206,9 @@ export function coreLibraryCall(call: any): string?
     -- The prelude's `unpack` is `table.unpack`.
     if name == "unpack" then
         name = "table.unpack"
+    end
+    if not rawConstructor and (name == "coroutine.create" or name == "coroutine.wrap") then
+        return nil
     end
 
     return name and coreLibrary[name] and name or nil

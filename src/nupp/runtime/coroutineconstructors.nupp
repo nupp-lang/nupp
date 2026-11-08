@@ -1,0 +1,22 @@
+@!internal
+module nupp.runtime.coroutineconstructors
+
+local suspension = require("nupp.suspension")
+
+export const create = suspension.create
+
+local resume = coroutine.resume
+
+local function unwrap(ok: boolean, ...: any): ...any
+    if not ok then
+        error((...), 2)
+    end
+    return ...
+end
+
+export function wrap<A..., R...>(body: function(A...): R...): function(A...): R...
+    local co = create(body)
+    return (function(...: any): ...any
+        return unwrap(resume(co, ...))
+    end) as function(A...): R...
+end
