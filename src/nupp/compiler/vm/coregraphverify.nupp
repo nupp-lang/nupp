@@ -226,7 +226,11 @@ function verify.copyGraph(g: any, version: integer?, fromSource: boolean?): any
         end
         if kind == "return" and term.values ~= nil then
             t.values = words(term.values)
-            need(#t.values >= 1 and #t.values <= 16 and t.values[1] == t.value, "return values")
+            need(
+                #t.values <= 16
+                and (#t.values == 0 and (version or 2) >= 8 or #t.values >= 1 and t.values[1] == t.value),
+                "return values"
+            )
         end
         for edgeIndex = 1, dense(term.edges, 2) do
             local edge = term.edges[edgeIndex]
