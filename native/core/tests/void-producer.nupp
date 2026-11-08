@@ -13,10 +13,9 @@ local selector = require("s0.select")
 local shim = require("nupp.core.shim")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local json = require("serde.json")
-local producer = {}
 local MODULE = "nupp.runtime.core.voidprobe"
 
-function producer.compile(mode: string): string
+export function compile(mode: string): string
     assert(mode == "normal" or mode == "spill")
     local path = ROOT .. "/native/core/src/nupp/runtime/core/voidprobe.nupp"
     local owners, options = front.checked(front.read(ROOT .. "/native/core/tests/void-probe.nupp"), path, MODULE)
@@ -156,7 +155,7 @@ function producer.compile(mode: string): string
     return json.encodevalue(result)
 end
 
-function producer.data(offsetText: string, codeBytesText: string): string
+export function data(offsetText: string, codeBytesText: string): string
     local offset, bytes = assert(tonumber(offsetText)), assert(tonumber(codeBytesText))
     assert(offset >= 0 and offset < bytes and offset % 4 == 0)
     return graphimage.wideBytes(
@@ -167,5 +166,3 @@ function producer.data(offsetText: string, codeBytesText: string): string
         32
     ) .. graphimage.wideBytes(48) .. string.rep(string.char(0), 16) .. graphimage.wideBytes(offset)
 end
-
-export = producer

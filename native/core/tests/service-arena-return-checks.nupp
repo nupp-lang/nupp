@@ -8,7 +8,6 @@ local nativegraph = require("nupp.compiler.vm.nativegraph")
 local cleanup = require("nupp.compiler.vm.nativecleanup")
 local physical = require("nupp.compiler.vm.nativephysical")
 local service = require("nupp.compiler.vm.nativeservice")
-local M = {}
 
 local function refuses(callback: function(): nil, text: string): nil
     local ok, message = pcall(callback)
@@ -369,7 +368,7 @@ local function takesEntry(g: any): nil
     assert(source == signature.params[1] and physical.affineValue(owner, source))
 end
 
-function M.check(build: any): nil
+export function check(build: any): nil
     local close = checked(build, "close")
     takesEntry(close)
     graph.prune(close)
@@ -404,5 +403,3 @@ function M.check(build: any): nil
         end
     end
 end
-
-export = M

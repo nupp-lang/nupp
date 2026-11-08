@@ -12,13 +12,12 @@ local selector = require("s0.select")
 local shim = require("nupp.core.rawshapeshim")
 local generator = require("nupp.core.rawshapegen")
 local json = require("serde.json")
-local producer = {}
 
-function producer.generated(): string
+export function generated(): string
     return generator.source()
 end
 
-function producer.compile(mode: string, entry: string): string
+export function compile(mode: string, entry: string): string
     assert(mode == "normal" or mode == "spill")
     assert(entry == "admit" or entry == "probe")
     assert(
@@ -125,5 +124,3 @@ function producer.compile(mode: string, entry: string): string
 
     return json.encodevalue(result)
 end
-
-export = producer

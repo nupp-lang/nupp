@@ -3,12 +3,11 @@ module nupp.core.rawheadershim
 local arm = require("s0.arm64")
 local selector = require("s0.select")
 local linker = require("nupp.core.link")
-local shim = {}
 
 -- Test-only packet boundary for raw bytes. It never reads diagnostic program.data.
 -- All absolute pointer checks happen while the bridge mappings are still live;
 -- output carries only status, relative offsets, lengths and counts.
-function shim.build(functions: {[string]: any}, symbol: string, descriptorBytes: integer): any
+export function build(functions: {[string]: any}, symbol: string, descriptorBytes: integer): any
     assert(descriptorBytes == 480, "raw admission test descriptor layout")
     local scratchBytes: integer = 65536
     local storageOffset: integer = 128
@@ -153,5 +152,3 @@ function shim.build(functions: {[string]: any}, symbol: string, descriptorBytes:
         poolBytes = poolBytes
     }
 end
-
-export = shim

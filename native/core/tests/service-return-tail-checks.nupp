@@ -7,7 +7,6 @@ local lower = require("nupp.compiler.vm.lower")
 local nativegraph = require("nupp.compiler.vm.nativegraph")
 local cleanup = require("nupp.compiler.vm.nativecleanup")
 local service = require("nupp.compiler.vm.nativeservice")
-local M = {}
 
 local function refuses(callback: function(): nil, fragment: string): nil
     local ok, message = pcall(callback)
@@ -166,7 +165,7 @@ local function statusChecks(build: any): nil
     service.verifyScope(g)
 end
 
-function M.check(build: any): nil
+export function check(build: any): nil
     statusChecks(build)
     aliases(build)
     failedCallRejoin(build)
@@ -184,5 +183,3 @@ function M.check(build: any): nil
         service.verifyScope(g)
     end
 end
-
-export = M

@@ -9,7 +9,6 @@ local cleanup = require("nupp.compiler.vm.nativecleanup")
 local physical = require("nupp.compiler.vm.nativephysical")
 local service = require("nupp.compiler.vm.nativeservice")
 local nativeos = require("nupp.compiler.vm.nativeos")
-local M = {}
 
 local function refuses(callback: function(): nil, expected: string): nil
     local ok, problem = pcall(callback)
@@ -492,7 +491,7 @@ local function entryCleanup(build: any): nil
     assert(g.nativePhysical.signature == nil and physical.graphOwner(g) == entry)
 end
 
-function M.check(build: any): nil
+export function check(build: any): nil
     bootstrap(build)
     print("managed result checks: bootstrap passed")
     entryCleanup(build)
@@ -592,5 +591,3 @@ function M.check(build: any): nil
     assert(collecting, "actual collecting call is absent")
     collectingGap(compiled.allocRaw, collecting)
 end
-
-export = M

@@ -13,7 +13,6 @@ require("nupp.compiler.syntax.triviaarena.table")
 require("nupp.compiler.project.projectconfig")
 require("nupp.compiler.hash")
 local rawheader = require("nupp.core.rawheaderfixture")
-local fixture = {}
 
 local function encoded(source: string): any
     local path, name = "=raw_catalog_fixture.nupp", "raw_catalog_fixture"
@@ -33,11 +32,11 @@ local function encoded(source: string): any
     return contracts.normalize(program.compile(catalog, tagged))
 end
 
-function fixture.data(): string
+export function data(): string
     return rawheader.data()
 end
 
-function fixture.dataVariant(kind: string): string
+export function dataVariant(kind: string): string
     local source
     if kind == "shared" then
         source = "local function first(v: boolean): boolean return v end\n"
@@ -99,7 +98,7 @@ function fixture.dataVariant(kind: string): string
     return codec.encode(p)
 end
 
-function fixture.validateMany(path: string): string
+export function validateMany(path: string): string
     local list = assert(io.open(path, "rb"))
     local inputs = json.decodevalue(list:read("*a"))
     list:close()
@@ -119,12 +118,10 @@ function fixture.validateMany(path: string): string
     return json.encodevalue(results)
 end
 
-function fixture.wire(): string
+export function wire(): string
     return json.encodevalue(schema.wire())
 end
 
-function fixture.definition(): string
+export function definition(): string
     return json.encodevalue(schema.describe())
 end
-
-export = fixture

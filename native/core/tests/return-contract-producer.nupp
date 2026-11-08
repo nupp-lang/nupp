@@ -14,7 +14,6 @@ local oldshim = require("nupp.core.returncontractoldshim")
 local linker = require("nupp.core.link")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local json = require("serde.json")
-local producer = {}
 
 local function copy(value: any): any
     if type(value) ~= "table" then
@@ -28,7 +27,7 @@ local function copy(value: any): any
     return result
 end
 
-function producer.compile(mode: string, guard: string): string
+export function compile(mode: string, guard: string): string
     assert(guard == "equal" or guard == "unequal")
     assert(mode == "normal" or mode == "spill")
     assert(type(lower.functionGraph) == "function" and type(profile.initialize) == "function")
@@ -274,7 +273,7 @@ function producer.compile(mode: string, guard: string): string
     return json.encodevalue(selected)
 end
 
-function producer.data(selection: string, kind: string): string
+export function data(selection: string, kind: string): string
     assert(kind == "boolean" or kind == "nil")
     local result = json.decodevalue(front.read(selection))
     assert(#result.offsets == 2 and #result.frames == 2)
@@ -297,5 +296,3 @@ function producer.data(selection: string, kind: string): string
 
     return data
 end
-
-export = producer

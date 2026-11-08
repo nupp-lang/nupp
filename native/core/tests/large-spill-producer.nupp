@@ -6,10 +6,9 @@ local check = require("s0.allocationcheck")
 local selector = require("s0.select")
 local shim = require("nupp.core.shim")
 local json = require("serde.json")
-local producer = {}
 
 -- Typed MIR construction only: no bytecode decoder or guest arithmetic.
-function producer.compile(gapText: string): string
+export function compile(gapText: string): string
     local gap = assert(tonumber(gapText)) as integer
     local scratch: integer = 17
     assert(gap == 0 or gap == 4093 or gap == 5000)
@@ -101,5 +100,3 @@ function producer.compile(gapText: string): string
 
     return json.encodevalue(result)
 end
-
-export = producer

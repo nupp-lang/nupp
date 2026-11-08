@@ -10,7 +10,6 @@ local cleanup = require("nupp.compiler.vm.nativecleanup")
 local physical = require("nupp.compiler.vm.nativephysical")
 local service = require("nupp.compiler.vm.nativeservice")
 local types = require("nupp.compiler.types")
-local M = {}
 
 local function refuses(callback: function(): nil, fragment: string?): nil
     local ok, message = pcall(callback)
@@ -69,7 +68,7 @@ local function nilViews(g: any, required: boolean): nil
     assert2(not required or count > 0, "actual contextual nil projection missing")
 end
 
-function M.check(build: any): nil
+export function check(build: any): nil
     local wanted = {
         ["nupp.runtime.core.pagemappings"] = {entry = true, map = true},
         ["nupp.runtime.vm.collector"] = {walkRoots = true, startCycle = true, markSome = true}
@@ -118,5 +117,3 @@ function M.check(build: any): nil
     end
     assert2(count == 5, "contextual pointer source inventory differs")
 end
-
-export = M

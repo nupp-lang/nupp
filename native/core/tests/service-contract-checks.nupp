@@ -5,7 +5,6 @@ module nupp.core.heapservicechecks
 local graph = require("nupp.compiler.vm.graph")
 local service = require("nupp.compiler.vm.nativeservice")
 local unit = require("nupp.compiler.vm.nativeunit")
-local M = {}
 
 local function refuses(callback: function(): nil, text: string?): nil
     local ok, message = pcall(callback)
@@ -71,7 +70,7 @@ local function ledgerRoutes(build: any): nil
     end
 end
 
-function M.check(build: any): nil
+export function check(build: any): nil
     ledgerRoutes(build)
     refuses(
         function(): nil
@@ -167,5 +166,3 @@ function M.check(build: any): nil
     assert(failures > 0, "combined source closure did not exercise literal failure")
     assert(guardedResults > 0, "combined source closure did not exercise guarded scalar result")
 end
-
-export = M

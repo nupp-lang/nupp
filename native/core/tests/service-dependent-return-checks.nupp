@@ -8,7 +8,6 @@ local cleanup = require("nupp.compiler.vm.nativecleanup")
 local physical = require("nupp.compiler.vm.nativephysical")
 local service = require("nupp.compiler.vm.nativeservice")
 local unit = require("nupp.compiler.vm.nativeunit")
-local M = {}
 
 local function refuses(callback: function(): nil, expected: string): nil
     local ok, message = pcall(callback)
@@ -255,7 +254,7 @@ local function optionalTake(g: any, owner: any, foreignOwner: any): nil
     assert(count > 0, "actual take nullable borrow occurrence missing")
 end
 
-function M.check(build: any): nil
+export function check(build: any): nil
     local wanted = {
         ["nupp.runtime.vm.arena"] = {alloc = true, pool = true, take = true},
         ["nupp.runtime.vm.heap"] = {zeroWords = true, zeroSet = true, zeroIndex = true, create = true}
@@ -332,5 +331,3 @@ function M.check(build: any): nil
     end
     assert(count == 7 and metadataCount == 1 and managed, "closed dependent/metadata/managed source inventory differs")
 end
-
-export = M

@@ -12,10 +12,9 @@ local shim = require("nupp.core.shim")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local recipes = require("nupp.compiler.vm.machinerecipes")
 local json = require("serde.json")
-local producer = {}
 local MODULE = "nupp.runtime.core.transportprobe"
 
-function producer.compile(mode: string): string
+export function compile(mode: string): string
     assert(mode == "normal" or mode == "spill")
     local path = ROOT .. "/native/core/src/nupp/runtime/core/transportprobe.nupp"
     local functions, options = front.checked(
@@ -158,7 +157,7 @@ function producer.compile(mode: string): string
     return json.encodevalue(result)
 end
 
-function producer.data(offsets: string, codeBytesText: string): string
+export function data(offsets: string, codeBytesText: string): string
     local codeBytes = assert(tonumber(codeBytesText))
     local entries = {}
     for text in offsets:gmatch("[^,]+") do
@@ -177,5 +176,3 @@ function producer.data(offsets: string, codeBytesText: string): string
         32
     ) .. graphimage.wideBytes(64) .. zero .. string.char(1) .. zero:sub(2) .. table.concat(entries)
 end
-
-export = producer

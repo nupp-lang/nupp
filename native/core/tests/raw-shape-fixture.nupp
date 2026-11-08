@@ -4,13 +4,12 @@ local source = require("nupp.core.rawheaderfixture")
 local codec = require("nupp.compiler.vm.coregraphcodec")
 local schema = require("nupp.compiler.vm.coregraphschema")
 local json = require("serde.json")
-local fixture = {}
 
-function fixture.data(): string
+export function data(): string
     return source.data()
 end
 
-function fixture.validateMany(path: string): string
+export function validateMany(path: string): string
     local list = assert(io.open(path, "rb"))
     local inputs = json.decodevalue(list:read("*a"))
     list:close()
@@ -27,8 +26,6 @@ function fixture.validateMany(path: string): string
     return json.encodevalue(results)
 end
 
-function fixture.wire(): string
+export function wire(): string
     return json.encodevalue(schema.wire())
 end
-
-export = fixture

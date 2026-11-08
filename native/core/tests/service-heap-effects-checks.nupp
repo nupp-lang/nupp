@@ -5,14 +5,13 @@ module nupp.core.serviceheapeffectschecks
 local service = require("nupp.compiler.vm.nativeservice")
 local unit = require("nupp.compiler.vm.nativeunit")
 local nativegraph = require("nupp.compiler.vm.nativegraph")
-local M = {}
 
 local function refuses(callback: function(): nil, text: string): nil
     local ok, message = pcall(callback)
     assert(not ok and tostring(message):find(text, 1, true), tostring(message))
 end
 
-function M.check(build: any): nil
+export function check(build: any): nil
     local owners = {}
     for _, owner in ipairs(service.owners(build.catalog)) do
         owners[owner.scope.name .. "." .. owner.name] = owner
@@ -121,5 +120,3 @@ function M.check(build: any): nil
         "outside reviewed Arena/Pool storage"
     )
 end
-
-export = M
