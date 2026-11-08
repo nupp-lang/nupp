@@ -105,7 +105,7 @@ do
     local reaped = 0
     local began = os.monotonic()
     for _ = 1, 20 do
-        local child = assert(popen("sleep 10; printf late"))
+        local child = assert(popen("sleep 1; printf late"))
         local ok: boolean, problem: any = true, nil
         do
             local scope = coroutine.scope()
