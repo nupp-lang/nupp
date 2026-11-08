@@ -1,0 +1,69 @@
+module nupp.runtime.core.hostc
+
+-- What every call the core makes into the C library shares: the error number
+-- a failed call left, and C strings made from the program's strings. The
+-- calls themselves are `cdef function` declarations in the modules that
+-- make them (hostfiles, hostpoll, hostprocess), each answering what its
+-- system call did or the negated error number, as Lua's C library would see.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const os = require("nupp.runtime.vm.os")
+const strings = require("nupp.runtime.core.corestrings")
+
+-- The error numbers the host modules answer themselves.
+export const EINTR: int64 = 4
+export const EBADF: int64 = 9
+export const EFAULT: int64 = 14
+export const EINVAL: int64 = 22
+
+-- The negated error number of the C call that just failed: read before any
+-- other C call can change it.
+export function failure(): int64
+    return 0 - native.load32(os.errnoLocation(), 0)
+end
+
+-- Whether the C call that just failed was interrupted by a signal, and so
+-- is made again.
+export function interrupted(): boolean
+    return native.load32(os.errnoLocation(), 0) == EINTR
+end
+
+-- Appends string `s`'s bytes and a NUL to builder `b`, which C reads as the
+-- string up to its first NUL: the offset it starts at.
+export function append(h: heap.Heap*, borrows b: strings.Builder*, s: uint64): uint64
+    @unsafe do
+        local start = strings.descriptor(b).len
+        if strings.append(h, b, strings.bytes(s), strings.length(s)) ~= 0ULL
+            or strings.appendWord(h, b, 0ULL, 1ULL) ~= 0ULL
+        then
+            error("not enough memory")
+        end
+
+        return start
+    end
+end
+
+-- Where builder `b`'s bytes from `offset` are, for a C call. Appending to
+-- `b` can move them.
+export function at(borrows b: strings.Builder*, offset: uint64): voidptr
+    @unsafe do
+        return native.pointer(strings.descriptor(b).base + offset)
+    end
+end
+
+-- Whether string `s` holds a NUL, which a C path cannot.
+export function holdsNul(s: uint64): boolean
+    @unsafe do
+        local base = native.pointer(strings.bytes(s))
+        local count = strings.length(s)
+        local index: uint64 = 0ULL
+        while index < count do
+            if native.load8(base, native.index(index)) == 0 then
+                return true
+            end
+            index = index + 1ULL
+        end
+
+        return false
+    end
+end

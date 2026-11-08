@@ -2,11 +2,11 @@ module nupp.runtime.core.guestfiles
 
 const native = require("nupp.runtime.vm.intrinsics")
 const values = require("nupp.runtime.vm.values")
-const os = require("nupp.runtime.vm.os")
 const strings = require("nupp.runtime.core.corestrings")
 const ints = require("nupp.runtime.core.coreintegers")
 const guestvalues = require("nupp.runtime.core.guestvalues")
 const layouts = require("nupp.runtime.core.librarylayouts")
+const hostfs = require("nupp.runtime.core.hostfilesystem")
 
 const METADATA_BYTES: uint64 = 40ULL
 const INITIAL_TEXT_BYTES: uint64 = 256ULL
@@ -50,14 +50,9 @@ local function metadata(ctx: voidptr, op: uint64, a: uint64, b: uint64): uint64
             if b == values.TRUE then
                 follow = FOLLOW_LINKS
             end
-            result = os.fileInfo(
-                native.pointer(strings.bytes(source)),
-                strings.length(source),
-                follow,
-                native.pointer(strings.descriptor(lifetime).base)
-            )
+            result = hostfs.info(h, source, follow, native.pointer(strings.descriptor(lifetime).base))
         else
-            result = os.fileStatus(integer(a), native.pointer(strings.descriptor(lifetime).base))
+            result = hostfs.status(h, integer(a), native.pointer(strings.descriptor(lifetime).base))
         end
         if result < 0 then
             return ints.make(h, native.word(result))
@@ -86,19 +81,14 @@ local function text(ctx: voidptr, op: uint64, a: uint64, b: uint64): uint64
             local capacity = strings.descriptor(lifetime).cap
             if op == layouts.FS_READLINK then
                 local source = string(a)
-                result = os.readLink(native.pointer(strings.bytes(source)), strings.length(source), out, capacity)
+                result = hostfs.readLink(h, source, out, capacity)
             else
                 local which = integer(a)
                 local source = string(b)
-                local base: voidptr = native.pointer(0ULL)
-                local bytes: uint64 = 0ULL
-                if which == CANONICAL_PATH then
-                    base = native.pointer(strings.bytes(source))
-                    bytes = strings.length(source)
-                elseif strings.length(source) ~= 0ULL then
+                if which ~= CANONICAL_PATH and strings.length(source) ~= 0ULL then
                     error("filesystem path query requires an empty source")
                 end
-                result = os.pathQuery(which, base, bytes, out, capacity)
+                result = hostfs.query(h, which, source, out, capacity)
             end
             if result < 0 then
                 return ints.make(h, native.word(result))
@@ -130,19 +120,17 @@ export function call(ctx: voidptr, op: uint64, a: uint64, b: uint64): uint64
     @unsafe do
         local h = guestvalues.guestheap(ctx)
         if op == layouts.FS_SYNC then
-            return ints.make(h, native.word(os.syncFile(integer(a))))
+            return ints.make(h, native.word(hostfs.sync(integer(a))))
         end
         local source = string(a)
-        local base = native.pointer(strings.bytes(source))
-        local bytes = strings.length(source)
         local result: int64 = 0
         if op == layouts.FS_MKDIR then
-            result = os.makeDirectory(base, bytes, integer(b))
+            result = hostfs.makeDirectory(h, source, integer(b))
         elseif op == layouts.FS_SYMLINK then
             local link = string(b)
-            result = os.makeSymlink(base, bytes, native.pointer(strings.bytes(link)), strings.length(link))
+            result = hostfs.makeSymlink(h, source, link)
         elseif op == layouts.FS_CHMOD then
-            result = os.changeMode(base, bytes, integer(b))
+            result = hostfs.changeMode(h, source, integer(b))
         else
             error("filesystem calls: no such operation")
         end

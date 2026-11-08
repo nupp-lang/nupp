@@ -1,0 +1,314 @@
+module nupp.runtime.core.hostpoll
+
+-- The readiness system calls under the program's reactor (pollcalls) and
+-- the exit watches of its process layer (processcalls), made through the C
+-- library: a kqueue, a filter per readiness and the process filter for a
+-- child's exit, one event per wait, and nonblocking pipes. The queues, the
+-- deadlines and the nonblocking calls made on readiness are the program's.
+-- Each answers a value or the negated error number. macOS's kqueue is the
+-- one backend: the core's compiler targets aarch64-apple-darwin alone.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const strings = require("nupp.runtime.core.corestrings")
+const c = require("nupp.runtime.core.hostc")
+
+-- One kernel event, as macOS's <sys/event.h> lays it out.
+cdef struct KernelEvent
+    ident: uint64
+    filter: int16
+    flags: uint16
+    fflags: uint32
+    data: int64
+    udata: voidptr
+end
+
+cdef struct TimeSpec
+    seconds: int64
+    nanos: int64
+end
+
+cdef function kqueue(): int32
+cdef function kevent(
+    kq: int64,
+    borrows changes: voidptr,
+    count: int64,
+    borrows events: voidptr,
+    room: int64,
+    borrows timeout: voidptr
+): int32
+cdef function fcntl(fd: int64, command: int64, ...): int32
+cdef function pipe(borrows fds: voidptr): int32
+cdef function close(fd: int64): int32
+cdef function waitid(kind: int64, id: int64, borrows info: voidptr, options: int64): int32
+
+-- Interest and readiness, as pollcalls encodes them. An exit's event carries
+-- a process id where the others carry a descriptor, above EVENT_BITS.
+const READABLE: uint64 = 1ULL
+const WRITABLE: uint64 = 2ULL
+const HANGUP: uint64 = 4ULL
+const FAILED: uint64 = 8ULL
+const EXITED: uint64 = 16ULL
+const EVENT_BITS: uint64 = 5ULL
+const FOREVER: uint64 = 0xffffffffffffffffULL
+const NANOS: uint64 = 1000000000ULL
+-- A pipe answers its read end in the low bits and its write end above.
+const WRITE_END: uint64 = 32ULL
+
+-- The C library's, on macOS.
+const EVFILT_READ: uint64 = 0xffffULL
+const EVFILT_WRITE: uint64 = 0xfffeULL
+const EVFILT_PROC: uint64 = 0xfffbULL
+const EV_ADD: uint64 = 0x1ULL
+const EV_DELETE: uint64 = 0x2ULL
+const EV_ONESHOT: uint64 = 0x10ULL
+const EV_RECEIPT: uint64 = 0x40ULL
+const EV_ERROR: uint64 = 0x4000ULL
+const EV_EOF: uint64 = 0x8000ULL
+const NOTE_EXIT: uint64 = 0x80000000ULL
+const ENOENT: int64 = 2
+const ESRCH: int64 = 3
+const F_SETFD: int64 = 2
+const F_GETFL: int64 = 3
+const F_SETFL: int64 = 4
+const FD_CLOEXEC: int64 = 1
+const O_NONBLOCK: int64 = 0x4
+const P_PID: int64 = 1
+const WEXITED: int64 = 0x4
+const WNOWAIT: int64 = 0x20
+-- Room for waitid's siginfo_t, of which nothing is read.
+const SIGNAL_INFO_BYTES: uint64 = 128ULL
+const PIPE_BYTES: uint64 = 8ULL
+const INT_BYTES: int64 = 4
+const LOW_WORD: uint64 = 0xffffffffULL
+
+-- Room for `bytes` in builder `b`: where it starts.
+local function room(h: heap.Heap*, borrows b: strings.Builder*, bytes: uint64): voidptr
+    @unsafe do
+        if strings.reserve(h, b, bytes) ~= 0ULL then
+            error("not enough memory")
+        end
+
+        return native.pointer(strings.descriptor(b).base)
+    end
+end
+
+-- Writes event `index` at `base`: interest in `filter` on `ident`, added
+-- for one event when `wanted`, else removed, with its receipt asked for.
+local function change(base: voidptr, index: uint64, ident: uint64, filter: uint64, wanted: boolean): nil
+    local at = native.offset(base, native.index(index * native.sizeOf<KernelEvent>()))
+    local flags = EV_DELETE
+    if wanted then
+        flags = EV_ADD | EV_ONESHOT
+    end
+    native.store64(at, native.fieldOffset<KernelEvent>("ident"), ident)
+    native.store16(at, native.fieldOffset<KernelEvent>("filter"), filter)
+    native.store16(at, native.fieldOffset<KernelEvent>("flags"), flags | EV_RECEIPT)
+    native.store32(at, native.fieldOffset<KernelEvent>("fflags"), 0)
+    native.store64(at, native.fieldOffset<KernelEvent>("data"), 0ULL)
+    native.store64(at, native.fieldOffset<KernelEvent>("udata"), 0ULL)
+end
+
+-- Applies the `count` changes at `base`, their receipts after them: 0, or
+-- the negated error number of the first that failed with neither
+-- `ignored` nor `also`.
+local function apply(poller: uint64, base: voidptr, count: uint64, ignored: int64, also: int64): int64
+    @unsafe do
+        local receipts = native.offset(base, native.index(count * native.sizeOf<KernelEvent>()))
+        local answered: int64 = kevent(
+            native.index(poller),
+            base,
+            native.index(count),
+            receipts,
+            native.index(count),
+            native.pointer(0ULL)
+        )
+        if answered < 0 then
+            return c.failure()
+        end
+        local index: int64 = 0
+        while index < answered do
+            local at = native.offset(receipts, index * native.index(native.sizeOf<KernelEvent>()))
+            local data = native.index(native.load64(at, native.fieldOffset<KernelEvent>("data")))
+            local flags = native.word(native.load16(at, native.fieldOffset<KernelEvent>("flags")))
+            if (flags & EV_ERROR) ~= 0ULL and data ~= 0 and data ~= ignored and data ~= also then
+                return 0 - data
+            end
+            index = index + 1
+        end
+
+        return 0
+    end
+end
+
+-- A new poller's descriptor, not inherited across exec.
+export function open(): int64
+    local kq: int64 = kqueue()
+    if kq < 0 then
+        return c.failure()
+    end
+    local _: int64 = fcntl(kq, F_SETFD, FD_CLOEXEC)
+
+    return kq
+end
+
+-- Sets the readiness `poller` waits for on `fd` to `interest`, for one
+-- event: 0. Removing interest the descriptor never had is not a failure.
+export function arm(h: heap.Heap*, poller: uint64, fd: uint64, interest: uint64): int64
+    local state = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local lifetime = strings.open(h, state as strings.Builder*)
+        local base = room(h, lifetime, 4ULL * native.sizeOf<KernelEvent>())
+        change(base, 0ULL, fd, EVFILT_READ, (interest & READABLE) ~= 0ULL)
+        change(base, 1ULL, fd, EVFILT_WRITE, (interest & WRITABLE) ~= 0ULL)
+
+        return apply(poller, base, 2ULL, ENOENT, ENOENT)
+    end
+end
+
+-- Waits, without reaping it, until child `pid` can be reaped. The filter
+-- refuses a child already exiting, and reports an exit, a moment before
+-- waitpid can collect it: exiting is all it still does then.
+local function reapable(h: heap.Heap*, pid: uint64): nil
+    local state = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local lifetime = strings.open(h, state as strings.Builder*)
+        local info = room(h, lifetime, SIGNAL_INFO_BYTES)
+        while true do
+            local status: int64 = waitid(P_PID, native.index(pid), info, WEXITED | WNOWAIT)
+            if status == 0 or not c.interrupted() then
+                break
+            end
+        end
+    end
+end
+
+-- Has `poller` report child `pid`'s exit once, as an event: 0, or ESRCH
+-- when it has already exited.
+export function watch(h: heap.Heap*, poller: uint64, pid: uint64): int64
+    local state = strings.Builder(0ULL, 0ULL)
+    local status: int64 = 0
+    @unsafe do
+        local lifetime = strings.open(h, state as strings.Builder*)
+        local base = room(h, lifetime, 2ULL * native.sizeOf<KernelEvent>())
+        change(base, 0ULL, pid, EVFILT_PROC, true)
+        native.store32(base, native.fieldOffset<KernelEvent>("fflags"), native.index(NOTE_EXIT))
+        status = apply(poller, base, 1ULL, 0, 0)
+    end
+    if status == 0 - ESRCH then
+        reapable(h, pid)
+    end
+
+    return status
+end
+
+-- Stops watching child `pid`'s exit, which may have been reported: 0.
+export function unwatch(h: heap.Heap*, poller: uint64, pid: uint64): int64
+    local state = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local lifetime = strings.open(h, state as strings.Builder*)
+        local base = room(h, lifetime, 2ULL * native.sizeOf<KernelEvent>())
+        change(base, 0ULL, pid, EVFILT_PROC, false)
+
+        return apply(poller, base, 1ULL, ENOENT, ESRCH)
+    end
+end
+
+-- Waits at most `nanos` nanoseconds, or without limit when it is all ones,
+-- for one event: its descriptor above EVENT_BITS with its readiness, or a
+-- child's process id with EXITED; 0 when the time passed first or a signal
+-- interrupted the wait.
+export function wait(h: heap.Heap*, poller: uint64, nanos: uint64): int64
+    local state = strings.Builder(0ULL, 0ULL)
+    local ident: uint64 = 0ULL
+    local filter: uint64 = 0ULL
+    local flags: uint64 = 0ULL
+    @unsafe do
+        local lifetime = strings.open(h, state as strings.Builder*)
+        local base = room(h, lifetime, native.sizeOf<KernelEvent>() + native.sizeOf<TimeSpec>())
+        local limit = native.offset(base, native.index(native.sizeOf<KernelEvent>()))
+        native.store64(limit, native.fieldOffset<TimeSpec>("seconds"), nanos // NANOS)
+        native.store64(limit, native.fieldOffset<TimeSpec>("nanos"), nanos % NANOS)
+        if nanos == FOREVER then
+            limit = native.pointer(0ULL)
+        end
+        local count: int64 = kevent(native.index(poller), native.pointer(0ULL), 0, base, 1, limit)
+        if count < 0 then
+            if c.interrupted() then
+                return 0
+            end
+            return c.failure()
+        end
+        if count == 0 then
+            return 0
+        end
+        ident = native.load64(base, native.fieldOffset<KernelEvent>("ident"))
+        filter = native.word(native.load16(base, native.fieldOffset<KernelEvent>("filter")))
+        flags = native.word(native.load16(base, native.fieldOffset<KernelEvent>("flags")))
+    end
+    if filter == EVFILT_PROC then
+        reapable(h, ident)
+        return native.index(ident << EVENT_BITS | EXITED)
+    end
+    local bits: uint64 = 0ULL
+    if filter == EVFILT_READ then
+        bits = READABLE
+    elseif filter == EVFILT_WRITE then
+        bits = WRITABLE
+    end
+    if (flags & EV_EOF) ~= 0ULL then
+        bits = bits | HANGUP
+    end
+    if (flags & EV_ERROR) ~= 0ULL then
+        bits = bits | FAILED
+    end
+
+    return native.index(ident << EVENT_BITS | bits)
+end
+
+-- Makes `fd` close on exec, and nonblocking when `nonblocking`: 0.
+local function configure(fd: int64, nonblocking: boolean): int64
+    local flags: int64 = fcntl(fd, F_GETFL)
+    if flags < 0 then
+        return c.failure()
+    end
+    if nonblocking then
+        local set: int64 = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
+        if set ~= 0 then
+            return c.failure()
+        end
+    end
+    local inherited: int64 = fcntl(fd, F_SETFD, FD_CLOEXEC)
+    if inherited ~= 0 then
+        return c.failure()
+    end
+
+    return 0
+end
+
+-- A pipe whose ends close on exec, each nonblocking as `reader` and
+-- `writer` say: the read end's descriptor, and the write end's above it
+-- from bit WRITE_END.
+export function pipeWith(h: heap.Heap*, reader: boolean, writer: boolean): int64
+    local state = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local lifetime = strings.open(h, state as strings.Builder*)
+        local fds = room(h, lifetime, PIPE_BYTES)
+        local made: int64 = pipe(fds)
+        if made ~= 0 then
+            return c.failure()
+        end
+        local first = native.load32(fds, 0)
+        local second = native.load32(fds, INT_BYTES)
+        local status = configure(first, reader)
+        if status == 0 then
+            status = configure(second, writer)
+        end
+        if status ~= 0 then
+            local _: int64 = close(first)
+            local _: int64 = close(second)
+            return status
+        end
+
+        return native.index((native.word(first) & LOW_WORD) | native.word(second) << WRITE_END)
+    end
+end
