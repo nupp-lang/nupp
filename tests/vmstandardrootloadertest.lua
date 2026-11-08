@@ -198,7 +198,7 @@ assert(answer == 7)
     test.eq(codes, "", messages)
 end
 
-function M.managedCoroutineNamespacesRetainOwnedFunctionsAndExtendFinalMembers()
+function M.managedCoroutineNamespacesExtendFinalMembersAndUsePublicLifetimes()
     local members = require("nupp.compiler.types.members")
     local env = coroutineContext()
     local namespace = env.globals.coroutine.t
@@ -249,7 +249,8 @@ return coroutine.iscancelled(2)
         env
     )
     test.eq(codes, "", messages)
-    _, codes = checkedCoroutine(
+    local closed
+    closed, codes, messages = checkedCoroutine(
         [[
 local child = coroutine.create(function(): nil end)
 coroutine.close(child)
@@ -257,7 +258,8 @@ return coroutine.status(child)
 ]],
         env
     )
-    test.eq(codes, "NUPP2601", "namespace shape retains owned take/close refusals")
+    test.eq(codes, "", messages)
+    test.eq(require("program").run(closed, "nativecoroutineclosedstatus"), "dead")
 end
 
 function M.nativeTaskDeclarationsKeepCanonicalFunctionResultsAndScopeBorrows()
