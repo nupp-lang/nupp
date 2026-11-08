@@ -178,8 +178,6 @@ export function libraryValue(ctx: any, node: any): integer?
     return qualifiedvalue(ctx, node)
 end
 
--- Ownership qualifiers (affine, borrowed, pinned) wrap the type a value
--- has at run time, as `const` does.
 -- `t` without its literal, const and ownership qualifiers.
 local function unqualified(t: any): any
     while t
@@ -190,6 +188,8 @@ local function unqualified(t: any): any
     return t
 end
 
+-- Ownership qualifiers (affine, borrowed, pinned) wrap the type a value
+-- has at run time, as `const` does.
 export function typeKind(t: any): string
     t = unqualified(t)
 
