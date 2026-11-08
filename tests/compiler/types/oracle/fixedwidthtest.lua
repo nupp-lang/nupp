@@ -9,6 +9,15 @@ local test = require("assert")
 
 local HERE = require("helpers.paths").tests
 
+if os.getenv("NUPP_TEST_FIXED_SOURCE") == "1" then
+    local root = assert(envMod.compilerRoot())
+    local project = require("nupp.tools.vm.project")
+    local env = envMod.new(root, {config = project.manifest(root .. "/nupp.lua"), cache = false})
+    local compile = require("nupp.tools.cli.compile")
+    local loadImage = assert(rawget(_G, "__nupp_load_image"))
+    fixed = loadImage(assert(compile.image(root .. "/src/nupp/compiler/types/fixedwidth.nupp", env)))()
+end
+
 -- One environment for the whole suite.
 --
 -- Every case checks against an environment built exactly this way, and
@@ -209,6 +218,47 @@ function M.storageOnlyWalkHandlesCyclesAndFreshNominalMembers()
     testAssert.eq(fixed.storageOnlyValue(owner), types.uint8)
     owner.byname.value = types.number
     testAssert.eq(fixed.storageOnlyValue(owner), nil)
+end
+
+function M.storageOnlyWalkPreservesDepthFirstFieldAndIndexerOrder()
+    local first = types.nominal("FirstWidth", "record")
+    first.fieldOrder = {"value"}
+    first.byname.value = types.uint8
+    local second = types.nominal("SecondWidth", "record")
+    second.fieldOrder = {"value"}
+    second.byname.value = types.int16
+    local outer = types.nominal("OrderedWidths", "record")
+    outer.fieldOrder = {"first", "second"}
+    outer.byname.first, outer.byname.second = first, second
+    testAssert.eq(fixed.storageOnlyValue(outer), types.uint8)
+    testAssert.eq(fixed.storageOnlyValue(outer, {[first.id] = true}), types.int16)
+    local field = types.shape({{name = "value", read = first, write = second}}, {
+        readKey = types.string,
+        readValue = types.uint16,
+        writeKey = types.string,
+        writeValue = types.int8
+    })
+    testAssert.eq(fixed.storageOnlyValue(field), types.uint8)
+    testAssert.eq(fixed.storageOnlyValue(field, {[first.id] = true}), types.int16)
+    testAssert.eq(fixed.storageOnlyValue(field, {[first.id] = true, [second.id] = true}), types.uint16)
+    testAssert.eq(fixed.storageOnlyValue(types.func({types.array(first)}, {second})), types.uint8)
+    testAssert.eq(fixed.storageOnlyValue(types.func({types.number}, {second})), types.int16)
+    testAssert.eq(fixed.storageOnlyValue(types.tuple({first, second})), types.uint8)
+    local map = types.map(types.string, first)
+    map.writeValue = second
+    testAssert.eq(fixed.storageOnlyValue(map), types.uint8)
+    testAssert.eq(fixed.storageOnlyValue(map, {[first.id] = true}), types.int16)
+end
+
+function M.storageOnlyWalkHandlesDeepNominalChainsWithoutRecursiveCalls()
+    local nextType = types.uint8
+    for index = 1, 1500 do
+        local owner = types.nominal("DeepWidth" .. index, "record")
+        owner.fieldOrder = {"value"}
+        owner.byname.value = nextType
+        nextType = owner
+    end
+    testAssert.eq(fixed.storageOnlyValue(nextType), types.uint8)
 end
 
 function M.recordFactsDoNotSurviveGradualErasure()
