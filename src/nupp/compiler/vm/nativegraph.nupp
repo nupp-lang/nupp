@@ -906,6 +906,22 @@ function nativegraph.switchCase(ctx: any, value: any, subject: integer, kind: st
     return ctx.emit(value, "NativeICmp", {subject, candidate, "=="}, "boolean") as integer
 end
 
+-- A call of a `cdef function` (nativeos.foreign): its value, nil when it
+-- answers nothing or an operand stopped the block.
+local function foreignCall(ctx: any, n: any, expected: string?, value: boolean): integer?
+    local declaration = nativeos.foreign(ctx.fn, n, expected)
+    need(not value or declaration.result ~= "nil", "void foreign call is a statement")
+    need(expected == nil or expected == declaration.result, "foreign result changes exact kind")
+    local operands = ctx.operands(n.args.exprs or {}, declaration.params)
+    if not operands then
+        return nil
+    end
+    table.insert(operands, 1, declaration)
+    local result = declaration.result ~= "nil" and declaration.result or nil
+
+    return ctx.emit(n, "NativeHelperCall", operands, result) as integer?
+end
+
 function nativegraph.call(ctx: any, n: any, expected: string?): integer?
     if service.raise(ctx, n) then
         nativegraph.statementCall(ctx, n)
@@ -962,6 +978,8 @@ function nativegraph.call(ctx: any, n: any, expected: string?): integer?
             ctx.g.nativePhysical.values[value] = declaration.physical.result
         end
         return service.afterCall(ctx, n, declaration, value)
+    elseif nativeos.isForeign(n) then
+        return foreignCall(ctx, n, expected, true)
     elseif moduleName == "nupp.runtime.vm.frames" then
         local access = framecontract.read(n.obj.name.definition, name as string)
         local result = access.kind == "status" and "int64" or "voidptr"
@@ -1161,6 +1179,8 @@ function nativegraph.statementCall(ctx: any, call: any): nil
         end
         emit(call, "NativeLeafCall", operands, nil)
         local _ = service.afterCall(ctx, call, declaration, nil)
+    elseif nativeos.isForeign(call) then
+        local _ = foreignCall(ctx, call, nil, false)
     elseif moduleName == "nupp.runtime.vm.slots" then
         local contract = slotcontract.read(call.obj.name.definition, name as string)
         need(contract.write, "slot read is not a statement")

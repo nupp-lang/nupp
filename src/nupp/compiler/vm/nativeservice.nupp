@@ -2,6 +2,7 @@ module nupp.compiler.vm.nativeservice
 
 local unit = require("nupp.compiler.vm.nativeunit")
 local layout = require("nupp.compiler.targetlayout")
+local nativeos = require("nupp.compiler.vm.nativeos")
 const MAX_OWNERS: integer = 2048
 local service = {MAX_OWNERS = MAX_OWNERS}
 local scopedCalls: any = setmetatable({}, {__mode = "k"})
@@ -302,6 +303,10 @@ local function catalog(entry: any, roots: any, review: any): any
                             item.scoped = true
                             state.calls[node] = {owner = owner, target = target, os = bound}
                         end
+                    elseif nativeos.isForeign(node) then
+                        -- A foreign call is the C call itself (nativeos.foreign):
+                        -- it neither collects nor raises and needs no scope.
+                        local _ = nativeos.foreign(owner, node, nil)
                     elseif moduleName == "nupp.runtime.vm.intrinsics" then
                         local checked = unit.intrinsicDeclaration(owner, node)
                         local collects, mutates = require("nupp.compiler.vm.nativegraph").intrinsicHazards(checked.name)

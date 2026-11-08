@@ -380,39 +380,91 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                 case "NativeHelperCall" -> do
                     assert(unbound, "S0 graph: OS call requires checked compiler input")
                     local declaration = args[1]
-                    local slot = nativeos.slot(declaration, bound.body)
-                    local symbol = "core_os_" .. tostring(slot)
-                    local imported = imports[symbol]
-                    if not imported then
-                        local kinds = {}
-                        for at, kind in ipairs(declaration.params) do
-                            kinds[at] = ir.kind(machineKind(kind))
-                        end
-                        f.signatures[
-                            #f.signatures + 1
-                        ] = ir.Signature(
-                            params = kinds,
-                            results = {ir.kind(machineKind(declaration.result))},
-                            convention = ir.C
-                        )
-                        imported = #f.importNames + 1
-                        f.importNames[imported], f.importSignatures[imported] = symbol, #f.signatures
-                        imports[symbol], pageImports[symbol] = imported, declaration
+                    local binding = nativeos.binding(declaration)
+                    local narrow = nativeos.narrow(declaration)
+                    local kinds = {}
+                    for at, kind in ipairs(declaration.params) do
+                        kinds[at] = ir.kind(machineKind(kind))
                     end
-                    local values = {}
+                    local returned = declaration.result == "nil" and 0
+                        or ir.kind(narrow and "i32" or machineKind(declaration.result))
+                    local signature = ir.Signature(
+                        params = kinds,
+                        results = returned == 0 and {} or {returned},
+                        convention = ir.C,
+                        fixed = binding and binding.fixed or nil
+                    )
+                    local op: integer = ir.opcode("call")
+                    local aux: integer = 0
+                    local values: {integer} = {}
+                    if binding then
+                        -- The symbol, resolved once into the bridge's table
+                        -- (s0.select), then called through.
+                        local tableSlot, openSlot, symbolSlot = nativeos.foreignImports()
+                        local symbol = table.concat(
+                            {
+                                "foreign",
+                                tostring(tableSlot),
+                                tostring(openSlot),
+                                tostring(symbolSlot),
+                                binding.library,
+                                binding.symbol
+                            },
+                            "\0"
+                        )
+                        local resolver = imports[symbol]
+                        if not resolver then
+                            f.signatures[
+                                #f.signatures + 1
+                            ] = ir.Signature(params = {}, results = {ir.I64}, convention = ir.C)
+                            resolver = #f.importNames + 1
+                            f.importNames[resolver], f.importSignatures[resolver] = symbol, #f.signatures
+                            imports[symbol] = resolver
+                        end
+                        nextValue = nextValue + 1
+                        values[1] = nextValue
+                        local at = ir.instruction(f, op, nextValue, ir.I64, {}, 0, resolver)
+                        positions[
+                            at
+                        ], instructions[at], segments[at], blocks[at] = position, operation, segment, blockIndex
+                        f.signatures[#f.signatures + 1] = signature
+                        op, aux = ir.opcode("call_indirect"), #f.signatures
+                    else
+                        local symbol = "core_os_" .. tostring(nativeos.slot(declaration, bound.body))
+                        aux = imports[symbol]
+                        if not aux then
+                            f.signatures[#f.signatures + 1] = signature
+                            aux = #f.importNames + 1
+                            f.importNames[aux], f.importSignatures[aux] = symbol, #f.signatures
+                            imports[symbol], pageImports[symbol] = aux, declaration
+                        end
+                    end
                     for at = 2, #args do
                         values[#values + 1] = (args[at] as integer) + 1
                     end
-                    local at = ir.instruction(
-                        f,
-                        ir.opcode("call"),
-                        assert(result),
-                        ir.kind(machineKind(declaration.result)),
-                        values,
-                        0,
-                        imported
-                    )
+                    -- A 32-bit C result arrives with its upper bits unset
+                    -- and is extended to the value the graph names.
+                    local called: integer = result or 0
+                    if narrow and result then
+                        nextValue = nextValue + 1
+                        called = nextValue
+                    end
+                    local at = ir.instruction(f, op, called, returned, values, 0, aux)
                     positions[at], instructions[at], segments[at], blocks[at] = position, operation, segment, blockIndex
+                    if narrow and result then
+                        at = ir.instruction(
+                            f,
+                            ir.opcode(narrow == "int32" and "sextend" or "uextend"),
+                            result,
+                            ir.kind(machineKind(declaration.result)),
+                            {called},
+                            0,
+                            0
+                        )
+                        positions[
+                            at
+                        ], instructions[at], segments[at], blocks[at] = position, operation, segment, blockIndex
+                    end
                     yield nil
                 end
                 case "NativeConstant" -> do
@@ -1046,7 +1098,7 @@ function sink.verifyLinkInputs(roots: {any}, functions: {[string]: any}): any
         for index, symbol in ipairs(code.fixupName) do
             if code.fixupKind[index] == selector.IMPORT_LOAD then
                 imports[code][symbol] = codeImport(saved, symbol)
-            else
+            elseif code.fixupKind[index] ~= selector.FOREIGN_CELL then
                 local target = assert(functions[symbol], "core link unresolved function")
                 codeTarget(saved, symbol, (assert(verified[target], "S0 graph: unchecked link target")))
             end

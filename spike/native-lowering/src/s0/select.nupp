@@ -20,6 +20,15 @@ local SIGNED_LT, SIGNED_GE = ir.condition("slt"), ir.condition("sge")
 local UNORDERED_EQ, ORDERED_NE, LESS_GREATER = ir.condition("ueq"), ir.condition("one"), ir.condition("ltgt")
 
 selector.B26, selector.BL26, selector.IMPORT_LOAD = 1, 2, 3
+-- A foreign symbol's table word: the linker adds the slot to the scaled offset.
+selector.FOREIGN_CELL = 4
+-- An import naming a foreign symbol to resolve, which the sink spells as
+-- "foreign", the table, dlopen and dlsym slots, the library and the symbol.
+const FOREIGN_PREFIX: string = "foreign\0"
+-- dlopen's RTLD_NOW, the same on macOS and Linux.
+const LOAD_NOW: integer = 2
+-- The trap a call of a foreign symbol that did not resolve takes.
+const MISSING_SYMBOL: integer = 0xf0
 
 record selector.Code
     words: {integer}
@@ -247,6 +256,9 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     local transportDestinations: {integer} = {}
     local transportKinds: {integer} = {}
     local abiRegisters: {integer} = {}
+    local abiOffsets: {integer} = {}
+    local abiSizes: {integer} = {}
+    local stagedRegisters: {integer} = {}
     local moveTarget = selector.target()
     local moveWorkspace = allocate.workspace()
 
@@ -472,26 +484,119 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         emit(kind == selector.B26 and arm.b(0) or kind == selector.BL26 and arm.bl(0) or arm.ldr(8, 16, 22, 0))
     end
 
-    local function abi(kinds: {integer}): nil
+    -- A foreign symbol's cached address, at its table slot (`nupp.core.link`).
+    local function cell(word: integer, key: string): nil
+        code.fixupWord[
+            #code.fixupWord + 1
+        ], code.fixupKind[#code.fixupKind + 1] = #code.words + 1, selector.FOREIGN_CELL
+        code.fixupName[#code.fixupName + 1], code.fixupAddend[#code.fixupAddend + 1] = key, 0
+        emit(word)
+    end
+
+    -- Writes `text` and a NUL below sp: the bytes it took.
+    local function pushText(text: string): integer
+        local bytes = align(#text + 1, 16)
+        assert(bytes < 4096, "S0 select: foreign name length")
+        emit(arm.sub_imm(64, 31, 31, bytes, 0))
+        for offset = 0, bytes - 8, 8 do
+            local word: integer = 0
+            for index = 1, 8 do
+                word = word | ((text:byte(offset + index) or 0) << ((index - 1) * 8))
+            end
+            constant(17, word, 64)
+            emit(arm.str(8, 17, 31, offset))
+        end
+
+        return bytes
+    end
+
+    -- A foreign call's symbol in x0, as a C call answers it. The bridge's
+    -- table (x22's import `table`) keeps each symbol and library once
+    -- resolved; the first call loads the library with dlopen, the program
+    -- itself for "", and finds the symbol with dlsym. A symbol that is not
+    -- there traps rather than being called.
+    local function resolve(name: string): nil
+        local tableSlot, openSlot, symbolSlot, library, symbol = name:match(
+            "^foreign\0(%d+)\0(%d+)\0(%d+)\0(.-)\0(.*)$"
+        )
+        assert(symbol ~= nil, "S0 select: foreign import name")
+        local tableAt = (tonumber(tableSlot) as integer) * 8
+        local symbolKey, libraryKey = "symbol\0" .. library .. "\0" .. symbol, "library\0" .. library
+        emit(arm.ldr(8, 16, 22, tableAt))
+        cell(arm.ldr(8, 0, 16, 0), symbolKey)
+        local cached = #code.words + 1
+        emit(arm.cbnz(64, 0, 0))
+        cell(arm.ldr(8, 1, 16, 0), libraryKey)
+        local opened = #code.words + 1
+        emit(arm.cbnz(64, 1, 0))
+        local bytes: integer = 0
+        if library == "" then
+            emit(arm.movz(64, 0, 0, 0))
+        else
+            bytes = pushText(library)
+            emit(arm.add_imm(64, 0, 31, 0, 0))
+        end
+        constant(1, LOAD_NOW, 64)
+        emit(arm.ldr(8, 16, 22, (tonumber(openSlot) as integer) * 8))
+        emit(arm.blr(16))
+        if bytes > 0 then
+            emit(arm.add_imm(64, 31, 31, bytes, 0))
+        end
+        emit(arm.ldr(8, 16, 22, tableAt))
+        cell(arm.str(8, 0, 16, 0), libraryKey)
+        emit(arm.mov_reg(64, 1, 0))
+        code.words[opened] = arm.cbnz(64, 1, (#code.words + 1 - opened) * 4)
+        -- A library that did not load leaves x0 zero.
+        local missing = #code.words + 1
+        emit(arm.cbz(64, 1, 0))
+        emit(arm.mov_reg(64, 0, 1))
+        bytes = pushText(symbol)
+        emit(arm.add_imm(64, 1, 31, 0, 0))
+        emit(arm.ldr(8, 16, 22, (tonumber(symbolSlot) as integer) * 8))
+        emit(arm.blr(16))
+        emit(arm.add_imm(64, 31, 31, bytes, 0))
+        emit(arm.ldr(8, 16, 22, tableAt))
+        cell(arm.str(8, 0, 16, 0), symbolKey)
+        local done = #code.words + 1
+        code.words[cached] = arm.cbnz(64, 0, (done - cached) * 4)
+        code.words[missing] = arm.cbz(64, 1, (done - missing) * 4)
+        emit(arm.cbnz(64, 0, 8))
+        emit(arm.brk(MISSING_SYMBOL))
+    end
+
+    -- Where each argument goes: abiRegisters holds its register, or 0 for
+    -- one on the C stack at abiOffsets (abiSizes bytes); the answer is the
+    -- stack's extent. Past the registers, and for each variadic argument,
+    -- this is Apple's arm64 convention: a named argument at its own
+    -- alignment, a variadic one in an 8-byte slot.
+    local function abi(kinds: {integer}, fixed: integer?): integer
         local ints: integer = 0
         local floats: integer = 0
+        local offset: integer = 0
         local registers = abiRegisters
         for p, kind in ipairs(kinds) do
-            if ir.isFloat(kind) then
+            local named = fixed == nil or p <= fixed
+            local floating = ir.isFloat(kind)
+            if named and floating and floats < 8 then
                 registers[p], floats = 65 + floats, floats + 1
-            else
+            elseif named and not floating and ints < 8 then
                 registers[p], ints = 1 + ints, ints + 1
+            else
+                local size = named and bits(kind) // 8 or 8
+                offset = align(offset, size)
+                registers[p], abiOffsets[p], abiSizes[p] = 0, offset, size
+                offset = offset + size
             end
         end
-        assert(ints <= 8 and floats <= 8, "S0 select: stack ABI arguments unsupported")
-
         for p = #registers, #kinds + 1, -1 do
             registers[p] = nil
         end
+
+        return align(offset, 16)
     end
 
     emit(arm.str(8, 30, 23, 0))
-    abi(f.signature.params)
+    assert(abi(f.signature.params, nil) == 0, "S0 select: stack ABI parameters unsupported")
     local incoming, incomingLocations = abiRegisters, transportDestinations
     for p, physical in ipairs(incoming) do
         transportSources[p], transportKinds[p] = physical, f.signature.params[p]
@@ -733,39 +838,70 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                     local indirect = op == CALL_INDIRECT or op == RETURN_CALL_INDIRECT
                     local tail = op == RETURN_CALL or op == RETURN_CALL_INDIRECT
                     local signature = colSignatures[indirect and colAux[at] or colImportSignatures[colAux[at]]]
-                    abi(signature.params)
+                    local name = not indirect and colImportNames[colAux[at]] or ""
+                    local stackBytes = abi(signature.params, signature.fixed)
+                    assert(
+                        stackBytes == 0 or signature.convention == ir.C and not tail,
+                        "S0 select: stack ABI arguments need a C call"
+                    )
                     local registers = abiRegisters
                     local shift = indirect and 1 or 0
                     assert(nargs == #registers + shift, "S0 select: call arity")
+                    if stackBytes > 0 then
+                        -- What the registers do not hold goes on the C stack
+                        -- below sp, which Nupp code leaves aligned.
+                        assert(stackBytes < 4096, "S0 select: C stack argument extent")
+                        emit(arm.sub_imm(64, 31, 31, stackBytes, 0))
+                        for p, physical in ipairs(registers) do
+                            if physical == 0 then
+                                local value = args[firstArg + shift + p - 1]
+                                local valueKind = colValueKinds[value]
+                                local reg = source(value)
+                                emit(
+                                    ir.isFloat(valueKind) and arm.str_fp(bits(valueKind), reg, 31, abiOffsets[p])
+                                    or arm.str(abiSizes[p], reg, 31, abiOffsets[p])
+                                )
+                                finish(0, 0)
+                            end
+                        end
+                    end
                     local parallel = true
+                    local count: integer = 0
                     for p = 1, nargs do
                         local value = args[firstArg + p - 1]
                         assert(not tail or not stackValues[value], "S0 select: tail call retains stack address")
-                        parallel = parallel and allocationLocation[value] ~= 0 and a.rematerialize[value] == 0
-                        transportSources[
-                            p
-                        ], transportDestinations[p], transportKinds[p] = allocationLocation[value], p <= shift
-                            and 17
-                            or registers[p - shift], colValueKinds[value]
+                        local physical = p <= shift and 17 or registers[p - shift]
+                        if physical ~= 0 then
+                            parallel = parallel and allocationLocation[value] ~= 0 and a.rematerialize[value] == 0
+                            count = count + 1
+                            transportSources[
+                                count
+                            ], transportDestinations[
+                                count
+                            ], transportKinds[count] = allocationLocation[value], physical, colValueKinds[value]
+                        end
                     end
                     if parallel then
                         -- x16 holds the indirect target; call destinations never
                         -- include spills.
                         moveTarget.scratchInt = 18
-                        transport(nargs)
+                        transport(count)
                         moveTarget.scratchInt = 17
                     else
+                        local staged: integer = 0
                         for p = 1, nargs do
-                            local value = args[firstArg + p - 1]
-                            local reg = source(value)
-                            save(ir.isFloat(colValueKinds[value]) and reg + 65 or reg + 1, stageBase + (p - 1) * 8)
-                            finish(0, 0)
+                            local physical = p <= shift and 17 or registers[p - shift]
+                            if physical ~= 0 then
+                                local value = args[firstArg + p - 1]
+                                local reg = source(value)
+                                save(ir.isFloat(colValueKinds[value]) and reg + 65 or reg + 1, stageBase + staged * 8)
+                                finish(0, 0)
+                                staged = staged + 1
+                                stagedRegisters[staged] = physical
+                            end
                         end
-                        for p, physical in ipairs(registers) do
-                            restore(physical, stageBase + (p + shift - 1) * 8)
-                        end
-                        if indirect then
-                            restore(17, stageBase)
+                        for p = 1, staged do
+                            restore(stagedRegisters[p], stageBase + (p - 1) * 8)
                         end
                     end
                     if tail then
@@ -778,7 +914,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                         if indirect then
                             emit(tail and arm.br(16) or arm.blr(16))
                         else
-                            symbolic(tail and selector.B26 or selector.BL26, colImportNames[colAux[at]])
+                            symbolic(tail and selector.B26 or selector.BL26, name)
                         end
                         if not tail then
                             local high, low = code.frameBytes >> 12, code.frameBytes & 4095
@@ -789,11 +925,17 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                                 emit(arm.sub_imm(64, 23, 23, low, 0))
                             end
                         end
+                    elseif name:sub(1, #FOREIGN_PREFIX) == FOREIGN_PREFIX then
+                        assert(not tail and nargs == 0, "S0 select: foreign resolution takes nothing")
+                        resolve(name)
                     else
                         if not indirect then
-                            symbolic(selector.IMPORT_LOAD, colImportNames[colAux[at]])
+                            symbolic(selector.IMPORT_LOAD, name)
                         end
                         emit(tail and arm.br(16) or arm.blr(16))
+                    end
+                    if stackBytes > 0 then
+                        emit(arm.add_imm(64, 31, 31, stackBytes, 0))
                     end
                     if not tail and second ~= 0 then
                         assert(

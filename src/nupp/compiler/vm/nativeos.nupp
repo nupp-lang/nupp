@@ -77,7 +77,14 @@ local definitions = {
         cResult = "int64"
     },
     processsignal = {slot = 59, params = {"uint64", "uint64"}, result = "int64", cResult = "int64"},
-    poolsettle = {slot = 60, params = {"uint64"}, result = "int64", cResult = "int64"}
+    poolsettle = {slot = 60, params = {"uint64"}, result = "int64", cResult = "int64"},
+    dlopen = {slot = 61, params = {"voidptr", "int64"}, result = "voidptr", cResult = "voidptr"},
+    dlsym = {slot = 62, params = {"voidptr", "voidptr"}, result = "voidptr", cResult = "voidptr"},
+    dlclose = {slot = 63, params = {"voidptr"}, result = "int64", cResult = "int64", narrow = "int32"},
+    errnoLocation = {slot = 64, params = {}, result = "voidptr", cResult = "voidptr"},
+    -- Not a function: the table foreign calls cache their resolved symbols
+    -- in, foreignSlots words the bridge zeroes.
+    foreignTable = {slot = 65, table = true}
 }
 
 local function need(value: any, message: string): any
@@ -103,6 +110,62 @@ end
 
 function os.importCount(): integer
     return importCount
+end
+
+-- How many symbols and libraries one program's foreign calls may resolve:
+-- the words of the bridge's table (`SLOTS` in native/core/bridge/src/library.rs).
+const FOREIGN_SLOTS: integer = 1024
+
+function os.foreignSlots(): integer
+    return FOREIGN_SLOTS
+end
+
+-- The import slots a foreign call's resolution reads: the table, dlopen and dlsym.
+function os.foreignImports(): (integer, integer, integer)
+    return definitions.foreignTable.slot, definitions.dlopen.slot, definitions.dlsym.slot
+end
+
+-- The exact kinds a foreign call passes and answers, as the C ABI does.
+local foreignKinds: {
+    [string]: boolean
+} = {
+    voidptr = true,
+    int32 = true,
+    uint32 = true,
+    int64 = true,
+    uint64 = true,
+    boolean = true,
+    float32 = true,
+    float64 = true
+}
+
+-- The C results that arrive in fewer than 64 bits, which the caller extends.
+local narrowKinds: {[string]: boolean} = {int32 = true, uint32 = true}
+
+-- The identity the checker recorded for a call of a `cdef function`
+-- ("function", its library and its symbol), nil for any other call.
+local function cdefOf(call: any): string?
+    if call.kind ~= "call" or call.obj.kind ~= "name" or not call.cdefCall then
+        return nil
+    end
+
+    return call.cdefIdentity
+end
+
+-- Whether `call` calls a `cdef function` its module declares.
+function os.isForeign(call: any): boolean
+    return cdefOf(call) ~= nil
+end
+
+-- The exact kind a foreign argument or result has: an integer literal or an
+-- `integer` is int64, as the core holds both.
+local function foreignKind(t: any): string
+    while t and (t.tag == "literal" or t.tag == "const") do
+        t = t.tag == "literal" and t.base or t.inner
+    end
+    local tag = t and (t.tag == "integer" and "int64" or t.tag) or nil
+
+    return need(tag and foreignKinds[tag] and tag, "foreign call kind is not a C scalar or pointer")
 end
 
 local function same(actual: any, expected: any): nil
@@ -222,6 +285,7 @@ function os.call(owner: any, call: any): any
         effect = effect,
         result = result,
         out = out,
+        narrow = spec.narrow,
         fields = {
             moduleName = declaration.moduleName,
             name = declaration.name,
@@ -234,6 +298,105 @@ function os.call(owner: any, call: any): any
     return declaration
 end
 
+-- A call of a `cdef function` its sealed unit declares: a direct C call
+-- through the symbol the first call resolves and the bridge's table keeps
+-- (s0.select). Arguments past a variadic function's declared ones take the
+-- kinds the caller gives them. A 32-bit C result reads as int64 where the
+-- caller expects one, since the call extends it.
+function os.foreign(owner: any, call: any, expected: string?): any
+    local identity = need(cdefOf(call), "foreign call requires a cdef function")
+    local definition = call.obj.token.definition
+    need(
+        unit.callee(owner, call) == nil and not (definition and definition.reassigned),
+        "foreign callee is not its cdef"
+    )
+    local kind, library, symbol = (identity as string):match("^(.-)\0(.-)\0(.*)$")
+    need(kind == "function" and symbol and symbol:match("^[%a_][%w_]*$"), "foreign symbol identity")
+    local signature = call.obj.inferredType
+    need(
+        signature
+        and signature.tag == "func"
+        and signature.foreign
+        and #signature.rets <= 1
+        and not signature.borrowsResult
+        and (signature.ffiOut == nil or #signature.ffiOut == 0),
+        "foreign call requires a plain C signature"
+    )
+    local params, snapshot = {}, {}
+    for index, parameter in ipairs(signature.params) do
+        local mode = signature.paramModes and signature.paramModes[index] or "plain"
+        need(mode == "plain" or mode == "borrows", "foreign parameter ownership")
+        params[index] = foreignKind(parameter)
+    end
+    local fixed = #params
+    local variadic = signature.paramPack.tail ~= nil
+    local exprs = call.args.exprs or {}
+    need(#exprs == fixed or variadic and #exprs > fixed, "foreign source argument count")
+    for index = fixed + 1, #exprs do
+        params[index] = foreignKind(exprs[index].inferredType)
+    end
+    for index, item in ipairs(params) do
+        snapshot[index] = item
+    end
+    local narrow = nil
+    local machineResult = "nil"
+    if signature.rets[1] then
+        machineResult = foreignKind(signature.rets[1])
+        if narrowKinds[machineResult] then
+            narrow = machineResult
+            if expected == "int64" or expected == "uint64" then
+                machineResult = expected
+            end
+        end
+    end
+    local effect = {mayCollect = false, mayPark = false, mayRaise = false, pure = false}
+    local declaration = {
+        moduleName = "nupp.runtime.vm.foreign",
+        name = symbol,
+        params = params,
+        result = machineResult,
+        effects = effect
+    }
+    issued[
+        declaration
+    ] = {
+        bound = {owner = owner, call = call, identity = identity, signature = signature},
+        foreign = {
+            library = library == "<default>" and "" or library,
+            symbol = symbol,
+            fixed = variadic and fixed or nil
+        },
+        params = snapshot,
+        effect = effect,
+        narrow = narrow,
+        fields = {
+            moduleName = declaration.moduleName,
+            name = declaration.name,
+            params = params,
+            result = machineResult,
+            effects = effect
+        }
+    }
+
+    return declaration
+end
+
+-- What a foreign call resolves: its library ("" for the program's own
+-- symbols), its symbol and, when it is variadic, how many arguments it
+-- declares; nil for an OS import.
+function os.binding(declaration: any): any?
+    os.validate(declaration)
+    local foreign = issued[declaration].foreign
+    return foreign and {library = foreign.library, symbol = foreign.symbol, fixed = foreign.fixed} or nil
+end
+
+-- The C result a call answers in fewer than 64 bits, which the caller
+-- extends: "int32" or "uint32", or nil.
+function os.narrow(declaration: any): string?
+    os.validate(declaration)
+    return issued[declaration].narrow
+end
+
 function os.isIssued(declaration: any): boolean
     return issued[declaration] ~= nil
 end
@@ -243,6 +406,15 @@ function os.validate(declaration: any, owner: any?): any
     same(declaration, held.fields)
     same(declaration.params, held.params)
     same(declaration.effects, {mayCollect = false, mayPark = false, mayRaise = false, pure = false})
+    if held.foreign then
+        local bound = held.bound
+        need(owner == nil or owner == bound.owner, "foreign source owner differs")
+        need(
+            cdefOf(bound.call) == bound.identity and bound.call.obj.inferredType == bound.signature,
+            "foreign checked source changed"
+        )
+        return true
+    end
     local bound = unit.osDeclaration(held.bound.owner, held.bound.call)
     need(owner == nil or owner == bound.owner, "OS source owner differs")
     need(

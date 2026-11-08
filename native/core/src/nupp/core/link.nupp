@@ -5,6 +5,9 @@ local selector = require("s0.select")
 local nativeos = require("nupp.compiler.vm.nativeos")
 local link = {}
 
+-- Where an unsigned-offset load or store keeps its scaled offset.
+const SCALED_OFFSET: integer = 10
+
 -- Build-time local Nupp calls only. Typed callers and targets are checked by
 -- the graph sink before selection; this layer resolves code offsets and extent.
 local function assemble(
@@ -24,6 +27,7 @@ local function assemble(
     assert(available >= 0, "core link available extent")
     local spillError = extentError or "core link call-chain spill extent"
     local visiting, heights = {}, {}
+    local cells: {[string]: boolean} = {}
     local height: function(any): integer
     height = function(code: any): integer
         assert(not visiting[code], "core link recursive call graph")
@@ -41,6 +45,8 @@ local function assemble(
                     imports and imports[code] and imports[code][code.fixupName[at]] ~= nil,
                     "core link unissued OS import"
                 )
+            elseif kind == selector.FOREIGN_CELL then
+                cells[code.fixupName[at]] = true
             else
                 assert(kind == selector.B26 or kind == selector.BL26, "core link non-Nupp fixup")
                 local target = functions[code.fixupName[at]]
@@ -75,6 +81,18 @@ local function assemble(
     local words: {integer} = {}
     for _, word in ipairs(prefix) do
         words[#words + 1] = word
+    end
+    -- Each foreign symbol and library the code resolves keeps one word of
+    -- the bridge's table, numbered in name order.
+    local cellNames: {string} = {}
+    for name in pairs(cells) do
+        cellNames[#cellNames + 1] = name
+    end
+    table.sort(cellNames)
+    assert(#cellNames <= nativeos.foreignSlots(), "core link foreign symbol count")
+    local cellSlots: {[string]: integer} = {}
+    for index, name in ipairs(cellNames) do
+        cellSlots[name] = index - 1
     end
     local offsets, frames, locations = {}, {}, {}
 
@@ -132,6 +150,10 @@ local function assemble(
                 )
                 local base, slot, importIndex = offset as integer, word as integer, index as integer
                 words[base // 4 + slot] = arm.ldr(8, 16, 22, importIndex * 8)
+            elseif code.fixupKind[at] == selector.FOREIGN_CELL then
+                local base, slot = offset as integer, word as integer
+                local cell = assert(cellSlots[code.fixupName[at]], "core link foreign cell")
+                words[base // 4 + slot] = words[base // 4 + slot] + ((cell as integer) << SCALED_OFFSET)
             else
                 local target = functions[code.fixupName[at]]
                 local base, slot = offset as integer, word as integer
