@@ -5,14 +5,15 @@ const service = require("nupp.runtime.core.servicescope")
 const entry = require("nupp.core.unitentry")
 const os = require("nupp.runtime.vm.os")
 const context = require("nupp.runtime.core.context")
+const fixture = require("nupp.core.acquisitionunits")
 
 const CHILD: uint64 = 2ULL
 const POOL: uint64 = 3ULL
 const QUOTA: uint64 = 4ULL
 const PIPE: uint64 = 1ULL
 const ORIGINAL: uint64 = 88ULL
-const BAD_FD: int64 = -9
-const NO_CHILD: int64 = -10
+const BAD_FD: int64 = 9
+const NO_CHILD: int64 = 10
 const REFUSED: uint64 = 0xffffffffffffffe8ULL
 
 export function prepare(base: voidptr, bytes: uint64): uint64
@@ -36,18 +37,20 @@ export function finish(scope: voidptr): uint64
         and native.load64(ctx, context.STATUS) == wanted
         and native.load64(ctx, context.ERROR_OWNER) == ORIGINAL
         and native.load64(ctx, context.ERROR_PC) == 0ULL
-    okay = service.close(scope) == 1ULL and okay
-    okay = native.load64(ctx, context.STATUS) == wanted and okay
     okay = native.load64(scope, native.fieldOffset<service.ServiceScope>("error")) == ORIGINAL and okay
+    native.store64(scope, native.fieldOffset<service.ServiceScope>("error"), 0ULL)
+    okay = service.close(scope) == 1ULL and okay
+    okay = fixture.descriptors() == native.load64(extra, 32) and okay
+    okay = native.load64(ctx, context.STATUS) == wanted and okay
     if mode == CHILD then
-        okay = os.processReap(result) == NO_CHILD and okay
+        okay = os.processReap(result) == (0 - NO_CHILD) and okay
     elseif mode == POOL then
         -- Canceled or finished, this exact ticket is spent.
         okay = os.poolCancel(result) == 0 and okay
     else
-        okay = os.fileSeek(result, 0ULL, 0ULL) == BAD_FD and okay
+        okay = os.fileSeek(result, 0ULL, 0ULL) == (0 - BAD_FD) and okay
         if mode == PIPE then
-            okay = os.fileSeek(other, 0ULL, 0ULL) == BAD_FD and okay
+            okay = os.fileSeek(other, 0ULL, 0ULL) == (0 - BAD_FD) and okay
         elseif mode == QUOTA then
             okay = other == REFUSED and okay
         end

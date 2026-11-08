@@ -14,6 +14,8 @@ const POOL: uint64 = 3ULL
 const QUOTA: uint64 = 4ULL
 const REUSE: uint64 = 5ULL
 const READ: uint64 = 1ULL
+const FD_LIMIT: uint64 = 4096ULL
+const BAD_FD: int64 = 9
 const SPEC_BYTES: uint64 = 16ULL
 const PATH_BYTES: uint64 = 9ULL
 const ORIGINAL: uint64 = 88ULL
@@ -22,6 +24,20 @@ const TAIL: uint64 = 0x6cULL
 const SPEC_HEAD: uint64 = 0x6c732f6e69622f61ULL
 const SPEC_TAIL: uint64 = 0x30366100706565ULL
 
+-- Seek-current leaves offsets unchanged; pipes report ESPIPE, absent FDs EBADF.
+export function descriptors(): uint64
+    local count: uint64 = 0ULL
+    local fd: uint64 = 0ULL
+    while fd < FD_LIMIT do
+        if os.fileSeek(fd, 0ULL, 1ULL) ~= (0 - BAD_FD) then
+            count = count + 1ULL
+        end
+        fd = fd + 1ULL
+    end
+
+    return count
+end
+
 -- The observer owns this disjoint scratch until the entry closes.
 export function acquire(address: uint64, mode: uint64, cancel: uint64): uint64
     local scope = native.pointer(address)
@@ -29,6 +45,8 @@ export function acquire(address: uint64, mode: uint64, cancel: uint64): uint64
     local path = native.offset(extra, 64)
     native.store64(path, 0, HEAD)
     native.store64(path, 8, TAIL)
+    local _ = os.poolStart(1ULL)
+    native.store64(extra, 32, descriptors())
     local result: int64 = -1
     local other: uint64 = 0ULL
     if mode == CHILD then
@@ -70,7 +88,8 @@ export function acquire(address: uint64, mode: uint64, cancel: uint64): uint64
     native.store64(frame, native.fieldOffset<frames.Frame>("code"), native.address(path))
     native.store64(ctx, context.CANCELLED, cancel)
     native.store64(ctx, context.REMAINING, 0ULL)
+    local charged = ops.charge(ctx, frame, path)
     service.fail(scope, ORIGINAL, ORIGINAL, ORIGINAL)
 
-    return ops.charge(ctx, frame, path)
+    return charged
 end

@@ -5,11 +5,11 @@ const pages = require("nupp.runtime.core.pagemappings")
 const os = require("nupp.runtime.vm.os")
 const journal = require("nupp.runtime.core.resourcejournal")
 
-const RESOURCE_REFUSAL: int64 = -24
+const RESOURCE_REFUSAL: int64 = 24
 const CLEANUP_FAILURE: uint64 = 4ULL
-const INVALID: int64 = -22
-const NO_CHILD: int64 = -10
-const INTERRUPTED: int64 = -4
+const INVALID: int64 = 22
+const NO_CHILD: int64 = 10
+const INTERRUPTED: int64 = 4
 const TERMINATE: uint64 = 9ULL
 const REAP_WAIT: uint64 = 1000000ULL
 const PIPE_SHIFT: uint64 = 32ULL
@@ -168,11 +168,11 @@ local function drain(scope: voidptr): boolean
             if status == 0 then
                 local _ = os.processsignal(pid, TERMINATE)
             end
-            while status == 0 or status == INTERRUPTED do
+            while status == 0 or status == (0 - INTERRUPTED) do
                 local _ = os.sleepNanos(REAP_WAIT)
                 status = os.processReap(pid)
             end
-            if status > 0 or status == NO_CHILD then
+            if status > 0 or status == (0 - NO_CHILD) then
                 journal.put(record, journal.EMPTY, 0ULL, 0ULL)
             else
                 complete = false
@@ -313,7 +313,7 @@ end
 export function fileOpen(scope: voidptr, path: voidptr, bytes: uint64, flags: uint64): int64
     local record = reserve(scope)
     if record == 0ULL then
-        return RESOURCE_REFUSAL
+        return (0 - RESOURCE_REFUSAL)
     end
 
     return acquired(record, journal.FILE, os.fileOpen(path, bytes, flags), 0ULL)
@@ -347,7 +347,7 @@ end
 export function pollOpen(scope: voidptr): int64
     local record = reserve(scope)
     if record == 0ULL then
-        return RESOURCE_REFUSAL
+        return (0 - RESOURCE_REFUSAL)
     end
 
     return acquired(record, journal.FILE, os.pollOpen(), 0ULL)
@@ -366,12 +366,12 @@ end
 export function pipeOpen(scope: voidptr): int64
     local first = reserve(scope)
     if first == 0ULL then
-        return RESOURCE_REFUSAL
+        return (0 - RESOURCE_REFUSAL)
     end
     local second = reserve(scope)
     if second == 0ULL then
         journal.put(native.pointer(first), journal.EMPTY, 0ULL, 0ULL)
-        return RESOURCE_REFUSAL
+        return (0 - RESOURCE_REFUSAL)
     end
 
     return pipeacquired(first, second, os.pipeOpen())
@@ -385,7 +385,7 @@ end
 export function poolSubmit(scope: voidptr, kind: uint64, word: uint64, base: voidptr, bytes: uint64): int64
     local record = reserve(scope)
     if record == 0ULL then
-        return RESOURCE_REFUSAL
+        return (0 - RESOURCE_REFUSAL)
     end
 
     return acquired(record, journal.JOB, os.poolSubmit(kind, word, base, bytes), kind)
@@ -407,7 +407,7 @@ end
 export function poolFinish(scope: voidptr, ticket: uint64, out: voidptr, room: uint64): int64
     local record = find(scope, journal.TAKEN, ticket)
     if record == 0ULL then
-        return INVALID
+        return (0 - INVALID)
     end
     local item = native.pointer(record)
     local operation = journal.operation(item)
@@ -432,12 +432,12 @@ end
 export function processPipe(scope: voidptr, keep: uint64): int64
     local first = reserve(scope)
     if first == 0ULL then
-        return RESOURCE_REFUSAL
+        return (0 - RESOURCE_REFUSAL)
     end
     local second = reserve(scope)
     if second == 0ULL then
         journal.put(native.pointer(first), journal.EMPTY, 0ULL, 0ULL)
-        return RESOURCE_REFUSAL
+        return (0 - RESOURCE_REFUSAL)
     end
 
     return pipeacquired(first, second, os.processPipe(keep))
@@ -446,7 +446,7 @@ end
 export function processSpawn(scope: voidptr, spec: voidptr, bytes: uint64, flags: uint64): int64
     local record = reserve(scope)
     if record == 0ULL then
-        return RESOURCE_REFUSAL
+        return (0 - RESOURCE_REFUSAL)
     end
 
     return acquired(record, journal.CHILD, os.processSpawn(spec, bytes, flags), 0ULL)
@@ -464,7 +464,7 @@ end
 
 export function processReap(scope: voidptr, pid: uint64): int64
     local status = os.processReap(pid)
-    if status > 0 or status == NO_CHILD then
+    if status > 0 or status == (0 - NO_CHILD) then
         consume(scope, journal.CHILD, pid)
     end
 
@@ -538,7 +538,7 @@ end
 export function fileTemporary(scope: voidptr, out: voidptr, room: uint64): int64
     local record = reserve(scope)
     if record == 0ULL then
-        return RESOURCE_REFUSAL
+        return (0 - RESOURCE_REFUSAL)
     end
 
     return acquired(record, journal.FILE, os.fileTemporary(out, room), 0ULL)
@@ -547,7 +547,7 @@ end
 export function dirOpen(scope: voidptr, fd: uint64, path: voidptr, bytes: uint64): int64
     local record = reserve(scope)
     if record == 0ULL then
-        return RESOURCE_REFUSAL
+        return (0 - RESOURCE_REFUSAL)
     end
 
     return acquired(record, journal.FILE, os.dirOpen(fd, path, bytes), 0ULL)
