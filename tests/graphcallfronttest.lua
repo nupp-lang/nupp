@@ -116,11 +116,12 @@ end
 
 function M.publicCoroutineConstructorsKeepHandlerAwareValueRouting()
     for _, name in ipairs({"create", "wrap"}) do
-        local catalog = checked(
+        local input = checked(
             "return function(body: function(): any) return coroutine." .. name .. "(body) end",
-            "nupp.runtime.coroutineconstructorfront"
+            "nupp.runtime.coroutineconstructorfront",
+            true
         )
-        local node = catalog.owners[2].body.body.stats[1].exprs[1]
+        local node = input.parsed.root.blocks[1].stats[1].exprs[1].body.stats[1].exprs[1]
         assert(graph.coreLibraryCall(node) == nil)
         assert(graph.libraryValue(node.obj) == "coroutine." .. name)
         assert(graph.libraryModule("coroutine." .. name) == "nupp.runtime.luacoroutine")

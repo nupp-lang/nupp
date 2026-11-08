@@ -428,6 +428,10 @@ function program.describe(modules: {any}, entryModule: string): any
         end
         local module = {name = input.name, path = input.path, chunk = owner.id, parsed = parsed}
         p.modules[#p.modules + 1], moduleNames[input.name] = module, module
+        for _, alias in ipairs(graph.coremodulenames(input.name)) do
+            need(moduleNames[alias] == nil or moduleNames[alias] == module, "duplicate core module " .. alias)
+            moduleNames[alias] = module
+        end
         for _, imported in ipairs(scalartypeof.imports(parsed.root)) do
             p.scalartypes.imports[imported.loader] = imported
             p.scalartypes.definitions[imported.definition] = imported

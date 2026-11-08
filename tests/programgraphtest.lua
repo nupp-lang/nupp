@@ -1022,7 +1022,8 @@ return pass((coroutine.running()))
 ]],
         [[
 local function pass<T>(value: T): T return value end
-local task = coroutine.create(function(): integer return 7 end)
+local raw = require("nupp.runtime.rawcoroutine")
+local task = raw.create(function(): integer return 7 end)
 local kept = pass(task)
 return kept:status()
 ]],
