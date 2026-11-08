@@ -1,0 +1,144 @@
+module nupp.core.catalogcoroutineinheritance
+
+local host = require("coroutine.host")
+local score = 0
+local pending: any = nil
+
+local function handler(label: string, allowed: boolean?): any
+    return {
+        park = function(self: any, waiting: any, cleanup: any): nil
+            pending(label)
+        end,
+        canpark = function(self: any): boolean
+            return allowed ~= false
+        end,
+        shutdown = function(self: any): nil
+        end,
+    }
+end
+
+local function wait(): string
+    return coroutine.suspend("inherited wait", function(
+        resume: function(string),
+        context: coroutine.Context
+    ): function()
+        pending = resume
+        return function(): nil
+        end
+    end)
+end
+
+-- The creating installation wins over the one active at resumption.
+do
+    local creating = host.install(handler("creating"))
+    local child = coroutine.create(wait)
+    local wrapped = coroutine.wrap(wait)
+    do
+        local resuming = host.install(handler("resuming"))
+        local ok, answer = coroutine.resume(child)
+        if ok and answer == "creating" and wrapped() == "creating" then
+            score = score + 1
+        end
+    end
+end
+
+local create = coroutine.create
+local wrap = coroutine.wrap
+local public: any = coroutine
+local driver: any = host
+if create == _G.coroutine.create and wrap == _G.coroutine.wrap and public.sus == nil and driver.create == nil then
+    score = score + 2
+end
+
+-- An ended inner installation falls back to the live outer one.
+local delayed: any = nil
+local inherited = false
+do
+    local outer = host.install(handler("outer", false))
+    local inner = host.install(handler("inner"))
+    local child = create(coroutine.cansuspend)
+    inner:close()
+    local ok, answer = coroutine.resume(child)
+    inherited = ok and not answer
+    delayed = wrap(coroutine.cansuspend)
+end
+if inherited and delayed() then
+    score = score + 4
+end
+
+-- Resuming in a handler never grants it to a coroutine created outside.
+local outside = _G.coroutine.create(coroutine.cansuspend)
+do
+    local installation = host.install(handler("resuming", false))
+    local ok, answer = coroutine.resume(outside)
+    if ok and answer then
+        score = score + 8
+    end
+end
+
+-- Closing the creating installation cancels and drains its child's wait.
+local parked: any = nil
+local raised: any = nil
+local cancelled = 0
+do
+    local cancellationHandler: any = {
+        park = function(self: any, waiting: any, cleanup: any): nil
+            parked = coroutine.running()
+            waiting:onresume(function(): nil
+                local target = parked
+                assert(target ~= nil)
+                local ok, problem = coroutine.resume(target)
+                assert(ok, problem)
+            end)
+            while not waiting:ready() do
+                coroutine.yield()
+            end
+        end,
+        canpark = function(self: any): boolean
+            return true
+        end,
+        shutdown = function(self: any): nil
+        end,
+    }
+    local installation = host.install(cancellationHandler)
+    local child = create(function(): nil
+        local ok, problem = pcall(function(): integer
+            return coroutine.suspend("cancel inherited wait", function(
+                resume: function(integer),
+                context: coroutine.Context
+            ): function()
+                return function(): nil
+                    cancelled = cancelled + 1
+                end
+            end)
+        end)
+        if not ok then
+            raised = problem
+        end
+    end)
+    local ok, problem = coroutine.resume(child)
+    assert(ok, problem)
+end
+if cancelled == 1 and coroutine.iscancellation(raised) and coroutine.status(parked) == "dead" then
+    score = score + 16
+end
+
+local function pack(...: any): any
+    return {[0] = select("#", ...), ...}
+end
+
+local gen = wrap(function(...: any): ...any
+    local arguments = pack(...)
+    assert(arguments[0] == 3 and arguments[1] == "start" and arguments[2] == nil and arguments[3] == nil)
+    local resumed = pack(coroutine.yield("yielded", nil, 3, nil))
+    assert(resumed[0] == 3 and resumed[1] == "resume" and resumed[2] == nil and resumed[3] == nil)
+
+    return nil, "done", nil
+end)
+local first = pack(gen("start", nil, nil))
+local last = pack(gen("resume", nil, nil))
+if first[0] == 4 and first[1] == "yielded" and first[3] == 3 and last[0] == 3 and last[2] == "done" then
+    score = score + 32
+end
+
+export = score

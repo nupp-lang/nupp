@@ -114,6 +114,33 @@ return function(value: integer) return calls.i32wrap(value) end
     assert(not node.scalarIntrinsic)
 end
 
+function M.publicCoroutineConstructorsKeepHandlerAwareValueRouting()
+    for _, name in ipairs({"create", "wrap"}) do
+        local catalog = checked(
+            "return function(body: function(): any) return coroutine." .. name .. "(body) end",
+            "nupp.runtime.coroutineconstructorfront"
+        )
+        local node = catalog.owners[2].body.body.stats[1].exprs[1]
+        assert(graph.coreLibraryCall(node) == nil)
+        assert(graph.libraryValue(node.obj) == "coroutine." .. name)
+        assert(graph.libraryModule("coroutine." .. name) == "nupp.runtime.luacoroutine")
+        assert(graph.mayTakeLibraryValue(parser.parse("return coroutine." .. name .. "(f)").root))
+    end
+end
+
+function M.privateCoroutineConstructorRetainsTheRawCoreBoundary()
+    local catalog = checked(
+        [[
+local raw = require("nupp.runtime.rawcoroutine")
+return function(body: any): thread return raw.create(body, 1, nil) end
+]],
+        "nupp.runtime.rawcoroutinefront"
+    )
+    local node = catalog.owners[2].body.body.stats[1].exprs[1]
+    assert(graph.corecallmodule("nupp.runtime.rawcoroutine"))
+    assert(graph.coreLibraryCall(node) == "coroutine.create")
+end
+
 function M.scalarLibraryAliasesInvokeTheirCurrentFunctionValue()
     local cases = {
         {

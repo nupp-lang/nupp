@@ -140,6 +140,7 @@ local CASES: {[string]: {
     errorsMethods = {fixture = "catalog-errors-methods", version = 8},
     recordsAffineReturns = {fixture = "catalog-records-affine-returns", version = 8},
     threadsbasic = {fixture = "catalog-threads-basic", version = 8},
+    coroutineinheritance = {fixture = "catalog-coroutine-inheritance", version = 8, follow = true},
     threadscalls = {fixture = "catalog-threads-calls", version = 8},
     threadsclose = {fixture = "catalog-threads-close", version = 8},
     threadsiterate = {fixture = "catalog-threads-iterate", version = 8},
