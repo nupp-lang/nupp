@@ -13,7 +13,8 @@ local type SpawnOptions = {
 }
 local record Host
     spawn: function(options: SpawnOptions): (any?, any?, any?, any?, integer, string?)
-    poll: function(child: any): (integer?, boolean)
+    -- Older hosts omit the optional terminating signal.
+    poll: function(child: any): (integer?, boolean, integer?)
     kill: function(child: any, force: boolean): nil
     read: function(stream: any, count: integer): string?
     write: function(stream: any, bytes: string): (integer, boolean)

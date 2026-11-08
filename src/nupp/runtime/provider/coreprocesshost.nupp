@@ -67,14 +67,14 @@ export function spawn(options: any): (any?, any?, any?, any?, integer, string?)
     return child, stream(child.stdin), stream(child.stdout), stream(child.stderr), child.id, nil
 end
 
-export function poll(child: any): (integer?, boolean)
+export function poll(child: any): (integer?, boolean, integer?)
     if processes.running(child as processes.Process) then
-        return nil, false
+        return nil, false, nil
     end
     local ended = child.exit
     local signaled = ended.reason == "signal"
 
-    return signaled and SIGNAL_BASE + ended.code or ended.code, signaled
+    return signaled and SIGNAL_BASE + ended.code or ended.code, signaled, signaled and ended.code or nil
 end
 
 export function kill(child: any, force: boolean): nil
