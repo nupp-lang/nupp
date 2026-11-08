@@ -876,6 +876,10 @@ export function mayUseScheduler(root: any): boolean
         if found or type(node) ~= "table" then
             return
         end
+        if spreadsLibrary(node) then
+            found = true
+            return
+        end
         if node.kind == "dotIndex"
             and node.name
             and node.obj
@@ -1413,6 +1417,23 @@ export function expandsResults(expr: any): boolean
     local pack = called.retPack
 
     return pack ~= nil and (pack.tail ~= nil or #pack.head ~= 1)
+end
+
+-- Whether a library call spreads `...` or a call's results last where the
+-- core's fixed-arity library call cannot take them (string.format and
+-- table.move have packed forms), so it calls the library function's value.
+export function spreadsLibrary(node: any): boolean
+    if type(node) ~= "table" or node.kind ~= "call" or libraryValue(node.obj) == nil then
+        return false
+    end
+    local library = coreLibraryCall(node)
+    if library == nil or library == "string.format" or library == "table.move" then
+        return false
+    end
+    local arguments = node.args and node.args.exprs or {}
+    local last = arguments[#arguments]
+
+    return last ~= nil and (last.kind == "vararg" or expandsResults(last))
 end
 
 -- Whether a call's last argument spreads a pack: `...`, or a call whose
