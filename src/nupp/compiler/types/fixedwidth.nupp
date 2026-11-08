@@ -69,105 +69,72 @@ export function storageOnlyValue(t: T.Type?, seen: {[string]: boolean}?): T.Type
         return nil
     end
     seen = seen or {}
-    local pending: {T.Type} = {}
-    while true do
-        if STORAGE_ONLY[raw.tag] then
-            return raw
-        end
-        if COMPOSITE[raw.tag] and not seen[raw.id] then
-            seen[raw.id] = true
-            local first: {T.Type}? = nil
-            local second: {T.Type}? = nil
-            if raw.tag == "nominal" then
-                local origin = (raw.origin or raw) as T.Nominal
-                if raw.declKind ~= "struct"
-                    and origin.moduleName ~= "nupp.mem.span"
-                    and apiidentity.canonical(origin.moduleName or "") ~= "simd"
-                    and apiidentity.canonical(origin.sealedModule or "") ~= "simd"
-                then
-                    local order = raw.fieldOrder or {}
-                    local last: integer = 0
-                    for index in ipairs(order) do
-                        last = index
-                    end
-                    for index = last, 1, -1 do
-                        local value = raw.byname and raw.byname[order[index]]
-                        if value then
-                            pending[#pending + 1] = value
-                        end
-                    end
-                end
-            elseif raw.tag == "array" then
-                if raw.elem then
-                    pending[#pending + 1] = raw.elem
-                end
-            elseif raw.tag == "map" then
-                if raw.writeValue then
-                    pending[#pending + 1] = raw.writeValue
-                end
-                if raw.value then
-                    pending[#pending + 1] = raw.value
-                end
-            elseif raw.tag == "shape" then
-                if raw.indexWriteValue then
-                    pending[#pending + 1] = raw.indexWriteValue
-                end
-                if raw.indexWriteKey then
-                    pending[#pending + 1] = raw.indexWriteKey
-                end
-                if raw.indexReadValue then
-                    pending[#pending + 1] = raw.indexReadValue
-                end
-                if raw.indexReadKey then
-                    pending[#pending + 1] = raw.indexReadKey
-                end
-                local fields = raw.fields or {}
-                local last: integer = 0
-                for index in ipairs(fields) do
-                    last = index
-                end
-                for index = last, 1, -1 do
-                    local field = fields[index]
-                    if field.type then
-                        pending[#pending + 1] = field.type
-                    end
-                    if field.write then
-                        pending[#pending + 1] = field.write
-                    end
-                    if field.read then
-                        pending[#pending + 1] = field.read
-                    end
-                end
-            elseif raw.tag == "func" then
-                first, second = raw.params, raw.rets
-            elseif raw.tag == "tuple" then
-                first = raw.elems
-            elseif raw.tag == "union" or raw.tag == "intersection" then
-                first = raw.members
-            end
-            for listIndex = 2, 1, -1 do
-                local list = second
-                if listIndex == 1 then
-                    list = first
-                end
-                if list then
-                    local last: integer = 0
-                    for index in ipairs(list) do
-                        last = index
-                    end
-                    for index = last, 1, -1 do
-                        pending[#pending + 1] = list[index]
-                    end
-                end
-            end
-        end
-        local last = #pending
-        if last == 0 then
+    if seen[raw.id] then
+        return nil
+    end
+    seen[raw.id] = true
+    if raw.tag == "nominal" then
+        local origin = (raw.origin or raw) as T.Nominal
+        if raw.declKind == "struct"
+            or origin.moduleName == "nupp.mem.span"
+            or apiidentity.canonical(origin.moduleName or "") == "simd"
+            or apiidentity.canonical(origin.sealedModule or "") == "simd"
+        then
             return nil
         end
-        raw = T.unwrapOwnership(pending[last])
-        pending[last] = nil
+        for _, name in ipairs(raw.fieldOrder or {}) do
+            local found = storageOnlyValue(raw.byname and raw.byname[name], seen)
+            if found then
+                return found
+            end
+        end
+    elseif raw.tag == "func" then
+        for _, value in ipairs(raw.params or {}) do
+            local found = storageOnlyValue(value, seen)
+            if found then
+                return found
+            end
+        end
+        for _, value in ipairs(raw.rets or {}) do
+            local found = storageOnlyValue(value, seen)
+            if found then
+                return found
+            end
+        end
+    elseif raw.tag == "array" then
+        return storageOnlyValue(raw.elem, seen)
+    elseif raw.tag == "map" then
+        return storageOnlyValue(raw.value, seen) or storageOnlyValue(raw.writeValue, seen)
+    elseif raw.tag == "tuple" then
+        for _, value in ipairs(raw.elems or {}) do
+            local found = storageOnlyValue(value, seen)
+            if found then
+                return found
+            end
+        end
+    elseif raw.tag == "union" or raw.tag == "intersection" then
+        for _, value in ipairs(raw.members or {}) do
+            local found = storageOnlyValue(value, seen)
+            if found then
+                return found
+            end
+        end
+    elseif raw.tag == "shape" then
+        for _, field in ipairs(raw.fields or {}) do
+            local found = storageOnlyValue(field.read, seen)
+                or storageOnlyValue(field.write, seen)
+                or storageOnlyValue(field.type, seen)
+            if found then
+                return found
+            end
+        end
+        return storageOnlyValue(raw.indexReadKey, seen)
+            or storageOnlyValue(raw.indexReadValue, seen)
+            or storageOnlyValue(raw.indexWriteKey, seen)
+            or storageOnlyValue(raw.indexWriteValue, seen)
     end
+
+    return nil
 end
 
 export function isPhysical(t: T.Type?): boolean

@@ -250,7 +250,7 @@ function M.storageOnlyWalkPreservesDepthFirstFieldAndIndexerOrder()
     testAssert.eq(fixed.storageOnlyValue(map, {[first.id] = true}), types.int16)
 end
 
-function M.storageOnlyWalkHandlesDeepNominalChainsWithoutRecursiveCalls()
+function M.storageOnlyWalkHandlesDeepNominalChains()
     local nextType = types.uint8
     for index = 1, 1500 do
         local owner = types.nominal("DeepWidth" .. index, "record")
