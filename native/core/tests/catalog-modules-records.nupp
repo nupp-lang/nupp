@@ -9,4 +9,4 @@ local score = box:area() * 100 + sq:area()
 if getmetatable(box) == getmetatable(sq) then
     score = score + 10000
 end
-export = score
+export const result = score

@@ -12,4 +12,4 @@ local score = counter.next() * 100 + shapes.area(3, 4)
 if counter.shape == "shapes" then
     score = score + 1000
 end
-export = score
+export const result = score

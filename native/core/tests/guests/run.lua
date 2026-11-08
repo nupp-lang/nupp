@@ -1041,7 +1041,7 @@ local function functionsmany()
         lines[#lines + 1] = "    total = total + f100(0)"
         lines[#lines + 1] = "end"
     end
-    lines[#lines + 1] = "export = total"
+    lines[#lines + 1] = "export const result = total"
     os.execute("mkdir -p " .. quote(OUT .. "/generated"))
     write(OUT .. "/generated/functionsmany.nupp", table.concat(lines, "\n") .. "\n")
 end
@@ -1071,7 +1071,7 @@ local function modulesmany()
         for k = 2, 16 do
             lines[#lines + 1] = ("local function f%d(): boolean\n    return f%d()\nend"):format(k, k - 1)
         end
-        lines[#lines + 1] = "export = f16()"
+        lines[#lines + 1] = "export const ready = f16()"
         local text = table.concat(lines, "\n") .. "\n"
         write(OUT .. "/generated/" .. name .. ".nupp", text)
         write(staged .. "/catalog" .. name .. ".nupp", text)
@@ -1079,9 +1079,9 @@ local function modulesmany()
     -- More modules than a chunk may have locals, so none is kept in one.
     main[#main + 1] = "local all = true"
     for _, name in ipairs(names) do
-        main[#main + 1] = ("if not require(\"nupp.core.catalog%s\") then\n    all = false\nend"):format(name)
+        main[#main + 1] = ("if not require(\"nupp.core.catalog%s\").ready then\n    all = false\nend"):format(name)
     end
-    main[#main + 1] = "export = all"
+    main[#main + 1] = "export const result = all"
     local text = table.concat(main, "\n") .. "\n"
     write(OUT .. "/generated/modulesmany.nupp", text)
     write(staged .. "/catalogmodulesmany.nupp", text)

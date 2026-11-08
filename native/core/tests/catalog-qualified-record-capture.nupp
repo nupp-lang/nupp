@@ -42,4 +42,4 @@ local function update(given: {timeoutms: integer?} & {mode: string}): integer
 end
 
 assert(update({mode = "r"}) == 7)
-export = first.value + second.value
+export const result = first.value + second.value

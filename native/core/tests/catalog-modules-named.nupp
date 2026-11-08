@@ -9,4 +9,4 @@ local score = geometry.scale(3) + geometry.unit + again.bump() * 100
 if geometry == again then
     score = score + 1000
 end
-export = score
+export const result = score

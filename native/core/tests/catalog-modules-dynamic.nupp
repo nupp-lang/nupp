@@ -20,4 +20,4 @@ end)
 if not found and string.find(tostring(reason), "module 'nupp.core.absent' not found", 1, true) ~= nil then
     score = score + 10000
 end
-export = score
+export const result = score

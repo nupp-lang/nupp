@@ -33,4 +33,4 @@ end
 if faulty.answer() == 42 then
     score = score + 64
 end
-export = score
+export const result = score
