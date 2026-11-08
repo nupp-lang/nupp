@@ -189,7 +189,7 @@ record process.Reader is byteio.Reader
     --- @raises string when the provider returns an invalid result, or timeoutms is
     ---     outside 0 through 2147483647
     function poll(self, limit: integer?, timeoutms: integer?): (string?, boolean)
-        local wanted = limit or READ_LIMIT
+        local wanted = math.floor(limit or READ_LIMIT) as integer
         if wanted < 1 then
             wanted = 1
         end
@@ -802,14 +802,12 @@ record process.Process is io.File, own.Affine<self._drop>
 
     --- Reports that a process pipe cannot seek.
     function seek(self, whence: string?, offset: number?): (number?, string?)
-        local result, problem = file.seek(self, whence, offset)
-        return result, problem
+        return file.seek(self, whence, offset)
     end
 
     --- Sets buffering for the process's writable pipe.
     function setvbuf(self, mode: string, size: number?): (boolean?, string?)
-        local result, problem = file.setvbuf(self, mode, size)
-        return result, problem
+        return file.setvbuf(self, mode, size)
     end
 
     --- Whether it is still running, enforcing an elapsed process deadline first.

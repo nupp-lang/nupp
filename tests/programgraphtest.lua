@@ -1254,6 +1254,23 @@ return relay(1, nil, 3)
     end
 end
 
+function M.intersectionFieldsKeepRuntimeNameKeys()
+    local p = describe(
+        [[
+local function update(given: {timeoutms: integer?} & {mode: string}): integer
+    given.timeoutms = 7
+    return given.timeoutms or 0
+end
+return update({mode = "r"})
+]]
+    )
+    local compiled = program.compile(p, tagged.forVersion(8))
+    local updated = compiled.graphs[owner(p, "update").id + 1]
+    test.eq(#operations(updated, "GetIdx"), 1)
+    test.eq(#operations(updated, "SetIdx"), 1)
+    require("nupp.compiler.vm.coregraphexecutable").fromChecked(compiled, 8)
+end
+
 function M.taggedMutationAndForwardingKeepOneCellIdentity()
     local p = describe(
         [[

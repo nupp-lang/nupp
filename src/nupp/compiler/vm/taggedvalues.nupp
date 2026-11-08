@@ -227,6 +227,7 @@ const KEYED_KINDS: {[string]: boolean} = {
     map = true,
     array = true,
     shape = true,
+    intersection = true,
     typeobject = true,
     -- A declaration's value: `R.f` holds its methods, `R.Nested` a nested
     -- record's table.

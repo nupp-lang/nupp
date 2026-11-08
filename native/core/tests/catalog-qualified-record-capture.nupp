@@ -35,4 +35,11 @@ release(reader)
 release(writer)
 release(nil)
 assert(reader.closed and writer.closed)
+
+local function update(given: {timeoutms: integer?} & {mode: string}): integer
+    given.timeoutms = 7
+    return given.timeoutms or 0
+end
+
+assert(update({mode = "r"}) == 7)
 export = first.value + second.value
