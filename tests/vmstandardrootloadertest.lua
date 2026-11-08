@@ -353,4 +353,55 @@ return true
     test.eq(require("program").run(parsed, "nativecoroutineconstructors"), true)
 end
 
+function M.loadedChunksProtectWrappedCoroutineFailuresAfterADeadResume()
+    local chunk = assert(
+        loadstring(
+            [[
+local completed = coroutine.wrap(function() return true end)
+assert(completed())
+assert(not pcall(completed))
+local failure = {}
+local ok, problem = pcall(coroutine.wrap(function() error(failure, 0) end))
+return not ok and rawequal(problem, failure)
+]]
+        )
+    )
+    test.eq(chunk(), true)
+end
+
+function M.loadedChunksReadReplacedProtectedCallsAndArgumentsOnce()
+    local reads, arguments, calls = 0, 0, 0
+    local chunk = assert(loadstring("return pcall(function(n) return n + 1 end, argument())"))
+    setfenv(
+        chunk,
+        setmetatable(
+            {
+                argument = function()
+                    arguments = arguments + 1
+                    return 7
+                end,
+            },
+            {
+                __index = function(_, name)
+                    if name == "pcall" then
+                        reads = reads + 1
+                        return function(callback, value)
+                            calls = calls + 1
+                            return "replacement", callback(value)
+                        end
+                    end
+
+                    return _G[name]
+                end,
+            }
+        )
+    )
+    local marker, answer = chunk()
+    test.eq(marker, "replacement")
+    test.eq(answer, 8)
+    test.eq(reads, 1)
+    test.eq(arguments, 1)
+    test.eq(calls, 1)
+end
+
 return M

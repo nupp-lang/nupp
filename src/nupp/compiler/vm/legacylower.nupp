@@ -2147,9 +2147,10 @@ function lower.emit(
             finish(base)
             return
         end
+        local protectedCallee, protectedDone
         if callee.kind == "name" then
             local name = tokText(callee.token)
-            if not environment and name == "pcall" and not f:binding(name) then
+            if name == "pcall" and not f:binding(name) and #node.args.exprs > 0 then
                 local args = node.args.exprs
                 -- The window starts at the destination only when nothing lives
                 -- above it: assigning to an earlier local placed the arguments
@@ -2157,6 +2158,18 @@ function lower.emit(
                 local base = top and dst or math.max(dst, f.nregs)
                 while f.nregs < base + #args + 8 do
                     f:reg()
+                end
+                local fallback
+                if environment then
+                    -- A source-loaded chunk can replace its globals. Keep the
+                    -- ordinary call for a replacement; the builtin must use
+                    -- the resumable protected-call instruction.
+                    protectedCallee = exprAs(f, callee, "v")
+                    local builtin, same = f:reg(), f:reg()
+                    f:op("K", builtin, f:const("builtin", "pcall"))
+                    f:op("Eq", same, protectedCallee, builtin)
+                    fallback, protectedDone = f:label(), f:label()
+                    f:branch("JmpIfNot", same, fallback)
                 end
                 local last = args[#args]
                 local trailing = #args > 1 and multiCall(last)
@@ -2175,7 +2188,11 @@ function lower.emit(
                     f:op("PCall", base, #args - 1)
                 end
                 finish(base)
-                return
+                if not fallback then
+                    return
+                end
+                f:jump(protectedDone)
+                f:place(fallback)
             end
             if not environment and name == "require" and not f:binding(name) and nres <= 1 and not all then
                 local a = node.args.exprs[1]
@@ -2195,9 +2212,9 @@ function lower.emit(
             while f.nregs < base + argc + 2 + slack do
                 f:reg()
             end;
-            fr = exprAs(f, callee, "v")
+            fr = protectedCallee or exprAs(f, callee, "v")
         else
-            fr = exprAs(f, callee, "v");
+            fr = protectedCallee or exprAs(f, callee, "v");
             base = math.max(dst, f.nregs)
         end
         local base, nargs = callInto(f, node, base)
@@ -2208,6 +2225,9 @@ function lower.emit(
             f:op("CallDyn", fr, base, nargs)
         end
         finish(base)
+        if protectedDone then
+            f:place(protectedDone)
+        end
     end
 
     -- An owned temporary loaned for one statement closes when that statement
