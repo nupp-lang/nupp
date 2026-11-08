@@ -18,15 +18,26 @@ an I/O completion, so parked I/O and timers share one loop: the reactor's
 Parker is this scheduler's park, and its waker wakes the task like any
 wait. A program's image carries this module when it uses the task surface
 (`coroutine.scope` and its kin), which the core reads from `functions`.
+
+Each task's body runs under a `nupp.suspension` driver, so a library wait
+made through it (a process pipe, a child's exit) parks the task like any
+other park, and the scheduler polls that wait's readiness sources whenever
+nothing else can run.
 ]]
 
 local calls = require("nupp.runtime.taskcalls")
 local reactor = require("nupp.runtime.reactor")
+local suspension = require("nupp.suspension")
+local suspensionHost = require("nupp.suspension.host")
 
 -- What a run of a task answers first.
 const RETURNED = 1
 const FAILED = 2
 const YIELDED = 4
+
+-- How long the scheduler sleeps between polls of readiness sources while a
+-- task waits through nupp.suspension: they answer only when polled.
+const SOURCE_SLICE_MS = 2
 
 -- What a cancelled park is woken with.
 local CANCEL: any = {}
@@ -180,6 +191,9 @@ end
 
 local runone: function(any): nil
 
+-- How many tasks are parked on a nupp.suspension wait.
+local suspended: integer = 0
+
 -- Runs one runnable task, or waits for the nearest timer and fires what is
 -- due. Raises when nothing could ever wake the caller.
 local function step(): nil
@@ -193,10 +207,22 @@ local function step(): nil
         runone(record)
         return
     end
+    -- A source wakes its task through `wake`, whatever count it answers.
+    local polling = suspended > 0
+    if polling then
+        suspension.poll()
+        if head <= tail then
+            return
+        end
+    end
     while #timers > 0 and stale(timers[1]) do
         poptimer()
     end
     if #timers == 0 then
+        if polling then
+            wait(SOURCE_SLICE_MS)
+            return
+        end
         -- Only I/O can wake a task now: the reactor waits for it.
         if reactor.pending() > 0 then
             reactor.wait(nil)
@@ -207,7 +233,7 @@ local function step(): nil
     local now = calls.now() as number
     local at = timers[1].at as number
     if at > now then
-        wait(at - now)
+        wait(polling and math.min(at - now, SOURCE_SLICE_MS) or at - now)
         now = calls.now() as number
     end
     while #timers > 0 and timers[1].at <= now do
@@ -271,6 +297,69 @@ end
 
 local function sleep(milliseconds: number): nil
     sleepuntil((calls.now() as number) + milliseconds)
+end
+
+----------------------------------------------------------------------------
+-- nupp.suspension
+----------------------------------------------------------------------------
+
+-- What a suspended wait's park answers once its waker fires.
+local WOKEN = reactor.Completion(value = 0)
+
+-- A suspended wait parks its task through the reactor's park until the
+-- wait's own waker fires. A cancellation that wakes the park abandons the
+-- wait before it is raised. Either way the task stops counting as suspended.
+local function suspendpark(_: suspensionHost.Handler, waiting: suspensionHost.Waiting, cancel: function(): nil): nil
+    while not waiting:ready() do
+        reactor.suspend(function(resume: reactor.Waker): function(): nil
+            suspended = suspended + 1
+            local counted = true
+
+            local function settle(): nil
+                if counted then
+                    counted = false
+                    suspended = suspended - 1
+                end
+            end
+
+            waiting:onresume(function(): nil
+                settle()
+                resume(WOKEN)
+            end)
+
+            return function(): nil
+                settle()
+                cancel()
+            end
+        end)
+    end
+end
+
+local driver = suspensionHost.Handler(
+    park = suspendpark,
+    canpark = function(_: suspensionHost.Handler): boolean
+        return true
+    end,
+    shutdown = function(_: suspensionHost.Handler): nil
+    end
+)
+
+local function packed(...: any): any
+    return {n = select("#", ...), ...}
+end
+
+-- A task's body, entered under the driver and leaving it however it ends.
+local function entered(body: any): any
+    return function(...: any): ...any
+        local handling = suspensionHost.installDriver(driver)
+        local results = packed(pcall(body, ...))
+        handling:close()
+        if not results[1] then
+            error(results[2], 0)
+        end
+
+        return table.unpack(results, 2, results.n)
+    end
 end
 
 ----------------------------------------------------------------------------
@@ -480,7 +569,7 @@ local function start(scope: any, name: any, body: any, arguments: any): any
             false
         )
     end
-    local thread = calls.new(body, arguments)
+    local thread = calls.new(entered(body), arguments)
     local record = {
         thread = thread,
         scope = scope,
