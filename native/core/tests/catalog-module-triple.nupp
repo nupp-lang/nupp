@@ -1,3 +1,5 @@
 module nupp.core.catalogmoduletriple
 
+-- Graph profiles before version 8 have no tables to export from, so the
+-- module value is the result itself.
 export = true

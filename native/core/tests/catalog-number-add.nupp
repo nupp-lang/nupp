@@ -4,4 +4,6 @@ local function add(a: number, b: number): number
     return a + b
 end
 
+-- Graph profiles before version 8 have no tables to export from, so the
+-- module value is the result itself.
 export = add(2.5, 3.25)

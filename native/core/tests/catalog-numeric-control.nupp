@@ -49,4 +49,6 @@ end
 if 1 == 2 then
     same = same + 4
 end
+-- Graph profiles before version 8 have no tables to export from, so the
+-- module value is the result itself.
 export = (((nested * 100 + skipped) * 100 + odd) * 100 + doubled) * 1000 + stopped * 10 + same

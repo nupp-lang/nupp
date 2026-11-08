@@ -5,4 +5,6 @@ local total = 0
 for i = 1, 3 do
     total = total + i % (divisor + 3 - i)
 end
+-- Graph profiles before version 8 have no tables to export from, so the
+-- module value is the result itself.
 export = total

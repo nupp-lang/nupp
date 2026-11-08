@@ -22,4 +22,6 @@ for i = i, i + 2 do
     shadow = shadow + i
 end
 local negative = -7 % 3 + 7 % -3 * 10
+-- Graph profiles before version 8 have no tables to export from, so the
+-- module value is the result itself.
 export = (((squares * 100 + down) * 100 + none * 10 + mixed) * 1000 + shadow * 10 + i) * 100 + negative
