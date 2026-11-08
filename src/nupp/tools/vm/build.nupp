@@ -1,0 +1,275 @@
+-- Executed by Nupp, using one immutable installed compiler/runtime pair.
+-- Keep the previous linked generation selected until every new artifact passes.
+module nupp.tools.vm.build
+
+local fs = require("nupp.compiler.fs")
+local process = require("nupp.compiler.process")
+local hash = require("nupp.compiler.hash")
+local json = require("serde.json")
+local aot = require("nupp.tools.vm.aotparts")
+
+export function available(): integer
+    return 1
+end
+
+export function main(arg: {string}): integer
+    local ROOT = assert(arg[1], "compiler root required")
+    local WINDOWS = package.config:sub(1, 1) == "\\"
+    local SUFFIX = WINDOWS and ".exe" or ""
+    local FORMAT = "nupp-vm-cli-1"
+    local TARGET = ROOT .. "/build/rust/target"
+    local OUT = ROOT .. "/build/vm-cli"
+    local PACKAGES = ROOT .. "/.nupp/vm-cli"
+    local PYTHON = os.getenv("PYTHON") or "python3"
+    local started = os.monotonic()
+
+    local function read(path)
+        return assert(fs.readFile(path))
+    end
+
+    local function write(path, text)
+        assert(fs.writeFile(path, text))
+    end
+
+    local function digest(path)
+        return hash.sha256(read(path))
+    end
+
+    local function capture(command, env)
+        local code, output = process.capture(command, {cwd = ROOT, env = env})
+        assert(code == 0, output)
+        return output
+    end
+
+    local function run(command, env, name)
+        local before = os.monotonic()
+        assert(process.run(command, {cwd = ROOT, env = env}) == 0, (name or command[1]) .. " failed")
+        io.stderr:write(("vm-build: %s took %.3fs\n"):format(name or command[1], (os.monotonic() - before) / 1000))
+    end
+
+    local function source()
+        return json.decodevalue(capture({PYTHON, ROOT .. "/scripts/vm-cli", "status"})).sourceNow
+    end
+
+    local function copy(from, to, executable)
+        assert(fs.copyFile(from, to))
+        if executable and not WINDOWS then
+            run({"chmod", "755", to})
+        end
+    end
+
+    local function toolchain(...)
+        local command = {WINDOWS and "sh.exe" or "sh", ROOT .. "/scripts/toolchain", ...}
+        return capture(command):match("([^\r\n]+)[\r\n]*$")
+    end
+
+    local function cargo(features, extra, defaults)
+        local command = {"cargo", "build", "--locked", "--release", "-p", "nupp-vm"}
+        if os.getenv("NUPP_HOST_OFFLINE") then
+            command[#command + 1] = "--offline"
+        end
+        if defaults == false then
+            command[#command + 1] = "--no-default-features"
+        end
+        command[#command + 1], command[#command + 2] = "--features", features
+        local env = {CARGO_TARGET_DIR = TARGET}
+        for name, value in pairs(extra or {}) do
+            env[name] = value
+        end
+        -- Keep the same optional compiler cache as the serial build driver.
+        if not os.getenv("RUSTC_WRAPPER") then
+            local found = process.run({"sccache", "--version"}) == 0
+            if found then
+                env.RUSTC_WRAPPER = WINDOWS and "sccache" or ROOT .. "/scripts/sccache-wrapper"
+            end
+        end
+        run(command, env, "cargo " .. features)
+
+        return TARGET .. "/release/nupp-vm" .. SUFFIX
+    end
+
+    assert(arg[2] == "build", "usage: scripts/vm-build build [--seed vm] [--cache PATH] [--jobs N]")
+    local cache, jobs = OUT .. "/emit-cache", assert(tonumber(os.getenv("NUPP_VM_AOT_JOBS") or "4"))
+    local index: integer = 3
+    while arg[index] do
+        local option, value = arg[index], assert(arg[index + 1], "missing build option value")
+        if option == "--cache" then
+            cache = fs.absolute(value)
+        elseif option == "--jobs" then
+            jobs = assert(tonumber(value))
+        else
+            assert(option == "--seed" and value == "vm", "unknown build option: " .. option)
+        end
+        index = index + 2
+    end
+    assert(jobs >= 1 and jobs <= 4 and jobs % 1 == 0, "jobs must be an integer from 1 to 4")
+    assert(fs.mkdir(OUT))
+    local before = source()
+    local generation = read(PACKAGES .. "/current"):match("^([a-f0-9]+)%s*$")
+    assert(generation and #generation == 64, "invalid installed compiler generation")
+    local pair = PACKAGES .. "/" .. generation
+    local oldreceipt = json.decodevalue(read(pair .. "/receipt.json"))
+    assert(
+        oldreceipt.linked
+        and digest(pair .. "/runtime") == oldreceipt.runtimeSha256
+        and digest(pair .. "/compiler.image") == oldreceipt.imageSha256,
+        "verified linked build compiler required"
+    )
+    local identity = fs.readFile(pair .. "/runtime-identity") or oldreceipt.runtimeSha256
+    identity = identity:match("^(%S+)")
+    local text = read(ROOT .. "/src/nupp/tools/vm/project.nupp")
+    local block = assert(text:match("project%.ROOT_EXTRAS = (.-)\n\n"), "missing root dependency list")
+    local extras = {}
+    for chunk in block:gmatch('"([^"]*)"') do
+        extras[#extras + 1] = chunk
+    end
+    local image = OUT .. "/compiler.image"
+    local emitEnv = {NO_JIT = "1", NUPP_COMPILER_ROOT = ROOT, NUPP_VM_EMIT_CACHE = cache, NUPP_VM_RUNTIME_ID = identity}
+    run(
+        {
+            pair .. "/runtime",
+            "run",
+            pair .. "/compiler.image",
+            "nupp.tools.vm.project",
+            "emit",
+            ROOT,
+            "nupp.tools.vm.root",
+            table.concat(extras),
+            "--output",
+            image
+        },
+        emitEnv,
+        "VM-hosted root emit"
+    )
+
+    local seed = toolchain("stage0-seed")
+    local plain = cargo("aot")
+    local objecttool = OUT .. "/object-tool" .. SUFFIX
+    copy(plain, objecttool, true)
+    local staging = OUT .. "/native-new"
+    assert(fs.mkdir(staging))
+    run({objecttool, "native", "layouts", staging .. "/layouts.json"}, nil, "native layouts")
+    run(
+        {
+            seed .. "/runtime",
+            "run",
+            image,
+            "nupp.compiler.clif.lower",
+            "compileRuntime",
+            ROOT,
+            staging .. "/layouts.json",
+            "--output",
+            staging .. "/runtime.clif"
+        },
+        {NO_JIT = "1", NO_AOT = "1", NUPP_COMPILER_ROOT = ROOT, NUPP_VM_EMIT_CACHE = ""},
+        "native core lowering"
+    )
+    run(
+        {objecttool, "native", "object", staging .. "/runtime.clif", staging .. "/runtime.o"},
+        nil,
+        "native core object"
+    )
+    -- Preserve unchanged artifacts and their times, so Cargo sees an actual change.
+    local native = OUT .. "/native"
+    assert(fs.mkdir(native))
+    for _, name in ipairs({"runtime.clif", "runtime.o", "runtime.o.rs"}) do
+        local content = read(staging .. "/" .. name)
+        if fs.readFile(native .. "/" .. name) ~= content then
+            write(native .. "/" .. name, content)
+        end
+    end
+    local core = native .. "/runtime.o"
+    local built = cargo("aot,native-runtime", {NUPP_NATIVE_RUNTIME_OBJECT = core})
+    local tool = OUT .. "/aot-tool" .. SUFFIX
+    copy(built, tool, true)
+    local aotstarted = os.monotonic()
+    local receipt = aot.compile(tool, image, OUT .. "/compiler.o", {jobs = jobs})
+    receipt.seconds = (os.monotonic() - aotstarted) / 1000
+    write(OUT .. "/parallel-aot.json", json.encodevalue(receipt))
+    io.stderr:write(("vm-build: parallel AOT took %.3fs\n"):format(receipt.seconds))
+    local runtime = cargo(
+        "aot-linked,c-headers,native-ffi,compression,net,http,regex,markdown,native-runtime",
+        {NUPP_AOT_OBJECT = OUT .. "/compiler.o", NUPP_NATIVE_RUNTIME_OBJECT = core},
+        false
+    )
+
+    local after = source()
+    assert(
+        before.fingerprint == after.fingerprint and before.revision == after.revision,
+        "compiler sources changed during build; previous generation retained"
+    )
+    assert(
+        read(PACKAGES .. "/current"):match("^(%S+)") == generation,
+        "another build selected a generation; refusing to replace it"
+    )
+    local runtimehash, imagehash = digest(runtime), digest(image)
+    local key = '{"format":"'
+        .. FORMAT
+        .. '","imageSha256":"'
+        .. imagehash
+        .. '","runtimeSha256":"'
+        .. runtimehash
+        .. '"}'
+    local selected = hash.sha256(key)
+    local temporary = assert(os.mktempdir(PACKAGES))
+    local stage = temporary:path():tostring()
+    copy(runtime, stage .. "/runtime", true)
+    copy(image, stage .. "/compiler.image")
+    local validation = {
+        NO_JIT = "1",
+        NUPP_COMPILER_ROOT = ROOT,
+        NUPP_VM_BINARY = stage .. "/runtime",
+        NUPP_VM_CLI_IMAGE = stage .. "/compiler.image"
+    }
+    run({stage .. "/runtime", "verify", stage .. "/compiler.image"}, validation, "verify linked image")
+    local help = capture(
+        {stage .. "/runtime", "exec", stage .. "/compiler.image", "nupp.tools.vm.root", "--help"},
+        validation
+    )
+    assert(help:find("Usage:", 1, true), "linked compiler did not produce CLI help")
+    local installed = {
+        format = FORMAT,
+        runtimeSha256 = runtimehash,
+        imageSha256 = imagehash,
+        runtimeIdentity = runtimehash,
+        installedFrom = {runtime = runtime, image = image},
+        sourceAtInstall = before,
+        sourceRead = "build-start",
+        sourceProvenance = "Source state when the build that made these artifacts began reading its sources.",
+        execution = "JIT disabled during validation; supplied matching-image AOT remains enabled",
+        linked = true,
+        validation = {"image verifier", "full root CLI --help"},
+        parallelAot = {jobs = jobs, functions = receipt.functions},
+    }
+    write(stage .. "/format", FORMAT .. "\n")
+    write(stage .. "/runtime-identity", runtimehash .. "\n")
+    write(stage .. "/receipt.json", json.encodevalue(installed))
+    local destination = PACKAGES .. "/" .. selected
+    if fs.exists(destination) then
+        assert(
+            digest(destination .. "/runtime") == runtimehash and digest(destination .. "/compiler.image") == imagehash,
+            "existing generation artifacts differ"
+        )
+        write(destination .. "/receipt.json", json.encodevalue(installed))
+    else
+        assert(temporary:persist(destination))
+    end
+    write(PACKAGES .. "/current", selected .. "\n")
+    -- A content check establishes freshness. Keep no end-of-build timestamp that
+    -- could hide an edit; the launcher's next current check refreshes its own stamp.
+    run({PYTHON, ROOT .. "/scripts/vm-cli", "current", "--refresh-stamp"}, nil, "compiler freshness")
+    os.remove(PACKAGES .. "/failed")
+    write(
+        OUT .. "/build-speed.json",
+        json.encodevalue({
+            source = before,
+            generation = selected,
+            usableSeconds = (os.monotonic() - started) / 1000,
+            aot = receipt.seconds,
+            jobs = jobs
+        })
+    )
+    print(destination)
+
+    return 0
+end

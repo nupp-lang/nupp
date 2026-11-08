@@ -1,0 +1,553 @@
+-- Compiler-build AOT coordination, executed by Nupp on the frozen build tool.
+-- This does not change the frozen emitter or produce program-runtime tables.
+module nupp.tools.vm.aotparts
+
+local fs = require("nupp.compiler.fs")
+local process = require("nupp.compiler.process")
+local hash = require("nupp.compiler.hash")
+local parts = {}
+local ABI: integer = 4
+local MAX_JOBS = 4
+local MAX_PARTS = 64
+local MAX_SELECTOR = (package.config:sub(1, 1) == "\\" and 30 or 96) * 1024
+local TIMEOUT_MS: integer = 120000
+local WORD_BYTES = 4
+local REQUIRED = {
+    Simd = true,
+    SpanLen = true,
+    SpanBounds = true,
+    SpanLoad = true,
+    SpanStore = true,
+    VOp = true,
+    VSplatN = true,
+    VExtractN = true,
+    VAny = true,
+    VPrefix = true,
+}
+
+local function read(path: string): string
+    return (assert(fs.readFile(path)))
+end
+
+local function write(path: string, text: string): nil
+    assert(fs.writeFile(path, text))
+end
+
+local function integer(text: string): number
+    assert(text and text:match("^%d+$"), "invalid unsigned integer")
+    return (assert(tonumber(text)))
+end
+
+local function decimal(value: number): string
+    return ("%d"):format(value)
+end
+
+local function packed(value: number, size: number): string
+    local bytes = {}
+    for index = 1, size do
+        bytes[index] = string.char(value % 256)
+        value = math.floor(value / 256)
+    end
+    assert(value == 0, "integer does not fit metadata word")
+
+    return table.concat(bytes)
+end
+
+local function word(text: string, at: number, size: number, big: boolean?): number
+    assert(at >= 1 and at + size - 1 <= #text, "truncated object or metadata")
+    if size == WORD_BYTES and not big then
+        local a, b, c, d = text:byte(at, at + WORD_BYTES - 1)
+        return a + b * 256 + c * 65536 + d * 16777216
+    end
+    local result = 0
+    for index = 0, size - 1 do
+        local position = big and at + index or at + size - index - 1
+        result = result * 256 + text:byte(position)
+        assert(result <= 9007199254740991, "object offset exceeds exact integer range")
+    end
+
+    return result
+end
+
+local function cstring(text: string, at: number, limit: number): string
+    assert(at >= 1 and at <= limit and limit <= #text, "invalid symbol string offset")
+    local last = assert(text:find("\0", at, true), "unterminated symbol")
+    assert(last <= limit, "symbol outside string table")
+    return text:sub(at, last - 1)
+end
+
+local function ruststring(text: string): string
+    return '"' .. text:gsub('[%c"\\]', function(value)
+        if value == '"' or value == "\\" then
+            return "\\" .. value
+        end
+        return ("\\u{%x}"):format(value:byte())
+    end) .. '"'
+end
+
+function parts.describe(text: string): {any}
+    local functions, current = {}, nil
+    for line in text:gmatch("[^\n]+") do
+        if line:match("^function ") then
+            local name, fid = line:match("^function (.-) (%d+) %d+ %d+ %d+ %S+")
+            assert(name and integer(fid) == #functions, "invalid function catalog")
+            current = {name = name, fid = integer(fid), weight = 0, required = false}
+            functions[#functions + 1] = current
+        elseif current then
+            local opcode = line:match("^  ([A-Z][A-Za-z0-9_]*)%s")
+            if opcode then
+                current.weight = current.weight + 1
+                current.required = current.required or REQUIRED[opcode] == true
+            end
+        end
+    end
+    assert(#functions > 0, "empty function catalog")
+
+    return functions
+end
+
+function parts.partition(functions: {any}, count: number, limit: number?): {any}
+    assert(#functions > 0, "empty function catalog")
+    assert(count >= 1 and count <= MAX_PARTS and count % 1 == 0, "invalid AOT part count")
+    local groups, order, result = {}, {}, {}
+    for _, item in ipairs(functions) do
+        assert(not item.name:find(",", 1, true), "AOT selector cannot encode this name")
+        local group = groups[item.name]
+        if not group then
+            group = {name = item.name, weight = 0, functions = {}}
+            groups[item.name], order[#order + 1] = group, group
+        end
+        group.functions[#group.functions + 1] = item
+        group.weight = group.weight + item.weight
+        group.required = group.required or item.required
+    end
+    table.sort(order, function(a, b)
+        return a.weight > b.weight or a.weight == b.weight and a.name < b.name
+    end)
+    for index = 1, math.min(count, #order) do
+        result[index] = {names = {}, fids = {}, owned = {}, weight = 0}
+    end
+    for _, group in ipairs(order) do
+        local owner = 1
+        for index = 2, #result do
+            if result[index].weight < result[owner].weight then
+                owner = index
+            end
+        end
+        for index, part in ipairs(result) do
+            if index == owner or group.required then
+                part.names[#part.names + 1] = group.name
+                for _, item in ipairs(group.functions) do
+                    part.fids[#part.fids + 1] = item.fid
+                    if index == owner then
+                        part.owned[item.fid] = true
+                    end
+                end
+            end
+        end
+        result[owner].weight = result[owner].weight + group.weight
+    end
+    for _, part in ipairs(result) do
+        table.sort(part.names)
+        table.sort(part.fids)
+        part.selector = table.concat(part.names, ",")
+        assert(#part.selector < (limit or MAX_SELECTOR), "AOT selector exceeds process environment limit")
+    end
+
+    return result
+end
+
+function parts.plan(functions: {any}, jobs: number, limit: number?): ({any}?, string?)
+    assert(jobs >= 1 and jobs <= MAX_JOBS and jobs % 1 == 0, "invalid AOT job count")
+    local count = jobs
+    while count <= MAX_PARTS do
+        local ok, result = pcall(parts.partition, functions, count, limit)
+        if ok then
+            return result, nil
+        end
+        if not tostring(result):find("selector exceeds", 1, true) then
+            return nil, tostring(result)
+        end
+        count = count * 2
+    end
+
+    return nil, "AOT selectors exceed the bounded partition limit"
+end
+
+function parts.manifest(text: string, digest: string, count: number, expected: {number}): nil
+    local rows = {}
+    for line in text:gmatch("[^\n]+") do
+        rows[#rows + 1] = line
+    end
+    assert(
+        rows[1] == "runtime-abi\t" .. ABI
+        and rows[2] == "image-sha256\t" .. digest
+        and rows[3] == "functions\t" .. decimal(count),
+        "AOT manifest identity mismatch"
+    )
+    assert(#rows == #expected + 3, "AOT manifest count mismatch")
+    for index, fid in ipairs(expected) do
+        assert(rows[index + 3] == decimal(fid) .. "\tnupp_aot_" .. decimal(fid), "AOT function coverage mismatch")
+    end
+end
+
+function parts.maps(text: string, expected: {number}): {[number]: string}
+    local at = 1
+
+    local function nextword()
+        local value = word(text, at, 4)
+        at = at + 4
+        return value
+    end
+
+    assert(nextword() == #expected, "AOT map count mismatch")
+    local records = {}
+    for _, expectedfid in ipairs(expected) do
+        local start = at
+        local fid, length, count = nextword(), nextword(), nextword()
+        assert(fid == expectedfid and length > 0 and count <= (#text - at + 1) / 12, "invalid AOT map header")
+        local offsets = {}
+        for _ = 1, count do
+            local offset, span, slots = nextword(), nextword(), nextword()
+            assert(
+                offset > 0
+                and offset < length
+                and not offsets[offset]
+                and span > 0
+                and span % 8 == 0
+                and slots <= (#text - at + 1) / 4,
+                "invalid AOT safepoint"
+            )
+            offsets[offset] = true
+            for _ = 1, slots do
+                local slot = nextword()
+                assert(slot % 8 == 0 and slot + 8 <= span, "invalid AOT root slot")
+            end
+        end
+        records[fid] = text:sub(start, at - 1)
+    end
+    assert(at == #text + 1, "trailing AOT map bytes")
+
+    return records
+end
+
+-- Only symbol-string bytes change. Relocation/symbol indices and section
+-- contents stay intact on Mach-O, ELF64 and AMD64/ARM64 COFF objects.
+function parts.rename(text: string, replacements: {[string]: string}): string
+    local names, defined = {}, {}
+
+    local function symbol(offset, limit, definition)
+        local name = cstring(text, offset, limit)
+        names[#names + 1] = {offset = offset, name = name}
+        if definition then
+            assert(not defined[name], "duplicate defined object symbol")
+            defined[name] = offset
+        end
+    end
+
+    local magic = word(text, 1, 4)
+    if magic == 0xfeedfacf then
+        local cursor, finish = 33, 33 + word(text, 21, 4)
+        assert(finish - 1 <= #text, "truncated Mach-O commands")
+        for _ = 1, word(text, 17, 4) do
+            local command, size = word(text, cursor, 4), word(text, cursor + 4, 4)
+            assert(size >= 8 and cursor + size <= finish, "invalid Mach-O command")
+            if command == 2 then
+                assert(size >= 24, "short Mach-O symbol command")
+                local base, count = word(text, cursor + 8, 4) + 1, word(text, cursor + 12, 4)
+                local strings, bytes = word(text, cursor + 16, 4) + 1, word(text, cursor + 20, 4)
+                assert(base + count * 16 - 1 <= #text and strings + bytes - 1 <= #text, "truncated Mach-O symbols")
+                for index = 0, count - 1 do
+                    local row = base + index * 16
+                    local kind = word(text, row + 4, 1)
+                    symbol(
+                        strings + word(text, row, 4),
+                        strings + bytes - 1,
+                        kind % 2 == 1 and math.floor(kind / 2) % 8 == 7
+                    )
+                end
+            end
+            cursor = cursor + size
+        end
+        assert(cursor == finish, "Mach-O command count mismatch")
+    elseif text:sub(1, 4) == "\127ELF" then
+        assert(
+            text:byte(5) == 2 and text:byte(6) == 1 and word(text, 17, 2) == 1,
+            "expected little-endian ELF64 relocatable object"
+        )
+        local base, size, count = word(text, 41, 8) + 1, word(text, 59, 2), word(text, 61, 2)
+        assert(size == 64 and base + size * count - 1 <= #text, "invalid ELF section table")
+        for index = 0, count - 1 do
+            local row = base + index * size
+            if word(text, row + 4, 4) == 2 then
+                local symbols, bytes = word(text, row + 24, 8) + 1, word(text, row + 32, 8)
+                local link = word(text, row + 40, 4)
+                assert(link < count and word(text, row + 56, 8) == 24 and bytes % 24 == 0, "invalid ELF symbol table")
+                local strrow = base + link * size
+                local strings, strbytes = word(text, strrow + 24, 8) + 1, word(text, strrow + 32, 8)
+                assert(symbols + bytes - 1 <= #text and strings + strbytes - 1 <= #text, "truncated ELF symbols")
+                for offset = 0, bytes - 1, 24 do
+                    local entry = symbols + offset
+                    symbol(
+                        strings + word(text, entry, 4),
+                        strings + strbytes - 1,
+                        math.floor(word(text, entry + 4, 1) / 16) == 1 and word(text, entry + 6, 2) ~= 0
+                    )
+                end
+            end
+        end
+    else
+        local machine = word(text, 1, 2)
+        assert(machine == 0x8664 or machine == 0xaa64, "unsupported AOT object format")
+        assert(word(text, 17, 2) == 0, "expected a COFF object, not an executable")
+        local base, count = word(text, 9, 4) + 1, word(text, 13, 4)
+        local strings = base + count * 18
+        local bytes = word(text, strings, 4)
+        assert(bytes >= 4 and strings + bytes - 1 <= #text, "truncated COFF strings")
+        local index = 0
+        while index < count do
+            local row = base + index * 18
+            if word(text, row, 4) == 0 then
+                symbol(
+                    strings + word(text, row + 4, 4),
+                    strings + bytes - 1,
+                    word(text, row + 16, 1) == 2 and word(text, row + 12, 2) ~= 0
+                )
+            end
+            index = index + 1 + word(text, row + 17, 1)
+            assert(index <= count, "invalid COFF auxiliary symbol count")
+        end
+    end
+    local edits = {}
+    for before, after in pairs(replacements) do
+        local decorated = defined[before] and before or "_" .. before
+        local offset = assert(defined[decorated], "missing AOT object definition: " .. before)
+        local replacement = decorated:sub(1, 1) == "_" and "_" .. after or after
+        assert(#replacement == #decorated and not defined[replacement], "invalid symbol replacement")
+        for _, entry in ipairs(names) do
+            assert(
+                entry.offset == offset or entry.offset < offset or entry.offset > offset + #decorated,
+                "overlapping object symbol string"
+            )
+        end
+        edits[#edits + 1] = {at = offset, before = decorated, after = replacement}
+    end
+    table.sort(edits, function(a, b)
+        return a.at < b.at
+    end)
+    local pieces, cursor = {}, 1
+    for _, edit in ipairs(edits) do
+        assert(edit.at >= cursor, "overlapping object edits")
+        assert(text:sub(edit.at, edit.at + #edit.before - 1) == edit.before, "object string changed")
+        pieces[#pieces + 1] = text:sub(cursor, edit.at - 1)
+        pieces[#pieces + 1] = edit.after
+        cursor = edit.at + #edit.before
+    end
+    pieces[#pieces + 1] = text:sub(cursor)
+
+    return table.concat(pieces)
+end
+
+function parts.sidecar(digest: string, fids: {number}, maps: string): string
+    local declarations, entries, starts, bytes = {}, {}, {}, {}
+    for index = 1, #digest, 2 do
+        bytes[#bytes + 1] = decimal(assert(tonumber(digest:sub(index, index + 1), 16)))
+    end
+    for _, fid in ipairs(fids) do
+        local fid = decimal(fid)
+        declarations[#declarations + 1] = "fn nupp_aot_" .. fid .. "();"
+        entries[#entries + 1] = "(" .. fid .. ", nupp_aot_" .. fid .. " as *const () as usize as u64),"
+        starts[#starts + 1] = "(" .. fid .. ", nupp_aot_" .. fid .. " as *const () as usize),"
+    end
+
+    return "pub const ABI_VERSION: u32 = " .. ABI .. ";\nunsafe extern \"C\" {\n" .. table.concat(
+        declarations,
+        "\n"
+    ) .. "\n}\npub fn image_hash() -> [u8; 32] { [" .. table.concat(
+        bytes,
+        ","
+    )
+        .. "] }\npub fn entries() -> Vec<(usize,u64)> {vec![]}\n"
+        .. "pub fn frame_entries() -> Vec<(usize,u64)> {vec!["
+        .. table.concat(
+            entries
+        )
+        .. "]}\n"
+        .. "pub fn maps() -> Vec<(usize,usize,Vec<(u32,u32,Vec<u32>)>)> {\n"
+        .. "let starts: std::collections::HashMap<u32,usize> = ["
+        .. table.concat(
+            starts
+        ) .. "].into_iter().collect();\n" .. "let data = include_bytes!(" .. ruststring(
+            maps
+        )
+        .. ");\n"
+        .. "let mut pos=0usize; let mut next=|| {let n=u32::from_le_bytes(data[pos..pos+4].try_into().unwrap());pos+=4;n};\n"
+        .. "let count=next(); let mut out=Vec::with_capacity(count as usize); for _ in 0..count {\n"
+        .. "let fid=next();let len=next() as usize;let nmap=next();let mut maps=Vec::with_capacity(nmap as usize);\n"
+        .. "for _ in 0..nmap {let off=next();let span=next();let nslots=next();let slots=(0..nslots).map(|_|next()).collect();maps.push((off,span,slots));}\n"
+        .. "out.push((starts[&fid],len,maps));}out}\n"
+end
+
+function parts.compile(tool: string, image: string, output: string, options: any): any
+    options = options or {}
+    local requested = options.jobs or MAX_JOBS
+    assert(
+        type(requested) == "number" and requested >= 1 and requested <= MAX_JOBS and requested % 1 == 0,
+        "invalid AOT job count"
+    )
+    local jobs = requested as integer
+    assert(os.getenv("AOT_ONLY") == nil, "AOT_ONLY must be unset for compiler builds")
+    local digest, toolhash = hash.sha256(read(image)), hash.sha256(read(tool))
+    local code, description = process.capture({tool, "native", "describe", image})
+    assert(code == 0, description)
+    local functions = parts.describe(description)
+    local directory = output .. ".parts"
+    assert(fs.mkdir(directory))
+    local all = {}
+    for _, item in ipairs(functions) do
+        all[#all + 1] = item.fid
+    end
+
+    local function serial(reason: string?): any
+        local started = os.monotonic()
+        local child = assert(
+            io.popen({tool, "aot", image, output, "--frames"}, {
+                stderr = "stdout",
+                timeoutms = TIMEOUT_MS,
+            })
+        )
+        local pid = child.pid
+        local ok, result = pcall(function()
+            return assert(child:communicate())
+        end)
+        if not ok then
+            child:kill(true)
+        end
+        child:close()
+        assert(ok, result)
+        write(output .. ".log", result.output)
+        assert(result:succeeded(), "serial AOT failed: " .. result.output)
+        assert(
+            hash.sha256(read(image)) == digest and hash.sha256(read(tool)) == toolhash,
+            "AOT inputs changed during compilation"
+        )
+        parts.manifest(read(output .. ".manifest"), digest, #functions, all)
+        parts.maps(read(output .. ".maps"), all)
+
+        return {
+            imageSha256 = digest,
+            toolSha256 = toolhash,
+            functions = #functions,
+            fallback = reason,
+            parts = {{pid = pid, fids = all, seconds = (os.monotonic() - started) / 1000, exit = result.exit}}
+        }
+    end
+
+    if jobs == 1 then
+        return serial(nil)
+    end
+    local groups, reason = parts.plan(functions, jobs)
+    if not groups then
+        return serial(reason)
+    end
+    local ar = options.ar or os.getenv("AR") or "ar"
+    local probe = directory .. "/archive-probe.a"
+    os.remove(probe)
+    local arcode = process.run({ar, "rcs", probe}, {env = {ZERO_AR_DATE = "1"}})
+    local archive = fs.readFile(probe)
+    if arcode ~= 0 or not archive or archive:sub(1, 8) ~= "!<arch>\n" then
+        return serial("usable archiver unavailable")
+    end
+    local scope = coroutine.scope()
+    local workerCount: integer = jobs
+    if #groups < workerCount then
+        workerCount = #groups
+    end
+    for worker = 1, workerCount do
+        scope:spawn(function()
+            for index = worker, #groups, jobs do
+                local group = groups[index]
+                group.path = directory .. "/part" .. index .. ".o"
+                local started = os.monotonic()
+                local child = assert(
+                    io.popen({tool, "aot", image, group.path, "--frames"}, {
+                        env = {AOT_ONLY = group.selector},
+                        stderr = "stdout",
+                        timeoutms = TIMEOUT_MS,
+                    })
+                )
+                group.pid = child.pid
+                local ok, result = pcall(function()
+                    return assert(child:communicate())
+                end)
+                if not ok then
+                    child:kill(true)
+                end
+                child:close()
+                assert(ok, result)
+                write(group.path .. ".log", result.output)
+                group.seconds = (os.monotonic() - started) / 1000
+                group.exit = result.exit
+                assert(result:succeeded(), "AOT worker failed: " .. result.output)
+            end
+        end)
+    end
+    scope:close()
+    assert(
+        hash.sha256(read(image)) == digest and hash.sha256(read(tool)) == toolhash,
+        "AOT inputs changed during compilation"
+    )
+    local union, objects, owned = {}, {}, {}
+    for index, group in ipairs(groups) do
+        parts.manifest(read(group.path .. ".manifest"), digest, #functions, group.fids)
+        local maps = parts.maps(read(group.path .. ".maps"), group.fids)
+        local replacements = {nupp_aot_table_v1 = ("nupp_aot_table_%02d"):format(index)}
+        for _, fid in ipairs(group.fids) do
+            assert(not union[fid] or union[fid] == maps[fid], "overlapping AOT metadata differs")
+            union[fid] = maps[fid]
+            if group.owned[fid] then
+                assert(not owned[fid], "duplicate AOT owner")
+                owned[fid] = true
+            else
+                replacements["nupp_aot_" .. decimal(fid)] = ("nupp_p%02d_"):format(index) .. decimal(fid)
+            end
+        end
+        local object = group.path .. ".renamed.o"
+        write(object, parts.rename(read(group.path), replacements))
+        objects[#objects + 1] = object
+    end
+    local maps = {packed(#all, WORD_BYTES)}
+    local manifest = {"runtime-abi\t" .. ABI, "image-sha256\t" .. digest, "functions\t" .. #functions}
+    for _, fid in ipairs(all) do
+        assert(owned[fid] and union[fid], "incomplete AOT coverage")
+        maps[#maps + 1] = union[fid]
+        manifest[#manifest + 1] = decimal(fid) .. "\tnupp_aot_" .. decimal(fid)
+    end
+    local command = {ar, "rcs", output .. ".new"}
+    for _, object in ipairs(objects) do
+        command[#command + 1] = object
+    end
+    os.remove(output .. ".new")
+    assert(process.run(command, {env = {ZERO_AR_DATE = "1"}}) == 0, "AOT archive construction failed")
+    write(output .. ".maps", table.concat(maps))
+    write(output .. ".manifest", table.concat(manifest, "\n") .. "\n")
+    write(output .. ".rs", parts.sidecar(digest, all, fs.absolute(output .. ".maps")))
+    assert(os.rename(output .. ".new", output))
+    local workers = {}
+    for _, group in ipairs(groups) do
+        workers[
+            #workers + 1
+        ] = {
+            pid = group.pid,
+            fids = group.fids,
+            weight = group.weight,
+            seconds = group.seconds,
+            exit = group.exit,
+            selectorSha256 = hash.sha256(group.selector)
+        }
+    end
+
+    return {imageSha256 = digest, toolSha256 = toolhash, functions = #functions, parts = workers}
+end
+
+export = parts

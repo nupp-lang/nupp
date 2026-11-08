@@ -1,0 +1,15 @@
+module nupp.tools.vm.aotbuild
+
+local parts = require("nupp.tools.vm.aotparts")
+local fs = require("nupp.compiler.fs")
+local json = require("serde.json")
+local args = io.cli.args
+local tool = assert(args[1], "AOT tool required")
+local image = assert(args[2], "compiler image required")
+local output = assert(args[3], "output archive required")
+local jobs = assert(tonumber(args[4] or "4"))
+local started = os.monotonic()
+local result = parts.compile(tool, image, output, {jobs = jobs})
+result.seconds = (os.monotonic() - started) / 1000
+assert(fs.writeFile(output .. ".receipt.json", json.encodevalue(result)))
+print("parallel AOT completed in " .. tostring(result.seconds) .. " seconds")
