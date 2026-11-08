@@ -6,10 +6,7 @@ Use [](coroutine.suspend) to wait for a value from a callback.
 local suspension = coroutine.sus
 
 local function readLine(reader: Reader): string
-    return coroutine.suspend("example.readLine", function(
-        resume: function(string),
-        context: suspension.Context
-    ): function()
+    return coroutine.suspend("example.readLine", |resume: function(string), context: suspension.Context| -> do
         const subscription = reader:onLine(resume)
 
         return || -> subscription:release()

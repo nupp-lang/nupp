@@ -23,7 +23,7 @@ cancelled or its deadline passed.
 
 ```nupp
 local scope = coroutine.scope(timeoutms = 1000)
-const sum = scope:spawn("sum values", function(): integer
+const sum = scope:spawn("sum values", || -> do
     local answer: integer = 0
     for value = 1, 1000 do
         coroutine.checkpoint()

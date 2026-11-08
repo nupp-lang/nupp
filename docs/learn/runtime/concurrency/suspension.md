@@ -278,9 +278,9 @@ example completes after its readiness source has been polled twice:
 local suspension = coroutine.sus
 
 local function after(polls: integer, value: string): string
-    return coroutine.suspend("counter", function(resume: function(string), context: suspension.Context): function()
+    return coroutine.suspend("counter", |resume: function(string), context: suspension.Context| -> do
         local left = polls
-        context:source("counter", 10, function(): integer
+        context:source("counter", 10, || -> do
             left = left - 1
             if left > 0 then
                 return 0
@@ -290,7 +290,7 @@ local function after(polls: integer, value: string): string
             return 1
         end)
 
-        return function(): nil
+        return || -> do
             left = 0
         end
     end)
@@ -352,7 +352,7 @@ inside a host barrier where yielding would violate a runtime invariant.
 
 ```nupp:fragment [scheduler.nupp]
 local scheduler = host.Handler(
-    park = function(_: host.Handler, waiting: host.Waiting, _: function(): nil): nil
+    park = |_: host.Handler, waiting: host.Waiting, _: function(): nil| -> do
         local task = assert(coroutine.running())
         waiting:onresume(|| -> enqueue(task))
         while not waiting:ready() do
@@ -360,7 +360,7 @@ local scheduler = host.Handler(
         end
     end,
     canpark = |_: host.Handler| -> true,
-    shutdown = function(_: host.Handler): nil
+    shutdown = |_: host.Handler| -> do
         while #runnable > 0 do
             runReady()
         end
@@ -444,7 +444,7 @@ local function pause(): nil
     coroutine.yield()
 end
 
-table.sort({2, 1}, function(a: integer, b: integer): boolean
+table.sort({2, 1}, |a: integer, b: integer| -> do
     pause()
 
     return a < b
