@@ -112,6 +112,14 @@ vm_cli_content_current() {
     python3 "$ROOT/scripts/vm-cli" current --refresh-stamp >/dev/null 2>&1
 }
 
+vm_cli_build() {
+    if [ -x "$ROOT/scripts/vm-build" ]; then
+        "$ROOT/scripts/vm-build" "$@"
+    else
+        python3 "$ROOT/scripts/vm-cli" "$@"
+    fi
+}
+
 # A rebuild of these very sources already failed: `failed` carries the time
 # that rebuild started, so an edit made while it ran is newer.
 vm_cli_failed_unchanged() {
@@ -179,7 +187,7 @@ vm_cli_rebuild() {
     : > "$VM_CLI/.rebuild-started"
     no_aot=
     [ "${NUPP_VM_AUTO_LINK:-1}" != 0 ] || no_aot=--no-aot
-    if python3 "$ROOT/scripts/vm-cli" build --seed vm $no_aot > "$VM_CLI/rebuild.log" 2>&1; then
+    if vm_cli_build build --seed vm $no_aot > "$VM_CLI/rebuild.log" 2>&1; then
         rm -f "$VM_CLI/failed" "$VM_CLI/.rebuild-started"
         # The emit's own account of what it reused, when it kept a cache.
         reused=$(sed -n 's/^vm emit: \([0-9]* modules* lowered, [0-9]* replayed\).*/: \1/p' \

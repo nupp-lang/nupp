@@ -3,14 +3,31 @@
 # for first bootstrap and the existing explicit interpreter-only modes.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+serial() {
+    remaining=$#
+    while [ "$remaining" -gt 0 ]; do
+        option=$1; shift
+        remaining=$((remaining - 1))
+        if [ "$option" = --jobs ]; then
+            [ "$remaining" -gt 0 ] || { echo "nupp: --jobs requires 1 through 4" >&2; exit 2; }
+            case "$1" in 1|2|3|4) ;; *) echo "nupp: --jobs requires 1 through 4" >&2; exit 2 ;; esac
+            shift
+            remaining=$((remaining - 1))
+        else
+            set -- "$@" "$option"
+        fi
+    done
+    exec python3 "$ROOT/scripts/vm-cli" "$@"
+}
 case " $* " in
     *" --seed image "*|*" --no-aot "*|*" --no-cache "*)
-        exec python3 "$ROOT/scripts/vm-cli" "$@" ;;
+        serial "$@" ;;
 esac
 if [ ! -f "$ROOT/.nupp/vm-cli/current" ] || [ "${NUPP_VM_BUILD_SERIAL:-0}" = 1 ]; then
-    exec python3 "$ROOT/scripts/vm-cli" "$@"
+    serial "$@"
 fi
-unset NO_AOT JIT_ONLY JIT_SKIP AOT_ONLY JIT_REGALLOC GC_STRESS GC_INTERLEAVE GC_ORACLE GC_QUARANTINE
+unset NO_AOT JIT_ONLY JIT_SKIP JIT_LIMIT AOT_ONLY JIT_REGALLOC EMIT_STUBS EMIT_SURVEY
+unset GC_STRESS GC_INTERLEAVE GC_ORACLE GC_QUARANTINE
 unset NUPP_VM_BINARY NUPP_VM_CLI_IMAGE NUPP_VM_EMIT_CACHE
 unset NUPP_AOT_OBJECT NUPP_NATIVE_RUNTIME_OBJECT
 export NO_JIT=1 NUPP_VM_AUTO_REBUILD=0 NUPP_COMPILER_ROOT="$ROOT"
@@ -20,9 +37,10 @@ case "$GENERATION" in
 esac
 [ "${#GENERATION}" -eq 64 ] || exit 1
 PAIR="$ROOT/.nupp/vm-cli/$GENERATION"
-if "$PAIR/runtime" run "$PAIR/compiler.image" nupp.tools.vm.build available >/dev/null 2>&1; then
+if available=$("$PAIR/runtime" run "$PAIR/compiler.image" nupp.tools.vm.build available 2>/dev/null) \
+    && [ "$available" = 1 ]; then
     exec "$PAIR/runtime" exec "$PAIR/compiler.image" nupp.tools.vm.build "$ROOT" "$@"
 fi
 # The first build carries the coordinator into the linked compiler. Later
 # builds execute that compiled coordinator rather than interpreting a script.
-exec python3 "$ROOT/scripts/vm-cli" "$@"
+serial "$@"

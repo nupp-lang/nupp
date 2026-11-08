@@ -433,6 +433,9 @@ function parts.compile(tool: string, image: string, output: string, options: any
         )
         parts.manifest(read(output .. ".manifest"), digest, #functions, all)
         parts.maps(read(output .. ".maps"), all)
+        if options.maps then
+            write(output .. ".rs", parts.sidecar(digest, all, fs.absolute(options.maps)))
+        end
 
         return {
             imageSha256 = digest,
@@ -531,7 +534,7 @@ function parts.compile(tool: string, image: string, output: string, options: any
     assert(process.run(command, {env = {ZERO_AR_DATE = "1"}}) == 0, "AOT archive construction failed")
     write(output .. ".maps", table.concat(maps))
     write(output .. ".manifest", table.concat(manifest, "\n") .. "\n")
-    write(output .. ".rs", parts.sidecar(digest, all, fs.absolute(output .. ".maps")))
+    write(output .. ".rs", parts.sidecar(digest, all, fs.absolute(options.maps or output .. ".maps")))
     assert(os.rename(output .. ".new", output))
     local workers = {}
     for _, group in ipairs(groups) do

@@ -9,6 +9,11 @@ local json = require("serde.json")
 local aot = require("nupp.tools.vm.aotparts")
 
 export function available(): integer
+    local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
+    local generation = assert(assert(fs.readFile(root .. "/.nupp/vm-cli/current")):match("^(%S+)"))
+    local receipt = json.decodevalue(assert(fs.readFile(root .. "/.nupp/vm-cli/" .. generation .. "/receipt.json")))
+    assert(receipt.linked, "a linked compiler is required")
+
     return 1
 end
 
@@ -183,10 +188,18 @@ export function main(arg: {string}): integer
     local tool = OUT .. "/aot-tool" .. SUFFIX
     copy(built, tool, true)
     local aotstarted = os.monotonic()
-    local receipt = aot.compile(tool, image, OUT .. "/compiler.o", {jobs = jobs})
+    local fresh = OUT .. "/compiler-next.o"
+    local receipt = aot.compile(tool, image, fresh, {jobs = jobs, maps = OUT .. "/compiler.o.maps"})
     receipt.seconds = (os.monotonic() - aotstarted) / 1000
     write(OUT .. "/parallel-aot.json", json.encodevalue(receipt))
     io.stderr:write(("vm-build: parallel AOT took %.3fs\n"):format(receipt.seconds))
+    for _, suffix in ipairs({"", ".rs", ".maps", ".manifest"}) do
+        local content = read(fresh .. suffix)
+        local destination = OUT .. "/compiler.o" .. suffix
+        if fs.readFile(destination) ~= content then
+            write(destination, content)
+        end
+    end
     local runtime = cargo(
         "aot-linked,c-headers,native-ffi,compression,net,http,regex,markdown,native-runtime",
         {NUPP_AOT_OBJECT = OUT .. "/compiler.o", NUPP_NATIVE_RUNTIME_OBJECT = core},
