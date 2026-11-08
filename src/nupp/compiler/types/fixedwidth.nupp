@@ -52,7 +52,7 @@ local COMPOSITE: {
 --- Finds a storage-only width that escaped into a value-shaped type. Pointers,
 --- C arrays, structs, and standard span element positions are the physical leaves
 --- where those names are meaningful and deliberately stop the walk.
-export function storageOnlyValue(t: T.Type?, seen: {[T.Type]: boolean}?): T.Type?
+export function storageOnlyValue(t: T.Type?, seen: {[any]: boolean}?): T.Type?
     if not t then
         return nil
     end
