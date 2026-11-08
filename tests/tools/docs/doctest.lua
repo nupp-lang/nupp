@@ -1224,6 +1224,7 @@ end
 function M.documentsComptimeCallablesAndTypeHandlesAsCompilerOnly()
     local source = table.concat(
         {
+            "local normal: function(): nil",
             "--- Builds a type.",
             "@comptime function newType(T: type): type",
             "   return T",
@@ -1237,6 +1238,7 @@ function M.documentsComptimeCallablesAndTypeHandlesAsCompilerOnly()
             "",
             "--- Compiler operations.",
             "local record Compiler",
+            "   call: function(): nil",
             "   --- Builds through a member.",
             "   build: @comptime function(T: type): type",
             "",
@@ -1272,6 +1274,15 @@ function M.documentsComptimeCallablesAndTypeHandlesAsCompilerOnly()
     assert(rendered:find("nuppdoc-kind-comptime-type", 1, true), rendered)
 
     local markdown = doc.markdown({module})
+    local overview = assert(markdown:match("## Overview\n\n(::: api%-overview.-\n:::)"), markdown)
+    assert(overview:find("**functions**", 1, true) < overview:find("**comptime**", 1, true), overview)
+    assert(overview:find("[`newType`](#meta.newType)", 1, true), overview)
+    local memberOverview = assert(markdown:match("#### Members\n\n(::: api%-overview.-\n:::)"), markdown)
+    assert(
+        memberOverview:find("**static methods**", 1, true) < memberOverview:find("**comptime**", 1, true),
+        memberOverview
+    )
+    assert(memberOverview:find("[`build`](#meta.Compiler.build)", 1, true), memberOverview)
     assert(markdown:find("### `newType` _comptime function_", 1, true), markdown)
     assert(markdown:find("@comptime function(T: type): type", 1, true), markdown)
     assert(markdown:find("#### `build` _comptime function_", 1, true), markdown)
