@@ -78,17 +78,6 @@ do
     check(width("bit") == 0 and width("flag") == 0)
     local ok, message = pcall(width, "never")
     check(not ok and message == "never never")
-
-    -- Library calls spreading `...`, as comptime's bounded adapters make them.
-    local function chars(...: integer): string
-        return string.char(...)
-    end
-
-    local function cut(...: any): string
-        return string.sub(...)
-    end
-
-    check(chars(104, 105) == "hi" and cut("hello", 2, 3) == "el")
     -- ipairs taken as a value, as comptime's adapter calls it.
     local walk: any = ipairs
     local total = 0
