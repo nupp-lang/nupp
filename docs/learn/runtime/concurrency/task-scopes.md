@@ -14,12 +14,8 @@ failure.
 ```nupp:fragment
 export function load(): string
     local scope = coroutine.scope()
-    const atlas = scope:spawn("load atlas", function(): string
-        return readAtlas()
-    end)
-    const settings = scope:spawn(function(): string
-        return readSettings()
-    end)
+    const atlas = scope:spawn("load atlas", || -> readAtlas())
+    const settings = scope:spawn(|| -> readSettings())
     return atlas:await() .. settings:await()
 end
 ```
@@ -33,7 +29,7 @@ a worker lane. Both have one shape: arguments first, callable last, and both
 return a `Task<F>`.
 
 ```nupp:fragment
-const page = scope:spawn(function(): string return fetchPage() end)
+const page = scope:spawn(|| -> fetchPage())
 const size = scope:spawn(url, measure)                 -- measure(url: string): integer
 const thumbnail = scope:work(bytes, jobs.thumbnail)    -- on a worker lane
 ```
@@ -165,6 +161,16 @@ is left. The block learns of it sooner where it is waiting: a child failure
 cancels the block's own wait, so a `spawn`, an `await`, or a sleep in the block
 raises it rather than the scope waiting for the block's next task operation.
 
+```nupp:fragment
+const ok, problem = pcall(function(): nil
+    local scope = coroutine.scope()
+    scope:spawn(|| -> error("fetch failed"))
+end)
+if not ok then
+    print(problem)
+end
+```
+
 An await settles against the scope before its named task. It can therefore
 raise a sibling's failure: the application scope is fail-fast, rather than a
 supervisor. Use [`gather`](#whole-family-calls) when failures should remain
@@ -190,8 +196,8 @@ or failed, which lexical cleanup alone cannot tell its scope:
 
 ```nupp:fragment
 const total = coroutine.run(limit = 8, body = function(borrows scope: coroutine.Scope): integer
-    const left = scope:spawn(function(): integer return countLeft() end)
-    const right = scope:spawn(function(): integer return countRight() end)
+    const left = scope:spawn(|| -> countLeft())
+    const right = scope:spawn(|| -> countRight())
 
     return left:await() + right:await()
 end)
@@ -222,8 +228,8 @@ for a caller who has to see every outcome:
 
 ```nupp:fragment
 const values, errors = coroutine.gather({
-    function(): string return fetch(primary) end,
-    function(): string return fetch(mirror) end,
+    || -> fetch(primary),
+    || -> fetch(mirror),
 })
 ```
 
@@ -240,8 +246,8 @@ and unwinds the rest:
 
 ```nupp:fragment
 const answer, which = coroutine.race({
-    function(): Head return upload(transfer) end,
-    function(): Head return head(transfer) end,
+    || -> upload(transfer),
+    || -> head(transfer),
 })
 ```
 
@@ -289,6 +295,13 @@ early, and it settles once. Operations on a settled scope raise. A close that
 raises before its
 children have settled, because nothing could complete a wait one of them is
 parked on, still gives the frame back and forgets the scope.
+
+```nupp:fragment
+local scope = coroutine.scope()
+const task = scope:spawn(|| -> fetchPage())
+const page = task:await()
+own.drop(scope)
+```
 
 A scope holds its live children, not the ones it has run. A settled child leaves
 the scope's bookkeeping as it settles, and its outcome stays with its handle, so

@@ -255,6 +255,13 @@ different handlers at the same time.
 does not register cancellation or give a handler responsibility for the
 suspended stack.
 
+```nupp
+local thread = coroutine.create(|| -> coroutine.yield("paused"))
+local ok, value = coroutine.resume(thread)
+print(ok, value)
+coroutine.resume(thread)
+```
+
 ## Running several waits together
 
 Waiting on more than one thing at a time is a
@@ -347,16 +354,12 @@ inside a host barrier where yielding would violate a runtime invariant.
 local scheduler = host.Handler(
     park = function(_: host.Handler, waiting: host.Waiting, _: function(): nil): nil
         local task = assert(coroutine.running())
-        waiting:onresume(function(): nil
-            enqueue(task)
-        end)
+        waiting:onresume(|| -> enqueue(task))
         while not waiting:ready() do
             coroutine.yield()
         end
     end,
-    canpark = function(_: host.Handler): boolean
-        return true
-    end,
+    canpark = |_: host.Handler| -> true,
     shutdown = function(_: host.Handler): nil
         while #runnable > 0 do
             runReady()
