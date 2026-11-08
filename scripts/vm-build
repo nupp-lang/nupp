@@ -8,7 +8,10 @@ serial() {
     while [ "$remaining" -gt 0 ]; do
         option=$1; shift
         remaining=$((remaining - 1))
-        if [ "$option" = --jobs ]; then
+        if [ "$option" = --compiler-generation ]; then
+            echo "nupp: --compiler-generation requires the Nupp build coordinator" >&2
+            exit 2
+        elif [ "$option" = --jobs ]; then
             [ "$remaining" -gt 0 ] || { echo "nupp: --jobs requires 1 through 4" >&2; exit 2; }
             case "$1" in 1|2|3|4) ;; *) echo "nupp: --jobs requires 1 through 4" >&2; exit 2 ;; esac
             shift
@@ -37,6 +40,14 @@ case "$GENERATION" in
 esac
 [ "${#GENERATION}" -eq 64 ] || exit 1
 PAIR="$ROOT/.nupp/vm-cli/$GENERATION"
+case " $* " in
+    *" --compiler-generation "*)
+        if ! capability=$("$PAIR/runtime" run "$PAIR/compiler.image" nupp.tools.vm.build compilerSelection 2>/dev/null) \
+            || [ "$capability" != 1 ]; then
+            echo "nupp: rebuild once without --compiler-generation to update the build coordinator" >&2
+            exit 2
+        fi ;;
+esac
 if available=$("$PAIR/runtime" run "$PAIR/compiler.image" nupp.tools.vm.build available 2>/dev/null) \
     && [ "$available" = 1 ]; then
     exec "$PAIR/runtime" exec "$PAIR/compiler.image" nupp.tools.vm.build "$ROOT" "$@"

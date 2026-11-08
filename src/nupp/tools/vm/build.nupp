@@ -7,6 +7,7 @@ local process = require("nupp.compiler.process")
 local hash = require("nupp.compiler.hash")
 local json = require("serde.json")
 local aot = require("nupp.tools.vm.aotparts")
+const GENERATION_LENGTH = 64
 
 export function available(): integer
     local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
@@ -14,6 +15,10 @@ export function available(): integer
     local receipt = json.decodevalue(assert(fs.readFile(root .. "/.nupp/vm-cli/" .. generation .. "/receipt.json")))
     assert(receipt.linked, "a linked compiler is required")
 
+    return 1
+end
+
+export function compilerSelection(): integer
     return 1
 end
 
@@ -93,8 +98,12 @@ local function run(arg: {string}): integer
         return TARGET .. "/release/nupp-vm" .. SUFFIX
     end
 
-    assert(arg[2] == "build", "usage: scripts/vm-build build [--seed vm] [--cache PATH] [--jobs N]")
+    assert(
+        arg[2] == "build",
+        "usage: scripts/vm-build build [--seed vm] [--cache PATH] [--jobs N] [--compiler-generation SHA256]"
+    )
     local cache, jobs = OUT .. "/emit-cache", assert(tonumber(os.getenv("NUPP_VM_AOT_JOBS") or "4"))
+    local compilerGeneration: string? = nil
     local index: integer = 3
     while arg[index] do
         local option, value = arg[index], assert(arg[index + 1], "missing build option value")
@@ -102,6 +111,8 @@ local function run(arg: {string}): integer
             cache = fs.absolute(value)
         elseif option == "--jobs" then
             jobs = assert(tonumber(value))
+        elseif option == "--compiler-generation" then
+            compilerGeneration = value
         else
             assert(option == "--seed" and value == "vm", "unknown build option: " .. option)
         end
@@ -110,12 +121,15 @@ local function run(arg: {string}): integer
     assert(jobs >= 1 and jobs <= 4 and jobs % 1 == 0, "jobs must be an integer from 1 to 4")
     assert(fs.mkdir(OUT))
     local before = source()
-    local generation = read(PACKAGES .. "/current"):match("^([a-f0-9]+)%s*$")
-    assert(generation and #generation == 64, "invalid installed compiler generation")
+    local selectedGeneration = read(PACKAGES .. "/current"):match("^([a-f0-9]+)%s*$")
+    assert(selectedGeneration and #selectedGeneration == GENERATION_LENGTH, "invalid installed compiler generation")
+    local generation = compilerGeneration or selectedGeneration
+    assert(#generation == GENERATION_LENGTH and generation:match("^[a-f0-9]+$"), "invalid build compiler generation")
     local pair = PACKAGES .. "/" .. generation
     local oldreceipt = json.decodevalue(read(pair .. "/receipt.json"))
     assert(
-        oldreceipt.linked
+        oldreceipt.format == FORMAT
+        and oldreceipt.linked
         and digest(pair .. "/runtime") == oldreceipt.runtimeSha256
         and digest(pair .. "/compiler.image") == oldreceipt.imageSha256,
         "verified linked build compiler required"
@@ -212,7 +226,7 @@ local function run(arg: {string}): integer
         "compiler sources changed during build; previous generation retained"
     )
     assert(
-        read(PACKAGES .. "/current"):match("^(%S+)") == generation,
+        read(PACKAGES .. "/current"):match("^(%S+)") == selectedGeneration,
         "another build selected a generation; refusing to replace it"
     )
     local runtimehash, imagehash = digest(runtime), digest(image)
@@ -250,7 +264,7 @@ local function run(arg: {string}): integer
         "compiler sources changed during validation; previous generation retained"
     )
     assert(
-        read(PACKAGES .. "/current"):match("^(%S+)") == generation,
+        read(PACKAGES .. "/current"):match("^(%S+)") == selectedGeneration,
         "another build selected a generation during validation"
     )
     local installed = {
@@ -266,6 +280,11 @@ local function run(arg: {string}): integer
         linked = true,
         validation = {"image verifier", "full root CLI --help"},
         parallelAot = {jobs = jobs, functions = receipt.functions},
+        buildCompiler = {
+            generation = generation,
+            runtimeSha256 = oldreceipt.runtimeSha256,
+            imageSha256 = oldreceipt.imageSha256,
+        },
     }
     write(stage .. "/format", FORMAT .. "\n")
     write(stage .. "/runtime-identity", runtimehash .. "\n")
@@ -290,6 +309,7 @@ local function run(arg: {string}): integer
         json.encodevalue({
             source = before,
             generation = selected,
+            compilerGeneration = generation,
             usableSeconds = (os.monotonic() - started) / 1000,
             aot = receipt.seconds,
             jobs = jobs

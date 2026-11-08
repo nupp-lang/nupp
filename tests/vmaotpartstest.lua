@@ -255,4 +255,14 @@ function M.invalidBuildRequestsKeepTheSelectedGeneration()
     test.eq(fs.readFile(current), before)
 end
 
+function M.invalidBuildCompilerChoicesKeepTheSelectedGeneration()
+    local root = assert(environment.compilerRoot())
+    local current = root .. "/.nupp/vm-cli/current"
+    local before = assert(fs.readFile(current))
+    for _, generation in ipairs({"../current", string.rep("a", 63), string.rep("F", 64), string.rep("f", 64)}) do
+        test.eq(driver.main({root, "build", "--compiler-generation", generation}), 1)
+        test.eq(fs.readFile(current), before)
+    end
+end
+
 return M
