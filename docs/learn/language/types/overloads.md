@@ -9,7 +9,7 @@ selects the single entry that accepts its arguments, whether those entries come
 from a callable intersection, from repeated method bodies, or from repeated
 constructors.
 
-```nupp:playground
+```nupp
 local record Token
     kind: string
 end

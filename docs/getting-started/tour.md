@@ -26,7 +26,7 @@ Every valid LuaJIT program is valid Nupp syntax. A `.lua` file runs unchanged;
 renaming it to `.nupp` enables the typed syntax and the checks that come with
 it, such as unknown-variable errors.
 
-```nupp:playground
+```nupp
 local function greet(name)
     return "Hello, " .. name .. "!"
 end

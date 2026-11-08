@@ -9,7 +9,7 @@ Nupp checks what an initializer settles and what an annotation states. An
 unannotated parameter or result is `any` and checks silently, so an annotation
 is what turns checking on for a function, one declaration at a time.
 
-```nupp:refused:playground
+```nupp:refused
 local total = 1
 total = total / 2
 

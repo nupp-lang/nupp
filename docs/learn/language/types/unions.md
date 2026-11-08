@@ -6,7 +6,7 @@ order: 290
 
 A union is a value that is one of several types, written with `|`:
 
-```nupp:playground
+```nupp
 local type Either = string | integer
 ```
 

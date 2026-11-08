@@ -8,7 +8,7 @@ A suspension-aware function waits without changing its call syntax or return
 type. The same call blocks in a command-line program and parks its coroutine
 where a host installed a [suspension handler](#hosts-supply-scheduling-policy):
 
-```nupp:playground
+```nupp
 local child = assert(io.popen({"cc", "--version"}))
 local result = assert(child:communicate())
 print(result.output)

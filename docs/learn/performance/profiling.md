@@ -22,7 +22,7 @@ Both are available through `debug.profile`. Sampling and trace sessions implemen
 `debug.profile.Session`. Its associated `Report` type lets a shared helper
 return the appropriate report type:
 
-```nupp:playground
+```nupp
 local profile = debug.profile
 
 local function finish<S is profile.Session>(borrows session: S): S.Report

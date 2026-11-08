@@ -8,7 +8,7 @@ Strings hold immutable bytes, arrays hold mutable typed elements, spans borrow
 windows over storage, and readers and writers move bytes between sources.
 Use `bytes.Buffer` when bytes arrive or are built a chunk at a time.
 
-```nupp:playground
+```nupp
 local buffer = bytes.Buffer.create()
 buffer:put("hello", " ", "world")
 assert(#buffer == 11)

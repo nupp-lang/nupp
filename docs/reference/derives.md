@@ -6,7 +6,7 @@ title: Declaration derives
 `types.debug` adds a checked `debug` method to a record or struct.
 Packages publish additional providers through the same recipe API.
 
-```nupp:playground
+```nupp
 @derive(types.debug)
 local record User
     id: integer

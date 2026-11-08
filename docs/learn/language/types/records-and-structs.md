@@ -25,7 +25,7 @@ end
 A record declaration builds one runtime table, uses it as the metatable of
 every instance, and gives the name a nominal type:
 
-```nupp:playground
+```nupp
 local record Point
     x: number
     y: number

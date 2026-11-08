@@ -8,7 +8,7 @@ Nupp's standard library provides types, text, data formats, I/O, and application
 tools. Its APIs live in builtin tables such as `math` and in declared modules
 such as `bytes`.
 
-```nupp:playground
+```nupp
 local digest = bytes.digest("sha256"):computehex("payload")
 print(#digest, math.lerp(10, 20, 0.25))
 ```

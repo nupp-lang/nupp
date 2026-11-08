@@ -8,7 +8,7 @@ title: Serialization bindings
 A binding defines how a value is read and constructed, and a codec chooses its
 wire representation. Select the binding at the call site:
 
-```nupp:playground
+```nupp
 local json = serde.json
 local record User
     id: uint32

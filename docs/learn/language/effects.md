@@ -15,7 +15,7 @@ An effect contract describes what a function may observe or change in addition
 to its input and return types. Types answer which values cross a call boundary;
 effects answer what else can happen while the call is in progress.
 
-```nupp:playground
+```nupp
 @effects(reads = {"value"}, returns = {"1=value"})
 local function identity(value: table): table
     return value

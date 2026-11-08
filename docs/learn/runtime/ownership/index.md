@@ -8,7 +8,7 @@ A file, socket, C allocation, or any other value that needs one final action can
 carry that obligation in its type. Nupp checks moves, borrows, explicit drops,
 and automatic lexical destruction.
 
-```nupp:playground
+```nupp
 local record File
     closed: boolean
 end
