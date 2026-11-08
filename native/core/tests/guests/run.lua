@@ -39,6 +39,15 @@ local SCRATCH = UNITS and 1048576 or 131072
 -- NUPP_GUEST_QUICK=1 checks selections and results only: no ABI guard,
 -- refusal or audit runs, which each run the program again.
 local QUICK = os.getenv("NUPP_GUEST_QUICK") == "1"
+-- NUPP_GUEST_MODES=normal runs each case's normal program only, the inner
+-- loop's choice; spill joins it by default. NUPP_GUEST_STRESS=0 skips the
+-- collect-at-every-allocation and interleaved runs, which a change to the heap,
+-- the collector, frames or ownership needs and others do not.
+local MODES = {}
+for mode in (os.getenv("NUPP_GUEST_MODES") or "normal,spill"):gmatch("[^,]+") do
+    MODES[#MODES + 1] = mode
+end
+local STRESSED = os.getenv("NUPP_GUEST_STRESS") ~= "0"
 -- Workloads that run for seconds: their result is checked in both modes,
 -- but the ABI guard, which runs the program again, is left to the others.
 local HEAVY = {workloadLoops = true}
@@ -1326,7 +1335,7 @@ local function main()
                 name .. " refusal: " .. tostring(problem)
             )
         end
-        for _, mode in ipairs(REFUSED[name] and {} or {"normal", "spill"}) do
+        for _, mode in ipairs(REFUSED[name] and {} or MODES) do
             local label = name .. "-" .. mode
             timing.case = name
             local selected = selection(name, mode)
@@ -1350,7 +1359,7 @@ local function main()
             write(bundle, bundleBytes)
             -- Each in every collection mode the case runs in.
             local modes = {{"", empty}}
-            if RAISES[name] and UNITS and STRESS[name] then
+            if RAISES[name] and UNITS and STRESSED and STRESS[name] then
                 local stress = OUT .. "/" .. label .. "-raises-stress.bin"
                 write(stress, u64(-1) .. u64(0) .. u64(1))
                 local stepped = OUT .. "/" .. label .. "-raises-interleaved.bin"
@@ -1385,7 +1394,7 @@ local function main()
                 -- It ends through os.exit: its status and what it printed,
                 -- in each collection mode, and no result published.
                 local runs = {{"", empty}}
-                if UNITS and STRESS[name] then
+                if UNITS and STRESSED and STRESS[name] then
                     local stress = OUT .. "/" .. label .. "-stress.bin"
                     write(stress, u64(-1) .. u64(0) .. u64(1))
                     local stepped = OUT .. "/" .. label .. "-interleaved.bin"
@@ -1424,7 +1433,7 @@ local function main()
                 end)
                 guarded(label, bundle, empty, highWater, expected)
                 -- The same result with a collection at every allocation.
-                if UNITS and (STRESS[name] == true or STRESS[name] == mode) then
+                if UNITS and STRESSED and (STRESS[name] == true or STRESS[name] == mode) then
                     local input = OUT .. "/" .. label .. "-stress.bin"
                     write(input, u64(-1) .. u64(0) .. u64(1))
                     local stressed = OUT .. "/" .. label .. "-stress.out"
@@ -1625,11 +1634,11 @@ local function main()
         end
     end
 
-    print(("selected %d programs in %ds"):format(#selectedCases * 2, selectedSeconds))
+    print(("selected %d programs in %ds"):format(#selectedCases * #MODES, selectedSeconds))
     drain()
     print(("primary checks done at %ds"):format(os.time() - started))
     -- Supplemental lifecycle audits wrap selected primary programs.
-    for _, mode in ipairs({"normal", "spill"}) do
+    for _, mode in ipairs(MODES) do
         if QUICK or os.getenv("NUPP_GUEST_AUDITS") == "0" then
             break
         end
