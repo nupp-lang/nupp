@@ -1,0 +1,145 @@
+module nupp.core.catalogaffineconstructors
+
+-- Records built by their named-field constructor where the record is an
+-- owner (own.Closeable) with private fields, returned from the function that
+-- builds it, as io.net's streams and TLS sessions are. Each check is a bit of
+-- the score.
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+local closed = 0
+
+local record Handle is own.Closeable
+    @private _id: integer
+    @private _closed: boolean
+
+    function id(self): integer
+        return self._id
+    end
+
+    function close(takes self): nil
+        self._closed = true
+        closed = closed + 1
+    end
+end
+
+local function open(id: integer): Handle
+    return Handle(_id = id, _closed = false)
+end
+
+-- As io.net's connect does: the record alone where an error may follow it.
+local function attempt(id: integer): (Handle?, string?)
+    if id < 0 then
+        return nil, "negative"
+    end
+
+    return Handle(_id = id, _closed = false)
+end
+
+-- An interface parent with a default method, as io.Reader and io.Writer give
+-- io.net's streams.
+local interface Source is own.Closeable
+    function name(self): string
+        return "source"
+    end
+
+    read: function(self): string
+end
+
+local record Pipe is Source
+    @private _text: string
+
+    function read(self): string
+        return self._text
+    end
+
+    function close(takes self): nil
+        closed = closed + 1
+    end
+end
+
+local function pipe(text: string): Pipe
+    return Pipe(_text = text)
+end
+
+-- A field typed by an interface, as `_provider: contract.Provider` is.
+local interface Provider
+    label: function(self): string
+end
+
+local record Fixed is Provider
+    function label(self): string
+        return "fixed"
+    end
+end
+
+local record Session is own.Closeable
+    @private _provider: Provider
+
+    function label(self): string
+        return self._provider:label()
+    end
+
+    function close(takes self): nil
+        closed = closed + 1
+    end
+end
+
+local function session(): Session
+    return Session(_provider = Fixed())
+end
+
+local record Exported is own.Closeable
+    @private _value: integer
+
+    function value(self): integer
+        return self._value
+    end
+
+    function close(takes self): nil
+        closed = closed + 1
+    end
+end
+
+local function exported(value: integer): Exported
+    return Exported(_value = value)
+end
+
+do
+    local handle = open(7)
+    check(handle:id() == 7)
+    handle:close()
+    check(closed == 1)
+end
+
+do
+    local made = pipe("text")
+    check(made:read() == "text" and made:name() == "source")
+    made:close()
+    local held = session()
+    check(held:label() == "fixed")
+    held:close()
+    local value = exported(3)
+    check(value:value() == 3)
+    value:close()
+    check(closed == 4)
+end
+
+do
+    local handle, problem = attempt(5)
+    check(handle ~= nil and problem == nil and handle:id() == 5)
+    if handle ~= nil then
+        handle:close()
+    end
+    local none, why = attempt(-1)
+    check(none == nil and why == "negative" and closed == 5)
+end
+
+export = score

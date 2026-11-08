@@ -12,6 +12,7 @@ local taggedcalls = require("nupp.compiler.vm.taggedcalls")
 local taggedstatements = require("nupp.compiler.vm.taggedstatements")
 local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local ownedclosures = require("nupp.compiler.vm.ownedclosures")
+local construction = require("nupp.compiler.vm.construction")
 local tagged = {booleanKind = "tagged"}
 local binary = taggedstatements.binary
 local binding = taggedvalues.binding
@@ -1277,7 +1278,9 @@ function tagged.forVersion(version: integer): any
             end
             local declared: integer = ctx.fn.signature and #ctx.fn.signature.rets or 1
             local lastSite = catalog(ctx).callByNode[last]
-            local scalarLast = scalarwitness(ctx, last) ~= nil
+            -- A construction answers its one instance, whatever its constructor
+            -- returns, so it is a value here and never spreads.
+            local scalarLast = scalarwitness(ctx, last) ~= nil or construction.bare(last)
             local libraryLast = graph.coreLibraryCall(last)
             local spreads = last.kind == "call"
                 and not scalarLast
