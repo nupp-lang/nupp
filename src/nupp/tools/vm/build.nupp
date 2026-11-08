@@ -17,7 +17,7 @@ export function available(): integer
     return 1
 end
 
-export function main(arg: {string}): integer
+local function run(arg: {string}): integer
     local ROOT = assert(arg[1], "compiler root required")
     local WINDOWS = package.config:sub(1, 1) == "\\"
     local SUFFIX = WINDOWS and ".exe" or ""
@@ -240,6 +240,19 @@ export function main(arg: {string}): integer
         validation
     )
     assert(help:find("Usage:", 1, true), "linked compiler did not produce CLI help")
+    assert(
+        digest(stage .. "/runtime") == runtimehash and digest(stage .. "/compiler.image") == imagehash,
+        "staged compiler artifacts changed"
+    )
+    local confirmed = source()
+    assert(
+        before.fingerprint == confirmed.fingerprint and before.revision == confirmed.revision,
+        "compiler sources changed during validation; previous generation retained"
+    )
+    assert(
+        read(PACKAGES .. "/current"):match("^(%S+)") == generation,
+        "another build selected a generation during validation"
+    )
     local installed = {
         format = FORMAT,
         runtimeSha256 = runtimehash,
@@ -267,7 +280,7 @@ export function main(arg: {string}): integer
     else
         assert(temporary:persist(destination))
     end
-    write(PACKAGES .. "/current", selected .. "\n")
+    assert(os.writeatomic(PACKAGES .. "/current", selected .. "\n"))
     -- A content check establishes freshness. Keep no end-of-build timestamp that
     -- could hide an edit; the launcher's next current check refreshes its own stamp.
     run({PYTHON, ROOT .. "/scripts/vm-cli", "current", "--refresh-stamp"}, nil, "compiler freshness")
@@ -285,4 +298,14 @@ export function main(arg: {string}): integer
     print(destination)
 
     return 0
+end
+
+export function main(arg: {string}): integer
+    local ok, result = pcall(run, arg)
+    if not ok then
+        io.stderr:write("vm-build: " .. tostring(result) .. "\n")
+        return 1
+    end
+
+    return result
 end
