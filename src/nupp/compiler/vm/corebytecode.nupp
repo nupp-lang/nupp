@@ -215,7 +215,7 @@ function bytecode.encode(instruction: any): string
             yield nil
         end
         case "PCall" -> do
-            assert(instruction[5] <= 63 and instruction[6] >= 1 and instruction[6] <= 16, "fixed PCall required")
+            assert(instruction[5] <= 63 and instruction[6] >= 0 and instruction[6] <= 16, "fixed PCall required")
             assert(instruction[4] + math.max(instruction[5], instruction[6], 1) < 250, "encoded PCall window capacity")
             local pack = instruction[7] or 0
             assert(pack <= 250, "encoded protected pack register capacity")
@@ -228,7 +228,7 @@ function bytecode.encode(instruction: any): string
         end
         case "RetN" -> do
             assert(
-                instruction[3] >= 1 and instruction[3] <= 16 and instruction[2] + instruction[3] <= 250,
+                instruction[3] >= 0 and instruction[3] <= 16 and instruction[2] + instruction[3] <= 250,
                 "encoded RetN window"
             )
             yield nil

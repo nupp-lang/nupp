@@ -2005,6 +2005,11 @@ export function Ret(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     -- A caller taking every result as one pack gets this one in a pack.
     if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.PACK_DESTINATION then
         value = guestscope.packValues(ctx, native.offset(regs, native.index(native.word(src) * 8ULL)), 1ULL, 0ULL)
+    elseif native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("resultKind")
+    ) == frames.PROTECTED_PACK_DESTINATION then
+        value = guestscope.protectedvalues(ctx, native.offset(regs, native.index(native.word(src) * 8ULL)), 1ULL, 0ULL)
     end
     -- A required module's value is kept for later requires.
     if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.MODULE_DESTINATION then
@@ -2062,14 +2067,16 @@ export function RetN(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
     end
     local src = program.readByte(pc, 1)
     local count = program.readByte(pc, 2)
-    if count < 1
-        or native.word(count) > frames.MAX_RESULTS
+    if native.word(count) > frames.MAX_RESULTS
         or native.word(src) + native.word(count) > native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
     then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
-    local value = slots.readValue(frame, regs, src)
+    local value = values.NIL
+    if count > 0 then
+        value = slots.readValue(frame, regs, src)
+    end
     if ops.result(ctx, frame, pc, value) ~= 1ULL then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
@@ -2135,7 +2142,15 @@ export function RetN(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
     if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.LIBRARY_DESTINATION then
         guestreplay.answered(ctx, native.address(frame))
     end
-    if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.PACK_DESTINATION then
+    if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.PROTECTED_PACK_DESTINATION then
+        local packed = guestscope.protectedvalues(
+            ctx,
+            native.offset(regs, native.index(native.word(src) * 8ULL)),
+            native.word(count),
+            0ULL
+        )
+        returned = frames.returnScalar(s, frame, packed)
+    elseif native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.PACK_DESTINATION then
         -- A caller taking every result as one pack gets them in a pack.
         local packed = guestscope.packValues(
             ctx,
@@ -2359,7 +2374,13 @@ export function RetV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
     -- A caller taking every result as one pack gets them all, past sixteen,
     -- as does a coroutine's resumer.
     local kind = native.load64(frame, native.fieldOffset<frames.Frame>("resultKind"))
-    if (kind == frames.PACK_DESTINATION or kind == frames.THREAD_DESTINATION) and ops.root(ctx, frame) ~= 1ULL then
+    if (
+        kind == frames.PACK_DESTINATION
+        or kind == frames.PROTECTED_PACK_DESTINATION
+        or kind == frames.THREAD_DESTINATION
+    )
+        and ops.root(ctx, frame) ~= 1ULL
+    then
         -- The first result is held to the signature, as any return's is.
         local first = values.NIL
         if fixed > 0 then
@@ -2371,12 +2392,22 @@ export function RetV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
             ops.fail(ctx, frame, pc, ops.INVALID)
             return native.fail()
         end
-        local packed = guestscope.packValues(
-            ctx,
-            native.offset(regs, native.index(native.word(src) * 8ULL)),
-            native.word(fixed),
-            pack
-        )
+        local packed: uint64 = 0ULL
+        if kind == frames.PROTECTED_PACK_DESTINATION then
+            packed = guestscope.protectedvalues(
+                ctx,
+                native.offset(regs, native.index(native.word(src) * 8ULL)),
+                native.word(fixed),
+                pack
+            )
+        else
+            packed = guestscope.packValues(
+                ctx,
+                native.offset(regs, native.index(native.word(src) * 8ULL)),
+                native.word(fixed),
+                pack
+            )
+        end
         ops.checkpoint(ctx, frame, pc)
         if kind == frames.THREAD_DESTINATION then
             if threads.finish(ctx, frame, packed) ~= 1ULL then
@@ -2497,7 +2528,7 @@ export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
-    if wanted < 1 or native.word(wanted) > frames.MAX_RESULTS then
+    if native.word(wanted) > frames.MAX_RESULTS then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -2573,7 +2604,7 @@ export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         pc,
         callee,
         native.word(base),
-        native.word(nargs) | native.word(wanted) << 32ULL,
+        native.word(nargs) | native.chooseWord(wanted == 0, 1ULL, native.word(wanted)) << 32ULL,
         hint
     )
     if child == 0ULL then
@@ -2590,7 +2621,13 @@ export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
-    if frames.protect(s, native.pointer(child)) ~= 1ULL then
+    local protected: uint64 = 0ULL
+    if wanted == 0 then
+        protected = frames.protectpack(s, native.pointer(child))
+    else
+        protected = frames.protect(s, native.pointer(child))
+    end
+    if protected ~= 1ULL then
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
@@ -2639,12 +2676,20 @@ export function XPHandle(
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
-    if slots.readValue(frame, regs, status) == values.FALSE then
+    local result = slots.readValue(frame, regs, status)
+    local failed = result == values.FALSE
+    local problem = slots.readValue(frame, regs, status + 1)
+    if wanted == 0 then
+        local pack = result & values.PAYLOAD
+        failed = tables.get(pack, values.TAG_INTEGER | 1ULL) == values.FALSE
+        problem = tables.get(pack, values.TAG_INTEGER | 2ULL)
+    end
+    if failed then
         local top = native.index(count - 4ULL)
         slots.writeValue(frame, regs, top, slots.readValue(frame, regs, handlerSlot))
-        slots.writeValue(frame, regs, top + 1, slots.readValue(frame, regs, status + 1))
+        slots.writeValue(frame, regs, top + 1, problem)
         local resultSlot = count - 1ULL
-        if wanted >= 2 then
+        if wanted == 0 or wanted >= 2 then
             resultSlot = native.word(status) + 1ULL
         end
         if ops.metaCall(ctx, frame, pc, 1ULL, resultSlot, 0ULL) ~= 1ULL then

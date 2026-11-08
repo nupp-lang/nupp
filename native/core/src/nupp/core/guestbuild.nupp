@@ -109,6 +109,7 @@ local CASES: {[string]: {
     callsSpread = {fixture = "catalog-calls-spread", version = 8},
     recordsMethods = {fixture = "catalog-records-methods", version = 8},
     callsProtected = {fixture = "catalog-calls-protected", version = 8},
+    protectedpacks = {fixture = "catalog-protected-packs", version = 8},
     recordsInline = {fixture = "catalog-records-inline", version = 8},
     errorsPositions = {fixture = "catalog-errors-positions", version = 8},
     tablesMeta = {fixture = "catalog-tables-meta", version = 8},

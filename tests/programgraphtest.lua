@@ -1254,6 +1254,49 @@ return relay(1, nil, 3)
     end
 end
 
+function M.protectedOpenResultsRetainTheirRuntimeCount()
+    for _, call in ipairs({"pcall(value, ...)", "xpcall(value, function(e: any): any return e end, ...)"}) do
+        local p = describe(
+            [[
+local function relay(value: any, ...: any): ...any
+    return ]] .. call .. [[
+
+end
+return relay
+]]
+        )
+        local compiled = program.compile(p, tagged.forVersion(8))
+        local output = require("nupp.compiler.vm.coregraphexecutable").fromChecked(compiled, 8)
+        local found = false
+        for _, fn in ipairs(output.functions) do
+            for _, instruction in ipairs(fn.instructions) do
+                if instruction[1] == "PCall" then
+                    test.eq(instruction[6], 0)
+                    found = true
+                end
+            end
+        end
+        test.eq(found, true)
+        require("nupp.compiler.vm.coregraphexecutable").validate(output)
+    end
+end
+
+function M.voidGuestReturnsKeepZeroValuesWithoutAllocatingPacks()
+    local p = describe("local function nothing(): nil end\nreturn nothing")
+    local compiled = program.compile(p, tagged.forVersion(8))
+    local body = compiled.graphs[owner(p, "nothing").id + 1]
+    test.eq(#operations(body, "NewTable"), 0)
+    test.eq(#body.blocks[1].term.values, 0)
+    local output = require("nupp.compiler.vm.coregraphexecutable").fromChecked(compiled, 8)
+    local found = false
+    for _, instruction in ipairs(output.functions[owner(p, "nothing").id + 1].instructions) do
+        if instruction[1] == "RetN" and instruction[3] == 0 then
+            found = true
+        end
+    end
+    test.eq(found, true)
+end
+
 function M.taggedMutationAndForwardingKeepOneCellIdentity()
     local p = describe(
         [[

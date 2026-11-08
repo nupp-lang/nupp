@@ -366,7 +366,7 @@ end
 -- xpcall(f, handler, ...) is the same call with its handler, evaluated
 -- second and carried last among the arguments, answering in the error's
 -- place.
-export function invokeProtected(ctx: any, node: any, keepResult: boolean, count: integer?): any
+export function invokeProtected(ctx: any, node: any, keepResult: boolean, count: integer?, open: boolean?): any
     local p = catalog(ctx)
     local site = need(p.callByNode[node], "pcall lacks checked callsite")
     need(site.protected and site.owner == ctx.fn.id, "pcall callsite belongs to another owner")
@@ -415,39 +415,12 @@ export function invokeProtected(ctx: any, node: any, keepResult: boolean, count:
         return landed(ctx, node, ctx.invokeMany(node, value, args, contract, count, pack))
     end
 
-    return landed(ctx, node, ctx.invoke(node, value, args, contract, keepResult, pack))
+    return landed(ctx, node, ctx.invoke(node, value, args, contract, keepResult, pack, open))
 end
 
--- All of protected call `node`'s results as one pack, the count at key 0:
--- true and its function's results, or false and the error. The call keeps
--- as many as the larger needs; the count is the success's until the status
--- says otherwise.
+-- All protected results as one pack, including their actual count and nils.
 protectedpack = function(ctx: any, node: any): integer?
-    local called = graph.protectedInvokeContract(node).callSignature
-    local results = called and called.retPack
-    need(
-        results ~= nil and results.tail == nil,
-        "a protected call whose function's results are open cannot spread them yet"
-    )
-    -- A function declared to return nil returns nothing.
-    local head = results.head
-    local none = #head == 1 and head[1].tag == "nil"
-    local count = none and 1 or 1 + #head
-    local values = invokeProtected(ctx, node, true, math.max(2, count))
-    if values == nil or ctx.block == nil then
-        return nil
-    end
-    local pack = ctx.emit(node, "NewTable", {}, "tagged")
-    for index, value in ipairs(values) do
-        local key = ctx.emit(node, "K", {pool(ctx, "int64", tostring(index))}, "tagged")
-        ctx.emit(node, "SetIdx", {pack, key, value}, nil)
-    end
-    local zero = ctx.emit(node, "K", {pool(ctx, "int64", "0")}, "tagged")
-    ctx.emit(node, "SetIdx", {pack, zero, ctx.emit(node, "K", {pool(ctx, "int64", tostring(count))}, "tagged")}, nil)
-    local status = ctx.emit(node, "K", {pool(ctx, "int64", "1")}, "tagged")
-    ctx.emit(node, "LibCall", {corelibrary.id("PROTECTED_COUNT"), pack, status}, "tagged")
-
-    return pack
+    return invokeProtected(ctx, node, true, nil, true)
 end
 
 -- table.sort(t, f): a merge sort the sort step advances until it needs f's
@@ -970,10 +943,15 @@ export function invokeMethod(
 end
 
 -- A bare return keeps zero values where the checked pack permits them.
-export function emptyreturn(signature: any): boolean
+export function emptyreturn(signature: any, nilIsEmpty: boolean?): boolean
     local pack = signature and signature.retPack
 
-    return pack ~= nil and (pack.alternatives ~= nil or #pack.head == 0)
+    return pack ~= nil
+        and (
+            pack.alternatives ~= nil
+            or #pack.head == 0
+            or nilIsEmpty == true and #pack.head == 1 and pack.head[1].tag == "nil"
+        )
 end
 
 -- An empty result pack uses the existing open return transport.
@@ -985,6 +963,9 @@ export function emptyresults(ctx: any, node: any): integer
 end
 
 export function openinvoke(ctx: any, node: any): any
+    if protectedcall(node) then
+        return protectedpack(ctx, node)
+    end
     if node.kind == "methodCall" and not graph.packedcall(node) then
         return invokeMethod(ctx, node, true, nil, nil, true)
     end

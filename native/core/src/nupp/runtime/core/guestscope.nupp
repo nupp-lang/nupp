@@ -513,21 +513,37 @@ end
 -- The pack {[0] = n, ...} of the `count` values at `source` followed by the
 -- values of `extra`, a pack (0 for none): a call's results for a caller that
 -- takes them all as one value.
-export function packValues(ctx: voidptr, source: voidptr, count: uint64, extra: uint64): uint64
+local function packedvalues(
+    ctx: voidptr,
+    source: voidptr,
+    count: uint64,
+    extra: uint64,
+    first: uint64,
+    last: uint64,
+    lastPresent: boolean
+): uint64
     @unsafe do
         local h = native.pointer(guestHeap(ctx)) as heap.Heap*
         local t = tables.create(h)
         local n: uint64 = 0ULL
-        while n < count do
+        if first ~= 0ULL then
+            if tables.set(h, t, values.TAG_INTEGER | 1ULL, first) == tables.NO_MEMORY then
+                error("not enough memory")
+            end
+            n = 1ULL
+        end
+        local at: uint64 = 0ULL
+        while at < count do
             if tables.set(
                 h,
                 t,
                 values.TAG_INTEGER | (n + 1ULL),
-                native.load64(source, native.index(n * 8ULL))
+                native.load64(source, native.index(at * 8ULL))
             ) == tables.NO_MEMORY then
                 error("not enough memory")
             end
             n = n + 1ULL
+            at = at + 1ULL
         end
         if extra ~= 0ULL then
             local more = ints.bitsOf(tables.get(extra, values.TAG_INTEGER))
@@ -545,6 +561,12 @@ export function packValues(ctx: voidptr, source: voidptr, count: uint64, extra: 
                 k = k + 1ULL
             end
         end
+        if lastPresent then
+            n = n + 1ULL
+            if tables.set(h, t, values.TAG_INTEGER | n, last) == tables.NO_MEMORY then
+                error("not enough memory")
+            end
+        end
         if tables.set(h, t, values.TAG_INTEGER, values.TAG_INTEGER | n) == tables.NO_MEMORY then
             error("not enough memory")
         end
@@ -552,6 +574,18 @@ export function packValues(ctx: voidptr, source: voidptr, count: uint64, extra: 
 
         return values.TAG_OBJ | t
     end
+end
+
+export function packValues(ctx: voidptr, source: voidptr, count: uint64, extra: uint64): uint64
+    return packedvalues(ctx, source, count, extra, 0ULL, 0ULL, false)
+end
+
+export function protectedvalues(ctx: voidptr, source: voidptr, count: uint64, extra: uint64): uint64
+    return packedvalues(ctx, source, count, extra, values.TRUE, 0ULL, false)
+end
+
+export function failedvalues(ctx: voidptr, value: uint64): uint64
+    return packedvalues(ctx, native.pointer(0ULL), 0ULL, 0ULL, values.FALSE, value, true)
 end
 
 -- The value the last recovered error carried.

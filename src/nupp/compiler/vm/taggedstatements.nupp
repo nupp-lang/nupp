@@ -459,9 +459,6 @@ export function cleanupProfile(base: any): any
         end
         local exprs = not falling and node.exprs or {}
         if #exprs == 0 then
-            if taggedcalls.emptyreturn(ctx.fn.signature) then
-                return {values = {taggedcalls.emptyresults(ctx, node)}, spread = true}
-            end
             return {values = {}}
         end
         local last = exprs[#exprs]
@@ -470,11 +467,14 @@ export function cleanupProfile(base: any): any
         local alternatives = pack and pack.alternatives ~= nil
         local open = pack and (pack.tail ~= nil or alternatives)
         local site = alternatives and catalog(ctx).callByNode[last]
+        local library = graph.coreLibraryCall(last)
+        local protected = library == "pcall" or library == "xpcall"
         local forward = graph.expandsResults(last)
+            or protected
             or alternatives and last.kind == "methodCall" and site and site.method
         forward = forward and not (alternatives and site and site.construct)
         local spreads = last.kind == "vararg" or open and forward
-        local expands = not spreads and declared > #exprs and graph.expandsResults(last)
+        local expands = not spreads and declared > #exprs and (graph.expandsResults(last) or protected)
         local fixed, kinds = {}, {}
         for index, expr in ipairs(exprs) do
             if index < #exprs or not spreads and not expands then
@@ -553,7 +553,13 @@ export function cleanupProfile(base: any): any
             ctx.block.term = {kind = "return", value = values[1], values = values, edges = {}, pos = ctx.position(node)}
         else
             local value = values[1] or ctx.emit(node, "Nil", {}, "tagged")
-            ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(node)}
+            ctx.block.term = {
+                kind = "return",
+                value = value,
+                values = #values == 0 and {} or nil,
+                edges = {},
+                pos = ctx.position(node)
+            }
         end
         ctx.block = nil
     end
