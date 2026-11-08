@@ -10,7 +10,11 @@ local frontend = {}
 -- local, an argument or a field takes it. A construction is not one: the
 -- local or argument that receives the instance owns it from the start.
 local function freshOwner(node: any): boolean
-    return node.kind == "call" and not construction.bare(node) and cleanup.type(node.inferredType) ~= nil
+    return (
+        node.kind == "call" and not construction.bare(node)
+        or node.kind == "funcExpr" and #(node.body.takenCaptures or {}) > 0
+    )
+        and cleanup.type(node.inferredType) ~= nil
 end
 
 local function need(ok: any, message: string): any
@@ -105,9 +109,12 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
     end
 
     local function position(node: any): integer
-        local token = need(cst.firstToken(node), "source position required")
+        local token = cst.firstToken(node)
+            or node == body.captureBindingStat and node.syntheticCapture and node.names[1]
+        need(token, "source position required")
         local id = graph.position(g, token.line, token.col)
         g.positions[id].source = {moduleName = scope.name, path = scope.path}
+
         return id
     end
 
@@ -741,10 +748,18 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         local plan = need(profile.cleanupPlan(ctx, site, t, t.cleanups, owner), "checked cleanup plan required")
         need(ctx.block == block, "cleanup planning must not change control flow")
         checkHeldScope(active)
-        local entry = {owner = owner, site = site, plan = plan, value = {}, live = {}, temporary = site.kind == "call"}
+        local entry = {owner = owner, site = site, plan = plan, value = {}, live = {}, temporary = freshOwner(site)}
         ctx.bind(entry.value, value)
         ctx.bind(entry.live, flag(site, not empty))
         cleanups[#cleanups + 1], cleanupOwners[owner] = entry, entry
+    end
+
+    ctx.captureplan = function(node: any, t: any): any
+        need(cleanupEnabled, "taking capture requires cleanup lowering")
+        return profile.cleanupPlan(ctx, node, t, t.cleanups)
+    end
+    ctx.takecapture = function(node: any, owner: any): nil
+        transfer(node, owner)
     end
 
     transfer = function(node: any, owner: any): nil
@@ -1340,7 +1355,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                     not stat.automaticOwnerReinit
                     and not stat.ownerCleanupGuards
                     and not stat.affineAggregate
-                    and not stat.affineInitializer,
+                    and (not stat.affineInitializer or stat.kind == "localFuncStmt"),
                     "partial, reinitialized or closure owner cleanup is unsupported"
                 )
             end
@@ -1436,6 +1451,13 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                     writeBinding(stat, key, value)
                 else
                     ctx.bind(key, initializeBinding(stat, key, value))
+                end
+                if cleanupEnabled and stat.affineInitializer then
+                    local owner = need(
+                        stat.automaticOwners and stat.automaticOwners[1],
+                        "affine local function lacks its owner"
+                    )
+                    registerCleanup(stat, owner, owner.type, value)
                 end
                 if profile.cleanupRegistrations and block then
                     invoke("cleanupRegistrations", stat, value)

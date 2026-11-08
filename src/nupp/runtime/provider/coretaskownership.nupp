@@ -1,8 +1,8 @@
 @!internal
 module nupp.runtime.provider.coretaskownership
 
--- Taking captures are refused by the core's checked closure lowering. The
--- callable table hook is the ownership protocol supported by main today.
+-- Consuming closures use corecallable's active/drop state. Main's callable
+-- table hook remains the shared release boundary.
 export function release(body: any): nil
     if type(body) == "table" and type(body.__nuppRelease) == "function" then
         body.__nuppRelease()

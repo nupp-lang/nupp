@@ -11,6 +11,7 @@ local graphimage = require("nupp.compiler.vm.graphimage")
 local graphemit = require("nupp.compiler.vm.graphemit")
 local lower = require("nupp.compiler.vm.lower")
 local scalartypeof = require("nupp.compiler.vm.scalartypeof")
+local ownedcallables = require("nupp.compiler.vm.ownedcallables")
 local indexedaccess = require("nupp.compiler.vm.indexedaccess")
 local program = {}
 
@@ -358,6 +359,7 @@ function program.describe(modules: {any}, entryModule: string): any
         requires = {},
         requireByNode = {},
         scalartypes = {imports = {}, definitions = {}, witnesses = {}},
+        callables = {},
         qualifiedLoads = {},
         calls = {},
         callByNode = {},
@@ -783,22 +785,29 @@ function program.describe(modules: {any}, entryModule: string): any
     local currentChunk: any = nil
     local loaded: {[any]: {[string]: any}} = {}
 
+    -- One qualified source site, shared by eager paths and callable factories.
+    local function qualifiedload(owner: any, module: any, node: any): any
+        local site = {
+            id = #p.requires,
+            owner = owner.id,
+            node = node,
+            module = module.name,
+            typeOnly = false,
+            target = module.chunk,
+            qualified = true
+        }
+        p.requires[#p.requires + 1], p.requireByNode[node] = site, site
+
+        return site
+    end
+
     -- A hidden require of `module` that chunk `owner` makes as it starts,
     -- before its own body (ahead of the others when `first`), positioned at
     -- `token`.
     local function eagerLoad(owner: any, module: any, token: any, first: boolean): any
         local load = {kind = "qualifiedLoad", qualifiedModule = module.name, token}
-        local eager = {
-            id = #p.requires,
-            owner = owner.id,
-            node = load,
-            module = module.name,
-            typeOnly = false,
-            target = module.chunk,
-            qualified = true,
-            eager = true
-        }
-        p.requires[#p.requires + 1], p.requireByNode[load] = eager, eager
+        local eager = qualifiedload(owner, module, load)
+        eager.eager = true
         local loads = p.qualifiedLoads[owner.id] or {}
         p.qualifiedLoads[owner.id] = loads
         table.insert(loads, first and 1 or #loads + 1, eager)
@@ -1126,6 +1135,26 @@ function program.describe(modules: {any}, entryModule: string): any
                 end
             end
             p.inheritTokens[node] = tokens
+        end
+        if ownedcallables.taking(node) then
+            local plan = ownedcallables.prepare(p, node, owner)
+            p.callables[node] = plan
+            local site = {
+                id = #p.calls,
+                owner = owner.id,
+                node = plan.call,
+                definition = plan.target.definition,
+                callable = plan
+            }
+            p.calls[#p.calls + 1], p.callByNode[plan.call] = site, site
+            local load = {kind = "qualifiedLoad", qualifiedModule = ownedcallables.MODULE, cst.firstToken(node)}
+            local module = need(moduleNames[ownedcallables.MODULE], "consuming callable module is missing")
+            local loader = qualifiedload(owner, module, load)
+            loader.callable = plan
+            plan.loader = loader
+            for _, captured in ipairs(plan.captures) do
+                cleanupToken(node, captured.type, captured.token)
+            end
         end
         if node.kind == "localStmt" and node.automaticOwners then
             for index, automatic in pairs(node.automaticOwners) do
@@ -1554,6 +1583,9 @@ function program.verify(p: any): boolean
         local node = item.node
         need(item.id == index - 1 and p.owners[item.owner + 1], "invalid require callsite owner")
         if item.qualified then
+            if item.callable then
+                ownedcallables.verify(p, item.callable)
+            end
             if item.builtin then
                 local current = program.builtinprojection(node)
                 local original = item.builtin
@@ -1605,6 +1637,7 @@ function program.verify(p: any): boolean
                         node.kind == "dotIndex"
                         or item.builtin and (node.kind == "name" or node.kind == "call")
                         or item.eager and node.kind == "qualifiedLoad"
+                        or item.callable and node.kind == "qualifiedLoad"
                     )
                     and node.qualifiedModule == item.module
                 )
@@ -1854,6 +1887,8 @@ function program.verify(p: any): boolean
                 "indexed span callsite identity mismatch"
             )
             indexedaccess.verify(access, access.node, item.owner)
+        elseif item.callable then
+            ownedcallables.verify(p, item.callable)
         elseif item.scalarWitness then
 
             local witness = item.scalarWitness
@@ -1933,6 +1968,9 @@ function program.verify(p: any): boolean
                 "callsite does not belong to its checked owner"
             )
         end
+    end
+    for _, plan in pairs(p.callables) do
+        ownedcallables.verify(p, plan)
     end
     for node, access in pairs(p.indexedByNode) do
         local site = need(p.callByNode[access.call], "indexed span lacks its issued callsite")

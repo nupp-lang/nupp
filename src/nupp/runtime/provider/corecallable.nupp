@@ -1,0 +1,86 @@
+@!internal
+module nupp.runtime.provider.corecallable
+
+-- Canonical core representation of main's consuming callable protocol.
+-- A successful call hands captures to the body's checked lexical owners.
+local function destroy(entry: any, index: integer): nil
+    local value = entry.value
+    if value == nil then
+        return
+    end
+    if entry.functions ~= nil then
+        entry.functions[index](value)
+    elseif entry.class ~= nil then
+        entry.class[entry.names[index]](value)
+    else
+        value[entry.names[index]](value)
+    end
+end
+
+local function failure(errors: {any}, count: integer): any
+    local primary = errors[1]
+    local suppressed: {any} = {}
+    for index = 2, count do
+        if errors[index] ~= primary then
+            suppressed[#suppressed + 1] = errors[index]
+        end
+    end
+    if #suppressed == 0 then
+        return primary
+    end
+
+    return setmetatable({primary = primary, suppressed = suppressed}, {
+        __tostring = function(value: any): string
+            local text = tostring(value.primary)
+            for _, reason in ipairs(value.suppressed) do
+                text = text .. "\ncleanup: " .. tostring(reason)
+            end
+
+            return text
+        end
+    })
+end
+
+export function create(body: any, captured: any): any
+    local active = true
+
+    local function release(): nil
+        if not active then
+            return
+        end
+        active = false
+        body = nil
+        local entries = captured
+        captured = nil
+        local errors: {any} = {}
+        local count: integer = 0
+        for index = #entries, 1, -1 do
+            local entry = entries[index]
+            local cleanups = #(entry.functions or entry.names)
+            for cleanup = 1, cleanups do
+                local okay, problem = pcall(destroy, entry, cleanup)
+                if not okay then
+                    count += 1
+                    errors[count] = problem
+                end
+            end
+        end
+        if count > 0 then
+            error(failure(errors, count), 0)
+        end
+    end
+
+    return setmetatable({__nuppRelease = release}, {
+        __call = function(_: any, ...: any): ...any
+            if not active then
+                error("nupp: affine closure was already called or dropped", 2)
+            end
+            active = false
+            local callable = body
+            body = nil
+            captured = nil
+
+            return callable(...)
+        end
+    })
+end

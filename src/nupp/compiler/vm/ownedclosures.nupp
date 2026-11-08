@@ -1,0 +1,90 @@
+module nupp.compiler.vm.ownedclosures
+
+local values = require("nupp.compiler.vm.taggedvalues")
+local calls = require("nupp.compiler.vm.graphcalls")
+local library = require("nupp.compiler.vm.corelibrary")
+local callables = require("nupp.compiler.vm.ownedcallables")
+local need = values.need
+
+local function literal(ctx: any, node: any, kind: string, text: string): integer
+    return ctx.emit(node, "K", {values.pool(ctx, kind, text)}, "tagged")
+end
+
+local function field(ctx: any, node: any, table: any, name: string, value: integer): nil
+    ctx.emit(node, "SetIdx", {ctx.readHeld(table), literal(ctx, node, "str", name), value}, nil)
+end
+
+local function row(ctx: any, node: any, capture: any): integer
+    local value = ctx.readname(node, capture.outer.definition)
+    need(value ~= nil, "taken capture lacks its current outer value")
+    local held = ctx.hold(value)
+    local result = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
+    field(ctx, node, result, "value", ctx.readHeld(held))
+    local plan = ctx.captureplan(node, capture.type)
+    local list = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
+    local names = plan.names or plan.methods
+    if names then
+        for index, name in ipairs(names) do
+            local key = literal(ctx, node, "int64", tostring(index))
+            local value = literal(ctx, node, "str", name)
+            ctx.emit(node, "SetIdx", {ctx.readHeld(list), key, value}, nil)
+        end
+        field(ctx, node, result, "names", ctx.readHeld(list))
+        if plan.token and not plan.token.foreign then
+            local class = ctx.expression({kind = "name", token = plan.token, plan.token}, "tagged")
+            field(ctx, node, result, "class", class)
+        elseif plan.token then
+            local class = ctx.emit(node, "LibCall", {library.id("GETMETATABLE"), ctx.readHeld(held)}, "tagged")
+            field(ctx, node, result, "class", class)
+        end
+    else
+        for index, name in ipairs(plan.keys) do
+            local key = literal(ctx, node, "int64", tostring(index))
+            local value = ctx.emit(
+                node,
+                "LibCall",
+                {library.id("CLEANUP_GET"), literal(ctx, node, "str", name)},
+                "tagged"
+            )
+            ctx.emit(node, "SetIdx", {ctx.readHeld(list), key, value}, nil)
+        end
+        field(ctx, node, result, "functions", ctx.readHeld(list))
+    end
+    local answer = ctx.readHeld(result)
+    ctx.release(list)
+    ctx.release(result)
+    ctx.release(held)
+
+    return answer
+end
+
+export function wrap(ctx: any, node: any, closure: integer): integer
+    local p = values.catalog(ctx)
+    local plan = need(p.callables[node], "taking closure lacks its checked factory")
+    callables.verify(p, plan)
+    need(plan.owner == ctx.fn.id, "taking closure belongs to another creator")
+    local body = ctx.hold(closure)
+    local captured = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
+    for index, capture in ipairs(plan.captures) do
+        local value = ctx.hold(row(ctx, node, capture))
+        local key = literal(ctx, node, "int64", tostring(index))
+        ctx.emit(node, "SetIdx", {ctx.readHeld(captured), key, ctx.readHeld(value)}, nil)
+        ctx.release(value)
+    end
+    local module = ctx.emit(node, "Require", {values.pool(ctx, "str", callables.MODULE)}, "tagged")
+    local callee = ctx.emit(node, "GetIdx", {module, literal(ctx, node, "str", callables.MEMBER)}, "tagged")
+    local contract = calls.invokeContract(plan.target, plan.call)
+    local answer = values.landed(
+        ctx,
+        node,
+        ctx.invoke(node, callee, {ctx.readHeld(body), ctx.readHeld(captured)}, contract, true)
+    )
+    ctx.release(captured)
+    ctx.release(body)
+    for _, capture in ipairs(plan.captures) do
+        local owner = capture.move or capture.outer and capture.outer.automaticOwner
+        ctx.takecapture(node, need(owner, "taking capture lacks its checked move"))
+    end
+
+    return answer
+end

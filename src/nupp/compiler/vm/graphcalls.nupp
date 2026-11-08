@@ -550,7 +550,14 @@ export function checkcontract(contract: any): nil
         and not call.cdefCall
         and not call.scalarIntrinsic
         and not call.ownershipIntrinsic
-        and not call.affineClosureCall
+        and (
+            not call.affineClosureCall
+            or owner.body
+            and #(owner.body.takenCaptures or {}) > 0
+            and call.obj
+            and call.obj.inferredType
+            and call.obj.inferredType.tag == "affine"
+        )
         and not call.runtimeLoader,
         "invoke checked call identity differs" .. checkingat()
     )

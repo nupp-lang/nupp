@@ -1,0 +1,93 @@
+module nupp.core.catalogownedcallables
+
+local own = require("own")
+local closed: {integer} = {}
+local record Resource is own.Closeable
+    value: integer
+    function close(takes self): nil
+        local value = self.value
+        @unsafe own.release(self)
+        closed[#closed + 1] = value
+    end
+end
+
+local function unused(): nil
+    local first = Resource(value = 1)
+    local second = Resource(value = 2)
+    local body = function(): integer takes (first, second)
+        return first.value + second.value
+    end
+    own.drop(body)
+end
+
+unused()
+assert(#closed == 2 and closed[1] == 2 and closed[2] == 1, "drop releases captures in reverse order")
+
+local function called(): integer
+    local resource = Resource(value = 3)
+    local body = function(): integer takes (resource)
+        return resource.value
+    end
+
+    return body()
+end
+
+assert(called() == 3 and #closed == 3 and closed[3] == 3, "called body owns capture cleanup")
+
+local function lexical(): nil
+    local resource = Resource(value = 4)
+    local body = function(): integer takes (resource)
+        return resource.value
+    end
+end
+
+lexical()
+assert(#closed == 4 and closed[4] == 4, "uncalled lexical closure releases capture")
+
+local function named(): integer
+    local resource = Resource(value = 5)
+
+    local function body(): integer takes (resource)
+        return resource.value
+    end
+
+    return body()
+end
+
+assert(named() == 5 and #closed == 5 and closed[5] == 5, "named consuming closure")
+
+local marker = {}
+
+local function failing(): integer
+    local resource = Resource(value = 6)
+    local body = function(): integer takes (resource)
+        if resource.value == 6 then
+            error(marker, 0)
+        end
+        return resource.value
+    end
+
+    return body()
+end
+
+local okay, problem = pcall(failing)
+assert(not okay and problem == marker, "called failure identity")
+assert(#closed == 6 and closed[6] == 6, "failed body releases capture once")
+
+local function unpublished(): integer
+    local resource = Resource(value = 7)
+    local body = function(): integer takes (resource)
+        return resource.value
+    end
+    if #closed > 0 then
+        error(marker, 0)
+    end
+
+    return body()
+end
+
+okay, problem = pcall(unpublished)
+assert(not okay and problem == marker, "outer failure identity")
+assert(#closed == 7 and closed[7] == 7, "outer failure releases uncalled closure")
+
+export = 1

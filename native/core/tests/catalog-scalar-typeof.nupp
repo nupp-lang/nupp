@@ -1,0 +1,30 @@
+module nupp.core.catalogscalartypeof
+
+local ffi = require("ffi")
+
+local function check<T>(witness: ctype<T>, width: integer): nil
+    local descriptor: any = witness
+    assert(type(descriptor) == "table" and descriptor.size == width and descriptor.alignment == width)
+end
+
+check(ffi.typeof<uint8>(), 1)
+assert(ffi.typeof<uint8>() == ffi.typeof<uint8>(), "canonical uint8 witness")
+check(ffi.typeof<int8>(), 1)
+assert(ffi.typeof<int8>() == ffi.typeof<int8>(), "canonical int8 witness")
+check(ffi.typeof<uint16>(), 2)
+assert(ffi.typeof<uint16>() == ffi.typeof<uint16>(), "canonical uint16 witness")
+check(ffi.typeof<int16>(), 2)
+assert(ffi.typeof<int16>() == ffi.typeof<int16>(), "canonical int16 witness")
+check(ffi.typeof<uint32>(), 4)
+assert(ffi.typeof<uint32>() == ffi.typeof<uint32>(), "canonical uint32 witness")
+check(ffi.typeof<int32>(), 4)
+assert(ffi.typeof<int32>() == ffi.typeof<int32>(), "canonical int32 witness")
+check(ffi.typeof<uint64>(), 8)
+assert(ffi.typeof<uint64>() == ffi.typeof<uint64>(), "canonical uint64 witness")
+check(ffi.typeof<int64>(), 8)
+assert(ffi.typeof<int64>() == ffi.typeof<int64>(), "canonical int64 witness")
+check(ffi.typeof<float32>(), 4)
+assert(ffi.typeof<float32>() == ffi.typeof<float32>(), "canonical float32 witness")
+check(ffi.typeof<float64>(), 8)
+assert(ffi.typeof<float64>() == ffi.typeof<float64>(), "canonical float64 witness")
+export = 1

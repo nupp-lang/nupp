@@ -54,8 +54,11 @@ end
 export function ordinaryCaptures(owner: any): nil
     for _, item in ipairs(owner.captures) do
         need(
-            item.mode == "value" or item.mode == "cell" or item.mode == "borrow",
-            "taking captures require ownership cleanup and lifetime lowering"
+            item.mode == "value"
+            or item.mode == "cell"
+            or item.mode == "borrow"
+            or item.mode == "take" and item.ownership and item.ownership.automaticOwner,
+            "capture lacks checked storage or ownership"
         )
     end
 end

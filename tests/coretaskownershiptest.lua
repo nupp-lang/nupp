@@ -87,7 +87,7 @@ function M.ordinaryValuesDoNotRunAnUncalledBody()
     test.eq(called, false)
 end
 
-function M.takingCapturesStillRequireOwnedCallableLowering()
+function M.takingCapturesRequireTheirCanonicalCheckedFactory()
     local source = [[
 local record Resource
     value: integer
@@ -111,22 +111,13 @@ print(body())
     for _, diagnostic in ipairs(diagnostics) do
         assert(diagnostic.severity ~= "error", diagnostic.msg)
     end
-    local catalog = program.describe({{name = name, path = path, parsed = parsed, diagnostics = diagnostics}}, name)
-    local found = false
-    for _, owner in ipairs(catalog.owners) do
-        for _, capture in ipairs(owner.captures) do
-            if capture.mode == "take" then
-                found = true
-                local ok, problem = pcall(program.functionGraph, catalog, owner, tagged)
-                test.eq(ok, false)
-                assert(
-                    tostring(problem):find("taking captures require ownership cleanup and lifetime lowering", 1, true),
-                    tostring(problem)
-                )
-            end
-        end
-    end
-    test.eq(found, true)
+    local okay, problem = pcall(
+        program.describe,
+        {{name = name, path = path, parsed = parsed, diagnostics = diagnostics}},
+        name
+    )
+    test.eq(okay, false)
+    assert(tostring(problem):find("checked consuming callable factory is missing", 1, true), tostring(problem))
 end
 
 return M

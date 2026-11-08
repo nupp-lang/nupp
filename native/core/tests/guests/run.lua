@@ -179,6 +179,8 @@ local CASES = {
     {"spanwrites", 0x7FFF000000000001},
     {"librarybasics", 0x7FFF00000000007F},
     {"cleanupfunctions", 0x7FFF000000000003},
+    {"ownedcallables", 0x7FFF000000000001},
+    {"scalartypeof", 0x7FFF000000000001},
     {"coreoperators", 0x7FFF0000000003FF},
     {"methodcleanups", 0x7FFF00000000001F},
     {"ownerreinit", 0x7FFF00000000007F},
@@ -333,6 +335,8 @@ end
 -- spaced by a share of what lives, so the full-scale workloads stay linear;
 -- records and strings, at seconds a run there, run so in normal mode alone.
 local STRESS = {
+    ownedcallables = true,
+    scalartypeof = true,
     optionalmethodcleanups = true,
     numericsteps = true,
     stringdynamic = true,

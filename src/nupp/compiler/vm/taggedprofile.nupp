@@ -11,6 +11,7 @@ local taggedvalues = require("nupp.compiler.vm.taggedvalues")
 local taggedcalls = require("nupp.compiler.vm.taggedcalls")
 local taggedstatements = require("nupp.compiler.vm.taggedstatements")
 local scalartypeof = require("nupp.compiler.vm.scalartypeof")
+local ownedclosures = require("nupp.compiler.vm.ownedclosures")
 local tagged = {booleanKind = "tagged"}
 local binary = taggedstatements.binary
 local binding = taggedvalues.binding
@@ -142,6 +143,22 @@ function tagged.valueLiteral(ctx: any, node: any, expected: string?): integer
 end
 
 function tagged.constant(ctx: any, node: any, expected: string?): integer
+    if node.captureValue then
+        for _, item in ipairs(ctx.fn.captures) do
+            local capture = item.ownership
+            if item.mode == "take"
+                and item.inner == node.token.definition
+                and capture
+                and capture.automaticOwner
+                and capture.automaticOwner.expr == node
+                and capture.automaticOwner.stat == ctx.fn.body.captureBindingStat
+            then
+                return ctx.emit(node, "GetUpval", {item.id}, "tagged")
+            end
+        end
+        error("tagged graph: capture initializer lacks its checked taking slot", 0)
+    end
+
     local value = qualifiedvalue(ctx, node)
     if value ~= nil then
         return value
@@ -210,7 +227,9 @@ function tagged.entryBindings(ctx: any, node: any): nil
     ordinaryCaptures(ctx.fn)
     for _, item in ipairs(ctx.fn.captures) do
         local value = ctx.emit(node, "GetUpval", {item.id}, "tagged")
-        ctx.bind(item.definition, value)
+        if item.mode ~= "take" then
+            ctx.bind(item.definition, value)
+        end
     end
 end
 
@@ -240,10 +259,15 @@ function tagged.closure(ctx: any, node: any, expected: string?): integer
     for _, item in ipairs(target.captures) do
         -- Forward the stored value itself. A shared cell must not be read and
         -- reconstructed when an intermediate closure forwards it.
-        args[#args + 1] = ctx.storage(item.definition)
+        args[#args + 1] = item.mode == "take" and ctx.readname(node, item.definition) or ctx.storage(item.definition)
     end
 
-    return ctx.emit(node, "Closure", args, "tagged")
+    local value = ctx.emit(node, "Closure", args, "tagged")
+    if #(target.body.takenCaptures or {}) > 0 then
+        return ownedclosures.wrap(ctx, node, value)
+    end
+
+    return value
 end
 
 function tagged.call(ctx: any, node: any, expected: string?): integer

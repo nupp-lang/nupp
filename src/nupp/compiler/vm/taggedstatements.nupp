@@ -343,6 +343,9 @@ export function cleanupProfile(base: any): any
         return ctx.emit(node, "K", {pool(ctx, value and "true" or "false", "")}, "tagged") as integer
     end
     profile.cleanupPlan = function(ctx: any, site: any, t: any, chain: any): any
+        if #chain == 1 and chain[1].kind == "closure" and chain[1].id == "generated:closure" then
+            return {names = {"__nuppRelease"}}
+        end
         local inner = t and t.tag == "affine" and t.inner
         local origin = inner and (inner.origin or inner)
         local declaration = origin and origin.deriveDeclaration

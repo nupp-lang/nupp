@@ -14,6 +14,7 @@ local environment: any = require("nupp.compiler.project.env")
 local cst = require("nupp.compiler.syntax.cst")
 local program = require("nupp.compiler.vm.programgraph")
 local scalartypeof = require("nupp.compiler.vm.scalartypeof")
+local ownedcallables = require("nupp.compiler.vm.ownedcallables")
 local tagged = require("nupp.compiler.vm.taggedprofile")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
@@ -165,6 +166,8 @@ local CASES: {[string]: {
     libraryvalues = {fixture = "catalog-library-values", version = 8},
     librarybasics = {fixture = "catalog-library-basics", version = 8, follow = true},
     cleanupfunctions = {fixture = "catalog-cleanup-functions", version = 8, follow = true},
+    ownedcallables = {fixture = "catalog-owned-callables", version = 8, follow = true},
+    scalartypeof = {fixture = "catalog-scalar-typeof", version = 8, follow = true},
     serdejson = {fixture = "catalog-serde-json", version = 8, follow = true},
     functionsmany = {fixture = "functionsmany", version = 8, generated = true},
     coreoperators = {fixture = "catalog-core-operators", version = 8},
@@ -590,6 +593,9 @@ local function requiredmodules(root: any, source: string, follow: boolean): ({st
             if name then
                 add(name, true)
             end
+        end
+        if ownedcallables.taking(node) then
+            add(ownedcallables.MODULE, false)
         end
         -- A library call the core makes itself (`assert(v)`) loads nothing,
         -- whatever module its name is checked through.

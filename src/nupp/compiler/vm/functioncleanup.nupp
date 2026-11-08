@@ -25,7 +25,8 @@ function cleanup.type(t: any): any
     -- profile to guard both the receiver lookup and terminal call.
     for _, item in ipairs(t.cleanups) do
         need(
-            item.kind == "function" and item.functionType
+            item.kind == "closure" and item.id == "generated:closure"
+            or item.kind == "function" and item.functionType
             or item.kind == "method"
             and type(item.name) == "string"
             and (not optional or item.id == "method:" .. item.name),

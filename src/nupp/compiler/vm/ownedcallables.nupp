@@ -1,0 +1,123 @@
+module nupp.compiler.vm.ownedcallables
+
+local cst = require("nupp.compiler.syntax.cst")
+export const MODULE = "nupp.runtime.provider.corecallable"
+export const MEMBER = "create"
+
+local function need(value: any, message: string): any
+    assert(value, "owned callable: " .. message)
+    return value
+end
+
+export function taking(node: any): boolean
+    return (node.kind == "funcExpr" or node.kind == "localFuncStmt" or node.kind == "funcStmt")
+        and node.body ~= nil
+        and #(node.body.takenCaptures or {}) > 0
+end
+
+local function factory(p: any): any
+    local found: any = nil
+    for _, owner in ipairs(p.owners) do
+        if owner.kind == "function" and owner.scope.name == MODULE and owner.name == MEMBER then
+            need(found == nil, "ambiguous checked factory")
+            found = owner
+        end
+    end
+    need(found and found.definition, "checked consuming callable factory is missing")
+    local signature = found.signature
+    need(
+        #signature.params == 2
+        and signature.params[1].tag == "any"
+        and signature.params[2].tag == "any"
+        and #signature.rets == 1
+        and signature.rets[1].tag == "any"
+        and not signature.paramPack.tail
+        and not signature.retPack.tail,
+        "checked factory signature differs"
+    )
+
+    return found
+end
+
+-- The factory is an implementation call issued for this exact checked
+-- capture clause. Its operands are the lowered closure and cleanup rows.
+export function prepare(p: any, node: any, creator: any): any
+    need(taking(node), "source has no checked taking captures")
+    local owner = need(p.byBody[node.body], "source closure has no checked owner")
+    need(owner.node == node and owner.parent == creator.id, "source owner differs")
+    local target = factory(p)
+    local args = {}
+    for _, t in ipairs(target.signature.params) do
+        args[#args + 1] = {kind = "nil", inferredType = t}
+    end
+    local call = {
+        kind = "call",
+        token = cst.firstToken(node),
+        obj = {kind = "name", token = {text = MEMBER, definition = target.definition}},
+        calleeType = target.signature,
+        args = {kind = "args", exprs = args}
+    }
+    local captures = {}
+    for _, capture in ipairs(owner.body.takenCaptures) do
+        captures[#captures + 1] = capture
+    end
+
+    return {node = node, owner = creator.id, closure = owner, target = target, call = call, captures = captures}
+end
+
+export function verify(p: any, plan: any): nil
+    local node, owner, target, call = plan.node, plan.closure, plan.target, plan.call
+    need(
+        taking(node)
+        and p.callables[node] == plan
+        and p.byBody[node.body] == owner
+        and owner.node == node
+        and owner.parent == plan.owner
+        and target == factory(p)
+        and call.kind == "call"
+        and call.calleeType == target.signature
+        and call.obj.kind == "name"
+        and call.obj.token.definition == target.definition
+        and call.obj.token.text == MEMBER
+        and call.token == cst.firstToken(node)
+        and call.args.kind == "args"
+        and #call.args.exprs == 2,
+        "factory call differs from its checked source"
+    )
+    for index, t in ipairs(target.signature.params) do
+        local argument = call.args.exprs[index]
+        need(argument.kind == "nil" and argument.inferredType == t, "factory operand contract changed")
+    end
+    local captures = owner.body.takenCaptures
+    need(#captures == #plan.captures, "capture count changed")
+    for index, capture in ipairs(captures) do
+        need(capture == plan.captures[index] and capture.automaticOwner, "checked capture owner changed")
+    end
+    local loader = plan.loader
+    need(
+        loader
+        and p.requires[loader.id + 1] == loader
+        and p.requireByNode[loader.node] == loader
+        and loader.callable == plan
+        and loader.owner == plan.owner
+        and loader.module == MODULE
+        and loader.target == target.parent
+        and loader.qualified == true
+        and not loader.eager
+        and not loader.typeOnly
+        and loader.node.kind == "qualifiedLoad"
+        and loader.node.qualifiedModule == MODULE
+        and loader.node[1] == cst.firstToken(node),
+        "factory loader differs from its checked source"
+    )
+    local site = p.callByNode[call]
+    need(
+        site
+        and p.calls[site.id + 1] == site
+        and site.callable == plan
+        and site.node == call
+        and site.owner == plan.owner
+        and site.definition == target.definition,
+        "factory lacks its issued callsite"
+    )
+end
