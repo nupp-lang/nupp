@@ -3,7 +3,8 @@ module nupp.core.catalogloadbinary
 -- Lua's loaders over a binary chunk (catalog-load-chunk) the runner compiled
 -- beside this program and wrote where NUPP_GUEST_TEMP names: its functions
 -- join the program's, call back into it, keep their own constants and
--- lines, and a second load is a second copy. The modes refuse as Lua's do.
+-- lines, and a second load is a second copy. The modes refuse as Lua's do;
+-- text that only returns a literal loads, other text does not yet.
 const path = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/catalog-load-chunk.chunk"
 
 local function cites(message: any, text: string): boolean
@@ -57,13 +58,22 @@ local refused, reason = load(bytes, "=chunk", "t")
 if refused == nil and reason == "attempt to load a binary chunk (mode is 't')" then
     score = score + 256
 end
-local text, why = load("return 1")
-if text == nil and type(why) == "string" then
+local literal: any = load("return 0x10")
+if literal ~= nil and literal() == 16 then
     score = score + 512
 end
 local bad, badReason = load("\27Nupp, but not a chunk")
 if bad == nil and cites(badReason, "bad binary format") then
     score = score + 1024
+end
+
+local quoted: any = loadstring("return \"a\\tb\\65\\u{48}\"")
+if quoted ~= nil and quoted() == "a\tbAH" then
+    score = score + 2048
+end
+local text, why = load("return 1 + 1")
+if text == nil and cites(why, "text chunks") then
+    score = score + 4096
 end
 
 export const result = score
