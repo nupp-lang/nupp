@@ -35,6 +35,24 @@ local record Token is own.Closeable
     end
 end
 
+-- A switch whose arms are do bodies with locals and branches before the yield.
+local function width(kind: string): integer
+    return switch kind do
+        case "byte" -> do
+            local bits: integer = 8
+            yield bits - 7
+        end
+        case "word" -> do
+            local bits: integer = 64
+            if bits > 32 then
+                yield 8
+            end
+            yield 4
+        end
+        else -> 0
+    end
+end
+
 -- A switch expression in a function owning a value, whose arms own nothing.
 local function label(kind: integer): string
     const token = Token()
@@ -52,6 +70,7 @@ do
     check(last(nil, {1, 2, 3}) == 6)
     check(last(10, {1, 2}) == 20)
     check(label(1) == "one" and label(2) == "two" and label(7) == "many" and closed == 3)
+    check(width("byte") == 1 and width("word") == 8 and width("other") == 0)
 end
 
 export const result = score

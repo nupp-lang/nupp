@@ -358,7 +358,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
 
             local function armValue(arm: any): integer?
                 local value = need(arm.expr, "numeric switch arm needs an expression")
-                if value.kind ~= "doExpr" then
+                -- A `do` arm is a do expression, whose body may be any statements;
+                -- a function owning values keeps the call-only form below.
+                if value.kind ~= "doExpr" or not cleanupEnabled then
                     return expression(value, resultKind)
                 end
                 local stats = need(value.body and value.body.stats, "numeric switch do body required")
