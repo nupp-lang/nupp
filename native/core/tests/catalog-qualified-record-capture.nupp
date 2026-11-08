@@ -15,4 +15,24 @@ end
 
 local first = namespace.Counter(4)
 local second = first:copy()
+local record Reader
+    closed: boolean
+end
+local record Writer
+    closed: boolean
+end
+
+local function release(borrows stream: Reader | Writer | nil): nil
+    if stream == nil or stream.closed then
+        return
+    end
+    stream.closed = true
+end
+
+local reader = Reader(closed = false)
+local writer = Writer(closed = false)
+release(reader)
+release(writer)
+release(nil)
+assert(reader.closed and writer.closed)
 export = first.value + second.value

@@ -1504,7 +1504,7 @@ function M.afterEach()
         inactiveWaitSource = nil
         source:release()
         testAssert.eq(inactiveWaitCalls, 0, "an inactive source never replaces the process wait")
-        testAssert.eq(suspension.handled(), false, "the process wait restored its handler")
+        testAssert.eq(suspensionState.handled(), false, "the process wait restored its handler")
     end
 end
 
