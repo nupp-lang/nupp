@@ -169,6 +169,34 @@ export function qualifiedvalue(ctx: any, node: any): integer?
     return value
 end
 
+-- Whether this function is the program's entry module.
+local function entryModule(ctx: any): boolean
+    local p = catalog(ctx)
+    local entry = p.modules and p.modules[#p.modules]
+
+    return entry ~= nil and entry.chunk == ctx.fn.id
+end
+
+-- Notes an export the entry module makes under the name its program answers
+-- (`entryExport`, which the guest builder names), so the module answers it.
+export function noteExport(ctx: any, name: string): nil
+    if name == catalog(ctx).entryExport and entryModule(ctx) then
+        ctx.entryExported = true
+    end
+end
+
+-- What a module with named exports answers when it ends: its export table,
+-- or, for an entry that exported the name its program answers, that export.
+export function moduleValue(ctx: any, node: any): integer
+    local exports = ctx.readHeld(ctx.exports)
+    if not ctx.entryExported then
+        return exports
+    end
+    local key = ctx.emit(node, "K", {pool(ctx, "str", catalog(ctx).entryExport)}, "tagged")
+
+    return ctx.emit(node, "GetIdx", {exports, key}, "tagged") as integer
+end
+
 export function libraryValue(ctx: any, node: any): integer?
     local site = catalog(ctx).requireByNode[node]
     if not site or not site.library then

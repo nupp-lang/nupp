@@ -49,4 +49,4 @@ do
     check(not ok and type(message) == "string" and string.find(message as string, "ffi", 1, true) ~= nil)
 end
 
-export = score
+export const result = score

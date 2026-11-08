@@ -82,4 +82,4 @@ do
     check(none == 0)
 end
 
-export = score
+export const result = score

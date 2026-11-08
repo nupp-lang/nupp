@@ -460,7 +460,7 @@ export function cleanupProfile(base: any): any
     profile.stageReturn = function(ctx: any, node: any, falling: boolean): any
         -- A module with named exports answers its export table.
         if falling and ctx.exports then
-            return {values = {ctx.readHeld(ctx.exports)}}
+            return {values = {taggedvalues.moduleValue(ctx, node)}}
         end
         local exprs = not falling and node.exprs or {}
         if #exprs == 0 then

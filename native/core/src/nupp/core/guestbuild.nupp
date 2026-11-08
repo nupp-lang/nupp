@@ -967,8 +967,11 @@ local function programCatalog(caseName: string, fixture: string, version: intege
     -- The entry is last, after the modules it requires.
     modules[#modules + 1] = assert(entry, "guest entry module missing")
     moduleName = entry.name
+    local catalog = program.describe(modules, moduleName)
+    -- A fixture exports `result`, which is what its program answers.
+    catalog.entryExport = "result"
 
-    return program.describe(modules, moduleName)
+    return catalog
 end
 
 local function profileFor(version: integer): any

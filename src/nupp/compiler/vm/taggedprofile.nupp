@@ -466,6 +466,7 @@ function tagged.forVersion(version: integer): any
                 local text = need(name.text or name.token and name.token.text, "an exported name has its text")
                 local field = ctx.emit(stat, "K", {pool(ctx, "str", text)}, "tagged")
                 ctx.emit(stat, "SetIdx", {ctx.readHeld(ctx.exports), field, value}, nil)
+                taggedvalues.noteExport(ctx, text)
             end
         end
     end
@@ -1390,7 +1391,7 @@ function tagged.forVersion(version: integer): any
                 return
             end
             -- A module with named exports answers its export table.
-            local value = ctx.exports and ctx.readHeld(ctx.exports) or ctx.emit(node, "Nil", {}, "tagged")
+            local value = ctx.exports and taggedvalues.moduleValue(ctx, node) or ctx.emit(node, "Nil", {}, "tagged")
             ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(node.eof or node)}
             ctx.block = nil
         end

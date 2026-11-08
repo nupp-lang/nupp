@@ -952,7 +952,9 @@ local function oracle(lua, fixture)
         local lines = {}
         for line in assert(read(TESTS .. "/" .. fixture .. ".nupp")):gmatch("[^\n]*\n?") do
             if not line:match("^module ") then
-                line = line:gsub("^export = ", "return "):gsub("^local (%w+): %w+ =", "local %1 =")
+                line = line:gsub("^export const result = ", "return ")
+                    :gsub("^export = ", "return ")
+                    :gsub("^local (%w+): %w+ =", "local %1 =")
                 lines[#lines + 1] = line
             end
         end

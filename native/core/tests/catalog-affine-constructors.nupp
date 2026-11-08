@@ -142,4 +142,4 @@ do
     check(none == nil and why == "negative" and closed == 5)
 end
 
-export = score
+export const result = score

@@ -161,4 +161,4 @@ do
     check(reap(child))
 end
 
-export = score
+export const result = score
