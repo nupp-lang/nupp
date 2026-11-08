@@ -14,12 +14,23 @@ export record Sender<T> is own.Closeable
     ---
     --- [](coroutine.MessageArguments) preserves the payload's ownership mode.
     --- An owned payload transfers even if closure or cancellation raises.
+    ---
+    --- ```nupp:fragment
+    --- sender:send("ready")
+    --- ```
     send: function(borrows self: Sender<T>, ...: unpackof contracts.MessageArguments(T)): nil
 
     --- Tries to send one message without waiting.
     ---
     --- Returns `"sent", nil`, or `"full", value` or `"closed", value` with
     --- ownership of the unsent payload preserved.
+    ---
+    --- ```nupp:fragment
+    --- const result, unsent = sender:trysend("update")
+    --- if result ~= "sent" then
+    ---     print("message not sent", unsent)
+    --- end
+    --- ```
     trysend: @nosuspend function(
         borrows self: Sender<T>,
         ...: unpackof contracts.MessageArguments(T)
@@ -36,7 +47,26 @@ export record Receiver<T> is own.Closeable
     @private _state: any
     @private _close: @nosuspend function(any): nil
 
+    --- Waits for a message or for the sender to close.
+    ---
+    --- ```nupp:fragment
+    --- const result, message = receiver:receive()
+    --- if result == "value" then
+    ---     print(message)
+    --- end
+    --- ```
     receive: function(borrows self: Receiver<T>): (("value", T) | ("closed", nil))
+
+    --- Tries to receive a message without waiting.
+    ---
+    --- ```nupp:fragment
+    --- const result, message = receiver:tryreceive()
+    --- if result == "empty" then
+    ---     print("no message is ready")
+    --- elseif result == "value" then
+    ---     print(message)
+    --- end
+    --- ```
     tryreceive: @nosuspend function(borrows self: Receiver<T>): (("value", T) | ("empty" | "closed", nil))
 
     function close(takes self): nil

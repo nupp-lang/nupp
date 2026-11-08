@@ -1,6 +1,7 @@
 @!internal
 module nupp.suspension.internal.coroutines
 
+local rawCoroutine = require("nupp.runtime.rawcoroutine")
 local coroutines = {}
 
 function coroutines.localMap(_: string): any
@@ -12,7 +13,7 @@ function coroutines.localState(_: string, initialize: function(): any): any
 end
 
 function coroutines.create(body: any): thread
-    return coroutine.create(body)
+    return rawCoroutine.create(body)
 end
 
 export = coroutines

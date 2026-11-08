@@ -1,9 +1,9 @@
 --[[
-`coroutine.sus.host` installs handlers for suspension requests.
+`coroutine.host` installs handlers for suspension requests.
 Schedulers use its driver operations to pass waits to the enclosing host.
 
 ```nupp:fragment
-local host = coroutine.sus.host
+local host = coroutine.host
 
 local function application(): nil
     local installation = host.install(frameHandler)
@@ -13,11 +13,9 @@ end
 
 `install` puts a handler on the current coroutine until its local installation
 leaves scope or is dropped.
-Driving the readiness pumps while it waits is [](coroutine.sus)'s `poll`: the
-pumps are registered through that module and drained through it, by a scheduler
-here or by an embedding host that never installs a handler at all. `create`
-makes a coroutine that inherits the handler, so work started inside a handled
-extent is handled too.
+`poll` drives the readiness sources registered through [](coroutine.source).
+A scheduler or embedding host calls it while work waits. Coroutines created
+through [](coroutine.create) inherit the active handler.
 
 A *driver* stands in front of a host rather than being one: a task scope opened
 in a frame installs one so the frame's own waits keep its children running.
@@ -29,7 +27,7 @@ its host a turn.
 See [suspension.md](docs/learn/runtime/concurrency/suspension.md) for the handler
 contract and a worked frame handler.
 ]]
-module coroutine.sus.host
+module coroutine.host
 
 local selected = require("nupp.suspension.selected")
 local contract = require("nupp.suspension.contracts")
@@ -44,7 +42,8 @@ export const Waiting = source1.Waiting
 --- Records one coroutine activation against the current turn.
 export const consumeturn: selected.ConsumeTurn = source1.consumeTurn
 
-export const create: contract.Provider.["create"] = source1.create
+--- Drives every registered readiness source once.
+export const poll: contract.Provider.["poll"] = selected.provider.poll
 
 --- Parks until the host has had its turn.
 export const deferturn: selected.DeferTurn = source1.deferTurn

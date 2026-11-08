@@ -598,9 +598,7 @@ export function observed(): string
         const bad = scope:work("beta", jobs.refuse)
 
         -- false, "nupp: worker task failed: ...: cannot hash beta"
-        print(pcall(function(): nil
-            bad:await()
-        end))
+        print(pcall(|| -> bad:await()))
 
         digest = jobs.hash("alpha") -- the block goes on, but the scope has failed
     end

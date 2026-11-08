@@ -14,7 +14,8 @@
 --     luajit bench/suspension-polling.lua
 
 require("nupp.runtime.standardcoroutine")
-local suspension = require("coroutine.sus")
+local suspension = coroutine
+local host = require("coroutine.host")
 local clock = os.clock
 local format = string.format
 
@@ -80,17 +81,17 @@ local registered = register(SOURCE_COUNT)
 
 local function pollSteady()
     for _ = 1, POLL_PASSES do
-        suspension.poll()
+        host.poll()
     end
 end
 
 for _ = 1, 100 do
-    suspension.poll()
+    host.poll()
 end
 local pollSeconds = median(pollSteady)
 local pollBytes = allocated(function()
     for _ = 1, ALLOCATION_PASSES do
-        suspension.poll()
+        host.poll()
     end
 end)
 releaseAll(registered)
@@ -124,7 +125,8 @@ local function parkedFanout()
             end)
         end
     end
-    local values = suspension.all(bodies)
+    local values, errors = coroutine.gather(bodies)
+    assert(next(errors) == nil)
     assert(values[TASK_COUNT] == TASK_COUNT)
 end
 

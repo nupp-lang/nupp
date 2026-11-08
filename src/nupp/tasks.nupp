@@ -8,12 +8,8 @@ until every one of them has run, been cancelled, or unwound.
 
 ```nupp
 local scope = coroutine.scope()
-const hello = scope:spawn(function(): string
-    return "hello"
-end)
-const world = scope:spawn(function(): string
-    return "world"
-end)
+const hello = scope:spawn(|| -> "hello")
+const world = scope:spawn(|| -> "world")
 
 local greeting = hello:await() .. " " .. world:await()
 
@@ -27,7 +23,7 @@ cancelled or its deadline passed.
 
 ```nupp
 local scope = coroutine.scope(timeoutms = 1000)
-const sum = scope:spawn("sum values", function(): integer
+const sum = scope:spawn("sum values", || -> do
     local answer: integer = 0
     for value = 1, 1000 do
         coroutine.checkpoint()
@@ -143,6 +139,9 @@ end
 ----------------------------------------------------------------------------
 
 local type Child = {
+    continuation: boolean?,
+    continuationParent: any,
+    parked: suspensionHost.Waiting?,
     thread: thread?,
     name: string,
     scope: any,
@@ -177,6 +176,8 @@ local type ScopeState = {
     first: any,
     last: any,
     queue: {Child},
+    continuations: {[thread]: Child},
+    driverThread: any,
     head: integer,
     tail: integer,
     ready: integer,
@@ -714,6 +715,15 @@ end
 -- The driver
 ----------------------------------------------------------------------------
 
+local function parkContinuation(waiting: suspensionHost.Waiting, ready: function(): nil): nil
+    while not waiting:ready() do
+        waiting:onresume(ready)
+        if not waiting:ready() then
+            coroutine.yield()
+        end
+    end
+end
+
 local function resumeChild(owner: ScopeState, child: Child): nil
     const co = child.thread
     if co == nil then
@@ -727,11 +737,17 @@ local function resumeChild(owner: ScopeState, child: Child): nil
     const previousScope = taskState.scope
     const previousChild = taskState.child
     taskState.scope = owner
-    taskState.child = child
+    taskState.child = child.continuationParent or child
     const ok, answer = coroutine.resume(co)
     taskState.scope = previousScope
     taskState.child = previousChild
     if coroutine.status(co) ~= "dead" then
+        return
+    end
+    if child.continuation then
+        -- Raw coroutine results and failures belong to their callers. The queue
+        -- only drives the continuation of a wait accepted by its installation.
+        child.status = ok and "done" or "failed"
         return
     end
     if ok then
@@ -778,6 +794,54 @@ local function takeRunnable(owner: ScopeState): Child?
     owner.stale = 0
 
     return nil
+end
+
+local function parkInherited(owner: ScopeState, waiting: suspensionHost.Waiting, parent: Child?): nil
+    const current = coroutine.running() as thread
+    const continuation: Child = {
+        continuation = true,
+        continuationParent = parent ~= nil and parent.scope == owner and parent or nil,
+        parked = waiting,
+        thread = current,
+        name = waiting.operation,
+        scope = owner,
+        status = "running",
+        requested = false,
+        entered = true,
+        runnable = false,
+        lending = false,
+        waiters = {},
+    }
+    owner.continuations[current] = continuation
+
+    const function ready(): nil
+        markRunnable(owner, continuation)
+    end
+
+    const parked, problem = pcall(parkContinuation, waiting, ready)
+    owner.continuations[current] = nil
+    if not parked then
+        error(problem, 0)
+    end
+
+    return
+end
+
+local function drainInherited(owner: ScopeState): nil
+    -- Closing an installation has already cancelled and woken its waits.
+    -- Drain those raw continuations before reporting the installation closed.
+    for _, continuation in pairs(owner.continuations) do
+        const waiting = continuation.parked
+        const co = continuation.thread
+        if waiting ~= nil and waiting:ready() and co ~= nil and coroutine.status(co) == "suspended" then
+            if continuation.runnable then
+                continuation.runnable = false
+                owner.ready = owner.ready - 1
+                owner.stale = owner.stale + 1
+            end
+            resumeChild(owner, continuation)
+        end
+    end
 end
 
 --- Parks the driver until a child is runnable, or the scope's deadline passes.
@@ -865,6 +929,10 @@ local function frameHandler(owner: ScopeState): suspensionHost.Handler
 
     return suspensionHost.Handler(
         park = function(_: suspensionHost.Handler, waiting: suspensionHost.Waiting, cancel: function(): nil): nil
+            if rootKey() ~= owner.driverThread then
+                parkInherited(owner, waiting, taskState.child as Child?)
+                return
+            end
             -- The wait handed outward when no child is runnable: ready when the block's
             -- own wait is, when a child becomes runnable and the turn allows it, or
             -- when the scope has something to raise; woken by the deadline so it is
@@ -968,6 +1036,7 @@ local function frameHandler(owner: ScopeState): suspensionHost.Handler
             return outerCanPark()
         end,
         shutdown = function(_: suspensionHost.Handler): nil
+            drainInherited(owner)
         end
     )
 end
@@ -1496,7 +1565,7 @@ end
 --- named and only a body expecting something can be given one.
 ---
 --- ```nupp:fragment
---- const page = scope:spawn(function(): string return fetchPage() end)
+--- const page = scope:spawn(|| -> fetchPage())
 --- const size = scope:spawn(url, measure)
 --- const report = scope:spawn("build report", buildReport)
 --- ```
@@ -1573,7 +1642,7 @@ end
 ---
 --- ```nupp:fragment
 --- for index = 1, #items do
----     tasks.checkpoint()
+---     coroutine.checkpoint()
 ---     consume(items[index])
 --- end
 --- ```
@@ -1608,6 +1677,13 @@ end
 --- So a body can size its work rather than discover the bound by being cancelled
 --- part way through it.
 ---
+--- ```nupp:fragment
+--- const deadline = coroutine.deadline()
+--- if deadline ~= nil then
+---     print("milliseconds remaining", deadline - os.monotonic())
+--- end
+--- ```
+---
 --- @return an absolute monotonic reading, as `os.monotonic` returns
 function tasks.deadline(): number?
     const owner = currentScope()
@@ -1641,6 +1717,8 @@ local function newState(deadline: number?, limit: integer?): ScopeState
         first = nil,
         last = nil,
         queue = {},
+        continuations = {},
+        driverThread = rootKey(),
         head = 1,
         tail = 0,
         ready = 0,
@@ -1676,7 +1754,13 @@ local function newState(deadline: number?, limit: integer?): ScopeState
     const outerCanPark = suspensionHost.delegatedCanPark()
     owner.handler = suspensionHost.Handler(
         park = function(_: suspensionHost.Handler, waiting: suspensionHost.Waiting, cancel: function(): nil): nil
-            const child = taskState.child as Child
+            const current = coroutine.running()
+            const candidate = taskState.child as Child?
+            if candidate == nil or candidate.thread ~= current or taskState.scope ~= owner then
+                parkInherited(owner, waiting, candidate)
+                return
+            end
+            const child = candidate as Child
             const scopeOwner = taskState.scope as ScopeState
 
             const function ready(): nil
@@ -1702,6 +1786,7 @@ local function newState(deadline: number?, limit: integer?): ScopeState
             return outerCanPark()
         end,
         shutdown = function(_: suspensionHost.Handler): nil
+            drainInherited(owner)
         end
     )
 
@@ -1837,7 +1922,7 @@ end
 --- ```nupp:fragment
 --- do
 ---     local scope = coroutine.scope()
----     scope:spawn(function(): nil work() end)
+---     scope:spawn(|| -> work())
 --- end
 --- ```
 ---
@@ -1999,8 +2084,8 @@ end
 ---
 --- ```nupp:fragment
 --- const total = coroutine.run(limit = 8, body = function(borrows scope: coroutine.Scope): integer
----     const left = scope:spawn(function(): integer return countLeft() end)
----     const right = scope:spawn(function(): integer return countRight() end)
+---     const left = scope:spawn(|| -> countLeft())
+---     const right = scope:spawn(|| -> countRight())
 ---
 ---     return left:await() + right:await()
 --- end)
@@ -2125,8 +2210,8 @@ end
 ---
 --- ```nupp:fragment
 --- const values, errors = coroutine.gather({
----     function(): string return fetch(primary) end,
----     function(): string return fetch(mirror) end,
+---     || -> fetch(primary),
+---     || -> fetch(mirror),
 --- })
 --- for index = 1, 2 do
 ---     if errors[index] ~= nil then
@@ -2210,8 +2295,8 @@ end
 ---
 --- ```nupp:fragment
 --- const answer, which = coroutine.race({
----     function(): string return fetch(primary) end,
----     function(): string return fetch(mirror) end,
+---     || -> fetch(primary),
+---     || -> fetch(mirror),
 --- })
 --- ```
 ---

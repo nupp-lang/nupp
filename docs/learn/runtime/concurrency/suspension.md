@@ -58,7 +58,7 @@ local function printCompilerVersion(): nil
 end
 
 local function application(): nil
-    local installation = coroutine.sus.host.install(frame.handler)
+    local installation = coroutine.host.install(frame.handler)
     printCompilerVersion()
 end
 
@@ -71,7 +71,7 @@ scope. Most application code only consumes a handler this way. Framework authors
 and scheduler integrations implement one, as [Writing a frame
 handler](#writing-a-frame-handler) shows.
 
-Installing is `coroutine.sus.host`, and parking is
+Installing is `coroutine.host`, and parking is
 `coroutine.suspend`. The two jobs belong to different people: a library makes
 itself waitable and never installs a handler, while a host decides what runs
 meanwhile and never subscribes to a readiness source. Keeping them apart means
@@ -87,7 +87,7 @@ trip:
 2. The suspension runtime calls `frame.handler.park` with the pending wait.
 3. The handler records the current coroutine and yields it to the event loop,
    which runs another coroutine, request, or frame.
-4. `suspension.poll()` discovers that the child has completed, the library
+4. `coroutine.host.poll()` discovers that the child has completed, the library
    resumes the wait, and the handler queues its coroutine again.
 5. The coroutine runs, and `communicate()` returns its `io.Process.Result`.
 
@@ -219,15 +219,14 @@ practice:
 
 ```nupp:fragment
 local frame = require("scheduler")
-local suspension = coroutine.sus
 
 local function childWork(): nil
-    assert(suspension.handled())
+    print(coroutine.cansuspend())
 end
 
 local function application(): nil
-    local installation = coroutine.sus.host.install(frame.handler)
-    local task = suspension.create(childWork)
+    local installation = coroutine.host.install(frame.handler)
+    local task = coroutine.create(childWork)
     local ok, problem = coroutine.resume(task)
     if not ok then
         error(problem)
@@ -237,13 +236,17 @@ end
 frame.run(application)
 ```
 
-`suspension.create` creates an ordinary coroutine and makes it inherit the
-handler installed where it was created. Inheritance is fixed at creation.
-Continue to use `coroutine.resume`; no resume wrapper is required. A coroutine
-made with `coroutine.create` inherits no handler. Natively a wait there drives
-the readiness sources on the current thread; in a browser application, whose
-only wait is a return to the page from its root coroutine, it raises "cannot
-suspend here" and `suspension.cansuspend()` returns false.
+`coroutine.create` captures the handler active when the coroutine is created,
+even if another handler resumes it. `coroutine.wrap` follows the same rule.
+`coroutine.resume` keeps its ordinary behavior. Work created outside a handler
+inherits none; native waits drive readiness sources on the current thread, while
+browser waits require the application's root coroutine or an installed handler.
+`coroutine.cansuspend()` reports whether waiting is permitted here.
+
+Closing an installation cancels outstanding waits inherited from it. A coroutine
+that starts after that installation closes uses the surviving outer handler.
+Creation inherits suspension handling, while a [task scope](task-scopes.md)
+owns a child's result, failure, and lifetime.
 
 A nested handler installation temporarily replaces the current handler and
 restores the outer one when its region ends, so different coroutines may use
@@ -266,8 +269,8 @@ coroutine.resume(thread)
 
 Waiting on more than one thing at a time is a
 [task scope](task-scopes.md), which owns the coroutines it starts and settles
-them before it returns. This module supplies the effect those coroutines wait
-through, and nothing that starts one.
+them before it returns. `coroutine.suspend` supplies the wait operation those
+tasks use.
 
 ## Libraries register readiness
 
@@ -275,12 +278,10 @@ A suspension-aware library calls `coroutine.suspend` with a subscription. This
 example completes after its readiness source has been polled twice:
 
 ```nupp
-local suspension = coroutine.sus
-
 local function after(polls: integer, value: string): string
-    return coroutine.suspend("counter", function(resume: function(string), context: suspension.Context): function()
+    return coroutine.suspend("counter", |resume: function(string), context: coroutine.Context| -> do
         local left = polls
-        context:source("counter", 10, function(): integer
+        context:source("counter", 10, || -> do
             left = left - 1
             if left > 0 then
                 return 0
@@ -290,7 +291,7 @@ local function after(polls: integer, value: string): string
             return 1
         end)
 
-        return function(): nil
+        return || -> do
             left = 0
         end
     end)
@@ -307,6 +308,12 @@ The protocol has three rules:
 3. A source registered through the context belongs to that wait. The runtime
    drops it when the wait returns, raises, or is cancelled.
 
+Use `coroutine.source` for a pump shared across subscriptions. Its returned
+`coroutine.Source` owns the registration; call `release` when the library stops
+using it. A subscription associates an existing source with its wait through
+`context:uses(source)`. The runtime drives sources during blocking waits, and a
+scheduler or embedding host drives them through `coroutine.host.poll`.
+
 A poll function returns how many operations it settled, and zero means that
 nothing completed during that pass. Lower priorities run first, with names
 breaking ties. A wait with no handler and no source reports that it cannot make
@@ -318,8 +325,7 @@ This scheduler keeps a queue of runnable coroutines. Its event loop calls `tick`
 once per frame to poll readiness sources and resume the tasks they woke.
 
 ```nupp [scheduler.nupp]
-local suspension = coroutine.sus
-local host = coroutine.sus.host
+local host = coroutine.host
 
 local runnable: {thread} = {}
 
@@ -352,7 +358,7 @@ inside a host barrier where yielding would violate a runtime invariant.
 
 ```nupp:fragment [scheduler.nupp]
 local scheduler = host.Handler(
-    park = function(_: host.Handler, waiting: host.Waiting, _: function(): nil): nil
+    park = |_: host.Handler, waiting: host.Waiting, _: function(): nil| -> do
         local task = assert(coroutine.running())
         waiting:onresume(|| -> enqueue(task))
         while not waiting:ready() do
@@ -360,7 +366,7 @@ local scheduler = host.Handler(
         end
     end,
     canpark = |_: host.Handler| -> true,
-    shutdown = function(_: host.Handler): nil
+    shutdown = |_: host.Handler| -> do
         while #runnable > 0 do
             runReady()
         end
@@ -382,7 +388,7 @@ checker holds each member to its declared signature. There is nothing to cast.
 
 ```nupp:fragment [scheduler.nupp]
 local function tick(): nil
-    suspension.poll()
+    host.poll()
     runReady()
 end
 
@@ -421,7 +427,7 @@ them, and `goto` may reach a label outside:
 local frame = require("scheduler")
 
 local function choose(): integer
-    local installation = coroutine.sus.host.install(frame.handler)
+    local installation = coroutine.host.install(frame.handler)
     return 1
 end
 
@@ -444,7 +450,7 @@ local function pause(): nil
     coroutine.yield()
 end
 
-table.sort({2, 1}, function(a: integer, b: integer): boolean
+table.sort({2, 1}, |a: integer, b: integer| -> do
     pause()
 
     return a < b

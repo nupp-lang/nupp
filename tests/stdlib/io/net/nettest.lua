@@ -416,14 +416,14 @@ function M.aConnectPolledAgainBeforeItRunsResumesOnce()
     -- resumed the connect and before the connect runs. That once resumed it twice.
     local backend, state = fakeBackend({connectAfter = 2})
     install(backend)
-    local suspension = require("coroutine.sus")
-    local suspensionHost = require("coroutine.sus.host")
+    local suspension = require("nupp.runtime.standardcoroutine").value
+    local suspensionHost = require("coroutine.host")
     local installation = suspensionHost.install({
         park = function(_, waiting)
             while not waiting:ready() do
-                suspension.poll()
+                suspensionHost.poll()
             end
-            suspension.poll()
+            suspensionHost.poll()
         end,
         canpark = function()
             return true
@@ -439,8 +439,8 @@ end
 function M.abandoningAConnectReleasesItsRequest()
     local backend, state = fakeBackend({connectAfter = 2})
     install(backend)
-    local suspension = require("coroutine.sus")
-    local suspensionHost = require("coroutine.sus.host")
+    local suspension = require("nupp.runtime.standardcoroutine").value
+    local suspensionHost = require("coroutine.host")
     local installation = suspensionHost.install({
         park = function()
         end,

@@ -411,7 +411,7 @@ end
 
 function M.luaFileIterationDoesNotParkUnderASuspensionHandler()
     local public = ready()
-    local host = require("coroutine.sus.host")
+    local host = require("coroutine.host")
     local child = assert(public.popen(shell("sleep 0.1; printf 'first\\nsecond\\n'")))
     local parked = 0
     local installation = host.install({

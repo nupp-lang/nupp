@@ -74,7 +74,7 @@ child that awaits it, which is the child that occupies the slot:
 ```nupp:fragment
 local scope = coroutine.scope(limit = os.info().parallelism)
 for name, path in pairs(paths) do
-    scope:spawn(function(): nil
+    scope:spawn(|| -> do
         const size = scope:work(name, path, jobs.compress):await()
         total = total + size
     end)
@@ -99,7 +99,7 @@ it notices cancellation when it suspends, returns, or calls
 `coroutine.checkpoint()`.
 
 ```nupp:fragment
-const child = scope:spawn(function(): integer
+const child = scope:spawn(|| -> do
     local total: integer = 0
     for index = 1, 1000000 do
         coroutine.checkpoint()
@@ -123,7 +123,7 @@ local winner: string? = nil
 local scope = coroutine.scope(limit = 4)
 for _, mirror in ipairs(mirrors) do
     if winner ~= nil then break end
-    scope:spawn(function(): nil
+    scope:spawn(|| -> do
         const answer = scope:work(mirror, jobs.probe):await()
         if answer ~= nil and winner == nil then
             winner = answer
@@ -161,7 +161,7 @@ cancels the block's own wait, so a `spawn`, an `await`, or a sleep in the block
 raises it rather than the scope waiting for the block's next task operation.
 
 ```nupp:fragment
-const ok, problem = pcall(function(): nil
+const ok, problem = pcall(|| -> do
     local scope = coroutine.scope()
     scope:spawn(|| -> error("fetch failed"))
 end)

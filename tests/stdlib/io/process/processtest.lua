@@ -6,8 +6,8 @@ local testAssert = require("assert")
 -- the draining and the deadlines -- the policy above the Rust-backed provider -- so
 -- the test supplies the platform and the module supplies the behaviour.
 local processTypes = require("io.internal.process.types")
-local suspension = require("coroutine.sus")
-local suspensionHost = require("coroutine.sus.host")
+local suspension = require("nupp.runtime.standardcoroutine").value
+local suspensionHost = require("coroutine.host")
 
 local function spawnOn(provider, options)
     local instance = require("helpers.providerstate").load("process", provider)
@@ -271,7 +271,7 @@ local function fakeBackend(script)
             reads = #interest.read,
             writes = #interest.write,
         }
-        if suspension.handled() then
+        if require("nupp.suspension").handled() then
             error("waitReady was called with a handler installed; the frame should have parked", 0)
         end
         -- Sleeping is what the real one does, so the fake advances the clock by exactly
@@ -474,7 +474,7 @@ function M.waitingWorksUnderAHandler()
         park = function(_self, waiting)
             while not waiting:ready() do
                 drove = drove + 1
-                suspension.poll()
+                suspensionHost.poll()
                 if drove > 100 then
                     error("handler gave up", 0)
                 end
@@ -543,7 +543,7 @@ function M.drainingUnderAHandlerNeverBlocksThePlatform()
             local spins = 0
             while not waiting:ready() do
                 spins = spins + 1
-                suspension.poll()
+                suspensionHost.poll()
                 if spins > 100 then
                     error("the drain never resolved", 0)
                 end
@@ -689,7 +689,8 @@ function M.processStreamsRejectMalformedProviderResults()
 
     local writeResults = {
         {-1, false, "invalid write count"},
-        -- A native integer assignment can reject the fraction before the provider validator.
+        -- A native integer assignment can reject the fraction before the provider
+        -- validator.
         {1.5, false, "invalid write count", "expected an exact integer"},
         {6, false, "invalid write count"},
         {0, "no", "invalid closed-pipe status"},
@@ -1174,7 +1175,7 @@ function M.aSecondCloserUnderASchedulerWaitsForTheTeardown()
         if coroutine.status(second) == "suspended" then
             assert(coroutine.resume(second))
         end
-        suspension.poll()
+        suspensionHost.poll()
     end
     assert(order["second sawTeardown"], "the second really did arrive mid-teardown")
     testAssert.eq(backend.state.kills, 1, "the child was ended once, not once per caller")
@@ -1211,7 +1212,7 @@ function M.waitingUnderAHandlerNeverBlocksThePlatform()
             local spins = 0
             while not waiting:ready() do
                 spins = spins + 1
-                suspension.poll()
+                suspensionHost.poll()
                 if spins > 100 then
                     error("the wait never resolved", 0)
                 end
@@ -1285,7 +1286,7 @@ function M.aQuietChildStillHitsItsDeadline()
             while not waiting:ready() do
                 spins = spins + 1
                 backend:advance(20)
-                suspension.poll()
+                suspensionHost.poll()
                 if spins > 50 then
                     error("the deadline never fired", 0)
                 end
@@ -1314,7 +1315,7 @@ function M.aDeadlineSignalsOnlyOnceWhileTerminationTakesTime()
             while not waiting:ready() do
                 spins = spins + 1
                 backend:advance(5)
-                suspension.poll()
+                suspensionHost.poll()
                 if spins > 50 then
                     error("the deadline never resolved", 0)
                 end
@@ -1623,7 +1624,7 @@ function M.luaGcRetainsTheChildWhileAStreamIsReachable()
             while not waiting:ready() do
                 drove = drove + 1
                 assert(drove <= 100, "the scheduled read makes progress")
-                suspension.poll()
+                suspensionHost.poll()
             end
         end,
     })

@@ -178,6 +178,8 @@ function M.retiredNamespacesAreNotBundled()
         "io.net.spi",
         "io.http.spi",
         "io.gpu.spi",
+        "coroutine.sus",
+        "coroutine.sus.host",
         "coroutine.sus.spi",
         "coroutine.workers.spi",
         "coroutine.workers",
@@ -274,8 +276,7 @@ function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
         ["bytes.span"] = "/bytes/span.nupp",
         ["nupp.runtime.entropy"] = "/nupp/runtime/entropy.nupp",
         ["nupp.runtime.standardtable"] = "/nupp/runtime/standardtable.nupp",
-        ["coroutine.sus"] = "/coroutine/sus/init.nupp",
-        ["coroutine.sus.host"] = "/coroutine/sus/host.nupp",
+        ["coroutine.host"] = "/coroutine/host.nupp",
         ["nupp.suspension.contracts"] = "/nupp/suspension/contracts.nupp",
         ["nupp.workers.contracts"] = "/nupp/workers/contracts.nupp",
         ["io.internal.files"] = "/io/internal/files/init.nupp",
@@ -293,7 +294,7 @@ function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
         local loaded = env.loadBundledModule(name)
         assert(loaded and loaded.exports, name .. " has checked carried exports")
     end
-    local host = env.loadBundledModule("coroutine.sus.host")
+    local host = env.loadBundledModule("coroutine.host")
     local privateHost = env.loadBundledModule("nupp.suspension.host")
     local install = host.exports.values.install
     testAssert.eq(install.tag, "func", "install retains its checked signature")
@@ -303,22 +304,23 @@ function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
         privateHost.exports.types.Handler,
         "the facade preserves nominal identity"
     )
-    local suspension = env.loadBundledModule("coroutine.sus")
-    testAssert.eq(suspension.exports.values.handled.rets[1].tag, "boolean")
-    testAssert.eq(suspension.exports.values.suspend, nil, "the wait lives on coroutine")
     local coroutineModule = env.loadBundledModule("nupp.runtime.standardcoroutine")
+    testAssert.eq(coroutineModule.exports.values.handled, nil, "handler introspection stays internal")
+    testAssert.eq(coroutineModule.exports.values.poll, nil, "polling belongs to hosts")
+    testAssert.eq(coroutineModule.exports.values.source.tag, "func")
+    testAssert.eq(host.exports.values.poll.tag, "func")
     testAssert.eq(coroutineModule.exports.values.suspend.tag, "func")
     local workerContract = env.loadBundledModule("nupp.workers.contracts")
     testAssert.eq(coroutineModule.exports.types.Worker, workerContract.exports.types.Worker)
-    testAssert.eq(suspension.exports.values.newcancellation.tag, "func")
-    testAssert.eq(suspension.exports.values.iscancellation.rets[1].tag, "boolean")
+    testAssert.eq(coroutineModule.exports.values.newcancellation.tag, "func")
+    testAssert.eq(coroutineModule.exports.values.iscancellation.rets[1].tag, "boolean")
 end
 
 function M.directSuspendKeepsItsGenericTypeOutsideTheCheckout()
     local env = envMod.new("/private/tmp/nupp-coroutine-sus-consumer", {config = {include = {"src"}}, cache = false})
     local source = [[
 local function wait(): string
-    return coroutine.suspend("ready", function(resume: function(string), context: coroutine.sus.Context): function()?
+    return coroutine.suspend("ready", function(resume: function(string), context: coroutine.Context): function()?
         resume("ready")
         return nil
     end)

@@ -24,7 +24,7 @@ something to: every unsettled child, and a settled one whose failure nothing
 observed and no observer took, or whose result holds moved allocations nothing
 consumed. Any other child leaves the list as it settles, after its observer has
 heard of it, and keeps its outcome for whoever holds it. Cancellation uses
-[](coroutine.sus.iscancellation). Blocking waits cooperate with the selected
+[](coroutine.iscancellation). Blocking waits cooperate with the selected
 suspension implementation and must not discover implementations during settlement.
 
 Each lane uses the same immutable artifact and loads independent module
@@ -336,12 +336,28 @@ local function TaskType(F: type): type
     end
     return types.shape({
         --- Waits for settlement and returns the function's complete result pack.
+        ---
+        --- ```nupp:fragment
+        --- local scope = coroutine.scope()
+        --- const task = scope:spawn(|| -> "ready")
+        --- assert(task:await() == "ready")
+        --- ```
         {name = "await", read = types.functiontype(types.pack({types.any}), types.results(F)),},
 
         --- Reports whether the task has settled without waiting.
+        ---
+        --- ```nupp:fragment
+        --- if task:isdone() then
+        ---     print(task:await())
+        --- end
+        --- ```
         {name = "isdone", read = types.functiontype(types.pack({types.any}), types.pack({types.bool})),},
 
         --- Returns the task's current scheduling state.
+        ---
+        --- ```nupp:fragment
+        --- print("task state", task:status())
+        --- ```
         {
             name = "status",
             read = types.functiontype(
@@ -361,6 +377,12 @@ local function TaskType(F: type): type
         },
 
         --- Requests cancellation and reports whether this is the first request.
+        ---
+        --- ```nupp:fragment
+        --- if task:cancel("no longer needed") then
+        ---     print("cancellation requested")
+        --- end
+        --- ```
         {
             name = "cancel",
             read = types.functiontype(

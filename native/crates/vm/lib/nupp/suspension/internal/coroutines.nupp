@@ -1,6 +1,7 @@
 @!internal
 module nupp.suspension.internal.coroutines
 
+local rawCoroutine = require("nupp.runtime.rawcoroutine")
 local coroutines = {}
 
 -- VM threads own their suspension state. A map view avoids retaining dead
@@ -46,7 +47,7 @@ function coroutines.localState(name: string, initialize: function(): any): any
 end
 
 function coroutines.create(body: any): thread
-    return @unsafe own.release(coroutine.create(body))
+    return @unsafe own.release(rawCoroutine.create(body))
 end
 
 export = coroutines

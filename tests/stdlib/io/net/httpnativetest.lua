@@ -3,8 +3,8 @@
 -- provider's byte paths.
 local test = require("assert")
 local native = require("nupp.compiler.native")
-local suspension = require("coroutine.sus")
-local suspensionHost = require("coroutine.sus.host")
+local suspension = require("nupp.runtime.standardcoroutine").value
+local suspensionHost = require("coroutine.host")
 local tasks = require("coroutine")
 
 local M = {}
@@ -513,7 +513,7 @@ function M.aTecsStyleHandlerOnlyNeedsNonblockingHostPolls()
         park = function(_self, waiting, cancel)
             local started = os.clock()
             while not waiting:ready() do
-                suspension.poll()
+                suspensionHost.poll()
                 if os.clock() - started > 5 then
                     cancel()
                     error("the loopback HTTP wait did not become ready", 0)
@@ -555,7 +555,7 @@ function M.admissionParksUntilAnUnreadBodyReleasesItsSlot()
             end
             local started = os.clock()
             while not waiting:ready() do
-                suspension.poll()
+                suspensionHost.poll()
                 if os.clock() - started > 5 then
                     cancel()
                     error("HTTP admission did not resume", 0)

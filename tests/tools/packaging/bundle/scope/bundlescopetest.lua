@@ -49,8 +49,7 @@ end
             "src/main.nupp"
         ] = [[
 const jobs = require("jobs")
-const suspension = require("coroutine.sus")
-const suspensionHost = require("coroutine.sus.host")
+const suspensionHost = require("coroutine.host")
 const tasks = require("coroutine")
 
 local runnable: {thread} = {}
@@ -102,7 +101,7 @@ do local handling = suspensionHost.install(handler) ;
 do local scope = tasks.scope() ;
     const running = scope:work(1000000000, jobs.cancellable)
     while running:status() == "queued" do
-        suspension.poll()
+        suspensionHost.poll()
     end
     const requested = running:cancel("stop running")
     const ok, problem = pcall(function(): integer return running:await() end)
@@ -112,7 +111,7 @@ end
 
 do local scope = tasks.scope() ;
     const returning = scope:work(jobs.returnsAfterCancellation)
-    while returning:status() == "queued" do suspension.poll() end
+    while returning:status() == "queued" do suspensionHost.poll() end
     const requested = returning:cancel("observe at return")
     const ok, problem = pcall(function(): integer return returning:await() end)
     print(requested, ok, tasks.iscancelled(problem),
@@ -161,7 +160,7 @@ local started, startProblem = coroutine.resume(app)
 if not started then error(startProblem, 0) end
 while coroutine.status(app) ~= "dead" or #runnable > 0 do
     polls = polls + 1
-    suspension.poll()
+    suspensionHost.poll()
     runReady()
 end
 ]],

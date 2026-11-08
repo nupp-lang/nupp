@@ -420,11 +420,11 @@ local RESOURCES = {
     {source = "src/nupp/workers/native.d.nupp", output = "nupp/compiler/nupp/workers/native.d.nupp"},
 
     {source = "src/bytes/span.nupp", output = "nupp/compiler/bytes/span.nupp"},
-    {source = "src/coroutine/sus/host.nupp", output = "nupp/compiler/coroutine/sus/host.nupp"},
-    {source = "src/coroutine/sus/init.nupp", output = "nupp/compiler/coroutine/sus/init.nupp"},
+    {source = "src/coroutine/host.nupp", output = "nupp/compiler/coroutine/host.nupp"},
     {source = "src/io/http/init.nupp", output = "nupp/compiler/io/http/init.nupp"},
     {source = "src/io/net/init.nupp", output = "nupp/compiler/io/net/init.nupp"},
     {source = "src/io/net/internal/contracts.nupp", output = "nupp/compiler/io/net/internal/contracts.nupp"},
+    {source = "src/nupp/runtime/rawcoroutine.nupp", output = "nupp/compiler/nupp/runtime/rawcoroutine.nupp"},
     {source = "src/nupp/runtime/standardcoroutine.nupp", output = "nupp/compiler/nupp/runtime/standardcoroutine.nupp"},
 }
 

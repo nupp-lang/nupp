@@ -2891,20 +2891,20 @@ function M.suspensionRecordsHideProviderState()
     -- neither spelling resolves: not the field, and not the underscored name a
     -- provider happens to store it under.
     for _, example in ipairs({
-        {"coroutine.sus", "Source", "sequence"},
-        {"coroutine.sus", "Source", "poller"},
-        {"coroutine.sus", "Source", "waiter"},
-        {"coroutine.sus", "Source", "released"},
-        {"coroutine.sus", "Context", "handler"},
-        {"coroutine.sus", "Context", "associated"},
-        {"coroutine.sus.host", "Waiting", "state"},
-        {"coroutine.sus.host", "Waiting", "context"},
-        {"coroutine.sus.host", "Installed", "co"},
-        {"coroutine.sus.host", "Installed", "previous"},
-        {"coroutine.sus.host", "Installed", "restored"},
-        {"coroutine.sus.host", "Installed", "released"},
-        {"coroutine.sus.host", "Installed", "parks"},
-        {"coroutine.sus.host", "Installed", "transparent"},
+        {"coroutine", "Source", "sequence"},
+        {"coroutine", "Source", "poller"},
+        {"coroutine", "Source", "waiter"},
+        {"coroutine", "Source", "released"},
+        {"coroutine", "Context", "handler"},
+        {"coroutine", "Context", "associated"},
+        {"coroutine.host", "Waiting", "state"},
+        {"coroutine.host", "Waiting", "context"},
+        {"coroutine.host", "Installed", "co"},
+        {"coroutine.host", "Installed", "previous"},
+        {"coroutine.host", "Installed", "restored"},
+        {"coroutine.host", "Installed", "released"},
+        {"coroutine.host", "Installed", "parks"},
+        {"coroutine.host", "Installed", "transparent"},
     }) do
         local module, record, field = example[1], example[2], example[3]
         for _, spelling in ipairs({field, "_" .. field}) do

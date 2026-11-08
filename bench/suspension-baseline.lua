@@ -285,8 +285,8 @@ end
 -- above, so the comparison is like for like; the hoisted variant separates the
 -- runtime's
 -- own cost from it.
+local rawCreate = coroutine.create
 local nuppOk = pcall(require, "nupp.runtime.standardcoroutine")
-local suspension = nuppOk and require("coroutine.sus")
 if nuppOk then
     bench(
         "nupp-ready",
@@ -320,15 +320,14 @@ if nuppOk then
     )
 end
 
--- Item (b)'s cost, measured before it exists and again after. Handler inheritance
--- means every resume saves, switches and restores, so the row is per resumed task
--- rather than per await -- which is why it gets a budget rather than a comparison.
+-- Compare raw construction with creation-time handler inheritance. Resumption
+-- uses the same native operation in both rows.
 local RESUMES = math.max(math.floor(OPERATIONS / 10), 1)
 bench(
     "coroutine-resume",
     function(n)
         for _ = 1, n do
-            local co = coroutine.create(function()
+            local co = rawCreate(function()
                 coroutine.yield()
             end)
             coroutine.resume(co)
@@ -344,7 +343,7 @@ if nuppOk then
         "nupp-create",
         function(n)
             for _ = 1, n do
-                local co = suspension.create(function()
+                local co = coroutine.create(function()
                     coroutine.yield()
                 end)
                 coroutine.resume(co)
