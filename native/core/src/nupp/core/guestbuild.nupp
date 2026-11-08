@@ -610,7 +610,7 @@ local function requiredmodules(root: any, source: string, follow: boolean): ({st
         -- naming a type (`io.Writer`) loads nothing, as the graph sees it.
         local projection = program.builtinprojection(node)
         local libraryValue = graph.libraryValue(node)
-        if libraryValue then
+        if libraryValue == "coroutine.create" or libraryValue == "coroutine.wrap" then
             add(graph.libraryModule(libraryValue), false)
         end
         if projection then
