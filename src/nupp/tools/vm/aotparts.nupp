@@ -326,7 +326,7 @@ function parts.rename(text: string, replacements: {[string]: string}): string
         assert(#replacement == #decorated and not defined[replacement], "invalid symbol replacement")
         for _, entry in ipairs(names) do
             assert(
-                entry.offset == offset or entry.offset < offset or entry.offset > offset + #decorated,
+                entry.offset == offset or entry.offset + #entry.name < offset or entry.offset > offset + #decorated,
                 "overlapping object symbol string"
             )
         end

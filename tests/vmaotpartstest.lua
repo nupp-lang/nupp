@@ -1,5 +1,26 @@
 local test = require("assert")
 local aot = require("nupp.tools.vm.aotparts")
+local driver = require("nupp.tools.vm.build")
+local environment = require("nupp.compiler.project.env")
+local fs = require("nupp.compiler.fs")
+
+-- NUPP_TEST_AOT_SOURCE=1 checks current modules on the installed compiler.
+if os.getenv("NUPP_TEST_AOT_SOURCE") == "1" then
+    local root = assert(environment.compilerRoot())
+    local project = require("nupp.tools.vm.project")
+    local env = environment.new(root, {config = project.manifest(root .. "/nupp.lua"), cache = false})
+    local compile = require("nupp.tools.cli.compile")
+    local loadImage = assert(rawget(_G, "__nupp_load_image"))
+
+    local function fresh(name)
+        local path = root .. "/src/" .. name:gsub("%.", "/") .. ".nupp"
+        return loadImage(assert(compile.image(path, env, name)))()
+    end
+
+    aot = fresh("nupp.tools.vm.aotparts")
+    driver = fresh("nupp.tools.vm.build")
+end
+
 local M = {}
 local DIGEST = string.rep("a", 64)
 local TABLE = "nupp_aot_table_v1"
@@ -132,13 +153,19 @@ function M.validatesRootMapsAndRefusesMalformedRecords()
     end)
 end
 
-local function macho()
-    local strings = "\0_" .. TABLE .. "\0"
+local function machoSymbols(strings, offsets)
     local header = u32(0xfeedfacf) .. u32(0x100000c) .. u32(0) .. u32(1) .. u32(1) .. u32(24) .. u32(0) .. u32(0)
-    local command = u32(2) .. u32(24) .. u32(56) .. u32(1) .. u32(72) .. u32(#strings)
-    local symbol = u32(1) .. string.char(15, 1) .. u16(0) .. u64(0)
+    local command = u32(2) .. u32(24) .. u32(56) .. u32(#offsets) .. u32(56 + #offsets * 16) .. u32(#strings)
+    local symbols = {}
+    for _, offset in ipairs(offsets) do
+        symbols[#symbols + 1] = u32(offset) .. string.char(15, 1) .. u16(0) .. u64(0)
+    end
 
-    return header .. command .. symbol .. strings
+    return header .. command .. table.concat(symbols) .. strings
+end
+
+local function macho()
+    return machoSymbols("\0_" .. TABLE .. "\0", {1})
 end
 
 local function elf()
@@ -194,6 +221,17 @@ function M.refusesExecutableOrUnknownObjectContainers()
     end)
 end
 
+function M.refusesBothDirectionsOfSharedSymbolStringOverlap()
+    local prefix = "prefix_"
+    local original = machoSymbols("\0" .. prefix .. "_" .. TABLE .. "\0", {1, #prefix + 1})
+    rejected(function()
+        aot.rename(original, {[TABLE] = RENAMED})
+    end)
+    rejected(function()
+        aot.rename(original, {[prefix .. "_" .. TABLE] = prefix .. "_" .. RENAMED})
+    end)
+end
+
 function M.emitsMergedSidecarWithPortableEscaping()
     local text = aot.sidecar(DIGEST, {0, 3}, 'C:/a "quoted"/maps\nfile')
     test.eq(text:find('fn nupp_aot_0();', 1, true) ~= nil, true)
@@ -207,6 +245,14 @@ function M.registersGcMapsForEveryReplicatedFunctionAddress()
     test.eq(text:find("fn nupp_p02_3();", 1, true) ~= nil, true)
     test.eq(text:find("(3, nupp_p02_3 as *const () as usize),", 1, true) ~= nil, true)
     test.eq(text:find("out.push((*address,len,maps.clone()))", 1, true) ~= nil, true)
+end
+
+function M.invalidBuildRequestsKeepTheSelectedGeneration()
+    local root = assert(environment.compilerRoot())
+    local current = root .. "/.nupp/vm-cli/current"
+    local before = assert(fs.readFile(current))
+    test.eq(driver.main({root, "invalid"}), 1)
+    test.eq(fs.readFile(current), before)
 end
 
 return M
