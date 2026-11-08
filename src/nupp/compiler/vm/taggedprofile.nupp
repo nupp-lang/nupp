@@ -283,6 +283,9 @@ function tagged.call(ctx: any, node: any, expected: string?): integer
         if item.corecalls then
             return ctx.emit(node, "Nil", {}, "tagged")
         end
+        if item.absent then
+            return libraryCall(ctx, node, corelibrary.id("MODULE_REQUIRE"), node.args.exprs)
+        end
         return ctx.emit(node, "Require", {pool(ctx, "str", item.module)}, "tagged")
     end
 

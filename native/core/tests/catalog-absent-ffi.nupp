@@ -1,0 +1,52 @@
+module nupp.core.catalogabsentffi
+
+-- The compiler's FFI probes on a host without an `ffi` module, as the frozen
+-- VM answers them: a static and a value-form require of it fail under pcall,
+-- so the probe takes its fallback and never reaches the foreign calls behind
+-- it. Each check is a bit of the score.
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+-- hostpid's shape: the value-form require, then declared foreign calls.
+local function pid(): number?
+    local ok, ffi = pcall(require, "ffi")
+    if not ok then
+        return nil
+    end
+    local declared = pcall(ffi.cdef, "int getpid(void);")
+    local read, value = pcall(function(): integer
+        return ffi.C.getpid() as integer
+    end)
+    if declared and read then
+        return tonumber(value)
+    end
+
+    return nil
+end
+
+-- triviaarena's shape: a static require inside a protected function.
+local function hasFfi(): boolean
+    local found = pcall(function(): any
+        return require("ffi")
+    end)
+
+    return found
+end
+
+do
+    check(pid() == nil)
+    check(hasFfi() == false)
+    local ok, message = pcall(function(): any
+        return require("ffi")
+    end)
+    check(not ok and type(message) == "string" and string.find(message as string, "ffi", 1, true) ~= nil)
+end
+
+export = score

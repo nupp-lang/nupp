@@ -139,7 +139,7 @@ export function requireSite(ctx: any, node: any): any
     local item = need(catalog(ctx).requireByNode[node], "only checked static require calls are supported")
     need(item.owner == ctx.fn.id and node.runtimeLoader == "require", "foreign require callsite")
     need(
-        type(item.module) == "string" and (item.target ~= nil or item.typeOnly or item.corecalls),
+        type(item.module) == "string" and (item.target ~= nil or item.typeOnly or item.corecalls or item.absent),
         "dynamic or missing require target is unsupported: " .. tostring(item.module)
     )
 
@@ -201,6 +201,20 @@ export function invoke(
     need(site.owner == ctx.fn.id, "callsite belongs to another owner")
     local target = ctx.callee(node)
     local contract
+    local called = node.calleeType or node.signatureType
+    if target == nil and called ~= nil and called.foreign and count == nil then
+        -- A foreign function: the core has no FFI yet, so the call raises
+        -- where it runs, as calling an absent `ffi` binding would.
+        local message = ctx.emit(
+            node,
+            "K",
+            {pool(ctx, "str", "foreign calls are not available on the core yet")},
+            "tagged"
+        )
+        landed(ctx, node, ctx.emit(node, "LibCall", {corelibrary.id("ERROR"), message}, "tagged"))
+
+        return ctx.emit(node, "Nil", {}, "tagged")
+    end
     if target == nil and dynamic then
         -- From v8 a call through a function value is resolved when it runs.
         need(p.functionsByDefinition[site.definition] == nil, "dynamic call names a declaration")
