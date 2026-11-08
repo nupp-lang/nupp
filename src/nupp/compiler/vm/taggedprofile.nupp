@@ -179,6 +179,14 @@ function tagged.constant(ctx: any, node: any, expected: string?): integer
     )
 end
 
+-- A static switch case is equality dispatch: its constant against the
+-- selector, as Lua's == compares them.
+function tagged.switchCase(ctx: any, value: any, subject: integer, kind: string): integer
+    local candidate = need(ctx.expression(value, "tagged"), "switch case lost its value")
+
+    return ctx.emit(value, "Eq", {subject, candidate}, "tagged") as integer
+end
+
 function tagged.unary(ctx: any, node: any, expected: string?): integer
     need(catalog(ctx).byNode[node] ~= nil, "nonliteral unary operations are unsupported")
     return tagged.literal(ctx, node, expected)
