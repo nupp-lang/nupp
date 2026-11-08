@@ -361,7 +361,10 @@ function tagged.erasedStatement(ctx: any, stat: any): nil
                 -- A nested type declares a type only, and so does a nested
                 -- record of fields alone, built where it is constructed. One
                 -- with methods holds a table of its own (`recordValue`).
-                or entry.kind == "typeAlias" or entry.kind == "recordDecl",
+                or entry.kind == "typeAlias" or entry.kind == "recordDecl"
+                -- An array part (`{T}` in the body) types the record's integer
+                -- keys; it declares no value.
+                or entry.kind == "arrayPart",
                 "unsupported record entry: " .. tostring(entry.kind) .. " in " .. tostring(stat.name and stat.name.text)
             )
         end
