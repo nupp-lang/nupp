@@ -685,12 +685,20 @@ local FEATURES: {[string]: native.Feature} = {
         -- own copy of. Deliberately not `binary`, so no manifest can force it on or
         -- off -- nothing selects this, it is implied by what waits.
         name = "suspension",
-        module = "coroutine.sus",
-        globals = {"coroutine.suspend"},
+        module = "nupp.runtime.standardcoroutine",
+        globals = {
+            "coroutine.suspend",
+            "coroutine.source",
+            "coroutine.cansuspend",
+            "coroutine.create",
+            "coroutine.wrap",
+            "coroutine.newcancellation",
+            "coroutine.iscancellation"
+        },
         -- The host view and the selection beneath both views carry the same effect:
         -- a program that installs a handler needs the runtime a program that parks
-        -- needs, and it may never name `coroutine.sus` itself.
-        modules = {"coroutine.sus.host", "nupp.suspension", "nupp.suspension.host", "nupp.suspension.selected"},
+        -- needs, and it may never name `coroutine` itself.
+        modules = {"coroutine.host", "nupp.suspension", "nupp.suspension.host", "nupp.suspension.selected"},
         runtimeModule = "nupp.suspension",
         portableRuntime = true,
     },

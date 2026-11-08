@@ -450,8 +450,8 @@ end
 function M.aTransferParksUnderAHandlerAndBlocksWithoutOne()
     local files = ready()
     local backend = require("nupp.runtime.provider.nativefiles")
-    local suspension = require("coroutine.sus")
-    local suspensionHost = require("coroutine.sus.host")
+    local suspension = require("nupp.runtime.standardcoroutine").value
+    local suspensionHost = require("coroutine.host")
     assert(files.mkdir(inRoot("parking")))
     assert(backend.write(inRoot("parking/payload.bin"), ("park"):rep(40000)))
 
@@ -460,7 +460,7 @@ function M.aTransferParksUnderAHandlerAndBlocksWithoutOne()
         park = function(_self, waiting)
             parked = waiting.operation
             while not waiting:ready() do
-                pumped = pumped + suspension.poll()
+                pumped = pumped + suspensionHost.poll()
             end
         end,
     }

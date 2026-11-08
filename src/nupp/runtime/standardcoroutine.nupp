@@ -38,11 +38,34 @@ local total = sum:await()
 assert(total == 500500)
 ```
 
+## Callback waits
+
+A library waits for a callback through [](coroutine.suspend). If completing the
+operation needs polling, [](coroutine.source) registers a readiness source that
+the runtime drives while work waits.
+
+```nupp
+local function immediate(): string
+    return coroutine.suspend("example", function(resume: function(string)): function()?
+        resume("ready")
+        return nil
+    end)
+end
+
+print(immediate())
+```
+
+A pending subscription returns cancellation cleanup. Without a handler, native
+waits drive readiness sources on the current thread. Schedulers and embedders use
+[](coroutine.host) to install a handler and poll those sources. See
+[suspension.md](docs/learn/runtime/concurrency/suspension.md) for subscriptions
+and handler integration.
+
 ## Growing task families
 
 [](coroutine.gather) and [](coroutine.race) take a family that is complete when
 the call is written; children cannot be added later.
-[](coroutine.sus.create) makes a coroutine that inherits a handler but
+[](coroutine.create) makes a coroutine that inherits a handler but
 does not own its result, failure, or lifetime. A server, a loading pipeline, or
 a scene needs somewhere to put children found over time and one answer to what
 happens when the body returns, a child fails, or the whole thing is cancelled.
@@ -64,6 +87,7 @@ module nupp.runtime.standardcoroutine
 
 local source1 = require("nupp.tasks")
 local suspension = require("nupp.suspension")
+local cancellation = require("nupp.suspension.cancellation")
 local suspensionContract = require("nupp.suspension.contracts")
 local workerContract = require("nupp.workers.contracts")
 local channelTypes = require("nupp.workers.internal.channeltypes")
@@ -124,10 +148,59 @@ export const scope = source1.open
 export const race = source1.race
 export const run = source1.run
 
+--- Describes the readiness sources associated with a subscription.
+export type Context = suspensionContract.Context
+
+--- Owns a registered readiness source.
+export type Source = suspensionContract.Source
+
+export const Context = suspension.Context
+export const Source = suspension.Source
+
+--- Registers a readiness source that the runtime drives while work waits.
+export const source: suspensionContract.Provider.["source"] = suspension.source
+
+--- Reports whether the active handler permits suspension here.
+export const cansuspend: suspensionContract.Provider.["cansuspend"] = suspension.canSuspend
+
+--- Creates a cancellation value shared by suspension, tasks and worker lanes.
+export const newcancellation = cancellation.create
+
+--- Tests cancellation identity without parsing its message.
+export const iscancellation = cancellation.is
+
+--- Creates a coroutine inheriting the handler active at creation.
+---
+--- Closing that handler's installation cancels its outstanding waits. A
+--- coroutine started after the installation closes uses the surviving outer
+--- handler. Use [](coroutine.scope) to own a child's result and lifetime.
+export const create: suspensionContract.Create = suspension.create
+
+local resume = coroutine.resume
+
+local function unwrap(ok: boolean, ...: any): ...any
+    if not ok then
+        error((...), 2)
+    end
+    return ...
+end
+
+--- Returns a callable coroutine inheriting the handler active at creation.
+---
+--- Arguments, yielded values and results retain Lua's value packs. Failures
+--- raise in the caller, including cancellation from the inherited installation.
+export function wrap<A..., R...>(body: function(A...): R...): function(A...): R...
+    local co = create(body)
+    return (function(...: any): ...any
+        return unwrap(resume(co, ...))
+    end) as function(A...): R...
+end
+
 --- Waits for a callback to produce a value while the handler runs other work.
 ---
---- The subscription returns cleanup that runs when the wait ends or is cancelled.
---- Use [](coroutine.sus.source) when readiness needs a pump.
+--- A pending subscription returns cancellation cleanup. Sources registered
+--- through its context are released when the wait ends.
+--- Use [](coroutine.source) when readiness needs a pump.
 export const suspend: suspensionContract.Provider.["suspend"] = suspension.suspend
 
 export const sleep: clockContract.ClockProvider.["sleep"] = selectedTime and selectedTime.sleep or missingClock
@@ -147,6 +220,14 @@ export const value: table = do
     original.scope = scope
     original.race = race
     original.run = run
+    original.Context = Context
+    original.Source = Source
+    original.source = source
+    original.cansuspend = cansuspend
+    original.newcancellation = newcancellation
+    original.iscancellation = iscancellation
+    original.create = create
+    original.wrap = wrap
     original.suspend = suspend
     original.sleep = sleep
     original.sleepuntil = sleepuntil

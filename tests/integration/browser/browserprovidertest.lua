@@ -16,7 +16,8 @@ local providerstate = require("helpers.providerstate")
 local M = {}
 
 local BASE = {
-    ["coroutine.sus"] = true,
+    ["nupp.runtime.standardcoroutine"] = true,
+    ["coroutine.host"] = true,
     ["nupp.tasks"] = true,
     ["nupp.suspension"] = true,
     ["nupp.suspension.host"] = true,
@@ -73,6 +74,10 @@ local function application(options)
             end,
         }),
     }
+    local coroutineLibrary = {}
+    for name, value in pairs(coroutine) do
+        coroutineLibrary[name] = value
+    end
     load = providerstate.instance(
         owned,
         replacements,
@@ -84,7 +89,7 @@ local function application(options)
                 return load("nupp.runtime.browser.suspension")
             end,
         },
-        {__nuppBrowser = browserHost}
+        {__nuppBrowser = browserHost, coroutine = coroutineLibrary}
     )
 
     local app = {
@@ -849,6 +854,256 @@ function M.canonicalProviderKeysRetireTheirPrecedingContractNames()
     }) do
         check.eq(type(suspension[names[2]]), "function", names[2])
         check.eq(suspension[names[1]], nil, "the preceding Provider key is absent")
+    end
+end
+
+function M.publicCoroutinesInheritBrowserHandlersAtCreation()
+    local app = application()
+    local co = app.load("nupp.runtime.standardcoroutine").value
+    local host = app.load("coroutine.host")
+    local pending
+
+    local function handler(tag)
+        return {
+            park = function()
+                pending(tag)
+            end,
+            shutdown = function()
+            end
+        }
+    end
+
+    local creating = host.install(handler("creating"))
+
+    local function body()
+        return co.suspend("inherited", function(resume)
+            pending = resume
+            return function()
+            end
+        end)
+    end
+
+    local child, wrapped = co.create(body), co.wrap(body)
+    local resuming = host.install(handler("resuming"))
+    local ok, answer = co.resume(child)
+    check.eq(ok, true, tostring(answer))
+    check.eq(answer, "creating")
+    check.eq(wrapped(), "creating")
+    resuming:close()
+    local delayed = co.wrap(app.suspension.handled)
+    creating:close()
+    check.eq(delayed(), false, "closed installations are skipped")
+end
+
+function M.publicBrowserCoroutinesUnwindWhenTheirInstallationCloses()
+    for _, wrapped in ipairs({false, true}) do
+        local app = application()
+        local co = app.load("nupp.runtime.standardcoroutine").value
+        local host = app.load("coroutine.host")
+        local parked, raised, cancelled
+        cancelled = 0
+        local installation = host.install({
+            park = function(_, waiting)
+                parked = co.running()
+                waiting:onresume(function()
+                    assert(co.resume(parked))
+                end)
+                while not waiting:ready() do
+                    co.yield()
+                end
+            end,
+            shutdown = function()
+            end,
+        })
+
+        local function body()
+            local ok, problem = pcall(co.suspend, "inherited wait", function()
+                return function()
+                    cancelled = cancelled + 1
+                end
+            end)
+            assert(not ok)
+            raised = problem
+        end
+
+        if wrapped then
+            co.wrap(body)()
+        else
+            assert(co.resume(co.create(body)))
+        end
+        installation:close()
+        check.eq(cancelled, 1)
+        check.eq(co.status(parked), "dead")
+        assert(tostring(raised):find("cancelled", 1, true), tostring(raised))
+        installation:close()
+        check.eq(cancelled, 1)
+    end
+end
+
+function M.rawCoroutineWaitsRunInsideManagedTasks()
+    for _, wrapped in ipairs({false, true}) do
+        local app = application()
+        local co = app.load("nupp.runtime.standardcoroutine").value
+        local tasks = app.tasks
+        local rawThread
+        local ok, problem = app.run(function()
+            local values, errors = tasks.gather({
+                function()
+                    local complete
+
+                    local function body()
+                        rawThread = co.running()
+                        local pending = true
+                        local answer = co.suspend("raw child", function(resume, context)
+                            context:source("raw child", 1, function()
+                                if pending then
+                                    pending = false
+                                    resume(42)
+                                    return 1
+                                end
+
+                                return 0
+                            end)
+
+                            return function()
+                                pending = false
+                            end
+                        end)
+                        complete(answer)
+
+                        return "unowned result", nil
+                    end
+
+                    if wrapped then
+                        co.wrap(body)()
+                    else
+                        assert(co.resume(co.create(body)))
+                    end
+
+                    return co.suspend("raw result", function(resume)
+                        complete = resume
+                        return function()
+                        end
+                    end)
+                end
+            })
+            assert(next(errors) == nil, tostring(errors[1]))
+            assert(values[1] == 42)
+            assert(co.status(rawThread) == "dead")
+        end)
+        assert(ok, tostring(problem))
+    end
+end
+
+function M.managedTaskExitCancelsItsInheritedRawWaits()
+    for _, wrapped in ipairs({false, true}) do
+        local app = application()
+        local co = app.load("nupp.runtime.standardcoroutine").value
+        local tasks = app.tasks
+        local rawThread, raised
+        local cancelled = 0
+        local ok, problem = app.run(function()
+            local values, errors = tasks.gather({
+                function()
+                    local function body()
+                        rawThread = co.running()
+                        local settled, failure = pcall(co.suspend, "abandoned raw child", function()
+                            return function()
+                                cancelled = cancelled + 1
+                            end
+                        end)
+                        assert(not settled)
+                        raised = failure
+
+                        return "unowned cancellation result"
+                    end
+
+                    if wrapped then
+                        co.wrap(body)()
+                    else
+                        assert(co.resume(co.create(body)))
+                    end
+
+                    return 42
+                end,
+                function()
+                    return 7
+                end
+            })
+            assert(next(errors) == nil, tostring(errors[1]))
+            assert(values[1] == 42 and values[2] == 7)
+            assert(cancelled == 1)
+            assert(tostring(raised):find("cancelled", 1, true), tostring(raised))
+            assert(co.status(rawThread) == "dead")
+        end)
+        assert(ok, tostring(problem))
+    end
+end
+
+function M.rawCoroutinesInheritScopeFrameSchedulingAndCancellation()
+    for _, wrapped in ipairs({false, true}) do
+        for _, abandon in ipairs({false, true}) do
+            local app = application()
+            local co = app.load("nupp.runtime.standardcoroutine").value
+            local tasks = app.tasks
+            local rawThread, raised
+            local cancelled = 0
+            local ok, problem = app.run(function()
+                local result = tasks.run(function()
+                    local complete
+                    local pending = true
+
+                    local function body()
+                        rawThread = co.running()
+                        local settled, answer = pcall(co.suspend, "scope raw child", function(resume, context)
+                            if not abandon then
+                                context:source("scope raw child", 1, function()
+                                    if pending then
+                                        pending = false
+                                        resume(42)
+                                        return 1
+                                    end
+
+                                    return 0
+                                end)
+                            end
+
+                            return function()
+                                pending = false
+                                cancelled = cancelled + 1
+                            end
+                        end)
+                        if settled then
+                            complete(answer)
+                        else
+                            raised = answer
+                        end
+                    end
+
+                    if wrapped then
+                        co.wrap(body)()
+                    else
+                        assert(co.resume(co.create(body)))
+                    end
+                    if abandon then
+                        return 42
+                    end
+
+                    return co.suspend("scope raw result", function(resume)
+                        complete = resume
+                        return function()
+                        end
+                    end)
+                end)
+                assert(result == 42)
+                assert(co.status(rawThread) == "dead")
+                assert(cancelled == (abandon and 1 or 0))
+                if abandon then
+                    assert(tostring(raised):find("cancelled", 1, true), tostring(raised))
+                end
+            end)
+            assert(ok, tostring(problem))
+        end
     end
 end
 

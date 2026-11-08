@@ -12,10 +12,10 @@ records declared by [](nupp.suspension.contracts).
 A bounded activation budget returns control to the browser event loop so queued
 callbacks and cancellation can make progress. Resume settles a wait once;
 release removes registrations without suspending. Tasks and worker lanes use
-[](coroutine.sus.iscancellation) for cancellation identity.
+[](coroutine.iscancellation) for cancellation identity.
 
 The browser host must install its effect transport before consumers load
-[](coroutine.sus). Handler, source, and waiting state stays local to each Lua
+[](coroutine). Handler, source, and waiting state stays local to each Lua
 state, and scheduling operations never resolve the service again.
 ]]
 module nupp.runtime.browser.suspension
@@ -24,6 +24,7 @@ const assert2 = require("assert")
 
 local effects = require("nupp.runtime.browser.effects")
 local contract = require("nupp.suspension.contracts")
+local rawCoroutine = require("nupp.runtime.rawcoroutine")
 local suspension = {}
 local running = coroutine.running
 local sources: {any} = {}
@@ -144,17 +145,58 @@ suspension.Handler = contract.Handler
 type suspension.Installed = contract.Installed
 suspension.Installed = contract.Installed
 
+local function attempted(firstError: any, callback: any, argument: any): any
+    local ok, problem = pcall(callback, argument)
+    if not ok and firstError == nil then
+        return problem
+    end
+
+    return firstError
+end
+
 local function closeInstallation(self: any): nil
     if self._released then
         return
     end
-    self._released = true
-    if self._co == nil then
-        suspension._main = self._previous
-    else
-        suspension._installed[self._co] = self._previous
+    -- Restore once, even if draining fails and closing must be retried.
+    if not self._restored then
+        self._restored = true
+        if self._co == nil then
+            suspension._main = self._previous
+        else
+            suspension._installed[self._co] = self._previous
+        end
     end
-    self.handler:shutdown()
+    local firstError: any = nil
+    local parks = self._parks
+    for ticket in pairs(parks) do
+        firstError = attempted(firstError, ticket.abandon, "the handled extent ended")
+    end
+    if self.handler.shutdown ~= nil then
+        firstError = attempted(firstError, self.handler.shutdown, self.handler)
+    end
+    local remaining = next(parks)
+    local passes = 0
+    while remaining ~= nil and passes < 64 do
+        passes = passes + 1
+        firstError = attempted(firstError, suspension.poll, nil)
+        remaining = next(parks)
+    end
+    if firstError ~= nil then
+        error(firstError, 0)
+    end
+    if remaining ~= nil then
+        local names = {}
+        for ticket in pairs(parks) do
+            names[#names + 1] = ticket.operation
+        end
+        table.sort(names)
+        error(
+            ("nupp: the handled extent ended with %d park(s) unfinished: %s"):format(#names, table.concat(names, ", ")),
+            0
+        )
+    end
+    self._released = true
 end
 
 suspension._installed = setmetatable({}, {__mode = "k"})
@@ -189,7 +231,7 @@ end
 local function installation(): any
     local coroutine = running()
     local current = coroutine == nil and suspension._main or suspension._installed[coroutine]
-    while current ~= nil and current._released do
+    while current ~= nil and current._restored do
         current = current._previous
     end
 
@@ -208,7 +250,7 @@ local function boundedTurnHost(): any
     end
     while true do
         local previous = host._previous
-        while previous ~= nil and previous._released do
+        while previous ~= nil and previous._restored do
             previous = previous._previous
         end
         if previous == nil then
@@ -409,7 +451,7 @@ function suspension.delegatedcanpark(): function(): boolean
 
     return function(): boolean
         local current = captured
-        while current ~= nil and current._released do
+        while current ~= nil and current._restored do
             current = current._previous
         end
         local outer = current ~= nil and current.handler or nil
@@ -430,7 +472,7 @@ function suspension.delegatedpark(): function(suspension.Waiting, function(): ni
 
     return function(waiting: suspension.Waiting, cancel: function(): nil): nil
         local current = captured
-        while current ~= nil and current._released do
+        while current ~= nil and current._restored do
             current = current._previous
         end
         local outer = current ~= nil and current.handler or nil
@@ -501,8 +543,9 @@ function suspension.suspend<T>(
     operation: string,
     subscribe: function(function(T): nil, suspension.Context): (function()?)
 ): T
-    local current = handler()
-    local state: any = {ready = false, value = nil, wake = nil,}
+    local extent = installation()
+    local current = extent ~= nil and extent.handler or nil
+    local state: any = {ready = false, value = nil, wake = nil, cancelled = false}
 
     local function resume(value: T): nil
         if state.ready then
@@ -539,6 +582,39 @@ function suspension.suspend<T>(
         releaseOwned(context)
         error("nupp: " .. operation .. " cannot suspend here", 0)
     end
+    -- A park belongs to its accepting installation, including inherited parks.
+    local ticket: any = nil
+    if extent ~= nil then
+        ticket = {operation = operation, unsubscribeAttempted = false}
+        function ticket.abandon(reason: string): nil
+            local unsubscribeError: any = nil
+            if not ticket.unsubscribeAttempted then
+                ticket.unsubscribeAttempted = true
+                local ok, problem = pcall(cancel)
+                if not ok then
+                    unsubscribeError = problem
+                end
+            end
+            state.ready, state.cancelled, state.reason = true, true, reason
+            local wakeError: any = nil
+            if state.wake ~= nil then
+                local ok, problem = pcall(state.wake)
+                if ok then
+                    state.wake = nil
+                else
+                    wakeError = problem
+                end
+            end
+            if unsubscribeError ~= nil then
+                error(unsubscribeError, 0)
+            end
+            if wakeError ~= nil then
+                error(wakeError, 0)
+            end
+        end
+
+        extent._parks[ticket] = true
+    end
     local waiting = contract.Waiting(ready = waitingready, onresume = waitingonResume, operation = operation)
     const settlement = waiting as any
     settlement._state = state
@@ -549,6 +625,13 @@ function suspension.suspend<T>(
         parked, problem = pcall(hostWait, operation, function(): boolean
             return state.ready
         end)
+    end
+    if ticket ~= nil then
+        extent._parks[ticket] = nil
+    end
+    if state.cancelled then
+        releaseOwned(context)
+        error(("nupp: %s was cancelled: %s"):format(operation, state.reason), 0)
     end
     if not parked then
         -- Every failed park unsubscribes: a park that raised left the subscription
@@ -584,6 +667,8 @@ local function installHandler(value: suspension.Handler, transparent: boolean): 
     installed._previous = previous
     installed.transparent = transparent
     installed._released = false
+    installed._restored = false
+    installed._parks = {}
     if coroutine == nil then
         suspension._main = installed
     else
@@ -604,7 +689,7 @@ function suspension.installdriver(value: suspension.Handler): affine(contract.In
 end
 
 function suspension.create<A..., R...>(body: function(A...): R...): thread
-    local co = coroutine.create(body)
+    local co = rawCoroutine.create(body)
     local inherited = installation()
     if inherited ~= nil then
         suspension._installed[co] = inherited

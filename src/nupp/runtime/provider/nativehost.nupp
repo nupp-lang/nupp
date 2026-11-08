@@ -17,7 +17,7 @@ request is refused rather than left to hang; run it under a handler, such as a
 module nupp.runtime.provider.nativehost
 
 local suspension = require("nupp.suspension")
-local suspensionHost = require("coroutine.sus.host")
+local suspensionHost = require("coroutine.host")
 local suspensionContract = require("nupp.suspension.contracts")
 local values = require("nupp.host.internal.values")
 local ffi = require("ffi")

@@ -24,7 +24,7 @@ context into a new coroutine.
 Sources report readiness in `order`, lowest first. Context.uses identifies
 sources needed by a wait. Whether a park is permitted here is `cansuspend`,
 which returns for the handler in force. Cancellation values must come from
-[](coroutine.sus.iscancellation), which preserves recognition by tasks and
+[](coroutine.iscancellation), which preserves recognition by tasks and
 worker providers. State belongs to one Lua state; registrations and handlers are
 not copied into worker lanes.
 ]]
@@ -54,7 +54,7 @@ end
 --- A subscription may use an existing Source or create a scoped one.
 export record Context
     --- Registers a source associated with this subscription, as
-    --- [](coroutine.sus.source) registers one outside any.
+    --- [](coroutine.source) registers one outside any.
     source: function(
         self: Context,
         name: string,

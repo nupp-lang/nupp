@@ -90,9 +90,9 @@ intrinsic namespaces and the declared modules:
   serializable state.
 - [](coroutine.suspend) waits for a callback result. [](coroutine) owns
   application task scopes, and [](coroutine.Scope.work) provides isolated worker
-  lanes. [](coroutine.sus) registers and polls readiness sources.
-  [](coroutine.sus.host) is the other side of waiting: what a host
-  installs to decide which coroutine runs while something is parked.
+  lanes. [](coroutine.source) registers readiness sources.
+  [](coroutine.host) polls them and installs the handler that decides which
+  coroutine runs while something is parked.
 - [](os) provides monotonic and wall clocks. [](coroutine) owns sleeps and
   deadlines.
 

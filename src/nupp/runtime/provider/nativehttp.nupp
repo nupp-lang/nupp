@@ -10,7 +10,7 @@ bodies, transport and connection policy, and observable protocol versions; its
 
 Clients, responses, and body readers implement the shared contracts in
 [](nupp.io.http.contracts). Pending transfers participate in
-[](coroutine.sus), and source registrations are retained while a client has
+[](coroutine), and source registrations are retained while a client has
 work. Closing resources releases transfers and source registrations; request
 bodies remain borrowed for the send operation and response bodies retain their
 transport resources until released.

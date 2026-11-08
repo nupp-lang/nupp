@@ -1,0 +1,8 @@
+@!internal
+module nupp.runtime.rawcoroutine
+
+local contract = require("nupp.suspension.contracts")
+
+-- Capture before the public extension replaces create. Providers keep this
+-- constructor even when another provider is instantiated later in the state.
+export const create: contract.Create = (rawget(_G, "coroutine") as any).create

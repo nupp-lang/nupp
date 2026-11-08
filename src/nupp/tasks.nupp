@@ -137,6 +137,9 @@ end
 ----------------------------------------------------------------------------
 
 local type Child = {
+    continuation: boolean?,
+    continuationParent: any,
+    parked: suspensionHost.Waiting?,
     thread: thread?,
     name: string,
     scope: any,
@@ -171,6 +174,8 @@ local type ScopeState = {
     first: any,
     last: any,
     queue: {Child},
+    continuations: {[thread]: Child},
+    driverThread: any,
     head: integer,
     tail: integer,
     ready: integer,
@@ -703,6 +708,15 @@ end
 -- The driver
 ----------------------------------------------------------------------------
 
+local function parkContinuation(waiting: suspensionHost.Waiting, ready: function(): nil): nil
+    while not waiting:ready() do
+        waiting:onresume(ready)
+        if not waiting:ready() then
+            coroutine.yield()
+        end
+    end
+end
+
 local function resumeChild(owner: ScopeState, child: Child): nil
     const co = child.thread
     if co == nil then
@@ -716,11 +730,17 @@ local function resumeChild(owner: ScopeState, child: Child): nil
     const previousScope = activeScope
     const previousChild = activeChild
     activeScope = owner
-    activeChild = child
+    activeChild = child.continuationParent or child
     const ok, answer = coroutine.resume(co)
     activeScope = previousScope
     activeChild = previousChild
     if coroutine.status(co) ~= "dead" then
+        return
+    end
+    if child.continuation then
+        -- Raw coroutine results and failures belong to their callers. The queue
+        -- only drives the continuation of a wait accepted by its installation.
+        child.status = ok and "done" or "failed"
         return
     end
     if ok then
@@ -767,6 +787,54 @@ local function takeRunnable(owner: ScopeState): Child?
     owner.stale = 0
 
     return nil
+end
+
+local function parkInherited(owner: ScopeState, waiting: suspensionHost.Waiting, parent: Child?): nil
+    const current = coroutine.running() as thread
+    const continuation: Child = {
+        continuation = true,
+        continuationParent = parent ~= nil and parent.scope == owner and parent or nil,
+        parked = waiting,
+        thread = current,
+        name = waiting.operation,
+        scope = owner,
+        status = "running",
+        requested = false,
+        entered = true,
+        runnable = false,
+        lending = false,
+        waiters = {},
+    }
+    owner.continuations[current] = continuation
+
+    const function ready(): nil
+        markRunnable(owner, continuation)
+    end
+
+    const parked, problem = pcall(parkContinuation, waiting, ready)
+    owner.continuations[current] = nil
+    if not parked then
+        error(problem, 0)
+    end
+
+    return
+end
+
+local function drainInherited(owner: ScopeState): nil
+    -- Closing an installation has already cancelled and woken its waits.
+    -- Drain those raw continuations before reporting the installation closed.
+    for _, continuation in pairs(owner.continuations) do
+        const waiting = continuation.parked
+        const co = continuation.thread
+        if waiting ~= nil and waiting:ready() and co ~= nil and coroutine.status(co) == "suspended" then
+            if continuation.runnable then
+                continuation.runnable = false
+                owner.ready = owner.ready - 1
+                owner.stale = owner.stale + 1
+            end
+            resumeChild(owner, continuation)
+        end
+    end
 end
 
 --- Parks the driver until a child is runnable, or the scope's deadline passes.
@@ -854,6 +922,10 @@ local function frameHandler(owner: ScopeState): suspensionHost.Handler
 
     return suspensionHost.Handler(
         park = function(_: suspensionHost.Handler, waiting: suspensionHost.Waiting, cancel: function(): nil): nil
+            if rootKey() ~= owner.driverThread then
+                parkInherited(owner, waiting, activeChild as Child?)
+                return
+            end
             -- The wait handed outward when no child is runnable: ready when the block's
             -- own wait is, when a child becomes runnable and the turn allows it, or
             -- when the scope has something to raise; woken by the deadline so it is
@@ -957,6 +1029,7 @@ local function frameHandler(owner: ScopeState): suspensionHost.Handler
             return outerCanPark()
         end,
         shutdown = function(_: suspensionHost.Handler): nil
+            drainInherited(owner)
         end
     )
 end
@@ -1640,6 +1713,8 @@ local function newState(deadline: number?, limit: integer?): ScopeState
         first = nil,
         last = nil,
         queue = {},
+        continuations = {},
+        driverThread = rootKey(),
         head = 1,
         tail = 0,
         ready = 0,
@@ -1674,7 +1749,13 @@ local function newState(deadline: number?, limit: integer?): ScopeState
     const outerCanPark = suspensionHost.delegatedCanPark()
     owner.handler = suspensionHost.Handler(
         park = function(_: suspensionHost.Handler, waiting: suspensionHost.Waiting, cancel: function(): nil): nil
-            const child = activeChild as Child
+            const current = coroutine.running()
+            const candidate = activeChild as Child?
+            if candidate == nil or candidate.thread ~= current or activeScope ~= owner then
+                parkInherited(owner, waiting, candidate)
+                return
+            end
+            const child = candidate as Child
             const scopeOwner = activeScope as ScopeState
 
             const function ready(): nil
@@ -1700,6 +1781,7 @@ local function newState(deadline: number?, limit: integer?): ScopeState
             return outerCanPark()
         end,
         shutdown = function(_: suspensionHost.Handler): nil
+            drainInherited(owner)
         end
     )
 

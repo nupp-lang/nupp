@@ -23,7 +23,7 @@ local function diagnose(src)
     local env = sharedEnv
     local result = parser.parse(src, "test.nupp")
     testAssert.eq(#result.errors, 0, "syntax errors in test source")
-    local diags = check.check(result, "test.nupp", env)
+    local diags = check.check(result, "test.nupp", env, {moduleName = "nupp.test.nosuspend"})
     local refusals = {}
     for _, diag in ipairs(diags) do
         if diag.code == "NUPP2701" then
@@ -509,11 +509,11 @@ end
 function M.aHandleRegionInstallsAndRestores()
     local src = table.concat(
         {
-            'local s = require("coroutine.sus")',
+            'local s = require("nupp.suspension")',
             "local h = {park = function() end}",
             "local before = s.handled()",
             "local inside = false",
-            "do local installation = require(\"coroutine.sus.host\").install(h) ;",
+            "do local installation = require(\"coroutine.host\").install(h) ;",
             "    inside = s.handled()",
             "end",
             "return before, inside, s.handled()",
@@ -532,7 +532,7 @@ function M.aHandleRegionInstallsAndRestores()
 end
 
 function M.aHandleRegionPreservesTheLineCount()
-    local src = "local h = {park = function() end}\ndo local installation = require(\"coroutine.sus.host\").install(h) ;\n"
+    local src = "local h = {park = function() end}\ndo local installation = require(\"coroutine.host\").install(h) ;\n"
         .. "    local n = 1\n    print(n)\nend\n"
     local _, _, result = diagnose(src)
     local code = gen.generate(result, "test")
@@ -571,7 +571,7 @@ function M.aReturnLeavesAHandleRegionAfterReleasingIt()
                 "local released: integer = 0",
                 "local h = {shutdown = function() released = released + 1 end}",
                 "local function f(): integer, integer",
-                "    do local installation = require(\"coroutine.sus.host\").install(h) ;",
+                "    do local installation = require(\"coroutine.host\").install(h) ;",
                 "        return 1, released",
                 "    end",
                 "end",
@@ -592,7 +592,7 @@ function M.aBodyAndReleaseFailureAreBothPreserved()
             {
                 "local h = {shutdown = function() error('release failed') end}",
                 "local ok, problem = pcall(function()",
-                "    do local installation = require(\"coroutine.sus.host\").install(h) ;",
+                "    do local installation = require(\"coroutine.host\").install(h) ;",
                 "        error('body failed')",
                 "    end",
                 "end)",
@@ -613,13 +613,13 @@ function M.loopControlCanLeaveAHandleRegion()
                 "local h = {}",
                 "local total = 0",
                 "for index = 1, 3 do",
-                "    do local installation = require(\"coroutine.sus.host\").install(h) ;",
+                "    do local installation = require(\"coroutine.host\").install(h) ;",
                 "        if index == 2 then continue end",
                 "        total = total + index",
                 "    end",
                 "end",
                 "while true do",
-                "    do local installation = require(\"coroutine.sus.host\").install(h) ;",
+                "    do local installation = require(\"coroutine.host\").install(h) ;",
                 "        break",
                 "    end",
                 "end",
@@ -638,7 +638,7 @@ function M.aGotoCanLeaveAHandleRegion()
             {
                 "local h = {}",
                 "local answer = 0",
-                "do local installation = require(\"coroutine.sus.host\").install(h) ;",
+                "do local installation = require(\"coroutine.host\").install(h) ;",
                 "    answer = 1",
                 "    goto done",
                 "end",
@@ -653,7 +653,7 @@ function M.aGotoCanLeaveAHandleRegion()
 end
 
 function M.aHandleRegionRequiresAHandler()
-    local _, diags = diagnose("do local installation = require(\"coroutine.sus.host\").install(42) ;\nend")
+    local _, diags = diagnose("do local installation = require(\"coroutine.host\").install(42) ;\nend")
     local found = false
     for _, diag in ipairs(diags) do
         if diag.code == "NUPP2006" and diag.msg:find("Handler", 1, true) then
@@ -669,7 +669,7 @@ function M.allowsABreakInsideAnInstallationScope()
         table.concat(
             {
                 "local h = {park = function() end, canpark = function() return true end, shutdown = function() end}",
-                "do local installation = require(\"coroutine.sus.host\").install(h) ;",
+                "do local installation = require(\"coroutine.host\").install(h) ;",
                 "    for index = 1, 3 do",
                 "        if index == 2 then",
                 "            break",

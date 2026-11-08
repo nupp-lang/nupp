@@ -3547,7 +3547,7 @@ function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
                     "local function preserve(scoped callback: function(): nil, takes value: affine(voidptr)): voidptr preserves value return value end",
                     "local compiled = comptime do return {answer = 42} end",
                     "@nosuspend do end",
-                    "do local installation = coroutine.sus.host.install(cancel) ; cancel() end",
+                    "do local installation = coroutine.host.install(cancel) ; cancel() end",
                     "local with = 1; print(with)",
                     "local sealed interface Token end",
                     "interface Matcher",

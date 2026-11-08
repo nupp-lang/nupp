@@ -8,12 +8,10 @@ process, and whoever installed a handler decides what runs meanwhile -- an
 event loop, a poll, the next frame.
 
 ```nupp:fragment
-local suspension = coroutine.sus
-
 local function readLine(reader: Reader): string
     return coroutine.suspend("example.readLine", function(
         resume: function(string),
-        context: suspension.Context
+        context: coroutine.Context
     ): function()
         const subscription = reader:onLine(resume)
 
@@ -32,7 +30,7 @@ would be permitted here at all, and `create` makes a coroutine that inherits the
 handler.
 
 Installing a handler, and driving the parks it accepts, is the other side of
-this: [](coroutine.sus.host). A library needs none of it.
+this: [](coroutine.host). A library needs none of it.
 
 This is the layer underneath. Somewhere to put children discovered over time,
 with one answer for failure and cancellation, is [](coroutine); real
@@ -82,8 +80,6 @@ suspension.handled = provider.handled
 suspension.canSuspend = provider.cansuspend
 
 --- Creates a coroutine that inherits the handler installed where it was created.
----
---- Also available on [](coroutine.sus.host) for schedulers.
 suspension.create = provider.create
 
 export = suspension

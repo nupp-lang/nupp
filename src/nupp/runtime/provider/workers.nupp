@@ -10,7 +10,7 @@ engine-backed owners move only through the supported ownership protocol.
 
 Scopes implement the canonical types in [](nupp.workers.contracts).
 Closing a scope settles every child, propagates unobserved failure after cleanup,
-and cooperates with [](coroutine.sus). Cancellation uses the shared cancellation
+and cooperates with [](coroutine). Cancellation uses the shared cancellation
 identity, and scheduler operations retain their provider without SPI dispatch.
 
 Workers load the same immutable artifact and its SPI index in fresh Lua states.

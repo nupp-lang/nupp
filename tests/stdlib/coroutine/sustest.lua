@@ -5,8 +5,8 @@ local testAssert = require("assert")
 -- The ready path is what the baselines said to protect, so it is what most of this
 -- checks: a subscription that completes during the call must not build a park, must not
 -- consult a handler, and must answer straight through.
-local suspension = require("coroutine.sus")
-local suspensionHost = require("coroutine.sus.host")
+local suspension = require("nupp.runtime.standardcoroutine").value
+local suspensionHost = require("coroutine.host")
 
 -- The lexical owner scope, written out here because the tests are Lua.
 local function handled(handler, body, ...)
@@ -34,6 +34,205 @@ function M.cancellationHelpersShareTheTaskAndProviderIdentity()
     assert(not suspension.iscancellation({operation = "read", reason = "closed"}))
     assert(not suspension.iscancellation(nil))
     assert(tostring(value):find("read was cancelled: closed", 1, true))
+end
+
+function M.publicSurfaceKeepsSchedulingOnHost()
+    testAssert.eq(coroutine.handled, nil)
+    testAssert.eq(coroutine.poll, nil)
+    testAssert.eq(coroutine.sus, nil)
+    testAssert.eq(type(coroutine.source), "function")
+    testAssert.eq(type(coroutine.cansuspend), "function")
+    testAssert.eq(type(suspensionHost.poll), "function")
+    testAssert.eq(suspensionHost.create, nil)
+end
+
+function M.createPreservesArgumentsYieldsAndTrailingNils()
+    local function pack(...)
+        return {n = select("#", ...), ...}
+    end
+
+    local co = coroutine.create(function(...)
+        local args = pack(...)
+        testAssert.eq(args.n, 3)
+        testAssert.eq(args[1], "start")
+        testAssert.eq(args[2], nil)
+        local resumed = pack(coroutine.yield("yielded", nil, 3, nil))
+        testAssert.eq(resumed.n, 3)
+        testAssert.eq(resumed[1], "resume")
+
+        return "done", nil, 4, nil
+    end)
+    local yielded = pack(coroutine.resume(co, "start", nil, nil))
+    testAssert.eq(yielded.n, 5)
+    testAssert.eq(yielded[1], true)
+    testAssert.eq(yielded[2], "yielded")
+    local done = pack(coroutine.resume(co, "resume", nil, nil))
+    testAssert.eq(done.n, 5)
+    testAssert.eq(done[1], true)
+    testAssert.eq(done[2], "done")
+    testAssert.eq(done[4], 4)
+    testAssert.eq(coroutine.status(co), "dead")
+end
+
+function M.wrapPreservesArgumentsYieldsResultsAndFailures()
+    local function pack(...)
+        return {n = select("#", ...), ...}
+    end
+
+    local wrapped = coroutine.wrap(function(...)
+        testAssert.eq(select("#", ...), 3)
+        testAssert.eq((...), "start")
+        local resumed = pack(coroutine.yield("yielded", nil, 3, nil))
+        testAssert.eq(resumed.n, 3)
+        testAssert.eq(resumed[1], "resume")
+
+        return "done", nil, 4, nil
+    end)
+    local yielded = pack(wrapped("start", nil, nil))
+    testAssert.eq(yielded.n, 4)
+    testAssert.eq(yielded[1], "yielded")
+    testAssert.eq(yielded[3], 3)
+    local done = pack(wrapped("resume", nil, nil))
+    testAssert.eq(done.n, 4)
+    testAssert.eq(done[1], "done")
+    testAssert.eq(done[3], 4)
+    local ok, problem = pcall(wrapped)
+    assert(not ok and tostring(problem):find("dead coroutine", 1, true), tostring(problem))
+    local failure = {}
+    ok, problem = pcall(
+        coroutine.wrap(function()
+            error(failure, 0)
+        end)
+    )
+    assert(not ok and rawequal(problem, failure), "error identity survives wrap")
+    ok, problem = pcall(
+        coroutine.wrap(function()
+            error("wrapped failure", 0)
+        end)
+    )
+    assert(not ok and tostring(problem):find("wrapped failure", 1, true), tostring(problem))
+    assert(not pcall(coroutine.wrap, {}), "wrap validates its body at creation")
+    assert(not pcall(coroutine.create, {}), "create validates its body at creation")
+end
+
+function M.wrapDoesNotCallAReplacementPublicResume()
+    local wrapped = coroutine.wrap(function()
+        return 42
+    end)
+    local previous = coroutine.resume
+    coroutine.resume = function()
+        error("the public resume should not run", 0)
+    end
+    local ok, answer = pcall(wrapped)
+    coroutine.resume = previous
+    assert(ok, tostring(answer))
+    testAssert.eq(answer, 42)
+end
+
+function M.createCapturesTheCreatingHandler()
+    local pending
+
+    local function handler(value)
+        return {
+            park = function()
+                pending(value)
+            end
+        }
+    end
+
+    local installation = suspensionHost.install(handler("creating"))
+    local child = coroutine.create(function()
+        return coroutine.suspend("child wait", function(resume)
+            pending = resume
+            return function()
+            end
+        end)
+    end)
+    local ok, result = handled(handler("resuming"), coroutine.resume, child)
+    installation:close()
+    testAssert.eq(ok, true, tostring(result))
+    testAssert.eq(result, "creating")
+end
+
+function M.wrapCapturesTheCreatingHandler()
+    local pending
+
+    local function handler(value)
+        return {
+            park = function()
+                pending(value)
+            end
+        }
+    end
+
+    local installation = suspensionHost.install(handler("creating"))
+    local wrapped = coroutine.wrap(function()
+        return coroutine.suspend("wrapped wait", function(resume)
+            pending = resume
+            return function()
+            end
+        end)
+    end)
+    local result = handled(handler("resuming"), wrapped)
+    installation:close()
+    testAssert.eq(result, "creating")
+end
+
+function M.wrapWaitsBelongToTheCreatingInstallation()
+    local parked, raised, cancels
+    cancels = 0
+    local installation = suspensionHost.install({
+        park = function(_, waiting)
+            parked = coroutine.running()
+            waiting:onresume(function()
+                assert(coroutine.resume(parked))
+            end)
+            while not waiting:ready() do
+                coroutine.yield()
+            end
+        end,
+    })
+    local wrapped = coroutine.wrap(function()
+        local ok, problem = pcall(coroutine.suspend, "wrapped cancellation", function()
+            return function()
+                cancels = cancels + 1
+            end
+        end)
+        assert(not ok)
+        raised = problem
+    end)
+    wrapped()
+    installation:close()
+    testAssert.eq(cancels, 1)
+    assert(tostring(raised):find("cancelled", 1, true), tostring(raised))
+    testAssert.eq(coroutine.status(parked), "dead")
+end
+
+function M.wrapSkipsClosedInstallationsAndDoesNotInheritAtResume()
+    local outer = suspensionHost.install({
+        park = function()
+        end
+    })
+    local inner = suspensionHost.install({
+        park = function()
+        end
+    })
+    local wrapped = coroutine.wrap(require("nupp.suspension").handled)
+    inner:close()
+    assert(wrapped(), "the surviving outer handler is inherited")
+    local delayed = coroutine.wrap(require("nupp.suspension").handled)
+    outer:close()
+    assert(not delayed(), "closed handlers are skipped")
+    local outside = coroutine.wrap(require("nupp.suspension").handled)
+    handled(
+        {
+            park = function()
+            end
+        },
+        function()
+            assert(not outside(), "resuming inside an extent does not grant its handler")
+        end
+    )
 end
 
 function M.answersASynchronousSubscriptionDirectly()
@@ -197,7 +396,7 @@ function M.hostPollNeverCallsTheBlockingHalfOfASource()
             return 0
         end
     )
-    suspension.poll()
+    suspensionHost.poll()
     source:release()
     testAssert.eq(polls, 1, "the nonblocking operation ran")
     testAssert.eq(waits, 0, "host polling did not sleep")
@@ -337,16 +536,16 @@ function M.reportsAHandlerThatReturnsWithoutResuming()
 end
 
 function M.restoresTheHandlerOnTheWayOut()
-    testAssert.eq(suspension.handled(), false, "nothing installed to begin with")
+    testAssert.eq(require("nupp.suspension").handled(), false, "nothing installed to begin with")
     local handler = {
         park = function()
         end
     }
     handled(handler, function()
-        assert(suspension.handled(), "installed inside")
+        assert(require("nupp.suspension").handled(), "installed inside")
         return nil
     end)
-    testAssert.eq(suspension.handled(), false, "and gone again after")
+    testAssert.eq(require("nupp.suspension").handled(), false, "and gone again after")
 end
 
 function M.restoresTheHandlerAfterAnError()
@@ -357,7 +556,11 @@ function M.restoresTheHandlerAfterAnError()
     pcall(handled, handler, function()
         error("boom", 0)
     end)
-    testAssert.eq(suspension.handled(), false, "a handler left installed would answer for code that never asked")
+    testAssert.eq(
+        require("nupp.suspension").handled(),
+        false,
+        "a handler left installed would answer for code that never asked"
+    )
 end
 
 function M.nestsHandlers()
@@ -405,7 +608,7 @@ function M.doesNotLeakBetweenCoroutines()
     }
     local seen = nil
     local other = coroutine.create(function()
-        seen = suspension.handled()
+        seen = require("nupp.suspension").handled()
     end)
     handled(handler, function()
         coroutine.resume(other)
@@ -457,7 +660,7 @@ function M.keepsSourceRegistrationOrderForExactTies()
         order[#order + 1] = "second"
         return 0
     end)
-    suspension.poll()
+    suspensionHost.poll()
     first:release()
     second:release()
     testAssert.eq(table.concat(order, ","), "first,second", "equal names and priorities keep registration order")
@@ -499,14 +702,14 @@ function M.mutatesSourcesWithoutChangingTheCurrentPollPass()
         return 0
     end)
 
-    suspension.poll()
+    suspensionHost.poll()
     testAssert.eq(
         table.concat(order, ","),
         "first,middle,last",
         "new sources wait for the next pass and a released source is skipped"
     )
     order = {}
-    suspension.poll()
+    suspensionHost.poll()
     testAssert.eq(
         table.concat(order, ","),
         "new-early,middle,new-middle,last,new-late",
@@ -526,7 +729,7 @@ function M.releasingASourceIsIdempotent()
     end)
     source:release()
     source:release()
-    testAssert.eq(suspension.poll(), 0, "a released source is not polled")
+    testAssert.eq(suspensionHost.poll(), 0, "a released source is not polled")
 end
 
 function M.sourcesDoNotCollideByName()
@@ -540,9 +743,9 @@ function M.sourcesDoNotCollideByName()
         second = second + 1
         return 0
     end)
-    suspension.poll()
+    suspensionHost.poll()
     a:release()
-    suspension.poll()
+    suspensionHost.poll()
     b:release()
     testAssert.eq(first, 1, "the released one stopped")
     testAssert.eq(second, 2, "the other kept going")
@@ -633,31 +836,14 @@ function M.aCreatedCoroutineInheritsTheHandler()
     }
     local inside = nil
     handled(handler, function()
-        local co = suspension.create(function()
-            inside = suspension.handled()
+        local co = coroutine.create(function()
+            inside = require("nupp.suspension").handled()
         end)
         coroutine.resume(co)
 
         return nil
     end)
     testAssert.eq(inside, true, "work started inside a handled extent is handled, not only the frames below it")
-end
-
-function M.aStockCoroutineStillInheritsNothing()
-    local handler = {
-        park = function()
-        end
-    }
-    local inside = nil
-    handled(handler, function()
-        local co = coroutine.create(function()
-            inside = suspension.handled()
-        end)
-        coroutine.resume(co)
-
-        return nil
-    end)
-    testAssert.eq(inside, false, "stock create is unchanged")
 end
 
 function M.inheritanceIsFixedAtCreationNotResumption()
@@ -674,8 +860,8 @@ function M.inheritanceIsFixedAtCreationNotResumption()
     }
     local seen = nil
     local outerInstallation = suspensionHost.install(outer)
-    local co = suspension.create(function()
-        seen = suspension.handled()
+    local co = coroutine.create(function()
+        seen = require("nupp.suspension").handled()
     end)
     -- Resumed under a different handler, while the creating extent is still live.
     handled(other, function()
@@ -696,8 +882,8 @@ function M.aCoroutineDoesNotUseAnExtentThatHasEnded()
     }
     local seen = nil
     local installation = suspensionHost.install(handler)
-    local co = suspension.create(function()
-        seen = suspension.handled()
+    local co = coroutine.create(function()
+        seen = require("nupp.suspension").handled()
     end)
     installation:close()
     coroutine.resume(co)
@@ -706,8 +892,8 @@ end
 
 function M.creatingOutsideAnyHandlerInheritsNothing()
     local inside = nil
-    local co = suspension.create(function()
-        inside = suspension.handled()
+    local co = coroutine.create(function()
+        inside = require("nupp.suspension").handled()
     end)
     coroutine.resume(co)
     testAssert.eq(inside, false, "nothing to inherit, nothing inherited")
@@ -720,16 +906,16 @@ function M.aCoroutineMayInstallItsOwn()
     }
     local innerSeen, afterSeen = nil, nil
     handled(outer, function()
-        local co = suspension.create(function()
+        local co = coroutine.create(function()
             local own = {
                 park = function()
                 end
             }
             handled(own, function()
-                innerSeen = suspension.handled()
+                innerSeen = require("nupp.suspension").handled()
                 return nil
             end)
-            afterSeen = suspension.handled()
+            afterSeen = require("nupp.suspension").handled()
         end)
         coroutine.resume(co)
 
@@ -759,7 +945,7 @@ function M.releasingUnwindsAGenuinelyParkedCoroutine()
     local installation = suspensionHost.install(handler)
     -- Created through the inheriting form, so the extent installed above is the one
     -- that accepts its park.
-    parked = suspension.create(function()
+    parked = coroutine.create(function()
         local ok, err = pcall(coroutine.suspend, "waiting", function()
             return function()
                 unsubscribed = true
@@ -797,7 +983,7 @@ function M.aNestedExtentDoesNotCancelTheEnclosingOnesParks()
         end,
     }
     local outer = suspensionHost.install(handler)
-    parked = suspension.create(function()
+    parked = coroutine.create(function()
         pcall(coroutine.suspend, "outer wait", function()
             return function()
                 cancels = cancels + 1
@@ -844,7 +1030,7 @@ function M.releaseRefusesToSucceedWithAParkStillUnfinished()
         end,
     }
     local installation = suspensionHost.install(handler)
-    local parked = suspension.create(function()
+    local parked = coroutine.create(function()
         pcall(coroutine.suspend, "stuck", function()
             return function()
             end
@@ -921,7 +1107,7 @@ function M.aSubscriptionThatRaisesReleasesItsPumps()
         error("subscribe blew up", 0)
     end)
     testAssert.eq(ok, false, "the subscription failed")
-    suspension.poll()
+    suspensionHost.poll()
     testAssert.eq(polls, 0, "and its pump went with it")
 end
 
@@ -949,7 +1135,7 @@ function M.aFailedReleaseCanBeRetriedAndCancelsOnlyOnce()
     }
     local installation = suspensionHost.install(handler)
     local firstRelease, secondRelease
-    parked = suspension.create(function()
+    parked = coroutine.create(function()
         pcall(coroutine.suspend, "retryable", function()
             return function()
                 cancels = cancels + 1

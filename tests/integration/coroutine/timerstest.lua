@@ -7,8 +7,8 @@ local testAssert = require("assert")
 -- concurrency is the point, an upper bound loose enough that only serialization
 -- could break it.
 local time = require("coroutine")
-local suspension = require("coroutine.sus")
-local suspensionHost = require("coroutine.sus.host")
+local suspension = require("nupp.runtime.standardcoroutine").value
+local suspensionHost = require("coroutine.host")
 require("nupp.runtime.standardcoroutine")
 local tasks = require("coroutine")
 local native = require("nupp.compiler.native")
@@ -150,7 +150,7 @@ function M.wakeAtCallbacksAndCancellationAreExactlyOnce()
     end)
     cancel()
     cancel()
-    suspension.poll()
+    suspensionHost.poll()
     testAssert.eq(cancelledCalls, 0, "a cancelled deadline still fired")
 
     local calls = 0
@@ -159,8 +159,8 @@ function M.wakeAtCallbacksAndCancellationAreExactlyOnce()
         calls = calls + 1
         completed = ok
     end)
-    suspension.poll()
-    suspension.poll()
+    suspensionHost.poll()
+    suspensionHost.poll()
     cancelCompleted()
     testAssert.eq(calls, 1, "one deadline fired more than once")
     testAssert.eq(completed, true, "the native timer did not report completion")
@@ -197,7 +197,7 @@ function M.aSleepInsideAHandlerParksRatherThanBlocking()
         park = function(_, waiting)
             parked = parked + 1
             while not waiting:ready() do
-                suspension.poll()
+                suspensionHost.poll()
             end
         end,
         canpark = function()

@@ -2298,14 +2298,19 @@ propagates through resolved calls and across modules, separately from parameter
 and result types. `@nosuspend` refuses that fact rather than consuming it, and
 the Suspension regions section covers it.
 
-A local `installation = coroutine.sus.host.install(handler)` installs a
+A local `installation = coroutine.host.install(handler)` installs a
 host's scheduling policy until the installation leaves scope, per coroutine
 rather than per process. `handler` is an ordinary value satisfying
-`coroutine.sus.host.Handler`. Where none is installed a wait drives the
+`coroutine.host.Handler`. Where none is installed a wait drives the
 registered readiness sources on the current thread, which is what a
 command-line program wants. In a browser application only the root coroutine
 can wait on the page; anywhere else a wait with no handler raises "cannot
 suspend here".
+
+Libraries wait for callbacks through `coroutine.suspend` and register readiness
+sources through `coroutine.source`. `coroutine.create` and `coroutine.wrap`
+inherit the handler active at creation. An embedding host drives readiness
+sources through `coroutine.host.poll`.
 
 `nupp.tasks` runs several bodies concurrently, each in its own coroutine, and
 one body parking is what lets the next one run. A scope opened with

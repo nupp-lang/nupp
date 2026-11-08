@@ -14,7 +14,7 @@ registrations may be pending; cancellation releases a registration without
 waiting for its deadline. State and callbacks are local to one Lua state.
 
 The [](coroutine) facade retains these functions during module loading. Native
-clock support and [](coroutine.sus) must be available before it resolves.
+clock support and [](coroutine) must be available before it resolves.
 ]]
 module nupp.runtime.provider.nativetime
 

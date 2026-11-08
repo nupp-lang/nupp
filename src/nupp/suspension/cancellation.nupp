@@ -9,7 +9,7 @@ message text. The operation and optional reason remain available as fields, and
 string conversion produces a contextual cancellation message.
 
 This is an ordinary declaration/helper module, not a selectable service. It sits
-beside [](coroutine.sus) rather than inside it because the providers that
+beside [](coroutine) rather than inside it because the providers that
 mint these values are what the facade selects: a provider loads this module
 without loading the facade, exactly as it loads [](nupp.suspension.contracts).
 

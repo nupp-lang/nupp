@@ -149,8 +149,8 @@ local events = require("events")
 local contracts = require("nupp.runtime.contracts")
 
 local provider: contracts.HostProvider = require("nupp.runtime.bindings.host")
-local suspension = require("coroutine.sus")
-local suspensionHost = require("coroutine.sus.host")
+local cancellation = require("nupp.suspension.cancellation")
+local suspensionHost = require("coroutine.host")
 local suspensionContract = require("nupp.suspension.contracts")
 
 --- Called with the results of a call whose caller stopped waiting.
@@ -393,7 +393,7 @@ export record Pump
                     if not waiting:ready() then
                         local keepRunning = coroutine.yield()
                         if keepRunning == false then
-                            error(suspension.newcancellation("os.host.Pump", "the host stopped while it was parked"), 0)
+                            error(cancellation.create("os.host.Pump", "the host stopped while it was parked"), 0)
                         end
                     end
                 end
@@ -449,7 +449,7 @@ export record Pump
         if self.active == nil then
             error("os.host.Pump: no operation is parked", 2)
         end
-        suspension.poll()
+        suspensionHost.poll()
 
         return settled(self)
     end
