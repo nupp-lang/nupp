@@ -1081,6 +1081,7 @@ local coremodules: {
     ["nupp.runtime.standardcoroutine"] = "nupp.runtime.luacoroutine",
     ["nupp.runtime.taskownership"] = "nupp.runtime.provider.coretaskownership",
     ["nupp.vm.files"] = "nupp.runtime.provider.corefiles",
+    ["nupp.vm.process"] = "nupp.runtime.provider.coreprocesshost",
     ["bytes.internal.sharedbytes"] = "nupp.runtime.provider.coresharedbytes",
     ["nupp.runtime.temporaryhooks"] = "nupp.runtime.provider.coretemporary",
     ["nupp.io.internal.bufferstate"] = "nupp.runtime.provider.heapbuffer",

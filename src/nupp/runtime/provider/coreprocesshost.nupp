@@ -1,0 +1,197 @@
+@!internal
+module nupp.runtime.provider.coreprocesshost
+
+const processes = require("nupp.runtime.processes")
+const files = require("nupp.runtime.files")
+const filecalls = require("nupp.runtime.filecalls")
+const processcalls = require("nupp.runtime.processcalls")
+const pollcalls = require("nupp.runtime.pollcalls")
+
+const AGAIN_LINUX = 11
+const AGAIN_BSD = 35
+const INTERRUPTED = 4
+const BROKEN_PIPE = 32
+const NO_PROCESS = 3
+const SIGNAL_BASE = 128
+const NANOSECONDS_PER_MILLISECOND = 1000000
+const MAX_WAIT_MS = 2147483647
+const READABLE = 1
+const WRITABLE = 2
+const MODES: {
+    [string]: integer
+} = {inherit = processes.INHERIT, pipe = processes.PIPE, null = processes.NULL, stdout = processes.MERGE}
+
+local function pending(code: integer): boolean
+    return code == -AGAIN_LINUX or code == -AGAIN_BSD or code == -INTERRUPTED
+end
+
+local function stream(descriptor: integer): any
+    return descriptor >= 0 and {descriptor = descriptor, closed = false} or nil
+end
+
+-- Only the existing private host descriptor uses clearEnv; public process
+-- options and the process state machine remain in their shared modules.
+export function spawn(options: any): (any?, any?, any?, any?, integer, string?)
+    for _, argument in ipairs(options.args) do
+        if argument:find("\0", 1, true) then
+            return nil, nil, nil, nil, 0, "process argument contains NUL"
+        end
+    end
+    local directory: string? = options.cwd ~= nil and tostring(options.cwd) or nil
+    if directory ~= nil and directory:find("\0", 1, true) then
+        return nil, nil, nil, nil, 0, "process directory contains NUL"
+    end
+    local environment: {string}? = nil
+    if options.env ~= nil or options.clearEnv == true then
+        environment = {}
+        for name, value in pairs(options.env or {}) do
+            if name:find("\0", 1, true) or value:find("\0", 1, true) then
+                return nil, nil, nil, nil, 0, "process environment contains NUL"
+            end
+            environment[#environment + 1] = name .. "=" .. value
+        end
+    end
+    local child, code = processes.spawn({
+        arguments = options.args,
+        directory = directory,
+        environment = environment,
+        overlay = options.clearEnv ~= true,
+        stdin = MODES[options.stdin or "inherit"],
+        stdout = MODES[options.stdout or "pipe"],
+        stderr = MODES[options.stderr or "inherit"]
+    })
+    if child == nil then
+        return nil, nil, nil, nil, 0, files.reason(code)
+    end
+
+    return child, stream(child.stdin), stream(child.stdout), stream(child.stderr), child.id, nil
+end
+
+export function poll(child: any): (integer?, boolean)
+    if processes.running(child as processes.Process) then
+        return nil, false
+    end
+    local ended = child.exit
+    local signaled = ended.reason == "signal"
+
+    return signaled and SIGNAL_BASE + ended.code or ended.code, signaled
+end
+
+export function kill(child: any, force: boolean): nil
+    if processes.running(child as processes.Process) then
+        local code = processes.kill(child as processes.Process, force and processes.SIGKILL or processes.SIGTERM)
+        if code ~= 0 and code ~= NO_PROCESS then
+            error(files.reason(code), 0)
+        end
+    end
+end
+
+export function read(input: any, count: integer): string?
+    if input.closed then
+        return nil
+    end
+    local result = filecalls.read(input.descriptor, count)
+    if type(result) == "string" then
+        local bytes = result as string
+        return #bytes > 0 and bytes or nil
+    elseif pending(result as integer) then
+        return ""
+    end
+    error(files.reason(-(result as integer)), 0)
+end
+
+export function write(output: any, bytes: string): (integer, boolean)
+    if output.closed then
+        return 0, true
+    end
+    local count = filecalls.write(output.descriptor, bytes, 1)
+    if count >= 0 then
+        return count, false
+    elseif pending(count) then
+        return 0, false
+    elseif count == -BROKEN_PIPE then
+        return 0, true
+    end
+    error(files.reason(-count), 0)
+end
+
+export function closeStream(input: any): (boolean, string?)
+    if input.closed then
+        return true, nil
+    end
+    input.closed = true
+    local code = filecalls.close(input.descriptor)
+
+    return true, code < 0 and files.reason(-code) or nil
+end
+
+export function reap(child: any): (boolean, string?)
+    if processes.running(child as processes.Process) then
+        return false, "the process is still running"
+    end
+    return true, nil
+end
+
+local record Readiness
+    descriptor: integer
+    child: integer
+
+    constructor(self): affine(Readiness, Readiness.close)
+        self.descriptor = -1
+        self.child = -1
+    end
+
+    function close(takes self): nil
+        if self.child >= 0 then
+            processcalls.unwatch(self.descriptor, self.child)
+        end
+        if self.descriptor >= 0 then
+            filecalls.close(self.descriptor)
+        end
+    end
+end
+
+export function waitReady(interest: any, milliseconds: number): integer
+    const readiness = Readiness()
+    readiness.descriptor = pollcalls.open()
+    if readiness.descriptor < 0 then
+        error(files.reason(-readiness.descriptor), 0)
+    end
+    local interests: {[integer]: integer} = {}
+    for _, input in ipairs(interest.read) do
+        if not input.closed then
+            interests[input.descriptor] = (interests[input.descriptor] or 0) | READABLE
+        end
+    end
+    for _, output in ipairs(interest.write) do
+        if not output.closed then
+            interests[output.descriptor] = (interests[output.descriptor] or 0) | WRITABLE
+        end
+    end
+    for fd, flags in pairs(interests) do
+        local code = pollcalls.arm(readiness.descriptor, fd, flags)
+        if code < 0 then
+            error(files.reason(-code), 0)
+        end
+    end
+    if interest.child ~= nil then
+        local child = interest.child
+        if not processes.running(child as processes.Process) then
+            return 1
+        end
+        local code = processcalls.watch(readiness.descriptor, child.id)
+        if code == -NO_PROCESS then
+            return 1
+        elseif code < 0 then
+            error(files.reason(-code), 0)
+        end
+        readiness.child = child.id
+    end
+    local timeout = math.floor(math.max(0, math.min(MAX_WAIT_MS, milliseconds))) as integer
+    local event = pollcalls.wait(readiness.descriptor, timeout * NANOSECONDS_PER_MILLISECOND)
+    if event < 0 then
+        error(files.reason(-event), 0)
+    end
+
+    return event ~= 0 and 1 or 0
+end
