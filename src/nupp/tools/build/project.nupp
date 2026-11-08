@@ -69,6 +69,9 @@ type project.BuildOptions = {
     --- entry can never satisfy a coverage run.
     coverage: boolean?,
 
+    -- Permit reuse of a completed test build after refreshing its dependencies.
+    testBuild: boolean?,
+
     optLevel: integer?,
     remarks: boolean?,
     remarksFile: string?,
@@ -571,6 +574,79 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         return 1
     end
     config._spiEntries = spiEntries
+    local testBuild = require("nupp.tools.build.testbuild")
+    local testInput: string? = nil
+    if opts.testBuild and not opts.checkOnly and not selectedPlatform and opts.paths == nil then
+        report:at("test-build:lookup")
+        testInput = testBuild.input(root, outDir, config, target, newState, contentDigest)
+        local previous = oldState.testBuild
+        if testBuild.intact(previous, testInput, contentDigest) then
+            -- Run the existing drivers even on a hit. Their own keys cover native
+            -- source, compiler, SDK and environment changes outside the Nupp graph.
+            local available = {}
+            for path in pairs(previous.outputs) do
+                available[path] = true
+            end
+            local refreshed, refreshError = native.build(root, outDir, previous.effects, nil, available)
+            if refreshed == nil then
+                say(opts, "NUPP0004", "nupp: " .. tostring(refreshError) .. "\n")
+                return 1
+            end
+            if target.kind == "binary" then
+                local host, hostError = native.hostStub(root, outDir, target, previous.effects)
+                if host == nil then
+                    say(opts, "NUPP0004", "nupp: " .. tostring(hostError) .. "\n")
+                    return 1
+                end
+                local resolvedHost = host == target.stub and join(root, host) or host
+                if resolvedHost ~= previous.host then
+                    previous = nil
+                end
+            end
+            if testBuild.intact(previous, testInput, contentDigest) then
+                -- Keep the ordinary diagnostic and artifact report on a hit.
+                for _, diagnostic in ipairs(previous.diagnostics or {}) do
+                    if opts.diagnostics then
+                        opts.diagnostics[#opts.diagnostics + 1] = diagnostic
+                    else
+                        require("nupp.compiler.diagnostics").report({diagnostic})
+                    end
+                end
+                if target.kind == "binary" and jit.os ~= "Windows" then
+                    local code, problem = process.capture({"chmod", "+x", previous.produced.artifact})
+                    if code ~= 0 then
+                        say(
+                            opts,
+                            "NUPP0004",
+                            "nupp: cannot make the test artifact executable: " .. tostring(problem) .. "\n"
+                        )
+                        return 1
+                    end
+                end
+                report:counted(0, previous.modules)
+                if opts.stats then
+                    opts.stats.checkedModules, opts.stats.generatedModules = 0, 0
+                    opts.stats.reusedModules = previous.modules
+                end
+                if opts.produced then
+                    for name, value in pairs(previous.produced) do
+                        opts.produced[name] = value
+                    end
+                    opts.produced.testBuildReused = true
+                end
+                local completed, completionError = os.rename(pendingCompletionPath, completionPath)
+                if not completed then
+                    say(opts, "NUPP0001", "nupp: " .. tostring(completionError) .. "\n")
+                    return 1
+                end
+                report:finish("reused", targetKey)
+                if opts.produced then
+                    opts.produced.timing = report:timing()
+                end
+                return 0
+            end
+        end
+    end
     local session = modules.session(root, outDir, config, target, dependencies, report)
     local validSpi, invalidSpi = spi.check(session, spiEntries, root, outDir)
     if not validSpi then
@@ -914,6 +990,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     end
     -- A bundle is a modules build and then one more file: everything it just compiled,
     -- folded into a chunk that runs with nothing beside it.
+    local testHost: string? = nil
     local primaryArtifact: string? = nil
     local packagedAotManifest: string? = nil
     if target.kind == "bundle" or target.kind == "binary" or target.kind == "component" then
@@ -1019,6 +1096,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 return 1
             end
             local resolvedStub = stubPath == target.stub and join(root, stubPath) or stubPath
+            testHost = resolvedStub
             local stub, stubErr = readFile(resolvedStub)
             if not stub then
                 say(opts, "NUPP0001", ("nupp: cannot read the stub %s: %s\n"):format(resolvedStub, tostring(stubErr)))
@@ -1224,6 +1302,30 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         opts.produced.allocationSites = result.allocationSites
         opts.produced.accountedModules = result.accountedModules
     end
+    if testInput ~= nil then
+        -- Never publish a result for source that changed while the build ran.
+        local after = testBuild.input(root, outDir, config, target, newState, contentDigest)
+        local outputs = testBuild.outputs(mine, contentDigest)
+        if after == testInput and outputs ~= nil then
+            local diagnostics, count = {}, 0
+            for _, record in pairs(newState.modules) do
+                count = count + 1
+                for _, diagnostic in ipairs(record.diags or {}) do
+                    diagnostics[#diagnostics + 1] = diagnostic
+                end
+            end
+            newState.testBuild = {
+                key = testInput,
+                outputs = outputs,
+                effects = resolvedEffects,
+                host = testHost,
+                hostHash = testHost and hashFile(testHost, contentDigest),
+                modules = count,
+                diagnostics = diagnostics,
+                produced = opts.produced or {},
+            }
+        end
+    end
     report:at("write")
     local ok, stateErr = saveState(statePath, newState)
     if not ok then
@@ -1345,6 +1447,7 @@ function project.test(root: string?, args: {string}?, opts: project.TestOptions?
     local produced: {[string]: any} = {}
     if project.build(root, {
         target = test.build,
+        testBuild = true,
         outDir = asked.outDir,
         coverage = asked.coverage,
         produced = produced,
