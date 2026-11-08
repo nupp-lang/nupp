@@ -138,3 +138,20 @@ test('A source edit during the build cannot publish an artifact under the earlie
   assert.equal(existsSync(path.join(f.repo, 'build/pages-compiler/manifest.json')), false);
 });
 
+test('Only the current main revision can deploy, and a failed lookup cannot authorize deployment', t => {
+  const f = fixture(t), bin = path.join(f.repo, 'fake-bin');
+  const script = fileURLToPath(new URL('../../../../.github/scripts/pages-current.sh', import.meta.url));
+  f.write('fake-bin/gh', '#!/bin/sh\n[ "$FAIL_LOOKUP" != 1 ] || exit 1\nprintf "%s\\n" "$CURRENT_MAIN"\n');
+  chmodSync(path.join(bin, 'gh'), 0o755);
+  const output = path.join(f.repo, 'output');
+  const env = {...process.env, PATH: bin + path.delimiter + process.env.PATH,
+    GITHUB_OUTPUT: output, GITHUB_REPOSITORY: 'fixture/repo', GITHUB_SHA: 'a'.repeat(40)};
+  for (const [head, expected] of [['a'.repeat(40), 'true'], ['b'.repeat(40), 'false']]) {
+    writeFileSync(output, '');
+    execFileSync('sh', [script], {env: {...env, CURRENT_MAIN: head}});
+    assert.equal(readFileSync(output, 'utf8'), `deploy=${expected}\n`);
+  }
+  writeFileSync(output, '');
+  assert.throws(() => execFileSync('sh', [script], {env: {...env, FAIL_LOOKUP: '1'}}));
+  assert.equal(readFileSync(output, 'utf8'), '');
+});

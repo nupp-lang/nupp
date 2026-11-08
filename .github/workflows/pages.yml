@@ -11,15 +11,14 @@ permissions:
   pages: write
   id-token: write
 
-concurrency:
-  group: pages
-  cancel-in-progress: false
-
 jobs:
   build:
     name: Build website
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    concurrency:
+      group: pages-build-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
@@ -183,10 +182,23 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    concurrency:
+      group: pages-deploy
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Check out the deployment guard
+        uses: actions/checkout@v4
+
+      - name: Confirm this is still main
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/pages-current.sh
+
       - name: Deploy GitHub Pages
         id: deployment
+        if: steps.current.outputs.deploy == 'true'
         uses: actions/deploy-pages@v4
