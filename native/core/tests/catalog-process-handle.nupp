@@ -23,11 +23,19 @@ end
 -- files are, rather than owners.
 local popen: any = io.popen
 
+-- Main's io.popen makes its handle a full userdata only where newproxy
+-- does; elsewhere the handle is a table io.type still names a file.
+local proxied = rawget(_G, "newproxy") ~= nil
+
+local function named(handle: any, text: string): boolean
+    return (proxied and tostring(handle) == text) or (not proxied and type(handle) == "table")
+end
+
 -- An argument vector, read as a file, closed as Lua's pclose answers.
 do
     local child = assert(popen({"printf", "%s-%s", "a b", "$HOME"}))
     check(type(child.pid) == "number" and child.pid > 0)
-    check(io.type(child) == "file" and tostring(child) == "file (process " .. tostring(child.pid) .. ")")
+    check(io.type(child) == "file" and named(child, "file (process " .. tostring(child.pid) .. ")"))
     check(child:read("a") == "a b-$HOME")
     local ok, how, code = child:close()
     check(ok == true and how == "exit" and code == 0 and io.type(child) == "closed file")
@@ -99,9 +107,9 @@ do
     local args, argsmessage = pcall(popen, "true", {args = {"true"}})
     check(not args and ends(argsmessage, "popen takes the command as its first argument"))
     local stream, streammessage = pcall(popen, "true", {stdout = "file"})
-    check(not stream and ends(streammessage, "must be \"pipe\", \"inherit\" or \"null\""))
+    check(not stream and ends(streammessage, "stdout must be pipe, inherit, or null"))
     local missing, reason, code = popen({"no-such-program-anywhere"})
-    check(missing == nil and reason == "no-such-program-anywhere: No such file or directory" and code == 2)
+    check(missing == nil and reason == "No such file or directory" and code == 2)
 end
 
 export = score

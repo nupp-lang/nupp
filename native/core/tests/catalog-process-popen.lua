@@ -78,7 +78,8 @@ do
 end
 
 -- The direction a popen file does not have fails as C's stdio does, and a
--- pipe does not seek.
+-- pipe does not seek. The Nupp fixture checks main's answers, which carry
+-- no errno, at these bits.
 do
     local w = assert(popen("cat > /dev/null", "w"))
     local nothing, message, code = w:read("a")
