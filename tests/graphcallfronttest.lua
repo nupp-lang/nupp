@@ -121,7 +121,22 @@ function M.publicCoroutineConstructorsKeepHandlerAwareValueRouting()
             "nupp.runtime.coroutineconstructorfront",
             true
         )
-        local node = input.parsed.root.blocks[1].stats[1].exprs[1].body.stats[1].exprs[1]
+        local node
+
+        local function find(value)
+            if type(value) ~= "table" then
+                return
+            end
+            if value.kind == "call" and value.obj and value.obj.kind == "dotIndex" and value.obj.name.text == name then
+                node = value
+            end
+            for _, child in ipairs(value) do
+                find(child)
+            end
+        end
+
+        find(input.parsed.root)
+        assert(node, "constructor call required")
         assert(graph.coreLibraryCall(node) == nil)
         assert(graph.libraryValue(node.obj) == "coroutine." .. name)
         assert(graph.libraryModule("coroutine." .. name) == "nupp.runtime.luacoroutine")
