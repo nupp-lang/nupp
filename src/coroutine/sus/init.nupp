@@ -12,9 +12,7 @@ local function readLine(reader: Reader): string
     ): function()
         const subscription = reader:onLine(resume)
 
-        return function(): nil
-            subscription:release()
-        end
+        return || -> subscription:release()
     end)
 end
 ```

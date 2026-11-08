@@ -336,12 +336,28 @@ local function TaskType(F: type): type
     end
     return types.shape({
         --- Waits for settlement and returns the function's complete result pack.
+        ---
+        --- ```nupp:fragment
+        --- local scope = coroutine.scope()
+        --- const task = scope:spawn(|| -> "ready")
+        --- assert(task:await() == "ready")
+        --- ```
         {name = "await", read = types.functiontype(types.pack({types.any}), types.results(F)),},
 
         --- Reports whether the task has settled without waiting.
+        ---
+        --- ```nupp:fragment
+        --- if task:isdone() then
+        ---     print(task:await())
+        --- end
+        --- ```
         {name = "isdone", read = types.functiontype(types.pack({types.any}), types.pack({types.bool})),},
 
         --- Returns the task's current scheduling state.
+        ---
+        --- ```nupp:fragment
+        --- print("task state", task:status())
+        --- ```
         {
             name = "status",
             read = types.functiontype(
@@ -361,6 +377,12 @@ local function TaskType(F: type): type
         },
 
         --- Requests cancellation and reports whether this is the first request.
+        ---
+        --- ```nupp:fragment
+        --- if task:cancel("no longer needed") then
+        ---     print("cancellation requested")
+        --- end
+        --- ```
         {
             name = "cancel",
             read = types.functiontype(

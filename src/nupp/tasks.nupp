@@ -1492,7 +1492,7 @@ end
 --- named and only a body expecting something can be given one.
 ---
 --- ```nupp:fragment
---- const page = scope:spawn(function(): string return fetchPage() end)
+--- const page = scope:spawn(|| -> fetchPage())
 --- const size = scope:spawn(url, measure)
 --- const report = scope:spawn("build report", buildReport)
 --- ```
@@ -1569,7 +1569,7 @@ end
 ---
 --- ```nupp:fragment
 --- for index = 1, #items do
----     tasks.checkpoint()
+---     coroutine.checkpoint()
 ---     consume(items[index])
 --- end
 --- ```
@@ -1603,6 +1603,13 @@ end
 ---
 --- So a body can size its work rather than discover the bound by being cancelled
 --- part way through it.
+---
+--- ```nupp:fragment
+--- const deadline = coroutine.deadline()
+--- if deadline ~= nil then
+---     print("milliseconds remaining", deadline - os.monotonic())
+--- end
+--- ```
 ---
 --- @return an absolute monotonic reading, as `os.monotonic` returns
 function tasks.deadline(): number?
@@ -1832,7 +1839,7 @@ end
 --- ```nupp:fragment
 --- do
 ---     local scope = coroutine.scope()
----     scope:spawn(function(): nil work() end)
+---     scope:spawn(|| -> work())
 --- end
 --- ```
 ---
@@ -1983,8 +1990,8 @@ end
 ---
 --- ```nupp:fragment
 --- const total = coroutine.run(limit = 8, body = function(borrows scope: coroutine.Scope): integer
----     const left = scope:spawn(function(): integer return countLeft() end)
----     const right = scope:spawn(function(): integer return countRight() end)
+---     const left = scope:spawn(|| -> countLeft())
+---     const right = scope:spawn(|| -> countRight())
 ---
 ---     return left:await() + right:await()
 --- end)
@@ -2109,8 +2116,8 @@ end
 ---
 --- ```nupp:fragment
 --- const values, errors = coroutine.gather({
----     function(): string return fetch(primary) end,
----     function(): string return fetch(mirror) end,
+---     || -> fetch(primary),
+---     || -> fetch(mirror),
 --- })
 --- for index = 1, 2 do
 ---     if errors[index] ~= nil then
@@ -2194,8 +2201,8 @@ end
 ---
 --- ```nupp:fragment
 --- const answer, which = coroutine.race({
----     function(): string return fetch(primary) end,
----     function(): string return fetch(mirror) end,
+---     || -> fetch(primary),
+---     || -> fetch(mirror),
 --- })
 --- ```
 ---
