@@ -363,6 +363,7 @@ local function markdownMemberSummary(out, members, heading, title, path, superty
         {title = "Constructors", entries = {}},
         {title = "Static methods", entries = {}},
         {title = "Instance methods", entries = {}},
+        {title = "Comptime", entries = {}},
         {title = "Metamethods", entries = {}},
         {title = "Types", entries = {}},
         {title = "Fields", entries = {}},
@@ -370,11 +371,13 @@ local function markdownMemberSummary(out, members, heading, title, path, superty
     local seen = {}
     for index, member in ipairs(members) do
         local path = overloadAnchor(member.path, seen)
-        local group = groups[6]
-        if member.isType or member.isAlias then
-            group = groups[5]
-        elseif member.isMetamethod then
+        local group = groups[7]
+        if member.comptimeKind == "function" then
             group = groups[4]
+        elseif member.isType or member.isAlias then
+            group = groups[6]
+        elseif member.isMetamethod then
+            group = groups[5]
         elseif member.name == "constructor" then
             group = groups[1]
         elseif member.isFunction then
@@ -595,8 +598,24 @@ function markdown.overview(groups: {{
     entries: {string}
 }}, h: string?, title: string?): string
     local ordered = {}
+    local hasFunctions = false
     for _, group in ipairs(groups) do
-        table.insert(ordered, group.title == "Functions" and 1 or #ordered + 1, group)
+        if group.title == "Functions" then
+            hasFunctions = true
+            ordered[#ordered + 1] = group
+        end
+    end
+    if hasFunctions then
+        for _, group in ipairs(groups) do
+            if group.title == "Comptime" then
+                ordered[#ordered + 1] = group
+            end
+        end
+    end
+    for _, group in ipairs(groups) do
+        if group.title ~= "Functions" and (not hasFunctions or group.title ~= "Comptime") then
+            ordered[#ordered + 1] = group
+        end
     end
     local out = {(h or "##") .. " " .. (title or "Overview"), "", "::: api-overview"}
     local count = 0
@@ -637,6 +656,7 @@ function markdown.moduleOverview(module: Module, all: {Module}, prefix: string?)
         groups[#groups + 1] = {title = "Submodules", entries = entries}
     end
     local tail = module.name:match("([^.]+)$") or module.name
+    local comptimeEntries: {string} = {}
     for _, group in ipairs(itemGroups(module.items)) do
         local entries: {string} = {}
         local seen: {[string]: boolean} = {}
@@ -647,11 +667,15 @@ function markdown.moduleOverview(module: Module, all: {Module}, prefix: string?)
                 if name:sub(1, #tail + 1) == tail .. "." then
                     name = name:sub(#tail + 2)
                 end
-                entries[#entries + 1] = "[" .. codeSpan(name) .. "](#" .. item.path .. ")"
+                local target = item.comptimeKind == "function" and comptimeEntries or entries
+                target[#target + 1] = "[" .. codeSpan(name) .. "](#" .. item.path .. ")"
             end
         end
         groups[#groups + 1] = {title = group.title, entries = entries}
     end
+
+    table.sort(comptimeEntries)
+    groups[#groups + 1] = {title = "Comptime", entries = comptimeEntries}
 
     return markdown.overview(groups)
 end

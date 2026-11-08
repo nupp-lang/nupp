@@ -3,7 +3,7 @@
 The `math` table includes scalar helpers, fixed-width operations, and
 two-dimensional vector operations.
 
-```nupp:playground
+```nupp
 assert(math.lerp(10, 20, 0.25) == 12.5)
 local turn = math.dtangle(math.rad(350), math.rad(10))
 assert(math.abs(math.deg(turn) - 20) < 0.000001)

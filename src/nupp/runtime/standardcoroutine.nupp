@@ -8,12 +8,8 @@ until every one of them has run, been cancelled, or unwound.
 
 ```nupp
 local scope = coroutine.scope()
-const hello = scope:spawn(function(): string
-    return "hello"
-end)
-const world = scope:spawn(function(): string
-    return "world"
-end)
+const hello = scope:spawn(|| -> "hello")
+const world = scope:spawn(|| -> "world")
 
 local greeting = hello:await() .. " " .. world:await()
 

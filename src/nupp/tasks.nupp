@@ -248,6 +248,12 @@ record tasks.Scope is own.Closeable
 
     --- Starts a child under this scope: `scope:spawn(arguments..., f)`, or
     --- `scope:spawn(name, f)` to name one that takes no arguments.
+    ---
+    --- ```nupp
+    --- local scope = coroutine.scope()
+    --- const greeting = scope:spawn("greeting", || -> "hello")
+    --- assert(greeting:await() == "hello")
+    --- ```
     spawn: function<F>(
         borrows self: tasks.Scope,
         takes body: F,
@@ -372,12 +378,26 @@ record tasks.Scope is own.Closeable
     ): tasks.Task<F> borrows (self)
 
     --- Creates bounded sender and receiver owners that borrow this scope.
+    ---
+    --- ```nupp
+    --- local scope = coroutine.scope()
+    --- local sender, receiver = scope:channel<string>(1, 1024)
+    --- sender:send("ready")
+    --- local kind, value = receiver:receive()
+    --- assert(kind == "value" and value == "ready")
+    --- ```
     channel: function<T>(
         borrows self: tasks.Scope,
         ...: unpackof nupp.workers.contracts.ChannelLimits(T)
     ): (affine(Sender<T>) borrows (self), affine(Receiver<T>) borrows (self))
 
     --- Requests cancellation of every child.
+    ---
+    --- ```nupp
+    --- local scope = coroutine.scope()
+    --- const task = scope:spawn(|| -> "finished")
+    --- scope:cancel("operation ended")
+    --- ```
     cancel: function(borrows self: tasks.Scope, reason: string?): nil
 
     --- Settles the scope, as lexical cleanup does.
