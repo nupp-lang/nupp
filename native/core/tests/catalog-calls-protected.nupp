@@ -88,7 +88,7 @@ local function relay(...: any): (boolean, any, any, any)
 end
 
 local spreadOk, first, middle, last = relay(1, nil, 3)
-assert(spreadOk and first == 1 and middle == nil and last == 3)
+assert(spreadOk and first == 1 and middle == nil and last == 3, "protected vararg results were lost")
 
 local function failed(...: any): integer
     error((...), 0)
@@ -106,7 +106,7 @@ local function handled(...: any): (boolean, any)
 end
 
 local spreadFailed, problem = handled("spread failure", nil, 3)
-assert(not spreadFailed and problem == "spread failure")
+assert(not spreadFailed and problem == "spread failure", "protected vararg error was lost")
 local tailOk, tailFirst, tailMiddle, tailLast = pcall(values, values(4, nil, 6))
-assert(tailOk and tailFirst == 4 and tailMiddle == nil and tailLast == 6)
+assert(tailOk and tailFirst == 4 and tailMiddle == nil and tailLast == 6, "protected call tail was lost")
 export = score + deep(2) * 100000000

@@ -42,4 +42,43 @@ local ok4, v4 = xpcall(
 if not ok4 and v4 == 42 then
     score = score + 1000
 end
+local marker = {code = 99}
+local callable: any = function(...: any): integer
+    local count = select("#", ...)
+    assert(count == 2 or count == 63)
+    if count == 63 then
+        assert(select(32, ...) == nil)
+    end
+    error(marker, 0)
+
+    return 0
+end
+
+local function preserve(problem: any): any
+    return problem
+end
+
+local selected: any = callable
+
+local function makehandler(): function(any): any
+    selected = function(): integer
+        return 999
+    end
+    return preserve
+end
+
+local fixedOk, fixedProblem = xpcall(selected, makehandler(), 1, 2)
+assert(not fixedOk and fixedProblem == marker)
+
+local function relay(...: any): (boolean, any)
+    return xpcall(callable, preserve, ...)
+end
+
+local arguments: any = {}
+for index = 1, 63 do
+    arguments[index] = index
+end
+arguments[32] = nil
+local packedOk, packedProblem = relay(table.unpack(arguments, 1, 63))
+assert(not packedOk and packedProblem == marker)
 export = score + handled * 10000

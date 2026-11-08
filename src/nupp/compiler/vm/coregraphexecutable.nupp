@@ -217,9 +217,9 @@ local function derive(g: any, catalog: any): any
                 maximumArguments = math.max(maximumArguments, #block.term.args + 1) as integer
             end
             if contract and contract.handled then
-                local results: integer = math.max(#block.term.args - 1, #(block.term.results or {}), 2) as integer
+                local results: integer = math.max(#block.term.args, #(block.term.results or {}), 2) as integer
                 if block.term.spread then
-                    results = math.max(results, 63) as integer
+                    results = math.max(results, 64) as integer
                 end
                 maximumArguments = math.max(maximumArguments, results + 5) as integer
                 metaCalls = true
@@ -471,7 +471,8 @@ local function derive(g: any, catalog: any): any
                 -- wants none, and its one slot holds the pack.
                 local encoded = term.open and 0 or wanted
                 -- xpcall's handler: past the arguments and the results.
-                local handlerSlot = callBase + 1 + math.max(term.spread and 63 or nargs, captured)
+                -- A callable table inserts its receiver before the arguments.
+                local handlerSlot = callBase + 1 + math.max(term.spread and 64 or nargs + 1, captured)
                 if contract.handled then
                     emit({"Move", handlerSlot, physical(term.args[#term.args])}, position)
                 end

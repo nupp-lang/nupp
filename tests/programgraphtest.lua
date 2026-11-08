@@ -1238,9 +1238,15 @@ return relay(1, nil, 3)
         local executable = require("nupp.compiler.vm.coregraphexecutable").fromChecked(compiled, 8)
         local found = false
         for _, fn in ipairs(executable.functions) do
+            local base
             for _, instruction in ipairs(fn.instructions) do
                 if instruction[1] == "PCall" and instruction[7] > 0 then
+                    test.eq(instruction[6], 4)
+                    base = instruction[4]
                     found = true
+                end
+                if instruction[1] == "XPHandle" then
+                    assert(base and instruction[3] > base + 64, "the message handler follows the implicit receiver")
                 end
             end
         end
