@@ -565,9 +565,14 @@ for _, resource in ipairs({
 }) do
     RESOURCES[#RESOURCES + 1] = {source = resource, output = resource:gsub("^src/", "nupp/compiler/"),}
 end
+local BROWSER_RESOURCES = {}
 local LUAJIT_BROWSER_RESOURCES = {}
-for index, resource in ipairs(RESOURCES) do
-    LUAJIT_BROWSER_RESOURCES[index] = resource
+for _, resource in ipairs(RESOURCES) do
+    -- The browser exposes compiler services, without the CLI test harness.
+    if type(resource) ~= "table" or not resource.source:match("^tests/") then
+        BROWSER_RESOURCES[#BROWSER_RESOURCES + 1] = resource
+        LUAJIT_BROWSER_RESOURCES[#LUAJIT_BROWSER_RESOURCES + 1] = resource
+    end
 end
 LUAJIT_BROWSER_RESOURCES[
     #LUAJIT_BROWSER_RESOURCES + 1
@@ -684,7 +689,7 @@ return {
                 output = "build/browser-luajit/bootstrap/nupp-compiler.lua",
                 entries = {"nupp.tools.browserluajit"},
                 sources = {"src/nupp/tools/browserluajit.nupp"},
-                resources = RESOURCES,
+                resources = BROWSER_RESOURCES,
             },
             browserLuaJITApplicationRuntime = {
                 kind = "bundle",

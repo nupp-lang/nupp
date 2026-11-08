@@ -572,4 +572,14 @@ function M.embeddedResourcesHaveOneCheckoutSpelling()
     assert(#unspelled == 0, "embedded resources with no eol=lf in .gitattributes: " .. table.concat(unspelled, ", "))
 end
 
+function M.browserCompilerOmitsTheCliTestHarness()
+    local targets = assert(loadfile(ROOT .. "/nupp.lua"))().build.targets
+    for _, name in ipairs({"browserLuaJITCompiler", "browserLuaJITCompilerWithoutPrelude"}) do
+        for _, resource in ipairs(targets[name].resources) do
+            local path = type(resource) == "table" and resource.source or resource
+            assert(not path:match("^tests/"), name .. " carries the CLI test harness: " .. path)
+        end
+    end
+end
+
 return M
