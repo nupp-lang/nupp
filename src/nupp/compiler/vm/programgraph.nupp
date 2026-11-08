@@ -201,10 +201,10 @@ function program.importmodule(p: any, b: any): string?
             and current.token == original.token
             and current.definition == original.definition
             and current.declaration == original.declaration
-            and site.module == current.module,
+            and site.module == graph.coremodule(current.module),
             "checked builtin import differs from its initializer"
         )
-        return current.module
+        return graph.coremodule(current.module)
     end
 
     return p.scalartypes.definitions[b.definition] and scalartypeof.MODULE
@@ -955,7 +955,7 @@ function program.describe(modules: {any}, entryModule: string): any
                     id = #p.requires,
                     owner = owner.id,
                     node = node,
-                    module = node.qualifiedModule,
+                    module = qualified.name,
                     typeOnly = false,
                     target = qualified.chunk,
                     qualified = true,
@@ -1596,7 +1596,7 @@ function program.verify(p: any): boolean
                 need(
                     current
                     and current.root == original.root
-                    and current.module == item.module
+                    and graph.coremodule(current.module) == item.module
                     and current.module == original.module
                     and current.token == original.token
                     and current.definition == original.definition
@@ -1617,7 +1617,7 @@ function program.verify(p: any): boolean
                     and extension
                     and base ~= extension
                     and base.module == graph.libraryModule(current.root)
-                    and extension.module == current.module
+                    and extension.module == graph.coremodule(current.module)
                     and base.owner == owner.id
                     and extension.owner == owner.id
                     and base.eager == true
@@ -1643,7 +1643,8 @@ function program.verify(p: any): boolean
                         or item.eager and node.kind == "qualifiedLoad"
                         or item.callable and node.kind == "qualifiedLoad"
                     )
-                    and node.qualifiedModule == item.module
+                    and node.qualifiedModule ~= nil
+                    and graph.coremodule(node.qualifiedModule) == item.module
                 )
                 and not requireNodes[node],
                 "qualified path lacks its checked module"
@@ -1825,7 +1826,7 @@ function program.verify(p: any): boolean
                     and site.node == token
                     and binding
                     and site.owner == binding.owner
-                    and site.module == from.qualifiedModule
+                    and site.module == graph.coremodule(from.qualifiedModule)
                     and token.inheritedDefault == taken
                     and token.inheritFrom == from.inheritFrom
                     and cst.firstToken(token) == cst.firstToken(declaration),
