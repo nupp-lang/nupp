@@ -1470,7 +1470,7 @@ local function main()
                     end
                     check(loop, label .. " numeric loop shape")
                 end
-                if name == "callarguments" then
+                if name == "callarguments" or name == "threadsclose" then
                     local wordBytes, diagnosticBytes = 8, 24
                     local v3Bytes, formatWord, rowsWord, countWord = 152, 16, 17, 18
                     local diagnosticFormat, legacyFormat, methodFlag, tailFlag = 4, 3, 1, 2
