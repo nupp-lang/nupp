@@ -51,4 +51,4 @@ end
 assert(closed == 3, "both indexed bounds errors land and close the live owner")
 assert(view[2] == 0 and view[3] == 98, "failed reads leave the view intact")
 
-export = 1
+export const result = 1

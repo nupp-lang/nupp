@@ -154,4 +154,4 @@ if not caught and message == "tail-wrapped failure" then
     score = score + 64
 end
 
-export = score
+export const result = score

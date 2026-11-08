@@ -26,4 +26,4 @@ setmetatable({}, {
         print("dropped")
     end
 })
-export = 5
+export const result = 5

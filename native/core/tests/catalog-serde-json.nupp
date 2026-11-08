@@ -12,4 +12,4 @@ local back: any = json.decodevalue('{"a":[true,null,"x"]}')
 if back.a[1] == true and back.a[2] == "x" and back.a[3] == nil then
     score = score + 2
 end
-export = score
+export const result = score

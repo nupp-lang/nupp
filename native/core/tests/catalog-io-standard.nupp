@@ -43,4 +43,4 @@ io.write("\n")
 if io.output() == io.stdout and io.input() == io.stdin and io.stdout:flush() == true then
     score = score + 8
 end
-export = score
+export const result = score

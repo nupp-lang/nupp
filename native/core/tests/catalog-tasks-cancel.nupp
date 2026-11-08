@@ -155,4 +155,4 @@ do
     end
 end
 
-export = score
+export const result = score

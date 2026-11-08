@@ -30,4 +30,4 @@ local function closures(): number
     return total
 end
 
-export = closures()
+export const result = closures()

@@ -103,4 +103,4 @@ if raises("bad argument #1 to 'collectgarbage' (string expected, got table)", fu
 end) then
     score = score + 16384
 end
-export = score
+export const result = score

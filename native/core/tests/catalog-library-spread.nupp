@@ -94,4 +94,4 @@ local score = #copied * 1000 + count(string.gsub("aaa", "a", "b")) * 100 + selec
 if x == 10 and y == 20 and first == 7 and second == 8 and third == nil then
     score = score + 10
 end
-export = score
+export const result = score

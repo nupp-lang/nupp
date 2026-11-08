@@ -108,4 +108,4 @@ do
     lease:commit(1)
 end
 assert(buffer:tostring() == "headXCZ", "a new write can reuse storage after error and drop")
-export = 1
+export const result = 1

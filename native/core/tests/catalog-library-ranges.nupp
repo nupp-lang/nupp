@@ -34,4 +34,4 @@ end
 if moved == target and table.concat(target, ",") == "0,2,1,2" then
     score = score + 16
 end
-export = score
+export const result = score

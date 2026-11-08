@@ -24,4 +24,4 @@ local suffix = ":19: bad argument #2 to 'write' (string expected, got table)"
 if not ok and string.sub(tostring(err), -#suffix) == suffix then
     score = score + 1
 end
-export = score
+export const result = score

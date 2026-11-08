@@ -137,4 +137,4 @@ if sum == count * (count + 1) // 2 then
     score = score + 32
 end
 
-export = score
+export const result = score

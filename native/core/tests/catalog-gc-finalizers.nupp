@@ -207,4 +207,4 @@ collectgarbage()
 if seen.called == 1 and seen.wrapped == true then
     score = score + 512
 end
-export = score
+export const result = score

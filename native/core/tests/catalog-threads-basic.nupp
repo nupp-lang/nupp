@@ -151,4 +151,4 @@ local _, total = coroutine.resume(spread, 1, 2, 3)
 if count == 3 and x == 4 and y == 5 and total == 6 then
     score = score + 2048
 end
-export = score
+export const result = score

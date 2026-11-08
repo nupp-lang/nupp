@@ -67,4 +67,4 @@ log.settimestampformat(beforeformat)
 local installed = log.setsink(previous)
 own.drop(installed)
 log.setlevel(priorlevel)
-export = score
+export const result = score

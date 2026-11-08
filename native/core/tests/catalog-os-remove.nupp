@@ -97,4 +97,4 @@ local numberOk, numberMessage = pcall(function(): any
     return (os.remove as any)(5, true)
 end)
 check(not numberOk and ends(numberMessage, ":97: nupp: os path must be a path or a string"))
-export = score
+export const result = score

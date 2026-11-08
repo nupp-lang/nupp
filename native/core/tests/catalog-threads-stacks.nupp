@@ -93,4 +93,4 @@ end
 if again == 600000 then
     score = score + 32
 end
-export = score
+export const result = score

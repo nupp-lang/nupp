@@ -8,4 +8,4 @@ print("printed", 1)
 os.exit(3)
 print("never")
 
-export = 0
+export const result = 0

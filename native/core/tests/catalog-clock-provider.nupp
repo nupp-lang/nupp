@@ -110,4 +110,4 @@ local public = os.monotonic()
 if public >= before and os.walltime() >= epoch then
     score = score | 32
 end
-export = score
+export const result = score

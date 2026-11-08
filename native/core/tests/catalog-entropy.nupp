@@ -31,4 +31,4 @@ collectgarbage("collect")
 if #held == 257 and type(held) == "string" then
     score = score | 8
 end
-export = score
+export const result = score

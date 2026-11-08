@@ -26,4 +26,4 @@ local function records(): number
     return math.floor(acc) % 1000003
 end
 
-export = records()
+export const result = records()

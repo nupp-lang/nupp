@@ -120,4 +120,4 @@ assert(not listed)
 local oldroot = root
 scratch:close()
 assert(os.exists(oldroot) == false)
-export = 1
+export const result = 1

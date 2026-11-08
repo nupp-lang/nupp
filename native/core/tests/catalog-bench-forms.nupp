@@ -109,4 +109,4 @@ local fields = first == "x" and second == "y" or first == "y" and second == "x"
 if left == 11 and fields and next(pair as any, second) == nil then
     score = score + 32
 end
-export = score
+export const result = score

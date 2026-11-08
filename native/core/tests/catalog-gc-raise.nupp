@@ -19,4 +19,4 @@ marked(alive)
 print("raising")
 error("boom")
 
-export = 0
+export const result = 0

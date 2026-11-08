@@ -104,4 +104,4 @@ do
     check(missing == nil and reason == "No such file or directory" and code == 2)
 end
 
-export = score
+export const result = score
