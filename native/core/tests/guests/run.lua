@@ -246,6 +246,7 @@ local CASES = {
     -- The packaged test runner over real suites, its loadfile and dofile
     -- served chunks compiled here (SOURCES).
     {"testrunner", 0},
+    {"ffiaggregates", 0x7FFF0000003FFFFF},
     {"runnerresiduals", 0x7FFF00000000007F},
     -- Library calls spreading `...` through the library function's value.
     {"spreadlibrary", 0x7FFF0000000003FF},
@@ -283,6 +284,9 @@ local CASES = {
     {"osremove", 0x7FFF000000001FFF},
     -- The compiler's host services as the core answers them for check and build.
     {"clihosts", 0x7FFF0000000000FF},
+    -- C declarations through libclang, and the VM's answers to every
+    -- request core-cdecl-record.lua records.
+    {"corecdecl", 0x7FFF0000000007FF},
     {"loadbinary", 0x7FFF000000001FFF},
     -- A record with an array part: fields and elements apart.
     {"recordsarray", 0x7FFF00000000000F},
@@ -491,6 +495,7 @@ local STRESS = {
     affineconstructors = true,
     absentffi = true,
     guestffi = true,
+    ffiaggregates = true,
     runnerresiduals = true,
     spreadlibrary = true,
     libraryresults = true,
@@ -527,8 +532,25 @@ local SETUP = {
     processreuse = "ulimit -n 64; ",
     processlayer = "ulimit -n 64; ",
     benchworkloads = "export BENCH_SCALE=-9; ",
-    -- The runner reads tests/run.lua and the suites from the checkout.
-    testrunner = "cd " .. ROOT .. " && export NUPP_CORE_CHUNKS=" .. ROOT .. "/build/core-guests/chunks; "
+    -- The C library catalog-ffi-aggregates calls, built where each run finds it.
+    -- The VM's C declaration answers catalog-core-cdecl compares its own
+    -- with, recorded in the directory it then runs in.
+    corecdecl = (
+        "d=$(mktemp -d '%s/cdecl.XXXXXX') && cd \"$d\" && NUPP_VM_AUTO_REBUILD=0 '%s/bin/nupp' run "
+        .. "'%s/native/core/tests/core-cdecl-record.lua' \"$d/recorded\" > /dev/null "
+        .. "&& export CDECL_DIFF=\"$d/recorded\"; "
+    ):format(OUT, ROOT, ROOT),
+    ffiaggregates = (
+        "d=$(mktemp -d '%s/ffi.XXXXXX') && cc -dynamiclib -o \"$d/libnuppffiaggregates.dylib\" '%s' "
+        .. "&& export DYLD_LIBRARY_PATH=\"$d\"; "
+    ):format(OUT, TESTS .. "/ffi-aggregates.c"),
+    -- The runner reads tests/run.lua and the suites from the checkout. Its
+    -- result cache digests the files the VM variables name, the runtime's
+    -- hundreds of megabytes, which guest code takes most of an hour over;
+    -- they name the host's VM, not this runner's, anyway.
+    testrunner = (
+        "cd %s && unset NUPP_VM_BINARY NUPP_VM_CLI_IMAGE && export NUPP_CORE_CHUNKS=%s/build/core-guests/chunks; "
+    ):format(ROOT, ROOT)
 }
 -- The trees of the cases whose programs are checkout sources
 -- (guestbuild's `rooted`), which no selection's key covers otherwise.
@@ -544,7 +566,8 @@ local SOURCES = {
         "tests/iopathargumenttest.lua",
         "tests/iofileargumenttest.lua",
         "tests/corewarnlogtest.lua",
-        "tests/stdlib/typefactoriestest.lua"
+        "tests/stdlib/typefactoriestest.lua",
+        "tests/helpers/providerstate.lua"
     }
 }
 -- Lua text a case loads with `load`, compiled here as that text named so,

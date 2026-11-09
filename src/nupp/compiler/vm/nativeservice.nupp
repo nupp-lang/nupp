@@ -67,6 +67,7 @@ local osNames = {
     poolsettle = true,
     foreignCall = true,
     foreignCells = true,
+    foreignCollector = true,
     atomicload64 = true,
     atomiccas64 = true,
     securefill = true,

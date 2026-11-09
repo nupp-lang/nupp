@@ -208,6 +208,11 @@ export function foreignCells(scope: voidptr): voidptr
     return os.foreignCells()
 end
 
+export function foreignCollector(scope: voidptr): voidptr
+    local _ = scope
+    return os.foreignCollector()
+end
+
 export function atomicload64(scope: voidptr, base: voidptr, offset: int64): uint64
     local _ = scope
     return os.atomicload64(base, offset)
