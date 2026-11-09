@@ -16,6 +16,7 @@ const texts = require("nupp.runtime.core.guesttexts")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 const tables = require("nupp.runtime.core.coretables")
 const os = require("nupp.runtime.vm.os")
+const numbers = require("nupp.runtime.core.hostnumbers")
 const guestvalues = require("nupp.runtime.core.guestvalues")
 const librarycalls = require("nupp.runtime.core.librarycalls")
 const scalarkinds = require("nupp.runtime.core.scalarkinds")
@@ -282,7 +283,7 @@ export function tonumber(ctx: voidptr, value: uint64): uint64
         if strings.reserve(guestvalues.guestheap(ctx), slot, 8ULL) ~= 0ULL then
             error("not enough memory")
         end
-        local parsed = os.parseNumber(
+        local parsed = numbers.parseNumber(
             native.pointer(strings.bytes(s)),
             strings.length(s),
             native.pointer(strings.descriptor(slotLifetime).base)

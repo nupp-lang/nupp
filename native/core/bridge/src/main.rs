@@ -4,7 +4,6 @@ mod library;
 mod platform;
 mod pool;
 mod system;
-mod time;
 
 #[cfg(all(test, target_arch = "aarch64"))]
 #[path = "../tests/support/abi.rs"]
@@ -163,8 +162,6 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, Failure> {
         platform::unmap_pages as *const () as u64,
         platform::page_size as *const () as u64,
         platform::environment as *const () as u64,
-        platform::format_number as *const () as u64,
-        platform::parse_number as *const () as u64,
         platform::write_output as *const () as u64,
         platform::math_function as *const () as u64,
         platform::random_seed as *const () as u64,
@@ -177,16 +174,10 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, Failure> {
         pool::pool_finish as *const () as u64,
         pool::pool_cancel as *const () as u64,
         platform::sleep_nanos as *const () as u64,
-        time::wall_clock as *const () as u64,
-        time::cpu_clock as *const () as u64,
-        time::time_parts as *const () as u64,
-        time::time_make as *const () as u64,
-        time::time_format as *const () as u64,
         platform::atomic_load64 as *const () as u64,
         platform::atomic_cas64 as *const () as u64,
         entropy::secure_fill as *const () as u64,
         system::system_query as *const () as u64,
-        time::wall_millis as *const () as u64,
         pool::pool_settle as *const () as u64,
         library[0],
         library[1],

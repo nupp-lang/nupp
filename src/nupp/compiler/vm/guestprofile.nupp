@@ -1,7 +1,7 @@
 module nupp.compiler.vm.guestprofile
 
 local graph = require("nupp.compiler.vm.graph")
-local guest = {booleanKind = "boolean"}
+export const booleanKind = "boolean"
 local wrappers = {literal = "base", const = "inner"}
 local arithmetic = {["+"] = "IAdd", ["-"] = "ISub", ["&"] = "IAnd", ["|"] = "IOr", ["~"] = "IXor"}
 local comparisons = {["=="] = "ICmpEq", ["~="] = "ICmpNe", ["<"] = "ICmpSLt", ["<="] = "ICmpSLe"}
@@ -13,32 +13,32 @@ local function need(ok: any, message: string, ...: any): any
     return ok
 end
 
-function guest.kind(t: any): string
+export function kind(t: any): string
     while t and wrappers[t.tag] do
         t = t[wrappers[t.tag]]
     end
     if t and t.tag == "union" and #t.members > 0 then
         for _, member in ipairs(t.members) do
-            if guest.kind(member) ~= "boolean" then
+            if kind(member) ~= "boolean" then
                 return "union"
             end
         end
         return "boolean"
     end
-    local kind = t and t.tag or "missing"
+    local exact = t and t.tag or "missing"
 
-    return kind == "integer" and "int64" or kind
+    return exact == "integer" and "int64" or exact
 end
 
-local function scalar(kind: string): nil
-    need(kind == "int64" or kind == "boolean", "unsupported exact kind %s", kind)
+local function scalar(exact: string): nil
+    need(exact == "int64" or exact == "boolean", "unsupported exact kind %s", exact)
 end
 
-function guest.initializeModule(fn: any, options: any): any
+export function initializeModule(fn: any, options: any): any
     error("guest graph: module initializer execution is not established", 0)
 end
 
-function guest.initialize(fn: any, options: any): any
+export function initialize(fn: any, options: any): any
     local body = fn.body
     need(
         fn.node.kind ~= "inlineMethod"
@@ -57,35 +57,35 @@ function guest.initialize(fn: any, options: any): any
     return g
 end
 
-function guest.valueKind(g: any, id: integer): string
+export function valueKind(g: any, id: integer): string
     return need(g.exactTypes[id], "missing exact value kind")
 end
 
-function guest.newValue(g: any, kind: string): integer
-    scalar(kind)
+export function newValue(g: any, exact: string): integer
+    scalar(exact)
     local id = graph.value(g, "i")
-    g.exactTypes[id] = kind
+    g.exactTypes[id] = exact
     return id
 end
 
-function guest.localKind(token: any, fn: any): string
-    local kind = guest.kind(token.inferredType)
-    scalar(kind)
-    return kind
+export function localKind(token: any, fn: any): string
+    local exact = kind(token.inferredType)
+    scalar(exact)
+    return exact
 end
 
 -- The common lowering owns traversal and binding state. These callbacks only
 -- choose ordinary graph operations and evaluate operands in source order.
-function guest.emit(ctx: any, node: any, op: string, args: any, kind: string?): integer?
-    if kind then
-        scalar(kind)
+export function emit(ctx: any, node: any, op: string, args: any, exact: string?): integer?
+    if exact then
+        scalar(exact)
     end
     local id = graph.emit(ctx.g, ctx.block, op, args, ctx.position(node))
     if id then
-        need(kind ~= nil, "operation result requires exact kind")
-        ctx.g.exactTypes[id] = kind
+        need(exact ~= nil, "operation result requires exact kind")
+        ctx.g.exactTypes[id] = exact
     else
-        need(kind == nil, "effect cannot have an exact result kind")
+        need(exact == nil, "effect cannot have an exact result kind")
     end
 
     return id
@@ -106,11 +106,11 @@ local function decimal(node: any, negative: boolean): string
     return negative and text ~= "0" and "-" .. text or text
 end
 
-function guest.literal(ctx: any, node: any, expected: string?): integer
+export function literal(ctx: any, node: any, expected: string?): integer
     if node.kind == "number" then
         need(expected == nil or expected == "int64", "integer literal changes exact kind")
-        local kind = guest.kind(node.inferredType)
-        need(kind == "integer" or kind == "int64" or kind == "number", "unsupported literal kind %s", kind)
+        local exact = kind(node.inferredType)
+        need(exact == "integer" or exact == "int64" or exact == "number", "unsupported literal kind %s", exact)
         return ctx.emit(node, "IK", {decimal(node, false)}, "int64")
     end
     need(
@@ -123,7 +123,7 @@ function guest.literal(ctx: any, node: any, expected: string?): integer
     return ctx.emit(node, "IK", {value}, "boolean")
 end
 
-function guest.constant(ctx: any, node: any, expected: string?): integer
+export function constant(ctx: any, node: any, expected: string?): integer
     local catalog = ctx.options.program
     local definition = node.kind == "name" and node.token.definition or nil
     local constant = catalog and definition and catalog.immutable[definition]
@@ -132,8 +132,8 @@ function guest.constant(ctx: any, node: any, expected: string?): integer
         constant.kind == "int64" or constant.kind == "true" or constant.kind == "false",
         "unsupported module constant kind"
     )
-    local valueKind = constant.kind == "int64" and "int64" or "boolean"
-    need(expected == nil or expected == valueKind, "module constant changes exact kind")
+    local scalarKind = constant.kind == "int64" and "int64" or "boolean"
+    need(expected == nil or expected == scalarKind, "module constant changes exact kind")
     if constant.kind == "int64" then
         -- The initial profile admits signed decimal scalars only. Use its exact
         -- lexical range check even though the wider catalog can retain hex.
@@ -142,45 +142,45 @@ function guest.constant(ctx: any, node: any, expected: string?): integer
             source = source.expr
         end
         local negative = source.kind == "unop"
-        return ctx.emit(node, "IK", {decimal(negative and source.operand or source, negative)}, valueKind)
+        return ctx.emit(node, "IK", {decimal(negative and source.operand or source, negative)}, scalarKind)
     end
 
-    return ctx.emit(node, "IK", {constant.kind == "true" and "1" or "0"}, valueKind)
+    return ctx.emit(node, "IK", {constant.kind == "true" and "1" or "0"}, scalarKind)
 end
 
-function guest.unary(ctx: any, node: any, expected: string?): integer
+export function unary(ctx: any, node: any, expected: string?): integer
     local operator = node.op.text
-    local kind = operator == "not" and "boolean" or "int64"
-    need(expected == nil or expected == kind, "unary expression changes exact kind")
-    need(guest.kind(node.inferredType) == kind, "unsupported unary result kind")
+    local exact = operator == "not" and "boolean" or "int64"
+    need(expected == nil or expected == exact, "unary expression changes exact kind")
+    need(kind(node.inferredType) == exact, "unsupported unary result kind")
     if operator == "-" and node.operand.kind == "number" then
-        need(guest.kind(node.operand.inferredType) ~= "uint64", "unsigned negation is unsupported")
+        need(kind(node.operand.inferredType) ~= "uint64", "unsigned negation is unsupported")
         return ctx.emit(node, "IK", {decimal(node.operand, true)}, "int64")
     end
     need(operator == "-" or operator == "~" or operator == "not", "unsupported unary operator %s", operator)
-    local value = ctx.expression(node.operand, kind)
+    local value = ctx.expression(node.operand, exact)
     if operator == "~" then
         return ctx.emit(node, "INot", {value}, "int64")
     end
-    local zero = ctx.emit(node, "IK", {"0"}, kind)
+    local zero = ctx.emit(node, "IK", {"0"}, exact)
 
     return ctx.emit(
         node,
         operator == "not" and "ICmpEq" or "ISub",
         operator == "not" and {value, zero} or {zero, value},
-        kind
+        exact
     )
 end
 
-function guest.binary(ctx: any, node: any, expected: string?): integer
+export function binary(ctx: any, node: any, expected: string?): integer
     local operator = node.op.text
     local comparison = comparisons[operator] or operator == ">" or operator == ">="
     if comparison then
         need(expected == nil or expected == "boolean", "comparison produces a boolean")
-        local kind = guest.kind(node.lhs.inferredType)
-        scalar(kind)
-        need(kind == "int64" or operator == "==" or operator == "~=", "ordered boolean comparison is unsupported")
-        local operands = ctx.operands({node.lhs, node.rhs}, {kind, kind})
+        local exact = kind(node.lhs.inferredType)
+        scalar(exact)
+        need(exact == "int64" or operator == "==" or operator == "~=", "ordered boolean comparison is unsupported")
+        local operands = ctx.operands({node.lhs, node.rhs}, {exact, exact})
         local left, right = operands[1], operands[2]
         local operation = comparisons[operator]
         if operator == ">" or operator == ">=" then
@@ -190,7 +190,7 @@ function guest.binary(ctx: any, node: any, expected: string?): integer
         return ctx.emit(node, operation, {left, right}, "boolean")
     end
     need(expected == nil or expected == "int64", "integer operation changes exact kind")
-    need(guest.kind(node.inferredType) == "int64", "unsupported binary result kind")
+    need(kind(node.inferredType) == "int64", "unsupported binary result kind")
     local operation = need(arithmetic[operator], "unsupported integer operator %s", operator)
     local operands = ctx.operands({node.lhs, node.rhs}, {"int64", "int64"})
     local left, right = operands[1], operands[2]
@@ -198,23 +198,21 @@ function guest.binary(ctx: any, node: any, expected: string?): integer
     return ctx.emit(node, operation, {left, right}, "int64")
 end
 
-function guest.call(ctx: any, node: any, expected: string?): integer
+export function call(ctx: any, node: any, expected: string?): integer
     error("guest graph: calls are outside the initial profile", 0)
 end
 
-function guest.statementCall(ctx: any, call: any): nil
+export function statementCall(ctx: any, site: any): nil
     error("guest graph: statement calls are outside the initial profile", 0)
 end
 
-function guest.returnStatement(ctx: any, stat: any): nil
+export function returnStatement(ctx: any, stat: any): nil
     need(#stat.exprs == 1, "exactly one scalar return required")
-    local kind = ctx.g.guestResult
-    local value = ctx.expression(stat.exprs[1], kind)
-    if kind == "boolean" then
+    local exact = ctx.g.guestResult
+    local value = ctx.expression(stat.exprs[1], exact)
+    if exact == "boolean" then
         value = ctx.emit(stat, "BoolFromI", {value}, "boolean")
     end
     ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(stat)}
     ctx.block = nil
 end
-
-export = guest

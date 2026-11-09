@@ -603,10 +603,15 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         -- this temporary, never the original owner's obligation twice.
         if cleanupEnabled and block and freshOwner(node) then
             -- assert answers its first argument: a fresh owner given it
-            -- is the one its result now holds.
+            -- is the one its result now holds. One spreading a call's results
+            -- passes them in a pack, which holds no obligation of its own.
             local first = node.args and node.args.exprs and node.args.exprs[1]
             local given = first and cleanup.source(first)
-            if graph.coreLibraryCall(node) == "assert" and given and freshOwner(given) then
+            if graph.coreLibraryCall(node) == "assert"
+                and given
+                and freshOwner(given)
+                and not graph.spreadsLast(node)
+            then
                 transfer(given, given.statementOwner or given)
             end
             registerCleanup(node, node.statementOwner or node, cleanup.affine(node.inferredType), value)
@@ -878,7 +883,12 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         local modes = t and t.tag == "func" and t.paramPack and (t.paramPack.modes or {}) or nil
         for index, argument in ipairs(node.args.exprs) do
             local source = cleanup.source(argument)
-            if source and freshOwner(source) then
+            local library = graph.coreLibraryCall(node)
+            if source and freshOwner(source) and library and index == #node.args.exprs and graph.spreadsLast(node) then
+                -- A library call given an owner among a call's results passes
+                -- it in a pack: assert answers it, and its result holds it.
+                need(library == "assert", "an owner among the results a library call spreads")
+            elseif source and freshOwner(source) then
                 need(modes ~= nil, "an owning argument to a call with no checked closed signature")
                 if modes[index] == "takes" then
                     transfer(source, source.statementOwner or source)
@@ -2021,7 +2031,11 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 and profile.recordValue
             then
                 declareRecord(stat)
-            elseif stat.kind == "moduleStmt" or stat.kind == "typeAlias" or stat.kind == "recordDecl" then
+            elseif stat.kind == "moduleStmt"
+                or stat.kind == "typeAlias"
+                or stat.kind == "recordDecl"
+                or stat.kind == "cdefFunc"
+            then
                 invoke("erasedStatement", stat, nil)
             elseif stat.kind == "returnStmt" then
                 if cleanupEnabled then
@@ -2110,6 +2124,14 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 end
             end
         end
+        -- A module a require cycle can re-enter publishes forwarders for the
+        -- functions it exports before its body runs.
+        if ctx.exports and profile.exportForwarders then
+            local forwards = invoke("exportForwarders", fn.node, nil)
+            if forwards ~= nil then
+                ctx.forwards = ctx.hold(forwards)
+            end
+        end
         for _, sourceBlock in ipairs(body.blocks) do
             need(sourceBlock.kind == "block" and sourceBlock.stats, "unsupported module initializer block")
             statements(sourceBlock.stats)
@@ -2139,6 +2161,16 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             end
         end
         ctx.exports = nil
+    end
+    if ctx.forwards then
+        handles[ctx.forwards], bindings[ctx.forwards] = false, nil
+        for index, key in ipairs(bindingOrder) do
+            if key == ctx.forwards then
+                table.remove(bindingOrder, index)
+                break
+            end
+        end
+        ctx.forwards = nil
     end
     if cleanupEnabled then
         forgetCleanups(0)

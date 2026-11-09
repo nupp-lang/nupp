@@ -13,8 +13,8 @@ local graphcalls = require("nupp.compiler.vm.graphcalls")
 local lower = require("nupp.compiler.vm.lower")
 local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local ownedcallables = require("nupp.compiler.vm.ownedcallables")
+local forwardedexports = require("nupp.compiler.vm.forwardedexports")
 local indexedaccess = require("nupp.compiler.vm.indexedaccess")
-local program = {}
 
 local typeSyntax = {
     tconst = true,
@@ -51,7 +51,8 @@ local typeSyntax = {
 local function bindingMode(definition: any): string
     -- bindType/bindPack create lexical definitions too. Only bindVar records
     -- a function depth, including a nominal declaration's runtime value.
-    if definition.functionDepth == nil then
+    -- A `cdef function` has none: its calls name it (taggedforeign).
+    if definition.functionDepth == nil or definition.cdef and definition.cdefIdentity ~= nil then
         return "type"
     end
     return definition.constant and "value" or "cell"
@@ -95,7 +96,7 @@ end
 
 -- A checked builtin table read selects the extension's shared host table.
 -- The declaration anchors distinguish it from an authored local of that name.
-function program.builtinprojection(node: any): any
+export function builtinprojection(node: any): any
     if (node.kind ~= "name" and node.kind ~= "call") or node.standardRoot == nil then
         return nil
     end
@@ -157,12 +158,12 @@ function program.builtinprojection(node: any): any
     }
 end
 
-function program.importmodule(p: any, b: any): string?
+export function importmodule(p: any, b: any): string?
     local imported = b.builtinImport
     if imported then
         local declaration, index = imported.declaration, imported.index
         local node = imported.node
-        local current = program.builtinprojection(node)
+        local current = builtinprojection(node)
         local original = imported.projection
         local site = p.requireByNode[node]
         need(
@@ -213,7 +214,7 @@ function program.importmodule(p: any, b: any): string?
 end
 
 -- Whether the core runs ownership intrinsic call `node`.
-function program.executableIntrinsic(node: any): boolean
+export function executableIntrinsic(node: any): boolean
     return executable(node)
 end
 
@@ -343,9 +344,11 @@ local function implicitSelf(node: any, body: any): any
     return body.coreSelfParam
 end
 
-program.parameters = graph.parameters
+export function parameters(body: any): {any}
+    return graph.parameters(body)
+end
 
-function program.describe(modules: {any}, entryModule: string): any
+export function describe(modules: {any}, entryModule: string): any
     local p: any = {
         modules = {},
         owners = {},
@@ -361,6 +364,9 @@ function program.describe(modules: {any}, entryModule: string): any
         requireByNode = {},
         scalartypes = {imports = {}, definitions = {}, witnesses = {}},
         callables = {},
+        -- By module chunk id, the forwarders a module in a require cycle
+        -- publishes for the functions it exports.
+        forwards = {},
         qualifiedLoads = {},
         calls = {},
         callByNode = {},
@@ -525,7 +531,7 @@ function program.describe(modules: {any}, entryModule: string): any
             if receiver then
                 binding(receiver.name, child)
             end
-            local params = program.parameters(body)
+            local params = parameters(body)
             for index, parameter in ipairs(params) do
                 -- A `...` last is a hidden parameter holding the pack of extra
                 -- arguments (a table with its count at key 0). A named one is a
@@ -599,7 +605,7 @@ function program.describe(modules: {any}, entryModule: string): any
                 local pattern = node.pattern and node.pattern[index]
                 local value = pattern and not pattern.typeOnly and node.patternSource
                     or not pattern and node.exprs and node.exprs[index]
-                local projection = value and program.builtinprojection(value)
+                local projection = value and builtinprojection(value)
                 if projection and projection.loader then
                     local b = need(p.byDefinition[token.definition], "builtin import declaration missing")
                     b.builtinImport = {
@@ -936,7 +942,7 @@ function program.describe(modules: {any}, entryModule: string): any
         end
         -- Checked builtin projections take precedence over legacy library
         -- tables. Ordinary qualified paths keep their unbound/module roots.
-        local projection = program.builtinprojection(node)
+        local projection = builtinprojection(node)
         local qualified = (projection or node.kind == "dotIndex")
             and node.qualifiedModule
             and moduleNames[node.qualifiedModule]
@@ -1445,10 +1451,7 @@ function program.describe(modules: {any}, entryModule: string): any
     for _, b in ipairs(p.bindings) do
         local required = b.definition.requiredModule
         if required and not graph.corecallmodule(required) then
-            local target = need(
-                moduleNames[program.importmodule(p, b)],
-                "required checked module is missing: " .. required
-            )
+            local target = need(moduleNames[importmodule(p, b)], "required checked module is missing: " .. required)
             p.imports[#p.imports + 1] = {binding = b.id, target = target.chunk, projection = b.builtinImport}
         end
     end
@@ -1460,6 +1463,35 @@ function program.describe(modules: {any}, entryModule: string): any
     local entry = p.modules[#p.modules]
     if warns and entry and warns ~= entry then
         eagerLoad(p.owners[entry.chunk + 1], warns, cst.firstToken(entry.parsed.root), true)
+    end
+    -- A module a require cycle can re-enter publishes each function it exports
+    -- as a forwarder as it starts, as main does: one checked factory call per
+    -- function, from one hidden load of the factory's module.
+    local cyclic = forwardedexports.cyclic(modules)
+    for _, module in ipairs(p.modules) do
+        if cyclic[module.name] then
+            local chunk = p.owners[module.chunk + 1]
+            local factory = need(moduleNames[forwardedexports.MODULE], "export forwarding module is missing")
+            local plan = forwardedexports.prepare(p, chunk)
+            p.forwards[chunk.id] = plan
+            for _, item in ipairs(plan.functions) do
+                local site = {
+                    id = #p.calls,
+                    owner = chunk.id,
+                    node = item.call,
+                    definition = item.target.definition,
+                    forward = plan
+                }
+                p.calls[#p.calls + 1], p.callByNode[item.call] = site, site
+            end
+            local load = {
+                kind = "qualifiedLoad",
+                qualifiedModule = forwardedexports.MODULE,
+                cst.firstToken(plan.functions[1].stat)
+            }
+            plan.loader = qualifiedload(chunk, factory, load)
+            plan.loader.forward = plan
+        end
     end
     -- Capture ownership mode is independent of its transported representation.
     -- Only shared mutable bindings and recursive declaration self-references
@@ -1474,12 +1506,12 @@ function program.describe(modules: {any}, entryModule: string): any
             item.storage = p.bindings[item.binding + 1].storage
         end
     end
-    program.verify(p)
+    verify(p)
 
     return p
 end
 
-function program.verify(p: any): boolean
+export function verify(p: any): boolean
     need(p.owners and p.modules and p.bindings and p.constants, "catalog required")
     need(p.entry ~= nil and p.owners[p.entry + 1] and p.owners[p.entry + 1].kind == "module", "invalid module entry")
     local modules = {}
@@ -1604,8 +1636,11 @@ function program.verify(p: any): boolean
             if item.callable then
                 ownedcallables.verify(p, item.callable)
             end
+            if item.forward then
+                forwardedexports.verify(p, item.forward)
+            end
             if item.builtin then
-                local current = program.builtinprojection(node)
+                local current = builtinprojection(node)
                 local original = item.builtin
                 need(
                     current
@@ -1656,6 +1691,7 @@ function program.verify(p: any): boolean
                         or item.builtin and (node.kind == "name" or node.kind == "call")
                         or item.eager and node.kind == "qualifiedLoad"
                         or item.callable and node.kind == "qualifiedLoad"
+                        or item.forward and node.kind == "qualifiedLoad"
                     )
                     and node.qualifiedModule ~= nil
                     and graph.coremodule(node.qualifiedModule) == item.module
@@ -1802,7 +1838,7 @@ function program.verify(p: any): boolean
         need(
             target.kind == "module"
             and imported.projection == b.builtinImport
-            and program.importmodule(p, b) == target.scope.name,
+            and importmodule(p, b) == target.scope.name,
             "checked import target mismatch"
         )
     end
@@ -1908,6 +1944,8 @@ function program.verify(p: any): boolean
             indexedaccess.verify(access, access.node, item.owner)
         elseif item.callable then
             ownedcallables.verify(p, item.callable)
+        elseif item.forward then
+            forwardedexports.verify(p, item.forward)
         elseif item.scalarWitness then
 
             local witness = item.scalarWitness
@@ -1991,6 +2029,9 @@ function program.verify(p: any): boolean
     for _, plan in pairs(p.callables) do
         ownedcallables.verify(p, plan)
     end
+    for _, plan in pairs(p.forwards) do
+        forwardedexports.verify(p, plan)
+    end
     for node, access in pairs(p.indexedByNode) do
         local site = need(p.callByNode[access.call], "indexed span lacks its issued callsite")
         need(site.indexed == access, "indexed span callsite points to another operator")
@@ -2026,8 +2067,8 @@ function program.verify(p: any): boolean
     return true
 end
 
-function program.select(p: any, moduleName: string, name: string): any
-    program.verify(p)
+export function select(p: any, moduleName: string, name: string): any
+    verify(p)
     local selected
     for _, owner in ipairs(p.owners) do
         if owner.kind == "function" and owner.scope.name == moduleName and owner.name == name then
@@ -2052,8 +2093,8 @@ local function ownerGraph(p: any, owner: any, profile: any): any
     return g
 end
 
-function program.functionGraph(p: any, owner: any, profile: any): any
-    program.verify(p)
+export function functionGraph(p: any, owner: any, profile: any): any
+    verify(p)
     need(p.owners[owner.id + 1] == owner, "foreign function owner")
     for _, reference in ipairs(p.externalReferences) do
         need(reference.owner ~= owner.id, "external execution bindings are not established")
@@ -2080,8 +2121,8 @@ end
 
 -- Every checked owner has exactly one graph. This verifies program references;
 -- capture storage modes, runtime roots and execution admission remain separate.
-function program.verifyGraphs(p: any, graphs: {any}): nil
-    program.verify(p)
+export function verifyGraphs(p: any, graphs: {any}): nil
+    verify(p)
     need(#graphs == #p.owners, "incomplete graph table")
     for index in pairs(graphs) do
         need(
@@ -2193,8 +2234,8 @@ end
 
 -- No graph is omitted, and no image is returned after a partial lowering.
 -- Profiles must explicitly support real module initializer owners.
-function program.compile(p: any, profile: any): any
-    program.verify(p)
+export function compile(p: any, profile: any): any
+    verify(p)
     local externals = unboundExternals(p)
     need(#externals == 0, "external execution bindings are not established: " .. table.concat(externals, ", "))
     local intrinsics = unexecutableIntrinsics(p)
@@ -2211,7 +2252,7 @@ function program.compile(p: any, profile: any): any
     for index, module in ipairs(p.modules) do
         modules[index] = {name = module.name, path = module.path, chunk = module.chunk}
     end
-    program.verifyGraphs(p, graphs)
+    verifyGraphs(p, graphs)
 
     return {graphs = graphs, header = {shapes = {}, modules = modules, entry = p.entry}, catalog = p}
 end
@@ -2221,8 +2262,8 @@ end
 --- each owner whose lowering refuses. Owners lower independently of whether
 --- the program as a whole could, so a refusal names its own cause. Returns no
 --- image; a program with an empty inventory compiles with `compile`.
-function program.inventory(p: any, profile: any): any
-    program.verify(p)
+export function inventory(p: any, profile: any): any
+    verify(p)
     local refused = {}
     for _, owner in ipairs(p.owners) do
         local ok, problem = pcall(ownerGraph, p, owner, profile)
@@ -2241,9 +2282,7 @@ function program.inventory(p: any, profile: any): any
     return {externals = unboundExternals(p), intrinsics = unexecutableIntrinsics(p), owners = refused}
 end
 
-function program.image(p: any, profile: any): string
-    local complete = program.compile(p, profile)
+export function image(p: any, profile: any): string
+    local complete = compile(p, profile)
     return graphemit.image(complete.graphs, complete.header)
 end
-
-export = program

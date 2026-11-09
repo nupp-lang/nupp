@@ -1,0 +1,70 @@
+--[[
+The forwarders a module in a require cycle publishes as it starts.
+
+Each function the module exports is published first as the factory's
+forwarder over a table only this module writes, and that table takes the
+function itself when its statement runs, beside the export table. A partner
+that copied the forwarder calls the function from then on, and calls nil
+before then, as main's forwarder does.
+]]
+module nupp.compiler.vm.exportforwarders
+
+local forwardedexports = require("nupp.compiler.vm.forwardedexports")
+local values = require("nupp.compiler.vm.taggedvalues")
+local calls = require("nupp.compiler.vm.graphcalls")
+local need = values.need
+
+local function literal(ctx: any, node: any, text: string): integer
+    return ctx.emit(node, "K", {values.pool(ctx, "str", text)}, "tagged")
+end
+
+--- Publishes the module's forwarders into its export table, after the table
+--- is published and its hoisted functions are bound, before its body runs.
+--- Answers the table the forwarders call through, for the caller to hold for
+--- the body, or nil for a module that publishes none.
+export function publish(ctx: any): integer?
+    local p = values.catalog(ctx)
+    local plan = p.forwards[ctx.fn.id]
+    if plan == nil then
+        return nil
+    end
+    forwardedexports.verify(p, plan)
+    need(ctx.exports ~= nil and ctx.forwards == nil, "forwarders need the module's export table")
+    local anchor = plan.functions[1].stat
+    local module = ctx.hold(ctx.emit(anchor, "Require", {values.pool(ctx, "str", forwardedexports.MODULE)}, "tagged"))
+    local store = ctx.hold(ctx.emit(anchor, "NewTable", {}, "tagged"))
+    for _, item in ipairs(plan.functions) do
+        local name = ctx.hold(literal(ctx, item.stat, item.text))
+        local member = literal(ctx, item.stat, item.target.name)
+        local callee = ctx.emit(item.stat, "GetIdx", {ctx.readHeld(module), member}, "tagged")
+        local contract = calls.invokeContract(item.target, item.call)
+        local forwarder = values.landed(
+            ctx,
+            item.stat,
+            ctx.invoke(item.stat, callee, {ctx.readHeld(store), ctx.readHeld(name)}, contract, true)
+        )
+        ctx.emit(item.stat, "SetIdx", {ctx.readHeld(ctx.exports), ctx.readHeld(name), forwarder}, nil)
+        ctx.release(name)
+    end
+    ctx.release(module)
+    local value = ctx.readHeld(store)
+    ctx.release(store)
+
+    return value
+end
+
+--- After an exported function's statement: the function itself, for the
+--- forwarders to call.
+export function bind(ctx: any, stat: any, text: string, value: integer): nil
+    local plan = ctx.forwards and values.catalog(ctx).forwards[ctx.fn.id]
+    if plan == nil then
+        return
+    end
+    for _, item in ipairs(plan.functions) do
+        if item.stat == stat then
+            need(item.text == text, "forwarded function name differs")
+            ctx.emit(stat, "SetIdx", {ctx.readHeld(ctx.forwards), literal(ctx, stat, text), value}, nil)
+            return
+        end
+    end
+end

@@ -686,14 +686,14 @@ function M.unclassifiedLogicalSlotsAreRefused()
         .. "writeValue: function(frame: voidptr, window: voidptr, slot: int64, value: uint64): nil\n"
         .. "end\nreturn Slots\n"
     )
-    local original = lower.SLOTS
-    lower.SLOTS = module
+    local original = lower.contractModules.SLOTS
+    lower.contractModules.SLOTS = module
     local ok, problem = pcall(lower.compile, ROOT, {path}, {
         handlers = true,
         layouts = layouts(),
         include = {dir, "src"},
     })
-    lower.SLOTS = original
+    lower.contractModules.SLOTS = original
     assert(not ok and tostring(problem):find("has no declared contract", 1, true), tostring(problem))
 end
 

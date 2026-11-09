@@ -1,0 +1,434 @@
+module nupp.runtime.core.guestforeign
+
+-- A guest program's calls of `cdef function`s (FOREIGN_CALL): each names
+-- its function by a descriptor (nupp.compiler.vm.taggedforeign) and passes
+-- its arguments in a pack {[0] = n, ...}. The function is found with
+-- dlopen and dlsym once and kept in the bridge's symbol table, past the
+-- words the linked code keeps its own in; then the arguments are laid out
+-- as Apple's arm64 C convention passes them, in the block of words the
+-- generic foreign call (os.foreignCall, which the selector writes) loads
+-- into the registers and the stack before it calls.
+const native = require("nupp.runtime.vm.intrinsics")
+const os = require("nupp.runtime.vm.os")
+const values = require("nupp.runtime.vm.values")
+const guestvalues = require("nupp.runtime.core.guestvalues")
+const strings = require("nupp.runtime.core.corestrings")
+const ints = require("nupp.runtime.core.coreintegers")
+const tables = require("nupp.runtime.core.coretables")
+
+cdef function dlopen(borrows path: voidptr, mode: int64): voidptr
+cdef function dlsym(borrows library: voidptr, borrows name: voidptr): voidptr
+cdef function strlen(borrows text: voidptr): uint64
+
+-- The block's words (`CALL_` in spike/native-lowering/src/s0/select.nupp):
+-- the function, x0-x7, d0-d7, then the C stack's first STACK_WORDS words.
+const FUNCTION: int64 = 0
+const INTEGERS: int64 = 8
+const FLOATS: int64 = 72
+const STACK: int64 = 136
+const STACK_BYTES: int64 = 128
+const BLOCK_BYTES: uint64 = 264ULL
+const REGISTERS: int64 = 8
+const WORD: int64 = 8
+
+-- The bridge's table (`SLOTS` in native/core/bridge/src/library.rs) and the
+-- words of it the linked code keeps (nativeos.kernelCells): the guest's
+-- entries follow, each its key's length (0 past the last), the address and
+-- the key's bytes, a word at a time.
+const TABLE_BYTES: int64 = 8192
+const KERNEL_BYTES: int64 = 4096
+const ENTRY_BYTES: int64 = 16
+
+-- dlopen's RTLD_NOW.
+const LOAD_NOW: int64 = 2
+
+-- The descriptor's letters: its result's kind and each argument's, those
+-- past a variadic function's declared ones after VARIADIC. int64 ("l") and
+-- uint64 ("L") are the words they are, and need no letter here.
+const VOID: uint64 = 0x76ULL
+const POINTER: uint64 = 0x70ULL
+const TEXT: uint64 = 0x73ULL
+const BOOLEAN: uint64 = 0x62ULL
+const INT32: uint64 = 0x69ULL
+const UINT32: uint64 = 0x75ULL
+const FLOAT32: uint64 = 0x66ULL
+const FLOAT64: uint64 = 0x64ULL
+const VARIADIC: uint64 = 0x2eULL
+
+const SIGN32: uint64 = 0x80000000ULL
+const LOW32: uint64 = 0xffffffffULL
+const BYTE: uint64 = 0xffULL
+
+-- binary64 and binary32, for float arguments and results.
+const FRACTION64: uint64 = 0x000fffffffffffffULL
+const IMPLICIT64: uint64 = 0x0010000000000000ULL
+const EXPONENT64: uint64 = 0x7ffULL
+const INFINITY64: uint64 = 0x7ff0000000000000ULL
+const BIAS64: int64 = 1023
+const FRACTION_BITS64: uint64 = 52ULL
+const FRACTION32: uint64 = 0x7fffffULL
+const IMPLICIT32: uint64 = 0x800000ULL
+const EXPONENT32: uint64 = 0xffULL
+const INFINITY32: uint64 = 0x7f800000ULL
+const QUIET32: uint64 = 0x7fc00000ULL
+const BIAS32: int64 = 127
+const FRACTION_BITS32: uint64 = 23ULL
+-- The fraction bits binary32 drops of binary64's, and the shift past which
+-- nothing is left to round.
+const DROPPED: int64 = 29
+const VANISHES: int64 = 54
+
+-- Whether a kind passes in a float register.
+local function floating(kind: uint64): boolean
+    return kind == FLOAT32 or kind == FLOAT64
+end
+
+-- The bytes a declared argument of `kind` takes on the stack, at its own
+-- alignment.
+local function stackSize(kind: uint64): int64
+    if kind == BOOLEAN then
+        return 1
+    elseif kind == INT32 or kind == UINT32 or kind == FLOAT32 then
+        return 4
+    end
+
+    return WORD
+end
+
+-- binary64 `bits` rounded to the nearest binary32, ties to even.
+local function narrowed(bits: uint64): uint64
+    local sign = (bits >> 32ULL) & SIGN32
+    local exponent = native.index((bits >> FRACTION_BITS64) & EXPONENT64)
+    local fraction = bits & FRACTION64
+    if exponent == native.index(EXPONENT64) then
+        if fraction == 0ULL then
+            return sign | INFINITY32
+        end
+        return sign | QUIET32 | (fraction >> native.word(DROPPED))
+    end
+    -- A binary64 subnormal is far below the least binary32 one.
+    if exponent == 0 then
+        return sign
+    end
+    local biased = exponent - BIAS64 + BIAS32
+    if biased >= native.index(EXPONENT32) then
+        return sign | INFINITY32
+    end
+    local shift = DROPPED
+    if biased <= 0 then
+        shift = DROPPED + 1 - biased
+        biased = 0
+    end
+    if shift >= VANISHES then
+        return sign
+    end
+    local significand = fraction | IMPLICIT64
+    local kept = significand >> native.word(shift)
+    local rest = significand & ((1ULL << native.word(shift)) - 1ULL)
+    local half = 1ULL << native.word(shift - 1)
+    if rest > half or rest == half and kept & 1ULL == 1ULL then
+        kept = kept + 1ULL
+    end
+    if biased == 0 then
+        return sign | kept
+    end
+    -- A rounding that carries out of the significand raises the exponent.
+
+    return sign | ((native.word(biased) << FRACTION_BITS32) + kept - IMPLICIT32)
+end
+
+-- binary32 `bits` as the binary64 it is exactly.
+local function widened(bits: uint64): uint64
+    local sign = (bits & SIGN32) << 32ULL
+    local fraction = bits & FRACTION32
+    local exponent = native.index((bits >> FRACTION_BITS32) & EXPONENT32)
+    if exponent == native.index(EXPONENT32) then
+        return sign | INFINITY64 | (fraction << native.word(DROPPED))
+    end
+    if exponent == 0 and fraction == 0ULL then
+        return sign
+    elseif exponent == 0 then
+        -- A subnormal: shifted until its leading bit is the implicit one.
+        exponent = 1
+        while fraction & IMPLICIT32 == 0ULL do
+            fraction = fraction << 1ULL
+            exponent = exponent - 1
+        end
+        fraction = fraction & FRACTION32
+    end
+
+    return sign | (native.word(exponent - BIAS32 + BIAS64) << FRACTION_BITS64) | (fraction << native.word(DROPPED))
+end
+
+-- Whether the `count` bytes at `a` and `b` are the same.
+local function same(a: voidptr, b: voidptr, count: int64): boolean
+    local index: int64 = 0
+    while index < count do
+        if native.load8(a, index) ~= native.load8(b, index) then
+            return false
+        end
+        index = index + 1
+    end
+
+    return true
+end
+
+-- The address the table keeps for the `count` bytes of `key`, or else
+-- `address`, which is kept for the key when it is not 0 and fits.
+local function cache(key: voidptr, count: int64, address: uint64): uint64
+    @unsafe do
+        local cells = os.foreignCells()
+        local at = KERNEL_BYTES
+        while at + ENTRY_BYTES <= TABLE_BYTES do
+            local stored = native.index(native.load64(cells, at))
+            if stored == 0 then
+                break
+            end
+            if stored == count and same(native.offset(cells, at + ENTRY_BYTES), key, count) then
+                return native.load64(cells, at + WORD)
+            end
+            at = at + ENTRY_BYTES + (stored + WORD - 1) // WORD * WORD
+        end
+        if address == 0ULL or at + ENTRY_BYTES + count > TABLE_BYTES then
+            return address
+        end
+        local index: int64 = 0
+        while index < count do
+            native.store8(cells, at + ENTRY_BYTES + index, native.word(native.load8(key, index)))
+            index = index + 1
+        end
+        native.store64(cells, at + WORD, address)
+        -- The length last: an entry is whole once it shows.
+        native.storeIndex(cells, at, count)
+
+        return address
+    end
+end
+
+-- The address of the function the descriptor's library and symbol name,
+-- the `count` bytes at `key`: the library's name ("" for the program
+-- itself), a NUL and the symbol, which a NUL ends.
+local function resolve(key: voidptr, count: int64): uint64
+    @unsafe do
+        local kept = cache(key, count, 0ULL)
+        if kept ~= 0ULL then
+            return kept
+        end
+        local library: uint64 = 0ULL
+        if native.load8(key, 0) == 0 then
+            library = native.address(dlopen(native.pointer(0ULL), LOAD_NOW))
+        else
+            library = native.address(dlopen(key, LOAD_NOW))
+        end
+        if library == 0ULL then
+            error("foreign call: its library cannot be loaded")
+        end
+        local symbol = native.offset(key, native.index(strlen(key)) + 1)
+        local address = native.address(dlsym(native.pointer(library), symbol))
+        if address == 0ULL then
+            error("foreign call: its symbol is not in its library")
+        end
+        return cache(key, count, address)
+    end
+end
+
+-- The NUL-ended bytes of string argument `value` at `position`, 0 for
+-- nil. A number's text, or a string whose bytes no NUL follows, is made
+-- into a string that one does, kept in the pack so it lives through the
+-- call.
+local function text(ctx: voidptr, pack: uint64, position: uint64, value: uint64): uint64
+    if value == values.NIL then
+        return 0ULL
+    end
+    local s = guestvalues.strarg(ctx, value, position)
+    @unsafe do
+        local h = guestvalues.guestheap(ctx)
+        if native.load8(native.pointer(strings.bytes(s)), native.index(strings.length(s))) ~= 0 then
+            s = strings.make(h, strings.bytes(s), strings.length(s))
+        end
+        if s ~= strings.header(value) then
+            guestvalues.packput(h, pack, position, values.TAG_OBJ | s)
+        end
+
+        return strings.bytes(s)
+    end
+end
+
+-- Argument `position`'s word as `kind` passes it: an integer extended from
+-- its width, a float's bits (binary32's in the low half), a Boolean 0 or 1,
+-- a pointer's address. As a variadic argument a binary32 is promoted.
+local function word(ctx: voidptr, pack: uint64, position: uint64, kind: uint64, named: boolean): uint64
+    local value = tables.get(pack, values.TAG_INTEGER | position)
+    if floating(kind) then
+        local bits = guestvalues.floatof(guestvalues.numarg(ctx, value, position))
+        if kind == FLOAT32 and named then
+            return narrowed(bits)
+        end
+        return bits
+    elseif kind == BOOLEAN then
+        if value == values.TRUE then
+            return 1ULL
+        elseif value ~= values.FALSE then
+            error("foreign call: a Boolean argument is not a Boolean")
+        end
+        return 0ULL
+    elseif kind == TEXT then
+        return text(ctx, pack, position, value)
+    elseif kind == POINTER then
+        if value == values.NIL then
+            return 0ULL
+        elseif strings.header(value) ~= 0ULL then
+            return text(ctx, pack, position, value)
+        end
+    end
+    local bits = native.word(guestvalues.intarg(ctx, value, 0, position))
+    if kind == INT32 then
+        return ((bits & LOW32) ~ SIGN32) - SIGN32
+    elseif kind == UINT32 then
+        return bits & LOW32
+    end
+
+    return bits
+end
+
+-- The value `kind` makes of what the call answered: `x0`, or the float
+-- the block's d0 word holds.
+local function result(ctx: voidptr, kind: uint64, x0: uint64, d0: uint64): uint64
+    local h = guestvalues.guestheap(ctx)
+    if kind == VOID then
+        return values.NIL
+    elseif kind == FLOAT64 then
+        return guestvalues.floatvalue(d0)
+    elseif kind == FLOAT32 then
+        return guestvalues.floatvalue(widened(d0 & LOW32))
+    elseif kind == BOOLEAN then
+        if x0 & BYTE ~= 0ULL then
+            return values.TRUE
+        end
+        return values.FALSE
+    elseif kind == INT32 then
+        return ints.make(h, ((x0 & LOW32) ~ SIGN32) - SIGN32)
+    elseif kind == UINT32 then
+        return ints.make(h, x0 & LOW32)
+    elseif kind == POINTER and x0 == 0ULL or kind == TEXT and x0 == 0ULL then
+        return values.NIL
+    elseif kind == TEXT then
+        @unsafe do
+            return values.TAG_OBJ | strings.make(h, x0, strlen(native.pointer(x0)))
+        end
+    end
+
+    return ints.make(h, x0)
+end
+
+-- The descriptor's letter at `at` of the `bytes` copied beside the block.
+local function letter(bytes: voidptr, at: int64): uint64
+    return native.word(native.load8(bytes, at))
+end
+
+-- FOREIGN_CALL: calls the function `descriptor` names with the pack's
+-- arguments, answering its result. The block and a NUL-ended copy of the
+-- descriptor are made first, then the string arguments, whose making may
+-- collect; nothing allocates after the block's addresses are taken.
+export function call(ctx: voidptr, descriptor: uint64, packValue: uint64): uint64
+    local d = strings.header(descriptor)
+    local state = strings.Builder(0ULL, 0ULL)
+    if d == 0ULL or packValue & values.TAG_MASK ~= values.TAG_OBJ then
+        error("foreign call: its descriptor or arguments are malformed")
+    end
+    local count = native.word(guestvalues.intvalue(tables.get(packValue & values.PAYLOAD, values.TAG_INTEGER)))
+    local pack = packValue & values.PAYLOAD
+    @unsafe do
+        local h = guestvalues.guestheap(ctx)
+        local length = native.index(strings.length(d))
+        local lifetime = strings.open(h, state as strings.Builder*)
+        if strings.reserve(h, lifetime, BLOCK_BYTES + strings.length(d) + 1ULL) ~= 0ULL then
+            error("not enough memory")
+        end
+        local block = native.pointer(strings.descriptor(lifetime).base)
+        local bytes = native.offset(block, native.index(BLOCK_BYTES))
+        local at: int64 = 0
+        while at < native.index(BLOCK_BYTES) do
+            native.store64(block, at, 0ULL)
+            at = at + WORD
+        end
+        at = 0
+        while at < length do
+            native.store8(bytes, at, native.word(native.load8(native.pointer(strings.bytes(d)), at)))
+            at = at + 1
+        end
+        native.store8(bytes, length, 0ULL)
+        local kinds: int64 = 0
+        while kinds < length and native.load8(bytes, kinds) ~= 0 do
+            kinds = kinds + 1
+        end
+        if kinds == 0 or kinds >= length then
+            error("foreign call: its descriptor is malformed")
+        end
+        local position: uint64 = 0ULL
+        at = 1
+        while at < kinds do
+            local kind = letter(bytes, at)
+            if kind ~= VARIADIC then
+                position = position + 1ULL
+                local value = tables.get(pack, values.TAG_INTEGER | position)
+                if position <= count and (kind == TEXT or kind == POINTER and strings.header(value) ~= 0ULL) then
+                    text(ctx, pack, position, value)
+                end
+            end
+            at = at + 1
+        end
+        if position ~= count then
+            error("foreign call: its arguments differ from its declaration")
+        end
+        native.store64(block, FUNCTION, resolve(native.offset(bytes, kinds + 1), length - kinds - 1))
+        local integers: int64 = 0
+        local floats: int64 = 0
+        local stack: int64 = 0
+        local named = true
+        position = 0ULL
+        at = 1
+        while at < kinds do
+            local kind = letter(bytes, at)
+            if kind == VARIADIC then
+                named = false
+            else
+                position = position + 1ULL
+                local value = word(ctx, pack, position, kind, named)
+                -- The register's word: x0-x7, then d0-d7.
+                local register: int64 = -1
+                if named and floating(kind) and floats < REGISTERS then
+                    register, floats = REGISTERS + floats, floats + 1
+                elseif named and not floating(kind) and integers < REGISTERS then
+                    register, integers = integers, integers + 1
+                end
+                if register >= 0 then
+                    native.store64(block, INTEGERS + register * WORD, value)
+                else
+                    -- Apple's stack arguments: a declared one at its own
+                    -- alignment, a variadic one in a word of its own.
+                    local size = WORD
+                    if named then
+                        size = stackSize(kind)
+                    end
+                    stack = (stack + size - 1) // size * size
+                    if stack + size > STACK_BYTES then
+                        error("foreign call: its arguments take more stack than it passes")
+                    end
+                    if size == 1 then
+                        native.store8(block, STACK + stack, value)
+                    elseif size == 4 then
+                        native.store32(block, STACK + stack, native.index(value & LOW32))
+                    else
+                        native.store64(block, STACK + stack, value)
+                    end
+                    stack = stack + size
+                end
+            end
+            at = at + 1
+        end
+        local x0 = os.foreignCall(block)
+
+        return result(ctx, letter(bytes, 0), x0, native.load64(block, FLOATS))
+    end
+end

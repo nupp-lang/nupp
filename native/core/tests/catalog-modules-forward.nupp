@@ -1,0 +1,13 @@
+module nupp.core.catalogmodulesforward
+
+-- A module in a require cycle copies an exported function out of its partner
+-- before the partner has declared it, and holds the partner's forwarder: one
+-- bit per thing main answers for it.
+const early = require("nupp.core.catalogmodulesearly")
+const copier = require("nupp.core.catalogmodulescopier")
+
+export const result = copier.loading + (
+    copier.copy(21) == 42 and 8 or 0
+) + (
+    copier.copy ~= early.twice and 16 or 0
+) + (early.twice(5) == 10 and 32 or 0) + (copier.later(4) == 8 and 64 or 0) + (copier.test(3) and 128 or 0)

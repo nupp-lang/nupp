@@ -14,11 +14,10 @@ local taggedstatements = require("nupp.compiler.vm.taggedstatements")
 local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local ownedclosures = require("nupp.compiler.vm.ownedclosures")
 local construction = require("nupp.compiler.vm.construction")
-local tagged = {booleanKind = "tagged"}
-local binary = taggedstatements.binary
+local exportforwarders = require("nupp.compiler.vm.exportforwarders")
+export const booleanKind = "tagged"
 local binding = taggedvalues.binding
 local catalog = taggedvalues.catalog
-local checkStatement = taggedstatements.checkStatement
 local cleanupProfile = taggedstatements.cleanupProfile
 local construct = taggedcalls.construct
 local coroutinepack = taggedcalls.coroutinepack
@@ -56,12 +55,12 @@ local function scalarwitness(ctx: any, node: any): any
     return described and described.witnesses[node] or nil
 end
 
-function tagged.initializeModule(fn: any, options: any): any
+export function initializeModule(fn: any, options: any): any
     need(options.program and options.program.owners[fn.id + 1] == fn, "checked module owner required")
     return graph.new(0)
 end
 
-local function initialize(fn: any, options: any, alternatives: boolean): any
+local function setup(fn: any, options: any, alternatives: boolean): any
     need(options.program and options.program.owners[fn.id + 1] == fn, "checked function owner required")
     need(
         fn.node.kind == "localFuncStmt"
@@ -98,30 +97,30 @@ local function initialize(fn: any, options: any, alternatives: boolean): any
     return graph.new(#params)
 end
 
-function tagged.initialize(fn: any, options: any): any
-    return initialize(fn, options, false)
+export function initialize(fn: any, options: any): any
+    return setup(fn, options, false)
 end
 
-function tagged.valueKind(g: any, id: integer): string
+export function valueKind(g: any, id: integer): string
     need(g.types[id] == "v", "tagged value required")
     return "tagged"
 end
 
-function tagged.newValue(g: any, kind: string): integer
+export function newValue(g: any, kind: string): integer
     need(kind == "tagged", "tagged value required")
     return graph.value(g, "v")
 end
 
-function tagged.localKind(token: any, fn: any): string
+export function localKind(token: any, fn: any): string
     return "tagged"
 end
 
-function tagged.emit(ctx: any, node: any, op: string, args: any, kind: string?): integer?
+export function emit(ctx: any, node: any, op: string, args: any, kind: string?): integer?
     need(kind == nil or kind == "tagged", "tagged result required")
     return graph.emit(ctx.g, ctx.block, op, args, ctx.position(node))
 end
 
-function tagged.literal(ctx: any, node: any, expected: string?): integer
+export function literal(ctx: any, node: any, expected: string?): integer
     need(expected == nil or expected == "tagged", "literal requires tagged destination")
     local constant = need(
         catalog(ctx).byNode[node],
@@ -140,11 +139,11 @@ function tagged.literal(ctx: any, node: any, expected: string?): integer
     return ctx.emit(node, "K", {pool(ctx, constant.kind, value)}, "tagged")
 end
 
-function tagged.valueLiteral(ctx: any, node: any, expected: string?): integer
-    return tagged.literal(ctx, node, expected)
+export function valueLiteral(ctx: any, node: any, expected: string?): integer
+    return literal(ctx, node, expected)
 end
 
-function tagged.constant(ctx: any, node: any, expected: string?): integer
+export function constant(ctx: any, node: any, expected: string?): integer
     if node.captureValue then
         for _, item in ipairs(ctx.fn.captures) do
             local capture = item.ownership
@@ -181,47 +180,47 @@ function tagged.constant(ctx: any, node: any, expected: string?): integer
 end
 
 -- A reassigned local's own copy of a parameter's value (functiongraph).
-function tagged.freshLocal(ctx: any, node: any, value: integer): integer
+export function freshLocal(ctx: any, node: any, value: integer): integer
     return ctx.emit(node, "Move", {value}, "tagged") as integer
 end
 
 -- A static switch case is equality dispatch: its constant against the
 -- selector, as Lua's == compares them.
-function tagged.switchCase(ctx: any, value: any, subject: integer, kind: string): integer
+export function switchCase(ctx: any, value: any, subject: integer, kind: string): integer
     local candidate = need(ctx.expression(value, "tagged"), "switch case lost its value")
 
     return ctx.emit(value, "Eq", {subject, candidate}, "tagged") as integer
 end
 
-function tagged.unary(ctx: any, node: any, expected: string?): integer
+export function unary(ctx: any, node: any, expected: string?): integer
     need(catalog(ctx).byNode[node] ~= nil, "nonliteral unary operations are unsupported")
-    return tagged.literal(ctx, node, expected)
+    return literal(ctx, node, expected)
 end
 
-function tagged.binary(ctx: any, node: any, expected: string?): integer
-    return binary(ctx, node, expected, 2)
+export function binary(ctx: any, node: any, expected: string?): integer
+    return taggedstatements.binary(ctx, node, expected, 2)
 end
 
-function tagged.checkLogical(ctx: any, node: any): boolean
+export function checkLogical(ctx: any, node: any): boolean
     error("tagged graph: logical expressions are outside lexical construction", 0)
 end
 
-function tagged.missingLocal(ctx: any, node: any, expected: string?): integer
+export function missingLocal(ctx: any, node: any, expected: string?): integer
     return ctx.emit(node, "Nil", {}, "tagged")
 end
 
-function tagged.initializeBinding(ctx: any, node: any, key: any, value: integer): integer
+export function initializeBinding(ctx: any, node: any, key: any, value: integer): integer
     local b = binding(ctx, key)
     need(b.owner == ctx.fn.id and b.storage ~= "erased", "invalid local storage owner")
     return b.storage == "cell" and ctx.emit(node, "NewCell", {value}, "tagged") or value
 end
 
-function tagged.readBinding(ctx: any, node: any, key: any, value: integer, expected: string?): integer
+export function readBinding(ctx: any, node: any, key: any, value: integer, expected: string?): integer
     need(expected == nil or expected == "tagged", "lexical read requires tagged value")
     return binding(ctx, key).storage == "cell" and ctx.emit(node, "GetCell", {value}, "tagged") or value
 end
 
-function tagged.writeBinding(ctx: any, node: any, key: any, previous: integer, value: integer): integer
+export function writeBinding(ctx: any, node: any, key: any, previous: integer, value: integer): integer
     local b = binding(ctx, key)
     -- A function statement fills the cell made for it before its closure, a
     -- recursive local or a hoisted export.
@@ -238,7 +237,7 @@ function tagged.writeBinding(ctx: any, node: any, key: any, previous: integer, v
     return value
 end
 
-function tagged.entryBindings(ctx: any, node: any): nil
+export function entryBindings(ctx: any, node: any): nil
     ordinaryCaptures(ctx.fn)
     for _, item in ipairs(ctx.fn.captures) do
         local value = ctx.emit(node, "GetUpval", {item.id}, "tagged")
@@ -248,7 +247,7 @@ function tagged.entryBindings(ctx: any, node: any): nil
     end
 end
 
-function tagged.recursiveBinding(ctx: any, node: any, key: any): integer?
+export function recursiveBinding(ctx: any, node: any, key: any): integer?
     if binding(ctx, key).storage == "cell" then
         local value = ctx.emit(node, "Nil", {}, "tagged")
         return ctx.emit(node, "NewCell", {value}, "tagged")
@@ -257,7 +256,7 @@ function tagged.recursiveBinding(ctx: any, node: any, key: any): integer?
     return nil
 end
 
-function tagged.closure(ctx: any, node: any, expected: string?): integer
+export function closure(ctx: any, node: any, expected: string?): integer
     need(expected == nil or expected == "tagged", "closure requires tagged destination")
     need(
         node.kind == "localFuncStmt"
@@ -285,7 +284,7 @@ function tagged.closure(ctx: any, node: any, expected: string?): integer
     return value
 end
 
-function tagged.call(ctx: any, node: any, expected: string?): integer
+export function call(ctx: any, node: any, expected: string?): integer
     need(expected == nil or expected == "tagged", "call requires tagged destination")
     if node.runtimeLoader == "require" then
         local projected = qualifiedvalue(ctx, node)
@@ -325,15 +324,15 @@ function tagged.call(ctx: any, node: any, expected: string?): integer
     return invoke(ctx, node, true) as integer
 end
 
-function tagged.statementCall(ctx: any, node: any): nil
+export function statementCall(ctx: any, node: any): nil
     if node.runtimeLoader == "require" or scalarwitness(ctx, node) then
-        tagged.call(ctx, node, nil)
+        call(ctx, node, nil)
     else
         invoke(ctx, node, false)
     end
 end
 
-function tagged.erasedPattern(ctx: any, stat: any): nil
+export function erasedPattern(ctx: any, stat: any): nil
     local source = need(stat.patternSource, "pattern lacks checked source")
     local item = requireSite(ctx, source)
     need(item.typeOnly and #stat.pattern > 0, "runtime destructuring is unsupported")
@@ -342,7 +341,7 @@ function tagged.erasedPattern(ctx: any, stat: any): nil
     end
 end
 
-function tagged.erasedStatement(ctx: any, stat: any): nil
+export function erasedStatement(ctx: any, stat: any): nil
     -- An interface declares a type only, and has no value.
     if stat.kind == "recordDecl" and stat.declKind == "interface" then
         return
@@ -376,24 +375,29 @@ function tagged.erasedStatement(ctx: any, stat: any): nil
         end
         return
     end
-    need(stat.kind == "moduleStmt" or stat.kind == "typeAlias", "unsupported erased statement")
+    -- A `cdef function` declares what its calls call (taggedforeign).
+    need(
+        stat.kind == "moduleStmt" or stat.kind == "typeAlias" or stat.kind == "cdefFunc",
+        "unsupported erased statement"
+    )
 end
 
-function tagged.checkStatement(ctx: any, stat: any): nil
-    checkStatement(ctx, stat, 2)
+export function checkStatement(ctx: any, stat: any): nil
+    taggedstatements.checkStatement(ctx, stat, 2)
 end
 
 -- A true constant, for the cleanup protocol's conditions: a guest error
 -- unwinds in the runtime, so no call or terminal reports failure here.
 
 -- A profile for one checked-source graph version (see coregraphschema).
-function tagged.forVersion(version: integer): any
+export function forVersion(version: integer): any
     local profile = {}
-    for name, member in pairs(tagged) do
+    -- Every export of this module, which is the version 2 profile.
+    for name, member in pairs(require("nupp.compiler.vm.taggedprofile")) do
         profile[name] = member
     end
     profile.checkStatement = function(ctx: any, stat: any): nil
-        checkStatement(ctx, stat, version)
+        taggedstatements.checkStatement(ctx, stat, version)
     end
     -- `local {a, b as c} = source`: the source once, then each value
     -- entry's field in order; a `type` entry's place is nil. A source that
@@ -406,7 +410,7 @@ function tagged.forVersion(version: integer): any
             end
         end
         if not runtime then
-            tagged.erasedPattern(ctx, stat)
+            erasedPattern(ctx, stat)
             return {}
         end
         local source = ctx.expression(need(stat.patternSource, "pattern lacks checked source"), "tagged")
@@ -463,6 +467,11 @@ function tagged.forVersion(version: integer): any
         local exports = ctx.emit(node, "NewTable", {}, "tagged")
         return ctx.emit(node, "LibCall", {corelibrary.id("MODULE_PUBLISH"), exports}, "tagged") as integer
     end
+    -- A module a require cycle can re-enter publishes forwarders for the
+    -- functions it exports, as main does.
+    profile.exportForwarders = function(ctx: any, node: any): integer?
+        return exportforwarders.publish(ctx)
+    end
     -- After a named export's statement: each name it declared, stored in the
     -- export table under that name.
     profile.exportNames = function(ctx: any, stat: any): nil
@@ -484,6 +493,7 @@ function tagged.forVersion(version: integer): any
                 local field = ctx.emit(stat, "K", {pool(ctx, "str", text)}, "tagged")
                 ctx.emit(stat, "SetIdx", {ctx.readHeld(ctx.exports), field, value}, nil)
                 taggedvalues.noteExport(ctx, text)
+                exportforwarders.bind(ctx, stat, text, value)
             end
         end
     end
@@ -509,7 +519,7 @@ function tagged.forVersion(version: integer): any
         )
     end
     profile.binary = function(ctx: any, node: any, expected: string?): integer
-        return binary(ctx, node, expected, version)
+        return taggedstatements.binary(ctx, node, expected, version)
     end
     if version >= 6 then
         profile.numericFor = function(ctx: any, stat: any, expected: any): any
@@ -519,7 +529,7 @@ function tagged.forVersion(version: integer): any
     -- v8 tables: empty constructors, keyed reads and writes, and length.
     if version >= 8 then
         profile.initialize = function(fn: any, options: any): any
-            return initialize(fn, options, true)
+            return setup(fn, options, true)
         end
         -- A binding condition keeps false and rejects only nil.
         profile.bindingCondition = function(ctx: any, clause: any, value: integer): integer
@@ -634,17 +644,17 @@ function tagged.forVersion(version: integer): any
         profile.construction = function(ctx: any, node: any, expected: string?): integer
             need(expected == nil or expected == "tagged", "record requires tagged destination")
             local origin = recordOrigin(node.inferredType)
-            local call = node.call
-            if origin and call and call.constructorEntry then
+            local callsite = node.call
+            if origin and callsite and callsite.constructorEntry then
                 return construct(ctx, node, origin) as integer
             end
             need(
-                origin and call and not call.constructorEntry and type(call.recordFields) == "table",
+                origin and callsite and not callsite.constructorEntry and type(callsite.recordFields) == "table",
                 "only plain record construction is admitted"
             )
             -- Written fields are expressions; a default is its closed value.
             local nodes, kinds, slots, defaults = {}, {}, {}, {}
-            for _, binding in ipairs(call.recordFields) do
+            for _, binding in ipairs(callsite.recordFields) do
                 if binding.node then
                     nodes[#nodes + 1], kinds[#kinds + 1] = binding.node, "tagged"
                     slots[#slots + 1] = need(recordSlot(origin, binding.name), "record field is not declared")
@@ -668,7 +678,7 @@ function tagged.forVersion(version: integer): any
             end
             -- The record's table is the instance's metatable.
             local held = ctx.hold(record)
-            local class = ctx.expression(call.obj, "tagged")
+            local class = ctx.expression(callsite.obj, "tagged")
             if class == nil then
                 ctx.release(held)
                 return nil as any
@@ -703,7 +713,7 @@ function tagged.forVersion(version: integer): any
                 and (keyedByName(node.obj.inferredType) or typeKind(node.obj.inferredType) == "string")
                 and node.name ~= nil
             if slot == nil and not plain then
-                return tagged.constant(ctx, node, expected)
+                return constant(ctx, node, expected)
             end
             local object = ctx.expression(node.obj, "tagged")
             if object == nil then
@@ -985,8 +995,8 @@ function tagged.forVersion(version: integer): any
         -- The table a record's methods are stored in, when its name is bound.
         -- A call through anything but a name has no declaration to compose
         -- with: it calls the value it evaluates when it runs.
-        profile.resolveCallee = function(_: any, call: any): (boolean, any)
-            if call.obj.kind ~= "name" then
+        profile.resolveCallee = function(_: any, callsite: any): (boolean, any)
+            if callsite.obj.kind ~= "name" then
                 return true, nil
             end
             return false, nil
@@ -1070,10 +1080,10 @@ function tagged.forVersion(version: integer): any
                     or entry.kind == "constructorDecl" and "\0new" .. tostring(entry.constructorIndex)
                     or nil
                 if name then
-                    local closure = ctx.hold(tagged.closure(ctx, entry))
+                    local func = ctx.hold(closure(ctx, entry))
                     local key = ctx.emit(entry, "K", {pool(ctx, "str", name)}, "tagged")
-                    ctx.emit(entry, "SetIdx", {ctx.readHeld(held), key, ctx.readHeld(closure)}, nil)
-                    ctx.release(closure)
+                    ctx.emit(entry, "SetIdx", {ctx.readHeld(held), key, ctx.readHeld(func)}, nil)
+                    ctx.release(func)
                 elseif entry.kind == "recordDecl" and entry.name and ctx.bound(entry.name.definition) then
                     -- A nested record with methods was made first; its table
                     -- is reached through the declaration's, as `R.Nested`.
@@ -1187,17 +1197,17 @@ function tagged.forVersion(version: integer): any
                 owner = ctx.emit(stat, "GetIdx", {owner, key}, "tagged")
             end
             local held = ctx.hold(owner)
-            local closure = ctx.hold(tagged.closure(ctx, stat))
+            local func = ctx.hold(closure(ctx, stat))
             local key = ctx.emit(stat, "K", {pool(ctx, "str", fields[#fields])}, "tagged")
-            ctx.emit(stat, "SetIdx", {ctx.readHeld(held), key, ctx.readHeld(closure)}, nil)
-            profile.cleanupRegistrations(ctx, stat, ctx.readHeld(closure))
-            ctx.release(closure)
+            ctx.emit(stat, "SetIdx", {ctx.readHeld(held), key, ctx.readHeld(func)}, nil)
+            profile.cleanupRegistrations(ctx, stat, ctx.readHeld(func))
+            ctx.release(func)
             ctx.release(held)
         end
         -- `count` results of a call, for `local a, b = f()` and its kin.
         profile.callResults = function(ctx: any, node: any, count: integer): {integer}?
             if scalarwitness(ctx, node) then
-                local first = tagged.call(ctx, node, "tagged")
+                local first = call(ctx, node, "tagged")
                 if first == nil then
                     return nil
                 end
@@ -1374,7 +1384,7 @@ function tagged.forVersion(version: integer): any
             end
             local spread: integer? = spreads and declared > #stat.exprs and declared - #stat.exprs + 1 or nil
             if #stat.exprs == 1 and not spread then
-                return tagged.returnStatement(ctx, stat)
+                return returnStatement(ctx, stat)
             end
             need(#stat.exprs + (spread or 1) - 1 <= 16, "a return gives at most sixteen results")
             local held = {}
@@ -1421,7 +1431,7 @@ function tagged.forVersion(version: integer): any
         end
         profile.call = function(ctx: any, node: any, expected: string?): integer
             if scalarwitness(ctx, node) then
-                return tagged.call(ctx, node, expected)
+                return call(ctx, node, expected)
             end
             if node.ownershipIntrinsic then
                 local results = ownership(ctx, node, 1)
@@ -1436,7 +1446,7 @@ function tagged.forVersion(version: integer): any
                 return libraryCall(ctx, node, corelibrary.id("MODULE_REQUIRE"), node.args.exprs)
             end
             if node.runtimeLoader == "require" then
-                return tagged.call(ctx, node, expected)
+                return call(ctx, node, expected)
             end
             local library = graph.coreLibraryCall(node)
             -- A library call spreading `...` where its core form cannot calls
@@ -1491,8 +1501,8 @@ function tagged.forVersion(version: integer): any
                 end
 
                 local first = args[1]
-                local constant = catalog(ctx).byNode[first]
-                if constant and constant.kind == "str" and constant.bytes == "#" then
+                local pooled = catalog(ctx).byNode[first]
+                if pooled and pooled.kind == "str" and pooled.bytes == "#" then
                     local pack = values()
                     if pack == nil or ctx.block == nil then
                         return nil as any
@@ -1768,7 +1778,7 @@ function tagged.forVersion(version: integer): any
             if graph.dynamicRequire(node) or node.ownershipIntrinsic or scalarwitness(ctx, node) then
                 profile.call(ctx, node, nil)
             elseif node.runtimeLoader == "require" then
-                tagged.statementCall(ctx, node)
+                statementCall(ctx, node)
             elseif node.kind == "methodCall" and site and site.method then
                 invokeMethod(ctx, node, false)
             elseif node.kind == "methodCall" and coroutinepacked[graph.coreLibraryCall(node) or ""] then
@@ -1849,7 +1859,7 @@ function tagged.forVersion(version: integer): any
                 return libraryCall(ctx, node, corelibrary.id("BNOT"), {node.operand})
             end
 
-            return tagged.unary(ctx, node, expected)
+            return unary(ctx, node, expected)
         end
     end
 
@@ -1889,7 +1899,7 @@ function tagged.forVersion(version: integer): any
     return profile
 end
 
-function tagged.exportStatement(ctx: any, stat: any): nil
+export function exportStatement(ctx: any, stat: any): nil
     need(ctx.fn.kind == "module", "an export belongs to a module")
     -- A named export's statement runs as it is; exportNames stores it.
     if stat.stat then
@@ -1902,16 +1912,14 @@ function tagged.exportStatement(ctx: any, stat: any): nil
     ctx.block = nil
 end
 
-function tagged.returnStatement(ctx: any, stat: any): nil
+export function returnStatement(ctx: any, stat: any): nil
     need(#stat.exprs <= 1, "multiple results are unsupported")
     local value = stat.exprs[1] and ctx.expression(stat.exprs[1], "tagged") or nil
     ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(stat)}
     ctx.block = nil
 end
 
-function tagged.fallthrough(ctx: any, node: any): nil
+export function fallthrough(ctx: any, node: any): nil
     ctx.block.term = {kind = "return", edges = {}, pos = ctx.position(node.eof or node)}
     ctx.block = nil
 end
-
-export = tagged
