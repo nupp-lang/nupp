@@ -3,7 +3,6 @@ mod entropy;
 mod library;
 mod platform;
 mod pool;
-mod system;
 
 #[cfg(all(test, target_arch = "aarch64"))]
 #[path = "../tests/support/abi.rs"]
@@ -26,7 +25,7 @@ use std::io::Read;
 use std::path::Path;
 
 const HEADER: usize = 72;
-/// The most bytes a guest artifact holds: `schema.artifactBytes()` in
+/// The most bytes a guest artifact holds: `artifactBytes()` in
 /// src/nupp/compiler/vm/coregraphschema.nupp, which a test holds this to. A region (code, data or scratch) may be as large; the data
 /// region carries the artifact.
 const ARTIFACT: u64 = 1024 * 1024 * 1024;
@@ -161,29 +160,18 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, Failure> {
         platform::map_pages as *const () as u64,
         platform::unmap_pages as *const () as u64,
         platform::page_size as *const () as u64,
-        platform::environment as *const () as u64,
-        platform::write_output as *const () as u64,
-        platform::math_function as *const () as u64,
-        platform::random_seed as *const () as u64,
-        platform::read_input as *const () as u64,
-        platform::monotonic_nanos as *const () as u64,
         platform::argument as *const () as u64,
         pool::pool_start as *const () as u64,
         pool::pool_submit as *const () as u64,
         pool::pool_take as *const () as u64,
         pool::pool_finish as *const () as u64,
         pool::pool_cancel as *const () as u64,
-        platform::sleep_nanos as *const () as u64,
-        platform::atomic_load64 as *const () as u64,
-        platform::atomic_cas64 as *const () as u64,
         entropy::secure_fill as *const () as u64,
-        system::system_query as *const () as u64,
         pool::pool_settle as *const () as u64,
         library[0],
         library[1],
         library[2],
         library[3],
-        library[4],
     ];
     #[cfg(test)]
     let imports = shared::imports(imports);
@@ -346,7 +334,7 @@ mod tests {
     fn artifact_budget_is_the_schema_bound() {
         let schema = include_str!("../../../../src/nupp/compiler/vm/coregraphschema.nupp");
         let start = schema
-            .find("function schema.artifactBytes(): integer")
+            .find("export function artifactBytes(): integer")
             .expect("schema artifact bound");
         let value = schema[start..]
             .lines()
