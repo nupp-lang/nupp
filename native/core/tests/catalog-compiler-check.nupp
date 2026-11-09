@@ -1,0 +1,31 @@
+module nupp.core.catalogcompilercheck
+
+-- The compiler CLI's `nupp check` run on the core through its real root
+-- (`nupp.tools.vm.root`, what bin/nupp starts), over a clean file and one
+-- with a deliberate type error. Its exit status answers here; the diagnostic
+-- it prints is checked as this case's output.
+const root = require("nupp.tools.vm.root")
+
+local temp = os.getenv("NUPP_GUEST_TEMP") or "/tmp"
+
+local function write(name: string, text: string): string
+    local path = temp .. "/" .. name
+    local file = assert(io.open(path, "wb"))
+    file:write(text)
+    file:close()
+
+    return path
+end
+
+local clean = write("compilercheck-clean.nupp", "local total: integer = 1 + 2\nprint(total)\n")
+local broken = write("compilercheck-broken.nupp", "local total: integer = \"three\"\nprint(total)\n")
+
+local score = 0
+if root.main({"check", clean}) == 0 then
+    score = score + 1
+end
+if root.main({"check", broken}) ~= 0 then
+    score = score + 2
+end
+
+export const result = score

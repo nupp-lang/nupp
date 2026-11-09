@@ -293,6 +293,8 @@ local CASES = {
     {"callsspreadshort", 0x7FFF00000000001F},
     -- Main's os filesystem and system functions; main answers the same word.
     {"osfilesystem", 0x7FFF0007FFFFFFFF},
+    -- `nupp check` on the core: a clean file and one with a type error.
+    {"compilercheck", 0x7FFF000000000003},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
@@ -333,6 +335,11 @@ local OUTPUT = {
 }
 -- The bench entry's record, which holds times: its shape and fib(20)'s
 -- checksum (SETUP) are what is checked, not what it measured.
+-- The broken file's diagnostic, as check prints it: position, code, message.
+OUTPUT.compilercheck = function(printed)
+    return printed:find("compilercheck%-broken%.nupp:1:%d+: error: NUPP%d+") ~= nil
+end
+
 OUTPUT.benchworkloads = function(printed)
     local ok, record = pcall(json.decodevalue, printed)
     local case = ok and type(record) == "table" and type(record.cases) == "table" and record.cases[1]
