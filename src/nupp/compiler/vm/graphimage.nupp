@@ -11,17 +11,14 @@ const assert2 = require("assert")
 --- is the decoder, and the two must move together.
 local G = require("nupp.compiler.vm.graph")
 
-local image = {}
+export const MAGIC = "NUPPGRAF"
+export const VERSION = 5
 
-image.MAGIC = "NUPPGRAF"
-image.VERSION = 5
+export const NONE = 4294967295
 
-local NONE = 4294967295
-image.NONE = NONE
-
-local termKinds = {jump = 0, branch = 1, switch = 2, ["return"] = 3, raise = 4, park = 5, returns = 6}
-local regionKinds = {body = 0, loop = 1, ["then"] = 2, ["else"] = 3}
-local constantKinds = {
+export const termKinds = {jump = 0, branch = 1, switch = 2, ["return"] = 3, raise = 4, park = 5, returns = 6}
+export const regionKinds = {body = 0, loop = 1, ["then"] = 2, ["else"] = 3}
+export const constantKinds = {
     ["nil"] = 0,
     ["true"] = 1,
     ["false"] = 2,
@@ -32,19 +29,15 @@ local constantKinds = {
     builtin = 7,
     func = 8
 }
-local slotTypes = {num = 0, str = 1, bool = 2, rec = 3, any = 4}
-image.termKinds = termKinds
-image.regionKinds = regionKinds
-image.constantKinds = constantKinds
-image.slotTypes = slotTypes
+export const slotTypes = {num = 0, str = 1, bool = 2, rec = 3, any = 4}
 
 local two32 = 4294967296
 
 local imagebytes = require("nupp.compiler.vm.imagebytes")
 local varint = imagebytes.varint
-local wideBytes = imagebytes.widebytes
-local wideTextBytes = imagebytes.widetextbytes
-local floatBytes = imagebytes.floatbytes
+export const wideBytes = imagebytes.widebytes
+export const wideTextBytes = imagebytes.widetextbytes
+export const floatBytes = imagebytes.floatbytes
 
 --- A word as the image stores it: shifted by one so NONE is a single zero
 --- byte, then seven bits per byte, low bits first, the high bit marking
@@ -58,17 +51,13 @@ for b = 1, 127 do
 end
 local NONE_BYTE = string.char(0)
 
-image.floatBytes = floatBytes
-image.wideBytes = wideBytes
-image.wideTextBytes = wideTextBytes
-
 --- An image encoder: `add` encodes one graph at a time, which carries its
 --- `name`, `module`, optional `path`, `nparams`, `sig` (one class letter per
 --- parameter), `ret`, `vararg`, `constants` and, when the frontend built
 --- one, `gpu`; `finish` writes the header (`shapes`, `modules`, `extensions`
 --- and `entry`, all optional) and returns the image. A graph is not held
 --- once it is added, so a lowering can encode as it converts.
-function image.encoder(): any
+export function encoder(): any
     local strings, stringIndex, nstrings = {}, {}, 0
     local wides, wideIndex, nwides = {}, {}, 0
     local floats, floatIndex, nfloats = {}, {}, 0
@@ -371,8 +360,8 @@ function image.encoder(): any
         word(img.entry or NONE)
         word(nfunctions)
         local parts: {string} = {}
-        parts[#parts + 1] = image.MAGIC
-        parts[#parts + 1] = varint(image.VERSION)
+        parts[#parts + 1] = MAGIC
+        parts[#parts + 1] = varint(VERSION)
         parts[#parts + 1] = varint(nstrings)
         for i = 1, nstrings do
             parts[#parts + 1] = varint(#strings[i])
@@ -399,13 +388,11 @@ end
 --- `shapes`, `modules`, `extensions` and `entry`.
 --- @raises string when a graph does not verify, a wide literal is not an
 --- exact integer, or a region annotation does not describe its graph.
-function image.encode(img: any): string
-    local encoder = image.encoder()
+export function encode(img: any): string
+    local session = encoder()
     for _, g in ipairs(img.functions) do
-        encoder.add(g)
+        session.add(g)
     end
 
-    return encoder.finish(img)
+    return session.finish(img)
 end
-
-export = image

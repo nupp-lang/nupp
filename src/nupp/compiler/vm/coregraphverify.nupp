@@ -4,7 +4,6 @@ local graph = require("nupp.compiler.vm.graph")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local schema = require("nupp.compiler.vm.coregraphschema")
 local budget = require("nupp.compiler.vm.coregraphbudget")
-local verify = {}
 local bounds = schema.limits()
 
 local function need(ok: any, message: string): any
@@ -64,7 +63,7 @@ end
 
 -- A checked graph spells integer constants as source text; the semantic copy
 -- holds their eight two's-complement bytes. `fromSource` selects the input form.
-function verify.copyGraph(g: any, version: integer?, fromSource: boolean?): any
+export function copyGraph(g: any, version: integer?, fromSource: boolean?): any
     local numeric, integers = (version or 2) >= 3, (version or 2) >= 6
     fields(g, "nparams blocks types slots counts constants positions certificates name module path programOwner source")
     local copy: any = {
@@ -243,7 +242,7 @@ function verify.copyGraph(g: any, version: integer?, fromSource: boolean?): any
     return copy
 end
 
-function verify.topological(nodes: any, edges: any, entry: integer?): any
+export function topological(nodes: any, edges: any, entry: integer?): any
     local incoming, ready, result = {}, {}, {}
     for index = 1, #nodes do
         incoming[index] = 0
@@ -285,7 +284,7 @@ end
 -- worklist. A block parameter receives its kind from every incoming edge,
 -- including loop back edges. It is not runtime handle/tag authentication.
 -- function:<owner> identifies a possible code target, never a closure instance.
-function verify.resultKind(g: any, signature: any, output: any): string
+export function resultKind(g: any, signature: any, output: any): string
     local kinds, edges, users, pending = {}, {}, {}, {}
     -- v8 values may be dynamic: a join of different kinds widens to "value",
     -- and every scalar use of a value is checked by its handler at run time.
@@ -499,7 +498,7 @@ function verify.resultKind(g: any, signature: any, output: any): string
     end
 
     if output.schema.version < 5 then
-        verify.topological(g.blocks, edges, 1)
+        topological(g.blocks, edges, 1)
     else
         local reached = {[1] = true}
         local ready: {integer} = {1}
@@ -682,7 +681,7 @@ end
 -- Catalog relationships only. This does not prove usable SSA, scalar
 -- provenance, checked source identity, or permission to execute. Input must
 -- come from the bounded decoder or the full semantic tree-budget preflight.
-function verify.catalog(p: any): any
+export function catalog(p: any): any
     fields(p, "schema entry modules catalog signatures graphs contracts")
     need(
         type(p.schema.version) == "number" and p.schema.version >= 2 and p.schema.version <= 8,
@@ -785,7 +784,7 @@ function verify.catalog(p: any): any
             need(modulesByOwner[root(owner).id] ~= nil, "foreign lexical root")
         end
         local g = p.graphs[index]
-        verify.copyGraph(g, p.schema.version)
+        copyGraph(g, p.schema.version)
         need(g.programOwner == owner.id and g.nparams == #signature.params, "graph owner/signature differs")
         local module = need(modulesByOwner[root(owner).id], "graph module is not cataloged")
         need(g.module == module.name and g.path == module.path, "graph module source differs")
@@ -868,7 +867,7 @@ function verify.catalog(p: any): any
         need(contract.effect == 1, "invoke effect must remain conservative")
     end
     if p.schema.version < 7 then
-        verify.topological(p.catalog, calls, nil)
+        topological(p.catalog, calls, nil)
     end
     for index, g in ipairs(p.graphs) do
         local effect = 0
@@ -886,23 +885,21 @@ function verify.catalog(p: any): any
     return {arities = arities, owners = count, contracts = #p.contracts}
 end
 
-function verify.semantic(p: any): nil
+export function semantic(p: any): nil
     budget.measure(p)
-    local catalog = verify.catalog(p)
+    local described = catalog(p)
     -- Source evidence is deliberately absent. The shared verifier only checks
     -- SSA structure with independently validated scalar arities for each block.
     for index, g in ipairs(p.graphs) do
-        graph.verifyGuestStructure(g, catalog.arities[index])
+        graph.verifyGuestStructure(g, described.arities[index])
     end
     for index, g in ipairs(p.graphs) do
         local owner = p.catalog[index]
         local signature = p.signatures[owner.signature + 1]
-        local kind = verify.resultKind(g, signature, p)
+        local kind = resultKind(g, signature, p)
         need(
             kind == signature.result or p.schema.version >= 8 and (kind == "value" or signature.result == "value"),
             "semantic result differs from signature"
         )
     end
 end
-
-export = verify
