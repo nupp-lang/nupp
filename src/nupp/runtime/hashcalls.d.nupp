@@ -1,0 +1,12 @@
+@!internal
+
+-- The core's digests over a string's bytes (guesthash): the compiler's
+-- content digest as 32 hex digits, and SHA-256 as 64. Requiring the
+-- declaration loads no module.
+local record Hashes
+    digest: function(text: string): string
+    sha256: function(text: string): string
+end
+
+local calls: Hashes
+return calls

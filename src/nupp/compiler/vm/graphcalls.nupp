@@ -1156,7 +1156,8 @@ end
 -- buffer fallback instead of LuaJIT's pointer fast path, UUIDs from the
 -- core's entropy and clock rather than the native loader's, and the
 -- compiler's host services written for the core: its digest, its build
--- clock, and C declarations and Markdown answered as unavailable.
+-- clock, and C declarations and Markdown answered as unavailable; and
+-- SHA-256 computed by the core rather than in guest code.
 local coremodules: {
     [string]: string
 } = {
@@ -1169,6 +1170,7 @@ local coremodules: {
     ["nupp.vm.clock"] = "nupp.runtime.provider.coreclock",
     ["nupp.tools.build.clockhost"] = "nupp.runtime.provider.coreclock",
     ["nupp.compiler.nativehash"] = "nupp.compiler.corehash",
+    ["nupp.digest.internal.sha256"] = "nupp.runtime.provider.coresha256",
     ["nupp.compiler.nativecdecl"] = "nupp.compiler.corecdecl",
     ["nupp.vm.markdown"] = "nupp.tools.doc.coremarkdown",
     ["nupp.runtime.bindings.clock"] = "nupp.runtime.provider.coretime",

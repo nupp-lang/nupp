@@ -340,6 +340,7 @@ local CASES: {[string]: {
     libraryresults = {fixture = "catalog-library-results", version = 8},
     processlines = {fixture = "catalog-process-lines", version = 8},
     processreuse = {fixture = "catalog-process-reuse", version = 8},
+    hashdigests = {fixture = "catalog-hash-digests", version = 8},
     processexit = {fixture = "catalog-process-exit", version = 8},
     gcweak = {fixture = "catalog-gc-weak", version = 8},
     gcfinalizers = {fixture = "catalog-gc-finalizers", version = 8},

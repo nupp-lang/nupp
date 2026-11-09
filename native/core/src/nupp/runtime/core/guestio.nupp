@@ -5,7 +5,7 @@ module nupp.runtime.core.guestio
 -- reactor (pollcalls, poolcalls) and process layer (processcalls), the
 -- collector's calls under finalizers (gccalls), clocks and calendar under
 -- `os` (timecalls, which guesttime answers), the monotonic clock and the
--- program's arguments.
+-- program's arguments, and the digests guesthash computes.
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const values = require("nupp.runtime.vm.values")
@@ -25,6 +25,7 @@ const guesttime = require("nupp.runtime.core.guesttime")
 const guestfiles = require("nupp.runtime.core.guestfiles")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 const hostfiles = require("nupp.runtime.core.hostfiles")
+const guesthash = require("nupp.runtime.core.guesthash")
 
 local function heapOf(ctx: voidptr): heap.Heap*
     @unsafe do
@@ -201,6 +202,9 @@ export function files(ctx: voidptr, op: uint64, a: uint64, b: uint64, c: uint64)
     end
     if operation >= librarylayouts.TIME_FIRST and operation <= librarylayouts.TIME_LAST then
         return guesttime.call(ctx, operation, a, b, c)
+    end
+    if operation >= librarylayouts.HASH_FIRST and operation <= librarylayouts.HASH_LAST then
+        return guesthash.call(ctx, operation, a)
     end
     @unsafe do
         local h = heapOf(ctx)

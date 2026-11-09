@@ -1,0 +1,26 @@
+@!internal
+
+--[[
+The core's answer to `nupp.digest.internal.sha256`: the same digest, computed
+by the core over the string's bytes (hashcalls, guesthash) rather than by the
+Nupp compression function, which guest code runs at kilobytes a second.
+]]
+module nupp.runtime.provider.coresha256
+
+const hashcalls = require("nupp.runtime.hashcalls")
+
+-- The longest input the portable implementation addresses.
+const LONGEST = 0x7FFFFFFF
+
+--- Hashes bytes with SHA-256.
+---
+--- @param value the bytes to hash
+--- @return the digest, as sixty-four lowercase hexadecimal digits
+--- @raises string when the input is too long to address as a single buffer
+export function sha256(value: string): string
+    if #value > LONGEST then
+        error("nupp: SHA-256 input is too long", 2)
+    end
+
+    return hashcalls.sha256(value)
+end
