@@ -285,11 +285,16 @@ local function checkedSignature(owner: any, numeric: boolean, dynamic: boolean):
     return result
 end
 
-local function intern(signatures: any, index: any, signature: any): integer
-    local key = signature.kind .. ":" .. table.concat(
+-- What makes two signature records one: interning keeps a record per key.
+export function signatureKey(signature: any): string
+    return signature.kind .. ":" .. table.concat(
         signature.params,
         ","
     ) .. (signature.variadic and "..." or "") .. "->" .. signature.result
+end
+
+local function intern(signatures: any, index: any, signature: any): integer
+    local key = signatureKey(signature)
     local previous = index[key]
     if previous ~= nil then
         return previous
@@ -611,20 +616,13 @@ local function tailcalls(p: any, owner: any): {[any]: boolean}
     return found
 end
 
-export function normalize(compiled: any, version: integer?): (any, any)
-    local v: integer = version or 2
-    local numeric, loops = v >= 3, v >= 5
-    fields(compiled, "graphs header catalog")
-    local p, graphs = compiled.catalog, compiled.graphs
-    need(type(p) == "table", "authentic checked catalog required")
-    dense(graphs, bounds.owners)
-    fields(compiled.header, "shapes modules entry")
-    need(dense(compiled.header.shapes, 1048576) == 0, "shape-free graph catalog required")
-    local moduleCount = dense(compiled.header.modules, bounds.modules)
-    need(moduleCount > 0 and dense(p.modules, bounds.modules) == moduleCount, "complete module table required")
-    -- From v8 a program's modules run as their requirers call them.
-    need(not loops or moduleCount == 1 or v >= 8, "loop profile requires one scalar initializer")
-    need(#p.owners == #graphs, "complete graph table required")
+-- What normalizing any owner of checked catalog `p` at profile `v` reads: the
+-- profile's schema and admitted operations, and the require sites its graphs
+-- answer, by the owner that makes each. A whole program normalizes every owner
+-- against it (`normalize`); a module piece its own (nupp.compiler.vm.corepiece).
+-- `moduleCount` is how many modules the program carries.
+export function admit(p: any, v: integer, moduleCount: integer): any
+    local loops = v >= 5
     for _, key in ipairs({"externals", "externalReferences"}) do
         need(type(p[key]) == "table" and next(p[key]) == nil, "unsupported catalog " .. key)
     end
@@ -732,22 +730,299 @@ export function normalize(compiled: any, version: integer?): (any, any)
         requiresites = {requireSite}
     end
     local definition = schema.describe(v)
-    local output: any = {
-        schema = definition,
-        entry = integer(compiled.header.entry, bounds.owners - 1),
-        modules = {},
-        catalog = {},
-        signatures = {},
-        graphs = {},
-        contracts = {}
-    }
-    local diagnostics = {}
-    need(output.entry == p.entry, "entry owner differs")
-    local signatureIndex, callEdges, admitted = {}, {}, {}
+    local admitted = {}
     for _, item in ipairs(definition.operations) do
         admitted[item.name] = item
     end
-    local modulesByOwner = {}
+    -- Each owner's require sites, in the order a graph's requires match them.
+    local sitesByOwner: {[integer]: {any}} = {}
+    for _, site in ipairs(requiresites) do
+        local list = sitesByOwner[site.owner] or {}
+        sitesByOwner[site.owner] = list
+        list[#list + 1] = site
+    end
+
+    return {
+        catalog = p,
+        version = v,
+        numeric = v >= 3,
+        loops = loops,
+        schema = definition,
+        admitted = admitted,
+        requiresites = requiresites,
+        sitesByOwner = sitesByOwner
+    }
+end
+
+-- The frame a whole program normalizes in: every owner's id is its checked one.
+local function programFrame(): any
+    return {
+        id = function(id: integer): integer?
+            return id
+        end,
+        callsite = function(site: any): integer?
+            return integer(site.id, bounds.calls - 1)
+        end
+    }
+end
+
+-- A normalization in progress over `admission`, in `frame`: the semantic
+-- tables it fills, in the order owners are recorded. `frame.id(id)` is the id
+-- of checked owner `id` in the frame, nil for one outside it, which only a
+-- frame with `foreign(owner, signature)` admits as a call's target, naming
+-- it by the id that returns. `frame.callsite(site)` is a contract's callsite,
+-- and `frame.relocate(g)`, when given, rewrites a semantic graph copy's owner
+-- ids into the frame, and `frame.module(name)`, when given, hears each module
+-- a graph requires.
+export function open(admission: any, frame: any?): any
+    return {
+        admission = admission,
+        frame = frame or programFrame(),
+        output = {schema = admission.schema, modules = {}, catalog = {}, signatures = {}, graphs = {}, contracts = {}},
+        diagnostics = {},
+        signatureIndex = {},
+        callEdges = {},
+        -- By checked owner id, each module record the frame holds.
+        modulesByOwner = {},
+        -- The require operations matched to their checked sites.
+        foundRequires = 0
+    }
+end
+
+-- The id of `signature` in `unit`'s signature table, interned there.
+export function sign(unit: any, signature: any): integer
+    return intern(unit.output.signatures, unit.signatureIndex, signature)
+end
+
+-- The first pass for checked `owner`, lowered to graph `g`: its catalog record
+-- and signature, and its graph's semantic copy, in the frame.
+export function enter(unit: any, owner: any, g: any): nil
+    local a, output, frame = unit.admission, unit.output, unit.frame
+    local p, v = a.catalog, a.version as integer
+    local index = #output.catalog + 1
+    need(v >= 7 or dense(owner.captures, 256) == 0, "captures are unsupported")
+    local record: any = {
+        id = integer(frame.id(owner.id), bounds.owners - 1),
+        kind = owner.kind,
+        graph = index - 1,
+        effect = 0
+    }
+    need(record.id == index - 1, "owner order differs")
+    if owner.kind == "function" then
+        record.parent = integer(frame.id(owner.parent), bounds.owners - 1)
+        record.signature = intern(
+            output.signatures,
+            unit.signatureIndex,
+            located(
+                owner.scope and owner.scope.path,
+                owner.node,
+                function(): any
+                    return checkedSignature(owner, a.numeric, v >= 8)
+                end
+            )
+        )
+    else
+        need(
+            owner.kind == "module" and unit.modulesByOwner[owner.id] ~= nil and owner.parent == nil,
+            "unsupported initializer owner"
+        )
+    end
+    output.catalog[index], unit.callEdges[index] = record, {}
+    local copied = semantic.copyGraph(g, v, true)
+    if frame.relocate then
+        frame.relocate(copied)
+    end
+    output.graphs[index] = copied
+    -- The checked program is the authority for every id but this one.
+    need(p.owners[owner.id + 1] == owner, "foreign checked owner")
+end
+
+-- The second pass for the `index`th recorded owner, checked `owner` lowered
+-- to `source`: its operations' effects, its require operations matched to
+-- their checked sites, and a contract and call diagnostic for each call.
+export function contract(unit: any, index: integer, owner: any, source: any): nil
+    local a, frame = unit.admission, unit.frame
+    local output, p, v = unit.output, a.catalog, a.version as integer
+    local g = output.graphs[index]
+    need(g.programOwner == index - 1, "graph owner order differs")
+    local record = output.catalog[index]
+    local tails = v >= 8 and tailcalls(p, owner) or {}
+    local sites = a.sitesByOwner[owner.id] or {}
+    for bi, block in ipairs(g.blocks) do
+        for at, op in ipairs(block.op) do
+            local policy = need(a.admitted[op], "unsupported operation " .. op)
+            if op == "Closure" then
+                need(v >= 7 or #block.args[at] == 1, "captures are unsupported")
+            elseif op == "Require" then
+                unit.foundRequires += 1
+                local constant = need(g.constants[block.args[at][1] + 1], "require name is missing")
+                local position = need(g.positions[block.pos[at]], "require graph position is missing")
+                -- The site of this owner's require of this module at this
+                -- position.
+                local matched = nil
+                for _, site in ipairs(sites) do
+                    local token = cst.firstToken(site.node)
+                    if token
+                        and constant.kind == "str"
+                        and constant.value == site.module
+                        and position.line == token.line
+                        and position.column == token.col
+                    then
+                        matched = site
+                    end
+                end
+                need(matched ~= nil, "require graph differs from checked callsite")
+                if frame.module then
+                    frame.module(constant.value)
+                end
+            end
+            record.effect = math.max(record.effect, policy.effect)
+        end
+        if block.term.kind == "invoke" then
+            need(not a.loops or v >= 7, "calls are outside scalar loop profile")
+            local call = source.blocks[bi].term.contract
+            local site = need(p.callByNode and p.callByNode[call.call], "checked call-front membership required")
+            need(
+                p.calls
+                and p.calls[site.id + 1] == site
+                and site.owner == owner.id
+                and site.node == call.call
+                and (call.dynamic or site.definition == call.definition),
+                "foreign checked callsite"
+            )
+            -- A dynamic call has no target; its signature comes from the
+            -- call's checked function type and is checked when it runs.
+            local target, signature = ABSENT, 0
+            if call.dynamic then
+                need(v >= 8, "dynamic calls are outside this profile")
+                signature = intern(
+                    output.signatures,
+                    unit.signatureIndex,
+                    located(
+                        source.source and source.source.path,
+                        call.call,
+                        function(): any
+                            return typeSignature(call.callSignature, a.numeric, true)
+                        end
+                    )
+                )
+            else
+                need(
+                    p.functionsByDefinition[call.definition] == call.owner
+                    and p.owners[call.owner.id + 1] == call.owner,
+                    "foreign checked call target"
+                )
+                local id = frame.id(call.owner.id)
+                if id ~= nil then
+                    local held = output.catalog[id + 1]
+                    need(held.kind == "function", "initializer is not callable")
+                    target, signature = held.id, held.signature
+                else
+                    -- An owner outside the frame is named by its own
+                    -- signature, which linking holds the owner to.
+                    need(call.owner.kind == "function", "initializer is not callable")
+                    signature = intern(
+                        output.signatures,
+                        unit.signatureIndex,
+                        located(
+                            call.owner.scope and call.owner.scope.path,
+                            call.owner.node,
+                            function(): any
+                                return checkedSignature(call.owner, a.numeric, v >= 8)
+                            end
+                        )
+                    )
+                    target = frame.foreign(call.owner, signature)
+                end
+            end
+            local id = #output.contracts
+            output.contracts[id + 1] = {
+                id = id,
+                owner = record.id,
+                block = block.id,
+                callsite = frame.callsite(site),
+                target = target,
+                signature = signature,
+                effect = 1,
+                -- pcall(f, ...): the callee runs as a protected call.
+                protected = call.protected == true or nil,
+                -- xpcall(f, handler, ...): its handler is staged apart.
+                handled = call.handled == true or nil
+            }
+            local row = diagnostic(p, owner, call.call, call.protected == true)
+            row.tail = tails[call.call] == true or nil
+            row.forward = forwardcontext(p, owner, call.call)
+            if row.forward ~= FORWARD_NONE then
+                local methods = forwarding[owner.scope.name]
+                local member = methods and methods[owner.name]
+                need(member ~= nil, "checked forwarding member missing")
+                if owner.scope.name == "io.internal.process" then
+                    row.name = "?"
+                else
+                    local root = owner.scope.name == "nupp.runtime.standardio" and "io" or "os"
+                    row.name = root .. "." .. (member as string)
+                end
+            end
+            unit.diagnostics[id + 1] = row
+            block.term.contract = id
+            record.effect = 1
+            if not call.dynamic then
+                unit.callEdges[index][#unit.callEdges[index] + 1] = target + 1
+            end
+        end
+    end
+end
+
+-- The third pass for the `index`th recorded owner: its graph's result kind,
+-- which a module's initializer signature takes and a function's checked
+-- signature must admit. `view` answers the graph's references (the semantic
+-- tables by default). Returns the kind.
+export function settle(unit: any, index: integer, view: any?): string
+    local output, v = unit.output, unit.admission.version as integer
+    local g, owner = output.graphs[index], output.catalog[index]
+    local signature = owner.kind == "module" and {kind = "initializer", params = {}}
+        or output.signatures[owner.signature + 1]
+    local kind = semantic.resultKind(g, signature, view or output)
+    if owner.kind == "module" then
+        need(g.nparams == 0, "initializer has parameters")
+        owner.signature = intern(output.signatures, unit.signatureIndex, {
+            kind = "initializer",
+            params = {},
+            result = kind
+        })
+    else
+        need(
+            kind == signature.result or v >= 8 and (kind == "value" or signature.result == "value")
+            -- Every return answering nil, where the checker gave a result,
+            -- is a function that ends only by raising (`error(...)` last):
+            -- its end is unreachable, and answers nil.
+            or v >= 8 and kind == "nil",
+            "graph result differs from checked signature: " .. tostring(
+                g.name
+            ) .. " in " .. tostring(g.path) .. " answers " .. tostring(kind) .. ", not " .. tostring(signature.result)
+        )
+    end
+
+    return kind
+end
+
+export function normalize(compiled: any, version: integer?): (any, any)
+    local v: integer = version or 2
+    fields(compiled, "graphs header catalog")
+    local p, graphs = compiled.catalog, compiled.graphs
+    need(type(p) == "table", "authentic checked catalog required")
+    dense(graphs, bounds.owners)
+    fields(compiled.header, "shapes modules entry")
+    need(dense(compiled.header.shapes, 1048576) == 0, "shape-free graph catalog required")
+    local moduleCount = dense(compiled.header.modules, bounds.modules)
+    need(moduleCount > 0 and dense(p.modules, bounds.modules) == moduleCount, "complete module table required")
+    -- From v8 a program's modules run as their requirers call them.
+    need(v < 5 or moduleCount == 1 or v >= 8, "loop profile requires one scalar initializer")
+    need(#p.owners == #graphs, "complete graph table required")
+    local unit = open(admit(p, v, moduleCount))
+    local output = unit.output
+    output.entry = integer(compiled.header.entry, bounds.owners - 1)
+    need(output.entry == p.entry, "entry owner differs")
     for index, module in ipairs(compiled.header.modules) do
         fields(module, "name path chunk")
         need(
@@ -763,183 +1038,26 @@ export function normalize(compiled: any, version: integer?): (any, any)
             path = text(module.path),
             chunk = integer(module.chunk, bounds.owners - 1)
         }
-        output.modules[index], modulesByOwner[module.chunk] = record, record
+        output.modules[index], unit.modulesByOwner[module.chunk] = record, record
     end
-    need(modulesByOwner[output.entry] ~= nil, "entry initializer is not cataloged")
+    need(unit.modulesByOwner[output.entry] ~= nil, "entry initializer is not cataloged")
     for index = 1, dense(p.owners, bounds.owners) do
-        local owner = p.owners[index]
-        need(v >= 7 or dense(owner.captures, 256) == 0, "captures are unsupported")
-        local record: any = {
-            id = integer(owner.id, bounds.owners - 1),
-            kind = owner.kind,
-            graph = index - 1,
-            effect = 0
-        }
-        need(record.id == index - 1, "owner order differs")
-        if owner.kind == "function" then
-            record.parent = integer(owner.parent, bounds.owners - 1)
-            record.signature = intern(
-                output.signatures,
-                signatureIndex,
-                located(
-                    owner.scope and owner.scope.path,
-                    owner.node,
-                    function(): any
-                        return checkedSignature(owner, numeric, v >= 8)
-                    end
-                )
-            )
-        else
-            need(
-                owner.kind == "module" and modulesByOwner[owner.id] ~= nil and owner.parent == nil,
-                "unsupported initializer owner"
-            )
-        end
-        output.catalog[index], callEdges[index] = record, {}
-        output.graphs[index] = semantic.copyGraph(graphs[index], v, true)
+        enter(unit, p.owners[index], graphs[index])
     end
     -- This is the authoritative source-side gate. Decoders must never call it
     -- with fabricated checker objects. Call-front adds callsite membership.
     program.verifyGraphs(p, graphs)
-    local foundRequires = 0
-    for index, g in ipairs(output.graphs) do
-        need(g.programOwner == index - 1, "graph owner order differs")
-        local record = output.catalog[index]
-        local tails = v >= 8 and tailcalls(p, p.owners[index]) or {}
-        for bi, block in ipairs(g.blocks) do
-            for at, op in ipairs(block.op) do
-                local policy = need(admitted[op], "unsupported operation " .. op)
-                if op == "Closure" then
-                    need(v >= 7 or #block.args[at] == 1, "captures are unsupported")
-                elseif op == "Require" then
-                    foundRequires += 1
-                    local constant = need(g.constants[block.args[at][1] + 1], "require name is missing")
-                    local position = need(g.positions[block.pos[at]], "require graph position is missing")
-                    -- The site of this owner's require of this module at this
-                    -- position.
-                    local matched = nil
-                    for _, site in ipairs(requiresites) do
-                        local token = site.owner == record.id and cst.firstToken(site.node) or nil
-                        if token
-                            and constant.kind == "str"
-                            and constant.value == site.module
-                            and position.line == token.line
-                            and position.column == token.col
-                        then
-                            matched = site
-                        end
-                    end
-                    need(matched ~= nil, "require graph differs from checked callsite")
-                end
-                record.effect = math.max(record.effect, policy.effect)
-            end
-            if block.term.kind == "invoke" then
-                need(not loops or v >= 7, "calls are outside scalar loop profile")
-                local source = graphs[index].blocks[bi].term.contract
-                local site = need(p.callByNode and p.callByNode[source.call], "checked call-front membership required")
-                need(
-                    p.calls
-                    and p.calls[site.id + 1] == site
-                    and site.owner == record.id
-                    and site.node == source.call
-                    and (source.dynamic or site.definition == source.definition),
-                    "foreign checked callsite"
-                )
-                -- A dynamic call has no target; its signature comes from the
-                -- call's checked function type and is checked when it runs.
-                local target = {id = ABSENT, signature = 0}
-                if source.dynamic then
-                    need(v >= 8, "dynamic calls are outside this profile")
-                    target.signature = intern(
-                        output.signatures,
-                        signatureIndex,
-                        located(
-                            graphs[index].source and graphs[index].source.path,
-                            source.call,
-                            function(): any
-                                return typeSignature(source.callSignature, numeric, true)
-                            end
-                        )
-                    )
-                else
-                    need(
-                        p.functionsByDefinition[source.definition] == source.owner
-                        and p.owners[source.owner.id + 1] == source.owner,
-                        "foreign checked call target"
-                    )
-                    target = output.catalog[source.owner.id + 1]
-                    need(target.kind == "function", "initializer is not callable")
-                end
-                local id = #output.contracts
-                output.contracts[id + 1] = {
-                    id = id,
-                    owner = record.id,
-                    block = block.id,
-                    callsite = integer(site.id, bounds.calls - 1),
-                    target = target.id,
-                    signature = target.signature,
-                    effect = 1,
-                    -- pcall(f, ...): the callee runs as a protected call.
-                    protected = source.protected == true or nil,
-                    -- xpcall(f, handler, ...): its handler is staged apart.
-                    handled = source.handled == true or nil
-                }
-                local row = diagnostic(p, p.owners[index], source.call, source.protected == true)
-                row.tail = tails[source.call] == true or nil
-                row.forward = forwardcontext(p, p.owners[index], source.call)
-                if row.forward ~= FORWARD_NONE then
-                    local owner = p.owners[index]
-                    local methods = forwarding[owner.scope.name]
-                    local member = methods and methods[owner.name]
-                    need(member ~= nil, "checked forwarding member missing")
-                    if owner.scope.name == "io.internal.process" then
-                        row.name = "?"
-                    else
-                        local root = owner.scope.name == "nupp.runtime.standardio" and "io" or "os"
-                        row.name = root .. "." .. (member as string)
-                    end
-                end
-                diagnostics[id + 1] = row
-                block.term.contract = id
-                record.effect = 1
-                if not source.dynamic then
-                    callEdges[index][#callEdges[index] + 1] = target.id + 1
-                end
-            end
-        end
+    for index, g in ipairs(graphs) do
+        contract(unit, index, p.owners[index], g)
     end
-    need(foundRequires == #requiresites, "checked require graph is incomplete")
+    need(unit.foundRequires == #unit.admission.requiresites, "checked require graph is incomplete")
     -- v7 admits recursion; its depth is bounded by the entry's frame pool.
     if v < 7 then
-        semantic.topological(output.catalog, callEdges, nil)
+        semantic.topological(output.catalog, unit.callEdges, nil)
     end
-    for index, g in ipairs(output.graphs) do
-        local owner = output.catalog[index]
-        local signature = owner.kind == "module" and {kind = "initializer", params = {}}
-            or output.signatures[owner.signature + 1]
-        local result = semantic.resultKind(g, signature, output)
-        if owner.kind == "module" then
-            need(g.nparams == 0, "initializer has parameters")
-            owner.signature = intern(output.signatures, signatureIndex, {
-                kind = "initializer",
-                params = {},
-                result = result
-            })
-        else
-            need(
-                result == signature.result or v >= 8 and (result == "value" or signature.result == "value")
-                -- Every return answering nil, where the checker gave a result,
-                -- is a function that ends only by raising (`error(...)` last):
-                -- its end is unreachable, and answers nil.
-                or v >= 8 and result == "nil",
-                "graph result differs from checked signature: " .. tostring(
-                    g.name
-                ) .. " in " .. tostring(
-                    g.path
-                ) .. " answers " .. tostring(result) .. ", not " .. tostring(signature.result)
-            )
-        end
+    for index in ipairs(output.graphs) do
+        settle(unit, index, nil)
     end
 
-    return output, diagnostics
+    return output, unit.diagnostics
 end

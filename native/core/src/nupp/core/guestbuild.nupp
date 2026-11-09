@@ -20,6 +20,8 @@ local derivedrecipes = require("nupp.compiler.vm.derivedrecipes")
 local managedcalls = require("nupp.compiler.vm.managedcalls")
 local tagged = require("nupp.compiler.vm.taggedprofile")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
+local corepiece = require("nupp.compiler.vm.corepiece")
+local corelink = require("nupp.compiler.vm.corelink")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
 local writer = require("nupp.core.guestartifact")
 require("nupp.compiler.hostservices")
@@ -1182,12 +1184,60 @@ local function profileFor(version: integer): any
     return version >= 5 and tagged.forVersion(version) or tagged
 end
 
--- The checked program for a case, compiled to the core executable.
+-- Where two executables first differ, or nil when they are the same data. A
+-- linked executable carries its semantic graphs and contracts in its pieces,
+-- so those are left out.
+local function difference(actual: any, expected: any, path: string): string?
+    if type(actual) ~= type(expected) then
+        return path .. ": " .. type(actual) .. " for " .. type(expected)
+    elseif type(actual) ~= "table" then
+        if actual == expected and (type(actual) ~= "number" or math.type(actual) == math.type(expected)) then
+            return nil
+        end
+        return path .. ": " .. tostring(actual) .. " for " .. tostring(expected)
+    end
+    for key, item in pairs(expected as table) do
+        if not (path == "executable.semantic" and (key == "graphs" or key == "contracts")) then
+            local found = difference((actual as table)[key], item, path .. "." .. tostring(key))
+            if found then
+                return found
+            end
+        end
+    end
+    for key in pairs(actual as table) do
+        if (expected as table)[key] == nil then
+            return path .. "." .. tostring(key) .. ": unexpected"
+        end
+    end
+
+    return nil
+end
+
+-- The checked program for a case, compiled to the core executable. A v8
+-- program is compiled a module at a time and linked; NUPP_GUEST_PIECES=compare
+-- also compiles it whole and requires the two to be the same.
 local function compileProgram(caseName: string, fixture: string, version: integer): any
-    return executable.fromChecked(
-        programgraph.compile(programCatalog(caseName, fixture, version), profileFor(version)),
-        version
-    )
+    local began = os.clock()
+    local catalog = programCatalog(caseName, fixture, version)
+    local described = os.clock()
+    timings["compile catalog"] = (timings["compile catalog"] or 0) + described - began
+    if version ~= corepiece.VERSION then
+        return executable.fromChecked(programgraph.compile(catalog, profileFor(version)), version)
+    end
+    local pieces = corepiece.compile(catalog, profileFor(version))
+    local built = os.clock()
+    local linked = corelink.link(pieces, catalog.modules[#catalog.modules].name)
+    timings["compile pieces"] = (timings["compile pieces"] or 0) + built - described
+    timings["compile link"] = (timings["compile link"] or 0) + os.clock() - built
+    if os.getenv("NUPP_GUEST_PIECES") == "compare" then
+        local linkedAt = os.clock()
+        local whole = executable.fromChecked(programgraph.compile(catalog, profileFor(version)), version)
+        timings["compile whole"] = (timings["compile whole"] or 0) + os.clock() - linkedAt
+        local found = difference(linked, whole, "executable")
+        assert(found == nil, "linked " .. caseName .. " differs from its whole-program build at " .. tostring(found))
+    end
+
+    return linked
 end
 
 -- A case's program alone, compiled to the core executable, without the
