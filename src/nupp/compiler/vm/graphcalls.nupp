@@ -753,7 +753,8 @@ for _, group in ipairs(corelibrary.groups()) do
     end
 end
 
-local function preludeName(node: any): boolean
+-- Whether `node` is a name the prelude declares (Lua's globals).
+export function preludeName(node: any): boolean
     local definition = node and node.kind == "name" and node.token and node.token.definition
     return type(definition) == "table" and definition.filename == "nupp:lua.d.nupp"
 end

@@ -262,7 +262,7 @@ local function loadchunk(chunk: any, name: string?, mode: string?, env: table?):
         if compile == nil then
             return nil, chunkid(chunkname) .. ": text chunks need the compiler, which did not load: " .. missing
         end
-        local bytes, problem = compile.compile(text, chunkid(chunkname))
+        local bytes, problem = compile.compile(text, chunkid(chunkname), chunkname)
         if bytes == nil then
             return nil, problem
         end

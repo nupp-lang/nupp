@@ -8,6 +8,7 @@ local opcodes = require("nupp.compiler.vm.opcodes")
 local schema = require("nupp.compiler.vm.coregraphschema")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
 local graphimage = require("nupp.compiler.vm.graphimage")
+local cst = require("nupp.compiler.syntax.cst")
 local issued = setmetatable({}, {__mode = "k"})
 local bounds = schema.limits()
 
@@ -821,6 +822,26 @@ local function deriveCatalog(normalized: any): any
     }
 end
 
+-- Where Lua's debug.getinfo says each function of `result` is defined, from
+-- its checked owner in `catalog`: the lines its definition starts and ends
+-- on, 0 for a module's chunk and the function Lua's `load` compiled a chunk
+-- to, and its Lua source, "@" and its module's path or the name `load` was
+-- given.
+local function described(result: any, catalog: any): nil
+    local owners = catalog and catalog.owners or {}
+    for _, fn in ipairs(result.functions) do
+        local owner = owners[(fn.owner as integer) + 1]
+        if fn.chunk ~= nil and owner ~= nil then
+            local first, last = nil, nil
+            if owner.kind ~= "module" and not owner.main then
+                first, last = cst.firstToken(owner.node), cst.lastToken(owner.node)
+            end
+            fn.defined = {first and first.line or 0, last and last.line or 0}
+            fn.source = owner.scope.chunkname or "@" .. owner.scope.path
+        end
+    end
+end
+
 -- The retained checker objects are immutable borrows within this build process.
 -- This issuer is not a native loader or production frame/effect authority.
 export function fromChecked(compiled: any, version: integer?): any
@@ -831,6 +852,7 @@ export function fromChecked(compiled: any, version: integer?): any
     )
     need(normalized.modules[#normalized.modules].chunk == normalized.entry, "entry module must initialize last")
     local result = deriveCatalog(normalized)
+    described(result, compiled.catalog)
     local required = false
     for _, diagnostic in ipairs(diagnostics) do
         required = required or diagnostic.tail == true

@@ -560,7 +560,16 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         for _, diagnostic in ipairs(input.diagnostics) do
             need(p.chunk or diagnostic.severity ~= "error", "module has checker errors")
         end
-        local scope: any = {name = input.name, path = input.path, constants = {}, functions = {}, exports = {}}
+        -- A chunk's Lua source, the name Lua's `load` was given; a module's
+        -- is "@" and its path.
+        local scope: any = {
+            name = input.name,
+            path = input.path,
+            chunkname = input.chunkname,
+            constants = {},
+            functions = {},
+            exports = {}
+        }
         local owner: any = {
             id = #p.owners,
             kind = "module",
@@ -683,6 +692,9 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
                 body = body,
                 parent = owner.id,
                 scope = owner.scope,
+                -- A chunk is the function of `...` its module returns, which
+                -- Lua's debug.getinfo calls a main chunk.
+                main = p.chunk and owner.kind == "module" or nil,
                 signature = signature,
                 paramKinds = {},
                 captures = {},
