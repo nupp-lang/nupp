@@ -276,6 +276,7 @@ local CASES: {[string]: {
     osfiles = {fixture = "catalog-os-files", version = 8},
     filesystem = {fixture = "catalog-filesystem", version = 8, follow = true},
     osremove = {fixture = "catalog-os-remove", version = 8},
+    osfilesystem = {fixture = "catalog-os-filesystem", version = 8},
     -- The packaged test runner (nupp.lua build.targets.testRunner): the
     -- delivery path runs it on the core.
     testrunner = {fixture = "tests/tools/test/runner/main", version = 8, follow = true, rooted = true, module = "main"},

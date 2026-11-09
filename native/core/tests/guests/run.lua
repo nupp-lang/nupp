@@ -267,6 +267,8 @@ local CASES = {
     {"osfiles", 0x7FFF00000003FFFF},
     {"filesystem", 0x7FFF000000000001},
     {"osremove", 0x7FFF000000001FFF},
+    -- Main's os filesystem and system functions; main answers the same word.
+    {"osfilesystem", 0x7FFF0007FFFFFFFF},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
@@ -477,7 +479,8 @@ local STRESS = {
     ostime = true,
     osfiles = true,
     filesystem = true,
-    osremove = true
+    osremove = true,
+    osfilesystem = true
 }
 -- Shell statements a case's runs start with: the io and pool cases may hold
 -- 64 descriptors, so a handle left open, or opened by a cancelled pool job,
