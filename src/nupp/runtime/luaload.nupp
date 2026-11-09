@@ -20,9 +20,11 @@ const libraryvalues = require("nupp.runtime.libraryvalues")
 local pending: table? = nil
 
 --- The environment a chunk the compiler wrote reads its globals from, as it
---- starts: the table `load` was given, else the running program's `_G`.
-export function environment(): any
-    return pending or libraryvalues.functions._G
+--- starts: the table `load` was given, else the running program's `_G`; and
+--- the library functions as the program started, which the chunk calls the
+--- core for directly while its environment holds them.
+export function environment(): (any, any)
+    return pending or libraryvalues.functions._G, libraryvalues.originals
 end
 
 -- The compiler a text chunk compiles with, required by a name the program
@@ -260,7 +262,7 @@ local function loadchunk(chunk: any, name: string?, mode: string?, env: table?):
         if compile == nil then
             return nil, chunkid(chunkname) .. ": text chunks need the compiler, which did not load: " .. missing
         end
-        local bytes, problem = compile.compile(text, chunkid(chunkname))
+        local bytes, problem = compile.compile(text, chunkid(chunkname), chunkname)
         if bytes == nil then
             return nil, problem
         end

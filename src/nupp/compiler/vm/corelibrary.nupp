@@ -595,6 +595,15 @@ local subjectrows: {Subject} = {
         }
     },
     {
+        -- What Lua's debug.getinfo reads of a running function or a function
+        -- value, one field a call: the DEBUG group's operations, its first
+        -- argument. A file of its own: librarycalls' top level is full.
+        name = "debugging",
+        range = false,
+        output = "debuglibrary",
+        calls = {{name = "DEBUG_INFO", id = 207}}
+    },
+    {
         -- The host's services: os.getenv, os.monotonic(), the program's
         -- arguments (hostcalls.arguments, which `arg` holds), and the file
         -- calls (filecalls): the operation first, then its arguments.
@@ -803,6 +812,30 @@ local grouprows: {Group} = {
             {name = "TASK_NOW", library = "taskcalls.now", operation = 7, arguments = 0},
             {name = "TASK_SLEEP", library = "taskcalls.sleep", operation = 8, arguments = 1},
             {name = "TASK_INSTALL", library = "taskcalls.install", operation = 9, arguments = 2}
+        }
+    },
+    {
+        -- Lua's debug.getinfo fields (nupp.runtime.debugcalls), which the
+        -- DEBUG_INFO call takes, each of a target: a level counted from
+        -- the function making the call (1), or a function value. A level
+        -- with no function answers nil for each.
+        name = "DEBUG",
+        call = "DEBUG_INFO",
+        modules = {"debugcalls"},
+        operations = {
+            {name = "DEBUG_WHAT", library = "debugcalls.what", operation = 1, arguments = 1},
+            {name = "DEBUG_SOURCE", library = "debugcalls.source", operation = 2, arguments = 1},
+            {name = "DEBUG_SHORT", library = "debugcalls.short", operation = 3, arguments = 1},
+            {name = "DEBUG_LINE", library = "debugcalls.line", operation = 4, arguments = 1},
+            {name = "DEBUG_DEFINED", library = "debugcalls.defined", operation = 5, arguments = 1},
+            {name = "DEBUG_LASTDEFINED", library = "debugcalls.lastdefined", operation = 6, arguments = 1},
+            {name = "DEBUG_NAME", library = "debugcalls.name", operation = 7, arguments = 1},
+            {name = "DEBUG_NAMEWHAT", library = "debugcalls.namewhat", operation = 8, arguments = 1},
+            {name = "DEBUG_FUNC", library = "debugcalls.func", operation = 9, arguments = 1},
+            {name = "DEBUG_TAILCALL", library = "debugcalls.tailcall", operation = 10, arguments = 1},
+            {name = "DEBUG_UPVALUES", library = "debugcalls.upvalues", operation = 11, arguments = 1},
+            {name = "DEBUG_PARAMS", library = "debugcalls.params", operation = 12, arguments = 1},
+            {name = "DEBUG_VARARG", library = "debugcalls.vararg", operation = 13, arguments = 1}
         }
     }
 }

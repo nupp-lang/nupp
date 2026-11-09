@@ -367,6 +367,7 @@ local CASES: {[string]: {
     forwardfunctions = {fixture = "catalog-forward-functions", version = 8},
     closurecaptures = {fixture = "catalog-closure-captures", version = 8},
     standardosfirst = {fixture = "catalog-standard-os-first", version = 8, follow = true},
+    debuggetinfo = {fixture = "catalog-debug-getinfo", version = 8},
     osfilesystem = {fixture = "catalog-os-filesystem", version = 8},
     -- The compiler's lexer and parser on the core.
     compilerfront = {fixture = "catalog-compiler-front", version = 8, follow = true},
