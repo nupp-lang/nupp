@@ -860,6 +860,11 @@ export function describe(modules: {any}, entryModule: string): any
         if cst.isToken(node) or typeSyntax[node.kind] or graph.erased(node) then
             return
         end
+        -- An annotation's arguments are metadata the checker read; main emits
+        -- only the statement it annotates.
+        if node.kind == "annotationArg" then
+            return
+        end
         local bodyOwner = p.byBody[node]
         if bodyOwner then
             owner = bodyOwner

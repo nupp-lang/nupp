@@ -505,15 +505,32 @@ export function forVersion(version: integer): any
     -- suspends, which it holds without the core's help.
     -- Built-in `@deprecated` records tooling metadata; its declaration still
     -- runs as written and its checked migration lint remains unchanged.
-    local pragmas: {[string]: boolean} = {unsafe = true, aot = true, allow = true, nosuspend = true, deprecated = true}
+    -- `@cli`, `@debug` and `@event` configure what a derive generates and
+    -- `@syntax` an editor's highlighting: metadata the checker read. So is an
+    -- annotation a program declares. Main emits the statement each annotates
+    -- as written.
+    local pragmas: {
+        [string]: boolean
+    } = {
+        unsafe = true,
+        aot = true,
+        allow = true,
+        nosuspend = true,
+        deprecated = true,
+        cli = true,
+        debug = true,
+        event = true,
+        syntax = true
+    }
     profile.checkedPragma = function(ctx: any, node: any): nil
         local name = node.name and node.name.text
+        local definition = node.annotationDefinition
+        local declared = definition ~= nil and definition.name == name and definition.builtin ~= true
         need(
-            pragmas[name or ""] == true
-            and node.annotationDefinition
-            and node.annotationDefinition.name == name
-            and (name ~= "deprecated" or node.annotationDefinition.builtin == true),
-            "only a checked @unsafe, @aot, @allow, @nosuspend or @deprecated annotation is admitted, not @" .. tostring(
+            declared
+            or pragmas[name or ""] == true and definition and definition.name == name and definition.builtin == true,
+            "only a declared annotation or a checked metadata, @unsafe, @aot, @allow or @nosuspend annotation is admitted, not @"
+            .. tostring(
                 name
             )
         )
