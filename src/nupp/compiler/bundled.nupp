@@ -217,11 +217,8 @@ end
 --- @return its checkout path, without a trailing separator, or nil outside a checkout
 function bundled.sourceDirectory(prefix: string): string?
     local checkout = sourceCheckout()
-    if checkout == nil then
-        return nil
-    end
 
-    return (sourcePath(checkout, prefix:gsub("/$", "") .. "/"):gsub("/$", ""))
+    return checkout and (sourcePath(checkout, prefix:gsub("/$", "") .. "/"):gsub("/$", "")) or nil
 end
 
 --- The directory the compiled compiler modules were loaded from.
