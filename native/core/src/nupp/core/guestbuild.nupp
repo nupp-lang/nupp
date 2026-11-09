@@ -324,6 +324,8 @@ local CASES: {[string]: {
     -- `cdef function` calls through the generic foreign call.
     guestffi = {fixture = "catalog-guest-ffi", version = 8},
     ffiaggregates = {fixture = "catalog-ffi-aggregates", version = 8},
+    -- C declarations through libclang (nupp.compiler.corecdecl).
+    corecdecl = {fixture = "catalog-core-cdecl", version = 8},
     runnerresiduals = {fixture = "catalog-runner-residuals", version = 8},
     spreadlibrary = {fixture = "catalog-spread-library", version = 8},
     libraryresults = {fixture = "catalog-library-results", version = 8},

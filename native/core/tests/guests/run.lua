@@ -274,6 +274,9 @@ local CASES = {
     {"osremove", 0x7FFF000000001FFF},
     -- The compiler's host services as the core answers them for check and build.
     {"clihosts", 0x7FFF0000000000FF},
+    -- C declarations through libclang, and the VM's answers to every
+    -- request core-cdecl-record.lua records.
+    {"corecdecl", 0x7FFF0000000007FF},
     -- Main's os filesystem and system functions; main answers the same word.
     {"osfilesystem", 0x7FFF0007FFFFFFFF},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
@@ -502,6 +505,13 @@ local SETUP = {
     processlayer = "ulimit -n 64; ",
     benchworkloads = "export BENCH_SCALE=-9; ",
     -- The C library catalog-ffi-aggregates calls, built where each run finds it.
+    -- The VM's C declaration answers catalog-core-cdecl compares its own
+    -- with, recorded in the directory it then runs in.
+    corecdecl = (
+        "d=$(mktemp -d '%s/cdecl.XXXXXX') && cd \"$d\" && NUPP_VM_AUTO_REBUILD=0 '%s/bin/nupp' run "
+        .. "'%s/native/core/tests/core-cdecl-record.lua' \"$d/recorded\" > /dev/null "
+        .. "&& export CDECL_DIFF=\"$d/recorded\"; "
+    ):format(OUT, ROOT, ROOT),
     ffiaggregates = (
         "d=$(mktemp -d '%s/ffi.XXXXXX') && cc -dynamiclib -o \"$d/libnuppffiaggregates.dylib\" '%s' "
         .. "&& export DYLD_LIBRARY_PATH=\"$d\"; "
