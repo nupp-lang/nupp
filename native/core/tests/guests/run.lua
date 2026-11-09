@@ -256,7 +256,7 @@ local CASES = {
     -- Files read after a popen child closes, its pipe's descriptor reused.
     {"processreuse", 0x7FFF0000000003FF},
     -- The compiler's content digest and SHA-256, which the core computes.
-    {"hashdigests", 0x7FFF00000000007F},
+    {"hashdigests", 0x7FFF0000000000FF},
     {"processlayer", 0x7FFF000000FFFFFF},
     -- os.exit(3): the program ends there, publishing nothing (EXITS).
     {"processexit", 0},

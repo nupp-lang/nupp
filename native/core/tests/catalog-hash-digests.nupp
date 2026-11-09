@@ -3,10 +3,13 @@ module nupp.core.cataloghashdigests
 -- The compiler's content digest and SHA-256 on the core, which computes both
 -- over a string's bytes (guesthash): the hex digits the host's answer for
 -- every length the algorithms treat apart (each tail XXH64 reads, SHA-256's
--- padding in one block and in two), and for a long input. With
--- NUPP_HASH_BENCH set, each digest's throughput over that many megabytes is
--- written to standard error. Each check is a bit of the score.
+-- padding in one block and in two), and for a long input; and
+-- nupp.compiler.hash.digest, which the build and the test runner take their
+-- content digests through, answering the core's. With NUPP_HASH_BENCH set to
+-- megabyte counts ("1,4,64"), each digest's throughput over each is written
+-- to standard error. Each check is a bit of the score.
 local corehash = require("nupp.compiler.corehash")
+local hash = require("nupp.compiler.hash")
 local sha256 = require("nupp.digest.internal.sha256")
 
 local score = 0
@@ -38,14 +41,16 @@ check(hashes[#hashes] == "ea5685e94f1438edcce8c1861e0cfb3e307c89d61a9492992aa675
 check(corehash.digest(table.concat(digests)) == "77750a501835c1cf101aa1b4fbdbff46")
 check(sha256.sha256(table.concat(hashes)) == "1ac3d821cf8c635560318448a874c2162d77bc9b008df8700f353463e8bcf65d")
 
+-- The compiler's digest resolves to the core's.
+check(hash.digest(BASE) == corehash.digest(BASE))
+
 -- A string argument is required.
 local ok, message = pcall(corehash.digest, 7 as any)
 check(not ok and tostring(message):find("string", 1, true) ~= nil)
 
 const MEGABYTE = 1024 * 1024
-local setting = os.getenv("NUPP_HASH_BENCH")
-local megabytes: integer? = setting ~= nil and math.tointeger(tonumber(setting)) or nil
-if megabytes ~= nil then
+for setting in string.gmatch(os.getenv("NUPP_HASH_BENCH") or "", "%d+") do
+    local megabytes = math.tointeger(tonumber(setting)) as integer
     local text = string.rep("abcdefgh", megabytes * MEGABYTE // 8)
 
     local function measure(name: string, digest: function(string): string): nil
@@ -57,7 +62,7 @@ if megabytes ~= nil then
         )
     end
 
-    measure("digest", corehash.digest)
+    measure("hash.digest", hash.digest)
     measure("sha256", sha256.sha256)
 end
 
