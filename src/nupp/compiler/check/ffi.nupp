@@ -38,6 +38,20 @@ local function cHeader(c: state.Checker): any
     )
 end
 
+-- The C-header service, or nil for plain Lua checked without one (Lua's
+-- `load` on the native core, which has no FFI): its declarations then type
+-- nothing, and its type strings are cdata.
+local function optionalHeader(c: state.Checker): any
+    local services = c.env and c.env.compilerServices
+    if services == nil or services.cheader == nil then
+        if c.plainLua() then
+            return nil
+        end
+    end
+
+    return cHeader(c)
+end
+
 --- A type, as nupp.compiler.types builds them.
 local type Type = T.Type
 
@@ -141,10 +155,14 @@ export function install(c: state.Checker): Intrinsic
 
                     return nil
                 end
-                local t, err = cHeader(c).typeFromString(spec, resolver)
+                local header = optionalHeader(c)
+                local t, err = nil, nil
+                if header ~= nil then
+                    t, err = header.typeFromString(spec, resolver)
+                end
                 if t then
                     resolved = t
-                else
+                elseif header ~= nil then
                     c.diag("NUPP2304", node, ("not a C type: %s (%s)"):format(spec, tostring(err)))
                     return T.any
                 end
@@ -549,8 +567,9 @@ export function install(c: state.Checker): Intrinsic
                 and subject.token
             then
                 local body = cdefBody(subject.token.text)
-                if body then
-                    local ok, _, names = cHeader(c).declare(body)
+                local header = optionalHeader(c)
+                if body and header ~= nil then
+                    local ok, _, names = header.declare(body)
                     if ok then
                         c.recordCDeclarations(names)
                         node.cdefDeclarationBlock = true
@@ -570,8 +589,9 @@ export function install(c: state.Checker): Intrinsic
             end
             if strTok then
                 local body = cdefBody(strTok.text)
-                if body then
-                    local ok, err, names = cHeader(c).declare(body)
+                local header = optionalHeader(c)
+                if body and header ~= nil then
+                    local ok, err, names = header.declare(body)
                     c.recordCDeclarations(names)
                     node.cdefDeclarationBlock = true
                     if not ok then

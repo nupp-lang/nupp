@@ -270,6 +270,9 @@ local CASES: {[string]: {
     osremove = {fixture = "catalog-os-remove", version = 8},
     -- Lua's loaders over a binary chunk installed into the running program.
     loadbinary = {fixture = "catalog-load-binary", version = 8, chunks = {"catalog-load-chunk"}},
+    -- Lua's loaders over source text, compiled on the core by the compiler
+    -- the program carries (`follow` reaches it).
+    loadsource = {fixture = "catalog-load-source", version = 8, modules = {"catalog-load-helper"}, follow = true},
     -- The packaged test runner (nupp.lua build.targets.testRunner): the
     -- delivery path runs it on the core.
     testrunner = {fixture = "tests/tools/test/runner/main", version = 8, follow = true, rooted = true, module = "main"},

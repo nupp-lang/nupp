@@ -589,14 +589,16 @@ function contracts.normalize(compiled: any, version: integer?): (any, any)
         -- name when it runs.
         local loading = {}
         for _, site in ipairs(p.requires) do
-            if not (
-                type(site) == "table"
-                and (
-                    site.typeOnly and type(site.node) == "table" and site.node.typeOnlyRequire
-                    or site.corecalls
-                    or site.absent and site.target == nil and site.node.runtimeLoader == "require"
-                )
-            ) then
+            if not (type(
+                site
+            ) == "table"
+                and (site.typeOnly and type(
+                    site.node
+                ) == "table" and site.node.typeOnlyRequire
+                or site.corecalls
+                or site.absent and site.target == nil and site.node.runtimeLoader == "require"
+                -- A chunk's qualified path into the running program's module.
+                or site.absent and site.target == nil and site.qualified and p.chunk)) then
                 loading[#loading + 1] = site
             end
         end

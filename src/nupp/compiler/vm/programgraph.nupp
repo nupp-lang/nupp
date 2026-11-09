@@ -344,8 +344,25 @@ end
 
 program.parameters = graph.parameters
 
-function program.describe(modules: {any}, entryModule: string): any
+-- Whether `node` is a name a chunk reads as a global: one no declaration in
+-- it binds.
+local function chunkGlobal(p: any, node: any): boolean
+    if not p.chunk or node.kind ~= "name" or not node.token then
+        return false
+    end
+    local definition = node.token.definition
+
+    return definition == nil or p.byDefinition[definition] == nil
+end
+
+-- `options.chunk` describes a chunk Lua's `load` compiles (nupp.compiler.vm.corechunk):
+-- a name no declaration binds is a global, a field of the running program's
+-- `_G`, and every module it requires is the running program's, by name.
+function program.describe(modules: {any}, entryModule: string, options: any?): any
     local p: any = {
+        chunk = options ~= nil and options.chunk == true,
+        -- In a chunk, the name tokens that read or write a global.
+        globals = {},
         modules = {},
         owners = {},
         bindings = {},
@@ -398,8 +415,9 @@ function program.describe(modules: {any}, entryModule: string): any
         local parsed = need(input.parsed, "checked parse required")
         need(parsed.root and parsed.symbols and parsed.moduleName == input.name, "checked module identity required")
         need(input.diagnostics ~= nil and #parsed.errors == 0, "checked diagnostics required")
+        -- A chunk compiles whatever its checking found, as Lua's `load` does.
         for _, diagnostic in ipairs(input.diagnostics) do
-            need(diagnostic.severity ~= "error", "module has checker errors")
+            need(p.chunk or diagnostic.severity ~= "error", "module has checker errors")
         end
         local scope: any = {name = input.name, path = input.path, constants = {}, functions = {}, exports = {}}
         local owner: any = {
@@ -748,11 +766,21 @@ function program.describe(modules: {any}, entryModule: string): any
         local location = tostring(
             token and token.text
         ) .. " at " .. owner.scope.path .. ":" .. tostring(token and token.line)
+        if definition == nil and p.chunk then
+            p.globals[token] = true
+            return
+        end
         need(definition ~= nil, "unresolved executable reference " .. location)
         if definition.token == token then
             return
         end
         local b = p.byDefinition[definition]
+        -- A chunk reads what the prelude declares (`io`, `require`) as the
+        -- running program's global of that name.
+        if not b and p.chunk then
+            p.globals[token] = true
+            return
+        end
         if not b then
             need(
                 definition.token and type(definition.filename) == "string" and not sourcePaths[definition.filename],
@@ -939,6 +967,22 @@ function program.describe(modules: {any}, entryModule: string): any
         local qualified = (projection or node.kind == "dotIndex")
             and node.qualifiedModule
             and moduleNames[node.qualifiedModule]
+        -- A chunk's qualified path into a module it does not hold is into
+        -- the running program's, required by name where it is read.
+        if p.chunk and not qualified and (projection or node.kind == "dotIndex") and node.qualifiedModule then
+            local item = {
+                id = #p.requires,
+                owner = owner.id,
+                node = node,
+                module = graph.coremodule(node.qualifiedModule),
+                typeOnly = false,
+                qualified = true,
+                builtin = projection,
+                absent = true
+            }
+            p.requires[#p.requires + 1], p.requireByNode[node] = item, item
+            return
+        end
         if projection then
             need(qualified, "checked builtin projection module is missing: " .. projection.module)
         end
@@ -1299,8 +1343,11 @@ function program.describe(modules: {any}, entryModule: string): any
         -- name, is called through its value (`nupp.runtime.libraryvalues`).
         local throughValue = node.kind == "call"
             and node.obj.kind == "name"
-            and graph.libraryValue(node.obj) ~= nil
-            and moduleNames[graph.libraryModule(graph.libraryValue(node.obj) as string)] ~= nil
+            and (
+                graph.libraryValue(node.obj) ~= nil
+                and moduleNames[graph.libraryModule(graph.libraryValue(node.obj) as string)] ~= nil
+                or chunkGlobal(p, node.obj) and graph.coreLibraryCall(node) == nil
+            )
         if node.kind == "call"
             and node.obj.kind == "name"
             and not throughValue
@@ -1442,7 +1489,10 @@ function program.describe(modules: {any}, entryModule: string): any
     end
     for _, b in ipairs(p.bindings) do
         local required = b.definition.requiredModule
-        if required and not graph.corecallmodule(required) then
+        -- A chunk's local of a module the running program holds is the
+        -- value its require answers by name.
+        local foreign = p.chunk and required and moduleNames[program.importmodule(p, b)] == nil
+        if required and not graph.corecallmodule(required) and not foreign then
             local target = need(
                 moduleNames[program.importmodule(p, b)],
                 "required checked module is missing: " .. required
@@ -1602,7 +1652,8 @@ function program.verify(p: any): boolean
             if item.callable then
                 ownedcallables.verify(p, item.callable)
             end
-            if item.builtin then
+            -- A chunk's absent module initializes in the running program.
+            if item.builtin and not item.absent then
                 local current = program.builtinprojection(node)
                 local original = item.builtin
                 need(
@@ -1960,6 +2011,7 @@ function program.verify(p: any): boolean
                 (node.kind == "call" and node.obj.kind ~= "name"
                 -- A library function called by its name through its value.
                 or node.kind == "call" and graph.libraryValue(node.obj) ~= nil
+                or node.kind == "call" and chunkGlobal(p, node.obj) and graph.coreLibraryCall(node) == nil
                 or node.kind == "methodCall"
                 and graph.callbackArgument(node) ~= nil)
                 and p.callByNode[node] == item

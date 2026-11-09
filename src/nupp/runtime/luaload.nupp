@@ -4,14 +4,31 @@
 Lua's `load`, `loadfile`, `dofile` and LuaJIT's `loadstring` on the native
 core. A binary chunk installs into the running program
 (`hostcalls.install`), whose entry answers the chunk's function as it
-starts. A text chunk needs the compiler running on the core, which is not
-yet carried here: one that only returns a literal answers it, as the
-compiler's own `loadstring("return " .. token)` reads a literal's value,
-and any other answers nil and a message saying so.
+starts. A text chunk is compiled to one by the compiler running on the core
+(`nupp.compiler.vm.corechunk`), which a program carries by naming it
+(`@requires-dynamically`); one that only returns a literal answers it
+without, as the compiler's own `loadstring("return " .. token)` reads a
+literal's value.
 ]]
 module nupp.runtime.luaload
 
 const hostcalls = require("nupp.runtime.hostcalls")
+
+-- The compiler a text chunk compiles with, required by a name the program
+-- carries only where it names it.
+const COMPILER = "nupp.compiler.vm.corechunk"
+-- What requiring it answered: its module, or false where it is not carried.
+local compiler: any = nil
+
+local function textCompiler(): any
+    if compiler == nil then
+        local loader: function(string): any = require
+        local ok, found = pcall(loader, COMPILER)
+        compiler = ok and found or false
+    end
+
+    return compiler or nil
+end
 
 -- The byte a binary chunk starts with, as Lua's signature does.
 const BINARY = 27
@@ -228,7 +245,15 @@ local function loadchunk(chunk: any, name: string?, mode: string?, env: table?):
                 return value
             end, nil
         end
-        return nil, chunkid(chunkname) .. ": text chunks do not compile on the core yet"
+        local compile = textCompiler()
+        if compile == nil then
+            return nil, chunkid(chunkname) .. ": text chunks need the compiler, which this program does not carry"
+        end
+        local bytes, problem = compile.compile(text, chunkid(chunkname))
+        if bytes == nil then
+            return nil, problem
+        end
+        text = bytes as string
     end
     local entry = hostcalls.install(text)
     if entry == nil then
@@ -262,7 +287,7 @@ local function loadpath(filename: string?, mode: string?, env: table?): (any, st
     return loadchunk(text, name, mode, env)
 end
 
-local function runpath(filename: string?): any
+local function runpath(filename: string?): ...any
     local chunk, problem = loadpath(filename, nil, nil)
     if chunk == nil then
         error(problem, 0)

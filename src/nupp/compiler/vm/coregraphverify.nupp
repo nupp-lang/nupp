@@ -91,10 +91,10 @@ function verify.copyGraph(g: any, version: integer?, fromSource: boolean?): any
     end
     fields(g.counts, "v i f x")
     for _, class in ipairs({"v", "i", "f", "x"}) do
-        copy.counts[class] = integer(g.counts[class], 65536)
+        copy.counts[class] = integer(g.counts[class], bounds.values)
         need(class == "v" or copy.counts[class] == 0, "only tagged values are admitted")
     end
-    need(dense(g.types, 65536) == #copy.slots, "value columns differ")
+    need(dense(g.types, bounds.values) == #copy.slots, "value columns differ")
     for index, class in ipairs(g.types) do
         need(class == "v", "only tagged values are admitted")
         copy.types[index] = class
