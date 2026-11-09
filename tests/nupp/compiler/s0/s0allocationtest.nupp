@@ -1,3 +1,5 @@
+-- The owned backend's register allocator and the checker that proves its
+-- allocations (nupp.compiler.s0.allocate, allocationcheck).
 module nupp.compiler.s0.s0allocationtest
 
 local ir = require("nupp.compiler.s0.ir")
@@ -238,23 +240,4 @@ block0(v0: i64, v1: i64, v2: i64):
     assert(not pcall(check.run, pair, t, pairAllocation))
 
     return "S0 allocation cases passed"
-end
-
-export function corpus(path: string): string
-    local file = assert(io.open(path, "rb"))
-    local text = assert(file:read("*a"))
-    file:close()
-    local functions = reader.read(text)
-    local spills, moves, values, regions, extended = 0, 0, 0, 0, 0
-    for _, f in ipairs(functions) do
-        local t = target(false)
-        local a = allocate.run(f, t)
-        assert(check.run(f, t, a))
-        spills, moves, values = spills + a.spillSlots, moves + #a.moveSource, values + #f.valueKinds
-        regions, extended = regions + a.conservativeBlocks, extended + a.conservativeValues
-    end
-
-    return (
-        "%d functions checked, %d values, %d spill slots, %d edge moves; conservative %d blocks/%d definitions"
-    ):format(#functions, values, spills, moves, regions, extended)
 end

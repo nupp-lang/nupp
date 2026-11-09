@@ -1,3 +1,4 @@
+-- The owned backend's textual IR reader (nupp.compiler.s0.reader).
 module nupp.compiler.s0.s0readertest
 
 local reader = require("nupp.compiler.s0.reader")
@@ -14,21 +15,6 @@ block0:
 ]]):format(kind, kind, text)
     )
     return functions[1].imm[1]
-end
-
-export function readCorpus(path: string): string
-    local file = assert(io.open(path, "rb"))
-    local text = assert(file:read("*a"))
-    file:close()
-    local functions = reader.read(text)
-    local instructions, blocks, edges = 0, 0, 0
-    for _, f in ipairs(functions) do
-        instructions = instructions + #f.op
-        blocks = blocks + #f.blockStart
-        edges = edges + #f.edgeTarget
-    end
-
-    return ("%d functions, %d instructions, %d blocks, %d edges"):format(#functions, instructions, blocks, edges)
 end
 
 export function readerCases(): string

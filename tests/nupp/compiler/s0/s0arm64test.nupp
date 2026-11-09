@@ -1,3 +1,5 @@
+-- The owned backend's ARM64 assembler: golden encodings, refused operands and
+-- the register sets (nupp.compiler.s0.arm64, arm64target).
 module nupp.compiler.s0.s0arm64test
 
 local arm64 = require("nupp.compiler.s0.arm64")

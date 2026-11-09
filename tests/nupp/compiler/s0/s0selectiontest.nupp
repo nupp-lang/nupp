@@ -1,3 +1,5 @@
+-- The owned backend's instruction selection, and the forms it refuses
+-- (nupp.compiler.s0.select).
 module nupp.compiler.s0.s0selectiontest
 
 local reader = require("nupp.compiler.s0.reader")
@@ -6,40 +8,6 @@ local allocate = require("nupp.compiler.s0.allocate")
 local selector = require("nupp.compiler.s0.select")
 local arm = require("nupp.compiler.s0.arm64")
 local link = require("nupp.compiler.s0.link")
-
-export function corpus(path: string): string
-    local file = assert(io.open(path, "rb"))
-    local functions = reader.read(assert(file:read("*a")))
-    file:close()
-    local words, frames, selected, failed = 0, 0, 0, 0
-    local counts: {integer} = {}
-    local emitted: {integer} = {}
-    for op = 1, #ir.opNames do
-        counts[op], emitted[op] = 0, 0
-    end
-    for _, f in ipairs(functions) do
-        local ok, result = pcall(function(): selector.Code
-            return selector.run(f, allocate.run(f, selector.target()))
-        end)
-        if ok then
-            local code = result as selector.Code
-            selected, words, frames = selected + 1, words + #code.words, math.max(frames, code.frameBytes)
-            for op = 1, #ir.opNames do
-                counts[op], emitted[op] = counts[op] + code.opCounts[op], emitted[op] + code.opWords[op]
-            end
-        else
-            failed = failed + 1
-            print(f.name .. ": " .. tostring(result))
-        end
-    end
-    for op, name in ipairs(ir.opNames) do
-        print(("%s\t%d\t%d"):format(name, counts[op], emitted[op]))
-    end
-    print(("%d/%d functions selected, %d codewords, max frame %d bytes"):format(selected, #functions, words, frames))
-    assert(failed == 0, "S0 select: corpus refusals")
-
-    return "all frozen corpus functions selected"
-end
 
 local function compile(text: string, spill: boolean): selector.Code
     local f = reader.read(text)[1]

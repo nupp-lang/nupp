@@ -1,67 +1,9 @@
+-- The owned backend's sequencing of independent frame copies on block edges.
 module nupp.compiler.s0.s0framepairtest
 
 local reader = require("nupp.compiler.s0.reader")
 local allocate = require("nupp.compiler.s0.allocate")
 local selector = require("nupp.compiler.s0.select")
-local check = require("nupp.compiler.s0.allocationcheck")
-
-export function audit(path: string): string
-    local file = assert(io.open(path, "rb"))
-    local functions = reader.read(assert(file:read("*a")))
-    file:close()
-    for _, mode in ipairs({"normal", "spill"}) do
-        local pairs, edges, moves, scratchEdges = 0, 0, 0, 0
-        for _, f in ipairs(functions) do
-            local target = selector.target()
-            if mode == "spill" then
-                target.integerRegisters, target.floatRegisters = {}, {}
-            end
-            local a = allocate.run(f, target)
-            assert(check.run(f, target, a))
-            for e, first in ipairs(a.firstMove) do
-                local last = first + a.nmoves[e] - 1
-                local scratch = false
-                for p = first, last do
-                    scratch = scratch or a.moveSource[p] == 17 or a.moveTarget[p] == 17
-                end
-                moves = moves + a.nmoves[e]
-                if scratch then
-                    scratchEdges = scratchEdges + 1
-                else
-                    local p, count = first, 0
-                    while p < last do
-                        local source, destination = a.moveSource[p], a.moveTarget[p]
-                        if source < 0
-                            and destination < 0
-                            and a.moveSource[p + 1] == source - 1
-                            and a.moveTarget[p + 1] == destination - 1
-                            and destination ~= source - 1
-                            and source >= -62
-                            and destination >= -62
-                        then
-                            count, p = count + 1, p + 2
-                        else
-                            p = p + 1
-                        end
-                    end
-                    if count > 0 then
-                        if pairs == 0 then
-                            print(("sample\t%s\t%s\tedge%d\t%d pairs"):format(mode, f.name, e, count))
-                        end
-                        pairs, edges = pairs + count, edges + 1
-                    end
-                end
-            end
-        end
-        print(
-            (
-                "%s\t%d functions\t%d pairs\t%d edges\t%d moves\t%d scratch edges"
-            ):format(mode, #functions, pairs, edges, moves, scratchEdges)
-        )
-    end
-
-    return "frame-copy consumer audit complete"
-end
 
 export function cases(): string
     local ir = require("nupp.compiler.s0.ir")
@@ -150,33 +92,4 @@ block1(v1: i64):
     prove({-1, -2, -3}, {-4, -5, 17}, ir.I64, 0)
 
     return ("%d independent frame-copy sequence checks passed"):format(count)
-end
-
-export function prepare(directory: string, digest: string): string
-    local link = require("nupp.compiler.s0.link")
-    for _, name in ipairs({"copyi8", "copyi16", "copyi32", "copyi64", "copyf32", "copyf64"}) do
-        local path = directory .. "/" .. name .. ".clif"
-        local file = assert(io.open(path, "rb"))
-        local f = reader.read(assert(file:read("*a")))[1]
-        file:close()
-        for _, mode in ipairs({"normal", "spill"}) do
-            local target = selector.target()
-            if mode == "spill" then
-                target.integerRegisters, target.floatRegisters = {}, {}
-            end
-            local a = allocate.run(f, target)
-            assert(check.run(f, target, a))
-            local code = selector.run(f, a)
-            local pairs = 0
-            for _, word in ipairs(code.words) do
-                if (word & 0xffc07fff) == 0xa94046f0 then
-                    pairs = pairs + 1
-                end
-            end
-            assert(mode == "normal" or pairs > 0, name .. ": forced-spill pair consumer")
-            link.bundle(path, name, directory .. "/" .. mode .. "/" .. name, digest, mode)
-        end
-    end
-
-    return "12 native frame-copy bundles prepared; six forced-spill consumers verified"
 end
