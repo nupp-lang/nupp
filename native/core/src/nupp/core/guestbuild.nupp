@@ -62,7 +62,9 @@ local function cliextras(): {string}
     local list: {string} = {}
     for name in text:sub(start, stop):gmatch("\"([^\"]*)\"") do
         for module in name:gmatch("[%w%._]+") do
-            local relative = "src/" .. module:gsub("%.", "/")
+            -- A VM host provider the core replaces is carried as the core's.
+            local graph: any = require("nupp.compiler.vm.graph")
+            local relative = "src/" .. (graph.coremodule(module) as string):gsub("%.", "/")
             if not exists(root .. "/" .. relative .. ".nupp") then
                 relative = relative .. "/init"
             end
