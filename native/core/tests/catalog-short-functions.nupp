@@ -1,0 +1,27 @@
+module nupp.core.catalogshortfunctions
+
+-- Short function literals passed as arguments and kept as values, and `_ =`
+-- discards, whose values are evaluated and dropped.
+local function apply(f: function(integer): integer, n: integer): integer
+    return f(n)
+end
+
+local function pair(n: integer): (integer, integer)
+    return n, n + 1
+end
+
+local offset: integer = 10
+local total = apply(|x| -> x + offset, 5)
+local both = |n: integer| -> pair(n)
+local a, b = both(3)
+local calls: integer = 0
+
+local function bump(): integer
+    calls += 1
+    return calls
+end
+
+_ = bump()
+_ = apply(|x| -> x * 2, bump())
+
+export const result = total * 1000 + a * 100 + b * 10 + calls

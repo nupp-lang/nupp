@@ -234,6 +234,7 @@ local CASES: {[string]: {
     spanreads = {fixture = "nupp/core/catalogspanreads", version = 8, follow = true},
     spanwrites = {fixture = "nupp/core/catalogspanwrites", version = 8, follow = true},
     modulesdynamic = {fixture = "catalog-modules-dynamic", version = 8, modules = {"catalog-modules-geometry"},},
+    shortfunctions = {fixture = "catalog-short-functions", version = 8},
     modulescycle = {
         fixture = "catalog-modules-cycle",
         version = 8,
