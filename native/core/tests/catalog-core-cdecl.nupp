@@ -1,0 +1,142 @@
+module nupp.core.catalogcorecdecl
+
+-- C declarations on the core: the compiler's C declaration client
+-- (nupp.compiler.cinterop.cdecl) over the core's service
+-- (nupp.compiler.corecdecl), which asks libclang through the core's foreign
+-- calls: a struct's layout with a bit-field, a typedef, a function's
+-- parameters, a type string, an enum's values, a rejected unit and clang's
+-- messages. Then every request core-cdecl-record.lua sent the VM's service,
+-- in the file CDECL_DIFF names, sent to a fresh service here, each answer
+-- the VM's with declaration ids one for one. Each check is a bit of the
+-- score.
+const cdecl = require("nupp.compiler.cinterop.cdecl")
+const corecdecl = require("nupp.compiler.corecdecl")
+const json = require("nupp.serde.internal.json.values")
+
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+local ok, _, names = cdecl.declare(
+    "struct CorePoint { double x; int tag : 3; }; typedef struct CorePoint CorePoint; "
+    .. "int corePlot(const CorePoint *p, ...);"
+)
+check(ok and names ~= nil and (names as {[string]: boolean}).corePlot == true)
+
+local array: any = cdecl.typeFromString("CorePoint[4]")
+check(array ~= nil and array.kind == "array" and array.count == 4 and array.size == 64 and array.of.name == "CorePoint")
+
+local point: any = cdecl.structById(array.of.id)
+check(point ~= nil and point.size == 16 and point.align == 8 and #point.fields == 2)
+check(point.fields[2].name == "tag" and point.fields[2].offset == 8 and point.fields[2].bitWidth == 3)
+
+local plot: any = cdecl.declaredFunctions({corePlot = true}).corePlot
+check(plot ~= nil and plot.vararg == true and plot.params[1].name == "p" and plot.params[1].type.const == true)
+
+local broken, problem = cdecl.declare("int coreBroken(int x y);")
+check(not broken and problem == "expected ')'")
+
+local missing, refusal = cdecl.typeFromString("struct CoreMissing *")
+check(missing == nil and refusal == "undeclared or implicit tag 'CoreMissing'")
+
+local parsed: any = cdecl.inspect({"enum CoreMode { CORE_A = 1 << 2 };", "struct CoreBad { struct CoreNever n; };"})
+check(parsed ~= nil and parsed.declared == 2 and parsed.enums[1].values[1].value == 4 and parsed.enums[1].unsigned)
+check(
+    #parsed.rejected == 1
+    and parsed.rejected[1].reason == "field has incomplete type 'struct CoreNever' (its size is unknown)"
+)
+
+check(cdecl.float32(0.1) == 0.10000000149011612)
+
+-- The VM's answers, compared: ids are matched one for one, the first pair
+-- of each fixing it.
+local forward: {[any]: any} = {}
+local backward: {[any]: any} = {}
+
+local function same(a: any, b: any, path: string): (boolean, string?)
+    if type(a) ~= type(b) then
+        return false, path .. ": " .. type(a) .. " vs " .. type(b)
+    elseif type(a) ~= "table" then
+        if a ~= b then
+            return false, path .. ": " .. tostring(a) .. " vs " .. tostring(b)
+        end
+        return true, nil
+    end
+    for key, value in pairs(a) do
+        local other = b[key]
+        if key == "id" and type(value) == "number" and type(other) == "number" then
+            if forward[value] == nil and backward[other] == nil then
+                forward[value], backward[other] = other, value
+            end
+            if forward[value] ~= other then
+                return false, path .. ".id: " .. tostring(value) .. " vs " .. tostring(other)
+            end
+        else
+            local equal, why = same(value, other, path .. "." .. tostring(key))
+            if not equal then
+                return false, why
+            end
+        end
+    end
+    for key, value in pairs(b) do
+        if a[key] == nil then
+            return false, path .. "." .. tostring(key) .. ": missing vs " .. tostring(value)
+        end
+    end
+
+    return true, nil
+end
+
+-- Every recorded request answered here, against the VM's answer: how many
+-- there were and how many differed, which a run prints when any did.
+local function compare(recorded: string): (integer, integer)
+    local file = io.open(recorded, "rb")
+    if file == nil then
+        return 0, 0
+    end
+    corecdecl.reset()
+    local requests: integer, mismatches: integer = 0, 0
+    for line in file:lines() do
+        local tab = line:find("\t", 1, true)
+        if tab then
+            requests = requests + 1
+            local request = line:sub(1, tab - 1)
+            local expected = line:sub(tab + 1)
+            local answered = corecdecl.request(request)
+            local equal, why = same(json.decode(expected), json.decode(answered), "")
+            if not equal then
+                mismatches = mismatches + 1
+                if mismatches <= 20 then
+                    print(
+                        (
+                            "MISMATCH %d %s\n  why: %s\n  vm:   %s\n  core: %s"
+                        ):format(
+                            requests,
+                            request:sub(1, 200),
+                            tostring(why),
+                            expected:sub(1, 400),
+                            answered:sub(1, 400)
+                        )
+                    )
+                end
+            end
+        end
+    end
+    file:close()
+    if mismatches > 0 then
+        print(("%d requests, %d mismatches"):format(requests, mismatches))
+    end
+
+    return requests, mismatches
+end
+
+local requests, mismatches = compare(os.getenv("CDECL_DIFF") or "")
+check(requests > 300 and mismatches == 0)
+
+export const result = score
