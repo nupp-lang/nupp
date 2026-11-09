@@ -683,7 +683,8 @@ local RAISES = {
         {"raising", reported("nupp: [^\n]*catalogerrorsuncaught%.nupp:42: inner")},
         {"named", reported("nupp: already named")},
         {"table", reported("nupp: table: 0x%x+")},
-        {"nil", reported("nupp: nil")}
+        {"nil", reported("nupp: nil")},
+        {"module", reported("nupp: module 'nupp.core.absentmodule' not found:\n.*")}
     }
 }
 -- The twins that run commands: the reference interpreter they run under is
