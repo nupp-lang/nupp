@@ -155,6 +155,9 @@ record ir.Signature
     params: {integer}
     results: {integer}
     convention: integer
+    -- A variadic C function's declared parameters; its later arguments
+    -- are the variadic ones. Nil when it is not variadic.
+    fixed: integer?
 end
 
 record ir.Function

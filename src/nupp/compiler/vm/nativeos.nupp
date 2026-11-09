@@ -18,65 +18,35 @@ local definitions = {
     readInput = {slot = 9, params = {"voidptr", "uint64"}, result = "int64", cResult = "int64"},
     monotonicNanos = {slot = 10, params = {}, result = "uint64", cResult = "uint64"},
     argument = {slot = 11, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    fileOpen = {slot = 12, params = {"voidptr", "uint64", "uint64"}, result = "int64", cResult = "int64"},
-    fileRead = {slot = 13, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    fileWrite = {slot = 14, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    fileSeek = {slot = 15, params = {"uint64", "uint64", "uint64"}, result = "int64", cResult = "int64"},
-    fileClose = {slot = 16, params = {"uint64"}, result = "int64", cResult = "int64"},
-    errorText = {slot = 17, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    pollOpen = {slot = 18, params = {}, result = "int64", cResult = "int64"},
-    pollArm = {slot = 19, params = {"uint64", "uint64", "uint64"}, result = "int64", cResult = "int64"},
-    pollWait = {slot = 20, params = {"uint64", "uint64"}, result = "int64", cResult = "int64"},
-    pipeOpen = {slot = 21, params = {}, result = "int64", cResult = "int64"},
-    poolStart = {slot = 22, params = {"uint64"}, result = "int64", cResult = "int64"},
-    poolSubmit = {slot = 23, params = {"uint64", "uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    poolTake = {slot = 24, params = {}, result = "int64", cResult = "int64"},
-    poolFinish = {slot = 25, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    poolCancel = {slot = 26, params = {"uint64"}, result = "int64", cResult = "int64"},
-    sleepNanos = {slot = 27, params = {"uint64"}, result = "uint64", cResult = "uint64"},
-    processPipe = {slot = 28, params = {"uint64"}, result = "int64", cResult = "int64"},
-    processSpawn = {slot = 29, params = {"voidptr", "uint64", "uint64"}, result = "int64", cResult = "int64"},
-    processWatch = {slot = 30, params = {"uint64", "uint64"}, result = "int64", cResult = "int64"},
-    processUnwatch = {slot = 31, params = {"uint64", "uint64"}, result = "int64", cResult = "int64"},
-    processReap = {slot = 32, params = {"uint64"}, result = "int64", cResult = "int64"},
-    processKill = {slot = 33, params = {"uint64", "uint64"}, result = "int64", cResult = "int64"},
-    processExit = {slot = 34, params = {"uint64"}, result = "int64", cResult = "int64"},
-    wallClock = {slot = 35, params = {}, result = "int64", cResult = "int64"},
-    cpuClock = {slot = 36, params = {}, result = "uint64", cResult = "uint64"},
-    timeParts = {slot = 37, params = {"uint64", "uint64", "voidptr"}, result = "int64", cResult = "int64"},
-    timeMake = {slot = 38, params = {"voidptr"}, result = "int64", cResult = "int64"},
+    poolStart = {slot = 12, params = {"uint64"}, result = "int64", cResult = "int64"},
+    poolSubmit = {slot = 13, params = {"uint64", "uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    poolTake = {slot = 14, params = {}, result = "int64", cResult = "int64"},
+    poolFinish = {slot = 15, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    poolCancel = {slot = 16, params = {"uint64"}, result = "int64", cResult = "int64"},
+    sleepNanos = {slot = 17, params = {"uint64"}, result = "uint64", cResult = "uint64"},
+    wallClock = {slot = 18, params = {}, result = "int64", cResult = "int64"},
+    cpuClock = {slot = 19, params = {}, result = "uint64", cResult = "uint64"},
+    timeParts = {slot = 20, params = {"uint64", "uint64", "voidptr"}, result = "int64", cResult = "int64"},
+    timeMake = {slot = 21, params = {"voidptr"}, result = "int64", cResult = "int64"},
     timeFormat = {
-        slot = 39,
+        slot = 22,
         params = {"uint64", "uint64", "voidptr", "uint64", "voidptr", "uint64"},
         result = "int64",
         cResult = "int64"
     },
-    fileRemove = {slot = 40, params = {"voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    fileRename = {slot = 41, params = {"voidptr", "uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    fileTemporary = {slot = 42, params = {"voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    dirOpen = {slot = 43, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    dirNames = {slot = 44, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    unlinkEntry = {slot = 45, params = {"uint64", "voidptr", "uint64", "uint64"}, result = "int64", cResult = "int64"},
-    atomicload64 = {slot = 46, params = {"voidptr", "int64"}, result = "uint64", cResult = "uint64"},
-    atomiccas64 = {slot = 47, params = {"voidptr", "int64", "uint64", "uint64"}, result = "uint64", cResult = "uint64"},
-    securefill = {slot = 48, params = {"voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    systemquery = {slot = 49, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    wallMillis = {slot = 50, params = {}, result = "uint64", cResult = "uint64"},
-    fileInfo = {slot = 51, params = {"voidptr", "uint64", "uint64", "voidptr"}, result = "int64", cResult = "int64"},
-    fileStatus = {slot = 52, params = {"uint64", "voidptr"}, result = "int64", cResult = "int64"},
-    readLink = {slot = 53, params = {"voidptr", "uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    makeDirectory = {slot = 54, params = {"voidptr", "uint64", "uint64"}, result = "int64", cResult = "int64"},
-    makeSymlink = {slot = 55, params = {"voidptr", "uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    changeMode = {slot = 56, params = {"voidptr", "uint64", "uint64"}, result = "int64", cResult = "int64"},
-    syncFile = {slot = 57, params = {"uint64"}, result = "int64", cResult = "int64"},
-    pathQuery = {
-        slot = 58,
-        params = {"uint64", "voidptr", "uint64", "voidptr", "uint64"},
-        result = "int64",
-        cResult = "int64"
-    },
-    processsignal = {slot = 59, params = {"uint64", "uint64"}, result = "int64", cResult = "int64"},
-    poolsettle = {slot = 60, params = {"uint64"}, result = "int64", cResult = "int64"}
+    atomicload64 = {slot = 23, params = {"voidptr", "int64"}, result = "uint64", cResult = "uint64"},
+    atomiccas64 = {slot = 24, params = {"voidptr", "int64", "uint64", "uint64"}, result = "uint64", cResult = "uint64"},
+    securefill = {slot = 25, params = {"voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    systemquery = {slot = 26, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    wallMillis = {slot = 27, params = {}, result = "uint64", cResult = "uint64"},
+    poolsettle = {slot = 28, params = {"uint64"}, result = "int64", cResult = "int64"},
+    dlopen = {slot = 29, params = {"voidptr", "int64"}, result = "voidptr", cResult = "voidptr"},
+    dlsym = {slot = 30, params = {"voidptr", "voidptr"}, result = "voidptr", cResult = "voidptr"},
+    dlclose = {slot = 31, params = {"voidptr"}, result = "int64", cResult = "int64", narrow = "int32"},
+    errnoLocation = {slot = 32, params = {}, result = "voidptr", cResult = "voidptr"},
+    -- Not a function: the table foreign calls cache their resolved symbols
+    -- in, foreignSlots words the bridge zeroes.
+    foreignTable = {slot = 33, table = true}
 }
 
 local function need(value: any, message: string): any
@@ -102,6 +72,63 @@ end
 
 export function importCount(): integer
     return imports
+end
+
+-- How many symbols and libraries one program's foreign calls may resolve:
+-- the words of the bridge's table (`SLOTS` in native/core/bridge/src/library.rs).
+const FOREIGN_SLOTS: integer = 1024
+
+export function foreignSlots(): integer
+    return FOREIGN_SLOTS
+end
+
+-- The import slots a foreign call's resolution reads: the table, dlopen and dlsym.
+export function foreignImports(): (integer, integer, integer)
+    return definitions.foreignTable.slot, definitions.dlopen.slot, definitions.dlsym.slot
+end
+
+-- The exact kinds a foreign call passes and answers, as the C ABI does.
+local foreignKinds: {
+    [string]: boolean
+} = {
+    voidptr = true,
+    int32 = true,
+    uint32 = true,
+    int64 = true,
+    uint64 = true,
+    boolean = true,
+    float32 = true,
+    float64 = true
+}
+
+-- The C results that arrive in fewer than 64 bits, which the caller extends.
+local narrowKinds: {[string]: boolean} = {int32 = true, uint32 = true}
+local WIDENED: {[string]: string} = {int32 = "int64", uint32 = "uint64"}
+
+-- The identity the checker recorded for a call of a `cdef function`
+-- ("function", its library and its symbol), nil for any other call.
+local function cdefOf(call: any): string?
+    if call.kind ~= "call" or call.obj.kind ~= "name" or not call.cdefCall then
+        return nil
+    end
+
+    return call.cdefIdentity
+end
+
+-- Whether `call` calls a `cdef function` its module declares.
+export function isForeign(call: any): boolean
+    return cdefOf(call) ~= nil
+end
+
+-- The exact kind a foreign argument or result has: an integer literal or an
+-- `integer` is int64, as the core holds both.
+local function foreignKind(t: any): string
+    if t and (t.tag == "literal" or t.tag == "const") then
+        return foreignKind(t.tag == "literal" and t.base or t.inner)
+    end
+    local tag = t and (t.tag == "integer" and "int64" or t.tag) or nil
+
+    return need(tag and foreignKinds[tag] and tag, "foreign call kind is not a C scalar or pointer")
 end
 
 local function same(actual: any, expected: any): nil
@@ -221,6 +248,7 @@ export function call(owner: any, call: any): any
         effect = effect,
         result = result,
         out = out,
+        narrow = spec.narrow,
         fields = {
             moduleName = declaration.moduleName,
             name = declaration.name,
@@ -233,6 +261,106 @@ export function call(owner: any, call: any): any
     return declaration
 end
 
+-- A call of a `cdef function` its sealed unit declares: a direct C call
+-- through the symbol the first call resolves and the bridge's table keeps
+-- (s0.select). Arguments past a variadic function's declared ones take the
+-- kinds the caller gives them. A 32-bit C result reads as int64 where the
+-- caller expects one or names no kind, since the call extends it.
+export function foreign(owner: any, site: any, expected: string?): any
+    local identity = need(cdefOf(site), "foreign site requires a cdef function")
+    local definition = site.obj.token.definition
+    need(
+        unit.callee(owner, site) == nil and not (definition and definition.reassigned),
+        "foreign callee is not its cdef"
+    )
+    local kind, library, symbol = (identity as string):match("^(.-)\0(.-)\0(.*)$")
+    need(kind == "function" and symbol and symbol:match("^[%a_][%w_]*$"), "foreign symbol identity")
+    local signature = site.obj.inferredType
+    need(
+        signature
+        and signature.tag == "func"
+        and signature.foreign
+        and #signature.rets <= 1
+        and not signature.borrowsResult
+        and (signature.ffiOut == nil or #signature.ffiOut == 0),
+        "foreign site requires a plain C signature"
+    )
+    local params, snapshot = {}, {}
+    for index, parameter in ipairs(signature.params) do
+        local mode = signature.paramModes and signature.paramModes[index] or "plain"
+        need(mode == "plain" or mode == "borrows", "foreign parameter ownership")
+        params[index] = foreignKind(parameter)
+    end
+    local fixed = #params
+    local variadic = signature.paramPack.tail ~= nil
+    local exprs = site.args.exprs or {}
+    need(#exprs == fixed or variadic and #exprs > fixed, "foreign source argument count")
+    for index = fixed + 1, #exprs do
+        params[index] = foreignKind(exprs[index].inferredType)
+    end
+    table.move(params, 1, #params, 1, snapshot)
+    local narrow = nil
+    local machineResult = "nil"
+    if signature.rets[1] then
+        machineResult = foreignKind(signature.rets[1])
+        if narrowKinds[machineResult] then
+            narrow = machineResult
+            -- Read as the 64-bit kind unless the caller asks for the narrow one.
+            if expected == "int64" or expected == "uint64" then
+                machineResult = expected
+            elseif expected == nil then
+                machineResult = WIDENED[machineResult]
+            end
+        end
+    end
+    local effect = {mayCollect = false, mayPark = false, mayRaise = false, pure = false}
+    local declaration = {
+        moduleName = "nupp.runtime.vm.foreign",
+        name = symbol,
+        params = params,
+        result = machineResult,
+        effects = effect
+    }
+    issued[
+        declaration
+    ] = {
+        bound = {owner = owner, call = site, identity = identity, signature = signature},
+        foreign = {
+            library = library == "<default>" and "" or library,
+            symbol = symbol,
+            fixed = variadic and fixed or nil
+        },
+        params = snapshot,
+        effect = effect,
+        narrow = narrow,
+        fields = {
+            moduleName = declaration.moduleName,
+            name = declaration.name,
+            params = params,
+            result = machineResult,
+            effects = effect
+        }
+    }
+
+    return declaration
+end
+
+-- What a foreign call resolves: its library ("" for the program's own
+-- symbols), its symbol and, when it is variadic, how many arguments it
+-- declares; nil for an OS import.
+export function binding(declaration: any): any?
+    validate(declaration)
+    local resolved = issued[declaration].foreign
+    return resolved and {library = resolved.library, symbol = resolved.symbol, fixed = resolved.fixed} or nil
+end
+
+-- The C result a call answers in fewer than 64 bits, which the caller
+-- extends: "int32" or "uint32", or nil.
+export function narrow(declaration: any): string?
+    validate(declaration)
+    return issued[declaration].narrow
+end
+
 export function isIssued(declaration: any): boolean
     return issued[declaration] ~= nil
 end
@@ -242,6 +370,15 @@ export function validate(declaration: any, owner: any?): any
     same(declaration, held.fields)
     same(declaration.params, held.params)
     same(declaration.effects, {mayCollect = false, mayPark = false, mayRaise = false, pure = false})
+    if held.foreign then
+        local bound = held.bound
+        need(owner == nil or owner == bound.owner, "foreign source owner differs")
+        need(
+            cdefOf(bound.call) == bound.identity and bound.call.obj.inferredType == bound.signature,
+            "foreign checked source changed"
+        )
+        return true
+    end
     local bound = unit.osDeclaration(held.bound.owner, held.bound.call)
     need(owner == nil or owner == bound.owner, "OS source owner differs")
     need(

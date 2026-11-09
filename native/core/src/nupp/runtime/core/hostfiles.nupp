@@ -1,0 +1,388 @@
+module nupp.runtime.core.hostfiles
+
+-- The file and directory system calls under the program's file layer
+-- (filecalls), made through the C library: each answers a descriptor,
+-- count or position, or the negated error number. A path is a string's
+-- bytes up to its first NUL, as C reads one. The constants are macOS's, the
+-- one host the core's compiler targets (aarch64-apple-darwin).
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const strings = require("nupp.runtime.core.corestrings")
+const c = require("nupp.runtime.core.hostc")
+
+cdef function open(borrows path: voidptr, flags: int64, ...): int32
+cdef function openat(parent: int64, borrows path: voidptr, flags: int64, ...): int32
+cdef function read(fd: int64, borrows buffer: voidptr, count: uint64): int64
+cdef function write(fd: int64, borrows buffer: voidptr, count: uint64): int64
+cdef function lseek(fd: int64, offset: int64, whence: int64): int64
+cdef function close(fd: int64): int32
+cdef function dup(fd: int64): int32
+cdef function strerror(code: int64): voidptr
+cdef function strlen(borrows text: voidptr): uint64
+cdef function memcpy(borrows target: voidptr, borrows source: voidptr, count: uint64): voidptr
+cdef function remove(borrows path: voidptr): int32
+cdef function rename(borrows from: voidptr, borrows to: voidptr): int32
+cdef function mkstemp(borrows template: voidptr): int32
+cdef function unlinkat(parent: int64, borrows path: voidptr, flags: int64): int32
+cdef function fdopendir(fd: int64): voidptr
+cdef function rewinddir(borrows dir: voidptr)
+cdef function readdir(borrows dir: voidptr): voidptr
+cdef function closedir(borrows dir: voidptr): int32
+
+-- filecalls' access flags.
+const READ: uint64 = 1ULL
+const WRITE: uint64 = 2ULL
+const CREATE: uint64 = 4ULL
+const TRUNCATE: uint64 = 8ULL
+const APPEND: uint64 = 16ULL
+const EXCLUSIVE: uint64 = 32ULL
+const PRIVATE: uint64 = 64ULL
+const DIRECTORY: uint64 = 128ULL
+
+-- The C library's, on macOS.
+const O_RDONLY: int64 = 0
+const O_WRONLY: int64 = 1
+const O_RDWR: int64 = 2
+const O_APPEND: int64 = 0x8
+const O_NOFOLLOW: int64 = 0x100
+const O_CREAT: int64 = 0x200
+const O_TRUNC: int64 = 0x400
+const O_EXCL: int64 = 0x800
+const O_DIRECTORY: int64 = 0x100000
+const O_CLOEXEC: int64 = 0x1000000
+-- AT_FDCWD is -2: the working directory, for a call relative to a directory.
+const AT_FDCWD_NEGATED: int64 = 2
+const AT_REMOVEDIR: int64 = 0x80
+const ELOOP: int64 = 62
+const ENOTDIR: int64 = 20
+const SHARED_MODE: int64 = 438
+const PRIVATE_MODE: int64 = 384
+const LAST_WHENCE: uint64 = 2ULL
+const MODE_SHIFT: int64 = 32
+-- Where a directory entry's name starts in macOS's struct dirent.
+const ENTRY_NAME: int64 = 21
+
+-- os.tmpname's template, "/tmp/lua_XXXXXX", as the two words it is.
+const TEMPLATE_HEAD: uint64 = 0x61756c2f706d742fULL
+const TEMPLATE_TAIL: uint64 = 0x005858585858585fULL
+const TEMPLATE_BYTES: uint64 = 15ULL
+const WORD_BYTES: uint64 = 8ULL
+
+-- The C open flags for filecalls' `flags`, as Rust's OpenOptions makes
+-- them; -1 for a combination it refuses.
+local function openFlags(flags: uint64): int64
+    local reading = (flags & READ) ~= 0ULL
+    local appending = (flags & APPEND) ~= 0ULL
+    local writing = (flags & WRITE) ~= 0ULL and not appending
+    local creating = (flags & CREATE) ~= 0ULL
+    local truncating = (flags & TRUNCATE) ~= 0ULL
+    local exclusive = (flags & EXCLUSIVE) ~= 0ULL
+    local result: int64 = O_CLOEXEC
+    if appending then
+        result = result | O_APPEND
+        if reading then
+            result = result | O_RDWR
+        else
+            result = result | O_WRONLY
+        end
+        if truncating and not exclusive then
+            return -1
+        end
+    elseif writing then
+        if reading then
+            result = result | O_RDWR
+        else
+            result = result | O_WRONLY
+        end
+    elseif reading then
+        if creating or truncating or exclusive then
+            return -1
+        end
+        result = result | O_RDONLY
+    else
+        return -1
+    end
+    if exclusive then
+        result = result | O_CREAT | O_EXCL
+    else
+        if creating then
+            result = result | O_CREAT
+        end
+        if truncating then
+            result = result | O_TRUNC
+        end
+    end
+    if (flags & DIRECTORY) ~= 0ULL then
+        result = result | O_DIRECTORY
+    end
+
+    return result
+end
+
+-- The mode a file filecalls' `flags` create gets, less the umask.
+local function permissionsOf(flags: uint64): int64
+    if (flags & PRIVATE) ~= 0ULL then
+        return PRIVATE_MODE
+    end
+
+    return SHARED_MODE
+end
+
+-- A pool open job's word for filecalls' `flags` (native/core/bridge/src/pool.rs):
+-- the C open flags, the mode above MODE_SHIFT; -1 for flags open refuses.
+export function poolFlags(flags: uint64): int64
+    local mode = openFlags(flags)
+    if mode < 0 then
+        return -1
+    end
+
+    return mode | permissionsOf(flags) << MODE_SHIFT
+end
+
+-- Opens the file at `path` with filecalls' access `flags`.
+export function openFile(h: heap.Heap*, path: uint64, flags: uint64): int64
+    local state = strings.Builder(0ULL, 0ULL)
+    local mode = openFlags(flags)
+    if mode < 0 then
+        return 0 - c.EINVAL
+    end
+    local permissions = permissionsOf(flags)
+    @unsafe do
+        local lifetime = strings.open(h, state as strings.Builder*)
+        local name = c.append(h, lifetime, path)
+        while true do
+            local fd: int64 = open(c.at(lifetime, name), mode, permissions)
+            if fd >= 0 then
+                return fd
+            end
+            if not c.interrupted() then
+                return c.failure()
+            end
+        end
+    end
+
+    return 0 - c.EINVAL
+end
+
+-- At most `room` bytes read from `fd` into `out`.
+export function readInto(fd: uint64, out: voidptr, room: uint64): int64
+    @unsafe do
+        while true do
+            local count = read(native.index(fd), out, room)
+            if count >= 0 then
+                return count
+            end
+            if not c.interrupted() then
+                return c.failure()
+            end
+        end
+    end
+
+    return 0 - c.EINVAL
+end
+
+-- Writes `bytes` at `base` to `fd`: the count written.
+export function writeFrom(fd: uint64, base: voidptr, bytes: uint64): int64
+    @unsafe do
+        while true do
+            local count = write(native.index(fd), base, bytes)
+            if count >= 0 then
+                return count
+            end
+            if not c.interrupted() then
+                return c.failure()
+            end
+        end
+    end
+
+    return 0 - c.EINVAL
+end
+
+-- Moves `fd` to `offset` from its start (0), position (1) or end (2).
+export function seek(fd: uint64, offset: uint64, whence: uint64): int64
+    if whence > LAST_WHENCE then
+        return 0 - c.EINVAL
+    end
+    local position = lseek(native.index(fd), native.index(offset), native.index(whence))
+    if position < 0 then
+        return c.failure()
+    end
+
+    return position
+end
+
+-- Closes `fd`, which is gone even when this fails: 0.
+export function closeFile(fd: uint64): int64
+    local status: int64 = close(native.index(fd))
+    if status ~= 0 then
+        return c.failure()
+    end
+
+    return 0
+end
+
+-- The C library's text for error number `code`, copied into `out` as far
+-- as `room` allows: its whole length.
+export function reason(code: uint64, out: voidptr, room: uint64): int64
+    @unsafe do
+        local text = strerror(native.index(code))
+        local length = strlen(text)
+        if native.address(out) ~= 0ULL then
+            local count = length
+            if count > room then
+                count = room
+            end
+            local _ = memcpy(out, text, count)
+        end
+
+        return native.index(length)
+    end
+end
+
+-- Removes the file or empty directory at `path`, as C's remove: 0.
+export function removeFile(h: heap.Heap*, path: uint64): int64
+    local state = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local lifetime = strings.open(h, state as strings.Builder*)
+        local name = c.append(h, lifetime, path)
+        local status: int64 = remove(c.at(lifetime, name))
+        if status ~= 0 then
+            return c.failure()
+        end
+
+        return 0
+    end
+end
+
+-- Renames the file at `from` to `to`, as C's rename: 0.
+export function renameFile(h: heap.Heap*, from: uint64, to: uint64): int64
+    local state = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local lifetime = strings.open(h, state as strings.Builder*)
+        local source = c.append(h, lifetime, from)
+        local target = c.append(h, lifetime, to)
+        local status: int64 = rename(c.at(lifetime, source), c.at(lifetime, target))
+        if status ~= 0 then
+            return c.failure()
+        end
+
+        return 0
+    end
+end
+
+-- Makes a new empty file named from os.tmpname's template, as Lua does
+-- with mkstemp, and closes it, leaving its name in `b`: 0.
+export function temporary(h: heap.Heap*, borrows b: strings.Builder*): int64
+    @unsafe do
+        if strings.appendWord(h, b, TEMPLATE_HEAD, WORD_BYTES) ~= 0ULL
+            or strings.appendWord(h, b, TEMPLATE_TAIL, WORD_BYTES) ~= 0ULL
+        then
+            error("not enough memory")
+        end
+        local fd: int64 = mkstemp(c.at(b, 0ULL))
+        if fd < 0 then
+            return c.failure()
+        end
+        local _: int64 = close(fd)
+        local _ = strings.truncate(b, TEMPLATE_BYTES)
+
+        return 0
+    end
+end
+
+-- The working directory when `parent` is negative, else `parent`.
+local function parentOf(parent: uint64): int64
+    local fd = native.index(parent)
+    if fd < 0 then
+        return 0 - AT_FDCWD_NEGATED
+    end
+
+    return fd
+end
+
+-- Opens the directory `path` below `parent` without following a link: its
+-- descriptor, ENOTDIR for anything that is not a directory, a link included.
+export function openDirectory(h: heap.Heap*, parent: uint64, path: uint64): int64
+    local state = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local lifetime = strings.open(h, state as strings.Builder*)
+        local name = c.append(h, lifetime, path)
+        local fd: int64 = openat(parentOf(parent), c.at(lifetime, name), O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        if fd >= 0 then
+            return fd
+        end
+        local failed = c.failure()
+        if failed == 0 - ELOOP then
+            return 0 - ENOTDIR
+        end
+
+        return failed
+    end
+end
+
+-- Whether the NUL-terminated name at `name` is "." or "..".
+local function dots(name: voidptr): boolean
+    local first = native.load8(name, 0)
+    local second = native.load8(name, 1)
+    if first ~= 46 then
+        return false
+    end
+
+    return second == 0 or second == 46 and native.load8(name, 2) == 0
+end
+
+-- The names of directory `fd`'s entries, "." and ".." aside, each followed
+-- by a NUL, copied into `out` as far as `room` allows: their whole length.
+export function names(fd: uint64, out: voidptr, room: uint64): int64
+    @unsafe do
+        local copy: int64 = dup(native.index(fd))
+        if copy < 0 then
+            return c.failure()
+        end
+        local dir = fdopendir(copy)
+        if native.address(dir) == 0ULL then
+            local failed = c.failure()
+            local _: int64 = close(copy)
+            return failed
+        end
+        rewinddir(dir)
+        local length: uint64 = 0ULL
+        while true do
+            local entry = readdir(dir)
+            if native.address(entry) == 0ULL then
+                break
+            end
+            local name = native.pointer(native.address(entry) + native.word(ENTRY_NAME))
+            if not dots(name) then
+                local count = strlen(name) + 1ULL
+                if length + count <= room then
+                    local _ = memcpy(native.pointer(native.address(out) + length), name, count)
+                end
+                length = length + count
+            end
+        end
+        local _: int64 = closedir(dir)
+
+        return native.index(length)
+    end
+end
+
+-- Unlinks the entry `path` in directory `parent` (the working directory when
+-- negative), an empty directory when `directory` is 1: 0.
+export function unlinkEntry(h: heap.Heap*, parent: uint64, path: uint64, directory: uint64): int64
+    local state = strings.Builder(0ULL, 0ULL)
+    local flags: int64 = 0
+    if directory == 1ULL then
+        flags = AT_REMOVEDIR
+    end
+    @unsafe do
+        local lifetime = strings.open(h, state as strings.Builder*)
+        local name = c.append(h, lifetime, path)
+        local status: int64 = unlinkat(parentOf(parent), c.at(lifetime, name), flags)
+        if status ~= 0 then
+            return c.failure()
+        end
+
+        return 0
+    end
+end

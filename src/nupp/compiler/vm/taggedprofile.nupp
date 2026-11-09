@@ -179,6 +179,19 @@ function tagged.constant(ctx: any, node: any, expected: string?): integer
     )
 end
 
+-- A reassigned local's own copy of a parameter's value (functiongraph).
+function tagged.freshLocal(ctx: any, node: any, value: integer): integer
+    return ctx.emit(node, "Move", {value}, "tagged") as integer
+end
+
+-- A static switch case is equality dispatch: its constant against the
+-- selector, as Lua's == compares them.
+function tagged.switchCase(ctx: any, value: any, subject: integer, kind: string): integer
+    local candidate = need(ctx.expression(value, "tagged"), "switch case lost its value")
+
+    return ctx.emit(value, "Eq", {subject, candidate}, "tagged") as integer
+end
+
 function tagged.unary(ctx: any, node: any, expected: string?): integer
     need(catalog(ctx).byNode[node] ~= nil, "nonliteral unary operations are unsupported")
     return tagged.literal(ctx, node, expected)
@@ -353,7 +366,10 @@ function tagged.erasedStatement(ctx: any, stat: any): nil
                 -- A nested type declares a type only, and so does a nested
                 -- record of fields alone, built where it is constructed. One
                 -- with methods holds a table of its own (`recordValue`).
-                or entry.kind == "typeAlias" or entry.kind == "recordDecl",
+                or entry.kind == "typeAlias" or entry.kind == "recordDecl"
+                -- An array part (`{T}` in the body) types the record's integer
+                -- keys; it declares no value.
+                or entry.kind == "arrayPart",
                 "unsupported record entry: " .. tostring(entry.kind) .. " in " .. tostring(stat.name and stat.name.text)
             )
         end

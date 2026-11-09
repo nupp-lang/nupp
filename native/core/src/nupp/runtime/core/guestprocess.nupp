@@ -1,18 +1,24 @@
 module nupp.runtime.core.guestprocess
 
--- The process layer's calls a program reaches through the file calls'
--- LibCall (HOST_FILES), from PROCESS_FIRST to PROCESS_LAST (librarylayouts):
--- processcalls.d.nupp's, each answering what the bridge's call did. The one
--- table (nupp.compiler.vm.corelibrary) numbers them.
+-- The process layer's calls a program reaches through the file calls' LibCall
+-- (HOST_FILES), from PROCESS_FIRST to PROCESS_LAST (librarylayouts):
+-- processcalls.d.nupp's, each answering what its system call did (hostpoll,
+-- hostprocess). The one table (nupp.compiler.vm.corelibrary) numbers them.
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const values = require("nupp.runtime.vm.values")
-const os = require("nupp.runtime.vm.os")
 const context = require("nupp.runtime.core.context")
 const strings = require("nupp.runtime.core.corestrings")
 const ints = require("nupp.runtime.core.coreintegers")
 const guestscope = require("nupp.runtime.core.guestscope")
 const librarylayouts = require("nupp.runtime.core.librarylayouts")
+const hostpoll = require("nupp.runtime.core.hostpoll")
+const hostprocess = require("nupp.runtime.core.hostprocess")
+
+-- processcalls.pipe's `keep`: the end the program keeps is nonblocking.
+const KEEP_READ_END: uint64 = 0ULL
+const KEEP_WRITE_END: uint64 = 1ULL
+const INVALID: int64 = 22
 
 local function heapOf(ctx: voidptr): heap.Heap*
     @unsafe do
@@ -36,26 +42,29 @@ export function call(ctx: voidptr, operation: uint64, a: uint64, b: uint64): uin
     @unsafe do
         local h = heapOf(ctx)
         if operation == librarylayouts.PROCESS_PIPE then
-            return ints.make(h, native.word(os.processPipe(integerOf(a))))
+            local keep = integerOf(a)
+            if keep > KEEP_WRITE_END then
+                return ints.make(h, native.word(0 - INVALID))
+            end
+            return ints.make(h, native.word(hostpoll.pipeWith(h, keep == KEEP_READ_END, keep == KEEP_WRITE_END)))
         elseif operation == librarylayouts.PROCESS_SPAWN then
             local spec = strings.header(a)
             if spec == 0ULL then
                 error("process calls: a string argument was expected")
             end
-            local base = native.pointer(strings.bytes(spec))
-            return ints.make(h, native.word(os.processSpawn(base, strings.length(spec), integerOf(b))))
+            return ints.make(h, native.word(hostprocess.spawn(h, spec, integerOf(b))))
         elseif operation == librarylayouts.PROCESS_WATCH then
-            return ints.make(h, native.word(os.processWatch(integerOf(a), integerOf(b))))
+            return ints.make(h, native.word(hostpoll.watch(h, integerOf(a), integerOf(b))))
         elseif operation == librarylayouts.PROCESS_UNWATCH then
-            return ints.make(h, native.word(os.processUnwatch(integerOf(a), integerOf(b))))
+            return ints.make(h, native.word(hostpoll.unwatch(h, integerOf(a), integerOf(b))))
         elseif operation == librarylayouts.PROCESS_REAP then
-            return ints.make(h, native.word(os.processReap(integerOf(a))))
+            return ints.make(h, native.word(hostprocess.reap(h, integerOf(a))))
         elseif operation == librarylayouts.PROCESS_KILL then
-            return ints.make(h, native.word(os.processKill(integerOf(a), integerOf(b))))
+            return ints.make(h, native.word(hostprocess.killGroup(integerOf(a), integerOf(b))))
         elseif operation == librarylayouts.PROCESS_SIGNAL then
-            return ints.make(h, native.word(os.processsignal(integerOf(a), integerOf(b))))
+            return ints.make(h, native.word(hostprocess.signal(integerOf(a), integerOf(b))))
         elseif operation == librarylayouts.PROCESS_EXIT then
-            local _ = os.processExit(integerOf(a))
+            local _ = hostprocess.finish(integerOf(a))
             return values.NIL
         end
     end

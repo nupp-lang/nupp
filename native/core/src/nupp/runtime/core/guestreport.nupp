@@ -8,7 +8,7 @@ module nupp.runtime.core.guestreport
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const values = require("nupp.runtime.vm.values")
-const os = require("nupp.runtime.vm.os")
+const hostfiles = require("nupp.runtime.core.hostfiles")
 const strings = require("nupp.runtime.core.corestrings")
 const guestvalues = require("nupp.runtime.core.guestvalues")
 const guesterrors = require("nupp.runtime.core.guesterrors")
@@ -28,7 +28,7 @@ const NEWLINE_BYTES: uint64 = 1ULL
 local function write(base: uint64, length: uint64): nil
     local done: uint64 = 0ULL
     while done < length do
-        local written = os.fileWrite(STANDARD_ERROR, native.pointer(base + done), length - done)
+        local written = hostfiles.writeFrom(STANDARD_ERROR, native.pointer(base + done), length - done)
         if written <= 0 then
             return
         end

@@ -774,6 +774,7 @@ local libraryValues: {
     string = true,
     table = true,
     next = true,
+    ipairs = true,
     pairs = true,
     select = true,
     ["string.char"] = true,
