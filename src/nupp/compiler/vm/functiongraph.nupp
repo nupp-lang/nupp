@@ -1510,8 +1510,11 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 local key = name.definition or name
                 -- A hoisted export's cell was bound as the module started.
                 local hoisted = hoistedCells[key] ~= nil
-                local initial = hoisted or invoke("recursiveBinding", stat, key)
-                if initial and not hoisted then
+                -- `function f()` naming a local declared before it assigns
+                -- that local, which closures made since may already hold.
+                local declared = not hoisted and stat.kind == "funcStmt" and bindings[key] ~= nil
+                local initial = hoisted or declared or invoke("recursiveBinding", stat, key)
+                if initial and not hoisted and not declared then
                     ctx.bind(key, initial as integer)
                 end
                 local value = invoke("closure", stat, nil)
