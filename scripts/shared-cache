@@ -17,6 +17,7 @@
 #   programs/KEY.bin     guest program selections (native/core/tests/guests/run.lua)
 #   vm-cli/GEN/          compiler generations, named by their own content
 #   vm-cli-builds/KEY    the generation, and its receipt, a build of KEY produced
+#   build-steps/KEY.bin  a compiler build step's outputs (nupp.tools.vm.buildsteps)
 #
 # Every entry is named by the content it was computed from, written aside and
 # renamed into place, so a reader never sees a partial one, and nothing here is
@@ -272,7 +273,7 @@ entries() {
     else
         flag=-c format='%X %Y %s %n'
     fi
-    for kind in kernels programs vm-cli-builds; do
+    for kind in kernels programs vm-cli-builds build-steps; do
         [ -d "$STORE/$kind" ] || continue
         find "$STORE/$kind" -type f -print0 | xargs -0 stat "$flag" "$format" 2>/dev/null \
             | awk '{ used = ($1 > $2 ? $1 : $2); size = int(($3 + 1023) / 1024); path = $0
@@ -321,7 +322,7 @@ sweep() {
         rm -rf "$path"
     done
     # What a writer that died left aside, once nobody could still be writing it.
-    for kind in kernels programs vm-cli-builds vm-cli; do
+    for kind in kernels programs vm-cli-builds build-steps vm-cli; do
         [ -d "$STORE/$kind" ] || continue
         find "$STORE/$kind" -maxdepth 1 -name '.part-*' -mmin +$((keep / 60)) -exec rm -rf {} + 2>/dev/null || true
     done

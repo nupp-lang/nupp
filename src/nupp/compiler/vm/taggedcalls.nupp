@@ -11,6 +11,7 @@ local graphcalls = require("nupp.compiler.vm.graphcalls")
 local lexer = require("nupp.compiler.syntax.lexer")
 local taggedvalues = require("nupp.compiler.vm.taggedvalues")
 local taggedforeign = require("nupp.compiler.vm.taggedforeign")
+local managedcells = require("nupp.compiler.vm.managedcells")
 local catalog = taggedvalues.catalog
 local cleanupGraphs = taggedvalues.cleanupGraphs
 local landed = taggedvalues.landed
@@ -730,6 +731,17 @@ export function ownership(ctx: any, node: any, count: integer): {integer}?
         end
         local results = {}
         for index = 1, count do
+            results[index] = ctx.emit(node, "Nil", {}, "tagged")
+        end
+        return results
+    elseif operation == "manage" then
+        -- `own.manage(value)` answers the managed cell that now owns the value.
+        local cell = managedcells.make(ctx, node)
+        if cell == nil then
+            return nil
+        end
+        local results = {cell}
+        for index = 2, count do
             results[index] = ctx.emit(node, "Nil", {}, "tagged")
         end
         return results

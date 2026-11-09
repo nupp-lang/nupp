@@ -1,0 +1,23 @@
+module nupp.core.catalognamedarguments
+
+-- Named arguments bind to their parameters, in calls and method calls; an
+-- optional parameter the call skips is nil.
+local record Table
+    widths: {integer}
+
+    function column(self, heading: string, align: string?, paint: string?, minimumwidth: integer?): Table
+        local width = minimumwidth or #heading
+        self.widths[#self.widths + 1] = width * 10 + (align == nil and 1 or 0) + (paint == nil and 2 or 0)
+        return self
+    end
+end
+
+local function combine(a: integer, b: integer?, c: integer?, d: integer?): integer
+    return a + (b or 0) * 10 + (c or 0) * 100 + (d or 0) * 1000
+end
+
+local t = Table(widths = {})
+t:column("level", minimumwidth = 7):column("ab"):column("x", align = "left", minimumwidth = 4)
+
+export const result = combine(1, c = 3) + combine(2, b = 5, d = 9) * 1000
+    + (t.widths[1] + t.widths[2] + t.widths[3]) * 100000000

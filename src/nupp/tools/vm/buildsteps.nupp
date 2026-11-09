@@ -1,0 +1,181 @@
+--[[
+Compiler build steps kept for the next build that reads the same inputs.
+
+A step whose inputs are byte for byte those of one made before, in this checkout
+or any other, reuses what that one made instead of making it again: the
+compiler's parallel AOT, which reads the image and the AOT tool, and the native
+core's lowering, which reads the lowering code the image carries, the runtime
+sources, the native layouts and the interpreter running it.
+
+Each step is kept in the machine's shared store (`scripts/shared-cache`, kind
+`build-steps`) under the digest of its inputs: every output as a file of its
+own, then a receipt holding the inputs and each output's SHA-256. A kept step is
+used only when its recorded inputs equal this build's and every output hashes as
+recorded; anything else is a miss, and a miss makes the step as a build always
+did. NUPP_VM_BUILD_FRESH=1 makes every step.
+]]
+module nupp.tools.vm.buildsteps
+
+local fs = require("nupp.compiler.fs")
+local hash = require("nupp.compiler.hash")
+
+--- Bumped when an entry's shape or meaning changes.
+const FORMAT = "vm-build-step/2"
+
+const KIND = "build-steps"
+
+--- Where the store is when NUPP_CACHE_HOME is unset, beneath HOME.
+const DEFAULT_HOME = "/.cache/nupp"
+
+local function store(): string?
+    if os.getenv("NUPP_VM_BUILD_FRESH") == "1" then
+        return nil
+    end
+    local home = os.getenv("NUPP_CACHE_HOME")
+    if home == nil or home == "" then
+        local user = os.getenv("HOME")
+        if user == nil or user == "" then
+            return nil
+        end
+        home = user .. DEFAULT_HOME
+    end
+    local directory = (home as string) .. "/" .. KIND
+
+    return fs.mkdir(directory) and directory or nil
+end
+
+-- The receipt's path for `step` with `inputs`; each output is kept beside it,
+-- its name after the receipt's.
+local function entryPath(step: string, inputs: {string}): string?
+    local directory = store()
+    if directory == nil then
+        return nil
+    end
+    local key = hash.sha256(FORMAT .. "\0" .. step .. "\0" .. table.concat(inputs, "\0"))
+
+    return (directory as string) .. "/" .. key .. ".bin"
+end
+
+--- The outputs, by name, a build of `step` with exactly `inputs` kept, every
+--- one hashing as it did when kept; nil otherwise.
+export function kept(step: string, inputs: {string}): {[string]: string}?
+    local path = entryPath(step, inputs)
+    local text = path and fs.readFile(path as string)
+    if not text then
+        return nil
+    end
+    local persisted, persist = pcall(require, "nupp.vm.persist")
+    if not persisted then
+        return nil
+    end
+    local ok, entry = pcall(persist.loadData, text)
+    if not ok
+        or type(entry) ~= "table"
+        or entry.format ~= FORMAT
+        or entry.step ~= step
+        or type(entry.inputs) ~= "table"
+        or type(entry.files) ~= "table"
+        or #entry.inputs ~= #inputs
+    then
+        return nil
+    end
+    for index, input in ipairs(inputs) do
+        if entry.inputs[index] ~= input then
+            return nil
+        end
+    end
+    local files: {[string]: string} = {}
+    for name, digest in pairs(entry.files as table) do
+        local bytes = type(name) == "string" and fs.readFile((path as string) .. "." .. (name as string)) or nil
+        if bytes == nil or hash.sha256(bytes as string) ~= digest then
+            return nil
+        end
+        files[name as string] = bytes as string
+    end
+
+    return files
+end
+
+--- Keeps `files` (name to bytes) as what `step` made from `inputs`. A store
+--- that cannot be written keeps nothing.
+export function keep(step: string, inputs: {string}, files: {[string]: string}): nil
+    local path = entryPath(step, inputs)
+    local persisted, persist = pcall(require, "nupp.vm.persist")
+    if path == nil or not persisted then
+        return
+    end
+    local digests: {[string]: string} = {}
+    for name, bytes in pairs(files) do
+        if not fs.writeFile((path as string) .. "." .. name, bytes) then
+            return
+        end
+        digests[name] = hash.sha256(bytes)
+    end
+    local encoded, text = pcall(persist.saveData, {format = FORMAT, step = step, inputs = inputs, files = digests})
+    if encoded then
+        fs.writeFile(path as string, text)
+    end
+end
+
+--- The source a module name resolves to under `root`'s `src`, relative to
+--- `root`, or nil.
+local function sourceOf(root: string, name: string): string?
+    local relative = "src/" .. name:gsub("%.", "/")
+    for _, suffix in ipairs({".nupp", ".d.nupp", "/init.nupp", ".lua", "/init.lua"}) do
+        if fs.exists(root .. "/" .. relative .. suffix) then
+            return relative .. suffix
+        end
+    end
+
+    return nil
+end
+
+--- What the native core's lowering reads, as one digest: the lowering code this
+--- image carries (`nupp.compiler.clif.lower` and every module it reaches, the
+--- whole image when that cannot be told), the declarations it carries, and the
+--- runtime sources under `root` with every module they require by name, the
+--- VM declarations beside them and the project configuration. Run on the image
+--- that will lower, as `runtime run IMAGE nupp.tools.vm.buildsteps
+--- loweringInputs ROOT`.
+export function loweringInputs(root: string): string
+    local fingerprint = require("nupp.compiler.project.fingerprint")
+    local lower = require("nupp.compiler.clif.lower")
+    local parts: {string} = {
+        fingerprint.subsystemFingerprint({
+            "nupp.compiler.clif.lower"
+        }),
+        fingerprint.declarationFingerprint(),
+    }
+    local seen: {[string]: boolean} = {}
+    local files: {string} = {}
+    local pending: {string} = {}
+    for _, relative in ipairs(lower.RUNTIME_MODULES) do
+        pending[#pending + 1] = relative
+    end
+    for name in fs.children(root .. "/src/nupp/runtime/vm") do
+        if name:sub(-7) == ".d.nupp" then
+            pending[#pending + 1] = "src/nupp/runtime/vm/" .. name
+        end
+    end
+    pending[#pending + 1] = "nupp.lua"
+    while #pending > 0 do
+        local relative = table.remove(pending) as string
+        if not seen[relative] then
+            seen[relative] = true
+            local text = fs.readFile(root .. "/" .. relative) or ""
+            files[#files + 1] = relative .. "\0" .. hash.sha256(text)
+            for name in text:gmatch("require%s*%(?%s*[\"']([%w_%.]+)[\"']") do
+                local found = sourceOf(root, name)
+                if found then
+                    pending[#pending + 1] = found as string
+                else
+                    files[#files + 1] = "?" .. name
+                end
+            end
+        end
+    end
+    table.sort(files)
+    parts[#parts + 1] = table.concat(files, "\0")
+
+    return hash.sha256(table.concat(parts, "\0"))
+end

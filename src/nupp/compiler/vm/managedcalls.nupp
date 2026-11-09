@@ -1,0 +1,92 @@
+--[[
+`own.manage(value)` on the core.
+
+Main hands the value to the ownership runtime with a function running its
+cleanups. The core makes the same managed cell by one checked call of
+`nupp.runtime.provider.coremanaged`'s factory, issued here against the
+factory's declaration and never written into the checked tree, with the
+cleanups the checker described and the value's policy.
+]]
+module nupp.compiler.vm.managedcalls
+
+local cst = require("nupp.compiler.syntax.cst")
+local ownedcallables = require("nupp.compiler.vm.ownedcallables")
+
+export const MODULE = "nupp.runtime.provider.coremanaged"
+export const MEMBER = "create"
+
+local function need(value: any, message: string): any
+    assert(value, "managed call: " .. message)
+    return value
+end
+
+local function checkCleanup(cleanup: any): nil
+    local kind = cleanup.kind
+    if kind == "field" then
+        need(type(cleanup.field) == "string", "a field cleanup names its field")
+        checkCleanup(need(cleanup.cleanup, "a field cleanup has its own cleanup"))
+    elseif kind == "method" then
+        need(type(cleanup.name) == "string", "a method cleanup names its method")
+    elseif kind == "function" then
+        need(type(cleanup.key) == "string", "a cleanup function lacks its key")
+    else
+        need(kind == "closure", "unsupported managed cleanup " .. tostring(kind))
+    end
+end
+
+--- Whether a checked call is `own.manage`.
+export function managing(node: any): boolean
+    return type(node) == "table" and node.kind == "call" and node.ownershipIntrinsic == "manage"
+end
+
+--- The factory call `own.manage` call `node` makes, as owner `owner` runs it.
+export function prepare(p: any, node: any, owner: any): any
+    for _, cleanup in ipairs(need(node.managedCleanups, "own.manage lacks its checked cleanups")) do
+        checkCleanup(cleanup)
+    end
+    local target = ownedcallables.checkedFactory(p, MODULE, MEMBER)
+
+    return {
+        node = node,
+        owner = owner.id,
+        target = target,
+        call = ownedcallables.factoryCall(target, cst.firstToken(node))
+    }
+end
+
+--- Whether a plan still answers its checked call.
+export function verify(p: any, plan: any): nil
+    local node, call = plan.node, plan.call
+    need(p.manages[node] == plan and managing(node), "managed call changed")
+    need(plan.target == ownedcallables.checkedFactory(p, MODULE, MEMBER), "managed factory changed")
+    need(
+        call.calleeType == plan.target.signature
+        and call.obj.token.definition == plan.target.definition
+        and call.token == cst.firstToken(node),
+        "managed call differs from its checked call"
+    )
+    local site = p.callByNode[call]
+    need(
+        site
+        and p.calls[site.id + 1] == site
+        and site.managed == plan
+        and site.owner == plan.owner
+        and site.definition == plan.target.definition,
+        "managed call lacks its issued callsite"
+    )
+    local loader = plan.loader
+    need(
+        loader
+        and p.requires[loader.id + 1] == loader
+        and p.requireByNode[loader.node] == loader
+        and loader.managed == plan
+        and loader.owner == plan.owner
+        and loader.module == MODULE
+        and loader.target == plan.target.parent
+        and loader.qualified == true
+        and not loader.eager
+        and loader.node.kind == "qualifiedLoad"
+        and loader.node[1] == cst.firstToken(node),
+        "managed loader differs from its checked call"
+    )
+end
