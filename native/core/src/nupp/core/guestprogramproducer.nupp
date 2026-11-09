@@ -32,10 +32,23 @@ local function shallow(value: any): any
     return result
 end
 
+-- Bytes are written as hex this many at a time: one format of a byte run
+-- costs about a third of formatting each byte, over the tens of megabytes of
+-- code a program carrying the compiler publishes.
+const HEX_RUN = 64
+const HEX_FORMAT = string.rep("%02x", HEX_RUN)
+
 local function hex(value: string): string
-    return (value:gsub(".", function(byte: string): string
-        return string.format("%02x", byte:byte())
-    end))
+    local parts: {string} = {}
+    local at, size = 1, #value
+    while at <= size do
+        local last = math.min(at + HEX_RUN - 1, size)
+        local format = last - at + 1 == HEX_RUN and HEX_FORMAT or string.rep("%02x", last - at + 1)
+        parts[#parts + 1] = string.format(format, value:byte(at, last))
+        at = last + 1
+    end
+
+    return table.concat(parts)
 end
 
 -- Wraps a primary selection in the supplemental lifecycle audit entry.
