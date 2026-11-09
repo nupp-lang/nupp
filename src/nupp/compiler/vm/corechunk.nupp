@@ -13,6 +13,7 @@ local cst = require("nupp.compiler.syntax.cst")
 local types = require("nupp.compiler.types")
 local checker: any = require("nupp.compiler.check")
 local environment: any = require("nupp.compiler.project.env")
+local bundled = require("nupp.compiler.bundled")
 local program = require("nupp.compiler.vm.programgraph")
 local tagged = require("nupp.compiler.vm.taggedprofile")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
@@ -78,7 +79,11 @@ local held: any = nil
 
 local function checkingEnvironment(): any
     if held == nil then
-        local root = environment.compilerRoot() or "."
+        -- The checkout the compiler's declarations are read from, which the
+        -- core names only through its environment.
+        local named = os.getenv("NUPP_COMPILER_ROOT")
+        local root = named ~= nil and named ~= "" and named or environment.compilerRoot() or "."
+        bundled.checkout(root)
         held = environment.new(root, {memoryOnly = true, cache = false, nativeCompilerServices = false})
     end
 
