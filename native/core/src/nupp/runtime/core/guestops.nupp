@@ -629,7 +629,7 @@ export function metaPrepare(
         child = frames.prepareFixed(s, frame, info, callee, base, taken, resultSlot, plan)
     end
     if child == 0ULL then
-        failure(ctx, RESOURCE)
+        fail(ctx, frame, pc, RESOURCE)
         return 0ULL
     end
     if variadic and packVarargs(ctx, frame, native.pointer(child), base, nargs) ~= 1ULL then
