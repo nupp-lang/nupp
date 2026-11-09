@@ -67,7 +67,8 @@ local function setup(fn: any, options: any, alternatives: boolean): any
         or fn.node.kind == "funcExpr"
         or fn.node.kind == "funcStmt"
         or fn.node.kind == "inlineMethod"
-        or fn.node.kind == "constructorDecl",
+        or fn.node.kind == "constructorDecl"
+        or fn.node.kind == "shortfn",
         "unsupported function declaration form"
     )
     -- Plain type parameters erase, and so do const ones (`const N: integer`):
@@ -263,10 +264,13 @@ export function closure(ctx: any, node: any, expected: string?): integer
         or node.kind == "funcExpr"
         or node.kind == "funcStmt"
         or node.kind == "inlineMethod"
-        or node.kind == "constructorDecl",
+        or node.kind == "constructorDecl"
+        or node.kind == "shortfn",
         "unsupported function declaration form"
     )
-    local target = need(catalog(ctx).byBody[node.body], "closure lacks checked owner")
+    -- A short function `|x| -> e` is its own body.
+    local body = node.kind == "shortfn" and node or node.body
+    local target = need(catalog(ctx).byBody[body], "closure lacks checked owner")
     need(target.node == node and target.parent == ctx.fn.id, "closure owner identity mismatch")
     ordinaryCaptures(target)
     local args = {target.id}

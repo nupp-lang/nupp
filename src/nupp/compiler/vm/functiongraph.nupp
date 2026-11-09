@@ -2137,6 +2137,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             need(sourceBlock.kind == "block" and sourceBlock.stats, "unsupported module initializer block")
             statements(sourceBlock.stats)
         end
+    elseif body.kind == "shortfn" and body.expr then
+        -- `|x| -> e` answers every value of e, as `return e` does.
+        statements({{kind = "returnStmt", exprs = {body.expr}, body.expr}})
     else
         need(body.body and body.body.stats, "statement-bodied function required")
         statements(body.body.stats)
