@@ -16,7 +16,10 @@ local stores: any = setmetatable({}, {__mode = "k"})
 local graphOwners: any = setmetatable({}, {__mode = "k"})
 
 local function need(ok: any, message: string): any
-    assert(ok, "native physical: " .. message)
+    -- The message is built only for a failure: checks run millions of times.
+    if not ok then
+        error("native physical: " .. message, 0)
+    end
     return ok
 end
 
