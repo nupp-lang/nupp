@@ -114,9 +114,9 @@ end
 -- its checking found them wanting. Its Lua source (debug.getinfo's) is
 -- `source`, the name the loader was given, or "=" and `display`.
 export function describe(text: string, display: string, source: string?): (any, string?)
-    local source = OPENING .. text .. CLOSING
+    local wrapped = OPENING .. text .. CLOSING
     local path = display .. LUA_SUFFIX
-    local parsed: any = parser.parse(source, path)
+    local parsed: any = parser.parse(wrapped, path)
     if #parsed.errors > 0 then
         local problem = parsed.errors[1]
         return nil, display .. ":" .. tostring(problem.line or 0) .. ": " .. tostring(problem.msg or problem.message)

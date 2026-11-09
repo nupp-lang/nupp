@@ -174,5 +174,9 @@ nested()
 if nestedPrinted == "a1" then
     score = score + 1048576
 end
+local named: any = load("return debug.getinfo(1, 'S').source", "=named", "t", {debug = debug})
+if named() == "=named" then
+    score = score + 2097152
+end
 
 export const result = score
