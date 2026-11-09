@@ -1,10 +1,9 @@
 module nupp.compiler.vm.nativeservice
 
 local unit = require("nupp.compiler.vm.nativeunit")
-local layout = require("nupp.compiler.targetlayout")
+local targetlayout = require("nupp.compiler.targetlayout")
 local nativeos = require("nupp.compiler.vm.nativeos")
-const MAX_OWNERS: integer = 2048
-local service = {MAX_OWNERS = MAX_OWNERS}
+export const MAX_OWNERS: integer = 2048
 local scopedCalls: any = setmetatable({}, {__mode = "k"})
 local heapUses: any = setmetatable({}, {__mode = "k"})
 local ownerCatalogs: any = setmetatable({}, {__mode = "k"})
@@ -353,7 +352,7 @@ local function catalog(entry: any, roots: any, review: any): any
     local scope = unit.ownerModule(entry, "nupp.runtime.core.servicescope")
     local scopeType = need(scope.checkedExports.types.ServiceScope, "checked ServiceScope required")
     local context = unit.ownerContext(entry)
-    state.layout = need(layout.of(scopeType, context.target), "ServiceScope layout required")
+    state.layout = need(targetlayout.of(scopeType, context.target), "ServiceScope layout required")
     need(
         scopeType.byname.error.tag == "uint64"
         and state.layout.offsets.error % 8 == 0
@@ -372,7 +371,7 @@ local function catalog(entry: any, roots: any, review: any): any
     return result
 end
 
-function service.options(catalog: any, owner: any): any
+export function options(catalog: any, owner: any): any
     local state = need(catalogs[catalog], "unissued service catalogue")
     local item = need(state.owners[owner], "owner outside service closure")
     held(item.signature)
@@ -382,8 +381,8 @@ function service.options(catalog: any, owner: any): any
     return result
 end
 
-function service.signature(owner: any, options: any): any
-    local item = supplied[options]
+export function signature(owner: any, opts: any): any
+    local item = supplied[opts]
     if not item then
         return nil
     end
@@ -392,27 +391,27 @@ function service.signature(owner: any, options: any): any
     return item.signature
 end
 
-function service.owner(signature: any): any
-    return held(signature).owner
+export function owner(sig: any): any
+    return held(sig).owner
 end
 
 -- A Builder guard owns one collector handle, not its caller's stack storage.
 -- This exact reviewed constructor/terminal is separate from Arena ownership.
-function service.builderownership(signature: any, owner: any, parameter: integer?): any
-    if owner.scope.name ~= "nupp.runtime.core.corestrings" then
+export function builderownership(sig: any, holder: any, parameter: integer?): any
+    if holder.scope.name ~= "nupp.runtime.core.corestrings" then
         return nil
     end
-    local home = unit.ownerModule(owner, "nupp.runtime.core.corestrings")
-    if owner ~= home.exports.open and owner ~= home.exports.close then
+    local home = unit.ownerModule(holder, "nupp.runtime.core.corestrings")
+    if holder ~= home.exports.open and holder ~= home.exports.close then
         return nil
     end
-    local item = held(signature)
-    need(item.owner == owner and item.scoped and not item.raw, "foreign Builder ownership signature")
+    local item = held(sig)
+    need(item.owner == holder and item.scoped and not item.raw, "foreign Builder ownership signature")
     local builder = need(home.checkedExports.types.Builder, "checked Builder type is absent")
     local checked = item.checked
     if parameter ~= nil then
-        need(owner == home.exports.close and parameter == 1 and #owner.body.params == 1, "Builder terminal differs")
-        local node = owner.body.params[1]
+        need(holder == home.exports.close and parameter == 1 and #holder.body.params == 1, "Builder terminal differs")
+        local node = holder.body.params[1]
         local annotation, bound = node.type.resolvedType, node.name.definition.type
         need(
             checked.params[1] == annotation
@@ -428,10 +427,10 @@ function service.builderownership(signature: any, owner: any, parameter: integer
         )
         return bound
     end
-    local result = owner.resultType
+    local result = holder.resultType
     need(
-        owner == home.exports.open
-        and #owner.body.params == 2
+        holder == home.exports.open
+        and #holder.body.params == 2
         and #checked.rets == 1
         and checked.rets[1] == result
         and result.tag == "affine"
@@ -441,14 +440,14 @@ function service.builderownership(signature: any, owner: any, parameter: integer
         and #result.cleanups == 1
         and result.cleanups[1].kind == "function"
         and result.cleanups[1].functionType == home.exports.close.checkedSignature
-        and unit.cleanupTarget(owner, owner.body.rets[1], result, result.cleanups[1]) == home.exports.close,
+        and unit.cleanupTarget(holder, holder.body.rets[1], result, result.cleanups[1]) == home.exports.close,
         "checked Builder acquisition differs"
     )
 
     return result
 end
 
-function service.builderacquisition(caller: any, node: any, target: any, index: integer): boolean
+export function builderacquisition(caller: any, node: any, target: any, index: integer): boolean
     if target.scope.name ~= "nupp.runtime.core.corestrings" or target.name ~= "open" or index ~= 2 then
         return false
     end
@@ -500,26 +499,26 @@ end
 
 local builderplans: any = setmetatable({}, {__mode = "k"})
 
-function service.isbuilderreturn(proof: any): boolean
+export function isbuilderreturn(proof: any): boolean
     return builderplans[proof] ~= nil
 end
 
-function service.validatebuilderreturn(proof: any, owner: any, source: any, node: any): any
+export function validatebuilderreturn(proof: any, holder: any, source: any, node: any): any
     local plan = need(builderplans[proof], "unissued Builder return plan")
     need(
         next(proof) == nil
         and getmetatable(proof) == nil
-        and plan.item.owner == owner
+        and plan.item.owner == holder
         and plan.source == source
         and plan.node == node,
         "Builder return identity differs"
     )
-    local result = service.builderownership(plan.item.signature, owner)
-    unit.occurrence(owner, node)
+    local result = builderownership(plan.item.signature, holder)
+    unit.occurrence(holder, node)
     need(
         node.exprs[1] == plan.expression
         and plan.expression.kind == "name"
-        and plan.expression.token.definition == owner.parameterDefinitions[2]
+        and plan.expression.token.definition == holder.parameterDefinitions[2]
         and source.checkedType == result.inner,
         "Builder guard must return its borrowed stack descriptor"
     )
@@ -541,9 +540,9 @@ function service.validatebuilderreturn(proof: any, owner: any, source: any, node
     return result
 end
 
-function service.validatebuildervalue(proof: any, owner: any, descriptor: any): boolean
+export function validatebuildervalue(proof: any, holder: any, descriptor: any): boolean
     local plan = need(builderplans[proof], "unissued Builder creation origin")
-    service.validatebuilderreturn(proof, owner, plan.source, plan.node)
+    validatebuilderreturn(proof, holder, plan.source, plan.node)
     need(
         plan.view and require("nupp.compiler.vm.nativephysical").same(plan.view.target, descriptor),
         "Builder creation value differs"
@@ -554,7 +553,7 @@ end
 
 local function builderreturn(ctx: any, node: any, source: any, value: integer): any
     local item = graphs[ctx.g]
-    local result = service.builderownership(item.signature, item.owner)
+    local result = builderownership(item.signature, item.owner)
     need(
         result and value == 2 and node.kind == "returnStmt" and #node.exprs == 1,
         "Builder return requires the exact second formal"
@@ -565,12 +564,12 @@ local function builderreturn(ctx: any, node: any, source: any, value: integer): 
     builderplans[
         proof
     ] = {item = item, source = source, node = node, expression = node.exprs[1], graph = ctx.g, register = register}
-    service.validatebuilderreturn(proof, item.owner, source, node)
+    validatebuilderreturn(proof, item.owner, source, node)
 
     return proof
 end
 
-function service.buildercleanup(g: any, declaration: any, actual: any?): boolean
+export function buildercleanup(g: any, declaration: any, actual: any?): boolean
     local call = calls[declaration]
     if not call
         or not call.cleanup
@@ -579,14 +578,14 @@ function service.buildercleanup(g: any, declaration: any, actual: any?): boolean
     then
         return false
     end
-    local owner = call.caller.owner
+    local holder = call.caller.owner
     local acquisition = call.acquisition or call.node
-    local home = unit.ownerModule(owner, "nupp.runtime.core.corestrings")
+    local home = unit.ownerModule(holder, "nupp.runtime.core.corestrings")
     need(
         graphs[g] == call.caller
         and call.target.owner == home.exports.close
         and acquisition.kind == "call"
-        and unit.callee(owner, acquisition) == home.exports.open,
+        and unit.callee(holder, acquisition) == home.exports.open,
         "Builder cleanup requires its exact acquisition"
     )
     if call.acquisition then
@@ -602,16 +601,16 @@ function service.buildercleanup(g: any, declaration: any, actual: any?): boolean
     end
     local opened = call.caller.state.owners[home.exports.open]
     need(
-        call.cleanupType == unit.checkedOccurrenceType(owner, acquisition)
-        and call.cleanupType == service.builderownership(opened.signature, home.exports.open)
-        and unit.cleanupTarget(owner, call.node, call.cleanupType, call.cleanup) == home.exports.close,
+        call.cleanupType == unit.checkedOccurrenceType(holder, acquisition)
+        and call.cleanupType == builderownership(opened.signature, home.exports.open)
+        and unit.cleanupTarget(holder, call.node, call.cleanupType, call.cleanup) == home.exports.close,
         "Builder cleanup registration differs"
     )
-    service.validateIssued(declaration)
+    validateIssued(declaration)
     if actual then
         require(
             "nupp.compiler.vm.nativephysical"
-        ).buildercleanupoperand(owner, actual, acquisition, declaration.physical)
+        ).buildercleanupoperand(holder, actual, acquisition, declaration.physical)
     end
 
     return true
@@ -620,11 +619,11 @@ end
 -- Signature evidence only. The fixed reviewed service unit supplies these
 -- exact owners and the checker's actual Arena/terminal identities. This query
 -- grants no pointer conversion, takes-call permission or return root plan.
-function service.arenaOwnership(signature: any, owner: any, parameter: integer?): any
-    local item = held(signature)
-    need(item.owner == owner and item.scoped and not item.raw, "foreign arena ownership signature")
-    local home = unit.ownerModule(owner, "nupp.runtime.vm.arena")
-    need(owner.scope == home, "arena ownership requires the reviewed arena module")
+export function arenaOwnership(sig: any, holder: any, parameter: integer?): any
+    local item = held(sig)
+    need(item.owner == holder and item.scoped and not item.raw, "foreign arena ownership signature")
+    local home = unit.ownerModule(holder, "nupp.runtime.vm.arena")
+    need(holder.scope == home, "arena ownership requires the reviewed arena module")
     local arenaType = need(home.checkedExports.types.Arena, "checked Arena type is absent")
     local close = need(home.exports.close, "checked Arena terminal is absent")
     local closeItem = need(item.state.owners[close], "Arena terminal is outside the service closure")
@@ -632,14 +631,14 @@ function service.arenaOwnership(signature: any, owner: any, parameter: integer?)
     local checked = item.checked
     if parameter ~= nil then
         need(
-            owner == close
+            holder == close
             and parameter == 1
-            and #owner.body.params == 1
+            and #holder.body.params == 1
             and #checked.rets == 1
             and checked.rets[1].tag == "nil",
             "only the exact Arena terminal takes boundary is supported"
         )
-        local node = owner.body.params[1]
+        local node = holder.body.params[1]
         local annotation, bound = node.type.resolvedType, node.name.definition.type
         need(
             checked.params[1] == annotation
@@ -658,10 +657,10 @@ function service.arenaOwnership(signature: any, owner: any, parameter: integer?)
         return bound
     end
     need(
-        owner == home.exports.open or owner == home.exports.openGrowable or owner == home.functions.openWith,
+        holder == home.exports.open or holder == home.exports.openGrowable or holder == home.functions.openWith,
         "only the reviewed Arena constructors return ownership"
     )
-    local result = owner.resultType
+    local result = holder.resultType
     need(
         #checked.rets == 1
         and checked.rets[1] == result
@@ -683,7 +682,7 @@ function service.arenaOwnership(signature: any, owner: any, parameter: integer?)
     -- Consume the sealed annotation/declaration bridge, never a matching name
     -- or the distinct cleanup registration record's table identity.
     need(
-        unit.cleanupTarget(owner, owner.body.rets[1], result, terminal) == close,
+        unit.cleanupTarget(holder, holder.body.rets[1], result, terminal) == close,
         "Arena result lacks the exact checked terminal registration"
     )
 
@@ -693,32 +692,32 @@ end
 -- These reviewed records borrow raw storage from an Arena, Pool, or Heap metadata.
 -- Heap metadata is arena-backed; managed Header allocations are excluded.
 -- This query identifies the backing contract, not a rooted managed value.
-function service.dependentReturn(signature: any, owner: any): any
-    local item = held(signature)
-    need(item.owner == owner and not item.raw, "foreign dependent return signature")
-    local arena = unit.ownerModule(owner, "nupp.runtime.vm.arena")
-    local heap = unit.ownerModule(owner, "nupp.runtime.vm.heap")
-    local metadata = owner == heap.exports.classAt
-    local builderHome = owner.scope.name == "nupp.runtime.core.corestrings"
-        and unit.ownerModule(owner, "nupp.runtime.core.corestrings")
+export function dependentReturn(sig: any, holder: any): any
+    local item = held(sig)
+    need(item.owner == holder and not item.raw, "foreign dependent return signature")
+    local arena = unit.ownerModule(holder, "nupp.runtime.vm.arena")
+    local heap = unit.ownerModule(holder, "nupp.runtime.vm.heap")
+    local metadata = holder == heap.exports.classAt
+    local builderHome = holder.scope.name == "nupp.runtime.core.corestrings"
+        and unit.ownerModule(holder, "nupp.runtime.core.corestrings")
         or nil
-    local builderMetadata = builderHome and owner == builderHome.exports.descriptor
+    local builderMetadata = builderHome and holder == builderHome.exports.descriptor
     need(item.scoped or metadata or builderMetadata, "foreign dependent return signature")
     local backing
-    if owner == arena.exports.alloc or owner == arena.exports.pool then
+    if holder == arena.exports.alloc or holder == arena.exports.pool then
         backing = arena.checkedExports.types.Arena
-    elseif owner == arena.exports.take then
+    elseif holder == arena.exports.take then
         backing = arena.checkedExports.types.Pool
-    elseif owner == heap.functions.zeroWords
-        or owner == heap.functions.zeroSet
-        or owner == heap.functions.zeroIndex
-        or owner == heap.exports.create
+    elseif holder == heap.functions.zeroWords
+        or holder == heap.functions.zeroSet
+        or holder == heap.functions.zeroIndex
+        or holder == heap.exports.create
     then
         backing = arena.checkedExports.types.Arena
     elseif builderMetadata then
         backing = builderHome.checkedExports.types.Builder
-        local common = unit.ownerModule(owner, "nupp.runtime.core.storage")
-        local result = owner.resultType
+        local common = unit.ownerModule(holder, "nupp.runtime.core.storage")
+        local result = holder.resultType
         need(
             result.tag == "borrowed"
             and result.inner.tag == "ptr"
@@ -727,7 +726,7 @@ function service.dependentReturn(signature: any, owner: any): any
         )
     elseif metadata then
         backing = heap.checkedExports.types.Heap
-        local result = owner.resultType
+        local result = holder.resultType
         need(
             result.tag == "borrowed"
             and result.inner.tag == "ptr"
@@ -738,12 +737,12 @@ function service.dependentReturn(signature: any, owner: any): any
     -- A test build borrows from whatever its first parameter points at; the
     -- declaration check below still holds it to one borrowed pointer.
     if backing == nil and item.state.review and item.state.review.unreviewed then
-        local first = owner.body.params[1]
+        local first = holder.body.params[1]
         local declared = first and first.type and first.type.resolvedType
         backing = declared and declared.tag == "ptr" and declared.elem or nil
     end
     need(backing ~= nil, "dependent return is outside reviewed Arena/Pool storage")
-    local checked, parameter = item.checked, owner.body.params[1]
+    local checked, parameter = item.checked, holder.body.params[1]
     local annotation = parameter and parameter.type.resolvedType
     need(
         item.body.effectSummary == item.effect
@@ -754,34 +753,34 @@ function service.dependentReturn(signature: any, owner: any): any
         and annotation
         and annotation.tag == "ptr"
         and annotation.elem == backing
-        and parameter.name.definition == owner.parameterDefinitions[1]
-        and checked.rets[1] == owner.resultType,
+        and parameter.name.definition == holder.parameterDefinitions[1]
+        and checked.rets[1] == holder.resultType,
         "dependent return backing declaration differs"
     )
 
-    return owner.resultType
+    return holder.resultType
 end
 
 -- A pending INTERNAL result obligation, distinct from an Arena borrow.
 -- Recognizing the exact allocator does not authorize an executable entry.
-function service.managedResult(signature: any, owner: any): any
-    local item = held(signature)
-    need(item.owner == owner, "managed result owner differs")
+export function managedResult(sig: any, holder: any): any
+    local item = held(sig)
+    need(item.owner == holder, "managed result owner differs")
     if item.scope.name ~= "nupp.runtime.vm.heap" and item.scope.name ~= "nupp.runtime.vm.collector" then
         return nil
     end
-    local heap = unit.ownerModule(owner, "nupp.runtime.vm.heap")
-    local collector = unit.ownerModule(owner, "nupp.runtime.vm.collector")
-    if owner ~= heap.exports.allocRaw and owner ~= collector.exports.allocate then
+    local heap = unit.ownerModule(holder, "nupp.runtime.vm.heap")
+    local collector = unit.ownerModule(holder, "nupp.runtime.vm.collector")
+    if holder ~= heap.exports.allocRaw and holder ~= collector.exports.allocate then
         return nil
     end
-    local checked, result = item.checked, owner.resultType
-    local parameter = owner.body.params[1]
+    local checked, result = item.checked, holder.resultType
+    local parameter = holder.body.params[1]
     local mode, bound = checked.paramModes[1], parameter.name.definition.type
     need(
         item.scoped
         and not item.raw
-        and #owner.body.params == 3
+        and #holder.body.params == 3
         and checked.borrowsParam == nil
         and checked.borrowsResult == nil
         and #checked.rets == 1
@@ -795,9 +794,9 @@ function service.managedResult(signature: any, owner: any): any
         and checked.paramPack.modes[1] == mode
         and parameter.modeTok == nil
         and parameter.type.resolvedType == checked.params[1]
-        and owner.parameterAnnotations[1] == checked.params[1]
-        and owner.parameterDefinitions[1] == parameter.name.definition
-        and owner.parameterTypes[1] == bound
+        and holder.parameterAnnotations[1] == checked.params[1]
+        and holder.parameterDefinitions[1] == parameter.name.definition
+        and holder.parameterTypes[1] == bound
         and (
             mode == "plain" and bound == checked.params[1]
             or mode == "borrows" and bound.tag == "borrowed" and bound.inner == checked.params[1]
@@ -806,7 +805,7 @@ function service.managedResult(signature: any, owner: any): any
         and checked.params[3].tag == "uint64"
         and checked.paramModes[2] == "plain"
         and checked.paramModes[3] == "plain"
-        and owner.body.effectSummary == item.effect,
+        and holder.body.effectSummary == item.effect,
         "managed allocator checked signature differs"
     )
     local proof = item.managedResult
@@ -820,17 +819,17 @@ function service.managedResult(signature: any, owner: any): any
     return proof
 end
 
-function service.validateManagedResult(proof: any, owner: any): any
+export function validateManagedResult(proof: any, holder: any): any
     local item = need(managedResults[proof], "unissued managed result obligation")
-    need(service.managedResult(item.signature, owner) == proof, "managed result obligation owner changed")
-    return owner.resultType
+    need(managedResult(item.signature, holder) == proof, "managed result obligation owner changed")
+    return holder.resultType
 end
 
 -- This is a pending use of the entry-owned Heap, not a plain-pointer view
 -- or a nonescape claim. Root publication retains the Heap address until close;
 -- only the closed entry's lifetime proof may discharge this obligation.
-local function heapUseEvidence(signature: any, caller: any, node: any, index: integer): any
-    local target = held(signature)
+local function heapUseEvidence(sig: any, caller: any, node: any, index: integer): any
+    local target = held(sig)
     if not caller or not node or index ~= 1 then
         return nil
     end
@@ -890,30 +889,30 @@ local function heapUseEvidence(signature: any, caller: any, node: any, index: in
     }
 end
 
-function service.heapCallUse(signature: any, caller: any, node: any, index: integer): any
-    local evidence = heapUseEvidence(signature, caller, node, index)
+export function heapCallUse(sig: any, caller: any, node: any, index: integer): any
+    local evidence = heapUseEvidence(sig, caller, node, index)
     if not evidence then
         return nil
     end
     local proof = {}
-    evidence.signature, evidence.index = signature, index
+    evidence.signature, evidence.index = sig, index
     heapUses[proof] = evidence
 
     return proof
 end
 
-function service.validateHeapCallUse(proof: any, signature: any, caller: any, node: any, index: integer): any
+export function validateHeapCallUse(proof: any, sig: any, caller: any, node: any, index: integer): any
     local saved = need(heapUses[proof], "unissued Heap call-use obligation")
     need(
         next(proof) == nil
         and getmetatable(proof) == nil
-        and saved.signature == signature
+        and saved.signature == sig
         and saved.caller == caller
         and saved.node == node
         and saved.index == index,
         "Heap call-use identity changed"
     )
-    local current = need(heapUseEvidence(signature, caller, node, index), "Heap call-use source relation changed")
+    local current = need(heapUseEvidence(sig, caller, node, index), "Heap call-use source relation changed")
     need(
         current.target == saved.target
         and current.argument == saved.argument
@@ -927,25 +926,25 @@ function service.validateHeapCallUse(proof: any, signature: any, caller: any, no
 end
 
 -- Detached queries expose checked identities, never an issuance interface.
-function service.operation(g: any, declaration: any): any
+export function operation(g: any, declaration: any): any
     local call = need(calls[declaration], "unissued service operation")
     need(graphs[g] == call.caller, "service operation graph differs")
-    local target = service.recordTarget(g, declaration, call.node)
+    local target = recordTarget(g, declaration, call.node)
     return {node = call.node, target = target, owner = call.caller.owner}
 end
 
-function service.managedCall(g: any, declaration: any): any
-    local operation = service.operation(g, declaration)
+export function managedCall(g: any, declaration: any): any
+    local opname = operation(g, declaration)
     local call = calls[declaration]
-    local proof = service.managedResult(call.target.signature, call.target.owner)
+    local proof = managedResult(call.target.signature, call.target.owner)
     if not proof then
         return nil
     end
 
     return {
-        owner = operation.owner,
-        node = operation.node,
-        target = operation.target,
+        owner = opname.owner,
+        node = opname.node,
+        target = opname.target,
         proof = proof,
         heap = 1,
         kind = 2,
@@ -953,7 +952,7 @@ function service.managedCall(g: any, declaration: any): any
     }
 end
 
-function service.cellRoles(g: any): any
+export function cellRoles(g: any): any
     local item = need(graphs[g], "rooted cell requires an issued service graph")
     if item.scope.name ~= "nupp.runtime.core.cellservice" then
         return nil
@@ -993,7 +992,7 @@ function service.cellRoles(g: any): any
 end
 
 -- Exact entry identities are evidence for a separate proof, not authority.
-function service.entryRoles(g: any): any
+export function entryRoles(g: any): any
     local item = need(graphs[g], "heap entry requires an issued service graph")
     if item.scope.name ~= "nupp.runtime.core.heapentry" then
         return nil
@@ -1044,19 +1043,18 @@ end
 
 -- A caller may inspect provisional graphs, but cannot select an allocator as
 -- an executable entry. The rooted factory separately validates its full closure.
-function service.requireUnmanagedEntry(g: any): nil
+export function requireUnmanagedEntry(g: any): nil
     local item = graphs[g]
     if item then
         need(
-            service.managedResult(item.signature, item.owner) == nil,
+            managedResult(item.signature, item.owner) == nil,
             "managed allocator requires a rooted caller; standalone entry refused"
         )
         for _, block in ipairs(g.blocks) do
             for index, op in ipairs(block.op) do
                 if op == "NativeLeafCall" then
                     need(
-                        service.managedCall(g, block.args[index][1]) == nil
-                        and not service.hasPublication(g, block.args[index][1]),
+                        managedCall(g, block.args[index][1]) == nil and not hasPublication(g, block.args[index][1]),
                         "managed call requires rooted executable publication"
                     )
                 end
@@ -1065,12 +1063,12 @@ function service.requireUnmanagedEntry(g: any): nil
     end
 end
 
-function service.sourceCount(signature: any): integer
-    return held(signature).sourceCount
+export function sourceCount(sig: any): integer
+    return held(sig).sourceCount
 end
 
-function service.parameters(signature: any, source: any): any
-    local item = held(signature)
+export function parameters(sig: any, source: any): any
+    local item = held(sig)
     need(#source == item.sourceCount, "service checked source parameter count")
     local result = {}
     for index, kind in ipairs(source) do
@@ -1083,13 +1081,13 @@ function service.parameters(signature: any, source: any): any
     return result
 end
 
-function service.attach(g: any, signature: any): nil
-    local item = held(signature)
+export function attach(g: any, sig: any): nil
+    local item = held(sig)
     need(g.nparams == item.sourceCount + (item.scopeParameter and 1 or 0), "service graph parameter count")
-    g.nativeService, graphs[g] = signature, item
+    g.nativeService, graphs[g] = sig, item
 end
 
-function service.verify(g: any): nil
+export function verify(g: any): nil
     if not g.nativeService then
         need(graphs[g] == nil, "service graph lost contract");
         return
@@ -1114,7 +1112,7 @@ function service.verify(g: any): nil
     end
 end
 
-function service.entryBindings(ctx: any, node: any?): nil
+export function entryBindings(ctx: any, node: any?): nil
     local item = graphs[ctx.g]
     if item and item.scoped and item.handler then
         -- The handler's context (its fifth parameter) holds the entry's scope.
@@ -1129,13 +1127,13 @@ function service.entryBindings(ctx: any, node: any?): nil
     end
 end
 
-function service.scope(ctx: any): integer
+export function scope(ctx: any): integer
     local item = need(graphs[ctx.g], "service graph required")
     need(item.scoped, "service has no scope operand")
     return ctx.storage(item.key)
 end
 
-function service.target(ctx: any, node: any): any
+export function target(ctx: any, node: any): any
     local item = graphs[ctx.g]
     if not item then
         return nil
@@ -1161,45 +1159,45 @@ function service.target(ctx: any, node: any): any
     return call.target
 end
 
-function service.calleeSignature(ctx: any, node: any, target: any): any
+export function calleeSignature(ctx: any, node: any, dest: any): any
     local item = graphs[ctx.g]
     if not item then
         return nil
     end
-    need(service.target(ctx, node) == target, "callee outside service closure")
+    need(target(ctx, node) == dest, "callee outside service closure")
 
-    return item.state.owners[target].signature
+    return item.state.owners[dest].signature
 end
 
-function service.redirect(ctx: any, node: any): boolean
+export function redirect(ctx: any, node: any): boolean
     local item = graphs[ctx.g]
     return item ~= nil and item.state.calls[node] ~= nil and item.state.calls[node].os ~= nil
 end
 
-function service.sourceParameters(ctx: any, node: any, declaration: any): any
+export function sourceParameters(ctx: any, node: any, declaration: any): any
     local item = graphs[ctx.g]
     if not item then
         return declaration.params
     end
-    local target = held(declaration.service)
-    local first = service.redirect(ctx, node) and 2 or 1
+    local dest = held(declaration.service)
+    local first = redirect(ctx, node) and 2 or 1
     local result = {}
-    for index = first, target.sourceCount do
+    for index = first, dest.sourceCount do
         result[#result + 1] = declaration.params[index]
     end
 
     return result
 end
 
-function service.declaration(ctx: any, node: any, target: any, declaration: any): any
+export function declaration(ctx: any, node: any, dest: any, declaration: any): any
     local item = graphs[ctx.g]
     if not item then
         return declaration
     end
-    need(service.target(ctx, node) == target, "call outside service catalogue")
-    local callee = item.state.owners[target]
-    local signature = callee.signature
-    need(declaration.service == signature, "callee service ABI differs")
+    need(target(ctx, node) == dest, "call outside service catalogue")
+    local callee = item.state.owners[dest]
+    local sig = callee.signature
+    need(declaration.service == sig, "callee service ABI differs")
     calls[
         declaration
     ] = {
@@ -1226,14 +1224,14 @@ end
 -- Retained root publication is a pending lifetime obligation, never a
 -- borrowed-to-plain conversion. Only the closed entry proof can discharge it.
 local function publicationEvidence(call: any): any
-    local owner = call.caller.owner
-    if owner.scope.name ~= "nupp.runtime.core.heapentry" and owner.scope.name ~= "nupp.runtime.core.cellservice" then
+    local holder = call.caller.owner
+    if holder.scope.name ~= "nupp.runtime.core.heapentry" and holder.scope.name ~= "nupp.runtime.core.cellservice" then
         return nil
     end
-    local entry = unit.ownerModule(owner, "nupp.runtime.core.heapentry")
-    local cell = unit.ownerModule(owner, "nupp.runtime.core.cellservice")
-    local roots = unit.ownerModule(owner, "nupp.runtime.core.frameroots")
-    if (owner ~= entry.exports.run and owner ~= cell.exports.construct)
+    local entry = unit.ownerModule(holder, "nupp.runtime.core.heapentry")
+    local cell = unit.ownerModule(holder, "nupp.runtime.core.cellservice")
+    local roots = unit.ownerModule(holder, "nupp.runtime.core.frameroots")
+    if (holder ~= entry.exports.run and holder ~= cell.exports.construct)
         or call.target.owner ~= roots.exports.publish
         or call.cleanup
         or call.os
@@ -1243,13 +1241,13 @@ local function publicationEvidence(call: any): any
     end
     local source = call.caller.state.calls[call.node]
     need(
-        source and source.owner == owner and source.target == roots.exports.publish,
+        source and source.owner == holder and source.target == roots.exports.publish,
         "publication requires its original checked call"
     )
-    unit.call(owner, call.node, roots.exports.publish)
+    unit.call(holder, call.node, roots.exports.publish)
     local expression = call.node.args.exprs[2]
-    unit.occurrence(owner, expression)
-    local heap = unit.ownerModule(owner, "nupp.runtime.vm.heap")
+    unit.occurrence(holder, expression)
+    local heap = unit.ownerModule(holder, "nupp.runtime.vm.heap")
     need(
         expression.kind == "castExpr"
         and expression.expr.kind == "name"
@@ -1279,10 +1277,10 @@ local function publicationEvidence(call: any): any
     }
 end
 
-local function publicationSource(g: any, declaration: any): any
-    local call = need(calls[declaration], "unissued publication declaration")
+local function publicationSource(g: any, decl: any): any
+    local call = need(calls[decl], "unissued publication declaration")
     need(graphs[g] == call.caller, "publication graph owner differs")
-    service.validateIssued(declaration)
+    validateIssued(decl)
     local evidence = publicationEvidence(call)
     if not evidence then
         need(call.publication == nil, "publication source changed")
@@ -1368,8 +1366,8 @@ local function publicationReaches(g: any, value: integer, row: any): boolean
     return true
 end
 
-local function bindPublication(ctx: any, declaration: any, values: any): nil
-    local call = calls[declaration]
+local function bindPublication(ctx: any, decl: any, values: any): nil
+    local call = calls[decl]
     local evidence = publicationEvidence(call)
     if not evidence then
         return
@@ -1400,15 +1398,15 @@ local function bindPublication(ctx: any, declaration: any, values: any): nil
     call.publication = evidence
 end
 
-function service.hasPublication(g: any, declaration: any): boolean
-    return publicationSource(g, declaration) ~= nil
+export function hasPublication(g: any, decl: any): boolean
+    return publicationSource(g, decl) ~= nil
 end
 
-function service.publicationArgument(g: any, declaration: any, index: integer, value: integer): boolean
+export function publicationArgument(g: any, decl: any, index: integer, value: integer): boolean
     if index ~= 2 then
         return false
     end
-    local saved = publicationSource(g, declaration)
+    local saved = publicationSource(g, decl)
     if not saved then
         return false
     end
@@ -1430,76 +1428,76 @@ function service.publicationArgument(g: any, declaration: any, index: integer, v
     return true
 end
 
-function service.operands(ctx: any, declaration: any, values: any): any
-    local call = calls[declaration]
+export function operands(ctx: any, decl: any, values: any): any
+    local call = calls[decl]
     if not call then
         return values
     end
     need(call.caller == graphs[ctx.g], "foreign service call")
     if call.os then
-        table.insert(values, 1, service.scope(ctx))
+        table.insert(values, 1, scope(ctx))
     end
     if call.target.scoped then
-        values[#values + 1] = service.scope(ctx)
+        values[#values + 1] = scope(ctx)
     end
-    bindPublication(ctx, declaration, values)
+    bindPublication(ctx, decl, values)
 
     return values
 end
 
-function service.cleanupTarget(ctx: any, node: any, t: any, cleanup: any): any
+export function cleanupTarget(ctx: any, node: any, t: any, cleanup: any): any
     local item = need(graphs[ctx.g], "cleanup requires issued service graph")
-    local target = unit.cleanupTarget(ctx.fn, node, t, cleanup)
-    need(item.state.owners[target], "cleanup target outside complete service catalogue")
-    return target
+    local dest = unit.cleanupTarget(ctx.fn, node, t, cleanup)
+    need(item.state.owners[dest], "cleanup target outside complete service catalogue")
+    return dest
 end
 
-function service.cleanupSignature(ctx: any, node: any, t: any, cleanup: any): any
-    local target = service.cleanupTarget(ctx, node, t, cleanup)
-    return graphs[ctx.g].state.owners[target].signature
+export function cleanupSignature(ctx: any, node: any, t: any, cleanup: any): any
+    local dest = cleanupTarget(ctx, node, t, cleanup)
+    return graphs[ctx.g].state.owners[dest].signature
 end
 
-function service.cleanupDeclaration(ctx: any, node: any, t: any, cleanup: any, declaration: any, owner: any?): any
-    local target = service.cleanupTarget(ctx, node, t, cleanup)
-    local caller, callee = graphs[ctx.g], graphs[ctx.g].state.owners[target]
-    need(declaration.service == callee.signature and declaration.result == "nil", "cleanup boundary differs")
+export function cleanupDeclaration(ctx: any, node: any, t: any, cleanup: any, decl: any, holder: any?): any
+    local dest = cleanupTarget(ctx, node, t, cleanup)
+    local caller, callee = graphs[ctx.g], graphs[ctx.g].state.owners[dest]
+    need(decl.service == callee.signature and decl.result == "nil", "cleanup boundary differs")
     local record = {
         caller = caller,
         target = callee,
         node = node,
         cleanup = cleanup,
         cleanupType = t,
-        params = declaration.params,
+        params = decl.params,
         kinds = {},
-        result = declaration.result,
+        result = decl.result,
         fields = {}
     }
-    for index, kind in ipairs(declaration.params) do
+    for index, kind in ipairs(decl.params) do
         record.kinds[index] = kind
     end
-    for key, value in pairs(declaration) do
+    for key, value in pairs(decl) do
         record.fields[key] = value
     end
     if node.kind == "localStmt" then
-        need(owner and owner.stat == node, "local cleanup requires its checked owner")
+        need(holder and holder.stat == node, "local cleanup requires its checked owner")
         need(
-            require("nupp.compiler.vm.functioncleanup").localOwner(node, owner.index) == owner and owner.type == t,
+            require("nupp.compiler.vm.functioncleanup").localOwner(node, holder.index) == holder and holder.type == t,
             "local cleanup acquisition type differs"
         )
-        unit.occurrence(ctx.fn, owner.expr)
+        unit.occurrence(ctx.fn, holder.expr)
         need(
-            owner.expr.kind == "call" and unit.checkedOccurrenceType(ctx.fn, owner.expr) == t,
+            holder.expr.kind == "call" and unit.checkedOccurrenceType(ctx.fn, holder.expr) == t,
             "local cleanup requires its checked acquisition call"
         )
-        record.owner = owner
-        record.acquisition = owner.expr
+        record.owner = holder
+        record.acquisition = holder.expr
     end
-    calls[declaration] = record
+    calls[decl] = record
 
-    return declaration
+    return decl
 end
 
-function service.layout(ctx: any): any
+export function layout(ctx: any): any
     local item = need(graphs[ctx.g], "service graph required")
     local offsets = {}
     for key, value in pairs(item.state.layout.offsets) do
@@ -1509,11 +1507,11 @@ function service.layout(ctx: any): any
     return {size = item.state.layout.size, offsets = offsets}
 end
 
-function service.needsCleanup(signature: any): boolean
-    return held(signature).scoped
+export function needsCleanup(sig: any): boolean
+    return held(sig).scoped
 end
 
-function service.raise(ctx: any, node: any): any
+export function raise(ctx: any, node: any): any
     local item = graphs[ctx.g]
     local raising = item and item.state.raises[node]
     if not raising then
@@ -1529,7 +1527,7 @@ end
 
 -- Failure is an ABI exit, not an expression producing a success value.
 -- The verifier independently requires an exact sticky-error fact on this path.
-function service.failure(ctx: any, node: any): nil
+export function failure(ctx: any, node: any): nil
     local item = need(graphs[ctx.g], "failure requires an issued service graph")
     need(item.scoped and ctx.fn == item.owner and ctx.block, "failure outside scoped continuation")
     local term = {kind = "nativeFail", edges = {}, pos = ctx.position(node)}
@@ -1537,7 +1535,7 @@ function service.failure(ctx: any, node: any): nil
     ctx.block.term, ctx.block = term, nil
 end
 
-function service.isFailure(g: any, term: any): boolean
+export function isFailure(g: any, term: any): boolean
     local saved = failures[term]
     if not saved then
         return false
@@ -1576,7 +1574,7 @@ local function arenaHome(item: any): any
         or item.owner == home.exports.openGrowable
         or item.owner == home.functions.openWith
     then
-        service.arenaOwnership(item.signature, item.owner)
+        arenaOwnership(item.signature, item.owner)
         return home
     end
 
@@ -1624,7 +1622,7 @@ end
 
 -- Called only by the existing common profile's emission callback. Retain
 -- source/row identity for the mapping and pointer chain, plus checked stores.
-function service.recordArena(ctx: any, node: any, op: string, args: any): nil
+export function recordArena(ctx: any, node: any, op: string, args: any): nil
     local item = graphs[ctx.g]
     if not item then
         return
@@ -1687,13 +1685,13 @@ local function arenaRow(g: any, node: any, op: string): any
     return need(found, "Arena source operation is absent")
 end
 
-local function arenaInitializer(owner: any, expression: any): any
+local function arenaInitializer(holder: any, expression: any): any
     need(
         expression.kind == "name" and expression.token.definition and not expression.token.definition.reassigned,
         "Arena return requires an unchanged checked binding"
     )
     local found = nil
-    for _, node in ipairs(unit.occurrences(owner)) do
+    for _, node in ipairs(unit.occurrences(holder)) do
         if node.kind == "localStmt" then
             for index, name in ipairs(node.names) do
                 if name.definition == expression.token.definition then
@@ -1709,7 +1707,7 @@ end
 
 -- Only this exact raw offset in the checked constructor gets a plain voidptr
 -- sidecar. It confers no mapping, ownership, bounds or dereference permission.
-function service.arenaOffset(ctx: any, node: any, value: integer): nil
+export function arenaOffset(ctx: any, node: any, value: integer): nil
     local item = graphs[ctx.g]
     local home = item and arenaHome(item)
     if not home or item.owner ~= home.functions.openWith then
@@ -1735,7 +1733,7 @@ end
 
 -- Only the already emitted checked constructor offset may carry this raw
 -- descriptor. This validates an origin; it grants no typed arithmetic rule.
-function service.arenaOffsetOrigin(g: any, args: any, value: integer): boolean
+export function arenaOffsetOrigin(g: any, args: any, value: integer): boolean
     local item = graphs[g]
     local home = item and arenaHome(item)
     if not home or item.owner ~= home.functions.openWith then
@@ -1827,7 +1825,7 @@ local function arenaRecipe(ctx: any, node: any, source: any): any
     local home = need(arenaHome(item), "owning return is outside reviewed Arena constructors")
     unit.occurrence(item.owner, node)
     need(node.kind == "returnStmt" and #node.exprs == 1, "Arena returns exactly one owner")
-    local result = service.arenaOwnership(item.signature, item.owner)
+    local result = arenaOwnership(item.signature, item.owner)
     local expression = node.exprs[1]
     local recipe = {
         item = item,
@@ -1841,7 +1839,7 @@ local function arenaRecipe(ctx: any, node: any, source: any): any
     }
     if item.owner ~= home.functions.openWith then
         need(
-            expression.kind == "call" and service.target(ctx, expression) == home.functions.openWith,
+            expression.kind == "call" and target(ctx, expression) == home.functions.openWith,
             "Arena forwarding requires the exact checked constructor call"
         )
         recipe.call = expression
@@ -1863,9 +1861,9 @@ local function arenaRecipe(ctx: any, node: any, source: any): any
         )
         local map = arenaInitializer(item.owner, offset.args.exprs[1])
         local mapping = item.state.calls[map]
-        local scope = unit.ownerModule(item.owner, "nupp.runtime.core.servicescope")
+        local region = unit.ownerModule(item.owner, "nupp.runtime.core.servicescope")
         need(
-            mapping and mapping.os and mapping.target == scope.exports.mapPages,
+            mapping and mapping.os and mapping.target == region.exports.mapPages,
             "Arena construction lacks the exact retained mapping wrapper"
         )
         local index = offset.args.exprs[2]
@@ -1994,10 +1992,10 @@ local function arenaInterval(g: any, recipe: any, acquisition: any, stores: any)
             elseif op == "NativeStore" then
                 need(storeRows[args], "Arena success interval writes outside checked initialization")
             elseif op == "NativeLoad" then
-                local scope = {block = {dst = {recipe.item.scopeParameter}}, at = 1}
+                local region = {block = {dst = {recipe.item.scopeParameter}}, at = 1}
                 local memory = args[3]
                 need(
-                    arenaReaches(g, args[1], scope)
+                    arenaReaches(g, args[1], region)
                     and constants[args[2]] == tostring(recipe.item.state.layout.offsets.error)
                     and memory.kind == "uint64"
                     and memory.width == 8
@@ -2030,9 +2028,7 @@ end
 local function verifyArenaRecipe(g: any, recipe: any, value: integer): nil
     local item, home = recipe.item, recipe.home
     need(
-        graphs[g] == item
-        and arenaHome(item) == home
-        and service.arenaOwnership(item.signature, item.owner) == recipe.result,
+        graphs[g] == item and arenaHome(item) == home and arenaOwnership(item.signature, item.owner) == recipe.result,
         "Arena return owner/body/signature changed"
     )
     unit.occurrence(item.owner, recipe.node)
@@ -2123,7 +2119,7 @@ end
 
 local function managedRecipe(ctx: any, stage: any, source: any): any
     local item = need(graphs[ctx.g], "managed return requires an issued graph")
-    local proof = need(service.managedResult(item.signature, item.owner), "owner has no managed result")
+    local proof = need(managedResult(item.signature, item.owner), "owner has no managed result")
     local heap = unit.ownerModule(item.owner, "nupp.runtime.vm.heap")
     local node = stage.node
     unit.occurrence(item.owner, node)
@@ -2151,7 +2147,7 @@ local function managedRecipe(ctx: any, stage: any, source: any): any
     end
     if recipe.mode == "forward" then
         need(
-            expression.kind == "call" and service.target(ctx, expression) == heap.exports.allocRaw,
+            expression.kind == "call" and target(ctx, expression) == heap.exports.allocRaw,
             "managed forwarding requires the exact allocRaw call"
         )
         need(#expression.args.exprs == 3, "managed forwarding argument count differs")
@@ -2170,9 +2166,9 @@ local function managedRecipe(ctx: any, stage: any, source: any): any
             "managed allocation requires its checked Header cast"
         )
         local pointer = cast.expr
-        local declaration = unit.intrinsicDeclaration(item.owner, pointer)
+        local decl = unit.intrinsicDeclaration(item.owner, pointer)
         need(
-            declaration.name == "pointer" and #pointer.args.exprs == 1,
+            decl.name == "pointer" and #pointer.args.exprs == 1,
             "managed allocation requires its checked address conversion"
         )
         recipe.cast, recipe.pointer = cast, pointer
@@ -2201,7 +2197,7 @@ end
 local function verifyManagedRecipe(g: any, recipe: any, value: integer): nil
     local item = recipe.item
     need(
-        graphs[g] == item and service.managedResult(item.signature, item.owner) == recipe.proof,
+        graphs[g] == item and managedResult(item.signature, item.owner) == recipe.proof,
         "managed return owner changed"
     )
     unit.occurrence(item.owner, recipe.node)
@@ -2224,7 +2220,7 @@ local function verifyManagedRecipe(g: any, recipe: any, value: integer): nil
             need(row.args[index] == fixed, "managed operation contract changed")
         end
         if row.op == "NativeLeafCall" then
-            service.recordTarget(g, row.args[1], row.node)
+            recordTarget(g, row.args[1], row.node)
         end
         rows[row.args] = row
     end
@@ -2403,42 +2399,42 @@ local function verifyManagedRecipe(g: any, recipe: any, value: integer): nil
     visit(recipe.block, recipe.boundary)
 end
 
-function service.validateManagedReturn(proof: any, owner: any, source: any, node: any): any
+export function validateManagedReturn(proof: any, holder: any, source: any, node: any): any
     local plan = need(managedPlans[proof], "unissued managed return plan")
     need(
         next(proof) == nil
         and getmetatable(proof) == nil
-        and plan.item.owner == owner
+        and plan.item.owner == holder
         and plan.source == source
         and plan.node == node,
         "managed return view identity differs"
     )
-    need(service.validateManagedResult(plan.proof, owner) == plan.result, "managed result type changed")
+    need(validateManagedResult(plan.proof, holder) == plan.result, "managed result type changed")
 
     return plan.result
 end
 
-function service.validateArenaReturn(proof: any, owner: any, source: any, node: any): any
+export function validateArenaReturn(proof: any, holder: any, source: any, node: any): any
     local plan = need(arenaPlans[proof], "unissued Arena return plan")
     need(
         next(proof) == nil
         and getmetatable(proof) == nil
-        and plan.item.owner == owner
+        and plan.item.owner == holder
         and plan.source == source
         and plan.node == node,
         "Arena return view identity differs"
     )
     held(plan.item.signature)
-    need(service.arenaOwnership(plan.item.signature, owner) == plan.result, "Arena result type changed")
+    need(arenaOwnership(plan.item.signature, holder) == plan.result, "Arena result type changed")
 
     return plan.result
 end
 
 -- The graph inventory may validate a transported creation descriptor; only
 -- the exact private return view introduced the corresponding affine origin.
-function service.validateArenaValue(proof: any, owner: any, descriptor: any): boolean
+export function validateArenaValue(proof: any, holder: any, descriptor: any): boolean
     local plan = need(arenaPlans[proof], "unissued Arena creation origin")
-    service.validateArenaReturn(proof, owner, plan.source, plan.node)
+    validateArenaReturn(proof, holder, plan.source, plan.node)
     need(
         plan.mode == "create"
         and plan.view
@@ -2451,11 +2447,11 @@ end
 
 -- An implicit terminal has no source call node. Its existing private cleanup
 -- registration is the call authority; the actual acquired instance is separate.
-function service.arenaCleanup(g: any, declaration: any, actual: any?): boolean
-    if service.buildercleanup(g, declaration) then
+export function arenaCleanup(g: any, decl: any, actual: any?): boolean
+    if buildercleanup(g, decl) then
         return false
     end
-    local call = calls[declaration]
+    local call = calls[decl]
     if not call or not call.cleanup then
         return false
     end
@@ -2464,40 +2460,40 @@ function service.arenaCleanup(g: any, declaration: any, actual: any?): boolean
     local acquisition = call.acquisition or call.node
     if call.acquisition then
         unit.occurrence(call.caller.owner, call.node)
-        local owner = call.owner
+        local holder = call.owner
         need(
-            owner
+            holder
             and call.node.kind == "localStmt"
-            and owner.expr == call.acquisition
-            and call.node.exprs[owner.index] == call.acquisition
-            and require("nupp.compiler.vm.functioncleanup").localOwner(call.node, owner.index) == owner,
+            and holder.expr == call.acquisition
+            and call.node.exprs[holder.index] == call.acquisition
+            and require("nupp.compiler.vm.functioncleanup").localOwner(call.node, holder.index) == holder,
             "local cleanup acquisition changed"
         )
-        need(owner.type == call.cleanupType, "local cleanup acquisition type differs")
+        need(holder.type == call.cleanupType, "local cleanup acquisition type differs")
     end
     unit.occurrence(call.caller.owner, acquisition)
     local home = arenaHome(call.caller)
     local acquired
     if home then
-        acquired = service.arenaOwnership(call.caller.signature, call.caller.owner)
+        acquired = arenaOwnership(call.caller.signature, call.caller.owner)
     else
-        local owner = call.caller.owner
+        local holder = call.caller.owner
         -- Test-unit fixtures acquire their own arenas, as heap entry does.
-        local fixture = unitModules[owner.scope.name] == true
+        local fixture = unitModules[holder.scope.name] == true
         need(
             fixture
-            or owner.scope.name == "nupp.runtime.core.heapentry"
-            and owner == unit.ownerModule(owner, "nupp.runtime.core.heapentry").exports.run,
+            or holder.scope.name == "nupp.runtime.core.heapentry"
+            and holder == unit.ownerModule(holder, "nupp.runtime.core.heapentry").exports.run,
             "implicit Arena cleanup caller is outside reviewed acquisition"
         )
-        home = unit.ownerModule(owner, "nupp.runtime.vm.arena")
-        local opener = acquisition.kind == "call" and unit.callee(owner, acquisition) or nil
+        home = unit.ownerModule(holder, "nupp.runtime.vm.arena")
+        local opener = acquisition.kind == "call" and unit.callee(holder, acquisition) or nil
         need(
             opener == home.exports.open or fixture and opener == home.exports.openGrowable,
             "heap entry cleanup requires its exact Arena acquisition"
         )
         local constructor = need(call.caller.state.owners[opener], "Arena acquisition is outside service closure")
-        acquired = service.arenaOwnership(constructor.signature, constructor.owner)
+        acquired = arenaOwnership(constructor.signature, constructor.owner)
     end
     need(
         graphs[g] == call.caller
@@ -2511,11 +2507,11 @@ function service.arenaCleanup(g: any, declaration: any, actual: any?): boolean
         unit.cleanupTarget(call.caller.owner, call.node, call.cleanupType, call.cleanup) == call.target.owner,
         "implicit Arena cleanup target changed"
     )
-    service.validateIssued(declaration)
+    validateIssued(decl)
     if actual then
         require(
             "nupp.compiler.vm.nativephysical"
-        ).arenaCleanupOperand(call.caller.owner, actual, acquisition, declaration.physical)
+        ).arenaCleanupOperand(call.caller.owner, actual, acquisition, decl.physical)
     end
 
     return true
@@ -2542,7 +2538,7 @@ local function verifyArenaFailure(g: any, record: any, failed: any, canReturn: a
         end
     end
 
-    local function owner(value: any): boolean
+    local function holder(value: any): boolean
         if type(value) ~= "number" then
             return false
         end
@@ -2617,14 +2613,14 @@ local function verifyArenaFailure(g: any, record: any, failed: any, canReturn: a
             end
             local consumes = false
             for argument = op == "NativeLeafCall" and 2 or 1, #args do
-                if owner(args[argument]) then
+                if holder(args[argument]) then
                     need(
                         op == "NativeLeafCall"
                         and argument == 2
                         and not consumes
                         and not retired
                         and not retained
-                        and service.arenaCleanup(g, args[1], g.nativePhysical.values[args[2]]),
+                        and arenaCleanup(g, args[1], g.nativePhysical.values[args[2]]),
                         "Arena failure reuses or misroutes its acquired owner"
                     )
                     consumes = true
@@ -2639,9 +2635,9 @@ local function verifyArenaFailure(g: any, record: any, failed: any, canReturn: a
             end
         end
         local term = block.term
-        need(not owner(term.value), "Arena failure tests its acquired owner")
+        need(not holder(term.value), "Arena failure tests its acquired owner")
         if term.kind == "nativeFail" then
-            need(service.isFailure(g, term), "Arena failure terminal is unissued")
+            need(isFailure(g, term), "Arena failure terminal is unissued")
             need(retired or retained, "Arena failure leaves its acquired owner live")
         else
             need(term.kind == "jump" or term.kind == "branch", "Arena failure has no cleanup exit")
@@ -2670,13 +2666,13 @@ local function verifyArenaFailure(g: any, record: any, failed: any, canReturn: a
                     for value, truth in pairs(branchFacts) do
                         nextFacts[value] = truth
                     end
-                    local target = g.blocks[edge.target]
-                    for at, parameter in ipairs(target.params) do
+                    local dest = g.blocks[edge.target]
+                    for at, parameter in ipairs(dest.params) do
                         if g.exactTypes[parameter] == "boolean" then
                             nextFacts[parameter] = literal(edge.args[at], branchFacts, {})
                         end
                     end
-                    visit(target, retired, nextRetained, nextFacts)
+                    visit(dest, retired, nextRetained, nextFacts)
                 end
             end
         end
@@ -2689,7 +2685,7 @@ end
 
 -- Nil has no returned root. Non-nil primitive results may instead use a
 -- bounded no-effect transport interval; this grants no caller rooting claim.
-function service.unmanagedReturn(ctx: any, stage: any?): any
+export function unmanagedReturn(ctx: any, stage: any?): any
     local item = need(graphs[ctx.g], "unmanaged return requires an issued service graph")
     held(item.signature)
     local checked = item.checked
@@ -2719,7 +2715,7 @@ function service.unmanagedReturn(ctx: any, stage: any?): any
     need(stage and #stage.values == 1 and ctx.block, "return-tail staging point required")
     local g, block, value = ctx.g, ctx.block, stage.values[1]
     local arena, arenaProof, dependent, managed, managedProof
-    if kind == "affine" and service.builderownership(item.signature, item.owner) then
+    if kind == "affine" and builderownership(item.signature, item.owner) then
         local physical = require("nupp.compiler.vm.nativephysical")
         local source = need(
             g.nativePhysical and g.nativePhysical.values[value],
@@ -2826,7 +2822,7 @@ function service.unmanagedReturn(ctx: any, stage: any?): any
 end
 
 -- Validation only: callers cannot mint a plan by supplying a table or term.
-function service.returnTail(ctx: any, proof: any, term: any?): nil
+export function returnTail(ctx: any, proof: any, term: any?): nil
     local item = need(graphs[ctx.g], "return plan requires an issued service graph")
     held(item.signature)
     need(
@@ -2857,7 +2853,7 @@ end
 -- Edges may carry both a lexical binding and a held result. Keep every
 -- actual alias, intersecting at success joins rather than deduplicating SSA.
 local function returnAliases(g: any, edge: any, values: any): any
-    local result, target = {}, g.blocks[edge.target]
+    local result, dest = {}, g.blocks[edge.target]
     for value in pairs(values) do
         if value <= g.nparams then
             result[value] = true
@@ -2865,7 +2861,7 @@ local function returnAliases(g: any, edge: any, values: any): any
     end
     for index, value in ipairs(edge.args) do
         if values[value] then
-            result[target.params[index]] = true
+            result[dest.params[index]] = true
         end
     end
 
@@ -2890,9 +2886,9 @@ local function returnReachability(g: any): (any, any)
     end
     local returnCursor: integer = 1
     while returnCursor <= #returnQueue do
-        local target = returnQueue[returnCursor]
+        local dest = returnQueue[returnCursor]
         returnCursor = returnCursor + 1
-        for _, source in ipairs(reverse[target] or {}) do
+        for _, source in ipairs(reverse[dest] or {}) do
             if not canReturn[source] then
                 canReturn[source] = true
                 returnQueue[#returnQueue + 1] = source
@@ -2936,7 +2932,7 @@ local function verifyReturnTails(g: any, item: any, origin: any): nil
                 start.op[record.definition] == "NativePointerView" and args[2] == record.arena.view,
                 "Arena staged view changed"
             )
-            service.validateArenaReturn(record.arenaProof, item.owner, record.arena.source, record.arena.node)
+            validateArenaReturn(record.arenaProof, item.owner, record.arena.source, record.arena.node)
             verifyArenaRecipe(g, record.arena, args[1])
         elseif record.managed then
             local args = start.args[record.definition]
@@ -2944,7 +2940,7 @@ local function verifyReturnTails(g: any, item: any, origin: any): nil
                 start.op[record.definition] == "NativePointerView" and args[2] == record.managed.view,
                 "managed staged view changed"
             )
-            service.validateManagedReturn(record.managedProof, item.owner, record.managed.source, record.managed.node)
+            validateManagedReturn(record.managedProof, item.owner, record.managed.source, record.managed.node)
             require("nupp.compiler.vm.nativephysical").validateCast(record.managed.view)
             verifyManagedRecipe(g, record.managed, args[1])
         elseif record.dependent then
@@ -3040,7 +3036,7 @@ local function verifyReturnTails(g: any, item: any, origin: any): nil
                     need(zero, "return-tail lacks a dominating zero-error edge")
                     covered[term], found = true, true
                 elseif term.kind == "nativeFail" then
-                    need(service.isFailure(g, term), "return-tail failure is not issued")
+                    need(isFailure(g, term), "return-tail failure is not issued")
                     need(
                         not record.arena or record.arena.mode ~= "forward",
                         "Arena failure leaves its acquired owner live"
@@ -3048,23 +3044,23 @@ local function verifyReturnTails(g: any, item: any, origin: any): nil
                 else
                     need(term.kind == "jump" or term.kind == "branch", "return-tail transfer is unsupported")
                     for edgeIndex, edge in ipairs(term.edges) do
-                        local target = g.blocks[edge.target]
-                        need(target ~= start, "return-tail cycles through its staging point")
+                        local dest = g.blocks[edge.target]
+                        need(dest ~= start, "return-tail cycles through its staging point")
                         local predicate = term.kind == "branch" and errorTests[term.value]
                         if predicate and ((edgeIndex == 1) ~= (predicate == "==")) then
-                            need(not canReturn[target.id], "return-tail error edge rejoins publication")
+                            need(not canReturn[dest.id], "return-tail error edge rejoins publication")
                         end
                         local forwarded = returnAliases(g, edge, aliases)
-                        if canReturn[target.id] then
+                        if canReturn[dest.id] then
                             need(next(forwarded) ~= nil, "return-tail success drops its result")
                             allowedEdges[edge] = true
                             local nextZero = zero
                             if predicate then
                                 nextZero = (edgeIndex == 1) == (predicate == "==")
                             end
-                            queue[#queue + 1] = {block = target, at = 1, values = forwarded, zero = nextZero}
+                            queue[#queue + 1] = {block = dest, at = 1, values = forwarded, zero = nextZero}
                         else
-                            failed[#failed + 1] = {block = target, values = forwarded}
+                            failed[#failed + 1] = {block = dest, values = forwarded}
                         end
                     end
                 end
@@ -3122,21 +3118,21 @@ local function verifyReturnTails(g: any, item: any, origin: any): nil
     end
 end
 
-function service.retainRoots(ctx: any, node: any): nil
+export function retainRoots(ctx: any, node: any): nil
     local item = need(graphs[ctx.g], "retention requires an issued service graph")
     need(item.scoped, "retention requires explicit service scope")
-    local target = need(
+    local dest = need(
         unit.ownerModule(item.owner, "nupp.runtime.core.servicescope").exports.retain,
         "retention helper is absent"
     )
-    local callee = need(item.state.owners[target], "retention helper outside closed catalog")
+    local callee = need(item.state.owners[dest], "retention helper outside closed catalog")
     -- Lazy require avoids a module import cycle; the declaration still follows
     -- the ordinary checked leaf signature and existing INTERNAL call path.
-    local declaration = require(
+    local decl = require(
         "nupp.compiler.vm.graph"
-    ).nativeLeafDeclaration(target, ctx.g.nativePhysical and ctx.g.nativePhysical.context, nil, nil, callee.signature)
+    ).nativeLeafDeclaration(dest, ctx.g.nativePhysical and ctx.g.nativePhysical.context, nil, nil, callee.signature)
     need(
-        #declaration.params == 1 and declaration.params[1] == "voidptr" and declaration.result == "nil",
+        #decl.params == 1 and decl.params[1] == "voidptr" and decl.result == "nil",
         "retention helper signature changed"
     )
     local record = {
@@ -3144,19 +3140,19 @@ function service.retainRoots(ctx: any, node: any): nil
         target = callee,
         node = node,
         retention = true,
-        params = declaration.params,
+        params = decl.params,
         kinds = {"voidptr"},
         result = "nil",
         fields = {}
     }
-    for key, value in pairs(declaration) do
+    for key, value in pairs(decl) do
         record.fields[key] = value
     end
-    calls[declaration] = record
-    ctx.emit(node, "NativeLeafCall", {declaration, service.scope(ctx)}, nil)
+    calls[decl] = record
+    ctx.emit(node, "NativeLeafCall", {decl, scope(ctx)}, nil)
 end
 
-function service.retainConstructRoots(ctx: any, node: any): nil
+export function retainConstructRoots(ctx: any, node: any): nil
     local item = graphs[ctx.g]
     if not item then
         return
@@ -3174,22 +3170,22 @@ function service.retainConstructRoots(ctx: any, node: any): nil
     end
     need(ctx.fn == item.owner, "rooted failure owner differs")
     unit.occurrence(item.owner, node)
-    service.retainRoots(ctx, node)
+    retainRoots(ctx, node)
 end
 
-function service.afterCall(ctx: any, node: any, declaration: any, result: integer?): integer?
-    local call = calls[declaration]
+export function afterCall(ctx: any, node: any, decl: any, result: integer?): integer?
+    local call = calls[decl]
     if not call or call.cleanup or not (call.os or call.target.scoped) then
         return result
     end
     need(type(ctx.afterCall) == "function", "service failure continuation is not installed")
-    local scope = service.scope(ctx)
+    local region = scope(ctx)
     local offset = ctx.emit(node, "NativeConstant", {tostring(call.caller.state.layout.offsets.error)}, "int64")
     local status = ctx.emit(
         node,
         "NativeLoad",
         {
-            scope,
+            region,
             offset,
             {
                 source = ctx.g.native.abi == "leaf" and "borrowed" or "live",
@@ -3207,9 +3203,9 @@ function service.afterCall(ctx: any, node: any, declaration: any, result: intege
     return ctx.afterCall(node, result, okay)
 end
 
-function service.callGraph(g: any, declaration: any, args: any): nil
-    local call = need(calls[declaration], "unissued service call")
-    service.validateIssued(declaration)
+export function callGraph(g: any, decl: any, args: any): nil
+    local call = need(calls[decl], "unissued service call")
+    validateIssued(decl)
     if call.retention then
         need(
             call.target.owner == unit.ownerModule(call.caller.owner, "nupp.runtime.core.servicescope").exports.retain,
@@ -3223,27 +3219,27 @@ function service.callGraph(g: any, declaration: any, args: any): nil
     end
     need(
         graphs[g] == call.caller
-        and held(declaration.service) == call.target
-        and declaration.params == call.params
-        and declaration.result == call.result,
+        and held(decl.service) == call.target
+        and decl.params == call.params
+        and decl.result == call.result,
         "service call contract changed"
     )
-    need(#args == #call.kinds + 1 and #declaration.params == #call.kinds, "service operand count")
+    need(#args == #call.kinds + 1 and #decl.params == #call.kinds, "service operand count")
     for index, kind in ipairs(call.kinds) do
-        need(declaration.params[index] == kind, "service parameter kind changed")
+        need(decl.params[index] == kind, "service parameter kind changed")
     end
-    if publicationSource(g, declaration) then
-        need(service.publicationArgument(g, declaration, 2, args[3]), "publication Heap binding changed")
+    if publicationSource(g, decl) then
+        need(publicationArgument(g, decl, 2, args[3]), "publication Heap binding changed")
     end
     -- Scope identity must be the entry argument or its exact CFG transport.
     -- Ordinary graph verification checks SSA/edge kinds; service.verifyScope
     -- below adds the identity constraint rather than trusting a voidptr kind.
 end
 
-function service.checked(signature: any, owner: any, checked: any): any
-    need(held(signature).owner == owner, "resolved service owner differs")
-    checked.params = service.parameters(signature, checked.params)
-    checked.service = signature
+export function checked(sig: any, holder: any, checked: any): any
+    need(held(sig).owner == holder, "resolved service owner differs")
+    checked.params = parameters(sig, checked.params)
+    checked.service = sig
     return checked
 end
 
@@ -3387,14 +3383,14 @@ local function verifyFailureFlow(g: any, item: any, origin: any, reachable: any)
                 end
             end
         end
-        if service.isFailure(g, block.term) then
+        if isFailure(g, block.term) then
             need(reachable[block.id] and error, "service failure lacks a dominating nonzero error edge")
         end
     end
 end
 
-function service.verifyScope(g: any): nil
-    service.verify(g)
+export function verifyScope(g: any): nil
+    verify(g)
     local item = graphs[g]
     if not item then
         return
@@ -3426,10 +3422,10 @@ function service.verifyScope(g: any): nil
     end
     for _, block in ipairs(g.blocks) do
         for _, edge in ipairs(block.term.edges or {}) do
-            local target = g.blocks[edge.target]
-            for index, value in ipairs(target.params) do
-                local list = incoming[target.id][value] or {}
-                incoming[target.id][value] = list
+            local dest = g.blocks[edge.target]
+            for index, value in ipairs(dest.params) do
+                local list = incoming[dest.id][value] or {}
+                incoming[dest.id][value] = list
                 list[#list + 1] = {block = block.id, value = edge.args[index]}
             end
         end
@@ -3465,9 +3461,9 @@ function service.verifyScope(g: any): nil
         for _, block in ipairs(g.blocks) do
             for _, edge in ipairs(block.term.edges or {}) do
                 for index, value in ipairs(edge.args) do
-                    local target = g.blocks[edge.target].params[index]
-                    if tainted[value] and not tainted[target] then
-                        tainted[target], changed = true, true
+                    local dest = g.blocks[edge.target].params[index]
+                    if tainted[value] and not tainted[dest] then
+                        tainted[dest], changed = true, true
                     end
                 end
             end
@@ -3491,7 +3487,7 @@ function service.verifyScope(g: any): nil
                 local args = block.args[index]
                 local call = calls[args[1]]
                 if call then
-                    service.callGraph(g, args[1], args)
+                    callGraph(g, args[1], args)
                     if not call.cleanup and (call.os or call.target.scoped) then
                         need(
                             #block.op == index + 4
@@ -3540,7 +3536,7 @@ function service.verifyScope(g: any): nil
     end
 end
 
-function service.inventory(catalog: any): any
+export function inventory(catalog: any): any
     local state = need(catalogs[catalog], "unissued service catalogue")
     local result = {}
     for _, item in ipairs(state.order) do
@@ -3573,19 +3569,19 @@ local scopedPolicy = {
 
 -- This closed raw-lifetime policy is reviewed source, not inferred escape
 -- analysis. It grants no retention, suspension or publication permission.
-function service.scopedCall(caller: any, node: any, target: any, index: integer): any
-    unit.call(caller, node, target)
+export function scopedCall(caller: any, node: any, dest: any, index: integer): any
+    unit.call(caller, node, dest)
     unit.occurrence(caller, node)
-    local policy = scopedPolicy[target.scope.name .. "." .. target.name]
+    local policy = scopedPolicy[dest.scope.name .. "." .. dest.name]
     -- Test builds are tested, not proven (runtime plan, "Direction").
     need(
-        policy and policy[index] or unitModules[caller.scope.name] or unitModules[target.scope.name],
+        policy and policy[index] or unitModules[caller.scope.name] or unitModules[dest.scope.name],
         "plain call lacks reviewed scoped lifetime policy"
     )
     local state = nil
     for _, candidate in ipairs(ownerCatalogs[caller] or {}) do
         local call = candidate.calls[node]
-        if call and call.owner == caller and call.target == target and not call.os and not call.raising then
+        if call and call.owner == caller and call.target == dest and not call.os and not call.raising then
             state = candidate
             break
         end
@@ -3598,39 +3594,39 @@ function service.scopedCall(caller: any, node: any, target: any, index: integer)
         state = state,
         caller = caller,
         node = node,
-        target = target,
+        target = dest,
         index = index,
         callerBody = caller.body,
-        targetBody = target.body
+        targetBody = dest.body
     }
 
     return proof
 end
 
-function service.validateScopedCall(proof: any, caller: any, node: any, target: any, index: integer): nil
+export function validateScopedCall(proof: any, caller: any, node: any, dest: any, index: integer): nil
     local saved = need(scopedCalls[proof], "unissued scoped-call proof")
     need(
         next(proof) == nil
         and getmetatable(proof) == nil
         and saved.caller == caller
         and saved.node == node
-        and saved.target == target
+        and saved.target == dest
         and saved.index == index
         and caller.body == saved.callerBody
-        and target.body == saved.targetBody,
+        and dest.body == saved.targetBody,
         "scoped-call identity changed"
     )
-    unit.call(caller, node, target)
+    unit.call(caller, node, dest)
     unit.occurrence(caller, node)
 end
 
-function service.isIssued(value: any): boolean
+export function isIssued(value: any): boolean
     return signatures[value] ~= nil or calls[value] ~= nil or failures[value] ~= nil
 end
 
-function service.validateIssued(value: any): nil
+export function validateIssued(value: any): nil
     if failures[value] then
-        service.isFailure(failures[value].graph, value);
+        isFailure(failures[value].graph, value);
         return
     end
     if signatures[value] then
@@ -3642,15 +3638,15 @@ function service.validateIssued(value: any): nil
         value.service == call.target.signature and value.params == call.params and value.result == call.result,
         "service call record changed"
     )
-    local target = held(value.service).owner
+    local dest = held(value.service).owner
     need(
-        value.moduleName == target.scope.name
-        and value.name == target.name
+        value.moduleName == dest.scope.name
+        and value.name == dest.name
         and value.source
         and getmetatable(value.source) == nil
-        and value.source.path == target.scope.path
-        and value.source.module == target.scope.name
-        and value.source.name == target.name,
+        and value.source.path == dest.scope.path
+        and value.source.module == dest.scope.name
+        and value.source.name == dest.name,
         "service declaration source changed"
     )
     for key in pairs(value.source) do
@@ -3743,7 +3739,7 @@ end
 -- Fixed producer input and fixed source closure, following the existing closed
 -- final-frame producer boundary. The host build filesystem and reviewed
 -- snapshot are trusted; this is not arbitrary-source nonescape authentication.
-function service.build(): any
+export function build(): any
     local root = need(os.getenv("NUPP_COMPILER_ROOT"), "build source root required")
     local path = root .. "/build/core-heap-services/snapshot.json"
     local text = read(path)
@@ -3764,10 +3760,10 @@ function service.build(): any
     end
     local review = {root = root, path = path, text = text, snapshot = snapshot}
     reviewUnchanged(review)
-    local checked = unit.session(root, requested, snapshot.target)
+    local verified = unit.session(root, requested, snapshot.target)
     local entries = {}
     for index, source in ipairs(roots) do
-        entries[index] = need(checked.module(source[1]).exports[source[2]], "fixed service entry is missing")
+        entries[index] = need(verified.module(source[1]).exports[source[2]], "fixed service entry is missing")
     end
     local result = catalog(entries[1], entries, review)
 
@@ -3788,7 +3784,7 @@ end
 -- modules, with the given fixture functions as roots. It reviews no snapshot
 -- and is never an executable admission; the core's own code is tested, not
 -- proven (runtime plan, "Direction").
-function service.buildUnits(fixtures: any, rootNames: any, handlers: {[string]: boolean}?): any
+export function buildUnits(fixtures: any, rootNames: any, handlers: {[string]: boolean}?): any
     local root = need(os.getenv("NUPP_COMPILER_ROOT"), "build source root required")
     local requested, seen = {}, {}
     for _, fixture in ipairs(fixtures) do
@@ -3832,13 +3828,13 @@ function service.buildUnits(fixtures: any, rootNames: any, handlers: {[string]: 
         end
         cursor = cursor + 1
     end
-    local checked = unit.session(root, requested, "aarch64-apple-darwin", include, true)
+    local verified = unit.session(root, requested, "aarch64-apple-darwin", include, true)
     local entries = {}
     for _, item in ipairs(rootNames) do
-        local scope = checked.module(item[1])
+        local region = verified.module(item[1])
         entries[
             #entries + 1
-        ] = need(scope.exports[item[2]] or scope.functions[item[2]], "unit root is missing: " .. item[2])
+        ] = need(region.exports[item[2]] or region.functions[item[2]], "unit root is missing: " .. item[2])
         -- Handler roots are lowered with the handler ABI.
         entries[#entries].nativeABI = handlers and handlers[item[1] .. "." .. item[2]] and "handler" or nil
     end
@@ -3846,32 +3842,32 @@ function service.buildUnits(fixtures: any, rootNames: any, handlers: {[string]: 
     -- belong to every service closure.
     for _, source in ipairs(roots) do
         if source[1] == "nupp.runtime.core.pagemappings" or source[1] == "nupp.runtime.core.servicescope" then
-            entries[#entries + 1] = need(checked.module(source[1]).exports[source[2]], "service root is missing")
+            entries[#entries + 1] = need(verified.module(source[1]).exports[source[2]], "service root is missing")
         end
     end
     local result = catalog(entries[1], entries, {unreviewed = true})
 
-    return {catalog = result, entries = entries, session = checked}
+    return {catalog = result, entries = entries, session = verified}
 end
 
 -- True for any graph lowered for a test build's catalog, the runtime under test
 -- included, and for graphs of its fixture modules.
-function service.isTestGraph(g: any): boolean
+export function isTestGraph(g: any): boolean
     local item = graphs[g]
     if item and item.state.review and item.state.review.unreviewed then
         return true
     end
 
-    return service.isUnitModule(g.source and g.source.module)
+    return isUnitModule(g.source and g.source.module)
 end
 
 -- True for fixture modules of a test build. Ownership-provenance checks that
 -- name the reviewed runtime callers accept these callers instead.
-function service.isUnitModule(name: string?): boolean
+export function isUnitModule(name: string?): boolean
     return name ~= nil and unitModules[name] == true
 end
 
-function service.owners(catalogue: any): any
+export function owners(catalogue: any): any
     local state = need(catalogs[catalogue], "unissued service catalogue")
     reviewUnchanged(state.review)
     local result = {}
@@ -3882,7 +3878,7 @@ function service.owners(catalogue: any): any
     return result
 end
 
-function service.validateCatalog(catalogue: any): nil
+export function validateCatalog(catalogue: any): nil
     local state = need(catalogs[catalogue], "unissued service catalogue")
     reviewUnchanged(state.review)
     unit.finish(state.entry)
@@ -3892,9 +3888,9 @@ end
 -- not issue a managed result, a root token, or a noncollecting call permission.
 -- Raw writes may alias roots; the ordinary effect summary conservatively keeps
 -- them hazardous until an actual caller proves the destination relationship.
-function service.heapEffects(catalogue: any, owner: any): (boolean, boolean)
+export function heapEffects(catalogue: any, holder: any): (boolean, boolean)
     local state = need(catalogs[catalogue], "unissued service catalogue")
-    need(state.owners[owner] ~= nil, "heap effect owner is outside service catalogue")
+    need(state.owners[holder] ~= nil, "heap effect owner is outside service catalogue")
     reviewUnchanged(state.review)
     unit.finish(state.entry)
     local collector = unit.ownerModule(state.entry, "nupp.runtime.vm.collector")
@@ -3904,12 +3900,9 @@ function service.heapEffects(catalogue: any, owner: any): (boolean, boolean)
     -- storage. Mapping pages and growing the gray stack are not collection.
     local collecting = {}
 
-    local function seed(target: any): nil
-        need(
-            target ~= nil and unit.sameOwners(state.entry, target),
-            "heap effect seed belongs to a foreign checked unit"
-        )
-        collecting[target] = true
+    local function seed(dest: any): nil
+        need(dest ~= nil and unit.sameOwners(state.entry, dest), "heap effect seed belongs to a foreign checked unit")
+        collecting[dest] = true
     end
 
     seed(collector.exports.startCycle)
@@ -3959,13 +3952,13 @@ function service.heapEffects(catalogue: any, owner: any): (boolean, boolean)
     local declarations = unit.externalDeclarations(state.entry, sites)
     for node, primitive in pairs(state.intrinsics) do
         local actual = declarations[node]
-        local checked = primitive.checked
+        local verified = primitive.checked
         need(
-            actual.definition == checked.definition
-            and actual.receiver == checked.receiver
-            and actual.signature == checked.signature
-            and actual.name == checked.name
-            and actual.context == checked.context,
+            actual.definition == verified.definition
+            and actual.receiver == verified.receiver
+            and actual.signature == verified.signature
+            and actual.name == verified.name
+            and actual.context == verified.context,
             "heap effect intrinsic binding changed"
         )
         local effect = effects[primitive.owner]
@@ -3992,10 +3985,10 @@ function service.heapEffects(catalogue: any, owner: any): (boolean, boolean)
     end
     local cursor = 1
     while cursor <= #queue do
-        local target = queue[cursor]
+        local dest = queue[cursor]
         cursor = cursor + 1
-        local source = effects[target]
-        for caller in pairs(state.reverse[target]) do
+        local source = effects[dest]
+        for caller in pairs(state.reverse[dest]) do
             local previous = effects[caller]
             local collects = previous.collects or source.collects
             local mutates = previous.mutates or source.mutates
@@ -4005,13 +3998,13 @@ function service.heapEffects(catalogue: any, owner: any): (boolean, boolean)
             end
         end
     end
-    local result = effects[owner]
+    local result = effects[holder]
 
     return result.collects, result.mutates
 end
 
-function service.recordTarget(g: any, declaration: any, node: any): any
-    local call = need(calls[declaration], "unissued service operation")
+export function recordTarget(g: any, decl: any, node: any): any
+    local call = need(calls[decl], "unissued service operation")
     need(graphs[g] == call.caller, "service operation owner/site differs")
     -- A terminal retains its checked acquisition/binding declaration, but
     -- runs at an actual exit occurrence. Ordinary calls retain exact sites.
@@ -4020,7 +4013,7 @@ function service.recordTarget(g: any, declaration: any, node: any): any
     else
         need(call.node == node, "service operation owner/site differs")
     end
-    service.validateIssued(declaration)
+    validateIssued(decl)
     if call.retention then
         need(
             call.target.owner == unit.ownerModule(call.caller.owner, "nupp.runtime.core.servicescope").exports.retain,
@@ -4049,13 +4042,13 @@ end
 -- A redirected OS call has a checked external source call and a different
 -- exact Nupp wrapper target. Its existing private service record binds both;
 -- it cannot carry an ordinary same-target physical call-site signature.
-function service.redirectedCall(g: any, declaration: any): boolean
-    local call = calls[declaration]
+export function redirectedCall(g: any, decl: any): boolean
+    local call = calls[decl]
     if not call or not call.os then
         return false
     end
     need(graphs[g] == call.caller, "redirected pointer caller differs")
-    service.validateIssued(declaration)
+    validateIssued(decl)
     local catalogCall = call.caller.state.calls[call.node]
     need(
         catalogCall
@@ -4064,25 +4057,17 @@ function service.redirectedCall(g: any, declaration: any): boolean
         and catalogCall.os == call.os,
         "redirected pointer catalog binding differs"
     )
-    need(
-        service.recordTarget(g, declaration, call.node) == call.target.owner,
-        "redirected pointer source identity differs"
-    )
-    need(
-        declaration.physical and declaration.physical.owner == call.target.owner,
-        "redirected pointer signature owner differs"
-    )
+    need(recordTarget(g, decl, call.node) == call.target.owner, "redirected pointer source identity differs")
+    need(decl.physical and decl.physical.owner == call.target.owner, "redirected pointer signature owner differs")
 
     return true
 end
 
-function service.finish(g: any): nil
+export function finish(g: any): nil
     local item = graphs[g]
     if item then
-        service.verifyScope(g)
+        verifyScope(g)
         reviewUnchanged(item.state.review)
         unit.finish(item.owner)
     end
 end
-
-export = service

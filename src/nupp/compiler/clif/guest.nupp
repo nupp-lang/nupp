@@ -46,54 +46,55 @@ local opcodes = require("nupp.compiler.vm.opcodes")
 local json = require("nupp.serde.internal.json.values")
 local fs = require("nupp.compiler.fs")
 
-local guest = {}
+-- How long the last emit spent printing its CLIF, for the profile line.
+local lastPrintSeconds: number = 0
 
 --- The value encoding (contracts 2.1), as CLIF immediates.
-guest.QNAN = "0x7ff8000000000000"
+export const QNAN = "0x7ff8000000000000"
 
-guest.NIL = "0x7ff9000000000000"
-guest.FALSE = "0x7ffa000000000000"
-guest.TRUE = "0x7ffb000000000000"
-guest.TAG_FUNC = "0x7ffc000000000000"
-guest.TAG_OBJ = "0x7ffd000000000000"
-guest.TAG_INTEGER = "0x7fff000000000000"
-guest.ERROR = "0x7ffe000000000001"
-guest.TAG_MASK = "0x7fff000000000000"
-guest.PAYLOAD = "0x0000ffffffffffff"
+export const NIL = "0x7ff9000000000000"
+export const FALSE = "0x7ffa000000000000"
+export const TRUE = "0x7ffb000000000000"
+export const TAG_FUNC = "0x7ffc000000000000"
+export const TAG_OBJ = "0x7ffd000000000000"
+export const TAG_INTEGER = "0x7fff000000000000"
+export const ERROR = "0x7ffe000000000001"
+export const TAG_MASK = "0x7fff000000000000"
+export const PAYLOAD = "0x0000ffffffffffff"
 
 --- The exit words above a pc, as `jit_glue.rs` numbers them.
-guest.EXIT_LEFT = "-1"
+export const EXIT_LEFT = "-1"
 
-guest.EXIT_REENTER = "-2"
-guest.EXIT_RETURNED = "-3"
+export const EXIT_REENTER = "-2"
+export const EXIT_RETURNED = "-3"
 
 --- What a direct call's body answers when it returned natively: its value
 --- is the second result, and one result (`EXIT_VALUE`) or none
 --- (`EXIT_NONE`) was returned. The caller's frame never saw it.
-guest.EXIT_VALUE = "-10"
+export const EXIT_VALUE = "-10"
 
-guest.EXIT_NONE = "-11"
+export const EXIT_NONE = "-11"
 
 --- The pc a direct caller passes: the arguments are the body's parameters,
 --- not the frame's window.
-guest.CALL_PC = "-1"
+export const CALL_PC = "-1"
 
 --- Functions larger than this get no direct body: the call protocol is
 --- what small hot functions pay most for, and a body costs nothing extra to
 --- emit, but its entry block keeps every parameter in a register.
-guest.DIRECT_PARAMS = 6
+export const DIRECT_PARAMS = 6
 
 --- How many value registers a loop header keeps in registers across its
 --- back edge.
-guest.CARRIED_LIMIT = 12
+export const CARRIED_LIMIT = 12
 
 --- The entry's symbol for a function id.
-function guest.entryName(fid: integer): string
+export function entryName(fid: integer): string
     return "guest_" .. tostring(fid)
 end
 
 --- One instruction of a parsed function.
-record guest.Instruction
+export record Instruction
     name: string
 
     --- The operands as the image spells them: register numbers and small
@@ -107,13 +108,13 @@ end
 --- `nil`, `true`, `false`, or `opaque` for anything the emitter cannot spell
 --- (a string or a function read from an image's text rather than from the
 --- running VM).
-record guest.Constant
+export record Constant
     kind: string
     text: string
 end
 
 --- A function as the glue describes it.
-record guest.Fn
+export record Fn
     name: string
     fid: integer
     nparams: integer
@@ -122,8 +123,8 @@ record guest.Fn
     nfreg: integer
     nvreg: integer
     vararg: boolean
-    consts: {guest.Constant}
-    code: {guest.Instruction}
+    consts: {Constant}
+    code: {Instruction}
     tables: {{integer}}
 
     --- The address of the function's inline-cache bank, as hex text: two
@@ -173,8 +174,8 @@ end
 --- lines, indented instructions, and `end`. `lines`, `source` and `vectors`
 --- are read where they matter and otherwise skipped.
 --- @raises string when the text is not a function.
-function guest.parse(text: string): guest.Fn
-    local fn: guest.Fn? = nil
+export function parse(text: string): Fn
+    local fn: Fn? = nil
     local pc: integer = 0
     for line in (text .. "\n"):gmatch("([^\n]*)\n") do
         local parts = words(line)
@@ -184,7 +185,7 @@ function guest.parse(text: string): guest.Fn
         elseif head == "function" then
             need(fn == nil, "one function per text")
             local nf = (tonumber(parts[6] or "1") or 1) as integer
-            fn = guest.Fn(
+            fn = Fn(
                 name = parts[2],
                 fid = need(tonumber(parts[3]), "function id") as integer,
                 nparams = need(tonumber(parts[4]), "parameter count") as integer,
@@ -207,37 +208,37 @@ function guest.parse(text: string): guest.Fn
         elseif fn == nil then
             error("guest: text before the function line: " .. line, 0)
         elseif head == "const" then
-            local f = fn as guest.Fn
+            local f = fn as Fn
             local kind = parts[3]
-            local constant: guest.Constant
+            local constant: Constant
             if kind == "word" then
-                constant = guest.Constant(kind = "word", text = parts[4])
+                constant = Constant(kind = "word", text = parts[4])
             elseif kind == "num" then
-                constant = guest.Constant(kind = "num", text = parts[4])
+                constant = Constant(kind = "num", text = parts[4])
             elseif kind == "nil" or kind == "true" or kind == "false" then
-                constant = guest.Constant(kind = kind, text = "")
+                constant = Constant(kind = kind, text = "")
             else
-                constant = guest.Constant(kind = "opaque", text = kind)
+                constant = Constant(kind = "opaque", text = kind)
             end
             f.consts[#f.consts + 1] = constant
         elseif head == "vectors" then
-            (fn as guest.Fn).nvreg = (tonumber(parts[2]) or 2) as integer
+            (fn as Fn).nvreg = (tonumber(parts[2]) or 2) as integer
         elseif head == "caches" then
-            (fn as guest.Fn).caches = parts[2]
+            (fn as Fn).caches = parts[2]
         elseif head == "calls" then
-            local f = fn as guest.Fn
+            local f = fn as Fn
             f.callsAddress = parts[2]
             f.callsCount = need(tonumber(parts[3]), "call table size") as integer
         elseif head == "epoch" then
-            local f = fn as guest.Fn
+            local f = fn as Fn
             f.epochAddress = parts[2]
             f.epochValue = parts[3]
         elseif head == "site" then
-            local f = fn as guest.Fn
+            local f = fn as Fn
             need(parts[3] == "method", "plan site kind " .. tostring(parts[3]))
             f.methodSites[need(tonumber(parts[2]), "site pc") as integer] = {parts[4], parts[5]}
         elseif head == "table" then
-            local f = fn as guest.Fn
+            local f = fn as Fn
             local offsets: {integer} = {}
             for index = 3, #parts do
                 offsets[#offsets + 1] = need(tonumber(parts[index]), "jump table offset") as integer
@@ -248,27 +249,27 @@ function guest.parse(text: string): guest.Fn
         elseif head == "end" then
             break
         else
-            local f = fn as guest.Fn
+            local f = fn as Fn
             need(opcodes.byName[head] ~= nil, "unknown opcode " .. head)
             local operands: {string} = {}
             for index = 2, #parts do
                 operands[index - 1] = parts[index]
             end
-            f.code[#f.code + 1] = guest.Instruction(name = head, operands = operands, pc = pc)
+            f.code[#f.code + 1] = Instruction(name = head, operands = operands, pc = pc)
             pc = pc + 1
         end
     end
 
-    return need(fn, "no function") as guest.Fn
+    return need(fn, "no function") as Fn
 end
 
 -- A small operand as a number: a register, an offset, a count.
-local function num(ins: guest.Instruction, index: integer): integer
+local function num(ins: Instruction, index: integer): integer
     return need(tonumber(ins.operands[index]), ins.name .. ": operand " .. tostring(index)) as integer
 end
 
 -- The bits of a double as a hexadecimal CLIF immediate.
-local function doubleBits(x: number): string
+export function doubleBits(x: number): string
     local digits = "0123456789abcdef"
 
     local function hex(value: number, count: integer): string
@@ -283,7 +284,7 @@ local function doubleBits(x: number): string
     end
 
     if x ~= x then
-        return guest.QNAN
+        return QNAN
     end
     local sign = 0
     if x < 0 or (x == 0 and 1 / x < 0) then
@@ -311,8 +312,6 @@ local function doubleBits(x: number): string
     return "0x" .. hex(sign + exponent, 3) .. hex(mantissa, 13)
 end
 
-guest.doubleBits = doubleBits
-
 -- Register sets are tables keyed by `class * 256 + register`: class 0 the
 -- value window, 1 the integer window, 2 the float window, 3 the vectors.
 local function key(class: integer, register: integer): integer
@@ -339,7 +338,7 @@ local function callArgs(nargs: integer): integer
 end
 
 -- The registers a window covers: the first one and how many.
-local function windowSpan(spec: string, ins: guest.Instruction): (integer, integer, integer, string)
+local function windowSpan(spec: string, ins: Instruction): (integer, integer, integer, string)
     local class, mode, base, offset, count, formula = spec:match("^([vifx]):([a-z]+)@(%d+)%+(%d+):(%d+):(%w+)$")
     need(class ~= nil, "window " .. spec)
     local first = num(ins, tonumber(base) as integer) + (tonumber(offset) as integer)
@@ -373,7 +372,7 @@ end
 
 -- The registers an instruction defines and the ones it reads, by the opcode
 -- table's account, as sets of keys.
-local function defsUses(fn: guest.Fn, ins: guest.Instruction): ({[integer]: boolean}, {[integer]: boolean})
+local function defsUses(fn: Fn, ins: Instruction): ({[integer]: boolean}, {[integer]: boolean})
     local opcode = opcodes.byName[ins.name] as opcodes.Opcode
     local defs: {[integer]: boolean} = {}
     local uses: {[integer]: boolean} = {}
@@ -446,7 +445,7 @@ end
 
 -- Where control goes from an instruction: its jump target, its table's
 -- targets, and the next instruction when it falls through.
-local function successors(fn: guest.Fn, ins: guest.Instruction): {integer}
+local function successors(fn: Fn, ins: Instruction): {integer}
     local opcode = opcodes.byName[ins.name] as opcodes.Opcode
     local out: {integer} = {}
     local pc = ins.pc
@@ -472,7 +471,7 @@ local function successors(fn: guest.Fn, ins: guest.Instruction): {integer}
 end
 
 --- Whether a jump instruction's target lies behind it: a loop's back edge.
-local function isBackEdge(ins: guest.Instruction): boolean
+local function isBackEdge(ins: Instruction): boolean
     local opcode = opcodes.byName[ins.name] as opcodes.Opcode
     if opcode.flow ~= "branch" and opcode.flow ~= "jump" then
         return false
@@ -489,14 +488,14 @@ end
 --- Liveness by the opcode table (what the verifier computes in Rust from the
 --- same rows): per basic block, the registers live on entry and on exit, and
 --- from those the set live into any instruction.
-record guest.Liveness
+export record Liveness
     liveAt: function(pc: integer): {[integer]: boolean}
     defs: function(pc: integer): {[integer]: boolean}
     uses: function(pc: integer): {[integer]: boolean}
     leaders: {[integer]: boolean}
 end
 
-local function liveness(fn: guest.Fn): guest.Liveness
+export function liveness(fn: Fn): Liveness
     local n = #fn.code
     local defsAt: {{[integer]: boolean}} = {}
     local usesAt: {{[integer]: boolean}} = {}
@@ -620,7 +619,7 @@ local function liveness(fn: guest.Fn): guest.Liveness
         return live
     end
 
-    return guest.Liveness(
+    return Liveness(
         liveAt = liveAt,
         defs = function(pc: integer): {[integer]: boolean}
             return defsAt[pc + 1]
@@ -632,12 +631,10 @@ local function liveness(fn: guest.Fn): guest.Liveness
     )
 end
 
-guest.liveness = liveness
-
 --- The helpers compiled code may call, by the symbol the handlers use, with
 --- their machine signatures. `nupp_rt_*` are the handlers' helpers;
 --- `nupp_jit_*` are the glue's for the frame protocol.
-local HELPERS: {
+export const HELPERS: {
     [string]: {string}
 } = {
     nupp_rt_get_field = {"(i64, i64, i64) -> i64"},
@@ -654,8 +651,6 @@ local HELPERS: {
     nupp_jit_call = {"(i64, i64, i64) -> i64"},
     nupp_jit_finish = {"(i64, i64, i64) -> i64"}
 }
-
-guest.HELPERS = HELPERS
 
 --- Instructions the function cannot be compiled with: vector code, the
 --- typed-native proof instructions.
@@ -691,7 +686,7 @@ local INELIGIBLE: {
 }
 
 --- How long the last emission's printing took, for the profile.
-guest.lastPrintSeconds = 0
+lastPrintSeconds = 0
 
 --- Instructions whose existing floating fast path reads raw floating words.
 --- Other numeric representations use the shared Nupp handler.
@@ -718,13 +713,13 @@ local FLOAT_DEFS: {[string]: boolean} = {FBox = true}
 
 --- The limit on native nesting of compiled calls before the frame driver
 --- takes over, as the Rust frame code has it.
-guest.NESTED_LIMIT = 96
+export const NESTED_LIMIT = 96
 
 --- Emits the frame entry of a function. `layout` answers the glue's layout
 --- table (`nupp-vm native layouts`), `options.nested` the offset of the
 --- interpreter's nesting counter from the context's `interp` word. Answers
 --- the CLIF text, or nil and the reason the function is not compiled.
-function guest.emit(fn: guest.Fn, layout: function(string): number, options: any?): (string?, string?)
+export function emit(fn: Fn, layout: function(string): number, options: any?): (string?, string?)
     local settings: any = options or {}
     for _, ins in ipairs(fn.code) do
         if INELIGIBLE[ins.name] then
@@ -778,7 +773,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
 
     -- Whether this function gets a direct body: value parameters only, few
     -- of them, one result or none on every return, no surplus arguments.
-    local direct = not fn.vararg and fn.nparams <= guest.DIRECT_PARAMS
+    local direct = not fn.vararg and fn.nparams <= DIRECT_PARAMS
     do
         local params = fn.signature:match("^([^:]*)") or ""
         if params:find("f", 1, true) then
@@ -1117,9 +1112,9 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         if floatWords[x] then
             return alwaysTrue
         end
-        local masked = emit("band " .. x .. ", " .. k(guest.QNAN))
-        local notNan = emit("icmp ne " .. masked .. ", " .. k(guest.QNAN))
-        local canonical = emit("icmp eq " .. x .. ", " .. k(guest.QNAN))
+        local masked = emit("band " .. x .. ", " .. k(QNAN))
+        local notNan = emit("icmp ne " .. masked .. ", " .. k(QNAN))
+        local canonical = emit("icmp eq " .. x .. ", " .. k(QNAN))
 
         return emit("bor " .. notNan .. ", " .. canonical)
     end
@@ -1139,10 +1134,10 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
 
     local function boxFloat(f: string): string
         local bits = emit("bitcast.i64 " .. f)
-        local masked = emit("band " .. bits .. ", " .. k(guest.QNAN))
-        local nan = emit("icmp eq " .. masked .. ", " .. k(guest.QNAN))
+        local masked = emit("band " .. bits .. ", " .. k(QNAN))
+        local nan = emit("icmp eq " .. masked .. ", " .. k(QNAN))
 
-        local boxed = emit("select " .. nan .. ", " .. k(guest.QNAN) .. ", " .. bits)
+        local boxed = emit("select " .. nan .. ", " .. k(QNAN) .. ", " .. bits)
         floatWords[boxed] = true
         floatOf[boxed] = f
 
@@ -1161,24 +1156,24 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     end
 
     local function boolWord(cond: string): string
-        return emit("select " .. cond .. ", " .. k(guest.TRUE) .. ", " .. k(guest.FALSE))
+        return emit("select " .. cond .. ", " .. k(TRUE) .. ", " .. k(FALSE))
     end
 
     local function truthy(x: string): string
-        local notNil = emit("icmp ne " .. x .. ", " .. k(guest.NIL))
-        local notFalse = emit("icmp ne " .. x .. ", " .. k(guest.FALSE))
+        local notNil = emit("icmp ne " .. x .. ", " .. k(NIL))
+        local notFalse = emit("icmp ne " .. x .. ", " .. k(FALSE))
 
         return emit("band " .. notNil .. ", " .. notFalse)
     end
 
     local function isObject(x: string): string
-        local tag = emit("band " .. x .. ", " .. k(guest.TAG_MASK))
+        local tag = emit("band " .. x .. ", " .. k(TAG_MASK))
 
-        return emit("icmp eq " .. tag .. ", " .. k(guest.TAG_OBJ))
+        return emit("icmp eq " .. tag .. ", " .. k(TAG_OBJ))
     end
 
     local function objectOf(x: string): string
-        return emit("band " .. x .. ", " .. k(guest.PAYLOAD))
+        return emit("band " .. x .. ", " .. k(PAYLOAD))
     end
 
     local function headerByte(object: string, field: string): string
@@ -1194,7 +1189,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     end
 
     local function constantWord(index: integer): string
-        local c = need(fn.consts[index + 1], "constant " .. tostring(index)) as guest.Constant
+        local c = need(fn.consts[index + 1], "constant " .. tostring(index)) as Constant
         if c.kind == "word" then
             local value = k(c.text)
             -- A number word: its top thirteen bits are not a tagged NaN's,
@@ -1213,11 +1208,11 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
 
             return value
         elseif c.kind == "nil" then
-            return k(guest.NIL)
+            return k(NIL)
         elseif c.kind == "true" then
-            return k(guest.TRUE)
+            return k(TRUE)
         elseif c.kind == "false" then
-            return k(guest.FALSE)
+            return k(FALSE)
         end
         error("guest: constant " .. tostring(index) .. " is " .. c.text .. ", which the text does not spell", 0)
     end
@@ -1232,7 +1227,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         b.branch(raised, bad, ok)
         seal(bad)
         b.current = bad
-        finishWith({k(guest.ERROR)})
+        finishWith({k(ERROR)})
         b.current = ok
         seal(ok)
         reloadFrame()
@@ -1623,7 +1618,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
 
     -- Boxed arithmetic on two floating registers. Other representations use
     -- the shared Nupp handler (integer arithmetic, metamethods, errors).
-    local function arithmetic(pc: integer, ins: guest.Instruction, op: string): nil
+    local function arithmetic(pc: integer, ins: Instruction, op: string): nil
         local d, x, y = num(ins, 1), V(num(ins, 2)), V(num(ins, 3))
         guard(both(isFloatWord(x), isFloatWord(y)), pc)
         local p, q = unbox(x), unbox(y)
@@ -1640,7 +1635,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         setV(d, boxFloat(result))
     end
 
-    local function comparison(pc: integer, ins: guest.Instruction, cc: string): nil
+    local function comparison(pc: integer, ins: Instruction, cc: string): nil
         local d, x, y = num(ins, 1), V(num(ins, 2)), V(num(ins, 3))
         guard(both(isFloatWord(x), isFloatWord(y)), pc)
         local cond = emit("fcmp " .. cc .. " " .. unbox(x) .. ", " .. unbox(y))
@@ -1651,7 +1646,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     -- Equality as the lookup handlers decide it: numbers by value, equal
     -- words, two interned strings by identity, anything else through the
     -- helper.
-    local function equality(pc: integer, ins: guest.Instruction, negate: boolean): nil
+    local function equality(pc: integer, ins: Instruction, negate: boolean): nil
         local d, x, y = num(ins, 1), V(num(ins, 2)), V(num(ins, 3))
         local join = newBlock()
         local result = b.addParam(join, "i8")
@@ -1733,7 +1728,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     -- anything that is not the glue finishing the callee under the
     -- interpreter ends this activation with the word.
     local function finishCall(pc: integer, base: integer, callerCur: string, answer: string): nil
-        local returned = emit("icmp eq " .. answer .. ", " .. k(guest.EXIT_RETURNED))
+        local returned = emit("icmp eq " .. answer .. ", " .. k(EXIT_RETURNED))
         local done = newBlock()
         local pending = newBlock()
         b.branch(returned, done, pending)
@@ -1742,7 +1737,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         local finished = emit(
             "call " .. helperRef("nupp_jit_finish") .. "(" .. ctxValue .. ", " .. callerCur .. ", " .. answer .. ")"
         )
-        local returnedLater = emit("icmp eq " .. finished .. ", " .. k(guest.EXIT_RETURNED))
+        local returnedLater = emit("icmp eq " .. finished .. ", " .. k(EXIT_RETURNED))
         local leave = newBlock()
         b.branch(returnedLater, done, leave)
         seal(leave)
@@ -1765,7 +1760,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     -- has changed and the driver decides.
     local function callFrame(
         pc: integer,
-        ins: guest.Instruction,
+        ins: Instruction,
         fid: string,
         closure: string,
         base: integer,
@@ -1778,7 +1773,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         -- the body called. Any other callee, or a direct body that left for
         -- the interpreter, takes the generic protocol below.
         local after: ssa.Block? = nil
-        if fn.callsAddress ~= nil and nargs <= guest.DIRECT_PARAMS then
+        if fn.callsAddress ~= nil and nargs <= DIRECT_PARAMS then
             local joined = newBlock()
             after = joined
             local generic = newBlock()
@@ -1806,7 +1801,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             local interp = ctxLoad("interp")
             local nestedOffset = tostring(settings.nested or 0)
             local nested = emit("load.i64 notrap " .. interp .. "+" .. nestedOffset)
-            local room = emit("icmp ult " .. nested .. ", " .. k(tostring(guest.NESTED_LIMIT)))
+            local room = emit("icmp ult " .. nested .. ", " .. k(tostring(NESTED_LIMIT)))
             local ok = emit(
                 "band " .. emit(
                     "band " .. matches .. ", " .. room
@@ -1839,7 +1834,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             effect(
                 "store notrap " .. emit("iadd " .. nested .. ", " .. k("1")) .. ", " .. interp .. "+" .. nestedOffset
             )
-            local args: {string} = {ctxValue, pushed, k(guest.CALL_PC)}
+            local args: {string} = {ctxValue, pushed, k(CALL_PC)}
             for i = 0, nargs - 1 do
                 args[#args + 1] = V(base + 1 + i)
             end
@@ -1851,8 +1846,8 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 ) .. ", " .. body .. "(" .. table.concat(args, ", ") .. ")"
             )
             effect("store notrap " .. nested .. ", " .. interp .. "+" .. nestedOffset)
-            local one = emit("icmp eq " .. word .. ", " .. k(guest.EXIT_VALUE))
-            local none = emit("icmp eq " .. word .. ", " .. k(guest.EXIT_NONE))
+            local one = emit("icmp eq " .. word .. ", " .. k(EXIT_VALUE))
+            local none = emit("icmp eq " .. word .. ", " .. k(EXIT_NONE))
             local native = newBlock()
             local other = newBlock()
             b.branch(emit("bor " .. one .. ", " .. none), native, other)
@@ -1958,7 +1953,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             b.current = loopBody
             seal(loopBody)
             local at = emit("iadd " .. pushed .. ", " .. emit("ishl " .. i .. ", " .. k("3")))
-            effect("store notrap " .. k(guest.NIL) .. ", " .. at .. "+40")
+            effect("store notrap " .. k(NIL) .. ", " .. at .. "+40")
             b.write(counter, loopBody, emit("iadd " .. i .. ", " .. k("1")))
             b.jump(loopHead, {})
             seal(loopHead)
@@ -1989,7 +1984,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 "icmp ne " .. entry .. ", " .. k("0")
             ) .. ", " .. emit("icmp ne " .. entry .. ", " .. k("-1"))
         )
-        local room = emit("icmp ult " .. nested .. ", " .. k(tostring(guest.NESTED_LIMIT)))
+        local room = emit("icmp ult " .. nested .. ", " .. k(tostring(NESTED_LIMIT)))
         local native = emit("band " .. present .. ", " .. room)
         local answerVar = {}
         b.declare(answerVar, "i64")
@@ -2066,7 +2061,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     -- interpreter's, and the frame they leave on top is the driver's.
     local function callValue(
         pc: integer,
-        ins: guest.Instruction,
+        ins: Instruction,
         value: string,
         base: integer,
         nargs: integer,
@@ -2100,7 +2095,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         local answer = emit(
             "call " .. helperRef("nupp_jit_finish") .. "(" .. ctxValue .. ", " .. cur .. ", " .. stepped .. ")"
         )
-        local returned = emit("icmp eq " .. answer .. ", " .. k(guest.EXIT_RETURNED))
+        local returned = emit("icmp eq " .. answer .. ", " .. k(EXIT_RETURNED))
         local back = newBlock()
         local leave = newBlock()
         b.branch(returned, back, leave)
@@ -2115,14 +2110,14 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         restore(saved)
         b.current = outer
         if known ~= nil then
-            local same = emit("icmp eq " .. value .. ", " .. emit("bor " .. k(guest.TAG_FUNC) .. ", " .. known))
+            local same = emit("icmp eq " .. value .. ", " .. emit("bor " .. k(TAG_FUNC) .. ", " .. known))
             local knownBlock = newBlock()
             local other = newBlock()
             b.branch(same, knownBlock, other)
             seal(knownBlock)
             seal(other)
             b.current = knownBlock
-            callFrame(pc, ins, known, k(guest.NIL), base, nargs, slow)
+            callFrame(pc, ins, known, k(NIL), base, nargs, slow)
             b.jump(resume, {})
             restore(saved)
             b.current = other
@@ -2157,8 +2152,8 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         b.jump(resume, {})
         restore(saved)
         b.current = notObject
-        local tag = emit("band " .. value .. ", " .. k(guest.TAG_MASK))
-        local isFunction = emit("icmp eq " .. tag .. ", " .. k(guest.TAG_FUNC))
+        local tag = emit("band " .. value .. ", " .. k(TAG_MASK))
+        local isFunction = emit("icmp eq " .. tag .. ", " .. k(TAG_FUNC))
         local upper = emit("band " .. emit("ushr " .. value .. ", " .. k("32")) .. ", " .. k("65535"))
         local local_ = emit("band " .. isFunction .. ", " .. emit("icmp eq " .. upper .. ", " .. k("0")))
         local bare = newBlock()
@@ -2167,7 +2162,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         seal(bare)
         seal(notBare)
         b.current = bare
-        callFrame(pc, ins, emit("band " .. value .. ", " .. k("4294967295")), k(guest.NIL), base, nargs, slow)
+        callFrame(pc, ins, emit("band " .. value .. ", " .. k("4294967295")), k(NIL), base, nargs, slow)
         b.jump(resume, {})
         restore(saved)
         -- A builtin the slow-call table does not reserve for the interpreter
@@ -2226,7 +2221,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
 
     -- A read by an interned name: the cached shape's slot, else the glue's
     -- miss helper, which reads as the interpreter does and fills the cache.
-    local function fieldRead(pc: integer, ins: guest.Instruction): nil
+    local function fieldRead(pc: integer, ins: Instruction): nil
         local d, t = num(ins, 1), num(ins, 2)
         local object = V(t)
         local name = constantWord(num(ins, 3))
@@ -2253,7 +2248,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             local value = emit(
                 "load.i64 notrap " .. emit("iadd " .. data .. ", " .. emit("ishl " .. slot .. ", " .. k("3"))) .. "+0"
             )
-            local present = emit("icmp ne " .. value .. ", " .. k(guest.NIL))
+            local present = emit("icmp ne " .. value .. ", " .. k(NIL))
             local from = b.here()
             b.branch(present, join, miss)
             -- The join takes the value from the hit edge.
@@ -2283,7 +2278,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
 
     -- A store by an interned name: the cached shape's slot written in place
     -- under the interpreter's own conditions, else the glue's store helper.
-    local function fieldWrite(pc: integer, ins: guest.Instruction): nil
+    local function fieldWrite(pc: integer, ins: Instruction): nil
         local t, v = num(ins, 1), num(ins, 3)
         local object = V(t)
         local value = V(v)
@@ -2312,7 +2307,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             local at = emit("iadd " .. data .. ", " .. emit("ishl " .. slot .. ", " .. k("3")))
             local current = emit("load.i64 notrap " .. at .. "+0")
             local meta = emit("icmp ne " .. emit("band " .. flags .. ", " .. k("4")) .. ", " .. k("0"))
-            local blocked = emit("band " .. meta .. ", " .. emit("icmp eq " .. current .. ", " .. k(guest.NIL)))
+            local blocked = emit("band " .. meta .. ", " .. emit("icmp eq " .. current .. ", " .. k(NIL)))
             local open = newBlock()
             b.branch(blocked, miss, open)
             seal(open)
@@ -2389,14 +2384,14 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         b.current = viaStep
         coldStep(pc)
         -- The step returned the frame to its caller: the driver decides.
-        finishWith({k(guest.EXIT_REENTER)})
+        finishWith({k(EXIT_REENTER)})
         b.current = fast
 
         return link, caller, current
     end
 
     -- The emission of one instruction.
-    local function instruction(pc: integer, ins: guest.Instruction): nil
+    local function instruction(pc: integer, ins: Instruction): nil
         local name = ins.name
         _ = switch name do
             case "Move" -> do
@@ -2413,7 +2408,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 yield true
             end
             case "Nil" -> do
-                setV(num(ins, 1), k(guest.NIL))
+                setV(num(ins, 1), k(NIL))
                 yield true
             end
             case "Add" -> do
@@ -2460,8 +2455,8 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 local d, x = num(ins, 1), V(num(ins, 2))
                 local falsy = emit(
                     "bor " .. emit(
-                        "icmp eq " .. x .. ", " .. k(guest.NIL)
-                    ) .. ", " .. emit("icmp eq " .. x .. ", " .. k(guest.FALSE))
+                        "icmp eq " .. x .. ", " .. k(NIL)
+                    ) .. ", " .. emit("icmp eq " .. x .. ", " .. k(FALSE))
                 )
                 setV(d, boolWord(falsy))
                 condOf[d] = falsy
@@ -2633,16 +2628,13 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 local low = emit("icmp sge " .. x .. ", " .. k("-140737488355328"))
                 local high = emit("icmp sle " .. x .. ", " .. k("140737488355327"))
                 guard(emit("band " .. low .. ", " .. high), pc)
-                setV(
-                    num(ins, 1),
-                    emit("bor " .. emit("band " .. x .. ", " .. k(guest.PAYLOAD)) .. ", " .. k(guest.TAG_INTEGER))
-                )
+                setV(num(ins, 1), emit("bor " .. emit("band " .. x .. ", " .. k(PAYLOAD)) .. ", " .. k(TAG_INTEGER)))
                 yield true
             end
             case "IUnbox" -> do
                 local x = V(num(ins, 2))
                 local inline = emit(
-                    "icmp eq " .. emit("band " .. x .. ", " .. k("0xffff000000000000")) .. ", " .. k(guest.TAG_INTEGER)
+                    "icmp eq " .. emit("band " .. x .. ", " .. k("0xffff000000000000")) .. ", " .. k(TAG_INTEGER)
                 )
                 local floating = isFloatWord(x)
                 if floating ~= alwaysTrue then
@@ -2704,7 +2696,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 local data = headerWord(object, "Header.aux_ptr")
                 local value = emit("load.i64 notrap " .. data .. "+" .. tostring(num(ins, 3) * 8))
                 if name == "GetSlot" then
-                    local present = emit("icmp ne " .. value .. ", " .. k(guest.NIL))
+                    local present = emit("icmp ne " .. value .. ", " .. k(NIL))
                     local flags = emit("band " .. headerByte(object, "Header.flags") .. ", " .. k("4"))
                     local plain = emit("icmp eq " .. flags .. ", " .. k("0"))
                     guardExit(emit("bor " .. present .. ", " .. plain), pc)
@@ -2728,7 +2720,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 local at = tostring(num(ins, 2) * 8)
                 local current = emit("load.i64 notrap " .. data .. "+" .. at)
                 local meta = emit("icmp ne " .. emit("band " .. flags .. ", " .. k("4")) .. ", " .. k("0"))
-                local blocked = emit("band " .. meta .. ", " .. emit("icmp eq " .. current .. ", " .. k(guest.NIL)))
+                local blocked = emit("band " .. meta .. ", " .. emit("icmp eq " .. current .. ", " .. k(NIL)))
                 guard(emit("icmp eq " .. blocked .. ", " .. k8("0")), pc)
                 if name == "SetSlot" then
                     local marking = emit("uload8.i64 notrap " .. ctxLoad("marking") .. "+0")
@@ -2752,7 +2744,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 local plainTable = emit(
                     "band " .. emit(
                         "icmp eq " .. kind .. ", " .. k("2")
-                    ) .. ", " .. emit("icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(guest.NIL))
+                    ) .. ", " .. emit("icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(NIL))
                 )
                 guard(emit("bor " .. stringLike .. ", " .. plainTable), pc)
                 local length = emit("fcvt_from_uint.f64 " .. headerWord(object, "Header.aux_len"))
@@ -2794,7 +2786,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 local byte = emit("uload8.i64 notrap " .. at .. "-1")
                 b.jump(join, {emit("bitcast.i64 " .. emit("fcvt_from_sint.f64 " .. byte))})
                 b.current = miss
-                b.jump(join, {k(guest.NIL)})
+                b.jump(join, {k(NIL)})
                 b.current = join
                 seal(join)
                 setV(num(ins, 1), result)
@@ -2823,8 +2815,8 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 local data = headerWord(object, "Header.aux_ptr")
                 local at = emit("iadd " .. data .. ", " .. emit("ishl " .. index .. ", " .. k("3")))
                 local value = emit("load.i64 notrap " .. at .. "-8")
-                local present = emit("icmp ne " .. value .. ", " .. k(guest.NIL))
-                local plain = emit("icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(guest.NIL))
+                local present = emit("icmp ne " .. value .. ", " .. k(NIL))
+                local plain = emit("icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(NIL))
                 guardTo(emit("bor " .. present .. ", " .. plain), miss)
                 setV(num(ins, 1), value)
                 yield true
@@ -2870,8 +2862,8 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 local data = headerWord(object, "Header.aux_ptr")
                 local at = emit("iadd " .. data .. ", " .. emit("ishl " .. whole .. ", " .. k("3")))
                 local value = emit("load.i64 notrap " .. at .. "-8")
-                local present = emit("icmp ne " .. value .. ", " .. k(guest.NIL))
-                local plain = emit("icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(guest.NIL))
+                local present = emit("icmp ne " .. value .. ", " .. k(NIL))
+                local plain = emit("icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(NIL))
                 guardTo(emit("bor " .. present .. ", " .. plain), miss)
                 setV(num(ins, 1), value)
                 yield true
@@ -2925,11 +2917,11 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                             "band " .. border .. ", " .. exact
                         ) .. ", " .. emit(
                             "band " .. emit(
-                                "icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(guest.NIL)
+                                "icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(NIL)
                             ) .. ", " .. emit(
                                 "band " .. emit(
                                     "icmp eq " .. headerWord(object, "Table.hash_ptr") .. ", " .. k("0")
-                                ) .. ", " .. emit("icmp ne " .. value .. ", " .. k(guest.NIL))
+                                ) .. ", " .. emit("icmp ne " .. value .. ", " .. k(NIL))
                             )
                         )
                     )
@@ -2968,7 +2960,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 end
                 local keeps = emit(
                     "bor " .. emit(
-                        "icmp ne " .. value .. ", " .. k(guest.NIL)
+                        "icmp ne " .. value .. ", " .. k(NIL)
                     ) .. ", " .. emit("fcmp lt " .. d .. ", " .. length)
                 )
                 guardTo(
@@ -2982,8 +2974,8 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 local data = headerWord(object, "Header.aux_ptr")
                 local at = emit("iadd " .. data .. ", " .. emit("ishl " .. whole .. ", " .. k("3")))
                 local current = emit("load.i64 notrap " .. at .. "-8")
-                local present = emit("icmp ne " .. current .. ", " .. k(guest.NIL))
-                local plain = emit("icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(guest.NIL))
+                local present = emit("icmp ne " .. current .. ", " .. k(NIL))
+                local plain = emit("icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(NIL))
                 guardTo(emit("bor " .. present .. ", " .. plain), miss)
                 local marking = emit("uload8.i64 notrap " .. ctxLoad("marking") .. "+0")
                 local barrier = newBlock()
@@ -3046,7 +3038,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                     local resume = newBlock()
                     b.jump(resume, {})
                     b.current = outer
-                    callFrame(pc, ins, k(ins.operands[1]), k(guest.NIL), base, nargs, slow)
+                    callFrame(pc, ins, k(ins.operands[1]), k(NIL), base, nargs, slow)
                     b.jump(resume, {})
                     seal(slow)
                     b.current = resume
@@ -3085,7 +3077,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 else
                     value = V(num(ins, 1))
                 end
-                directReturn(value, guest.EXIT_VALUE)
+                directReturn(value, EXIT_VALUE)
                 local flags = emit("load.i64 notrap " .. frame() .. "+24")
                 local indirect = emit(
                     "icmp ne " .. emit(
@@ -3106,29 +3098,29 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 )
                 ctxStore("cur", caller)
                 ctxStore("last_nres", k("1"))
-                finishWith({k(guest.EXIT_RETURNED)})
+                finishWith({k(EXIT_RETURNED)})
                 yield true
             end
             case "RetNil" -> do
                 local link, caller = returnGuard(pc)
-                directReturn(k(guest.NIL), guest.EXIT_NONE)
+                directReturn(k(NIL), EXIT_NONE)
                 local stack = ctxLoad("stack")
                 local slot = emit("ushr " .. link .. ", " .. k("32"))
                 effect(
                     "store notrap " .. k(
-                        guest.NIL
+                        NIL
                     ) .. ", " .. emit("iadd " .. stack .. ", " .. emit("ishl " .. slot .. ", " .. k("3"))) .. "+0"
                 )
                 ctxStore("cur", caller)
                 ctxStore("last_nres", k("0"))
-                finishWith({k(guest.EXIT_RETURNED)})
+                finishWith({k(EXIT_RETURNED)})
                 yield true
             end
             case "RetN" -> do
                 local start, count = num(ins, 1), num(ins, 2)
                 if count > 8 then
                     step(pc)
-                    finishWith({k(guest.EXIT_REENTER)})
+                    finishWith({k(EXIT_REENTER)})
                 else
                     local link, caller = returnGuard(pc)
                     local stack = ctxLoad("stack")
@@ -3138,11 +3130,11 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                         effect("store notrap " .. V(start + i) .. ", " .. results .. "+" .. tostring(i * 8))
                     end
                     if count == 0 then
-                        effect("store notrap " .. k(guest.NIL) .. ", " .. results .. "+0")
+                        effect("store notrap " .. k(NIL) .. ", " .. results .. "+0")
                     end
                     ctxStore("cur", caller)
                     ctxStore("last_nres", k(tostring(count)))
-                    finishWith({k(guest.EXIT_RETURNED)})
+                    finishWith({k(EXIT_RETURNED)})
                 end
                 yield true
             end
@@ -3155,7 +3147,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                     for i = 1, wanted - 1 do
                         if base + i <= fn.nregs then
                             local have = emit("icmp ugt " .. filled .. ", " .. k(tostring(i)))
-                            setV(base + i, emit("select " .. have .. ", " .. V(base + i) .. ", " .. k(guest.NIL)))
+                            setV(base + i, emit("select " .. have .. ", " .. V(base + i) .. ", " .. k(NIL)))
                         end
                     end
                 end
@@ -3210,7 +3202,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     -- parameters are stored instead and the block reads the frame.
     local startParams: {string} = {}
     if direct then
-        isCall = emit("icmp eq " .. pcArg .. ", " .. k(guest.CALL_PC))
+        isCall = emit("icmp eq " .. pcArg .. ", " .. k(CALL_PC))
         local inherits = true
         for _, ins in ipairs(fn.code) do
             for _, target in ipairs(successors(fn, ins)) do
@@ -3283,7 +3275,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 end
             end
             table.sort(regs)
-            while #regs > guest.CARRIED_LIMIT do
+            while #regs > CARRIED_LIMIT do
                 table.remove(regs)
             end
             -- Which of them the loop uses only as numbers and defines only
@@ -3442,7 +3434,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             if b.current and (opcodes.byName[ins.name] as opcodes.Opcode).flow == "stop" then
                 -- An instruction the interpreter ran that leaves the function
                 -- never answers the next pc; the path is dead, and ends here.
-                finishWith({k(guest.EXIT_REENTER)})
+                finishWith({k(EXIT_REENTER)})
             end
         end
     end
@@ -3469,9 +3461,9 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     table.insert(preamble, 1, "sig0 = (i64, i64, i64) -> i64")
 
     local built = os.clock()
-    local name = guest.entryName(fn.fid)
+    local name = entryName(fn.fid)
     local text = b.print(name .. "_body", bodySignature(directParams), preamble)
-    guest.lastPrintSeconds = os.clock() - built
+    lastPrintSeconds = os.clock() - built
     -- The frame entry the frame driver calls: the body at the pc it names.
     local passed = {"v0", "v1", "v2"}
     for _ = 1, directParams do
@@ -3497,7 +3489,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
 end
 
 --- The glue's layout table as a function, from its JSON text.
-function guest.layoutsFrom(text: string): function(string): number
+export function layoutsFrom(text: string): function(string): number
     local offsets: any = json.decode(text)
 
     return function(field: string): number
@@ -3510,8 +3502,8 @@ end
 --- The glue's layout table with the context's interpreter pointer, which
 --- the glue adds when it drives the emitter and the measured table (from
 --- `nupp-vm native layouts`) lacks: it is the context's first word.
-function guest.layoutsWithInterp(text: string): function(string): number
-    local measured = guest.layoutsFrom(text)
+export function layoutsWithInterp(text: string): function(string): number
+    local measured = layoutsFrom(text)
 
     return function(field: string): number
         if field == "interp" then
@@ -3530,10 +3522,10 @@ end
 --- The entry point the glue calls on the emitter VM: the function text, the
 --- layout JSON and the nesting counter's offset in, the CLIF text out, or an
 --- empty string and the reason.
-function guest.compile(functionText: string, layoutsText: string, nestedOffset: integer): (string, string)
+export function compile(functionText: string, layoutsText: string, nestedOffset: integer): (string, string)
     local ok, result = pcall(function(): {string}
-        local fn = guest.parse(functionText)
-        local clif, reason = guest.emit(fn, guest.layoutsWithInterp(layoutsText), {nested = nestedOffset})
+        local fn = parse(functionText)
+        local clif, reason = emit(fn, layoutsWithInterp(layoutsText), {nested = nestedOffset})
         if clif == nil then
             return {"", reason or "refused"}
         end
@@ -3549,7 +3541,7 @@ function guest.compile(functionText: string, layoutsText: string, nestedOffset: 
 end
 
 --- Every function of an image's text, as texts of their own, by name.
-function guest.functions(imageText: string): {[string]: string}
+export function functions(imageText: string): {[string]: string}
     local out: {[string]: string} = {}
     local current: {string}? = nil
     local name: string? = nil
@@ -3582,7 +3574,7 @@ end
 --- returns its exit pc for budget tests. Helpers the entry imports are defined as stubs
 --- answering zero, so the file links alone; a case whose path reaches one is not a
 --- harness case.
-function guest.harness(fn: guest.Fn, clif: string, layout: function(string): number): string
+export function harness(fn: Fn, clif: string, layout: function(string): number): string
     local frameWords = 4 + fn.nregs + 1 + fn.nireg + fn.nfreg + 2 * fn.nvreg
     -- The fake stack: a caller frame of four words at zero whose result slot
     -- is word 8, then this frame at word 16.
@@ -3602,7 +3594,7 @@ function guest.harness(fn: guest.Fn, clif: string, layout: function(string): num
         out[#out + 1] = "    ss0 = explicit_slot " .. tostring(ctxBytes)
         out[#out + 1] = "    ss1 = explicit_slot " .. tostring(stackWords * 8)
         out[#out + 1] = "    sig0 = (i64, i64, i64) -> i64"
-        out[#out + 1] = "    fn0 = %" .. guest.entryName(fn.fid) .. " sig0"
+        out[#out + 1] = "    fn0 = %" .. entryName(fn.fid) .. " sig0"
         out[#out + 1] = ""
         out[#out + 1] = "block0(" .. table.concat(params, ", ") .. "):"
         local counter: integer = fn.nparams
@@ -3654,7 +3646,7 @@ function guest.harness(fn: guest.Fn, clif: string, layout: function(string): num
         line(frame .. " = iadd " .. stack .. ", " .. frameOffset)
         storeConst(frame, 0, tostring(fn.fid))
         storeConst(frame, 8, "34359738368")
-        storeConst(frame, 16, guest.NIL)
+        storeConst(frame, 16, NIL)
         local size = fresh()
         line(size .. " = iconst.i64 " .. tostring(frameWords))
         local thirtyThree = fresh()
@@ -3673,8 +3665,8 @@ function guest.harness(fn: guest.Fn, clif: string, layout: function(string): num
                 line(outside .. " = bor " .. below .. ", " .. above)
                 line("trapnz " .. outside .. ", user4")
                 local mask, tag, payload = fresh(), fresh(), fresh()
-                line(mask .. " = iconst.i64 " .. guest.PAYLOAD)
-                line(tag .. " = iconst.i64 " .. guest.TAG_INTEGER)
+                line(mask .. " = iconst.i64 " .. PAYLOAD)
+                line(tag .. " = iconst.i64 " .. TAG_INTEGER)
                 line(payload .. " = band v" .. tostring(i - 1) .. ", " .. mask)
                 line(bits .. " = bor " .. payload .. ", " .. tag)
             else
@@ -3687,7 +3679,7 @@ function guest.harness(fn: guest.Fn, clif: string, layout: function(string): num
         local answer = fresh()
         line(answer .. " = call fn0(" .. ctx .. ", " .. frame .. ", " .. zero .. ")")
         local returned = fresh()
-        line(returned .. " = iconst.i64 " .. guest.EXIT_RETURNED)
+        line(returned .. " = iconst.i64 " .. EXIT_RETURNED)
         local ok = fresh()
         line(ok .. " = icmp eq " .. answer .. ", " .. returned)
         local result = fresh()
@@ -3701,7 +3693,7 @@ function guest.harness(fn: guest.Fn, clif: string, layout: function(string): num
         if resultType == "f64" then
             local mask, tag, masked, inline = fresh(), fresh(), fresh(), fresh()
             line(mask .. " = iconst.i64 0xffff000000000000")
-            line(tag .. " = iconst.i64 " .. guest.TAG_INTEGER)
+            line(tag .. " = iconst.i64 " .. TAG_INTEGER)
             line(masked .. " = band " .. word .. ", " .. mask)
             line(inline .. " = icmp eq " .. masked .. ", " .. tag)
             local shift, left, signed, converted, raw, f = fresh(), fresh(), fresh(), fresh(), fresh(), fresh()
@@ -3773,18 +3765,18 @@ end
 --- Command line: `guest FUNCTION.txt LAYOUTS.json [NESTED]`, the CLIF on
 --- stdout, for the lowering suite and for looking at what a function becomes.
 --- @raises string when the function is refused or a file cannot be read.
-function guest.main(functionPath: string, layoutsPath: string, nested: string?): string
+export function main(functionPath: string, layoutsPath: string, nested: string?): string
     if os.getenv("JIT_GUEST_PROFILE") then
         -- The phases apart, on standard error: what emission costs where.
         local started = os.clock()
-        local fn = guest.parse((assert(fs.readFile(functionPath))))
+        local fn = parse((assert(fs.readFile(functionPath))))
         local parsed = os.clock()
-        local live = guest.liveness(fn)
+        local live = liveness(fn)
         for pc = 0, #fn.code - 1 do
             live.liveAt(pc)
         end
         local analyzed = os.clock()
-        local clif, reason = guest.emit(fn, guest.layoutsWithInterp((assert(fs.readFile(layoutsPath)))), {
+        local clif, reason = emit(fn, layoutsWithInterp((assert(fs.readFile(layoutsPath)))), {
             nested = (tonumber(nested or "0") or 0) as integer
         })
         local emitted = os.clock()
@@ -3795,8 +3787,8 @@ function guest.main(functionPath: string, layoutsPath: string, nested: string?):
                 #fn.code,
                 (parsed - started) * 1000,
                 (analyzed - parsed) * 1000,
-                (emitted - analyzed) * 1000 - guest.lastPrintSeconds * 1000,
-                guest.lastPrintSeconds * 1000
+                (emitted - analyzed) * 1000 - lastPrintSeconds * 1000,
+                lastPrintSeconds * 1000
             )
         )
         if clif == nil then
@@ -3805,7 +3797,7 @@ function guest.main(functionPath: string, layoutsPath: string, nested: string?):
 
         return clif as string
     end
-    local clif, reason = guest.compile(
+    local clif, reason = compile(
         assert(fs.readFile(functionPath)),
         assert(fs.readFile(layoutsPath)),
         (tonumber(nested or "0") or 0) as integer
@@ -3820,15 +3812,13 @@ end
 --- Command line: `harnessMain FUNCTION.txt LAYOUTS.json`, the CLIF with its
 --- test harness, as the native JIT suite writes it.
 --- @raises string when the function is refused or a file cannot be read.
-function guest.harnessMain(functionPath: string, layoutsPath: string): string
-    local layout = guest.layoutsWithInterp((assert(fs.readFile(layoutsPath))))
-    local fn = guest.parse((assert(fs.readFile(functionPath))))
-    local clif, reason = guest.emit(fn, layout, {nested = 0})
+export function harnessMain(functionPath: string, layoutsPath: string): string
+    local layout = layoutsWithInterp((assert(fs.readFile(layoutsPath))))
+    local fn = parse((assert(fs.readFile(functionPath))))
+    local clif, reason = emit(fn, layout, {nested = 0})
     if clif == nil then
         error("guest: " .. tostring(reason), 0)
     end
 
-    return guest.harness(fn, clif as string, layout)
+    return harness(fn, clif as string, layout)
 end
-
-export = guest

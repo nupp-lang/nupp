@@ -8,6 +8,7 @@ local graph = require("nupp.compiler.vm.graph")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
 local graphcalls = require("nupp.compiler.vm.graphcalls")
+local lexer = require("nupp.compiler.syntax.lexer")
 local taggedvalues = require("nupp.compiler.vm.taggedvalues")
 local catalog = taggedvalues.catalog
 local cleanupGraphs = taggedvalues.cleanupGraphs
@@ -91,6 +92,77 @@ local function callOperands(ctx: any, node: any, first: integer): (any, integer?
     return args, pack
 end
 
+-- The module whose `functions` are the library functions as values.
+const LIBRARY_VALUES = "nupp.runtime.libraryvalues"
+
+-- Whether `node` is a canonical library value's whole body: the function
+-- under `functions["string.rep"]` in LIBRARY_VALUES returning the library
+-- call of that same name on its own parameters, unchanged. Its errors are
+-- its caller's, as the library function's own are: the call's position and
+-- its method form, whatever value the caller called.
+local function canonicalforward(ctx: any, node: any): boolean
+    local p, owner = catalog(ctx), ctx.fn
+    local name = graph.coreLibraryCall(node)
+    local chunk = owner and p.owners[(owner.parent or -1) + 1]
+    local stats = owner and owner.body and owner.body.body and owner.body.body.stats
+    if not name
+        or node.kind ~= "call"
+        or owner.kind ~= "function"
+        or owner.scope.name ~= LIBRARY_VALUES
+        or not chunk
+        or chunk.kind ~= "module"
+        or chunk.scope ~= owner.scope
+        or not stats
+        or #stats ~= 1
+        or stats[1].kind ~= "returnStmt"
+        or #stats[1].exprs ~= 1
+        or stats[1].exprs[1] ~= node
+    then
+        return false
+    end
+    local params, args = graph.parameters(owner.body), node.args.exprs
+    if #params ~= #args then
+        return false
+    end
+    for index, parameter in ipairs(params) do
+        local argument = args[index]
+        local named = parameter.name
+            and argument.kind == "name"
+            and argument.token.definition ~= nil
+            and argument.token.definition == parameter.name.definition
+        if not named and not (parameter.vararg and parameter.name == nil and argument.kind == "vararg") then
+            return false
+        end
+    end
+    -- The owner is the value of that very field of the exported table.
+    for _, block in ipairs(chunk.body.blocks or {}) do
+        for _, stat in ipairs(block.stats or {}) do
+            local declared = stat.kind == "exportStmt" and stat.stat or stat
+            local names, exprs = declared.names, declared.exprs
+            if declared.kind == "localStmt"
+                and names
+                and #names == 1
+                and names[1].text == "functions"
+                and exprs
+                and exprs[1]
+                and exprs[1].kind == "tableExpr"
+            then
+                for _, field in ipairs(exprs[1].fields) do
+                    if field.kind == "fieldBracket"
+                        and field.value == owner.node
+                        and field.key.kind == "string"
+                        and lexer.stringValue(field.key.token.text) == name
+                    then
+                        return true
+                    end
+                end
+            end
+        end
+    end
+
+    return false
+end
+
 -- A core library call (guestlib): its arguments staged as values.
 export function libraryCall(ctx: any, node: any, id: integer, arguments: any): integer
     -- gsub with a function replacement calls it, so it is a loop.
@@ -128,7 +200,7 @@ export function libraryCall(ctx: any, node: any, id: integer, arguments: any): i
     end
     -- A call in method form (`s:rep(n)`) says so, so its errors count
     -- arguments from the one after self, as Lua's do.
-    table.insert(operands, 1, corelibrary.immediate(id, node.kind == "methodCall"))
+    table.insert(operands, 1, corelibrary.immediate(id, node.kind == "methodCall", canonicalforward(ctx, node)))
 
     -- A function that owns affine values lands an error the library raises
     -- here as it lands one from a call.
@@ -588,7 +660,8 @@ packedCall = function(ctx: any, node: any, arguments: any, id: integer): integer
         ctx.release(held)
         return nil as any
     end
-    local value = ctx.emit(node, "LibCall", {id, ctx.readHeld(held), pack}, "tagged")
+    local word = corelibrary.immediate(id, node.kind == "methodCall", canonicalforward(ctx, node))
+    local value = ctx.emit(node, "LibCall", {word, ctx.readHeld(held), pack}, "tagged")
     ctx.release(held)
 
     return value as integer
