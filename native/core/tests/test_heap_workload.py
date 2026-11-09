@@ -54,8 +54,7 @@ function M.produceArtifact()
         assert(package.loaded[name] == original[name], "compiler module registry identity differs: " .. name)
     end
     local env = require("nupp.compiler.project.env").new(root, {
-        config = {include = {"src", "native/core/src", "spike/native-lowering/src",
-            "spike/native-lowering/nativegraph/src", "native/crates/vm/lib", "native/crates/vm/decls"}},
+        config = {include = {"src", "native/core/src", "native/crates/vm/lib", "native/crates/vm/decls"}},
         nativeCompilerServices = true
     })
     local loadImage = assert(rawget(_G, "__nupp_load_image"))
@@ -76,9 +75,9 @@ function M.produceArtifact()
         return result
     end
     for _, name in ipairs({"ir", "literal", "arm64", "arm64target", "allocate", "allocationcheck", "select"}) do
-        load("spike/native-lowering/src/s0/" .. name .. ".nupp", "s0." .. name)
+        load("src/nupp/compiler/s0/" .. name .. ".nupp", "nupp.compiler.s0." .. name)
     end
-    load("spike/native-lowering/nativegraph/src/nupp/compiler/s0/nativegraph.nupp", "nupp.compiler.s0.nativegraph")
+    load("src/nupp/compiler/s0/nativegraph.nupp", "nupp.compiler.s0.nativegraph")
     load("native/core/src/nupp/core/link.nupp", "nupp.core.link")
     load("native/core/src/nupp/core/heapshim.nupp", "nupp.core.heapshim")
     local producer = load("native/core/tests/heap-workload-producer.nupp", "nupp.core.heapworkloadproducer")

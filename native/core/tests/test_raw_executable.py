@@ -84,8 +84,7 @@ def main():
             original = modules / ('rawexecutable' + filename + '.nupp')
             assert original.exists(), original
         includes = ['src', *[str(ROOT / part) for part in
-                   ('src', 'native/core/src', 'spike/native-lowering/src',
-                    'spike/native-lowering/nativegraph/src', 'native/crates/vm/lib',
+                   ('src', 'native/core/src', 'native/crates/vm/lib',
                     'native/crates/vm/decls')]]
         (project / 'nupp.lua').write_text('return {include = {' +
                                           ','.join(map(json.dumps, includes)) + '}}\n')
