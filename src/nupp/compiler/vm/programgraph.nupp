@@ -235,7 +235,7 @@ local function storagePlan(p: any): any
             local ownRecord = p.recordMembers[owner.node] == b.definition
             -- An exported function may be captured before its statement runs:
             -- a cell made as the module starts holds it from then on.
-            local hoisted = p.hoistedFunctions[b.definition] == true
+            local hoisted = p.hoistedFunctions[b.definition] == true or p.assignedFunctions[b.definition] == true
             if b.mode == "cell" or item.recursive or ownRecord or hoisted then
                 storage[b.definition] = "cell"
             end
@@ -352,6 +352,17 @@ export function parameters(body: any): {any}
     return graph.parameters(body)
 end
 
+-- Whether `node` is a name a chunk reads as a global: one no declaration in
+-- it binds.
+local function chunkGlobal(p: any, node: any): boolean
+    if not p.chunk or node.kind ~= "name" or not node.token then
+        return false
+    end
+    local definition = node.token.definition
+
+    return definition == nil or p.byDefinition[definition] == nil
+end
+
 -- Calls `visit` with every token in the tree under `node`, and `enter`, when
 -- given, with every node.
 local function eachToken(node: any, visit: function(any): nil, enter: (function(any): nil)?): nil
@@ -422,8 +433,17 @@ local function assignForwardLocals(root: any, replaced: {[any]: any}): nil
     end)
 end
 
-export function describe(modules: {any}, entryModule: string): any
+-- `options.chunk` describes a chunk Lua's `load` compiles (nupp.compiler.vm.corechunk):
+-- a name no declaration binds is a global, a field of the running program's
+-- `_G`, and every module it requires is the running program's, by name.
+export function describe(modules: {any}, entryModule: string, options: any?): any
     local p: any = {
+        chunk = options ~= nil and options.chunk == true,
+        -- In a chunk, the name tokens that read or write a global, each to
+        -- the read of the chunk's environment it is a field of.
+        globals = {},
+        -- In a chunk, the name of the local its environment is in.
+        environment = options ~= nil and options.environment or nil,
         modules = {},
         owners = {},
         bindings = {},
@@ -469,6 +489,9 @@ export function describe(modules: {any}, entryModule: string): any
         -- The definitions of the functions a module exports, which the checker
         -- hoists: a closure made above the declaration may already name one.
         hoistedFunctions = {},
+        -- The locals a function statement assigns after their declaration
+        -- (`local f` ... `function f()`), which closures made between hold.
+        assignedFunctions = {},
         byDefinition = {},
         functionsByDefinition = {},
         byBody = {},
@@ -493,8 +516,9 @@ export function describe(modules: {any}, entryModule: string): any
             forwardNames[own] = assigned
         end
         need(input.diagnostics ~= nil and #parsed.errors == 0, "checked diagnostics required")
+        -- A chunk compiles whatever its checking found, as Lua's `load` does.
         for _, diagnostic in ipairs(input.diagnostics) do
-            need(diagnostic.severity ~= "error", "module has checker errors")
+            need(p.chunk or diagnostic.severity ~= "error", "module has checker errors")
         end
         local scope: any = {name = input.name, path = input.path, constants = {}, functions = {}, exports = {}}
         local owner: any = {
@@ -584,6 +608,10 @@ export function describe(modules: {any}, entryModule: string): any
         end
         if node.kind == "recordDecl" then
             p.recordDecls[node] = true
+        end
+        local base = node.kind == "funcStmt" and node.name and node.name.base
+        if base and base.definition and base.definition.token ~= base then
+            p.assignedFunctions[base.definition] = true
         end
         if node.kind == "recordDecl" and node.name then
             for _, entry in ipairs(node.entries or {}) do
@@ -729,6 +757,15 @@ export function describe(modules: {any}, entryModule: string): any
             )
         end
     end
+    -- A chunk's environment: the declaration of the local its opening makes.
+    if p.chunk then
+        for _, b in ipairs(p.bindings) do
+            if b.definition.name == p.environment and p.owners[b.owner + 1].kind == "module" then
+                p.chunkEnvironment = b.definition
+            end
+        end
+        need(p.chunkEnvironment ~= nil, "chunk environment declaration is missing")
+    end
     -- The checker names an exported function a call reaches before its
     -- statement by the definition it hoisted, which the statement then
     -- replaces. Such a call names the function the statement declares.
@@ -849,11 +886,53 @@ export function describe(modules: {any}, entryModule: string): any
 
     local loopForms: {[any]: boolean} = {}
 
-    local function reference(token: any, owner: any): nil
+    -- Registers the qualified read `node` makes of `module` in `owner`, with
+    -- what else its site says (`fields`).
+    local function qualifiedSite(owner: any, node: any, module: string, fields: {[string]: any}): nil
+        local item: any = {
+            id = #p.requires,
+            owner = owner.id,
+            node = node,
+            module = module,
+            typeOnly = false,
+            qualified = true
+        }
+        for key, value in pairs(fields) do
+            item[key] = value
+        end
+        p.requires[#p.requires + 1], p.requireByNode[node] = item, item
+    end
+
+    local reference: function(any, any): nil
+
+    -- A read of the chunk's environment where global `token` is, in `owner`:
+    -- a reference of its own, which capture analysis carries into closures.
+    local function environmentRead(token: any, owner: any): any
+        local read: any = {
+            kind = "name",
+            text = p.environment,
+            line = token.line,
+            col = token.col,
+            offset = token.offset,
+            trivia = {},
+            definition = p.chunkEnvironment
+        }
+        reference(read, owner)
+
+        return read
+    end
+
+    reference = function(token: any, owner: any): nil
         local definition = token and token.definition
         local location = tostring(
             token and token.text
         ) .. " at " .. owner.scope.path .. ":" .. tostring(token and token.line)
+        -- A chunk reads a name nothing declares, or what the prelude declares
+        -- (`io`, `require`), as the running program's global of that name.
+        if p.chunk and (definition == nil or definition.token ~= token and p.byDefinition[definition] == nil) then
+            p.globals[token] = environmentRead(token, owner)
+            return
+        end
         -- Recorded rather than raised, so an inventory names every one;
         -- compile refuses a catalog that has any.
         if definition == nil then
@@ -1055,6 +1134,12 @@ export function describe(modules: {any}, entryModule: string): any
         local qualified = (projection or node.kind == "dotIndex")
             and node.qualifiedModule
             and moduleNames[node.qualifiedModule]
+        -- A chunk's qualified path into a module it does not hold is into
+        -- the running program's, required by name where it is read.
+        if p.chunk and not qualified and (projection or node.kind == "dotIndex") and node.qualifiedModule then
+            qualifiedSite(owner, node, graph.coremodule(node.qualifiedModule), {builtin = projection, absent = true})
+            return
+        end
         if projection then
             need(qualified, "checked builtin projection module is missing: " .. projection.module)
         end
@@ -1120,17 +1205,7 @@ export function describe(modules: {any}, entryModule: string): any
         local valuesModule = libraryValue and graph.libraryModule(libraryValue)
         local values = valuesModule and moduleNames[valuesModule]
         if libraryValue and values then
-            local item = {
-                id = #p.requires,
-                owner = owner.id,
-                node = node,
-                module = valuesModule,
-                typeOnly = false,
-                target = values.chunk,
-                qualified = true,
-                library = libraryValue
-            }
-            p.requires[#p.requires + 1], p.requireByNode[node] = item, item
+            qualifiedSite(owner, node, valuesModule as string, {target = values.chunk, library = libraryValue})
             return
         end
         -- `for i, v in ipairs(t)` and `pairs(t)` are loop forms the profile lowers
@@ -1434,8 +1509,11 @@ export function describe(modules: {any}, entryModule: string): any
         -- name, is called through its value (`nupp.runtime.libraryvalues`).
         local throughValue = node.kind == "call"
             and node.obj.kind == "name"
-            and graph.libraryValue(node.obj) ~= nil
-            and moduleNames[graph.libraryModule(graph.libraryValue(node.obj) as string)] ~= nil
+            and (
+                graph.libraryValue(node.obj) ~= nil
+                and moduleNames[graph.libraryModule(graph.libraryValue(node.obj) as string)] ~= nil
+                or chunkGlobal(p, node.obj) and graph.coreLibraryCall(node) == nil
+            )
         if node.kind == "call"
             and node.obj.kind == "name"
             and not throughValue
@@ -1577,7 +1655,10 @@ export function describe(modules: {any}, entryModule: string): any
     end
     for _, b in ipairs(p.bindings) do
         local required = b.definition.requiredModule
-        if required and not graph.corecallmodule(required) then
+        -- A chunk's local of a module the running program holds is the
+        -- value its require answers by name.
+        local foreign = p.chunk and required and moduleNames[importmodule(p, b)] == nil
+        if required and not graph.corecallmodule(required) and not foreign then
             local target = moduleNames[importmodule(p, b)]
             -- Recorded rather than raised, as an unresolved reference is.
             if target == nil then
@@ -1780,7 +1861,8 @@ export function verify(p: any): boolean
             if item.derived then
                 derivedrecipes.verify(p, item.derived)
             end
-            if item.builtin then
+            -- A chunk's absent module initializes in the running program.
+            if item.builtin and not item.absent then
                 local current = builtinprojection(node)
                 local original = item.builtin
                 need(
@@ -2144,6 +2226,7 @@ export function verify(p: any): boolean
                 (node.kind == "call" and node.obj.kind ~= "name"
                 -- A library function called by its name through its value.
                 or node.kind == "call" and graph.libraryValue(node.obj) ~= nil
+                or node.kind == "call" and chunkGlobal(p, node.obj) and graph.coreLibraryCall(node) == nil
                 or node.kind == "methodCall"
                 and graph.callbackArgument(node) ~= nil)
                 and p.callByNode[node] == item

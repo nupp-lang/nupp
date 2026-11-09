@@ -161,7 +161,7 @@ export function constant(ctx: any, node: any, expected: string?): integer
         error("tagged graph: capture initializer lacks its checked taking slot", 0)
     end
 
-    local value = qualifiedvalue(ctx, node)
+    local value = qualifiedvalue(ctx, node) or taggedvalues.globalValue(ctx, node)
     if value ~= nil then
         return value
     end
@@ -445,7 +445,8 @@ export function forVersion(version: integer): any
         -- image's modules by name before anything runs.
         local p = catalog(ctx)
         local entry = p.modules[#p.modules]
-        if p.dynamicRequires and entry and entry.chunk == ctx.fn.id then
+        -- A chunk's requires are the running program's, which registered them.
+        if p.dynamicRequires and not p.chunk and entry and entry.chunk == ctx.fn.id then
             local names = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
             local registered: {[string]: integer} = {}
             for _, module in ipairs(p.modules) do
@@ -744,8 +745,14 @@ export function forVersion(version: integer): any
             -- A record's metatable can also be attached to a named table.
             -- Its field name reaches either layout through the runtime adapter.
             local slot = fieldSlot(ctx, node.obj.inferredType, node.name and node.name.text)
+            -- In a chunk any field is read by its name, whatever the checker
+            -- made of its receiver.
             local plain = slot == nil
-                and (keyedByName(node.obj.inferredType) or typeKind(node.obj.inferredType) == "string")
+                and (
+                    keyedByName(node.obj.inferredType)
+                    or typeKind(node.obj.inferredType) == "string"
+                    or catalog(ctx).chunk
+                )
                 and node.name ~= nil
             if slot == nil and not plain then
                 return constant(ctx, node, expected)
@@ -758,11 +765,20 @@ export function forVersion(version: integer): any
 
             return ctx.emit(node, "GetIdx", {object, key}, "tagged") as integer
         end
+        profile.isGlobal = taggedvalues.isGlobal
         profile.assignmentTarget = function(ctx: any, node: any, rhs: any): any
+            -- A chunk's global is a field of the running program's `_G`.
+            if taggedvalues.isGlobal(ctx, node) then
+                local globals = taggedvalues.globalTable(ctx, node)
+                local name = ctx.emit(node, "K", {pool(ctx, "str", node.token.text)}, "tagged")
+                return {receiver = globals, index = name, kind = "tagged"}
+            end
             if node.kind == "dotIndex" then
                 local slot = fieldSlot(ctx, node.obj.inferredType, node.name and node.name.text)
                 -- `R.f = ...` writes the table a record's name holds.
-                local plain = slot == nil and keyedByName(node.obj.inferredType) and node.name ~= nil
+                local plain = slot == nil
+                    and (keyedByName(node.obj.inferredType) or catalog(ctx).chunk)
+                    and node.name ~= nil
                 need(slot ~= nil or plain, "only record and table field assignment is admitted")
                 local object = ctx.expression(node.obj, "tagged")
                 if object == nil then
@@ -1935,7 +1951,8 @@ export function forVersion(version: integer): any
         end
         local withCleanup: any = nil
         profile.forOwner = function(p: any, owner: any): any
-            if not (p.cleanupOwners and p.cleanupOwners[owner.id]) then
+            -- A chunk is plain Lua: its values own nothing, as Lua's do.
+            if p.chunk or not (p.cleanupOwners and p.cleanupOwners[owner.id]) then
                 return profile
             end
             withCleanup = withCleanup or cleanupProfile(profile)

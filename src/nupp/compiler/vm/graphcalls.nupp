@@ -162,6 +162,8 @@ invokeScalar = function(t: any): nil
         or fixedwidths[t.tag] == true
         -- Storage and views of it are values on the core's heap.
         or t.tag == "carray" or t.tag == "ptr" or t.tag == "ctype" or t.tag == "intersection" or t.tag == "typeobject"
+        -- A C value, which a plain Lua chunk may name, is a value too.
+        or t.tag == "cdata"
         -- A metatable (what `setmetatable` answers its table as) is a table.
         or t.tag == "metatable" or t.tag == "nominal" and t.declKind == "interface"
         -- A function that never returns gives no value to check.
@@ -1462,8 +1464,10 @@ end
 export function dynamicInvokeContract(call: any, count: integer?): any
     -- A call through `any`, or through a value its metatable's __call makes
     -- callable, is checked against the call itself.
+    -- One the checker could not type (a plain Lua chunk's, which compiles
+    -- whatever its checking found) is a call through `any` too.
     local called = call.calleeType
-    if called and (called.tag ~= "func" or alternativeresults(called)) then
+    if called == nil or called.tag ~= "func" or alternativeresults(called) then
         called = anySignature(call, count or 1)
     end
     local contract = {

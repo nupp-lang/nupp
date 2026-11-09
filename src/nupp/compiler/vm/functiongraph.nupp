@@ -1579,7 +1579,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 for index, target in ipairs(stat.targets) do
                     if graphcalls.discardTarget(target) then
                         targets[index] = {discard = true}
-                    elseif target.kind == "name" then
+                    elseif target.kind == "name" and not (profile.isGlobal and profile.isGlobal(ctx, target)) then
                         local key = target.token.definition or target.token
                         local previous = need(bindings[key], "assignment requires a checked local binding")
                         targets[index] = {key = key, kind = profile.valueKind(g, previous)}
