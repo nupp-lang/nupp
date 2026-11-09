@@ -192,10 +192,11 @@ local function assemble(pieces: {[integer]: string}, bytes: integer): string
     local cursor: integer = 0
 
     local function zeros(count: integer): nil
-        while count > 0 do
-            local length = math.min(count, #ZERO_RUN) as integer
+        local remaining = count
+        while remaining > 0 do
+            local length = math.min(remaining, #ZERO_RUN) as integer
             parts[#parts + 1] = length == #ZERO_RUN and ZERO_RUN or ZERO_RUN:sub(1, length)
-            count -= length
+            remaining -= length
         end
     end
 
