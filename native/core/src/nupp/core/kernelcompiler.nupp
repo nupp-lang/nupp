@@ -43,15 +43,24 @@ export function digest(root: string): string
     return contentDigest(table.concat(parts, "\0"))
 end
 
+-- The compiler generation doing the lowering: the one NUPP_VM_CLI_IMAGE names,
+-- else the checkout's selected one. Sources alone do not name it: a run on a
+-- generation older than its sources would keep code under their key.
+local function generation(root: string): string
+    local named = (os.getenv("NUPP_VM_CLI_IMAGE") or ""):match("/(%x+)/compiler%.image$")
+
+    return named or (readFile(root .. "/.nupp/vm-cli/current") or ""):gsub("%s+$", "")
+end
+
 -- The inner loop may pin the compiler part of every key: NUPP_UNIT_COMPILER_PIN
 -- names a file holding it, written on first use. A lowering edit then reuses
 -- the code the previous compiler selected, and a handler edit still misses by
 -- its own module. Batch gates and milestones leave it unset, so every key there
--- follows the compiler exactly.
+-- follows the compiler exactly: its sources and the generation running them.
 export function keyed(root: string): string
     local pin = os.getenv("NUPP_UNIT_COMPILER_PIN")
     if pin == nil or pin == "" then
-        return digest(root)
+        return contentDigest(digest(root) .. "\0" .. generation(root))
     end
     local held = readFile(pin)
     if held ~= nil and held ~= "" then
