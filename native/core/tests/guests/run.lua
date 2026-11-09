@@ -526,8 +526,15 @@ local SETUP = {
     processreuse = "ulimit -n 64; ",
     processlayer = "ulimit -n 64; ",
     benchworkloads = "export BENCH_SCALE=-9; ",
-    -- The runner reads tests/run.lua and the suites from the checkout.
-    testrunner = "cd " .. ROOT .. " && export NUPP_CORE_CHUNKS=" .. ROOT .. "/build/core-guests/chunks; "
+    -- The runner reads tests/run.lua and the suites from the checkout. Its
+    -- result cache digests the files the VM variables name, the runtime's
+    -- hundreds of megabytes, which guest code takes most of an hour over;
+    -- they name the host's VM, not this runner's, anyway.
+    testrunner = "cd "
+    .. ROOT
+    .. " && unset NUPP_VM_BINARY NUPP_VM_CLI_IMAGE && export NUPP_CORE_CHUNKS="
+    .. ROOT
+    .. "/build/core-guests/chunks; "
 }
 -- The trees of the cases whose programs are checkout sources
 -- (guestbuild's `rooted`), which no selection's key covers otherwise.
@@ -543,7 +550,8 @@ local SOURCES = {
         "tests/iopathargumenttest.lua",
         "tests/iofileargumenttest.lua",
         "tests/corewarnlogtest.lua",
-        "tests/stdlib/typefactoriestest.lua"
+        "tests/stdlib/typefactoriestest.lua",
+        "tests/helpers/providerstate.lua"
     }
 }
 -- Lua text a case loads with `load`, compiled here as that text named so,
