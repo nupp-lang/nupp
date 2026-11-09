@@ -4,6 +4,9 @@ const native = require("nupp.runtime.vm.intrinsics")
 const pages = require("nupp.runtime.core.pagemappings")
 const os = require("nupp.runtime.vm.os")
 const journal = require("nupp.runtime.core.resourcejournal")
+const files = require("nupp.runtime.core.hostfiles")
+const clock = require("nupp.runtime.core.hostclock")
+const process = require("nupp.runtime.core.hostprocess")
 
 const RESOURCE_REFUSAL: int64 = 24
 const INVALID: int64 = 22
@@ -195,12 +198,6 @@ export function pageSize(scope: voidptr): uint64
     return os.pageSize()
 end
 
--- Where the calling thread's C errno lives, for the host modules' C calls.
-export function errnoLocation(scope: voidptr): voidptr
-    local _ = scope
-    return os.errnoLocation()
-end
-
 export function foreignCall(scope: voidptr, block: voidptr): uint64
     local _ = scope
     return os.foreignCall(block)
@@ -221,20 +218,14 @@ export function atomiccas64(scope: voidptr, base: voidptr, offset: int64, expect
     return os.atomiccas64(base, offset, expected, replacement)
 end
 
-export function environment(scope: voidptr, name: voidptr, nameBytes: uint64, out: voidptr, room: uint64): int64
-    -- Reading the environment leaves the scope alone, as pageSize does.
-    local _ = scope
-    return os.environment(name, nameBytes, out, room)
-end
-
 export function writeOutput(scope: voidptr, base: voidptr, bytes: uint64): int64
     local _ = scope
-    return os.writeOutput(base, bytes)
+    return files.writeOutput(base, bytes)
 end
 
 export function readInput(scope: voidptr, base: voidptr, bytes: uint64): int64
     local _ = scope
-    return os.readInput(base, bytes)
+    return files.readInput(base, bytes)
 end
 
 export function securefill(scope: voidptr, base: voidptr, bytes: uint64): int64
@@ -244,27 +235,12 @@ end
 
 export function systemquery(scope: voidptr, field: uint64, base: voidptr, room: uint64): int64
     local _ = scope
-    return os.systemquery(field, base, room)
-end
-
-export function mathFunction(scope: voidptr, op: uint64, x: uint64, y: uint64): uint64
-    local _ = scope
-    return os.mathFunction(op, x, y)
-end
-
-export function randomSeed(scope: voidptr): uint64
-    local _ = scope
-    return os.randomSeed()
+    return process.systemquery(field, base, room)
 end
 
 export function monotonicNanos(scope: voidptr): uint64
     local _ = scope
-    return os.monotonicNanos()
-end
-
-export function sleepNanos(scope: voidptr, nanos: uint64): uint64
-    local _ = scope
-    return os.sleepNanos(nanos)
+    return clock.monotonicNanos()
 end
 
 export function argument(scope: voidptr, index: uint64, out: voidptr, room: uint64): int64

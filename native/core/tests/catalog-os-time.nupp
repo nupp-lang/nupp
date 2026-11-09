@@ -70,31 +70,33 @@ check(
 -- os.difftime.
 check(os.difftime(5, 2) == 3.0 and math.type(os.difftime(5, 2)) == "float" and os.difftime(0, 2) == -2.0)
 
--- Errors.
+-- Errors. Out-of-range values are integers shifted: `1 << 40` of number
+-- literals is an int32 shift in Nupp, whose count is masked by 31.
+local wide: integer = 1
 local missingOk, missingMessage = pcall(function(): any
     return os.time({} as any)
 end)
-check(not missingOk and ends(missingMessage, ":75: field 'year' missing in date table"))
+check(not missingOk and ends(missingMessage, ":77: field 'year' missing in date table"))
 local wrongOk, wrongMessage = pcall(function(): any
     return os.time({year = 2000, month = "x", day = 1} as any)
 end)
-check(not wrongOk and ends(wrongMessage, ":79: field 'month' is not an integer"))
+check(not wrongOk and ends(wrongMessage, ":81: field 'month' is not an integer"))
 local fractionOk, fractionMessage = pcall(function(): any
     return os.time({year = 2000, month = 1.5, day = 1} as any)
 end)
-check(not fractionOk and ends(fractionMessage, ":83: field 'month' is not an integer"))
+check(not fractionOk and ends(fractionMessage, ":85: field 'month' is not an integer"))
 local boundOk, boundMessage = pcall(function(): any
-    return os.time({year = 2000, month = 1, day = 1 << 40} as any)
+    return os.time({year = 2000, month = 1, day = wide << 40} as any)
 end)
-check(not boundOk and ends(boundMessage, ":87: field 'day' is out-of-bound"))
+check(not boundOk and ends(boundMessage, ":89: field 'day' is out-of-bound"))
 local tableOk, tableMessage = pcall(function(): any
     return os.time(5 as any)
 end)
-check(not tableOk and ends(tableMessage, ":91: bad argument #1 to 'time' (table expected, got number)"))
+check(not tableOk and ends(tableMessage, ":93: bad argument #1 to 'time' (table expected, got number)"))
 local optionOk, optionMessage = pcall(function(): any
     return (os.date as any)("%Q abc")
 end)
-check(not optionOk and ends(optionMessage, ":95: bad argument #1 to 'date' (invalid conversion specifier '%Q abc')"))
+check(not optionOk and ends(optionMessage, ":97: bad argument #1 to 'date' (invalid conversion specifier '%Q abc')"))
 local endOk, endMessage = pcall(function(): any
     return (os.date as any)("abc%")
 end)
@@ -107,18 +109,18 @@ local integralOk, integralMessage = pcall(function(): any
     return os.date("!*t", 1.5)
 end)
 check(
-    not integralOk and ends(integralMessage, ":107: bad argument #2 to 'date' (number has no integer representation)")
+    not integralOk and ends(integralMessage, ":109: bad argument #2 to 'date' (number has no integer representation)")
 )
 local farOk, farMessage = pcall(function(): any
-    return os.date("!*t", 1 << 62)
+    return os.date("!*t", wide << 62)
 end)
-check(not farOk and ends(farMessage, ":113: date result cannot be represented in this installation"))
+check(not farOk and ends(farMessage, ":115: date result cannot be represented in this installation"))
 local noneOk, noneMessage = pcall(function(): any
     return (os.difftime as any)(1)
 end)
-check(not noneOk and ends(noneMessage, ":117: bad argument #2 to 'difftime' (number expected, got no value)"))
+check(not noneOk and ends(noneMessage, ":119: bad argument #2 to 'difftime' (number expected, got no value)"))
 local nilOk, nilMessage = pcall(function(): any
     return (os.difftime as any)(1, nil)
 end)
-check(not nilOk and ends(nilMessage, ":121: bad argument #2 to 'difftime' (number expected, got nil)"))
+check(not nilOk and ends(nilMessage, ":123: bad argument #2 to 'difftime' (number expected, got nil)"))
 export const result = score
