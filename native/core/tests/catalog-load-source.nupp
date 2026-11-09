@@ -161,4 +161,18 @@ if kind == "number" and seven == "7" and none == "nil" then
     score = score + 524288
 end
 
+-- A guarded library call whose arguments make a call is made through what
+-- the environment holds.
+local nestedPrinted: any = nil
+local nested: any = load("print('a' .. tostring(1))", "=nested", "t", {
+    print = function(text: any): nil
+        nestedPrinted = text
+    end,
+    tostring = tostring
+})
+nested()
+if nestedPrinted == "a1" then
+    score = score + 1048576
+end
+
 export const result = score
