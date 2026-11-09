@@ -29,6 +29,7 @@ const _DYNAMIC_REQUIRES = [[
 @requires-dynamically nupp.compiler.hostservices
 @requires-dynamically nupp.compiler.project.preludecache
 @requires-dynamically io.net
+@requires-dynamically nupp.compiler.project.fingerprint
 ]]
 if rawget(_G, "__nupp_load_image") then
     local load: function(string): any = require

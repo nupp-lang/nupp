@@ -522,7 +522,8 @@ local SOURCES = {
         "tests/iopathargumenttest.lua",
         "tests/iofileargumenttest.lua",
         "tests/corewarnlogtest.lua",
-        "tests/stdlib/typefactoriestest.lua"
+        "tests/stdlib/typefactoriestest.lua",
+        "tests/helpers/providerstate.lua"
     }
 }
 -- The program arguments a case is run with, after the bridge's own.
@@ -1168,15 +1169,24 @@ local function compiler()
     return producer, guestbuild
 end
 
+-- The digest of the compiler and runtime sources a kept chunk was
+-- compiled by, once per run.
+local compiledBy
+
 -- Compiles the Lua source at `path` under the checkout to the chunk its
 -- case's loadfile finds (nupp.runtime.chunkfiles), unless the one kept is
--- of the same text already.
+-- of the same text and was compiled by the same sources (`.by` beside it).
 local function sourceChunk(path)
     local chunkfiles = require("nupp.runtime.chunkfiles")
     local kept = OUT .. "/chunks/" .. chunkfiles.name(path)
     local text = read(ROOT .. "/" .. path)
     local held = read(kept)
-    if text == nil or held ~= nil and held:sub(1, #chunkfiles.contents(text, "")) == chunkfiles.contents(text, "") then
+    compiledBy = compiledBy or assert(sharedcache.treeDigest(ROOT, {"src"}))
+    if text == nil
+        or held ~= nil
+        and held:sub(1, #chunkfiles.contents(text, "")) == chunkfiles.contents(text, "")
+        and read(kept .. ".by") == compiledBy
+    then
         return
     end
     os.execute("mkdir -p " .. quote(OUT .. "/chunks"))
@@ -1186,6 +1196,7 @@ local function sourceChunk(path)
     print(("compiled %s in %ds%s"):format(path, os.time() - began, contents and "" or ": " .. tostring(problem)))
     if contents then
         write(kept, contents)
+        write(kept .. ".by", compiledBy)
     end
 end
 

@@ -307,9 +307,59 @@ local function runpath(filename: string?): ...any
     return chunk()
 end
 
+-- What the core says of a module its image does not hold.
+const NOT_IN_IMAGE = "no module of that name in the image"
+
+-- The first file `package.path`'s templates name for module `name` that
+-- opens, as Lua's package.searchpath finds it, or nil.
+local function searchpath(name: string, templates: string): string?
+    local file = name:gsub("%.", "/")
+    for template in templates:gmatch("[^;]+") do
+        local candidate = template:gsub("%?", file)
+        local handle = io.open(candidate, "rb")
+        if handle ~= nil then
+            handle:close()
+            return candidate
+        end
+    end
+
+    return nil
+end
+
+-- Lua's `require` for chunks: the program's (package.loaded, package.preload,
+-- then the modules its image holds), then a Lua file on `package.path`,
+-- loaded as `loadfile` loads one, as Lua's file searcher does.
+local programRequire: function(string): (any, any) = libraryvalues.functions.require
+
+local function requirevalue(name: string): (any, any)
+    local ok, value, extra = pcall(programRequire, name)
+    if ok then
+        return value, extra
+    end
+    local ambient: any = libraryvalues.functions.package
+    local filename = type(value) == "string"
+        and (value as string):find(NOT_IN_IMAGE, 1, true) ~= nil
+        and searchpath(name, tostring(ambient.path))
+        or nil
+    if filename == nil then
+        error(value, 0)
+    end
+    local chunk, problem = loadpath(filename, nil, nil)
+    if chunk == nil then
+        error("error loading module '" .. name .. "' from file '" .. filename .. "':\n\t" .. tostring(problem), 2)
+    end
+    local result = chunk(name, filename)
+    if result == nil then
+        result = ambient.loaded[name] ?? true
+    end
+    ambient.loaded[name] = result
+
+    return result, filename
+end
+
 export const functions: {
     [string]: any
-} = {load = loadchunk, loadstring = loadchunk, loadfile = loadpath, dofile = runpath}
+} = {load = loadchunk, loadstring = loadchunk, loadfile = loadpath, dofile = runpath, require = requirevalue}
 
 -- Lua chunks read the loaders as globals (`pcall(dofile, path)`).
 for name, value in pairs(functions) do
