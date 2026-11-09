@@ -40,7 +40,7 @@ if wide[0] == math.mininteger then
 end
 local block: any = calls.allocbytes(8)
 calls.copy(block, "abcdefgh", 8)
-local tail: any = calls.view(block, 1, 4)
+local tail = calls.view(block, 1, 4)
 if calls.elements(tail) == 4 and tail[0] == 101 then
     score = score + 128
 end
@@ -48,17 +48,19 @@ tail[1] = 70
 if calls.text(block, 8) == "abcdeFgh" then
     score = score + 256
 end
-local half: any = calls.view(block, 3, 2, 1)
+local half = calls.view(block, 3, 2, 1)
 half[0] = 0x4847
 if calls.text(block, 4) == "abGH" and calls.elementkind(half) == 3 then
     score = score + 512
 end
 calls.fill(tail, 4, 33)
-if calls.text(calls.fromstring(calls.text(block, 8)), 8) == "abGH!!!!" then
+local written = calls.text(block, 8)
+local copied = calls.fromstring(written)
+if calls.text(copied, 8) == "abGH!!!!" then
     score = score + 1024
 end
 local tooFar = pcall(function(): any
-    return calls.view(block, 1, 9)
+    return calls.elements(calls.view(block, 1, 9))
 end)
 if not tooFar then
     score = score + 2048

@@ -2,8 +2,9 @@ module nupp.core.catalogclihosts
 
 -- The compiler's host services as the core answers them for `check` and
 -- `build`: the content digest (the same digits main's native digest gives),
--- the build clock, and C declarations and Markdown, which the core reports
--- unavailable. Each check is a bit of the score.
+-- the build clock, C declarations (libclang, through nupp.compiler.corecdecl),
+-- and Markdown, which the core reports unavailable. Each check is a bit of the
+-- score.
 local hash = require("nupp.compiler.hash")
 local nativehash = require("nupp.compiler.nativehash")
 local clock = require("nupp.tools.build.clockhost")
@@ -34,7 +35,7 @@ check(type(first) == "number" and second >= first)
 local html, reason = markdown.render("# Title")
 check(html == nil and reason == "Markdown rendering is not available on the core")
 
-local declared, problem = cdecl.declare("int width;")
-check(not declared and string.find(tostring(problem), "native C-header service", 1, true) ~= nil)
+local declared, _, names = cdecl.declare("int width(int);")
+check(declared and names ~= nil and (names as {[string]: boolean}).width == true)
 
 export const result = score
