@@ -117,7 +117,10 @@ local CASES: {[string]: {
     module: string?,
     -- Fixtures compiled as binary chunks beside the program, which the
     -- runner writes where NUPP_GUEST_TEMP names, as `<fixture>.chunk`.
-    chunks: {string}?
+    chunks: {string}?,
+    -- Nupp module fixtures compiled as module instance chunks
+    -- (corechunk.compileModule), written as `chunks` are.
+    instances: {string}?
 }} = {
     bindingconditions = {fixture = "catalog-binding-conditions", version = 8},
     optionalmethodcleanups = {fixture = "catalog-optional-method-cleanups", version = 8},
@@ -365,6 +368,7 @@ local CASES: {[string]: {
     -- A function statement assigning a local declared before it.
     forwardfunctions = {fixture = "catalog-forward-functions", version = 8},
     debuggetinfo = {fixture = "catalog-debug-getinfo", version = 8},
+    moduleinstances = {fixture = "catalog-module-instances", version = 8, instances = {"catalog-instance-module"}},
     osfilesystem = {fixture = "catalog-os-filesystem", version = 8},
     -- The compiler's lexer and parser on the core.
     compilerfront = {fixture = "catalog-compiler-front", version = 8, follow = true},
@@ -882,6 +886,9 @@ export function fixtures(): {{
             for _, name in ipairs(case.chunks or {}) do
                 paths[name] = true
             end
+            for _, name in ipairs(case.instances or {}) do
+                paths[name] = true
+            end
         end
     end
     local names: {string} = {}
@@ -1262,6 +1269,22 @@ export function guest(caseName: string, mode: string, cacheDirectory: string?, a
     for _, name in ipairs(case.chunks or {}) do
         chunk(name, case.version)
     end
+    -- Its chunks, each written as `<fixture>.chunk`: first its module
+    -- instance chunks, compiled as the core compiles a module's source for an
+    -- instance.
+    local chunks: {{
+        name: string,
+        bytes: string
+    }} = {}
+    local corechunk: any = case.instances and require("nupp.compiler.vm.corechunk")
+    for _, name in ipairs(case.instances or {}) do
+        local display = "native/core/tests/" .. name .. ".nupp"
+        local bytes, problem = corechunk.compileModule(
+            read(assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/" .. display),
+            display
+        )
+        chunks[#chunks + 1] = {name = name, bytes = assert(bytes, problem)}
+    end
     local compiled = os.clock()
     local held = runtime(mode, cacheDirectory, audited == true)
     timings.compile = (timings.compile or 0) + compiled - began
@@ -1270,11 +1293,7 @@ export function guest(caseName: string, mode: string, cacheDirectory: string?, a
     for name, owner in pairs(held.owners) do
         resolved[name] = {owner = owner}
     end
-    -- Its chunks, each a program of its own, written as binary chunks.
-    local chunks: {{
-        name: string,
-        bytes: string
-    }} = {}
+    -- Then its chunks that are each a program of its own.
     for _, name in ipairs(case.chunks or {}) do
         chunks[#chunks + 1] = {name = name, bytes = writer.chunk(chunk(name, case.version), held.scopes)}
     end

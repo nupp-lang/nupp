@@ -490,6 +490,9 @@ end
 export function describe(modules: {any}, entryModule: string, options: any?): any
     local p: any = {
         chunk = options ~= nil and options.chunk == true,
+        -- A chunk that is a Nupp module (an instance of it), not a function
+        -- of `...`.
+        chunkModule = options ~= nil and options.module == true,
         -- In a chunk, the name tokens that read or write a global, each to
         -- the read of the chunk's environment it is a field of.
         globals = {},
@@ -714,7 +717,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
                 scope = owner.scope,
                 -- A chunk is the function of `...` its module returns, which
                 -- Lua's debug.getinfo calls a main chunk.
-                main = p.chunk and owner.kind == "module" or nil,
+                main = p.chunk and not p.chunkModule and owner.kind == "module" or nil,
                 signature = signature,
                 paramKinds = {},
                 captures = {},

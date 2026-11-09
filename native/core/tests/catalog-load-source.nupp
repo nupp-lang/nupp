@@ -10,6 +10,7 @@ const _DYNAMIC_REQUIRES = [[
 @requires-dynamically nupp.compiler.vm.corechunk
 ]]
 const helper = require("nupp.core.catalogloadhelper")
+const luaload = require("nupp.runtime.luaload")
 const path = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/catalog-load-source.lua"
 
 local function cites(message: any, text: string): boolean
@@ -177,6 +178,47 @@ end
 local named: any = load("return debug.getinfo(1, 'S').source", "=named", "t", {debug = debug})
 if named() == "=named" then
     score = score + 2097152
+end
+
+-- A Nupp module's source compiled on the core as a module instance: each
+-- instance holds its own state and calls what its environment stands in.
+const instancePath = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/catalog-load-instance.nupp"
+local instanceFile = assert(io.open(instancePath, "wb"))
+instanceFile:write(
+    [==[
+module nupp.core.loadinstance
+
+const clock = require("nupp.runtime.clockcalls")
+
+local count: integer = 0
+
+export function bump(): integer
+    count = count + 1
+    return count
+end
+
+export function now(): number
+    return clock.walltime()
+end
+]==]
+)
+instanceFile:close()
+local stood: any = setmetatable(
+    {
+        require = function(name: string): any
+            return {
+                walltime = function(): number
+                    return 5
+                end
+            }
+        end
+    },
+    {__index = _G}
+)
+local first: any = luaload.instance(instancePath, stood)
+local second: any = luaload.instance(instancePath, stood)
+if first.bump() == 1 and first.bump() == 2 and second.bump() == 1 and first.now() == 5 then
+    score = score + 4194304
 end
 
 export const result = score
