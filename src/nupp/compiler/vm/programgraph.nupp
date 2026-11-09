@@ -1385,6 +1385,12 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             -- function declaration introduces its own checked binding.
             reference(node.base, owner)
         end
+        -- A chunk's `require` is the running program's global, which looks in
+        -- package.loaded and package.preload first (libraryvalues): a call
+        -- through its value, as of any global.
+        if p.chunk and node.kind == "call" and node.runtimeLoader == "require" and chunkGlobal(p, node.obj) then
+            node.runtimeLoader = nil
+        end
         local loader = node.kind == "call" and node.runtimeLoader == "require" and not graph.dynamicRequire(node)
         if graph.dynamicRequire(node) then
             p.dynamicRequires = true
