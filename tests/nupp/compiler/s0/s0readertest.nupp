@@ -1,7 +1,7 @@
-module s0.tests
+module nupp.compiler.s0.s0readertest
 
-local reader = require("s0.reader")
-local ir = require("s0.ir")
+local reader = require("nupp.compiler.s0.reader")
+local ir = require("nupp.compiler.s0.ir")
 
 local function constant(kind: string, text: string): integer
     local functions = reader.read(

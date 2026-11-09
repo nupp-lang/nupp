@@ -1,8 +1,8 @@
-module s0.measure
+module nupp.compiler.s0.measure
 
-local reader = require("s0.reader")
-local allocate = require("s0.allocate")
-local selector = require("s0.select")
+local reader = require("nupp.compiler.s0.reader")
+local allocate = require("nupp.compiler.s0.allocate")
+local selector = require("nupp.compiler.s0.select")
 
 export function compileCorpus(path: string, repeatText: string): string
     local repeats = assert(math.tointeger(tonumber(repeatText)))

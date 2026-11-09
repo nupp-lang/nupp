@@ -1,6 +1,6 @@
-module s0.allocate
+module nupp.compiler.s0.allocate
 
-local ir = require("s0.ir")
+local ir = require("nupp.compiler.s0.ir")
 local allocate = {}
 
 record allocate.Target

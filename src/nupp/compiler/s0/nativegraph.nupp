@@ -4,8 +4,8 @@ local graph = require("nupp.compiler.vm.graph")
 local physical = require("nupp.compiler.vm.nativephysical")
 local residual = require("nupp.compiler.vm.residual")
 local recipes = require("nupp.compiler.vm.machinerecipes")
-local ir = require("s0.ir")
-local literal = require("s0.literal")
+local ir = require("nupp.compiler.s0.ir")
+local literal = require("nupp.compiler.s0.literal")
 local nativeos = require("nupp.compiler.vm.nativeos")
 local service = require("nupp.compiler.vm.nativeservice")
 local sink = {}
@@ -429,8 +429,9 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                         fixed = binding and binding.fixed or nil
                     )
                     -- An OS import is called through its slot; a foreign symbol
-                    -- is resolved once into the bridge's table (s0.select), then
-                    -- called through what it resolved to.
+                    -- is resolved once into the bridge's table
+                    -- (nupp.compiler.s0.select), then called through what it
+                    -- resolved to.
                     -- A routine the selector writes in place (the generic
                     -- foreign call) has no slot.
                     local call = {op = ir.opcode("call"), aux = 0, values = {} as {integer}, complete = false}
@@ -439,8 +440,8 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                         call.aux = imported(routine, signature)
                     elseif binding then
                         -- A foreign symbol is resolved once into the bridge's
-                        -- table (s0.select); the call itself is the generic
-                        -- foreign call. Arguments that all go in registers are
+                        -- table (nupp.compiler.s0.select); the call itself is the
+                        -- generic foreign call. Arguments that all go in registers are
                         -- its operands after the function (its fast path);
                         -- any others are laid in a block in this function's
                         -- frame where the C convention passes them
@@ -1033,9 +1034,9 @@ function sink.selectAuthenticated(result: sink.Result, mode: string): any
     assert(result.body == held.owner and unchanged(result.machine, held.machine), "S0 graph: Result changed")
     assert(finalframe.requireOriginal(held.graph, held.owner))
     graph.verify(held.graph)
-    local allocate = require("s0.allocate")
-    local check = require("s0.allocationcheck")
-    local selector = require("s0.select")
+    local allocate = require("nupp.compiler.s0.allocate")
+    local check = require("nupp.compiler.s0.allocationcheck")
+    local selector = require("nupp.compiler.s0.select")
     assert(mode == "normal" or mode == "spill", "S0 graph: closed allocation mode required")
     local target = selector.target()
     if mode == "spill" then
@@ -1157,7 +1158,7 @@ function sink.verifyLinkInputs(roots: {any}, functions: {[string]: any}): any
         codeEntry(verified[code])
     end
     local imports = {}
-    local selector = require("s0.select")
+    local selector = require("nupp.compiler.s0.select")
     for _, code in ipairs(ordered) do
         local saved = verified[code]
         imports[code] = {}

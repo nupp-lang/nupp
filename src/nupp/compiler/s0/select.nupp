@@ -1,9 +1,9 @@
-module s0.select
+module nupp.compiler.s0.select
 
-local ir = require("s0.ir")
-local allocate = require("s0.allocate")
-local arm = require("s0.arm64")
-local target = require("s0.arm64target")
+local ir = require("nupp.compiler.s0.ir")
+local allocate = require("nupp.compiler.s0.allocate")
+local arm = require("nupp.compiler.s0.arm64")
+local target = require("nupp.compiler.s0.arm64target")
 local selector = {}
 
 const BORROW_ICMP: 20 = ir.OP_ICMP as 20

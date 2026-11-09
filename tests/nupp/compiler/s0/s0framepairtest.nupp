@@ -1,9 +1,9 @@
-module s0.framepairtests
+module nupp.compiler.s0.s0framepairtest
 
-local reader = require("s0.reader")
-local allocate = require("s0.allocate")
-local selector = require("s0.select")
-local check = require("s0.allocationcheck")
+local reader = require("nupp.compiler.s0.reader")
+local allocate = require("nupp.compiler.s0.allocate")
+local selector = require("nupp.compiler.s0.select")
+local check = require("nupp.compiler.s0.allocationcheck")
 
 export function audit(path: string): string
     local file = assert(io.open(path, "rb"))
@@ -64,7 +64,7 @@ export function audit(path: string): string
 end
 
 export function cases(): string
-    local ir = require("s0.ir")
+    local ir = require("nupp.compiler.s0.ir")
     local text = [[function %copies(i64) -> i64 tail {
 block0(v0: i64):
     jump block1(v0)
@@ -153,7 +153,7 @@ block1(v1: i64):
 end
 
 export function prepare(directory: string, digest: string): string
-    local link = require("s0.link")
+    local link = require("nupp.compiler.s0.link")
     for _, name in ipairs({"copyi8", "copyi16", "copyi32", "copyi64", "copyf32", "copyf64"}) do
         local path = directory .. "/" .. name .. ".clif"
         local file = assert(io.open(path, "rb"))

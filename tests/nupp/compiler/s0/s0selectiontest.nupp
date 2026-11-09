@@ -1,11 +1,11 @@
-module s0.selectiontests
+module nupp.compiler.s0.s0selectiontest
 
-local reader = require("s0.reader")
-local ir = require("s0.ir")
-local allocate = require("s0.allocate")
-local selector = require("s0.select")
-local arm = require("s0.arm64")
-local link = require("s0.link")
+local reader = require("nupp.compiler.s0.reader")
+local ir = require("nupp.compiler.s0.ir")
+local allocate = require("nupp.compiler.s0.allocate")
+local selector = require("nupp.compiler.s0.select")
+local arm = require("nupp.compiler.s0.arm64")
+local link = require("nupp.compiler.s0.link")
 
 export function corpus(path: string): string
     local file = assert(io.open(path, "rb"))

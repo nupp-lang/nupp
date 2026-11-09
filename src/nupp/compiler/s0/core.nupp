@@ -1,11 +1,11 @@
-module s0.core
+module nupp.compiler.s0.core
 
-local ir = require("s0.ir")
-local reader = require("s0.reader")
-local allocate = require("s0.allocate")
-local selector = require("s0.select")
-local arm = require("s0.arm64")
-local bound = require("s0.corebound")
+local ir = require("nupp.compiler.s0.ir")
+local reader = require("nupp.compiler.s0.reader")
+local allocate = require("nupp.compiler.s0.allocate")
+local selector = require("nupp.compiler.s0.select")
+local arm = require("nupp.compiler.s0.arm64")
+local bound = require("nupp.compiler.s0.corebound")
 local core = {}
 
 function core.bundle(corpus: string, metadata: string, directory: string, digest: string): string

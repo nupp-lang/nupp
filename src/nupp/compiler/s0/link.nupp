@@ -1,10 +1,10 @@
-module s0.link
+module nupp.compiler.s0.link
 
-local ir = require("s0.ir")
-local reader = require("s0.reader")
-local allocate = require("s0.allocate")
-local selector = require("s0.select")
-local arm = require("s0.arm64")
+local ir = require("nupp.compiler.s0.ir")
+local reader = require("nupp.compiler.s0.reader")
+local allocate = require("nupp.compiler.s0.allocate")
+local selector = require("nupp.compiler.s0.select")
+local arm = require("nupp.compiler.s0.arm64")
 local link = {}
 
 record link.Image

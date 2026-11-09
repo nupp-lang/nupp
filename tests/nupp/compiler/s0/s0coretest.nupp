@@ -1,11 +1,11 @@
-module s0.coretests
+module nupp.compiler.s0.s0coretest
 
-local reader = require("s0.reader")
-local bound = require("s0.corebound")
-local allocate = require("s0.allocate")
-local check = require("s0.allocationcheck")
-local selector = require("s0.select")
-local core = require("s0.core")
+local reader = require("nupp.compiler.s0.reader")
+local bound = require("nupp.compiler.s0.corebound")
+local allocate = require("nupp.compiler.s0.allocate")
+local check = require("nupp.compiler.s0.allocationcheck")
+local selector = require("nupp.compiler.s0.select")
+local core = require("nupp.compiler.s0.core")
 
 export function bundle(corpus: string, metadata: string, directory: string, digest: string): string
     return core.bundle(corpus, metadata, directory, digest)

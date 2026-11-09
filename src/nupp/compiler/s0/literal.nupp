@@ -1,4 +1,4 @@
-module s0.literal
+module nupp.compiler.s0.literal
 
 local literal = {}
 

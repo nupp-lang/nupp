@@ -1,7 +1,7 @@
-module s0.reader
+module nupp.compiler.s0.reader
 
-local ir = require("s0.ir")
-local literal = require("s0.literal")
+local ir = require("nupp.compiler.s0.ir")
+local literal = require("nupp.compiler.s0.literal")
 local reader = {}
 
 local function trim(text: string): string

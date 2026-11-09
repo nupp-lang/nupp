@@ -1,7 +1,7 @@
 module nupp.core.heapshim
 
-local arm = require("s0.arm64")
-local literal = require("s0.literal")
+local arm = require("nupp.compiler.s0.arm64")
+local literal = require("nupp.compiler.s0.literal")
 local unit = require("nupp.compiler.vm.nativeunit")
 local linker = require("nupp.core.link")
 local nativeos = require("nupp.compiler.vm.nativeos")

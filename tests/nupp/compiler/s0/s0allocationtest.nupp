@@ -1,9 +1,9 @@
-module s0.allocationtests
+module nupp.compiler.s0.s0allocationtest
 
-local ir = require("s0.ir")
-local reader = require("s0.reader")
-local allocate = require("s0.allocate")
-local check = require("s0.allocationcheck")
+local ir = require("nupp.compiler.s0.ir")
+local reader = require("nupp.compiler.s0.reader")
+local allocate = require("nupp.compiler.s0.allocate")
+local check = require("nupp.compiler.s0.allocationcheck")
 
 local function target(tiny: boolean): allocate.Target
     local preserved: {boolean} = {}

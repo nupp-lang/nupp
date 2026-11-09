@@ -1,10 +1,10 @@
-module s0.oracletests
+module nupp.compiler.s0.s0oracletest
 
-local ir = require("s0.ir")
-local reader = require("s0.reader")
-local oracle = require("s0.oracle")
-local allocation = require("s0.allocate")
-local check = require("s0.allocationcheck")
+local ir = require("nupp.compiler.s0.ir")
+local reader = require("nupp.compiler.s0.reader")
+local oracle = require("nupp.compiler.s0.oracle")
+local allocation = require("nupp.compiler.s0.allocate")
+local check = require("nupp.compiler.s0.allocationcheck")
 
 local function words(line: string): {integer}
     local result: {integer} = {}

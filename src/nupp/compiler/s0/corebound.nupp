@@ -1,6 +1,6 @@
-module s0.corebound
+module nupp.compiler.s0.corebound
 
-local ir = require("s0.ir")
+local ir = require("nupp.compiler.s0.ir")
 local bound = {}
 
 -- Every incoming block argument must retain the original dispatch table.

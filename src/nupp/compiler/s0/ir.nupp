@@ -1,4 +1,4 @@
-module s0.ir
+module nupp.compiler.s0.ir
 
 local ir = {}
 

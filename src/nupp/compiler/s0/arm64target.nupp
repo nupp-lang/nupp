@@ -1,4 +1,4 @@
-module s0.arm64target
+module nupp.compiler.s0.arm64target
 
 local target = {}
 

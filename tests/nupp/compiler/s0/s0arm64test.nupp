@@ -1,7 +1,7 @@
-module s0.arm64tests
+module nupp.compiler.s0.s0arm64test
 
-local arm64 = require("s0.arm64")
-local target = require("s0.arm64target")
+local arm64 = require("nupp.compiler.s0.arm64")
+local target = require("nupp.compiler.s0.arm64target")
 
 export function golden(): string
     assert(arm64.add_reg(32, 0, 1, 2, 0) == 0x0b020020, "add w0, w1, w2, lsl #0")

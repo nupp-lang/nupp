@@ -1,7 +1,7 @@
-module s0.allocationcheck
+module nupp.compiler.s0.allocationcheck
 
-local ir = require("s0.ir")
-local allocate = require("s0.allocate")
+local ir = require("nupp.compiler.s0.ir")
+local allocate = require("nupp.compiler.s0.allocate")
 local check = {}
 
 local function slot(location: integer): integer

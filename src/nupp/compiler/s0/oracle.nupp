@@ -1,6 +1,6 @@
-module s0.oracle
+module nupp.compiler.s0.oracle
 
-local ir = require("s0.ir")
+local ir = require("nupp.compiler.s0.ir")
 local oracle = {}
 oracle.OK, oracle.TRAP, oracle.DIVZERO, oracle.OVERFLOW = 0, 1, 2, 3
 oracle.BOUNDS, oracle.FUEL, oracle.UNSUPPORTED, oracle.INVALID = 4, 5, 6, 7
