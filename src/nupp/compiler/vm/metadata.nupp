@@ -4,7 +4,6 @@ const assert2 = require("assert")
 
 -- Expand checked metadata into ordinary syntax understood by the VM emitter.
 -- Recipes and descriptors come from semantic analysis, never generated Lua.
-local metadata = {}
 local numbertext = require("nupp.compiler.numbertext")
 local callable = require("nupp.compiler.vm.callable")
 
@@ -90,9 +89,9 @@ local function data(value)
     return node("tableExpr", {fields = fields})
 end
 
-metadata.literal = data
+export const literal = data
 
-function metadata.foreignSignature(declaration)
+export function foreignSignature(declaration: any): any
     local signature = assert2(declaration.cAbiSignature, "C function has no checked ABI signature")
     assert2(signature.schema == 1 and signature.convention == "c", "unsupported VM C function ABI")
     local scalars = {
@@ -289,7 +288,7 @@ end
 --- A header namespace's bindings: each function's C signature, as a `cdef`
 --- declaration of it would carry, or the reason it has none, and each enum
 --- member's value. The runtime binds a function when it is first used.
-function metadata.headerNamespace(exports, constants)
+export function headerNamespace(exports: any, constants: any): (any, any)
     local cabi = require("nupp.compiler.cinterop.cabi")
     local signatures, values = {}, {}
     local names = {}
@@ -313,7 +312,7 @@ function metadata.headerNamespace(exports, constants)
                     "c"
                 )
             }
-            local ok, signature = pcall(metadata.foreignSignature, declaration)
+            local ok, signature = pcall(foreignSignature, declaration)
             if ok then
                 signatures[name] = signature
             else
@@ -336,7 +335,7 @@ end
 --- A struct's runtime identity: its declaration's, and for an instance of a
 --- generic struct, that followed by its type arguments, so each instance is
 --- its own storage type and every module spells one instance alike.
-function metadata.structIdentity(subject)
+export function structIdentity(subject: any): any
     local origin = subject.origin or subject
     local identity = origin.runtimeDeclarationKey or origin.cdefIdentity
     if subject.origin and identity then
@@ -357,7 +356,7 @@ end
 -- Layout facts come from the checked nominal graph under an explicit target.
 -- Unsupported layouts keep their reason so unrelated declarations can still
 -- compile; asking the native provider for that layout reports the failure.
-function metadata.structLayout(declaration, target)
+export function structLayout(declaration: any, target: any): any
     local nominal = declaration.resolvedType
     local label = nominal and (nominal.runtimePath or nominal.name) or declaration.name.text
     local unavailable = {kind = "struct", name = label, supported = false, target = target}
@@ -443,7 +442,7 @@ function metadata.structLayout(declaration, target)
             elseif pointer.tag == "func" then
                 -- A function pointer field carries its C signature, which a
                 -- retained callback stored in it is bound to.
-                local ok, described = pcall(metadata.foreignSignature, {
+                local ok, described = pcall(foreignSignature, {
                     cAbiSignature = {
                         schema = 1,
                         convention = "c",
@@ -533,7 +532,7 @@ function metadata.structLayout(declaration, target)
         end
         result.name, result.fields = subject.runtimePath or subject.name, {}
         result.typeName = (subject.moduleName and subject.moduleName .. ":" or "") .. result.name
-        result.identity = metadata.structIdentity(subject)
+        result.identity = structIdentity(subject)
         local signatures = {}
         for index, fieldLayout in ipairs(measured.fields) do
             local name = fieldLayout.name
@@ -694,7 +693,7 @@ local function constructors(declaration, identity, statements)
     end
 end
 
-function metadata.declaration(declaration, identity)
+export function declaration(declaration: any, identity: any): any
     local statements = {}
     local recipe = declaration.deriveRecipe
     local nominal = declaration.resolvedType
@@ -1102,7 +1101,7 @@ local function storageDescriptor(call)
     })
 end
 
-function metadata.expand(root, moduleName: string?)
+export function expand(root: any, moduleName: string?): any
     local seen = {}
     local managed = false
     local reflects = false
@@ -1259,7 +1258,7 @@ function metadata.expand(root, moduleName: string?)
                 identity = identity and field(identity, qualifier.text) or name(qualifier.text)
             end
             identity = identity and field(identity, current.name.text) or name(current.name.text)
-            current.vmMetadata = metadata.declaration(current, identity)
+            current.vmMetadata = declaration(current, identity)
             if links[current] then
                 current.vmMetadata[#current.vmMetadata + 1] = links[current](identity)
             end
@@ -1317,5 +1316,3 @@ function metadata.expand(root, moduleName: string?)
         root.vmReflectRuntime = true
     end
 end
-
-export = metadata
