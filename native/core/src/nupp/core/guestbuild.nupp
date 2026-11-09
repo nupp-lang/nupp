@@ -243,6 +243,7 @@ local CASES: {[string]: {
     affineconstructors = {fixture = "catalog-affine-constructors", version = 8},
     absentffi = {fixture = "catalog-absent-ffi", version = 8},
     runnerresiduals = {fixture = "catalog-runner-residuals", version = 8},
+    spreadlibrary = {fixture = "catalog-spread-library", version = 8},
     processlines = {fixture = "catalog-process-lines", version = 8},
     processexit = {fixture = "catalog-process-exit", version = 8},
     gcweak = {fixture = "catalog-gc-weak", version = 8},
