@@ -89,9 +89,10 @@ local function resolve(
         words[#words + 1] = word
     end
     -- Each foreign symbol and library the code resolves keeps one word of
-    -- the bridge's table, numbered in name order.
+    -- the bridge's table, numbered in name order; the guest's foreign calls
+    -- cache theirs in the words past these (nativeos.kernelCells).
     local cellNames = sortedKeys(cells)
-    assert(#cellNames <= nativeos.foreignSlots(), "core link foreign symbol count")
+    assert(#cellNames <= nativeos.kernelCells(), "core link foreign symbol count")
     local cellSlots: {[string]: integer} = {}
     for index, name in ipairs(cellNames) do
         cellSlots[name] = index - 1

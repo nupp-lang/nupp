@@ -12,8 +12,12 @@ export const ID_OFFSET: uint64 = 4ULL
 export const COUNT_OFFSET: uint64 = 3ULL
 -- A call in method form: its argument count carries this flag.
 export const METHOD_FORM: uint64 = 128ULL
-export const COUNT_MASK: uint64 = 127ULL
+export const COUNT_MASK: uint64 = 63ULL
 export const METHOD_SHIFT: uint64 = 7ULL
+-- A canonical library value's call of its own function: its count carries
+-- this flag, and its errors are its caller's.
+export const FORWARD_FORM: uint64 = 64ULL
+export const FORWARD_SHIFT: uint64 = 6ULL
 export const ARGUMENTS: uint64 = 4ULL
 
 -- The operations HOST_FILES takes first, by group.

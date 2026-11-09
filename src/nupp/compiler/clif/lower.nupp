@@ -45,31 +45,34 @@ local graph = require("nupp.compiler.vm.legacygraph")
 local nativegraph = require("nupp.compiler.vm.legacynativegraph")
 local clifgraph = require("nupp.compiler.clif.legacygraph")
 
-local lower = {}
-
 --- The intrinsics declaration the runtime sources are written against.
-lower.INTRINSICS = "nupp.runtime.vm.intrinsics"
+export const INTRINSICS = "nupp.runtime.vm.intrinsics"
 
--- Logical frame accesses retain their contract in Nupp until machine emission.
-lower.SLOTS = "nupp.runtime.vm.slots"
-lower.FRAMES = "nupp.runtime.vm.frames"
-
--- Frozen code bytes retain their owning body lifetime through the Nupp graph.
-lower.PROGRAM = "nupp.runtime.vm.program"
-
--- Ordinary implementations carry the semantic specialization contracts.
-lower.SPECIALIZATION = "nupp.runtime.vm.specialization"
+--- The contract-bearing runtime modules, by role. Logical frame accesses
+--- (SLOTS, FRAMES) retain their contract in Nupp until machine emission,
+--- frozen code bytes (PROGRAM) their owning body lifetime through the Nupp
+--- graph, and ordinary implementations (SPECIALIZATION) carry the semantic
+--- specialization contracts. A table, so a test can substitute a module and
+--- the lowering reads the substitute back.
+export const contractModules = {
+    SLOTS = "nupp.runtime.vm.slots",
+    FRAMES = "nupp.runtime.vm.frames",
+    PROGRAM = "nupp.runtime.vm.program",
+    SPECIALIZATION = "nupp.runtime.vm.specialization"
+}
 
 --- The atomics declaration: loads, stores, exchanges and fences on words the
 --- lowering emits as Cranelift's sequentially consistent atomic instructions.
-lower.ATOMICS = "nupp.runtime.vm.atomic"
+export const ATOMICS = "nupp.runtime.vm.atomic"
 
 --- The declarations of what the runtime exports to native code, by C ABI,
 --- and the symbol prefix each declares under: a member `name` of the module
 --- is the symbol `<prefix><name in snake case>`, with the kinds its declared
 --- signature says. `helpers` are the interpreter's Rust helpers; `os` the
 --- operating-system edges (pages, threads, files).
-lower.HELPER_MODULES = {
+export const HELPER_MODULES: {
+    [string]: string
+} = {
     ["nupp.runtime.vm.helpers"] = "nupp_rt_",
     ["nupp.runtime.vm.bytehelpers"] = "nupp_rt_",
     ["nupp.runtime.vm.recordhelpers"] = "nupp_rt_",
@@ -105,7 +108,7 @@ end
 
 --- The native core's modules, in the order they compile, relative to the
 --- repository root.
-lower.RUNTIME_MODULES = {
+export const RUNTIME_MODULES = {
     "src/nupp/runtime/vm/values.nupp",
     "src/nupp/runtime/vm/objecthash.nupp",
     "src/nupp/runtime/vm/objectshape.nupp",
@@ -145,10 +148,6 @@ lower.RUNTIME_MODULES = {
     "src/nupp/runtime/vm/state.nupp",
     "src/nupp/runtime/vm/byteops.nupp"
 }
-
-local INTRINSICS = lower.INTRINSICS
-local ATOMICS = lower.ATOMICS
-local HELPER_MODULES: {[string]: string} = lower.HELPER_MODULES
 
 -- `getIndexNum` under `nupp_rt_` is `nupp_rt_get_index_num`.
 local function helperSymbol(prefix: string, member: string): string
@@ -1622,13 +1621,13 @@ local function compileDirectFunction(fn: Fn, options: any): string
             return arithmetic(n, op, kind, lhs, rhs)
         elseif isIntrinsicCall(n) then
             return intrinsic(n.obj.name.text, n.args.exprs or {}, n)
-        elseif calledModule(n) == lower.PROGRAM then
+        elseif calledModule(n) == contractModules.PROGRAM then
             return programCall(n)
-        elseif calledModule(n) == lower.FRAMES then
+        elseif calledModule(n) == contractModules.FRAMES then
             return frameCall(n)
-        elseif calledModule(n) == lower.SLOTS then
+        elseif calledModule(n) == contractModules.SLOTS then
             return slotCall(n)
-        elseif calledModule(n) == lower.SPECIALIZATION then
+        elseif calledModule(n) == contractModules.SPECIALIZATION then
             return specializationCall(n)
         elseif calledModule(n) == ATOMICS then
             return atomic(n.obj.name.text, n.args.exprs or {})
@@ -2487,7 +2486,7 @@ end
 --- handler and support function compiles; `options.layouts` names the glue's
 --- layout file. Otherwise every function compiles.
 --- @raises string when the source does not check or the lowering refuses it.
-function lower.compile(root: string, paths: {string}, options: any?): string
+export function compile(root: string, paths: {string}, options: any?): string
     local settings: any = options or {}
     local variantCap = settings.specializationVariantCap
     if variantCap == nil then
@@ -2521,10 +2520,10 @@ function lower.compile(root: string, paths: {string}, options: any?): string
         for _, required in ipairs(entry.requires) do
             need(
                 required == INTRINSICS
-                or required == lower.PROGRAM
-                or required == lower.SLOTS
-                or required == lower.FRAMES
-                or required == lower.SPECIALIZATION
+                or required == contractModules.PROGRAM
+                or required == contractModules.SLOTS
+                or required == contractModules.FRAMES
+                or required == contractModules.SPECIALIZATION
                 or required == ATOMICS
                 or HELPER_MODULES[required] ~= nil
                 or modules[required] ~= nil,
@@ -2563,7 +2562,7 @@ function lower.compile(root: string, paths: {string}, options: any?): string
         layout = handlers and layouts(settings.layouts as string) or nil,
         specializationVariantCap = variantCap,
         modules = modules,
-        helperModules = lower.HELPER_MODULES
+        helperModules = HELPER_MODULES
     }
     local text = {}
     local allocatorNames = {}
@@ -2585,7 +2584,7 @@ function lower.compile(root: string, paths: {string}, options: any?): string
                 handlers = false,
                 allocator = true,
                 modules = modules,
-                helperModules = lower.HELPER_MODULES,
+                helperModules = HELPER_MODULES,
                 specializationVariantCap = variantCap
             })
         else
@@ -2607,13 +2606,11 @@ end
 --- Compiles the native core: the runtime modules in handler mode against the
 --- glue's layout file, answering the CLIF text.
 --- @raises string when the source does not check or the lowering refuses it.
-function lower.compileRuntime(root: string, layoutsPath: string): string
+export function compileRuntime(root: string, layoutsPath: string): string
     local paths = {}
-    for index, relative in ipairs(lower.RUNTIME_MODULES) do
+    for index, relative in ipairs(RUNTIME_MODULES) do
         paths[index] = fs.join(root, relative)
     end
 
-    return lower.compile(root, paths, {handlers = true, layouts = layoutsPath, include = {"src"}})
+    return compile(root, paths, {handlers = true, layouts = layoutsPath, include = {"src"}})
 end
-
-export = lower

@@ -1,0 +1,190 @@
+module nupp.core.catalogcallstables
+
+-- Callable tables through every call form: a table with __call is called
+-- through it with the table first, directly, with a spread, under pcall and
+-- under xpcall, and so is a chain of them, up to Lua 5.5's fifteen. What
+-- cannot be called answers false under a protected call, as Lua's pcall
+-- does. Each check adds a bit.
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score + bit
+    end
+    bit = bit * 2
+end
+
+local function pack(...: any): any
+    return {n = select("#", ...), ...}
+end
+
+-- Answers how many arguments it had, then its first two.
+local function counted(...: any): (integer, any, any)
+    local first, second = ...
+    return select("#", ...), first, second
+end
+
+local direct: any = setmetatable({}, {__call = counted})
+
+-- 1: a direct call; 2: under pcall; 3: under xpcall, the handler unused.
+local n1, self1, a1 = direct(5, 6)
+check(n1 == 3 and self1 == direct and a1 == 5)
+local ok2, n2, self2 = pcall(direct, 5, 6)
+check(ok2 and n2 == 3 and self2 == direct)
+local ok3, n3, self3 = xpcall(
+    direct,
+    function(problem: any): any
+        return problem
+    end,
+    5
+)
+check(ok3 and n3 == 2 and self3 == direct)
+
+-- 4, 5: a __call that raises: pcall gets its error as it is; xpcall's handler
+-- gets it, and its answer replaces it.
+local marker = {code = 7}
+local raising: any = setmetatable({}, {
+    __call = function(self: any, value: integer): integer
+        error(marker, 0)
+        return value
+    end
+})
+local ok4, problem4 = pcall(raising, 1)
+check(not ok4 and problem4 == marker)
+local ok5, problem5 = xpcall(
+    raising,
+    function(problem: any): any
+        return {wrapped = problem}
+    end,
+    1
+)
+check(not ok5 and (problem5 as {wrapped: any}).wrapped == marker)
+
+-- 6, 7: a chain: each table moves in ahead of the arguments.
+local inner: any = setmetatable({}, {__call = counted})
+local outer: any = setmetatable({}, {__call = inner})
+local n6, first6, second6 = outer(1)
+check(n6 == 3 and first6 == inner and second6 == outer)
+local ok7, n7, first7 = pcall(outer, 1, 2)
+check(ok7 and n7 == 4 and first7 == inner)
+
+-- 8, 9: fifteen deep is Lua's longest chain; sixteen is refused, at once
+-- under pcall and positioned at the call otherwise.
+local function chain(depth: integer): any
+    local current: any = counted
+    for _ = 1, depth do
+        current = setmetatable({}, {__call = current})
+    end
+
+    return current
+end
+
+local longest = chain(15)
+local ok8, n8 = pcall(longest)
+check(ok8 and n8 == 15 and longest() == 15)
+local tooLong = chain(16)
+local ok9, problem9 = pcall(tooLong)
+local ok9b, problem9b = pcall(function(): integer
+    return tooLong() as integer
+end)
+check(
+    not ok9
+    and problem9 == "'__call' chain too long"
+    and not ok9b
+    and string.find(tostring(problem9b), ":%d+: '__call' chain too long$") ~= nil
+)
+
+-- 10, 11: what cannot be called answers false and Lua's message, without a
+-- position, under pcall; xpcall's handler gets that message.
+local nothing: any = nil
+local plain: any = setmetatable({}, {})
+local ok10, problem10 = pcall(nothing)
+local ok10b, problem10b = pcall(plain, 1)
+check(
+    not ok10
+    and problem10 == "attempt to call a nil value"
+    and not ok10b
+    and problem10b == "attempt to call a table value"
+)
+local ok11, problem11 = xpcall(nothing, function(problem: any): any
+    return "handled: " .. tostring(problem)
+end)
+local whole11 = pack(pcall(plain))
+check(not ok11 and problem11 == "handled: attempt to call a nil value" and whole11.n == 2 and whole11[1] == false)
+
+-- 12: a wrapped coroutine's function as __call under pcall: the table and
+-- the arguments resume it.
+local resumed: any = setmetatable({}, {
+    __call = coroutine.wrap(function(self: any, x: integer): nil
+        while true do
+            self, x = coroutine.yield(x * 10)
+        end
+    end)
+})
+local ok12, v12 = pcall(resumed, 4)
+local ok12b, v12b = pcall(resumed, 5)
+check(ok12 and v12 == 40 and ok12b and v12b == 50)
+
+-- 13, 14: 63 arguments, a nil at 32, spread into a callable table, with
+-- the table as a 64th: directly, under pcall, and under xpcall, whose handler
+-- is staged past every receiver.
+local arguments: any = {}
+for index = 1, 63 do
+    arguments[index] = index
+end
+arguments[32] = nil
+
+local function spreadHere(...: any): (integer, any)
+    return direct(...)
+end
+
+local n13, self13 = spreadHere(table.unpack(arguments, 1, 63))
+local whole13 = pack(pcall(outer, table.unpack(arguments, 1, 63)))
+check(n13 == 64 and self13 == direct and whole13.n == 4 and whole13[1] == true and whole13[2] == 65)
+local counting: any = setmetatable({}, {
+    __call = function(self: any, ...: any): integer
+        local count = select("#", ...)
+        assert(count == 63 and select(32, ...) == nil and select(63, ...) == 63)
+        error({count = count}, 0)
+        return count
+    end
+})
+
+local function relay(...: any): (boolean, any)
+    return xpcall(
+        counting,
+        function(problem: any): any
+            return problem
+        end,
+        ...
+    )
+end
+
+local ok14, problem14 = relay(table.unpack(arguments, 1, 63))
+check(not ok14 and (problem14 as {count: integer}).count == 63)
+
+-- 15: the callee is taken before the handler is made, even when making it
+-- replaces the callee.
+local selected: any = raising
+
+local function makehandler(): function(any): any
+    selected = counted
+    return function(problem: any): any
+        return problem
+    end
+end
+
+local ok15, problem15 = xpcall(selected, makehandler(), 1)
+check(not ok15 and problem15 == marker and selected == counted)
+
+-- 16: every result of a callable table, open under pcall.
+local function many(self: any, ...: any): ...any
+    return ...
+end
+
+local spreading: any = setmetatable({}, {__call = many})
+local whole16 = pack(pcall(spreading, 1, nil, 3, nil))
+check(whole16.n == 5 and whole16[1] == true and whole16[2] == 1 and whole16[3] == nil and whole16[4] == 3)
+
+export const result = score

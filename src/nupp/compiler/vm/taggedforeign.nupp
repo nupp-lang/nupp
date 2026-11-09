@@ -1,0 +1,78 @@
+module nupp.compiler.vm.taggedforeign
+
+-- A guest program's call of a `cdef function` in the tagged profile: one
+-- library call (FOREIGN_CALL) with the function's descriptor and a pack of
+-- its arguments, which the core answers by calling it through the generic
+-- foreign call (native/core/src/nupp/runtime/core/guestforeign.nupp).
+--
+-- The descriptor is the result's kind and each argument's, one letter each,
+-- those past a variadic function's declared ones after VARIADIC; then a NUL,
+-- the library ("" for the program's own symbols), a NUL and the symbol.
+const taggedvalues = require("nupp.compiler.vm.taggedvalues")
+const nativeos = require("nupp.compiler.vm.nativeos")
+const need = taggedvalues.need
+
+-- The letter of each C kind, as the core reads it.
+const CODES: {
+    [string]: string
+} = {
+    voidptr = "p",
+    ptr = "p",
+    string = "s",
+    boolean = "b",
+    int32 = "i",
+    uint32 = "u",
+    int64 = "l",
+    integer = "l",
+    uint64 = "L",
+    float32 = "f",
+    float64 = "d",
+    number = "d"
+}
+const VOID = "v"
+const VARIADIC = "."
+-- The library a `cdef function` without `from` names.
+const DEFAULT_LIBRARY = "<default>"
+
+-- The letter of a foreign argument's or result's kind: a literal or a
+-- constant is its base type's.
+local function code(given: any): string
+    local t = nativeos.passed(given)
+
+    return need(
+        t and CODES[t.tag],
+        "a foreign call kind is not a C scalar, pointer or string: " .. tostring(t and t.tag)
+    )
+end
+
+-- The descriptor of the foreign call `node`, whose callee has the checked
+-- foreign signature `signature`.
+export function descriptor(node: any, signature: any): string
+    local kind, library, symbol = (
+        need(node.cdefIdentity, "a foreign call names its cdef") as string
+    ):match("^(.-)\0(.-)\0(.*)$")
+    need(kind == "function" and symbol and symbol:match("^[%a_][%w_]*$"), "foreign symbol identity")
+    need(
+        signature.tag == "func"
+        and #signature.rets <= 1
+        and not signature.borrowsResult
+        and (signature.ffiOut == nil or #signature.ffiOut == 0),
+        "a guest foreign call requires a plain C signature"
+    )
+    local codes = {signature.rets[1] and code(signature.rets[1]) or VOID}
+    for _, parameter in ipairs(signature.params) do
+        codes[#codes + 1] = code(parameter)
+    end
+    local exprs = node.args.exprs or {}
+    local variadic = signature.paramPack and signature.paramPack.tail ~= nil
+    need(#exprs == #signature.params or variadic and #exprs > #signature.params, "foreign argument count")
+    if variadic then
+        codes[#codes + 1] = VARIADIC
+        for index = #signature.params + 1, #exprs do
+            need(exprs[index].kind ~= "vararg", "a foreign call cannot spread `...`")
+            codes[#codes + 1] = code(exprs[index].inferredType)
+        end
+    end
+
+    return table.concat(codes) .. "\0" .. (library == DEFAULT_LIBRARY and "" or library) .. "\0" .. symbol
+end

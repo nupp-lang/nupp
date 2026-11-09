@@ -57,6 +57,15 @@ export function at(borrows b: strings.Builder*, offset: uint64): voidptr
     end
 end
 
+-- How much of `count` bytes fits in `room`: the smaller.
+export function fitted(count: uint64, room: uint64): uint64
+    if count < room then
+        return count
+    end
+
+    return room
+end
+
 -- Whether string `s` holds a NUL, which a C path cannot.
 export function holdsNul(s: uint64): boolean
     @unsafe do

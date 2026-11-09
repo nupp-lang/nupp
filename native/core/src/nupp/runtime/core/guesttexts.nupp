@@ -217,7 +217,7 @@ export function argumentError(ctx: voidptr, position: uint64, expected: uint64, 
         -- A method call counts from the argument after self, as Lua does,
         -- and self itself is "calling 'name' on bad self (...)".
         local shown = position
-        if guesterrors.callermethod(ctx, guestscope.libraryMethod(ctx)) == 1ULL then
+        if guestscope.libraryMethod(ctx) == 1ULL then
             shown = position - 1ULL
         end
         local refused: uint64 = 0ULL

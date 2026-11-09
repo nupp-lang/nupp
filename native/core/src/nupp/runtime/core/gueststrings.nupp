@@ -12,7 +12,7 @@ const patterns = require("nupp.runtime.core.corepattern")
 const guestscope = require("nupp.runtime.core.guestscope")
 const texts = require("nupp.runtime.core.guesttexts")
 const ints = require("nupp.runtime.core.coreintegers")
-const os = require("nupp.runtime.vm.os")
+const numbers = require("nupp.runtime.core.hostnumbers")
 const librarylayouts = require("nupp.runtime.core.librarylayouts")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 const guestvalues = require("nupp.runtime.core.guestvalues")
@@ -280,7 +280,7 @@ export function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: u
                         | strings.appendWord(h, piece, 0ULL, 1ULL)
                         | strings.reserve(h, piece, 520ULL)
                     if refused == 0ULL then
-                        local length = os.formatNumber(
+                        local length = numbers.formatNumber(
                             bits,
                             native.pointer(strings.descriptor(pieceLifetime).base),
                             512ULL | 0x8000000000000000ULL
@@ -345,7 +345,7 @@ export function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: u
                                 | strings.appendWord(h, piece, 0x006125ULL, 3ULL)
                                 | strings.reserve(h, piece, 520ULL)
                             if refused == 0ULL then
-                                local length = os.formatNumber(
+                                local length = numbers.formatNumber(
                                     argument,
                                     native.pointer(strings.descriptor(pieceLifetime).base),
                                     512ULL | 0x8000000000000000ULL

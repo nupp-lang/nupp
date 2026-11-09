@@ -201,6 +201,16 @@ export function errnoLocation(scope: voidptr): voidptr
     return os.errnoLocation()
 end
 
+export function foreignCall(scope: voidptr, block: voidptr): uint64
+    local _ = scope
+    return os.foreignCall(block)
+end
+
+export function foreignCells(scope: voidptr): voidptr
+    local _ = scope
+    return os.foreignCells()
+end
+
 export function atomicload64(scope: voidptr, base: voidptr, offset: int64): uint64
     local _ = scope
     return os.atomicload64(base, offset)
@@ -215,16 +225,6 @@ export function environment(scope: voidptr, name: voidptr, nameBytes: uint64, ou
     -- Reading the environment leaves the scope alone, as pageSize does.
     local _ = scope
     return os.environment(name, nameBytes, out, room)
-end
-
-export function formatNumber(scope: voidptr, bits: uint64, out: voidptr, room: uint64): int64
-    local _ = scope
-    return os.formatNumber(bits, out, room)
-end
-
-export function parseNumber(scope: voidptr, text: voidptr, bytes: uint64, out: voidptr): int64
-    local _ = scope
-    return os.parseNumber(text, bytes, out)
 end
 
 export function writeOutput(scope: voidptr, base: voidptr, bytes: uint64): int64
@@ -322,45 +322,6 @@ export function poolCancel(scope: voidptr, ticket: uint64): int64
     end
 
     return result
-end
-
-export function wallClock(scope: voidptr): int64
-    local _ = scope
-    return os.wallClock()
-end
-
-export function wallMillis(scope: voidptr): uint64
-    local _ = scope
-    return os.wallMillis()
-end
-
-export function cpuClock(scope: voidptr): uint64
-
-    local _ = scope
-    return os.cpuClock()
-end
-
-export function timeParts(scope: voidptr, t: uint64, flags: uint64, out: voidptr): int64
-    local _ = scope
-    return os.timeParts(t, flags, out)
-end
-
-export function timeMake(scope: voidptr, fields: voidptr): int64
-    local _ = scope
-    return os.timeMake(fields)
-end
-
-export function timeFormat(
-    scope: voidptr,
-    t: uint64,
-    flags: uint64,
-    spec: voidptr,
-    bytes: uint64,
-    out: voidptr,
-    room: uint64
-): int64
-    local _ = scope
-    return os.timeFormat(t, flags, spec, bytes, out, room)
 end
 
 -- Root-registration close failure retains all backing. Entry must preserve

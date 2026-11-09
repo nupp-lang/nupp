@@ -34,14 +34,24 @@ export function source(): string
     constant("ID_OFFSET", idField.offset as integer)
     constant("COUNT_OFFSET", countField.offset as integer)
     lines[#lines + 1] = "-- A call in method form: its argument count carries this flag."
-    constant("METHOD_FORM", corelibrary.COUNT_METHOD_FORM)
-    constant("COUNT_MASK", corelibrary.COUNT_METHOD_FORM - 1)
-    local shift: integer = 0
-    while 1 << shift < corelibrary.COUNT_METHOD_FORM do
-        shift += 1
+
+    local function flag(name: string, value: integer): nil
+        local shift: integer = 0
+        while 1 << shift < value do
+            shift += 1
+        end
+        assert(1 << shift == value, "a count flag is one bit")
+        constant(name .. "_SHIFT", shift)
     end
-    assert(1 << shift == corelibrary.COUNT_METHOD_FORM, "the method-form flag is one bit")
-    constant("METHOD_SHIFT", shift)
+
+    constant("METHOD_FORM", corelibrary.COUNT_METHOD_FORM)
+    assert(corelibrary.COUNT_FORWARD_FORM < corelibrary.COUNT_METHOD_FORM, "the flags sit above the count")
+    constant("COUNT_MASK", corelibrary.COUNT_FORWARD_FORM - 1)
+    flag("METHOD", corelibrary.COUNT_METHOD_FORM)
+    lines[#lines + 1] = "-- A canonical library value's call of its own function: its count carries"
+    lines[#lines + 1] = "-- this flag, and its errors are its caller's."
+    constant("FORWARD_FORM", corelibrary.COUNT_FORWARD_FORM)
+    flag("FORWARD", corelibrary.COUNT_FORWARD_FORM)
     constant("ARGUMENTS", corelibrary.ARGUMENTS)
 
     lines[#lines + 1] = ""
