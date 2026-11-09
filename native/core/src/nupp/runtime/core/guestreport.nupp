@@ -150,3 +150,34 @@ export function finalizer(ctx: voidptr, value: uint64, uncallable: boolean): nil
         strings.release(builder)
     end
 end
+
+-- "core resource limit" as little-endian byte words.
+const RESOURCE_FIRST: uint64 = 0x7365722065726f63ULL
+const RESOURCE_SECOND: uint64 = 0x696c20656372756fULL
+const RESOURCE_LAST: uint64 = 0x74696dULL
+const RESOURCE_LAST_BYTES: uint64 = 3ULL
+const WORD_BYTES: uint64 = 8ULL
+
+-- Reports that the core reached one of its limits (guestops.RESOURCE) in
+-- function `owner` at instruction `pc`, where its line is known:
+-- "nupp: chunk:line: core resource limit".
+export function resource(ctx: voidptr, owner: uint64, pc: uint64): nil
+    local state = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local h = guestvalues.guestheap(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
+        local builder = state as strings.Builder*
+        if strings.appendWord(h, builder, RESOURCE_FIRST, WORD_BYTES) ~= 0ULL
+            or strings.appendWord(h, builder, RESOURCE_SECOND, WORD_BYTES) ~= 0ULL
+            or strings.appendWord(h, builder, RESOURCE_LAST, RESOURCE_LAST_BYTES) ~= 0ULL
+        then
+            strings.release(builder)
+            return
+        end
+        local text = values.TAG_OBJ | strings.finish(h, builder)
+        guestscope.hold(ctx, text)
+        local message = guesterrors.positioned(ctx, text, 1ULL, owner, pc)
+        guestscope.release(ctx)
+        plain(ctx, message)
+    end
+end
