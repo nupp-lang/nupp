@@ -54,12 +54,11 @@ if calls.text(block, 4) == "abGH" and calls.elementkind(half) == 3 then
     score = score + 512
 end
 calls.fill(tail, 4, 33)
-local written = calls.text(block, 8)
-local copied = calls.fromstring(written)
-if calls.text(copied, 8) == "abGH!!!!" then
+local copied = calls.text(block, 8)
+if calls.text(calls.fromstring(copied), 8) == "abGH!!!!" then
     score = score + 1024
 end
-local tooFar = pcall(function(): any
+local tooFar = pcall(function(): integer
     return calls.elements(calls.view(block, 1, 9))
 end)
 if not tooFar then

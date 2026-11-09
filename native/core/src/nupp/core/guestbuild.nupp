@@ -273,6 +273,8 @@ local CASES: {[string]: {
     namedarguments = {fixture = "catalog-named-arguments", version = 8},
     loopparameteralias = {fixture = "catalog-loop-parameter-alias", version = 8},
     ownmanage = {fixture = "catalog-own-manage", version = 8},
+    aliasdowncast = {fixture = "catalog-alias-downcast", version = 8},
+    methodspread = {fixture = "catalog-method-spread", version = 8},
     pluckedarguments = {fixture = "catalog-plucked-arguments", version = 8},
     modulescycle = {
         fixture = "catalog-modules-cycle",

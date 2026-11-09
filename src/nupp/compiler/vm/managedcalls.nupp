@@ -1,11 +1,13 @@
 --[[
-`own.manage(value)` on the core.
+`own.manage(value)` and `own.recoveralias(value)` on the core.
 
 Main hands the value to the ownership runtime with a function running its
 cleanups. The core makes the same managed cell by one checked call of
 `nupp.runtime.provider.coremanaged`'s factory, issued here against the
 factory's declaration and never written into the checked tree, with the
-cleanups the checker described and the value's policy.
+cleanups the checker described and the value's policy. Main's
+`own.recoveralias` is the ownership runtime's `__recoverAlias`; the core calls
+the same factory module's `recover`, which answers it.
 ]]
 module nupp.compiler.vm.managedcalls
 
@@ -14,6 +16,10 @@ local ownedcallables = require("nupp.compiler.vm.ownedcallables")
 
 export const MODULE = "nupp.runtime.provider.coremanaged"
 export const MEMBER = "create"
+export const RECOVER = "recover"
+
+-- The factory's results: a cell, or an alias and its problem.
+local RESULTS: {[string]: integer} = {[MEMBER] = 1, [RECOVER] = 2}
 
 local function need(value: any, message: string): any
     assert(value, "managed call: " .. message)
@@ -34,21 +40,44 @@ local function checkCleanup(cleanup: any): nil
     end
 end
 
---- Whether a checked call is `own.manage`.
+--- The factory member checked call `node` calls: `create` for `own.manage`,
+--- `recover` for `own.recoveralias`, or nil for any other call.
+export function member(node: any): string?
+    if type(node) ~= "table" or node.kind ~= "call" then
+        return nil
+    elseif node.ownershipIntrinsic == "manage" then
+        return MEMBER
+    elseif node.recoverManagedAlias then
+        return RECOVER
+    end
+
+    return nil
+end
+
+--- Whether a checked call is `own.manage` or `own.recoveralias`.
 export function managing(node: any): boolean
-    return type(node) == "table" and node.kind == "call" and node.ownershipIntrinsic == "manage"
+    return member(node) ~= nil
+end
+
+--- Whether a checked call is `own.recoveralias`.
+export function recovering(node: any): boolean
+    return member(node) == RECOVER
 end
 
 --- The factory call `own.manage` call `node` makes, as owner `owner` runs it.
 export function prepare(p: any, node: any, owner: any): any
-    for _, cleanup in ipairs(need(node.managedCleanups, "own.manage lacks its checked cleanups")) do
-        checkCleanup(cleanup)
+    local name = need(member(node), "not a managed call")
+    if name == MEMBER then
+        for _, cleanup in ipairs(need(node.managedCleanups, "own.manage lacks its checked cleanups")) do
+            checkCleanup(cleanup)
+        end
     end
-    local target = ownedcallables.checkedFactory(p, MODULE, MEMBER)
+    local target = ownedcallables.checkedFactory(p, MODULE, name, RESULTS[name])
 
     return {
         node = node,
         owner = owner.id,
+        member = name,
         target = target,
         call = ownedcallables.factoryCall(target, cst.firstToken(node))
     }
@@ -57,8 +86,11 @@ end
 --- Whether a plan still answers its checked call.
 export function verify(p: any, plan: any): nil
     local node, call = plan.node, plan.call
-    need(p.manages[node] == plan and managing(node), "managed call changed")
-    need(plan.target == ownedcallables.checkedFactory(p, MODULE, MEMBER), "managed factory changed")
+    need(p.manages[node] == plan and member(node) == plan.member, "managed call changed")
+    need(
+        plan.target == ownedcallables.checkedFactory(p, MODULE, plan.member, RESULTS[plan.member]),
+        "managed factory changed"
+    )
     need(
         call.calleeType == plan.target.signature
         and call.obj.token.definition == plan.target.definition
