@@ -363,6 +363,8 @@ export function describe(modules: {any}, entryModule: string): any
         requireByNode = {},
         scalartypes = {imports = {}, definitions = {}, witnesses = {}},
         callables = {},
+        -- Executable references the checker resolved to no declaration.
+        unresolved = {},
         -- By module chunk id, the forwarders a module in a require cycle
         -- publishes for the functions it exports.
         forwards = {},
@@ -760,7 +762,12 @@ export function describe(modules: {any}, entryModule: string): any
         local location = tostring(
             token and token.text
         ) .. " at " .. owner.scope.path .. ":" .. tostring(token and token.line)
-        need(definition ~= nil, "unresolved executable reference " .. location)
+        -- Recorded rather than raised, so an inventory names every one;
+        -- compile refuses a catalog that has any.
+        if definition == nil then
+            p.unresolved[#p.unresolved + 1] = {owner = owner.id, token = token, location = location}
+            return
+        end
         if definition.token == token then
             return
         end
@@ -1456,8 +1463,19 @@ export function describe(modules: {any}, entryModule: string): any
     for _, b in ipairs(p.bindings) do
         local required = b.definition.requiredModule
         if required and not graph.corecallmodule(required) then
-            local target = need(moduleNames[importmodule(p, b)], "required checked module is missing: " .. required)
-            p.imports[#p.imports + 1] = {binding = b.id, target = target.chunk, projection = b.builtinImport}
+            local target = moduleNames[importmodule(p, b)]
+            -- Recorded rather than raised, as an unresolved reference is.
+            if target == nil then
+                p.unresolved[
+                    #p.unresolved + 1
+                ] = {
+                    owner = b.owner,
+                    token = b.token,
+                    location = "required checked module " .. required .. " (not carried)"
+                }
+            else
+                p.imports[#p.imports + 1] = {binding = b.id, target = target.chunk, projection = b.builtinImport}
+            end
         end
     end
 
@@ -2101,6 +2119,9 @@ end
 export function functionGraph(p: any, owner: any, profile: any): any
     verify(p)
     need(p.owners[owner.id + 1] == owner, "foreign function owner")
+    for _, item in ipairs(p.unresolved) do
+        need(item.owner ~= owner.id, "unresolved executable reference " .. item.location)
+    end
     for _, reference in ipairs(p.externalReferences) do
         need(reference.owner ~= owner.id, "external execution bindings are not established")
     end
@@ -2241,6 +2262,13 @@ end
 -- Profiles must explicitly support real module initializer owners.
 export function compile(p: any, profile: any): any
     verify(p)
+    if #p.unresolved > 0 then
+        local first = p.unresolved[1]
+        need(
+            false,
+            "unresolved executable reference " .. first.location .. " and " .. tostring(#p.unresolved - 1) .. " more"
+        )
+    end
     local externals = unboundExternals(p)
     need(#externals == 0, "external execution bindings are not established: " .. table.concat(externals, ", "))
     local intrinsics = unexecutableIntrinsics(p)
@@ -2284,7 +2312,17 @@ export function inventory(p: any, profile: any): any
         end
     end
 
-    return {externals = unboundExternals(p), intrinsics = unexecutableIntrinsics(p), owners = refused}
+    local unresolved = {}
+    for _, item in ipairs(p.unresolved) do
+        unresolved[#unresolved + 1] = {owner = item.owner, location = item.location}
+    end
+
+    return {
+        externals = unboundExternals(p),
+        intrinsics = unexecutableIntrinsics(p),
+        owners = refused,
+        unresolved = unresolved
+    }
 end
 
 export function image(p: any, profile: any): string
