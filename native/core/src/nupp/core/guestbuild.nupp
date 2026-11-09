@@ -35,6 +35,45 @@ local function manymodules(): {string}
     return list
 end
 
+-- The modules the compiler CLI's image carries beside what its entry requires,
+-- as `nupp.tools.vm.project` names them for the image bin/nupp runs: its
+-- ROOT_EXTRAS line, read as scripts/vm-cli reads it, so the two cannot drift.
+local function exists(path: string): boolean
+    local file = io.open(path, "rb")
+    if file == nil then
+        return false
+    end
+    file:close()
+
+    return true
+end
+
+local function cliextras(): {string}
+    local root = os.getenv("NUPP_COMPILER_ROOT")
+    if root == nil then
+        return {}
+    end
+    local file = assert(io.open(root .. "/src/nupp/tools/vm/project.nupp", "rb"))
+    local text = file:read("a") as string
+    file:close()
+    local start = assert(text:find("project.ROOT_EXTRAS = ", 1, true), "ROOT_EXTRAS line missing")
+    local stop = assert(text:find("\n\n", start, true), "ROOT_EXTRAS line unterminated")
+    local list: {string} = {}
+    for name in text:sub(start, stop):gmatch("\"([^\"]*)\"") do
+        for module in name:gmatch("[%w%._]+") do
+            local relative = "src/" .. module:gsub("%.", "/")
+            if not exists(root .. "/" .. relative .. ".nupp") then
+                relative = relative .. "/init"
+            end
+            if exists(root .. "/" .. relative .. ".nupp") then
+                list[#list + 1] = relative
+            end
+        end
+    end
+
+    return list
+end
+
 -- Each case's fixture and graph profile version.
 local CASES: {[string]: {
     fixture: string,
@@ -270,6 +309,16 @@ local CASES: {[string]: {
     -- The packaged test runner (nupp.lua build.targets.testRunner): the
     -- delivery path runs it on the core.
     testrunner = {fixture = "tests/tools/test/runner/main", version = 8, follow = true, rooted = true, module = "main"},
+    -- The compiler CLI bin/nupp runs (`check`, `build`): its VM entry and the
+    -- modules its image carries beside it. The delivery path runs it on the core.
+    compilercli = {
+        fixture = "src/nupp/tools/vm/root",
+        version = 8,
+        follow = true,
+        rooted = true,
+        module = "nupp.tools.vm.root",
+        modules = cliextras()
+    },
     -- The bench harness's own entry: the bench/vm workloads under debug.bench.
     benchworkloads = {
         fixture = "bench/vm/workloads.bench",
