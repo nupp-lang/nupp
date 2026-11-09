@@ -553,9 +553,11 @@ export function forVersion(version: integer): any
                     "`...` among other table entries"
                 )
             end
-            -- Entries are evaluated in order, keys before their values, then
-            -- stored: positional ones at 1, 2, ..., named ones at their string.
-            local nodes, kinds, keys = {}, {}, {}
+            -- Entries are evaluated in order, keys before their values, and
+            -- each is stored as it is made, as Lua's are, so a long
+            -- constructor holds one entry at a time: positional ones at 1,
+            -- 2, ..., named ones at their string.
+            local entries = {}
             local position = 0
             for index, field in ipairs(node.fields) do
                 if appends and index == #node.fields then
@@ -563,23 +565,14 @@ export function forVersion(version: integer): any
                 end
                 if field.kind == "fieldItem" then
                     position += 1
-                    keys[#keys + 1] = {kind = "int64", text = tostring(position)}
+                    entries[#entries + 1] = {kind = "int64", text = tostring(position), value = field.value}
                 elseif field.kind == "fieldNamed" then
-                    keys[#keys + 1] = {kind = "str", text = need(field.name, "named field lacks a name").text}
+                    local name = need(field.name, "named field lacks a name").text
+                    entries[#entries + 1] = {kind = "str", text = name, value = field.value}
                 elseif field.kind == "fieldBracket" then
-                    nodes[#nodes + 1], kinds[#kinds + 1] = field.key, "tagged"
-                    keys[#keys + 1] = {kind = "value", at = #nodes}
+                    entries[#entries + 1] = {key = field.key, value = field.value}
                 else
                     error("tagged graph: unsupported table constructor entry", 0)
-                end
-                nodes[#nodes + 1], kinds[#kinds + 1] = field.value, "tagged"
-                keys[#keys].valueAt = #nodes
-            end
-            local values = {}
-            if #nodes > 0 then
-                values = ctx.operands(nodes, kinds)
-                if values == nil then
-                    return nil as any
                 end
             end
             -- A checked `{T}` whose elements pack is made packed, with room
@@ -597,9 +590,23 @@ export function forVersion(version: integer): any
                     "tagged"
                 )
                 or ctx.emit(node, "NewTable", {}, "tagged")
-            for _, key in ipairs(keys) do
-                local k = key.at and values[key.at] or ctx.emit(node, "K", {pool(ctx, key.kind, key.text)}, "tagged")
-                ctx.emit(node, "SetIdx", {result, k, values[key.valueAt]}, nil)
+            if #entries > 0 then
+                local table = ctx.hold(result)
+                for _, entry in ipairs(entries) do
+                    local operands = entry.key and ctx.operands({entry.key, entry.value}, {
+                        "tagged",
+                        "tagged"
+                    }) or ctx.operands({entry.value}, {"tagged"})
+                    if operands == nil then
+                        ctx.release(table)
+                        return nil as any
+                    end
+                    local key = entry.key and operands[1]
+                        or ctx.emit(node, "K", {pool(ctx, entry.kind, entry.text)}, "tagged")
+                    ctx.emit(node, "SetIdx", {ctx.readHeld(table), key, operands[#operands]}, nil)
+                end
+                result = ctx.readHeld(table)
+                ctx.release(table)
             end
             if appends then
                 -- The tail's values go at the next positions, from its pack.
