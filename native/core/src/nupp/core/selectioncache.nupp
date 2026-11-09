@@ -14,10 +14,16 @@ module nupp.core.selectioncache
 local sharedcache = require("nupp.core.sharedcache")
 local kernelcompiler = require("nupp.core.kernelcompiler")
 local fingerprint = require("nupp.compiler.project.fingerprint")
-local json = require("serde.json")
+
+-- Entries are the host's durable data encoding (`nupp.vm.persist`), which a
+-- program carrying the compiler (some 150 MB of selection) reads in about a
+-- second where JSON took a minute, and writes as fast where JSON took two. Its
+-- records restore as plain tables in any process. A host without it keeps
+-- nothing.
+local persisted, persist = pcall(require, "nupp.vm.persist")
 
 -- Bumped when an entry's shape or meaning changes.
-const FORMAT = "guest-selection/1"
+const FORMAT = "guest-selection/2"
 const KIND = "programs"
 -- The trees the guest project (native/core/tests/units/nupp.lua) resolves
 -- modules from, relative to the checkout root.
@@ -49,7 +55,7 @@ local disabled = false
 -- What every key in this process shares, computed once; nil when nothing may
 -- be kept.
 local function shared(root: string): string?
-    if disabled then
+    if disabled or not persisted then
         return nil
     end
     if base then
@@ -80,7 +86,7 @@ local function keyOf(root: string, parts: {string}): string?
         return nil
     end
 
-    return contentDigest(common .. "\0" .. table.concat(parts, "\0")) .. ".json"
+    return contentDigest(common .. "\0" .. table.concat(parts, "\0")) .. ".bin"
 end
 
 -- Two values that are the same data, numbers by their subtype too: what a
@@ -108,15 +114,25 @@ local function same(a: any, b: any): boolean
 end
 
 -- The kept selection for `parts` (case, mode, capacity, build kind) and the
--- extra fields kept beside it, or nil.
+-- extra fields kept beside it, or nil. An entry whose body does not match its
+-- seal, or does not decode, is a miss.
 export function lookup(root: string, parts: {string}): (any, any)
     local key = keyOf(root, parts)
     local text = key and sharedcache.get(sharedcache.directory(KIND), key as string)
     if not text then
         return nil, nil
     end
-    local ok, entry = pcall(json.decodevalue, text)
-    if not ok or type(entry) ~= "table" or entry.format ~= FORMAT or type(entry.selection) ~= "table" then
+    local ok, envelope = pcall(persist.loadData, text)
+    if not ok
+        or type(envelope) ~= "table"
+        or envelope.format ~= FORMAT
+        or type(envelope.body) ~= "string"
+        or envelope.seal ~= contentDigest(envelope.body)
+    then
+        return nil, nil
+    end
+    local decoded, entry = pcall(persist.loadData, envelope.body)
+    if not decoded or type(entry) ~= "table" or type(entry.selection) ~= "table" then
         return nil, nil
     end
     sharedcache.touch(sharedcache.directory(KIND), {key as string})
@@ -125,18 +141,23 @@ export function lookup(root: string, parts: {string}): (any, any)
 end
 
 -- Keeps `selection` for `parts`, with `extra` beside it, when it reads back as
--- the same data: a value JSON cannot carry exactly is not kept.
+-- the same data: a value the codec cannot carry exactly is not kept. The body
+-- is sealed with its digest.
 export function keep(root: string, parts: {string}, selection: any, extra: any): boolean
     local key = keyOf(root, parts)
     if not key then
         return false
     end
-    local text = json.encodevalue({format = FORMAT, selection = selection, extra = extra})
-    local ok, decoded = pcall(json.decodevalue, text)
+    local encoded, body = pcall(persist.saveData, {selection = selection, extra = extra})
+    local ok, decoded = false, nil
+    if encoded then
+        ok, decoded = pcall(persist.loadData, body)
+    end
     if not ok or not same(decoded.selection, selection) or not same(decoded.extra, extra) then
         io.stderr:write("guest selection not kept: it does not read back as itself\n")
         return false
     end
+    local text = persist.saveData({format = FORMAT, seal = contentDigest(body), body = body})
     local kept = sharedcache.put(sharedcache.directory(KIND), key as string, text)
     sharedcache.sweep(root)
 
