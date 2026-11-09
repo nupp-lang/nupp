@@ -84,7 +84,14 @@ local function checkingEnvironment(): any
         local named = os.getenv("NUPP_COMPILER_ROOT")
         local root = named ~= nil and named ~= "" and named or environment.compilerRoot() or "."
         bundled.checkout(root)
-        held = environment.new(root, {memoryOnly = true, cache = false, nativeCompilerServices = false})
+        held = environment.new(root, {
+            memoryOnly = true,
+            cache = false,
+            nativeCompilerServices = false,
+            -- The checkout's nupp.lua configures its projects, not a chunk;
+            -- reading it would load Lua text from within `load`.
+            config = {}
+        })
     end
 
     return held

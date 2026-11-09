@@ -13,6 +13,7 @@ literal's value.
 module nupp.runtime.luaload
 
 const hostcalls = require("nupp.runtime.hostcalls")
+const libraryvalues = require("nupp.runtime.libraryvalues")
 
 -- The compiler a text chunk compiles with, required by a name the program
 -- carries only where it names it.
@@ -302,3 +303,8 @@ end
 export const functions: {
     [string]: any
 } = {load = loadchunk, loadstring = loadchunk, loadfile = loadpath, dofile = runpath}
+
+-- Lua chunks read the loaders as globals (`pcall(dofile, path)`).
+for name, value in pairs(functions) do
+    libraryvalues.publish(name, value)
+end
