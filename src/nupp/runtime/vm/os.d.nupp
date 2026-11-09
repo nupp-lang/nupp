@@ -112,35 +112,6 @@ local record Os
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     sleepNanos: function(nanos: uint64): uint64
 
-    --- The wall clock in whole seconds since the epoch, C's time(NULL). The
-    --- core's bridge answers it and the seven calls after it, for the core's
-    --- `os` library.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    wallClock: function(): int64
-
-    --- The processor time this process has used in seconds, C's clock() over
-    --- CLOCKS_PER_SEC, as binary64 bits.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    cpuClock: function(): uint64
-
-    --- Writes the nine fields of `t` broken down (in UTC when `flags` is 1,
-    --- else local time) as int64 words at `out`, in C's `struct tm` order
-    --- from seconds to the daylight-saving flag: 0, or -1 when the system
-    --- cannot represent it.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    timeParts: function(t: uint64, flags: uint64, out: voidptr): int64
-
-    --- C's mktime of the nine fields at `fields`, which it writes back
-    --- normalized: the time, or -1.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    timeMake: function(fields: voidptr): int64
-
-    --- strftime of the one conversion in the `bytes` bytes at `spec` for `t`
-    --- broken down as timeParts breaks it, into `out`, at most `room` bytes:
-    --- the text's whole length, or -1 when the system cannot represent `t`.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    timeFormat: function(t: uint64, flags: uint64, spec: voidptr, bytes: uint64, out: voidptr, room: uint64): int64
-
     -- The standalone core bridge supplies these raw atomics; the frozen VM
     -- does not. SeqCst access requires a naturally aligned live word.
     -- The caller owns the
@@ -166,10 +137,6 @@ local record Os
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     systemquery: function(field: uint64, base: voidptr, room: uint64): int64
 
-    -- Unix epoch milliseconds as binary64 bits, independent of monotonic time.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    wallMillis: function(): uint64
-
     --- The C library's dynamic loader, for foreign calls: dlopen of the
     --- NUL-terminated `path` (null for the program itself) with `mode`.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
@@ -186,5 +153,18 @@ local record Os
     --- Where the calling thread's C `errno` lives, a 32-bit integer.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     errnoLocation: function(): voidptr
+
+    --- Calls the C function a block of words names, as the platform's C
+    --- calling convention passes its arguments: the function, then x0-x7,
+    --- d0-d7 and the first sixteen words of the stack. Answers x0 and leaves
+    --- d0 in its word. The selector writes it where it is called; the core's
+    --- guest foreign calls make it (guestforeign).
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    foreignCall: function(block: voidptr): uint64
+
+    --- The bridge's table of resolved foreign symbols, whose words past the
+    --- linked code's the guest's foreign calls cache theirs in.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    foreignCells: function(): voidptr
 end
 return Os

@@ -234,6 +234,7 @@ local CASES = {
     {"runnerlowering", 0x7FFF0000000000FF},
     {"affineconstructors", 0x7FFF0000000000FF},
     {"absentffi", 0x7FFF000000000007},
+    {"guestffi", 0x7FFF000000001FFF},
     {"runnerresiduals", 0x7FFF00000000007F},
     -- Library calls spreading `...` through the library function's value.
     {"spreadlibrary", 0x7FFF0000000003FF},
@@ -457,6 +458,7 @@ local STRESS = {
     runnerlowering = true,
     affineconstructors = true,
     absentffi = true,
+    guestffi = true,
     runnerresiduals = true,
     spreadlibrary = true,
     libraryresults = true,

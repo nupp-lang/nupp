@@ -52,8 +52,6 @@ local osNames = {
     unmapPages = true,
     pageSize = true,
     environment = true,
-    formatNumber = true,
-    parseNumber = true,
     writeOutput = true,
     mathFunction = true,
     randomSeed = true,
@@ -67,17 +65,13 @@ local osNames = {
     poolCancel = true,
     poolsettle = true,
     sleepNanos = true,
-    wallClock = true,
-    cpuClock = true,
-    timeParts = true,
-    timeMake = true,
-    timeFormat = true,
     errnoLocation = true,
+    foreignCall = true,
+    foreignCells = true,
     atomicload64 = true,
     atomiccas64 = true,
     securefill = true,
     systemquery = true,
-    wallMillis = true,
 }
 
 local function need(ok: any, message: string): any

@@ -290,6 +290,8 @@ local CASES: {[string]: {
     runnerlowering = {fixture = "catalog-runner-lowering", version = 8},
     affineconstructors = {fixture = "catalog-affine-constructors", version = 8},
     absentffi = {fixture = "catalog-absent-ffi", version = 8},
+    -- `cdef function` calls through the generic foreign call.
+    guestffi = {fixture = "catalog-guest-ffi", version = 8},
     runnerresiduals = {fixture = "catalog-runner-residuals", version = 8},
     spreadlibrary = {fixture = "catalog-spread-library", version = 8},
     libraryresults = {fixture = "catalog-library-results", version = 8},
@@ -1018,20 +1020,22 @@ local function programCatalog(caseName: string, fixture: string, version: intege
                         enqueue(library)
                     end
                 end
-                -- What it carries may take a library function as a value.
+                -- What it carries may take a library function as a value, read
+                -- from one unchecked tree.
+                local unchecked = parser.parse(source, path).root
                 local values = root .. "/src/nupp/runtime/libraryvalues"
                 local graph: any = require("nupp.compiler.vm.graph")
-                if graph.mayTakeLibraryValue(parser.parse(source, path).root, version >= 8) then
+                if graph.mayTakeLibraryValue(unchecked, version >= 8) then
                     enqueue(values)
                 end
                 -- And it may read Lua's `io` or `os`, which the core carries as
                 -- modules.
                 local luaio = "src/nupp/runtime/luaio"
-                if graph.mayUseIo(parser.parse(source, path).root) then
+                if graph.mayUseIo(unchecked) then
                     enqueue(luaio)
                 end
                 local luaos = "src/nupp/runtime/luaos"
-                if readsos(parser.parse(source, path).root) then
+                if readsos(unchecked) then
                     enqueue(luaos)
                 end
                 local luawarn = "src/nupp/runtime/luawarn"

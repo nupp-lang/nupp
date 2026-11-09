@@ -10,6 +10,7 @@ local corelibrary = require("nupp.compiler.vm.corelibrary")
 local graphcalls = require("nupp.compiler.vm.graphcalls")
 local lexer = require("nupp.compiler.syntax.lexer")
 local taggedvalues = require("nupp.compiler.vm.taggedvalues")
+local taggedforeign = require("nupp.compiler.vm.taggedforeign")
 local catalog = taggedvalues.catalog
 local cleanupGraphs = taggedvalues.cleanupGraphs
 local landed = taggedvalues.landed
@@ -219,6 +220,45 @@ export function requireSite(ctx: any, node: any): any
     return item
 end
 
+-- A call of a `cdef function`: its descriptor and a pack of its arguments,
+-- which the core calls it with (taggedforeign). With `count` its one result
+-- is the first of that many; with `open` it is a pack.
+local function foreigncall(ctx: any, node: any, signature: any, count: integer?, open: boolean?): any
+    local descriptor = taggedforeign.descriptor(node, signature)
+    local pack = valuespack(ctx, node, node.args.exprs or {})
+    if ctx.block == nil or pack == nil then
+        return nil
+    end
+    -- Nothing is evaluated between the pack and the call, so neither is held.
+    local value = landed(
+        ctx,
+        node,
+        ctx.emit(
+            node,
+            "LibCall",
+            {corelibrary.id("FOREIGN_CALL"), ctx.emit(node, "K", {pool(ctx, "str", descriptor)}, "tagged"), pack},
+            "tagged"
+        )
+    )
+    if count then
+        local results = {value}
+        while #results < count do
+            results[#results + 1] = ctx.emit(node, "Nil", {}, "tagged")
+        end
+        return results
+    elseif open then
+        local results = ctx.emit(node, "NewTable", {}, "tagged")
+        local one = ctx.emit(node, "K", {pool(ctx, "int64", signature.rets[1] and "1" or "0")}, "tagged")
+        ctx.emit(node, "SetIdx", {results, ctx.emit(node, "K", {pool(ctx, "int64", "0")}, "tagged"), one}, nil)
+        if signature.rets[1] then
+            ctx.emit(node, "SetIdx", {results, one, value}, nil)
+        end
+        return results
+    end
+
+    return value
+end
+
 -- Cleanup preparation can branch. Keep the complete call alive across it,
 -- including a nested call's result pack, before issuing the invoke.
 local function beforecall(ctx: any, node: any, value: integer, args: any, pack: integer?): (integer, any, integer?)
@@ -275,9 +315,13 @@ export function invoke(
     local target = ctx.callee(node)
     local contract
     local called = node.calleeType or node.signatureType
+    if target == nil and called ~= nil and called.foreign and node.cdefIdentity ~= nil then
+        return foreigncall(ctx, node, called, count, open)
+    end
     if target == nil and called ~= nil and called.foreign and count == nil then
-        -- A foreign function: the core has no FFI yet, so the call raises
-        -- where it runs, as calling an absent `ffi` binding would.
+        -- A foreign function that no `cdef function` declares (one of an
+        -- `ffi` binding the core does not have) raises where it runs, as
+        -- calling through that absent binding would.
         local message = ctx.emit(
             node,
             "K",

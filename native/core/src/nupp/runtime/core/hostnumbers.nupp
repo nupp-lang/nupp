@@ -1,0 +1,375 @@
+module nupp.runtime.core.hostnumbers
+
+-- Number text through the C library: a float written as Nupp writes one
+-- (Decision 13) or by one of string.format's float conversions, with
+-- snprintf, and a numeral read with strtod. Scratch comes from malloc, so
+-- neither allocates in the heap.
+const native = require("nupp.runtime.vm.intrinsics")
+const host = require("nupp.runtime.core.hostc")
+
+cdef function snprintf(borrows out: voidptr, room: uint64, borrows format: voidptr, ...): int32
+cdef function strtod(borrows text: voidptr, borrows rest: voidptr): float64
+cdef function malloc(bytes: uint64): voidptr
+cdef function free(borrows block: voidptr)
+cdef function memcpy(borrows target: voidptr, borrows source: voidptr, count: uint64): voidptr
+
+-- The `room` bit that says `out` holds a conversion to format with, and the
+-- bytes such a conversion may take (a NUL ends it).
+const FORMAT_SPEC: uint64 = 0x8000000000000000ULL
+const SPEC_BYTES: int64 = 16
+-- The most text a conversion writes, as the bridge kept it, and the room
+-- the shortest text is made in (17 digits, a sign, a point, an exponent).
+const CONVERSION_BYTES: uint64 = 512ULL
+const TEXT_BYTES: uint64 = 64ULL
+-- The scratch: the format at 0, the shortest digits' count and exponent
+-- at COUNT_AT and EXPONENT_AT, the text from FORMAT_ROOM.
+const COUNT_AT: int64 = 8
+const EXPONENT_AT: int64 = 16
+const FORMAT_ROOM: int64 = 24
+const SCRATCH_BYTES: uint64 = 536ULL
+-- The most digits after the first a binary64 needs to read back exactly.
+const MOST_PRECISION: int64 = 16
+-- "%.*e", as the little-endian word it is.
+const EXPONENT_FORMAT: uint64 = 0x652a2e25ULL
+
+-- The characters this reads and writes.
+const PERCENT: int64 = 0x25
+const POINT: int64 = 0x2e
+const MINUS: int64 = 0x2d
+const ZERO: int64 = 0x30
+const NINE: int64 = 0x39
+const LETTER_A: int64 = 0x61
+const LETTER_E: int64 = 0x65
+const LETTER_F: int64 = 0x66
+const LETTER_G: int64 = 0x67
+const SPACE: int64 = 0x20
+const TAB: int64 = 0x09
+const RETURN: int64 = 0x0d
+const TEN: uint64 = 10ULL
+
+-- The flags, then the conversions, string.format hands to snprintf.
+const FLAG_PLUS: int64 = 0x2b
+const FLAG_HASH: int64 = 0x23
+const MOST_DIGITS: int64 = 2
+
+-- binary64's sign, infinity and NaN, as bits.
+const SIGN: uint64 = 0x8000000000000000ULL
+const MAGNITUDE: uint64 = 0x7fffffffffffffffULL
+const INFINITY: uint64 = 0x7ff0000000000000ULL
+-- Rust's Debug writes a float as a decimal from 1e-4 up to 1e16.
+const DECIMAL_LOW: uint64 = 0x3F1A36E2EB1C432DULL
+const DECIMAL_HIGH: uint64 = 0x4341C37937E08000ULL
+
+-- "nan", "inf" and "-inf", as words, and their lengths.
+const SHORT_TEXT: int64 = 3
+const NAN_TEXT: uint64 = 0x6e616eULL
+const INF_TEXT: uint64 = 0x666e69ULL
+const NEGATIVE_INF_TEXT: uint64 = 0x666e692dULL
+
+local function digit(c: int64): boolean
+    return c >= ZERO and c <= NINE
+end
+
+-- Where the run of digits at `at` in the SPEC_BYTES at `spec` ends, or
+-- SPEC_BYTES when it is longer than MOST_DIGITS.
+local function digitsEnd(spec: voidptr, at: int64): int64
+    local index = at
+    while index < SPEC_BYTES and digit(native.load8(spec, index)) do
+        index = index + 1
+    end
+    if index - at > MOST_DIGITS then
+        return SPEC_BYTES
+    end
+
+    return index
+end
+
+-- Whether the at most SPEC_BYTES bytes at `spec` are one float conversion
+-- string.format builds: `%`, flags from "-+ #0", at most two width digits,
+-- an optional `.` and at most two precision digits, and one of "aAeEfFgG",
+-- NUL-ended.
+local function conversion(spec: voidptr): boolean
+    if native.load8(spec, 0) ~= PERCENT then
+        return false
+    end
+    local at: int64 = 1
+    while at < SPEC_BYTES do
+        local c = native.load8(spec, at)
+        if c ~= MINUS and c ~= FLAG_PLUS and c ~= SPACE and c ~= FLAG_HASH and c ~= ZERO then
+            break
+        end
+        at = at + 1
+    end
+    at = digitsEnd(spec, at)
+    if at < SPEC_BYTES and native.load8(spec, at) == POINT then
+        at = digitsEnd(spec, at + 1)
+    end
+    if at + 1 >= SPEC_BYTES or native.load8(spec, at + 1) ~= 0 then
+        return false
+    end
+    -- "aAeEfFgG": the letters a, e, f and g in either case.
+    local letter = native.load8(spec, at) | SPACE
+
+    return letter == LETTER_A or letter == LETTER_E or letter == LETTER_F or letter == LETTER_G
+end
+
+-- Writes `word`'s `count` bytes, low first, at `out`, at most `room`: `count`.
+local function wordText(out: voidptr, word: uint64, count: int64, room: uint64): int64
+    local index: int64 = 0
+    while index < count and native.word(index) < room do
+        native.store8(out, index, (word >> native.word(index * 8)) & 0xffULL)
+        index = index + 1
+    end
+
+    return count
+end
+
+-- Appends decimal `n` at `at` in `text`: where it ends.
+local function decimal(text: voidptr, at: int64, n: int64): int64
+    local count: int64 = 1
+    local rest = n // 10
+    while rest > 0 do
+        count = count + 1
+        rest = rest // 10
+    end
+    local index = count - 1
+    rest = n
+    while index >= 0 do
+        native.store8(text, at + index, native.word(ZERO + rest % 10))
+        rest = rest // 10
+        index = index - 1
+    end
+
+    return at + count
+end
+
+-- The shortest digits of `bits` that read back exactly, from snprintf's
+-- "%.*e" in `scratch`: the digits as an integer, with their count and the
+-- decimal exponent of the first left at COUNT_AT and EXPONENT_AT.
+local function shortest(scratch: voidptr, bits: uint64): uint64
+    local text = native.offset(scratch, FORMAT_ROOM)
+    native.store64(scratch, 0, EXPONENT_FORMAT)
+    local precision: int64 = 0
+    local value = native.fromBits(bits & MAGNITUDE)
+    while precision < MOST_PRECISION do
+        local _ = snprintf(text, TEXT_BYTES, scratch, precision, value)
+        if native.bits(strtod(text, native.pointer(0ULL))) == bits & MAGNITUDE then
+            break
+        end
+        precision = precision + 1
+    end
+    local _ = snprintf(text, TEXT_BYTES, scratch, precision, value)
+    local count: int64 = 0
+    local digits = 0ULL
+    local at: int64 = 0
+    while native.load8(text, at) ~= LETTER_E do
+        local c = native.load8(text, at)
+        if digit(c) then
+            digits = digits * TEN + native.word(c - ZERO)
+            count = count + 1
+        end
+        at = at + 1
+    end
+    at = at + 1
+    local negative = native.load8(text, at) == MINUS
+    at = at + 1
+    local exponent: int64 = 0
+    while digit(native.load8(text, at)) do
+        exponent = exponent * 10 + native.load8(text, at) - ZERO
+        at = at + 1
+    end
+    if negative then
+        exponent = 0 - exponent
+    end
+    -- A last zero only pads.
+    while count > 1 and digits % TEN == 0ULL do
+        count, digits = count - 1, digits // TEN
+    end
+
+    native.store64(scratch, COUNT_AT, native.word(count))
+    native.store64(scratch, EXPONENT_AT, native.word(exponent))
+
+    return digits
+end
+
+-- The digit `index` from the left of the `count` digits of `digits`.
+local function digitAt(digits: uint64, count: int64, index: int64): int64
+    local divisor: uint64 = 1ULL
+    local place = index + 1
+    while place < count do
+        divisor = divisor * TEN
+        place = place + 1
+    end
+
+    return native.index(digits // divisor % TEN)
+end
+
+-- Writes character `c` at `at` in `text`: where the text goes on.
+local function put(text: voidptr, at: int64, c: int64): int64
+    native.store8(text, at, native.word(c))
+    return at + 1
+end
+
+-- Starts a text at `text` with its sign: where it goes on.
+local function signed(text: voidptr, negative: boolean): int64
+    if negative then
+        return put(text, 0, MINUS)
+    end
+
+    return 0
+end
+
+-- Writes the digits from `first` up to `last` (zeros past `count`) at `at`
+-- in `text`: where the text goes on.
+local function digitRun(text: voidptr, at: int64, digits: uint64, count: int64, first: int64, last: int64): int64
+    while first < last do
+        local d: int64 = 0
+        if first < count then
+            d = digitAt(digits, count, first)
+        end
+        at = put(text, at, ZERO + d)
+        first = first + 1
+    end
+
+    return at
+end
+
+-- Writes the digits as Rust's {:e} does ("1e16", "-1.5e-7") at `text`: the
+-- length.
+local function exponentText(text: voidptr, negative: boolean, digits: uint64, count: int64, exponent: int64): int64
+    local at = put(text, signed(text, negative), ZERO + digitAt(digits, count, 0))
+    if count > 1 then
+        at = digitRun(text, put(text, at, POINT), digits, count, 1, count)
+    end
+    at = put(text, at, LETTER_E)
+    if exponent < 0 then
+        return decimal(text, put(text, at, MINUS), 0 - exponent)
+    end
+
+    return decimal(text, at, exponent)
+end
+
+-- Writes the digits as a decimal with at least one fraction digit ("5.0",
+-- "0.001") at `text`: the length.
+local function decimalText(text: voidptr, negative: boolean, digits: uint64, count: int64, exponent: int64): int64
+    local at = signed(text, negative)
+    -- The digits before the point: at least one, zeros past the last; then
+    -- zeros between the point and the first digit, and the rest of them.
+    local whole = exponent + 1
+    if whole <= 0 then
+        at = digitRun(text, put(text, put(text, at, ZERO), POINT), 0ULL, 0, 0, 0 - whole)
+        return digitRun(text, at, digits, count, 0, count)
+    end
+    at = put(text, digitRun(text, at, digits, count, 0, whole), POINT)
+    if whole >= count then
+        return put(text, at, ZERO)
+    end
+
+    return digitRun(text, at, digits, count, whole, count)
+end
+
+-- Writes the binary64 `bits` into `out` as Nupp writes a float (Decision
+-- 13): the shorter of the decimal and exponent texts that read back exactly,
+-- the decimal on a tie (`10.0` is `1e1`, `5.0` stays `5.0`). With
+-- FORMAT_SPEC in `room`, `out` holds a string.format float conversion to
+-- write it by instead. At most `room` bytes: the text's whole length, or -1
+-- when the conversion is not one or the system refused.
+export function formatNumber(bits: uint64, out: voidptr, room: uint64): int64
+    @unsafe do
+        local magnitude = bits & MAGNITUDE
+        if room & FORMAT_SPEC == 0ULL and magnitude > INFINITY then
+            return wordText(out, NAN_TEXT, SHORT_TEXT, room)
+        elseif room & FORMAT_SPEC == 0ULL and magnitude == INFINITY then
+            if bits == INFINITY then
+                return wordText(out, INF_TEXT, SHORT_TEXT, room)
+            end
+            return wordText(out, NEGATIVE_INF_TEXT, SHORT_TEXT + 1, room)
+        elseif room & FORMAT_SPEC ~= 0ULL and (native.address(out) == 0ULL or not conversion(out)) then
+            return -1
+        end
+        local scratch = malloc(SCRATCH_BYTES)
+        if native.address(scratch) == 0ULL then
+            return -1
+        end
+        local text = native.offset(scratch, FORMAT_ROOM)
+        local length: int64 = 0
+        local limit = room
+        if room & FORMAT_SPEC ~= 0ULL then
+            -- At most CONVERSION_BYTES less its NUL, as much as `out` holds.
+            length = native.index(native.word(snprintf(text, CONVERSION_BYTES, out, native.fromBits(bits))))
+            if length > native.index(CONVERSION_BYTES) - 1 then
+                length = native.index(CONVERSION_BYTES) - 1
+            end
+            limit = room & MAGNITUDE
+        else
+            -- Zero's one digit is 0 ("0e+00").
+            local digits = shortest(scratch, bits)
+            local count = native.index(native.load64(scratch, COUNT_AT))
+            local exponent = native.index(native.load64(scratch, EXPONENT_AT))
+            local negative = bits & SIGN ~= 0ULL
+            length = exponentText(text, negative, digits, count, exponent)
+            -- Rust's Debug: a decimal from 1e-4 up to 1e16 (and zero), its {:e}
+            -- past them, which is the exponent text again.
+            if magnitude == 0ULL or magnitude >= DECIMAL_LOW and magnitude < DECIMAL_HIGH then
+                local other = native.offset(text, native.index(TEXT_BYTES))
+                local decimalLength = decimalText(other, negative, digits, count, exponent)
+                if decimalLength <= length then
+                    length = decimalLength
+                    local _ = memcpy(text, other, native.word(length))
+                end
+            end
+        end
+        if length >= 0 then
+            local _ = memcpy(out, text, host.fitted(native.word(length), limit))
+        end
+        free(scratch)
+
+        return length
+    end
+end
+
+-- Reads the `bytes` at `text` as C's strtod does, the whole text but for
+-- surrounding space: 1 with the binary64 bits stored at `out`, or 0 when it
+-- is not one numeral.
+export function parseNumber(text: voidptr, bytes: uint64, out: voidptr): int64
+    @unsafe do
+        if native.address(text) == 0ULL or native.address(out) == 0ULL then
+            return 0
+        end
+        local count = native.index(bytes)
+        local index: int64 = 0
+        while index < count do
+            if native.load8(text, index) == 0 then
+                return 0
+            end
+            index = index + 1
+        end
+        -- A NUL-ended copy, and the word strtod says where it stopped in.
+        local scratch = malloc(bytes + 16ULL)
+        if native.address(scratch) == 0ULL then
+            return 0
+        end
+        local copied = native.offset(scratch, 8)
+        local _ = memcpy(copied, text, bytes)
+        native.store8(copied, count, 0ULL)
+        local value = strtod(copied, scratch)
+        local at = native.index(native.load64(scratch, 0) - native.address(copied))
+        free(scratch)
+        if at == 0 then
+            return 0
+        end
+        while at < count do
+            local c = native.load8(text, at)
+            if c ~= SPACE and (c < TAB or c > RETURN) then
+                break
+            end
+            at = at + 1
+        end
+        if at ~= count then
+            return 0
+        end
+        native.store64(out, 0, native.bits(value))
+
+        return 1
+    end
+end

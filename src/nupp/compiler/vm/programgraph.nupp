@@ -51,7 +51,8 @@ local typeSyntax = {
 local function bindingMode(definition: any): string
     -- bindType/bindPack create lexical definitions too. Only bindVar records
     -- a function depth, including a nominal declaration's runtime value.
-    if definition.functionDepth == nil then
+    -- A `cdef function` has none: its calls name it (taggedforeign).
+    if definition.functionDepth == nil or definition.cdef and definition.cdefIdentity ~= nil then
         return "type"
     end
     return definition.constant and "value" or "cell"
