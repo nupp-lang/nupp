@@ -24,29 +24,18 @@ local definitions = {
     poolFinish = {slot = 15, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
     poolCancel = {slot = 16, params = {"uint64"}, result = "int64", cResult = "int64"},
     sleepNanos = {slot = 17, params = {"uint64"}, result = "uint64", cResult = "uint64"},
-    wallClock = {slot = 18, params = {}, result = "int64", cResult = "int64"},
-    cpuClock = {slot = 19, params = {}, result = "uint64", cResult = "uint64"},
-    timeParts = {slot = 20, params = {"uint64", "uint64", "voidptr"}, result = "int64", cResult = "int64"},
-    timeMake = {slot = 21, params = {"voidptr"}, result = "int64", cResult = "int64"},
-    timeFormat = {
-        slot = 22,
-        params = {"uint64", "uint64", "voidptr", "uint64", "voidptr", "uint64"},
-        result = "int64",
-        cResult = "int64"
-    },
-    atomicload64 = {slot = 23, params = {"voidptr", "int64"}, result = "uint64", cResult = "uint64"},
-    atomiccas64 = {slot = 24, params = {"voidptr", "int64", "uint64", "uint64"}, result = "uint64", cResult = "uint64"},
-    securefill = {slot = 25, params = {"voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    systemquery = {slot = 26, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    wallMillis = {slot = 27, params = {}, result = "uint64", cResult = "uint64"},
-    poolsettle = {slot = 28, params = {"uint64"}, result = "int64", cResult = "int64"},
-    dlopen = {slot = 29, params = {"voidptr", "int64"}, result = "voidptr", cResult = "voidptr"},
-    dlsym = {slot = 30, params = {"voidptr", "voidptr"}, result = "voidptr", cResult = "voidptr"},
-    dlclose = {slot = 31, params = {"voidptr"}, result = "int64", cResult = "int64", narrow = "int32"},
-    errnoLocation = {slot = 32, params = {}, result = "voidptr", cResult = "voidptr"},
+    atomicload64 = {slot = 18, params = {"voidptr", "int64"}, result = "uint64", cResult = "uint64"},
+    atomiccas64 = {slot = 19, params = {"voidptr", "int64", "uint64", "uint64"}, result = "uint64", cResult = "uint64"},
+    securefill = {slot = 20, params = {"voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    systemquery = {slot = 21, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    poolsettle = {slot = 22, params = {"uint64"}, result = "int64", cResult = "int64"},
+    dlopen = {slot = 23, params = {"voidptr", "int64"}, result = "voidptr", cResult = "voidptr"},
+    dlsym = {slot = 24, params = {"voidptr", "voidptr"}, result = "voidptr", cResult = "voidptr"},
+    dlclose = {slot = 25, params = {"voidptr"}, result = "int64", cResult = "int64", narrow = "int32"},
+    errnoLocation = {slot = 26, params = {}, result = "voidptr", cResult = "voidptr"},
     -- Not a function: the table foreign calls cache their resolved symbols
     -- in, foreignSlots words the bridge zeroes.
-    foreignTable = {slot = 33, table = true},
+    foreignTable = {slot = 27, table = true},
     -- Not imports: routines the selector writes where they are called
     -- (s0.select). The generic foreign call takes a block of words and
     -- answers x0; the other answers the address of the table above.

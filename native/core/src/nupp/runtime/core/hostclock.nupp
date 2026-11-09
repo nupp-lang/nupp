@@ -1,0 +1,243 @@
+module nupp.runtime.core.hostclock
+
+-- The clocks and calendar under the guest's `os.time`, `os.clock` and `os.date`, made
+-- through the C library: the wall clock, the processor time used, C's broken-down time
+-- (gmtime_r, localtime_r and mktime) and strftime for one conversion. The conversions
+-- Lua accepts, the fields' Lua meanings and every error are the guest's (guesttime).
+-- Broken-down times cross as FIELDS int64 words in C's `struct tm` order: seconds,
+-- minutes, hours, day of the month, month from 0, years since 1900, day of the week
+-- from 0 (Sunday), day of the year from 0, and the daylight-saving flag (negative when
+-- unknown).
+const c = require("nupp.runtime.core.hostc")
+const native = require("nupp.runtime.vm.intrinsics")
+
+-- C's `struct tm`, laid out alike on macOS and glibc.
+cdef struct Tm
+    sec: int32
+    min: int32
+    hour: int32
+    mday: int32
+    mon: int32
+    year: int32
+    wday: int32
+    yday: int32
+    isdst: int32
+    gmtoff: int64
+    zone: voidptr
+end
+
+cdef struct TimeSpec
+    seconds: int64
+    nanos: int64
+end
+
+cdef function time(borrows out: voidptr): int64
+cdef function clock(): uint64
+cdef function clock_gettime(id: int64, borrows out: voidptr): int32
+cdef function gmtime_r(borrows t: voidptr, borrows out: voidptr): voidptr
+cdef function localtime_r(borrows t: voidptr, borrows out: voidptr): voidptr
+cdef function mktime(borrows tm: voidptr): int64
+cdef function strftime(borrows out: voidptr, room: uint64, borrows format: voidptr, borrows tm: voidptr): uint64
+cdef function calloc(count: uint64, size: uint64): voidptr
+cdef function memcpy(borrows target: voidptr, borrows source: voidptr, count: uint64): voidptr
+cdef function free(borrows block: voidptr)
+
+-- macOS's wall clock.
+const CLOCK_REALTIME: int64 = 0
+
+-- The fields, the bytes of each word, and the `flags` bit asking for UTC.
+const FIELDS: int64 = 9
+const WORD: int64 = 8
+const FIELD: int64 = 4
+const UTC: uint64 = 1ULL
+
+-- C's CLOCKS_PER_SEC (POSIX fixes it at a million), the nanoseconds of a
+-- second and the milliseconds of one, as binary64 bits.
+const MILLION: uint64 = 0x412E848000000000ULL
+const BILLION: uint64 = 0x41CDCD6500000000ULL
+const THOUSAND: uint64 = 0x408F400000000000ULL
+
+-- The most bytes one conversion writes, as Lua's SIZETIMEFMT.
+const ITEM: uint64 = 250ULL
+-- '%', 'E' and 'O', and the options after each as bits from LETTERS
+-- (64): Lua's LUA_STRFTIMEOPTIONS.
+const PERCENT: int64 = 0x25
+const AFTER_E_MARK: int64 = 0x45
+const AFTER_O_MARK: int64 = 0x4f
+const LETTERS: int64 = 64
+const LETTER_COUNT: int64 = 64
+const SINGLE: uint64 = 0x07B565BE07FC23DEULL
+const AFTER_E: uint64 = 0x0300000803000008ULL
+const AFTER_O: uint64 = 0x02A0203000E82300ULL
+
+-- The scratch a call takes: a `struct tm`, the time it breaks down, and
+-- room for a conversion's text and its format.
+const TM_AT: int64 = 0
+const TIME_AT: int64 = 64
+const FORMAT_AT: int64 = 72
+const TEXT_AT: int64 = 80
+const SCRATCH: uint64 = 336ULL
+
+-- The milliseconds since the epoch as binary64 bits, with their fraction.
+export function wallMillis(): uint64
+    @unsafe do
+        local base = calloc(1ULL, SCRATCH)
+        local millis: uint64 = 0ULL
+        if native.address(base) ~= 0ULL and c.widened(clock_gettime(CLOCK_REALTIME, base)) == 0 then
+            local seconds = native.toFloat(native.index(native.load64(base, native.fieldOffset<TimeSpec>("seconds"))))
+            local nanos = native.toFloat(native.index(native.load64(base, native.fieldOffset<TimeSpec>("nanos"))))
+            millis = native.bits((seconds + nanos / native.fromBits(BILLION)) * native.fromBits(THOUSAND))
+        end
+        free(base)
+
+        return millis
+    end
+end
+
+-- The wall clock in whole seconds since the epoch, C's time(NULL).
+export function wallClock(): int64
+    @unsafe do
+        return time(native.pointer(0ULL))
+    end
+end
+
+-- The processor time this process has used, in seconds, as Lua's os.clock
+-- computes it from C's clock: binary64 bits.
+export function cpuClock(): uint64
+    return native.bits(native.unsignedFloat(clock()) / native.fromBits(MILLION))
+end
+
+-- Zeroed SCRATCH with `t` broken down into its `struct tm`, in UTC when
+-- `flags` says so: its address, or 0 when the system cannot represent `t`
+-- (or gives no memory). The caller frees it.
+local function broken(t: uint64, flags: uint64): uint64
+    @unsafe do
+        local base = calloc(1ULL, SCRATCH)
+        if native.address(base) == 0ULL then
+            return 0ULL
+        end
+        local tm = native.offset(base, TM_AT)
+        local seconds = native.offset(base, TIME_AT)
+        native.store64(seconds, 0, t)
+        local done: uint64 = 0ULL
+        if flags & UTC ~= 0ULL then
+            done = native.address(gmtime_r(seconds, tm))
+        else
+            done = native.address(localtime_r(seconds, tm))
+        end
+        if done == 0ULL then
+            free(base)
+            return 0ULL
+        end
+
+        return native.address(base)
+    end
+end
+
+-- Copies the `struct tm` at `tm`'s FIELDS out as int64 words at `out`.
+local function fieldsOut(tm: voidptr, out: voidptr): nil
+    local index: int64 = 0
+    while index < FIELDS do
+        native.store64(out, index * WORD, native.word(native.load32(tm, index * FIELD)))
+        index = index + 1
+    end
+end
+
+-- Writes the FIELDS of `t` broken down, in UTC when `flags` says so, as
+-- int64 words at `out`: 0, or -1 when the system cannot represent it.
+export function timeParts(t: uint64, flags: uint64, out: voidptr): int64
+    @unsafe do
+        local address = broken(t, flags)
+        if address == 0ULL then
+            return -1
+        end
+        local base = native.pointer(address)
+        fieldsOut(native.offset(base, TM_AT), out)
+        free(base)
+
+        return 0
+    end
+end
+
+-- C's mktime of the FIELDS at `fields` (int64 words, each within an int),
+-- writing them back normalized: the time, -1 when mktime failed (or the
+-- time is the second before the epoch, which Lua refuses alike).
+export function timeMake(fields: voidptr): int64
+    @unsafe do
+        local tm = calloc(1ULL, SCRATCH)
+        local made: int64 = -1
+        local index: int64 = 0
+        if native.address(tm) == 0ULL then
+            return made
+        end
+        while index < FIELDS do
+            -- The weekday and the day of the year are mktime's to set.
+            if index ~= native.fieldOffset<Tm>("wday") // FIELD
+                and index ~= native.fieldOffset<Tm>("yday") // FIELD
+            then
+                native.store32(tm, index * FIELD, native.index(native.load64(fields, index * WORD)))
+            end
+            index = index + 1
+        end
+        made = mktime(tm)
+        fieldsOut(tm, fields)
+        free(tm)
+
+        return made
+    end
+end
+
+-- Whether letter `option` is in `letters`, a bit for each byte from LETTERS.
+local function among(option: int64, letters: uint64): boolean
+    return option >= LETTERS
+        and option < LETTERS + LETTER_COUNT
+        and (letters >> native.word(option - LETTERS)) & 1ULL ~= 0ULL
+end
+
+-- Whether the `bytes` bytes at `spec` are one conversion strftime is given:
+-- `%` and an option LUA_STRFTIMEOPTIONS lists.
+local function conversion(spec: voidptr, bytes: uint64): boolean
+    if bytes < 2ULL or bytes > 3ULL or native.load8(spec, 0) ~= PERCENT then
+        return false
+    end
+    local option = native.load8(spec, native.index(bytes) - 1)
+    if bytes == 2ULL then
+        return option == PERCENT or among(option, SINGLE)
+    end
+    local modifier = native.load8(spec, 1)
+
+    return modifier == AFTER_E_MARK and among(option, AFTER_E) or modifier == AFTER_O_MARK and among(option, AFTER_O)
+end
+
+-- strftime of the one conversion in the `bytes` bytes at `spec` for `t`
+-- broken down as timeParts breaks it, into `out`, at most `capacity`
+-- bytes: the text's length (0 when the conversion is not one), or -1 when
+-- the system cannot represent the time.
+export function timeFormat(
+    t: uint64,
+    flags: uint64,
+    spec: voidptr,
+    bytes: uint64,
+    out: voidptr,
+    capacity: uint64
+): int64
+    @unsafe do
+        local address = broken(t, flags)
+        if address == 0ULL then
+            return -1
+        elseif not conversion(spec, bytes) then
+            free(native.pointer(address))
+            return 0
+        end
+        local base = native.pointer(address)
+        -- The format NUL-ended, its text, and as much of that as `out` holds.
+        local format = native.offset(base, FORMAT_AT)
+        local _ = memcpy(format, spec, bytes)
+        local text = native.offset(base, TEXT_AT)
+        local length = strftime(text, ITEM, format, native.offset(base, TM_AT))
+        local _ = memcpy(out, text, c.fitted(length, capacity))
+        free(base)
+
+        return native.index(length)
+    end
+end

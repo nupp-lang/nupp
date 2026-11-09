@@ -2,12 +2,12 @@ module nupp.runtime.core.guesttime
 
 -- The clocks and calendar a program reaches through the file calls' LibCall
 -- (HOST_FILES), from TIME_FIRST to TIME_LAST (librarylayouts): timecalls.d.nupp's,
--- each answering what the bridge's call did. Broken-down times cross as
--- FIELDS int64 words in C's `struct tm` order, from a builder's room.
+-- each answering what its C library call did (hostclock). Broken-down
+-- times cross as FIELDS int64 words in C's `struct tm` order, from a builder's room.
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const values = require("nupp.runtime.vm.values")
-const os = require("nupp.runtime.vm.os")
+const clock = require("nupp.runtime.core.hostclock")
 const context = require("nupp.runtime.core.context")
 const strings = require("nupp.runtime.core.corestrings")
 const tables = require("nupp.runtime.core.coretables")
@@ -62,7 +62,7 @@ local function parts(ctx: voidptr, t: uint64, utc: uint64): uint64
             error("not enough memory")
         end
         local room = native.pointer(strings.descriptor(builderLifetime).base)
-        if os.timeParts(integerOf(t), integerOf(utc), room) < 0 then
+        if clock.timeParts(integerOf(t), integerOf(utc), room) < 0 then
             strings.release(builder)
             return values.NIL
         end
@@ -113,7 +113,7 @@ local function make(ctx: voidptr, fields: uint64): uint64
             native.store64(room, native.index((index - 1ULL) * 8ULL), ints.bitsOf(field))
             index = index + 1ULL
         end
-        local result = os.timeMake(room)
+        local result = clock.timeMake(room)
         index = 1ULL
         while index <= FIELDS do
             local field = ints.make(h, native.load64(room, native.index((index - 1ULL) * 8ULL)))
@@ -144,7 +144,7 @@ local function format(ctx: voidptr, t: uint64, utc: uint64, spec: uint64): uint6
         if strings.reserve(h, builder, ITEM_BYTES) ~= 0ULL then
             error("not enough memory")
         end
-        local length = os.timeFormat(
+        local length = clock.timeFormat(
             integerOf(t),
             integerOf(utc),
             native.pointer(strings.bytes(s)),
@@ -167,13 +167,13 @@ end
 -- Time operation `operation` with its arguments a, b and c.
 export function call(ctx: voidptr, operation: uint64, a: uint64, b: uint64, c: uint64): uint64
     if operation == librarylayouts.CLOCK_WALLTIME then
-        return floatValue(os.wallMillis())
+        return floatValue(clock.wallMillis())
     elseif operation == librarylayouts.TIME_NOW then
         @unsafe do
-            return ints.make(heapOf(ctx), native.word(os.wallClock()))
+            return ints.make(heapOf(ctx), native.word(clock.wallClock()))
         end
     elseif operation == librarylayouts.TIME_CLOCK then
-        return floatValue(os.cpuClock())
+        return floatValue(clock.cpuClock())
     elseif operation == librarylayouts.TIME_PARTS then
         return parts(ctx, a, b)
     elseif operation == librarylayouts.TIME_MAKE then
