@@ -254,6 +254,7 @@ local CASES = {
     {"processlines", 0x7FFF000000000FFF},
     -- Files read after a popen child closes, its pipe's descriptor reused.
     {"processreuse", 0x7FFF0000000003FF},
+    {"selectvalues", 0x7FFF00000000007F},
     {"processlayer", 0x7FFF000000FFFFFF},
     -- os.exit(3): the program ends there, publishing nothing (EXITS).
     {"processexit", 0},
@@ -647,6 +648,7 @@ local NUMERIC = {
     modulescycle = "catalog-modules-cycle",
     pluckedarguments = "catalog-plucked-arguments",
     ownmanage = "catalog-own-manage",
+    selectvalues = "catalog-select-values",
     loopparameteralias = "catalog-loop-parameter-alias",
     namedarguments = "catalog-named-arguments",
     legacyglobals = "catalog-legacy-globals",
