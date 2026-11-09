@@ -1,0 +1,13 @@
+module nupp.core.catalogmodulesearly
+
+-- Loads its partner before declaring what it exports, so the partner reads
+-- this module's export table while `twice` is still only its forwarder.
+require("nupp.core.catalogmodulescopier")
+
+export function twice(n: integer): integer
+    return n * 2
+end
+
+export function positive(n: integer): boolean
+    return n > 0
+end

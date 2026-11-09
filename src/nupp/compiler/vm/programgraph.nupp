@@ -13,6 +13,7 @@ local graphcalls = require("nupp.compiler.vm.graphcalls")
 local lower = require("nupp.compiler.vm.lower")
 local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local ownedcallables = require("nupp.compiler.vm.ownedcallables")
+local forwardedexports = require("nupp.compiler.vm.forwardedexports")
 local indexedaccess = require("nupp.compiler.vm.indexedaccess")
 
 local typeSyntax = {
@@ -363,6 +364,9 @@ export function describe(modules: {any}, entryModule: string): any
         requireByNode = {},
         scalartypes = {imports = {}, definitions = {}, witnesses = {}},
         callables = {},
+        -- By module chunk id, the forwarders a module in a require cycle
+        -- publishes for the functions it exports.
+        forwards = {},
         qualifiedLoads = {},
         calls = {},
         callByNode = {},
@@ -1460,6 +1464,35 @@ export function describe(modules: {any}, entryModule: string): any
     if warns and entry and warns ~= entry then
         eagerLoad(p.owners[entry.chunk + 1], warns, cst.firstToken(entry.parsed.root), true)
     end
+    -- A module a require cycle can re-enter publishes each function it exports
+    -- as a forwarder as it starts, as main does: one checked factory call per
+    -- function, from one hidden load of the factory's module.
+    local cyclic = forwardedexports.cyclic(modules)
+    for _, module in ipairs(p.modules) do
+        if cyclic[module.name] then
+            local chunk = p.owners[module.chunk + 1]
+            local factory = need(moduleNames[forwardedexports.MODULE], "export forwarding module is missing")
+            local plan = forwardedexports.prepare(p, chunk)
+            p.forwards[chunk.id] = plan
+            for _, item in ipairs(plan.functions) do
+                local site = {
+                    id = #p.calls,
+                    owner = chunk.id,
+                    node = item.call,
+                    definition = item.target.definition,
+                    forward = plan
+                }
+                p.calls[#p.calls + 1], p.callByNode[item.call] = site, site
+            end
+            local load = {
+                kind = "qualifiedLoad",
+                qualifiedModule = forwardedexports.MODULE,
+                cst.firstToken(plan.functions[1].stat)
+            }
+            plan.loader = qualifiedload(chunk, factory, load)
+            plan.loader.forward = plan
+        end
+    end
     -- Capture ownership mode is independent of its transported representation.
     -- Only shared mutable bindings and recursive declaration self-references
     -- require a cell; a recursive const function still needs publication after
@@ -1603,6 +1636,9 @@ export function verify(p: any): boolean
             if item.callable then
                 ownedcallables.verify(p, item.callable)
             end
+            if item.forward then
+                forwardedexports.verify(p, item.forward)
+            end
             if item.builtin then
                 local current = builtinprojection(node)
                 local original = item.builtin
@@ -1655,6 +1691,7 @@ export function verify(p: any): boolean
                         or item.builtin and (node.kind == "name" or node.kind == "call")
                         or item.eager and node.kind == "qualifiedLoad"
                         or item.callable and node.kind == "qualifiedLoad"
+                        or item.forward and node.kind == "qualifiedLoad"
                     )
                     and node.qualifiedModule ~= nil
                     and graph.coremodule(node.qualifiedModule) == item.module
@@ -1907,6 +1944,8 @@ export function verify(p: any): boolean
             indexedaccess.verify(access, access.node, item.owner)
         elseif item.callable then
             ownedcallables.verify(p, item.callable)
+        elseif item.forward then
+            forwardedexports.verify(p, item.forward)
         elseif item.scalarWitness then
 
             local witness = item.scalarWitness
@@ -1989,6 +2028,9 @@ export function verify(p: any): boolean
     end
     for _, plan in pairs(p.callables) do
         ownedcallables.verify(p, plan)
+    end
+    for _, plan in pairs(p.forwards) do
+        forwardedexports.verify(p, plan)
     end
     for node, access in pairs(p.indexedByNode) do
         local site = need(p.callByNode[access.call], "indexed span lacks its issued callsite")
