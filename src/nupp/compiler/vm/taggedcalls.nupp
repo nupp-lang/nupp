@@ -712,6 +712,16 @@ end
 -- print(...): its values in a pack, written as one line.
 -- An ownership intrinsic's `count` values: a transfer's, the value it
 -- moves; `partition`'s, its two parts. The ownership is the checker's.
+-- `count` nils, what an intrinsic answers past its values.
+local function nils(ctx: any, node: any, count: integer): {integer}
+    local results = {}
+    for index = 1, count do
+        results[index] = ctx.emit(node, "Nil", {}, "tagged")
+    end
+
+    return results
+end
+
 export function ownership(ctx: any, node: any, count: integer): {integer}?
     local operation = node.ownershipIntrinsic
     local args = node.args and node.args.exprs or {}
@@ -726,11 +736,18 @@ export function ownership(ctx: any, node: any, count: integer): {integer}?
         elseif args[1] and ctx.expression(args[1], "tagged") == nil then
             return nil
         end
-        local results = {}
-        for index = 1, count do
-            results[index] = ctx.emit(node, "Nil", {}, "tagged")
+        return nils(ctx, node, count)
+    end
+    -- A deferred intrinsic (`own.manage`) evaluates its operand, then raises
+    -- what the core says of it where it runs.
+    local deferred = require("nupp.compiler.vm.programgraph").DEFERRED_INTRINSICS[operation]
+    if deferred then
+        if args[1] and ctx.expression(args[1], "tagged") == nil then
+            return nil
         end
-        return results
+        local message = ctx.emit(node, "K", {pool(ctx, "str", deferred)}, "tagged")
+        landed(ctx, node, ctx.emit(node, "LibCall", {corelibrary.id("ERROR"), message}, "tagged"))
+        return nils(ctx, node, count)
     end
     local sources = operation == "partition" and {args[2], args[3]} or {operation == "region" and args[2] or args[1]}
     local present, kinds = {}, {}

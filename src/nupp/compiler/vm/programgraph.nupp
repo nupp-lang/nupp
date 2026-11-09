@@ -67,12 +67,19 @@ local executableintrinsics: {
     [string]: boolean
 } = {adopt = true, release = true, borrow = true, borrowFrom = true, region = true, partition = true}
 
+-- Ownership intrinsics the core lowers to a refusal where they run, by what it
+-- says: a program reaching one only on paths it does not take still runs.
+-- An inventory names each (`deferred`).
+export const DEFERRED_INTRINSICS: {[string]: string} = {manage = "own.manage: managed cells are not on the native core"}
+
 -- Whether the core runs ownership intrinsic call `node`: an executable one,
--- or a `drop`, which runs its owner's cleanups then.
+-- a deferred one, or a `drop`, which runs its owner's cleanups then.
 local function executable(node: any): boolean
     local operation = node.ownershipIntrinsic
 
-    return executableintrinsics[operation] == true or operation == "drop" and not node.cleanupRegistrations
+    return executableintrinsics[operation] == true
+        or DEFERRED_INTRINSICS[operation] ~= nil
+        or operation == "drop" and not node.cleanupRegistrations
 end
 
 local function need(ok: any, message: string): any
@@ -2424,10 +2431,14 @@ local function unboundExternals(p: any): {string}
 end
 
 -- The intrinsics the profile cannot execute, each with its source position.
-local function unexecutableIntrinsics(p: any): {string}
+-- The intrinsics the core refuses, or with `deferred` those it lowers to a
+-- refusal where they run.
+local function unexecutableIntrinsics(p: any, deferred: boolean?): {string}
     local names = {}
     for _, intrinsic in ipairs(p.intrinsics) do
-        if not executable(intrinsic.node) then
+        local listed = deferred and DEFERRED_INTRINSICS[intrinsic.operation] ~= nil
+            or not deferred and not executable(intrinsic.node)
+        if listed then
             local token = cst.firstToken(intrinsic.node)
             names[
                 #names + 1
@@ -2504,6 +2515,7 @@ export function inventory(p: any, profile: any): any
     return {
         externals = unboundExternals(p),
         intrinsics = unexecutableIntrinsics(p),
+        deferred = unexecutableIntrinsics(p, true),
         owners = refused,
         unresolved = unresolved
     }
