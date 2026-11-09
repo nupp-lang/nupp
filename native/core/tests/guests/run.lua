@@ -192,7 +192,7 @@ local CASES = {
     {"modulescycle", 0x7FFF000000000017},
     {"loopparameteralias", 0x7FFF000000000002},
     {"namedarguments", 0x7FFF000337156A8D},
-    {"legacyglobals", 0x7FFF000000000463},
+    {"legacyglobals", 0x7FFF000000000C33},
     {"gotocontinue", 0x7FFF0000000009E7},
     {"derivedmembers", 0x7FFF00000000000F},
     {"shortfunctions", 0x7FFF000000003BEE},

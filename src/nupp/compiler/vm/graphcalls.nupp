@@ -795,6 +795,9 @@ local libraryValues: {[string]: boolean} = {
     -- is the nil the library values hold under its name, as on a Lua
     -- without it, so `jit and jit.os` reads nil.
     jit = true,
+    -- LuaJIT's `setfenv`, which Lua 5.5 does not have: it reads nil too, so a
+    -- call of it raises as Lua's does.
+    setfenv = true,
     ["math.type"] = true,
     ["math.max"] = true,
     ["math.min"] = true,
