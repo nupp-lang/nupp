@@ -286,6 +286,7 @@ local CASES: {[string]: {
     -- the program carries (`follow` reaches it).
     recordsarray = {fixture = "catalog-records-array", version = 8},
     forwardfunctions = {fixture = "catalog-forward-functions", version = 8},
+    compilerfront = {fixture = "catalog-compiler-front", version = 8, follow = true},
     loadsource = {fixture = "catalog-load-source", version = 8, modules = {"catalog-load-helper"}, follow = true},
     -- The packaged test runner (nupp.lua build.targets.testRunner): the
     -- delivery path runs it on the core.

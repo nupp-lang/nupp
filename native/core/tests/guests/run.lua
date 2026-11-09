@@ -275,6 +275,8 @@ local CASES = {
     {"recordsarray", 0x7FFF00000000000F},
     -- A function statement assigning a local declared before it.
     {"forwardfunctions", 0x7FFF000000000003},
+    -- The compiler's lexer and parser on the core.
+    {"compilerfront", 0x7FFF00000000000F},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
