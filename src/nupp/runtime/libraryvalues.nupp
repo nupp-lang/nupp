@@ -20,6 +20,15 @@ const ambient = {loaded = {}, preload = {}, path = "", cpath = "", config = "/\n
 -- What Lua's require names a preload's module source as.
 const PRELOAD = ":preload:"
 
+--- What `require` answers for module `name` whose loader answered `value`:
+--- it, or what the loader left in package.loaded, or true; kept there.
+export function settle(name: string, value: any): any
+    local settled = value ?? ambient.loaded[name] ?? true
+    ambient.loaded[name] = settled
+
+    return settled
+end
+
 export const functions: {[string]: any} = {
     package = ambient,
     -- `require` as a value looks where Lua's looks first, package.loaded
@@ -31,13 +40,7 @@ export const functions: {[string]: any} = {
         end
         local preload = ambient.preload[name]
         if preload ~= nil then
-            local value = preload(name, PRELOAD)
-            if value == nil then
-                value = ambient.loaded[name] ?? true
-            end
-            ambient.loaded[name] = value
-
-            return value, PRELOAD
+            return settle(name, preload(name, PRELOAD)), PRELOAD
         end
 
         return require(name)

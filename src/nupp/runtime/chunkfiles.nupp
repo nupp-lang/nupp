@@ -30,6 +30,18 @@ export function digest(text: string): string
     return string.format("%016x", hash)
 end
 
+--- Source text `text` as Lua compiles a file of it: a first line that starts
+--- with '#', a Unix exec line, is skipped, its newline kept so lines keep
+--- their numbers.
+export function execLineSkipped(text: string): string
+    if text:sub(1, 1) ~= "#" then
+        return text
+    end
+    local at = text:find("\n", 1, true)
+
+    return at and text:sub(at) or ""
+end
+
 --- The name the chunk kept for source path `path` has in the directory.
 export function name(path: string): string
     return (path:gsub("[^%w%.%-]", "_")) .. SUFFIX

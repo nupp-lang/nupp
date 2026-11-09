@@ -1116,24 +1116,12 @@ end
 export function sourceChunk(path: string, display: string?): (string?, string?)
     local corechunk: any = require("nupp.compiler.vm.corechunk")
     local chunkfiles: any = require("nupp.runtime.chunkfiles")
-    local file = io.open(assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/" .. path, "rb")
-    if file == nil then
-        return nil, "cannot open " .. path
-    end
-    local text = file:read("a") or ""
-    file:close()
-    -- loadfile skips a first line that starts with '#', keeping its newline.
-    local compiled = text
-    if display == nil and compiled:sub(1, 1) == "#" then
-        local at = compiled:find("\n", 1, true)
-        compiled = at and compiled:sub(at) or ""
-    end
+    local text = read(assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/" .. path)
+    -- loadfile skips a Unix exec line; load does not.
+    local compiled = display == nil and chunkfiles.execLineSkipped(text) or text
     local bytes, problem = corechunk.compile(compiled, display or path)
-    if bytes == nil then
-        return nil, problem
-    end
 
-    return chunkfiles.contents(text, bytes as string), nil
+    return bytes and chunkfiles.contents(text, bytes as string), problem
 end
 
 -- The modules a case names beside its entry, as written for a generated case.

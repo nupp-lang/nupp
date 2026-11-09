@@ -286,21 +286,12 @@ local function loadpath(filename: string?, mode: string?, env: table?): (any, st
         text = file:read("a") or ""
         file:close()
         name = "@" .. filename
-        -- A chunk compiled from this very text ahead of time, where one is
-        -- kept (chunkfiles), loads in its place.
-        local kept = chunkfiles.lookup(filename, text)
-        if kept ~= nil then
-            return loadchunk(kept, name, mode, env)
-        end
     end
-    -- A first line that starts with '#' is skipped, as Lua skips a Unix
-    -- exec line; its newline stays, so lines keep their numbers.
-    if text:sub(1, 1) == "#" then
-        local at = text:find("\n", 1, true)
-        text = at and text:sub(at) or ""
-    end
+    -- A chunk compiled from this very text ahead of time, where one is kept
+    -- (chunkfiles), loads in its place.
+    local kept = filename ~= nil and chunkfiles.lookup(filename, text) or nil
 
-    return loadchunk(text, name, mode, env)
+    return loadchunk(kept ?? chunkfiles.execLineSkipped(text), name, mode, env)
 end
 
 local function runpath(filename: string?): ...any
@@ -346,20 +337,14 @@ local function requirevalue(name: string): (any, any)
         and (value as string):find(NOT_IN_IMAGE, 1, true) ~= nil
         and searchpath(name, tostring(ambient.path))
         or nil
-    if filename == nil then
-        error(value, 0)
-    end
-    local chunk, problem = loadpath(filename, nil, nil)
-    if chunk == nil then
+    if filename ~= nil then
+        local chunk, problem = loadpath(filename, nil, nil)
+        if chunk ~= nil then
+            return libraryvalues.settle(name, chunk(name, filename)), filename
+        end
         error("error loading module '" .. name .. "' from file '" .. filename .. "':\n\t" .. tostring(problem), 2)
     end
-    local result = chunk(name, filename)
-    if result == nil then
-        result = ambient.loaded[name] ?? true
-    end
-    ambient.loaded[name] = result
-
-    return result, filename
+    error(value, 0)
 end
 
 export const functions: {
