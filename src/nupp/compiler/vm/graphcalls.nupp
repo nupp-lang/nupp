@@ -169,6 +169,8 @@ invokeScalar = function(t: any): nil
         -- A plain type parameter erases to a value, as does a type a
         -- generic computes (a const parameter's `N`), and a record is a table.
         or t.tag == "typevar" or t.tag == "neutral" or t.tag == "nominal" and t.declKind == "record"
+        -- A struct is storage of its bytes (taggedstructs).
+        or t.tag == "nominal" and t.declKind == "struct"
         -- `any` and `unknown` are values checked where they are used.
         or t.tag == "any" or t.tag == "unknown"),
         "invoke requires a checked scalar type, got " .. tostring(t and t.tag) .. checkingat()
