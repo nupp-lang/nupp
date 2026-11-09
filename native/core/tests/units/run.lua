@@ -1310,15 +1310,28 @@ local GENERATED = {
     {require("nupp.core.librarycallsgen"), "librarycalls", "nupp.core.librarycallsgen"},
     {require("nupp.core.storagelibrarygen"), "storagelibrary", "nupp.core.storagelibrarygen"},
     {require("nupp.core.loadlibrarygen"), "loadlibrary", "nupp.core.loadlibrarygen"},
+    {require("nupp.core.debuglibrarygen"), "debuglibrary", "nupp.core.debuglibrarygen"},
     {require("nupp.core.scalarkindsgen"), "scalarkinds", "nupp.core.scalarkindsgen"},
     {require("nupp.core.librarylayoutsgen"), "librarylayouts", "nupp.core.librarylayoutsgen"},
-    {require("nupp.core.librarytextsgen"), "librarytexts", "nupp.core.librarytextsgen"}
+    {require("nupp.core.librarytextsgen"), "librarytexts", "nupp.core.librarytextsgen"},
+    -- A runtime module under src/ is named by its path from the root.
+    {require("nupp.core.corecallvaluesgen"), "src/nupp/runtime/corecallvalues", "nupp.core.corecallvaluesgen"}
 }
+
+-- Where generated file `name` lives: a runtime core module by its name, else
+-- the path from the root it names.
+local function generatedPath(name)
+    if name:find("/", 1, true) then
+        return ROOT .. "/" .. name .. ".nupp"
+    end
+
+    return ROOT .. "/native/core/src/nupp/runtime/core/" .. name .. ".nupp"
+end
 
 -- `run.lua generate` writes every generated file and stops.
 if arg[1] == "generate" then
     for _, pair in ipairs(GENERATED) do
-        write(ROOT .. "/native/core/src/nupp/runtime/core/" .. pair[2] .. ".nupp", pair[1].source())
+        write(generatedPath(pair[2]), pair[1].source())
         print("wrote " .. pair[2])
     end
     os.exit(0)
@@ -1329,7 +1342,7 @@ local modes = (arg[1] and arg[1] ~= "all") and {arg[1]} or {"normal", "spill"}
 local tool = bridge()
 local failures, passed = 0, 0
 for _, pair in ipairs(GENERATED) do
-    local path = ROOT .. "/native/core/src/nupp/runtime/core/" .. pair[2] .. ".nupp"
+    local path = generatedPath(pair[2])
     if read(path) == pair[1].source() then
         passed = passed + 1
     else

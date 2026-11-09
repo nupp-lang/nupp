@@ -1,0 +1,91 @@
+module nupp.core.catalogdebuggetinfo
+
+-- debug.getinfo: a running function's source, lines, name and kind of name
+-- by level, a function value's definition, and a level no function is at.
+-- Its Lua twin keeps every line where this file has it; its checks run in a
+-- function, as the twin's top level is one under reference Lua.
+local score: integer = 0
+
+local function check(bit: integer, ok: boolean): nil
+    if ok then
+        score = score | (1 << bit)
+    end
+end
+
+local function inner(): any
+    return debug.getinfo(2, "l")
+end
+
+local function described(a: integer, b: integer): (any, any, integer)
+    local here = debug.getinfo(1, "Sl")
+    local caller = inner()
+    return here, caller, a + b
+end
+
+local function named(): any
+    return debug.getinfo(1, "n")
+end
+
+local function tailed(): any
+    return debug.getinfo(1, "nt")
+end
+
+local function tailing(): any
+    return tailed()
+end
+
+local function variadic(...: any): integer
+    return select("#", ...)
+end
+
+local box: {[string]: any} = {}
+box.field = function(): any
+    return debug.getinfo(1, "nf")
+end
+
+local Counter: {[string]: any} = {}
+Counter.__index = Counter
+Counter.step = function(self: any): any
+    return debug.getinfo(1, "n")
+end
+
+local function run(): nil
+    local here, caller = described(1, 2)
+    check(0, here.what == "Lua" and here.linedefined == 19 and here.lastlinedefined == 23)
+    check(1, here.currentline == 20 and caller.currentline == 21)
+    check(2, string.sub(here.source, 1, 1) == "@" and string.sub(here.short_src, -4) == string.sub(here.source, -4))
+    local asked = named()
+    check(3, asked.name == "named" and asked.namewhat == "upvalue")
+
+    local function nested(): any
+        return debug.getinfo(1, "n")
+    end
+
+    local own = nested()
+    check(4, own.name == "nested" and own.namewhat == "local")
+    local tail = tailing()
+    check(5, tail.istailcall == true and tail.name == nil and tail.namewhat == "")
+    local held = box.field()
+    check(6, held.name == "field" and held.namewhat == "field" and held.func == box.field)
+    local counter: any = setmetatable({}, Counter)
+    local step = counter:step()
+    check(7, step.name == "step" and step.namewhat == "method")
+    local ok, protected = pcall(named)
+    check(8, ok and protected.name == nil and protected.namewhat == "")
+    local value = debug.getinfo(described, "Su")
+    check(9, value.linedefined == 19 and value.lastlinedefined == 23 and value.nparams == 2 and not value.isvararg)
+    local spread = debug.getinfo(variadic, "u")
+    check(10, spread.nparams == 0 and spread.isvararg == true)
+    local builtin = debug.getinfo(tostring, "S")
+    check(11, builtin.what == "C" and builtin.source == "=[C]" and builtin.short_src == "[C]")
+    check(12, builtin.linedefined == -1 and debug.getinfo(tostring, "l").currentline == -1)
+    check(13, debug.getinfo(1000) == nil and debug.getinfo(-1) == nil)
+    local itself = debug.getinfo(0, "nS")
+    check(14, itself.what == "C" and itself.name == "getinfo" and itself.namewhat == "field")
+    check(15, not pcall(debug.getinfo, 1, ">S") and not pcall(debug.getinfo, 1, "?"))
+    check(16, not pcall(debug.getinfo, {}) and debug.getinfo("1", "l").currentline == 86)
+end
+
+run()
+
+export const result = score

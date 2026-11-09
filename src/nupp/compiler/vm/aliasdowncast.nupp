@@ -1,0 +1,45 @@
+--[[
+`alias:downcast<T>()` on the core.
+
+The checker records the policy a managed alias's downcast checks
+(`managedAliasPolicy`), and main emits the call as `alias:_downcast(policy)`,
+the ownership runtime's method. The core lowers the same call: the method is
+`_downcast`, and its one argument is the policy as a string literal of its
+own, replacing the call's arguments once, before the call is described.
+]]
+module nupp.compiler.vm.aliasdowncast
+
+local cst = require("nupp.compiler.syntax.cst")
+local T = require("nupp.compiler.types")
+
+export const MEMBER = "_downcast"
+
+--- Rewrites a checked `downcast` of a managed alias to main's `_downcast`
+--- call, answering the policy literal it passes, or nil for any other call.
+--- A tree described again keeps the rewrite and answers the same literal.
+export function normalize(call: any): {any}?
+    if type(call) ~= "table" or call.kind ~= "methodCall" or type(call.managedAliasPolicy) ~= "string" then
+        return nil
+    end
+    local args = call.args
+    if type(args) ~= "table" or args.kind ~= "args" then
+        return nil
+    end
+    if args.coreDowncast then
+        return {args.coreDowncast}
+    end
+    local at: any = cst.firstToken(call)
+    local token = {
+        kind = "string",
+        text = string.format("%q", call.managedAliasPolicy),
+        line = at and at.line,
+        col = at and at.col,
+        offset = at and at.offset,
+        trivia = {}
+    }
+    local policy = {kind = "string", token = token, inferredType = T.string, token}
+    args.sourceExprs, args.exprs, args.coreDowncast = args.exprs, {policy}, policy
+    call.overloadMember = MEMBER
+
+    return {policy}
+end

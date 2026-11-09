@@ -565,7 +565,12 @@ local function buildEnvironment(state)
             return string.byte(subject, first, last)
         end,
         char = function(...)
-            return boundedString(string.char(...), "string.char result")
+            local bytes = {}
+            for index = 1, select("#", ...) do
+                bytes[index] = string.char((select(index, ...)))
+            end
+
+            return boundedString(table.concat(bytes), "string.char result")
         end,
         find = string.find,
         format = function(format, ...)
@@ -598,8 +603,8 @@ local function buildEnvironment(state)
         reverse = function(value)
             return boundedString(string.reverse(value), "string.reverse result")
         end,
-        sub = function(...)
-            return boundedString(string.sub(...), "string.sub result")
+        sub = function(value, first, last)
+            return boundedString(string.sub(value, first, last), "string.sub result")
         end,
         upper = function(value)
             return boundedString(string.upper(value), "string.upper result")

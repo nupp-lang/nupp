@@ -74,3 +74,33 @@ export function make(ctx: any, node: any): integer?
 
     return values.landed(ctx, node, answer)
 end
+
+--- `own.recoveralias(value)` as main's `__recoverAlias` call: the factory
+--- module's `recover`, keeping `count` results as a list, every result as one
+--- pack when `open`, or the first. Nil when the block ended.
+export function recover(ctx: any, node: any, keepResult: boolean, count: integer?, open: boolean?): any
+    local p = values.catalog(ctx)
+    local plan = need(p.manages[node], "own.recoveralias lacks its factory plan")
+    managedcalls.verify(p, plan)
+    need(plan.owner == ctx.fn.id and plan.member == managedcalls.RECOVER, "own.recoveralias plan differs")
+    local module = ctx.emit(node, "Require", {values.pool(ctx, "str", managedcalls.MODULE)}, "tagged")
+    local callee = ctx.hold(ctx.emit(node, "GetIdx", {module, constant(ctx, node, "str", plan.member)}, "tagged"))
+    local args = node.args and node.args.exprs or {}
+    local value = args[1] and ctx.expression(args[1], "tagged")
+    if value == nil or ctx.block == nil then
+        ctx.release(callee)
+        return nil
+    end
+    local held = ctx.hold(value)
+    local none = ctx.emit(node, "Nil", {}, "tagged")
+    local target = ctx.readHeld(callee)
+    value = ctx.readHeld(held)
+    ctx.release(held)
+    ctx.release(callee)
+    local contract = graphcalls.invokeContract(plan.target, plan.call)
+    if count then
+        return values.landed(ctx, node, ctx.invokeMany(node, target, {value, none}, contract, count))
+    end
+
+    return values.landed(ctx, node, ctx.invoke(node, target, {value, none}, contract, keepResult, nil, open))
+end

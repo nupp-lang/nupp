@@ -15,6 +15,7 @@ const texts = require("nupp.runtime.core.guesttexts")
 const ints = require("nupp.runtime.core.coreintegers")
 const librarycalls = require("nupp.runtime.core.librarycalls")
 const loadlibrary = require("nupp.runtime.core.loadlibrary")
+const debuglibrary = require("nupp.runtime.core.debuglibrary")
 const librarylayouts = require("nupp.runtime.core.librarylayouts")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 const guestvalues = require("nupp.runtime.core.guestvalues")
@@ -26,6 +27,7 @@ const guestlanding = require("nupp.runtime.core.guestlanding")
 const guestmeta = require("nupp.runtime.core.guestmeta")
 const guestbuffer = require("nupp.runtime.core.guestbuffer")
 const loader = require("nupp.runtime.core.guestloader")
+const guestdebug = require("nupp.runtime.core.guestdebug")
 const guestforeign = require("nupp.runtime.core.guestforeign")
 const files = require("nupp.runtime.core.hostfiles")
 const process = require("nupp.runtime.core.hostprocess")
@@ -395,6 +397,9 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         )
     elseif id == librarycalls.LANDED then
         return guestlanding.takeLanded(ctx)
+    elseif id == debuglibrary.DEBUG_INFO then
+        -- One field of Lua's debug.getinfo: the operation, then its target.
+        return guestdebug.info(ctx, ints.bitsOf(a), b)
     elseif id == loadlibrary.MODULE_INSTALL then
         -- A binary chunk's entry, which MODULE_START runs, or nil.
         local installed = loader.install(ctx, a)

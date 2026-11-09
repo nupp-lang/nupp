@@ -71,10 +71,22 @@ local function hashFiles(files: {string}): string
     return hash.digest(table.concat(parts, "\0"))
 end
 
+--- This module's chunk name, or nil on a runtime without `debug.getinfo`: the
+--- native core carries no debug library, and its program is one artifact the
+--- way a bundle is.
+local function chunkSource(): string?
+    local hostDebug: any = debug
+    if hostDebug == nil or hostDebug.getinfo == nil then
+        return nil
+    end
+
+    return hostDebug.getinfo(1, "S").source
+end
+
 --- The compiler's own directory, `<root>/nupp/compiler`: this file sits in `project/`
 --- below it.
 local function compilerDir(): string
-    local source = debug.getinfo(1, "S").source
+    local source = chunkSource() or ""
     return dirname(source:match("^@(.*)[/\\]") or ".")
 end
 
@@ -88,7 +100,7 @@ end
 --- Asked this way rather than by recognizing a directory, because where a stage zero
 --- is kept is `scripts/toolchain`'s business and it has moved once already.
 local function bundled(): boolean
-    local source = debug.getinfo(1, "S").source
+    local source = chunkSource() or ""
     return (source:match("[^/\\]*$") or "") ~= "fingerprint.lua"
 end
 
@@ -128,6 +140,15 @@ local function relativeTo(dir: string, path: string): string
     return path
 end
 
+--- A stamp no other process shares, for a compiler that cannot say what it is:
+--- every store misses, which costs time and never an answer.
+local function unidentified(): string
+    return table.concat(
+        {"unidentified", tostring(fs.processId() or 0), tostring(os.time()), tostring(os.clock()), tostring({})},
+        "\0"
+    )
+end
+
 --- The identity of the VM image the compiler is running from, or nil when it is
 --- not running from one.
 ---
@@ -156,10 +177,7 @@ local function vmImageIdentity(): string?
         return "image\0" .. identity
     end
 
-    return table.concat(
-        {"unidentified", tostring(fs.processId() or 0), tostring(os.time()), tostring(os.clock()), tostring({})},
-        "\0"
-    )
+    return unidentified()
 end
 
 local function runtimeParts(root: string, files: {string}, digest: function(string): string): {string}
@@ -192,7 +210,13 @@ local function toolFingerprint(contentDigest: (function(string): string)?): stri
     local dir = dirname(compilerDir())
     local files: {string} = {}
     if bundled() then
-        files = {(debug.getinfo(1, "S").source:gsub("^@", ""))}
+        local source = chunkSource()
+        if source == nil then
+            toolFingerprintMemo = digest(unidentified())
+
+            return toolFingerprintMemo
+        end
+        files = {(source:gsub("^@", ""))}
     else
         for _, path in ipairs(treeFiles(dir)) do
             local relative = relativeTo(dir, path)

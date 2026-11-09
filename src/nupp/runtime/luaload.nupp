@@ -15,14 +15,17 @@ module nupp.runtime.luaload
 
 const hostcalls = require("nupp.runtime.hostcalls")
 const libraryvalues = require("nupp.runtime.libraryvalues")
+const corecallvalues = require("nupp.runtime.corecallvalues")
 
 -- The environment (Lua's _ENV) `load` was given for the chunk now starting.
 local pending: table? = nil
 
 --- The environment a chunk the compiler wrote reads its globals from, as it
---- starts: the table `load` was given, else the running program's `_G`.
-export function environment(): any
-    return pending or libraryvalues.functions._G
+--- starts: the table `load` was given, else the running program's `_G`; and
+--- the library functions as the program started, which the chunk calls the
+--- core for directly while its environment holds them.
+export function environment(): (any, any)
+    return pending or libraryvalues.functions._G, libraryvalues.originals
 end
 
 -- The compiler a text chunk compiles with, required by a name the program
@@ -233,6 +236,27 @@ local function gather(chunk: any): (string?, string?)
     return table.concat(pieces), nil
 end
 
+-- Binary chunk `bytes` installed and started with environment `env` (Lua's
+-- _ENV): what its entry answers, or nil and why it does not install.
+local function started(bytes: string, chunkname: string, env: table?): (any, string?)
+    local entry = hostcalls.install(bytes)
+    if entry == nil then
+        return nil, chunkid(chunkname) .. ": bad binary format (not a chunk this core loads)"
+    end
+
+    -- A chunk the compiler wrote reads its environment as it starts.
+    pending = env
+    local ok, value = pcall(function(): any
+        return hostcalls.start(entry)
+    end)
+    pending = nil
+    if not ok then
+        error(value, 0)
+    end
+
+    return value, nil
+end
+
 local function loadchunk(chunk: any, name: string?, mode: string?, env: table?): (any, string?)
     if type(chunk) ~= "string" and type(chunk) ~= "function" then
         error("bad argument #1 to 'load' (string expected, got " .. type(chunk) .. ")", 2)
@@ -260,28 +284,48 @@ local function loadchunk(chunk: any, name: string?, mode: string?, env: table?):
         if compile == nil then
             return nil, chunkid(chunkname) .. ": text chunks need the compiler, which did not load: " .. missing
         end
-        local bytes, problem = compile.compile(text, chunkid(chunkname))
+        local bytes, problem = compile.compile(text, chunkid(chunkname), chunkname)
         if bytes == nil then
             return nil, problem
         end
         text = bytes as string
     end
-    local entry = hostcalls.install(text)
-    if entry == nil then
-        return nil, chunkid(chunkname) .. ": bad binary format (not a chunk this core loads)"
+
+    return started(text, chunkname, env)
+end
+
+--- A fresh instance of the Nupp module whose source, or binary chunk
+--- (`nupp.compiler.vm.corechunk.compileModule`'s), is the file at `path`: its
+--- body runs again in a copy of its own, its globals are fields of `env`
+--- and its requires call `env.require`, which may
+--- answer a stand-in for any module, the core's own calls
+--- (`nupp.runtime.gccalls`) included. Answers the module's value, and raises
+--- what reading, compiling or running it raises.
+export function instance(path: string, env: table): any
+    local file, reason = io.open(path, "rb")
+    if file == nil then
+        error("cannot open " .. tostring(reason), 2)
+    end
+    local text: string = file:read("a") or ""
+    file:close()
+    local chunkname = "@" .. path
+    if text:byte(1) ~= BINARY then
+        local compile = textCompiler()
+        if compile == nil then
+            error(chunkid(chunkname) .. ": module instances need the compiler, which did not load: " .. missing, 2)
+        end
+        local bytes, problem = compile.compileModule(text, chunkid(chunkname), chunkname)
+        if bytes == nil then
+            error(problem, 2)
+        end
+        text = bytes as string
+    end
+    local value, problem = started(text, chunkname, env)
+    if problem ~= nil then
+        error(problem, 2)
     end
 
-    -- A chunk the compiler wrote reads its environment as it starts.
-    pending = env
-    local ok, started = pcall(function(): any
-        return hostcalls.start(entry)
-    end)
-    pending = nil
-    if not ok then
-        error(started, 0)
-    end
-
-    return started, nil
+    return value
 end
 
 local function loadpath(filename: string?, mode: string?, env: table?): (any, string?)
@@ -324,4 +368,11 @@ export const functions: {
 -- Lua chunks read the loaders as globals (`pcall(dofile, path)`).
 for name, value in pairs(functions) do
     libraryvalues.publish(name, value)
+end
+
+-- A module instance's require of a core call module its environment stands
+-- in for nothing answers the module's operations as values, as Lua's
+-- require answers what package.loaded holds.
+for name, value in pairs(corecallvalues.modules) do
+    libraryvalues.functions.package.loaded[name] = value
 end
