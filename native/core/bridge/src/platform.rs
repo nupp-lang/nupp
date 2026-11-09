@@ -1,5 +1,5 @@
-//! OS memory primitives and the program's arguments; no runtime
-//! object or frame policy.
+//! The memory the bridge loads a bundle into; no runtime object or frame
+//! policy. The guest maps its own pages, through the C library.
 use std::ffi::c_void;
 
 unsafe extern "C" {
@@ -26,7 +26,7 @@ pub fn supported() -> bool {
     ))
 }
 
-pub extern "C" fn page_size() -> u64 {
+pub fn page_size() -> u64 {
     unsafe { getpagesize() as u64 }
 }
 
@@ -39,7 +39,7 @@ fn rounded(bytes: u64) -> Option<usize> {
     (size <= isize::MAX as u64).then_some(size as usize)
 }
 
-pub extern "C" fn map_pages(bytes: u64) -> u64 {
+pub fn map_pages(bytes: u64) -> u64 {
     let Some(size) = rounded(bytes) else {
         return 0;
     };
@@ -57,7 +57,7 @@ pub extern "C" fn map_pages(bytes: u64) -> u64 {
 }
 
 // The caller owns the mapping and must have finished all access before unmapping.
-pub unsafe extern "C" fn unmap_pages(address: u64, bytes: u64) -> u64 {
+pub unsafe fn unmap_pages(address: u64, bytes: u64) -> u64 {
     let Some(size) = rounded(bytes) else {
         return 1;
     };
@@ -151,24 +151,3 @@ unsafe fn flush(address: *mut u8, size: usize) {
     let _ = (address, size);
 }
 
-/// The program's arguments, the bundle first: set once, before the entry runs.
-pub static ARGUMENTS: std::sync::OnceLock<Vec<std::ffi::OsString>> = std::sync::OnceLock::new();
-
-/// Copies the program argument at `index` (0 the program, then its arguments
-/// in order) into `out`, at most `room` bytes: its whole length, or -1 past
-/// the last. The guest's `arg` table.
-pub unsafe extern "C" fn argument(index: u64, out: u64, room: u64) -> u64 {
-    use std::os::unix::ffi::OsStrExt;
-    let Some(value) = ARGUMENTS
-        .get()
-        .and_then(|all| usize::try_from(index).ok().and_then(|at| all.get(at)))
-    else {
-        return u64::MAX;
-    };
-    let bytes = value.as_bytes();
-    if out != 0 {
-        let count = bytes.len().min(room as usize);
-        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), out as *mut u8, count) };
-    }
-    bytes.len() as u64
-}

@@ -6,10 +6,9 @@ local frameverify = require("nupp.compiler.vm.frameverify")
 
 local finalframe = require("nupp.compiler.vm.nativeframecontract")
 local physical = require("nupp.compiler.vm.nativephysical")
-local nativeos = require("nupp.compiler.vm.nativeos")
-local service = require("nupp.compiler.vm.nativeservice")
-local graphsignatures = require("nupp.compiler.vm.graphsignatures")
 local graphnative = require("nupp.compiler.vm.graphnative")
+local graphsignatures = require("nupp.compiler.vm.graphsignatures")
+local service = require("nupp.compiler.vm.nativeservice")
 local graphcalls = require("nupp.compiler.vm.graphcalls")
 local classes = graphsignatures.classes
 local declarationSource = graphnative.declarationSource
@@ -662,7 +661,6 @@ export function verify(g: any): nil
         return count
     end)
     if g.native then
-        nativeos.verifyStores(g);
         service.verifyScope(g)
     end
 
