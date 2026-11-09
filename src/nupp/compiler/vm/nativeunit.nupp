@@ -5,7 +5,6 @@ const assert2 = require("assert")
 local physical = require("nupp.compiler.vm.nativephysical")
 local cst = require("nupp.compiler.syntax.cst")
 local construction = require("nupp.compiler.vm.construction")
-local unit = {}
 local owners: any = setmetatable({}, {__mode = "k"})
 local options: any = setmetatable({}, {__mode = "k"})
 
@@ -27,7 +26,7 @@ end
 
 -- Membership only: the common function walker remains the sole lowering.
 -- Canonical CST children exclude checker/type backreferences and their cycles.
-local function occurrences(body: any): any
+local function collect(body: any): any
     local found, ordinal = {}, 0
     local visit: function(any, any, integer?): nil
     visit = function(node, parent, index)
@@ -61,7 +60,7 @@ local function occurrences(body: any): any
     return found
 end
 
-function unit.functionsFrom(parsed: any, scope: any): any
+export function functionsFrom(parsed: any, scope: any): any
     scope.functions, scope.exports = {}, {}
     for _, block in ipairs(parsed.root.blocks) do
         for _, stat in ipairs(block.stats) do
@@ -105,7 +104,7 @@ function unit.functionsFrom(parsed: any, scope: any): any
     return scope.functions
 end
 
-function unit.constantsFrom(tree: any): any
+export function constantsFrom(tree: any): any
     local constants = {}
     for _, block in ipairs(tree.root.blocks) do
         for _, stat in ipairs(block.stats) do
@@ -121,7 +120,7 @@ function unit.constantsFrom(tree: any): any
     return constants
 end
 
-function unit.constants(parsed: any, scope: any): nil
+export function constants(parsed: any, scope: any): nil
 
     scope.constants = {}
     for _, block in ipairs(parsed.root.blocks) do
@@ -138,7 +137,7 @@ function unit.constants(parsed: any, scope: any): nil
             end
         end
     end
-    scope.exportedConstants = unit.constantsFrom(parsed)
+    scope.exportedConstants = constantsFrom(parsed)
 end
 
 local function token(fn: any): any
@@ -203,7 +202,7 @@ local function recordSame(actual: any, held: any): boolean
 end
 
 local function validateCleanup(saved: any): nil
-    unit.occurrence(saved.owner, saved.annotation)
+    occurrence(saved.owner, saved.annotation)
     need(
         saved.annotation.resolvedType == saved.type
         and saved.annotation.arguments == saved.arguments
@@ -301,7 +300,7 @@ end
 
 -- The incremental project stays private. Its import/update/overlay APIs never
 -- escape this constructor; every file must exist before checking starts.
-function unit.session(projectRoot: string, requested: any, target: string, include: any?, tested: boolean?): any
+export function session(projectRoot: string, requested: any, target: string, include: any?, tested: boolean?): any
     -- Lazy imports avoid native profile -> unit -> checker -> profile loading.
     local incremental = require("nupp.compiler.project.incremental")
     local trivia = require("nupp.compiler.syntax.triviaarena")
@@ -408,8 +407,8 @@ function unit.session(projectRoot: string, requested: any, target: string, inclu
         local parsed = checked.result
         need(parsed.declaredModuleName == name, "checked module name differs")
         local scope = {name = name, path = path, checkedExports = checked.exports}
-        local functions = unit.functionsFrom(parsed, scope)
-        unit.constants(parsed, scope)
+        local functions = functionsFrom(parsed, scope)
+        constants(parsed, scope)
         state.modules[name] = scope
         for _, fn in pairs(functions) do
             local definition = need(token(fn).definition, "checked function definition required")
@@ -421,7 +420,7 @@ function unit.session(projectRoot: string, requested: any, target: string, inclu
                 scope = scope,
                 definition = definition,
                 signature = fn.checkedSignature,
-                occurrences = occurrences(fn.body)
+                occurrences = collect(fn.body)
             }
             state.owners[fn], owners[fn], state.definitions[definition] = held, held, fn
         end
@@ -560,7 +559,7 @@ end
 
 -- Called once at graph construction, not for every operation. Copied options
 -- and public lookalikes do not acquire the private unit's target context.
-function unit.begin(fn: any, supplied: any): any
+export function begin(fn: any, supplied: any): any
     local held = owners[fn]
     if not held then
         need(supplied.nativeUnit == nil, "unknown unit owner/options")
@@ -574,18 +573,18 @@ function unit.begin(fn: any, supplied: any): any
     return issued.target and held.state.context or nil
 end
 
-function unit.finish(fn: any): nil
+export function finish(fn: any): nil
     local held = owners[fn]
     if held then
         validate(held.state, true)
     end
 end
 
-function unit.contains(fn: any): boolean
+export function contains(fn: any): boolean
     return owners[fn] ~= nil
 end
 
-function unit.occurrence(fn: any, node: any): boolean
+export function occurrence(fn: any, node: any): boolean
     local held = need(owners[fn], "unknown occurrence owner")
     need(
         not held.state.invalid
@@ -617,8 +616,8 @@ function unit.occurrence(fn: any, node: any): boolean
 end
 
 -- Return the original checked type only while its occurrence is unchanged.
-function unit.checkedOccurrenceType(fn: any, node: any): any
-    unit.occurrence(fn, node)
+export function checkedOccurrenceType(fn: any, node: any): any
+    occurrence(fn, node)
     local checked = owners[fn].occurrences[node].inferredType
     need(node.inferredType == checked, "checked occurrence type changed")
     return checked
@@ -626,11 +625,11 @@ end
 
 -- Detached enumeration of the same private membership index, not a source
 -- authority object. Consumers still authenticate each selected occurrence.
-function unit.occurrences(fn: any): any
+export function occurrences(fn: any): any
     local held = need(owners[fn], "unknown occurrence owner")
     local result = {}
     for node, saved in pairs(held.occurrences) do
-        unit.occurrence(fn, node)
+        occurrence(fn, node)
         result[saved.ordinal] = node
     end
 
@@ -639,8 +638,8 @@ end
 
 -- This classifies an already checked occurrence for service reachability only.
 -- Representation and borrowed-root validation remain in physical.borrowView.
-function unit.borrowFrom(fn: any, call: any): boolean
-    unit.occurrence(fn, call)
+export function borrowFrom(fn: any, call: any): boolean
+    occurrence(fn, call)
     local saved = owners[fn].occurrences[call]
     need(call.ownershipIntrinsic == saved.ownershipIntrinsic, "checked ownership intrinsic changed")
     if saved.ownershipIntrinsic ~= "borrowFrom" then
@@ -653,9 +652,9 @@ function unit.borrowFrom(fn: any, call: any): boolean
         and call.args.exprs[2].kind == "name",
         "checked borrowFrom occurrence changed"
     )
-    unit.occurrence(fn, call.obj)
-    unit.occurrence(fn, call.args.exprs[1])
-    unit.occurrence(fn, call.args.exprs[2])
+    occurrence(fn, call.obj)
+    occurrence(fn, call.args.exprs[1])
+    occurrence(fn, call.args.exprs[2])
 
     return true
 end
@@ -663,8 +662,8 @@ end
 -- A plain struct constructor `S(...)` is lowered through its construction
 -- wrapper, not an ordinary call edge. Physical localRecipe
 -- retains layout/storage admission.
-function unit.localConstructionChild(fn: any, call: any): boolean
-    unit.occurrence(fn, call)
+export function localConstructionChild(fn: any, call: any): boolean
+    occurrence(fn, call)
     local held = owners[fn]
     local saved = held.occurrences[call]
     need(
@@ -692,12 +691,12 @@ function unit.localConstructionChild(fn: any, call: any): boolean
         and (not checked.constructors or #checked.constructors == 0),
         "plain checked construction child required"
     )
-    unit.occurrence(fn, call.obj)
+    occurrence(fn, call.obj)
 
     return true
 end
 
-function unit.callee(fn: any, call: any): any
+export function callee(fn: any, call: any): any
     local held = need(owners[fn], "unknown caller owner")
     local state = held.state
     -- begin() validated the sealed transaction. Resolution stays identity-only
@@ -740,13 +739,13 @@ function unit.callee(fn: any, call: any): any
     error("native unit: unsupported callee expression", 0)
 end
 
-function unit.call(fn: any, call: any, target: any): nil
+export function call(fn: any, call: any, target: any): nil
     if owners[fn] or owners[target] then
         need(
             owners[fn] and owners[target] and owners[fn].state == owners[target].state,
             "callee belongs to another unit"
         )
-        need(unit.callee(fn, call) == target, "checked callee definition differs")
+        need(callee(fn, call) == target, "checked callee definition differs")
     end
 end
 
@@ -754,32 +753,32 @@ end
 -- unit resolver; this API cannot bind an arbitrary foreign module or symbol.
 -- Closed service construction uses these owner-bound lookups, never a copied
 -- module/options table supplied by the caller.
-function unit.ownerModule(fn: any, name: string): any
+export function ownerModule(fn: any, name: string): any
     local held = need(owners[fn], "unknown service owner")
     validate(held.state, false)
     return need(held.state.modules[name], "service module is outside sealed unit")
 end
 
-function unit.ownerContext(fn: any): any
+export function ownerContext(fn: any): any
     local held = need(owners[fn], "unknown service context owner")
     validate(held.state, false)
     return held.state.context
 end
 
-function unit.ownerOptions(fn: any, abi: string): any
+export function ownerOptions(fn: any, abi: string): any
     local held = need(owners[fn], "unknown service owner")
     return held.state.api.options(fn, abi)
 end
 
-function unit.sameOwners(left: any, right: any): boolean
+export function sameOwners(left: any, right: any): boolean
     local a, b = owners[left], owners[right]
     return a ~= nil and b ~= nil and a.state == b.state
 end
 
 -- The literal text remains source evidence, not an allocated guest string.
 -- Shadowed names never acquire raising semantics from their text.
-function unit.cleanupTypes(fn: any, site: any): any
-    unit.occurrence(fn, site)
+export function cleanupTypes(fn: any, site: any): any
+    occurrence(fn, site)
     local result, seen = {}, {}
 
     local function add(t: any): nil
@@ -824,10 +823,10 @@ function unit.cleanupTypes(fn: any, site: any): any
     return result
 end
 
-function unit.cleanupTarget(fn: any, site: any, t: any, cleanup: any): any
+export function cleanupTarget(fn: any, site: any, t: any, cleanup: any): any
     local held = need(owners[fn], "unknown cleanup owner")
     local present = false
-    for _, candidate in ipairs(unit.cleanupTypes(fn, site)) do
+    for _, candidate in ipairs(cleanupTypes(fn, site)) do
         if candidate == t then
             present = true
         end
@@ -852,15 +851,18 @@ function unit.cleanupTarget(fn: any, site: any, t: any, cleanup: any): any
     return need(result, "cleanup declaration is outside sealed unit")
 end
 
-function unit.literalRaise(fn: any, call: any): any
+export function literalRaise(fn: any, callsite: any): any
     local held = need(owners[fn], "unknown raise owner")
-    unit.occurrence(fn, call)
-    if call.kind ~= "call" or call.obj.kind ~= "name" or call.obj.token.definition ~= held.state.errorDefinition then
+    occurrence(fn, callsite)
+    if callsite.kind ~= "call"
+        or callsite.obj.kind ~= "name"
+        or callsite.obj.token.definition ~= held.state.errorDefinition
+    then
         return nil
     end
-    need(not call.obj.token.definition.reassigned and #call.args.exprs == 1, "closed literal raise required")
-    local argument = call.args.exprs[1]
-    unit.occurrence(fn, argument)
+    need(not callsite.obj.token.definition.reassigned and #callsite.args.exprs == 1, "closed literal raise required")
+    local argument = callsite.args.exprs[1]
+    occurrence(fn, argument)
     local token = argument.token
     local location = fn.scope.name .. "." .. fn.name .. " at " .. fn.scope.path .. ":" .. tostring(
         token and token.line or 0
@@ -894,18 +896,18 @@ function unit.literalRaise(fn: any, call: any): any
         "service error requires a checked literal string: " .. location
     )
 
-    return {definition = held.state.errorDefinition, literal = literal, node = call}
+    return {definition = held.state.errorDefinition, literal = literal, node = callsite}
 end
 
-local function externalDeclaration(fn: any, call: any, moduleName: string, file: string, label: string): any
+local function externalDeclaration(fn: any, callsite: any, moduleName: string, file: string, label: string): any
     local held = need(owners[fn], label .. " caller is outside sealed unit")
-    unit.occurrence(fn, call)
+    occurrence(fn, callsite)
     need(
-        call.kind == "call" and call.obj.kind == "dotIndex" and call.obj.obj.kind == "name",
+        callsite.kind == "call" and callsite.obj.kind == "dotIndex" and callsite.obj.obj.kind == "name",
         label .. " call requires a checked imported member"
     )
-    local receiver = call.obj.obj.token.definition
-    local definition = call.obj.name.definition
+    local receiver = callsite.obj.obj.token.definition
+    local definition = callsite.obj.name.definition
     local path = held.state.projectRoot .. "/src/nupp/runtime/vm/" .. file
     need(
         receiver and not receiver.reassigned and receiver.requiredModule == moduleName,
@@ -915,10 +917,10 @@ local function externalDeclaration(fn: any, call: any, moduleName: string, file:
         definition and definition.filename == path and held.state.sources[path] ~= nil,
         label .. " declaration is not the frozen source"
     )
-    unit.occurrence(fn, call.obj)
-    unit.occurrence(fn, call.obj.obj)
-    local actual = held.occurrences[call.obj].inferredType
-    need(actual == call.obj.inferredType, label .. " checked signature occurrence changed")
+    occurrence(fn, callsite.obj)
+    occurrence(fn, callsite.obj.obj)
+    local actual = held.occurrences[callsite.obj].inferredType
+    need(actual == callsite.obj.inferredType, label .. " checked signature occurrence changed")
     local record = receiver.type
     while record and (record.tag == "const" or record.tag == "literal") do
         record = record.tag == "literal" and record.base or record.inner
@@ -929,7 +931,7 @@ local function externalDeclaration(fn: any, call: any, moduleName: string, file:
         record = record.tag == "literal" and record.base or record.inner
     end
     need(record and record.tag == "nominal", label .. " checked record required")
-    local name = call.obj.name.text
+    local name = callsite.obj.name.text
     -- Match the checker's declaration-table member lookup, including Self
     -- specialization, while retaining the checked occurrence's exact identity.
     local member = record.staticByname and record.staticByname[name]
@@ -945,35 +947,35 @@ local function externalDeclaration(fn: any, call: any, moduleName: string, file:
     -- Imported dot members retain resolvedType before the checker applies its
     -- interned sendable callable view. Both identities must still agree.
     need(
-        call.obj.resolvedType == resolved and types.withSendable(resolved) == actual,
+        callsite.obj.resolvedType == resolved and types.withSendable(resolved) == actual,
         label .. " checked member signature differs"
     )
 
     return {
         definition = definition,
         receiver = receiver,
-        signature = call.obj.inferredType,
+        signature = callsite.obj.inferredType,
         context = held.state.context,
         path = path,
         owner = fn,
         name = name,
-        call = call
+        call = callsite
     }
 end
 
-function unit.osDeclaration(fn: any, call: any): any
+export function osDeclaration(fn: any, callsite: any): any
     validate(need(owners[fn], "OS caller is outside sealed unit").state, true)
-    return externalDeclaration(fn, call, "nupp.runtime.vm.os", "os.d.nupp", "OS")
+    return externalDeclaration(fn, callsite, "nupp.runtime.vm.os", "os.d.nupp", "OS")
 end
 
-function unit.intrinsicDeclaration(fn: any, call: any): any
+export function intrinsicDeclaration(fn: any, callsite: any): any
     validate(need(owners[fn], "intrinsic caller is outside sealed unit").state, true)
-    return externalDeclaration(fn, call, "nupp.runtime.vm.intrinsics", "intrinsics.d.nupp", "intrinsic")
+    return externalDeclaration(fn, callsite, "nupp.runtime.vm.intrinsics", "intrinsics.d.nupp", "intrinsic")
 end
 
 -- One synchronous read-only query checks the original unit once, then every
 -- original imported occurrence. There is no cached permission or skip flag.
-function unit.externalDeclarations(entry: any, sites: any): any
+export function externalDeclarations(entry: any, sites: any): any
     local held = need(owners[entry], "external batch entry is outside sealed unit")
     need(type(sites) == "table" and getmetatable(sites) == nil, "plain external site batch required")
     validate(held.state, true)
@@ -1005,17 +1007,17 @@ end
 
 -- The call occurrence and exported value belong to the same sealed checking
 -- transaction. An imported callable may be a distinct public signature object.
-function unit.callSignature(fn: any, call: any, target: any): (any, any)
-    unit.occurrence(fn, call)
-    unit.occurrence(fn, call.obj)
-    unit.call(fn, call, target)
+export function callSignature(fn: any, callsite: any, target: any): (any, any)
+    occurrence(fn, callsite)
+    occurrence(fn, callsite.obj)
+    call(fn, callsite, target)
     local state = owners[fn].state
-    local actual = owners[fn].occurrences[call.obj].inferredType
-    need(actual == call.obj.inferredType, "checked call signature occurrence changed")
+    local actual = owners[fn].occurrences[callsite.obj].inferredType
+    need(actual == callsite.obj.inferredType, "checked call signature occurrence changed")
     local exported = target.checkedSignature
-    if call.obj.kind == "dotIndex" then
+    if callsite.obj.kind == "dotIndex" then
         local scope = target.scope
-        local name = call.obj.name.text
+        local name = callsite.obj.name.text
         need(scope.exports[name] == target, "checked export target changed")
         exported = scope.checkedExports.values[name]
         local saved
@@ -1029,5 +1031,3 @@ function unit.callSignature(fn: any, call: any, target: any): (any, any)
 
     return actual, exported
 end
-
-export = unit

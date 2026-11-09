@@ -9,7 +9,6 @@ module nupp.compiler.vm.nativeframecontract
 -- available for legacy diagnostics; rebuilding unissued artifacts through them
 -- does not carry this proof. This is not an authenticity scheme for raw bytes.
 local physical = require("nupp.compiler.vm.nativephysical")
-local contract = {}
 local nativeos = require("nupp.compiler.vm.nativeos")
 local service = require("nupp.compiler.vm.nativeservice")
 local owners: any = setmetatable({}, {__mode = "k"})
@@ -198,7 +197,7 @@ end
 
 -- Called by the ordinary native profile, only inside this producer's lowering
 -- transaction. Reusing an issued owner outside it cannot mint another graph.
-function contract.initialize(owner: any, g: any): nil
+export function initialize(owner: any, g: any): nil
     local state = owners[owner]
     if not state then
         return
@@ -217,7 +216,7 @@ function contract.initialize(owner: any, g: any): nil
     current.graph = g
 end
 
-function contract.record(ctx: any, node: any, op: string, args: any): nil
+export function record(ctx: any, node: any, op: string, args: any): nil
     local held = graphs[ctx.g]
     if not held then
         return
@@ -244,7 +243,7 @@ function contract.record(ctx: any, node: any, op: string, args: any): nil
     end
 end
 
-function contract.finish(ctx: any): nil
+export function finish(ctx: any): nil
     local held = graphs[ctx.g]
     if not held then
         return
@@ -266,7 +265,7 @@ end
 -- Always called by graph.verify. A marker is not the registry: removing it
 -- from an issued graph or copying it to another graph is a refusal, not a
 -- route back to the legacy FrameRecover verifier.
-function contract.verify(g: any): boolean
+export function verify(g: any): boolean
     local held = graphs[g]
     if not held then
         need(g.nativeFinalFrame == nil and not sources[g.source], "copied final graph is unissued")
@@ -327,14 +326,14 @@ function contract.verify(g: any): boolean
     return held.final
 end
 
-function contract.requireOriginal(g: any, owner: any): boolean
+export function requireOriginal(g: any, owner: any): boolean
     local held = graphs[g]
     if not held then
         need(not owners[owner], "issued owner requires its original graph")
         return false
     end
     need(held.owner == owner, "graph owner substitution")
-    contract.verify(g)
+    verify(g)
     validateSource(held.state)
 
     return true
@@ -342,23 +341,23 @@ end
 
 -- Tagged words use the same eight-byte mechanical slot recipe, but only the
 -- original sealed guest handlers carry the required final owner/bounds proof.
-function contract.requireGuestSlots(g: any): nil
+export function requireGuestSlots(g: any): nil
     local held = need(graphs[g], "original guest handler graph required")
     need(held.seal and held.final and held.state.guestEntry and held.abi == "handler", "sealed guest handler required")
-    need(contract.verify(g), "verified guest handler required")
+    need(verify(g), "verified guest handler required")
 end
 
 -- The checked context used to lower dispatch is part of the issued unit,
 -- not interchangeable with a structurally compatible public scope record.
-function contract.requireContext(g: any, owner: any, context: any): nil
+export function requireContext(g: any, owner: any, context: any): nil
     local held = need(graphs[g], "authenticated graph required")
     need(held.owner == owner and context == held.state.context, "checked context substitution")
 end
 
 -- Executable roots are stricter than internal checked call targets. A raw
 -- allocator cannot become an entry by selecting its already-issued graph.
-function contract.requireEntry(g: any, owner: any): nil
-    need(contract.requireOriginal(g, owner), "entry requires original issued graph")
+export function requireEntry(g: any, owner: any): nil
+    need(requireOriginal(g, owner), "entry requires original issued graph")
     local held = graphs[g]
     if held.state.serviceCatalog then
         need(held.state.executable and held.state.executable[owner], "service owner is internal-only")
@@ -368,14 +367,14 @@ function contract.requireEntry(g: any, owner: any): nil
     end
 end
 
-function contract.target(g: any, owner: any, targetGraph: any, targetOwner: any): nil
+export function target(g: any, owner: any, targetGraph: any, targetOwner: any): nil
     local held = need(graphs[g], "authenticated caller required")
     need(held.owner == owner and owners[targetOwner] == held.state, "callee unit differs")
     need(held.state.resolved[targetOwner] == targetGraph, "callee graph substitution")
-    need(contract.requireOriginal(targetGraph, targetOwner), "authenticated callee required")
+    need(requireOriginal(targetGraph, targetOwner), "authenticated callee required")
 end
 
-function contract.refuse(g: any, route: string): nil
+export function refuse(g: any, route: string): nil
     need(
         not graphs[g]
         and g.nativeFinalFrame == nil
@@ -393,7 +392,7 @@ end
 -- driver snapshots the reviewed sources before compiling this producer and
 -- binds that snapshot/image/output in its receipt. No caller module list,
 -- effect map, state parameter index or annotation can enter this function.
-local function build(returns: boolean): any
+local function assemble(returns: boolean): any
     local moduleName = returns and returnModule or probeModule
     local directory = returns and "core-return-contract" or "core-frame-contract"
     local sourceName = returns and "return-contract-probe" or "frame-contract-probe"
@@ -526,12 +525,12 @@ end
 
 -- Independent fixed build entries: the accepted publish proof never reads the
 -- return probe or its snapshot. No public source/effect/owner parameters exist.
-function contract.build(): any
-    return build(false)
+export function build(): any
+    return assemble(false)
 end
 
-function contract.buildReturn(): any
-    return build(true)
+export function buildReturn(): any
+    return assemble(true)
 end
 
 -- Actual guest entry is a separate closed build, independent of both diagnostic
@@ -638,7 +637,7 @@ local guestVersions: {
 -- builds it once per snapshot directory and binds each case's program to it.
 local guestUnits: any = {}
 
-local function buildGuest(caseName: string, audited: boolean): any
+local function assembleGuest(caseName: string, audited: boolean): any
     local fixtures = {
         raw = "catalog-boolean",
         boolean = "catalog-boolean",
@@ -998,19 +997,19 @@ local function buildGuest(caseName: string, audited: boolean): any
     return result
 end
 
-function contract.buildGuest(caseName: string): any
-    return buildGuest(caseName, false)
+export function buildGuest(caseName: string): any
+    return assembleGuest(caseName, false)
 end
 
 -- Supplemental test-only leaves have no final-frame roles. The production
 -- factory neither requests nor compiles their source.
-function contract.buildGuestAudit(caseName: string): any
-    return buildGuest(caseName, true)
+export function buildGuestAudit(caseName: string): any
+    return assembleGuest(caseName, true)
 end
 
 -- A public record is not a capability by shape. Final writer/shim publication
 -- must retain this exact issuance plus every original graph/owner/callee.
-function contract.validateGuest(result: any): nil
+export function validateGuest(result: any): nil
     local held = need(
         type(result) == "table" and getmetatable(result) == nil and rawget(guestBuilds, result),
         "unissued guest build"
@@ -1039,7 +1038,7 @@ function contract.validateGuest(result: any): nil
             name == item.owner.scope.name .. "." .. item.owner.name and held.state.resolved[item.owner] == item.graph,
             "guest resolved owner changed"
         )
-        need(contract.requireOriginal(item.graph, item.owner), "guest graph unissued")
+        need(requireOriginal(item.graph, item.owner), "guest graph unissued")
         count += 1
     end
     local expected = 0
@@ -1052,18 +1051,18 @@ end
 -- The allocator/collector service closure uses the same original Result/Code
 -- issuance as final-frame services. Its scalar service policy is distinct from
 -- final-frame ownership verification; no frame or collection claim is added.
-function contract.buildHeapServices(): any
+export function buildHeapServices(): any
     need(current == nil, "nested construction")
-    local build = service.build()
+    local catalogbuild = service.build()
     local state = {
-        serviceCatalog = build.catalog,
+        serviceCatalog = catalogbuild.catalog,
         roles = {},
         resolved = {},
         finalOwners = {},
         context = nil,
         executable = {}
     }
-    local all = service.owners(build.catalog)
+    local all = service.owners(catalogbuild.catalog)
     for _, owner in ipairs(all) do
         owners[owner], owner.nativeABI = state, "leaf"
     end
@@ -1077,7 +1076,7 @@ function contract.buildHeapServices(): any
     local ok, problem = pcall(function(): nil
         for _, owner in ipairs(all) do
             building = owner.scope.name .. "." .. owner.name .. " (" .. owner.scope.path .. ")"
-            local options = service.options(build.catalog, owner)
+            local options = service.options(catalogbuild.catalog, owner)
             local signature = service.signature(owner, options)
             local profile = service.needsCleanup(signature) and scopedProfile or base
             current = {state = state, owner = owner}
@@ -1118,7 +1117,12 @@ function contract.buildHeapServices(): any
         need(not state.executable[owner], "heap entry boundary repeats an owner")
         state.executable[owner] = true
     end
-    local result = {resolved = resolved, entries = entries, context = nil, inventory = service.inventory(build.catalog)}
+    local result = {
+        resolved = resolved,
+        entries = entries,
+        context = nil,
+        inventory = service.inventory(catalogbuild.catalog)
+    }
     local entryMap = {}
     for index, owner in ipairs(entries) do
         entryMap[index] = owner
@@ -1128,7 +1132,7 @@ function contract.buildHeapServices(): any
     return result
 end
 
-function contract.validateHeapServices(result: any): nil
+export function validateHeapServices(result: any): nil
     local held = need(heapBuilds[result], "unissued heap service build")
     need(
         getmetatable(result) == nil
@@ -1155,7 +1159,7 @@ function contract.validateHeapServices(result: any): nil
             name == item.owner.scope.name .. "." .. item.owner.name and held.state.resolved[item.owner] == item.graph,
             "heap resolved owner changed"
         )
-        need(contract.requireOriginal(item.graph, item.owner), "heap graph unissued")
+        need(requireOriginal(item.graph, item.owner), "heap graph unissued")
         count += 1
     end
     local expected: integer = 0
@@ -1164,5 +1168,3 @@ function contract.validateHeapServices(result: any): nil
     end
     need(count == expected, "heap resolved inventory changed")
 end
-
-export = contract

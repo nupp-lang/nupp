@@ -30,32 +30,32 @@ local function inject(source, anchor, replacement)
     return source:sub(1, at - 1) .. replacement .. source:sub(at + #anchor)
 end
 
-local header = [[function service.scopedCall(caller: any, node: any, target: any, index: integer): any
-    unit.call(caller, node, target)
+local header = [[export function scopedCall(caller: any, node: any, dest: any, index: integer): any
+    unit.call(caller, node, dest)
     unit.occurrence(caller, node)
 ]]
 local hooks = [[local teststate: any = {}
 
-function service.teststrict(caller: string, target: string, key: string, remove: boolean): nil
+export function teststrict(caller: string, dest: string, key: string, remove: boolean): nil
     need(teststate.caller == nil, "strict test context already active")
     teststate = {
-        caller = caller, target = target, key = key,
-        callerunit = unitModules[caller], targetunit = unitModules[target],
+        caller = caller, target = dest, key = key,
+        callerunit = unitModules[caller], targetunit = unitModules[dest],
         policy = scopedPolicy[key], calls = 0
     }
-    unitModules[caller], unitModules[target] = nil, nil
+    unitModules[caller], unitModules[dest] = nil, nil
     if remove then
         scopedPolicy[key] = nil
     end
 end
 
-function service.teststrictcheck(): integer
+export function teststrictcheck(): integer
     need(teststate.caller ~= nil, "strict test context missing")
     need(not unitModules[teststate.caller] and not unitModules[teststate.target], "strict test used unit exemption")
     return teststate.calls
 end
 
-function service.teststrictrestore(): nil
+export function teststrictrestore(): nil
     unitModules[teststate.caller] = teststate.callerunit
     unitModules[teststate.target] = teststate.targetunit
     scopedPolicy[teststate.key] = teststate.policy
@@ -64,9 +64,9 @@ end
 
 ]]
 local check = [[    if teststate.caller == caller.scope.name
-        and teststate.key == target.scope.name .. "." .. target.name
+        and teststate.key == dest.scope.name .. "." .. dest.name
     then
-        service.teststrictcheck()
+        teststrictcheck()
         teststate.calls = teststate.calls + 1
     end
 ]]

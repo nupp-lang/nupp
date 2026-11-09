@@ -2,7 +2,7 @@ module nupp.compiler.vm.nativegraph
 
 local graph = require("nupp.compiler.vm.graph")
 local physical = require("nupp.compiler.vm.nativephysical")
-local construction = require("nupp.compiler.vm.construction")
+local constructions = require("nupp.compiler.vm.construction")
 local unit = require("nupp.compiler.vm.nativeunit")
 local finalframe = require("nupp.compiler.vm.nativeframecontract")
 local nativelayout = require("nupp.compiler.vm.nativelayout")
@@ -13,7 +13,7 @@ local framecontract = require("nupp.compiler.vm.framecontract")
 
 local nativeos = require("nupp.compiler.vm.nativeos")
 local service = require("nupp.compiler.vm.nativeservice")
-local nativegraph = {booleanKind = "boolean"}
+export const booleanKind = "boolean"
 
 local arithmetic = {
     ["+"] = "IAdd",
@@ -74,7 +74,7 @@ local memoryIntrinsics = {
 -- Classification only, shared with the private service effect inventory.
 -- Unknown primitives may enter guest execution or mutate roots. Knowing a
 -- name here never authenticates a checked declaration or admits a call.
-function nativegraph.intrinsicHazards(name: string): (boolean, boolean)
+export function intrinsicHazards(name: string): (boolean, boolean)
     local memory = memoryIntrinsics[name]
     if memory then
         return false, memory.write
@@ -166,20 +166,20 @@ end
 
 -- ABI selection is supplied by the checked compilation request. It is not
 -- inferred from a function or opcode name.
-function nativegraph.admits(fn: any): boolean
+export function admits(fn: any): boolean
     return fn.scope ~= nil and fn.body ~= nil and fn.paramKinds ~= nil
 end
 
-function nativegraph.isSupport(fn: any): boolean
+export function isSupport(fn: any): boolean
     return fn.nativeABI == "support"
 end
 
-function nativegraph.isLeaf(fn: any): boolean
+export function isLeaf(fn: any): boolean
     return fn.nativeABI == "leaf"
 end
 
-function nativegraph.initialize(fn: any, options: any): any
-    need(nativegraph.admits(fn), "checked native function required")
+export function initialize(fn: any, options: any): any
+    need(admits(fn), "checked native function required")
     local sharedContext = unit.begin(fn, options)
     local serviceSignature = service.signature(fn, options)
     local abi = options.abi or fn.nativeABI
@@ -251,39 +251,39 @@ function nativegraph.initialize(fn: any, options: any): any
     return g
 end
 
-function nativegraph.kind(t: any): string
+export function kind(t: any): string
     return exactKind(t)
 end
 
-function nativegraph.valueKind(g: any, value: integer): string
+export function valueKind(g: any, value: integer): string
     return need(g.exactTypes[value], "missing exact value kind")
 end
 
-function nativegraph.newValue(g: any, kind: string): integer
-    return graph.nativeValue(g, kind)
+export function newValue(g: any, vkind: string): integer
+    return graph.nativeValue(g, vkind)
 end
 
-function nativegraph.localKind(token: any, fn: any): string
-    local kind = exactKind(token.inferredType)
+export function localKind(token: any, fn: any): string
+    local vkind = exactKind(token.inferredType)
     if fn.physicalContext
-        and (physical.pointerType(token.inferredType) or kind == "nominal" and token.inferredType.declKind == "struct")
+        and (physical.pointerType(token.inferredType) or vkind == "nominal" and token.inferredType.declKind == "struct")
     then
-        kind = "voidptr"
+        vkind = "voidptr"
     end
     need(
-        exactKinds[kind] or fn.physicalContext and projectedKinds[kind],
-        "exact native local kind required: " .. fn.name .. "." .. token.text .. " is " .. kind
+        exactKinds[vkind] or fn.physicalContext and projectedKinds[vkind],
+        "exact native local kind required: " .. fn.name .. "." .. token.text .. " is " .. vkind
     )
 
-    return kind
+    return vkind
 end
 
-function nativegraph.entryBindings(ctx: any, node: any?): nil
+export function entryBindings(ctx: any, node: any?): nil
     service.entryBindings(ctx, node)
 end
 
-function nativegraph.copyValue(g: any, original: integer): integer
-    local value = graph.nativeValue(g, nativegraph.valueKind(g, original))
+export function copyValue(g: any, original: integer): integer
+    local value = graph.nativeValue(g, valueKind(g, original))
     if g.nativePhysical then
         local descriptor = g.nativePhysical.values[original]
         if descriptor then
@@ -294,7 +294,7 @@ function nativegraph.copyValue(g: any, original: integer): integer
     return value
 end
 
-function nativegraph.initializeBinding(ctx: any, node: any, key: any, value: integer): integer
+export function initializeBinding(ctx: any, node: any, key: any, value: integer): integer
     if ctx.g.nativePhysical then
         local descriptor = ctx.g.nativePhysical.values[value]
         if descriptor then
@@ -326,7 +326,7 @@ function nativegraph.initializeBinding(ctx: any, node: any, key: any, value: int
                             expression = expression.expr
                         end
                         -- `S(...)` is lowered through its construction wrapper.
-                        found = expression == origin.node or construction.of(expression) == origin.node
+                        found = expression == origin.node or constructions.of(expression) == origin.node
                     end
                 end
                 need(found, "physical aggregate copy is unsupported")
@@ -339,8 +339,8 @@ function nativegraph.initializeBinding(ctx: any, node: any, key: any, value: int
     return value
 end
 
-function nativegraph.writeBinding(ctx: any, node: any, key: any, previous: integer, value: integer): integer
-    value = nativegraph.initializeBinding(ctx, node, key, value)
+export function writeBinding(ctx: any, node: any, key: any, previous: integer, value: integer): integer
+    value = initializeBinding(ctx, node, key, value)
     if ctx.g.nativePhysical then
         local before, after = ctx.g.nativePhysical.values[previous], ctx.g.nativePhysical.values[value]
         need(
@@ -355,8 +355,8 @@ function nativegraph.writeBinding(ctx: any, node: any, key: any, previous: integ
     return value
 end
 
-function nativegraph.readBinding(ctx: any, node: any, key: any, value: integer, expected: string?): integer
-    need(expected == nil or nativegraph.valueKind(ctx.g, value) == expected, "local changes exact kind")
+export function readBinding(ctx: any, node: any, key: any, value: integer, expected: string?): integer
+    need(expected == nil or valueKind(ctx.g, value) == expected, "local changes exact kind")
     local descriptor = ctx.g.nativePhysical and ctx.g.nativePhysical.values[value]
     if descriptor then
         physical.validate(descriptor)
@@ -374,7 +374,7 @@ function nativegraph.readBinding(ctx: any, node: any, key: any, value: integer, 
     return value
 end
 
-function nativegraph.checkedPragma(ctx: any, node: any): nil
+export function checkedPragma(ctx: any, node: any): nil
     need(
         ctx.g.nativePhysical
         and node.name
@@ -385,7 +385,7 @@ function nativegraph.checkedPragma(ctx: any, node: any): nil
     )
 end
 
-function nativegraph.cast(ctx: any, node: any, expected: string?): integer?
+export function cast(ctx: any, node: any, expected: string?): integer?
     local sidecar = need(ctx.g.nativePhysical, "physical pointer casts require explicit target")
     local from, to = exactKind(node.expr.inferredType), exactKind(node.inferredType)
     if projectedKinds[from] then
@@ -418,7 +418,7 @@ function nativegraph.cast(ctx: any, node: any, expected: string?): integer?
     return value
 end
 
-function nativegraph.construction(ctx: any, node: any, expected: string?): integer?
+export function construction(ctx: any, node: any, expected: string?): integer?
     local sidecar = need(ctx.g.nativePhysical, "physical local requires explicit target")
     need(
         ctx.g.native.abi == "leaf" and ctx.block == ctx.g.blocks[1],
@@ -441,11 +441,11 @@ function nativegraph.construction(ctx: any, node: any, expected: string?): integ
     return value
 end
 
-function nativegraph.fieldRead(ctx: any, node: any, expected: string?): integer?
+export function fieldRead(ctx: any, node: any, expected: string?): integer?
     local checked = node.obj.inferredType
     local raw = checked and (checked.tag == "borrowed" or checked.tag == "affine") and checked.inner or checked
     if not raw or exactKind(raw) ~= "ptr" then
-        return nativegraph.constant(ctx, node, expected)
+        return constant(ctx, node, expected)
     end
     local sidecar = need(ctx.g.nativePhysical, "physical field requires explicit target")
     local receiver = ctx.expression(node.obj, "voidptr")
@@ -462,9 +462,9 @@ function nativegraph.fieldRead(ctx: any, node: any, expected: string?): integer?
     local access = physical.field(descriptor, node, false, sidecar.signature, ctx.fn)
     local pointer = access.storage.machineKind == "voidptr"
     local boolean = access.valueType.tag == "boolean"
-    local kind = pointer and "voidptr" or boolean and "boolean" or physical.integerField(access)
-    need(expected == nil or expected == kind, "physical field changes projected result kind")
-    local value = ctx.emit(node, "NativeFieldLoad", {receiver, access}, kind)
+    local vkind = pointer and "voidptr" or boolean and "boolean" or physical.integerField(access)
+    need(expected == nil or expected == vkind, "physical field changes projected result kind")
+    local value = ctx.emit(node, "NativeFieldLoad", {receiver, access}, vkind)
     if pointer then
         sidecar.values[value] = access.storage
     end
@@ -474,7 +474,7 @@ end
 
 -- The common walker retains this receiver before evaluating any RHS. The
 -- write reuses the checked field contract and emits a normal memory store.
-function nativegraph.assignmentTarget(ctx: any, node: any, rhs: any): any
+export function assignmentTarget(ctx: any, node: any, rhs: any): any
     local sidecar = need(ctx.g.nativePhysical, "physical assignment requires explicit target")
     need(node.kind == "dotIndex", "physical assignment requires a checked field")
     local receiver = ctx.expression(node.obj, "voidptr")
@@ -494,27 +494,27 @@ function nativegraph.assignmentTarget(ctx: any, node: any, rhs: any): any
         return {receiver = receiver, access = access, kind = fieldKind, rhs = rhs}
     end
     physical.integerField(access)
-    local kind = exactKind(rhs.inferredType)
+    local vkind = exactKind(rhs.inferredType)
     -- Unsuffixed integer literals have no raw word representation until this
     -- checked store requests one. General number/integer bindings still refuse.
     local literal = rhs
     while literal.kind == "paren" do
         literal = literal.expr
     end
-    if (kind == "integer" or kind == "number")
+    if (vkind == "integer" or vkind == "number")
         and (
             literal.kind == "number"
             or literal.kind == "unop" and literal.op.text == "-" and literal.operand.kind == "number"
         )
     then
-        kind = "int64"
+        vkind = "int64"
     end
-    need(integerKinds[kind], "physical store requires an exact integer RHS")
+    need(integerKinds[vkind], "physical store requires an exact integer RHS")
 
-    return {receiver = receiver, access = access, kind = kind}
+    return {receiver = receiver, access = access, kind = vkind}
 end
 
-function nativegraph.assignTarget(ctx: any, node: any, target: any, receiver: integer, value: integer): nil
+export function assignTarget(ctx: any, node: any, target: any, receiver: integer, value: integer): nil
     local access = physical.rebindField(ctx.g, target.access, ctx.g.nativePhysical.values[receiver])
     local retention = nil
     if access.storage.machineKind == "voidptr" then
@@ -547,20 +547,20 @@ function nativegraph.assignTarget(ctx: any, node: any, target: any, receiver: in
     )
 end
 
-function nativegraph.emit(ctx: any, node: any, op: string, args: any, kind: string?): integer?
-    local value = graph.emitNative(ctx.g, ctx.block, op, args, kind, ctx.position(node))
+export function emit(ctx: any, node: any, op: string, args: any, vkind: string?): integer?
+    local value = graph.emitNative(ctx.g, ctx.block, op, args, vkind, ctx.position(node))
     finalframe.record(ctx, node, op, args)
     service.recordArena(ctx, node, op, args)
     return value
 end
 
-function nativegraph.finish(ctx: any): nil
+export function finish(ctx: any): nil
     service.finish(ctx.g)
     unit.finish(ctx.fn)
     finalframe.finish(ctx)
 end
 
-function nativegraph.resolveCallee(ctx: any, call: any): (boolean, any)
+export function resolveCallee(ctx: any, call: any): (boolean, any)
     local redirected = service.target(ctx, call)
     if redirected then
         return true, redirected
@@ -617,7 +617,7 @@ local function leafDeclaration(ctx: any, call: any, target: any): any
     )
 end
 
-function nativegraph.declaration(ctx: any, call: any, target: any): any
+export function declaration(ctx: any, call: any, target: any): any
     if service.redirect(ctx, call) then
         return leafDeclaration(ctx, call, target)
     end
@@ -638,8 +638,8 @@ function nativegraph.declaration(ctx: any, call: any, target: any): any
     then
         return leafDeclaration(ctx, call, target)
     end
-    for _, kind in ipairs(target.paramKinds) do
-        need(exactKinds[kind], "composed helper requires exact parameter kinds")
+    for _, vkind in ipairs(target.paramKinds) do
+        need(exactKinds[vkind], "composed helper requires exact parameter kinds")
     end
     need(result == "nil" or exactKinds[result], "composed helper requires exact result kind")
     need(
@@ -668,8 +668,8 @@ function nativegraph.declaration(ctx: any, call: any, target: any): any
     }
 end
 
-function nativegraph.inlineContract(ctx: any, call: any, target: any, returns: boolean): any
-    local declaration = nativegraph.declaration(ctx, call, target)
+export function inlineContract(ctx: any, call: any, target: any, returns: boolean): any
+    local decl = declaration(ctx, call, target)
     need(target.nativeABI ~= "support", "support functions require tail transfer")
     need(
         returns and target.resultKind == ctx.fn.resultKind
@@ -677,7 +677,7 @@ function nativegraph.inlineContract(ctx: any, call: any, target: any, returns: b
         "helper continuation differs from its result"
     )
 
-    return declaration
+    return decl
 end
 
 local function helperDeclaration(ctx: any, n: any, moduleName: string, name: string): any
@@ -707,7 +707,7 @@ local function helperDeclaration(ctx: any, n: any, moduleName: string, name: str
     }
 end
 
-function nativegraph.valueLiteral(ctx: any, node: any, expected: string?): integer
+export function valueLiteral(ctx: any, node: any, expected: string?): integer
     need(
         node.kind == "nilExpr" and expected == "voidptr" and ctx.g.nativePhysical,
         "native value literal requires pointer nil"
@@ -717,31 +717,31 @@ function nativegraph.valueLiteral(ctx: any, node: any, expected: string?): integ
     return ctx.emit(node, "NativePointer", {zero}, "voidptr")
 end
 
-function nativegraph.literal(ctx: any, n: any, expected: string?): integer
-    local emit = ctx.emit
+export function literal(ctx: any, n: any, expected: string?): integer
+    local put = ctx.emit
     if n.kind == "number" then
-        local kind = expected or exactKind(n.inferredType)
+        local vkind = expected or exactKind(n.inferredType)
         need(
-            kind == "int64" or kind == "uint64" or ctx.g.nativePhysical and projectedKinds[kind],
+            vkind == "int64" or vkind == "uint64" or ctx.g.nativePhysical and projectedKinds[vkind],
             "integer literal needs an exact integer kind"
         )
-        return emit(n, "NativeConstant", {integerText(n)}, kind) as integer
+        return put(n, "NativeConstant", {integerText(n)}, vkind) as integer
     end
     need(expected == nil or expected == "boolean", "boolean literal changes exact kind")
 
-    return emit(n, "NativeBoolean", {n.kind == "true" or n.kind == "trueExpr"}, "boolean") as integer
+    return put(n, "NativeBoolean", {n.kind == "true" or n.kind == "trueExpr"}, "boolean") as integer
 end
 
-function nativegraph.constant(ctx: any, n: any, expected: string?): integer
+export function constant(ctx: any, n: any, expected: string?): integer
     local options = ctx.options
     local scope = ctx.scope
-    local emit = ctx.emit
+    local put = ctx.emit
     if n.kind == "name" then
         local constant = scope.constants and scope.constants[n.token.definition or n.token]
         need(constant and constant.kind == "number", "name is not a checked local binding")
-        local kind = expected or exactKind(constant.inferredType)
-        need(kind == "int64" or kind == "uint64", "module constant requires an exact integer kind")
-        return emit(n, "NativeConstant", {integerText(constant)}, kind) as integer
+        local vkind = expected or exactKind(constant.inferredType)
+        need(vkind == "int64" or vkind == "uint64", "module constant requires an exact integer kind")
+        return put(n, "NativeConstant", {integerText(constant)}, vkind) as integer
     end
     local moduleName, name = member(n)
     local home = moduleName and options.modules and options.modules[moduleName]
@@ -752,13 +752,13 @@ function nativegraph.constant(ctx: any, n: any, expected: string?): integer
     )
     need(expected == "int64" or expected == "uint64", "module constant needs an exact integer kind")
 
-    return emit(n, "NativeConstant", {text}, expected) as integer
+    return put(n, "NativeConstant", {text}, expected) as integer
 end
 
-function nativegraph.unary(ctx: any, n: any, expected: string?): integer?
+export function unary(ctx: any, n: any, expected: string?): integer?
     local expression = ctx.expression
-    local emit = ctx.emit
-    local kind = exactKind(n.inferredType)
+    local put = ctx.emit
+    local vkind = exactKind(n.inferredType)
     -- The checker can mark an unsuffixed negative literal as int64 while a
     -- checked physical comparison needs the int32 field's representation.
     -- Only the original integer token may project; graph verification checks
@@ -768,45 +768,45 @@ function nativegraph.unary(ctx: any, n: any, expected: string?): integer?
         and n.op.text == "-"
         and n.operand.kind == "number"
         and (
-            kind == "integer"
-            or kind == "number"
+            vkind == "integer"
+            or vkind == "number"
             or expected == "int32"
-            and kind == "int64"
+            and vkind == "int64"
             and (n.operand.token.text:match("^%d+$") or n.operand.token.text:match("^0[xX]%x+$"))
         )
     then
-        kind = expected
+        vkind = expected
     end
-    need(expected == nil or expected == kind, "unary expression changes exact kind")
+    need(expected == nil or expected == vkind, "unary expression changes exact kind")
     if n.op.text == "not" then
         need(
-            kind == "boolean" and exactKind(n.operand.inferredType) == "boolean",
+            vkind == "boolean" and exactKind(n.operand.inferredType) == "boolean",
             "native not requires checked Boolean operand"
         )
         local value = expression(n.operand, "boolean")
         if not value then
             return nil
         end
-        local no = emit(n, "NativeBoolean", {false}, "boolean")
-        return emit(n, "NativeICmp", {value, no, "=="}, "boolean") as integer
+        local no = put(n, "NativeBoolean", {false}, "boolean")
+        return put(n, "NativeICmp", {value, no, "=="}, "boolean") as integer
     elseif n.op.text == "-"
-        and (kind == "int64" or ctx.g.nativePhysical and kind == "int32")
+        and (vkind == "int64" or ctx.g.nativePhysical and vkind == "int32")
         and n.operand.kind == "number"
     then
-        return emit(n, "NativeConstant", {"-" .. integerText(n.operand)}, kind) as integer
+        return put(n, "NativeConstant", {"-" .. integerText(n.operand)}, vkind) as integer
     elseif n.op.text == "~" then
-        need(kind == "int64" or kind == "uint64", "integer complement requires an exact kind")
-        local value = expression(n.operand, kind)
+        need(vkind == "int64" or vkind == "uint64", "integer complement requires an exact kind")
+        local value = expression(n.operand, vkind)
         if not value then
             return nil
         end
-        return emit(n, "INot", {value}, kind) as integer
-    elseif n.op.text == "-" and floatKinds[kind] then
-        local value = expression(n.operand, kind)
+        return put(n, "INot", {value}, vkind) as integer
+    elseif n.op.text == "-" and floatKinds[vkind] then
+        local value = expression(n.operand, vkind)
         if not value then
             return nil
         end
-        return emit(n, "FNeg", {value}, kind) as integer
+        return put(n, "FNeg", {value}, vkind) as integer
     end
     error("native graph: unsupported checked unary operator " .. n.op.text, 0)
 end
@@ -826,37 +826,37 @@ local function narrowedIntegerBinding(node: any): string?
     return nil
 end
 
-function nativegraph.binary(ctx: any, n: any, expected: string?): integer?
-    local emit = ctx.emit
+export function binary(ctx: any, n: any, expected: string?): integer?
+    local put = ctx.emit
     local operator = n.op.text
     if comparisons[operator] then
         need(expected == nil or expected == "boolean", "comparison produces a boolean")
-        local kind = narrowedIntegerBinding(n.lhs) or narrowedIntegerBinding(n.rhs) or exactKind(n.lhs.inferredType)
+        local vkind = narrowedIntegerBinding(n.lhs) or narrowedIntegerBinding(n.rhs) or exactKind(n.lhs.inferredType)
         if ctx.g.nativePhysical
             and (physical.pointerType(n.lhs.inferredType) or physical.pointerType(n.rhs.inferredType))
         then
             need(operator == "==" or operator == "~=", "pointer ordering is unsupported")
-            kind = "voidptr"
+            vkind = "voidptr"
         end
-        if not (exactKinds[kind] or ctx.g.nativePhysical and projectedKinds[kind]) then
-            kind = exactKind(n.rhs.inferredType)
+        if not (exactKinds[vkind] or ctx.g.nativePhysical and projectedKinds[vkind]) then
+            vkind = exactKind(n.rhs.inferredType)
         end
         need(
-            exactKinds[kind] or ctx.g.nativePhysical and projectedKinds[kind],
+            exactKinds[vkind] or ctx.g.nativePhysical and projectedKinds[vkind],
             "comparison needs an exact operand kind"
         )
-        local operands = ctx.operands({n.lhs, n.rhs}, {kind, kind})
+        local operands = ctx.operands({n.lhs, n.rhs}, {vkind, vkind})
         if not operands then
             return nil
         end
         local lhs, rhs = operands[1], operands[2]
-        return emit(n, floatKinds[kind] and "NativeFCmp" or "NativeICmp", {lhs, rhs, operator}, "boolean") as integer
+        return put(n, floatKinds[vkind] and "NativeFCmp" or "NativeICmp", {lhs, rhs, operator}, "boolean") as integer
     end
-    local kind = exactKind(n.inferredType)
-    need(kind == "int64" or kind == "uint64" or floatKinds[kind], "exact scalar arithmetic required")
-    need(expected == nil or expected == kind, "arithmetic changes exact kind")
-    if kind == "int64" and (operator == "//" or operator == "%") then
-        local operands = ctx.operands({n.lhs, n.rhs}, {kind, kind})
+    local vkind = exactKind(n.inferredType)
+    need(vkind == "int64" or vkind == "uint64" or floatKinds[vkind], "exact scalar arithmetic required")
+    need(expected == nil or expected == vkind, "arithmetic changes exact kind")
+    if vkind == "int64" and (operator == "//" or operator == "%") then
+        local operands = ctx.operands({n.lhs, n.rhs}, {vkind, vkind})
         if not operands then
             return nil
         end
@@ -864,44 +864,44 @@ function nativegraph.binary(ctx: any, n: any, expected: string?): integer?
         -- Lua floors: truncate, then step toward negative infinity when the
         -- remainder is nonzero and its sign differs from the divisor's. A
         -- zero divisor is the caller's to exclude; the machine yields zero.
-        local quotient = emit(n, "NativeSDiv", {lhs, rhs}, kind) as integer
-        local remainder = emit(n, "NativeSRem", {lhs, rhs}, kind) as integer
-        local zero = emit(n, "NativeConstant", {"0"}, kind) as integer
-        local nonzero = emit(n, "NativeICmp", {remainder, zero, "~="}, "boolean") as integer
-        local signs = emit(n, "IXor", {remainder, rhs}, kind) as integer
-        local differ = emit(n, "NativeICmp", {signs, zero, "<"}, "boolean") as integer
+        local quotient = put(n, "NativeSDiv", {lhs, rhs}, vkind) as integer
+        local remainder = put(n, "NativeSRem", {lhs, rhs}, vkind) as integer
+        local zero = put(n, "NativeConstant", {"0"}, vkind) as integer
+        local nonzero = put(n, "NativeICmp", {remainder, zero, "~="}, "boolean") as integer
+        local signs = put(n, "IXor", {remainder, rhs}, vkind) as integer
+        local differ = put(n, "NativeICmp", {signs, zero, "<"}, "boolean") as integer
         local exact, stepped
         if operator == "//" then
-            local one = emit(n, "NativeConstant", {"1"}, kind) as integer
-            exact, stepped = quotient, emit(n, "ISub", {quotient, one}, kind) as integer
+            local one = put(n, "NativeConstant", {"1"}, vkind) as integer
+            exact, stepped = quotient, put(n, "ISub", {quotient, one}, vkind) as integer
         else
-            exact, stepped = remainder, emit(n, "IAdd", {remainder, rhs}, kind) as integer
+            exact, stepped = remainder, put(n, "IAdd", {remainder, rhs}, vkind) as integer
         end
-        local adjusted = emit(n, "NativeSelect", {differ, stepped, exact}, kind) as integer
+        local adjusted = put(n, "NativeSelect", {differ, stepped, exact}, vkind) as integer
 
-        return emit(n, "NativeSelect", {nonzero, adjusted, exact}, kind) as integer
+        return put(n, "NativeSelect", {nonzero, adjusted, exact}, vkind) as integer
     end
     local op = need(
-        kind == "uint64" and operator == "//" and "NativeUDiv"
-        or kind == "uint64" and operator == "%" and "NativeURem"
-        or (floatKinds[kind] and floatArithmetic or arithmetic)[operator],
+        vkind == "uint64" and operator == "//" and "NativeUDiv"
+        or vkind == "uint64" and operator == "%" and "NativeURem"
+        or (floatKinds[vkind] and floatArithmetic or arithmetic)[operator],
         "unsupported arithmetic operator"
     )
-    local operands = ctx.operands({n.lhs, n.rhs}, {kind, kind})
+    local operands = ctx.operands({n.lhs, n.rhs}, {vkind, vkind})
     if not operands then
         return nil
     end
     local lhs, rhs = operands[1], operands[2]
 
-    return emit(n, op, {lhs, rhs}, kind) as integer
+    return put(n, op, {lhs, rhs}, vkind) as integer
 end
 
 -- The shared frontend owns the CFG; this profile only admits and compares an
 -- exact numeric case. Guarded, type and computed cases remain outside it.
-function nativegraph.switchCase(ctx: any, value: any, subject: integer, kind: string): integer
-    need(kind == "int64" or kind == "uint64", "native switch needs an exact integer selector")
+export function switchCase(ctx: any, value: any, subject: integer, vkind: string): integer
+    need(vkind == "int64" or vkind == "uint64", "native switch needs an exact integer selector")
     need(value.kind == "number", "native switch case needs a numeric literal")
-    local candidate = need(ctx.expression(value, kind), "native switch case lost its value")
+    local candidate = need(ctx.expression(value, vkind), "native switch case lost its value")
 
     return ctx.emit(value, "NativeICmp", {subject, candidate, "=="}, "boolean") as integer
 end
@@ -909,27 +909,27 @@ end
 -- A call of a `cdef function` (nativeos.foreign): its value, nil when it
 -- answers nothing or an operand stopped the block.
 local function foreignCall(ctx: any, n: any, expected: string?, value: boolean): integer?
-    local declaration = nativeos.foreign(ctx.fn, n, expected)
-    need(not value or declaration.result ~= "nil", "void foreign call is a statement")
-    need(expected == nil or expected == declaration.result, "foreign result changes exact kind")
-    local operands = ctx.operands(n.args.exprs or {}, declaration.params)
+    local decl = nativeos.foreign(ctx.fn, n, expected)
+    need(not value or decl.result ~= "nil", "void foreign call is a statement")
+    need(expected == nil or expected == decl.result, "foreign result changes exact kind")
+    local operands = ctx.operands(n.args.exprs or {}, decl.params)
     if operands == nil then
         return nil
     end
-    local result = declaration.result ~= "nil" and declaration.result or nil
+    local result = decl.result ~= "nil" and decl.result or nil
 
-    return ctx.emit(n, "NativeHelperCall", {declaration, table.unpack(operands)}, result) as integer?
+    return ctx.emit(n, "NativeHelperCall", {decl, table.unpack(operands)}, result) as integer?
 end
 
-function nativegraph.call(ctx: any, n: any, expected: string?): integer?
+export function call(ctx: any, n: any, expected: string?): integer?
     if service.raise(ctx, n) then
-        nativegraph.statementCall(ctx, n)
+        statementCall(ctx, n)
         return nil
     end
     local options = ctx.options
     local leaf = ctx.g.native.abi == "leaf"
     local expression = ctx.expression
-    local emit = ctx.emit
+    local put = ctx.emit
     local moduleName, name = member(n.obj)
     local args = n.args.exprs or {}
     if n.ownershipIntrinsic == "borrowFrom" then
@@ -950,33 +950,33 @@ function nativegraph.call(ctx: any, n: any, expected: string?): integer?
             ),
             "borrowFrom source dependency differs"
         )
-        local value = emit(n, "NativeBorrowPointer", {operands[1], operands[2], contract}, "voidptr")
+        local value = put(n, "NativeBorrowPointer", {operands[1], operands[2], contract}, "voidptr")
         ctx.g.nativePhysical.values[value] = contract.target
         return value
     end
     local target = ctx.callee(n)
     if target and target.nativeABI ~= "support" then
         ctx.checkedCallee(n, target)
-        local declaration = leafDeclaration(ctx, n, target)
-        declaration = service.declaration(ctx, n, target, declaration)
-        need(declaration.abi == "leaf", "scalar call requires leaf ABI")
-        need(declaration.result ~= "nil", "void leaf cannot be consumed as a value")
-        need(expected == nil or expected == declaration.result, "leaf call changes exact result kind")
-        local operands = ctx.operands(args, service.sourceParameters(ctx, n, declaration))
+        local decl = leafDeclaration(ctx, n, target)
+        decl = service.declaration(ctx, n, target, decl)
+        need(decl.abi == "leaf", "scalar call requires leaf ABI")
+        need(decl.result ~= "nil", "void leaf cannot be consumed as a value")
+        need(expected == nil or expected == decl.result, "leaf call changes exact result kind")
+        local operands = ctx.operands(args, service.sourceParameters(ctx, n, decl))
         if not operands then
             return nil
         end
-        operands = service.operands(ctx, declaration, operands)
-        bindLocalCalls(ctx, declaration, operands)
-        table.insert(operands, 1, declaration)
+        operands = service.operands(ctx, decl, operands)
+        bindLocalCalls(ctx, decl, operands)
+        table.insert(operands, 1, decl)
         if ctx.g.nativeService and service.needsCleanup(ctx.g.nativeService) then
             ctx.beforeCall(n)
         end
-        local value = emit(n, "NativeLeafCall", operands, declaration.result) as integer
-        if declaration.physical and declaration.physical.result then
-            ctx.g.nativePhysical.values[value] = declaration.physical.result
+        local value = put(n, "NativeLeafCall", operands, decl.result) as integer
+        if decl.physical and decl.physical.result then
+            ctx.g.nativePhysical.values[value] = decl.physical.result
         end
-        return service.afterCall(ctx, n, declaration, value)
+        return service.afterCall(ctx, n, decl, value)
     elseif nativeos.isForeign(n) then
         return foreignCall(ctx, n, expected, true)
     elseif moduleName == "nupp.runtime.vm.frames" then
@@ -990,7 +990,7 @@ function nativegraph.call(ctx: any, n: any, expected: string?): integer?
             return nil
         end
         operands[#operands + 1] = access
-        return emit(
+        return put(
             n,
             access.kind == "status" and "FrameStatus" or (access.kind == "recover" and "FrameRecover" or "FrameWindow"),
             operands,
@@ -1005,7 +1005,7 @@ function nativegraph.call(ctx: any, n: any, expected: string?): integer?
             return nil
         end
         local base, offset = operands[1], operands[2]
-        return emit(n, "ProgramLoad", {base, offset, contract}, contract.result) as integer
+        return put(n, "ProgramLoad", {base, offset, contract}, contract.result) as integer
     elseif moduleName == "nupp.runtime.vm.slots" then
         local contract = slotcontract.read(n.obj.name.definition, name as string)
         need(not contract.write, "slot write is a statement")
@@ -1017,7 +1017,7 @@ function nativegraph.call(ctx: any, n: any, expected: string?): integer?
                 return nil
             end
             operands[3] = contract
-            return emit(n, "FrameVarargRead", operands, contract.kind) as integer
+            return put(n, "FrameVarargRead", operands, contract.kind) as integer
         end
         signature(n, {"voidptr", "voidptr", "int64"}, contract.kind)
         need(expected == nil or expected == contract.kind, "slot read changes exact kind")
@@ -1026,38 +1026,38 @@ function nativegraph.call(ctx: any, n: any, expected: string?): integer?
             return nil
         end
         local frame, window, slot = operands[1], operands[2], operands[3]
-        return emit(n, "FrameSlotRead", {frame, window, slot, contract}, contract.kind) as integer
+        return put(n, "FrameSlotRead", {frame, window, slot, contract}, contract.kind) as integer
     elseif moduleName == "nupp.runtime.vm.os" then
-        local declaration = nativeos.call(ctx.fn, n)
-        need(declaration.name ~= "unmapPages", "unmap is a source statement")
-        need(expected == nil or expected == declaration.result, "OS result changes exact kind")
-        local operands = ctx.operands(args, declaration.params)
+        local decl = nativeos.call(ctx.fn, n)
+        need(decl.name ~= "unmapPages", "unmap is a source statement")
+        need(expected == nil or expected == decl.result, "OS result changes exact kind")
+        local operands = ctx.operands(args, decl.params)
         if not operands then
             return nil
         end
-        table.insert(operands, 1, declaration)
-        local value = emit(n, "NativeHelperCall", operands, declaration.result) as integer
-        local descriptor = nativeos.result(declaration)
+        table.insert(operands, 1, decl)
+        local value = put(n, "NativeHelperCall", operands, decl.result) as integer
+        local descriptor = nativeos.result(decl)
         if descriptor then
             need(ctx.g.nativePhysical, "OS pointer result requires physical context")
             ctx.g.nativePhysical.values[value] = descriptor
         end
         return value
     elseif moduleName and options.helperModules and options.helperModules[moduleName] then
-        local declaration = helperDeclaration(ctx, n, moduleName, name as string)
-        need(declaration.result ~= "nil", "helper effect is a statement")
-        need(expected == nil or expected == declaration.result, "helper changes exact result kind")
-        local operands = ctx.operands(args, declaration.params)
+        local decl = helperDeclaration(ctx, n, moduleName, name as string)
+        need(decl.result ~= "nil", "helper effect is a statement")
+        need(expected == nil or expected == decl.result, "helper changes exact result kind")
+        local operands = ctx.operands(args, decl.params)
         if not operands then
             return nil
         end
-        table.insert(operands, 1, declaration)
-        return emit(n, "NativeHelperCall", operands, declaration.result) as integer
+        table.insert(operands, 1, decl)
+        return put(n, "NativeHelperCall", operands, decl.result) as integer
     elseif moduleName == "nupp.runtime.vm.intrinsics" and (name == "sizeOf" or name == "alignmentOf") then
         signature(n, {}, "uint64")
         need(expected == nil or expected == "uint64", "native type layout changes exact kind")
         local property = name == "sizeOf" and "size" or "alignment"
-        return emit(
+        return put(
             n,
             "NativeConstant",
             {nativelayout.constant(n, property, ctx.g.nativePhysical and ctx.g.nativePhysical.context.target or nil)},
@@ -1066,7 +1066,7 @@ function nativegraph.call(ctx: any, n: any, expected: string?): integer?
     elseif moduleName == "nupp.runtime.vm.intrinsics" and name == "fieldOffset" then
         signature(n, {"string"}, "int64")
         need(expected == nil or expected == "int64", "native field offset changes exact kind")
-        return emit(
+        return put(
             n,
             "NativeConstant",
             {nativelayout.fieldOffset(n, ctx.g.nativePhysical and ctx.g.nativePhysical.context.target or nil)},
@@ -1076,7 +1076,7 @@ function nativegraph.call(ctx: any, n: any, expected: string?): integer?
         signature(n, {"string"}, "int64")
         need(expected == nil or expected == "int64", "layout offset changes exact kind")
         need(args[1].kind == "string", "literal ABI layout name required")
-        return emit(n, "NativeLayout", {args[1].token.value or args[1].token.text:sub(2, -2)}, "int64") as integer
+        return put(n, "NativeLayout", {args[1].token.value or args[1].token.text:sub(2, -2)}, "int64") as integer
     elseif moduleName == "nupp.runtime.vm.intrinsics" and memoryIntrinsics[name] then
         local access = memoryContract(memoryIntrinsics[name], leaf)
         need(not access.write, "native memory write is a statement")
@@ -1087,7 +1087,7 @@ function nativegraph.call(ctx: any, n: any, expected: string?): integer?
             return nil
         end
         operands[3] = access
-        return emit(n, "NativeLoad", operands, access.kind) as integer
+        return put(n, "NativeLoad", operands, access.kind) as integer
     elseif moduleName == "nupp.runtime.vm.intrinsics" and intrinsicCalls[name] then
         local operation = intrinsicCalls[name]
         signature(n, operation.params, operation.result)
@@ -1096,7 +1096,7 @@ function nativegraph.call(ctx: any, n: any, expected: string?): integer?
         if not operands then
             return nil
         end
-        return emit(n, operation.op, operands, operation.result) as integer
+        return put(n, operation.op, operands, operation.result) as integer
     elseif moduleName == "nupp.runtime.vm.intrinsics" and intrinsicUnary[name] then
         local operation = intrinsicUnary[name]
         signature(n, {operation[2]}, operation[3])
@@ -1108,9 +1108,9 @@ function nativegraph.call(ctx: any, n: any, expected: string?): integer?
         local descriptor = ctx.g.nativePhysical and ctx.g.nativePhysical.values[operand]
         if operation[1] == "NativeAddress" and descriptor and #descriptor.ownership ~= 0 then
             local contract = physical.address(ctx.fn, descriptor, n)
-            return emit(n, "NativeBorrowAddress", {operand, contract}, "uint64") as integer
+            return put(n, "NativeBorrowAddress", {operand, contract}, "uint64") as integer
         end
-        local value = emit(n, operation[1], {operand}, operation[3]) as integer
+        local value = put(n, operation[1], {operand}, operation[3]) as integer
         if ctx.g.nativePhysical and operation[1] == "NativePointer" then
             local descriptor = physical.describe(ctx.g.nativePhysical.context, n.inferredType)
             need(
@@ -1128,7 +1128,7 @@ function nativegraph.call(ctx: any, n: any, expected: string?): integer?
             return nil
         end
         local base, offset = operands[1], operands[2]
-        local value = emit(n, "PointerOffset", {base, offset}, "voidptr") as integer
+        local value = put(n, "PointerOffset", {base, offset}, "voidptr") as integer
         service.arenaOffset(ctx, n, value)
         if ctx.g.nativePhysical and not ctx.g.nativePhysical.values[value] then
             local descriptor = physical.describe(ctx.g.nativePhysical.context, n.inferredType)
@@ -1143,76 +1143,76 @@ function nativegraph.call(ctx: any, n: any, expected: string?): integer?
     error("native graph: unsupported checked call " .. tostring(moduleName) .. "." .. tostring(name), 0)
 end
 
-function nativegraph.statementCall(ctx: any, call: any): nil
+export function statementCall(ctx: any, callsite: any): nil
     local options = ctx.options
     local leaf = ctx.g.native.abi == "leaf"
     local expression = ctx.expression
-    local emit = ctx.emit
-    local moduleName, name = member(call.obj)
-    local args = call.args.exprs or {}
-    local raising = service.raise(ctx, call)
+    local put = ctx.emit
+    local moduleName, name = member(callsite.obj)
+    local args = callsite.args.exprs or {}
+    local raising = service.raise(ctx, callsite)
     if raising then
         need(type(ctx.fail) == "function", "service failure cleanup is not installed")
         local target = raising.target
-        local declaration = leafDeclaration(ctx, call, target)
-        declaration = service.declaration(ctx, call, target, declaration)
-        local code = emit(call, "NativeConstant", {"1"}, "uint64")
-        local owner = emit(call, "NativeConstant", {tostring(raising.owner)}, "uint64")
-        local site = emit(call, "NativeConstant", {tostring(raising.site)}, "uint64")
-        emit(call, "NativeLeafCall", {declaration, service.scope(ctx), code, owner, site}, nil)
-        ctx.fail(call)
-    elseif service.redirect(ctx, call) then
-        local target = service.target(ctx, call)
-        local declaration = leafDeclaration(ctx, call, target)
-        need(declaration.result == "nil", "OS scalar result must be bound")
-        declaration = service.declaration(ctx, call, target, declaration)
-        local operands = ctx.operands(args, service.sourceParameters(ctx, call, declaration))
+        local decl = leafDeclaration(ctx, callsite, target)
+        decl = service.declaration(ctx, callsite, target, decl)
+        local code = put(callsite, "NativeConstant", {"1"}, "uint64")
+        local owner = put(callsite, "NativeConstant", {tostring(raising.owner)}, "uint64")
+        local site = put(callsite, "NativeConstant", {tostring(raising.site)}, "uint64")
+        put(callsite, "NativeLeafCall", {decl, service.scope(ctx), code, owner, site}, nil)
+        ctx.fail(callsite)
+    elseif service.redirect(ctx, callsite) then
+        local target = service.target(ctx, callsite)
+        local decl = leafDeclaration(ctx, callsite, target)
+        need(decl.result == "nil", "OS scalar result must be bound")
+        decl = service.declaration(ctx, callsite, target, decl)
+        local operands = ctx.operands(args, service.sourceParameters(ctx, callsite, decl))
         if not operands then
             return nil
         end
-        operands = service.operands(ctx, declaration, operands)
-        bindLocalCalls(ctx, declaration, operands)
-        table.insert(operands, 1, declaration)
+        operands = service.operands(ctx, decl, operands)
+        bindLocalCalls(ctx, decl, operands)
+        table.insert(operands, 1, decl)
         if ctx.g.nativeService and service.needsCleanup(ctx.g.nativeService) then
-            ctx.beforeCall(call)
+            ctx.beforeCall(callsite)
         end
-        emit(call, "NativeLeafCall", operands, nil)
-        local _ = service.afterCall(ctx, call, declaration, nil)
-    elseif nativeos.isForeign(call) then
-        local _ = foreignCall(ctx, call, nil, false)
+        put(callsite, "NativeLeafCall", operands, nil)
+        local _ = service.afterCall(ctx, callsite, decl, nil)
+    elseif nativeos.isForeign(callsite) then
+        local _ = foreignCall(ctx, callsite, nil, false)
     elseif moduleName == "nupp.runtime.vm.slots" then
-        local contract = slotcontract.read(call.obj.name.definition, name as string)
+        local contract = slotcontract.read(callsite.obj.name.definition, name as string)
         need(contract.write, "slot read is not a statement")
-        signature(call, {"voidptr", "voidptr", "int64", contract.kind}, "nil")
+        signature(callsite, {"voidptr", "voidptr", "int64", contract.kind}, "nil")
         local operands = ctx.operands(args, {"voidptr", "voidptr", "int64", contract.kind})
         if not operands then
             return nil
         end
         local frame, window, slot, value = operands[1], operands[2], operands[3], operands[4]
-        emit(call, "FrameSlotWrite", {frame, window, slot, value, contract}, nil)
+        put(callsite, "FrameSlotWrite", {frame, window, slot, value, contract}, nil)
     elseif moduleName == "nupp.runtime.vm.intrinsics" and memoryIntrinsics[name] then
         local access = memoryContract(memoryIntrinsics[name], leaf)
         need(access.write, "native memory read is not a statement")
-        signature(call, {"voidptr", "int64", access.kind}, "nil")
+        signature(callsite, {"voidptr", "int64", access.kind}, "nil")
         local operands = ctx.operands(args, {"voidptr", "int64", access.kind})
         if not operands then
             return nil
         end
         operands[4] = access
-        emit(call, "NativeStore", operands, nil)
+        put(callsite, "NativeStore", operands, nil)
     elseif moduleName == "nupp.runtime.vm.os" then
-        local declaration = nativeos.call(ctx.fn, call)
-        need(declaration.name == "unmapPages", "OS scalar result must be bound")
-        local operands = ctx.operands(args, declaration.params)
+        local decl = nativeos.call(ctx.fn, callsite)
+        need(decl.name == "unmapPages", "OS scalar result must be bound")
+        local operands = ctx.operands(args, decl.params)
         if not operands then
             return nil
         end
-        table.insert(operands, 1, declaration)
-        local status = emit(call, "NativeHelperCall", operands, "uint64") as integer
-        local out = nativeos.status(declaration)
-        local offset = emit(call, "NativeConstant", {tostring(out.offset)}, "int64") as integer
-        emit(
-            call,
+        table.insert(operands, 1, decl)
+        local status = put(callsite, "NativeHelperCall", operands, "uint64") as integer
+        local out = nativeos.status(decl)
+        local offset = put(callsite, "NativeConstant", {tostring(out.offset)}, "int64") as integer
+        put(
+            callsite,
             "NativeStore",
             {
                 out.parameter,
@@ -1223,44 +1223,44 @@ function nativegraph.statementCall(ctx: any, call: any): nil
             nil
         )
     elseif moduleName and options.helperModules and options.helperModules[moduleName] then
-        local declaration = helperDeclaration(ctx, call, moduleName, name as string)
-        need(declaration.result == "nil", "helper result must be bound explicitly")
-        local operands = ctx.operands(args, declaration.params)
+        local decl = helperDeclaration(ctx, callsite, moduleName, name as string)
+        need(decl.result == "nil", "helper result must be bound explicitly")
+        local operands = ctx.operands(args, decl.params)
         if not operands then
             return nil
         end
-        table.insert(operands, 1, declaration)
-        emit(call, "NativeHelperCall", operands, nil)
-    elseif ctx.callee(call) then
-        local target = ctx.callee(call)
+        table.insert(operands, 1, decl)
+        put(callsite, "NativeHelperCall", operands, nil)
+    elseif ctx.callee(callsite) then
+        local target = ctx.callee(callsite)
         if target.nativeABI ~= "support" and target.resultKind == "nil" then
-            ctx.checkedCallee(call, target)
-            local declaration = leafDeclaration(ctx, call, target)
-            declaration = service.declaration(ctx, call, target, declaration)
-            need(declaration.result == "nil", "void statement requires a checked void leaf")
-            local operands = ctx.operands(args, service.sourceParameters(ctx, call, declaration))
+            ctx.checkedCallee(callsite, target)
+            local decl = leafDeclaration(ctx, callsite, target)
+            decl = service.declaration(ctx, callsite, target, decl)
+            need(decl.result == "nil", "void statement requires a checked void leaf")
+            local operands = ctx.operands(args, service.sourceParameters(ctx, callsite, decl))
             if not operands then
                 return nil
             end
-            operands = service.operands(ctx, declaration, operands)
-            bindLocalCalls(ctx, declaration, operands)
-            table.insert(operands, 1, declaration)
+            operands = service.operands(ctx, decl, operands)
+            bindLocalCalls(ctx, decl, operands)
+            table.insert(operands, 1, decl)
             if ctx.g.nativeService and service.needsCleanup(ctx.g.nativeService) then
-                ctx.beforeCall(call)
+                ctx.beforeCall(callsite)
             end
-            emit(call, "NativeLeafCall", operands, nil)
-            local _ = service.afterCall(ctx, call, declaration, nil)
+            put(callsite, "NativeLeafCall", operands, nil)
+            local _ = service.afterCall(ctx, callsite, decl, nil)
         elseif leaf and target.nativeABI ~= "support" then
-            expression(call, nil)
+            expression(callsite, nil)
         else
-            ctx.inline(call, target, false)
+            ctx.inline(callsite, target, false)
         end
     else
         error("native graph: unsupported checked statement call", 0)
     end
 end
 
-function nativegraph.returnStatement(ctx: any, stat: any): nil
+export function returnStatement(ctx: any, stat: any): nil
     local fn = ctx.fn
     local leaf = ctx.g.native.abi == "leaf"
     local expression = ctx.expression
@@ -1302,12 +1302,12 @@ function nativegraph.returnStatement(ctx: any, stat: any): nil
         ctx.block = nil
     else
         need(#stat.exprs == 1 and stat.exprs[1].kind == "call", "native transfer return required")
-        local call = stat.exprs[1]
-        local moduleName, name = member(call.obj)
-        local target = ctx.callee(call)
+        local callsite = stat.exprs[1]
+        local moduleName, name = member(callsite.obj)
+        local target = ctx.callee(callsite)
         if moduleName == "nupp.runtime.vm.intrinsics" and name == "dispatch" then
-            signature(call, {"voidptr", "voidptr", "voidptr", "voidptr", "voidptr", "voidptr"}, "uint64")
-            local args = ctx.operands(call.args.exprs, {
+            signature(callsite, {"voidptr", "voidptr", "voidptr", "voidptr", "voidptr", "voidptr"}, "uint64")
+            local args = ctx.operands(callsite.args.exprs, {
                 "voidptr",
                 "voidptr",
                 "voidptr",
@@ -1321,28 +1321,22 @@ function nativegraph.returnStatement(ctx: any, stat: any): nil
             ctx.block.term = {kind = "dispatch", args = args, edges = {}, pos = ctx.position(stat)}
             ctx.block = nil
         elseif moduleName == "nupp.runtime.vm.intrinsics" and name == "fail" then
-            signature(call, {}, "uint64")
+            signature(callsite, {}, "uint64")
             ctx.block.term = {kind = "nativeFail", edges = {}, pos = ctx.position(stat)}
             ctx.block = nil
         elseif target and target.nativeABI == "support" then
-            local declaration = ctx.checkedCallee(call, target)
-            need(declaration.result == "uint64", "support transfer requires a status result")
-            declaration.abi = "support"
-            declaration.effects = {mayCollect = true, mayPark = true, mayRaise = true, pure = false}
-            local args = ctx.operands(call.args.exprs, declaration.params)
+            local decl = ctx.checkedCallee(callsite, target)
+            need(decl.result == "uint64", "support transfer requires a status result")
+            decl.abi = "support"
+            decl.effects = {mayCollect = true, mayPark = true, mayRaise = true, pure = false}
+            local args = ctx.operands(callsite.args.exprs, decl.params)
             if not args then
                 return
             end
-            ctx.block.term = {
-                kind = "nativeTail",
-                callee = declaration,
-                args = args,
-                edges = {},
-                pos = ctx.position(stat)
-            }
+            ctx.block.term = {kind = "nativeTail", callee = decl, args = args, edges = {}, pos = ctx.position(stat)}
             ctx.block = nil
         elseif target then
-            ctx.inline(call, target, true)
+            ctx.inline(callsite, target, true)
         else
             error("native graph: unsupported checked transfer", 0)
         end
@@ -1350,7 +1344,7 @@ function nativegraph.returnStatement(ctx: any, stat: any): nil
 end
 
 -- Only an authenticated void leaf may end without an explicit return.
-function nativegraph.fallthrough(ctx: any, node: any): nil
+export function fallthrough(ctx: any, node: any): nil
     need(ctx.g.native.abi == "leaf" and ctx.g.native.result == "nil", "native scalar or handler cannot fall through")
     need(
         graph.nativeLeafDeclaration(
@@ -1367,9 +1361,8 @@ function nativegraph.fallthrough(ctx: any, node: any): nil
 end
 
 -- Compatibility entry only; the shared lowering owns all CST traversal.
-function nativegraph.compile(fn: any, options: any): any
+export function compile(fn: any, options: any): any
     local functiongraph = require("nupp.compiler.vm.functiongraph")
-    return functiongraph.compile(fn, options, nativegraph)
+    -- The profile is this module's own export table.
+    return functiongraph.compile(fn, options, require("nupp.compiler.vm.nativegraph"))
 end
-
-export = nativegraph

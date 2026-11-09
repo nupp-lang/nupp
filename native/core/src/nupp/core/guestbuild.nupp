@@ -15,6 +15,7 @@ local cst = require("nupp.compiler.syntax.cst")
 local programgraph = require("nupp.compiler.vm.programgraph")
 local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local ownedcallables = require("nupp.compiler.vm.ownedcallables")
+local forwardedexports = require("nupp.compiler.vm.forwardedexports")
 local tagged = require("nupp.compiler.vm.taggedprofile")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
@@ -201,6 +202,12 @@ local CASES: {[string]: {
         version = 8,
         modules = {"catalog-modules-ping", "catalog-modules-pong"},
     },
+    modulesforward = {
+        fixture = "catalog-modules-forward",
+        version = 8,
+        modules = {"catalog-modules-early", "catalog-modules-copier"},
+    },
+    modulesself = {fixture = "catalog-modules-self", version = 8, modules = {"catalog-modules-mirror"}},
     callsoverflow = {fixture = "catalog-calls-overflow", version = 8},
     callsdeep = {fixture = "catalog-calls-deep", version = 8},
     callsmany = {fixture = "catalog-calls-many", version = 8},
@@ -246,8 +253,11 @@ local CASES: {[string]: {
     runnerlowering = {fixture = "catalog-runner-lowering", version = 8},
     affineconstructors = {fixture = "catalog-affine-constructors", version = 8},
     absentffi = {fixture = "catalog-absent-ffi", version = 8},
+    -- `cdef function` calls through the generic foreign call.
+    guestffi = {fixture = "catalog-guest-ffi", version = 8},
     runnerresiduals = {fixture = "catalog-runner-residuals", version = 8},
     spreadlibrary = {fixture = "catalog-spread-library", version = 8},
+    libraryresults = {fixture = "catalog-library-results", version = 8},
     processlines = {fixture = "catalog-process-lines", version = 8},
     processexit = {fixture = "catalog-process-exit", version = 8},
     gcweak = {fixture = "catalog-gc-weak", version = 8},
@@ -933,84 +943,104 @@ local function programCatalog(caseName: string, fixture: string, version: intege
         enqueue(name)
     end
     local at: integer = 1
-    while at <= #queue do
-        local name = queue[at]
-        at = at + 1
-        local path = modulePath(root, name)
-        local source = read(path)
-        local parsed = parser.parse(source, path)
-        assert(#parsed.errors == 0, "guest source parse failed: " .. name)
-        -- A library module may be named by its path alone.
-        local named = cst.declaredModule(parsed.root)
-        local rooted = name == fixture and declared ~= nil and declared.rooted == true
-        if named == nil and rooted then
-            named = assert(declared).module
-        elseif named == nil and libraryModule(name) then
-            named = (name:match("src/(.*)$") as string):gsub("%.lua$", ""):gsub("/init$", ""):gsub("/", ".")
-        end
-        local declared = assert(named, "guest module declaration required: " .. name)
-        local diagnostics
-        if project then
-            -- A fixture is checked as its staged copy; a library module
-            -- the program carries, where it lives.
-            if not libraryModule(name) and not rooted then
-                path = staged .. "/" .. declared:gsub("%.", "/") .. ".nupp"
-                assert(read(path) == source, "staged guest source differs: " .. name)
+    local forwarding = false
+    while at <= #queue or not forwarding do
+        if at > #queue then
+            -- A program a require cycle re-enters carries the factory of the
+            -- forwarders its cyclic modules publish, checked as the rest is.
+            forwarding = true
+            local present: {any} = {}
+            for _, module in ipairs(modules) do
+                present[#present + 1] = module
             end
-            local checked = project.checkFile(path)
-            parsed, diagnostics = assert(checked.result, "checked guest result required"), checked.diags
+            present[#present + 1] = assert(entry, "guest entry module missing")
+            if next(forwardedexports.cyclic(present)) ~= nil then
+                enqueue("src/" .. forwardedexports.MODULE:gsub("%.", "/"))
+            end
         else
-            local env = environment.new(root, {memoryOnly = true, cache = false, nativeCompilerServices = false})
-            diagnostics = checker.check(parsed, path, env, {
-                moduleName = declared,
-                strict = false,
-                lints = {["unused-binding"] = "off"}
-            })
-        end
-        for _, diagnostic in ipairs(diagnostics) do
-            assert(diagnostic.severity ~= "error", path .. ":" .. tostring(diagnostic.line) .. ": " .. diagnostic.msg)
-        end
-        -- A plain Lua module is named by its path, as `require` finds it.
-        local named: any = parsed
-        if named.moduleName == nil and name:sub(-4) == ".lua" then
-            named.moduleName = declared
-        end
-        local module = {name = declared, path = path, parsed = parsed, diagnostics = diagnostics}
-        if name == fixture then
-            entry = module
-        else
-            modules[#modules + 1] = module
-        end
-        do
-            -- Checked value dependencies are mandatory in every profile. Only
-            -- Carried libraries retain their declared and literal dynamic
-            -- dependencies. The case flag controls discovery in fixture code.
-            local required, dynamic = requiredmodules(parsed.root or parsed, source, follow or libraryModule(name))
-            for _, name in ipairs(required) do
-                local library = librarypath(root, name)
-                if library and (not dynamic[name] or portable(root, library)) then
-                    enqueue(library)
+            local name = queue[at]
+            at = at + 1
+            local path = modulePath(root, name)
+            local source = read(path)
+            local parsed = parser.parse(source, path)
+            assert(#parsed.errors == 0, "guest source parse failed: " .. name)
+            -- A library module may be named by its path alone.
+            local named = cst.declaredModule(parsed.root)
+            local rooted = name == fixture and declared ~= nil and declared.rooted == true
+            if named == nil and rooted then
+                named = assert(declared).module
+            elseif named == nil and libraryModule(name) then
+                named = (name:match("src/(.*)$") as string):gsub("%.lua$", ""):gsub("/init$", ""):gsub("/", ".")
+            end
+            local declared = assert(named, "guest module declaration required: " .. name)
+            local diagnostics
+            if project then
+                -- A fixture is checked as its staged copy; a library module
+                -- the program carries, where it lives.
+                if not libraryModule(name) and not rooted then
+                    path = staged .. "/" .. declared:gsub("%.", "/") .. ".nupp"
+                    assert(read(path) == source, "staged guest source differs: " .. name)
                 end
+                local checked = project.checkFile(path)
+                parsed, diagnostics = assert(checked.result, "checked guest result required"), checked.diags
+            else
+                local env = environment.new(root, {memoryOnly = true, cache = false, nativeCompilerServices = false})
+                diagnostics = checker.check(parsed, path, env, {
+                    moduleName = declared,
+                    strict = false,
+                    lints = {["unused-binding"] = "off"}
+                })
             end
-            -- What it carries may take a library function as a value.
-            local values = root .. "/src/nupp/runtime/libraryvalues"
-            local graph: any = require("nupp.compiler.vm.graph")
-            if graph.mayTakeLibraryValue(parser.parse(source, path).root, version >= 8) then
-                enqueue(values)
+            for _, diagnostic in ipairs(diagnostics) do
+                assert(
+                    diagnostic.severity ~= "error",
+                    path .. ":" .. tostring(diagnostic.line) .. ": " .. diagnostic.msg
+                )
             end
-            -- And it may read Lua's `io` or `os`, which the core carries as
-            -- modules.
-            local luaio = "src/nupp/runtime/luaio"
-            if graph.mayUseIo(parser.parse(source, path).root) then
-                enqueue(luaio)
+            -- A plain Lua module is named by its path, as `require` finds it.
+            local named: any = parsed
+            if named.moduleName == nil and name:sub(-4) == ".lua" then
+                named.moduleName = declared
             end
-            local luaos = "src/nupp/runtime/luaos"
-            if readsos(parser.parse(source, path).root) then
-                enqueue(luaos)
+            local module = {name = declared, path = path, parsed = parsed, diagnostics = diagnostics}
+            if name == fixture then
+                entry = module
+            else
+                modules[#modules + 1] = module
             end
-            local luawarn = "src/nupp/runtime/luawarn"
-            if readswarn(source) then
-                enqueue(luawarn)
+            do
+                -- Checked value dependencies are mandatory in every profile. Only
+                -- Carried libraries retain their declared and literal dynamic
+                -- dependencies. The case flag controls discovery in fixture code.
+                local required, dynamic = requiredmodules(parsed.root or parsed, source, follow or libraryModule(name))
+                for _, name in ipairs(required) do
+                    local library = librarypath(root, name)
+                    if library and (not dynamic[name] or portable(root, library)) then
+                        enqueue(library)
+                    end
+                end
+                -- What it carries may take a library function as a value, read
+                -- from one unchecked tree.
+                local unchecked = parser.parse(source, path).root
+                local values = root .. "/src/nupp/runtime/libraryvalues"
+                local graph: any = require("nupp.compiler.vm.graph")
+                if graph.mayTakeLibraryValue(unchecked, version >= 8) then
+                    enqueue(values)
+                end
+                -- And it may read Lua's `io` or `os`, which the core carries as
+                -- modules.
+                local luaio = "src/nupp/runtime/luaio"
+                if graph.mayUseIo(unchecked) then
+                    enqueue(luaio)
+                end
+                local luaos = "src/nupp/runtime/luaos"
+                if readsos(unchecked) then
+                    enqueue(luaos)
+                end
+                local luawarn = "src/nupp/runtime/luawarn"
+                if readswarn(source) then
+                    enqueue(luawarn)
+                end
             end
             local luaload = "src/nupp/runtime/luaload"
             if readsload(parser.parse(source, path).root) then

@@ -364,10 +364,10 @@ local function derive(g: any, catalog: any): any
                         end
                     end
                     -- Modules load lazily from v8, so a module may require
-                    -- any other, its partner in a cycle included.
+                    -- any other, its partner in a cycle included, and itself,
+                    -- which answers the export table it published as it started.
                     need(
-                        target ~= nil
-                        and (target < g.programOwner or catalog.schema.version >= 8 and target ~= g.programOwner),
+                        target ~= nil and (target < g.programOwner or catalog.schema.version >= 8),
                         "forward or cyclic require is unsupported"
                     )
                     requires[#requires + 1] = target as integer

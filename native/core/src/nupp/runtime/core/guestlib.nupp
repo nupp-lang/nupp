@@ -26,6 +26,7 @@ const guestlanding = require("nupp.runtime.core.guestlanding")
 const guestmeta = require("nupp.runtime.core.guestmeta")
 const guestbuffer = require("nupp.runtime.core.guestbuffer")
 const loader = require("nupp.runtime.core.guestloader")
+const guestforeign = require("nupp.runtime.core.guestforeign")
 
 -- One step of `for k, v in pairs(t)` over a state table {t, key, k, v}:
 -- advances key and stores the pair at 3 and 4. Answers true or false.
@@ -271,6 +272,8 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return guestnumbers.mathRandomseed(ctx, 0ULL, a, b)
     elseif id == librarycalls.PRINT then
         return printValues(ctx, a)
+    elseif id == librarycalls.FOREIGN_CALL then
+        return guestforeign.call(ctx, a, b)
     elseif id == librarycalls.STRING_FORMAT_PACK then
         -- The pack holds its count at key 0.
         local pack = b & values.PAYLOAD

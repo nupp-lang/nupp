@@ -12,7 +12,7 @@ const tables = require("nupp.runtime.core.coretables")
 const guestscope = require("nupp.runtime.core.guestscope")
 const texts = require("nupp.runtime.core.guesttexts")
 const ints = require("nupp.runtime.core.coreintegers")
-const os = require("nupp.runtime.vm.os")
+const numbers = require("nupp.runtime.core.hostnumbers")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 const guesterrors = require("nupp.runtime.core.guesterrors")
 
@@ -51,7 +51,7 @@ export function appendtext(h: heap.Heap*, borrows b: strings.Builder*, value: ui
                 return 1ULL
             end
             local at = strings.descriptor(b).base + strings.descriptor(b).len
-            local length = os.formatNumber(value, native.pointer(at), 64ULL)
+            local length = numbers.formatNumber(value, native.pointer(at), 64ULL)
             if length < 0 or length > 64 then
                 return 1ULL
             end

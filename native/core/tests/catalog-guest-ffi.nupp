@@ -1,0 +1,68 @@
+module nupp.core.catalogguestffi
+
+-- A guest program's `cdef function` calls on the core: the C library's
+-- functions called through the generic foreign call with integer, pointer,
+-- string and float arguments, in registers and, for a variadic function,
+-- on the stack; a library named by `from`; and the errors a symbol or
+-- library that is not there raises. Each check is a bit of the score.
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+cdef function labs(n: int64): int64
+cdef function abs(n: int32): int32
+cdef function strlen(s: string): uint64
+cdef function strcmp(a: string, b: string): int32
+cdef function cos(x: float64): float64
+cdef function fma(x: float64, y: float64, z: float64): float64
+cdef function sqrtf(x: float32): float32
+cdef function getpid(): int32
+cdef function toupper(c: int32): int32
+cdef function arc4random_uniform(bound: uint32): uint32
+cdef function malloc(size: uint64): voidptr
+cdef function free(block: voidptr)
+cdef function strnlen(borrows s: voidptr, room: uint64): uint64
+cdef function snprintf(borrows out: voidptr, room: uint64, format: string, ...): int32
+cdef function nupp_guest_ffi_absent(): int32
+cdef function crc32(crc: uint64, data: string, count: uint32): uint64 from"libz.dylib"
+cdef function absent_library_call(): int32 from"libnupp-guest-ffi-absent.dylib"
+
+do
+    check(labs(-5) == 5)
+    check(abs(-7) == 7 and labs(-5) == 5)
+    check(strlen("hello") == 5)
+    check(strcmp("a", "b") < 0 and strcmp("b", "a") > 0 and strcmp("a", "a") == 0)
+    check(cos(0.0) == 1.0 and fma(2.0, 3.0, 4.0) == 10.0)
+    check(sqrtf(2.25) == 1.5)
+    local pid = getpid()
+    check(pid > 0 and getpid() == pid)
+    check(toupper(97) == 65 and arc4random_uniform(1) == 0)
+    -- Variadic arguments go on the stack, a word each.
+    local buffer = malloc(64)
+    local written = snprintf(buffer, 64, "%d-%s-%.1f", 42, "x", 2.5)
+    check(written == 8 and strnlen(buffer, 64) == 8)
+    @unsafe do
+        free(buffer)
+    end
+    check(crc32(0, "hello", 5) == 0x3610a686)
+    local ok, message = pcall(function(): any
+        return nupp_guest_ffi_absent()
+    end)
+    check(not ok and string.find(tostring(message), "symbol", 1, true) ~= nil)
+    ok, message = pcall(function(): any
+        return absent_library_call()
+    end)
+    check(not ok and string.find(tostring(message), "library", 1, true) ~= nil)
+    -- One result where a list takes several, and all of them.
+    local first, second = labs(-3)
+    local all = {labs(-1)}
+    check(first == 3 and second == nil and #all == 1 and all[1] == 1)
+end
+
+export const result = score
