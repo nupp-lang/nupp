@@ -414,7 +414,7 @@ local function extractBlocks(text, links, rendered)
                 end)
                 content = content:gsub(
                     "<p><strong>Read%-only binding%.</strong></p>",
-                    '<div class="nuppdoc-annotations"><span class="nuppdoc-annotation">Read-only binding</span></div>'
+                    '<div class="nuppdoc-annotations"><span class="nuppdoc-annotation" data-annotation="binding">Read-only binding</span></div>'
                 )
                 content = content:gsub("<p>(.-)</p>", function(value: string): string
                     local remaining = value:gsub("<code>@.-</code>", ""):gsub("%s+", "")
@@ -422,11 +422,21 @@ local function extractBlocks(text, links, rendered)
                         return "<p>" .. value .. "</p>"
                     end
 
-                    return '<div class="nuppdoc-annotations">' .. value:gsub(
-                        "<code>(@.-)</code>",
-                        '<span class="nuppdoc-annotation">%1</span>'
-                    ) .. "</div>"
+                    return '<div class="nuppdoc-annotations">' .. value:gsub("<code>(@.-)</code>", function(
+                        label: string
+                    ): string
+                        local name = label:match("^@([%w_]+)") or "other"
+                        return '<span class="nuppdoc-annotation" data-annotation="'
+                            .. name
+                            .. '">'
+                            .. label
+                            .. "</span>"
+                    end) .. "</div>"
                 end)
+                content = content:gsub(
+                    '(<div class="nuppdoc%-annotations"><span class="nuppdoc%-annotation" data%-annotation="binding">Read%-only binding</span>)</div>%s*<div class="nuppdoc%-annotations">',
+                    "%1 "
+                )
                 placeholder(
                     '<section class="nuppdoc-api-item" id="' .. htmlEscape(path) .. '">' .. content .. '</section>'
                 )

@@ -90,4 +90,16 @@ function M.overviewsWithoutHeadingsStillHaveASection()
     assert(not rendered:find('aria-labelledby', 1, true), rendered)
 end
 
+function M.apiItemAnnotationsShareARowAndKeepTheirNames()
+    local source = '::: api-item sample.build\n### `build` _function_\n\n'
+        .. '**Read-only binding.**\n\n`@comptime` `@partition(left, right)`\n\n'
+        .. 'Description.\n:::\n'
+    local rendered = html.markdownHtml(source)
+    local badges = assert(rendered:match('(<div class="nuppdoc%-annotations">.-</div>)'), rendered)
+    assert(badges:find('data-annotation="binding">Read-only binding', 1, true), badges)
+    assert(badges:find('data-annotation="comptime">@comptime', 1, true), badges)
+    assert(badges:find('data-annotation="partition">@partition(left, right)', 1, true), badges)
+    assert(rendered:find('<p>Description.</p>', 1, true), rendered)
+end
+
 return M

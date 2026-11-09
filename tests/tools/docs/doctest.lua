@@ -1753,7 +1753,7 @@ function M.documentsAnnotationsAndParameterModes()
     assert(markdown:find("`takes self` - [", 1, true), "the parameter mode is not rendered")
     local rendered = {}
     renderMarkdownItem(rendered, handle)
-    assert(table.concat(rendered):find('class="nuppdoc-annotation">@deprecated', 1, true))
+    assert(table.concat(rendered):find('class="nuppdoc-annotation" data-annotation="deprecated">@deprecated', 1, true))
 end
 
 function M.documentsBorrowedResultsWithoutRepeatingTheirSources()

@@ -443,35 +443,29 @@ input {
 }
 
 .nuppdoc-kind-badge {
+    --nuppdoc-kind-color: #a45d31;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     margin-left: .45rem;
     padding: .12rem .42rem;
-    color: var(--nuppdoc-text-muted);
-    border: 1px solid var(--nuppdoc-border);
-    border-radius: 999px;
-    background: var(--nuppdoc-background-alt);
-    font-size: .62rem;
+    color: color-mix(in srgb, var(--nuppdoc-kind-color) 65%, var(--nuppdoc-text));
+    border: 1px solid color-mix(in srgb, var(--nuppdoc-kind-color) 45%, var(--nuppdoc-border));
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--nuppdoc-kind-color) 12%, var(--nuppdoc-background));
+    font-size: .58rem;
     font-weight: 650;
     letter-spacing: .035em;
     text-align: center;
-    text-transform: uppercase;
+    text-transform: lowercase;
     vertical-align: middle
 }
 
-.nuppdoc-kind-Lua {
-    text-transform: none
-}
-
-.nuppdoc-kind-function,
-.nuppdoc-kind-method,
-.nuppdoc-kind-constructor,
-.nuppdoc-kind-metamethod {
-    color: var(--nuppdoc-accent);
-    border-color: color-mix(in srgb, var(--nuppdoc-accent) 35%, var(--nuppdoc-border));
-    background: var(--nuppdoc-accent-soft)
-}
+.nuppdoc-kind-function { --nuppdoc-kind-color: #c25052 }
+.nuppdoc-kind-method { --nuppdoc-kind-color: #2878c7 }
+.nuppdoc-kind-constructor { --nuppdoc-kind-color: #008d9b }
+.nuppdoc-kind-metamethod { --nuppdoc-kind-color: #278853 }
+.nuppdoc-kind-Lua { --nuppdoc-kind-color: #7470c6 }
 
 .nuppdoc-header-anchor {
     margin-left: .4rem;
@@ -1339,27 +1333,15 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     width: 14%
 }
 
-.nuppdoc-kind-record,
-.nuppdoc-kind-interface,
-.nuppdoc-kind-struct,
-.nuppdoc-kind-type {
-    color: #8250df;
-    border-color: color-mix(in srgb, #8250df 35%, var(--nuppdoc-border));
-    background: color-mix(in srgb, #8250df 12%, var(--nuppdoc-background))
-}
-
-.nuppdoc-kind-variable {
-    color: #9a6700;
-    border-color: color-mix(in srgb, #9a6700 35%, var(--nuppdoc-border));
-    background: color-mix(in srgb, #9a6700 12%, var(--nuppdoc-background))
-}
-
+.nuppdoc-kind-record { --nuppdoc-kind-color: #8758c9 }
+.nuppdoc-kind-interface { --nuppdoc-kind-color: #b65399 }
+.nuppdoc-kind-struct { --nuppdoc-kind-color: #b26238 }
+.nuppdoc-kind-type { --nuppdoc-kind-color: #526bc6 }
+.nuppdoc-kind-field { --nuppdoc-kind-color: #6d8a38 }
+.nuppdoc-kind-variable { --nuppdoc-kind-color: #9a6700 }
+.nuppdoc-kind-annotation { --nuppdoc-kind-color: #ad4e68 }
 .nuppdoc-kind-comptime-function,
-.nuppdoc-kind-comptime-type {
-    color: #bc4c00;
-    border-color: color-mix(in srgb, #bc4c00 35%, var(--nuppdoc-border));
-    background: color-mix(in srgb, #bc4c00 12%, var(--nuppdoc-background))
-}
+.nuppdoc-kind-comptime-type { --nuppdoc-kind-color: #9b57c8 }
 
 .nuppdoc-annotations {
     display: flex;
@@ -1369,15 +1351,46 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 }
 
 .nuppdoc-annotation {
-    padding: .12rem .42rem;
-    color: #bc4c00;
-    border: 1px solid color-mix(in srgb, #bc4c00 35%, var(--nuppdoc-border));
-    border-radius: 999px;
-    background: color-mix(in srgb, #bc4c00 12%, var(--nuppdoc-background));
+    --nuppdoc-badge-color: #ae6900;
+    min-width: 0;
+    padding: .08rem .32rem;
+    color: color-mix(in srgb, var(--nuppdoc-badge-color) 65%, var(--nuppdoc-text));
+    border: 1px solid color-mix(in srgb, var(--nuppdoc-badge-color) 45%, var(--nuppdoc-border));
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--nuppdoc-badge-color) 12%, var(--nuppdoc-background));
     font-family: var(--nuppdoc-font-mono);
-    font-size: .66rem;
-    font-weight: 650
+    font-size: .6rem;
+    font-weight: 650;
+    text-transform: lowercase;
+    overflow-wrap: anywhere
 }
+
+.nuppdoc-annotation[data-annotation="binding"] { --nuppdoc-badge-color: #2878c7 }
+.nuppdoc-annotation[data-annotation="readonly"] { --nuppdoc-badge-color: #278853 }
+.nuppdoc-annotation[data-annotation="comptime"] { --nuppdoc-badge-color: #9258d8 }
+.nuppdoc-annotation[data-annotation="partition"] { --nuppdoc-badge-color: #008d9b }
+.nuppdoc-annotation[data-annotation="deprecated"] { --nuppdoc-badge-color: #d14e55 }
+.nuppdoc-annotation[data-annotation="nosuspend"] { --nuppdoc-badge-color: hsl(20 68% 46%) }
+.nuppdoc-annotation[data-annotation="sendable"] { --nuppdoc-badge-color: hsl(40 72% 42%) }
+.nuppdoc-annotation[data-annotation="noalloc"] { --nuppdoc-badge-color: hsl(65 60% 39%) }
+.nuppdoc-annotation[data-annotation="noraise"] { --nuppdoc-badge-color: hsl(85 55% 38%) }
+.nuppdoc-annotation[data-annotation="writeonly"] { --nuppdoc-badge-color: hsl(120 50% 38%) }
+.nuppdoc-annotation[data-annotation="private"] { --nuppdoc-badge-color: hsl(145 50% 36%) }
+.nuppdoc-annotation[data-annotation="unsafe"] { --nuppdoc-badge-color: hsl(3 72% 46%) }
+.nuppdoc-annotation[data-annotation="annotation"] { --nuppdoc-badge-color: hsl(163 58% 36%) }
+.nuppdoc-annotation[data-annotation="annotationvalue"] { --nuppdoc-badge-color: hsl(178 64% 35%) }
+.nuppdoc-annotation[data-annotation="ref"] { --nuppdoc-badge-color: hsl(198 68% 42%) }
+.nuppdoc-annotation[data-annotation="allow"] { --nuppdoc-badge-color: hsl(211 60% 48%) }
+.nuppdoc-annotation[data-annotation="override"] { --nuppdoc-badge-color: hsl(228 64% 53%) }
+.nuppdoc-annotation[data-annotation="effects"] { --nuppdoc-badge-color: hsl(242 58% 55%) }
+.nuppdoc-annotation[data-annotation="relax"] { --nuppdoc-badge-color: hsl(256 58% 55%) }
+.nuppdoc-annotation[data-annotation="derive"] { --nuppdoc-badge-color: hsl(280 60% 52%) }
+.nuppdoc-annotation[data-annotation="cli"] { --nuppdoc-badge-color: hsl(296 58% 48%) }
+.nuppdoc-annotation[data-annotation="debug"] { --nuppdoc-badge-color: hsl(312 60% 45%) }
+.nuppdoc-annotation[data-annotation="event"] { --nuppdoc-badge-color: hsl(325 64% 47%) }
+.nuppdoc-annotation[data-annotation="syntax"] { --nuppdoc-badge-color: hsl(340 65% 48%) }
+.nuppdoc-annotation[data-annotation="jit"] { --nuppdoc-badge-color: hsl(52 70% 38%) }
+.nuppdoc-annotation[data-annotation="aot"] { --nuppdoc-badge-color: hsl(93 55% 38%) }
 
 .nuppdoc-home-shell {
     display: block;
