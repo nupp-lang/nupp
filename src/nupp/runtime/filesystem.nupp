@@ -113,23 +113,32 @@ export function join(parent: string, name: string): string
     return parent == "" and name or parent:sub(-1) == "/" and parent .. name or parent .. "/" .. name
 end
 
+-- C's ENOENT, as a call answers it: a missing parent.
+const MISSING = -2
+
+-- Makes `path` and any missing parents as main's mkdir does (Rust's
+-- create_dir_all): the path itself first, its parent only when that is
+-- missing, so a file in the way answers its own error (ENOTDIR).
 export function mkdir(path: string): (boolean, string?)
-    local prefix = path:sub(1, 1) == "/" and "/" or ""
-    local found = false
-    for component in path:gmatch("[^/]+") do
-        found = true
-        prefix = join(prefix, component)
-        local result = calls.mkdir(prefix, DIRECTORY_MODE)
-        if result < 0 then
-            local existing = info(prefix, true)
-            if existing == nil or existing.kind ~= "directory" then
-                return false, errors.reason(result)
+    if path == "" then
+        return true, nil
+    end
+    local result = calls.mkdir(path, DIRECTORY_MODE)
+    if result == MISSING then
+        local parent = path:match("^(.*[^/])/+[^/]+/*$")
+        if parent ~= nil then
+            local made, reason = mkdir(parent)
+            if not made then
+                return false, reason
             end
+            result = calls.mkdir(path, DIRECTORY_MODE)
         end
     end
-    if not found then
-        local existing, reason = info(path, true)
-        return existing ~= nil and existing.kind == "directory", reason
+    if result < 0 then
+        local existing = info(path, true)
+        if existing == nil or existing.kind ~= "directory" then
+            return false, errors.reason(result)
+        end
     end
 
     return true, nil

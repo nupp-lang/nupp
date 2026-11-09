@@ -1,0 +1,72 @@
+@!internal
+
+--[[
+The core's implementation of [](nupp.runtime.contracts)' UUID provider, which
+it answers `nupp.runtime.uuidprovider` with: version 4 from the host's
+random bytes, version 7 from the wall clock's milliseconds and random bytes,
+each in the canonical lowercase, hyphenated spelling (RFC 9562).
+]]
+module nupp.runtime.provider.coreuuid
+
+const entropy = require("nupp.runtime.provider.coreentropy")
+const clock = require("nupp.runtime.clockcalls")
+
+-- A UUID's sixteen bytes, of which version 7 takes the first six from time.
+const UUID_BYTES = 16
+const TIME_BYTES = 6
+const BYTE_RADIX = 256
+
+-- The version nibble (byte 7) and the RFC 9562 variant bits (byte 9).
+const VERSION_BYTE = 7
+const VARIANT_BYTE = 9
+const VERSION_SHIFT = 16
+const VARIANT_MASK = 63
+const VARIANT_BITS = 128
+
+-- The bytes after which a hyphen falls: 8-4-4-4-12 hex digits.
+const HYPHENS: {[integer]: boolean} = {[4] = true, [6] = true, [8] = true, [10] = true}
+
+-- `bytes` with the version and variant set, spelled as hex in groups.
+local function spelled(bytes: {integer}, version: integer): string
+    bytes[VERSION_BYTE] = bytes[VERSION_BYTE] % VERSION_SHIFT + version * VERSION_SHIFT
+    bytes[VARIANT_BYTE] = bytes[VARIANT_BYTE] & VARIANT_MASK | VARIANT_BITS
+    local parts: {string} = {}
+    for index = 1, UUID_BYTES do
+        parts[#parts + 1] = string.format("%02x", bytes[index])
+        if HYPHENS[index] then
+            parts[#parts + 1] = "-"
+        end
+    end
+
+    return table.concat(parts)
+end
+
+local function random(count: integer): {integer}
+    local text = entropy.randombytes(count)
+    local bytes: {integer} = {}
+    for index = 1, count do
+        bytes[index] = string.byte(text, index) as integer
+    end
+
+    return bytes
+end
+
+--- Generates a random version 4 UUID.
+--- @return the UUID, hyphenated and lowercase
+export function uuid4(): string
+    return spelled(random(UUID_BYTES), 4)
+end
+
+--- Generates a time-ordered version 7 UUID: the Unix time in milliseconds,
+--- big-endian, then random bits.
+--- @return the UUID, hyphenated and lowercase
+export function uuid7(): string
+    local bytes = random(UUID_BYTES)
+    local now = math.floor(clock.walltime()) as integer
+    for index = TIME_BYTES, 1, -1 do
+        bytes[index] = now % BYTE_RADIX
+        now = now // BYTE_RADIX
+    end
+
+    return spelled(bytes, 7)
+end

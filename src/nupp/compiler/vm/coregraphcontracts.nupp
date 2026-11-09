@@ -9,7 +9,10 @@ local lexer = require("nupp.compiler.syntax.lexer")
 local bounds = schema.limits()
 
 local function need(ok: any, message: string): any
-    assert(ok, "core graph contracts: " .. message)
+    -- The message is built only for a failure: checks run millions of times.
+    if not ok then
+        error("core graph contracts: " .. message, 0)
+    end
     return ok
 end
 
@@ -505,7 +508,8 @@ local function diagnostic(call: any, protected: boolean): any
         return {method = true, name = call.name.text}
     end
     local callee = call.obj
-    while callee and callee.kind == "paren" do
+    -- `(f as any)(x)` names f, as the call it compiles to does.
+    while callee and (callee.kind == "paren" or callee.kind == "castExpr") do
         callee = callee.expr
     end
     if callee and callee.kind == "name" then

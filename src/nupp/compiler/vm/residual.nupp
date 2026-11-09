@@ -18,7 +18,11 @@ local bodies: any = setmetatable({}, {__mode = "k"})
 local results: any = setmetatable({}, {__mode = "k"})
 
 local function need(ok: any, message: string): any
-    return (assert(ok, "residual: " .. message))
+    -- The message is built only for a failure: checks run millions of times.
+    if not ok then
+        error("residual: " .. message, 0)
+    end
+    return ok
 end
 
 local function integer(value: any, low: number, high: number): boolean

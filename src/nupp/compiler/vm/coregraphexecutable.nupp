@@ -11,8 +11,27 @@ local graphimage = require("nupp.compiler.vm.graphimage")
 local issued = setmetatable({}, {__mode = "k"})
 local bounds = schema.limits()
 
+-- The modules that write Lua's C library for the core. A C function has no
+-- source line: an error raised in one names the line that called it, and a
+-- tail call into one leaves its caller in place, so their functions carry
+-- no line table and the runtime positions past them.
+const CLIBRARY: {
+    [string]: boolean
+} = {
+    ["nupp.runtime.libraryvalues"] = true,
+    ["nupp.runtime.luaargs"] = true,
+    ["nupp.runtime.luaio"] = true,
+    ["nupp.runtime.luaos"] = true,
+    ["nupp.runtime.luaprocess"] = true,
+    ["nupp.runtime.luastreams"] = true,
+    ["nupp.runtime.luatime"] = true
+}
+
 local function need(ok: any, message: string): any
-    assert(ok, "core executable: " .. message)
+    -- The message is built only for a failure: checks run millions of times.
+    if not ok then
+        error("core executable: " .. message, 0)
+    end
     return ok
 end
 
@@ -582,6 +601,7 @@ local function derive(g: any, catalog: any): any
     -- chunk an error position names, as Lua's chunkid shortens a file name.
     local lines: {integer} = {}
     local chunk: string? = nil
+    local clibrary = g.source ~= nil and CLIBRARY[g.source.module or ""] == true
     for index = 1, #instructions do
         local at = g.positions and g.positions[positions[index] or 0]
         lines[index] = at and at.line or 0
@@ -602,8 +622,8 @@ local function derive(g: any, catalog: any): any
         code = table.concat(encoded),
         instructions = instructions,
         positions = positions,
-        lines = lines,
-        chunk = chunk,
+        lines = not clibrary and lines or {},
+        chunk = not clibrary and chunk or nil,
         blockPCs = blockPCs,
         constants = constants,
         calls = calls,

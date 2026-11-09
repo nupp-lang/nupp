@@ -282,6 +282,17 @@ function arm64.stur(bytes: integer, rt: integer, rn: integer, offset: integer): 
     return r2((size(bytes) << 30) | 0x38000000 | (signed(offset, 9, 1) << 12), rt, rn)
 end
 
+-- Load-acquire of the 64-bit word at [rn] (ARMv8.0 LDAR).
+function arm64.ldar(rt: integer, rn: integer): integer
+    return r2(0xc8dffc00, rt, rn)
+end
+
+-- Compare-and-swap with acquire and release semantics (ARMv8.1 CASAL): the
+-- 64-bit word at [rn] is replaced by rt when it equals rs; rs answers it.
+function arm64.casal(rs: integer, rt: integer, rn: integer): integer
+    return r2(0xc8e0fc00 | (reg(rs) << 16), rt, rn)
+end
+
 function arm64.ldr_fp(bits: integer, rt: integer, rn: integer, offset: integer): integer
     local bytes = bits // 8
     local form = fpwidth(bits)
