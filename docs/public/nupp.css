@@ -275,17 +275,9 @@
 }
 
 .nuppdoc-content h2 {
-  border-top-width: 3px;
+  border-top-width: 2px;
   border-top-color: var(--nuppdoc-border);
   border-image: var(--nuppdoc-section-rule) 1;
-}
-
-.nuppdoc-overview-section::before {
-  border-image: var(--nuppdoc-section-rule) 1;
-}
-
-.nuppdoc-overview-section:has(> h2)::before {
-  border-top-width: 3px;
 }
 
 .nuppdoc-content h3:not(:first-child),

@@ -2012,34 +2012,18 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     background: var(--nuppdoc-api-heading-background);
 }
 
-/* Fieldset-style overviews keep their real headings and the code-block border. */
 .nuppdoc-overview-section {
-    position: relative;
     min-width: 0;
-    margin: 4.1rem 0 1.35rem;
-    padding: 0 .9rem .3rem;
-    border: 1px solid var(--nuppdoc-subtle-border);
-    border-radius: var(--nuppdoc-code-block-radius);
-}
-.nuppdoc-overview-section::before {
-    content: "";
-    position: absolute;
-    top: -2.5rem;
-    left: -1px;
-    right: -1px;
+    margin: 3rem 0 1.35rem;
+    padding: .9rem 0 .3rem;
     border-top: 1px solid var(--nuppdoc-border);
-}
-.nuppdoc-api-item .nuppdoc-overview-section::before {
-    content: none;
+    border-bottom: 1px solid var(--nuppdoc-border);
 }
 .nuppdoc-content .nuppdoc-overview-section > .nuppdoc-overview-title {
-    display: table;
-    max-width: calc(100% - 1rem);
-    margin: -.75rem 0 .65rem;
-    padding: 0 .5rem;
+    margin: 0 0 .65rem;
+    padding: 0;
     border: 0;
     border-image: none;
-    background: var(--nuppdoc-background);
     font-size: 1rem;
     line-height: 1.5;
 }
