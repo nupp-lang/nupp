@@ -522,10 +522,12 @@ local SOURCES = {
         "tests/iopathargumenttest.lua",
         "tests/iofileargumenttest.lua",
         "tests/corewarnlogtest.lua",
-        "tests/stdlib/typefactoriestest.lua",
-        "tests/helpers/providerstate.lua"
+        "tests/stdlib/typefactoriestest.lua"
     }
 }
+-- Lua text a case loads with `load`, compiled here as that text named so,
+-- kept under the text's own digest.
+local TEXT_SOURCES = {testrunner = {{"tests/cache.lua", "nupp:test-cache"}}}
 -- The program arguments a case is run with, after the bridge's own.
 -- The bench entry measures one case, writes its record as JSON on standard
 -- output, and writes the record file it always writes nowhere.
@@ -1176,10 +1178,10 @@ local compiledBy
 -- Compiles the Lua source at `path` under the checkout to the chunk its
 -- case's loadfile finds (nupp.runtime.chunkfiles), unless the one kept is
 -- of the same text and was compiled by the same sources (`.by` beside it).
-local function sourceChunk(path)
+local function sourceChunk(path, display)
     local chunkfiles = require("nupp.runtime.chunkfiles")
-    local kept = OUT .. "/chunks/" .. chunkfiles.name(path)
     local text = read(ROOT .. "/" .. path)
+    local kept = OUT .. "/chunks/" .. (display and text and chunkfiles.textname(text) or chunkfiles.name(path))
     local held = read(kept)
     compiledBy = compiledBy or assert(sharedcache.treeDigest(ROOT, {"src"}))
     if text == nil
@@ -1192,7 +1194,7 @@ local function sourceChunk(path)
     os.execute("mkdir -p " .. quote(OUT .. "/chunks"))
     local _, build = compiler()
     local began = os.time()
-    local contents, problem = build.sourceChunk(path)
+    local contents, problem = build.sourceChunk(path, display)
     print(("compiled %s in %ds%s"):format(path, os.time() - began, contents and "" or ": " .. tostring(problem)))
     if contents then
         write(kept, contents)
@@ -1485,6 +1487,9 @@ local function main()
             end
             for _, source in ipairs(SOURCES[name] or {}) do
                 sourceChunk(source)
+            end
+            for _, source in ipairs(TEXT_SOURCES[name] or {}) do
+                sourceChunk(source[1], source[2])
             end
             if mode == "spill" then
                 local normal = selections[name .. "-normal"]

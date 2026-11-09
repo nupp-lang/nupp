@@ -250,6 +250,11 @@ local function loadchunk(chunk: any, name: string?, mode: string?, env: table?):
                 return value
             end, nil
         end
+        -- A chunk compiled from this text ahead of time (chunkfiles).
+        local kept = chunkfiles.lookup(nil, text)
+        if kept ~= nil then
+            return loadchunk(kept, name, mode, env)
+        end
         local compile = textCompiler()
         if compile == nil then
             return nil, chunkid(chunkname) .. ": text chunks need the compiler, which did not load: " .. missing

@@ -1111,8 +1111,9 @@ end
 --- The kept chunk (nupp.runtime.chunkfiles) for the Lua source file at
 --- `path` under the checkout: its text compiled here as a text chunk
 --- (nupp.compiler.vm.corechunk), as `loadfile` would compile it on the core,
---- or nil and why it does not compile.
-export function sourceChunk(path: string): (string?, string?)
+--- or with `display`, as `load` would compile the file's text named so; or
+--- nil and why it does not compile.
+export function sourceChunk(path: string, display: string?): (string?, string?)
     local corechunk: any = require("nupp.compiler.vm.corechunk")
     local chunkfiles: any = require("nupp.runtime.chunkfiles")
     local file = io.open(assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/" .. path, "rb")
@@ -1123,11 +1124,11 @@ export function sourceChunk(path: string): (string?, string?)
     file:close()
     -- loadfile skips a first line that starts with '#', keeping its newline.
     local compiled = text
-    if compiled:sub(1, 1) == "#" then
+    if display == nil and compiled:sub(1, 1) == "#" then
         local at = compiled:find("\n", 1, true)
         compiled = at and compiled:sub(at) or ""
     end
-    local bytes, problem = corechunk.compile(compiled, path)
+    local bytes, problem = corechunk.compile(compiled, display or path)
     if bytes == nil then
         return nil, problem
     end
