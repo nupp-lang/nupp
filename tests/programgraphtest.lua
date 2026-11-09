@@ -281,9 +281,12 @@ return answer
     local input = checked("local value: integer = 1\nlocal function answer(): integer return value end\nreturn answer")
     local body = input.parsed.root.blocks[1].stats[2].body
     body.body.stats[1].exprs[1].token.definition = nil
+    -- Recorded for an inventory, and refused when the program compiles.
+    local unresolved = program.describe({input}, input.name)
+    test.eq(#unresolved.unresolved, 1)
     refuses(
         function()
-            program.describe({input}, input.name)
+            program.compile(unresolved, tagged.forVersion(8))
         end,
         "unresolved executable reference value"
     )
@@ -1599,12 +1602,8 @@ function M.taggedUnsupportedControlAndFunctionContractsRefuse()
         end,
         "logical expressions are outside lexical construction"
     )
-    refuses(
-        function()
-            program.compile(describe("return || -> true"), tagged)
-        end,
-        "checked function signature required"
-    )
+    -- A short function literal is its own checked body.
+    assert(program.compile(describe("return || -> true"), tagged))
     -- A parameter's ownership mode is the checker's fact; the core passes
     -- the value.
     program.compile(describe("local function f(borrows value: any): nil return end\nreturn f"), tagged)
