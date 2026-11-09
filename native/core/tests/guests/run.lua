@@ -307,8 +307,8 @@ local CASES = {
     {"bundledlist", 0x7FFF000000000007},
     -- The compiler's host layout key from the runtime's own description.
     {"hostlayout", 0x7FFF000000000007},
-    -- The compiler's carried files listed where none are carried.
-    {"bundledlist", 0x7FFF000000000007},
+    -- `nupp build` on the core: a library, then a VM binary that is run.
+    {"compilerbuild", 0x7FFF00000000001F},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
@@ -549,6 +549,11 @@ local SETUP = {
         .. "'%s/native/core/tests/core-cdecl-record.lua' \"$d/recorded\" > /dev/null "
         .. "&& export CDECL_DIFF=\"$d/recorded\"; "
     ):format(OUT, ROOT, ROOT),
+    -- `nupp build` builds the project it is run from: a fresh one each run,
+    -- the compiler checkout named for the VM runtime a binary is stamped onto.
+    compilerbuild = (
+        "d=$(mktemp -d '%s/build.XXXXXX') && cd \"$d\" && export NUPP_COMPILER_ROOT='%s'; "
+    ):format(OUT, ROOT),
     ffiaggregates = (
         "d=$(mktemp -d '%s/ffi.XXXXXX') && cc -dynamiclib -o \"$d/libnuppffiaggregates.dylib\" '%s' "
         .. "&& export DYLD_LIBRARY_PATH=\"$d\"; "

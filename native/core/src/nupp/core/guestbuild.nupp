@@ -101,6 +101,17 @@ local function cliextras(): {string}
     return list
 end
 
+-- What `nupp build` needs beside the command line's modules: the packager a
+-- binary target loads by a computed name. Its own dependencies are carried
+-- already, but the optional discovery filter refuses it for one it reaches
+-- through `bytes`, compression's VM host backend, which the build never calls.
+local function buildextras(): {string}
+    local list = cliextras()
+    list[#list + 1] = "src/nupp/tools/build/package"
+
+    return list
+end
+
 -- Each case's fixture and graph profile version.
 local CASES: {[string]: {
     fixture: string,
@@ -395,8 +406,8 @@ local CASES: {[string]: {
     bundledlist = {fixture = "catalog-bundled-list", version = 8, follow = true},
     -- The compiler's host layout key where the runtime describes the machine.
     hostlayout = {fixture = "catalog-host-layout", version = 8, follow = true},
-    -- The compiler's carried files listed where none are carried.
-    bundledlist = {fixture = "catalog-bundled-list", version = 8, follow = true},
+    -- `nupp build` on the core the same way: a library, then a VM binary.
+    compilerbuild = {fixture = "catalog-compiler-build", version = 8, follow = true, modules = buildextras()},
     -- The bench harness's own entry: the bench/vm workloads under debug.bench.
     benchworkloads = {
         fixture = "bench/vm/workloads.bench",
