@@ -305,6 +305,10 @@ local CASES = {
     {"compilercheck", 0x7FFF000000000003},
     -- The compiler's carried files listed where none are carried.
     {"bundledlist", 0x7FFF000000000007},
+    -- The compiler's host layout key from the runtime's own description.
+    {"hostlayout", 0x7FFF000000000007},
+    -- The compiler's carried files listed where none are carried.
+    {"bundledlist", 0x7FFF000000000007},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
