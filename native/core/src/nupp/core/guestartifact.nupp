@@ -14,6 +14,19 @@ local INTEGER_CONSTANT = 0xfffe000000000000
 -- The most bytes an artifact may hold, which the bridge's regions admit.
 local ARTIFACT_BOUND: integer = schema.artifactBytes()
 local ZERO_WORD = string.rep("\0", 8)
+-- NUPP_GUEST_VALIDATE=0 skips re-deriving the issued executable around
+-- encoding: the inner loop sets it, which spends minutes there on a program
+-- carrying the compiler. Batch gates and milestones leave it unset and keep
+-- the guard.
+const VALIDATE = os.getenv("NUPP_GUEST_VALIDATE") ~= "0"
+
+-- The issued executable, re-derived and compared with what was issued.
+local function revalidate(code: any): nil
+    if VALIDATE then
+        executable.validate(code)
+    end
+end
+
 -- Zero padding is joined from runs of this many bytes at most.
 local ZERO_RUN = string.rep("\0", 65536)
 
@@ -77,7 +90,7 @@ end
 -- `raises` lists the runtime's literal raises ({id, site, literal}), whose
 -- texts a v8 program carries for the errors they raise.
 export function encode(code: any, scopes: any, dispatch: {integer}, codeBytes: integer, raises: {any}?): any
-    executable.validate(code)
+    revalidate(code)
     assert(#dispatch >= 1 and #dispatch <= 256, "guest dispatch extent")
     local scope = assert(scopes["nupp.runtime.core.guestcatalog"])
     -- The loader's program-size bounds are the schema's.
@@ -462,7 +475,7 @@ export function encode(code: any, scopes: any, dispatch: {integer}, codeBytes: i
         assert(#raw == 8, "checked integer constant width")
         place(assert(integerOffsets[raw]), raw)
     end
-    executable.validate(code)
+    revalidate(code)
 
     return {
         bytes = assemble(pieces, cursor),
