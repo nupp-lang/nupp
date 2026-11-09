@@ -29,6 +29,22 @@ const FOREIGN_PREFIX: string = "foreign\0"
 const LOAD_NOW: integer = 2
 -- The trap a call of a foreign symbol that did not resolve takes.
 const MISSING_SYMBOL: integer = 0xf0
+-- The routines the sink names rather than imports (nativeos): the generic
+-- foreign call, and the address of the bridge's symbol table, whose import
+-- slot follows the prefix.
+const ROUTINE_CALL: string = "routine\0call"
+const ROUTINE_CELLS: string = "routine\0cells\0"
+-- The generic foreign call's block of words (nupp.runtime.core.guestforeign):
+-- the function, then x0-x7, d0-d7 and the first words of the C stack. The
+-- call answers x0 and leaves d0 at its word.
+const CALL_FUNCTION: integer = 0
+const CALL_INTEGERS: integer = 1
+const CALL_FLOATS: integer = 9
+const CALL_STACK: integer = 17
+const CALL_STACK_WORDS: integer = 16
+const CALL_REGISTERS: integer = 8
+-- Below the stack words, the block's address is kept across the call.
+const CALL_SAVED: integer = 16
 
 record selector.Code
     words: {integer}
@@ -577,6 +593,31 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         emit(arm.brk(MISSING_SYMBOL))
     end
 
+    -- The generic foreign call: x0 holds its block. Every stack word is
+    -- copied, since a callee reads only those its signature has; then the
+    -- registers are loaded, x0 last, the function is called, and d0 is kept
+    -- in the block. x0 is the answer.
+    local function foreignCall(): nil
+        local bytes = CALL_STACK_WORDS * 8
+        emit(arm.sub_imm(64, 31, 31, bytes + CALL_SAVED, 0))
+        emit(arm.str(8, 0, 31, bytes))
+        for word = 0, CALL_STACK_WORDS - 1 do
+            emit(arm.ldr(8, 17, 0, (CALL_STACK + word) * 8))
+            emit(arm.str(8, 17, 31, word * 8))
+        end
+        for reg = 0, CALL_REGISTERS - 1 do
+            emit(arm.ldr_fp(64, reg, 0, (CALL_FLOATS + reg) * 8))
+        end
+        emit(arm.ldr(8, 16, 0, CALL_FUNCTION * 8))
+        for reg = CALL_REGISTERS - 1, 0, -1 do
+            emit(arm.ldr(8, reg, 0, (CALL_INTEGERS + reg) * 8))
+        end
+        emit(arm.blr(16))
+        emit(arm.ldr(8, 17, 31, bytes))
+        emit(arm.str_fp(64, 0, 17, CALL_FLOATS * 8))
+        emit(arm.add_imm(64, 31, 31, bytes + CALL_SAVED, 0))
+    end
+
     -- Where each argument goes: abiRegisters holds its register, or 0 for
     -- one on the C stack at abiOffsets (abiSizes bytes); the answer is the
     -- stack's extent. Past the registers, and for each variadic argument,
@@ -941,6 +982,12 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                     elseif name:sub(1, #FOREIGN_PREFIX) == FOREIGN_PREFIX then
                         assert(not tail and nargs == 0, "S0 select: foreign resolution takes nothing")
                         resolve(name)
+                    elseif name == ROUTINE_CALL then
+                        assert(not tail and nargs == 1, "S0 select: a foreign call takes its block")
+                        foreignCall()
+                    elseif name:sub(1, #ROUTINE_CELLS) == ROUTINE_CELLS then
+                        assert(not tail and nargs == 0, "S0 select: the symbol table takes nothing")
+                        emit(arm.ldr(8, 0, 22, (tonumber(name:sub(#ROUTINE_CELLS + 1)) as integer) * 8))
                     else
                         if not indirect then
                             symbolic(selector.IMPORT_LOAD, name)

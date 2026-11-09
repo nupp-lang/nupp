@@ -186,5 +186,18 @@ local record Os
     --- Where the calling thread's C `errno` lives, a 32-bit integer.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     errnoLocation: function(): voidptr
+
+    --- Calls the C function a block of words names, as the platform's C
+    --- calling convention passes its arguments: the function, then x0-x7,
+    --- d0-d7 and the first sixteen words of the stack. Answers x0 and leaves
+    --- d0 in its word. The selector writes it where it is called; the core's
+    --- guest foreign calls make it (guestforeign).
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    foreignCall: function(block: voidptr): uint64
+
+    --- The bridge's table of resolved foreign symbols, whose words past the
+    --- linked code's the guest's foreign calls cache theirs in.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    foreignCells: function(): voidptr
 end
 return Os

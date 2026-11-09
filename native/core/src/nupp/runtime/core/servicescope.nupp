@@ -201,6 +201,16 @@ export function errnoLocation(scope: voidptr): voidptr
     return os.errnoLocation()
 end
 
+export function foreignCall(scope: voidptr, block: voidptr): uint64
+    local _ = scope
+    return os.foreignCall(block)
+end
+
+export function foreignCells(scope: voidptr): voidptr
+    local _ = scope
+    return os.foreignCells()
+end
+
 export function atomicload64(scope: voidptr, base: voidptr, offset: int64): uint64
     local _ = scope
     return os.atomicload64(base, offset)

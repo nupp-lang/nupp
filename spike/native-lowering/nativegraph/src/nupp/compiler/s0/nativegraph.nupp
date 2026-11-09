@@ -423,8 +423,13 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                     -- An OS import is called through its slot; a foreign symbol
                     -- is resolved once into the bridge's table (s0.select), then
                     -- called through what it resolved to.
+                    -- A routine the selector writes in place (the generic
+                    -- foreign call) has no slot.
                     local call = {op = ir.opcode("call"), aux = 0, values = {} as {integer}}
-                    if binding then
+                    local routine = nativeos.routine(declaration)
+                    if routine then
+                        call.aux = imported(routine, signature)
+                    elseif binding then
                         local tableSlot, openSlot, symbolSlot = nativeos.foreignImports()
                         local symbol = table.concat(
                             {

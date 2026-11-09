@@ -375,7 +375,11 @@ function tagged.erasedStatement(ctx: any, stat: any): nil
         end
         return
     end
-    need(stat.kind == "moduleStmt" or stat.kind == "typeAlias", "unsupported erased statement")
+    -- A `cdef function` declares what its calls call (taggedforeign).
+    need(
+        stat.kind == "moduleStmt" or stat.kind == "typeAlias" or stat.kind == "cdefFunc",
+        "unsupported erased statement"
+    )
 end
 
 function tagged.checkStatement(ctx: any, stat: any): nil

@@ -46,7 +46,12 @@ local definitions = {
     errnoLocation = {slot = 32, params = {}, result = "voidptr", cResult = "voidptr"},
     -- Not a function: the table foreign calls cache their resolved symbols
     -- in, foreignSlots words the bridge zeroes.
-    foreignTable = {slot = 33, table = true}
+    foreignTable = {slot = 33, table = true},
+    -- Not imports: routines the selector writes where they are called
+    -- (s0.select). The generic foreign call takes a block of words and
+    -- answers x0; the other answers the address of the table above.
+    foreignCall = {routine = "call", params = {"voidptr"}, result = "uint64", cResult = "uint64"},
+    foreignCells = {routine = "cells", params = {}, result = "voidptr", cResult = "voidptr"}
 }
 
 local function need(value: any, message: string): any
@@ -61,9 +66,11 @@ local imports: integer = 0
 do
     local taken: {[integer]: string} = {}
     for name, spec in pairs(definitions) do
-        need(taken[spec.slot] == nil, "OS import slot taken twice: " .. name)
-        taken[spec.slot] = name
-        imports += 1
+        if spec.routine == nil then
+            need(taken[spec.slot] == nil, "OS import slot taken twice: " .. name)
+            taken[spec.slot] = name
+            imports += 1
+        end
     end
     for slot = 0, imports - 1 do
         need(taken[slot] ~= nil, "OS import slots have a gap")
@@ -80,6 +87,15 @@ const FOREIGN_SLOTS: integer = 1024
 
 export function foreignSlots(): integer
     return FOREIGN_SLOTS
+end
+
+-- The words below this are the linked code's, one per symbol and library
+-- (nupp.core.link); the guest's foreign calls cache theirs in the rest
+-- (`KERNEL_CELLS` in native/core/src/nupp/runtime/core/guestforeign.nupp).
+const KERNEL_CELLS: integer = 512
+
+export function kernelCells(): integer
+    return KERNEL_CELLS
 end
 
 -- The import slots a foreign call's resolution reads: the table, dlopen and dlsym.
@@ -120,12 +136,22 @@ export function isForeign(call: any): boolean
     return cdefOf(call) ~= nil
 end
 
+-- The type a foreign argument or result passes as: a literal's or a
+-- constant's base type, any other as it is.
+export function passed(t: any): any
+    if t and t.tag == "literal" then
+        return passed(t.base)
+    elseif t and t.tag == "const" then
+        return passed(t.inner)
+    end
+
+    return t
+end
+
 -- The exact kind a foreign argument or result has: an integer literal or an
 -- `integer` is int64, as the core holds both.
-local function foreignKind(t: any): string
-    if t and (t.tag == "literal" or t.tag == "const") then
-        return foreignKind(t.tag == "literal" and t.base or t.inner)
-    end
+local function foreignKind(given: any): string
+    local t = passed(given)
     local tag = t and (t.tag == "integer" and "int64" or t.tag) or nil
 
     return need(tag and foreignKinds[tag] and tag, "foreign call kind is not a C scalar or pointer")
@@ -244,6 +270,7 @@ export function call(owner: any, call: any): any
     ] = {
         bound = bound,
         slot = spec.slot,
+        routine = spec.routine,
         params = snapshot,
         effect = effect,
         result = result,
@@ -352,6 +379,19 @@ export function binding(declaration: any): any?
     validate(declaration)
     local resolved = issued[declaration].foreign
     return resolved and {library = resolved.library, symbol = resolved.symbol, fixed = resolved.fixed} or nil
+end
+
+-- The name a routine the selector writes in place is called by: the
+-- generic foreign call, or the table's address with its import slot; nil
+-- for an import or a foreign symbol.
+export function routine(declaration: any): string?
+    validate(declaration)
+    local name = issued[declaration].routine
+    if name == "cells" then
+        return "routine\0cells\0" .. tostring(definitions.foreignTable.slot)
+    end
+
+    return name and "routine\0" .. name or nil
 end
 
 -- The C result a call answers in fewer than 64 bits, which the caller
