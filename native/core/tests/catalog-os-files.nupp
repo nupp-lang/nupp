@@ -51,18 +51,24 @@ do
     local notDirectory, notMessage, notCode = os.remove(base .. "-d/x")
     check(notDirectory == nil and notMessage == base .. "-d/x: Not a directory" and notCode == 20)
     check(os.remove(base .. "-d") == true)
+    -- os.remove and os.rename are main's Nupp functions over Lua's, as main
+    -- reports them: a tail call to one would leave no line to name, so each
+    -- call keeps its frame, and the path it was not given reaches Lua's as nil.
     local noneOk, noneMessage = pcall(function(): any
-        return (os.remove as any)()
+        local removed = (os.remove as any)()
+        return removed
     end)
-    check(not noneOk and ends(noneMessage, ":55: bad argument #1 to 'remove' (string expected, got no value)"))
+    check(not noneOk and ends(noneMessage, ":58: bad argument #1 to 'remove' (string expected, got nil)"))
     local secondOk, secondMessage = pcall(function(): any
-        return (os.rename as any)("x")
+        local renamed = (os.rename as any)("x")
+        return renamed
     end)
-    check(not secondOk and ends(secondMessage, ":59: bad argument #2 to 'rename' (string expected, got no value)"))
+    check(not secondOk and ends(secondMessage, ":63: bad argument #2 to 'rename' (string expected, got nil)"))
     local tableOk, tableMessage = pcall(function(): any
-        return (os.rename as any)(true, "x")
+        local renamed = (os.rename as any)(true, "x")
+        return renamed
     end)
-    check(not tableOk and ends(tableMessage, ":63: bad argument #1 to 'rename' (string expected, got boolean)"))
+    check(not tableOk and ends(tableMessage, ":68: bad argument #1 to 'rename' (string expected, got boolean)"))
 end
 
 -- A temporary name is a new empty file under /tmp; a temporary file reads
@@ -92,6 +98,6 @@ do
     local categoryOk, categoryMessage = pcall(function(): any
         return setlocale("C", "bogus")
     end)
-    check(not categoryOk and ends(categoryMessage, ":93: bad argument #2 to 'setlocale' (invalid option 'bogus')"))
+    check(not categoryOk and ends(categoryMessage, ":99: bad argument #2 to 'setlocale' (invalid option 'bogus')"))
 end
 export const result = score
