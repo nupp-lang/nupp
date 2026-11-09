@@ -17,7 +17,10 @@ local function freshOwner(node: any): boolean
 end
 
 local function need(ok: any, message: string): any
-    assert(ok, "function graph: " .. message)
+    -- The message is built only for a failure: checks run millions of times.
+    if not ok then
+        error("function graph: " .. message, 0)
+    end
     return ok
 end
 

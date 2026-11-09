@@ -1,7 +1,10 @@
 module nupp.compiler.vm.functioncleanup
 
 local function need(ok: any, message: string): any
-    assert(ok, "function cleanup: " .. message)
+    -- The message is built only for a failure: checks run millions of times.
+    if not ok then
+        error("function cleanup: " .. message, 0)
+    end
     return ok
 end
 

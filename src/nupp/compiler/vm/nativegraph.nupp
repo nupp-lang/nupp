@@ -106,7 +106,10 @@ end
 local wrappers = {literal = "base", const = "inner"}
 
 local function need(ok: any, message: string): any
-    assert(ok, "native graph: " .. message)
+    -- The message is built only for a failure: checks run millions of times.
+    if not ok then
+        error("native graph: " .. message, 0)
+    end
     return ok
 end
 

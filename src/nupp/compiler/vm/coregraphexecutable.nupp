@@ -28,7 +28,10 @@ const CLIBRARY: {
 }
 
 local function need(ok: any, message: string): any
-    assert(ok, "core executable: " .. message)
+    -- The message is built only for a failure: checks run millions of times.
+    if not ok then
+        error("core executable: " .. message, 0)
+    end
     return ok
 end
 
