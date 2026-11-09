@@ -387,11 +387,13 @@ end
 const INSTRUCTION_BUDGET = 200000
 
 local function loadSandboxed(text: string, where: string): any?, string?
-    local chunk, loadErr = loadstring(text, "=" .. where)
+    -- The sandbox is the chunk's environment from the start: `load`'s env
+    -- argument, which LuaJIT, the VM and the core share, where `setfenv` is
+    -- Lua 5.1's alone.
+    local chunk, loadErr = load(text, "=" .. where, "t", sandbox())
     if not chunk then
         return nil, where .. " does not parse: " .. tostring(loadErr)
     end
-    setfenv(chunk, sandbox())
     local bounded = rawget(_G, "__nupp_with_instruction_budget")
     if bounded then
         local ok, result = pcall(bounded, chunk, INSTRUCTION_BUDGET)

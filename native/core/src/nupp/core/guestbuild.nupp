@@ -17,6 +17,7 @@ local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local ownedcallables = require("nupp.compiler.vm.ownedcallables")
 local forwardedexports = require("nupp.compiler.vm.forwardedexports")
 local derivedrecipes = require("nupp.compiler.vm.derivedrecipes")
+local managedcalls = require("nupp.compiler.vm.managedcalls")
 local tagged = require("nupp.compiler.vm.taggedprofile")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
@@ -271,6 +272,8 @@ local CASES: {[string]: {
     },
     namedarguments = {fixture = "catalog-named-arguments", version = 8},
     loopparameteralias = {fixture = "catalog-loop-parameter-alias", version = 8},
+    ownmanage = {fixture = "catalog-own-manage", version = 8},
+    pluckedarguments = {fixture = "catalog-plucked-arguments", version = 8},
     modulescycle = {
         fixture = "catalog-modules-cycle",
         version = 8,
@@ -749,6 +752,9 @@ local function requiredmodules(root: any, source: string, follow: boolean): ({st
         end
         -- A record a derive recipe gives members loads the factory, and
         -- each helper its members call.
+        if managedcalls.managing(node) then
+            add(managedcalls.MODULE, false)
+        end
         if derivedrecipes.derived(node) then
             add(derivedrecipes.MODULE, false)
             for _, helper in ipairs(derivedrecipes.helperModules(node)) do

@@ -15,6 +15,7 @@ local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local ownedcallables = require("nupp.compiler.vm.ownedcallables")
 local forwardedexports = require("nupp.compiler.vm.forwardedexports")
 local derivedrecipes = require("nupp.compiler.vm.derivedrecipes")
+local managedcalls = require("nupp.compiler.vm.managedcalls")
 local indexedaccess = require("nupp.compiler.vm.indexedaccess")
 local namedarguments = require("nupp.compiler.vm.namedarguments")
 
@@ -63,9 +64,16 @@ end
 -- The ownership intrinsics the core runs: transfers, which answer the value
 -- they move, and `partition`, which answers its two parts. Their ownership
 -- is the checker's; at run time each is its value.
-local executableintrinsics: {
-    [string]: boolean
-} = {adopt = true, release = true, borrow = true, borrowFrom = true, region = true, partition = true}
+local executableintrinsics: {[string]: boolean} = {
+    adopt = true,
+    release = true,
+    borrow = true,
+    borrowFrom = true,
+    region = true,
+    partition = true,
+    -- A managed cell is made by coremanaged's factory (managedcalls).
+    manage = true
+}
 
 -- Whether the core runs ownership intrinsic call `node`: an executable one,
 -- or a `drop`, which runs its owner's cleanups then.
@@ -466,6 +474,8 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         forwards = {},
         -- By record declaration, the derived members it makes.
         derives = {},
+        -- By `own.manage` call, the factory call that makes its cell.
+        manages = {},
         qualifiedLoads = {},
         calls = {},
         callByNode = {},
@@ -1360,6 +1370,22 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
                 cleanupToken(node, captured.type, captured.token)
             end
         end
+        if managedcalls.managing(node) then
+            local plan = managedcalls.prepare(p, node, owner)
+            p.manages[node] = plan
+            local site = {
+                id = #p.calls,
+                owner = owner.id,
+                node = plan.call,
+                definition = plan.target.definition,
+                managed = plan
+            }
+            p.calls[#p.calls + 1], p.callByNode[plan.call] = site, site
+            local load = {kind = "qualifiedLoad", qualifiedModule = managedcalls.MODULE, cst.firstToken(node)}
+            local module = need(moduleNames[managedcalls.MODULE], "managed cell module is missing")
+            plan.loader = qualifiedload(owner, module, load)
+            plan.loader.managed = plan
+        end
         if derivedrecipes.derived(node) then
             local plan = derivedrecipes.prepare(p, node, owner)
             p.derives[node] = plan
@@ -1869,6 +1895,9 @@ export function verify(p: any): boolean
             if item.derived then
                 derivedrecipes.verify(p, item.derived)
             end
+            if item.managed then
+                managedcalls.verify(p, item.managed)
+            end
             -- A chunk's absent module initializes in the running program.
             if item.builtin and not item.absent then
                 local current = builtinprojection(node)
@@ -1924,6 +1953,7 @@ export function verify(p: any): boolean
                         or item.callable and node.kind == "qualifiedLoad"
                         or item.forward and node.kind == "qualifiedLoad"
                         or item.derived and node.kind == "qualifiedLoad"
+                        or item.managed and node.kind == "qualifiedLoad"
                     )
                     and node.qualifiedModule ~= nil
                     and graph.coremodule(node.qualifiedModule) == item.module
@@ -2180,6 +2210,8 @@ export function verify(p: any): boolean
             forwardedexports.verify(p, item.forward)
         elseif item.derived then
             derivedrecipes.verify(p, item.derived)
+        elseif item.managed then
+            managedcalls.verify(p, item.managed)
         elseif item.scalarWitness then
 
             local witness = item.scalarWitness
@@ -2269,6 +2301,9 @@ export function verify(p: any): boolean
     end
     for _, plan in pairs(p.derives) do
         derivedrecipes.verify(p, plan)
+    end
+    for _, plan in pairs(p.manages) do
+        managedcalls.verify(p, plan)
     end
     for node, access in pairs(p.indexedByNode) do
         local site = need(p.callByNode[access.call], "indexed span lacks its issued callsite")
