@@ -1380,6 +1380,9 @@ export function LibCall(
         return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
     end
     guestscope.librarySite(ctx, frame, pc, count, counted >> librarylayouts.METHOD_SHIFT)
+    if (counted >> librarylayouts.FORWARD_SHIFT) & 1ULL == 1ULL then
+        guesterrors.callerSite(ctx, frame)
+    end
     -- The coroutine library. Resume and yield switch threads: the context
     -- then runs the other thread, from its active frame.
     if libraryId >= librarycalls.COROUTINES_FIRST and libraryId <= librarycalls.COROUTINES_LAST

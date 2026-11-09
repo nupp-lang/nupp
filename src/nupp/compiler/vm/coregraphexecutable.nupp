@@ -442,11 +442,14 @@ local function derive(g: any, catalog: any): any
                         emit({"Move", callBase + index - 1, physical(args[index])}, position)
                     end
                     -- The id and its argument count, which carries the
-                    -- method-form flag.
-                    local id, method = corelibrary.split(args[1])
+                    -- method-form and forwarding flags.
+                    local id, method, forward = corelibrary.split(args[1])
                     local count = #args - 1
                     if method then
                         count += corelibrary.COUNT_METHOD_FORM
+                    end
+                    if forward then
+                        count += corelibrary.COUNT_FORWARD_FORM
                     end
                     emit({"LibCall", physical(dst), id, callBase, count}, position)
                     yield nil

@@ -161,7 +161,7 @@ local CASES = {
     {"callsPacks", 0x7FFF0000002F5D00},
     {"callsOpen", 0x7FFF000000002B71},
     {"callsExpand", 0x7FFF00000E655693},
-    {"errorsMethods", 0x7FFF00000000000F},
+    {"errorsMethods", 0x7FFF0000000000FF},
     {"recordsAffineReturns", 0x7FFF001A27644F86},
     {"threadsbasic", 0x7FFF000000000FFF},
     {"coroutineinheritance", 0x7FFF00000000007F},
