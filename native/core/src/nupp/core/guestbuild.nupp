@@ -237,6 +237,7 @@ local CASES: {[string]: {
     modulesdynamic = {fixture = "catalog-modules-dynamic", version = 8, modules = {"catalog-modules-geometry"},},
     shortfunctions = {fixture = "catalog-short-functions", version = 8},
     gotocontinue = {fixture = "catalog-goto-continue", version = 8},
+    legacyglobals = {fixture = "catalog-legacy-globals", version = 8},
     derivedmembers = {
         fixture = "catalog-derive",
         version = 8,

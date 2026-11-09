@@ -213,6 +213,12 @@ export const functions: {[string]: any} = {
     ["table.concat"] = function(t: {string}, sep: string?, i: integer?, j: integer?): string
         return table.concat(t, sep, i, j)
     end,
+    ["table.unpack"] = function(t: any, i: integer?, j: integer?): ...any
+        return table.unpack(t, i, j)
+    end,
+    unpack = function(t: any, i: integer?, j: integer?): ...any
+        return table.unpack(t, i, j)
+    end,
     ["table.insert"] = function(t: {any}, position: any, value: any): nil
         if value == nil then
             t[#t + 1] = position

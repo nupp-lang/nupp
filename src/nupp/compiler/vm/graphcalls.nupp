@@ -786,6 +786,13 @@ local libraryValues: {
     ["string.gsub"] = true,
     ["table.concat"] = true,
     ["table.insert"] = true,
+    ["table.unpack"] = true,
+    -- The prelude's `unpack` is `table.unpack`, as a call of it is.
+    unpack = true,
+    -- LuaJIT's `jit` library, which the core does not have: as a value it
+    -- is the nil the library values hold under its name, as on a Lua
+    -- without it, so `jit and jit.os` reads nil.
+    jit = true,
     ["math.type"] = true,
     ["math.max"] = true,
     ["math.min"] = true,
