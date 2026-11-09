@@ -11,7 +11,6 @@ module nupp.compiler.vm.legacygraph
 --- SSA value ids are distinct from the slot hints the derived instruction
 --- stream lays registers out by. Columns are plain tables; nothing here
 --- allocates a table per instruction.
-local graph = {}
 
 local frameverify = require("nupp.compiler.vm.frameverify")
 
@@ -92,55 +91,55 @@ local function derive(name: string): string
     return table.concat(letters)
 end
 
-local signatures: {[string]: string} = {}
+export const signatureText: {[string]: string} = {}
 for _, name in ipairs(opcodes.names()) do
-    signatures[name] = pinned[name] or derive(name)
+    signatureText[name] = pinned[name] or derive(name)
 end
 -- Graph-only macros, expanded by the lowering.
-signatures.U32Load = "Ivi"
-signatures.U32Store = "vii"
-signatures.U32Add = "Iii"
-signatures.U32Sub = "Iii"
-signatures.SpanEqual = "vvk"
-signatures.VSplatI = "Xi#"
-signatures.VExtractI = "Ix##"
+signatureText.U32Load = "Ivi"
+signatureText.U32Store = "vii"
+signatureText.U32Add = "Iii"
+signatureText.U32Sub = "Iii"
+signatureText.SpanEqual = "vvk"
+signatureText.VSplatI = "Xi#"
+signatureText.VExtractI = "Ix##"
 -- Native systems operations use the same closed-block graph. Their exact
 -- Nupp kinds and static contracts are verified before machine emission.
-signatures.NativeConstant = "I#"
-signatures.NativeHelperCall = "I#"
-signatures.NativeLeafCall = "I#"
-signatures.NativeLoad = "Iii#"
-signatures.NativeStore = "iia#"
-signatures.NativeLayout = "I#"
-signatures.NativePointer = "Ii"
-signatures.NativeAddress = "Ii"
-signatures.ProgramLoad = "Iii#"
-signatures.FrameSlotRead = "Iiii#"
-signatures.FrameVarargRead = "Iii#"
-signatures.FrameStatus = "Ii#"
-signatures.FrameRecover = "Ii#"
-signatures.FrameWindow = "Iii#"
-signatures.FrameSlotWrite = "iiia#"
-signatures.PointerOffset = "Iii"
-signatures.NativeBoolean = "I#"
-signatures.NativeIMul = "Iii"
-signatures.NativeUDiv = "Iii"
-signatures.NativeICmp = "Iii#"
-signatures.NativeFCmp = "Iff#"
-signatures.NativeAsWord = "Ii"
-signatures.NativeSelect = "Iiaa"
-signatures.NativeWordCast = "Ii"
-signatures.NativeIntToFloat = "Fi"
-signatures.NativeFloatToInt = "If"
-signatures.NativeFloatConvert = "Ff"
-signatures.NativeFloatBits = "If"
-signatures.NativeFloatFromBits = "Fi"
-signatures.NativeFloat32Bits = "If"
-signatures.NativeFloat32FromBits = "Fi"
-signatures.NativeRoundFloat32 = "Ff"
-signatures.NativeFloor = "Ff"
-signatures.NativeCeil = "Ff"
-signatures.NativeSqrt = "Ff"
+signatureText.NativeConstant = "I#"
+signatureText.NativeHelperCall = "I#"
+signatureText.NativeLeafCall = "I#"
+signatureText.NativeLoad = "Iii#"
+signatureText.NativeStore = "iia#"
+signatureText.NativeLayout = "I#"
+signatureText.NativePointer = "Ii"
+signatureText.NativeAddress = "Ii"
+signatureText.ProgramLoad = "Iii#"
+signatureText.FrameSlotRead = "Iiii#"
+signatureText.FrameVarargRead = "Iii#"
+signatureText.FrameStatus = "Ii#"
+signatureText.FrameRecover = "Ii#"
+signatureText.FrameWindow = "Iii#"
+signatureText.FrameSlotWrite = "iiia#"
+signatureText.PointerOffset = "Iii"
+signatureText.NativeBoolean = "I#"
+signatureText.NativeIMul = "Iii"
+signatureText.NativeUDiv = "Iii"
+signatureText.NativeICmp = "Iii#"
+signatureText.NativeFCmp = "Iff#"
+signatureText.NativeAsWord = "Ii"
+signatureText.NativeSelect = "Iiaa"
+signatureText.NativeWordCast = "Ii"
+signatureText.NativeIntToFloat = "Fi"
+signatureText.NativeFloatToInt = "If"
+signatureText.NativeFloatConvert = "Ff"
+signatureText.NativeFloatBits = "If"
+signatureText.NativeFloatFromBits = "Fi"
+signatureText.NativeFloat32Bits = "If"
+signatureText.NativeFloat32FromBits = "Fi"
+signatureText.NativeRoundFloat32 = "Ff"
+signatureText.NativeFloor = "Ff"
+signatureText.NativeCeil = "Ff"
+signatureText.NativeSqrt = "Ff"
 local nativeOnly = {
     NativeConstant = true,
     NativeHelperCall = true,
@@ -227,7 +226,7 @@ local macros = {
 -- slices strings per instruction.
 local parsed: {[string]: any} = {}
 local lowered = {V = "v", I = "i", F = "f", X = "x"}
-for op, sig in pairs(signatures) do
+for op, sig in pairs(signatureText) do
     local args, result, at = {}, "-", 0
     for j = 1, #sig do
         local c = sig:sub(j, j)
@@ -262,16 +261,14 @@ local function operandClass(sig: any, index: integer): string
     return sig.args[index] or (sig.variadic and "a")
 end
 
-graph.signatures = parsed
-graph.signatureText = signatures
+export const signatures = parsed
 
-local classes = {v = 0, i = 1, f = 2, x = 3}
-graph.classes = classes
+export const classes = {v = 0, i = 1, f = 2, x = 3}
 
 --- A graph for a function of `nparams` boxed parameters. The parameters are
 --- the first `nparams` value ids, class `v`, one slot each, usable in every
 --- block without being passed.
-function graph.new(nparams: integer): any
+export function new(nparams: integer): any
     local g = {
         nparams = nparams,
         blocks = {},
@@ -289,7 +286,7 @@ function graph.new(nparams: integer): any
     return g
 end
 
-function graph.value(g: any, ty: string, slot: integer?): integer
+export function value(g: any, ty: string, slot: integer?): integer
     local id = #g.types + 1
     if slot == nil then
         slot = g.counts[ty]
@@ -304,8 +301,8 @@ end
 ---
 --- The physical sixth argument is the retained dispatch table. The logical
 --- sixth argument is the frame, reconstructed from the value window at entry.
-function graph.newNative(parameterKinds: {string}, resultKind: string, abi: string): any
-    local g = graph.new(#parameterKinds)
+export function newNative(parameterKinds: {string}, resultKind: string, abi: string): any
+    local g = new(#parameterKinds)
     local params = {}
     g.exactTypes = {}
     for i, kind in ipairs(parameterKinds) do
@@ -326,21 +323,21 @@ function graph.newNative(parameterKinds: {string}, resultKind: string, abi: stri
 end
 
 --- Allocates an exact native value in the graph's existing storage classes.
-function graph.nativeValue(g: any, kind: string, slot: integer?): integer
+export function nativeValue(g: any, kind: string, slot: integer?): integer
     assert(g.native ~= nil and nativeClasses[kind], "invalid native graph value kind")
-    local id = graph.value(g, nativeClasses[kind], slot)
+    local id = value(g, nativeClasses[kind], slot)
     g.exactTypes[id] = kind
     return id
 end
 
-function graph.block(g: any): any
+export function block(g: any): any
     local b = {id = #g.blocks + 1, params = {}, op = {}, dst = {}, args = {}, pos = {}, cert = {}}
     g.blocks[b.id] = b
     return b
 end
 
 --- A source position, shared by every instruction emitted at it.
-function graph.position(g: any, line: integer, column: integer): integer
+export function position(g: any, line: integer, column: integer): integer
     local positions = g.positions
     positions[#positions + 1] = {line = line, column = column}
     return #positions
@@ -348,7 +345,7 @@ end
 
 --- The certificate an elided span access cites: the guard, cursor and span
 --- length values that justify it.
-function graph.certificate(g: any, guard: integer, cursor: integer, span: integer): integer
+export function certificate(g: any, guard: integer, cursor: integer, span: integer): integer
     local certificates = g.certificates
     certificates[#certificates + 1] = {guard = guard, cursor = cursor, span = span}
     return #certificates
@@ -359,7 +356,7 @@ end
 --- window's base, which the arguments above it were placed by).
 --- @raises string when the opcode is unknown, a terminator, or given the
 --- wrong number of operands.
-function graph.emit(g: any, b: any, op: string, args: any, pos: integer?, cert: integer?, slot: integer?): integer?
+export function emit(g: any, b: any, op: string, args: any, pos: integer?, cert: integer?, slot: integer?): integer?
     local sig = parsed[op]
     if sig == nil then
         error("unknown graph operation: " .. op, 0)
@@ -369,7 +366,7 @@ function graph.emit(g: any, b: any, op: string, args: any, pos: integer?, cert: 
         error("terminator opcode inside a block: " .. op, 0)
     end
     local class = sig.result
-    local id = class ~= "-" and graph.value(g, lowered[class], slot) or nil
+    local id = class ~= "-" and value(g, lowered[class], slot) or nil
     local at = #b.op + 1
     b.op[at], b.dst[at], b.args[at], b.pos[at], b.cert[at] = op, id or 0, args, pos or 0, cert or 0
 
@@ -377,7 +374,7 @@ function graph.emit(g: any, b: any, op: string, args: any, pos: integer?, cert: 
 end
 
 --- Appends a native operation without erasing its exact kind or contracts.
-function graph.emitNative(g: any, b: any, op: string, args: any, kind: string?, pos: integer?): integer?
+export function emitNative(g: any, b: any, op: string, args: any, kind: string?, pos: integer?): integer?
     assert(g.native ~= nil and (nativeOnly[op] or nativeArithmetic[op]), "unsupported native graph operation")
     local sig = assert(parsed[op], "unknown native graph operation")
     assert(operationArity(sig, args) and not sig.terminator, "invalid native operation arity")
@@ -388,7 +385,7 @@ function graph.emitNative(g: any, b: any, op: string, args: any, kind: string?, 
     local result: integer? = nil
     if hasResult then
         assert(kind ~= nil and nativeClasses[kind], "native result requires an exact kind")
-        result = graph.nativeValue(g, kind as string)
+        result = nativeValue(g, kind as string)
     else
         assert(kind == nil, "native effect has no result kind")
     end
@@ -398,9 +395,9 @@ function graph.emitNative(g: any, b: any, op: string, args: any, kind: string?, 
     return result
 end
 
-local function nativeContract(value: any, fields: any): nil
-    assert(type(value) == "table", "native operation requires a contract")
-    for name in pairs(value) do
+local function nativeContract(val: any, fields: any): nil
+    assert(type(val) == "table", "native operation requires a contract")
+    for name in pairs(val) do
         assert(fields[name], "unknown native contract field")
     end
 end
@@ -420,8 +417,8 @@ local function nativeInteger(text: any, kind: string): nil
     for i = 1, #digits do
         local carry = tonumber(digits:sub(i, i), base) as number
         for j = 1, 4 do
-            local value = limbs[j] * base + carry
-            limbs[j], carry = value % 65536, math.floor(value / 65536)
+            local val = limbs[j] * base + carry
+            limbs[j], carry = val % 65536, math.floor(val / 65536)
         end
         assert(carry == 0, "native integer constant exceeds 64 bits")
     end
@@ -482,12 +479,12 @@ local nativeLeafParameters = {
     }
 }
 
-function graph.hasNativeLeafDeclaration(moduleName: string, name: string): boolean
+export function hasNativeLeafDeclaration(moduleName: string, name: string): boolean
     local home = nativeLeafParameters[moduleName]
     return home ~= nil and home[name] ~= nil
 end
 
-function graph.nativeLeafDeclaration(moduleName: string, name: string): any
+export function nativeLeafDeclaration(moduleName: string, name: string): any
     local home = nativeLeafParameters[moduleName]
     local params = home and home[name]
     assert(params, "native leaf declaration is not approved")
@@ -517,15 +514,15 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
         )
     end
 
-    local function hasKind(value: integer, expected: string): nil
-        assert(kinds[value] == expected, "native graph operand kind mismatch")
+    local function hasKind(val: integer, expected: string): nil
+        assert(kinds[val] == expected, "native graph operand kind mismatch")
     end
 
     if op == "NativeLeafCall" then
         assert(g.native.abi == "leaf", "scalar leaf calls require a leaf graph")
         local declaration = args[1]
         nativeContract(declaration, {moduleName = true, name = true, params = true, result = true, abi = true})
-        local checked = graph.nativeLeafDeclaration(declaration.moduleName, declaration.name)
+        local checked = nativeLeafDeclaration(declaration.moduleName, declaration.name)
         assert(
             declaration.abi == checked.abi and declaration.result == checked.result,
             "native leaf declaration changed"
@@ -802,8 +799,8 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
             or (op == "IAnd" or op == "IOr") and kind == "boolean",
             "native arithmetic result kind"
         )
-        for _, value in ipairs(args) do
-            hasKind(value, kind)
+        for _, val in ipairs(args) do
+            hasKind(val, kind)
         end
     else
         error("unsupported native graph operation", 0)
@@ -822,7 +819,7 @@ local edgeCounts = {
     nativeFail = 0
 }
 
-function graph.verify(g: any): nil
+export function verify(g: any): nil
     local blocks, types, slots, counts = g.blocks, g.types, g.slots, g.counts
     if not (#blocks > 0 and #blocks <= 100000 and #types == #slots) then
         error("assertion failed", 0)
@@ -1183,7 +1180,7 @@ end
 --- Removes the transported parameters no block uses downstream, with the
 --- values that only fed them. Nothing else is deleted: every instruction
 --- with a result keeps it, so an instruction that may fail still runs.
-function graph.prune(g: any): nil
+export function prune(g: any): nil
     local used = {}
     local blocks = g.blocks
     local nparams = g.nparams
@@ -1203,8 +1200,8 @@ function graph.prune(g: any): nil
             used[b.term.value] = true
         end
         if b.term.kind == "dispatch" or b.term.kind == "nativeTail" then
-            for _, value in ipairs(b.term.args) do
-                used[value] = true
+            for _, val in ipairs(b.term.args) do
+                used[val] = true
             end
         end
     end
@@ -1346,7 +1343,7 @@ end
 --- branch, a block reached twice, or a block the tree never reaches is an
 --- error.
 --- @raises string when the annotations do not describe the graph.
-function graph.regions(g: any): any
+export function regions(g: any): any
     local blocks = g.blocks
     local kinds, parents, heads, entries, continues, merges = {"body"}, {0}, {1}, {1}, {0}, {0}
     local blockRegion = {}
@@ -1453,9 +1450,9 @@ local moves = {v = "Move", i = "IMov", f = "FMov", x = "VMov"}
 --- shows.
 --- @raises string when the graph does not verify, a float-returning function
 --- returns another class, or the slots exceed the register classes.
-function graph.lower(g: any): any
+export function lower(g: any): any
     assert(g.native == nil, "native graph requires machine emission")
-    graph.verify(g)
+    verify(g)
     local code, starts, patches = {}, {}, {}
     local lengthSlots = {}
     local nparams, counts = g.nparams, g.counts
@@ -1483,7 +1480,7 @@ function graph.lower(g: any): any
         return ty == "v" and valueBase + counts.v or counts[ty]
     end
 
-    local function emit(...: any): integer
+    local function put(...: any): integer
         local instruction = {...}
         opcodes.check(instruction)
         code[#code + 1] = instruction
@@ -1491,7 +1488,7 @@ function graph.lower(g: any): any
     end
 
     local function jump(target: integer): nil
-        patches[#patches + 1] = {at = emit("Jmp", 0), target = target}
+        patches[#patches + 1] = {at = put("Jmp", 0), target = target}
     end
 
     -- Copies for one edge, class by class, in ascending destination order:
@@ -1533,7 +1530,7 @@ function graph.lower(g: any): any
                     local to = dsts[i]
                     local from = pending[to]
                     if from ~= nil and not reads[to] then
-                        emit(move, to, from)
+                        put(move, to, from)
                         pending[to] = nil
                         remaining = remaining - 1
                         progress = true
@@ -1555,7 +1552,7 @@ function graph.lower(g: any): any
                         end
                     end
                     local temp = scratch(ty)
-                    emit(move, temp, first)
+                    put(move, temp, first)
                     for i = 1, #dsts do
                         local d = dsts[i]
                         if pending[d] == first then
@@ -1598,26 +1595,26 @@ function graph.lower(g: any): any
             end
             local from = #code + 1
             if op == "U32Add" or op == "U32Sub" then
-                emit(op == "U32Add" and "IAdd" or "ISub", ins[2], ins[3], ins[4])
-                emit("IMaskU32", ins[2], ins[2])
+                put(op == "U32Add" and "IAdd" or "ISub", ins[2], ins[3], ins[4])
+                put("IMaskU32", ins[2], ins[2])
             elseif op == "U32Load" or op == "U32Store" then
                 local store = op == "U32Store"
                 local param, index = ins[store and 2 or 3], ins[store and 3 or 4]
                 local one, vector = scratch("i"), scratch("x")
-                emit("IK", one, 1)
-                emit("SpanBounds", param, index, one, 4, store and 1 or 0)
+                put("IK", one, 1)
+                put("SpanBounds", param, index, one, 4, store and 1 or 0)
                 if store then
-                    emit("VSplatN", vector, ins[4], 4)
-                    emit("SpanStore", param, index, vector, one, 4, 0, 1)
+                    put("VSplatN", vector, ins[4], 4)
+                    put("SpanStore", param, index, vector, one, 4, 0, 1)
                 else
-                    emit("SpanLoad", vector, param, index, one, 4, 0, 1)
-                    emit("VExtractN", ins[2], vector, 4, 0)
+                    put("SpanLoad", vector, param, index, one, 4, 0, 1)
+                    put("VExtractN", ins[2], vector, 4, 0)
                 end
             elseif op == "SpanEqual" then
                 local flag = scratch("i")
-                emit("ICmpNe", flag, assert(lengthSlots[args[1]]), assert(lengthSlots[args[2]]))
-                emit("JmpIfIZero", flag, 1)
-                emit("Raise", ins[4])
+                put("ICmpNe", flag, assert(lengthSlots[args[1]]), assert(lengthSlots[args[2]]))
+                put("JmpIfIZero", flag, 1)
+                put("Raise", ins[4])
             elseif op == "VSplatI" then
                 ins[1] = "VSplatN"
                 code[#code + 1] = ins
@@ -1660,14 +1657,12 @@ function graph.lower(g: any): any
                 and same(t.edges[1])
             then
                 -- The false edge falls through: one jump on the true edge.
-                patches[
-                    #patches + 1
-                ] = {at = emit("JmpIf", physical(t.value), 0), target = t.edges[1].target, field = 3}
+                patches[#patches + 1] = {at = put("JmpIf", physical(t.value), 0), target = t.edges[1].target, field = 3}
             elseif identity then
-                patches[#patches + 1] = {at = emit(test, physical(t.value), 0), target = t.edges[2].target, field = 3}
+                patches[#patches + 1] = {at = put(test, physical(t.value), 0), target = t.edges[2].target, field = 3}
                 copies(t.edges[1], b.id + 1)
             else
-                local branch = emit(test, physical(t.value), 0)
+                local branch = put(test, physical(t.value), 0)
                 copies(t.edges[1])
                 code[branch][3] = #code - branch
                 copies(t.edges[2], b.id + 1)
@@ -1677,7 +1672,7 @@ function graph.lower(g: any): any
             -- laid out after the switch; the table is patched to them.
             local tables = g.tables or {}
             g.tables = tables
-            local entry = {at = emit("Switch", physical(t.value), #tables), targets = {}}
+            local entry = {at = put("Switch", physical(t.value), #tables), targets = {}}
             tables[#tables + 1] = entry
             local edges = t.edges
             local trampolines = {}
@@ -1701,20 +1696,20 @@ function graph.lower(g: any): any
                 copies(edges[ei])
             end
         elseif t.kind == "raise" then
-            emit("Raise", t.constant)
+            put("Raise", t.constant)
         elseif t.kind == "returns" then
-            emit("RetN", physical(t.value), t.count)
+            put("RetN", physical(t.value), t.count)
         elseif t.kind == "park" then
             local v = t.value
             local reg = physical(v)
             if types[v] == "f" then
                 reg = nparams + 1
-                emit("FBox", reg, physical(v))
+                put("FBox", reg, physical(v))
             end
             -- The resume entry is the instruction after the park: the edge's
             -- target starts there, or a jump reaches it.
             copies(t.edges[1], t.edges[1].target)
-            emit("Park", reg)
+            put("Park", reg)
             if t.edges[1].target ~= b.id + 1 then
                 jump(t.edges[1].target)
             end
@@ -1724,18 +1719,18 @@ function graph.lower(g: any): any
                 if not (types[v] == "f") then
                     error("float-returning function returns another class", 0)
                 end
-                emit("FRet", physical(v))
+                put("FRet", physical(v))
             elseif types[v] == "f" then
-                emit("FBox", nparams + 1, physical(v))
-                emit("Ret", nparams + 1)
+                put("FBox", nparams + 1, physical(v))
+                put("Ret", nparams + 1)
             elseif types[v] == "i" then
-                emit("IBox", nparams + 1, physical(v))
-                emit("Ret", nparams + 1)
+                put("IBox", nparams + 1, physical(v))
+                put("Ret", nparams + 1)
             else
-                emit("Ret", physical(v))
+                put("Ret", physical(v))
             end
         else
-            emit("RetNil")
+            put("RetNil")
         end
     end
     for pi = 1, #patches do
@@ -1770,5 +1765,3 @@ function graph.lower(g: any): any
         graph = g
     }
 end
-
-export = graph
