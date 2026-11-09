@@ -17,14 +17,17 @@ const hostcalls = require("nupp.runtime.hostcalls")
 -- The compiler a text chunk compiles with, required by a name the program
 -- carries only where it names it.
 const COMPILER = "nupp.compiler.vm.corechunk"
--- What requiring it answered: its module, or false where it is not carried.
+-- What requiring it answered: its module, or false where it is not carried
+-- or raised as it loaded, and then why.
 local compiler: any = nil
+local missing: string = ""
 
 local function textCompiler(): any
     if compiler == nil then
         local loader: function(string): any = require
         local ok, found = pcall(loader, COMPILER)
         compiler = ok and found or false
+        missing = ok and "" or tostring(found)
     end
 
     return compiler or nil
@@ -247,7 +250,7 @@ local function loadchunk(chunk: any, name: string?, mode: string?, env: table?):
         end
         local compile = textCompiler()
         if compile == nil then
-            return nil, chunkid(chunkname) .. ": text chunks need the compiler, which this program does not carry"
+            return nil, chunkid(chunkname) .. ": text chunks need the compiler, which did not load: " .. missing
         end
         local bytes, problem = compile.compile(text, chunkid(chunkname))
         if bytes == nil then

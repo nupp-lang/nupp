@@ -66,6 +66,8 @@ local score: integer = 0
 local make, problem = load(source, "=source")
 if make ~= nil and problem == nil then
     score = score + 1
+else
+    error(problem, 0)
 end
 local answer: any = make(7, "core", "x")
 if answer.total == 62 then
