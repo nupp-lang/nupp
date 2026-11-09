@@ -186,6 +186,8 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
     end
     local positions, instructions, segments, blocks, callees = {}, {}, {}, {}, {}
     local imports, pageImports = {}, {}
+    -- The stack slot every foreign call in this function lays its block in.
+    local foreignSlot: integer? = nil
     local selectTail: {any} = {}
     local position, operation, segment, blockIndex = 0, 0, 0, 1
 
@@ -265,6 +267,12 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
         placed(at)
 
         return result
+    end
+
+    -- The address `at` bytes past machine value `base`.
+    local function offsetAddress(base: any, at: any): integer
+        local displacement = emit("iconst", nil, nil, nil, nil, "i64", 0, tostring(at))
+        return emit("iadd", nil, base, displacement, nil, "i64", 0, nil)
     end
 
     local sourceSegments = bound.segments
@@ -425,11 +433,18 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                     -- called through what it resolved to.
                     -- A routine the selector writes in place (the generic
                     -- foreign call) has no slot.
-                    local call = {op = ir.opcode("call"), aux = 0, values = {} as {integer}}
+                    local call = {op = ir.opcode("call"), aux = 0, values = {} as {integer}, complete = false}
                     local routine = nativeos.routine(declaration)
                     if routine then
                         call.aux = imported(routine, signature)
                     elseif binding then
+                        -- A foreign symbol is resolved once into the bridge's
+                        -- table (s0.select); the call itself is the generic
+                        -- foreign call. Arguments that all go in registers are
+                        -- its operands after the function (its fast path);
+                        -- any others are laid in a block in this function's
+                        -- frame where the C convention passes them
+                        -- (nativeos.foreignPlacement).
                         local tableSlot, openSlot, symbolSlot = nativeos.foreignImports()
                         local symbol = table.concat(
                             {
@@ -448,8 +463,57 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                         )
                         local pointer = fresh()
                         placed(ir.instruction(f, call.op, pointer, ir.I64, {}, 0, resolver))
-                        f.signatures[#f.signatures + 1] = signature
-                        call.op, call.aux, call.values = ir.opcode("call_indirect"), #f.signatures, {pointer}
+                        local placement = nativeos.foreignPlacement(declaration.params, binding.fixed)
+                        local passed: {integer} = {pointer}
+                        local routineParams: {integer} = {ir.I64}
+                        if placement.words == 0 then
+                            for at, kind in ipairs(kinds) do
+                                passed[at + 1], routineParams[at + 1] = (args[at + 1] as integer) + 1, kind
+                            end
+                        else
+                            local blockBytes, functionAt = nativeos.foreignBlock()
+                            if foreignSlot == nil then
+                                foreignSlot = #f.stackBytes + 1
+                                f.stackBytes[
+                                    foreignSlot as integer
+                                ], f.stackAlign[foreignSlot as integer] = blockBytes, 16
+                            end
+                            local block = emit("stack_addr", nil, nil, nil, nil, "i64", 0, "0")
+                            f.aux[#f.op] = foreignSlot as integer
+
+                            local function into(value: integer, at: integer, kind: string, bytes: integer): nil
+                                local address = offsetAddress(block, at)
+                                emit("store", 0, value, address, nil, kind, bytes == 8 and 0 or bytes * 8, nil)
+                            end
+
+                            into(pointer, functionAt, "i64", 8)
+                            for at, kind in ipairs(declaration.params) do
+                                local value = (args[at + 1] as integer) + 1
+                                local machine = machineKind(kind)
+                                local place = placement.args[at]
+                                if machine == "i8" then
+                                    -- A Boolean passes extended to a whole word.
+                                    value = emit("uextend", nil, value, nil, nil, "i64", 0, nil)
+                                    machine = "i64"
+                                end
+                                into(value, place.at, machine, place.bytes)
+                            end
+                            passed[1] = block
+                        end
+                        local answer = returned == 0 and "v"
+                            or returned == ir.F32 and "s"
+                            or returned == ir.F64 and "d"
+                            or "x"
+                        local routine = imported(
+                            nativeos.foreignRoutine(placement, answer),
+                            ir.Signature(
+                                params = routineParams,
+                                results = returned == 0 and {} or {returned},
+                                convention = ir.C,
+                                fixed = placement.words == 0 and binding.fixed or nil
+                            )
+                        )
+                        call.aux, call.values, call.complete = routine, passed, true
                     else
                         local symbol = "core_os_" .. tostring(nativeos.slot(declaration, bound.body))
                         call.aux = imported(symbol, signature)
@@ -461,7 +525,8 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                     if narrow and result then
                         called = fresh()
                     end
-                    placed(ir.instruction(f, call.op, called, returned, operands(args, call.values), 0, call.aux))
+                    local values = call.complete and call.values or operands(args, call.values)
+                    placed(ir.instruction(f, call.op, called, returned, values, 0, call.aux))
                     if narrow and result then
                         local extend = ir.opcode(narrow == "int32" and "sextend" or "uextend")
                         placed(
@@ -577,8 +642,7 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                     while offset < contract.layout.size do
                         local remaining = contract.layout.size - offset
                         local width = remaining >= 8 and 8 or remaining >= 4 and 4 or remaining >= 2 and 2 or 1
-                        local displacement = emit("iconst", nil, nil, nil, nil, "i64", 0, tostring(offset))
-                        local address = emit("iadd", nil, result, displacement, nil, "i64", 0, nil)
+                        local address = offsetAddress(result, offset)
                         emit("store", 0, zero, address, nil, "i64", 0, nil)
                         f.aux[#f.op] = width == 8 and 0 or width * 8
                         offset = offset + width
@@ -588,8 +652,7 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                             binding.width == 1 or binding.width == 2 or binding.width == 4 or binding.width == 8,
                             "S0 graph: unsupported physical local field width"
                         )
-                        local displacement = emit("iconst", nil, nil, nil, nil, "i64", 0, tostring(binding.offset))
-                        local address = emit("iadd", nil, result, displacement, nil, "i64", 0, nil)
+                        local address = offsetAddress(result, binding.offset)
                         emit("store", 0, args[index + 1] + 1, address, nil, machineKind(contract.params[index]), 0, nil)
                         f.aux[#f.op] = binding.width == 8 and 0 or binding.width * 8
                     end

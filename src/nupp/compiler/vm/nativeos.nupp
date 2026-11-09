@@ -380,6 +380,96 @@ export function routine(declaration: any): string?
     return name and "routine\0" .. name or nil
 end
 
+-- The generic foreign call's block (s0.select's `CALL_` words, and
+-- guestforeign's): the function, x0-x7, d0-d7, the C stack's first words,
+-- and the address x8 passes; in bytes.
+const BLOCK_FUNCTION = 0
+const BLOCK_INTEGERS = 8
+const BLOCK_FLOATS = 72
+const BLOCK_STACK = 136
+const BLOCK_STACK_BYTES = 128
+const BLOCK_BYTES = 272
+const BLOCK_REGISTERS = 8
+const WORD = 8
+-- The bytes a declared argument of each kind takes on Apple's C stack, at
+-- its own alignment.
+const STACK_BYTES: {[string]: integer} = {boolean = 1, int32 = 4, uint32 = 4, float32 = 4}
+
+export type Placed = {
+    at: integer,
+    bytes: integer
+}
+
+export type Placement = {
+    args: {Placed},
+    kinds: {string},
+    integers: integer,
+    floats: integer,
+    words: integer
+}
+
+-- Where each argument of `kinds` goes in the block, as Apple's arm64 C
+-- convention passes it: the next x or d register of its class while one is
+-- left and it is declared (the first `fixed`, or all), else the C stack,
+-- a declared one at its own alignment and a variadic one in a word; and how
+-- many registers of each class and stack words the call fills.
+export function foreignPlacement(kinds: {string}, fixed: integer?): Placement
+    local args: {Placed} = {}
+    local integers: integer, floats: integer, stack: integer = 0, 0, 0
+    for index, kind in ipairs(kinds) do
+        local named = fixed == nil or index <= (fixed as integer)
+        local floating = kind == "float32" or kind == "float64"
+        if named and floating and floats < BLOCK_REGISTERS then
+            args[index] = {at = BLOCK_FLOATS + floats * WORD, bytes = kind == "float32" and 4 or WORD}
+            floats = floats + 1
+        elseif named and not floating and integers < BLOCK_REGISTERS then
+            args[index] = {at = BLOCK_INTEGERS + integers * WORD, bytes = WORD}
+            integers = integers + 1
+        else
+            local size = named and STACK_BYTES[kind] or WORD
+            stack = (stack + size - 1) // size * size
+            need(stack + size <= BLOCK_STACK_BYTES, "foreign arguments take more stack than the call passes")
+            args[index] = {at = BLOCK_STACK + stack, bytes = size}
+            stack = stack + size
+        end
+    end
+
+    return {args = args, kinds = kinds, integers = integers, floats = floats, words = (stack + WORD - 1) // WORD}
+end
+
+-- The block's bytes, and where the function is in it.
+export function foreignBlock(): (integer, integer)
+    return BLOCK_BYTES, BLOCK_FUNCTION
+end
+
+-- The name of the generic foreign call written for a call that fills
+-- `placement`'s registers and stack words and answers `result` ("x", "s",
+-- "d" or "v": an integer, binary32, binary64 or nothing), which stays in
+-- the register it comes back in; with no placement, a guest's call, which
+-- takes every register and keeps every result register in the block. A call
+-- whose arguments all go in registers takes the fast path: they are its
+-- operands after the function, with no block.
+export function foreignRoutine(placement: Placement?, result: string): string
+    if placement == nil then
+        return "routine\0call"
+    elseif placement.words == 0 then
+        -- One import per signature, which the name carries.
+        return "routine\0call\0registers\0" .. table.concat(placement.kinds, ",") .. "\0" .. result
+    end
+
+    return table.concat(
+        {
+            "routine",
+            "call",
+            tostring(placement.integers),
+            tostring(placement.floats),
+            tostring(placement.words),
+            result
+        },
+        "\0"
+    )
+end
+
 -- The C result a call answers in fewer than 64 bits, which the caller
 -- extends: "int32" or "uint32", or nil.
 export function narrow(declaration: any): string?
