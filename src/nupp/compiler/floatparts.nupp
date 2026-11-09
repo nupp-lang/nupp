@@ -1,0 +1,33 @@
+module nupp.compiler.floatparts
+
+-- A float's significand and exponent, which Lua 5.5's library no longer
+-- answers (`math.frexp`), and which the native core does not carry.
+
+const HALF = 0.5
+const BASE = 2
+-- The largest exponent whose power of two is a finite double.
+const LARGEST = 1023
+
+-- `x / 2^e`, in two steps where `2^e` alone would overflow.
+local function scaled(x: number, e: integer): number
+    if e > LARGEST then
+        return x / BASE ^ LARGEST / BASE ^ (e - LARGEST)
+    end
+
+    return x / BASE ^ e
+end
+
+--- Split positive finite `x` into `m * 2^e` with `m` in [0.5, 1), as C's
+--- `frexp` does.
+export function frexp(x: number): (number, integer)
+    local e = math.floor(math.log(x, BASE)) as integer + 1
+    -- The logarithm may round across a power of two; settle on the range.
+    while scaled(x, e) >= 1 do
+        e = e + 1
+    end
+    while scaled(x, e) < HALF do
+        e = e - 1
+    end
+
+    return scaled(x, e), e
+end
