@@ -1,9 +1,0 @@
-{
-  "exports": 105,
-  "opcodes": 169,
-  "sources": {
-    "native/crates/vm/src/native_glue.rs": "1963c1e7dd1ab0691e40b2607f8280ff651b0430d7b1010d66f9b89ea351151d",
-    "native/crates/vm/src/threaded.rs": "a549172a0cce863d14c096cdaeae406a9abb6e67f55514c63114cc60fbcef72b"
-  },
-  "metadataSha256": "8599457c41b80ac7349cdb02b030d275c25dd28d71b750279279ff65c40f2b04"
-}
