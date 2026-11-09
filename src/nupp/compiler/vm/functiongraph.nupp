@@ -1,6 +1,7 @@
 module nupp.compiler.vm.functiongraph
 
 local graph = require("nupp.compiler.vm.graph")
+local graphcalls = require("nupp.compiler.vm.graphcalls")
 local cst = require("nupp.compiler.syntax.cst")
 local cleanup = require("nupp.compiler.vm.functioncleanup")
 local construction = require("nupp.compiler.vm.construction")
@@ -1545,7 +1546,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 -- Capture every LHS address before the RHS list. A later RHS
                 -- may branch or change memory, so receivers are held as SSA.
                 for index, target in ipairs(stat.targets) do
-                    if target.kind == "name" then
+                    if graphcalls.discardTarget(target) then
+                        targets[index] = {discard = true}
+                    elseif target.kind == "name" then
                         local key = target.token.definition or target.token
                         local previous = need(bindings[key], "assignment requires a checked local binding")
                         targets[index] = {key = key, kind = profile.valueKind(g, previous)}
@@ -1599,7 +1602,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                         break
                     end
                     local target = targets[index]
-                    if target.key then
+                    if target.discard then
+                        -- `_ = value`: the value was evaluated; nothing keeps it.
+                    elseif target.key then
                         local written = stat.exprs[index]
                         writeBinding(
                             stat,

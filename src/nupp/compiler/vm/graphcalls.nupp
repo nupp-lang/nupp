@@ -1079,6 +1079,13 @@ export function erased(node: any): boolean
         and (node.comptimeFunction ~= nil or node.comptimeTok ~= nil)
 end
 
+--- Whether an assignment target is `_`, the checker's discard: a name it
+--- resolved to no declaration. Main stores the value in Lua's global `_`,
+--- which checked code cannot read back; the core evaluates it and drops it.
+export function discardTarget(node: any): boolean
+    return node.kind == "name" and node.token ~= nil and node.token.text == "_" and node.token.definition == nil
+end
+
 -- The name a module-level statement exports a function under, which the
 -- checker hoists to the top of its module, or nil for any other statement.
 export function hoistedFunctionName(stat: any): any

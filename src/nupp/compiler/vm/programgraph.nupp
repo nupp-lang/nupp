@@ -1254,7 +1254,7 @@ export function describe(modules: {any}, entryModule: string): any
             p.calls[#p.calls + 1], p.callByNode[built.call] = item, item
             loopForms[built.call] = true
         end
-        if node.kind == "name" then
+        if node.kind == "name" and not graphcalls.discardTarget(node) then
             reference(node.token, owner)
         elseif node.kind == "recordDecl" and node.qualifiers and node.qualifiers[1].definition then
             -- `record t.R` stores its table in the table `t` names.
