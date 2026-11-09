@@ -68,7 +68,9 @@ const carriedprocess = io.popen
 -- These three reach providers only the LuaJIT host loads up front. A VM lane is a
 -- process of its own with no worker states to share them with, so there a suite
 -- requires them when it uses them, which keeps them out of the runner's image.
-if not rawget(_G, "__nupp_load_image") then
+-- The native core is such a host too: it carries no module it was not built
+-- with, and it has neither an image loader nor LuaJIT's `jit`.
+if not rawget(_G, "__nupp_load_image") and rawget(_G, "jit") ~= nil then
     local load: function(string): any = require
     load("nupp.io.tls")
     load("nupp.io.http")

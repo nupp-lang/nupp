@@ -2154,8 +2154,9 @@ export function verify(p: any): boolean
                 p.callByNode[node] == item and node.obj.token.definition == item.definition,
                 "callsite declaration identity mismatch"
             )
+            -- A chunk's global is no binding of its own: no owner reads it.
             need(
-                item.protected or referenceOwners[node.obj.token] == item.owner,
+                item.protected or referenceOwners[node.obj.token] == item.owner or chunkGlobal(p, node.obj),
                 "callsite does not belong to its checked owner"
             )
         end
