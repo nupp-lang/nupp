@@ -682,6 +682,8 @@ local coreLibrary: {[string]: boolean} = {
     ["hostcalls.setcleanup"] = true,
     ["hostcalls.userdata"] = true,
     ["hostcalls.uservalue"] = true,
+    ["hostcalls.install"] = true,
+    ["hostcalls.start"] = true,
     pcall = true,
     xpcall = true,
     error = true,
@@ -819,7 +821,11 @@ local libraryValues: {[string]: boolean} = {
     debug = true,
     io = true,
     os = true,
-    warn = true
+    warn = true,
+    load = true,
+    loadstring = true,
+    loadfile = true,
+    dofile = true
 }
 
 -- The library values whose core forms take a `...` or a call's results last
@@ -854,6 +860,11 @@ const schedulerValues: {
 -- as the entry starts when the image carries it.
 export const WARN_MODULE = "nupp.runtime.luawarn"
 
+-- The module whose `functions` carries Lua's code loading: `load`,
+-- `loadfile`, `dofile` and LuaJIT's `loadstring`, which is `load`.
+export const LOAD_MODULE = "nupp.runtime.luaload"
+const loadValues: {[string]: boolean} = {load = true, loadstring = true, loadfile = true, dofile = true}
+
 export function libraryValue(node: any): string?
     local name: string? = nil
     if node and node.kind == "name" and preludeName(node) then
@@ -867,8 +878,9 @@ end
 
 -- The module whose `functions` carries library value `name`: Lua's `io` and
 -- `os`, the libraries themselves, are `nupp.runtime.luaio` and
--- `nupp.runtime.luaos`, and `warn` is `nupp.runtime.luawarn`'s; the task
--- surface is the scheduler's; the others are `nupp.runtime.libraryvalues`.
+-- `nupp.runtime.luaos`, `warn` is `nupp.runtime.luawarn`'s and the loaders
+-- `nupp.runtime.luaload`'s; the task surface is the scheduler's; the others
+-- are `nupp.runtime.libraryvalues`.
 export function libraryModule(name: string): string
     if name == "coroutine.create" or name == "coroutine.wrap" then
         return "nupp.runtime.luacoroutine"
@@ -878,6 +890,8 @@ export function libraryModule(name: string): string
         return "nupp.runtime.luaos"
     elseif name == "warn" then
         return WARN_MODULE
+    elseif loadValues[name] then
+        return LOAD_MODULE
     elseif schedulerValues[name] then
         return "nupp.runtime.scheduler"
     end

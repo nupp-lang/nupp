@@ -273,6 +273,11 @@ local CASES = {
     {"osremove", 0x7FFF000000001FFF},
     -- The compiler's host services as the core answers them for check and build.
     {"clihosts", 0x7FFF0000000000FF},
+    {"loadbinary", 0x7FFF000000001FFF},
+    -- A record with an array part: fields and elements apart.
+    {"recordsarray", 0x7FFF00000000000F},
+    -- A function statement assigning a local declared before it.
+    {"forwardfunctions", 0x7FFF000000000003},
     -- Main's os filesystem and system functions; main answers the same word.
     {"osfilesystem", 0x7FFF0007FFFFFFFF},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
@@ -486,6 +491,7 @@ local STRESS = {
     osfiles = true,
     filesystem = true,
     osremove = true,
+    loadbinary = true,
     osfilesystem = true
 }
 -- Shell statements a case's runs start with: the io and pool cases may hold
@@ -1417,6 +1423,10 @@ local function main()
             timing.case = name
             local selected = selection(name, mode)
             check(selected.caseName == name and selected.mode == mode, label .. " identity")
+            -- The binary chunks it loads, where it reads them.
+            for _, chunk in ipairs(selected.chunks or {}) do
+                write(OUT .. "/temp/" .. chunk.name .. ".chunk", fromHex(chunk.hex))
+            end
             if mode == "spill" then
                 local normal = selections[name .. "-normal"]
                 check(same(selected.programs, normal.programs), label .. " stream independent of mode")

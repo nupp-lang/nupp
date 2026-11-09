@@ -1,7 +1,11 @@
 module nupp.compiler.vm.functiongraph
 
 local graph = require("nupp.compiler.vm.graph")
+-- Read directly rather than through graph's re-exports, which a module in
+-- graph's require cycle sees before graph has made them.
 local graphcalls = require("nupp.compiler.vm.graphcalls")
+local graphverify = require("nupp.compiler.vm.graphverify")
+local graphprune = require("nupp.compiler.vm.graphprune")
 local cst = require("nupp.compiler.syntax.cst")
 local cleanup = require("nupp.compiler.vm.functioncleanup")
 local construction = require("nupp.compiler.vm.construction")
@@ -611,10 +615,10 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             -- passes them in a pack, which holds no obligation of its own.
             local first = node.args and node.args.exprs and node.args.exprs[1]
             local given = first and cleanup.source(first)
-            if graph.coreLibraryCall(node) == "assert"
+            if graphcalls.coreLibraryCall(node) == "assert"
                 and given
                 and freshOwner(given)
-                and not graph.spreadsLast(node)
+                and not graphcalls.spreadsLast(node)
             then
                 transfer(given, given.statementOwner or given)
             end
@@ -887,8 +891,13 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         local modes = t and t.tag == "func" and t.paramPack and (t.paramPack.modes or {}) or nil
         for index, argument in ipairs(node.args.exprs) do
             local source = cleanup.source(argument)
-            local library = graph.coreLibraryCall(node)
-            if source and freshOwner(source) and library and index == #node.args.exprs and graph.spreadsLast(node) then
+            local library = graphcalls.coreLibraryCall(node)
+            if source
+                and freshOwner(source)
+                and library
+                and index == #node.args.exprs
+                and graphcalls.spreadsLast(node)
+            then
                 -- A library call given an owner among a call's results passes
                 -- it in a pack: assert answers it, and its result holds it.
                 need(library == "assert", "an owner among the results a library call spreads")
@@ -1431,7 +1440,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             if cleanupEnabled and not block then
                 return
             end
-            if graph.erased(stat) then
+            if graphcalls.erased(stat) then
                 continue
             end
             lowering(stat)
@@ -1535,8 +1544,11 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 local key = name.definition or name
                 -- A hoisted export's cell was bound as the module started.
                 local hoisted = hoistedCells[key] ~= nil
-                local initial = hoisted or invoke("recursiveBinding", stat, key)
-                if initial and not hoisted then
+                -- `function f()` naming a local declared before it assigns
+                -- that local, which closures made since may already hold.
+                local declared = not hoisted and stat.kind == "funcStmt" and bindings[key] ~= nil
+                local initial = hoisted or declared or invoke("recursiveBinding", stat, key)
+                if initial and not hoisted and not declared then
                     ctx.bind(key, initial as integer)
                 end
                 local value = invoke("closure", stat, nil)
@@ -2159,7 +2171,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         -- one's statement may capture it, so its cell exists from the start.
         for _, sourceBlock in ipairs(body.blocks) do
             for _, stat in ipairs(sourceBlock.stats or {}) do
-                local name = graph.hoistedFunctionName(stat)
+                local name = graphcalls.hoistedFunctionName(stat)
                 local key = name and (name.definition or name)
                 local cell = key and block and invoke("recursiveBinding", stat, key)
                 if cell then
@@ -2225,9 +2237,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
     need(next(heldScope()) == nil, "function leaked a held-value handle")
     need(block == nil, "function falls through without a return or transfer")
     if profile.dropUnreachable then
-        graph.dropUnreachable(g)
+        graphprune.dropUnreachable(g)
     end
-    graph.verify(g)
+    graphverify.verify(g)
     if profile.finish then
         profile.finish(ctx)
     end

@@ -351,7 +351,10 @@ export function session(projectRoot: string, requested: any, target: string, inc
         snapshot(path)
         local result = project.checkFile(path)
         for _, diagnostic in ipairs(result.diags or {}) do
-            need(diagnostic.severity ~= "error", tostring(diagnostic.code) .. ": " .. tostring(diagnostic.msg))
+            need(
+                diagnostic.severity ~= "error",
+                path .. ": " .. tostring(diagnostic.code) .. ": " .. tostring(diagnostic.msg)
+            )
         end
         need(
             result.result and result.exports and not result.syntax and not result.missing,

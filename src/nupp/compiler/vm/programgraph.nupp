@@ -352,6 +352,76 @@ export function parameters(body: any): {any}
     return graph.parameters(body)
 end
 
+-- Calls `visit` with every token in the tree under `node`, and `enter`, when
+-- given, with every node.
+local function eachToken(node: any, visit: function(any): nil, enter: (function(any): nil)?): nil
+    if type(node) ~= "table" then
+        return
+    end
+    if cst.isToken(node) then
+        visit(node)
+        return
+    end
+    if enter then
+        enter(node)
+    end
+    for _, child in ipairs(node) do
+        eachToken(child, visit, enter)
+    end
+end
+
+-- A function statement naming a local declared before it (`local f` then
+-- `function f()`) assigns that local, as in Lua; the checker declares the
+-- statement's name anew. This points the statement's name, and every name
+-- the checker resolved to it, at the local it assigns.
+local function assignForwardLocals(root: any, replaced: {[any]: any}): nil
+    local declared: {any} = {}
+    local statements: {any} = {}
+    eachToken(
+        root,
+        function(token: any): nil
+            local definition = token.definition
+            if definition and definition.token == token and definition.lexical and definition.scopeFrom then
+                declared[#declared + 1] = definition
+            end
+        end,
+        function(node: any): nil
+            local base = node.kind == "funcStmt" and node.name and node.name.base
+            if base and #node.name == 1 and base.definition and base.definition.token == base then
+                statements[#statements + 1] = base
+            end
+        end
+    )
+    local changed = false
+    for _, base in ipairs(statements) do
+        local own = base.definition
+        local found: any = nil
+        for _, definition in ipairs(declared) do
+            if definition ~= own
+                and definition.name == own.name
+                and definition.token.offset < base.offset
+                and definition.scopeFrom <= base.offset
+                and base.offset <= definition.scopeTo
+                and (found == nil or definition.scopeFrom > found.scopeFrom)
+            then
+                found = definition
+            end
+        end
+        if found then
+            replaced[own], changed = found, true
+        end
+    end
+    if not changed then
+        return
+    end
+    eachToken(root, function(token: any): nil
+        local to = token.definition and replaced[token.definition]
+        if to then
+            token.definition = to
+        end
+    end)
+end
+
 export function describe(modules: {any}, entryModule: string): any
     local p: any = {
         modules = {},
@@ -406,12 +476,22 @@ export function describe(modules: {any}, entryModule: string): any
         immutable = {}
     }
     local moduleNames, topLevel, sourcePaths = {}, {}, {}
+    -- Function statements' own names, which name the locals they assign.
+    local forwardNames: {[any]: any} = {}
     for _, input in ipairs(modules) do
         need(type(input.name) == "string" and type(input.path) == "string", "module source required")
         need(not moduleNames[input.name], "duplicate module " .. input.name)
         sourcePaths[input.path] = true
         local parsed = need(input.parsed, "checked parse required")
         need(parsed.root and parsed.symbols and parsed.moduleName == input.name, "checked module identity required")
+        -- Once per checked tree: a project shares its trees across programs.
+        if parsed.forwardNames == nil then
+            parsed.forwardNames = {}
+            assignForwardLocals(parsed.root, parsed.forwardNames)
+        end
+        for own, assigned in pairs(parsed.forwardNames) do
+            forwardNames[own] = assigned
+        end
         need(input.diagnostics ~= nil and #parsed.errors == 0, "checked diagnostics required")
         for _, diagnostic in ipairs(input.diagnostics) do
             need(diagnostic.severity ~= "error", "module has checker errors")
@@ -639,8 +719,13 @@ export function describe(modules: {any}, entryModule: string): any
         discover(module.parsed.root, p.owners[module.chunk + 1])
         for _, definition in ipairs(module.parsed.symbols) do
             need(
-                not definition.lexical or p.byDefinition[definition] ~= nil or erasedDefinitions[definition],
-                "checked declaration outside ordered syntax is unsupported"
+                not definition.lexical
+                or p.byDefinition[definition] ~= nil
+                or erasedDefinitions[definition]
+                or forwardNames[definition] ~= nil,
+                "checked declaration outside ordered syntax is unsupported: " .. tostring(
+                    definition.name
+                ) .. " in " .. module.path .. ":" .. tostring(definition.token and definition.token.line)
             )
         end
     end

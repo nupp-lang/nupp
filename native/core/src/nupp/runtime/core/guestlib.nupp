@@ -14,6 +14,7 @@ const guestscope = require("nupp.runtime.core.guestscope")
 const texts = require("nupp.runtime.core.guesttexts")
 const ints = require("nupp.runtime.core.coreintegers")
 const librarycalls = require("nupp.runtime.core.librarycalls")
+const loadlibrary = require("nupp.runtime.core.loadlibrary")
 const librarylayouts = require("nupp.runtime.core.librarylayouts")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 const guestvalues = require("nupp.runtime.core.guestvalues")
@@ -24,6 +25,7 @@ const guesterrors = require("nupp.runtime.core.guesterrors")
 const guestlanding = require("nupp.runtime.core.guestlanding")
 const guestmeta = require("nupp.runtime.core.guestmeta")
 const guestbuffer = require("nupp.runtime.core.guestbuffer")
+const loader = require("nupp.runtime.core.guestloader")
 const guestforeign = require("nupp.runtime.core.guestforeign")
 const files = require("nupp.runtime.core.hostfiles")
 const process = require("nupp.runtime.core.hostprocess")
@@ -391,6 +393,13 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         )
     elseif id == librarycalls.LANDED then
         return guestlanding.takeLanded(ctx)
+    elseif id == loadlibrary.MODULE_INSTALL then
+        -- A binary chunk's entry, which MODULE_START runs, or nil.
+        local installed = loader.install(ctx, a)
+        if installed == 0ULL then
+            return values.NIL
+        end
+        return values.TAG_INTEGER | (installed - 1ULL)
     elseif id == librarycalls.TYPE then
         return guesterrors.typeName(ctx, a)
     elseif id == librarycalls.UNM then

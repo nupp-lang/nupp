@@ -25,7 +25,7 @@ local bundled = {}
 -- build carrying declarations inside itself has no checkout path to discover.
 local function moduleDir(): string
     local hostDebug: any = debug
-    if hostDebug == nil then
+    if hostDebug == nil or hostDebug.getinfo == nil then
         return "."
     end
     local source = hostDebug.getinfo(1, "S").source
@@ -51,7 +51,17 @@ local function readFile(path: string): string?
     return content
 end
 
+-- The checkout a host names for the declarations, where nothing else does:
+-- the native core's `load` compiles with no module paths or `_G.os` to find it.
+local namedCheckout: string? = nil
 local embedded: any = nil
+
+--- Read the compiler's declarations from checkout `root`, where they live
+--- under `src`, unless a bundle carries its own.
+function bundled.checkout(root: string): nil
+    namedCheckout = root
+end
+
 -- Self-hosting reads the checkout's declaration data with the pinned reader.
 function bundled.bind(files: {[string]: string}): nil
     embedded = files
@@ -185,7 +195,8 @@ function bundled.source(relative: string): string?
     -- copies it from.
     local hostOs: any = rawget(_G, "os")
     local named = hostOs and hostOs.getenv("NUPP_COMPILER_ROOT") or nil
-    local checkout = named ~= nil
+    local checkout = namedCheckout
+        or named ~= nil
         and named ~= ""
         and named
         or moduleDir():gsub("\\", "/"):match("^(.*)/src/nupp/compiler$")

@@ -1,0 +1,282 @@
+@!internal
+
+--[[
+Lua's `load`, `loadfile`, `dofile` and LuaJIT's `loadstring` on the native
+core. A binary chunk installs into the running program
+(`hostcalls.install`), whose entry answers the chunk's function as it
+starts. A text chunk needs the compiler running on the core, which is not
+yet carried here: one that only returns a literal answers it, as the
+compiler's own `loadstring("return " .. token)` reads a literal's value,
+and any other answers nil and a message saying so.
+]]
+module nupp.runtime.luaload
+
+const hostcalls = require("nupp.runtime.hostcalls")
+const libraryvalues = require("nupp.runtime.libraryvalues")
+
+-- The byte a binary chunk starts with, as Lua's signature does.
+const BINARY = 27
+const DEFAULT_MODE = "bt"
+const READER_NAME = "=(load)"
+-- How much of a string chunk's first line its name shows.
+const SHOWN = 40
+
+-- What a short string's escape after `\` stands for, where it is one byte.
+const ESCAPES: {
+    [string]: string
+} = {
+    n = "\n",
+    t = "\t",
+    r = "\r",
+    a = "\a",
+    b = "\b",
+    f = "\f",
+    v = "\v",
+    ["\\"] = "\\",
+    ["\""] = "\"",
+    ["'"] = "'",
+    ["\n"] = "\n"
+}
+-- The largest byte a decimal escape names, and the largest code point a
+-- `\u{...}` escape does.
+const BYTE_LIMIT = 255
+const CODE_LIMIT = 0x7FFFFFFF
+
+-- Code point `code` in UTF-8, as Lua's `\u{...}` escape writes it, up to
+-- the six bytes Lua allows.
+local function utf8bytes(code: integer): string
+    if code < 0x80 then
+        return string.char(code)
+    end
+    local tail: {string} = {}
+    local limit = 0x3F
+    while code > limit do
+        table.insert(tail, 1, string.char(0x80 | (code & 0x3F)))
+        code = code >> 6
+        limit = limit >> 1
+    end
+    local lead = (0xFF << (7 - #tail)) & 0xFF
+
+    return string.char(lead | code) .. table.concat(tail)
+end
+
+-- The value of short string literal `body`, quotes included, or nil when
+-- it is not exactly one.
+local function shortstring(body: string): string?
+    local quote = body:sub(1, 1)
+    local out: {string} = {}
+    local at = 2
+    while at <= #body do
+        local c = body:sub(at, at)
+        if c == quote then
+            return at == #body and table.concat(out) or nil
+        elseif c == "\n" then
+            return nil
+        elseif c == "\\" then
+            local e = body:sub(at + 1, at + 1)
+            local simple = ESCAPES[e]
+            if simple ~= nil then
+                out[#out + 1] = simple
+                at = at + 2
+            elseif e == "x" then
+                local hex = body:match("^%x%x", at + 2)
+                if hex == nil then
+                    return nil
+                end
+                out[#out + 1] = string.char(tonumber(hex, 16) as integer)
+                at = at + 4
+            elseif e == "z" then
+                at = at + 2 + #(body:match("^%s*", at + 2) as string)
+            elseif e == "u" then
+                local hex = body:match("^{(%x+)}", at + 2)
+                local code = hex and tonumber(hex, 16) as integer?
+                if hex == nil or code == nil or code > CODE_LIMIT then
+                    return nil
+                end
+                out[#out + 1] = utf8bytes(code)
+                at = at + 4 + #hex
+            elseif e:match("^%d$") then
+                local digits = body:match("^%d%d?%d?", at + 1) as string
+                local code = tonumber(digits) as integer
+                if code > BYTE_LIMIT then
+                    return nil
+                end
+                out[#out + 1] = string.char(code)
+                at = at + 1 + #digits
+            else
+                return nil
+            end
+        else
+            out[#out + 1] = c
+            at = at + 1
+        end
+    end
+
+    return nil
+end
+
+-- The value of long string literal `body`, brackets included, or nil.
+local function longstring(body: string): string?
+    local level = body:match("^%[(=*)%[")
+    if level == nil then
+        return nil
+    end
+    local close = "]" .. level .. "]"
+    local open = #level + 2
+    if body:sub(-#close) ~= close or #body < open + #close then
+        return nil
+    end
+    local text = body:sub(open + 1, #body - #close)
+    if text:find(close, 1, true) ~= nil then
+        return nil
+    end
+    -- A newline straight after the opening bracket is not part of it.
+    if text:sub(1, 1) == "\n" then
+        text = text:sub(2)
+    end
+
+    return text
+end
+
+-- The value of a text chunk that only returns one literal (a number, a
+-- string, true, false or nil): what Lua's loaders answer for one without
+-- the compiler. Answers whether it is one, and the value.
+local function literal(text: string): (boolean, any)
+    local body = text:match("^%s*return%s+(.-)%s*;?%s*$")
+    if body == nil then
+        return false, nil
+    elseif body == "true" then
+        return true, true
+    elseif body == "false" then
+        return true, false
+    elseif body == "nil" then
+        return true, nil
+    end
+    local first = body:sub(1, 1)
+    if first == "\"" or first == "'" then
+        local value = shortstring(body)
+        return value ~= nil, value
+    elseif first == "[" then
+        local value = longstring(body)
+        return value ~= nil, value
+    elseif body:match("^%-?%.?%d") then
+        local value = tonumber(body)
+        return value ~= nil, value
+    end
+
+    return false, nil
+end
+
+-- The name an error message gives chunk `name`, as Lua's `luaO_chunkid` does.
+local function chunkid(name: string): string
+    local first = name:sub(1, 1)
+    if first == "=" or first == "@" then
+        return name:sub(2)
+    end
+    local line = name:match("^[^\n]*") as string
+    if #line < #name or #line > SHOWN then
+        return "[string \"" .. line:sub(1, SHOWN) .. "...\"]"
+    end
+
+    return "[string \"" .. line .. "\"]"
+end
+
+-- The text of chunk `chunk`: itself, or the pieces a reader function
+-- answers until one is nil or empty; nil and a message for a reader that
+-- answers anything else.
+local function gather(chunk: any): (string?, string?)
+    if type(chunk) == "string" then
+        return chunk as string, nil
+    end
+    local pieces: {string} = {}
+    while true do
+        local piece: any = chunk()
+        if piece == nil or piece == "" then
+            break
+        end
+        if type(piece) ~= "string" then
+            return nil, "reader function must return a string"
+        end
+        pieces[#pieces + 1] = piece as string
+    end
+
+    return table.concat(pieces), nil
+end
+
+local function loadchunk(chunk: any, name: string?, mode: string?, env: table?): (any, string?)
+    if type(chunk) ~= "string" and type(chunk) ~= "function" then
+        error("bad argument #1 to 'load' (string expected, got " .. type(chunk) .. ")", 2)
+    end
+    local text, problem = gather(chunk)
+    if text == nil then
+        return nil, problem
+    end
+    local chunkname = name or (type(chunk) == "string" and text or READER_NAME)
+    local allowed = mode or DEFAULT_MODE
+    local binary = text:byte(1) == BINARY
+    if binary and not allowed:find("b", 1, true) then
+        return nil, "attempt to load a binary chunk (mode is '" .. allowed .. "')"
+    elseif not binary and not allowed:find("t", 1, true) then
+        return nil, "attempt to load a text chunk (mode is '" .. allowed .. "')"
+    end
+    if env ~= nil then
+        return nil, chunkid(chunkname) .. ": a chunk's own environment is not available on the core yet"
+    end
+    if not binary then
+        local found, value = literal(text)
+        if found then
+            return function(): any
+                return value
+            end, nil
+        end
+        return nil, chunkid(chunkname) .. ": text chunks do not compile on the core yet"
+    end
+    local entry = hostcalls.install(text)
+    if entry == nil then
+        return nil, chunkid(chunkname) .. ": bad binary format (not a chunk this core loads)"
+    end
+
+    return hostcalls.start(entry), nil
+end
+
+local function loadpath(filename: string?, mode: string?, env: table?): (any, string?)
+    local text: string = ""
+    local name = "=stdin"
+    if filename == nil then
+        text = io.read("a") or ""
+    else
+        local file, reason = io.open(filename, "rb")
+        if file == nil then
+            return nil, "cannot open " .. tostring(reason)
+        end
+        text = file:read("a") or ""
+        file:close()
+        name = "@" .. filename
+    end
+    -- A first line that starts with '#' is skipped, as Lua skips a Unix
+    -- exec line; its newline stays, so lines keep their numbers.
+    if text:sub(1, 1) == "#" then
+        local at = text:find("\n", 1, true)
+        text = at and text:sub(at) or ""
+    end
+
+    return loadchunk(text, name, mode, env)
+end
+
+local function runpath(filename: string?): ...any
+    local chunk, problem = loadpath(filename, nil, nil)
+    if chunk == nil then
+        error(problem, 0)
+    end
+
+    return chunk()
+end
+
+export const functions: {
+    [string]: any
+} = {load = loadchunk, loadstring = loadchunk, loadfile = loadpath, dofile = runpath}
+
+-- Lua chunks read the loaders as globals (`pcall(dofile, path)`).
+for name, value in pairs(functions) do
+    libraryvalues.publish(name, value)
+end

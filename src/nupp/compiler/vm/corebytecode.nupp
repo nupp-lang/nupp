@@ -148,6 +148,28 @@ export function coreOnly(): {[string]: integer}
     return result
 end
 
+-- By opcode id, the operand an instruction names a catalog function in: a
+-- call's or closure's callee word, and a require's module. A loader that
+-- renumbers a chunk's functions relocates these (`guestartifact.chunk`).
+export function functionOperands(): {[integer]: {
+    offset: integer,
+    bytes: integer
+}}
+    local result: {[integer]: {
+        offset: integer,
+        bytes: integer
+    }} = {}
+    for name, fields in pairs(recipes) do
+        for _, field in ipairs(fields) do
+            if field[1] == "fn" or name == "Require" and field[1] == "k" then
+                result[ids[name]] = {offset = field[3], bytes = field[4]}
+            end
+        end
+    end
+
+    return result
+end
+
 export function describe(name: string): any
     local fields = {}
     for index, field in ipairs(recipe(name)) do

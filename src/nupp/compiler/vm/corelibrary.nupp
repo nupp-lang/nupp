@@ -582,6 +582,19 @@ local subjectrows: {Subject} = {
         }
     },
     {
+        -- A binary chunk (`load`) installed into the running program,
+        -- answering its entry's id, or nil when the bytes are not one; and
+        -- that entry started as a required module's chunk starts. A file of
+        -- their own: librarycalls' top level is full.
+        name = "loading",
+        range = false,
+        output = "loadlibrary",
+        calls = {
+            {name = "MODULE_INSTALL", id = 205, call = "hostcalls.install", min = 1, max = 1},
+            {name = "MODULE_START", id = 206, call = "hostcalls.start", min = 1, max = 1}
+        }
+    },
+    {
         -- The host's services: os.getenv, os.monotonic(), the program's
         -- arguments (hostcalls.arguments, which `arg` holds), and the file
         -- calls (filecalls): the operation first, then its arguments.
