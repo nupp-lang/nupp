@@ -37,6 +37,9 @@ const ROUTINE_CELLS: string = "routine\0cells\0"
 const ROUTINE_ATOMIC_LOAD: string = "routine\0atomicload"
 const ROUTINE_ATOMIC_CAS: string = "routine\0atomiccas"
 const ROUTINE_COLLECTOR: string = "routine\0collector"
+-- The generic foreign call's scalar fast path: the function, then the
+-- arguments, which all go in registers, as a call's own operands.
+const ROUTINE_REGISTERS: string = "routine\0call\0registers"
 -- The generic foreign call's block of words (nupp.runtime.core.guestforeign):
 -- the function, then x0-x7, d0-d7, the first words of the C stack and the
 -- address x8 passes for a result returned in memory. The call answers x0 and
@@ -616,35 +619,50 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         emit(arm.brk(MISSING_SYMBOL))
     end
 
-    -- The generic foreign call: x0 holds its block. Every stack word is
-    -- copied, since a callee reads only those its signature has; then the
-    -- registers are loaded, x0 last, the function is called, and the result
-    -- registers are kept in the block. x0 is the answer.
-    local function foreignCall(): nil
-        local bytes = CALL_STACK_WORDS * 8
-        emit(arm.sub_imm(64, 31, 31, bytes + CALL_SAVED, 0))
-        emit(arm.str(8, 0, 31, bytes))
-        for word = 0, CALL_STACK_WORDS - 1 do
+    -- The generic foreign call: x0 holds its block. The first `words` stack
+    -- words are copied onto the C stack, then `floats` float and `integers`
+    -- integer registers are loaded, x0 last, and the function is called. A
+    -- guest's call (`all`), whose signature is known only as it runs, takes
+    -- every register and stack word, passes x8 and keeps x0, x1 and d0-d3
+    -- in the block; a kernel's names what its signature fills
+    -- (nativeos.foreignRoutine) and its result stays in x0 or d0, where the
+    -- call's own kind reads it.
+    local function foreignCall(integers: integer, floats: integer, words: integer, all: boolean): nil
+        local bytes = (words * 8 + 15) // 16 * 16
+        local saved = all and CALL_SAVED or 0
+        if bytes + saved > 0 then
+            emit(arm.sub_imm(64, 31, 31, bytes + saved, 0))
+        end
+        if all then
+            emit(arm.str(8, 0, 31, bytes))
+        end
+        for word = 0, words - 1 do
             emit(arm.ldr(8, 17, 0, (CALL_STACK + word) * 8))
             emit(arm.str(8, 17, 31, word * 8))
         end
-        for reg = 0, CALL_REGISTERS - 1 do
+        for reg = 0, floats - 1 do
             emit(arm.ldr_fp(64, reg, 0, (CALL_FLOATS + reg) * 8))
         end
         emit(arm.ldr(8, 16, 0, CALL_FUNCTION * 8))
-        emit(arm.ldr(8, INDIRECT_RESULT, 0, CALL_RESULT_ADDRESS * 8))
-        for reg = CALL_REGISTERS - 1, 0, -1 do
+        if all then
+            emit(arm.ldr(8, INDIRECT_RESULT, 0, CALL_RESULT_ADDRESS * 8))
+        end
+        for reg = integers - 1, 0, -1 do
             emit(arm.ldr(8, reg, 0, (CALL_INTEGERS + reg) * 8))
         end
         emit(arm.blr(16))
-        emit(arm.ldr(8, 17, 31, bytes))
-        for reg = 0, CALL_RESULT_INTEGERS - 1 do
-            emit(arm.str(8, reg, 17, (CALL_INTEGERS + reg) * 8))
+        if all then
+            emit(arm.ldr(8, 17, 31, bytes))
+            for reg = 0, CALL_RESULT_INTEGERS - 1 do
+                emit(arm.str(8, reg, 17, (CALL_INTEGERS + reg) * 8))
+            end
+            for reg = 0, CALL_RESULT_FLOATS - 1 do
+                emit(arm.str_fp(64, reg, 17, (CALL_FLOATS + reg) * 8))
+            end
         end
-        for reg = 0, CALL_RESULT_FLOATS - 1 do
-            emit(arm.str_fp(64, reg, 17, (CALL_FLOATS + reg) * 8))
+        if bytes + saved > 0 then
+            emit(arm.add_imm(64, 31, 31, bytes + saved, 0))
         end
-        emit(arm.add_imm(64, 31, 31, bytes + CALL_SAVED, 0))
     end
 
     -- The collector: x0 answers the address of a C function written here
@@ -696,6 +714,9 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     -- stack's extent. Past the registers, and for each variadic argument,
     -- this is Apple's arm64 convention: a named argument at its own
     -- alignment, a variadic one in an 8-byte slot.
+    -- The fast path's argument kinds, past its function, by signature.
+    local registerParams: {[any]: {integer}} = setmetatable({}, {__mode = "k"})
+
     local function abi(kinds: {integer}, fixed: integer?): integer
         local ints: integer = 0
         local floats: integer = 0
@@ -966,13 +987,21 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                     local tail = op == RETURN_CALL or op == RETURN_CALL_INDIRECT
                     local signature = colSignatures[indirect and colAux[at] or colImportSignatures[colAux[at]]]
                     local name = not indirect and colImportNames[colAux[at]] or ""
-                    local stackBytes = abi(signature.params, signature.fixed)
+                    -- The fast path's first operand is the function, which goes
+                    -- where an indirect call's target does.
+                    local registered = name:sub(1, #ROUTINE_REGISTERS) == ROUTINE_REGISTERS
+                    local params = signature.params
+                    if registered then
+                        params = registerParams[signature] or table.move(params, 2, #params, 1, {})
+                        registerParams[signature] = params
+                    end
+                    local stackBytes = abi(params, signature.fixed)
                     assert(
                         stackBytes == 0 or signature.convention == ir.C and not tail,
                         "S0 select: stack ABI arguments need a C call"
                     )
                     local registers = abiRegisters
-                    local shift = indirect and 1 or 0
+                    local shift = (indirect or registered) and 1 or 0
                     assert(nargs == #registers + shift, "S0 select: call arity")
                     if stackBytes > 0 then
                         -- What the registers do not hold goes on the C stack
@@ -1055,9 +1084,29 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                     elseif name:sub(1, #FOREIGN_PREFIX) == FOREIGN_PREFIX then
                         assert(not tail and nargs == 0, "S0 select: foreign resolution takes nothing")
                         resolve(name)
+                    elseif registered then
+                        assert(not tail and stackBytes == 0, "S0 select: the fast path passes registers alone")
+                        emit(arm.blr(16))
                     elseif name == ROUTINE_CALL then
                         assert(not tail and nargs == 1, "S0 select: a foreign call takes its block")
-                        foreignCall()
+                        foreignCall(CALL_REGISTERS, CALL_REGISTERS, CALL_STACK_WORDS, true)
+                    elseif name:sub(1, #ROUTINE_CALL + 1) == ROUTINE_CALL .. "\0" then
+                        local integers, floats, words, answer = name:match(
+                            "^routine\0call\0(%d+)\0(%d+)\0(%d+)\0(%w+)$"
+                        )
+                        assert(not tail and nargs <= 1 and answer ~= nil, "S0 select: a foreign call takes its block")
+                        local counted = {
+                            tonumber(integers) as integer,
+                            tonumber(floats) as integer,
+                            tonumber(words) as integer
+                        }
+                        assert(
+                            counted[1] <= CALL_REGISTERS
+                            and counted[2] <= CALL_REGISTERS
+                            and counted[3] <= CALL_STACK_WORDS,
+                            "S0 select: a foreign call's shape"
+                        )
+                        foreignCall(counted[1], counted[2], counted[3], false)
                     elseif name == ROUTINE_COLLECTOR then
                         assert(not tail and nargs == 0, "S0 select: the collector takes nothing")
                         foreignCollector()

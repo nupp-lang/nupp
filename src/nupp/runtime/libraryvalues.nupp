@@ -93,11 +93,32 @@ local function getinfo(...: any): any
     return info
 end
 
+-- The ambient `package` table: its `loaded` and `preload` as Lua's, empty
+-- because the image holds the modules, and fields a program sets on it.
+const ambient = {loaded = {}, preload = {}, path = "", cpath = "", config = "/\n;\n?\n!\n-\n"}
+-- What Lua's require names a preload's module source as.
+const PRELOAD = ":preload:"
+
 export const functions: {[string]: any} = {
-    -- The ambient `package` table: its `loaded` and `preload` as Lua's, empty
-    -- because the image holds the modules, and fields a program sets on it.
-    package = {loaded = {}, preload = {}, path = "", cpath = "", config = "/\n;\n?\n!\n-\n"},
-    require = function(name: string): any
+    package = ambient,
+    -- `require` as a value looks where Lua's looks first, package.loaded
+    -- then package.preload, which a program fills; then the image's modules.
+    require = function(name: string): (any, any)
+        local loaded = ambient.loaded[name]
+        if loaded ~= nil then
+            return loaded
+        end
+        local preload = ambient.preload[name]
+        if preload ~= nil then
+            local value = preload(name, PRELOAD)
+            if value == nil then
+                value = ambient.loaded[name] ?? true
+            end
+            ambient.loaded[name] = value
+
+            return value, PRELOAD
+        end
+
         return require(name)
     end,
     tostring = function(value: any): string
@@ -129,7 +150,8 @@ export const functions: {[string]: any} = {
             if count < 2 then
                 message = "assertion failed!"
             end
-            error(message, 2)
+            -- As main's and Lua's: the message as it is, with no position.
+            error(message, 0)
         end
 
         return ...

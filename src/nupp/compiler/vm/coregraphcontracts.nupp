@@ -433,6 +433,56 @@ local function fileforward(p: any, owner: any, call: any, member: string): boole
     return true
 end
 
+-- Whether `node` is `rawget(_G, root)`: Lua's own library table `root`.
+local function rawgetroot(node: any, root: string): boolean
+    return node.kind == "call"
+        and node.obj.kind == "name"
+        and node.obj.token.text == "rawget"
+        and node.obj.token.definition ~= nil
+        and node.obj.token.definition.filename == "nupp:lua.d.nupp"
+        and #node.args.exprs == 2
+        and node.args.exprs[1].kind == "name"
+        and node.args.exprs[1].token.text == "_G"
+        and node.args.exprs[1].token.definition ~= nil
+        and node.args.exprs[1].token.definition.filename == "nupp:lua.d.nupp"
+        and node.args.exprs[2].kind == "string"
+        and lexer.stringValue(node.args.exprs[2].token.text) == root
+end
+
+-- Whether a chunk local's initializer `value` is Lua's own library table
+-- `root`: `rawget(_G, root)`, or a call with no arguments of a function the
+-- chunk declares that reads it so (standardos finds the core's os library
+-- when nothing has published it yet).
+local function hostlibrary(p: any, value: any, root: string): boolean
+    if rawgetroot(value, root) then
+        return true
+    end
+    if value.kind ~= "call" or value.obj.kind ~= "name" or #value.args.exprs ~= 0 then
+        return false
+    end
+    local finder = p.functionsByDefinition[value.obj.token.definition or false]
+    if not finder or finder.node.kind ~= "localFuncStmt" or finder.definition.reassigned then
+        return false
+    end
+    local found = false
+    local walk: function(any): nil
+    walk = function(node: any): nil
+        if found or type(node) ~= "table" or cst.isToken(node) then
+            return
+        end
+        if node.kind == "call" and rawgetroot(node, root) then
+            found = true
+            return
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+    walk(finder.node.body)
+
+    return found
+end
+
 local function forwardcontext(p: any, owner: any, call: any): integer
     local methods = forwarding[owner.scope.name]
     local member = methods and methods[owner.name]
@@ -483,21 +533,7 @@ local function forwardcontext(p: any, owner: any, call: any): integer
         return FORWARD_NONE
     end
     local original = localinitializer(p, chunk, value.obj.token.definition)
-    if not original
-        or original.kind ~= "call"
-        or original.obj.kind ~= "name"
-        or original.obj.token.text ~= "rawget"
-        or not original.obj.token.definition
-        or original.obj.token.definition.filename ~= "nupp:lua.d.nupp"
-        or #original.args.exprs ~= 2
-        or original.args.exprs[1].kind ~= "name"
-        or original.args.exprs[1].token.text ~= "_G"
-        or not original.args.exprs[1].token.definition
-        or original.args.exprs[1].token.definition.filename ~= "nupp:lua.d.nupp"
-        or value.obj.token.definition.reassigned
-        or original.args.exprs[2].kind ~= "string"
-        or lexer.stringValue(original.args.exprs[2].token.text) ~= root
-    then
+    if not original or value.obj.token.definition.reassigned or not hostlibrary(p, original, root) then
         return FORWARD_NONE
     end
 

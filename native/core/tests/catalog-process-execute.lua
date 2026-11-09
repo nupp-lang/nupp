@@ -1,9 +1,10 @@
 -- Lua twin of catalog-process-execute.nupp.
 
--- Lua's os.execute on the core, as reference Lua 5.5 answers it: whether a
--- shell exists, an exit's status and a signal's number kept apart, a
--- command the shell cannot find, a number for a command, the argument
--- error, and many commands in turn. Each check is a bit of the score.
+-- Lua's os.execute on the core, as main answers it in Lua 5.1's form: the
+-- wait status, an exit code in its high byte or a signal's number, for no
+-- command, exits, signals, a command the shell cannot find, a command line
+-- the shell parses, the argument error, and many commands in turn. Each
+-- check is a bit of the score.
 local score = 0
 local bit = 1
 
@@ -18,45 +19,49 @@ local function ends(text, suffix)
     return type(text) == "string" and string.sub(text, -#suffix) == suffix
 end
 
--- With no command: whether there is a shell.
-check(os.execute() == true)
+-- main's status form from whichever os.execute runs this twin: main's own,
+-- or reference Lua 5.5's results.
+local function execute(command)
+    local ok, how, code = os.execute(command or "")
+    if type(ok) == "number" then
+        return ok
+    elseif how == "signal" then
+        return code
+    elseif how == "exit" then
+        return code << 8
+    end
+    return ok, how
+end
 
--- An exit's status, success and failure.
+-- With no command: an empty command line's status.
+check(execute() == 0)
+
+-- An exit's status, success and failure, in the status's high byte.
 do
-    local ok, how, code = os.execute("exit 0")
-    check(ok == true and how == "exit" and code == 0)
-    local failed, why, status = os.execute("exit 3")
-    check(failed == nil and why == "exit" and status == 3)
-    local high, kind, value = os.execute("exit 255")
-    check(high == nil and kind == "exit" and value == 255)
+    check(execute("exit 0") == 0)
+    check(execute("exit 3") == 3 << 8)
+    check(execute("exit 255") == 255 << 8)
 end
 
 -- A signal's number, never 128 plus it.
 do
-    local ok, how, code = os.execute("kill -TERM $$")
-    check(ok == nil and how == "signal" and code == 15)
-    local killed, why, number = os.execute("kill -KILL $$")
-    check(killed == nil and why == "signal" and number == 9)
+    check(execute("kill -TERM $$") == 15)
+    check(execute("kill -KILL $$") == 9)
 end
 
 -- A command the shell cannot find.
-do
-    local ok, how, code = os.execute("no-such-command-anywhere 2>/dev/null")
-    check(ok == nil and how == "exit" and code == 127)
-end
+check(execute("no-such-command-anywhere 2>/dev/null") == 127 << 8)
 
 -- A command line the shell parses: redirection, a pipeline, its own
 -- environment, and a status that depends on what it ran.
 do
     local base = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/execute-" .. tostring(math.random(1, 1 << 40))
-    check(os.execute("printf 'one\\ntwo\\n' | wc -l | tr -d ' ' > " .. base) == true)
+    check(execute("printf 'one\\ntwo\\n' | wc -l | tr -d ' ' > " .. base) == 0)
     local f = assert(io.open(base, "r"))
     check(f:read("a") == "2\n")
     f:close()
-    local _, _, code = os.execute("test \"$NUPP_GUEST_PROBE\" = core-environment")
-    check(code == 0)
-    local gone, _, status = os.execute("rm " .. base .. " && test ! -e " .. base)
-    check(gone == true and status == 0)
+    check(execute("test \"$NUPP_GUEST_PROBE\" = core-environment") == 0)
+    check(execute("rm " .. base .. " && test ! -e " .. base) == 0)
 end
 
 -- The argument must be a string or a number.
@@ -70,8 +75,7 @@ end
 do
     local total = 0
     for index = 1, 30 do
-        local _, _, code = os.execute("exit " .. tostring(index))
-        total = total + code
+        total = total + (execute("exit " .. tostring(index)) >> 8)
     end
     check(total == 465)
 end

@@ -192,6 +192,8 @@ local CASES = {
     {"modulescycle", 0x7FFF000000000017},
     {"pluckedarguments", 0x7FFF001C1CF80790},
     {"ownmanage", 0x7FFF000000000200},
+    {"aliasdowncast", 0x7FFF000000000C21},
+    {"methodspread", 0x7FFF000000003FFF},
     {"loopparameteralias", 0x7FFF000000000002},
     {"namedarguments", 0x7FFF000337156A8D},
     {"legacyglobals", 0x7FFF000000000C33},
@@ -250,6 +252,7 @@ local CASES = {
     -- Library calls given every result of a call last, through the value.
     {"libraryresults", 0x7FFF000000001FFF},
     {"processlines", 0x7FFF000000000FFF},
+    {"selectvalues", 0x7FFF00000000007F},
     {"processlayer", 0x7FFF000000FFFFFF},
     -- os.exit(3): the program ends there, publishing nothing (EXITS).
     {"processexit", 0},
@@ -296,7 +299,7 @@ local CASES = {
     {"compilerfront", 0x7FFF00000000000F},
     -- Lua's loaders over source text, compiled on the core by the compiler
     -- the program carries.
-    {"loadsource", 0x7FFF0000000FFFFF},
+    {"loadsource", 0x7FFF0000007FFFFF},
     -- The compiler's lexer alone on the core, over whole source files.
     {"compilerlexer", 0x7FFF00000000000F},
     -- A checked call spreading fewer or more results than it has parameters.
@@ -305,6 +308,9 @@ local CASES = {
     {"compilercheck", 0x7FFF000000000003},
     -- Lua's debug.getinfo: sources, lines and names by level and of values.
     {"debuggetinfo", 0x7FFF00000001FFFF},
+    -- Instances of a Nupp module compiled as a chunk: fresh state, requires
+    -- through the instance's environment, core call modules swapped.
+    {"moduleinstances", 0x7FFF0000000000FF},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
@@ -525,7 +531,8 @@ local STRESS = {
     loadbinary = true,
     osfilesystem = true,
     loadsource = true,
-    debuggetinfo = true
+    debuggetinfo = true,
+    moduleinstances = true
 }
 -- Shell statements a case's runs start with: the io and pool cases may hold
 -- 64 descriptors, so a handle left open, or opened by a cancelled pool job,
@@ -645,6 +652,9 @@ local NUMERIC = {
     modulescycle = "catalog-modules-cycle",
     pluckedarguments = "catalog-plucked-arguments",
     ownmanage = "catalog-own-manage",
+    aliasdowncast = "catalog-alias-downcast",
+    methodspread = "catalog-method-spread",
+    selectvalues = "catalog-select-values",
     loopparameteralias = "catalog-loop-parameter-alias",
     namedarguments = "catalog-named-arguments",
     legacyglobals = "catalog-legacy-globals",
