@@ -35,7 +35,9 @@ if rawget(_G, "__nupp_load_image") then
     local load: function(string): any = require
     load("nupp.compiler.syntax.triviaarena").install(load("nupp.compiler.syntax.triviaarena.table"))
     load("nupp.compiler.vm.chunks").install()
-else
+elseif rawget(_G, "jit") ~= nil then
+    -- LuaJIT's stamped host has worker states; the native core has none,
+    -- and runs its suites in its own state as the VM does.
     rawset(_G, "__NUPP_TEST_WORKER_HOST", true)
 end
 -- A process worker is this same program started again, on either host: its
