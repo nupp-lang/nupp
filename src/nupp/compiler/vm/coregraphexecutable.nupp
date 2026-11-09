@@ -857,10 +857,13 @@ export function fromChecked(compiled: any, version: integer?): any
     for _, diagnostic in ipairs(diagnostics) do
         required = required or diagnostic.tail == true
     end
+    -- Argument errors name the call they are positioned at, and
+    -- debug.getinfo the names calls give the functions they call.
+    local named = {[corelibrary.id("ARGUMENT_ERROR")] = true, [corelibrary.id("DEBUG_INFO")] = true}
     for _, g in ipairs(normalized.graphs) do
         for _, block in ipairs(g.blocks) do
             for at, op in ipairs(block.op) do
-                if op == "LibCall" and corelibrary.split(block.args[at][1]) == corelibrary.id("ARGUMENT_ERROR") then
+                if op == "LibCall" and named[corelibrary.split(block.args[at][1])] then
                     required = true
                 end
             end

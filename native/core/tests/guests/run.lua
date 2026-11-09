@@ -293,6 +293,8 @@ local CASES = {
     {"compilerlexer", 0x7FFF00000000000F},
     -- A checked call spreading fewer or more results than it has parameters.
     {"callsspreadshort", 0x7FFF00000000001F},
+    -- Lua's debug.getinfo: sources, lines and names by level and of values.
+    {"debuggetinfo", 0x7FFF00000001FFFF},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
@@ -506,7 +508,8 @@ local STRESS = {
     osremove = true,
     loadbinary = true,
     osfilesystem = true,
-    loadsource = true
+    loadsource = true,
+    debuggetinfo = true
 }
 -- Shell statements a case's runs start with: the io and pool cases may hold
 -- 64 descriptors, so a handle left open, or opened by a cancelled pool job,
@@ -647,7 +650,8 @@ local NUMERIC = {
     gcoptions = "catalog-gc-options",
     gcwarn = "catalog-gc-warn",
     ostime = "catalog-os-time",
-    osfiles = "catalog-os-files"
+    osfiles = "catalog-os-files",
+    debuggetinfo = "catalog-debug-getinfo"
 }
 -- The status a program ends with when an error no protected call takes
 -- ends it, as the command line's: the bridge exits so once the program has
