@@ -5,6 +5,11 @@ module nupp.core.catalogcompilerfront
 -- so a failure in it reports its own error.
 const lexer = require("nupp.compiler.syntax.lexer")
 const parser = require("nupp.compiler.syntax.parser")
+const triviaarena = require("nupp.compiler.syntax.triviaarena")
+
+-- The core has no FFI: the lexer keeps its trivia in tables, as the test
+-- runner installs them.
+triviaarena.installDefault(require("nupp.compiler.syntax.triviaarena.table"))
 
 const source = "local total = 0\nfor i = 1, 3 do total = total + i end\nreturn total, \"done\"\n"
 

@@ -11,6 +11,7 @@ requires is the running program's, found by name as the call runs.
 local parser = require("nupp.compiler.syntax.parser")
 local types = require("nupp.compiler.types")
 local cst = require("nupp.compiler.syntax.cst")
+local triviaarena = require("nupp.compiler.syntax.triviaarena")
 local checker: any = require("nupp.compiler.check")
 local environment: any = require("nupp.compiler.project.env")
 local bundled = require("nupp.compiler.bundled")
@@ -72,6 +73,9 @@ local function untyped(node: any): nil
         end
     end
 end
+
+-- The core has no FFI: the lexer keeps its trivia in tables.
+triviaarena.installDefault(require("nupp.compiler.syntax.triviaarena.table"))
 
 -- The checking environment, made once: its prelude is the costly part.
 local held: any = nil
