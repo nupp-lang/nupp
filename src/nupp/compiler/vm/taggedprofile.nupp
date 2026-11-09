@@ -1647,18 +1647,19 @@ export function forVersion(version: integer): any
                 return libraryCall(ctx, node, corelibrary.id("ERROR"), node.args.exprs)
             elseif library == "select" then
                 -- select over the pack: "#" reads its count at key 0.
-                -- So is a call's results, last, as an open call's pack.
+                -- So is a call's results, last, as an open call's pack, and
+                -- any other values, packed in order.
                 local args = node.args.exprs or {}
-                need(
-                    #args == 2 and (args[2].kind == "vararg" or graph.expandsResults(args[2])),
-                    "select takes an index and `...` or a call"
-                )
+                need(#args >= 1, "select takes an index")
 
                 local function values(): integer?
-                    if args[2].kind == "vararg" then
+                    if #args == 2 and args[2].kind == "vararg" then
                         return ctx.varargPack()
+                    elseif #args == 2 and graph.expandsResults(args[2]) then
+                        return taggedcalls.openinvoke(ctx, args[2])
                     end
-                    return taggedcalls.openinvoke(ctx, args[2])
+
+                    return taggedcalls.valuespack(ctx, node, table.move(args, 2, #args, 1, {}))
                 end
 
                 local first = args[1]

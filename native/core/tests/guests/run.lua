@@ -252,6 +252,7 @@ local CASES = {
     -- Library calls given every result of a call last, through the value.
     {"libraryresults", 0x7FFF000000001FFF},
     {"processlines", 0x7FFF000000000FFF},
+    {"selectvalues", 0x7FFF00000000007F},
     {"processlayer", 0x7FFF000000FFFFFF},
     -- os.exit(3): the program ends there, publishing nothing (EXITS).
     {"processexit", 0},
@@ -653,6 +654,7 @@ local NUMERIC = {
     ownmanage = "catalog-own-manage",
     aliasdowncast = "catalog-alias-downcast",
     methodspread = "catalog-method-spread",
+    selectvalues = "catalog-select-values",
     loopparameteralias = "catalog-loop-parameter-alias",
     namedarguments = "catalog-named-arguments",
     legacyglobals = "catalog-legacy-globals",
