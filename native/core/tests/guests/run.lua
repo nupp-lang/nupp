@@ -190,6 +190,10 @@ local CASES = {
     {"modulespattern", 0x7FFF0000000000E6},
     {"modulesrecords", 0x7FFF000000002BD9},
     {"modulescycle", 0x7FFF000000000017},
+    {"legacyglobals", 0x7FFF000000000463},
+    {"gotocontinue", 0x7FFF0000000009E7},
+    {"derivedmembers", 0x7FFF00000000000F},
+    {"shortfunctions", 0x7FFF000000003BEE},
     {"modulesforward", 0x7FFF0000000000FF},
     {"modulesself", 0x7FFF000000000007},
     {"modulesdynamic", 0x7FFF000000002B20},
@@ -267,6 +271,10 @@ local CASES = {
     {"osfiles", 0x7FFF00000003FFFF},
     {"filesystem", 0x7FFF000000000001},
     {"osremove", 0x7FFF000000001FFF},
+    -- The compiler's host services as the core answers them for check and build.
+    {"clihosts", 0x7FFF0000000000FF},
+    -- Main's os filesystem and system functions; main answers the same word.
+    {"osfilesystem", 0x7FFF0007FFFFFFFF},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
@@ -477,7 +485,8 @@ local STRESS = {
     ostime = true,
     osfiles = true,
     filesystem = true,
-    osremove = true
+    osremove = true,
+    osfilesystem = true
 }
 -- Shell statements a case's runs start with: the io and pool cases may hold
 -- 64 descriptors, so a handle left open, or opened by a cancelled pool job,
@@ -583,6 +592,10 @@ local NUMERIC = {
     modulespattern = "catalog-modules-pattern",
     modulesrecords = "catalog-modules-records",
     modulescycle = "catalog-modules-cycle",
+    legacyglobals = "catalog-legacy-globals",
+    gotocontinue = "catalog-goto-continue",
+    derivedmembers = "catalog-derive",
+    shortfunctions = "catalog-short-functions",
     modulesforward = "catalog-modules-forward",
     modulesself = "catalog-modules-self",
     modulesdynamic = "catalog-modules-dynamic",

@@ -12,6 +12,7 @@ module nupp.compiler.vm.forwardedexports
 
 local cst = require("nupp.compiler.syntax.cst")
 local graph = require("nupp.compiler.vm.graph")
+local graphcalls = require("nupp.compiler.vm.graphcalls")
 local ownedcallables = require("nupp.compiler.vm.ownedcallables")
 
 export const MODULE = "nupp.runtime.provider.coreforward"
@@ -33,10 +34,16 @@ export function functions(root: any): {any}
     local found: {any} = {}
     for _, block in ipairs(root.blocks or {}) do
         for _, stat in ipairs(block.stats or {}) do
+            -- The export statement itself, inside any annotations before it:
+            -- it is what stores the function when it runs.
+            local exported = graphcalls.exportedStatement(stat)
             local name = graph.hoistedFunctionName(stat)
-            local declared = stat.stat
-            if name and not declared.comptimeFunction and not declared.comptimeTok then
-                found[#found + 1] = {stat = stat, name = name, text = name.text}
+            local declared = exported and exported.stat
+            while declared and declared.kind == "pragmaStmt" do
+                declared = declared.stat
+            end
+            if name and declared and not declared.comptimeFunction and not declared.comptimeTok then
+                found[#found + 1] = {stat = exported, name = name, text = name.text}
             end
         end
     end

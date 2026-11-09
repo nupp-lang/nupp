@@ -1,0 +1,190 @@
+module nupp.core.catalogosfilesystem
+
+-- Main's os filesystem and system functions on the core, as main answers
+-- them: mkdir, exists, stat, list, copy, symlink, readlink, glob,
+-- writeatomic, mktemp, mktempdir, uuid, randombytes, the clocks, io.Path
+-- arguments, and their failures. Files go under NUPP_GUEST_TEMP. Each check
+-- is a bit of the score, added and doubled so that main, whose bitwise
+-- operations are 32-bit, reaches the same word.
+local unique = os.tmpname()
+local base = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/fs-" .. string.sub(unique, -6)
+os.remove(unique)
+local score: integer = 0
+local bit: integer = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score + bit
+    end
+    bit = bit * 2
+end
+
+local function ends(text: any, suffix: string): boolean
+    return type(text) == "string" and string.sub(text as string, -#suffix) == suffix
+end
+
+local function contents(path: string): string?
+    local f = io.open(path, "r")
+    if f == nil then
+        return nil
+    end
+    local text = f:read("a")
+    f:close()
+
+    return text
+end
+
+local function write(path: string, text: string): nil
+    local f = assert(io.open(path, "w"))
+    f:write(text)
+    f:close()
+end
+
+-- Directories: made with their parents, an existing one, and a file in the way.
+do
+    local made, madeError = os.mkdir(base .. "/a/b")
+    check(made == true and madeError == nil)
+    check(os.mkdir(base .. "/a") == true)
+    write(base .. "/a/file.txt", "hello")
+    local blocked, blockedError = os.mkdir(base .. "/a/file.txt/x")
+    check(blocked == false and tostring(blockedError) == "Not a directory (os error 20)")
+end
+
+-- What a path is.
+do
+    local present = os.exists(base .. "/a")
+    local missing, missingError = os.exists(base .. "/missing")
+    check(present == true and missing == false and missingError == nil)
+    local kind, size, modified, readonly, failure = os.stat(base .. "/a/file.txt")
+    check(kind == "file" and size == 5 and type(modified) == "number" and readonly == false and failure == nil)
+    check(os.stat(base .. "/a/b") == "directory")
+    local none, _, _, _, noneError = os.stat(base .. "/missing")
+    check(none == nil and tostring(noneError) == "No such file or directory (os error 2)")
+    local flagOk, flagMessage = pcall(function(): any
+        local described = (os.stat as any)(base, "yes")
+        return described
+    end)
+    check(not flagOk and ends(flagMessage, ":64: bad argument #2 to 'stat' (boolean expected)"))
+end
+
+-- Listing a directory, and what cannot be listed.
+do
+    local names: {string} = {}
+    for name, kind in os.list(base .. "/a") do
+        names[#names + 1] = tostring(name) .. ":" .. tostring(kind)
+    end
+    table.sort(names)
+    check(table.concat(names, ",") == "b:directory,file.txt:file")
+    local missingOk, missingMessage = pcall(function(): any
+        local entries = os.list(base .. "/missing")
+        return entries
+    end)
+    check(not missingOk and ends(missingMessage, "/missing: No such file or directory (os error 2)"))
+    local fileOk, fileMessage = pcall(function(): any
+        local entries = os.list(base .. "/a/file.txt")
+        return entries
+    end)
+    check(not fileOk and ends(fileMessage, "/a/file.txt: Not a directory (os error 20)"))
+end
+
+-- Copies and links.
+do
+    local copied, copyError = os.copy(base .. "/a/file.txt", base .. "/a/copy.txt")
+    check(copied == true and copyError == nil and contents(base .. "/a/copy.txt") == "hello")
+    local lost, lostError = os.copy(base .. "/nope", base .. "/a/other.txt")
+    check(lost == false and tostring(lostError) == "No such file or directory (os error 2)")
+    local linked = os.symlink(base .. "/a/file.txt", base .. "/a/link")
+    check(linked == true and os.stat(base .. "/a/link", true) == "symlink" and os.stat(base .. "/a/link") == "file")
+    local target, targetError = os.readlink(base .. "/a/link")
+    check(tostring(target) == base .. "/a/file.txt" and targetError == nil)
+    local plain, plainError = os.readlink(base .. "/a/file.txt")
+    check(plain == nil and tostring(plainError) == "Invalid argument (os error 22)")
+    local again, againError = os.symlink(base .. "/a/file.txt", base .. "/a/link")
+    check(again == false and tostring(againError) == "File exists (os error 17)")
+end
+
+-- Patterns, sorted; `**` crosses directories; no match is an empty list.
+do
+    write(base .. "/a/b/deep.txt", "deep")
+
+    local function names(pattern: string): string
+        local paths = assert(os.glob(pattern))
+        local out: {string} = {}
+        for _, path in ipairs(paths) do
+            out[#out + 1] = (tostring(path):gsub("^.*/fs%-[^/]*/", ""))
+        end
+
+        return table.concat(out, ",")
+    end
+
+    check(names(base .. "/a/*.txt") == "a/copy.txt,a/file.txt")
+    check(names(base .. "/**/deep.txt") == "a/b/deep.txt")
+    local none = assert(os.glob(base .. "/*.none"))
+    check(#none == 0)
+end
+
+-- Whole-file writes and owned temporaries.
+do
+    local wrote = os.writeatomic(base .. "/a/atomic.txt", "data")
+    check(wrote == true and contents(base .. "/a/atomic.txt") == "data")
+    local temporary, temporaryError = os.mktemp("pre", ".txt", base)
+    local name = ""
+    if temporary then
+        name = temporary:tostring()
+    end
+    check(temporaryError == nil and os.exists(name) == true and string.match(name, "/pre[^/]*%.txt$") ~= nil)
+    if temporary then
+        temporary:close()
+    end
+    check(os.exists(name) == false)
+    local directory = os.mktempdir("dir", nil, base)
+    local where = ""
+    if directory then
+        where = directory:tostring()
+    end
+    check(os.stat(where) == "directory")
+    if directory then
+        directory:close()
+    end
+    check(os.exists(where) == false)
+end
+
+-- Identifiers, randomness and the clocks.
+do
+    local four, seven = os.uuid(4), os.uuid(7)
+    local shape = "^%x%x%x%x%x%x%x%x%-%x%x%x%x%-(%x)%x%x%x%-([89ab])%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"
+    check(string.match(four, shape) == "4" and string.lower(four) == four)
+    check(string.match(seven, shape) == "7" and four ~= os.uuid(4))
+    local stamp = tonumber(string.sub(seven, 1, 8) .. string.sub(seven, 10, 13), 16) as integer
+    local now = math.floor(os.walltime()) as integer
+    check(math.abs(now - stamp) < 60000)
+    local versionOk, versionMessage = pcall(function(): any
+        local made = (os.uuid as any)(5)
+        return made
+    end)
+    check(not versionOk and ends(versionMessage, ":162: nupp: UUID version must be 4 or 7"))
+    check(#os.randombytes(16) == 16 and os.randombytes(0) == "")
+    check(now > 1600000000000 and type(os.monotonic()) == "number")
+end
+
+-- io.Path arguments.
+do
+    local path = io.Path.of(base, "a", "..", "a", "file.txt")
+    local f = assert(io.open(path, "r"))
+    check(f:read("a") == "hello")
+    f:close()
+    local count = 0
+    for _ in io.lines(io.Path.of(base, "a", "atomic.txt")) do
+        count = count + 1
+    end
+    check(count == 1 and path:normalize():stem() == "file" and path:extension() == "txt")
+end
+
+-- Removing: a directory with children refuses; a recursive removal does not.
+do
+    local refused, refusedMessage, refusedCode = os.remove(base .. "/a")
+    check(refused == nil and ends(refusedMessage, "/a: Directory not empty") and refusedCode == 66)
+    check(os.remove(base, true) == true and os.exists(base) == false)
+end
+
+export const result = score

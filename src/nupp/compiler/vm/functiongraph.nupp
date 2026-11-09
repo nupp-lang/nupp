@@ -1,6 +1,7 @@
 module nupp.compiler.vm.functiongraph
 
 local graph = require("nupp.compiler.vm.graph")
+local graphcalls = require("nupp.compiler.vm.graphcalls")
 local cst = require("nupp.compiler.syntax.cst")
 local cleanup = require("nupp.compiler.vm.functioncleanup")
 local construction = require("nupp.compiler.vm.construction")
@@ -1354,6 +1355,22 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
     ctx.inline = inline
 
     -- Whether a record declares a method or a constructor of its own.
+    -- The label that ends a loop body (`::continue::` last), which a goto in
+    -- the body may jump to as a `continue`.
+    local function trailingLabel(body: any): string?
+        local stats = body and body.stats or {}
+        for index = #stats, 1, -1 do
+            local stat = stats[index]
+            if stat.kind == "labelStmt" then
+                return stat.name and stat.name.text
+            elseif stat.kind ~= "emptyStmt" then
+                return nil
+            end
+        end
+
+        return nil
+    end
+
     local function ownsFunctions(stat: any): boolean
         for _, entry in ipairs(stat.entries or {}) do
             if entry.kind == "inlineMethod" or entry.kind == "constructorDecl" then
@@ -1548,7 +1565,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 -- Capture every LHS address before the RHS list. A later RHS
                 -- may branch or change memory, so receivers are held as SSA.
                 for index, target in ipairs(stat.targets) do
-                    if target.kind == "name" then
+                    if graphcalls.discardTarget(target) then
+                        targets[index] = {discard = true}
+                    elseif target.kind == "name" then
                         local key = target.token.definition or target.token
                         local previous = need(bindings[key], "assignment requires a checked local binding")
                         targets[index] = {key = key, kind = profile.valueKind(g, previous)}
@@ -1602,7 +1621,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                         break
                     end
                     local target = targets[index]
-                    if target.key then
+                    if target.discard then
+                        -- `_ = value`: the value was evaluated; nothing keeps it.
+                    elseif target.key then
                         local written = stat.exprs[index]
                         writeBinding(
                             stat,
@@ -1766,7 +1787,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 end
                 local body, exit = branch(), branch()
                 block.term = {kind = "branch", value = condition, edges = {body.edge, exit.edge}, pos = position(stat)}
-                loops[#loops + 1] = {exit = exit, continueTo = header, cleanupDepth = #cleanups}
+                loops[
+                    #loops + 1
+                ] = {exit = exit, continueTo = header, cleanupDepth = #cleanups, label = trailingLabel(stat.body)}
                 resume(body)
                 local depth = #cleanups
                 statements(stat.body.stats)
@@ -1833,7 +1856,14 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                             pos = position(stat)
                         }
                         block = nil
-                        loops[#loops + 1] = {exit = exit, continueTo = header, cleanupDepth = #cleanups}
+                        loops[
+                            #loops + 1
+                        ] = {
+                            exit = exit,
+                            continueTo = header,
+                            cleanupDepth = #cleanups,
+                            label = trailingLabel(stat.body)
+                        }
                         resume(body)
                         for index, name in ipairs(stat.names) do
                             local key = name.definition or name
@@ -1905,7 +1935,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                     -- `continue` advances the counter, so the latch exists before
                     -- the body. Its parameters are the body's loop-carried state.
                     local latch = branch()
-                    loops[#loops + 1] = {exit = exit, continueTo = latch, cleanupDepth = #cleanups}
+                    loops[
+                        #loops + 1
+                    ] = {exit = exit, continueTo = latch, cleanupDepth = #cleanups, label = trailingLabel(stat.body)}
                     if generic then
                         context()
                         local bound = plan.bind(ctx, stat, controls())
@@ -1984,8 +2016,17 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                     block.term = {kind = "jump", edges = {edge}, pos = position(stat)}
                     block = nil
                 end
-            elseif stat.kind == "breakStmt" or stat.kind == "continueStmt" then
+            elseif stat.kind == "labelStmt" then
+                -- A label marks a place; only a goto moves control, and only
+                -- to a label ending its loop's body (see gotoStmt).
+            elseif stat.kind == "breakStmt" or stat.kind == "continueStmt" or stat.kind == "gotoStmt" then
                 local loop = need(loops[#loops], "loop transfer outside a checked loop")
+                -- `goto continue` to a label that ends the loop's body goes on
+                -- to the loop's next iteration, as `continue` does.
+                need(
+                    stat.kind ~= "gotoStmt" or stat.name ~= nil and loop.label == stat.name.text,
+                    "goto is admitted only to a label ending its enclosing loop's body"
+                )
                 if cleanupEnabled then
                     unwind(loop.cleanupDepth, stat, stat.kind)
                     local success = profile.cleanupStatus(ctx, stat)
@@ -2102,7 +2143,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         local named = false
         for _, sourceBlock in ipairs(body.blocks) do
             for _, stat in ipairs(sourceBlock.stats or {}) do
-                if stat.kind == "exportStmt" and stat.stat then
+                if graphcalls.exportedStatement(stat) then
                     named = true
                 end
             end
@@ -2139,6 +2180,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             need(sourceBlock.kind == "block" and sourceBlock.stats, "unsupported module initializer block")
             statements(sourceBlock.stats)
         end
+    elseif body.kind == "shortfn" and body.expr then
+        -- `|x| -> e` answers every value of e, as `return e` does.
+        statements({{kind = "returnStmt", exprs = {body.expr}, body.expr}})
     else
         need(body.body and body.body.stats, "statement-bodied function required")
         statements(body.body.stats)

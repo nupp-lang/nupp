@@ -756,9 +756,7 @@ end
 
 -- The library functions `nupp.runtime.libraryvalues` carries, which a name
 -- of one taken as a value (not called) reads.
-local libraryValues: {
-    [string]: boolean
-} = {
+local libraryValues: {[string]: boolean} = {
     coroutine = true,
     ["coroutine.create"] = true,
     ["coroutine.resume"] = true,
@@ -786,6 +784,13 @@ local libraryValues: {
     ["string.gsub"] = true,
     ["table.concat"] = true,
     ["table.insert"] = true,
+    ["table.unpack"] = true,
+    -- The prelude's `unpack` is `table.unpack`, as a call of it is.
+    unpack = true,
+    -- LuaJIT's `jit` library, which the core does not have: as a value it
+    -- is the nil the library values hold under its name, as on a Lua
+    -- without it, so `jit and jit.os` reads nil.
+    jit = true,
     ["math.type"] = true,
     ["math.max"] = true,
     ["math.min"] = true,
@@ -1079,13 +1084,41 @@ export function erased(node: any): boolean
         and (node.comptimeFunction ~= nil or node.comptimeTok ~= nil)
 end
 
+--- Whether an assignment target is `_`, the checker's discard: a name it
+--- resolved to no declaration. Main stores the value in Lua's global `_`,
+--- which checked code cannot read back; the core evaluates it and drops it.
+export function discardTarget(node: any): boolean
+    return node.kind == "name" and node.token ~= nil and node.token.text == "_" and node.token.definition == nil
+end
+
+--- The named export a module-level statement is, through the annotations
+--- written before it (`@allow(...) export function f()`), or nil.
+export function exportedStatement(stat: any): any
+    while stat and stat.kind == "pragmaStmt" do
+        stat = stat.stat
+    end
+    if stat == nil or stat.kind ~= "exportStmt" or not stat.stat then
+        return nil
+    end
+
+    return stat
+end
+
 -- The name a module-level statement exports a function under, which the
 -- checker hoists to the top of its module, or nil for any other statement.
 export function hoistedFunctionName(stat: any): any
-    if stat.kind ~= "exportStmt" or not stat.stat then
+    stat = exportedStatement(stat)
+    if stat == nil then
         return nil
     end
     local declared = stat.stat
+    while declared and declared.kind == "pragmaStmt" do
+        declared = declared.stat
+    end
+    -- A compile-time function erases: nothing is hoisted for it.
+    if declared == nil or declared.comptimeFunction ~= nil or declared.comptimeTok ~= nil then
+        return nil
+    end
     if declared.kind == "localFuncStmt" then
         return declared.name
     elseif declared.kind == "funcStmt"
@@ -1100,8 +1133,11 @@ export function hoistedFunctionName(stat: any): any
 end
 
 -- The image module the core answers a host module's `require` with: the
--- portable BitOp library for `bit`, storage on the guest heap, and the
--- checked buffer fallback instead of LuaJIT's pointer fast path.
+-- portable BitOp library for `bit`, storage on the guest heap, the checked
+-- buffer fallback instead of LuaJIT's pointer fast path, UUIDs from the
+-- core's entropy and clock rather than the native loader's, and the
+-- compiler's host services written for the core: its digest, its build
+-- clock, and C declarations and Markdown answered as unavailable.
 local coremodules: {
     [string]: string
 } = {
@@ -1109,8 +1145,13 @@ local coremodules: {
     ["io.internal.argumenterror"] = "nupp.runtime.provider.coreargumenterror",
     ["nupp.vm.storagebinding"] = "nupp.runtime.provider.heapstorage",
     ["nupp.vm.cryptobinding"] = "nupp.runtime.provider.coreentropy",
+    ["nupp.runtime.uuidprovider"] = "nupp.runtime.provider.coreuuid",
     ["nupp.vm.systembinding"] = "nupp.runtime.provider.coresystem",
     ["nupp.vm.clock"] = "nupp.runtime.provider.coreclock",
+    ["nupp.tools.build.clockhost"] = "nupp.runtime.provider.coreclock",
+    ["nupp.compiler.nativehash"] = "nupp.compiler.corehash",
+    ["nupp.compiler.nativecdecl"] = "nupp.compiler.corecdecl",
+    ["nupp.vm.markdown"] = "nupp.tools.doc.coremarkdown",
     ["nupp.runtime.bindings.clock"] = "nupp.runtime.provider.coretime",
     ["debug.internal.clock"] = "nupp.runtime.provider.corelogclock",
     ["nupp.runtime.bindings.suspension"] = "nupp.runtime.provider.suspension",

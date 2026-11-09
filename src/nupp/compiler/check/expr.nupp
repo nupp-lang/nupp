@@ -1872,7 +1872,7 @@ function expr.install(c: state.Checker): nil
                 c.popScope()
                 c.unsafeDepth = savedUnsafe
 
-                return T.func(
+                local callable = T.func(
                     params,
                     rets,
                     vararg,
@@ -1893,7 +1893,12 @@ function expr.install(c: state.Checker): nil
                     nil,
                     nil,
                     paramNames
-                )
+                ) as T.Func
+                -- Published on the literal, its own body, as checkFuncbody publishes a
+                -- body's: lowerings read the resolved signature from this one fact.
+                node.signatureType = callable
+
+                return callable
             end
 
             return inferSendableLiteral(node, inferShort)

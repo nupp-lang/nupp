@@ -1,0 +1,182 @@
+--[[
+The derived members a record declaration makes on the core.
+
+After the declaration's table, in main's order: the initializer the recipe
+asked for, the recipe's registration, then each forwarding member, stored on
+the table under its name. Each is made by the call its plan issued, with the
+recipe's data built as the table literal main renders.
+]]
+module nupp.compiler.vm.derivedmembers
+
+local derivedrecipes = require("nupp.compiler.vm.derivedrecipes")
+local graphimage = require("nupp.compiler.vm.graphimage")
+local values = require("nupp.compiler.vm.taggedvalues")
+local calls = require("nupp.compiler.vm.graphcalls")
+local need = values.need
+
+local function constant(ctx: any, node: any, kind: string, value: any): integer
+    return ctx.emit(node, "K", {values.pool(ctx, kind, value)}, "tagged")
+end
+
+-- Keys in a stable order: integers first, ascending, then strings.
+local function ordered(value: any): {any}
+    local keys: {any} = {}
+    for key in pairs(value) do
+        need(type(key) == "string" or math.type(key) == "integer", "derived data has a key main cannot render")
+        keys[#keys + 1] = key
+    end
+    table.sort(keys, function(left: any, right: any): boolean
+        if type(left) ~= type(right) then
+            return type(left) == "number"
+        end
+        return left < right
+    end)
+
+    return keys
+end
+
+-- Recipe data as main renders it: strings, booleans, numbers and tables of them.
+local data: function(any, any, any): integer
+data = function(ctx: any, node: any, value: any): integer
+    local kind: string = type(value)
+    if kind == "string" then
+        return constant(ctx, node, "str", value)
+    elseif kind == "boolean" then
+        return constant(ctx, node, value and "true" or "false", "")
+    elseif kind == "number" then
+        if math.type(value) == "integer" then
+            return constant(ctx, node, "int64", tostring(value))
+        end
+        return constant(ctx, node, "num", graphimage.floatBytes(value))
+    elseif kind == "nil" then
+        return ctx.emit(node, "Nil", {}, "tagged")
+    end
+    need(kind == "table", "derived data holds a " .. kind)
+    local held = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
+    for _, key in ipairs(ordered(value)) do
+        local item = ctx.hold(data(ctx, node, value[key]))
+        local field = data(ctx, node, key)
+        ctx.emit(node, "SetIdx", {ctx.readHeld(held), field, ctx.readHeld(item)}, nil)
+        ctx.release(item)
+    end
+    local made = ctx.readHeld(held)
+    ctx.release(held)
+
+    return made
+end
+
+-- A forwarding argument as the factory evaluates it: an argument by its
+-- position among the member's parameters, as main maps it.
+local function argument(spec: any, member: any): any
+    if spec.kind == "argument" then
+        for position, name in ipairs(member.paramNames or {}) do
+            if name == spec.name then
+                return {kind = "argument", position = position}
+            end
+        end
+        error("derived recipe: invalid derived member argument " .. tostring(spec.name), 0)
+    elseif spec.kind == "array" then
+        local children = {}
+        for index, child in ipairs(spec.values or {}) do
+            children[index] = argument(child, member)
+        end
+        return {kind = "array", values = children}
+    end
+
+    return {kind = spec.kind, name = spec.name, value = spec.value}
+end
+
+-- The fields an initializer assigns, as main lists them: each stored field,
+-- with its default where the declaration gives one.
+local function initializerSpec(stat: any): any
+    local nominal = stat.resolvedType
+    local spec: any = {fields = {}, defaulted = {}, defaults = {}}
+    for _, field in ipairs(nominal.fieldOrder or {}) do
+        local fieldType = nominal.byname and nominal.byname[field] or nil
+        local stored = fieldType ~= nil
+            and fieldType.tag ~= "typeobject"
+            and not (nominal.nestedTypes and nominal.nestedTypes[field])
+            and not (nominal.privateFields and nominal.privateFields[field])
+        if stored then
+            local index = #spec.fields + 1
+            spec.fields[index] = field
+            local default = nominal.fieldDefaults and nominal.fieldDefaults[field] or nil
+            spec.defaulted[index] = default ~= nil
+            if default then
+                spec.defaults[index] = default.value
+            end
+        end
+    end
+
+    return spec
+end
+
+--- Makes the derived members of record `stat` on its table `owner`, a held
+--- handle. Answers false when the block ended, as a raising call ends it.
+export function emit(ctx: any, stat: any, owner: any): boolean
+    local p = values.catalog(ctx)
+    local plan = p.derives[stat]
+    if plan == nil then
+        return true
+    end
+    derivedrecipes.verify(p, plan)
+    need(plan.owner == ctx.fn.id, "derived record belongs to another owner")
+    local module = ctx.hold(ctx.emit(stat, "Require", {values.pool(ctx, "str", derivedrecipes.MODULE)}, "tagged"))
+
+    local function make(made: any, first: integer, spec: integer): integer?
+        local held = ctx.hold(spec)
+        local callee = ctx.emit(
+            stat,
+            "GetIdx",
+            {ctx.readHeld(module), constant(ctx, stat, "str", made.target.name)},
+            "tagged"
+        )
+        local contract = calls.invokeContract(made.target, made.call)
+        local answer = ctx.invoke(stat, callee, {first, ctx.readHeld(held)}, contract, true)
+        ctx.release(held)
+        if answer == nil or ctx.block == nil then
+            return nil
+        end
+
+        return values.landed(ctx, stat, answer)
+    end
+
+    local function store(name: string, value: integer): nil
+        ctx.emit(stat, "SetIdx", {ctx.readHeld(owner), constant(ctx, stat, "str", name), value}, nil)
+    end
+
+    local recipe = plan.recipe
+    if plan.initializer then
+        local made = make(plan.initializer, ctx.readHeld(owner), data(ctx, stat, initializerSpec(stat)))
+        if made == nil then
+            ctx.release(module)
+            return false
+        end
+        store(recipe.initializer, made)
+    end
+    local entry = make(plan.register, ctx.readHeld(owner), data(ctx, stat, recipe))
+    if entry == nil then
+        ctx.release(module)
+        return false
+    end
+    local held = ctx.hold(entry)
+    for _, made in ipairs(plan.members) do
+        local member = made.member
+        local arguments = {}
+        for index, spec in ipairs(member.arguments or {}) do
+            arguments[index] = argument(spec, member)
+        end
+        local spec = {module = member.helper.module, member = member.helper.member, arguments = arguments}
+        local value = make(made, ctx.readHeld(held), data(ctx, stat, spec))
+        if value == nil then
+            ctx.release(held)
+            ctx.release(module)
+            return false
+        end
+        store(member.name, value)
+    end
+    ctx.release(held)
+    ctx.release(module)
+
+    return true
+end
