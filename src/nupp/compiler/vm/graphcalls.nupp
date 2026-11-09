@@ -817,9 +817,10 @@ local libraryValues: {
     warn = true
 }
 
--- The library values whose core forms take a `...` last as a pack: select's,
--- string.format's packed call, and the coroutine calls' value packs.
-const packsVararg: {
+-- The library values whose core forms take a `...` or a call's results last
+-- as a pack: select's, string.format's packed call, and the coroutine calls'
+-- value packs.
+const packsLast: {
     [string]: boolean
 } = {
     select = true,
@@ -1017,8 +1018,9 @@ export function mayTakeLibraryValue(root: any, dynamic: boolean?): boolean
         if node.kind == "dotIndex" and node.obj and node.obj.kind == "name" then
             return
         end
-        -- A library call spreading `...` calls the library function's value
-        -- (spreadsLibrary), so its callee is read as one.
+        -- A library call spreading `...` or, it may be, a call's results calls
+        -- the library function's value (spreadsLibrary), so its callee is read
+        -- as one.
         local last = node.kind == "call" and lastArgument(node) or nil
         local spelled = node.obj
             and node.obj.kind == "dotIndex"
@@ -1027,7 +1029,9 @@ export function mayTakeLibraryValue(root: any, dynamic: boolean?): boolean
             and node.obj.name
             and node.obj.obj.token.text .. "." .. node.obj.name.text
             or node.obj and node.obj.token and node.obj.token.text
-        local spreads = last ~= nil and last.kind == "vararg" and not packsVararg[spelled or ""]
+        local spreads = last ~= nil
+            and (last.kind == "vararg" or last.kind == "call" or last.kind == "methodCall")
+            and not packsLast[spelled or ""]
         for _, child in ipairs(node) do
             walk(child, (node.kind == "call" and not spreads or node.kind == "methodCall") and child == node.obj)
         end
@@ -1454,17 +1458,17 @@ export function spreadsLast(call: any): boolean
     return last ~= nil and (last.kind == "vararg" or expandsResults(last) or library == "pcall" or library == "xpcall")
 end
 
--- Whether a library call spreads `...` last where its core form, which takes
--- a fixed count of arguments, cannot, as `string.char(...)`: it calls the
--- library function's value with the pack instead, as Lua does.
+-- Whether a library call spreads `...` or a call's results last where its core
+-- form, which takes a fixed count of arguments, cannot, as `string.char(...)`
+-- or `assert(io.open(path))`: it calls the library function's value with the
+-- pack instead, as Lua does, so none of the values is lost.
 export function spreadsLibrary(node: any): boolean
     if type(node) ~= "table" or node.kind ~= "call" or libraryValue(node.obj) == nil then
         return false
     end
     local library = coreLibraryCall(node)
-    local last = lastArgument(node)
 
-    return library ~= nil and not packsVararg[library] and last ~= nil and last.kind == "vararg"
+    return library ~= nil and not packsLast[library] and spreadsLast(node)
 end
 
 -- The argument a library call calls back, by its index among the call's

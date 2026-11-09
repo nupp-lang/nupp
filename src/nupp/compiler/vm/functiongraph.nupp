@@ -579,10 +579,15 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         -- this temporary, never the original owner's obligation twice.
         if cleanupEnabled and block and freshOwner(node) then
             -- assert answers its first argument: a fresh owner given it
-            -- is the one its result now holds.
+            -- is the one its result now holds. One spreading a call's results
+            -- passes them in a pack, which holds no obligation of its own.
             local first = node.args and node.args.exprs and node.args.exprs[1]
             local given = first and cleanup.source(first)
-            if graph.coreLibraryCall(node) == "assert" and given and freshOwner(given) then
+            if graph.coreLibraryCall(node) == "assert"
+                and given
+                and freshOwner(given)
+                and not graph.spreadsLast(node)
+            then
                 transfer(given, given.statementOwner or given)
             end
             registerCleanup(node, node.statementOwner or node, cleanup.affine(node.inferredType), value)
@@ -854,7 +859,12 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         local modes = t and t.tag == "func" and t.paramPack and (t.paramPack.modes or {}) or nil
         for index, argument in ipairs(node.args.exprs) do
             local source = cleanup.source(argument)
-            if source and freshOwner(source) then
+            local library = graph.coreLibraryCall(node)
+            if source and freshOwner(source) and library and index == #node.args.exprs and graph.spreadsLast(node) then
+                -- A library call given an owner among a call's results passes
+                -- it in a pack: assert answers it, and its result holds it.
+                need(library == "assert", "an owner among the results a library call spreads")
+            elseif source and freshOwner(source) then
                 need(modes ~= nil, "an owning argument to a call with no checked closed signature")
                 if modes[index] == "takes" then
                     transfer(source, source.statementOwner or source)

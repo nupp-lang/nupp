@@ -233,6 +233,8 @@ local CASES = {
     {"runnerresiduals", 0x7FFF00000000007F},
     -- Library calls spreading `...` through the library function's value.
     {"spreadlibrary", 0x7FFF0000000003FF},
+    -- Library calls given every result of a call last, through the value.
+    {"libraryresults", 0x7FFF000000000FFF},
     {"processlines", 0x7FFF000000000FFF},
     {"processlayer", 0x7FFF000000FFFFFF},
     -- os.exit(3): the program ends there, publishing nothing (EXITS).
@@ -451,6 +453,7 @@ local STRESS = {
     absentffi = true,
     runnerresiduals = true,
     spreadlibrary = true,
+    libraryresults = true,
     processlines = true,
     processlayer = true,
     processexit = true,
