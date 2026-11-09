@@ -15,6 +15,7 @@ local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local ownedclosures = require("nupp.compiler.vm.ownedclosures")
 local construction = require("nupp.compiler.vm.construction")
 local exportforwarders = require("nupp.compiler.vm.exportforwarders")
+local derivedmembers = require("nupp.compiler.vm.derivedmembers")
 export const booleanKind = "tagged"
 local binding = taggedvalues.binding
 local catalog = taggedvalues.catalog
@@ -511,7 +512,8 @@ export function forVersion(version: integer): any
     -- runs as written and its checked migration lint remains unchanged.
     -- `@cli`, `@debug` and `@event` configure what a derive generates and
     -- `@syntax` an editor's highlighting: metadata the checker read. Main
-    -- emits the statement each annotates as written.
+    -- emits the statement each annotates as written. `@derive` is admitted on
+    -- a record whose recipe the core makes (derivedmembers).
     local pragmas: {
         [string]: boolean
     } = {
@@ -528,12 +530,18 @@ export function forVersion(version: integer): any
     profile.checkedPragma = function(ctx: any, node: any): nil
         local name = node.name and node.name.text
         local definition = node.annotationDefinition
+        local target = node.stat
+        while target and (target.kind == "pragmaStmt" or target.kind == "exportStmt") do
+            target = target.stat
+        end
+        local derived = name == "derive" and target ~= nil and catalog(ctx).derives[target] ~= nil
         need(
-            pragmas[name or ""] == true
+            (pragmas[name or ""] == true or derived)
             and definition
             and definition.name == name
             and (name ~= "deprecated" or definition.builtin == true),
-            "only a checked @unsafe, @aot, @allow, @nosuspend, @deprecated, @cli, @debug, @event or @syntax annotation "
+            "only a checked @unsafe, @aot, @allow, @nosuspend, @deprecated, @cli, @debug, @event, @syntax or lowered @derive "
+            .. "annotation "
             .. "is admitted, not @"
             .. tostring(
                 name
@@ -1114,6 +1122,12 @@ export function forVersion(version: integer): any
                     ctx.emit(entry, "SetIdx", {ctx.readHeld(held), key, ctx.readHeld(nested)}, nil)
                     ctx.release(nested)
                 end
+            end
+            -- A derive recipe's members, after the declaration's own, as main
+            -- makes them.
+            if not derivedmembers.emit(ctx, stat, held) then
+                ctx.release(held)
+                return nil
             end
             local value = ctx.readHeld(held)
             ctx.release(held)

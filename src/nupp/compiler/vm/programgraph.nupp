@@ -14,6 +14,7 @@ local lower = require("nupp.compiler.vm.lower")
 local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local ownedcallables = require("nupp.compiler.vm.ownedcallables")
 local forwardedexports = require("nupp.compiler.vm.forwardedexports")
+local derivedrecipes = require("nupp.compiler.vm.derivedrecipes")
 local indexedaccess = require("nupp.compiler.vm.indexedaccess")
 
 local typeSyntax = {
@@ -369,6 +370,8 @@ export function describe(modules: {any}, entryModule: string): any
         -- By module chunk id, the forwarders a module in a require cycle
         -- publishes for the functions it exports.
         forwards = {},
+        -- By record declaration, the derived members it makes.
+        derives = {},
         qualifiedLoads = {},
         calls = {},
         callByNode = {},
@@ -1186,6 +1189,24 @@ export function describe(modules: {any}, entryModule: string): any
                 cleanupToken(node, captured.type, captured.token)
             end
         end
+        if derivedrecipes.derived(node) then
+            local plan = derivedrecipes.prepare(p, node, owner)
+            p.derives[node] = plan
+            for _, made in ipairs(derivedrecipes.steps(plan)) do
+                local site = {
+                    id = #p.calls,
+                    owner = owner.id,
+                    node = made.call,
+                    definition = made.target.definition,
+                    derived = plan
+                }
+                p.calls[#p.calls + 1], p.callByNode[made.call] = site, site
+            end
+            local load = {kind = "qualifiedLoad", qualifiedModule = derivedrecipes.MODULE, cst.firstToken(node)}
+            local module = need(moduleNames[derivedrecipes.MODULE], "derive factory module is missing")
+            plan.loader = qualifiedload(owner, module, load)
+            plan.loader.derived = plan
+        end
         if node.kind == "localStmt" and node.automaticOwners then
             for index, automatic in pairs(node.automaticOwners) do
                 local anchor = node.names and node.names[index]
@@ -1668,6 +1689,9 @@ export function verify(p: any): boolean
             if item.forward then
                 forwardedexports.verify(p, item.forward)
             end
+            if item.derived then
+                derivedrecipes.verify(p, item.derived)
+            end
             if item.builtin then
                 local current = builtinprojection(node)
                 local original = item.builtin
@@ -1721,6 +1745,7 @@ export function verify(p: any): boolean
                         or item.eager and node.kind == "qualifiedLoad"
                         or item.callable and node.kind == "qualifiedLoad"
                         or item.forward and node.kind == "qualifiedLoad"
+                        or item.derived and node.kind == "qualifiedLoad"
                     )
                     and node.qualifiedModule ~= nil
                     and graph.coremodule(node.qualifiedModule) == item.module
@@ -1975,6 +2000,8 @@ export function verify(p: any): boolean
             ownedcallables.verify(p, item.callable)
         elseif item.forward then
             forwardedexports.verify(p, item.forward)
+        elseif item.derived then
+            derivedrecipes.verify(p, item.derived)
         elseif item.scalarWitness then
 
             local witness = item.scalarWitness
@@ -2060,6 +2087,9 @@ export function verify(p: any): boolean
     end
     for _, plan in pairs(p.forwards) do
         forwardedexports.verify(p, plan)
+    end
+    for _, plan in pairs(p.derives) do
+        derivedrecipes.verify(p, plan)
     end
     for node, access in pairs(p.indexedByNode) do
         local site = need(p.callByNode[access.call], "indexed span lacks its issued callsite")

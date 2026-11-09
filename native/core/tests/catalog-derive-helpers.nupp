@@ -1,0 +1,14 @@
+module nupp.core.catalogderivehelpers
+
+-- The runtime helpers catalog-derive.nupp's derived members forward to.
+
+export function greetWith(name: string, other: string): string
+    return name .. " greets " .. other
+end
+
+-- `tags` is a constant of the recipe: main makes it fresh for each call, so
+-- what one call appends the next does not see.
+export function describe(entry: any, prefix: string, tags: {string}): string
+    tags[#tags + 1] = "seen"
+    return prefix .. ":" .. tostring(#tags) .. ":" .. tostring(entry.schema.data.label)
+end

@@ -16,6 +16,7 @@ local programgraph = require("nupp.compiler.vm.programgraph")
 local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local ownedcallables = require("nupp.compiler.vm.ownedcallables")
 local forwardedexports = require("nupp.compiler.vm.forwardedexports")
+local derivedrecipes = require("nupp.compiler.vm.derivedrecipes")
 local tagged = require("nupp.compiler.vm.taggedprofile")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
@@ -235,6 +236,12 @@ local CASES: {[string]: {
     spanwrites = {fixture = "nupp/core/catalogspanwrites", version = 8, follow = true},
     modulesdynamic = {fixture = "catalog-modules-dynamic", version = 8, modules = {"catalog-modules-geometry"},},
     shortfunctions = {fixture = "catalog-short-functions", version = 8},
+    derivedmembers = {
+        fixture = "catalog-derive",
+        version = 8,
+        follow = true,
+        modules = {"catalog-derive-helpers", "catalog-derive-provider"},
+    },
     modulescycle = {
         fixture = "catalog-modules-cycle",
         version = 8,
@@ -672,6 +679,14 @@ local function requiredmodules(root: any, source: string, follow: boolean): ({st
         end
         if ownedcallables.taking(node) then
             add(ownedcallables.MODULE, false)
+        end
+        -- A record a derive recipe gives members loads the factory, and
+        -- each helper its members call.
+        if derivedrecipes.derived(node) then
+            add(derivedrecipes.MODULE, false)
+            for _, helper in ipairs(derivedrecipes.helperModules(node)) do
+                add(helper, false)
+            end
         end
         -- A library call the core makes itself (`assert(v)`) loads nothing,
         -- whatever module its name is checked through.

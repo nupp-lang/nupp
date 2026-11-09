@@ -1,0 +1,28 @@
+module nupp.core.catalogderiveprovider
+
+-- A derive provider: the members it gives forward to catalog-derive-helpers.nupp.
+const derive2 = require("types.derive")
+const helpers = require("nupp.core.catalogderivehelpers")
+
+export interface Greeting
+    greet: function(self, other: string): string
+    describe: function(self): string
+end
+
+@comptime
+export function deriveGreeting(info: types.derive.Info): types.derive.Result<Greeting>
+    return derive2.implement{
+        initializer = true,
+        data = {label = "pal"},
+        methods = {
+            greet = derive2.forward{
+                helper = derive2.helper(helpers, "greetWith"),
+                arguments = {derive2.field(info.fields[1]), derive2.argument("other")},
+            },
+            describe = derive2.forward{
+                helper = derive2.helper(helpers, "describe"),
+                arguments = {derive2.entry(), derive2.constant("pal"), derive2.constant({"a"})},
+            },
+        },
+    }
+end

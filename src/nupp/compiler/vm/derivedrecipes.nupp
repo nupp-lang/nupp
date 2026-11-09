@@ -1,0 +1,169 @@
+--[[
+The derived members of a record whose declaration carries a derive recipe.
+
+Main emits, after the declaration's table, an initializer the recipe asked for
+when the declaration has no constructor, the recipe's registration with
+`nupp.derive`, and one member per forwarding entry calling its helper. The core
+makes each by one checked call of a `nupp.runtime.provider.corederive`
+factory, issued here against the factory's declaration and never written into
+the checked tree, with the recipe's data as main renders it.
+]]
+module nupp.compiler.vm.derivedrecipes
+
+local cst = require("nupp.compiler.syntax.cst")
+local ownedcallables = require("nupp.compiler.vm.ownedcallables")
+
+export const MODULE = "nupp.runtime.provider.corederive"
+
+local function need(value: any, message: string): any
+    assert(value, "derived recipe: " .. message)
+    return value
+end
+
+-- The forwarding argument kinds the core's factory evaluates. A type witness
+-- needs the reflection runtime, which the core does not carry.
+const ARGUMENTS: {
+    [string]: boolean
+} = {receiver = true, entry = true, argument = true, field = true, constant = true, array = true}
+
+local function checkArgument(argument: any, member: any): nil
+    need(ARGUMENTS[argument.kind], "unsupported forwarding argument " .. tostring(argument.kind))
+    if argument.kind == "argument" then
+        local found = false
+        for _, name in ipairs(member.paramNames or {}) do
+            found = found or name == argument.name
+        end
+        need(found, "invalid derived member argument " .. tostring(argument.name))
+    elseif argument.kind == "array" then
+        for _, child in ipairs(argument.values or {}) do
+            checkArgument(child, member)
+        end
+    end
+end
+
+--- The module names a checked tree's derived records call helpers from.
+export function helperModules(root: any): {string}
+    local found: {string} = {}
+    local walk: function(any): nil
+    walk = function(node: any): nil
+        if type(node) ~= "table" then
+            return
+        end
+        if node.kind == "recordDecl" and node.deriveRecipe then
+            for _, member in ipairs(node.deriveRecipe.members or {}) do
+                if member.helper and type(member.helper.module) == "string" then
+                    found[#found + 1] = member.helper.module
+                end
+            end
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+    walk(root)
+
+    return found
+end
+
+--- Whether a checked node is a record declaration carrying a derive recipe.
+export function derived(node: any): boolean
+    return type(node) == "table" and node.kind == "recordDecl" and node.deriveRecipe ~= nil
+end
+
+--- The calls record `node` makes, as owner `owner` declares it: the factory
+--- for each step and the call that runs it, positioned at the declaration.
+--- The caller issues the calls and the loader.
+export function prepare(p: any, node: any, owner: any): any
+    local recipe = need(node.deriveRecipe, "record has no derive recipe")
+    for effect in pairs(recipe.effects or {}) do
+        need(effect == "stdlib.derives", "unsupported derive effect " .. tostring(effect))
+    end
+    need(type(recipe.key) == "string", "recipe has no registry key")
+    local token = cst.firstToken(node)
+
+    local function step(member: string): any
+        local target = ownedcallables.checkedFactory(p, MODULE, member)
+        return {target = target, call = ownedcallables.factoryCall(target, token)}
+    end
+
+    local plan: any = {node = node, owner = owner.id, recipe = recipe, register = step("register"), members = {}}
+    local nominal = node.resolvedType
+    if recipe.initializer and nominal and #(nominal.constructorEntries or {}) == 0 then
+        plan.initializer = step("initializer")
+    end
+    for _, member in ipairs(recipe.members or {}) do
+        need(member.operation == "forward.v1", "unknown derived member operation " .. tostring(member.operation))
+        need(
+            member.helper and type(member.helper.module) == "string" and type(member.helper.member) == "string",
+            "a derived member's helper must be a module member"
+        )
+        for _, argument in ipairs(member.arguments or {}) do
+            checkArgument(argument, member)
+        end
+        local made = step("member")
+        made.member = member
+        plan.members[#plan.members + 1] = made
+    end
+
+    return plan
+end
+
+-- Every call the plan issues, in the order the lowering makes them.
+export function steps(plan: any): {any}
+    local found: {any} = {}
+    if plan.initializer then
+        found[#found + 1] = plan.initializer
+    end
+    found[#found + 1] = plan.register
+    for _, made in ipairs(plan.members) do
+        found[#found + 1] = made
+    end
+
+    return found
+end
+
+--- Whether a plan still answers its checked record: each call issued against
+--- its factory, and the factory's module loaded once.
+export function verify(p: any, plan: any): nil
+    local node = plan.node
+    need(p.derives[node] == plan and node.deriveRecipe == plan.recipe, "derived record changed")
+    local token = cst.firstToken(node)
+    for _, made in ipairs(steps(plan)) do
+        local call = made.call
+        need(
+            made.target.scope.name == MODULE
+            and call.kind == "call"
+            and call.calleeType == made.target.signature
+            and call.obj.token.definition == made.target.definition
+            and call.token == token,
+            "derived call differs from its checked record"
+        )
+        local site = p.callByNode[call]
+        need(
+            site
+            and p.calls[site.id + 1] == site
+            and site.derived == plan
+            and site.node == call
+            and site.owner == plan.owner
+            and site.definition == made.target.definition,
+            "derived call lacks its issued callsite"
+        )
+    end
+    local loader = plan.loader
+    need(
+        loader
+        and p.requires[loader.id + 1] == loader
+        and p.requireByNode[loader.node] == loader
+        and loader.derived == plan
+        and loader.owner == plan.owner
+        and loader.module == MODULE
+        and loader.target == plan.register.target.parent
+        and loader.qualified == true
+        and not loader.eager
+        and not loader.typeOnly
+        and loader.node.kind == "qualifiedLoad"
+        and loader.node.qualifiedModule == MODULE
+        and loader.node[1] == token,
+        "derived loader differs from its checked record"
+    )
+end
