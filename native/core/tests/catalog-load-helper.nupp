@@ -1,0 +1,14 @@
+module nupp.core.catalogloadhelper
+
+-- The program module catalog-load-source's text chunk requires by name: the
+-- running program's own copy, with its state.
+local calls: integer = 0
+
+export function double(n: integer): integer
+    calls = calls + 1
+    return n * 2
+end
+
+export function count(): integer
+    return calls
+end

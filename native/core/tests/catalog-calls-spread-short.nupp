@@ -1,0 +1,40 @@
+module nupp.core.catalogcallsspreadshort
+
+-- A call of a checked function spreading another call's results last takes as
+-- many arguments as those results run to, as Lua's does: past them its
+-- parameters are nil, and results past its parameters are dropped. Each check
+-- adds a bit.
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score + bit
+    end
+    bit = bit * 2
+end
+
+local function absent(c: integer?): boolean
+    return c == nil
+end
+
+local function pair(a: integer?, b: integer?): integer
+    return (a or 0) + (b or 0) * 1000
+end
+
+local function values(...: integer): ...integer
+    return ...
+end
+
+local function counted(a: integer?, ...: integer): integer
+    return select("#", ...) + (a ~= nil and 100 or 0)
+end
+
+-- string.byte past the end of its subject answers no values.
+check(absent(string.byte("a", 2)))
+check(pair(string.byte("ab", 1, 2)) == 97 + 98 * 1000)
+check(pair(values(1, 2, 3)) == 2001)
+check(absent(values()))
+check(counted(values()) == 0 and counted(values(5, 6, 7)) == 102)
+
+export const result = score

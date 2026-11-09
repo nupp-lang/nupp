@@ -11,12 +11,12 @@ local graphcalls = require("nupp.compiler.vm.graphcalls")
 local lexer = require("nupp.compiler.syntax.lexer")
 local taggedvalues = require("nupp.compiler.vm.taggedvalues")
 local taggedforeign = require("nupp.compiler.vm.taggedforeign")
+local managedcells = require("nupp.compiler.vm.managedcells")
 local catalog = taggedvalues.catalog
 local cleanupGraphs = taggedvalues.cleanupGraphs
 local landed = taggedvalues.landed
 local need = taggedvalues.need
 local pool = taggedvalues.pool
-local recordSlot = taggedvalues.recordSlot
 
 -- The core library call answering `library` with one result
 -- (corelibrary): its id and the argument counts admitted, self included.
@@ -467,8 +467,7 @@ export function construct(ctx: any, node: any, origin: any): any
         local default = origin.fieldDefaults and origin.fieldDefaults[field]
         if default then
             local value = defaultConstant(ctx, node, default.value)
-            local slot = need(recordSlot(origin, field), "record field is not declared")
-            local slotKey = ctx.emit(node, "K", {pool(ctx, "int64", tostring(slot))}, "tagged")
+            local slotKey = taggedvalues.slotKey(ctx, node, origin, field)
             ctx.emit(node, "SetIdx", {ctx.readHeld(instance), slotKey, value}, nil)
         end
     end
@@ -730,6 +729,17 @@ export function ownership(ctx: any, node: any, count: integer): {integer}?
         end
         local results = {}
         for index = 1, count do
+            results[index] = ctx.emit(node, "Nil", {}, "tagged")
+        end
+        return results
+    elseif operation == "manage" then
+        -- `own.manage(value)` answers the managed cell that now owns the value.
+        local cell = managedcells.make(ctx, node)
+        if cell == nil then
+            return nil
+        end
+        local results = {cell}
+        for index = 2, count do
             results[index] = ctx.emit(node, "Nil", {}, "tagged")
         end
         return results

@@ -50,6 +50,15 @@ elseif kind == "table" then
     error({})
 elseif kind == "nil" then
     error(nil)
+elseif kind == "module" then
+    -- A require of a name no module has, from a function a call reached:
+    -- the core's own raise, which no protected call takes either.
+    local function load(name: string): any
+        local loader: function(string): any = require
+        return loader("nupp.core." .. name)
+    end
+
+    load("absentmodule")
 end
 fails(1)
 print("never")

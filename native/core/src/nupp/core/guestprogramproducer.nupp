@@ -374,6 +374,10 @@ export function selectUnits(
     local packed = writer.encode(source.executable, source.scopes, output.dispatch, #output.words * 4, source.raises)
     local encoded = os.clock()
     local result = publish(source, output, packed, mode, caseName, source.metrics, {})
+    result.chunks = {}
+    for _, chunk in ipairs(source.chunks) do
+        result.chunks[#result.chunks + 1] = {name = chunk.name, hex = hex(chunk.bytes)}
+    end
     timings.shim = (timings.shim or 0) + linked - built
     timings.encode = (timings.encode or 0) + encoded - linked
     timings.publish = (timings.publish or 0) + os.clock() - encoded

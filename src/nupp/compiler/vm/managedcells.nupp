@@ -1,0 +1,76 @@
+--[[
+The managed cell `own.manage(value)` makes on the core: the factory call its
+plan issued, given the value and a table of its cleanups and policy.
+]]
+module nupp.compiler.vm.managedcells
+
+local managedcalls = require("nupp.compiler.vm.managedcalls")
+local corelibrary = require("nupp.compiler.vm.corelibrary")
+local values = require("nupp.compiler.vm.taggedvalues")
+local graphcalls = require("nupp.compiler.vm.graphcalls")
+local need = values.need
+
+local function constant(ctx: any, node: any, kind: string, value: any): integer
+    return ctx.emit(node, "K", {values.pool(ctx, kind, value)}, "tagged")
+end
+
+local function field(ctx: any, node: any, table: any, name: string, value: integer): nil
+    ctx.emit(node, "SetIdx", {ctx.readHeld(table), constant(ctx, node, "str", name), value}, nil)
+end
+
+-- One cleanup as the factory runs it: a function the core's registry holds
+-- under its key, read here; a method's name; a field's own cleanup.
+local cleanupItem: function(any, any, any): integer
+cleanupItem = function(ctx: any, node: any, cleanup: any): integer
+    local held = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
+    field(ctx, node, held, "kind", constant(ctx, node, "str", cleanup.kind))
+    if cleanup.kind == "method" then
+        field(ctx, node, held, "name", constant(ctx, node, "str", cleanup.name))
+    elseif cleanup.kind == "field" then
+        field(ctx, node, held, "field", constant(ctx, node, "str", cleanup.field))
+        field(ctx, node, held, "cleanup", cleanupItem(ctx, node, cleanup.cleanup))
+    elseif cleanup.kind == "function" then
+        local key = constant(ctx, node, "str", cleanup.key)
+        field(ctx, node, held, "fn", ctx.emit(node, "LibCall", {corelibrary.id("CLEANUP_GET"), key}, "tagged"))
+    end
+    local made = ctx.readHeld(held)
+    ctx.release(held)
+
+    return made
+end
+
+--- The managed cell of `own.manage` call `node`, or nil when the block ended.
+export function make(ctx: any, node: any): integer?
+    local p = values.catalog(ctx)
+    local plan = need(p.manages[node], "own.manage lacks its factory plan")
+    managedcalls.verify(p, plan)
+    need(plan.owner == ctx.fn.id, "own.manage belongs to another owner")
+    local args = node.args and node.args.exprs or {}
+    local value = args[1] and ctx.expression(args[1], "tagged")
+    if value == nil or ctx.block == nil then
+        return nil
+    end
+    local owned = ctx.hold(value)
+    -- The cell owns the value from here: its owner's cleanup does not run.
+    ctx.takeArgument(args[1])
+    local spec = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
+    field(ctx, node, spec, "policy", constant(ctx, node, "str", node.managedPolicy or ""))
+    local list = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
+    for index, cleanup in ipairs(node.managedCleanups) do
+        local item = cleanupItem(ctx, node, cleanup)
+        ctx.emit(node, "SetIdx", {ctx.readHeld(list), constant(ctx, node, "int64", tostring(index)), item}, nil)
+    end
+    field(ctx, node, spec, "cleanups", ctx.readHeld(list))
+    ctx.release(list)
+    local module = ctx.emit(node, "Require", {values.pool(ctx, "str", managedcalls.MODULE)}, "tagged")
+    local callee = ctx.emit(node, "GetIdx", {module, constant(ctx, node, "str", managedcalls.MEMBER)}, "tagged")
+    local contract = graphcalls.invokeContract(plan.target, plan.call)
+    local answer = ctx.invoke(node, callee, {ctx.readHeld(owned), ctx.readHeld(spec)}, contract, true)
+    ctx.release(spec)
+    ctx.release(owned)
+    if answer == nil or ctx.block == nil then
+        return nil
+    end
+
+    return values.landed(ctx, node, answer)
+end

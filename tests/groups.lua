@@ -272,7 +272,7 @@ vmspanwritetest vmstandardrootloadertest workerreporttest
     scopes[name] = "integration"
 end
 for name in (
-    "bootstrapresourcestest bootstrapseedtest targetmanifesttest vmaotpartstest vmclibuildtest vmclilaunchertest"
+    "bootstrapresourcestest bootstrapseedtest targetmanifesttest vmaotpartstest vmbuildstepstest vmclibuildtest vmclilaunchertest"
 ):gmatch("%S+") do
     scopes[name] = "delivery"
 end

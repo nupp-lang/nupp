@@ -1,0 +1,80 @@
+--[[
+Named arguments, as the core lowers them.
+
+The checker binds `f(a, c = 3)`'s named arguments to their parameters and
+records the positional list it binds to on the call's arguments
+(`loweredArgs`): each value in parameter order and `nil` in a slot the call
+skips. Main emits exactly that list. The core lowers the same list: the
+arguments' expressions are replaced by it once, before the call is described,
+and a skipped slot is a `nil` literal of its own. A plucked argument
+(`{x, y} = position`) is the field read main emits, `position.x`.
+]]
+module nupp.compiler.vm.namedarguments
+
+local cst = require("nupp.compiler.syntax.cst")
+local T = require("nupp.compiler.types")
+
+--- Replaces a call's named and plucked arguments with the positional list the checker
+--- bound them to, answering the `nil` literals it made for skipped slots, or
+--- nil when the call has no named arguments to replace.
+export function normalize(call: any): {any}?
+    local args = call.args
+    if type(args) ~= "table" or args.kind ~= "args" or args.loweredArgs == nil then
+        return nil
+    end
+    -- A tree described again (a library module two programs carry, or a
+    -- second profile) keeps its replaced list; its `nil` literals are made
+    -- once and answered again for each catalog to hold.
+    if args.coreNamed then
+        return args.coreSkipped
+    end
+    local named = false
+    for _, argument in ipairs(args.exprs or {}) do
+        if not cst.isToken(argument) and argument.kind == "namedArg" then
+            named = true
+        elseif not cst.isToken(argument) and argument.kind == "pluckArg" then
+            named = true
+        end
+    end
+    if not named then
+        return nil
+    end
+    local token = cst.firstToken(call)
+    local exprs, made = {}, {}
+    for index, lowered in ipairs(args.loweredArgs) do
+        if lowered.generatedKind == "expr" then
+            exprs[index] = lowered.expr
+        elseif lowered.generatedKind == "nil" then
+            local skipped = {kind = "nilExpr", token = token, inferredType = T.nil_, token}
+            exprs[index] = skipped
+            made[#made + 1] = skipped
+        elseif lowered.generatedKind == "field" and lowered.source and type(lowered.name) == "string" then
+            -- The field read main emits: the source path, then `.name`.
+            local source = lowered.source
+            local at: any = cst.firstToken(source) or token
+            local name = {
+                kind = "name",
+                text = lowered.name,
+                line = at.line,
+                col = at.col,
+                offset = at.offset,
+                trivia = {}
+            }
+            local pack = call.argumentPack
+            exprs[
+                index
+            ] = {
+                kind = "dotIndex",
+                obj = source,
+                name = name,
+                inferredType = pack and pack.head and pack.head[index] or nil,
+                name
+            }
+        else
+            return nil
+        end
+    end
+    args.sourceExprs, args.exprs, args.coreNamed, args.coreSkipped = args.exprs, exprs, true, made
+
+    return made
+end
