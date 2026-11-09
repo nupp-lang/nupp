@@ -244,6 +244,8 @@ local CASES = {
     -- Library calls given every result of a call last, through the value.
     {"libraryresults", 0x7FFF000000001FFF},
     {"processlines", 0x7FFF000000000FFF},
+    -- Files read after a popen child closes, its pipe's descriptor reused.
+    {"processreuse", 0x7FFF0000000003FF},
     {"processlayer", 0x7FFF000000FFFFFF},
     -- os.exit(3): the program ends there, publishing nothing (EXITS).
     {"processexit", 0},
@@ -476,6 +478,7 @@ local STRESS = {
     spreadlibrary = true,
     libraryresults = true,
     processlines = true,
+    processreuse = true,
     processlayer = true,
     processexit = true,
     gcweak = true,
@@ -503,6 +506,7 @@ local SETUP = {
     reactorfiles = "ulimit -n 64; ",
     processpopen = "ulimit -n 64; ",
     processlines = "ulimit -n 64; ",
+    processreuse = "ulimit -n 64; ",
     processlayer = "ulimit -n 64; ",
     benchworkloads = "export BENCH_SCALE=-9; ",
     -- The runner reads tests/run.lua and the suites from the checkout.

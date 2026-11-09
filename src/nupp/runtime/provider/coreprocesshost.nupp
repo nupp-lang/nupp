@@ -123,9 +123,11 @@ export function closeStream(input: any): (boolean, string?)
         return true, nil
     end
     input.closed = true
-    local code = filecalls.close(input.descriptor)
+    -- Through files, which stops the reactor watching the pipe first: a
+    -- file opened next takes its descriptor number.
+    local done = files.close(input.descriptor)
 
-    return true, code < 0 and files.reason(-code) or nil
+    return true, done.code ~= 0 and files.reason(done.code) or nil
 end
 
 export function reap(child: any): (boolean, string?)

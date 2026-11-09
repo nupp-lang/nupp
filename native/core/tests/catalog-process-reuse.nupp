@@ -1,0 +1,90 @@
+module nupp.core.catalogprocessreuse
+
+-- Files read after io.popen's child is closed: the descriptor its pipe held
+-- is free again, and the next file opened takes it. A read of that file is
+-- a read of a file, whatever the pipe left behind, with and without a
+-- scheduler. Each check is a bit of the score.
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+-- io.popen through its value: its handles are plain values here, as Lua's
+-- files are, rather than owners.
+local popen: any = io.popen
+
+-- A file every system has, read only.
+local PATH = "/etc/passwd"
+
+-- The whole of the file at PATH, read through a fresh handle.
+local function contents(): string?
+    local file = io.open(PATH, "rb")
+    if file == nil then
+        return nil
+    end
+    local text = file:read("a")
+    file:close()
+
+    return text
+end
+
+local TEXT = contents() or ""
+check(#TEXT > 0)
+
+-- A file read, a child's output read to its end and the child closed, then
+-- the file read again.
+do
+    local child = assert(popen("printf 'piped\\n'"))
+    check(child:read("a") == "piped\n")
+    check(child:close() == true)
+    check(contents() == TEXT)
+end
+
+-- A child closed unread: the file opened first takes the pipe's descriptor,
+-- and both files read.
+do
+    local child = assert(popen("printf 'unread\\n'"))
+    child:close()
+    local first = assert(io.open(PATH, "rb"))
+    local second = assert(io.open(PATH, "rb"))
+    check(second:read("a") == TEXT)
+    check(first:read("a") == TEXT)
+    first:close()
+    second:close()
+end
+
+-- Many children in turn, each followed by a file read.
+do
+    local same = true
+    for _ = 1, 20 do
+        local child = assert(popen("printf 'turn\\n'"))
+        same = same and child:read("a") == "turn\n"
+        child:close()
+        same = same and contents() == TEXT
+    end
+    check(same)
+end
+
+-- The same under a scheduler, where a file read goes to the pool.
+do
+    local seen: {any} = {}
+    do
+        local scope = coroutine.scope()
+        scope:spawn(function(): nil
+            local child = assert(popen("printf 'scheduled\\n'"))
+            seen[1] = child:read("a")
+            seen[2] = child:close()
+            seen[3] = contents()
+        end)
+    end
+    check(seen[1] == "scheduled\n")
+    check(seen[2] == true)
+    check(seen[3] == TEXT)
+end
+
+export const result = score
