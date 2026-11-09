@@ -1,0 +1,43 @@
+module nupp.core.catalogcompilerlexer
+
+-- The compiler's lexer alone on the core, over text as the checker hands it:
+-- a small chunk, a name at the very end of its input, and whole source files
+-- of the checkout, the prelude declarations and the lexer itself. Each check
+-- adds a bit.
+const lexer = require("nupp.compiler.syntax.lexer")
+const triviaarena = require("nupp.compiler.syntax.triviaarena")
+
+-- The core has no FFI: the lexer keeps its trivia in tables.
+triviaarena.installDefault(require("nupp.compiler.syntax.triviaarena.table"))
+
+local score = 0
+
+local function lexes(source: string): integer
+    local tokens, errors = lexer.lex(source, "=lexer")
+    return #errors == 0 and #tokens or -1
+end
+
+local function slurp(relative: string): string
+    local root = os.getenv("NUPP_COMPILER_ROOT") or "."
+    local file = assert(io.open(root .. "/" .. relative, "rb"))
+    local text = file:read("a") as string
+    file:close()
+
+    return text
+end
+
+if lexes("local total = 0\nreturn total\n") > 5 then
+    score = score + 1
+end
+-- A name that ends the input reads past its end.
+if lexes("return name") == 3 then
+    score = score + 2
+end
+if lexes(slurp("src/nupp/compiler/decls/lua.d.nupp")) > 1000 then
+    score = score + 4
+end
+if lexes(slurp("src/nupp/compiler/syntax/lexer.nupp")) > 1000 then
+    score = score + 8
+end
+
+export const result = score

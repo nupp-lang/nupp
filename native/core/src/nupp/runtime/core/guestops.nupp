@@ -356,16 +356,21 @@ export function prepare(
         native.loadPointer(c, native.fieldOffset<catalog.Catalog>("signatures")),
         native.index(signatureId * native.sizeOf<catalog.Signature>())
     )
+    -- A call spreading a call's results last (`f(g())`) gives as many
+    -- arguments as those results run to, as Lua's does: missing parameters are
+    -- nil and extra arguments are dropped, as for a dynamic call. The kinds
+    -- below still hold of every parameter.
+    local spread = native.load64(call, native.fieldOffset<catalog.Callsite>("spread")) == 1ULL
     -- A variadic callee's last parameter is its pack of extra arguments.
     local declared = native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount"))
     local variadic = native.load64(signature, native.fieldOffset<catalog.Signature>("variadic")) == 1ULL
     local fixed = declared
     if variadic then
         fixed = declared - 1ULL
-        if nargs < fixed and not dynamic then
+        if nargs < fixed and not dynamic and not spread then
             return 0ULL
         end
-    elseif declared ~= nargs and not dynamic then
+    elseif declared ~= nargs and not dynamic and not spread then
         return 0ULL
     end
     local kinds = native.load64(signature, native.fieldOffset<catalog.Signature>("parameters"))

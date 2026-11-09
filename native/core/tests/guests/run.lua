@@ -277,6 +277,10 @@ local CASES = {
     {"forwardfunctions", 0x7FFF000000000003},
     -- The compiler's lexer and parser on the core.
     {"compilerfront", 0x7FFF00000000000F},
+    -- The compiler's lexer alone on the core, over whole source files.
+    {"compilerlexer", 0x7FFF00000000000F},
+    -- A checked call spreading fewer or more results than it has parameters.
+    {"callsspreadshort", 0x7FFF00000000001F},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.

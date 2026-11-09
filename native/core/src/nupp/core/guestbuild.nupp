@@ -287,6 +287,8 @@ local CASES: {[string]: {
     recordsarray = {fixture = "catalog-records-array", version = 8},
     forwardfunctions = {fixture = "catalog-forward-functions", version = 8},
     compilerfront = {fixture = "catalog-compiler-front", version = 8, follow = true},
+    compilerlexer = {fixture = "catalog-compiler-lexer", version = 8, follow = true},
+    callsspreadshort = {fixture = "catalog-calls-spread-short", version = 8},
     loadsource = {fixture = "catalog-load-source", version = 8, modules = {"catalog-load-helper"}, follow = true},
     -- The packaged test runner (nupp.lua build.targets.testRunner): the
     -- delivery path runs it on the core.
