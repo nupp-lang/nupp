@@ -254,6 +254,37 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         return value
     end
 
+    -- The last of `stats` when the open block ends in it, a call that never
+    -- returns (`error(...)`); nil otherwise.
+    local function neverReturns(stats: any): any
+        local final = stats[#stats]
+        if block
+            and final
+            and final.kind == "callStmt"
+            and final.expr.inferredType
+            and final.expr.inferredType.tag == "never"
+        then
+            return final
+        end
+
+        return nil
+    end
+
+    -- Nothing follows `final`, a call that never returns, so no result is
+    -- made up for what would: the block jumps to one that loops on itself,
+    -- which nothing reaches. A profile without such ends returns nil there.
+    local function endUnreachably(final: any): nil
+        if profile.unreachableEnds then
+            local stuck = graph.block(g)
+            block.term = {kind = "jump", edges = {{target = stuck.id, args = {}}}, pos = position(final)}
+            stuck.term = {kind = "jump", edges = {{target = stuck.id, args = {}}}, pos = position(final)}
+        else
+            local none = ctx.emit(final, "Nil", {}, profile.kind(nil))
+            block.term = {kind = "return", value = none, edges = {}, pos = position(final)}
+        end
+        block = nil
+    end
+
     local branch: function(string?): any
     local resume: function(any): nil
     local jump: function(any, any): nil
@@ -433,16 +464,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             yields[#yields] = nil
             -- A body that ends in a call that never returns (`error(...)`)
             -- yields nothing: the block ends there, unreachably.
-            local final = node.body.stats[#node.body.stats]
-            if block
-                and final
-                and final.kind == "callStmt"
-                and final.expr.inferredType
-                and final.expr.inferredType.tag == "never"
-            then
-                local none = ctx.emit(final, "Nil", {}, profile.kind(nil))
-                block.term = {kind = "return", value = none, edges = {}, pos = position(final)}
-                block = nil
+            local final = neverReturns(node.body.stats)
+            if final then
+                endUnreachably(final)
             end
             need(block == nil, "a do expression ends without a yield")
             resume(done)
@@ -2093,6 +2117,11 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
     else
         need(body.body and body.body.stats, "statement-bodied function required")
         statements(body.body.stats)
+        -- A body that ends in a call that never returns does not fall through.
+        local final = neverReturns(body.body.stats)
+        if final and profile.unreachableEnds then
+            endUnreachably(final)
+        end
     end
     if block and cleanupEnabled then
         cleanupReturn(fn.node, true)

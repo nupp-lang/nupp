@@ -152,6 +152,7 @@ export const TEXT_STEPMUL: uint64 = 142ULL
 export const TEXT_STEPSIZE: uint64 = 143ULL
 export const TEXT_WRITABLE_STORAGE: uint64 = 145ULL
 export const TEXT_ENTROPY_FAILED: uint64 = 146ULL
+export const TEXT_CALL_CHAIN: uint64 = 147ULL
 
 -- Appends text `id` to `b`: nonzero when the builder refused it.
 export function append(h: heap.Heap*, borrows b: strings.Builder*, id: uint64): uint64
@@ -706,6 +707,11 @@ export function append(h: heap.Heap*, borrows b: strings.Builder*, id: uint64): 
             | strings.appendWord(h, b, 0x6f73206d6f646e61ULL, 8ULL)
             | strings.appendWord(h, b, 0x6961662065637275ULL, 8ULL)
             | strings.appendWord(h, b, 0x203a64656cULL, 5ULL)
+    elseif id == TEXT_CALL_CHAIN then
+        -- "'__call' chain too long"
+        return strings.appendWord(h, b, 0x276c6c61635f5f27ULL, 8ULL)
+            | strings.appendWord(h, b, 0x74206e6961686320ULL, 8ULL)
+            | strings.appendWord(h, b, 0x676e6f6c206f6fULL, 7ULL)
     end
 
     return 0ULL
