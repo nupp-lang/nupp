@@ -709,7 +709,9 @@ export function describe(modules: {any}, entryModule: string): any
                 or p.byDefinition[definition] ~= nil
                 or erasedDefinitions[definition]
                 or forwardNames[definition] ~= nil,
-                "checked declaration outside ordered syntax is unsupported"
+                "checked declaration outside ordered syntax is unsupported: " .. tostring(
+                    definition.name
+                ) .. " in " .. module.path .. ":" .. tostring(definition.token and definition.token.line)
             )
         end
     end

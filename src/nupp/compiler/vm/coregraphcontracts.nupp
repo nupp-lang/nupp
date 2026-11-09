@@ -863,7 +863,11 @@ export function normalize(compiled: any, version: integer?): (any, any)
         else
             need(
                 result == signature.result or v >= 8 and (result == "value" or signature.result == "value"),
-                "graph result differs from checked signature"
+                "graph result differs from checked signature: " .. tostring(
+                    g.name
+                ) .. " in " .. tostring(
+                    g.path
+                ) .. " answers " .. tostring(result) .. ", not " .. tostring(signature.result)
             )
         end
     end

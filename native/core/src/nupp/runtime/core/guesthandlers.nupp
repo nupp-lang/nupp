@@ -1833,7 +1833,7 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         if texts.overflow(ctx) == 1ULL then
             ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         else
-            ops.failure(ctx, ops.RESOURCE)
+            ops.fail(ctx, frame, pc, ops.RESOURCE)
         end
         return native.fail()
     end
@@ -2269,7 +2269,7 @@ export function CallV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         if texts.overflow(ctx) == 1ULL then
             ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         else
-            ops.failure(ctx, ops.RESOURCE)
+            ops.fail(ctx, frame, pc, ops.RESOURCE)
         end
         return native.fail()
     end
@@ -2609,7 +2609,7 @@ export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         if texts.overflow(ctx) == 1ULL then
             ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         else
-            ops.failure(ctx, ops.RESOURCE)
+            ops.fail(ctx, frame, pc, ops.RESOURCE)
         end
         return native.fail()
     end

@@ -991,7 +991,10 @@ local function programCatalog(caseName: string, fixture: string, version: intege
                 })
             end
             for _, diagnostic in ipairs(diagnostics) do
-                assert(diagnostic.severity ~= "error", diagnostic.msg)
+                assert(
+                    diagnostic.severity ~= "error",
+                    path .. ":" .. tostring(diagnostic.line) .. ": " .. diagnostic.msg
+                )
             end
             -- A plain Lua module is named by its path, as `require` finds it.
             local named: any = parsed

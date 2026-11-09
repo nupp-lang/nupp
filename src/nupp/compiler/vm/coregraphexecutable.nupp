@@ -276,7 +276,12 @@ local function derive(g: any, catalog: any): any
     local scratch = valueBase + slotCount
     local callBase = scratch + 1
     local highest = callBase + math.max(maximumArguments, 1)
-    need(highest < 250, "physical slots including call/copy scratch exceed capacity")
+    need(
+        highest < 250,
+        "physical slots including call/copy scratch exceed capacity: " .. tostring(
+            g.name
+        ) .. " in " .. tostring(g.path) .. " needs " .. tostring(highest)
+    )
     local instructions, positions, starts, patches, calls = {}, {}, {}, {}, {}
     local constants = copy(g.constants)
 
