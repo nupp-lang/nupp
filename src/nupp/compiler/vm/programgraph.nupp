@@ -356,6 +356,75 @@ local function chunkGlobal(p: any, node: any): boolean
     return definition == nil or p.byDefinition[definition] == nil
 end
 
+-- A function statement naming a local declared before it (`local f` then
+-- `function f()`) assigns that local, as in Lua; the checker declares the
+-- statement's name anew. This points the statement's name, and every name
+-- the checker resolved to it, at the local it assigns.
+local function assignForwardLocals(root: any, replaced: {[any]: any}): nil
+    local declared: {any} = {}
+    local statements: {any} = {}
+    local walk: function(any): nil
+    walk = function(node: any): nil
+        if type(node) ~= "table" then
+            return
+        end
+        if cst.isToken(node) then
+            local definition = node.definition
+            if definition and definition.token == node and definition.lexical and definition.scopeFrom then
+                declared[#declared + 1] = definition
+            end
+            return
+        end
+        local base = node.kind == "funcStmt" and node.name and node.name.base
+        if base and #node.name == 1 and base.definition and base.definition.token == base then
+            statements[#statements + 1] = base
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+    walk(root)
+    local changed = false
+    for _, base in ipairs(statements) do
+        local own = base.definition
+        local found: any = nil
+        for _, definition in ipairs(declared) do
+            if definition ~= own
+                and definition.name == own.name
+                and definition.token.offset < base.offset
+                and definition.scopeFrom <= base.offset
+                and base.offset <= definition.scopeTo
+                and (found == nil or definition.scopeFrom > found.scopeFrom)
+            then
+                found = definition
+            end
+        end
+        if found then
+            replaced[own], changed = found, true
+        end
+    end
+    if not changed then
+        return
+    end
+    local rebind: function(any): nil
+    rebind = function(node: any): nil
+        if type(node) ~= "table" then
+            return
+        end
+        if cst.isToken(node) then
+            local to = node.definition and replaced[node.definition]
+            if to then
+                node.definition = to
+            end
+            return
+        end
+        for _, child in ipairs(node) do
+            rebind(child)
+        end
+    end
+    rebind(root)
+end
+
 -- `options.chunk` describes a chunk Lua's `load` compiles (nupp.compiler.vm.corechunk):
 -- a name no declaration binds is a global, a field of the running program's
 -- `_G`, and every module it requires is the running program's, by name.
@@ -412,12 +481,15 @@ function program.describe(modules: {any}, entryModule: string, options: any?): a
         immutable = {}
     }
     local moduleNames, topLevel, sourcePaths = {}, {}, {}
+    -- Function statements' own names, which name the locals they assign.
+    local forwardNames: {[any]: any} = {}
     for _, input in ipairs(modules) do
         need(type(input.name) == "string" and type(input.path) == "string", "module source required")
         need(not moduleNames[input.name], "duplicate module " .. input.name)
         sourcePaths[input.path] = true
         local parsed = need(input.parsed, "checked parse required")
         need(parsed.root and parsed.symbols and parsed.moduleName == input.name, "checked module identity required")
+        assignForwardLocals(parsed.root, forwardNames)
         need(input.diagnostics ~= nil and #parsed.errors == 0, "checked diagnostics required")
         -- A chunk compiles whatever its checking found, as Lua's `load` does.
         for _, diagnostic in ipairs(input.diagnostics) do
@@ -644,7 +716,10 @@ function program.describe(modules: {any}, entryModule: string, options: any?): a
         discover(module.parsed.root, p.owners[module.chunk + 1])
         for _, definition in ipairs(module.parsed.symbols) do
             need(
-                not definition.lexical or p.byDefinition[definition] ~= nil or erasedDefinitions[definition],
+                not definition.lexical
+                or p.byDefinition[definition] ~= nil
+                or erasedDefinitions[definition]
+                or forwardNames[definition] ~= nil,
                 "checked declaration outside ordered syntax is unsupported"
             )
         end
