@@ -166,8 +166,6 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, Failure> {
         pool::pool_take as *const () as u64,
         pool::pool_finish as *const () as u64,
         pool::pool_cancel as *const () as u64,
-        platform::atomic_load64 as *const () as u64,
-        platform::atomic_cas64 as *const () as u64,
         entropy::secure_fill as *const () as u64,
         pool::pool_settle as *const () as u64,
         library[0],

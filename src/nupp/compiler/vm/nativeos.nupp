@@ -15,21 +15,27 @@ local definitions = {
     poolTake = {slot = 6, params = {}, result = "int64", cResult = "int64"},
     poolFinish = {slot = 7, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
     poolCancel = {slot = 8, params = {"uint64"}, result = "int64", cResult = "int64"},
-    atomicload64 = {slot = 9, params = {"voidptr", "int64"}, result = "uint64", cResult = "uint64"},
-    atomiccas64 = {slot = 10, params = {"voidptr", "int64", "uint64", "uint64"}, result = "uint64", cResult = "uint64"},
-    securefill = {slot = 11, params = {"voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    poolsettle = {slot = 12, params = {"uint64"}, result = "int64", cResult = "int64"},
-    dlopen = {slot = 13, params = {"voidptr", "int64"}, result = "voidptr", cResult = "voidptr"},
-    dlsym = {slot = 14, params = {"voidptr", "voidptr"}, result = "voidptr", cResult = "voidptr"},
-    dlclose = {slot = 15, params = {"voidptr"}, result = "int64", cResult = "int64", narrow = "int32"},
+    securefill = {slot = 9, params = {"voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    poolsettle = {slot = 10, params = {"uint64"}, result = "int64", cResult = "int64"},
+    dlopen = {slot = 11, params = {"voidptr", "int64"}, result = "voidptr", cResult = "voidptr"},
+    dlsym = {slot = 12, params = {"voidptr", "voidptr"}, result = "voidptr", cResult = "voidptr"},
+    dlclose = {slot = 13, params = {"voidptr"}, result = "int64", cResult = "int64", narrow = "int32"},
     -- Not a function: the table foreign calls cache their resolved symbols
     -- in, foreignSlots words the bridge zeroes.
-    foreignTable = {slot = 16, table = true},
+    foreignTable = {slot = 14, table = true},
     -- Not imports: routines the selector writes where they are called
     -- (s0.select). The generic foreign call takes a block of words and
     -- answers x0; the other answers the address of the table above.
     foreignCall = {routine = "call", params = {"voidptr"}, result = "uint64", cResult = "uint64"},
-    foreignCells = {routine = "cells", params = {}, result = "voidptr", cResult = "voidptr"}
+    foreignCells = {routine = "cells", params = {}, result = "voidptr", cResult = "voidptr"},
+    -- Sequentially consistent word access, as LDAR and CASAL do it.
+    atomicload64 = {routine = "atomicload", params = {"voidptr", "int64"}, result = "uint64", cResult = "uint64"},
+    atomiccas64 = {
+        routine = "atomiccas",
+        params = {"voidptr", "int64", "uint64", "uint64"},
+        result = "uint64",
+        cResult = "uint64"
+    }
 }
 
 local function need(value: any, message: string): any

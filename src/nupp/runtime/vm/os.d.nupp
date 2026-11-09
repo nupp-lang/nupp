@@ -112,7 +112,7 @@ local record Os
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     sleepNanos: function(nanos: uint64): uint64
 
-    -- The standalone core bridge supplies these raw atomics; the frozen VM
+    -- The selector writes these raw atomics in place (LDAR, CASAL); the frozen VM
     -- does not. SeqCst access requires a naturally aligned live word.
     -- The caller owns the
     -- mapped extent and retains it throughout the operation.
