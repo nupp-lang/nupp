@@ -26,14 +26,7 @@ const NEWLINE_BYTES: uint64 = 1ULL
 -- Writes the `length` bytes at `base` to standard error, as far as it
 -- takes them.
 local function write(base: uint64, length: uint64): nil
-    local done: uint64 = 0ULL
-    while done < length do
-        local written = hostfiles.writeFrom(STANDARD_ERROR, native.pointer(base + done), length - done)
-        if written <= 0 then
-            return
-        end
-        done = done + native.word(written)
-    end
+    local _ = hostfiles.writeAll(STANDARD_ERROR, native.pointer(base), length)
 end
 
 -- Writes a report the builder holds, `nupp: ` first, then a newline: from

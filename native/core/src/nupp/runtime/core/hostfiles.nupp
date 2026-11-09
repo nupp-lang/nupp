@@ -386,3 +386,44 @@ export function unlinkEntry(h: heap.Heap*, parent: uint64, path: uint64, directo
         return 0
     end
 end
+
+-- Standard input and output, for print and the units' replays, as the
+-- bridge answered them: -REFUSED when the system refused.
+const INPUT: uint64 = 0ULL
+const OUTPUT: uint64 = 1ULL
+const REFUSED: int64 = 1
+
+-- Writes all `bytes` bytes at `base` to `fd`: `bytes`, or -1 when the
+-- system refused or took none.
+export function writeAll(fd: uint64, base: voidptr, bytes: uint64): int64
+    if native.address(base) == 0ULL and bytes ~= 0ULL then
+        return 0 - REFUSED
+    end
+    local done: uint64 = 0ULL
+    while done < bytes do
+        local wrote = writeFrom(fd, native.offset(base, native.index(done)), bytes - done)
+        if wrote <= 0 then
+            return 0 - REFUSED
+        end
+        done = done + native.word(wrote)
+    end
+
+    return native.index(bytes)
+end
+
+-- Writes the `bytes` bytes at `base` to standard output, all of them: the
+-- count written.
+export function writeOutput(base: voidptr, bytes: uint64): int64
+    return writeAll(OUTPUT, base, bytes)
+end
+
+-- Reads up to `bytes` bytes of standard input into `base`: the count read,
+-- 0 at its end. A null `base` is the system's to refuse.
+export function readInput(base: voidptr, bytes: uint64): int64
+    local count = readInto(INPUT, base, bytes)
+    if count >= 0 then
+        return count
+    end
+
+    return 0 - REFUSED
+end

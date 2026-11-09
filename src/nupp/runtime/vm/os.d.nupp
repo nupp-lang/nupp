@@ -112,7 +112,7 @@ local record Os
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     sleepNanos: function(nanos: uint64): uint64
 
-    -- The standalone core bridge supplies these raw atomics; the frozen VM
+    -- The selector writes these raw atomics in place (LDAR, CASAL); the frozen VM
     -- does not. SeqCst access requires a naturally aligned live word.
     -- The caller owns the
     -- mapped extent and retains it throughout the operation.
@@ -149,10 +149,6 @@ local record Os
     --- dlclose of what dlopen answered: 0, or nonzero when it failed.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     dlclose: function(library: voidptr): int64
-
-    --- Where the calling thread's C `errno` lives, a 32-bit integer.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    errnoLocation: function(): voidptr
 
     --- Calls the C function a block of words names, as the platform's C
     --- calling convention passes its arguments: the function, then x0-x7,

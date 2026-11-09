@@ -34,6 +34,8 @@ const MISSING_SYMBOL: integer = 0xf0
 -- slot follows the prefix.
 const ROUTINE_CALL: string = "routine\0call"
 const ROUTINE_CELLS: string = "routine\0cells\0"
+const ROUTINE_ATOMIC_LOAD: string = "routine\0atomicload"
+const ROUTINE_ATOMIC_CAS: string = "routine\0atomiccas"
 -- The generic foreign call's block of words (nupp.runtime.core.guestforeign):
 -- the function, then x0-x7, d0-d7 and the first words of the C stack. The
 -- call answers x0 and leaves d0 at its word.
@@ -985,6 +987,19 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                     elseif name == ROUTINE_CALL then
                         assert(not tail and nargs == 1, "S0 select: a foreign call takes its block")
                         foreignCall()
+                    elseif name == ROUTINE_ATOMIC_LOAD then
+                        -- The sequentially consistent word at base (x0) plus
+                        -- offset (x1).
+                        assert(not tail and nargs == 2, "S0 select: an atomic load takes base and offset")
+                        emit(arm.add_reg(64, 16, 0, 1, 0))
+                        emit(arm.ldar(0, 16))
+                    elseif name == ROUTINE_ATOMIC_CAS then
+                        -- Base (x0) plus offset (x1): replaced by x3 when it
+                        -- is x2; x0 answers the word it was.
+                        assert(not tail and nargs == 4, "S0 select: a compare-and-swap takes four words")
+                        emit(arm.add_reg(64, 16, 0, 1, 0))
+                        emit(arm.mov_reg(64, 0, 2))
+                        emit(arm.casal(0, 3, 16))
                     elseif name:sub(1, #ROUTINE_CELLS) == ROUTINE_CELLS then
                         assert(not tail and nargs == 0, "S0 select: the symbol table takes nothing")
                         emit(arm.ldr(8, 0, 22, (tonumber(name:sub(#ROUTINE_CELLS + 1)) as integer) * 8))

@@ -13,7 +13,6 @@ const tables = require("nupp.runtime.core.coretables")
 const guestscope = require("nupp.runtime.core.guestscope")
 const texts = require("nupp.runtime.core.guesttexts")
 const ints = require("nupp.runtime.core.coreintegers")
-const os = require("nupp.runtime.vm.os")
 const librarycalls = require("nupp.runtime.core.librarycalls")
 const loadlibrary = require("nupp.runtime.core.loadlibrary")
 const librarylayouts = require("nupp.runtime.core.librarylayouts")
@@ -28,6 +27,8 @@ const guestmeta = require("nupp.runtime.core.guestmeta")
 const guestbuffer = require("nupp.runtime.core.guestbuffer")
 const loader = require("nupp.runtime.core.guestloader")
 const guestforeign = require("nupp.runtime.core.guestforeign")
+const files = require("nupp.runtime.core.hostfiles")
+const process = require("nupp.runtime.core.hostprocess")
 
 -- One step of `for k, v in pairs(t)` over a state table {t, key, k, v}:
 -- advances key and stores the pair at 3 and 4. Answers true or false.
@@ -73,7 +74,7 @@ local function getenv(ctx: voidptr, name: uint64): uint64
         if strings.reserve(h, builder, 256ULL) ~= 0ULL then
             error("not enough memory")
         end
-        local length = os.environment(
+        local length = process.environment(
             native.pointer(strings.bytes(s)),
             strings.length(s),
             native.pointer(strings.descriptor(builderLifetime).base),
@@ -88,7 +89,7 @@ local function getenv(ctx: voidptr, name: uint64): uint64
                 strings.release(builder)
                 error("not enough memory")
             end
-            length = os.environment(
+            length = process.environment(
                 native.pointer(strings.bytes(s)),
                 strings.length(s),
                 native.pointer(strings.descriptor(builderLifetime).base),
@@ -138,7 +139,7 @@ local function printValues(ctx: voidptr, packValue: uint64): uint64
             strings.release(builder)
             error("not enough memory")
         end
-        local written = os.writeOutput(
+        local written = files.writeOutput(
             native.pointer(strings.descriptor(builderLifetime).base),
             strings.descriptor(builderLifetime).len
         )

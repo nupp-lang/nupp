@@ -80,21 +80,28 @@ touch(base .. "-p")
 check(os.rename(path(base .. "-p"), path(base .. "-q")) == true and exists(base .. "-q"))
 check((os.remove as any)(path(base .. "-q")) == true and not exists(base .. "-q"))
 
--- Argument errors.
+-- Argument errors. These functions are Nupp's, so, as main reports them, a
+-- tail call to one would leave no line to name: each call keeps its frame. A
+-- recursive removal's path is checked in the file provider, where main names
+-- its own line.
 local flagOk, flagMessage = pcall(function(): any
-    return (os.remove as any)(base, "yes")
+    local removed = (os.remove as any)(base, "yes")
+    return removed
 end)
-check(not flagOk and ends(flagMessage, ":85: bad argument #2 to 'remove' (recursive must be a boolean)"))
+check(not flagOk and ends(flagMessage, ":88: bad argument #2 to 'remove' (recursive must be a boolean)"))
 local tableOk, tableMessage = pcall(function(): any
-    return (os.remove as any)({})
+    local removed = (os.remove as any)({})
+    return removed
 end)
-check(not tableOk and ends(tableMessage, ":89: bad argument #1 (path or string expected)"))
+check(not tableOk and ends(tableMessage, ":93: bad argument #1 (path or string expected)"))
 local renameOk, renameMessage = pcall(function(): any
-    return (os.rename as any)("x", {})
+    local renamed = (os.rename as any)("x", {})
+    return renamed
 end)
-check(not renameOk and ends(renameMessage, ":93: bad argument #2 (path or string expected)"))
+check(not renameOk and ends(renameMessage, ":98: bad argument #2 (path or string expected)"))
 local numberOk, numberMessage = pcall(function(): any
-    return (os.remove as any)(5, true)
+    local removed = (os.remove as any)(5, true)
+    return removed
 end)
-check(not numberOk and ends(numberMessage, ":97: nupp: os path must be a path or a string"))
+check(not numberOk and ends(numberMessage, ": nupp: os path must be a path or a string"))
 export const result = score

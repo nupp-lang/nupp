@@ -34,6 +34,9 @@ end
 cdef function time(borrows out: voidptr): int64
 cdef function clock(): uint64
 cdef function clock_gettime(id: int64, borrows out: voidptr): int32
+cdef function clock_gettime_nsec_np(id: int64): uint64
+cdef function nanosleep(borrows wanted: voidptr, borrows left: voidptr): int32
+cdef function getpid(): int32
 cdef function gmtime_r(borrows t: voidptr, borrows out: voidptr): voidptr
 cdef function localtime_r(borrows t: voidptr, borrows out: voidptr): voidptr
 cdef function mktime(borrows tm: voidptr): int64
@@ -42,8 +45,13 @@ cdef function calloc(count: uint64, size: uint64): voidptr
 cdef function memcpy(borrows target: voidptr, borrows source: voidptr, count: uint64): voidptr
 cdef function free(borrows block: voidptr)
 
--- macOS's wall clock.
+-- macOS's wall clock, and the monotonic one Rust's Instant reads.
 const CLOCK_REALTIME: int64 = 0
+const CLOCK_UPTIME_RAW: int64 = 8
+-- The nanoseconds of a second, and how far a seed's address is rotated.
+const NANOS: uint64 = 1000000000ULL
+const WORD_BITS: uint64 = 64ULL
+const ROTATION: uint64 = 32ULL
 
 -- The fields, the bytes of each word, and the `flags` bit asking for UTC.
 const FIELDS: int64 = 9
@@ -105,6 +113,45 @@ end
 -- computes it from C's clock: binary64 bits.
 export function cpuClock(): uint64
     return native.bits(native.unsignedFloat(clock()) / native.fromBits(MILLION))
+end
+
+-- A monotonic clock in nanoseconds, from an unspecified origin: the
+-- scheduler's and os.monotonic's.
+export function monotonicNanos(): uint64
+    return clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+end
+
+-- Sleeps `nanos` nanoseconds, the rest of them again after a signal: the
+-- scheduler's wait while only its timers can wake it. Answers 0.
+export function sleepNanos(nanos: uint64): uint64
+    @unsafe do
+        local wanted = calloc(2ULL, native.sizeOf<TimeSpec>())
+        if native.address(wanted) ~= 0ULL then
+            local left = native.offset(wanted, native.index(native.sizeOf<TimeSpec>()))
+            native.store64(wanted, native.fieldOffset<TimeSpec>("seconds"), nanos // NANOS)
+            native.store64(wanted, native.fieldOffset<TimeSpec>("nanos"), nanos % NANOS)
+            while c.widened(nanosleep(wanted, left)) ~= 0 and c.interrupted() do
+                local _ = memcpy(wanted, left, native.sizeOf<TimeSpec>())
+            end
+            free(wanted)
+        end
+
+        return 0ULL
+    end
+end
+
+-- A seed for the guest's random numbers: the wall clock in nanoseconds
+-- mixed with an address, rotated, and the process id, as the bridge mixed
+-- them.
+export function randomSeed(): uint64
+    @unsafe do
+        local block = calloc(1ULL, native.sizeOf<TimeSpec>())
+        local address = native.address(block)
+        free(block)
+        local mixed = (address << ROTATION) | (address >> (WORD_BITS - ROTATION))
+
+        return clock_gettime_nsec_np(CLOCK_REALTIME) ~ mixed ~ native.word(c.widened(getpid()))
+    end
 end
 
 -- Zeroed SCRATCH with `t` broken down into its `struct tm`, in UTC when

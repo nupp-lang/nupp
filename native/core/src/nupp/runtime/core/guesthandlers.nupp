@@ -1363,14 +1363,15 @@ export function LibCall(
         return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
     end
     -- assert(v [, message]): v when it holds; else the message, or
-    -- "assertion failed!" for none, raised without a position as Lua's is.
+    -- "assertion failed!" for none, raised as Lua 5.5's error raises it: a
+    -- string after the position of the line that called assert.
     if libraryId == librarycalls.ASSERT then
         if a == values.NIL or a == values.FALSE then
             local message = b
-            if count < 2ULL or b == values.NIL then
+            if count < 2ULL then
                 message = texts.textvalue(ctx, librarytexts.TEXT_ASSERTION)
             end
-            guestscope.raise(ctx, message, 0ULL)
+            guestscope.raise(ctx, message, 1ULL)
             ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
             return native.fail()
         end
