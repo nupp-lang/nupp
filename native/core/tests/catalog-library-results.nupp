@@ -96,6 +96,11 @@ do
     check(held() == 1)
     local opened, refusal = pcall(missing)
     check(not opened and refusal == "no token" and closed == 1)
+    -- error's level counts from the function that called it.
+    local positioned, where = pcall(function()
+        error(only("boom"))
+    end)
+    check(not positioned and string.find(tostring(where), ":101: boom", 1, true) ~= nil)
 end
 
 export const result = score

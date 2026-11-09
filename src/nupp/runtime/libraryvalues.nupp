@@ -35,7 +35,10 @@ export const functions: {[string]: any} = {
         return type(value)
     end,
     error = function(value: any, level: integer?): nil
-        error(value, level or 1)
+        -- A level counts from its caller, a frame further out than the
+        -- library function's own.
+        local at = level or 1
+        error(value, at > 0 and at + 1 or at)
     end,
     assert = function(...: any): ...any
         local count = select("#", ...)
