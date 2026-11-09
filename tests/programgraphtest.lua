@@ -997,6 +997,13 @@ function M.deprecationStillRequiresCheckedBuiltinIdentity()
     end
 end
 
+-- `@allow` needs only its checked definition, as `@unsafe` does: only
+-- `@deprecated` is held to the builtin flag.
+function M.allowRunsItsStatementAsWritten()
+    local input = checked("@allow(\"unused-binding\")\nlocal answer = 42\nreturn answer")
+    assert(program.compile(program.describe({input}, input.name), tagged.forVersion(8)))
+end
+
 function M.unsafeStillRequiresItsCheckedAnnotationDefinition()
     local input = checked('@unsafe do local answer = 42 end\nreturn 7')
     local pragma = input.parsed.root.blocks[1].stats[1]
