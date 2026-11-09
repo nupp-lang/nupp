@@ -2,7 +2,6 @@ module nupp.compiler.vm.corebytecode
 
 local opcodes = require("nupp.compiler.vm.opcodes")
 local schema = require("nupp.compiler.vm.coregraphschema")
-local bytecode = {}
 local owners = schema.limits().owners
 
 -- Final-core byte recipes. These are not the frozen VM's serialized image ABI.
@@ -100,7 +99,7 @@ for index, name in ipairs(opcodes.names()) do
 end
 -- Core-only opcodes take ids above the frozen VM's table. Each is final-core
 -- behavior with no frozen VM counterpart.
-local coreOnly: any = {
+local coreIds: any = {
     Destroy = 248,
     XPHandle = 249,
     MathFloor = 250,
@@ -110,14 +109,14 @@ local coreOnly: any = {
     RetV = 254,
     PCall = 255
 }
-for name, id in pairs(coreOnly) do
+for name, id in pairs(coreIds) do
     assert(id > #opcodes.names() and id < 256, "core-only opcode id")
     ids[name] = id
 end
 
 local function recipe(name: string): any
     local result = assert(recipes[name], "unsupported final-core encoding")
-    if coreOnly[name] then
+    if coreIds[name] then
         return result
     end
     local canonical = assert(opcodes.describe(name))
@@ -140,16 +139,16 @@ local function recipe(name: string): any
 end
 
 -- The core-only opcodes by name and id, for dispatch tables.
-function bytecode.coreOnly(): {[string]: integer}
+export function coreOnly(): {[string]: integer}
     local result = {}
-    for name, id in pairs(coreOnly) do
+    for name, id in pairs(coreIds) do
         result[name] = id
     end
 
     return result
 end
 
-function bytecode.describe(name: string): any
+export function describe(name: string): any
     local fields = {}
     for index, field in ipairs(recipe(name)) do
         fields[index] = {class = field[1], mode = field[2], offset = field[3], bytes = field[4]}
@@ -158,10 +157,10 @@ function bytecode.describe(name: string): any
     return {name = name, id = ids[name], bytes = 16, fields = fields}
 end
 
-function bytecode.encode(instruction: any): string
+export function encode(instruction: any): string
     local name = instruction[1]
     local fields = recipe(name)
-    if not coreOnly[name] then
+    if not coreIds[name] then
         opcodes.check(instruction)
     end
     local bytes = {}
@@ -242,8 +241,8 @@ end
 -- Bind byte recipes to the actual shared-profile handler reads, not just an
 -- assumed historical raw operand order. The closed builder supplies its exact
 -- checked graph; this structural check by itself grants no source authority.
-function bytecode.checkHandler(name: string, g: any): nil
-    local description = bytecode.describe(name)
+export function checkHandler(name: string, g: any): nil
+    local description = describe(name)
     local expected, seen, constants = {}, {}, {}
     for _, field in ipairs(description.fields) do
         expected[field.offset] = field.bytes
@@ -271,5 +270,3 @@ function bytecode.checkHandler(name: string, g: any): nil
         assert(seen[offset], "handler omits canonical field")
     end
 end
-
-export = bytecode

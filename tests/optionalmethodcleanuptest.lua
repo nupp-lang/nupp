@@ -53,7 +53,7 @@ end
 function M.checkedOptionalMethodsKeepCanonicalCleanupAndOwnerIdentity()
     local value = owner()
     local t = value.type
-    assert(cleanup.type(t) == t)
+    assert(cleanup.affine(t) == t)
     assert(cleanup.localOwner(value.stat, value.index) == value)
     assert(#t.cleanups == 1 and t.cleanups[1].kind == "method" and t.cleanups[1].id == "method:close")
     local original = value.type
@@ -76,7 +76,7 @@ function M.forgedMethodMetadataAndConditionalOwnersStayRefused()
     item.name = "different"
     refuses(
         function()
-            cleanup.type(t)
+            cleanup.affine(t)
         end,
         "canonical method cleanup"
     )
@@ -85,7 +85,7 @@ function M.forgedMethodMetadataAndConditionalOwnersStayRefused()
     t.inner = {tag = "union", members = inner.members, hasNil = false}
     refuses(
         function()
-            cleanup.type(t)
+            cleanup.affine(t)
         end,
         "conditional owner cleanup is unsupported"
     )

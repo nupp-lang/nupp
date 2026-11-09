@@ -76,7 +76,7 @@ local function recording(scope, failures)
         return ctx.emit(node, "IK", {value and "1" or "0"}, "boolean")
     end
     profile.cleanupPlan = function(ctx, site, t, chain)
-        assert(cleanup.type(t) == t and chain == t.cleanups)
+        assert(cleanup.affine(t) == t and chain == t.cleanups)
         local release = scope.functions.release
         local token = release.node.name
         local annotation = scope.functions.acquire.body.rets[1]

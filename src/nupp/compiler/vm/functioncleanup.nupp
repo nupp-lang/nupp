@@ -1,7 +1,5 @@
 module nupp.compiler.vm.functioncleanup
 
-local cleanup = {}
-
 local function need(ok: any, message: string): any
     assert(ok, "function cleanup: " .. message)
     return ok
@@ -9,7 +7,7 @@ end
 
 -- These are checked syntax queries, not cleanup-call authority. A profile must
 -- bind each retained cleanup to its actual checked declaration and signature.
-function cleanup.type(t: any): any
+export function affine(t: any): any
     if not t or t.tag ~= "affine" then
         return nil
     end
@@ -37,7 +35,7 @@ function cleanup.type(t: any): any
     return t
 end
 
-function cleanup.localOwner(stat: any, index: integer): any
+export function localOwner(stat: any, index: integer): any
     local owner = stat.automaticOwners and stat.automaticOwners[index]
     if not owner then
         return nil
@@ -55,22 +53,20 @@ function cleanup.localOwner(stat: any, index: integer): any
         "local owner does not match its checked binding"
     )
     need(not owner.correlated and not owner.guards, "conditional local owner cleanup is unsupported")
-    local t = need(cleanup.type(owner.type), "local owner requires an affine type")
+    local t = need(affine(owner.type), "local owner requires an affine type")
     need(owner.cleanups == t.cleanups, "local owner cleanup chain changed")
 
     return owner
 end
 
-function cleanup.move(move: any): any
+export function move(move: any): any
     need(move and not move.field and not move.owner, "partial-field ownership transfer is unsupported")
     return move
 end
 
-function cleanup.source(node: any): any
+export function source(node: any): any
     while node and (node.kind == "paren" or node.kind == "castExpr") do
         node = node.expr
     end
     return node
 end
-
-export = cleanup

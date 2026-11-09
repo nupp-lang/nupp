@@ -81,7 +81,7 @@ export function profile(base: any): any
     end
     profile.cleanupPlan = function(ctx: any, node: any, t: any, chain: any, owner: any): any
         scoped(ctx)
-        need(cleanup.type(t) == t and chain == t.cleanups, "checked affine cleanup chain required")
+        need(cleanup.affine(t) == t and chain == t.cleanups, "checked affine cleanup chain required")
         for _, item in ipairs(chain) do
             need(item.kind == "function" and item.functionType, "only checked free-function cleanup is supported")
         end

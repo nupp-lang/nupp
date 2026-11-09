@@ -13,7 +13,7 @@ local function freshOwner(node: any): boolean
         node.kind == "call" and not construction.bare(node)
         or node.kind == "funcExpr" and #(node.body.takenCaptures or {}) > 0
     )
-        and cleanup.type(node.inferredType) ~= nil
+        and cleanup.affine(node.inferredType) ~= nil
 end
 
 local function need(ok: any, message: string): any
@@ -235,7 +235,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
     local function writeBinding(node: any, key: any, value: integer, reinitialized: boolean?): nil
         if cleanupEnabled then
             need(
-                reinitialized or not cleanup.type(key.type),
+                reinitialized or not cleanup.affine(key.type),
                 "assignment to an owning local requires reinitialization support"
             )
         end
@@ -554,7 +554,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             if graph.coreLibraryCall(node) == "assert" and given and freshOwner(given) then
                 transfer(given, given.statementOwner or given)
             end
-            registerCleanup(node, node.statementOwner or node, cleanup.type(node.inferredType), value)
+            registerCleanup(node, node.statementOwner or node, cleanup.affine(node.inferredType), value)
         end
         -- The value written into a moved (or never filled) owner takes over
         -- that owner's cleanup from here: a later failure destroys it.
@@ -870,7 +870,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         -- is destroyed here by the cleanups its checked type names, and
         -- whatever obligation it carried passes to this drop.
         need(not node.ownerCleanupGuards, "a drop of a partly moved owner is unsupported")
-        local t = need(cleanup.type(node.ownerType), "drop requires an affine type")
+        local t = need(cleanup.affine(node.ownerType), "drop requires an affine type")
         local value = expression(node.args.exprs[1], nil)
         if not block then
             return true
