@@ -1,0 +1,34 @@
+module nupp.core.catalogloadchunk
+
+-- The binary chunk catalog-load-binary loads, compiled as a program of its
+-- own: its entry answers what a text chunk's function would be, called with
+-- the program's values. It holds string and wide integer constants, calls
+-- its own functions statically, makes closures and raises where it stands.
+local greeting = "hello from a chunk"
+local wide: integer = 0x123456789ABCD
+
+local function twice(n: integer): integer
+    return n * 2
+end
+
+export const result = function(callback: any, n: integer): any
+    local counter: integer = 0
+
+    local function bump(): integer
+        counter = counter + 1
+        return counter
+    end
+
+    local total = twice(n) + bump() + bump()
+
+    return {
+        text = greeting .. "!",
+        wide = wide,
+        total = total,
+        called = callback(n),
+        bump = bump,
+        fail = function(): nil
+            error("chunk failure")
+        end
+    }
+end

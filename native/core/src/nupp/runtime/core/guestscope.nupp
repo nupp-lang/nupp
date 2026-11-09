@@ -609,13 +609,11 @@ export function release(ctx: voidptr): nil
     native.store64(native.loadPointer(ctx, context.SERVICE_SCOPE), native.fieldOffset<Services>("scratch"), 0ULL)
 end
 
--- The interned string a v8 string constant word names in the catalog data;
--- answers its header address.
-export function stringConstant(ctx: voidptr, word: uint64): uint64
+-- The interned string a v8 string constant word of function `owner` names
+-- in the catalog data; answers its header address.
+export function stringConstant(ctx: voidptr, owner: uint64, word: uint64): uint64
     @unsafe do
-        local c = native.loadPointer(ctx, context.CATALOG)
-        local data = native.load64(c, native.fieldOffset<catalog.Catalog>("data"))
-        local at = data + (word & values.PAYLOAD)
+        local at = catalog.base(native.loadPointer(ctx, context.CATALOG), owner) + (word & values.PAYLOAD)
         return strings.make(
             native.pointer(guestHeap(ctx)) as heap.Heap*,
             at + 8ULL,
@@ -636,12 +634,11 @@ end
 
 -- The canonical value of int64 `bits` on the entry's heap: an immediate, or
 -- the interned box.
--- The boxed integer a v8 wide integer constant word names in the catalog
--- data.
-export function integerConstant(ctx: voidptr, word: uint64): uint64
+-- The boxed integer a v8 wide integer constant word of function `owner`
+-- names in the catalog data.
+export function integerConstant(ctx: voidptr, owner: uint64, word: uint64): uint64
     @unsafe do
-        local c = native.loadPointer(ctx, context.CATALOG)
-        local data = native.load64(c, native.fieldOffset<catalog.Catalog>("data"))
+        local data = catalog.base(native.loadPointer(ctx, context.CATALOG), owner)
         local h = native.pointer(guestHeap(ctx)) as heap.Heap*
         local value = ints.make(h, native.load64(native.pointer(data + (word & values.PAYLOAD)), 0))
         tables.drain(h)

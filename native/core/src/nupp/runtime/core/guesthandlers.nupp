@@ -22,9 +22,11 @@ const basics = require("nupp.runtime.core.guestbasics")
 const numbers = require("nupp.runtime.core.guestnumbers")
 const corestorage = require("nupp.runtime.core.corestorage")
 const modules = require("nupp.runtime.core.modules")
+const loader = require("nupp.runtime.core.guestloader")
 const texts = require("nupp.runtime.core.guesttexts")
 const librarycalls = require("nupp.runtime.core.librarycalls")
 const storagelibrary = require("nupp.runtime.core.storagelibrary")
+const loadlibrary = require("nupp.runtime.core.loadlibrary")
 const librarylayouts = require("nupp.runtime.core.librarylayouts")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 const guesttables = require("nupp.runtime.core.guesttables")
@@ -59,11 +61,12 @@ export function K(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ct
         return native.fail()
     end
     local value = ops.constant(ctx, frame, pc, native.word(index))
+    local owner = native.load64(frame, native.fieldOffset<frames.Frame>("functionId"))
     if value & 0xffff000000000000ULL == catalog.STRING_CONSTANT then
-        value = values.TAG_OBJ | guestscope.stringConstant(ctx, value)
+        value = values.TAG_OBJ | guestscope.stringConstant(ctx, owner, value)
     end
     if value & 0xffff000000000000ULL == catalog.INTEGER_CONSTANT then
-        value = guestscope.integerConstant(ctx, value)
+        value = guestscope.integerConstant(ctx, owner, value)
     end
     if value == 0ULL then
         if ops.constantPresent(ctx, frame, pc, native.word(index)) == 0ULL then
@@ -1463,17 +1466,27 @@ export function LibCall(
         return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
     end
     -- `require` of a computed name: the module the image holds by it, as a
-    -- static require of it answers or starts it.
-    if libraryId == librarycalls.MODULE_REQUIRE then
-        guestscope.nameLibrary(ctx, librarytexts.NAME_REQUIRE)
-        if strings.header(a) == 0ULL then
-            texts.argumentError(ctx, 1ULL, librarytexts.TEXT_STRING, 0ULL, a)
+    -- static require of it answers or starts it. A loaded chunk's entry
+    -- (`load`) starts as a module does, by its id.
+    if libraryId == librarycalls.MODULE_REQUIRE or libraryId == loadlibrary.MODULE_START then
+        local target: uint64 = 0ULL
+        if libraryId == loadlibrary.MODULE_START then
+            if not wide.isInteger(a) or not loader.installed(ctx, wide.bitsOf(a)) then
+                ops.fail(ctx, frame, pc, ops.INVALID)
+                return native.fail()
+            end
+            target = wide.bitsOf(a)
+        else
+            guestscope.nameLibrary(ctx, librarytexts.NAME_REQUIRE)
+            if strings.header(a) == 0ULL then
+                texts.argumentError(ctx, 1ULL, librarytexts.TEXT_STRING, 0ULL, a)
+            end
+            local found = modules.named(ctx, a)
+            if found == 0ULL then
+                texts.moduleNotFound(ctx, a)
+            end
+            target = found - 1ULL
         end
-        local found = modules.named(ctx, a)
-        if found == 0ULL then
-            texts.moduleNotFound(ctx, a)
-        end
-        local target = found - 1ULL
         local loaded = modules.cached(ctx, target)
         guestscope.libraryReturned(ctx)
         if loaded == 0ULL then
@@ -1612,7 +1625,10 @@ export function LibCall(
         end
         slots.writeValue(frame, regs, dst, basics.rawnext(ctx, a, after, libraryId == librarycalls.NEXT_ALL))
     elseif libraryId == librarycalls.MODULE_NAMES then
-        modules.register(ctx, a)
+        -- A loaded chunk requires by name among the program's modules.
+        if not loader.installed(ctx, native.load64(frame, native.fieldOffset<frames.Frame>("functionId"))) then
+            modules.register(ctx, a)
+        end
         slots.writeValue(frame, regs, dst, values.NIL)
     elseif libraryId == librarycalls.MODULE_PUBLISH then
         modules.store(ctx, native.load64(frame, native.fieldOffset<frames.Frame>("functionId")), a)
