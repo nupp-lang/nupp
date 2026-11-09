@@ -14,6 +14,7 @@ const guesterrors = require("nupp.runtime.core.guesterrors")
 const guestmeta = require("nupp.runtime.core.guestmeta")
 const texts = require("nupp.runtime.core.guesttexts")
 const librarytexts = require("nupp.runtime.core.librarytexts")
+const report = require("nupp.runtime.core.guestreport")
 
 export const INVALID: uint64 = 4ULL
 export const RESOURCE: uint64 = 5ULL
@@ -52,6 +53,11 @@ export function fail(ctx: voidptr, frame: voidptr, pc: voidptr, status: uint64):
             index = (address - code) // 16ULL
         end
         native.store64(ctx, context.ERROR_PC, index)
+        -- A limit the core reached ends the program with no Lua error to
+        -- report it, so it is named where it was reached.
+        if status == RESOURCE then
+            report.resource(ctx, native.load64(frame, native.fieldOffset<frames.Frame>("functionId")), index)
+        end
     end
 end
 
@@ -253,7 +259,12 @@ local function compatibleSignatures(c: voidptr, site: uint64, callee: uint64): u
     local a = native.offset(records, native.index(site * native.sizeOf<catalog.Signature>()))
     local b = native.offset(records, native.index(callee * native.sizeOf<catalog.Signature>()))
     local wanted = native.load64(a, native.fieldOffset<catalog.Signature>("resultKind"))
-    if wanted ~= catalog.VALUE and wanted ~= native.load64(b, native.fieldOffset<catalog.Signature>("resultKind")) then
+    local given = native.load64(b, native.fieldOffset<catalog.Signature>("resultKind"))
+    -- Values are tagged, so a result is whatever the callee gives: a site
+    -- typed for nil takes any (a function of no annotated results passed as
+    -- `function(T): nil`), and a callee that gives any value is checked where
+    -- its result is used.
+    if wanted ~= catalog.VALUE and wanted ~= catalog.NIL and given ~= catalog.VALUE and wanted ~= given then
         return 0ULL
     end
 
@@ -623,7 +634,7 @@ export function metaPrepare(
         child = frames.prepareFixed(s, frame, info, callee, base, taken, resultSlot, plan)
     end
     if child == 0ULL then
-        failure(ctx, RESOURCE)
+        fail(ctx, frame, pc, RESOURCE)
         return 0ULL
     end
     if variadic and packVarargs(ctx, frame, native.pointer(child), base, nargs) ~= 1ULL then

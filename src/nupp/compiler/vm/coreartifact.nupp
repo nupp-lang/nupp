@@ -1,0 +1,593 @@
+module nupp.compiler.vm.coreartifact
+
+-- The core's executable artifact and binary chunk writer. It needs nothing
+-- but the issued executable, so a compiler running on the core writes the
+-- chunks `load` installs (nupp.runtime.luaload). The core's catalog layouts
+-- and value words it writes by are named here; the guest builder holds them
+-- to the runtime's checked scopes (nupp.core.guestartifact).
+local executable = require("nupp.compiler.vm.coregraphexecutable")
+local schema = require("nupp.compiler.vm.coregraphschema")
+local bytecode = require("nupp.compiler.vm.corebytecode")
+-- The constant-word tag of a v8 string constant; the payload is its offset.
+local STRING_CONSTANT = 0x7ffe000000000000
+-- A wide integer constant (past the 48-bit immediate) over its eight bytes'
+-- offset; a negative NaN, which no checked float constant can be.
+local INTEGER_CONSTANT = 0xfffe000000000000
+-- An integer immediate: this tag over the low 48 bits.
+const INTEGER_TAG = 0x7fff000000000000
+const IMMEDIATE_BITS = 0xFFFFFFFFFFFF
+const WORD_BYTES = 8
+
+-- The most bytes an artifact may hold, which the bridge's regions admit.
+local ARTIFACT_BOUND: integer = schema.artifactBytes()
+local ZERO_WORD = string.rep("\0", 8)
+-- A dispatch table's handlers, and an instruction's bytes.
+const HANDLERS = 256
+const INSTRUCTION_BYTES = 16
+-- Zero padding is joined from runs of this many bytes at most.
+local ZERO_RUN = string.rep("\0", 65536)
+
+-- The words the core reads an artifact and a chunk by: its value words
+-- (nupp.runtime.vm.values), its diagnostic format and flags
+-- (nupp.runtime.core.guestcatalog) and its chunk header and relocations
+-- (nupp.runtime.core.guestloader).
+export const constants = {
+    TRUE = 0x7ffb000000000000,
+    FALSE = 0x7ffa000000000000,
+    NIL = 0x7ff9000000000000,
+    DIAGNOSTIC_FORMAT = 4,
+    CALL_METHOD = 1,
+    CALL_TAIL = 2,
+    DIAGNOSTIC_NAME_LIMIT = 65536,
+    MAGIC = 0x0001007070754E1B,
+    RELOCATE_FUNCTION = 1,
+    RELOCATE_MODULE = 2,
+    RELOCATION_SHIFT = 48
+}
+
+-- The fields of each catalog record the artifact holds, in order; every
+-- field is one word (nupp.runtime.core.guestcatalog).
+export const fields = {
+    DescriptorV1 = {
+        "version",
+        "bytes",
+        "ownerCount",
+        "entry",
+        "records",
+        "signatures",
+        "signatureCount",
+        "contracts",
+        "contractCount",
+        "targets",
+        "instanceBound",
+        "frameDepth",
+        "dispatch",
+        "handlerCount"
+    },
+    Descriptor = {
+        "version",
+        "bytes",
+        "ownerCount",
+        "entry",
+        "records",
+        "signatures",
+        "signatureCount",
+        "contracts",
+        "contractCount",
+        "targets",
+        "instanceBound",
+        "frameDepth",
+        "dispatch",
+        "handlerCount",
+        "moduleCount",
+        "modules"
+    },
+    DescriptorV3 = {
+        "version",
+        "bytes",
+        "ownerCount",
+        "entry",
+        "records",
+        "signatures",
+        "signatureCount",
+        "contracts",
+        "contractCount",
+        "targets",
+        "instanceBound",
+        "frameDepth",
+        "dispatch",
+        "handlerCount",
+        "moduleCount",
+        "modules",
+        "format",
+        "diagnostics",
+        "diagnosticCount"
+    },
+    CallDiagnostic = {"method", "name", "forward"},
+    Function = {
+        "id",
+        "parentPlusOne",
+        "kind",
+        "signature",
+        "effect",
+        "code",
+        "instructionCount",
+        "valueCount",
+        "constants",
+        "constantCount",
+        "firstCall",
+        "callCount",
+        "lines",
+        "chunk",
+        "lands"
+    },
+    Signature = {"parameterCount", "resultKind", "parameters", "variadic"},
+    Callsite = {
+        "id",
+        "owner",
+        "pc",
+        "resumePC",
+        "target",
+        "signature",
+        "argumentCount",
+        "argumentBase",
+        "wanted",
+        "resultSlot",
+        "spread"
+    }
+} as {[string]: {string}}
+
+-- Each record's layout from its fields: a word each, in order.
+local function layoutOf(names: {string}): any
+    local layout: any = {size = #names * WORD_BYTES, offsets = {}, fields = {}}
+    for index, name in ipairs(names) do
+        layout.offsets[name] = (index - 1) * WORD_BYTES
+        layout.fields[index] = {name = name, offset = (index - 1) * WORD_BYTES, size = WORD_BYTES}
+    end
+
+    return layout
+end
+
+local recordLayouts: {[string]: any} = {}
+for name, names in pairs(fields) do
+    recordLayouts[name] = layoutOf(names)
+end
+
+-- The int64 eight little-endian bytes spell.
+local function wordOf(bytes: string): int64
+    local value: int64 = 0
+    for index = WORD_BYTES, 1, -1 do
+        value = (value << 8) | bytes:byte(index)
+    end
+
+    return value
+end
+
+-- A word's eight little-endian bytes.
+local function wordbytes(value: int64): string
+    return string.char(
+        value & 255,
+        (value >> 8) & 255,
+        (value >> 16) & 255,
+        (value >> 24) & 255,
+        (value >> 32) & 255,
+        (value >> 40) & 255,
+        (value >> 48) & 255,
+        (value >> 56) & 255
+    )
+end
+
+-- The `bytes` an artifact holds: each piece at its offset, zeros between and
+-- after. Pieces never overlap; the parts joined are the pieces and bounded
+-- zero runs, so no part is a byte of its own.
+local function assemble(pieces: {[integer]: string}, bytes: integer): string
+    local offsets: {integer} = {}
+    for at in pairs(pieces) do
+        offsets[#offsets + 1] = at
+    end
+    table.sort(offsets)
+    local parts: {string} = {}
+    local cursor: integer = 0
+
+    local function zeros(count: integer): nil
+        for _ = 1, count // #ZERO_RUN do
+            parts[#parts + 1] = ZERO_RUN
+        end
+        local rest = count % #ZERO_RUN
+        if rest > 0 then
+            parts[#parts + 1] = ZERO_RUN:sub(1, rest)
+        end
+    end
+
+    for _, at in ipairs(offsets) do
+        assert(at >= cursor, "overlapping guest artifact pieces")
+        zeros(at - cursor)
+        local piece = pieces[at] as string
+        parts[#parts + 1] = piece
+        cursor = at + #piece
+    end
+    assert(cursor <= bytes, "guest artifact piece past its end")
+    zeros(bytes - cursor)
+
+    return table.concat(parts)
+end
+
+-- True when an int64 constant's little-endian bytes do not fit the signed
+-- 48-bit immediate.
+local function wide(bytes: string): boolean
+    local sign, low, high = bytes:byte(6, 8)
+    return not (low == 0 and high == 0 and sign < 0x80 or low == 0xff and high == 0xff and sign >= 0x80)
+end
+
+-- This writes a trusted checked-source artifact, not a native loader token.
+-- `raises` lists the runtime's literal raises ({id, site, literal}), whose
+-- texts a v8 program carries for the errors they raise.
+export function encode(code: any, dispatch: {integer}, codeBytes: integer, raises: {any}?): any
+    executable.validate(code)
+    assert(#dispatch >= 1 and #dispatch <= 256, "guest dispatch extent")
+    local layouts = recordLayouts
+    local records, signatures, calls = code.semantic.catalog, code.semantic.signatures, {}
+    for _, fn in ipairs(code.functions) do
+        for _, call in ipairs(fn.calls) do
+            calls[#calls + 1] = {owner = fn.owner, call = call}
+        end
+    end
+    local version = code.semantic.schema.version >= 3 and code.semantic.schema.version
+        or (#code.initializers == 1 and 1 or 2)
+    local descriptorName = version == 1 and "DescriptorV1" or "Descriptor"
+    if code.diagnostics then
+        assert(version == 8 and #code.diagnostics == #calls, "complete checked call diagnostics required")
+        descriptorName = "DescriptorV3"
+    end
+    local cursor = layouts[descriptorName].size
+    local recordOffset = cursor
+    cursor += #records * layouts.Function.size
+    local signatureOffset = cursor
+    cursor += #signatures * layouts.Signature.size
+    local callOffset = cursor
+    cursor += #calls * layouts.Callsite.size
+    local diagnosticOffset = cursor
+    if code.diagnostics then
+        cursor += #calls * layouts.CallDiagnostic.size
+    end
+    local targetOffset = cursor
+    cursor += #records * 8
+    local moduleOffset = cursor
+    if version ~= 1 then
+        cursor += #code.initializers * 8
+    end
+    local parameterOffsets, constantOffsets, codeOffsets = {}, {}, {}
+    for index, signature in ipairs(signatures) do
+        parameterOffsets[index] = cursor
+        cursor += #signature.params * 8
+    end
+    for index, fn in ipairs(code.functions) do
+        constantOffsets[index] = cursor
+        cursor += #fn.constants * 8
+        codeOffsets[index] = cursor
+        cursor += #fn.code
+    end
+    local dispatchOffset = cursor
+    cursor += #dispatch * 8
+    -- From v8 the runtime's raise texts come first after the dispatch table:
+    -- a count, then the owner id, site and string payload offset of each.
+    local raiseList: {any} = raises or {}
+    local raiseOffset = cursor
+    if version >= 8 then
+        cursor += 8 + #raiseList * 24
+    end
+    -- From v8 string constants are payloads after the dispatch table: a length
+    -- word, the bytes and a NUL. Their constant word is STRING_CONSTANT over
+    -- the payload's offset.
+    -- Integers past the 48-bit immediate follow as their eight int64 bytes,
+    -- named by INTEGER_CONSTANT over the offset.
+    local stringOffsets: {[string]: integer} = {}
+    local stringOrder: {string} = {}
+    local integerOffsets: {[string]: integer} = {}
+    local integerOrder: {string} = {}
+    if version >= 8 then
+        for _, fn in ipairs(code.functions) do
+            for _, constant in ipairs(fn.constants) do
+                if constant.kind == "str" and stringOffsets[constant.value] == nil then
+                    stringOffsets[constant.value] = cursor
+                    stringOrder[#stringOrder + 1] = constant.value
+                    cursor += 8 + ((#constant.value + 8) // 8) * 8
+                elseif constant.kind == "int64" and wide(constant.value) and integerOffsets[constant.value] == nil then
+                    integerOffsets[constant.value] = cursor
+                    integerOrder[#integerOrder + 1] = constant.value
+                    cursor += 8
+                end
+            end
+        end
+    end
+    if version >= 8 then
+        for _, raising in ipairs(raiseList) do
+            local text = raising.literal as string
+            if stringOffsets[text] == nil then
+                stringOffsets[text] = cursor
+                stringOrder[#stringOrder + 1] = text
+                cursor += 8 + ((#text + 8) // 8) * 8
+            end
+        end
+    end
+    -- From v8 each function's source lines follow, a word per instruction,
+    -- and its chunk name joins the string payloads.
+    local lineOffsets: {integer} = {}
+    if version >= 8 then
+        for index, fn in ipairs(code.functions) do
+            local chunk = fn.chunk
+            if type(chunk) == "string" and stringOffsets[chunk] == nil then
+                stringOffsets[chunk] = cursor
+                stringOrder[#stringOrder + 1] = chunk
+                cursor += 8 + ((#chunk + 8) // 8) * 8
+            end
+            if fn.lines and #fn.lines == fn.instructionCount then
+                lineOffsets[index] = cursor
+                cursor += fn.instructionCount * 8
+            end
+        end
+    end
+    if code.diagnostics then
+        local nameLimit = constants.DIAGNOSTIC_NAME_LIMIT
+        for _, diagnostic in ipairs(code.diagnostics) do
+            local text = diagnostic.name
+            if text ~= nil then
+                assert(type(text) == "string" and #text > 0 and #text <= nameLimit, "diagnostic name bound")
+                if stringOffsets[text] == nil then
+                    stringOffsets[text] = cursor
+                    stringOrder[#stringOrder + 1] = text
+                    cursor += 8 + ((#text + 8) // 8) * 8
+                end
+            end
+        end
+    end
+    assert(cursor <= ARTIFACT_BOUND and cursor % 8 == 0, "guest artifact byte budget")
+    -- The artifact is written as pieces at their offsets, each a whole record,
+    -- word run or payload, and joined in offset order with zeros between.
+    local pieces: {[integer]: string} = {}
+
+    local function place(at: integer, piece: string): nil
+        assert(at >= 0 and at + #piece <= cursor and pieces[at] == nil, "guest artifact piece")
+        pieces[at] = piece
+    end
+
+    local function word(at: integer, value: int64): nil
+        assert(at % 8 == 0)
+        place(at, wordbytes(value))
+    end
+
+    -- The words a value per instruction, or per parameter, makes, at `at`.
+    local function run(at: integer, list: {any}, map: (function(any): int64)?): nil
+        local words: {string} = {}
+        for index, value in ipairs(list) do
+            words[index] = wordbytes(map and map(value) or value as int64)
+        end
+        if #words > 0 then
+            assert(at % 8 == 0)
+            place(at, table.concat(words))
+        end
+    end
+
+    local function record(name: string, base: integer, values: any): nil
+        local layout = layouts[name]
+        local words: {string} = {}
+        for index = 1, layout.size // 8 do
+            words[index] = ZERO_WORD
+        end
+        for key, value in pairs(values) do
+            words[(assert(layout.offsets[key], "catalog field") as integer) // 8 + 1] = wordbytes(value)
+        end
+        for _, field in ipairs(layout.fields) do
+            assert(values[field.name] ~= nil, "missing catalog field " .. field.name)
+        end
+        assert(base % 8 == 0)
+        place(base, table.concat(words))
+    end
+
+    local function kind(name: string): integer
+        assert(
+            name == "boolean" or name == "nil" or version >= 3 and name == "number" or version >= 8 and name == "value",
+            "scalar signature kind"
+        )
+
+        return name == "boolean" and 1 or name == "nil" and 2 or name == "number" and 3 or 4
+    end
+
+    local descriptor: any = {
+        version = version,
+        bytes = cursor,
+        ownerCount = #records,
+        entry = code.entry,
+        records = recordOffset,
+        signatures = signatureOffset,
+        signatureCount = #signatures,
+        contracts = callOffset,
+        contractCount = #calls,
+        targets = targetOffset,
+        instanceBound = code.instanceCapacity,
+        frameDepth = code.frameDepth,
+        dispatch = dispatchOffset,
+        handlerCount = #dispatch
+    }
+    if version ~= 1 then
+        descriptor.moduleCount, descriptor.modules = #code.initializers, moduleOffset
+    end
+    if code.diagnostics then
+        descriptor.format = constants.DIAGNOSTIC_FORMAT
+        descriptor.diagnostics = diagnosticOffset
+        descriptor.diagnosticCount = #calls
+    end
+    record(descriptorName, 0, descriptor)
+    local scalars = {["true"] = constants.TRUE, ["false"] = constants.FALSE, ["nil"] = constants.NIL}
+    local nextCall = 0
+
+    local function floatBits(bytes: string): int64
+        assert(#bytes == 8, "checked float constant width")
+
+        return wordOf(bytes)
+    end
+
+    -- An integer constant is an immediate: TAG_INTEGER over the low 48 bits
+    -- of its two's-complement bytes. The graph verifier refused any other.
+    local function integerBits(bytes: string): int64
+        assert(#bytes == 8, "checked integer constant width")
+        local sign, low, high = bytes:byte(6, 8)
+        assert(
+            low == 0 and high == 0 and sign < 0x80 or low == 0xff and high == 0xff and sign >= 0x80,
+            "integer constant exceeds the immediate range"
+        )
+
+        return INTEGER_TAG | (wordOf(bytes) & IMMEDIATE_BITS)
+    end
+
+    for index, owner in ipairs(records) do
+        local fn = code.functions[index]
+        assert(fn.owner == owner.id and owner.id == index - 1)
+        record("Function", (recordOffset + (index - 1) * layouts.Function.size) as integer, {
+            id = owner.id,
+            parentPlusOne = owner.parent ~= nil and owner.parent + 1 or 0,
+            kind = owner.kind == "module" and 0 or 1,
+            signature = owner.signature,
+            effect = owner.effect,
+            code = codeOffsets[index],
+            instructionCount = fn.instructionCount,
+            valueCount = fn.valueCount,
+            constants = constantOffsets[index],
+            constantCount = #fn.constants,
+            firstCall = nextCall,
+            callCount = #fn.calls,
+            lines = lineOffsets[index] or 0,
+            lands = version >= 8 and fn.lands and 1 or 0,
+            chunk = type(fn.chunk) == "string"
+            and lineOffsets[index]
+            and STRING_CONSTANT | assert(stringOffsets[fn.chunk])
+            or 0
+        })
+        if lineOffsets[index] then
+            run(lineOffsets[index], fn.lines)
+        end
+        nextCall += #fn.calls
+        word((targetOffset + (index - 1) * 8) as integer, owner.id)
+        -- A static module name is checked in the graph and encoded as a
+        -- target owner in Require. It has no runtime value-pool payload.
+        run(constantOffsets[index], fn.constants, function(constant: any): int64
+            return constant.kind == "num" and version >= 3 and floatBits(constant.value)
+                or constant.kind == "int64"
+                and version >= 8
+                and wide(constant.value)
+                and INTEGER_CONSTANT | assert(integerOffsets[constant.value])
+                or constant.kind == "int64" and version >= 6 and integerBits(constant.value)
+                or constant.kind == "str" and version >= 8 and STRING_CONSTANT | assert(stringOffsets[constant.value])
+                or assert(scalars[constant.kind] or constant.kind == "str" and scalars["nil"])
+        end)
+        if #fn.code > 0 then
+            place(codeOffsets[index], fn.code)
+        end
+    end
+    if version ~= 1 then
+        for index, owner in ipairs(code.initializers) do
+            word((moduleOffset + (index - 1) * 8) as integer, owner)
+        end
+    end
+    for index, signature in ipairs(signatures) do
+        record("Signature", (signatureOffset + (index - 1) * layouts.Signature.size) as integer, {
+            parameterCount = #signature.params,
+            variadic = signature.variadic and 1 or 0,
+            resultKind = kind(signature.result),
+            parameters = parameterOffsets[index]
+        })
+        run(parameterOffsets[index], signature.params, function(parameter: any): int64
+            return kind(parameter)
+        end)
+    end
+    for index, entry in ipairs(calls) do
+        local call = entry.call
+        record("Callsite", (callOffset + (index - 1) * layouts.Callsite.size) as integer, {
+            id = call.contract,
+            owner = entry.owner,
+            pc = call.pc,
+            resumePC = call.resumePC,
+            target = call.target,
+            signature = call.signature,
+            argumentCount = call.argumentCount,
+            argumentBase = call.argumentBase,
+            wanted = call.wanted,
+            resultSlot = call.resultSlot,
+            spread = call.spread and 1 or 0
+        })
+    end
+    if code.diagnostics then
+        for index = 1, #calls do
+            local diagnostic = code.diagnostics[index]
+            record("CallDiagnostic", (diagnosticOffset + (index - 1) * layouts.CallDiagnostic.size) as integer, {
+                method = (
+                    diagnostic.method and constants.CALL_METHOD or 0
+                ) + (diagnostic.tail and constants.CALL_TAIL or 0),
+                name = diagnostic.name and assert(stringOffsets[diagnostic.name]) or 0,
+                forward = diagnostic.forward
+            })
+        end
+    end
+    for _, offset in ipairs(dispatch) do
+        assert(
+            codeBytes > 0 and codeBytes < 134217728 and offset >= 0 and offset % 4 == 0 and offset + 4 <= codeBytes,
+            "selected handler offset"
+        )
+    end
+    run(dispatchOffset, dispatch)
+    if version >= 8 then
+        local raised: {int64} = {#raiseList}
+        for _, raising in ipairs(raiseList) do
+            raised[#raised + 1] = raising.id
+            raised[#raised + 1] = raising.site
+            raised[#raised + 1] = assert(stringOffsets[raising.literal])
+        end
+        run(raiseOffset, raised)
+    end
+    for _, text in ipairs(stringOrder) do
+        place(assert(stringOffsets[text]), wordbytes(#text) .. text)
+    end
+    for _, raw in ipairs(integerOrder) do
+        assert(#raw == 8, "checked integer constant width")
+        place(assert(integerOffsets[raw]), raw)
+    end
+    executable.validate(code)
+
+    return {
+        bytes = assemble(pieces, cursor),
+        layouts = layouts,
+        dispatchOffset = dispatchOffset,
+        codeOffsets = codeOffsets,
+        constantOffsets = constantOffsets
+    }
+end
+
+-- A binary chunk (Lua's `load`): a program of its own, which the core's
+-- loader installs into the running one (nupp.runtime.core.guestloader).
+-- Its header is the loader's magic, the artifact's bytes and the number of
+-- relocations; then the artifact, whose dispatch table the running
+-- program's stands in for; then a word per relocation, each its kind over
+-- the artifact offset of an instruction's function operand, in order.
+export function chunk(code: any): string
+    local dispatch: {integer} = {}
+    for index = 1, HANDLERS do
+        dispatch[index] = 0
+    end
+    local packed = encode(code, dispatch, INSTRUCTION_BYTES)
+    local operands = bytecode.functionOperands()
+    local shift = constants.RELOCATION_SHIFT
+    local words: {string} = {}
+    for index, fn in ipairs(code.functions) do
+        local base = packed.codeOffsets[index] as integer
+        for pc = 0, (fn.instructionCount as integer) - 1 do
+            local operand = operands[(fn.code as string):byte(pc * INSTRUCTION_BYTES + 1)]
+            if operand then
+                local kind = operand.bytes == 8 and constants.RELOCATE_FUNCTION or constants.RELOCATE_MODULE
+                words[#words + 1] = wordbytes((kind << shift) | (base + pc * INSTRUCTION_BYTES + operand.offset))
+            end
+        end
+    end
+    local bytes = packed.bytes as string
+
+    return wordbytes(constants.MAGIC) .. wordbytes(#bytes) .. wordbytes(#words) .. bytes .. table.concat(words)
+end

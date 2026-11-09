@@ -1,5 +1,6 @@
 module nupp.compiler.vm.imagebytes
 
+local floatparts = require("nupp.compiler.floatparts")
 local two32 = 4294967296
 
 export function wordbytes(n: number): string
@@ -94,7 +95,7 @@ export function floatbytes(x: number): string
     if x == math.huge then
         exponent = 2047
     elseif x ~= 0 then
-        local m, e = math.frexp(x)
+        local m, e = floatparts.frexp(x)
         -- x = m * 2^e with m in [0.5, 1): the leading one is at 2^(e - 1).
         if e - 1 + 1023 <= 0 then
             mantissa = x / 2 ^ -1074

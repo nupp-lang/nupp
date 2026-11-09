@@ -162,6 +162,8 @@ invokeScalar = function(t: any): nil
         or fixedwidths[t.tag] == true
         -- Storage and views of it are values on the core's heap.
         or t.tag == "carray" or t.tag == "ptr" or t.tag == "ctype" or t.tag == "intersection" or t.tag == "typeobject"
+        -- A C value, which a plain Lua chunk may name, is a value too.
+        or t.tag == "cdata"
         -- A metatable (what `setmetatable` answers its table as) is a table.
         or t.tag == "metatable" or t.tag == "nominal" and t.declKind == "interface"
         -- A function that never returns gives no value to check.
@@ -682,6 +684,8 @@ local coreLibrary: {[string]: boolean} = {
     ["hostcalls.setcleanup"] = true,
     ["hostcalls.userdata"] = true,
     ["hostcalls.uservalue"] = true,
+    ["hostcalls.install"] = true,
+    ["hostcalls.start"] = true,
     pcall = true,
     xpcall = true,
     error = true,
@@ -814,7 +818,11 @@ local libraryValues: {
     debug = true,
     io = true,
     os = true,
-    warn = true
+    warn = true,
+    load = true,
+    loadstring = true,
+    loadfile = true,
+    dofile = true
 }
 
 -- The library values whose core forms take a `...` or a call's results last
@@ -849,6 +857,11 @@ const schedulerValues: {
 -- as the entry starts when the image carries it.
 export const WARN_MODULE = "nupp.runtime.luawarn"
 
+-- The module whose `functions` carries Lua's code loading: `load`,
+-- `loadfile`, `dofile` and LuaJIT's `loadstring`, which is `load`.
+export const LOAD_MODULE = "nupp.runtime.luaload"
+const loadValues: {[string]: boolean} = {load = true, loadstring = true, loadfile = true, dofile = true}
+
 export function libraryValue(node: any): string?
     local name: string? = nil
     if node and node.kind == "name" and preludeName(node) then
@@ -862,8 +875,9 @@ end
 
 -- The module whose `functions` carries library value `name`: Lua's `io` and
 -- `os`, the libraries themselves, are `nupp.runtime.luaio` and
--- `nupp.runtime.luaos`, and `warn` is `nupp.runtime.luawarn`'s; the task
--- surface is the scheduler's; the others are `nupp.runtime.libraryvalues`.
+-- `nupp.runtime.luaos`, `warn` is `nupp.runtime.luawarn`'s and the loaders
+-- `nupp.runtime.luaload`'s; the task surface is the scheduler's; the others
+-- are `nupp.runtime.libraryvalues`.
 export function libraryModule(name: string): string
     if name == "coroutine.create" or name == "coroutine.wrap" then
         return "nupp.runtime.luacoroutine"
@@ -873,6 +887,8 @@ export function libraryModule(name: string): string
         return "nupp.runtime.luaos"
     elseif name == "warn" then
         return WARN_MODULE
+    elseif loadValues[name] then
+        return LOAD_MODULE
     elseif schedulerValues[name] then
         return "nupp.runtime.scheduler"
     end
@@ -1407,8 +1423,10 @@ end
 export function dynamicInvokeContract(call: any, count: integer?): any
     -- A call through `any`, or through a value its metatable's __call makes
     -- callable, is checked against the call itself.
+    -- One the checker could not type (a plain Lua chunk's, which compiles
+    -- whatever its checking found) is a call through `any` too.
     local called = call.calleeType
-    if called and (called.tag ~= "func" or alternativeresults(called)) then
+    if called == nil or called.tag ~= "func" or alternativeresults(called) then
         called = anySignature(call, count or 1)
     end
     local contract = {

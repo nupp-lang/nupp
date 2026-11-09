@@ -1,0 +1,158 @@
+module nupp.compiler.vm.corechunk
+
+--[[
+Lua source to a binary chunk the native core installs into its running
+program: what Lua's `load` compiles text with there (nupp.runtime.luaload).
+The text is checked as plain Lua, lowered in the tagged profile and written
+by nupp.compiler.vm.coreartifact. Its chunk is a function of `...`; a name no
+declaration binds is a field of the running program's `_G`, and a module it
+requires is the running program's, found by name as the call runs.
+]]
+local parser = require("nupp.compiler.syntax.parser")
+local cst = require("nupp.compiler.syntax.cst")
+local types = require("nupp.compiler.types")
+local checker: any = require("nupp.compiler.check")
+local environment: any = require("nupp.compiler.project.env")
+local bundled = require("nupp.compiler.bundled")
+local program = require("nupp.compiler.vm.programgraph")
+local tagged = require("nupp.compiler.vm.taggedprofile")
+local executable = require("nupp.compiler.vm.coregraphexecutable")
+local writer = require("nupp.compiler.vm.coreartifact")
+
+-- The graph profile and executable version the core runs.
+const VERSION = 8
+-- The module a chunk is compiled as; it is never registered by name.
+const MODULE = "nupp.chunk"
+-- The checker reads a source as plain Lua by this suffix.
+const LUA_SUFFIX = ".lua"
+-- A chunk is the body of a function of `...`. The opening shares the first
+-- line, so every line keeps its number.
+const OPENING = "return function(...) "
+const CLOSING = "\nend\n"
+
+-- Lua's `f "s"` and `f {...}` written as the calls of one argument they are,
+-- which is the only form the core's lowering calls by.
+local function positional(node: any): nil
+    if type(node) ~= "table" or cst.isToken(node) then
+        return
+    end
+    if node.kind == "args" and node.exprs == nil then
+        if node.str ~= nil then
+            local token = node.str
+            local literal: any = cst.StringLit(kind = "string")
+            literal.token = cst.add(literal, token)
+            for index, child in ipairs(node) do
+                if child == token then
+                    node[index] = literal
+                end
+            end
+            node.exprs, node.str = {literal}, nil
+        elseif node.table ~= nil then
+            node.exprs, node.table = {node.table}, nil
+        end
+    end
+    for _, child in ipairs(node) do
+        positional(child)
+    end
+end
+
+-- Gives `any` to the call arguments checking left untyped (those of a call
+-- the checker reads itself, `ffi.cdef [[...]]`): a chunk passes them as values.
+local function untyped(node: any): nil
+    if type(node) ~= "table" or cst.isToken(node) then
+        return
+    end
+    if node.kind == "args" then
+        for _, argument in ipairs(node.exprs or {}) do
+            if argument.inferredType == nil then
+                argument.inferredType = types.any
+            end
+        end
+    end
+    for _, child in ipairs(node) do
+        untyped(child)
+    end
+end
+
+-- The checking environment, made once: its prelude is the costly part.
+local held: any = nil
+
+local function checkingEnvironment(): any
+    if held == nil then
+        -- The checkout the compiler's declarations are read from, which the
+        -- core names only through its environment.
+        local named = os.getenv("NUPP_COMPILER_ROOT")
+        local root = named ~= nil and named ~= "" and named or environment.compilerRoot() or "."
+        bundled.checkout(root)
+        held = environment.new(root, {
+            memoryOnly = true,
+            cache = false,
+            nativeCompilerServices = false,
+            -- The checkout's nupp.lua configures its projects, not a chunk;
+            -- reading it would load Lua text from within `load`.
+            config = {}
+        })
+    end
+
+    return held
+end
+
+-- The program catalog of Lua source `text` as a chunk, or nil and a message
+-- for text that does not parse. What the checker finds does not refuse it:
+-- Lua's loaders refuse only syntax, and a chunk's values are dynamic where
+-- its checking found them wanting.
+export function describe(text: string, display: string): (any, string?)
+    local source = OPENING .. text .. CLOSING
+    local path = display .. LUA_SUFFIX
+    local parsed: any = parser.parse(source, path)
+    if #parsed.errors > 0 then
+        local problem = parsed.errors[1]
+        return nil, display .. ":" .. tostring(problem.line or 0) .. ": " .. tostring(problem.msg or problem.message)
+    end
+    positional(parsed.root)
+    local diagnostics = checker.check(parsed, path, checkingEnvironment(), {
+        moduleName = MODULE,
+        strict = false,
+        lints = {["unused-binding"] = "off"}
+    })
+    parsed.moduleName = parsed.moduleName or MODULE
+    untyped(parsed.root)
+    local catalog = program.describe(
+        {{name = MODULE, path = display, parsed = parsed, diagnostics = diagnostics}},
+        MODULE,
+        {chunk = true}
+    )
+
+    return catalog, nil
+end
+
+--- Compile Lua source `text` to a binary chunk. `display` is the name its
+--- errors cite (Lua's chunkid of the chunk's name). Answers the chunk, or
+--- nil and a message as Lua's loaders do.
+export function compile(text: string, display: string): (string?, string?)
+    local ok, result, problem = pcall(function(): (string?, string?)
+        local catalog, refused = describe(text, display)
+        if catalog == nil then
+            return nil, refused
+        end
+        local code = executable.fromChecked(program.compile(catalog, tagged.forVersion(VERSION)), VERSION)
+
+        return writer.chunk(code), nil
+    end)
+    if not ok then
+        return nil, display .. ": " .. tostring(result)
+    end
+
+    return result, problem
+end
+
+--- Everything that keeps Lua source `text` from compiling as a chunk, across
+--- all of it (program.inventory), or nil and a message where it does not parse.
+export function inventory(text: string, display: string): (any, string?)
+    local catalog, refused = describe(text, display)
+    if catalog == nil then
+        return nil, refused
+    end
+
+    return program.inventory(catalog, tagged.forVersion(VERSION)), nil
+end

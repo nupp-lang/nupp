@@ -119,6 +119,18 @@ export function recordSlot(origin: any, name: string?): integer?
     return nil
 end
 
+-- The key record `origin` stores field `name` under, as a constant: its
+-- slot, or, in a record with an array part, whose integer keys are its
+-- elements, its name.
+export function slotKey(ctx: any, node: any, origin: any, name: string): integer
+    local slot = need(recordSlot(origin, name), "record field is not declared")
+    if origin.arrayOf ~= nil then
+        return ctx.emit(node, "K", {pool(ctx, "str", name)}, "tagged")
+    end
+
+    return ctx.emit(node, "K", {pool(ctx, "int64", tostring(slot))}, "tagged")
+end
+
 -- A field's slot in a value of type `t`: its record's, or, for a union of
 -- records, the slot every member gives it when they all agree.
 export function fieldSlot(ctx: any, t: any, name: string?): integer?
@@ -160,7 +172,19 @@ export function qualifiedvalue(ctx: any, node: any): integer?
         or site.builtin and site.builtin.members
         or node.qualifiedMembers
         or {}
-    local value = ctx.emit(node, "Require", {pool(ctx, "str", site.module)}, "tagged")
+    local value: integer
+    if site.absent then
+        -- A module the program does not hold: the running program's, by name.
+        local name = ctx.emit(node, "K", {pool(ctx, "str", site.module)}, "tagged")
+        value = ctx.emit(
+            node,
+            "LibCall",
+            {corelibrary.immediate(corelibrary.id("MODULE_REQUIRE"), false), name},
+            "tagged"
+        )
+    else
+        value = ctx.emit(node, "Require", {pool(ctx, "str", site.module)}, "tagged")
+    end
     for _, member in ipairs(members) do
         local key = ctx.emit(node, "K", {pool(ctx, "str", member)}, "tagged")
         value = ctx.emit(node, "GetIdx", {value, key}, "tagged")
@@ -195,6 +219,45 @@ export function moduleValue(ctx: any, node: any): integer
     local key = ctx.emit(node, "K", {pool(ctx, "str", catalog(ctx).entryExport)}, "tagged")
 
     return ctx.emit(node, "GetIdx", {exports, key}, "tagged") as integer
+end
+
+-- The module whose `functions._G` is the running program's globals table.
+const LIBRARY_VALUES = "nupp.runtime.libraryvalues"
+const GLOBALS_PATH: {string} = {"functions", "_G"}
+
+-- Whether name `node` is a global of a chunk Lua's `load` compiles: one no
+-- declaration binds, a field of the running program's `_G`.
+export function isGlobal(ctx: any, node: any): boolean
+    return node.kind == "name" and catalog(ctx).globals[node.token] == true
+end
+
+-- The running program's `_G`, as a chunk reaches it: its library values'
+-- module, required by name.
+export function globalTable(ctx: any, node: any): integer
+    local name = ctx.emit(node, "K", {pool(ctx, "str", LIBRARY_VALUES)}, "tagged")
+    local value = ctx.emit(
+        node,
+        "LibCall",
+        {corelibrary.immediate(corelibrary.id("MODULE_REQUIRE"), false), name},
+        "tagged"
+    )
+    for _, member in ipairs(GLOBALS_PATH) do
+        local key = ctx.emit(node, "K", {pool(ctx, "str", member)}, "tagged")
+        value = ctx.emit(node, "GetIdx", {value, key}, "tagged")
+    end
+
+    return value
+end
+
+-- A chunk's read of global `node`, or nil when it names no global.
+export function globalValue(ctx: any, node: any): integer?
+    if not isGlobal(ctx, node) then
+        return nil
+    end
+    local globals = globalTable(ctx, node)
+    local key = ctx.emit(node, "K", {pool(ctx, "str", node.token.text)}, "tagged")
+
+    return ctx.emit(node, "GetIdx", {globals, key}, "tagged")
 end
 
 export function libraryValue(ctx: any, node: any): integer?

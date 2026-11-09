@@ -11,6 +11,7 @@ module nupp.compiler.types.fixedwidth
 
 local apiidentity = require("nupp.compiler.apiidentity")
 local T = require("nupp.compiler.types")
+local floatparts = require("nupp.compiler.floatparts")
 
 local VALUE = {float32 = true, int32 = true, uint32 = true}
 local STORAGE_ONLY = {int8 = true, int16 = true, uint8 = true, uint16 = true}
@@ -223,7 +224,7 @@ local function exactFloat(value: number): boolean
         local units = magnitude / MIN_SUBNORMAL_F32
         return units >= 1 and units <= 8388607 and units % 1 == 0
     end
-    local significand, exponent = math.frexp(magnitude)
+    local significand, exponent = floatparts.frexp(magnitude)
     if exponent > 128 then
         return false
     end

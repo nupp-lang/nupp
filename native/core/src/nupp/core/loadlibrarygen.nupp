@@ -1,0 +1,7 @@
+module nupp.core.loadlibrarygen
+
+local generator = require("nupp.core.librarycallsgen")
+
+export function source(): string
+    return generator.subject("loading")
+end

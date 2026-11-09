@@ -242,6 +242,33 @@ export function resolve(registry: voidptr, catalog: voidptr, handle: uint64): ui
     return target + 1ULL
 end
 
+-- Moves a live registry to target table `catalog`, which holds
+-- `targetCount` targets in `catalogBytes`: the table a loaded chunk grows
+-- (`guestloader`), whose first rows are the table's the registry had.
+-- Answers 1, or 0 when either is not as the registry needs, leaving it
+-- unchanged.
+export function rebind(registry: voidptr, catalog: voidptr, catalogBytes: uint64, targetCount: uint64): uint64
+    if valid(registry, native.pointer(native.load64(registry, native.fieldOffset<Registry>("catalog")))) == 0ULL
+        or targetCount < native.load64(registry, native.fieldOffset<Registry>("targetCount"))
+        or regions(
+            native.load64(registry, native.fieldOffset<Registry>("world")),
+            native.address(registry),
+            native.load64(registry, native.fieldOffset<Registry>("entries")),
+            native.load64(registry, native.fieldOffset<Registry>("capacity")),
+            native.address(catalog),
+            catalogBytes,
+            targetCount
+        ) == 0ULL
+    then
+        return 0ULL
+    end
+    native.store64(registry, native.fieldOffset<Registry>("catalog"), native.address(catalog))
+    native.store64(registry, native.fieldOffset<Registry>("catalogBytes"), catalogBytes)
+    native.store64(registry, native.fieldOffset<Registry>("targetCount"), targetCount)
+
+    return 1ULL
+end
+
 -- This only changes phase: it does not release mappings or a managed owner.
 -- Caller releases catalog/entry storage only after all use of the retired run
 -- stops. World remains retained. Independent worlds may issue equal words, so
