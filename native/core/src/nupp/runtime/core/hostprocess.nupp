@@ -101,7 +101,7 @@ local function descriptor(base: voidptr, text: uint64, length: uint64): int64
     local index: uint64 = 0ULL
     while index < length do
         local digit = native.load8(base, native.index(text + index))
-        if digit < DIGIT_ZERO or digit > DIGIT_NINE or value > native.index(INT_LIMIT) / DECIMAL then
+        if digit < DIGIT_ZERO or digit > DIGIT_NINE or value > native.index(INT_LIMIT) // DECIMAL then
             return -1
         end
         value = value * DECIMAL + (digit - DIGIT_ZERO)
@@ -262,12 +262,13 @@ export function spawn(h: heap.Heap*, spec: uint64, flags: uint64): int64
             )
             index = index + 1ULL
         end
-        local envp = inherited
+        local environ = native.address(inherited)
         if (flags & ENVIRONMENT_OVERLAY) ~= 0ULL then
-            envp = merged
+            environ = native.address(merged)
         elseif (flags & ENVIRONMENT_GIVEN) ~= 0ULL then
-            envp = given
+            environ = native.address(given)
         end
+        local envp = native.pointer(environ)
         local actions = native.offset(space, native.index(ACTIONS))
         local attributes = native.offset(space, native.index(ATTRIBUTES))
         local defaults = native.offset(space, native.index(DEFAULTS))
@@ -283,32 +284,32 @@ export function spawn(h: heap.Heap*, spec: uint64, flags: uint64): int64
             POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK
         )
         if status == 0 then
-            status = posix_spawnattr_setpgroup(attributes, 0)
+            status = c.widened(posix_spawnattr_setpgroup(attributes, 0))
         end
         if status == 0 then
-            status = posix_spawnattr_setsigdefault(attributes, defaults)
+            status = c.widened(posix_spawnattr_setsigdefault(attributes, defaults))
         end
         if status == 0 then
-            status = posix_spawnattr_setsigmask(attributes, mask)
+            status = c.widened(posix_spawnattr_setsigmask(attributes, mask))
         end
         if status == 0 and input >= 0 then
-            status = posix_spawn_file_actions_adddup2(actions, input, 0)
+            status = c.widened(posix_spawn_file_actions_adddup2(actions, input, 0))
         end
         if status == 0 and output >= 0 then
-            status = posix_spawn_file_actions_adddup2(actions, output, 1)
+            status = c.widened(posix_spawn_file_actions_adddup2(actions, output, 1))
         end
         if status == 0 and errors >= 0 then
-            status = posix_spawn_file_actions_adddup2(actions, errors, 2)
+            status = c.widened(posix_spawn_file_actions_adddup2(actions, errors, 2))
         end
         if status == 0 and directory >= 0 then
-            status = posix_spawn_file_actions_addchdir_np(actions, native.offset(base, directory))
+            status = c.widened(posix_spawn_file_actions_addchdir_np(actions, native.offset(base, directory)))
         end
         local path = native.offset(base, program)
         if status == 0 then
             if (flags & SEARCH) ~= 0ULL then
-                status = posix_spawnp(pid, path, actions, attributes, argv, envp)
+                status = c.widened(posix_spawnp(pid, path, actions, attributes, argv, envp))
             else
-                status = posix_spawn(pid, path, actions, attributes, argv, envp)
+                status = c.widened(posix_spawn(pid, path, actions, attributes, argv, envp))
             end
         end
         local _: int64 = posix_spawn_file_actions_destroy(actions)

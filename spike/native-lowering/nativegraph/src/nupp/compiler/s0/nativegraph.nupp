@@ -431,13 +431,14 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                         op, aux = ir.opcode("call_indirect"), #f.signatures
                     else
                         local symbol = "core_os_" .. tostring(nativeos.slot(declaration, bound.body))
-                        aux = imports[symbol]
-                        if not aux then
+                        local imported = imports[symbol]
+                        if not imported then
                             f.signatures[#f.signatures + 1] = signature
-                            aux = #f.importNames + 1
-                            f.importNames[aux], f.importSignatures[aux] = symbol, #f.signatures
-                            imports[symbol], pageImports[symbol] = aux, declaration
+                            imported = #f.importNames + 1
+                            f.importNames[imported], f.importSignatures[imported] = symbol, #f.signatures
+                            imports[symbol], pageImports[symbol] = imported, declaration
                         end
+                        aux = imported
                     end
                     for at = 2, #args do
                         values[#values + 1] = (args[at] as integer) + 1

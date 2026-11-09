@@ -141,6 +141,7 @@ local foreignKinds: {
 
 -- The C results that arrive in fewer than 64 bits, which the caller extends.
 local narrowKinds: {[string]: boolean} = {int32 = true, uint32 = true}
+local WIDENED: {[string]: string} = {int32 = "int64", uint32 = "uint64"}
 
 -- The identity the checker recorded for a call of a `cdef function`
 -- ("function", its library and its symbol), nil for any other call.
@@ -302,7 +303,7 @@ end
 -- through the symbol the first call resolves and the bridge's table keeps
 -- (s0.select). Arguments past a variadic function's declared ones take the
 -- kinds the caller gives them. A 32-bit C result reads as int64 where the
--- caller expects one, since the call extends it.
+-- caller expects one or names no kind, since the call extends it.
 function os.foreign(owner: any, call: any, expected: string?): any
     local identity = need(cdefOf(call), "foreign call requires a cdef function")
     local definition = call.obj.token.definition
@@ -344,8 +345,11 @@ function os.foreign(owner: any, call: any, expected: string?): any
         machineResult = foreignKind(signature.rets[1])
         if narrowKinds[machineResult] then
             narrow = machineResult
+            -- Read as the 64-bit kind unless the caller asks for the narrow one.
             if expected == "int64" or expected == "uint64" then
                 machineResult = expected
+            elseif expected == nil then
+                machineResult = WIDENED[machineResult]
             end
         end
     end

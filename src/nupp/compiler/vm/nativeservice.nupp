@@ -97,6 +97,7 @@ local osNames = {
     dirOpen = true,
     dirNames = true,
     unlinkEntry = true,
+    errnoLocation = true,
     atomicload64 = true,
     atomiccas64 = true,
     securefill = true,

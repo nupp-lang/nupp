@@ -239,6 +239,12 @@ export function pageSize(scope: voidptr): uint64
     return os.pageSize()
 end
 
+-- Where the calling thread's C errno lives, for the host modules' C calls.
+export function errnoLocation(scope: voidptr): voidptr
+    local _ = scope
+    return os.errnoLocation()
+end
+
 export function atomicload64(scope: voidptr, base: voidptr, offset: int64): uint64
     local _ = scope
     return os.atomicload64(base, offset)

@@ -50,7 +50,8 @@ const O_TRUNC: int64 = 0x400
 const O_EXCL: int64 = 0x800
 const O_DIRECTORY: int64 = 0x100000
 const O_CLOEXEC: int64 = 0x1000000
-const AT_FDCWD: int64 = -2
+-- AT_FDCWD is -2: the working directory, for a call relative to a directory.
+const AT_FDCWD_NEGATED: int64 = 2
 const AT_REMOVEDIR: int64 = 0x80
 const ELOOP: int64 = 62
 const ENOTDIR: int64 = 20
@@ -293,7 +294,7 @@ end
 local function parentOf(parent: uint64): int64
     local fd = native.index(parent)
     if fd < 0 then
-        return AT_FDCWD
+        return 0 - AT_FDCWD_NEGATED
     end
 
     return fd

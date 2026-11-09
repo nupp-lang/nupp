@@ -81,14 +81,14 @@ const PIPE_BYTES: uint64 = 8ULL
 const INT_BYTES: int64 = 4
 const LOW_WORD: uint64 = 0xffffffffULL
 
--- Room for `bytes` in builder `b`: where it starts.
-local function room(h: heap.Heap*, borrows b: strings.Builder*, bytes: uint64): voidptr
+-- Room for `bytes` in builder `b`: its address, valid until `b` grows.
+local function room(h: heap.Heap*, borrows b: strings.Builder*, bytes: uint64): uint64
     @unsafe do
         if strings.reserve(h, b, bytes) ~= 0ULL then
             error("not enough memory")
         end
 
-        return native.pointer(strings.descriptor(b).base)
+        return strings.descriptor(b).base
     end
 end
 
@@ -157,7 +157,7 @@ export function arm(h: heap.Heap*, poller: uint64, fd: uint64, interest: uint64)
     local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local lifetime = strings.open(h, state as strings.Builder*)
-        local base = room(h, lifetime, 4ULL * native.sizeOf<KernelEvent>())
+        local base = native.pointer(room(h, lifetime, 4ULL * native.sizeOf<KernelEvent>()))
         change(base, 0ULL, fd, EVFILT_READ, (interest & READABLE) ~= 0ULL)
         change(base, 1ULL, fd, EVFILT_WRITE, (interest & WRITABLE) ~= 0ULL)
 
@@ -172,7 +172,7 @@ local function reapable(h: heap.Heap*, pid: uint64): nil
     local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local lifetime = strings.open(h, state as strings.Builder*)
-        local info = room(h, lifetime, SIGNAL_INFO_BYTES)
+        local info = native.pointer(room(h, lifetime, SIGNAL_INFO_BYTES))
         while true do
             local status: int64 = waitid(P_PID, native.index(pid), info, WEXITED | WNOWAIT)
             if status == 0 or not c.interrupted() then
@@ -189,7 +189,7 @@ export function watch(h: heap.Heap*, poller: uint64, pid: uint64): int64
     local status: int64 = 0
     @unsafe do
         local lifetime = strings.open(h, state as strings.Builder*)
-        local base = room(h, lifetime, 2ULL * native.sizeOf<KernelEvent>())
+        local base = native.pointer(room(h, lifetime, 2ULL * native.sizeOf<KernelEvent>()))
         change(base, 0ULL, pid, EVFILT_PROC, true)
         native.store32(base, native.fieldOffset<KernelEvent>("fflags"), native.index(NOTE_EXIT))
         status = apply(poller, base, 1ULL, 0, 0)
@@ -206,7 +206,7 @@ export function unwatch(h: heap.Heap*, poller: uint64, pid: uint64): int64
     local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local lifetime = strings.open(h, state as strings.Builder*)
-        local base = room(h, lifetime, 2ULL * native.sizeOf<KernelEvent>())
+        local base = native.pointer(room(h, lifetime, 2ULL * native.sizeOf<KernelEvent>()))
         change(base, 0ULL, pid, EVFILT_PROC, false)
 
         return apply(poller, base, 1ULL, ENOENT, ESRCH)
@@ -224,14 +224,15 @@ export function wait(h: heap.Heap*, poller: uint64, nanos: uint64): int64
     local flags: uint64 = 0ULL
     @unsafe do
         local lifetime = strings.open(h, state as strings.Builder*)
-        local base = room(h, lifetime, native.sizeOf<KernelEvent>() + native.sizeOf<TimeSpec>())
+        local base = native.pointer(room(h, lifetime, native.sizeOf<KernelEvent>() + native.sizeOf<TimeSpec>()))
         local limit = native.offset(base, native.index(native.sizeOf<KernelEvent>()))
         native.store64(limit, native.fieldOffset<TimeSpec>("seconds"), nanos // NANOS)
         native.store64(limit, native.fieldOffset<TimeSpec>("nanos"), nanos % NANOS)
+        local timeout = native.address(limit)
         if nanos == FOREVER then
-            limit = native.pointer(0ULL)
+            timeout = 0ULL
         end
-        local count: int64 = kevent(native.index(poller), native.pointer(0ULL), 0, base, 1, limit)
+        local count: int64 = kevent(native.index(poller), native.pointer(0ULL), 0, base, 1, native.pointer(timeout))
         if count < 0 then
             if c.interrupted() then
                 return 0
@@ -292,7 +293,7 @@ export function pipeWith(h: heap.Heap*, reader: boolean, writer: boolean): int64
     local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local lifetime = strings.open(h, state as strings.Builder*)
-        local fds = room(h, lifetime, PIPE_BYTES)
+        local fds = native.pointer(room(h, lifetime, PIPE_BYTES))
         local made: int64 = pipe(fds)
         if made ~= 0 then
             return c.failure()

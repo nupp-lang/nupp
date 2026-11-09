@@ -22,6 +22,12 @@ export function failure(): int64
     return 0 - native.load32(os.errnoLocation(), 0)
 end
 
+-- A C int result as the int64 it is: assigning one to a local keeps its
+-- 64-bit kind, where the checker would narrow the local to int32.
+export function widened(value: int64): int64
+    return value
+end
+
 -- Whether the C call that just failed was interrupted by a signal, and so
 -- is made again.
 export function interrupted(): boolean

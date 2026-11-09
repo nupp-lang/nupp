@@ -133,9 +133,9 @@ export function info(h: heap.Heap*, source: uint64, follow: uint64, out: voidptr
         local at = room(h, lifetime, native.sizeOf<FileStatus>())
         local status: int64 = 0
         if follow == 1ULL then
-            status = stat(c.at(lifetime, native.word(name)), c.at(lifetime, at))
+            status = c.widened(stat(c.at(lifetime, native.word(name)), c.at(lifetime, at)))
         else
-            status = lstat(c.at(lifetime, native.word(name)), c.at(lifetime, at))
+            status = c.widened(lstat(c.at(lifetime, native.word(name)), c.at(lifetime, at)))
         end
         if status ~= 0 then
             return c.failure()
