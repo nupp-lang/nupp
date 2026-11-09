@@ -6,7 +6,16 @@ module nupp.core.catalogcompilercheck
 -- it prints is checked as this case's output.
 const root = require("nupp.tools.vm.root")
 
-local temp = os.getenv("NUPP_GUEST_TEMP") or "/tmp"
+-- A project's nupp.lua is a text chunk, which the core compiles with the
+-- compiler the program carries.
+@allow("unused-binding")
+const _DYNAMIC_REQUIRES = [[
+@requires-dynamically nupp.compiler.vm.corechunk
+]]
+
+-- Its own project, so check reads this nupp.lua and these files alone.
+local temp = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/compilercheck"
+os.execute("mkdir -p \x27" .. temp .. "\x27")
 
 local function write(name: string, text: string): string
     local path = temp .. "/" .. name
@@ -17,6 +26,7 @@ local function write(name: string, text: string): string
     return path
 end
 
+write("nupp.lua", "return {include = {\".\"}}\n")
 local clean = write("compilercheck-clean.nupp", "local total: integer = 1 + 2\nprint(total)\n")
 local broken = write("compilercheck-broken.nupp", "local total: integer = \"three\"\nprint(total)\n")
 

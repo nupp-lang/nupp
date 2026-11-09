@@ -3,8 +3,11 @@ module nupp.tools.vm.root
 export function main(argv: {string}): integer
     require("nupp.compiler.syntax.triviaarena").install(require("nupp.compiler.syntax.triviaarena.table"))
     require("nupp.compiler.vm.chunks").install()
-    package.preload["nupp.embedded"] = function()
-        return require("nupp.vm.cliResources")
+    -- The VM's carried resources; a host without them, as the native core is,
+    -- reads the checkout's (`nupp.compiler.bundled`).
+    package.preload["nupp.embedded"] = function(): any
+        local found, resources = pcall(require, "nupp.vm.cliResources")
+        return found and resources or nil
     end
 
     return require("nupp.tools.cli").main(argv)
