@@ -1,5 +1,4 @@
 //! Standalone, opaque native-code transport. Nupp owns all execution semantics.
-mod entropy;
 mod library;
 mod platform;
 mod pool;
@@ -15,10 +14,6 @@ mod scratch;
 #[cfg(test)]
 #[path = "../tests/support/shared.rs"]
 mod shared;
-
-#[cfg(test)]
-#[path = "../tests/support/entropy.rs"]
-mod entropy_faults;
 
 use std::fs::File;
 use std::io::Read;
@@ -153,30 +148,19 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, Failure> {
     code.copy(&payload[..spec.code]);
     data.copy(&payload[spec.code..]);
     code.executable()?;
-    // The guest's `arg[0]`, when no command line set its arguments.
-    let _ = platform::ARGUMENTS.set(vec![bundle.as_os_str().to_owned()]);
     let library = library::imports();
     let imports = [
-        platform::map_pages as *const () as u64,
-        platform::unmap_pages as *const () as u64,
-        platform::page_size as *const () as u64,
-        platform::argument as *const () as u64,
         pool::pool_start as *const () as u64,
         pool::pool_submit as *const () as u64,
         pool::pool_take as *const () as u64,
         pool::pool_finish as *const () as u64,
         pool::pool_cancel as *const () as u64,
-        entropy::secure_fill as *const () as u64,
         pool::pool_settle as *const () as u64,
         library[0],
         library[1],
         library[2],
         library[3],
     ];
-    #[cfg(test)]
-    let imports = shared::imports(imports);
-    #[cfg(test)]
-    let imports = entropy_faults::imports(imports);
     let packet = [
         1,
         code.address as u64,
@@ -216,10 +200,6 @@ fn run() -> Result<(), Failure> {
             "usage: nupp-core BUNDLE INPUT OUTPUT [ARGUMENT...]".into(),
         ));
     }
-    // The guest's `arg`: the bundle as its program, then what follows OUTPUT.
-    let mut program = vec![args[0].clone()];
-    program.extend(args[3..].iter().cloned());
-    let _ = platform::ARGUMENTS.set(program);
     let words = input(Path::new(&args[1]))?;
     let output = execute(Path::new(&args[0]), &words)?;
     let bytes: Vec<_> = output.into_iter().flat_map(u64::to_le_bytes).collect();

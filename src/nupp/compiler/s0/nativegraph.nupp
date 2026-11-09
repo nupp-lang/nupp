@@ -1097,7 +1097,7 @@ end
 local function codeImport(saved: any, symbol: string): integer
     local held = saved.held
     local declaration = assert(held.osImports[symbol], "S0 graph: unissued OS import")
-    local slot = nativeos.ownedSlot(declaration, held.owner)
+    local slot = nativeos.slot(declaration, held.owner)
     assert(symbol == "core_os_" .. tostring(slot), "S0 graph: OS import identity differs")
 
     return slot

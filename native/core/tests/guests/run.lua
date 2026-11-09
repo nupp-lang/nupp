@@ -88,6 +88,8 @@ local CASES = {
     {"systemprovider", 0x7FFF000000000007},
     {"systeminfo", 0x7FFF00000000000F},
     {"entropy", 0x7FFF00000000000F},
+    -- The C library's getentropy failing partway, through entropy-failure.c.
+    {"entropyfailure", 0x7FFF000000000007},
     {"boolean", 0x7FFB000000000000},
     {"nilValue", 0x7FF9000000000000},
     {"live", 0x7FFB000000000000},
@@ -252,6 +254,7 @@ local CASES = {
     -- Library calls given every result of a call last, through the value.
     {"libraryresults", 0x7FFF000000001FFF},
     {"processlines", 0x7FFF000000000FFF},
+    {"selectvalues", 0x7FFF00000000007F},
     {"processlayer", 0x7FFF000000FFFFFF},
     -- os.exit(3): the program ends there, publishing nothing (EXITS).
     {"processexit", 0},
@@ -552,6 +555,11 @@ local SETUP = {
         .. "'%s/native/core/tests/core-cdecl-record.lua' \"$d/recorded\" > /dev/null "
         .. "&& export CDECL_DIFF=\"$d/recorded\"; "
     ):format(OUT, ROOT, ROOT),
+    -- The getentropy that fails the entropy failure guard's request.
+    entropyfailure = (
+        "d=$(mktemp -d '%s/entropy.XXXXXX') && cc -dynamiclib -o \"$d/libnuppentropyfailure.dylib\" '%s' "
+        .. "&& export DYLD_INSERT_LIBRARIES=\"$d/libnuppentropyfailure.dylib\"; "
+    ):format(OUT, TESTS .. "/entropy-failure.c"),
     ffiaggregates = (
         "d=$(mktemp -d '%s/ffi.XXXXXX') && cc -dynamiclib -o \"$d/libnuppffiaggregates.dylib\" '%s' "
         .. "&& export DYLD_LIBRARY_PATH=\"$d\"; "
@@ -653,6 +661,7 @@ local NUMERIC = {
     ownmanage = "catalog-own-manage",
     aliasdowncast = "catalog-alias-downcast",
     methodspread = "catalog-method-spread",
+    selectvalues = "catalog-select-values",
     loopparameteralias = "catalog-loop-parameter-alias",
     namedarguments = "catalog-named-arguments",
     legacyglobals = "catalog-legacy-globals",

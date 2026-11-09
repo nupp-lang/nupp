@@ -1,0 +1,42 @@
+module nupp.runtime.core.hostentropy
+
+-- Secure random bytes, as the C library gives them: getentropy, which fills
+-- at most CHUNK bytes a call. A failure answers the negated error number,
+-- and the bytes already written are never the caller's to publish.
+const native = require("nupp.runtime.vm.intrinsics")
+const c = require("nupp.runtime.core.hostc")
+
+cdef function getentropy(borrows buffer: voidptr, size: uint64): int32
+
+-- The most bytes one getentropy call fills, the most one request may ask
+-- for, and the error number an invalid request answers negated (EINVAL).
+const CHUNK: uint64 = 256ULL
+const MAX_BYTES: uint64 = 1048576ULL
+const INVALID: int64 = 22
+
+-- Fills the `bytes` at `base` with secure random bytes: 0, or a negative
+-- status. Zero bytes ask the system nothing.
+export function securefill(base: voidptr, bytes: uint64): int64
+    if bytes == 0ULL then
+        return 0
+    end
+    local address = native.address(base)
+    if address == 0ULL or bytes > MAX_BYTES then
+        return 0 - INVALID
+    end
+    local done: uint64 = 0ULL
+    while done < bytes do
+        local count = bytes - done
+        if count > CHUNK then
+            count = CHUNK
+        end
+        @unsafe do
+            if getentropy(native.pointer(address + done), count) ~= 0 then
+                return c.failure()
+            end
+        end
+        done = done + count
+    end
+
+    return 0
+end
