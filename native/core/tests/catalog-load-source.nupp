@@ -1,0 +1,134 @@
+module nupp.core.catalogloadsource
+
+-- Lua's loaders over source text, which the compiler this program carries
+-- compiles on the core (named below, as the test runner names it): the
+-- chunk's locals, loops, closures, tables, string methods, protected
+-- calls, varargs and globals, a require of this program's own module, a
+-- syntax error, and loadfile and dofile over a file.
+@allow("unused-binding")
+const _DYNAMIC_REQUIRES = [[
+@requires-dynamically nupp.compiler.vm.corechunk
+]]
+const helper = require("nupp.core.catalogloadhelper")
+const path = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/catalog-load-source.lua"
+
+local function cites(message: any, text: string): boolean
+    return string.find(tostring(message), text, 1, true) ~= nil
+end
+
+const source = [==[
+local base, label = ...
+local helper = require("nupp.core.catalogloadhelper")
+local total = 0
+for i = 1, 10 do
+    total = total + i
+end
+local squares = {}
+for _, v in ipairs({1, 2, 3}) do
+    squares[#squares + 1] = v * v
+end
+local function counter()
+    local n = 0
+    return function()
+        n = n + 1
+        return n
+    end
+end
+local tick = counter()
+tick()
+tick()
+chunkGlobal = (chunkGlobal or 0) + 1
+local ok, message = pcall(function()
+    error("chunk raised")
+end)
+local words = {}
+for word in ("alpha beta gamma"):gmatch("%a+") do
+    words[#words + 1] = word:upper()
+end
+local function count(...)
+    return select("#", ...)
+end
+return {
+    total = total + base,
+    squares = table.concat(squares, ","),
+    ticks = tick(),
+    label = label .. "!",
+    global = chunkGlobal,
+    caught = not ok and message,
+    words = table.concat(words, " "),
+    count = count(1, nil, 3),
+    doubled = helper.double(21),
+    extra = select("#", ...)
+}
+]==]
+
+local score: integer = 0
+local make, problem = load(source, "=source")
+if make ~= nil and problem == nil then
+    score = score + 1
+else
+    error(problem, 0)
+end
+local answer: any = make(7, "core", "x")
+if answer.total == 62 then
+    score = score + 2
+end
+if answer.squares == "1,4,9" then
+    score = score + 4
+end
+if answer.ticks == 3 then
+    score = score + 8
+end
+if answer.label == "core!" then
+    score = score + 16
+end
+if answer.global == 1 then
+    score = score + 32
+end
+if cites(answer.caught, "source:23: chunk raised") then
+    score = score + 64
+end
+if answer.words == "ALPHA BETA GAMMA" then
+    score = score + 128
+end
+if answer.count == 3 then
+    score = score + 256
+end
+if answer.doubled == 42 and helper.count() == 1 then
+    score = score + 512
+end
+if answer.extra == 3 then
+    score = score + 1024
+end
+if rawget(_G, "chunkGlobal") == 1 then
+    score = score + 2048
+end
+local bad, badReason = load("return +", "=bad")
+if bad == nil and cites(badReason, "bad") then
+    score = score + 4096
+end
+local file = assert(io.open(path, "wb"))
+file:write("local a, b = ...\nreturn (a or 1) + 1, 'two', ...\n")
+file:close()
+local loaded: any = assert(loadfile(path))
+local first, second, third = loaded(4, "three")
+if first == 5 and second == "two" and third == 4 then
+    score = score + 8192
+end
+local one, two = dofile(path)
+if one == 2 and two == "two" then
+    score = score + 16384
+end
+local again: any = make(1, "again")
+if again.global == 2 and again.total == 56 and helper.count() == 2 then
+    score = score + 32768
+end
+
+local sandbox: any = {}
+local fenced: any = load("x = 1\ny = (y or 0) + 2\nreturn x + y, print == nil", "=fenced", "t", sandbox)
+local sum, unprinted = fenced()
+if sum == 3 and unprinted == true and sandbox.x == 1 and rawget(_G, "x") == nil then
+    score = score + 65536
+end
+
+export const result = score

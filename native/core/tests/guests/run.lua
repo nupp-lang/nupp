@@ -280,6 +280,11 @@ local CASES = {
     {"forwardfunctions", 0x7FFF000000000003},
     -- Main's os filesystem and system functions; main answers the same word.
     {"osfilesystem", 0x7FFF0007FFFFFFFF},
+    -- The compiler's lexer and parser on the core.
+    {"compilerfront", 0x7FFF00000000000F},
+    -- Lua's loaders over source text, compiled on the core by the compiler
+    -- the program carries.
+    {"loadsource", 0x7FFF00000001FFFF},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
@@ -492,7 +497,8 @@ local STRESS = {
     filesystem = true,
     osremove = true,
     loadbinary = true,
-    osfilesystem = true
+    osfilesystem = true,
+    loadsource = true
 }
 -- Shell statements a case's runs start with: the io and pool cases may hold
 -- 64 descriptors, so a handle left open, or opened by a cancelled pool job,

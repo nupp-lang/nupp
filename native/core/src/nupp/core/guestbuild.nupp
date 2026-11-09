@@ -360,6 +360,11 @@ local CASES: {[string]: {
     -- A function statement assigning a local declared before it.
     forwardfunctions = {fixture = "catalog-forward-functions", version = 8},
     osfilesystem = {fixture = "catalog-os-filesystem", version = 8},
+    -- The compiler's lexer and parser on the core.
+    compilerfront = {fixture = "catalog-compiler-front", version = 8, follow = true},
+    -- Lua's loaders over source text, compiled on the core by the compiler
+    -- the program carries (`follow` reaches it).
+    loadsource = {fixture = "catalog-load-source", version = 8, modules = {"catalog-load-helper"}, follow = true},
     -- The packaged test runner (nupp.lua build.targets.testRunner): the
     -- delivery path runs it on the core.
     testrunner = {fixture = "tests/tools/test/runner/main", version = 8, follow = true, rooted = true, module = "main"},
