@@ -613,4 +613,6 @@ function project.manifest(path: string): table
     return config
 end
 
+-- The build scripts and the pinned producer read `project.ROOT_EXTRAS = ` from
+-- this file's text, so the module keeps its table and sets it as its value.
 export = project

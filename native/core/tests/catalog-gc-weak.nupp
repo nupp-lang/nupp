@@ -160,4 +160,4 @@ end
 if type(strong[1]) == "table" then
     score = score + 256
 end
-export = score
+export const result = score

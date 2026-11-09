@@ -3,9 +3,8 @@
 module nupp.cli.internal.terminalhost
 
 -- The LuaJIT terminal provider. Other runtimes supply this small host surface.
-local host = {}
 
-function host.isTerminal(fd: integer): boolean
+export function isTerminal(fd: integer): boolean
     local loaded, ffi = pcall(require, "ffi")
     if not loaded then
         return false
@@ -30,7 +29,7 @@ end
 -- These are the request codes LuaJIT knows for the two supported Unix families.
 local WINDOW_SIZE = {OSX = 0x40087468, BSD = 0x40087468, Linux = 0x5413}
 
-function host.columns(fd: integer): integer?
+export function columns(fd: integer): integer?
     local loaded, ffi = pcall(require, "ffi")
     if not loaded then
         return nil
@@ -57,5 +56,3 @@ function host.columns(fd: integer): integer?
 
     return math.tointeger(math.floor(answer as number))
 end
-
-export = host

@@ -6,4 +6,5 @@ local function clock(): number
     return os.time()
 end
 
+-- The module's value is the clock function itself, which callers call.
 export = clock

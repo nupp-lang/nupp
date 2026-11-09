@@ -10,8 +10,6 @@ own. What is left of the emit's processor time is lowering and linking. The
 report names the kinds of work, then the modules that cost the most.
 ]]
 
-local emitprofile = {}
-
 --- The variable that asks for a report.
 const VARIABLE = "NUPP_VM_EMIT_PROFILE"
 
@@ -19,7 +17,7 @@ const VARIABLE = "NUPP_VM_EMIT_PROFILE"
 const SHOWN = 25
 
 --- A profile of one emit, or nil when nobody asked for one.
-function emitprofile.open(): any
+export function open(): any
     if os.getenv(VARIABLE) == nil then
         return nil
     end
@@ -83,5 +81,3 @@ function emitprofile.open(): any
 
     return self
 end
-
-export = emitprofile

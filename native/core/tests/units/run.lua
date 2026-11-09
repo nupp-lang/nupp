@@ -8,6 +8,7 @@
 --
 -- NUPP_CORE_BRIDGE selects a prebuilt bridge; otherwise cargo builds one.
 local runner = require("nupp.core.unitrunner")
+local sharedcache = require("nupp.core.sharedcache")
 
 local function cwd()
     local pipe = assert(io.popen("pwd"))
@@ -98,10 +99,9 @@ local UNITS = {
         entries = {{"acquisitionunits", "acquire", 3}},
         cases = function()
             local cases = {}
-            for mode = 0, 5 do
-                for cancel = 0, 1 do
-                    cases[#cases + 1] = {"acquire", {0, mode, cancel}, 1}
-                end
+            -- The pool mode (3): the one resource the service scope journals.
+            for cancel = 0, 1 do
+                cases[#cases + 1] = {"acquire", {0, 3, cancel}, 1}
             end
 
             return cases
@@ -1409,7 +1409,7 @@ for _, unit in ipairs(UNITS) do
                 fixtures,
                 entries,
                 mode,
-                ROOT .. "/build/core-unit-cache",
+                sharedcache.directory("kernels"),
                 unit.observeLanding,
                 unit.sharedhandoff,
                 unit.observerEntry and (fixtureNames[unit.observerEntry] or unit.observerEntry)

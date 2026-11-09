@@ -14,4 +14,4 @@ local parallelism = system.availableParallelism()
 if math.type(parallelism) == "integer" and parallelism >= 1 then
     score = score | 4
 end
-export = score
+export const result = score

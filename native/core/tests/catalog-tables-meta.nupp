@@ -88,4 +88,4 @@ if p ~= q then
     cmp = cmp + 8
 end
 score = score * 100 + cmp
-export = score
+export const result = score

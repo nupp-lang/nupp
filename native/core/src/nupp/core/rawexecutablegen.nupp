@@ -2,9 +2,8 @@ module nupp.core.rawexecutablegen
 
 local schema = require("nupp.compiler.vm.coregraphschema")
 local bytecode = require("nupp.compiler.vm.corebytecode")
-local generator = {}
 
-function generator.source(): string
+export function source(): string
     local graph, wire = schema.describe(), schema.wire()
     local names = {"K", "Require", "Nil", "Move"}
     local ids = {}
@@ -31,5 +30,3 @@ function generator.source(): string
 
     return table.concat(lines, "\n")
 end
-
-export = generator

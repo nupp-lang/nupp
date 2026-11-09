@@ -13,4 +13,6 @@ local function sumTo(n: number): number
     return total
 end
 
+-- Graph profiles before version 8 have no tables to export from, so the
+-- module value is the result itself.
 export = sumTo(10) * 1000 + square(-3)

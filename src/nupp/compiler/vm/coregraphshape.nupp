@@ -1,6 +1,5 @@
 module nupp.compiler.vm.coregraphshape
 
-local shape = {}
 local NONE: integer = 4294967295
 
 local function need(ok: any, message: string): any
@@ -15,7 +14,7 @@ end
 
 -- Input rows come from the fixed-record reader or writer. This validates
 -- physical ownership only; it cannot authenticate source or executable graphs.
-function shape.rows(tables: any, wire: any, entry: integer): any
+export function rows(tables: any, wire: any, entry: integer): any
     local used, counts, records, expansion, stringExpansion, rawExpansion = {}, {}, 0, 0, 0, 0
     for _, section in ipairs(wire.sections) do
         local rows = tables[section.name]
@@ -189,5 +188,3 @@ function shape.rows(tables: any, wire: any, entry: integer): any
         mergeWork = mergeWork
     }
 end
-
-export = shape

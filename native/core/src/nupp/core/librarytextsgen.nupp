@@ -1,7 +1,6 @@
 module nupp.core.librarytextsgen
 
 local coretexts = require("nupp.compiler.vm.coretexts")
-local generator = {}
 
 -- The widest line the formatter keeps whole.
 local WIDTH = 120
@@ -30,7 +29,7 @@ end
 -- The runtime's text ids and the code appending each text, from the one
 -- table (nupp.compiler.vm.coretexts). A leaf has no data, so each text is
 -- kept as code.
-function generator.source(): string
+export function source(): string
     local lines = {
         "module nupp.runtime.core.librarytexts",
         "",
@@ -71,5 +70,3 @@ function generator.source(): string
 
     return table.concat(lines, "\n") .. "\n"
 end
-
-export = generator

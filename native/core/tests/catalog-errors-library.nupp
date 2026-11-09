@@ -84,4 +84,4 @@ end)
 if says(ok12, tostring(e12), 82, "invalid conversion '%y' to 'format'") then
     score = score + 2048
 end
-export = score
+export const result = score

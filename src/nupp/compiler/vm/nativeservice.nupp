@@ -2,6 +2,7 @@ module nupp.compiler.vm.nativeservice
 
 local unit = require("nupp.compiler.vm.nativeunit")
 local layout = require("nupp.compiler.targetlayout")
+local nativeos = require("nupp.compiler.vm.nativeos")
 const MAX_OWNERS: integer = 2048
 local service = {MAX_OWNERS = MAX_OWNERS}
 local scopedCalls: any = setmetatable({}, {__mode = "k"})
@@ -60,16 +61,6 @@ local osNames = {
     readInput = true,
     monotonicNanos = true,
     argument = true,
-    fileOpen = true,
-    fileRead = true,
-    fileWrite = true,
-    fileSeek = true,
-    fileClose = true,
-    errorText = true,
-    pollOpen = true,
-    pollArm = true,
-    pollWait = true,
-    pipeOpen = true,
     poolStart = true,
     poolSubmit = true,
     poolTake = true,
@@ -77,38 +68,17 @@ local osNames = {
     poolCancel = true,
     poolsettle = true,
     sleepNanos = true,
-    processPipe = true,
-    processSpawn = true,
-    processWatch = true,
-    processUnwatch = true,
-    processReap = true,
-    processKill = true,
-    processsignal = true,
-    processExit = true,
     wallClock = true,
     cpuClock = true,
     timeParts = true,
     timeMake = true,
     timeFormat = true,
-    fileRemove = true,
-    fileRename = true,
-    fileTemporary = true,
-    dirOpen = true,
-    dirNames = true,
-    unlinkEntry = true,
+    errnoLocation = true,
     atomicload64 = true,
     atomiccas64 = true,
     securefill = true,
     systemquery = true,
     wallMillis = true,
-    fileInfo = true,
-    fileStatus = true,
-    readLink = true,
-    makeDirectory = true,
-    makeSymlink = true,
-    changeMode = true,
-    syncFile = true,
-    pathQuery = true
 }
 
 local function need(ok: any, message: string): any
@@ -302,6 +272,10 @@ local function catalog(entry: any, roots: any, review: any): any
                             item.scoped = true
                             state.calls[node] = {owner = owner, target = target, os = bound}
                         end
+                    elseif nativeos.isForeign(node) then
+                        -- A foreign call is the C call itself (nativeos.foreign):
+                        -- it neither collects nor raises and needs no scope.
+                        local _ = nativeos.foreign(owner, node, nil)
                     elseif moduleName == "nupp.runtime.vm.intrinsics" then
                         local checked = unit.intrinsicDeclaration(owner, node)
                         local collects, mutates = require("nupp.compiler.vm.nativegraph").intrinsicHazards(checked.name)

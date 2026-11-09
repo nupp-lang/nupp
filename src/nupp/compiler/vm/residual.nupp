@@ -1,7 +1,6 @@
 module nupp.compiler.vm.residual
 
 local graph = require("nupp.compiler.vm.graph")
-local residual = {}
 local names = {IK = true, IMov = true, IAddK = true, IMaskU32 = true, IAdd = true, ISub = true, IAnd = true, IOr = true}
 local operations = {
     NativeConstant = true,
@@ -62,7 +61,7 @@ end
 -- A result's identity admits a fresh detached snapshot. Public fields and
 -- metatables are never inspected; the exact retained body owner is preserved.
 -- This authenticates compiler provenance, not loader tags or window extents.
-function residual.snapshot(result: any): any
+export function snapshot(result: any): any
     return view(resultState(result))
 end
 
@@ -70,7 +69,7 @@ end
 -- dispatch catalog's tag for this checked handler. This is not a verifier for
 -- untrusted bytecode or for the catalog association; production needs that
 -- authoritative adapter. There is no second opcode catalog or decoder here.
-function residual.prepare(source: any, opcode: number): any
+export function prepare(source: any, opcode: number): any
     require("nupp.compiler.vm.nativeframecontract").refuse(source, "residual preparation")
     graph.verify(source)
     need(integer(opcode, 0, 255), "invalid opcode tag")
@@ -129,7 +128,7 @@ end
 
 -- Bytes are immutable and owned by this handle. Equal bytes retained twice
 -- are distinct bodies. The owner supplies its verified integer-window extent.
-function residual.retain(bytes: string, integerSlots: number): any
+export function retain(bytes: string, integerSlots: number): any
     need(
         type(bytes) == "string" and #bytes >= 32 and #bytes <= 16777216 and #bytes % 16 == 0,
         "invalid retained body extent"
@@ -142,7 +141,7 @@ function residual.retain(bytes: string, integerSlots: number): any
 end
 
 -- Inspection returns detached data; it cannot mutate the template authority.
-function residual.inspect(template: any): any
+export function inspect(template: any): any
     return copy(need(templates[template], "unknown template"))
 end
 
@@ -157,7 +156,7 @@ end
 
 -- expectedBody is the retained allocation identity held by the compilation
 -- request. The returned result keeps that owner alive beside the bound graph.
-function residual.bind(template: any, body: any, expectedBody: any, pc: number): any
+export function bind(template: any, body: any, expectedBody: any, pc: number): any
     local prepared = need(templates[template], "unknown template")
     local retained = need(bodies[body], "unknown retained body")
     need(rawequal(body, expectedBody), "retained body identity mismatch")
@@ -184,20 +183,20 @@ end
 
 -- A bound result is a view, not authority. Stitching copies its private
 -- canonical graph; aggregate results are not single-instruction bindings.
-function residual.stitch(sequence: any): any
+export function stitch(sequence: any): any
     need(type(sequence) == "table" and getmetatable(sequence) == nil, "plain sequence table required")
     local count = #sequence
     need(count >= 1 and count <= 64, "sequence extent")
-    local entries, snapshot = 0, {}
+    local entries, dense = 0, {}
     for key, result in pairs(sequence) do
         need(integer(key, 1, count), "sequence must be a dense array")
-        snapshot[key] = result
+        dense[key] = result
         entries = entries + 1
     end
     need(entries == count, "sequence must be a dense array")
-    local first = resultState(snapshot[1])
+    local first = resultState(dense[1])
     local sources = {}
-    for index, result in ipairs(snapshot) do
+    for index, result in ipairs(dense) do
         local kept = resultState(result)
         need(kept.template ~= nil, "single bound result required")
         need(rawequal(kept.body, first.body), "sequence body identity mismatch")
@@ -269,5 +268,3 @@ function residual.stitch(sequence: any): any
 
     return publish({graph = joined, body = first.body, pc = first.pc, count = #sources, segments = segments})
 end
-
-export = residual

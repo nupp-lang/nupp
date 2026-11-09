@@ -23,4 +23,4 @@ local function tables(): number
     return sum + #counts
 end
 
-export = tables()
+export const result = tables()

@@ -176,4 +176,4 @@ do
     check(matched == count and waiting > 0 and reactor.pending() == 0)
 end
 
-export = score
+export const result = score

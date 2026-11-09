@@ -28,4 +28,4 @@ for i = 1, 10 do
 end
 c:bump(1)
 local a, b = c:twice()
-export = total * 1000 + a * 10 + b
+export const result = total * 1000 + a * 10 + b

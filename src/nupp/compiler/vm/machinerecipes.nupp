@@ -1,7 +1,6 @@
 module nupp.compiler.vm.machinerecipes
 
-local recipes = {}
-recipes.integerOps = {
+export const integerOps = {
     IAdd = "iadd",
     ISub = "isub",
     NativeIMul = "imul",
@@ -17,7 +16,7 @@ recipes.integerOps = {
     IShrU = "ushr"
 }
 
-type recipes.Emit = function(
+export type Emit = function(
     op: string,
     destination: any,
     first: any,
@@ -30,21 +29,13 @@ type recipes.Emit = function(
 
 -- A missing destination requests a fresh value for result-producing operations.
 -- Memory widths are bits; checked slot contracts express their width in bytes.
-function recipes.entry(emit: recipes.Emit, frame: any, regs: any, frameOffset: integer): nil
+export function entry(emit: Emit, frame: any, regs: any, frameOffset: integer): nil
     assert(frameOffset == 32, "native machine: unsupported frame window offset")
     local offset = emit("iconst", nil, nil, nil, nil, "i64", 0, tostring(-frameOffset))
     emit("iadd", frame, regs, offset, nil, "i64", 0, nil)
 end
 
-function recipes.slot(
-    emit: recipes.Emit,
-    destination: any,
-    window: any,
-    index: any,
-    value: any,
-    access: any,
-    kind: string
-): nil
+export function slot(emit: Emit, destination: any, window: any, index: any, value: any, access: any, kind: string): nil
     assert(
         (access.class == "i" or access.class == "v" or access.class == "f") and access.width == 8,
         "native machine: unsupported frame slot class"
@@ -59,18 +50,16 @@ function recipes.slot(
     end
 end
 
-function recipes.dispatchTarget(emit: recipes.Emit, pc: any, tableValue: any): any
+export function dispatchTarget(emit: Emit, pc: any, tableValue: any): any
     local opcode = emit("load", nil, pc, nil, nil, "i64", 8, nil)
     local scale = emit("iconst", nil, nil, nil, nil, "i64", 0, "3")
     local shifted = emit("ishl", nil, opcode, scale, nil, "i64", 0, nil)
-    local slot = emit("iadd", nil, tableValue, shifted, nil, "i64", 0, nil)
+    local address = emit("iadd", nil, tableValue, shifted, nil, "i64", 0, nil)
 
-    return emit("load", nil, slot, nil, nil, "i64", 64, nil)
+    return emit("load", nil, address, nil, nil, "i64", 64, nil)
 end
 
-function recipes.dispatch(emit: recipes.Emit, arguments: {any}, tableValue: any): nil
-    local target = recipes.dispatchTarget(emit, arguments[1], tableValue)
+export function dispatch(emit: Emit, arguments: {any}, tableValue: any): nil
+    local target = dispatchTarget(emit, arguments[1], tableValue)
     emit("return_call_indirect", nil, target, tableValue, arguments, "i64", 0, nil)
 end
-
-export = recipes

@@ -97,4 +97,4 @@ if -value == -6 and value .. "x" == "joined" then
     score = score + 64
 end
 
-export = score
+export const result = score

@@ -53,8 +53,6 @@ local interfaceimage = require("nupp.compiler.project.interfaceimage")
 local emitprofile = require("nupp.tools.vm.emitprofile")
 local T = require("nupp.compiler.types")
 
-local emitcache = {}
-
 --- Bumped when what is kept changes shape or meaning.
 const FORMAT = "vm-root-emit/3"
 
@@ -75,8 +73,12 @@ const INDEX_TABLES = {
     "moduleDefinitions",
 }
 
+local latest: any = nil
+
 --- What the last session did, for tests and the emit's summary line.
-emitcache.last = nil as any
+export function last(): any
+    return latest
+end
 
 --- Writes `value` as text two equal values spell the same way. Keys are visited
 --- sorted; `skip` names keys left out.
@@ -258,7 +260,7 @@ end
 
 --- Opens the cache under `dir` for an emit checking in `env`, or nil when the
 --- emit keeps nothing. `carried` holds the source of modules that have no file.
-function emitcache.open(dir: string, env: any, config: table, carried: {[string]: string}?): any
+export function open(dir: string, env: any, config: table, carried: {[string]: string}?): any
     for _, variable in ipairs(REPORTING) do
         if os.getenv(variable) then
             return nil
@@ -278,7 +280,7 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
         adopted = 0,
     }
     self.stats = stats
-    emitcache.last = self
+    latest = self
     -- Where the time goes, when NUPP_VM_EMIT_PROFILE asks
     -- (`nupp.tools.vm.emitprofile`).
     local profile: any = emitprofile.open()
@@ -1007,5 +1009,3 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
 
     return self
 end
-
-export = emitcache

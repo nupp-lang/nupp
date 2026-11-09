@@ -165,4 +165,6 @@ interface cdecl.Inspection
     declared: integer
 end
 
+-- nupp.compiler.cinterop.cdecl adds its functions to this same table, so the
+-- module value has to be the table itself.
 export = cdecl

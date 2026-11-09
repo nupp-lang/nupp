@@ -54,4 +54,4 @@ end
 if type(true) == "boolean" and type(helper) == "function" and type(1.5) == "number" then
     score = score + 10000000
 end
-export = score + helper(0)
+export const result = score + helper(0)

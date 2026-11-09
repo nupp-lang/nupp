@@ -14,11 +14,9 @@ numbering what it happens to emit.
 
 local cst = require("nupp.compiler.syntax.cst")
 
-local coverage = {}
-
 --- One place a coverage build counts. A function site also carries the name a report
 --- shows for it and the line its declaration ends on.
-record coverage.Site
+export record Site
     id: integer
     kind: 'statement' | 'function' | 'branch'
     line: integer
@@ -28,15 +26,15 @@ end
 
 --- What a build records for a module, and what its report reads: the path the hits
 --- are filed under and every site the module may report having reached.
-record coverage.Manifest
+export record Manifest
     path: string?
-    sites: {coverage.Site}
+    sites: {Site}
 end
 
 --- A module's sites, and each site's number by the node it was taken at. A node can
 --- be the site of a statement and of a branch at once, so the kinds are separate.
-record coverage.Index
-    manifest: coverage.Manifest
+export record Index
+    manifest: Manifest
     statements: {[any]: integer}
     functions: {[any]: integer}
     branches: {[any]: integer}
@@ -71,7 +69,7 @@ const STATEMENTS: {
 }
 
 --- Whether a block's child is a statement coverage counts.
-function coverage.isStatement(node: any): boolean
+export function isStatement(node: any): boolean
     if not node or cst.isToken(node) then
         return false
     end
@@ -108,10 +106,10 @@ end
 --- Number every site of the checked module rooted at `root`, filing them under
 --- `path`. The numbering is a walk of the syntax in source order, so it depends on
 --- nothing a backend decides.
-function coverage.enumerate(root: any, path: string?): coverage.Index
-    local sites: {coverage.Site} = {}
-    local index = coverage.Index(
-        manifest = coverage.Manifest(path = path, sites = sites),
+export function enumerate(root: any, path: string?): Index
+    local sites: {Site} = {}
+    local index = Index(
+        manifest = Manifest(path = path, sites = sites),
         statements = {},
         functions = {},
         branches = {},
@@ -130,7 +128,7 @@ function coverage.enumerate(root: any, path: string?): coverage.Index
             return known
         end
         local id = #sites + 1
-        local site = coverage.Site(id = id, kind = kind, line = sourceLine(node) or 0)
+        local site = Site(id = id, kind = kind, line = sourceLine(node) or 0)
         local owner = kind == "function" and declared[node] or nil
         if owner then
             site.name = owner.name
@@ -171,7 +169,7 @@ function coverage.enumerate(root: any, path: string?): coverage.Index
         end
         if kind == "block" then
             for _, child in ipairs(node) do
-                if coverage.isStatement(child) and not erased(child) then
+                if isStatement(child) and not erased(child) then
                     add("statement", child)
                 end
                 visit(child)
@@ -212,5 +210,3 @@ function coverage.enumerate(root: any, path: string?): coverage.Index
 
     return index
 end
-
-export = coverage

@@ -75,4 +75,4 @@ end)
 if not ok3 and tostring(problem3):find("bad 'for' limit (number expected, got nil)", 1, true) then
     score = score + 512
 end
-export = score
+export const result = score

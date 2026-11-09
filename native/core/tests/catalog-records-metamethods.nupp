@@ -70,4 +70,4 @@ local twice = Scale(factor = 2)
 if twice:apply(21) == 42 and twice:apply("ab") == "abab" then
     score = score + 40000000
 end
-export = score
+export const result = score

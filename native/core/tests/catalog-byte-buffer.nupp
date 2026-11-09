@@ -16,4 +16,4 @@ end
 if b:get(2) == "a1" and #b == 1 then
     score = score + 2
 end
-export = score
+export const result = score

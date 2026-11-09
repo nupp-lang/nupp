@@ -92,4 +92,4 @@ end)
 if not ok and released == 5018 + 1020 + 50001 then
     score = score + 64
 end
-export = score
+export const result = score

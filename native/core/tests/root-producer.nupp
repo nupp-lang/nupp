@@ -12,7 +12,6 @@ local selector = require("s0.select")
 local shim = require("nupp.core.rootshim")
 local json = require("serde.json")
 local graphimage = require("nupp.compiler.vm.graphimage")
-local producer = {}
 
 -- The outer assembly boundary has no graph call site to check these arguments.
 -- Bind it to the actual checked declaration and graph before machine selection.
@@ -33,7 +32,7 @@ local function boundary(item: any, expected: {string}): nil
     end
 end
 
-function producer.compile(mode: string): string
+export function compile(mode: string): string
     assert(mode == "normal" or mode == "spill")
     local groups, modules = {}, {}
     for _, item in ipairs({
@@ -148,7 +147,7 @@ function producer.compile(mode: string): string
     return json.encodevalue(result)
 end
 
-function producer.data(selection: string, choice: string): string
+export function data(selection: string, choice: string): string
     local result = json.decodevalue(front.read(selection))
     local layout = result.layout
     local selected = assert(tonumber(choice))
@@ -185,5 +184,3 @@ function producer.data(selection: string, choice: string): string
 
     return table.concat(output)
 end
-
-export = producer

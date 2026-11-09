@@ -13,9 +13,8 @@ local program = require("nupp.core.program")
 local json = require("serde.json")
 local front = require("nupp.core.source")
 local checked, read = front.checked, front.read
-local producer = {}
 
-function producer.compile(mode: string): string
+export function compile(mode: string): string
     assert(mode == "normal" or mode == "spill", "invalid allocation mode")
     local functions, options = checked(read(CORE), CORE, "nupp.runtime.vm.core")
     local stopPath = ROOT .. "/native/core/src/nupp/runtime/core/entry.nupp"
@@ -63,7 +62,7 @@ function producer.compile(mode: string): string
     return json.encodevalue(result)
 end
 
-function producer.data(path: string, slots: string, offsets: string, codeBytes: string): string
+export function data(path: string, slots: string, offsets: string, codeBytes: string): string
     local code = read(path)
     local handlers = {}
     for text in offsets:gmatch("[^,]+") do
@@ -72,5 +71,3 @@ function producer.data(path: string, slots: string, offsets: string, codeBytes: 
 
     return program.data(code, assert(tonumber(slots)) as integer, handlers, assert(tonumber(codeBytes)) as integer)
 end
-
-export = producer

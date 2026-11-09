@@ -4,4 +4,6 @@ local value = 140737488355320
 for i = 1, 10 do
     value = value + 1
 end
+-- Graph profiles before version 8 have no tables to export from, so the
+-- module value is the result itself.
 export = value

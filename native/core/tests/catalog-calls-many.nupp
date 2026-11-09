@@ -104,4 +104,4 @@ local fine, message = pcall(dive, 5000)
 if not fine and message == "bottom" and walk(step, 7) == direct then
     score = score + 4
 end
-export = direct * 8 + score
+export const result = direct * 8 + score

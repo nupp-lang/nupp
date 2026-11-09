@@ -1,8 +1,6 @@
 module nupp.compiler.vm.framecontract
 
-local contract = {}
-
-function contract.read(definition: any, name: string): any
+export function read(definition: any, name: string): any
     local found = nil
     for _, annotation in ipairs(definition and definition.annotations or {}) do
         if annotation.name == "vmFrameAccess" then
@@ -27,5 +25,3 @@ function contract.read(definition: any, name: string): any
 
     return {kind = fields.kind, class = fields.class}
 end
-
-export = contract

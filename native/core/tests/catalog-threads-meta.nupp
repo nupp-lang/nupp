@@ -28,4 +28,4 @@ score = score + (left + 4) * 10000
 if left < right and not (right < left) then
     score = score + 1000000
 end
-export = score
+export const result = score

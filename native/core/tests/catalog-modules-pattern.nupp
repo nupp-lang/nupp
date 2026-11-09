@@ -4,4 +4,4 @@ module nupp.core.catalogmodulespattern
 -- each is read once, when the pattern runs.
 const {scale, unit as base, bump} = require("nupp.core.catalogmodulesgeometry")
 bump()
-export = scale(2) + base + bump() * 100
+export const result = scale(2) + base + bump() * 100

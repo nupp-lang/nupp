@@ -2,13 +2,12 @@ module nupp.core.librarylayoutsgen
 
 local corelibrary = require("nupp.compiler.vm.corelibrary")
 local bytecode = require("nupp.compiler.vm.corebytecode")
-local generator = {}
 
 -- The layouts the runtime's library calls share with the compiler, from the
 -- one table (nupp.compiler.vm.corelibrary) and the instruction recipes
 -- (corebytecode): the LibCall instruction, the file operations HOST_FILES
 -- takes, and the keys of the state tables some calls keep between steps.
-function generator.source(): string
+export function source(): string
     local lines = {
         "module nupp.runtime.core.librarylayouts",
         "",
@@ -70,5 +69,3 @@ function generator.source(): string
 
     return table.concat(lines, "\n") .. "\n"
 end
-
-export = generator

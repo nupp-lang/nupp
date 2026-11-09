@@ -17,33 +17,32 @@ local wiregen = require("nupp.core.rawwiregen")
 local shapegen = require("nupp.core.rawshapegen")
 local cataloggen = require("nupp.core.rawcataloggen")
 local json = require("serde.json")
-local producer = {}
 
-function producer.generated(): string
+export function generated(): string
     return generator.source()
 end
 
-function producer.budgetGenerated(): string
+export function budgetGenerated(): string
     return budgetgen.source()
 end
 
-function producer.executableGenerated(): string
+export function executableGenerated(): string
     return executablegen.source()
 end
 
-function producer.wireGenerated(): string
+export function wireGenerated(): string
     return wiregen.source()
 end
 
-function producer.shapeGenerated(): string
+export function shapeGenerated(): string
     return shapegen.source()
 end
 
-function producer.catalogGenerated(): string
+export function catalogGenerated(): string
     return cataloggen.source()
 end
 
-function producer.compile(mode: string): string
+export function compile(mode: string): string
     assert(mode == "normal" or mode == "spill")
     assert(
         front.read(ROOT .. "/native/core/src/nupp/runtime/core/rawsemanticpolicy.nupp") == generator.source(),
@@ -184,5 +183,3 @@ function producer.compile(mode: string): string
 
     return json.encodevalue(result)
 end
-
-export = producer

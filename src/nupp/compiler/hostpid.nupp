@@ -1,8 +1,7 @@
 module nupp.compiler.hostpid
 
 -- The LuaJIT host implementation. Other hosts supply this module directly.
-local host = {}
-function host.get(): number?
+export function get(): number?
     local ok, ffi = pcall(require, "ffi")
     if not ok then
         return nil
@@ -27,5 +26,3 @@ function host.get(): number?
 
     return nil
 end
-
-export = host

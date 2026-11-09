@@ -109,4 +109,4 @@ local spreadFailed, problem = handled("spread failure", nil, 3)
 assert(not spreadFailed and problem == "spread failure", "protected vararg error was lost")
 local tailOk, tailFirst, tailMiddle, tailLast = pcall(values, values(4, nil, 6))
 assert(tailOk and tailFirst == 4 and tailMiddle == nil and tailLast == 6, "protected call tail was lost")
-export = score + deep(2) * 100000000
+export const result = score + deep(2) * 100000000

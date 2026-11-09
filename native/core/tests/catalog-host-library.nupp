@@ -43,4 +43,4 @@ local arguments: any = rawget(_G, "arg")
 if type(arguments[0]) == "string" and arguments[1] == "alpha" and arguments[2] == "beta" and arguments[3] == nil then
     score = score + 128
 end
-export = score
+export const result = score

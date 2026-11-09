@@ -2,12 +2,11 @@ module nupp.compiler.vm.chunks
 
 local parser = require("nupp.compiler.syntax.parser")
 local lower = require("nupp.compiler.vm.lower")
-local chunks = {}
 local sourceLoader: any = nil
 
 --- Lower a Lua chunk without assigning Nupp types to its dynamic tables.
 --- @raises string when parsing or lowering fails.
-function chunks.image(source: string, filename: string?, environment: boolean?): string
+export function image(source: string, filename: string?, environment: boolean?): string
     local path = filename or "=(loadstring)"
     local tree = parser.parse(source, path)
     assert(#tree.errors == 0, "chunk did not parse: " .. path)
@@ -74,7 +73,7 @@ local function installers(root: any): {string}
 end
 
 --- Install source loading only in a host that exposes the image loader.
-function chunks.install(): boolean
+export function install(): boolean
     local loadImage = rawget(_G, "__nupp_load_image")
     if not loadImage then
         return false
@@ -98,7 +97,7 @@ function chunks.install(): boolean
 
         local function prepare()
             if not compiled then
-                compiled = loadImage(chunks.image(source, path, true))
+                compiled = loadImage(image(source, path, true))
             end
         end
 
@@ -183,5 +182,3 @@ function chunks.install(): boolean
 
     return true
 end
-
-export = chunks

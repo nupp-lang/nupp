@@ -54,4 +54,6 @@ function lower.emit(
     return result as string
 end
 
+-- Importers set pathMapper and graphSink on this table and the lowering reads
+-- them back, so the module value has to be the table itself.
 export = lower

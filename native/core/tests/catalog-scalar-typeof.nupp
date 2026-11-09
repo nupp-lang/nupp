@@ -27,4 +27,4 @@ check(ffi.typeof<float32>(), 4)
 assert(ffi.typeof<float32>() == ffi.typeof<float32>(), "canonical float32 witness")
 check(ffi.typeof<float64>(), 8)
 assert(ffi.typeof<float64>() == ffi.typeof<float64>(), "canonical float64 witness")
-export = 1
+export const result = 1

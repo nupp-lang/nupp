@@ -2,9 +2,8 @@ module nupp.bench.tablebench
 
 --- Table semantics across the tiers: object keys, nil stores, growth
 --- during iteration, `next`, and a weak-keyed map.
-local bench = {}
 
-function bench.run(): (number, number, number, number)
+export function run(): (number, number, number, number)
     local byObj: {[any]: any} = setmetatable({}, {__mode = "k"})
     local objs: {any} = {}
     for i = 1, 500 do
@@ -47,5 +46,3 @@ function bench.run(): (number, number, number, number)
 
     return sum, count, n, seen + dup
 end
-
-export = bench

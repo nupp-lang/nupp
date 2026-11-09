@@ -1,6 +1,5 @@
 module nupp.compiler.vm.helpercontract
 
-local contract = {}
 local fields = {"mayCollect", "mayPark", "mayRaise", "pure"}
 local allowed = {mayCollect = true, mayPark = true, mayRaise = true, pure = true}
 
@@ -9,7 +8,7 @@ local allowed = {mayCollect = true, mayPark = true, mayRaise = true, pure = true
 --- The checked declaration carries plain semantic metadata, so graph consumers
 --- do not need its syntax tree or a second table of helper names.
 --- @raises string when the declaration is missing or inconsistent
-function contract.read(definition: any, name: string): {
+export function read(definition: any, name: string): {
     mayCollect: boolean,
     mayPark: boolean,
     mayRaise: boolean,
@@ -49,7 +48,7 @@ function contract.read(definition: any, name: string): {
     }
 end
 
-function contract.normalReturn(definition: any, name: string): any
+export function normalReturn(definition: any, name: string): any
     local found = nil
     for _, annotation in ipairs(definition and definition.annotations or {}) do
         if annotation.name == "vmNormalReturn" then
@@ -84,5 +83,3 @@ function contract.normalReturn(definition: any, name: string): any
 
     return {context = fields.context, frame = fields.frame, outcomes = fields.outcomes, synchronized = true}
 end
-
-export = contract

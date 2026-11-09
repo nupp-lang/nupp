@@ -17,7 +17,6 @@ local program = require("nupp.compiler.vm.programgraph")
 local tagged = require("nupp.compiler.vm.taggedprofile")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
 local writer = require("nupp.compiler.vm.coreartifact")
-local corechunk = {}
 
 -- The graph profile and executable version the core runs.
 const VERSION = 8
@@ -90,7 +89,7 @@ end
 -- for text that does not parse. What the checker finds does not refuse it:
 -- Lua's loaders refuse only syntax, and a chunk's values are dynamic where
 -- its checking found them wanting.
-function corechunk.describe(text: string, display: string): (any, string?)
+export function describe(text: string, display: string): (any, string?)
     local source = OPENING .. text .. CLOSING
     local path = display .. LUA_SUFFIX
     local parsed: any = parser.parse(source, path)
@@ -118,9 +117,9 @@ end
 --- Compile Lua source `text` to a binary chunk. `display` is the name its
 --- errors cite (Lua's chunkid of the chunk's name). Answers the chunk, or
 --- nil and a message as Lua's loaders do.
-function corechunk.compile(text: string, display: string): (string?, string?)
+export function compile(text: string, display: string): (string?, string?)
     local ok, result, problem = pcall(function(): (string?, string?)
-        local catalog, refused = corechunk.describe(text, display)
+        local catalog, refused = describe(text, display)
         if catalog == nil then
             return nil, refused
         end
@@ -137,13 +136,11 @@ end
 
 --- Everything that keeps Lua source `text` from compiling as a chunk, across
 --- all of it (program.inventory), or nil and a message where it does not parse.
-function corechunk.inventory(text: string, display: string): (any, string?)
-    local catalog, refused = corechunk.describe(text, display)
+export function inventory(text: string, display: string): (any, string?)
+    local catalog, refused = describe(text, display)
     if catalog == nil then
         return nil, refused
     end
 
     return program.inventory(catalog, tagged.forVersion(VERSION)), nil
 end
-
-export = corechunk

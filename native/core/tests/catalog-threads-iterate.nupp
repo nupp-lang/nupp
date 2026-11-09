@@ -110,4 +110,4 @@ end
 if counted == 6 and weighted == 38 then
     score = score + 16
 end
-export = score
+export const result = score

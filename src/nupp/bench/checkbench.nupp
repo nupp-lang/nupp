@@ -11,9 +11,7 @@ local envMod = require("nupp.compiler.project.env")
 local triviaarena = require("nupp.compiler.syntax.triviaarena")
 local tableProvider = require("nupp.compiler.syntax.triviaarena.table")
 
-local bench = {}
-
-function bench.setup(): boolean
+export function setup(): boolean
     triviaarena.install(tableProvider)
     return true
 end
@@ -42,13 +40,13 @@ end
 
 --- Checks `source` and returns the diagnostic count, the typed node count
 --- and the checksum.
-function bench.check(source: string): (number, number, number)
-    local result = parser.parse(source, "bench.nupp")
+export function check(source: string): (number, number, number)
+    local result = parser.parse(source, "nupp")
     if #result.errors > 0 then
         return -1, #result.errors, 0
     end
     local env = envMod.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
-    local diags = checkMod.check(result, "bench.nupp", env as any, {})
+    local diags = checkMod.check(result, "nupp", env as any, {})
     local sum, count = walk(result.root, 0, 0)
     for _, d in ipairs(diags) do
         const code = tostring(d.code)
@@ -61,10 +59,10 @@ function bench.check(source: string): (number, number, number)
 end
 
 --- The diagnostics one per line, for diffing two runtimes.
-function bench.dump(source: string): string
-    local result = parser.parse(source, "bench.nupp")
+export function dump(source: string): string
+    local result = parser.parse(source, "nupp")
     local env = envMod.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
-    local diags = checkMod.check(result, "bench.nupp", env as any, {})
+    local diags = checkMod.check(result, "nupp", env as any, {})
     local out: {string} = {}
     for _, d in ipairs(diags) do
         out[#out + 1] = tostring(d.code) .. " " .. tostring(d.line) .. ":" .. tostring(d.col) .. " " .. tostring(d.msg)
@@ -74,7 +72,7 @@ function bench.dump(source: string): string
 end
 
 --- The pieces behind bundled-module resolution, for comparing two runtimes.
-function bench.probe(name: string): string
+export function probe(name: string): string
     local env = envMod.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
     local bundledMod = require("nupp.compiler.bundled")
     local parts: {string} = {}
@@ -90,5 +88,3 @@ function bench.probe(name: string): string
 
     return table.concat(parts, "\n")
 end
-
-export = bench

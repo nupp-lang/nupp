@@ -126,4 +126,4 @@ assert(
         value.sub = original
     end)
 )
-export = 1
+export const result = 1

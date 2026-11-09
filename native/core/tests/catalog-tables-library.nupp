@@ -16,4 +16,4 @@ score = score + (middle as integer) * 1000 + t[1] * 100 + t[2] * 10 + t[3]
 if none == nil then
     score = score + 10000000
 end
-export = score
+export const result = score

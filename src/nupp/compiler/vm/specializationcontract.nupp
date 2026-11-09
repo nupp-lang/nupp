@@ -1,6 +1,5 @@
 module nupp.compiler.vm.specializationcontract
 
-local contract = {}
 local operations = {
     assertConstant = true,
     specializeValue = true,
@@ -11,7 +10,7 @@ local operations = {
 
 --- Returns a specialization operation from checked function metadata.
 --- @raises string when the metadata is absent or malformed
-function contract.read(definition: any, name: string): string
+export function read(definition: any, name: string): string
     local found = nil
     for _, annotation in ipairs(definition and definition.annotations or {}) do
         if annotation.name == "vmSpecialization" then
@@ -85,7 +84,7 @@ end
 --- `variantCap` is supplied by the semantic consumer and is limited to 4,096.
 --- This bounds compiler work only; an out-of-domain runtime value is valid.
 --- @raises string when bounds or the variant budget are invalid
-function contract.domain(low: string, high: string, variantCap: number): number
+export function domain(low: string, high: string, variantCap: number): number
     assert(
         type(variantCap) == "number"
         and variantCap == math.floor(variantCap)
@@ -118,5 +117,3 @@ function contract.domain(low: string, high: string, variantCap: number): number
 
     return distance + 1
 end
-
-export = contract

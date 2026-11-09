@@ -26,4 +26,4 @@ change()
 assert(nested(123) == 7)
 local math = {i32 = {wrap = replacement}}
 assert(math.i32.wrap(123) == 7)
-export = 1
+export const result = 1

@@ -14,11 +14,14 @@ const strings = require("nupp.runtime.core.corestrings")
 const ints = require("nupp.runtime.core.coreintegers")
 const guestscope = require("nupp.runtime.core.guestscope")
 const librarylayouts = require("nupp.runtime.core.librarylayouts")
+const hostpoll = require("nupp.runtime.core.hostpoll")
+const hostfiles = require("nupp.runtime.core.hostfiles")
 
 -- What a pool job is, as the bridge numbers them.
 const JOB_OPEN: uint64 = 1ULL
 const JOB_READ: uint64 = 2ULL
 const JOB_WRITE: uint64 = 3ULL
+const INVALID: int64 = 22
 
 local function heapOf(ctx: voidptr): heap.Heap*
     @unsafe do
@@ -80,20 +83,26 @@ export function call(ctx: voidptr, operation: uint64, a: uint64, b: uint64, c: u
     @unsafe do
         local h = heapOf(ctx)
         if operation == librarylayouts.POLL_OPEN then
-            return ints.make(h, native.word(os.pollOpen()))
+            return ints.make(h, native.word(hostpoll.open()))
         elseif operation == librarylayouts.POLL_ARM then
-            return ints.make(h, native.word(os.pollArm(integerOf(a), integerOf(b), integerOf(c))))
+            return ints.make(h, native.word(hostpoll.arm(h, integerOf(a), integerOf(b), integerOf(c))))
         elseif operation == librarylayouts.POLL_WAIT then
-            return ints.make(h, native.word(os.pollWait(integerOf(a), integerOf(b))))
+            return ints.make(h, native.word(hostpoll.wait(h, integerOf(a), integerOf(b))))
         elseif operation == librarylayouts.POLL_PIPE then
-            return ints.make(h, native.word(os.pipeOpen()))
+            return ints.make(h, native.word(hostpoll.pipeWith(h, true, true)))
         elseif operation == librarylayouts.POOL_START then
             return ints.make(h, native.word(os.poolStart(integerOf(a))))
         elseif operation == librarylayouts.POOL_OPEN then
             local s = stringOf(a)
+            local word = hostfiles.poolFlags(integerOf(b))
+            if word < 0 then
+                return ints.make(h, native.word(0 - INVALID))
+            end
             return ints.make(
                 h,
-                native.word(os.poolSubmit(JOB_OPEN, integerOf(b), native.pointer(strings.bytes(s)), strings.length(s)))
+                native.word(
+                    os.poolSubmit(JOB_OPEN, native.word(word), native.pointer(strings.bytes(s)), strings.length(s))
+                )
             )
         elseif operation == librarylayouts.POOL_READ then
             return ints.make(h, native.word(os.poolSubmit(JOB_READ, integerOf(a), native.pointer(0ULL), integerOf(b))))

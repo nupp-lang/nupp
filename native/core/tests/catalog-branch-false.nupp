@@ -8,4 +8,6 @@ local function choose(flag: boolean): boolean
     end
 end
 
+-- Graph profiles before version 8 have no tables to export from, so the
+-- module value is the result itself.
 export = choose(false)

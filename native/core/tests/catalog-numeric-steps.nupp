@@ -116,4 +116,4 @@ forgethandled()
 collectgarbage("collect")
 assert(weak[2] == nil, "handled error is released")
 
-export = 1
+export const result = 1

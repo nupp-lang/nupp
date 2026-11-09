@@ -13,9 +13,14 @@
 -- running its own while it selects the next case; NUPP_GUEST_SHARDS=1 runs
 -- them all here. A whole run is bounded by its longest process,
 -- workloadLoops in spill mode.
-local producer = require("nupp.core.guestprogramproducer")
-local guestbuild = require("nupp.core.guestbuild")
 local json = require("serde.json")
+local sharedcache = require("nupp.core.sharedcache")
+local selectioncache = require("nupp.core.selectioncache")
+-- The producer and the guest build carry the compiler, and a checkout that has
+-- not lowered them yet spends a minute doing so as they load. A run whose every
+-- selection is kept in the shared store (`nupp.core.selectioncache`) never needs
+-- them, so they load on first need (`compiler`, below).
+local producer, guestbuild
 
 local function cwd()
     local pipe = assert(io.popen("pwd"))
@@ -1049,7 +1054,7 @@ local function functionsmany()
         lines[#lines + 1] = "    total = total + f100(0)"
         lines[#lines + 1] = "end"
     end
-    lines[#lines + 1] = "export = total"
+    lines[#lines + 1] = "export const result = total"
     os.execute("mkdir -p " .. quote(OUT .. "/generated"))
     write(OUT .. "/generated/functionsmany.nupp", table.concat(lines, "\n") .. "\n")
 end
@@ -1060,6 +1065,9 @@ end
 -- chain). Nothing in it calls back or recurses, so its catalog's frame
 -- depth is that bound. Each source is staged where the guest project reads
 -- it as well.
+-- Its modules set their values with `export =`: an export table is published
+-- through a library call, which the depth bound must assume may call back,
+-- so named exports would bound its frames at the recursion limit instead.
 local MANY_DEPTH = 18
 
 local function modulesmany()
@@ -1093,6 +1101,23 @@ local function modulesmany()
     local text = table.concat(main, "\n") .. "\n"
     write(OUT .. "/generated/modulesmany.nupp", text)
     write(staged .. "/catalogmodulesmany.nupp", text)
+end
+
+-- Loads the producer and the guest build on first need, and prepares what
+-- their builds read: the generated cases and the staged sources. A shard's
+-- parent prepared them before it started the shard.
+local function compiler()
+    if producer == nil then
+        guestbuild = require("nupp.core.guestbuild")
+        producer = require("nupp.core.guestprogramproducer")
+        if not os.getenv("NUPP_GUEST_SHARD") then
+            functionsmany()
+            modulesmany()
+            stage()
+        end
+    end
+
+    return producer, guestbuild
 end
 
 -- Runs the cases in NUPP_GUEST_SHARDS processes at once (default 4), each
@@ -1131,6 +1156,8 @@ local function shards(selectedCases, bridge, guard)
         return false
     end
     os.execute("rm -f " .. quote(OUT) .. "/costs/*")
+    -- The shards build from what this process prepares.
+    compiler()
     local commands = {}
     for index = 1, count do
         local log = ("%s/shard-%d.log"):format(OUT, index)
@@ -1177,9 +1204,7 @@ local function main()
     os.execute("mkdir -p " .. quote(OUT))
     -- Its parent wrote the generated case a shard reads.
     if not os.getenv("NUPP_GUEST_SHARD") then
-        functionsmany()
-        modulesmany()
-        -- And the directory the io cases write their files in, afresh.
+        -- The directory the io cases write their files in, afresh.
         os.execute("rm -rf " .. quote(OUT .. "/temp") .. " && mkdir -p " .. quote(OUT .. "/temp"))
     end
     -- The cases named, in the order named, or every case.
@@ -1239,7 +1264,6 @@ local function main()
     local bridge, guard = os.getenv("NUPP_GUEST_BRIDGE"), os.getenv("NUPP_GUEST_GUARD")
     if not shard then
         timing.phase = "tools"
-        stage()
         bridge, guard = tools()
         if shards(selectedCases, bridge, guard) then
             return
@@ -1251,16 +1275,29 @@ local function main()
     -- the cases before it go on.
     local selections = {}
     local selectedSeconds = 0
+    -- Each case's profile version, kept beside its selection.
+    local versions = {}
+    local kept = 0
 
     local function selection(name, mode)
         local began = os.time()
         timing.phase, timing.case = "select", name
-        if UNITS then
-            selections[
-                name .. "-" .. mode
-            ] = producer.selectUnits(name, mode, tostring(SCRATCH), ROOT .. "/build/core-unit-cache")
+        local parts = {name, mode, tostring(UNITS and SCRATCH or 131072), UNITS and "units" or "frozen"}
+        local held, extra = selectioncache.lookup(ROOT, parts)
+        if held and type(extra) == "table" and math.type(extra.version) == "integer" then
+            selections[name .. "-" .. mode], versions[name] = held, extra.version
+            kept = kept + 1
         else
-            selections[name .. "-" .. mode] = producer.select(name, mode, "131072")
+            compiler()
+            if UNITS then
+                selections[
+                    name .. "-" .. mode
+                ] = producer.selectUnits(name, mode, tostring(SCRATCH), sharedcache.directory("kernels"))
+            else
+                selections[name .. "-" .. mode] = producer.select(name, mode, "131072")
+            end
+            versions[name] = guestbuild.version(name)
+            selectioncache.keep(ROOT, parts, selections[name .. "-" .. mode], {version = versions[name]})
         end
         account(os.time() - began)
         selectedSeconds = selectedSeconds + os.time() - began
@@ -1344,6 +1381,7 @@ local function main()
         if REFUSED[name] then
             timing.case, timing.phase = name, "select"
             local began = os.time()
+            compiler()
             local compiled, problem = pcall(guestbuild.program, name)
             account(os.time() - began)
             check(
@@ -1372,7 +1410,7 @@ local function main()
             local bundleBytes, codeBytes, data = bundleOf(selected, SCRATCH)
             local version = get64(data, 0)
             -- The profile version from v3; before it one module is descriptor v1.
-            local profile = guestbuild.version(name)
+            local profile = versions[name]
             local modules = (name == "modulePair" or name == "moduleTriple") and 2 or 1
             check(version == (profile >= 3 and profile or modules), label .. " descriptor version")
             local bundle = OUT .. "/" .. label .. ".bundle"
@@ -1654,7 +1692,11 @@ local function main()
         end
     end
 
-    print(("selected %d programs in %ds"):format(#selectedCases * #MODES, selectedSeconds))
+    print(
+        (
+            "selected %d programs in %ds, %d kept from the shared store"
+        ):format(#selectedCases * #MODES, selectedSeconds, kept)
+    )
     drain()
     print(("primary checks done at %ds"):format(os.time() - started))
     -- Supplemental lifecycle audits wrap selected primary programs.
@@ -1672,8 +1714,9 @@ local function main()
                 local label = ("audit-%s-%s-%s"):format(name, mode, scenario)
                 timing.case, timing.phase = "audit " .. name, "audit select"
                 local began = os.time()
+                compiler()
                 local selected = UNITS
-                    and producer.selectUnits(name, mode, tostring(SCRATCH), ROOT .. "/build/core-unit-cache", scenario)
+                    and producer.selectUnits(name, mode, tostring(SCRATCH), sharedcache.directory("kernels"), scenario)
                     or producer.select(name, mode, "131072", scenario)
                 account(os.time() - began)
                 local primary = selections[name .. "-" .. mode]
@@ -1742,7 +1785,7 @@ local function main()
 
     summary("seconds by phase", timing.phases, 100)
     summary("slowest cases", timing.cases, 12)
-    summary("processor seconds in selection", guestbuild.timings, 100)
+    summary("processor seconds in selection", guestbuild and guestbuild.timings or {}, 100)
     print(("%d checks, %d failed, %ds"):format(checks, #failures, os.time() - started))
     if shard then
         print(("shard result %d %d"):format(checks, #failures))

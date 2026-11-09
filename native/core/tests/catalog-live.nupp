@@ -6,4 +6,6 @@ end
 
 local held = true
 local _result = identity(false)
+-- Graph profiles before version 8 have no tables to export from, so the
+-- module value is the result itself.
 export = held

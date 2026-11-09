@@ -121,4 +121,4 @@ local nilOk, nilMessage = pcall(function(): any
     return (os.difftime as any)(1, nil)
 end)
 check(not nilOk and ends(nilMessage, ":121: bad argument #2 to 'difftime' (number expected, got nil)"))
-export = score
+export const result = score

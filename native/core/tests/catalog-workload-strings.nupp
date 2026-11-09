@@ -19,4 +19,4 @@ local function strings(): number
     return #joined + found
 end
 
-export = strings()
+export const result = strings()

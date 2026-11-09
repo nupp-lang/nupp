@@ -4,4 +4,6 @@ local function identity(value: boolean): boolean
     return value
 end
 
+-- Graph profiles before version 8 have no tables to export from, so the
+-- module value is what its requirer reads.
 export = identity(false)

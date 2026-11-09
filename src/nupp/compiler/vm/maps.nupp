@@ -2,12 +2,11 @@ module nupp.compiler.vm.maps
 
 local G = require("nupp.compiler.vm.graph")
 local regions = require("nupp.compiler.vm.regions")
-local map = {}
 
 -- The shared map legality check owns the parallelism and bounds argument.
 -- Frontends emit checked accesses. Backends do not inspect source syntax.
 
-function map.verify(g: any): any
+export function verify(g: any): any
     G.verify(g)
     local events = regions.events(g)
     local m = assert(g.map, "not a map graph")
@@ -279,5 +278,3 @@ function map.verify(g: any): any
         events = events
     }
 end
-
-export = map

@@ -32,4 +32,4 @@ score = score * 10 + (r1 + 1) * 4 + (r2 - 1) * 2
 if r3 == 0 and math.type(r1) == "integer" and math.type(2 ^ 2) == "float" then
     score = score + 1
 end
-export = score
+export const result = score

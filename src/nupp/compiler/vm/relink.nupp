@@ -48,17 +48,15 @@ record of that name for the same declaring module.
 local lowerstate = require("nupp.compiler.vm.lowerstate")
 local opcodes = require("nupp.compiler.vm.opcodes")
 
-local relink = {}
-
 --- Bumped whenever a kept fragment's shape or meaning changes.
-relink.FORMAT = "vm-relink/3"
+export const FORMAT = "vm-relink/3"
 
 --- Operand positions (1-based, after the opcode) that carry a function id, per
 --- opcode, as the VM's image loader relocates them.
-relink.FUNCTION_OPERANDS = opcodes.functionOperand
+export const FUNCTION_OPERANDS = opcodes.functionOperand
 
 --- Operand positions that carry a shape index.
-relink.SHAPE_OPERANDS = opcodes.shapeOperand
+export const SHAPE_OPERANDS = opcodes.shapeOperand
 
 local function int(text: string): integer
     return (assert(tonumber(text), "not a number: " .. text)) as integer
@@ -103,7 +101,7 @@ end
 
 --- A linker for one emit. `reuse` supplies kept fragments (`fragment(name,
 --- path)`) and takes new ones (`keep(name, fragment)`).
-function relink.new(reuse: any): any
+export function new(reuse: any): any
     local self: any = {}
     local backingShapes: any = nil
     local backingNominals: any = nil
@@ -326,7 +324,7 @@ function relink.new(reuse: any): any
     --- for.
     function self.fragment(name: string, path: string): any
         local fragment = reuse.fragment(name, path)
-        if type(fragment) ~= "table" or fragment.format ~= relink.FORMAT then
+        if type(fragment) ~= "table" or fragment.format ~= FORMAT then
             return nil
         end
 
@@ -456,11 +454,11 @@ function relink.new(reuse: any): any
                     copy[k] = ins[k]
                 end
                 local op = ins[1] as string
-                local functionAt = relink.FUNCTION_OPERANDS[op]
+                local functionAt = FUNCTION_OPERANDS[op]
                 if functionAt then
                     copy[functionAt + 1] = base + (ins[functionAt + 1] as integer)
                 end
-                local shapeAt = relink.SHAPE_OPERANDS[op]
+                local shapeAt = SHAPE_OPERANDS[op]
                 if shapeAt then
                     copy[shapeAt + 1] = shapes[ins[shapeAt + 1] as integer].id
                 end
@@ -629,7 +627,7 @@ function relink.new(reuse: any): any
                     copy[m] = ins[m]
                 end
                 local op = ins[1] as string
-                local functionAt = relink.FUNCTION_OPERANDS[op]
+                local functionAt = FUNCTION_OPERANDS[op]
                 if functionAt then
                     local placed = functionId(ins[functionAt + 1] as integer)
                     if placed == nil then
@@ -637,7 +635,7 @@ function relink.new(reuse: any): any
                     end
                     copy[functionAt + 1] = placed
                 end
-                local shapeAt = relink.SHAPE_OPERANDS[op]
+                local shapeAt = SHAPE_OPERANDS[op]
                 if shapeAt then
                     local placed = shapeRef(ins[shapeAt + 1] as integer)
                     if placed == nil then
@@ -757,7 +755,7 @@ function relink.new(reuse: any): any
             else
                 self.stats.kept = self.stats.kept + 1
                 reuse.keep(started.name, {
-                    format = relink.FORMAT,
+                    format = FORMAT,
                     deps = started.deps,
                     queued = started.queued,
                     chunk = started.chunk,
@@ -973,5 +971,3 @@ function relink.new(reuse: any): any
 
     return self
 end
-
-export = relink

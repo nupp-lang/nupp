@@ -6,7 +6,6 @@ local graph = require("nupp.compiler.vm.graph")
 local physical = require("nupp.compiler.vm.nativephysical")
 local service = require("nupp.compiler.vm.nativeservice")
 local unit = require("nupp.compiler.vm.nativeunit")
-local M = {}
 
 local function refuses(callback: function(): nil, text: string): nil
     local ok, message = pcall(callback)
@@ -14,7 +13,7 @@ local function refuses(callback: function(): nil, text: string): nil
     assert(tostring(message):find(text, 1, true), tostring(message))
 end
 
-function M.check(build: any): boolean
+export function check(build: any): boolean
     local owners = service.owners(build.catalog)
     local arena: any = nil
     for _, owner in ipairs(owners) do
@@ -117,5 +116,3 @@ function M.check(build: any): boolean
 
     return true
 end
-
-export = M

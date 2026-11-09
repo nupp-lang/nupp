@@ -163,7 +163,7 @@ end
 
 local function cached(dir)
     local image = project.emitCached(dir, "main", "", "src", dir .. "/cache")
-    return image, emitcache.last.stats
+    return image, emitcache.last().stats
 end
 
 local function same(expected, actual, what)
@@ -315,7 +315,7 @@ export = handles
         local expected = project.emit(dir, "consumer", "", "src")
         project.emitCached(dir, "left", "", "src", dir .. "/cache")
         local image = project.emitCached(dir, "consumer", "", "src", dir .. "/cache")
-        assert(emitcache.last.stats.restored > 0, "the warm interface was not restored")
+        assert(emitcache.last().stats.restored > 0, "the warm interface was not restored")
         same(expected, image, "prelude cleanup type")
     end)
     remove(dir)
@@ -354,7 +354,7 @@ end
         local expected = project.emit(dir, "consumer", "", "src")
         project.emitCached(dir, "left", "", "src", dir .. "/cache")
         local image = project.emitCached(dir, "consumer", "", "src", dir .. "/cache")
-        assert(emitcache.last.stats.restored > 0, "the warm interface was not restored")
+        assert(emitcache.last().stats.restored > 0, "the warm interface was not restored")
         same(expected, image, "nested prelude type")
     end)
     remove(dir)
@@ -397,7 +397,7 @@ end
         write(dir .. "/src/consumer.nupp", consumer("2"))
         local expected = project.emit(dir, "consumer", "", "src")
         local image = project.emitCached(dir, "consumer", "", "src", dir .. "/cache")
-        assert(emitcache.last.stats.restored > 0, "the unchanged provider interface was not restored")
+        assert(emitcache.last().stats.restored > 0, "the unchanged provider interface was not restored")
         same(expected, image, "checked const defaults after consumer edit")
     end)
     remove(dir)
@@ -698,7 +698,7 @@ end
 
 local function physicalCached(dir, entry)
     local image = project.emitCached(dir, entry, "", nil, dir .. "/cache")
-    return image, emitcache.last.stats
+    return image, emitcache.last().stats
 end
 
 local function runPhysicalImage(image, what)

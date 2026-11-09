@@ -15,4 +15,4 @@ end
 if down ~= nil then
     score = score + 2
 end
-export = score
+export const result = score

@@ -4,4 +4,4 @@ module nupp.core.catalogmodulescycle
 -- as it stands while the first is loading, and once both have loaded each
 -- reaches the other's functions.
 const ping = require("nupp.core.catalogmodulesping")
-export = ping.ping(5)
+export const result = ping.ping(5)

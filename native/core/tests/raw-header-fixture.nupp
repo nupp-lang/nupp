@@ -12,9 +12,8 @@ local json = require("serde.json")
 require("nupp.compiler.syntax.triviaarena.table")
 require("nupp.compiler.project.projectconfig")
 require("nupp.compiler.hash")
-local fixture = {}
 
-function fixture.data(): string
+export function data(): string
     local path, name = "=raw_header_fixture.nupp", "raw_header_fixture"
     local parsed = parser.parse(
         "local function identity(value: boolean): boolean return value end\nreturn identity(true)",
@@ -35,7 +34,7 @@ function fixture.data(): string
     return codec.encode(contracts.normalize(program.compile(catalog, tagged)))
 end
 
-function fixture.validate(path: string): string
+export function validate(path: string): string
     local file = assert(io.open(path, "rb"))
     local bytes = file:read("*a")
     file:close()
@@ -44,8 +43,6 @@ function fixture.validate(path: string): string
     return json.encodevalue({accepted = ok})
 end
 
-function fixture.wire(): string
+export function wire(): string
     return json.encodevalue(schema.wire())
 end
-
-export = fixture

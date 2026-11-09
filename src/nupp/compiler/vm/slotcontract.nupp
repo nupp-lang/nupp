@@ -1,6 +1,5 @@
 module nupp.compiler.vm.slotcontract
 
-local contract = {}
 local kinds = {
     vararg = {uint64 = true},
     v = {uint64 = true},
@@ -15,7 +14,7 @@ local kinds = {
 --- The frame and window are explicit operands. Reads observe mutable frame
 --- state; writes change it. Neither operation collects, parks or raises.
 --- @raises string when the declaration is missing or inconsistent
-function contract.read(definition: any, name: string): {
+export function read(definition: any, name: string): {
     class: string,
     kind: string,
     write: boolean,
@@ -64,5 +63,3 @@ function contract.read(definition: any, name: string): {
 
     return {class = fields.class, kind = fields.kind, write = fields.write, width = 8}
 end
-
-export = contract

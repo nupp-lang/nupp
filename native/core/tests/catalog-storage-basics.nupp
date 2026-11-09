@@ -67,4 +67,4 @@ local later: any = block + 6
 if calls.elements(later) == 2 and later[0] == 33 then
     score = score + 4096
 end
-export = score
+export const result = score

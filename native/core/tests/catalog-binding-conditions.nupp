@@ -77,4 +77,4 @@ local ok, problem = pcall(guarded, 0, true)
 assert(not ok and problem == "binding cleanup" and closed == 2)
 guarded(nil, false)
 assert(closed == 2 and evaluations == 12)
-export = true
+export const result = true

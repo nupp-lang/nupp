@@ -30,4 +30,4 @@ end
 if tonumber("0xffffffffffffffff") == -1 then
     total = total + 300
 end
-export = total + (tonumber(5) or 0)
+export const result = total + (tonumber(5) or 0)

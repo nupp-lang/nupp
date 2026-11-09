@@ -8,7 +8,6 @@ module nupp.compiler.vm.coreartifact
 local executable = require("nupp.compiler.vm.coregraphexecutable")
 local schema = require("nupp.compiler.vm.coregraphschema")
 local bytecode = require("nupp.compiler.vm.corebytecode")
-local artifact = {}
 -- The constant-word tag of a v8 string constant; the payload is its offset.
 local STRING_CONSTANT = 0x7ffe000000000000
 -- A wide integer constant (past the 48-bit immediate) over its eight bytes'
@@ -32,7 +31,7 @@ local ZERO_RUN = string.rep("\0", 65536)
 -- (nupp.runtime.vm.values), its diagnostic format and flags
 -- (nupp.runtime.core.guestcatalog) and its chunk header and relocations
 -- (nupp.runtime.core.guestloader).
-artifact.constants = {
+export const constants = {
     TRUE = 0x7ffb000000000000,
     FALSE = 0x7ffa000000000000,
     NIL = 0x7ff9000000000000,
@@ -45,11 +44,10 @@ artifact.constants = {
     RELOCATE_MODULE = 2,
     RELOCATION_SHIFT = 48
 }
-local constants = artifact.constants
 
 -- The fields of each catalog record the artifact holds, in order; every
 -- field is one word (nupp.runtime.core.guestcatalog).
-artifact.fields = {
+export const fields = {
     DescriptorV1 = {
         "version",
         "bytes",
@@ -151,7 +149,7 @@ local function layoutOf(names: {string}): any
 end
 
 local recordLayouts: {[string]: any} = {}
-for name, names in pairs(artifact.fields) do
+for name, names in pairs(fields) do
     recordLayouts[name] = layoutOf(names)
 end
 
@@ -166,7 +164,7 @@ local function wordOf(bytes: string): int64
 end
 
 -- A word's eight little-endian bytes.
-local function encode(value: int64): string
+local function wordbytes(value: int64): string
     return string.char(
         value & 255,
         (value >> 8) & 255,
@@ -224,7 +222,7 @@ end
 -- This writes a trusted checked-source artifact, not a native loader token.
 -- `raises` lists the runtime's literal raises ({id, site, literal}), whose
 -- texts a v8 program carries for the errors they raise.
-function artifact.encode(code: any, dispatch: {integer}, codeBytes: integer, raises: {any}?): any
+export function encode(code: any, dispatch: {integer}, codeBytes: integer, raises: {any}?): any
     executable.validate(code)
     assert(#dispatch >= 1 and #dispatch <= 256, "guest dispatch extent")
     local layouts = recordLayouts
@@ -355,14 +353,14 @@ function artifact.encode(code: any, dispatch: {integer}, codeBytes: integer, rai
 
     local function word(at: integer, value: int64): nil
         assert(at % 8 == 0)
-        place(at, encode(value))
+        place(at, wordbytes(value))
     end
 
     -- The words a value per instruction, or per parameter, makes, at `at`.
     local function run(at: integer, list: {any}, map: (function(any): int64)?): nil
         local words: {string} = {}
         for index, value in ipairs(list) do
-            words[index] = encode(map and map(value) or value as int64)
+            words[index] = wordbytes(map and map(value) or value as int64)
         end
         if #words > 0 then
             assert(at % 8 == 0)
@@ -370,14 +368,14 @@ function artifact.encode(code: any, dispatch: {integer}, codeBytes: integer, rai
         end
     end
 
-    local function fields(name: string, base: integer, values: any): nil
+    local function record(name: string, base: integer, values: any): nil
         local layout = layouts[name]
         local words: {string} = {}
         for index = 1, layout.size // 8 do
             words[index] = ZERO_WORD
         end
         for key, value in pairs(values) do
-            words[(assert(layout.offsets[key], "catalog field") as integer) // 8 + 1] = encode(value)
+            words[(assert(layout.offsets[key], "catalog field") as integer) // 8 + 1] = wordbytes(value)
         end
         for _, field in ipairs(layout.fields) do
             assert(values[field.name] ~= nil, "missing catalog field " .. field.name)
@@ -419,7 +417,7 @@ function artifact.encode(code: any, dispatch: {integer}, codeBytes: integer, rai
         descriptor.diagnostics = diagnosticOffset
         descriptor.diagnosticCount = #calls
     end
-    fields(descriptorName, 0, descriptor)
+    record(descriptorName, 0, descriptor)
     local scalars = {["true"] = constants.TRUE, ["false"] = constants.FALSE, ["nil"] = constants.NIL}
     local nextCall = 0
 
@@ -445,7 +443,7 @@ function artifact.encode(code: any, dispatch: {integer}, codeBytes: integer, rai
     for index, owner in ipairs(records) do
         local fn = code.functions[index]
         assert(fn.owner == owner.id and owner.id == index - 1)
-        fields("Function", (recordOffset + (index - 1) * layouts.Function.size) as integer, {
+        record("Function", (recordOffset + (index - 1) * layouts.Function.size) as integer, {
             id = owner.id,
             parentPlusOne = owner.parent ~= nil and owner.parent + 1 or 0,
             kind = owner.kind == "module" and 0 or 1,
@@ -492,7 +490,7 @@ function artifact.encode(code: any, dispatch: {integer}, codeBytes: integer, rai
         end
     end
     for index, signature in ipairs(signatures) do
-        fields("Signature", (signatureOffset + (index - 1) * layouts.Signature.size) as integer, {
+        record("Signature", (signatureOffset + (index - 1) * layouts.Signature.size) as integer, {
             parameterCount = #signature.params,
             variadic = signature.variadic and 1 or 0,
             resultKind = kind(signature.result),
@@ -504,7 +502,7 @@ function artifact.encode(code: any, dispatch: {integer}, codeBytes: integer, rai
     end
     for index, entry in ipairs(calls) do
         local call = entry.call
-        fields("Callsite", (callOffset + (index - 1) * layouts.Callsite.size) as integer, {
+        record("Callsite", (callOffset + (index - 1) * layouts.Callsite.size) as integer, {
             id = call.contract,
             owner = entry.owner,
             pc = call.pc,
@@ -521,7 +519,7 @@ function artifact.encode(code: any, dispatch: {integer}, codeBytes: integer, rai
     if code.diagnostics then
         for index = 1, #calls do
             local diagnostic = code.diagnostics[index]
-            fields("CallDiagnostic", (diagnosticOffset + (index - 1) * layouts.CallDiagnostic.size) as integer, {
+            record("CallDiagnostic", (diagnosticOffset + (index - 1) * layouts.CallDiagnostic.size) as integer, {
                 method = (
                     diagnostic.method and constants.CALL_METHOD or 0
                 ) + (diagnostic.tail and constants.CALL_TAIL or 0),
@@ -547,7 +545,7 @@ function artifact.encode(code: any, dispatch: {integer}, codeBytes: integer, rai
         run(raiseOffset, raised)
     end
     for _, text in ipairs(stringOrder) do
-        place(assert(stringOffsets[text]), encode(#text) .. text)
+        place(assert(stringOffsets[text]), wordbytes(#text) .. text)
     end
     for _, raw in ipairs(integerOrder) do
         assert(#raw == 8, "checked integer constant width")
@@ -570,12 +568,12 @@ end
 -- relocations; then the artifact, whose dispatch table the running
 -- program's stands in for; then a word per relocation, each its kind over
 -- the artifact offset of an instruction's function operand, in order.
-function artifact.chunk(code: any): string
+export function chunk(code: any): string
     local dispatch: {integer} = {}
     for index = 1, HANDLERS do
         dispatch[index] = 0
     end
-    local packed = artifact.encode(code, dispatch, INSTRUCTION_BYTES)
+    local packed = encode(code, dispatch, INSTRUCTION_BYTES)
     local operands = bytecode.functionOperands()
     local shift = constants.RELOCATION_SHIFT
     local words: {string} = {}
@@ -585,13 +583,11 @@ function artifact.chunk(code: any): string
             local operand = operands[(fn.code as string):byte(pc * INSTRUCTION_BYTES + 1)]
             if operand then
                 local kind = operand.bytes == 8 and constants.RELOCATE_FUNCTION or constants.RELOCATE_MODULE
-                words[#words + 1] = encode((kind << shift) | (base + pc * INSTRUCTION_BYTES + operand.offset))
+                words[#words + 1] = wordbytes((kind << shift) | (base + pc * INSTRUCTION_BYTES + operand.offset))
             end
         end
     end
     local bytes = packed.bytes as string
 
-    return encode(constants.MAGIC) .. encode(#bytes) .. encode(#words) .. bytes .. table.concat(words)
+    return wordbytes(constants.MAGIC) .. wordbytes(#bytes) .. wordbytes(#words) .. bytes .. table.concat(words)
 end
-
-export = artifact

@@ -13,4 +13,4 @@ local function fib(n: number): number
     return fib(n - 1) + fib(n - 2)
 end
 
-export = fib(29 + scale)
+export const result = fib(29 + scale)

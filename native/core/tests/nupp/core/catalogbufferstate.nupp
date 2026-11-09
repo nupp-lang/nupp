@@ -98,4 +98,4 @@ end)
 state.dropwrite(target, targettoken)
 state.close(target)
 state.close(private)
-export = 1
+export const result = 1

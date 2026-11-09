@@ -169,12 +169,10 @@ local function keepBlocks(f: any): any
     }
 end
 
-local graphemit = {}
-
 --- The image's shape table as the graph codec takes it: slot types by
 --- name, a record slot naming its shape's index, and the identity a shape
 --- of a module's own record carries.
-function graphemit.shapes(order: {any}): {any}
+export function shapes(order: {any}): {any}
     local shapes = {}
     for i, shape in ipairs(order) do
         local slots = {}
@@ -201,7 +199,7 @@ end
 --- grows.
 --- @raises string when a function's blocks do not convert or a kernel's
 --- graph does not verify.
-function graphemit.image(functions: {any}, header: any, seen: (function(f: any, kept: any): nil)?): string
+export function image(functions: {any}, header: any, seen: (function(f: any, kept: any): nil)?): string
     local encoder = graphimage.encoder()
     for i = 1, #functions do
         local f = functions[i]
@@ -217,7 +215,7 @@ function graphemit.image(functions: {any}, header: any, seen: (function(f: any, 
         f.blocks, f.current, f.graph, f.consts, f.constIndex = {}, nil, nil, {}, {}
     end
 
-    return encoder.finish({shapes = graphemit.shapes(header.shapes), modules = header.modules, entry = header.entry})
+    return encoder.finish({shapes = shapes(header.shapes), modules = header.modules, entry = header.entry})
 end
 
 -- The stream the runtime derives from a register-form function, as
@@ -318,7 +316,7 @@ end
 --- What inspection shows of function `f`, given what was kept of it: its
 --- instructions as the runtime derives them, each with its source line, and
 --- the function's text in the image listing format.
-function graphemit.listing(f: any, kept: any): any
+export function listing(f: any, kept: any): any
     local derived = kept.graph and G.lower(kept.graph) or derive(kept)
     local lines: {
         string
@@ -393,5 +391,3 @@ function graphemit.listing(f: any, kept: any): any
         image = table.concat(lines, "\n")
     }
 end
-
-export = graphemit

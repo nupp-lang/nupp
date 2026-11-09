@@ -30,4 +30,4 @@ end
 if down(150000) == 150000 then
     score = score + 4
 end
-export = score * 1000000 + deepest
+export const result = score * 1000000 + deepest

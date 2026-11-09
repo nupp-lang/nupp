@@ -41,4 +41,4 @@ end)
 if says(ok5, tostring(e5), 39, "malformed pattern (ends with '%')") then
     score = score + 16
 end
-export = score
+export const result = score

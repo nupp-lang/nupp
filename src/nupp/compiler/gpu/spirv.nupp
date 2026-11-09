@@ -22,8 +22,6 @@ const assert2 = require("assert")
 local maps = require("nupp.compiler.vm.maps")
 local regions = require("nupp.compiler.vm.regions")
 
-local spirv = {}
-
 const OP = {
     Name = 5,
     MemberName = 6,
@@ -136,7 +134,7 @@ local binaries = {U32Add = OP.IAdd, U32Sub = OP.ISub, IAnd = OP.BitwiseAnd, IOr 
 
 --- Emits a canonical SPIR-V compute module for a verified map graph.
 --- @raises string when the graph holds an operation outside the map subset.
-function spirv.emit(g: any, symbol: string, verified: any?): (string, any)
+export function emit(g: any, symbol: string, verified: any?): (string, any)
     local abi = verified or maps.verify(g)
     local events = abi.events or regions.events(g)
     local blocks = g.blocks
@@ -699,5 +697,3 @@ function spirv.emit(g: any, symbol: string, verified: any?): (string, any)
 
     return table.concat(bytes), abi
 end
-
-export = spirv

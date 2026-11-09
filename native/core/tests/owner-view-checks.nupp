@@ -7,14 +7,13 @@ local profile = require("nupp.compiler.vm.nativegraph")
 local physical = require("nupp.compiler.vm.nativephysical")
 local service = require("nupp.compiler.vm.nativeservice")
 local unit = require("nupp.compiler.vm.nativeunit")
-local M = {}
 
 local function refuses(action: function(): nil): nil
     local ok = pcall(action)
     assert(not ok, "mutated owner view accepted")
 end
 
-function M.check(build: any): boolean
+export function check(build: any): boolean
     local arena: any = nil
     for _, owner in ipairs(service.owners(build.catalog)) do
         if owner.scope.name == "nupp.runtime.vm.arena" then
@@ -121,5 +120,3 @@ function M.check(build: any): boolean
 
     return true
 end
-
-export = M

@@ -6,7 +6,6 @@ module nupp.compiler.clif.legacygraph
 
 local graph = require("nupp.compiler.vm.legacygraph")
 local recipes = require("nupp.compiler.vm.machinerecipes")
-local emitter = {}
 local integerOps = {
     IAdd = "iadd",
     ISub = "isub",
@@ -51,7 +50,7 @@ end
 --- Graph values and block parameters retain their identities. Temporary
 --- machine addresses occupy fresh ids beyond the graph's values.
 --- @raises string when the graph requires an unsupported machine operation
-function emitter.emit(g: any, options: any): string
+export function emit(g: any, options: any): string
     graph.verify(g)
     local native = need(g.native, "native graph required")
     local handler = native.abi == "handler"
@@ -521,5 +520,3 @@ function emitter.emit(g: any, options: any): string
 
     return table.concat(out, "\n") .. "\n"
 end
-
-export = emitter

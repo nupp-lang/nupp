@@ -8,7 +8,6 @@ local opcodes = require("nupp.compiler.vm.opcodes")
 local schema = require("nupp.compiler.vm.coregraphschema")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
 local graphimage = require("nupp.compiler.vm.graphimage")
-local executable = {}
 local issued = setmetatable({}, {__mode = "k"})
 local bounds = schema.limits()
 
@@ -607,7 +606,7 @@ end
 -- Frames a recursive program may nest: a call past them raises Lua's "stack
 -- overflow". The guest catalog admits this bound (guestcatalog.depthbound),
 -- and the entry's frame pool is sized for it.
-executable.depthbound = 200000
+export const depthbound = 200000
 
 -- The deepest stack of frames `successors` admits when no function is on it
 -- twice: the longest path through its strongly connected components, each
@@ -768,7 +767,7 @@ local function deriveCatalog(normalized: any): any
     successors[junction] = chunks
     local depth = math.max(deepest(#functions, successors), 1)
     if recursive then
-        depth = math.max(depth, executable.depthbound)
+        depth = math.max(depth, depthbound)
     end
 
     return {
@@ -787,7 +786,7 @@ end
 
 -- The retained checker objects are immutable borrows within this build process.
 -- This issuer is not a native loader or production frame/effect authority.
-function executable.fromChecked(compiled: any, version: integer?): any
+export function fromChecked(compiled: any, version: integer?): any
     local normalized, diagnostics = contracts.normalize(compiled, version)
     need(
         #normalized.modules <= 3 or normalized.schema.version >= 8,
@@ -817,7 +816,7 @@ function executable.fromChecked(compiled: any, version: integer?): any
     return result
 end
 
-function executable.validate(result: any): nil
+export function validate(result: any): nil
     local state = need(type(result) == "table" and rawget(issued, result), "unissued executable catalog")
     need(same(result, state.snapshot), "issued executable metadata changed")
     local normalized, diagnostics = contracts.normalize(state.compiled, state.version)
@@ -827,13 +826,11 @@ function executable.validate(result: any): nil
     end
 end
 
-function executable.checkedOwner(result: any, id: integer): any
-    executable.validate(result)
+export function checkedOwner(result: any, id: integer): any
+    validate(result)
     local state = issued[result]
     local owner = need(state.compiled.catalog.owners[id + 1], "unknown checked owner")
     need(owner.id == id, "checked owner identity differs")
 
     return owner
 end
-
-export = executable

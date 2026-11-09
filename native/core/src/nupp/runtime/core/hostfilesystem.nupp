@@ -1,0 +1,329 @@
+module nupp.runtime.core.hostfilesystem
+
+-- The file system's metadata, link, directory, permission, sync and path
+-- calls under the program's filesystem layer (filesystemcalls), made
+-- through the C library. Each answers 0, a length, or the negated error
+-- number; a path holding a NUL is refused with EINVAL, as Rust's standard
+-- library refused it. The layouts and constants are macOS's, the one host
+-- the core's compiler targets (aarch64-apple-darwin).
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const strings = require("nupp.runtime.core.corestrings")
+const c = require("nupp.runtime.core.hostc")
+
+-- macOS's struct stat (64-bit inodes), as far as it is read; the rest is
+-- spare room of the same size.
+cdef struct FileStatus
+    device: int32
+    mode: uint16
+    links: uint16
+    inode: uint64
+    user: uint32
+    group: uint32
+    special: int32
+    accessSeconds: int64
+    accessNanos: int64
+    modifySeconds: int64
+    modifyNanos: int64
+    changeSeconds: int64
+    changeNanos: int64
+    birthSeconds: int64
+    birthNanos: int64
+    size: int64
+    blocks: int64
+    blockSize: int32
+    flags: uint32
+    generation: uint32
+    spare: int32
+    reserved: int64
+    reservedMore: int64
+end
+
+cdef function stat(borrows path: voidptr, borrows info: voidptr): int32
+cdef function lstat(borrows path: voidptr, borrows info: voidptr): int32
+cdef function fstat(fd: int64, borrows info: voidptr): int32
+cdef function readlink(borrows path: voidptr, borrows out: voidptr, room: uint64): int64
+cdef function mkdir(borrows path: voidptr, mode: int64): int32
+cdef function symlink(borrows target: voidptr, borrows link: voidptr): int32
+cdef function chmod(borrows path: voidptr, mode: int64): int32
+cdef function fcntl(fd: int64, command: int64, ...): int32
+cdef function getcwd(borrows out: voidptr, room: uint64): voidptr
+cdef function realpath(borrows path: voidptr, borrows out: voidptr): voidptr
+cdef function _NSGetExecutablePath(borrows out: voidptr, borrows room: voidptr): int32
+cdef function strlen(borrows text: voidptr): uint64
+cdef function memcpy(borrows target: voidptr, borrows source: voidptr, count: uint64): voidptr
+cdef function free(borrows block: voidptr)
+
+-- What the metadata words say a file is.
+const FILE: uint64 = 1ULL
+const DIRECTORY: uint64 = 2ULL
+const SYMLINK: uint64 = 3ULL
+const OTHER: uint64 = 4ULL
+const WORD: int64 = 8
+const PERMISSIONS: uint64 = 4095ULL
+const FD_LIMIT: uint64 = 0x7fffffffULL
+-- filesystemcalls.query's questions.
+const WORKING_DIRECTORY: uint64 = 0ULL
+const CANONICAL_PATH: uint64 = 1ULL
+const EXECUTABLE_PATH: uint64 = 2ULL
+
+-- The C library's, on macOS.
+const S_IFMT: uint64 = 0xf000ULL
+const S_IFREG: uint64 = 0x8000ULL
+const S_IFDIR: uint64 = 0x4000ULL
+const S_IFLNK: uint64 = 0xa000ULL
+const F_FULLFSYNC: int64 = 51
+const NAME_ROOM: uint64 = 1024ULL
+
+-- Appends the path `s` and a NUL to `b`: where it starts, or -1 when the
+-- path holds a NUL.
+local function path(h: heap.Heap*, borrows b: strings.Builder*, s: uint64): int64
+    if c.holdsNul(s) then
+        return -1
+    end
+
+    return native.index(c.append(h, b, s))
+end
+
+-- Room for `bytes` more in `b`: where it starts.
+local function room(h: heap.Heap*, borrows b: strings.Builder*, bytes: uint64): uint64
+    @unsafe do
+        local start = strings.descriptor(b).len
+        if strings.reserve(h, b, bytes) ~= 0ULL or strings.commit(b, bytes) ~= 0ULL then
+            error("not enough memory")
+        end
+
+        return start
+    end
+end
+
+-- Writes the five metadata words filesystemcalls reads for the status at
+-- `info` into `out`: its kind, size, modification seconds and nanoseconds,
+-- and mode.
+local function describe(info: voidptr, out: voidptr): nil
+    local mode = native.word(native.load16(info, native.fieldOffset<FileStatus>("mode")))
+    local kind = OTHER
+    if (mode & S_IFMT) == S_IFLNK then
+        kind = SYMLINK
+    elseif (mode & S_IFMT) == S_IFREG then
+        kind = FILE
+    elseif (mode & S_IFMT) == S_IFDIR then
+        kind = DIRECTORY
+    end
+    native.store64(out, 0, kind)
+    native.store64(out, WORD, native.load64(info, native.fieldOffset<FileStatus>("size")))
+    native.store64(out, 2 * WORD, native.load64(info, native.fieldOffset<FileStatus>("modifySeconds")))
+    native.store64(out, 3 * WORD, native.load64(info, native.fieldOffset<FileStatus>("modifyNanos")))
+    native.store64(out, 4 * WORD, mode)
+end
+
+-- The metadata of the file at `source`, following a link when `follow` is
+-- 1, into `out`.
+export function info(h: heap.Heap*, source: uint64, follow: uint64, out: voidptr): int64
+    local state = strings.Builder(0ULL, 0ULL)
+    if follow > 1ULL then
+        return 0 - c.EINVAL
+    end
+    @unsafe do
+        local lifetime = strings.open(h, state as strings.Builder*)
+        local name = path(h, lifetime, source)
+        if name < 0 then
+            return 0 - c.EINVAL
+        end
+        local at = room(h, lifetime, native.sizeOf<FileStatus>())
+        local status: int64 = 0
+        if follow == 1ULL then
+            status = c.widened(stat(c.at(lifetime, native.word(name)), c.at(lifetime, at)))
+        else
+            status = c.widened(lstat(c.at(lifetime, native.word(name)), c.at(lifetime, at)))
+        end
+        if status ~= 0 then
+            return c.failure()
+        end
+        describe(c.at(lifetime, at), out)
+
+        return 0
+    end
+end
+
+-- The metadata of the open file `fd`, into `out`.
+export function status(h: heap.Heap*, fd: uint64, out: voidptr): int64
+    local state = strings.Builder(0ULL, 0ULL)
+    if fd > FD_LIMIT then
+        return 0 - c.EBADF
+    end
+    @unsafe do
+        local lifetime = strings.open(h, state as strings.Builder*)
+        local at = room(h, lifetime, native.sizeOf<FileStatus>())
+        local answer: int64 = fstat(native.index(fd), c.at(lifetime, at))
+        if answer ~= 0 then
+            return c.failure()
+        end
+        describe(c.at(lifetime, at), out)
+
+        return 0
+    end
+end
+
+-- The target of the link at `source`, copied into `out` when `room` holds
+-- it: its length, or more than `room` when it may not have fit.
+export function readLink(h: heap.Heap*, source: uint64, out: voidptr, capacity: uint64): int64
+    local state = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local lifetime = strings.open(h, state as strings.Builder*)
+        local name = path(h, lifetime, source)
+        if name < 0 then
+            return 0 - c.EINVAL
+        end
+        local length = readlink(c.at(lifetime, native.word(name)), out, capacity)
+        if length < 0 then
+            return c.failure()
+        end
+        if native.word(length) == capacity then
+            return native.index(capacity * 2ULL + 1ULL)
+        end
+
+        return length
+    end
+end
+
+-- Makes the directory `source` with permissions `mode`: 0.
+export function makeDirectory(h: heap.Heap*, source: uint64, mode: uint64): int64
+    local state = strings.Builder(0ULL, 0ULL)
+    if (mode & PERMISSIONS) ~= mode then
+        return 0 - c.EINVAL
+    end
+    @unsafe do
+        local lifetime = strings.open(h, state as strings.Builder*)
+        local name = path(h, lifetime, source)
+        if name < 0 then
+            return 0 - c.EINVAL
+        end
+        local answer: int64 = mkdir(c.at(lifetime, native.word(name)), native.index(mode))
+        if answer ~= 0 then
+            return c.failure()
+        end
+
+        return 0
+    end
+end
+
+-- Makes `link` a symbolic link to `target`: 0.
+export function makeSymlink(h: heap.Heap*, target: uint64, link: uint64): int64
+    local state = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local lifetime = strings.open(h, state as strings.Builder*)
+        local to = path(h, lifetime, target)
+        local from = path(h, lifetime, link)
+        if to < 0 or from < 0 then
+            return 0 - c.EINVAL
+        end
+        local answer: int64 = symlink(c.at(lifetime, native.word(to)), c.at(lifetime, native.word(from)))
+        if answer ~= 0 then
+            return c.failure()
+        end
+
+        return 0
+    end
+end
+
+-- Sets the permissions of `source` to `mode`: 0.
+export function changeMode(h: heap.Heap*, source: uint64, mode: uint64): int64
+    local state = strings.Builder(0ULL, 0ULL)
+    if (mode & PERMISSIONS) ~= mode then
+        return 0 - c.EINVAL
+    end
+    @unsafe do
+        local lifetime = strings.open(h, state as strings.Builder*)
+        local name = path(h, lifetime, source)
+        if name < 0 then
+            return 0 - c.EINVAL
+        end
+        while true do
+            local answer: int64 = chmod(c.at(lifetime, native.word(name)), native.index(mode))
+            if answer == 0 then
+                return 0
+            end
+            if not c.interrupted() then
+                return c.failure()
+            end
+        end
+    end
+
+    return 0
+end
+
+-- Writes the open file `fd` through to its storage, as Rust's sync_all
+-- does on macOS with F_FULLFSYNC: 0.
+export function sync(fd: uint64): int64
+    if fd > FD_LIMIT then
+        return 0 - c.EBADF
+    end
+    while true do
+        local answer: int64 = fcntl(native.index(fd), F_FULLFSYNC)
+        if answer ~= -1 then
+            return 0
+        end
+        if not c.interrupted() then
+            return c.failure()
+        end
+    end
+
+    return 0
+end
+
+-- Copies the C string at `text` into `out` when `capacity` holds it: its length.
+local function copied(text: voidptr, out: voidptr, capacity: uint64): int64
+    @unsafe do
+        local length = strlen(text)
+        if length <= capacity then
+            local _ = memcpy(out, text, length)
+        end
+
+        return native.index(length)
+    end
+end
+
+-- What the C library allocated at `text`, copied as `copied` does, then freed;
+-- the error when it is null.
+local function owned(text: voidptr, out: voidptr, capacity: uint64): int64
+    @unsafe do
+        if native.address(text) == 0ULL then
+            return c.failure()
+        end
+        local length = copied(text, out, capacity)
+        free(text)
+
+        return length
+    end
+end
+
+-- The working directory, the canonical path of `source`, or the running
+-- program's path, as `which` asks, copied into `out` when `capacity` holds
+-- it: its length.
+export function query(h: heap.Heap*, which: uint64, source: uint64, out: voidptr, capacity: uint64): int64
+    local state = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local lifetime = strings.open(h, state as strings.Builder*)
+        if which == WORKING_DIRECTORY then
+            return owned(getcwd(native.pointer(0ULL), 0ULL), out, capacity)
+        elseif which == CANONICAL_PATH then
+            local name = path(h, lifetime, source)
+            if name < 0 then
+                return 0 - c.EINVAL
+            end
+            return owned(realpath(c.at(lifetime, native.word(name)), native.pointer(0ULL)), out, capacity)
+        elseif which == EXECUTABLE_PATH then
+            local size = room(h, lifetime, native.word(WORD))
+            native.store64(c.at(lifetime, size), 0, NAME_ROOM)
+            local name = room(h, lifetime, NAME_ROOM)
+            local answer: int64 = _NSGetExecutablePath(c.at(lifetime, name), c.at(lifetime, size))
+            if answer ~= 0 then
+                return 0 - c.EINVAL
+            end
+            return copied(c.at(lifetime, name), out, capacity)
+        end
+
+        return 0 - c.EINVAL
+    end
+end

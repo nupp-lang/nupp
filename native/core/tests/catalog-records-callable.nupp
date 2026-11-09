@@ -41,7 +41,7 @@ d:bump()
 local e = Counter(1)
 local box = shapes.Box(3, 4)
 local same = getmetatable(box) == getmetatable(shapes.square(2)) and 1 or 0
-export = made
+export const result = made
     * 10000000
     + box:area()
     * 100000

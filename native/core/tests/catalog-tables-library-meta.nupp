@@ -19,4 +19,4 @@ end
 if rawget(proxy, 1) == nil and rawget(target, 2) == nil then
     score = score + 4
 end
-export = score
+export const result = score

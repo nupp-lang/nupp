@@ -1,11 +1,10 @@
 module nupp.core.rawbudgetgen
 
 local budget = require("nupp.compiler.vm.coregraphbudget")
-local generator = {}
 
 -- Projection only. The consumer must still validate every referenced row and
 -- use checked cumulative arithmetic before publishing a later admission phase.
-function generator.source(): string
+export function source(): string
     local policy = budget.policy()
     local lines = {
         "module nupp.runtime.core.rawbudgetpolicy",
@@ -152,5 +151,3 @@ function generator.source(): string
 
     return table.concat(lines, "\n") .. "\n"
 end
-
-export = generator

@@ -77,63 +77,6 @@ local record Os
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     argument: function(index: uint64, out: voidptr, room: uint64): int64
 
-    --- Opens the file named by the `bytes` bytes at `path` with the access
-    --- `flags` asks for (1 read, 2 write, 4 create, 8 truncate, 16 append):
-    --- its descriptor, or the negated error number. The core's bridge
-    --- answers it and the five file calls after it, for the core's file
-    --- layer.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    fileOpen: function(path: voidptr, bytes: uint64, flags: uint64): int64
-
-    --- Reads at most `room` bytes from descriptor `fd` into `out`: the count
-    --- read, 0 at the end, or the negated error number.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    fileRead: function(fd: uint64, out: voidptr, room: uint64): int64
-
-    --- Writes at most `bytes` bytes at `base` to descriptor `fd`: the count
-    --- written, which may be fewer, or the negated error number.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    fileWrite: function(fd: uint64, base: voidptr, bytes: uint64): int64
-
-    --- Moves descriptor `fd` to the two's-complement `offset` from its start
-    --- (0), its position (1) or its end (2): the new position, or the
-    --- negated error number.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    fileSeek: function(fd: uint64, offset: uint64, whence: uint64): int64
-
-    --- Closes descriptor `fd`: 0, or the negated error number.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    fileClose: function(fd: uint64): int64
-
-    --- Copies the system's text for the error number `code` into `out`, at
-    --- most `room` bytes: its whole length.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    errorText: function(code: uint64, out: voidptr, room: uint64): int64
-
-    --- A new poller (kqueue on macOS, epoll on Linux): its descriptor, or
-    --- the negated error number. The core's bridge answers it and the
-    --- eight calls after it, for the core's reactor.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    pollOpen: function(): int64
-
-    --- Sets the readiness `poller` waits for on descriptor `fd` to `interest`
-    --- (1 readable, 2 writable, added together; 0 none), for one event: 0, or
-    --- the negated error number.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    pollArm: function(poller: uint64, fd: uint64, interest: uint64): int64
-
-    --- Waits at most `nanos` nanoseconds (all ones: without limit) for one
-    --- event: its descriptor above five bits (1 readable, 2 writable, 4 hung
-    --- up, 8 failed), or a child's process id above 16 for its exit; 0 when
-    --- the time passed, or the negated error number.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    pollWait: function(poller: uint64, nanos: uint64): int64
-
-    --- A nonblocking pipe: its read end's descriptor, the write end's from
-    --- bit 32, or the negated error number.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    pipeOpen: function(): int64
-
     --- Starts the blocking-work pool's `threads` workers, once: the wake
     --- descriptor that is readable while results wait, or the negated error
     --- number.
@@ -169,48 +112,6 @@ local record Os
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     sleepNanos: function(nanos: uint64): uint64
 
-    --- A pipe for a child's standard stream, closing on exec: the end `keep`
-    --- names (0 the read end, 1 the write end) nonblocking, the child's end
-    --- blocking. Its read end's descriptor, the write end's from bit 32, or
-    --- the negated error number. The core's bridge answers it and the six
-    --- calls after it, for the core's process layer.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    processPipe: function(keep: uint64): int64
-
-    --- Starts the child the `bytes` bytes at `spec` describe, in a process
-    --- group of its own, with `flags` (1 search PATH, 2 the given environment
-    --- only, 4 it over this program's): its process id, or the negated error number.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    processSpawn: function(spec: voidptr, bytes: uint64, flags: uint64): int64
-
-    --- Has `poller` report child `pid`'s exit once: 0, or the negated error
-    --- number (ESRCH when it has exited already).
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    processWatch: function(poller: uint64, pid: uint64): int64
-
-    --- Stops watching child `pid`'s exit: 0, or the negated error number.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    processUnwatch: function(poller: uint64, pid: uint64): int64
-
-    --- Collects child `pid` if it has exited: its reason (1 an exit, 2 a
-    --- signal) above eight bits of its status or signal, 0 while it runs, or
-    --- the negated error number.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    processReap: function(pid: uint64): int64
-
-    --- Sends `signal` to child `pid`'s whole process group: 0, or the
-    --- negated error number.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    processKill: function(pid: uint64, signal: uint64): int64
-
-    -- Signals only this child, preserving descendants' ordinary lifetime.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    processsignal: function(pid: uint64, signal: uint64): int64
-
-    --- Ends this process with status `code`; it does not return.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    processExit: function(code: uint64): int64
-
     --- The wall clock in whole seconds since the epoch, C's time(NULL). The
     --- core's bridge answers it and the seven calls after it, for the core's
     --- `os` library.
@@ -239,41 +140,6 @@ local record Os
     --- the text's whole length, or -1 when the system cannot represent `t`.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     timeFormat: function(t: uint64, flags: uint64, spec: voidptr, bytes: uint64, out: voidptr, room: uint64): int64
-
-    --- Removes the file or empty directory named by the `bytes` bytes at
-    --- `path`, as C's remove: 0, or the negated error number.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    fileRemove: function(path: voidptr, bytes: uint64): int64
-
-    --- Renames the file named by the `fromBytes` bytes at `from` to the
-    --- `toBytes` bytes at `to`, as C's rename: 0, or the negated error number.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    fileRename: function(from: voidptr, fromBytes: uint64, to: voidptr, toBytes: uint64): int64
-
-    --- Makes a new empty file with a unique name and closes it, copying its
-    --- name into `out`, at most `room` bytes: the name's whole length, or the
-    --- negated error number.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    fileTemporary: function(out: voidptr, room: uint64): int64
-
-    --- Opens the directory named by the `bytes` bytes at `path` below
-    --- directory `fd` (the working directory when negative) without
-    --- following a link: its descriptor, or the negated error number,
-    --- ENOTDIR for anything that is not a directory, a link included.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    dirOpen: function(fd: uint64, path: voidptr, bytes: uint64): int64
-
-    --- Copies the names of directory `fd`'s entries, "." and ".." aside, each
-    --- followed by a NUL, into `out`, at most `room` bytes: their whole
-    --- length, or the negated error number.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    dirNames: function(fd: uint64, out: voidptr, room: uint64): int64
-
-    --- Unlinks the entry named by the `bytes` bytes at `path` in directory
-    --- `fd` (the working directory when negative), an empty directory when
-    --- `directory` is 1: 0, or the negated error number.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    unlinkEntry: function(fd: uint64, path: voidptr, bytes: uint64, directory: uint64): int64
 
     -- The standalone core bridge supplies these raw atomics; the frozen VM
     -- does not. SeqCst access requires a naturally aligned live word.
@@ -304,32 +170,21 @@ local record Os
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     wallMillis: function(): uint64
 
-    -- Raw filesystem results are zero/counts or the negated OS error.
-    -- Metadata output is exactly five little-endian 64-bit words.
-    -- Text queries size at a zero range; short ranges publish no bytes.
+    --- The C library's dynamic loader, for foreign calls: dlopen of the
+    --- NUL-terminated `path` (null for the program itself) with `mode`.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    fileInfo: function(path: voidptr, bytes: uint64, follow: uint64, out: voidptr): int64
+    dlopen: function(path: voidptr, mode: int64): voidptr
 
+    --- dlsym of the NUL-terminated `name` in `library`: its address, or null.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    fileStatus: function(fd: uint64, out: voidptr): int64
+    dlsym: function(library: voidptr, name: voidptr): voidptr
 
+    --- dlclose of what dlopen answered: 0, or nonzero when it failed.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    readLink: function(path: voidptr, bytes: uint64, out: voidptr, room: uint64): int64
+    dlclose: function(library: voidptr): int64
 
+    --- Where the calling thread's C `errno` lives, a 32-bit integer.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    makeDirectory: function(path: voidptr, bytes: uint64, mode: uint64): int64
-
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    makeSymlink: function(target: voidptr, targetBytes: uint64, link: voidptr, linkBytes: uint64): int64
-
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    changeMode: function(path: voidptr, bytes: uint64, mode: uint64): int64
-
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    syncFile: function(fd: uint64): int64
-
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    pathQuery: function(which: uint64, path: voidptr, bytes: uint64, out: voidptr, room: uint64): int64
-
+    errnoLocation: function(): voidptr
 end
 return Os

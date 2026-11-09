@@ -130,4 +130,4 @@ local wide: uint64 = 40ULL
 if sign("up", 1, 2) == 2 and sign("down", 1) == -1 and wide + 2ULL == 42ULL then
     score = score + 512
 end
-export = score
+export const result = score

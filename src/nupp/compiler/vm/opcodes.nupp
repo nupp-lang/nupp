@@ -52,10 +52,8 @@ marks an instruction whose reads the verifier cannot see from the operands:
 liveness treats every register as read.
 ]]
 
-local opcodes = {}
-
 --- One operand of an opcode as the table spells it.
-record opcodes.Operand
+export record Operand
     class: string
     mode: string
 
@@ -66,10 +64,10 @@ record opcodes.Operand
 end
 
 --- One opcode.
-record opcodes.Opcode
+export record Opcode
     name: string
     flow: string
-    operands: {opcodes.Operand}
+    operands: {Operand}
 
     --- The window specifications, as the table spells them.
     windows: {string}
@@ -271,7 +269,7 @@ local OTHER_CLASSES: {[string]: boolean} = {k = true, j = true, n = true, s = tr
 local MODES: {[string]: boolean} = {def = true, use = true, both = true, check = true, none = true}
 local FLOWS: {[string]: boolean} = {next = true, branch = true, jump = true, table = true, stop = true}
 
-local function parseOperand(name: string, text: string): opcodes.Operand
+local function parseOperand(name: string, text: string): Operand
     local optional = text:sub(-1) == "?"
     if optional then
         text = text:sub(1, -2)
@@ -295,17 +293,20 @@ local function parseOperand(name: string, text: string): opcodes.Operand
         mode = "use"
     end
 
-    return opcodes.Operand(class = class, mode = mode, kind = kind, optional = optional)
+    return Operand(class = class, mode = mode, kind = kind, optional = optional)
 end
 
-local byName: {[string]: opcodes.Opcode} = {}
-local order: {string} = {}
+--- Every opcode by name.
+export const byName: {[string]: Opcode} = {}
+
+--- Every opcode's name, in table order.
+export const order: {string} = {}
 
 for _, row in ipairs(ROWS) do
     local name, flow, operandText, extra = row[1], row[2], row[3], row[4]
     assert(not byName[name], "opcode " .. name .. " listed twice")
     assert(FLOWS[flow], "opcode " .. name .. ": unknown flow " .. flow)
-    local operands: {opcodes.Operand} = {}
+    local operands: {Operand} = {}
     local min: integer, max: integer = 0, 0
     for word in operandText:gmatch("%S+") do
         local operand = parseOperand(name, word)
@@ -328,38 +329,24 @@ for _, row in ipairs(ROWS) do
     end
     byName[
         name
-    ] = opcodes.Opcode(
-        name = name,
-        flow = flow,
-        operands = operands,
-        windows = windows,
-        frame = frame,
-        min = min,
-        max = max
-    )
+    ] = Opcode(name = name, flow = flow, operands = operands, windows = windows, frame = frame, min = min, max = max)
     order[#order + 1] = name
 end
 
---- Every opcode by name.
-opcodes.byName = byName
-
---- Every opcode's name, in table order.
-opcodes.order = order
-
 --- The 1-based operand position carrying a function id, per opcode that has one.
-opcodes.functionOperand = {} as {[string]: integer}
+export const functionOperand = {} as {[string]: integer}
 
 --- The 1-based operand position carrying a shape index, per opcode that has one.
-opcodes.shapeOperand = {} as {[string]: integer}
+export const shapeOperand = {} as {[string]: integer}
 
 for _, name in ipairs(order) do
-    for position, operand in ipairs((byName[name] as opcodes.Opcode).operands) do
+    for position, operand in ipairs((byName[name] as Opcode).operands) do
         if operand.class == "fn" then
-            assert(not opcodes.functionOperand[name], "opcode " .. name .. " names two functions")
-            opcodes.functionOperand[name] = position
+            assert(not functionOperand[name], "opcode " .. name .. " names two functions")
+            functionOperand[name] = position
         elseif operand.class == "s" then
-            assert(not opcodes.shapeOperand[name], "opcode " .. name .. " names two shapes")
-            opcodes.shapeOperand[name] = position
+            assert(not shapeOperand[name], "opcode " .. name .. " names two shapes")
+            shapeOperand[name] = position
         end
     end
 end
@@ -370,12 +357,12 @@ end
 --- builds one; the operands end at the first absent one, as the image writes
 --- them.
 --- @raises string when the instruction is not one the table describes.
-function opcodes.check(instruction: {any}): nil
+export function check(instruction: {any}): nil
     local name = instruction[1]
     if type(name) ~= "string" or not byName[name as string] then
         error("unknown opcode " .. tostring(name), 2)
     end
-    local opcode = byName[name as string] as opcodes.Opcode
+    local opcode = byName[name as string] as Opcode
     local given: integer = 0
     while instruction[given + 2] ~= nil do
         given = given + 1
@@ -413,12 +400,12 @@ function opcodes.check(instruction: {any}): nil
 end
 
 --- The opcode of that name, or nil for a name the table does not know.
-function opcodes.describe(name: string): opcodes.Opcode?
+export function describe(name: string): Opcode?
     return byName[name]
 end
 
 --- Every opcode name, in table order.
-function opcodes.names(): {string}
+export function names(): {string}
     local names: {string} = {}
     for i = 1, #ROWS do
         names[i] = ROWS[i][1]
@@ -428,7 +415,7 @@ function opcodes.names(): {string}
 end
 
 --- The table as an image's header carries it, one `opcode` line per opcode.
-function opcodes.header(): {string}
+export function header(): {string}
     local lines: {string} = {}
     for _, row in ipairs(ROWS) do
         local parts = {"opcode", row[1], row[2]}
@@ -446,5 +433,3 @@ function opcodes.header(): {string}
 
     return lines
 end
-
-export = opcodes

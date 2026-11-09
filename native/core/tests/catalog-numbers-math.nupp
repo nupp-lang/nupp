@@ -25,4 +25,4 @@ end
 if math.maxinteger + 1 == math.mininteger and math.mininteger < 0 then
     score = score + 1000000
 end
-export = score + math.abs(math.min(-3, 5))
+export const result = score + math.abs(math.min(-3, 5))

@@ -94,4 +94,4 @@ do
     end)
     check(not categoryOk and ends(categoryMessage, ":93: bad argument #2 to 'setlocale' (invalid option 'bogus')"))
 end
-export = score
+export const result = score

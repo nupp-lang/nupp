@@ -10,7 +10,6 @@ local literal = require("s0.literal")
 local schema = require("nupp.compiler.vm.coregraphschema")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
 local writer = require("nupp.compiler.vm.coreartifact")
-local artifact = {}
 const TARGET = "aarch64-apple-darwin"
 const WORD_BYTES = 8
 -- The chunk loader, whose header and relocation words only a chunk needs.
@@ -104,17 +103,15 @@ local function validate(scopes: any, loader: boolean): nil
 end
 
 -- The executable artifact (coreartifact.encode), once `scopes` agree with it.
-function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes: integer, raises: {any}?): any
+export function encode(code: any, scopes: any, dispatch: {integer}, codeBytes: integer, raises: {any}?): any
     validate(scopes, false)
 
     return writer.encode(code, dispatch, codeBytes, raises)
 end
 
 -- A binary chunk (coreartifact.chunk), once `scopes` agree with it.
-function artifact.chunk(code: any, scopes: any): string
+export function chunk(code: any, scopes: any): string
     validate(scopes, true)
 
     return writer.chunk(code)
 end
-
-export = artifact

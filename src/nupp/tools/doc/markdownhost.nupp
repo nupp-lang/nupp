@@ -9,12 +9,6 @@ that no renderer is available; this one replaces it on the VM.
 
 const markdown = require("nupp.vm.markdown")
 
-local type Host = {render: function(text: string): (string?, string?)}
-
-local host: Host = {
-    render = function(text: string): (string?, string?)
-        return markdown.render(text)
-    end,
-}
-
-export = host
+export function render(text: string): (string?, string?)
+    return markdown.render(text)
+end

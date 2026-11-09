@@ -209,4 +209,4 @@ do
     files.close(reader)
 end
 
-export = score
+export const result = score

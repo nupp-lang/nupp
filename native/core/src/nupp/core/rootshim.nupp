@@ -4,9 +4,8 @@ local arm = require("s0.arm64")
 local linker = require("nupp.core.link")
 local selector = require("s0.select")
 local context = require("nupp.runtime.core.context")
-local rootshim = {}
 
-type rootshim.Layout = {
+export type Layout = {
     storageBytes: integer,
     descriptorBytes: integer,
     rootOffset: integer,
@@ -23,7 +22,7 @@ type rootshim.Layout = {
 
 -- Layout is read from checked Nupp sizeof/fieldOffset expressions by producer.
 -- This C boundary transports pointers; root policy executes in selected Nupp.
-function rootshim.build(handler: any, functions: {[string]: any}, layout: rootshim.Layout): any
+export function build(handler: any, functions: {[string]: any}, layout: Layout): any
     local scratchBytes: integer = 131072
     local poolBytes: integer = 16384
     for _, value in pairs(layout) do
@@ -217,5 +216,3 @@ function rootshim.build(handler: any, functions: {[string]: any}, layout: rootsh
         entry = 0
     }
 end
-
-export = rootshim

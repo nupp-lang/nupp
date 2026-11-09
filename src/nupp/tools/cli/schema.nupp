@@ -2,20 +2,19 @@ module nupp.tools.cli.schema
 
 -- Detect report-schema requests using the command's derived grammar.
 local cliModule = require("io.cli")
-local schema = {}
 
-function schema.requests(subject: any, argv: {string}): boolean
+export function requests(subject: any, argv: {string}): boolean
     if subject == nil then
         return false
     end
-    local schema = cliModule.schema(subject)
-    if schema == nil then
+    local grammar = cliModule.schema(subject)
+    if grammar == nil then
         return false
     end
     local arity: {[string]: cliModule.ValueArity} = {}
     local fields: {[string]: any} = {}
     local patterns: {cliModule.Pattern} = {}
-    for _, field in ipairs(schema.fields) do
+    for _, field in ipairs(grammar.fields) do
         if field.role == "option" then
             for _, name in ipairs(field.names) do
                 fields[name] = field
@@ -29,7 +28,7 @@ function schema.requests(subject: any, argv: {string}): boolean
     local stream = cliModule.optparser(argv, {
         arity = arity,
         patterns = patterns,
-        stopatfirstargument = schema.stopatfirstargument,
+        stopatfirstargument = grammar.stopatfirstargument,
     })
     while true do
         local kind = stream:next()
@@ -43,5 +42,3 @@ function schema.requests(subject: any, argv: {string}): boolean
         end
     end
 end
-
-export = schema

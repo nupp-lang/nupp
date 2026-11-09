@@ -3,7 +3,6 @@ module nupp.compiler.vm.coregraphcodec
 local schema = require("nupp.compiler.vm.coregraphschema")
 local semantic = require("nupp.compiler.vm.coregraphverify")
 local shape = require("nupp.compiler.vm.coregraphshape")
-local codec = {}
 local NONE: integer = 4294967295
 local bounds = schema.limits()
 
@@ -267,7 +266,7 @@ local function flatten(p: any, wire: any): any
     return tables
 end
 
-function codec.encode(p: any): string
+export function encode(p: any): string
     semantic.semantic(p)
     local wire = schema.wire()
     local tables = flatten(p, wire)
@@ -596,7 +595,7 @@ end
 
 -- Physical admission only. The returned counts are diagnostics, not a graph
 -- or permission to execute. decode() still applies the full semantic verifier.
-function codec.validateShape(bytes: string): any
+export function validateShape(bytes: string): any
     need(type(bytes) == "string", "encoded bytes required")
     local wire = schema.wire()
     local tables, entry = readSections(bytes, wire)
@@ -605,7 +604,7 @@ end
 
 -- Bounded catalog diagnostics only. No graph, usable SSA, scalar result or
 -- execution authority is returned by this admission boundary.
-function codec.validateCatalog(bytes: string): any
+export function validateCatalog(bytes: string): any
     need(type(bytes) == "string", "encoded bytes required")
     local wire = schema.wire()
     local tables, entry = readSections(bytes, wire)
@@ -616,7 +615,7 @@ function codec.validateCatalog(bytes: string): any
     return {owners = catalog.owners, signatures = #p.signatures, contracts = catalog.contracts, entry = entry}
 end
 
-function codec.decode(bytes: string): any
+export function decode(bytes: string): any
     need(type(bytes) == "string", "encoded bytes required")
     local wire = schema.wire()
     local tables, entry = readSections(bytes, wire)
@@ -626,5 +625,3 @@ function codec.decode(bytes: string): any
 
     return p
 end
-
-export = codec

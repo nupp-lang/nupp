@@ -5,7 +5,6 @@ module nupp.tools.vm.aotparts
 local fs = require("nupp.compiler.fs")
 local process = require("nupp.compiler.process")
 local hash = require("nupp.compiler.hash")
-local parts = {}
 local ABI: integer = 4
 local MAX_JOBS = 4
 local MAX_PARTS = 64
@@ -85,7 +84,7 @@ local function ruststring(text: string): string
     end) .. '"'
 end
 
-function parts.describe(text: string): {any}
+export function describe(text: string): {any}
     local functions, current = {}, nil
     for line in text:gmatch("[^\n]+") do
         if line:match("^function ") then
@@ -106,7 +105,7 @@ function parts.describe(text: string): {any}
     return functions
 end
 
-function parts.partition(functions: {any}, count: number, limit: number?): {any}
+export function partition(functions: {any}, count: number, limit: number?): {any}
     assert(#functions > 0, "empty function catalog")
     assert(count >= 1 and count <= MAX_PARTS and count % 1 == 0, "invalid AOT part count")
     local groups, order, result = {}, {}, {}
@@ -157,11 +156,11 @@ function parts.partition(functions: {any}, count: number, limit: number?): {any}
     return result
 end
 
-function parts.plan(functions: {any}, jobs: number, limit: number?): ({any}?, string?)
+export function plan(functions: {any}, jobs: number, limit: number?): ({any}?, string?)
     assert(jobs >= 1 and jobs <= MAX_JOBS and jobs % 1 == 0, "invalid AOT job count")
     local count = jobs
     while count <= MAX_PARTS do
-        local ok, result = pcall(parts.partition, functions, count, limit)
+        local ok, result = pcall(partition, functions, count, limit)
         if ok then
             return result, nil
         end
@@ -174,7 +173,7 @@ function parts.plan(functions: {any}, jobs: number, limit: number?): ({any}?, st
     return nil, "AOT selectors exceed the bounded partition limit"
 end
 
-function parts.manifest(text: string, digest: string, count: number, expected: {number}): nil
+export function manifest(text: string, digest: string, count: number, expected: {number}): nil
     local rows = {}
     for line in text:gmatch("[^\n]+") do
         rows[#rows + 1] = line
@@ -191,7 +190,7 @@ function parts.manifest(text: string, digest: string, count: number, expected: {
     end
 end
 
-function parts.maps(text: string, expected: {number}): {[number]: string}
+export function maps(text: string, expected: {number}): {[number]: string}
     local at = 1
 
     local function nextword()
@@ -233,7 +232,7 @@ end
 
 -- Only symbol-string bytes change. Relocation/symbol indices and section
 -- contents stay intact on Mach-O, ELF64 and AMD64/ARM64 COFF objects.
-function parts.rename(text: string, replacements: {[string]: string}): string
+export function rename(text: string, replacements: {[string]: string}): string
     local names, defined = {}, {}
 
     local function symbol(offset, limit, definition)
@@ -348,7 +347,7 @@ function parts.rename(text: string, replacements: {[string]: string}): string
     return table.concat(pieces)
 end
 
-function parts.sidecar(digest: string, fids: {number}, maps: string, duplicates: {any}?): string
+export function sidecar(digest: string, fids: {number}, listing: string, duplicates: {any}?): string
     local declarations, entries, starts, bytes, copies = {}, {}, {}, {}, {}
     for index = 1, #digest, 2 do
         bytes[#bytes + 1] = decimal(assert(tonumber(digest:sub(index, index + 1), 16)))
@@ -383,7 +382,7 @@ function parts.sidecar(digest: string, fids: {number}, maps: string, duplicates:
         .. table.concat(
             starts
         ) .. "].into_iter().collect();\n" .. "let data = include_bytes!(" .. ruststring(
-            maps
+            listing
         ) .. ");\nlet copies: &[(u32,usize)] = &[" .. table.concat(
             copies
         )
@@ -396,7 +395,7 @@ function parts.sidecar(digest: string, fids: {number}, maps: string, duplicates:
         .. "out.push((starts[&fid],len,maps));}out}\n"
 end
 
-function parts.compile(tool: string, image: string, output: string, options: any): any
+export function compile(tool: string, image: string, output: string, options: any): any
     options = options or {}
     local requested = options.jobs or MAX_JOBS
     assert(
@@ -408,7 +407,7 @@ function parts.compile(tool: string, image: string, output: string, options: any
     local digest, toolhash = hash.sha256(read(image)), hash.sha256(read(tool))
     local code, description = process.capture({tool, "native", "describe", image})
     assert(code == 0, description)
-    local functions = parts.describe(description)
+    local functions = describe(description)
     local directory = output .. ".parts"
     assert(fs.mkdir(directory))
     local all = {}
@@ -439,10 +438,10 @@ function parts.compile(tool: string, image: string, output: string, options: any
             hash.sha256(read(image)) == digest and hash.sha256(read(tool)) == toolhash,
             "AOT inputs changed during compilation"
         )
-        parts.manifest(read(output .. ".manifest"), digest, #functions, all)
-        parts.maps(read(output .. ".maps"), all)
+        manifest(read(output .. ".manifest"), digest, #functions, all)
+        maps(read(output .. ".maps"), all)
         if options.maps then
-            write(output .. ".rs", parts.sidecar(digest, all, fs.absolute(options.maps)))
+            write(output .. ".rs", sidecar(digest, all, fs.absolute(options.maps)))
         end
 
         return {
@@ -457,7 +456,7 @@ function parts.compile(tool: string, image: string, output: string, options: any
     if jobs == 1 then
         return serial(nil)
     end
-    local groups, reason = parts.plan(functions, jobs)
+    local groups, reason = plan(functions, jobs)
     if not groups then
         return serial(reason)
     end
@@ -512,12 +511,12 @@ function parts.compile(tool: string, image: string, output: string, options: any
     )
     local union, objects, owned, duplicates = {}, {}, {}, {}
     for index, group in ipairs(groups) do
-        parts.manifest(read(group.path .. ".manifest"), digest, #functions, group.fids)
-        local maps = parts.maps(read(group.path .. ".maps"), group.fids)
+        manifest(read(group.path .. ".manifest"), digest, #functions, group.fids)
+        local mapped = maps(read(group.path .. ".maps"), group.fids)
         local replacements = {nupp_aot_table_v1 = ("nupp_aot_table_%02d"):format(index)}
         for _, fid in ipairs(group.fids) do
-            assert(not union[fid] or union[fid] == maps[fid], "overlapping AOT metadata differs")
-            union[fid] = maps[fid]
+            assert(not union[fid] or union[fid] == mapped[fid], "overlapping AOT metadata differs")
+            union[fid] = mapped[fid]
             if group.owned[fid] then
                 assert(not owned[fid], "duplicate AOT owner")
                 owned[fid] = true
@@ -527,15 +526,15 @@ function parts.compile(tool: string, image: string, output: string, options: any
             end
         end
         local object = group.path .. ".renamed.o"
-        write(object, parts.rename(read(group.path), replacements))
+        write(object, rename(read(group.path), replacements))
         objects[#objects + 1] = object
     end
-    local maps = {packed(#all, WORD_BYTES)}
-    local manifest = {"runtime-abi\t" .. ABI, "image-sha256\t" .. digest, "functions\t" .. #functions}
+    local words = {packed(#all, WORD_BYTES)}
+    local lines = {"runtime-abi\t" .. ABI, "image-sha256\t" .. digest, "functions\t" .. #functions}
     for _, fid in ipairs(all) do
         assert(owned[fid] and union[fid], "incomplete AOT coverage")
-        maps[#maps + 1] = union[fid]
-        manifest[#manifest + 1] = decimal(fid) .. "\tnupp_aot_" .. decimal(fid)
+        words[#words + 1] = union[fid]
+        lines[#lines + 1] = decimal(fid) .. "\tnupp_aot_" .. decimal(fid)
     end
     local command = {ar, "rcs", output .. ".new"}
     for _, object in ipairs(objects) do
@@ -543,9 +542,9 @@ function parts.compile(tool: string, image: string, output: string, options: any
     end
     os.remove(output .. ".new")
     assert(process.run(command, {env = {ZERO_AR_DATE = "1"}}) == 0, "AOT archive construction failed")
-    write(output .. ".maps", table.concat(maps))
-    write(output .. ".manifest", table.concat(manifest, "\n") .. "\n")
-    write(output .. ".rs", parts.sidecar(digest, all, fs.absolute(options.maps or output .. ".maps"), duplicates))
+    write(output .. ".maps", table.concat(words))
+    write(output .. ".manifest", table.concat(lines, "\n") .. "\n")
+    write(output .. ".rs", sidecar(digest, all, fs.absolute(options.maps or output .. ".maps"), duplicates))
     assert(os.rename(output .. ".new", output))
     local workers = {}
     for _, group in ipairs(groups) do
@@ -563,5 +562,3 @@ function parts.compile(tool: string, image: string, output: string, options: any
 
     return {imageSha256 = digest, toolSha256 = toolhash, functions = #functions, parts = workers}
 end
-
-export = parts

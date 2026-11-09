@@ -17,8 +17,6 @@ local interface Methodslots
     unlabeledParameters: function(ft: any): string
 end
 
-local methodslots = {} as Methodslots
-
 local fingerprint
 
 local function constFingerprint(term: any, binders: any, active: any): string
@@ -250,19 +248,17 @@ end
 
 --- The valid Lua identifier used as an overload's hidden runtime member. `ft` is the
 --- callable as seen at a method call, with its receiver removed.
-function methodslots.member(name: string, ft: any): string
+export function member(name: string, ft: any): string
     return "__nupp_m_" .. hash.sha256(name .. ":" .. packFingerprint(ft, true))
 end
 
 --- The parameter-pack identity used to reject return-only overloads.
-function methodslots.parameters(ft: any): string
+export function parameters(ft: any): string
     return packFingerprint(ft, true)
 end
 
 --- The positional identity used to match a labeled implementation to an inherited
 --- contract that deliberately leaves its parameter labels unspecified.
-function methodslots.unlabeledParameters(ft: any): string
+export function unlabeledParameters(ft: any): string
     return packFingerprint(ft, false)
 end
-
-export = methodslots

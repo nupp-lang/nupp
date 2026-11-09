@@ -9,4 +9,4 @@ local function later(): integer
     return atlas.geometry.bump() * 100
 end
 
-export = first + later() + atlas.geometry.unit
+export const result = first + later() + atlas.geometry.unit

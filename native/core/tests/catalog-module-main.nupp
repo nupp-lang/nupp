@@ -2,4 +2,6 @@ module nupp.core.catalogmodulemain
 
 local prefix = require("nupp.core.catalogmoduleprefix")
 
+-- Graph profiles before version 8 have no tables to export from, so the
+-- module value is the result itself.
 export = prefix

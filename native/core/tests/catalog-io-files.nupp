@@ -196,4 +196,4 @@ end)
 check(not replaced)
 -- The name the base was taken from.
 os.remove("/tmp/lua_" .. string.sub(base, -6))
-export = score
+export const result = score

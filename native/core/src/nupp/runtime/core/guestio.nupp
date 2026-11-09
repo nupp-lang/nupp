@@ -22,6 +22,7 @@ const guestgc = require("nupp.runtime.core.guestgc")
 const guesttime = require("nupp.runtime.core.guesttime")
 const guestfiles = require("nupp.runtime.core.guestfiles")
 const librarytexts = require("nupp.runtime.core.librarytexts")
+const hostfiles = require("nupp.runtime.core.hostfiles")
 
 local function heapOf(ctx: voidptr): heap.Heap*
     @unsafe do
@@ -65,7 +66,7 @@ local function readText(ctx: voidptr, fd: uint64, room: uint64): uint64
         if strings.reserve(h, builder, wanted) ~= 0ULL then
             error("not enough memory")
         end
-        local count = os.fileRead(fd, native.pointer(strings.descriptor(builderLifetime).base), room)
+        local count = hostfiles.readInto(fd, native.pointer(strings.descriptor(builderLifetime).base), room)
         if count < 0 then
             strings.release(builder)
             return ints.make(h, native.word(count))
@@ -88,7 +89,7 @@ local function reasonText(ctx: voidptr, code: uint64): uint64
         if strings.reserve(h, builder, 128ULL) ~= 0ULL then
             error("not enough memory")
         end
-        local length = os.errorText(
+        local length = hostfiles.reason(
             code,
             native.pointer(strings.descriptor(builderLifetime).base),
             strings.descriptor(builderLifetime).cap
@@ -102,7 +103,7 @@ local function reasonText(ctx: voidptr, code: uint64): uint64
                 strings.release(builder)
                 error("not enough memory")
             end
-            length = os.errorText(
+            length = hostfiles.reason(
                 code,
                 native.pointer(strings.descriptor(builderLifetime).base),
                 strings.descriptor(builderLifetime).cap
@@ -116,9 +117,6 @@ local function reasonText(ctx: voidptr, code: uint64): uint64
     end
 end
 
--- The room a temporary file's name is given, past Lua's LUA_TMPNAMBUFSIZE.
-const NAME_BYTES: uint64 = 64ULL
-
 -- filecalls.temporary(): the name of a new empty file, or the negated
 -- error number making it answered.
 local function temporaryName(ctx: voidptr): uint64
@@ -127,24 +125,10 @@ local function temporaryName(ctx: voidptr): uint64
         local h = heapOf(ctx)
         local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
-        if strings.reserve(h, builder, NAME_BYTES) ~= 0ULL then
-            error("not enough memory")
-        end
-        local length = os.fileTemporary(
-            native.pointer(strings.descriptor(builderLifetime).base),
-            strings.descriptor(builderLifetime).cap
-        )
-        if length < 0 then
+        local status = hostfiles.temporary(h, builderLifetime)
+        if status < 0 then
             strings.release(builder)
-            return ints.make(h, native.word(length))
-        end
-        if native.word(length) > strings.descriptor(builderLifetime).cap then
-            strings.release(builder)
-            error("file calls: a temporary name is longer than its room")
-        end
-        if strings.commit(builder, native.word(length)) ~= 0ULL then
-            strings.release(builder)
-            error("not enough memory")
+            return ints.make(h, native.word(status))
         end
         return values.TAG_OBJ | strings.finish(h, builder)
     end
@@ -168,7 +152,7 @@ local function namesText(ctx: voidptr, fd: uint64): uint64
                 strings.release(builder)
                 error("not enough memory")
             end
-            local length = os.dirNames(
+            local length = hostfiles.names(
                 fd,
                 native.pointer(strings.descriptor(builderLifetime).base),
                 strings.descriptor(builderLifetime).cap
@@ -220,7 +204,7 @@ export function files(ctx: voidptr, op: uint64, a: uint64, b: uint64, c: uint64)
         local h = heapOf(ctx)
         if operation == librarylayouts.FILE_OPEN then
             local s = stringOf(a)
-            local fd = os.fileOpen(native.pointer(strings.bytes(s)), strings.length(s), integerOf(b))
+            local fd = hostfiles.openFile(h, s, integerOf(b))
             return ints.make(h, native.word(fd))
         elseif operation == librarylayouts.FILE_READ then
             return readText(ctx, integerOf(a), integerOf(b))
@@ -232,43 +216,35 @@ export function files(ctx: voidptr, op: uint64, a: uint64, b: uint64, c: uint64)
             if first < 1ULL or first > length + 1ULL then
                 error("file calls: a write starts past its text")
             end
-            local written = os.fileWrite(
+            local written = hostfiles.writeFrom(
                 integerOf(a),
                 native.pointer(strings.bytes(s) + first - 1ULL),
                 length - (first - 1ULL)
             )
             return ints.make(h, native.word(written))
         elseif operation == librarylayouts.FILE_SEEK then
-            return ints.make(h, native.word(os.fileSeek(integerOf(a), integerOf(b), integerOf(c))))
+            return ints.make(h, native.word(hostfiles.seek(integerOf(a), integerOf(b), integerOf(c))))
         elseif operation == librarylayouts.FILE_CLOSE then
-            return ints.make(h, native.word(os.fileClose(integerOf(a))))
+            return ints.make(h, native.word(hostfiles.closeFile(integerOf(a))))
         elseif operation == librarylayouts.FILE_REASON then
             return reasonText(ctx, integerOf(a))
         elseif operation == librarylayouts.FILE_REMOVE then
             local s = stringOf(a)
-            return ints.make(h, native.word(os.fileRemove(native.pointer(strings.bytes(s)), strings.length(s))))
+            return ints.make(h, native.word(hostfiles.removeFile(h, s)))
         elseif operation == librarylayouts.FILE_RENAME then
             local from, to = stringOf(a), stringOf(b)
-            local done = os.fileRename(
-                native.pointer(strings.bytes(from)),
-                strings.length(from),
-                native.pointer(strings.bytes(to)),
-                strings.length(to)
-            )
+            local done = hostfiles.renameFile(h, from, to)
             return ints.make(h, native.word(done))
         elseif operation == librarylayouts.FILE_TEMPORARY then
             return temporaryName(ctx)
         elseif operation == librarylayouts.FILE_DIROPEN then
             local s = stringOf(b)
-            return ints.make(
-                h,
-                native.word(os.dirOpen(integerOf(a), native.pointer(strings.bytes(s)), strings.length(s)))
-            )
+            return ints.make(h, native.word(hostfiles.openDirectory(h, integerOf(a), s)))
         elseif operation == librarylayouts.FILE_NAMES then
             return namesText(ctx, integerOf(a))
         elseif operation == librarylayouts.FILE_UNLINK then
             local s = stringOf(b)
-            local done = os.unlinkEntry(integerOf(a), native.pointer(strings.bytes(s)), strings.length(s), integerOf(c))
+            local done = hostfiles.unlinkEntry(h, integerOf(a), s, integerOf(c))
             return ints.make(h, native.word(done))
         end
     end

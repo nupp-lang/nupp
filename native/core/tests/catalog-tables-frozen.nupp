@@ -166,4 +166,4 @@ end
 if churn == 800 and sum == 820 + 420 and table.isfrozen(behind) then
     score = score + 2048
 end
-export = score
+export const result = score

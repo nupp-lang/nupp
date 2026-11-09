@@ -18,7 +18,6 @@ local auditshim = require("nupp.core.guestauditshim")
 local writer = require("nupp.core.guestartifact")
 local linker = require("nupp.core.link")
 local json = require("serde.json")
-local producer = {}
 -- Selections per mode for this process's shared guest unit, and whether the
 -- proof-rejection checks already ran in it.
 local selections: any = {}
@@ -40,7 +39,7 @@ local function hex(value: string): string
 end
 
 -- Wraps a primary selection in the supplemental lifecycle audit entry.
-local function audit(source: any, selected: any, output: any, scenario: string): nil
+local function inspect(source: any, selected: any, output: any, scenario: string): nil
     local audited = auditshim.build(source, selected, output, scenario)
     output.audit = {
         scenario = scenario,
@@ -109,7 +108,7 @@ end
 -- Selection, authenticated linking and final byte publication stay in one
 -- process. JSON output is an immutable transport artifact, not a reissuable
 -- compiler capability or permission to select caller-supplied guest bytes.
-local function select(caseName: string, mode: string, capacityText: string, scenario: string?): any
+local function choose(caseName: string, mode: string, capacityText: string, scenario: string?): any
     assert(mode == "normal" or mode == "spill")
     local capacity = assert(tonumber(capacityText)) as integer
     assert(capacity == 65536 or capacity == 131072)
@@ -316,7 +315,7 @@ local function select(caseName: string, mode: string, capacityText: string, scen
     contract.validateGuest(source)
     local output = shim.build(source, selected, capacity)
     if scenario then
-        audit(source, selected, output, scenario)
+        inspect(source, selected, output, scenario)
     end
     contract.validateGuest(source)
     local packed = writer.encode(source.executable, source.scopes, output.dispatch, #output.words * 4)
@@ -325,14 +324,14 @@ local function select(caseName: string, mode: string, capacityText: string, scen
     return publish(source, output, packed, mode, caseName, metrics, refusals)
 end
 
-local function compile(caseName: string, mode: string, capacityText: string, scenario: string?): string
-    return json.encodevalue(select(caseName, mode, capacityText, scenario))
+local function serialize(caseName: string, mode: string, capacityText: string, scenario: string?): string
+    return json.encodevalue(choose(caseName, mode, capacityText, scenario))
 end
 
 -- The selection itself, for in-process drivers; after the first call the
 -- frozen proof checks are skipped.
-function producer.select(caseName: string, mode: string, capacityText: string, scenario: string?): any
-    local output = select(caseName, mode, capacityText, scenario)
+export function select(caseName: string, mode: string, capacityText: string, scenario: string?): any
+    local output = choose(caseName, mode, capacityText, scenario)
     rejected = true
     return output
 end
@@ -341,7 +340,7 @@ end
 -- catalog and the unit code cache instead of the frozen final-frame build.
 -- The runtime is selected once per mode in a process; each case then costs
 -- its program compile and the shim.
-function producer.selectUnits(
+export function selectUnits(
     caseName: string,
     mode: string,
     capacityText: string,
@@ -356,7 +355,7 @@ function producer.selectUnits(
     local built = os.clock()
     local output = shim.build(source, source.selected, capacity)
     if scenario then
-        audit(source, source.selected, output, scenario)
+        inspect(source, source.selected, output, scenario)
     end
     local linked = os.clock()
     local packed = writer.encode(source.executable, source.scopes, output.dispatch, #output.words * 4, source.raises)
@@ -373,19 +372,19 @@ function producer.selectUnits(
     return result
 end
 
-function producer.compile(caseName: string, mode: string, capacityText: string): string
-    return compile(caseName, mode, capacityText, nil)
+export function compile(caseName: string, mode: string, capacityText: string): string
+    return serialize(caseName, mode, capacityText, nil)
 end
 
 -- Every `case:mode` in `list` in one process, sharing one guest unit and one
 -- selection per mode; each selection is written to `directory/case-mode.json`.
-function producer.batch(list: string, capacityText: string, directory: string): string
+export function batch(list: string, capacityText: string, directory: string): string
     local written = {}
     for item in list:gmatch("[^,]+") do
         local caseName, mode = item:match("^(%w+):(%w+)$")
         assert(caseName and mode, "batch item is case:mode")
         local file = assert(io.open(directory .. "/" .. caseName .. "-" .. mode .. ".json", "wb"))
-        file:write(compile(caseName, mode, capacityText, nil))
+        file:write(serialize(caseName, mode, capacityText, nil))
         file:close()
         rejected = true
         written[#written + 1] = caseName .. "-" .. mode
@@ -394,13 +393,13 @@ function producer.batch(list: string, capacityText: string, directory: string): 
     return json.encodevalue({written = written})
 end
 
-function producer.audit(caseName: string, mode: string, capacityText: string, scenario: string): string
-    return compile(caseName, mode, capacityText, scenario)
+export function audit(caseName: string, mode: string, capacityText: string, scenario: string): string
+    return serialize(caseName, mode, capacityText, scenario)
 end
 
 -- The raw profile issues the fixed loader and guest services in one checked
 -- source session. Raw graph bytes are supplied only after this code is linked.
-function producer.compileRaw(mode: string): string
+export function compileRaw(mode: string): string
     assert(mode == "normal" or mode == "spill")
     local source = contract.buildGuest("raw")
     local names, selected, metrics = {}, {}, {}
@@ -423,5 +422,3 @@ function producer.compileRaw(mode: string): string
 
     return json.encodevalue(output)
 end
-
-export = producer

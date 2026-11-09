@@ -45,4 +45,4 @@ local score: integer = closed * 1000000 + order
 if ok1 and not ok2 and not ok3 then
     score = score + 100000000
 end
-export = score
+export const result = score

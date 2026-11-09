@@ -9,4 +9,6 @@ local function make(value: boolean): boolean
 end
 
 local _ignored = make(false)
+-- Graph profiles before version 8 have no tables to export from, so the
+-- module value is the result itself.
 export = make(true)

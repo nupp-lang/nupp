@@ -2,7 +2,6 @@ module nupp.compiler.vm.coregraphbudget
 
 local schema = require("nupp.compiler.vm.coregraphschema")
 local shape = require("nupp.compiler.vm.coregraphshape")
-local budget = {}
 local bounds = schema.limits()
 
 local function need(ok: any, message: string): any
@@ -21,7 +20,7 @@ end
 -- counter result escapes refusal, and shared tables are rejected like cycles.
 -- `cap` overrides the item and text-byte bounds (`{items, text}`); the default
 -- is the schema's `treeitems` and `treetext`.
-function budget.measure(value: any, cap: any?): any
+export function measure(value: any, cap: any?): any
     local seen, result = {}, {items = 0, bytes = 0, maxDepth = 0}
     local items, text = bounds.treeitems, bounds.treetext
     if cap then
@@ -63,7 +62,7 @@ end
 -- They describe retained metadata costs, never operation execution. The root
 -- includes the actual canonical schema; enum text also comes from that schema.
 -- Decoded-tree equivalence tests must accompany any change to inflate.
-function budget.policy(): any
+export function policy(): any
     local definition, wire = schema.describe(), schema.wire()
     local result: any = {
         version = 1,
@@ -79,7 +78,7 @@ function budget.policy(): any
     }
 
     local function recipe(name: string, sample: any, subtract: integer, baseDepth: integer): nil
-        local count = budget.measure(sample)
+        local count = measure(sample)
         result.recipes[#result.recipes + 1] = {name = name, items = count.items - subtract, bytes = count.bytes}
         result.maxDepthBound = math.max(result.maxDepthBound, baseDepth + count.maxDepth)
     end
@@ -275,35 +274,35 @@ end
 -- Physical shape admission is repeated here. Catalog/SSA validity is separate.
 -- The caller retains immutable rows for this call. Item/text counts equal the
 -- inflated tree; maxDepthBound is conservative, not an observed-depth counter.
-function budget.rows(tables: any, entry: integer): any
-    local wire, policy = schema.wire(), budget.policy()
+export function rows(tables: any, entry: integer): any
+    local wire, rules = schema.wire(), policy()
     plainRows(tables, wire)
     shape.rows(tables, wire, entry)
     local recipes, enums, termFields = {}, {}, {}
-    for _, recipe in ipairs(policy.recipes) do
+    for _, recipe in ipairs(rules.recipes) do
         recipes[recipe.name] = recipe
     end
-    for _, group in ipairs(policy.enums) do
+    for _, group in ipairs(rules.enums) do
         enums[group.name] = group.values
     end
-    for _, term in ipairs(policy.termFields) do
+    for _, term in ipairs(rules.termFields) do
         termFields[term.id + 1] = term
     end
-    local result: any = {items = 0, bytes = 0, maxDepthBound = policy.maxDepthBound}
+    local result: any = {items = 0, bytes = 0, maxDepthBound = rules.maxDepthBound}
 
     local function textBytes(count: integer): nil
-        need(count <= policy.textItemLimit, "bounded source text required")
-        need(count <= policy.textLimit - result.bytes, "semantic string expansion limit exceeded")
+        need(count <= rules.textItemLimit, "bounded source text required")
+        need(count <= rules.textLimit - result.bytes, "semantic string expansion limit exceeded")
         result.bytes += count
     end
 
     local function charge(name: string, count: integer): nil
         local recipe = need(recipes[name], "unknown budget recipe")
-        bounded(count, policy.itemLimit)
-        need(count <= math.floor((policy.itemLimit - result.items) / recipe.items), "semantic expansion limit exceeded")
+        bounded(count, rules.itemLimit)
+        need(count <= math.floor((rules.itemLimit - result.items) / recipe.items), "semantic expansion limit exceeded")
         if recipe.bytes > 0 then
             need(
-                count <= math.floor((policy.textLimit - result.bytes) / recipe.bytes),
+                count <= math.floor((rules.textLimit - result.bytes) / recipe.bytes),
                 "semantic string expansion limit exceeded"
             )
         end
@@ -411,5 +410,3 @@ function budget.rows(tables: any, entry: integer): any
 
     return result
 end
-
-export = budget

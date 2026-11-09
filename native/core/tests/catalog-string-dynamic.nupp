@@ -7,4 +7,4 @@ local function use(value: any): any
 end
 
 assert(use("abcd") == "bcd")
-export = 1
+export const result = 1

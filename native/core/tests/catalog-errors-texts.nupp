@@ -56,4 +56,4 @@ end)
 if says(ok7, tostring(e7), "attempt to perform 'n%0'") then
     score = score + 64
 end
-export = score
+export const result = score

@@ -34,4 +34,4 @@ local c = Counter(5)
 c:bump()
 local d = Counter(1)
 local p = Pair(3, 4)
-export = c.count * 10000 + p.a * 1000 + p.b + made * 100000 + d.count
+export const result = c.count * 10000 + p.a * 1000 + p.b + made * 100000 + d.count

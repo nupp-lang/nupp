@@ -9,4 +9,4 @@ for i = 1, 3 do
     print("line", i)
     count = count + i
 end
-export = count
+export const result = count

@@ -1,8 +1,6 @@
 module nupp.tools.vm.root
 
-local cli = {}
-
-function cli.main(argv: {string}): integer
+export function main(argv: {string}): integer
     require("nupp.compiler.syntax.triviaarena").install(require("nupp.compiler.syntax.triviaarena.table"))
     require("nupp.compiler.vm.chunks").install()
     package.preload["nupp.embedded"] = function()
@@ -11,5 +9,3 @@ function cli.main(argv: {string}): integer
 
     return require("nupp.tools.cli").main(argv)
 end
-
-export = cli

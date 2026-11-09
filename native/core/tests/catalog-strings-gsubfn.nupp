@@ -52,4 +52,4 @@ end
 if anchored == "baa" and empty == "" then
     score = score + 32
 end
-export = score
+export const result = score

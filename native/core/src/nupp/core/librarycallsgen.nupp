@@ -5,8 +5,6 @@ local coretexts = require("nupp.compiler.vm.coretexts")
 const SELECTOR_BITS: integer = 32
 const SELECTOR_BASE: integer = 4294967296
 
-local generator = {}
-
 local function constant(lines: {string}, name: string, value: integer): nil
     lines[#lines + 1] = "export const " .. name .. ": uint64 = " .. tostring(value) .. "ULL"
 end
@@ -30,7 +28,7 @@ end
 -- (nupp.compiler.vm.corelibrary): each call's id, a range subject's bounds,
 -- and the text each call's errors name it by. The layouts the calls share
 -- with the compiler are librarylayoutsgen's.
-function generator.source(): string
+export function source(): string
     local lines = {
         "module nupp.runtime.core.librarycalls",
         "",
@@ -78,7 +76,7 @@ function generator.source(): string
 end
 
 -- A canonical subject can keep its constants outside the full module's local budget.
-function generator.subject(name: string): string
+export function subject(name: string): string
     for _, subject in ipairs(corelibrary.subjects()) do
         if subject.name == name then
             assert(subject.output ~= nil, "core subject has no separate output")
@@ -96,7 +94,7 @@ end
 
 -- The scalar kernel's family and operation labels stay in their own module;
 -- call constants remain below the ordinary module-local declaration bound.
-function generator.scalars(): string
+export function scalars(): string
     local lines = {
         "module nupp.runtime.core.scalarkinds",
         "",
@@ -107,8 +105,8 @@ function generator.scalars(): string
     -- call id. Both the family and operation labels are generated constants.
     local families, operations, entries = {}, {}, {}
     local seenFamilies, seenOperations = {}, {}
-    for _, subject in ipairs(corelibrary.subjects()) do
-        for _, entry in ipairs(subject.calls) do
+    for _, group in ipairs(corelibrary.subjects()) do
+        for _, entry in ipairs(group.calls) do
             if entry.scalar then
                 local family, operation = entry.scalar:match("^(%w+)%.(%w+)$")
                 assert(family and operation, "invalid core scalar identity")
@@ -157,5 +155,3 @@ function generator.scalars(): string
 
     return table.concat(lines, "\n") .. "\n"
 end
-
-export = generator

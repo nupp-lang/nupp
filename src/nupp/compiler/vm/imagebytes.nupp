@@ -1,13 +1,12 @@
 module nupp.compiler.vm.imagebytes
 
-local imagebytes = {}
 local two32 = 4294967296
 
-local function wordbytes(n: number): string
+export function wordbytes(n: number): string
     return string.char(n % 256, math.floor(n / 256) % 256, math.floor(n / 65536) % 256, math.floor(n / 16777216) % 256)
 end
 
-local function varint(n: number): string
+export function varint(n: number): string
     local shifted = (n + 1) % two32
     if shifted < 128 then
         return string.char(shifted)
@@ -25,7 +24,7 @@ end
 --- The eight little-endian bytes of an integer-valued number in two's
 --- complement; `-1` is eight 0xff bytes.
 --- @raises string when the number is not an exactly representable integer.
-local function widebytes(n: number): string
+export function widebytes(n: number): string
     if not (n % 1 == 0 and n > -9007199254740992 and n < 9007199254740992) then
         error("wide literal outside the exact integer range", 0)
     end
@@ -40,7 +39,7 @@ end
 --- sixteen-bit limbs: the lowering spells wide literals as text because a
 --- binary64 number cannot hold every one.
 --- @raises string when the text is not an integer or needs more than 64 bits.
-local function widetextbytes(text: string): string
+export function widetextbytes(text: string): string
     local negative = text:sub(1, 1) == "-"
     local digits = text:gsub("^[-+]", "")
     local base = 10
@@ -83,7 +82,7 @@ local function widetextbytes(text: string): string
 end
 
 --- The eight little-endian bytes of a binary64 number.
-local function floatbytes(x: number): string
+export function floatbytes(x: number): string
     if x ~= x then
         return wordbytes(0) .. wordbytes(2146959360)
     end
@@ -109,11 +108,3 @@ local function floatbytes(x: number): string
 
     return wordbytes(lo) .. wordbytes(hi)
 end
-
-imagebytes.wordbytes = wordbytes
-imagebytes.varint = varint
-imagebytes.widebytes = widebytes
-imagebytes.widetextbytes = widetextbytes
-imagebytes.floatbytes = floatbytes
-
-export = imagebytes

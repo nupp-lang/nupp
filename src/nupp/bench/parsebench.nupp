@@ -8,9 +8,7 @@ local parser = require("nupp.compiler.syntax.parser")
 local triviaarena = require("nupp.compiler.syntax.triviaarena")
 local tableProvider = require("nupp.compiler.syntax.triviaarena.table")
 
-local bench = {}
-
-function bench.setup(): boolean
+export function setup(): boolean
     triviaarena.install(tableProvider)
     return true
 end
@@ -39,8 +37,8 @@ end
 
 --- Parses `source` and returns the node count, the error count and the
 --- tree checksum.
-function bench.parse(source: string): (number, number, number)
-    local result = parser.parse(source, "bench.nupp")
+export function parse(source: string): (number, number, number)
+    local result = parser.parse(source, "nupp")
     local sum, count = walk(result.root, 0, 0)
     return count, #result.errors, sum
 end
@@ -61,11 +59,9 @@ local function dumpInto(node: any, out: {string}, depth: number)
     end
 end
 
-function bench.dump(source: string): string
-    local result = parser.parse(source, "bench.nupp")
+export function dump(source: string): string
+    local result = parser.parse(source, "nupp")
     local out: {string} = {}
     dumpInto(result.root, out, 0)
     return table.concat(out, "\n")
 end
-
-export = bench

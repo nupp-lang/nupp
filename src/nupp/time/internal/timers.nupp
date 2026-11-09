@@ -2,9 +2,8 @@
 module nupp.time.internal.timers
 
 local suspension = require("nupp.suspension")
-local timers = {}
 
-function timers.create(clock: any): any
+export function create(clock: any): any
     local time = {}
 
     --- How many waits may be pending at once.
@@ -223,5 +222,3 @@ function timers.create(clock: any): any
 
     return time
 end
-
-export = timers

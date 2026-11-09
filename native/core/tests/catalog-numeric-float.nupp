@@ -16,4 +16,6 @@ local mixed = 7 % 2.5
 local tiny = 4.9406564584124654e-324 * 7.0 % (4.9406564584124654e-324 * 3.0)
 local scaled = tiny * 1.0715086071862673e301 * 1.8889465931478581e22
 local result = (((((total * 4 + once) * 8 + far) * 8 + mixed) * 8 + positive * 2) * 8 + negative * 2) * 8
+-- Graph profiles before version 8 have no tables to export from, so the
+-- module value is the result itself.
 export = result + scaled * 0.25 - 1.0 - 0.75 * 2

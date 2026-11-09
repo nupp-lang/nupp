@@ -76,4 +76,4 @@ do
     check(total == 465)
 end
 
-export = score
+export const result = score

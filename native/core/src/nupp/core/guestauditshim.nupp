@@ -3,7 +3,6 @@ module nupp.core.guestauditshim
 local arm = require("s0.arm64")
 local linker = require("nupp.core.link")
 local literal = require("s0.literal")
-local shim = {}
 
 local function align(value: integer): integer
     return (value + 15) & -16
@@ -12,7 +11,7 @@ end
 -- This wrapper is test-only. It invokes the unchanged actual program entry,
 -- keeps its output/status, then calls three fixed checked audit leaves. Primary
 -- bundles are executed separately without this wrapper or these audit sources.
-function shim.build(source: any, selected: {[string]: any}, primary: any, scenario: string): any
+export function build(source: any, selected: {[string]: any}, primary: any, scenario: string): any
     assert(source.audited, "fixed audited guest source required")
     local prefixFailure = source.caseName == "modulePair" and scenario == "budget1"
     local status: integer = 0
@@ -222,5 +221,3 @@ function shim.build(source: any, selected: {[string]: any}, primary: any, scenar
         primaryEntry = primary.entry
     }
 end
-
-export = shim

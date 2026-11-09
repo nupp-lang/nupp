@@ -106,4 +106,4 @@ end
 if gcd(1071, 462) == 21 then
     score = score + 128
 end
-export = score * 1000000 + fact(12) % 1000000 + depth(17)
+export const result = score * 1000000 + fact(12) % 1000000 + depth(17)

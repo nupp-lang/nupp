@@ -73,4 +73,4 @@ calls.fill(mutableview, 2, 65)
 local mutablecast = calls.cast(mutableview, 1)
 calls.copy(mutablecast, "BC", 2)
 assert(calls.text(mutable, 4) == "\0BC\0")
-export = score
+export const result = score

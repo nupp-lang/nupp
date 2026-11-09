@@ -88,4 +88,4 @@ assert(("ab"):gmatch(".")() == "index")
 assert(dynamic:gmatch(".")() == "index")
 meta.__index = originalindex
 assert(("ab"):gmatch(".")() == "a")
-export = 1
+export const result = 1

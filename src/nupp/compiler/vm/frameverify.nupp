@@ -1,7 +1,5 @@
 module nupp.compiler.vm.frameverify
 
-local frameverify = {}
-
 local function same(a: any, b: any): boolean
     for key, value in pairs(a) do
         if b[key] ~= value then
@@ -52,7 +50,7 @@ local function intersect(target: any, source: any): boolean
     return changed
 end
 
-function frameverify.verify(g: any): nil
+export function verify(g: any): nil
     local context = g.native.abi == "handler" and 5 or 2
     local origins, meanings, definitions, incoming = {}, {}, {}, {}
 
@@ -425,5 +423,3 @@ function frameverify.verify(g: any): nil
         transfer(b, states[b.id] or fresh(), true)
     end
 end
-
-export = frameverify

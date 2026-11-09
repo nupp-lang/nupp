@@ -3,11 +3,10 @@ module nupp.core.rawexecutableshim
 local arm = require("s0.arm64")
 local selector = require("s0.select")
 local linker = require("nupp.core.link")
-local shim = {}
 
 -- Test-only packet: the selected raw service writes the catalog into scratch,
 -- then this boundary returns its status and exact bytes for independent checks.
-function shim.build(functions: {[string]: any}, symbol: string): any
+export function build(functions: {[string]: any}, symbol: string): any
     local scratchBytes: integer = 33554432
     local requestOffset: integer = 128
     local dispatchOffset: integer = 256
@@ -143,5 +142,3 @@ function shim.build(functions: {[string]: any}, symbol: string): any
         poolBytes = poolBytes
     }
 end
-
-export = shim

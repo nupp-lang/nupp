@@ -15,4 +15,4 @@ if not invalid then
     score = score | 4
 end
 collectgarbage("collect")
-export = score
+export const result = score

@@ -20,4 +20,4 @@ end
 local t: {[integer]: integer} = {}
 t[x] = 5
 local again = 100000000 * 100000000
-export = z * 100000 + cmp * 10 + (t[again] or 0)
+export const result = z * 100000 + cmp * 10 + (t[again] or 0)

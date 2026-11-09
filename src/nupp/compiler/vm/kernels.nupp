@@ -11,7 +11,6 @@ local maps = require("nupp.compiler.vm.maps")
 local artifact = require("nupp.compiler.gpu.artifact")
 local T = require("nupp.compiler.types")
 local apiidentity = require("nupp.compiler.apiidentity")
-local frontend = {}
 local REFUSED = {}
 local elements = {
     uint8 = 0,
@@ -157,7 +156,7 @@ local unaryOps = {
 
 -- Types and export identities come from the checker. No AOT program, structured
 -- statement IR, or mutable-register instruction stream is built here.
-function frontend.build(body: any, mapMode: boolean?): any
+export function build(body: any, mapMode: boolean?): any
     need(
         not body.generics and not body.varargParam and not body.captureTakes and not body.captureBorrows,
         "plain leaf required"
@@ -1006,8 +1005,8 @@ function frontend.build(body: any, mapMode: boolean?): any
     return g
 end
 
-function frontend.tryBuild(body: any, mapMode: boolean?): (any, string?)
-    local ok, result = pcall(frontend.build, body, mapMode)
+export function tryBuild(body: any, mapMode: boolean?): (any, string?)
+    local ok, result = pcall(build, body, mapMode)
     if ok then
         return result, nil
     end
@@ -1031,7 +1030,7 @@ local function kernelName(n: any): string
     return last and last.text or "kernel"
 end
 
-function frontend.plans(root: any): (any, any)
+export function plans(root: any): (any, any)
     local plans, refusals = {}, {}
 
     local function candidate(n: any, body: any): boolean
@@ -1054,7 +1053,7 @@ function frontend.plans(root: any): (any, any)
 
     local function walk(n: any): nil
         if n.kind == "localFunc" or n.kind == "funcStmt" or n.kind == "localFuncStmt" then
-            local g = frontend.tryBuild(n.body, true)
+            local g = tryBuild(n.body, true)
             if g and pcall(maps.verify, g) then
                 local plan = G.lower(g)
                 -- The kernel's GPU artifacts travel with its plan into the
@@ -1067,7 +1066,7 @@ function frontend.plans(root: any): (any, any)
                 refusals[n.body] = "no explicit SIMD";
                 return
             end
-            local g, reason = frontend.tryBuild(n.body)
+            local g, reason = tryBuild(n.body)
             if g then
                 plans[n.body] = G.lower(g)
             else
@@ -1089,5 +1088,3 @@ function frontend.plans(root: any): (any, any)
 
     return plans, refusals
 end
-
-export = frontend

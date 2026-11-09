@@ -1,0 +1,343 @@
+#!/bin/sh
+# The machine-wide build store every checkout and worktree shares.
+#
+#   scripts/shared-cache home                     print the store directory
+#   scripts/shared-cache sweep [--if-due]         keep the store under its size limit
+#   scripts/shared-cache publish ROOT [GEN|all]   keep ROOT's compiler generations
+#   scripts/shared-cache materialize ROOT GEN     clone a stored generation into ROOT
+#   scripts/shared-cache build-key ROOT GEN JOBS  name what a compiler build reads
+#   scripts/shared-cache digest ROOT PATH...      name the content of files under PATHs
+#   scripts/shared-cache record ROOT KEY          remember ROOT's selected generation
+#   scripts/shared-cache adopt ROOT KEY           select what a build of KEY made
+#
+# The store lives in NUPP_CACHE_HOME, by default ~/.cache/nupp, one directory per
+# kind of entry:
+#
+#   kernels/KEY.json     runtime kernel code (nupp.core.unitrunner)
+#   programs/KEY.json    guest program selections (native/core/tests/guests/run.lua)
+#   vm-cli/GEN/          compiler generations, named by their own content
+#   vm-cli-builds/KEY    the generation, and its receipt, a build of KEY produced
+#
+# Every entry is named by the content it was computed from, written aside and
+# renamed into place, so a reader never sees a partial one, and nothing here is
+# load-bearing: a missing, corrupt or swept entry is a miss, and a miss does the
+# work it would have done without the store. Generations are cloned, never
+# linked, into a checkout's .nupp/vm-cli, which keeps its own `current` pointer and
+# receipts; a clone costs no space where the filesystem shares blocks.
+#
+# The sweep removes the least recently used entries until the store is under
+# NUPP_CACHE_LIMIT_MB (default 20480). It never removes one used in the last
+# NUPP_CACHE_KEEP_SECONDS (default 3600), so a run that is reading an entry keeps it.
+
+set -eu
+
+STORE=${NUPP_CACHE_HOME:-${HOME:?}/.cache/nupp}
+FORMAT=nupp-vm-cli-1
+GENERATION_LENGTH=64
+DEFAULT_LIMIT_MB=20480
+DEFAULT_KEEP_SECONDS=3600
+# A sweep asked for opportunistically runs at most this often.
+SWEEP_INTERVAL_SECONDS=600
+# The build key's own format: bumped when what it covers changes.
+BUILD_KEY_FORMAT=vm-build/1
+# What a compiler build reads, as `scripts/vm-cli` fingerprints it.
+BUILD_INPUTS="src templates native runtime scripts bin nupp.lua tests/run.lua Cargo.toml Cargo.lock rust-toolchain.toml .cargo"
+
+usage() {
+    sed -n '2,11p' "$0" | sed 's/^# //' >&2
+    exit 2
+}
+
+sha256() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$@" | awk '{print $1}'
+    else
+        shasum -a 256 "$@" | awk '{print $1}'
+    fi
+}
+
+valid_generation() {
+    case "$1" in
+        ""|*[!0-9a-f]*) return 1 ;;
+    esac
+    [ "${#1}" -eq "$GENERATION_LENGTH" ]
+}
+
+# A name no other process writing beside it can pick.
+aside() {
+    printf '%s/.part-%s-%s' "$1" "$$" "$(od -An -N8 -tx8 /dev/urandom | tr -d ' \n')"
+}
+
+clone_tree() {
+    if [ "$(uname)" = Darwin ]; then
+        cp -cRp "$1" "$2" 2>/dev/null && return 0
+    else
+        cp -Rp --reflink=auto "$1" "$2" 2>/dev/null && return 0
+    fi
+    rm -rf "$2"
+    cp -Rp "$1" "$2"
+}
+
+# Moves directory $1 to $2 unless $2 is already there. `mv` onto an existing
+# directory moves into it, so a lost race leaves $1 inside $2, removed here.
+place_tree() {
+    if [ ! -e "$2" ]; then
+        mv "$1" "$2" 2>/dev/null || true
+    fi
+    rm -rf "$1" "$2/$(basename "$1")"
+    [ -e "$2" ]
+}
+
+# A generation is named by its content: sha256 of the receipt key over the
+# digests of its runtime and image. Anything else in the directory is not part
+# of its identity and is not trusted from here.
+verified_generation() {
+    directory=$1
+    generation=$2
+    [ "$(cat "$directory/format" 2>/dev/null)" = "$FORMAT" ] || return 1
+    [ -f "$directory/runtime" ] && [ -f "$directory/compiler.image" ] || return 1
+    runtime=$(sha256 "$directory/runtime") || return 1
+    image=$(sha256 "$directory/compiler.image") || return 1
+    named=$(printf '{"format":"%s","imageSha256":"%s","runtimeSha256":"%s"}' "$FORMAT" "$image" "$runtime" \
+        | sha256)
+    [ "$named" = "$generation" ]
+}
+
+publish_one() {
+    root=$1
+    generation=$2
+    source="$root/.nupp/vm-cli/$generation"
+    target="$STORE/vm-cli/$generation"
+    valid_generation "$generation" || return 0
+    [ "$(cat "$source/format" 2>/dev/null)" = "$FORMAT" ] || return 0
+    if [ -f "$target/format" ]; then
+        touch "$target/format"
+        return 0
+    fi
+    mkdir -p "$STORE/vm-cli"
+    staged=$(aside "$STORE/vm-cli")
+    clone_tree "$source" "$staged"
+    place_tree "$staged" "$target"
+}
+
+publish() {
+    root=$1
+    which=${2:-current}
+    if [ "$which" = current ]; then
+        which=$(cat "$root/.nupp/vm-cli/current" 2>/dev/null || true)
+    fi
+    if [ "$which" = all ]; then
+        for directory in "$root"/.nupp/vm-cli/*/; do
+            [ -d "$directory" ] || continue
+            name=${directory%/}
+            publish_one "$root" "${name##*/}"
+        done
+    else
+        publish_one "$root" "$which"
+    fi
+}
+
+# Clones a stored generation into ROOT's .nupp/vm-cli, verified by its name. A
+# stored copy that does not match it is removed: it is a miss, not an answer.
+materialize() {
+    root=$1
+    generation=$2
+    valid_generation "$generation" || { echo "shared-cache: invalid generation" >&2; return 1; }
+    destination="$root/.nupp/vm-cli/$generation"
+    if [ "$(cat "$destination/format" 2>/dev/null)" = "$FORMAT" ]; then
+        echo "$destination"
+        return 0
+    fi
+    stored="$STORE/vm-cli/$generation"
+    [ -f "$stored/format" ] || return 1
+    touch "$stored/format"
+    mkdir -p "$root/.nupp/vm-cli"
+    staged=$(aside "$root/.nupp/vm-cli")
+    clone_tree "$stored" "$staged"
+    if ! verified_generation "$staged" "$generation"; then
+        rm -rf "$staged" "$stored"
+        echo "shared-cache: stored generation ${generation%"${generation#????????}"} was corrupt; removed" >&2
+        return 1
+    fi
+    place_tree "$staged" "$destination"
+    echo "$destination"
+}
+
+# The content of the files git lists under PATHS in ROOT, tracked or not and
+# ignored ones left out, as one digest over each file's blob id and path.
+tree_digest() {
+    root=$1
+    shift
+    listing=$(mktemp "${TMPDIR:-/tmp}/nupp-tree-digest.XXXXXX")
+    (cd "$root" && git ls-files --cached --others --exclude-standard -- "$@") | LC_ALL=C sort -u \
+        | while IFS= read -r file; do
+            if [ -f "$root/$file" ]; then
+                printf '%s\n' "$file"
+            fi
+        done > "$listing"
+    if [ ! -s "$listing" ]; then
+        rm -f "$listing"
+        return 1
+    fi
+    if ! (cd "$root" && git hash-object --no-filters --stdin-paths < "$listing" | paste -d ' ' - "$listing") \
+        | sha256; then
+        rm -f "$listing"
+        return 1
+    fi
+    rm -f "$listing"
+}
+
+# Every input a compiler build reads, by content: the files `scripts/vm-cli`
+# fingerprints, the compiler doing the build, the AOT job count, the machine and
+# the Rust flags. Two builds with one key make the same compiler, whichever
+# checkout they run in.
+build_key() {
+    root=$1
+    generation=$2
+    jobs=$3
+    valid_generation "$generation" || { echo "shared-cache: invalid generation" >&2; return 1; }
+    # shellcheck disable=SC2086
+    contents=$(tree_digest "$root" $BUILD_INPUTS) || return 1
+    {
+        printf '%s\n%s\n%s\n%s\n%s\n' "$BUILD_KEY_FORMAT" "$generation" "$jobs" "$(uname -sm)" "$contents"
+        printf 'RUSTFLAGS=%s\nCARGO_ENCODED_RUSTFLAGS=%s\n' "${RUSTFLAGS:-}" "${CARGO_ENCODED_RUSTFLAGS:-}"
+    } | sha256
+}
+
+# Remembers that ROOT's selected generation is what a build of KEY made, with
+# the receipt that build wrote, and keeps the generation.
+record() {
+    root=$1
+    key=$2
+    valid_generation "$key" || return 1
+    generation=$(cat "$root/.nupp/vm-cli/current")
+    valid_generation "$generation" || return 1
+    receipt="$root/.nupp/vm-cli/$generation/receipt.json"
+    [ -f "$receipt" ] || return 1
+    publish_one "$root" "$generation"
+    mkdir -p "$STORE/vm-cli-builds"
+    staged=$(aside "$STORE/vm-cli-builds")
+    { echo "$generation"; cat "$receipt"; } > "$staged"
+    mv -f "$staged" "$STORE/vm-cli-builds/$key"
+}
+
+# Selects in ROOT the generation a build of KEY made, with that build's receipt,
+# when the store has both and `scripts/vm-cli current` agrees it was built from
+# exactly these sources. Answers false, changing nothing, otherwise.
+adopt() {
+    root=$1
+    key=$2
+    valid_generation "$key" || return 1
+    entry="$STORE/vm-cli-builds/$key"
+    [ -f "$entry" ] || return 1
+    generation=$(sed -n 1p "$entry")
+    valid_generation "$generation" || return 1
+    destination=$(materialize "$root" "$generation") || return 1
+    packages="$root/.nupp/vm-cli"
+    previous=$(cat "$packages/current" 2>/dev/null || true)
+    old_receipt=$(aside "$packages")
+    cp -p "$destination/receipt.json" "$old_receipt" 2>/dev/null || : > "$old_receipt"
+    new_receipt=$(aside "$packages")
+    sed 1d "$entry" > "$new_receipt"
+    mv -f "$new_receipt" "$destination/receipt.json"
+    pointer=$(aside "$packages")
+    echo "$generation" > "$pointer"
+    mv -f "$pointer" "$packages/current"
+    if python3 "$root/scripts/vm-cli" current --refresh-stamp >/dev/null 2>&1; then
+        rm -f "$old_receipt"
+        touch "$entry"
+        echo "$destination"
+        return 0
+    fi
+    # Not current after all: put back what was selected and let the build run.
+    if [ -s "$old_receipt" ]; then
+        mv -f "$old_receipt" "$destination/receipt.json"
+    else
+        rm -f "$old_receipt"
+    fi
+    if [ -n "$previous" ]; then
+        pointer=$(aside "$packages")
+        echo "$previous" > "$pointer"
+        mv -f "$pointer" "$packages/current"
+    fi
+    return 1
+}
+
+# Last use, size in kilobytes and path of every entry, one per line. Reading a
+# file moves its access time; a generation is used through its `format` file,
+# which `materialize` and `publish` touch.
+entries() {
+    if [ "$(uname)" = Darwin ]; then
+        flag=-f format='%a %m %z %N'
+    else
+        flag=-c format='%X %Y %s %n'
+    fi
+    for kind in kernels programs vm-cli-builds; do
+        [ -d "$STORE/$kind" ] || continue
+        find "$STORE/$kind" -type f -print0 | xargs -0 stat "$flag" "$format" 2>/dev/null \
+            | awk '{ used = ($1 > $2 ? $1 : $2); size = int(($3 + 1023) / 1024); path = $0
+                     sub(/^[^ ]+ [^ ]+ [^ ]+ /, "", path); print used, size, path }'
+    done
+    for directory in "$STORE"/vm-cli/*/; do
+        [ -d "$directory" ] || continue
+        directory=${directory%/}
+        used=$(stat "$flag" "$format" "$directory/format" 2>/dev/null | awk '{ print ($1 > $2 ? $1 : $2) }')
+        [ -n "$used" ] || used=0
+        size=$(du -sk "$directory" | awk '{print $1}')
+        echo "$used $size $directory"
+    done
+}
+
+sweep() {
+    if [ "${1:-}" = --if-due ]; then
+        stamp="$STORE/.sweep-stamp"
+        if [ -f "$stamp" ] && [ -z "$(find "$stamp" -mmin +$((SWEEP_INTERVAL_SECONDS / 60)) 2>/dev/null)" ]; then
+            return 0
+        fi
+    fi
+    [ -d "$STORE" ] || return 0
+    lock="$STORE/.sweep-lock"
+    if ! mkdir "$lock" 2>/dev/null; then
+        # A sweep that died leaves its lock; one older than the keep time is stale.
+        [ -n "$(find "$lock" -maxdepth 0 -mmin +$((${NUPP_CACHE_KEEP_SECONDS:-$DEFAULT_KEEP_SECONDS} / 60)) 2>/dev/null)" ] \
+            || return 0
+        rm -rf "$lock"
+        mkdir "$lock" 2>/dev/null || return 0
+    fi
+    trap 'rm -rf "$lock"' EXIT
+    touch "$STORE/.sweep-stamp"
+    limit=$((${NUPP_CACHE_LIMIT_MB:-$DEFAULT_LIMIT_MB} * 1024))
+    keep=${NUPP_CACHE_KEEP_SECONDS:-$DEFAULT_KEEP_SECONDS}
+    now=$(date +%s)
+    entries | sort -n | awk -v limit="$limit" -v cutoff=$((now - keep)) '
+        { used[NR] = $1; size[NR] = $2; path = $0; sub(/^[^ ]+ [^ ]+ /, "", path); paths[NR] = path; total += $2 }
+        END {
+            for (i = 1; i <= NR && total > limit; i++) {
+                if (used[i] >= cutoff) break
+                print paths[i]
+                total -= size[i]
+            }
+        }' | while IFS= read -r path; do
+        rm -rf "$path"
+    done
+    # What a writer that died left aside, once nobody could still be writing it.
+    for kind in kernels programs vm-cli-builds vm-cli; do
+        [ -d "$STORE/$kind" ] || continue
+        find "$STORE/$kind" -maxdepth 1 -name '.part-*' -mmin +$((keep / 60)) -exec rm -rf {} + 2>/dev/null || true
+    done
+}
+
+[ "$#" -ge 1 ] || usage
+command=$1
+shift
+case "$command" in
+    home) echo "$STORE" ;;
+    sweep) sweep "$@" ;;
+    publish) [ "$#" -ge 1 ] || usage; publish "$@" ;;
+    materialize) [ "$#" -eq 2 ] || usage; materialize "$@" ;;
+    build-key) [ "$#" -eq 3 ] || usage; build_key "$@" ;;
+    digest) [ "$#" -ge 2 ] || usage; tree_digest "$@" ;;
+    record) [ "$#" -eq 2 ] || usage; record "$@" ;;
+    adopt) [ "$#" -eq 2 ] || usage; adopt "$@" ;;
+    *) usage ;;
+esac

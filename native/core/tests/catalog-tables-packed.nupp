@@ -259,4 +259,4 @@ if calls.packedkind(long) == 8 and total == 3 * 20000 * 20001 // 2 then
     score = score + 1024
 end
 
-export = score
+export const result = score

@@ -56,4 +56,4 @@ collectgarbage("collect")
 local fresh: any = "uvwxyz"
 local freshmeta: any = getmetatable(fresh)
 assert(freshmeta.__index == library and call(fresh, 3) == "wxyz")
-export = 1
+export const result = 1

@@ -2,7 +2,6 @@ module nupp.compiler.vm.resources
 
 local fs = require("nupp.compiler.fs")
 local syntax = require("nupp.compiler.shellsyntax")
-local resources = {}
 
 local function expand(root: string, pattern: string): {string}
     if not pattern:find("[*?]") then
@@ -74,13 +73,13 @@ end
 
 --- Carry the resources of the target `selfHost.target` names -- the compiler's
 --- own -- in its VM image. A manifest naming none falls back to `compiler`.
-function resources.source(root: string, config: table): string
+export function source(root: string, config: table): string
     local values, keys = collect(root, config)
     return encode(values, keys)
 end
 
 -- Bind the exact declaration inputs before the self-hosting environment exists.
-function resources.prepare(root: string, config: table): string
+export function prepare(root: string, config: table): string
     local values, keys = collect(root, config)
     require("nupp.compiler.bundled").bind(values)
     package.preload["nupp.embedded"] = function(): {[string]: string}
@@ -89,5 +88,3 @@ function resources.prepare(root: string, config: table): string
 
     return encode(values, keys)
 end
-
-export = resources

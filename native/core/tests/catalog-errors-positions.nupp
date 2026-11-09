@@ -57,4 +57,4 @@ local ok6, e6 = pcall(risky, 3)
 if ok6 and e6 == 3 then
     score = score + 100000
 end
-export = score
+export const result = score

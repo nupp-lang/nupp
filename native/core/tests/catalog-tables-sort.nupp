@@ -56,4 +56,4 @@ end
 if "a" >= "a" and not ("ab" < "ab") then
     score = score + 1
 end
-export = score
+export const result = score

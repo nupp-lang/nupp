@@ -34,4 +34,4 @@ end) then
     score = score + 2
 end
 score = score + 4
-export = score
+export const result = score

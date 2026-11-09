@@ -130,4 +130,4 @@ refuses(function(): nil
     deferred("nupp.core.notcarried")
 end)
 
-export = 1
+export const result = 1

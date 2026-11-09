@@ -3,13 +3,9 @@ module nupp.compiler.check.luaformat
 -- Compiler lowering for the fixed `string.format` directive grammar and Nupp's
 -- `%?` extension. This scanner is compiler-private and needs no PEG runtime.
 
-local record Analysis
+export record Analysis
     format: string
     debugArguments: {boolean}
-end
-
-local record luaFormat
-    analyze: function(string): (Analysis?, string?)
 end
 
 local FLAGS = "-+ #0"
@@ -20,7 +16,7 @@ local function contains(haystack: string, byte: string): boolean
     return byte ~= "" and haystack:find(byte, 1, true) ~= nil
 end
 
-function luaFormat.analyze(format: string): (Analysis?, string?)
+export function analyze(format: string): (Analysis?, string?)
     local debugArguments, pieces = {}, {}
     local copiedFrom, index = 1, 1
     while index <= #format do
@@ -74,5 +70,3 @@ function luaFormat.analyze(format: string): (Analysis?, string?)
 
     return Analysis(format = table.concat(pieces), debugArguments = debugArguments), nil
 end
-
-export = luaFormat

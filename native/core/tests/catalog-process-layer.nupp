@@ -186,4 +186,4 @@ do
     check(processes.kill(sleeper, nil) == 0 and processes.wait(sleeper).code == 15)
 end
 
-export = score
+export const result = score

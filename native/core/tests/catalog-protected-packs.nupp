@@ -114,4 +114,4 @@ local function ownedNone(): nil
 end
 
 assert(pack(protect(ownedNone)).n == 1 and closed == 2)
-export = 1
+export const result = 1

@@ -6,13 +6,12 @@ const assert2 = require("assert")
 -- statement tree. One traversal validates the annotations and records the
 -- structured event sequence as three parallel arrays, so a backend consumes
 -- it with a numeric loop rather than a callback per event.
-local regions = {}
 
 --- The event kinds, in the order a structured backend sees them: "loop",
 --- "block", "exit", "edge", "endloop", "if", "else", "endif", "return".
 --- @raises string when the region annotations do not describe the graph's blocks
 --- and edges.
-function regions.events(g: any): any
+export function events(g: any): any
     local kinds, blocks, edges, n = {}, {}, {}, 0
 
     local function visit(kind: string, block: any, edge: any): nil
@@ -94,12 +93,10 @@ function regions.events(g: any): any
     return {kinds = kinds, blocks = blocks, edges = edges, count = n}
 end
 
-function regions.walk(g: any, visit: function(string, any, any): nil): nil
-    local events = regions.events(g)
-    local kinds, blocks, edges = events.kinds, events.blocks, events.edges
-    for i = 1, events.count do
+export function walk(g: any, visit: function(string, any, any): nil): nil
+    local found = events(g)
+    local kinds, blocks, edges = found.kinds, found.blocks, found.edges
+    for i = 1, found.count do
         visit(kinds[i], blocks[i], edges[i] or nil)
     end
 end
-
-export = regions

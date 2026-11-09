@@ -31,4 +31,4 @@ installed.marker = 5
 if (package as any).marker == 5 then
     score = score + 32
 end
-export = score
+export const result = score
