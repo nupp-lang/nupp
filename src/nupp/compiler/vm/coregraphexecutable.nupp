@@ -150,6 +150,20 @@ local function assignSlots(g: any): (any, integer)
     return slotOf, highest
 end
 
+-- A dynamic call may reach a table with __call, which is called with the
+-- table as an extra first argument; that __call may be a table in turn, and
+-- Lua 5.5 follows such a chain fifteen deep. A call's window holds that many
+-- receivers past the most arguments it stages itself, a spread's included.
+const CALL_CHAIN = 15
+const CALL_ARGUMENTS = 63
+
+-- The window a call's arguments take past its callee: its `nargs` own, or a
+-- spread's most, and the receivers a __call chain inserts before them.
+local function callRoom(term: any, nargs: integer): integer
+    local own: integer = term.spread and CALL_ARGUMENTS or nargs
+    return own + CALL_CHAIN
+end
+
 local function derive(g: any, catalog: any): any
     local maximumArguments: integer = 0
     local metaCalls = false
@@ -205,22 +219,22 @@ local function derive(g: any, catalog: any): any
             end
         end
         if block.term.kind == "invoke" then
-            need(#block.term.args <= 63, "fixed CallK argument capacity")
+            need(#block.term.args <= CALL_ARGUMENTS, "fixed CallK argument capacity")
             maximumArguments = math.max(maximumArguments, #block.term.args) as integer
             -- xpcall's handler is staged past the arguments and the results,
             -- and called from the four slots at the top of the window, above
             -- them all.
             local contract = catalog.contracts[block.term.contract + 1]
-            -- A dynamic call may reach a table with __call, which takes the
-            -- table as an extra first argument.
+            -- A dynamic call may reach a chain of tables with __call.
             if contract and catalog.schema.version >= 8 and contract.target == catalog.schema.absent then
-                maximumArguments = math.max(maximumArguments, #block.term.args + 1) as integer
+                maximumArguments = math.max(maximumArguments, callRoom(block.term, #block.term.args)) as integer
             end
             if contract and contract.handled then
-                local results: integer = math.max(#block.term.args, #(block.term.results or {}), 2) as integer
-                if block.term.spread then
-                    results = math.max(results, 64) as integer
-                end
+                local results: integer = math.max(
+                    callRoom(block.term, #block.term.args - 1),
+                    #(block.term.results or {}),
+                    2
+                ) as integer
                 maximumArguments = math.max(maximumArguments, results + 5) as integer
                 metaCalls = true
             end
@@ -433,11 +447,14 @@ local function derive(g: any, catalog: any): any
                         emit({"Move", callBase + index - 1, physical(args[index])}, position)
                     end
                     -- The id and its argument count, which carries the
-                    -- method-form flag.
-                    local id, method = corelibrary.split(args[1])
+                    -- method-form and forwarding flags.
+                    local id, method, forward = corelibrary.split(args[1])
                     local count = #args - 1
                     if method then
                         count += corelibrary.COUNT_METHOD_FORM
+                    end
+                    if forward then
+                        count += corelibrary.COUNT_FORWARD_FORM
                     end
                     emit({"LibCall", physical(dst), id, callBase, count}, position)
                     yield nil
@@ -489,9 +506,9 @@ local function derive(g: any, catalog: any): any
                 -- An open call takes every result as one pack: its instruction
                 -- wants none, and its one slot holds the pack.
                 local encoded = term.open and 0 or wanted
-                -- xpcall's handler: past the arguments and the results.
-                -- A callable table inserts its receiver before the arguments.
-                local handlerSlot = callBase + 1 + math.max(term.spread and 64 or nargs + 1, captured)
+                -- xpcall's handler: past the arguments and the results, and
+                -- the receivers a chain of callable tables inserts before them.
+                local handlerSlot = callBase + 1 + math.max(callRoom(term, nargs), captured)
                 if contract.handled then
                     emit({"Move", handlerSlot, physical(term.args[#term.args])}, position)
                 end

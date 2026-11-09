@@ -656,6 +656,12 @@ export function resultKind(g: any, signature: any, output: any): string
         end
     end
 
+    -- A graph with no return never returns (it only raises): its checked
+    -- result holds of every return it has.
+    if returned == nil and signature.kind ~= "initializer" then
+        returned = signature.result
+    end
+
     return need(returned, "missing scalar return")
 end
 
