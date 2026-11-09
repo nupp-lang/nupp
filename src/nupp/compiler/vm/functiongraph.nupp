@@ -344,7 +344,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         elseif node.kind == "methodCall" and profile.methodCall then
             return invoke("methodCall", node, expected)
         elseif node.kind == "switchExpr" then
-            need(profile.switchCase and not cleanupEnabled, "numeric switch profile required")
+            need(profile.switchCase, "numeric switch profile required")
             need(node.elseCase and #node.cases > 0, "numeric switch requires an else arm")
             local selectorKind = profile.kind(node.selector.inferredType)
             local resultKind = profile.kind(node.inferredType)
@@ -358,7 +358,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
 
             local function armValue(arm: any): integer?
                 local value = need(arm.expr, "numeric switch arm needs an expression")
-                if value.kind ~= "doExpr" then
+                -- A `do` arm is a do expression, whose body may be any statements;
+                -- a function owning values keeps the call-only form below.
+                if value.kind ~= "doExpr" or not cleanupEnabled then
                     return expression(value, resultKind)
                 end
                 local stats = need(value.body and value.body.stats, "numeric switch do body required")
@@ -374,8 +376,16 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 return expression(need(stats[#stats].value, "numeric switch yield needs a value"), resultKind)
             end
 
+            -- In a function that owns values, an arm leaves the owners it
+            -- found: its own temporaries are settled before it joins.
+            local cleanupDepth = #cleanups
+
             local function complete(arm: any): nil
                 local value = armValue(arm)
+                need(
+                    not cleanupEnabled or #cleanups == cleanupDepth,
+                    "a switch arm in a function owning values changes its cleanups"
+                )
                 if block then
                     local edge = currentEdge(done)
                     table.insert(edge.args, 1, need(value, "numeric switch arm loses its value"))
@@ -386,11 +396,19 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
 
             for _, arm in ipairs(node.cases) do
                 need(
-                    arm.patternKind == "static" and not arm.guard and #arm.values == 1,
-                    "numeric switch admits one unguarded static value per arm"
+                    arm.patternKind == "static" and not arm.guard and #arm.values >= 1,
+                    "numeric switch admits unguarded static values"
                 )
                 context()
                 local matched = profile.switchCase(ctx, arm.values[1], ctx.readHeld(handle), selectorKind)
+                -- `case a, b ->` matches when any of its values does.
+                for index = 2, #arm.values do
+                    local held = ctx.hold(matched)
+                    local also = profile.switchCase(ctx, arm.values[index], ctx.readHeld(handle), selectorKind)
+                    local first = ctx.readHeld(held)
+                    ctx.release(held)
+                    matched = ctx.select(arm, first, first, also)
+                end
                 need(block ~= nil and profile.valueKind(g, matched) == profile.booleanKind, "numeric switch match kind")
                 local parent = block
                 local yes, no = branch(), branch()
@@ -414,6 +432,19 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             yields[#yields + 1] = {done = done, kind = resultKind}
             statements(node.body.stats)
             yields[#yields] = nil
+            -- A body that ends in a call that never returns (`error(...)`)
+            -- yields nothing: the block ends there, unreachably.
+            local final = node.body.stats[#node.body.stats]
+            if block
+                and final
+                and final.kind == "callStmt"
+                and final.expr.inferredType
+                and final.expr.inferredType.tag == "never"
+            then
+                local none = ctx.emit(final, "Nil", {}, profile.kind(nil))
+                block.term = {kind = "return", value = none, edges = {}, pos = position(final)}
+                block = nil
+            end
             need(block == nil, "a do expression ends without a yield")
             resume(done)
             context()
@@ -1427,6 +1458,12 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                                 end
                                 registerCleanup(stat, owner, owner.type, value, exprs[index] == nil and not spread)
                             end
+                        end
+                        -- A reassigned local never shares a parameter's value: the
+                        -- loops and branches that change it carry it, and they
+                        -- carry no parameter.
+                        if value <= g.nparams and key.reassigned and profile.freshLocal then
+                            value = profile.freshLocal(ctx, stat, value)
                         end
                         ctx.bind(key, initializeBinding(stat, key, value))
                     end

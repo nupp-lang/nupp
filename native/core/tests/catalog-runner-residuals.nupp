@@ -1,0 +1,90 @@
+module nupp.core.catalogrunnerresiduals
+
+-- Forms the packaged runner's compiler closure uses that core lowering refused:
+-- a loop-local taken from a parameter and reassigned in the loop, and a switch
+-- expression in a function that owns a value. Each check is a bit of the score.
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+-- A local declared in a loop from a parameter, then reassigned in that loop.
+local function last(value: integer?, items: {integer}): integer
+    local out: integer = 0
+    for _, item in ipairs(items) do
+        local current = value
+        if current == nil then
+            current = item
+        end
+        out = out + current
+    end
+
+    return out
+end
+
+local closed = 0
+
+local record Token is own.Closeable
+    function close(takes self): nil
+        closed = closed + 1
+    end
+end
+
+-- A switch whose arms are do bodies with locals and branches before the yield.
+local function width(kind: string): integer
+    return switch kind do
+        case "bit", "flag" -> 0
+        case "byte" -> do
+            local bits: integer = 8
+            yield bits - 7
+        end
+        case "word" -> do
+            local bits: integer = 64
+            if bits > 32 then
+                yield 8
+            end
+            yield 4
+        end
+        case "never" -> do
+            error("never " .. kind, 0)
+        end
+        else -> 0
+    end
+end
+
+-- A switch expression in a function owning a value, whose arms own nothing.
+local function label(kind: integer): string
+    const token = Token()
+    local text = switch kind do
+        case 1 -> "one"
+        case 2 -> "two"
+        else -> "many"
+    end
+    token:close()
+
+    return text
+end
+
+do
+    check(last(nil, {1, 2, 3}) == 6)
+    check(last(10, {1, 2}) == 20)
+    check(label(1) == "one" and label(2) == "two" and label(7) == "many" and closed == 3)
+    check(width("byte") == 1 and width("word") == 8 and width("other") == 0)
+    check(width("bit") == 0 and width("flag") == 0)
+    local ok, message = pcall(width, "never")
+    check(not ok and message == "never never")
+    -- ipairs taken as a value, as comptime's adapter calls it.
+    local walk: any = ipairs
+    local total = 0
+    for _, value in walk({10, 20, 30}) do
+        total = total + (value as integer)
+    end
+    check(total == 60)
+end
+
+export const result = score
