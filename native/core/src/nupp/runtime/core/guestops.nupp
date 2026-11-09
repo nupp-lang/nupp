@@ -253,7 +253,12 @@ local function compatibleSignatures(c: voidptr, site: uint64, callee: uint64): u
     local a = native.offset(records, native.index(site * native.sizeOf<catalog.Signature>()))
     local b = native.offset(records, native.index(callee * native.sizeOf<catalog.Signature>()))
     local wanted = native.load64(a, native.fieldOffset<catalog.Signature>("resultKind"))
-    if wanted ~= catalog.VALUE and wanted ~= native.load64(b, native.fieldOffset<catalog.Signature>("resultKind")) then
+    local given = native.load64(b, native.fieldOffset<catalog.Signature>("resultKind"))
+    -- Values are tagged, so a result is whatever the callee gives: a site
+    -- typed for nil takes any (a function of no annotated results passed as
+    -- `function(T): nil`), and a callee that gives any value is checked where
+    -- its result is used.
+    if wanted ~= catalog.VALUE and wanted ~= catalog.NIL and given ~= catalog.VALUE and wanted ~= given then
         return 0ULL
     end
 
