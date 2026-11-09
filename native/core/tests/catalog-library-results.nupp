@@ -6,6 +6,12 @@ module nupp.core.cataloglibraryresults
 local score = 0
 local bit = 1
 
+-- Whether `text` is a message that ends with `suffix`, as one positioned at
+-- the line that raised it does.
+local function ends(text: any, suffix: string): boolean
+    return type(text) == "string" and string.sub(text as string, -#suffix) == suffix
+end
+
 local function check(ok: boolean): nil
     if ok then
         score = score | bit
@@ -77,11 +83,11 @@ do
     local ok, message = pcall(function()
         assert(failing())
     end)
-    check(not ok and message == "why")
+    check(not ok and ends(message, ":84: why"))
     local bare, said = pcall(function()
         assert(only(nil))
     end)
-    check(not bare and said == "assertion failed!")
+    check(not bare and ends(said, ":88: assertion failed!"))
     local first, second = assert(pair())
     check(first == "one" and second == 2)
     check(tonumber(digits()) == 255)
@@ -90,17 +96,17 @@ do
     local caught, reason = pcall(function()
         assert(pcall(error, "bad", 0))
     end)
-    check(not caught and reason == "bad")
+    check(not caught and ends(reason, ":97: bad"))
     check(string.rep("ab", count()) == "ab-ab")
     check(select("#", both()) == 2)
     check(held() == 1)
     local opened, refusal = pcall(missing)
-    check(not opened and refusal == "no token" and closed == 1)
+    check(not opened and ends(refusal, ":77: no token") and closed == 1)
     -- error's level counts from the function that called it.
     local positioned, where = pcall(function()
         error(only("boom"))
     end)
-    check(not positioned and string.find(tostring(where), ":101: boom", 1, true) ~= nil)
+    check(not positioned and string.find(tostring(where), ":107: boom", 1, true) ~= nil)
 end
 
 export const result = score
