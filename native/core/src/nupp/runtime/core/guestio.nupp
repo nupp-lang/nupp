@@ -10,6 +10,7 @@ const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const values = require("nupp.runtime.vm.values")
 const os = require("nupp.runtime.vm.os")
+const clock = require("nupp.runtime.core.hostclock")
 const context = require("nupp.runtime.core.context")
 const strings = require("nupp.runtime.core.corestrings")
 const tables = require("nupp.runtime.core.coretables")
@@ -266,7 +267,7 @@ end
 -- os.monotonic(): milliseconds on the host's monotonic clock, from an
 -- unspecified origin, as a float.
 export function monotonic(): uint64
-    local nanos = native.fromBits(ints.toFloatBits(os.monotonicNanos()))
+    local nanos = native.fromBits(ints.toFloatBits(clock.monotonicNanos()))
 
     return floatValue(native.bits(nanos / native.fromBits(0x412e848000000000ULL)))
 end

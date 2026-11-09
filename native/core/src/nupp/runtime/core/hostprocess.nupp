@@ -43,10 +43,18 @@ cdef function kill(pid: int64, signal: int64): int32
 cdef function exit(code: int64)
 cdef function _NSGetEnviron(): voidptr
 cdef function memcmp(borrows left: voidptr, borrows right: voidptr, count: uint64): int32
+cdef function getenv(borrows name: voidptr): voidptr
+cdef function memchr(borrows text: voidptr, byte: int64, count: uint64): voidptr
+cdef function strlen(borrows text: voidptr): uint64
+cdef function calloc(count: uint64, size: uint64): voidptr
+cdef function memcpy(borrows target: voidptr, borrows source: voidptr, count: uint64): voidptr
+cdef function free(borrows block: voidptr)
 
 -- The spec's tags (processcalls.spawn): the program, an argument, an
 -- environment entry, the working directory, and standard streams 0 to 2.
 const PROGRAM: int64 = 120
+-- What environment answers for a variable that is not set, negated.
+const UNSET: int64 = 1
 const ARGUMENT: int64 = 97
 const ENVIRONMENT: int64 = 101
 const DIRECTORY: int64 = 100
@@ -389,4 +397,29 @@ export function finish(code: uint64): int64
     exit(native.index(code))
 
     return 0
+end
+
+-- Copies the environment variable named by the `nameBytes` bytes at `name`
+-- into `out`, at most `room` bytes: the value's whole length, or -1 when it
+-- is unset (a name holding a NUL names none). os.getenv's.
+export function environment(name: voidptr, nameBytes: uint64, out: voidptr, room: uint64): int64
+    @unsafe do
+        if native.address(memchr(name, 0, nameBytes)) ~= 0ULL then
+            return 0 - UNSET
+        end
+        local key = calloc(nameBytes + 1ULL, 1ULL)
+        if native.address(key) == 0ULL then
+            return 0 - UNSET
+        end
+        local _ = memcpy(key, name, nameBytes)
+        local value = native.address(getenv(key))
+        free(key)
+        if value == 0ULL then
+            return 0 - UNSET
+        end
+        local length = strlen(native.pointer(value))
+        local _ = memcpy(out, native.pointer(value), c.fitted(length, room))
+
+        return native.index(length)
+    end
 end

@@ -1,4 +1,4 @@
-//! OS memory primitives and the environment; no runtime
+//! OS memory primitives and the program's arguments; no runtime
 //! object or frame policy.
 use std::ffi::c_void;
 
@@ -151,26 +151,6 @@ unsafe fn flush(address: *mut u8, size: usize) {
     let _ = (address, size);
 }
 
-/// Copies the environment variable named by the `name_bytes` bytes at `name`
-/// into `out`, at most `room` bytes: the value's whole length, or -1 when it
-/// is unset. The guest's `os.getenv`.
-pub unsafe extern "C" fn environment(name: u64, name_bytes: u64, out: u64, room: u64) -> u64 {
-    use std::os::unix::ffi::{OsStrExt, OsStringExt};
-    if name == 0 {
-        return u64::MAX;
-    }
-    let key = unsafe { std::slice::from_raw_parts(name as *const u8, name_bytes as usize) };
-    let Some(value) = std::env::var_os(std::ffi::OsStr::from_bytes(key)).map(OsStringExt::into_vec)
-    else {
-        return u64::MAX;
-    };
-    if out != 0 {
-        let count = value.len().min(room as usize);
-        unsafe { std::ptr::copy_nonoverlapping(value.as_ptr(), out as *mut u8, count) };
-    }
-    value.len() as u64
-}
-
 /// The program's arguments, the bundle first: set once, before the entry runs.
 pub static ARGUMENTS: std::sync::OnceLock<Vec<std::ffi::OsString>> = std::sync::OnceLock::new();
 
@@ -191,80 +171,6 @@ pub unsafe extern "C" fn argument(index: u64, out: u64, room: u64) -> u64 {
         unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), out as *mut u8, count) };
     }
     bytes.len() as u64
-}
-
-/// A monotonic clock in nanoseconds, from an unspecified origin. The guest's
-/// `os.monotonic`.
-pub extern "C" fn monotonic_nanos() -> u64 {
-    static ORIGIN: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
-    ORIGIN
-        .get_or_init(std::time::Instant::now)
-        .elapsed()
-        .as_nanos() as u64
-}
-
-unsafe extern "C" {
-    fn pow(x: f64, y: f64) -> f64;
-    fn exp(x: f64) -> f64;
-    fn log(x: f64) -> f64;
-    fn log2(x: f64) -> f64;
-    fn log10(x: f64) -> f64;
-    fn sin(x: f64) -> f64;
-    fn cos(x: f64) -> f64;
-    fn tan(x: f64) -> f64;
-    fn asin(x: f64) -> f64;
-    fn acos(x: f64) -> f64;
-    fn atan2(y: f64, x: f64) -> f64;
-    fn fmod(x: f64, y: f64) -> f64;
-}
-
-/// C's math function `op` of the binary64 `x` (and `y`, for the two-operand
-/// ones), as its binary64 bits: 0 pow, 1 exp, 2 log, 3 log2, 4 log10, 5 sin,
-/// 6 cos, 7 tan, 8 asin, 9 acos, 10 atan2(x, y), 11 fmod. NaN for any other.
-fn math(op: u64, x: u64, y: u64) -> u64 {
-    let (x, y) = (f64::from_bits(x), f64::from_bits(y));
-    let value = unsafe {
-        match op {
-            0 => pow(x, y),
-            1 => exp(x),
-            2 => log(x),
-            3 => log2(x),
-            4 => log10(x),
-            5 => sin(x),
-            6 => cos(x),
-            7 => tan(x),
-            8 => asin(x),
-            9 => acos(x),
-            10 => atan2(x, y),
-            11 => fmod(x, y),
-            _ => f64::NAN,
-        }
-    };
-    value.to_bits()
-}
-
-/// C's math function `op` of `x` and `y`, binary64 bits in and out (see
-/// `math`). The guest's `^` and math library.
-pub unsafe extern "C" fn math_function(op: u64, x: u64, y: u64) -> u64 {
-    math(op, x, y)
-}
-
-/// A seed for the guest's random numbers: the wall clock in nanoseconds mixed
-/// with an address and the process id. The guest's math.random seed.
-pub unsafe extern "C" fn random_seed() -> u64 {
-    let clock = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_nanos() as u64)
-        .unwrap_or(0);
-    let local = 0u8;
-    clock ^ (&local as *const u8 as u64).rotate_left(32) ^ u64::from(std::process::id())
-}
-
-/// Sleeps `nanos` nanoseconds: the scheduler's wait while only its timers
-/// can wake it. Answers 0.
-pub extern "C" fn sleep_nanos(nanos: u64) -> u64 {
-    std::thread::sleep(std::time::Duration::from_nanos(nanos));
-    0
 }
 
 // The caller retains a naturally aligned live AtomicU64 word through each

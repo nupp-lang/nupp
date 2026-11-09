@@ -15,7 +15,7 @@ const guestscope = require("nupp.runtime.core.guestscope")
 const texts = require("nupp.runtime.core.guesttexts")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 const tables = require("nupp.runtime.core.coretables")
-const os = require("nupp.runtime.vm.os")
+const clock = require("nupp.runtime.core.hostclock")
 const numbers = require("nupp.runtime.core.hostnumbers")
 const guestvalues = require("nupp.runtime.core.guestvalues")
 const librarycalls = require("nupp.runtime.core.librarycalls")
@@ -298,7 +298,7 @@ export function tonumber(ctx: voidptr, value: uint64): uint64
     end
 end
 
--- C's math functions, by os.mathFunction's numbering.
+-- C's math functions, by their number.
 const C_POW: uint64 = 0ULL
 export const C_EXP: uint64 = 1ULL
 const C_LOG: uint64 = 2ULL
@@ -311,10 +311,59 @@ export const C_ASIN: uint64 = 8ULL
 export const C_ACOS: uint64 = 9ULL
 export const C_ATAN2: uint64 = 10ULL
 const C_FMOD: uint64 = 11ULL
+-- What an unknown one answers: a quiet NaN.
+const UNKNOWN: uint64 = 0x7ff8000000000000ULL
+
+cdef function pow(x: float64, y: float64): float64
+cdef function exp(x: float64): float64
+cdef function log(x: float64): float64
+cdef function log2(x: float64): float64
+cdef function log10(x: float64): float64
+cdef function sin(x: float64): float64
+cdef function cos(x: float64): float64
+cdef function tan(x: float64): float64
+cdef function asin(x: float64): float64
+cdef function acos(x: float64): float64
+cdef function atan2(y: float64, x: float64): float64
+cdef function fmod(x: float64, y: float64): float64
+
+-- C's math function `op` of the binary64 bits `x` (and `y` for the
+-- two-operand ones), as binary64 bits.
+local function cmath(op: uint64, x: uint64, y: uint64): uint64
+    local a = native.fromBits(x)
+    local b = native.fromBits(y)
+    if op == C_POW then
+        return native.bits(pow(a, b))
+    elseif op == C_EXP then
+        return native.bits(exp(a))
+    elseif op == C_LOG then
+        return native.bits(log(a))
+    elseif op == C_LOG2 then
+        return native.bits(log2(a))
+    elseif op == C_LOG10 then
+        return native.bits(log10(a))
+    elseif op == C_SIN then
+        return native.bits(sin(a))
+    elseif op == C_COS then
+        return native.bits(cos(a))
+    elseif op == C_TAN then
+        return native.bits(tan(a))
+    elseif op == C_ASIN then
+        return native.bits(asin(a))
+    elseif op == C_ACOS then
+        return native.bits(acos(a))
+    elseif op == C_ATAN2 then
+        return native.bits(atan2(a, b))
+    elseif op == C_FMOD then
+        return native.bits(fmod(a, b))
+    end
+
+    return UNKNOWN
+end
 
 -- C's math function `op` of the numbers a and b, as a float.
 export function hostMath(op: uint64, a: uint64, b: uint64): uint64
-    return guestvalues.floatvalue(os.mathFunction(op, guestvalues.floatof(a), guestvalues.floatof(b)))
+    return guestvalues.floatvalue(cmath(op, guestvalues.floatof(a), guestvalues.floatof(b)))
 end
 
 -- a ^ b: always a float, by C's pow.
@@ -340,8 +389,8 @@ export function mathLog(ctx: voidptr, count: uint64, x: uint64, base: uint64): u
     elseif b == 0x4024000000000000ULL then
         return hostMath(C_LOG10, value, value)
     end
-    local numerator = native.fromBits(os.mathFunction(C_LOG, guestvalues.floatof(value), 0ULL))
-    local denominator = native.fromBits(os.mathFunction(C_LOG, guestvalues.floatof(base), 0ULL))
+    local numerator = native.fromBits(cmath(C_LOG, guestvalues.floatof(value), 0ULL))
+    local denominator = native.fromBits(cmath(C_LOG, guestvalues.floatof(base), 0ULL))
 
     return guestvalues.floatvalue(native.bits(numerator / denominator))
 end
@@ -432,7 +481,7 @@ local function randomState(ctx: voidptr): uint64
         local state = randomBase(ctx)
         local s = native.pointer(state)
         if native.load64(s, 0) | native.load64(s, 8) | native.load64(s, 16) | native.load64(s, 24) == 0ULL then
-            seedRandom(state, os.randomSeed(), 0ULL)
+            seedRandom(state, clock.randomSeed(), 0ULL)
         end
         return state
     end
@@ -488,7 +537,7 @@ export function mathRandomseed(ctx: voidptr, count: uint64, a: uint64, b: uint64
     local n1: uint64 = 0ULL
     local n2: uint64 = 0ULL
     if count == 0ULL then
-        n1 = os.randomSeed()
+        n1 = clock.randomSeed()
         n2 = nextRandom(randomState(ctx))
     else
         n1 = native.word(guestvalues.intarg(ctx, a, 0, 1ULL))
