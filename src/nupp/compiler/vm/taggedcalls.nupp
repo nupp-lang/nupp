@@ -294,6 +294,10 @@ export function invoke(
     count: integer?,
     open: boolean?
 ): any
+    -- `own.recoveralias` is the managed runtime's, through coremanaged.
+    if node.recoverManagedAlias and catalog(ctx).manages[node] then
+        return managedcells.recover(ctx, node, keepResult, count, open)
+    end
     -- A library call with several results is open already: its pack.
     if open and graph.packedcall(node) and not graphcalls.spreadsLibrary(node) then
         return librarypack(ctx, node)
