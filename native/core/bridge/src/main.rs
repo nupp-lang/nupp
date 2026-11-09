@@ -26,7 +26,7 @@ use std::io::Read;
 use std::path::Path;
 
 const HEADER: usize = 72;
-/// The most bytes a guest artifact holds: `schema.artifactBytes()` in
+/// The most bytes a guest artifact holds: `artifactBytes()` in
 /// src/nupp/compiler/vm/coregraphschema.nupp, which a test holds this to. A region (code, data or scratch) may be as large; the data
 /// region carries the artifact.
 const ARTIFACT: u64 = 1024 * 1024 * 1024;
@@ -346,7 +346,7 @@ mod tests {
     fn artifact_budget_is_the_schema_bound() {
         let schema = include_str!("../../../../src/nupp/compiler/vm/coregraphschema.nupp");
         let start = schema
-            .find("function schema.artifactBytes(): integer")
+            .find("export function artifactBytes(): integer")
             .expect("schema artifact bound");
         let value = schema[start..]
             .lines()
