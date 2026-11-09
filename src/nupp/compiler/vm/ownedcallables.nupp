@@ -15,15 +15,17 @@ export function taking(node: any): boolean
         and #(node.body.takenCaptures or {}) > 0
 end
 
-local function factory(p: any): any
+--- The checked function `member` of `module` that the core calls as an
+--- implementation factory: two dynamic values in, one out.
+export function checkedFactory(p: any, module: string, member: string): any
     local found: any = nil
     for _, owner in ipairs(p.owners) do
-        if owner.kind == "function" and owner.scope.name == MODULE and owner.name == MEMBER then
+        if owner.kind == "function" and owner.scope.name == module and owner.name == member then
             need(found == nil, "ambiguous checked factory")
             found = owner
         end
     end
-    need(found and found.definition, "checked consuming callable factory is missing")
+    need(found and found.definition, "checked factory is missing: " .. module .. "." .. member)
     local signature = found.signature
     need(
         #signature.params == 2
@@ -39,6 +41,27 @@ local function factory(p: any): any
     return found
 end
 
+--- A call of factory `target` issued at `token`, never written into the
+--- checked tree: its operands are typed as the factory's parameters.
+export function factoryCall(target: any, token: any): any
+    local args = {}
+    for _, t in ipairs(target.signature.params) do
+        args[#args + 1] = {kind = "nil", inferredType = t}
+    end
+
+    return {
+        kind = "call",
+        token = token,
+        obj = {kind = "name", token = {text = target.name, definition = target.definition}},
+        calleeType = target.signature,
+        args = {kind = "args", exprs = args}
+    }
+end
+
+local function factory(p: any): any
+    return checkedFactory(p, MODULE, MEMBER)
+end
+
 -- The factory is an implementation call issued for this exact checked
 -- capture clause. Its operands are the lowered closure and cleanup rows.
 export function prepare(p: any, node: any, creator: any): any
@@ -46,17 +69,7 @@ export function prepare(p: any, node: any, creator: any): any
     local owner = need(p.byBody[node.body], "source closure has no checked owner")
     need(owner.node == node and owner.parent == creator.id, "source owner differs")
     local target = factory(p)
-    local args = {}
-    for _, t in ipairs(target.signature.params) do
-        args[#args + 1] = {kind = "nil", inferredType = t}
-    end
-    local call = {
-        kind = "call",
-        token = cst.firstToken(node),
-        obj = {kind = "name", token = {text = MEMBER, definition = target.definition}},
-        calleeType = target.signature,
-        args = {kind = "args", exprs = args}
-    }
+    local call = factoryCall(target, cst.firstToken(node))
     local captures = {}
     for _, capture in ipairs(owner.body.takenCaptures) do
         captures[#captures + 1] = capture

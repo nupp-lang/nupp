@@ -9,6 +9,7 @@
 -- NUPP_CORE_BRIDGE selects a prebuilt bridge; otherwise cargo builds one.
 local runner = require("nupp.core.unitrunner")
 local sharedcache = require("nupp.core.sharedcache")
+local kernelcompiler = require("nupp.core.kernelcompiler")
 
 local function cwd()
     local pipe = assert(io.popen("pwd"))
@@ -1378,6 +1379,60 @@ do
         end
     end
 end
+-- The kernels' compiler part (`nupp.core.kernelcompiler`) follows every input
+-- the selection reaches and leaves out only the guest program's own lowering:
+-- an edit to an input changes it, an edit to that lowering does not.
+do
+    local inputs, excluded = kernelcompiler.inputs(ROOT), kernelcompiler.excluded(ROOT)
+    local covered = {}
+    for _, path in ipairs(inputs) do
+        covered[path] = true
+    end
+    local problems = {}
+    for _, path in ipairs({
+        "src/nupp/compiler/vm/lower.nupp",
+        "src/nupp/compiler/vm/nativegraph.nupp",
+        "src/nupp/compiler/vm/functiongraph.nupp",
+        "src/nupp/compiler/check/init.nupp",
+        "spike/native-lowering/src/s0/select.nupp",
+        "src/nupp/runtime/vm/intrinsics.d.nupp"
+    }) do
+        if not covered[path] then
+            problems[#problems + 1] = path .. " is no input"
+        end
+    end
+    for _, path in ipairs({"src/nupp/compiler/vm/taggedprofile.nupp", "src/nupp/compiler/vm/coregraphexecutable.nupp"}) do
+        if covered[path] then
+            problems[#problems + 1] = path .. " is an input"
+        end
+    end
+    local function edited(target)
+        return function(path)
+            local bytes = read(path) or ""
+            return path == ROOT .. "/" .. target and bytes .. "\n-- edited\n" or bytes
+        end
+    end
+    local base = kernelcompiler.digestOf(ROOT, inputs)
+    if kernelcompiler.digestOf(ROOT, inputs, edited("src/nupp/compiler/check/init.nupp")) == base then
+        problems[#problems + 1] = "an edited input left the digest as it was"
+    end
+    if kernelcompiler.digestOf(ROOT, inputs, edited(excluded[1])) ~= base then
+        problems[#problems + 1] = "an edited guest lowering module changed the digest"
+    end
+    for _, problem in ipairs(problems) do
+        failures = failures + 1
+        print("FAIL kernel inputs: " .. problem)
+    end
+    if #problems == 0 then
+        passed = passed + 1
+    end
+end
+-- What the unit builds load beyond what is loaded already: a kernel
+-- selection must never load the lowering its key leaves out.
+local loadedBefore = {}
+for name in pairs(package.loaded) do
+    loadedBefore[name] = true
+end
 for _, unit in ipairs(UNITS) do
     if next(only) and not only[unit.name] then
         goto continue
@@ -1478,6 +1533,18 @@ for _, unit in ipairs(UNITS) do
         end
     end
     ::continue::
+end
+do
+    local outside = {}
+    for _, path in ipairs(kernelcompiler.excluded(ROOT)) do
+        outside[(path:gsub("^src/", ""):gsub("%.nupp$", ""):gsub("/", "."))] = path
+    end
+    for name in pairs(package.loaded) do
+        if not loadedBefore[name] and outside[name] then
+            failures = failures + 1
+            print("FAIL kernel inputs: a unit build loaded " .. outside[name] .. ", which the kernel key leaves out")
+        end
+    end
 end
 print(("%d passed, %d failed"):format(passed, failures))
 os.exit(failures == 0 and 0 or 1)
