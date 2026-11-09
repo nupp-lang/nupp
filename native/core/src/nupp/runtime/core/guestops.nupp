@@ -12,12 +12,27 @@ const threads = require("nupp.runtime.core.threads")
 const stacks = require("nupp.runtime.core.stacks")
 const guesterrors = require("nupp.runtime.core.guesterrors")
 const guestmeta = require("nupp.runtime.core.guestmeta")
+const texts = require("nupp.runtime.core.guesttexts")
+const librarytexts = require("nupp.runtime.core.librarytexts")
 
 export const INVALID: uint64 = 4ULL
 export const RESOURCE: uint64 = 5ULL
 -- An instruction is sixteen bytes: a pc's index is its offset from the
 -- code shifted down by this.
 export const INSTRUCTION_SHIFT: uint64 = 4ULL
+
+-- Lua 5.5 calls a table through its __call with the table as an extra first
+-- argument, and follows a __call that is a table in turn this many deep; the
+-- compiler leaves room for that many receivers past a call's arguments.
+export const CALL_CHAIN: uint64 = 15ULL
+-- The most arguments a call stages itself.
+export const CALL_ARGUMENTS: uint64 = 63ULL
+-- What callTable did: started the call, whose frame or thread the state now
+-- runs; answered it as a protected call's failure, the caller resuming after
+-- `pc`; or failed, the failure recorded.
+export const CALL_STARTED: uint64 = 1ULL
+export const CALL_ANSWERED: uint64 = 2ULL
+export const CALL_FAILED: uint64 = 0ULL
 
 -- These helpers borrow only the entry-owned State/catalog/registry and current
 -- logical frame. Their raw signatures do not authorize arbitrary context data.
@@ -524,7 +539,12 @@ export function metaPrepare(
 ): uint64
     local found = current(ctx, frame, pc)
     local nv = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
-    if found == 0ULL or base >= nv or nargs > nv - base - 1ULL or nargs > 63ULL or resultSlot >= nv then
+    if found == 0ULL
+        or base >= nv
+        or nargs > nv - base - 1ULL
+        or nargs > CALL_ARGUMENTS + CALL_CHAIN
+        or resultSlot >= nv
+    then
         fail(ctx, frame, pc, INVALID)
         return 0ULL
     end
@@ -718,4 +738,140 @@ export function metaCall(
     end
 
     return 1ULL
+end
+
+-- A protected call that could not start answers false and `message`, nil
+-- filled, as a failure in the call would: in the slots its `wanted` results
+-- take after `base`, or as one pack when it wants them all (wanted 0).
+local function refused(ctx: voidptr, frame: voidptr, base: uint64, wanted: uint64, message: uint64): uint64
+    local window = native.loadPointer(frame, native.fieldOffset<frames.Frame>("values"))
+    -- The window roots the message while its pack is made.
+    native.store64(window, native.index((base + 1ULL) * 8ULL), message)
+    if wanted == 0ULL then
+        native.store64(window, native.index((base + 1ULL) * 8ULL), guestscope.failedvalues(ctx, message))
+        return CALL_ANSWERED
+    end
+    native.store64(window, native.index((base + 1ULL) * 8ULL), values.FALSE)
+    local at: uint64 = 1ULL
+    while at < wanted do
+        native.store64(
+            window,
+            native.index((base + 1ULL + at) * 8ULL),
+            native.chooseWord(at == 1ULL, message, values.NIL)
+        )
+        at = at + 1ULL
+    end
+
+    return CALL_ANSWERED
+end
+
+-- A call whose callee, staged at `base` in the frame's window with `nargs`
+-- arguments after it, is no function: a table with __call (or a chain of
+-- them) is called through it, each table moving in ahead of the arguments.
+-- Its first result lands after `base`, `wanted` of them (0: all, as one
+-- pack). With `protected`, the call is pcall's: what it raises answers false
+-- and the error, and a callee that cannot be called answers so at once, as
+-- Lua's pcall does, without a position. Answers CALL_STARTED, CALL_ANSWERED
+-- or CALL_FAILED.
+export function callTable(
+    ctx: voidptr,
+    frame: voidptr,
+    pc: voidptr,
+    base: uint64,
+    nargs: uint64,
+    wanted: uint64,
+    protected: uint64
+): uint64
+    local window = native.loadPointer(frame, native.fieldOffset<frames.Frame>("values"))
+    local nv = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    local callee = native.load64(window, native.index(base * 8ULL))
+    local count = nargs
+    local receivers: uint64 = 0ULL
+    while threads.wrapped(callee) == 0ULL and uncallable(ctx, callee) == 1ULL do
+        local handler = guestmeta.binaryMeta(ctx, guestmeta.META_CALL, callee, values.NIL)
+        if handler == 0ULL or receivers == CALL_CHAIN then
+            local message: uint64 = 0ULL
+            if handler == 0ULL then
+                guesterrors.fault(ctx, guestscope.FAULT_CALL, callee, values.NIL)
+            end
+            if protected == 1ULL and handler == 0ULL then
+                message = guesterrors.runtimeError(ctx)
+                guesterrors.fault(ctx, 0ULL, values.NIL, values.NIL)
+            elseif protected == 1ULL then
+                message = texts.textvalue(ctx, librarytexts.TEXT_CALL_CHAIN)
+            end
+            if protected == 1ULL then
+                return refused(ctx, frame, base, wanted, message)
+            end
+            if handler ~= 0ULL then
+                -- Positioned at the call, as Lua's is.
+                guestscope.raise(ctx, texts.textvalue(ctx, librarytexts.TEXT_CALL_CHAIN), 1ULL)
+            end
+            fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+            return CALL_FAILED
+        end
+        if base + count + 1ULL >= nv or count >= CALL_ARGUMENTS + CALL_CHAIN then
+            fail(ctx, frame, pc, INVALID)
+            return CALL_FAILED
+        end
+        local i = count
+        while i > 0ULL do
+            native.store64(
+                window,
+                native.index((base + i + 1ULL) * 8ULL),
+                native.load64(window, native.index((base + i) * 8ULL))
+            )
+            i = i - 1ULL
+        end
+        native.store64(window, native.index((base + 1ULL) * 8ULL), callee)
+        native.store64(window, native.index(base * 8ULL), handler)
+        callee = handler
+        receivers = receivers + 1ULL
+        count = nargs + receivers
+    end
+    -- A wrapped coroutine's closure as __call: its thread resumes with the
+    -- tables and the arguments, as a call of it would.
+    local wrapped = threads.wrapped(callee)
+    if wrapped ~= 0ULL then
+        local mode = threads.MODE_CALL
+        if protected == 1ULL then
+            mode = threads.MODE_PROTECTED
+        end
+        local args = guestscope.packValues(ctx, native.offset(window, native.index((base + 1ULL) * 8ULL)), count, 0ULL)
+        -- The frame roots the pack until the thread has it.
+        native.store64(window, native.index((base + 1ULL) * 8ULL), args)
+        local answer = threads.resume(ctx, frame, pc, wrapped, args, mode, (base + 1ULL) | (wanted << 32ULL))
+        if answer == threads.SWITCHED then
+            return CALL_STARTED
+        elseif protected == 1ULL and answer == threads.REFUSED then
+            return CALL_ANSWERED
+        elseif answer == threads.RAISED then
+            fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+        else
+            fail(ctx, frame, pc, INVALID)
+        end
+        return CALL_FAILED
+    end
+    local child = metaPrepare(ctx, frame, pc, base, count, base + 1ULL)
+    if child == 0ULL then
+        return CALL_FAILED
+    end
+    local s = native.loadPointer(ctx, context.STATE)
+    local marked: uint64 = 1ULL
+    if wanted > 1ULL then
+        marked = frames.wantResults(s, native.pointer(child), wanted)
+    end
+    if marked == 1ULL and protected == 1ULL and wanted == 0ULL then
+        marked = frames.protectpack(s, native.pointer(child))
+    elseif marked == 1ULL and protected == 1ULL then
+        marked = frames.protect(s, native.pointer(child))
+    elseif marked == 1ULL and wanted == 0ULL then
+        marked = frames.packResults(s, native.pointer(child))
+    end
+    if marked ~= 1ULL or frames.publish(s, frame, native.pointer(child), resume(ctx, frame, pc)) ~= 1ULL then
+        failure(ctx, INVALID)
+        return CALL_FAILED
+    end
+
+    return CALL_STARTED
 end

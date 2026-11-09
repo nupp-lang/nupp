@@ -28,4 +28,38 @@ end
 if string.upper(half as string) == "1.5" and string.sub(12345 as any as string, 2, 3) == "23" then
     score = score + 8
 end
+-- A library function taken as a value raises as itself, from its caller's
+-- call: a local holding string.rep counts every argument, and pcall, which
+-- has no position, gives its error none.
+local r = string.rep
+local ok16, e16 = pcall(function(): string
+    return r("x", half as integer)
+end)
+if not ok16
+    and string.find(tostring(e16), ":36: bad argument #2 to '", 1, true) ~= nil
+    and string.sub(tostring(e16), -38) == "(number has no integer representation)"
+then
+    score = score + 16
+end
+local ok32, e32 = pcall(string.rep, "x", half as any as integer)
+if not ok32 and string.sub(tostring(e32), 1, 19) == "bad argument #2 to " then
+    score = score + 32
+end
+local ok64, e64 = pcall(function(): string
+    return string.rep("x", half as integer)
+end)
+if says(ok64, tostring(e64), 49, "bad argument #2 to 'rep' (number has no integer representation)") then
+    score = score + 64
+end
+-- A replaced string method is the one a method call reaches.
+local library: any = string
+local original = library.rep
+library.rep = function(s: any, n: any): any
+    return "R" .. tostring(n)
+end
+local replaced = ("x"):rep(2)
+library.rep = original
+if replaced == "R2" and ("x"):rep(2) == "xx" then
+    score = score + 128
+end
 export const result = score

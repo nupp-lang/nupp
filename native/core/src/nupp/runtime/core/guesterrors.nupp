@@ -33,31 +33,40 @@ export function physicalframeat(ctx: voidptr, level: uint64): uint64
     return frame
 end
 
-local function tailcaller(ctx: voidptr, frame: uint64): boolean
-    local c = native.loadPointer(ctx, context.CATALOG)
+-- The diagnostic row of the call `frame` waits on, at its resume pc less
+-- one, or 0: no diagnostics, no catalog function or no call there, or, with
+-- `nonlanding`, a function that lands its calls' errors.
+local function waitingrow(c: voidptr, frame: uint64, nonlanding: boolean): uint64
     local rows = catalog.diagnostics(c)
-    if rows == 0ULL then
-        return false
-    end
     local owner = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("functionId"))
     local resume = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("resumePC"))
-    if owner >= native.load64(c, native.fieldOffset<catalog.Catalog>("count")) or resume == 0ULL then
-        return false
+    if rows == 0ULL or owner >= native.load64(c, native.fieldOffset<catalog.Catalog>("count")) or resume == 0ULL then
+        return 0ULL
     end
     local fn = native.pointer(
         native.load64(c, native.fieldOffset<catalog.Catalog>("records")) + owner * native.sizeOf<catalog.Function>()
     )
-    if native.load64(fn, native.fieldOffset<catalog.Function>("lands")) ~= 0ULL then
-        return false
+    if nonlanding and native.load64(fn, native.fieldOffset<catalog.Function>("lands")) ~= 0ULL then
+        return 0ULL
     end
     local site = catalog.callsite(c, fn, resume - 1ULL)
-    if site == 0ULL then
-        return false
+    local row: uint64 = 0ULL
+    if site ~= 0ULL then
+        row = rows + native.load64(
+            native.pointer(site),
+            native.fieldOffset<catalog.Callsite>("id")
+        ) * native.sizeOf<catalog.CallDiagnostic>()
     end
-    local id = native.load64(native.pointer(site), native.fieldOffset<catalog.Callsite>("id"))
-    local row = native.pointer(rows + id * native.sizeOf<catalog.CallDiagnostic>())
 
-    return native.load64(row, native.fieldOffset<catalog.CallDiagnostic>("method")) & catalog.CALL_TAIL ~= 0ULL
+    return row
+end
+
+local function tailcaller(ctx: voidptr, frame: uint64): boolean
+    local row = waitingrow(native.loadPointer(ctx, context.CATALOG), frame, true)
+
+    return row ~= 0ULL
+        and native.load64(native.pointer(row), native.fieldOffset<catalog.CallDiagnostic>("method"))
+        & catalog.CALL_TAIL ~= 0ULL
 end
 
 -- Tail-returned guest calls hide their caller without changing physical roots
@@ -158,6 +167,38 @@ export function fault(ctx: voidptr, kind: uint64, culprit: uint64, other: uint64
         native.store64(services, native.fieldOffset<guestscope.Services>("fault"), kind)
         native.store64(services, native.fieldOffset<guestscope.Services>("culprit"), culprit)
         native.store64(services, native.fieldOffset<guestscope.Services>("other"), other)
+    end
+end
+
+-- A canonical library value's call of its own library function, from
+-- `frame` (`nupp.runtime.libraryvalues`): what the call raises is its
+-- caller's, as the library function's own error is. It is positioned at the
+-- call that reached the value, counting arguments as that call did, a
+-- method's from the one after self. Called by a protected call, which has no
+-- position, it has none and counts them all.
+export function callerSite(ctx: voidptr, frame: voidptr): nil
+    local c = native.loadPointer(ctx, context.CATALOG)
+    local count = native.load64(c, native.fieldOffset<catalog.Catalog>("count"))
+    -- No owner the catalog has: positioned() leaves the message as it is.
+    local owner = count
+    local pc: uint64 = 0ULL
+    local method: uint64 = 0ULL
+    local parent = native.load64(frame, native.fieldOffset<frames.Frame>("previous"))
+    local row: uint64 = 0ULL
+    if not frames.isprotected(frame) and parent ~= 0ULL then
+        row = waitingrow(c, parent, false)
+    end
+    if row ~= 0ULL then
+        owner = native.load64(native.pointer(parent), native.fieldOffset<frames.Frame>("functionId"))
+        pc = native.load64(native.pointer(parent), native.fieldOffset<frames.Frame>("resumePC")) - 1ULL
+        method = native.load64(native.pointer(row), native.fieldOffset<catalog.CallDiagnostic>("method"))
+            & catalog.CALL_METHOD
+    end
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        native.store64(services, native.fieldOffset<guestscope.Services>("libraryOwner"), owner)
+        native.store64(services, native.fieldOffset<guestscope.Services>("libraryPc"), pc)
+        native.store64(services, native.fieldOffset<guestscope.Services>("libraryMethod"), method)
     end
 end
 

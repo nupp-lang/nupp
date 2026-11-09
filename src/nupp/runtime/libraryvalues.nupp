@@ -24,14 +24,21 @@ export const functions: {[string]: any} = {
     tostring = function(value: any): string
         return tostring(value)
     end,
-    tonumber = function(value: any): number?
-        return tonumber(value)
+    tonumber = function(value: any, base: integer?): number?
+        if base == nil then
+            return tonumber(value)
+        end
+
+        return tonumber(value, base)
     end,
     type = function(value: any): string
         return type(value)
     end,
     error = function(value: any, level: integer?): nil
-        error(value, level or 1)
+        -- A level counts from its caller, a frame further out than the
+        -- library function's own.
+        local at = level or 1
+        error(value, at > 0 and at + 1 or at)
     end,
     assert = function(...: any): ...any
         local count = select("#", ...)
@@ -43,7 +50,8 @@ export const functions: {[string]: any} = {
             if count < 2 then
                 message = "assertion failed!"
             end
-            error(message, 2)
+            -- As Lua raises it: the message alone, with no position.
+            error(message, 0)
         end
 
         return ...

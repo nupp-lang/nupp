@@ -47,6 +47,12 @@ export const LIMIT = 65536
 -- the instruction carries it as COUNT_METHOD_FORM in its argument-count byte.
 export const METHOD_FORM = 65536
 export const COUNT_METHOD_FORM = 128
+-- A call a canonical library value makes of its own library function
+-- (`nupp.runtime.libraryvalues`): its errors are positioned and counted as
+-- its caller's call. The immediate adds FORWARD_FORM above the method form;
+-- the instruction carries COUNT_FORWARD_FORM in its argument-count byte.
+export const FORWARD_FORM = 131072
+export const COUNT_FORWARD_FORM = 64
 -- The most arguments a library call stages.
 export const ARGUMENTS = 4
 
@@ -1048,17 +1054,22 @@ export function meta(call: integer): boolean
 end
 
 -- The graph immediate of call `call`, in method form or not.
-export function immediate(call: integer, method: boolean): integer
-    return method and call + METHOD_FORM or call
+export function immediate(call: integer, method: boolean, forward: boolean?): integer
+    return call + (method and METHOD_FORM or 0) + (forward and FORWARD_FORM or 0)
 end
 
--- The id and the method form a graph immediate `word` carries.
-export function split(word: integer): (integer, boolean)
+-- The id, the method form and the forwarding a graph immediate `word`
+-- carries.
+export function split(word: integer): (integer, boolean, boolean)
+    local forward = word >= FORWARD_FORM
+    if forward then
+        word -= FORWARD_FORM
+    end
     if word >= METHOD_FORM then
-        return word - METHOD_FORM, true
+        return word - METHOD_FORM, true, forward
     end
 
-    return word, false
+    return word, false, forward
 end
 
 -- A copy of the subjects, for the generator.
