@@ -1004,6 +1004,22 @@ function M.allowRunsItsStatementAsWritten()
     assert(program.compile(program.describe({input}, input.name), tagged.forVersion(8)))
 end
 
+-- A call with named and plucked arguments lowers the positional list the
+-- checker bound; a tree described twice (two programs carrying one module, or
+-- two profiles) keeps that list and its nil literals.
+function M.namedArgumentsDescribeTwice()
+    local input = checked(
+        "local record Vec\n    x: integer\n    y: integer\nend\n"
+        .. "local function draw(x: integer, y: integer, color: string?, scale: integer?): integer\n"
+        .. "    return x + y + (scale or 0)\nend\n"
+        .. "local v = Vec(x = 1, y = 2)\n"
+        .. "return draw({x, y} = v, scale = 3)"
+    )
+    for _ = 1, 2 do
+        assert(program.compile(program.describe({input}, input.name), tagged.forVersion(8)))
+    end
+end
+
 function M.unsafeStillRequiresItsCheckedAnnotationDefinition()
     local input = checked('@unsafe do local answer = 42 end\nreturn 7')
     local pragma = input.parsed.root.blocks[1].stats[1]
