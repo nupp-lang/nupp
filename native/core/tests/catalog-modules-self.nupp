@@ -1,0 +1,10 @@
+module nupp.core.catalogmodulesself
+
+-- A module that requires itself: its forwarder calls the function once the
+-- module has loaded, and its own require answered the table every other
+-- require of it does.
+const mirror = require("nupp.core.catalogmodulesmirror")
+
+export const result = (
+    mirror.ready() and 1 or 0
+) + (mirror.double(3) == 6 and 2 or 0) + (mirror.same == mirror and 4 or 0)

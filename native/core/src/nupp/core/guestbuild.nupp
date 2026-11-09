@@ -201,6 +201,7 @@ local CASES: {[string]: {
         version = 8,
         modules = {"catalog-modules-early", "catalog-modules-copier"},
     },
+    modulesself = {fixture = "catalog-modules-self", version = 8, modules = {"catalog-modules-mirror"}},
     callsoverflow = {fixture = "catalog-calls-overflow", version = 8},
     callsdeep = {fixture = "catalog-calls-deep", version = 8},
     callsmany = {fixture = "catalog-calls-many", version = 8},

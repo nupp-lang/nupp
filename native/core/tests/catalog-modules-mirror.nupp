@@ -1,0 +1,17 @@
+module nupp.core.catalogmodulesmirror
+
+-- Requires itself as it starts, which answers its own export table, published
+-- before its body runs. What it copies out of that table before a function's
+-- statement has run is the function's forwarder.
+const me = require("nupp.core.catalogmodulesmirror")
+local early = me.double
+
+export function double(n: integer): integer
+    return n * 2
+end
+
+export function ready(): boolean
+    return early(4) == 8
+end
+
+export const same = me
