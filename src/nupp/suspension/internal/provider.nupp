@@ -24,7 +24,6 @@ implementation at require-time; scheduling operations retain it directly.
 ]]
 
 local contract = require("nupp.suspension.contracts")
-local suspension = {}
 
 --- How many times a release drives the readiness pumps waiting for an abandoned park to
 --- finish unwinding. A handler that has not finished by then is not going to: the point
@@ -40,31 +39,31 @@ local BLOCKING_WAIT_SLICE_MS = 1
 ---
 --- Returned rather than named, so two libraries registering "io" do not collide and
 --- neither has to invent a unique string. Releasing is idempotent.
-type suspension.Source = contract.Source
+export type Source = contract.Source
 
-suspension.Source = contract.Source
+export const Source = contract.Source
 
 --- What a library is handed while it subscribes: who is handling suspensions here, and
 --- how to give them a readiness pump.
 ---
 --- Available *before* the subscription runs, because registering a pump is part of
 --- subscribing rather than something to do afterwards.
-type suspension.Context = contract.Context
+export type Context = contract.Context
 
-suspension.Context = contract.Context
+export const Context = contract.Context
 
 --- What a park exposes to the handler driving it.
 ---
 --- Deliberately no writable fields. A handler waits and is woken; it never supplies the
 --- value, because the value has exactly one path and that path is guarded.
-type suspension.Waiting = contract.Waiting
+export type Waiting = contract.Waiting
 
-suspension.Waiting = contract.Waiting
+export const Waiting = contract.Waiting
 
 --- What a host installs to answer suspensions.
-type suspension.Handler = contract.Handler
+export type Handler = contract.Handler
 
-suspension.Handler = contract.Handler
+export const Handler = contract.Handler
 
 -- The installation in force, per coroutine, and the parks each one has accepted.
 --
@@ -87,7 +86,7 @@ end) as {
     sourcesVersion: integer,
     turnGeneration: integer,
     turnWaiters: {function(boolean)},
-    turnSource: suspension.Source?
+    turnSource: Source?
 }
 
 local running = coroutine.running
@@ -183,7 +182,7 @@ local function addSource(
     order: integer,
     poll: function(): integer,
     wait: (function(integer): integer)?,
-    active: (function(suspension.Source): boolean)?
+    active: (function(Source): boolean)?
 ): any
     providerState.sourceSequence = providerState.sourceSequence + 1
     local source = setmetatable(
@@ -222,14 +221,14 @@ end
 --- @param wait optionally blocks for at most the supplied milliseconds
 --- @param active optionally returns whether it has anything outstanding
 --- @return the handle that stops it
-function suspension.source(
+export function source(
     name: string,
     order: integer,
     poll: function(): integer,
     wait: (function(integer): integer)?,
-    active: (function(suspension.Source): boolean)?
-): suspension.Source
-    return addSource(name, order, poll, wait, active) as suspension.Source
+    active: (function(Source): boolean)?
+): Source
+    return addSource(name, order, poll, wait, active) as Source
 end
 
 --- Drives every registered pump once, and returns how many things settled.
@@ -238,7 +237,7 @@ end
 --- private copy of them.
 ---
 --- @return how many things the pass settled
-function suspension.poll(): integer
+export function poll(): integer
     -- A host poll is the boundary between aggregate turns. Drivers that exhausted
     -- the prior token are resumed by a source later in this pass; drivers first
     -- reached after the pass see the same new generation.
@@ -252,15 +251,15 @@ function suspension.poll(): integer
     local version = providerState.sourcesVersion
     local index: integer = 1
     while index <= #providerState.sources do
-        local source = providerState.sources[index]
-        if source._sequence > boundary then
+        local src = providerState.sources[index]
+        if src._sequence > boundary then
             index = (index + 1) as integer
         else
-            settled = settled + (source.poll() or 0)
+            settled = settled + (src.poll() or 0)
             if providerState.sourcesVersion == version then
                 index = (index + 1) as integer
             else
-                index = firstSourceAfter(source)
+                index = firstSourceAfter(src)
                 version = providerState.sourcesVersion
             end
         end
@@ -280,14 +279,10 @@ local function waitCandidates(waiting: any): {any}
     local preferred = {}
     if associated ~= nil then
         for index = 1, #providerState.sources do
-            local source = providerState.sources[index]
-            local isActive = source.active
-            if associated[source]
-                and not source._released
-                and source.wait ~= nil
-                and (isActive == nil or isActive(source))
-            then
-                preferred[#preferred + 1] = source.wait
+            local src = providerState.sources[index]
+            local isActive = src.active
+            if associated[src] and not src._released and src.wait ~= nil and (isActive == nil or isActive(src)) then
+                preferred[#preferred + 1] = src.wait
             end
         end
     end
@@ -297,10 +292,10 @@ local function waitCandidates(waiting: any): {any}
 
     local fallback = {}
     for index = 1, #providerState.sources do
-        local source = providerState.sources[index]
-        local isActive = source.active
-        if not source._released and source.wait ~= nil and (isActive == nil or isActive(source)) then
-            fallback[#fallback + 1] = source.wait
+        local src = providerState.sources[index]
+        local isActive = src.active
+        if not src._released and src.wait ~= nil and (isActive == nil or isActive(src)) then
+            fallback[#fallback + 1] = src.wait
         end
     end
 
@@ -311,9 +306,9 @@ local function blockingPark(waiting: any): nil
     while not waiting:ready() do
         local active = false
         for index = 1, #providerState.sources do
-            local source = providerState.sources[index]
-            local isActive = source.active
-            if not source._released and (isActive == nil or isActive(source)) then
+            local src = providerState.sources[index]
+            local isActive = src.active
+            if not src._released and (isActive == nil or isActive(src)) then
                 active = true
 
                 break
@@ -322,7 +317,7 @@ local function blockingPark(waiting: any): nil
         if not active then
             error(("nupp: %s cannot complete: no readiness source is registered"):format(waiting.operation), 0)
         end
-        if suspension.poll() == 0 and not waiting:ready() then
+        if poll() == 0 and not waiting:ready() then
             local candidates = waitCandidates(waiting)
             if #candidates > 0 then
                 local cursor = waiting.waitCursor or 1
@@ -336,7 +331,7 @@ local function blockingPark(waiting: any): nil
                 -- what observes readiness, including an unrelated source that became
                 -- ready during the bounded slice.
                 if not waiting:ready() then
-                    suspension.poll()
+                    poll()
                 end
             end
         end
@@ -361,11 +356,11 @@ function ContextMT.source(
     self: any,
     name: string,
     order: integer,
-    poll: function(): integer,
+    pollfn: function(): integer,
     wait: (function(integer): integer)?,
-    active: (function(suspension.Source): boolean)?
+    active: (function(Source): boolean)?
 ): any
-    local source = addSource(name, order, poll, wait, active)
+    local src = addSource(name, order, pollfn, wait, active)
     -- Built on first use. Most waits register no pump at all, and a list allocated for
     -- every one of them would be paid on the path this design exists to keep cheap.
     local owned = self.owned
@@ -373,19 +368,19 @@ function ContextMT.source(
         owned = {}
         self.owned = owned
     end
-    owned[#owned + 1] = source
+    owned[#owned + 1] = src
     self._associated = self._associated or {}
-    self._associated[source] = true
+    self._associated[src] = true
 
-    return source
+    return src
 end
 
-function ContextMT.uses(self: any, source: any): nil
-    if source == nil or source._released then
+function ContextMT.uses(self: any, src: any): nil
+    if src == nil or src._released then
         error("nupp: cannot use a released readiness source", 2)
     end
     self._associated = self._associated or {}
-    self._associated[source] = true
+    self._associated[src] = true
 end
 
 -- Not a context member. Whether a park is permitted is a property of the handler in
@@ -444,10 +439,7 @@ end
 --- @raises string when the subscription resumes twice, returns no cancellation
 ---     for a real park, suspends where the handler forbids it, or is handled by
 ---     one that returns without resuming
-function suspension.suspend<T>(
-    operation: string,
-    subscribe: function(function(T), suspension.Context): (function()?)
-): T
+export function suspend<T>(operation: string, subscribe: function(function(T), Context): (function()?)): T
     local current = effectiveInstallation()
     local handler = current and current.handler or nil
     -- The ready path's cost: one table for the state a cancellation also has to reach,
@@ -470,7 +462,7 @@ function suspension.suspend<T>(
     local context = setmetatable({_handler = handler, owned = nil, _associated = nil}, ContextMT)
     -- Protected, because a subscription that registers a pump and *then* raises would
     -- otherwise leave that pump polling for a wait nobody is doing.
-    local subscribed, cancel = pcall(subscribe, resume, context as suspension.Context)
+    local subscribed, cancel = pcall(subscribe, resume, context as Context)
     if not subscribed then
         releaseOwned(context)
         error(cancel, 0)
@@ -576,7 +568,7 @@ function suspension.suspend<T>(
     -- not, so the failure is caught here and told what it was doing.
     local ok, err
     if handler then
-        ok, err = pcall(handler.park, handler, waiting as suspension.Waiting, cancel as function(): nil)
+        ok, err = pcall(handler.park, handler, waiting as Waiting, cancel as function(): nil)
     else
         ok, err = pcall(blockingPark, waiting)
     end
@@ -609,9 +601,9 @@ function suspension.suspend<T>(
 end
 
 --- An installed handler, and the obligation to put back what it displaced.
-type suspension.Installed = contract.Installed
+export type Installed = contract.Installed
 
-suspension.Installed = contract.Installed
+export const Installed = contract.Installed
 
 -- Runs one step of a close, answering the first failure so far. A function
 -- rather than a closure over the close's state, so a close allocates nothing.
@@ -671,7 +663,7 @@ local function closeInstallation(self: any): nil
     local passes = 0
     while remaining ~= nil and passes < MAX_DRAIN_PASSES do
         passes = passes + 1
-        firstError = attempted(firstError, suspension.poll, nil)
+        firstError = attempted(firstError, poll, nil)
         remaining = next(parks)
     end
 
@@ -705,7 +697,7 @@ end
 -- What `install` and `installdriver` share. A driver differs only in not bounding a
 -- host turn, which is one flag in the extent's own state rather than a parameter
 -- either entry point asks its caller about.
-local function installHandler(handler: suspension.Handler, transparent: boolean): affine(contract.Installed)
+local function installHandler(handler: Handler, transparent: boolean): affine(contract.Installed)
     local co = running()
     local previous
     if co == nil then
@@ -762,7 +754,7 @@ end
 ---
 --- @param handler what answers suspensions inside the scope
 --- @return the installation, owned by the caller
-function suspension.install(handler: suspension.Handler): affine(contract.Installed)
+export function install(handler: Handler): affine(contract.Installed)
     return installHandler(handler, false)
 end
 
@@ -774,7 +766,7 @@ end
 ---
 --- @param handler what answers suspensions inside the scope
 --- @return the installation, owned by the caller
-function suspension.installdriver(handler: suspension.Handler): affine(contract.Installed)
+export function installdriver(handler: Handler): affine(contract.Installed)
     return installHandler(handler, true)
 end
 
@@ -793,7 +785,7 @@ end
 ---
 --- @param body what the coroutine runs
 --- @return the coroutine
-function suspension.create<A..., R...>(body: function(A...): R..., ...: any): thread
+export function create<A..., R...>(body: function(A...): R..., ...: any): thread
     local co = coroutines.create(body, ...)
     -- The installation, not just its handler: a park the new coroutine accepts belongs
     -- to the extent that was in force where it was created, and has to be cancelled
@@ -822,7 +814,7 @@ end
 
 --- Whether a handler is installed here, which is what `blocking` against `cooperative`
 --- means to a caller deciding before it commits to waiting.
-function suspension.handled(): boolean
+export function handled(): boolean
     return effective() ~= nil
 end
 
@@ -834,7 +826,7 @@ end
 --- host such as an ECS scheduler enters and leaves barriers while a family is
 --- still live, and one boolean sampled at install time would answer for the
 --- wrong moment.
-function suspension.delegatedcanpark(): function(): boolean
+export function delegatedcanpark(): function(): boolean
     const captured = effectiveInstallation()
 
     return function(): boolean
@@ -858,10 +850,10 @@ end
 --- handler it displaced, or to the blocking park where there is none. Captured before
 --- the driver installs, like `delegatedcanpark`, and resolved when called, stepping
 --- over extents that have since ended.
-function suspension.delegatedpark(): function(suspension.Waiting, function(): nil): nil
+export function delegatedpark(): function(Waiting, function(): nil): nil
     const captured = effectiveInstallation()
 
-    return function(waiting: suspension.Waiting, cancel: function(): nil): nil
+    return function(waiting: Waiting, cancel: function(): nil): nil
         local current = captured
         while current ~= nil and current._restored do
             current = current._previous
@@ -880,7 +872,7 @@ end
 ---
 --- The run-time backstop for what `@nosuspend` checks while compiling, for the calls
 --- static analysis could not see.
-function suspension.cansuspend(): boolean
+export function cansuspend(): boolean
     local handler = effective()
     if handler == nil or handler.canpark == nil then
         return true
@@ -916,12 +908,12 @@ local function openNextTurn(): integer
     return #waking as integer
 end
 
-local function turnDeferralSource(): suspension.Source
+local function turnDeferralSource(): Source
     local existing = providerState.turnSource
     if existing ~= nil and not (existing as any)._released then
         return existing
     end
-    local created = suspension.source("nupp.suspension.turn", TURN_ORDER, openNextTurn, nil, function(): boolean
+    local created = source("nupp.suspension.turn", TURN_ORDER, openNextTurn, nil, function(): boolean
         return #providerState.turnWaiters > 0
     end)
     providerState.turnSource = created
@@ -930,7 +922,7 @@ local function turnDeferralSource(): suspension.Source
 end
 
 --- Whether the aggregate here may spend another activation before it owes a turn.
-function suspension.turnavailable(): boolean
+export function turnavailable(): boolean
     local current = effectiveInstallation()
     if current == nil then
         return true
@@ -955,7 +947,7 @@ function suspension.turnavailable(): boolean
 end
 
 --- Records one coroutine activation against the current turn.
-function suspension.consumeturn(): nil
+export function consumeturn(): nil
     local token = turnTokens[currentTurnOwner()]
     if token ~= nil and token.generation == providerState.turnGeneration then
         token.remaining = token.remaining - 1
@@ -963,11 +955,8 @@ function suspension.consumeturn(): nil
 end
 
 --- Parks until the host has had its turn.
-function suspension.deferturn(): nil
-    suspension.suspend("nupp coroutine turn budget", function(
-        resume: function(boolean),
-        context: suspension.Context
-    ): function()
+export function deferturn(): nil
+    suspend("nupp coroutine turn budget", function(resume: function(boolean), context: Context): function()
         context:uses(turnDeferralSource())
         providerState.turnWaiters[#providerState.turnWaiters + 1] = resume
 
@@ -999,17 +988,13 @@ end
 --- @param ready whether the driver has something of its own to do
 --- @param arm registers the driver's wakers against the supplied callback
 --- @return the wait to park outward on
-function suspension.derive(
-    base: suspension.Waiting,
-    ready: function(): boolean,
-    arm: function(function(): nil): nil
-): suspension.Waiting
-    const source = base as any
+export function derive(base: Waiting, ready: function(): boolean, arm: function(function(): nil): nil): Waiting
+    const src = base as any
 
     return setmetatable(
         {
             operation = base.operation,
-            context = source.context,
+            context = src.context,
             waitCursor = 1,
             isReady = function(): boolean
                 return base:ready() or ready()
@@ -1033,8 +1018,24 @@ function suspension.derive(
             end,
         },
         WaitingMT
-    ) as suspension.Waiting
+    ) as Waiting
 end
 
-local _checked: contract.Provider = suspension
-export = suspension
+-- The binding installs these exports as a contract.Provider. A module cannot
+-- require itself on the core, so the contract is checked member by member.
+local _checked: contract.Provider = {
+    source = source,
+    poll = poll,
+    suspend = suspend,
+    install = install,
+    installdriver = installdriver,
+    create = create,
+    handled = handled,
+    cansuspend = cansuspend,
+    delegatedcanpark = delegatedcanpark,
+    delegatedpark = delegatedpark,
+    derive = derive,
+    turnavailable = turnavailable,
+    consumeturn = consumeturn,
+    deferturn = deferturn
+}
