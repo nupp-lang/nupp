@@ -1488,6 +1488,11 @@ export function expandsResults(expr: any): boolean
     if packedcall(expr) then
         return true
     end
+    -- So does one called through its value (`assert(io.open(path))`): it
+    -- gives what the function gives, every one.
+    if spreadsLibrary(expr) then
+        return true
+    end
     if expr == nil
         or (expr.kind ~= "call" and expr.kind ~= "methodCall")
         or expr.runtimeLoader ~= nil

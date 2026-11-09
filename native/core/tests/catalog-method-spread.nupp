@@ -1,0 +1,84 @@
+module nupp.core.catalogmethodspread
+
+-- A library call in method form spreads a call's results last as Lua does:
+-- `s:sub(f())` passes every value f answers, not only its first.
+local function span(): (integer, integer)
+    return 2, 4
+end
+
+local function twice(): (integer, string)
+    return 2, "-"
+end
+
+local function swap(): (string, string)
+    return "X", "Y"
+end
+
+local function from(): (string, integer)
+    return "c", 1
+end
+
+local s = "abcdefgh"
+local score = 0
+if s:sub(span()) == "bcd" then
+    score += 1
+end
+if select("#", s:byte(span())) == 3 then
+    score += 2
+end
+if ("ab"):rep(twice()) == "ab-ab" then
+    score += 4
+end
+if ("%d-%d"):format(span()) == "2-4" then
+    score += 8
+end
+if ("aXbX"):gsub(swap()) == "aYbY" then
+    score += 16
+end
+if s:find(from()) == 3 then
+    score += 32
+end
+local co = coroutine.create(function(a: integer, b: integer): integer
+    return a + b
+end)
+local resumed, sum = co:resume(span())
+if resumed and sum == 6 then
+    score += 64
+end
+
+if s:sub(assert(s:find("cd"))) == "cd" then
+    score += 128
+end
+
+local function cut(...: integer): string
+    return s:sub(...)
+end
+
+if cut(2, 3) == "bc" then
+    score += 256
+end
+local record Pair
+    base: integer
+    function sum(self, a: integer, b: integer): integer
+        return self.base + a + b
+    end
+end
+if Pair(base = 1):sum(span()) == 7 then
+    score += 512
+end
+if s:sub(assert(string.find(s, "cd"))) == "cd" then
+    score += 1024
+end
+if s:sub(table.unpack({2, 3})) == "bc" then
+    score += 2048
+end
+
+local function show(...: integer): string
+    return ("%d%d"):format(...)
+end
+
+if show(5, 6) == "56" then
+    score += 4096
+end
+
+export const result = score
