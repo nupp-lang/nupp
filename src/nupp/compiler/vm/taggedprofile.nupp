@@ -1492,7 +1492,42 @@ export function forVersion(version: integer): any
             ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(node.eof or node)}
             ctx.block = nil
         end
+        local libraryCallOrCall: function(any, any, string?): integer
+        -- A chunk's library call through a global: the core's own operation
+        -- while the chunk's environment holds the function the program
+        -- started with there, else a call of what it holds, as Lua resolves
+        -- a global name through its environment.
         profile.call = function(ctx: any, node: any, expected: string?): integer
+            if catalog(ctx).guarded[node] == nil then
+                return libraryCallOrCall(ctx, node, expected)
+            end
+            local actual = ctx.hold(taggedvalues.guardedCallee(ctx, node))
+            local original = taggedvalues.guardedOriginal(ctx, node)
+            local same = ctx.hold(ctx.emit(node, "Eq", {ctx.readHeld(actual), original}, "tagged"))
+            local result = ctx.hold(ctx.emit(node, "Nil", {}, "tagged"))
+            ctx.when(node, ctx.readHeld(same), function(c: any, site: any): nil
+                local value = libraryCallOrCall(c, node, expected)
+                if value ~= nil and c.block then
+                    c.write(result, value)
+                end
+            end)
+            local different = ctx.emit(node, "Not", {ctx.readHeld(same)}, "tagged")
+            ctx.when(node, different, function(c: any, site: any): nil
+                node.chunkDynamic = true
+                local value = invoke(c, node, true, true, nil, nil, c.readHeld(actual))
+                node.chunkDynamic = nil
+                if value ~= nil and c.block then
+                    c.write(result, value)
+                end
+            end)
+            local value = ctx.readHeld(result)
+            ctx.release(result)
+            ctx.release(same)
+            ctx.release(actual)
+
+            return value
+        end
+        libraryCallOrCall = function(ctx: any, node: any, expected: string?): integer
             if scalarwitness(ctx, node) then
                 return call(ctx, node, expected)
             end

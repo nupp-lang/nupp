@@ -284,7 +284,7 @@ local CASES = {
     {"compilerfront", 0x7FFF00000000000F},
     -- Lua's loaders over source text, compiled on the core by the compiler
     -- the program carries.
-    {"loadsource", 0x7FFF00000001FFFF},
+    {"loadsource", 0x7FFF0000000FFFFF},
     -- The compiler's lexer alone on the core, over whole source files.
     {"compilerlexer", 0x7FFF00000000000F},
     -- A checked call spreading fewer or more results than it has parameters.

@@ -1244,6 +1244,11 @@ export function coreLibraryField(node: any): string?
 end
 
 export function coreLibraryCall(call: any): string?
+    -- A chunk's guarded call, lowered as the call of what its environment
+    -- holds (nupp.compiler.vm.taggedprofile), is no library call there.
+    if call and call.chunkDynamic then
+        return nil
+    end
     if dynamicRequire(call) then
         return "require.dynamic"
     end
@@ -1467,7 +1472,7 @@ export function dynamicInvokeContract(call: any, count: integer?): any
     -- One the checker could not type (a plain Lua chunk's, which compiles
     -- whatever its checking found) is a call through `any` too.
     local called = call.calleeType
-    if called == nil or called.tag ~= "func" or alternativeresults(called) then
+    if called == nil or called.tag ~= "func" or alternativeresults(called) or call.chunkDynamic then
         called = anySignature(call, count or 1)
     end
     local contract = {

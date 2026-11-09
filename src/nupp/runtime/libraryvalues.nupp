@@ -165,6 +165,21 @@ export const functions: {[string]: any} = {
 
         return iterate
     end,
+    -- The base functions the core calls itself, as values: a chunk Lua's
+    -- load compiled calls them through its environment once it no longer
+    -- holds these (nupp.compiler.vm.corechunk).
+    print = function(...: any): nil
+        print(...)
+    end,
+    pcall = function(f: any, ...: any): ...any
+        return pcall(f, ...)
+    end,
+    xpcall = function(f: any, handler: any, ...: any): ...any
+        return xpcall(f, handler, ...)
+    end,
+    rawequal = function(a: any, b: any): boolean
+        return rawequal(a, b)
+    end,
     select = function(n: any, ...: any): ...any
         if n == "#" then
             return select("#", ...)
@@ -412,9 +427,28 @@ globals.arg = hostcalls.arguments()
 globals.nupp = {}
 functions._G = globals
 
+-- Each library function as the program started, by its name (`print`,
+-- `io.write`): a chunk Lua's load compiled calls the core directly while
+-- its environment still holds that function, and what replaced it when not.
+export const originals: {[string]: any} = {}
+for name, value in pairs(functions) do
+    if type(value) == "function" then
+        originals[name] = value
+    end
+end
+
 -- A separately initialized base library publishes its existing table into
 -- both value routes before a standard extension reads it through `_G`.
 export function publish(name: string, value: any): nil
     functions[name] = value
     globals[name] = value
+    if type(value) == "table" then
+        for member, entry in pairs(value as table) do
+            if type(member) == "string" and type(entry) == "function" then
+                originals[name .. "." .. member] = entry
+            end
+        end
+    elseif type(value) == "function" then
+        originals[name] = value
+    end
 end
