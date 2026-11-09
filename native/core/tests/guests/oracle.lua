@@ -8,6 +8,7 @@
 --
 -- Each disagreement leaves its program and twin under build/core-guests/generated.
 local producer = require("nupp.core.guestprogramproducer")
+local sharedcache = require("nupp.core.sharedcache")
 local generate = require("generate")
 local ROOT = assert(os.getenv("NUPP_COMPILER_ROOT"), "set NUPP_COMPILER_ROOT to the checkout root")
 local LUA = assert(os.getenv("NUPP_LUA_REFERENCE"), "set NUPP_LUA_REFERENCE to a Lua 5.5 interpreter")
@@ -119,7 +120,7 @@ for seed = first, first + count - 1 do
         name,
         "normal",
         tostring(SCRATCH),
-        ROOT .. "/build/core-unit-cache"
+        sharedcache.directory("kernels")
     )
     local verdict
     if expected == nil then

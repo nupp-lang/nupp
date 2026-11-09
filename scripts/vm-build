@@ -48,9 +48,43 @@ case " $* " in
             exit 2
         fi ;;
 esac
+# The compiler doing the build and its AOT job count, which the build key
+# covers beside the sources (`scripts/shared-cache build-key`).
+BUILDER=$GENERATION
+JOBS=${NUPP_VM_AOT_JOBS:-4}
+previous=""
+for option in "$@"; do
+    case "$previous" in
+        --compiler-generation) BUILDER=$option ;;
+        --jobs) JOBS=$option ;;
+    esac
+    previous=$option
+done
+SHARED="$ROOT/scripts/shared-cache"
+# A build compiler this checkout lacks may be in the machine's shared store.
+if [ ! -f "$ROOT/.nupp/vm-cli/$BUILDER/format" ]; then
+    "$SHARED" materialize "$ROOT" "$BUILDER" > /dev/null 2>&1 || true
+fi
+# A build whose every input matches one made before, here or in any other
+# checkout, selects what that build made instead of making it again.
+# NUPP_VM_BUILD_FRESH=1 builds regardless.
+KEY=""
+if [ "${1:-}" = build ] && [ "${NUPP_VM_BUILD_FRESH:-0}" != 1 ]; then
+    KEY=$("$SHARED" build-key "$ROOT" "$BUILDER" "$JOBS" 2> /dev/null || true)
+    if [ -n "$KEY" ] && adopted=$("$SHARED" adopt "$ROOT" "$KEY" 2> /dev/null); then
+        echo "vm-build: these inputs were built before; selected that compiler" >&2
+        echo "$adopted"
+        exit 0
+    fi
+fi
 if available=$("$PAIR/runtime" run "$PAIR/compiler.image" nupp.tools.vm.build available 2>/dev/null) \
     && [ "$available" = 1 ]; then
-    exec "$PAIR/runtime" exec "$PAIR/compiler.image" nupp.tools.vm.build "$ROOT" "$@"
+    "$PAIR/runtime" exec "$PAIR/compiler.image" nupp.tools.vm.build "$ROOT" "$@" || exit $?
+    # Remembered only when the sources did not move while it built.
+    if [ -n "$KEY" ] && [ "$("$SHARED" build-key "$ROOT" "$BUILDER" "$JOBS" 2> /dev/null || true)" = "$KEY" ]; then
+        "$SHARED" record "$ROOT" "$KEY" > /dev/null 2>&1 || true
+    fi
+    exit 0
 fi
 # The first build carries the coordinator into the linked compiler. Later
 # builds execute that compiled coordinator rather than interpreting a script.

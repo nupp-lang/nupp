@@ -91,9 +91,12 @@ fi
 # The VM compiler. A checkout with no installed VM CLI falls back to the LuaJIT
 # path, which rebuilds the compiler from stage zero (an hour and more), so seed
 # the new worktree from a checkout that has one: this one, or else the worktree
-# that has the start point checked out. The generations are immutable and the
-# emit cache validates its own keys, so the first command rebuilds incrementally
-# from what was copied (seconds) instead of from nothing.
+# that has the start point checked out. The generations are immutable; each is
+# also kept in the machine's shared store (scripts/shared-cache), where any
+# checkout's build of the same inputs finds it instead of building it again.
+#
+# The emit cache is not copied: what it keeps names the checkout's own paths,
+# so another checkout's misses every entry and lowers everything regardless.
 VM_ORIGIN=""
 if [ -e "$ROOT/.nupp/vm-cli/current" ]; then
     VM_ORIGIN=$ROOT
@@ -104,8 +107,24 @@ else
 fi
 if [ -n "$VM_ORIGIN" ] && [ "$VM_ORIGIN" != "$TASK_ROOT" ]; then
     copy_if_absent "$VM_ORIGIN/.nupp/vm-cli" "$TASK_ROOT/.nupp/vm-cli"
-    copy_if_absent "$VM_ORIGIN/build/vm-cli/emit-cache" "$TASK_ROOT/build/vm-cli/emit-cache"
+    "$ROOT/scripts/shared-cache" publish "$VM_ORIGIN" all || true
 fi
+
+# Runtime kernels are read from the shared store directly. A checkout that kept
+# them under build/core-unit-cache, before there was one, adds what it has.
+# Each entry is named by its content, so one already there is the same entry.
+KERNELS="$("$ROOT/scripts/shared-cache" home)/kernels"
+for KERNEL_ORIGIN in "$ROOT" ${VM_ORIGIN:+"$VM_ORIGIN"}; do
+    if [ -d "$KERNEL_ORIGIN/build/core-unit-cache" ]; then
+        mkdir -p "$KERNELS"
+        if [ "$(uname)" = Darwin ]; then
+            cp -cRn "$KERNEL_ORIGIN/build/core-unit-cache/." "$KERNELS/" 2>/dev/null || true
+        else
+            cp -Rn --reflink=auto "$KERNEL_ORIGIN/build/core-unit-cache/." "$KERNELS/" 2>/dev/null || true
+        fi
+    fi
+done
+("$ROOT/scripts/shared-cache" sweep --if-due > /dev/null 2>&1 &)
 
 # `core.hooksPath` is one setting for the whole repository, worktrees included,
 # so this is idempotent and the last worktree to be made does not undo it for
@@ -118,4 +137,5 @@ fi
 
 echo "created $TASK_ROOT"
 echo "seeded compiler, VM CLI, test scheduling, and native build caches where available"
+echo "shared store: $("$ROOT/scripts/shared-cache" home)"
 echo "hooks: .githooks (pre-push checks formatting; --no-verify skips it)"

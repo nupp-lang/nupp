@@ -15,6 +15,8 @@ local base = require("nupp.compiler.vm.nativegraph")
 local cleanup = require("nupp.compiler.vm.nativecleanup")
 local sink = require("nupp.compiler.s0.nativegraph")
 local linker = require("nupp.core.link")
+local sharedcache = require("nupp.core.sharedcache")
+local kernelcompiler = require("nupp.core.kernelcompiler")
 local fingerprint = require("nupp.compiler.project.fingerprint")
 local json = require("serde.json")
 local targetlayout = require("nupp.compiler.targetlayout")
@@ -30,12 +32,6 @@ local function readFile(path: string): string?
     return text
 end
 
-local function writeFile(path: string, text: string): nil
-    local file = assert(io.open(path, "wb"))
-    file:write(text)
-    file:close()
-end
-
 -- Cache keys use the build's content digest, which the CLI answers natively:
 -- SHA-256 in Nupp ran at about 75 KB/s here, and hashing the lowering's 2 MB
 -- of sources took most of every cached selection.
@@ -43,44 +39,6 @@ local contentDigest = fingerprint.contentDigest(true)
 
 local function digestOf(text: string): string
     return contentDigest(text)
-end
-
--- Everything that shapes selected code besides a function's own modules: the
--- lowering, backend and declaration sources. Any edit there invalidates all.
-local function compilerDigest(root: string): string
-    local command = "cd '"
-        .. root
-        .. "' && ls src/nupp/compiler/vm/*.nupp src/nupp/runtime/vm/*.d.nupp "
-        .. "spike/native-lowering/src/s0/*.nupp spike/native-lowering/nativegraph/src/nupp/compiler/s0/*.nupp | sort"
-    local parts = {}
-    do
-        local listing = assert(io.popen(command))
-        for path in listing:lines() do
-            parts[#parts + 1] = path .. "\0" .. (readFile(root .. "/" .. path) or "")
-        end
-    end
-
-    return digestOf(table.concat(parts, "\0"))
-end
-
--- The inner loop may pin the compiler part of every key: NUPP_UNIT_COMPILER_PIN
--- names a file holding it, written on first use. A lowering edit then reuses
--- the code the previous compiler selected, and a handler edit still misses by
--- its own module. Batch gates and milestones leave it unset, so every key there
--- follows the compiler exactly.
-local function keyedCompiler(root: string): string
-    local pin = os.getenv("NUPP_UNIT_COMPILER_PIN")
-    if pin == nil or pin == "" then
-        return compilerDigest(root)
-    end
-    local held = readFile(pin)
-    if held ~= nil and held ~= "" then
-        return held
-    end
-    local computed = compilerDigest(root)
-    writeFile(pin, computed)
-
-    return computed
 end
 
 -- A module's source and, transitively, the sources of the modules it requires
@@ -206,7 +164,7 @@ export function select(
         paths[owner.scope.name] = owner.scope.path
         owner.nativeABI = handlers and handlers[name] and "handler" or "leaf"
     end
-    local compiler = keyedCompiler(root)
+    local compiler = kernelcompiler.keyed(root)
     -- Handlers read the dispatch table through the context layout.
     if context then
         compiler = digestOf(compiler .. "\0" .. (readFile(context.path) or ""))
@@ -216,6 +174,7 @@ export function select(
     if cacheDirectory then
         os.execute("mkdir -p '" .. cacheDirectory .. "'")
     end
+    local used: {string} = {}
     for name, owner in pairs(byName) do
         keys[
             name
@@ -224,10 +183,18 @@ export function select(
                 modules[owner.scope.name] or ""
             ) .. "\0" .. name .. (ids[name] and "\0owner " .. tostring(ids[name]) or "")
         )
-        local cached = cacheDirectory and readFile(cacheDirectory .. "/" .. keys[name] .. ".json")
+        -- An entry that does not decode to code is a miss, as a missing one is.
+        local cached = cacheDirectory and sharedcache.get(cacheDirectory, keys[name] .. ".json")
         if cached then
-            codes[name] = json.decodevalue(cached)
+            local ok, code = pcall(json.decodevalue, cached)
+            if ok and type(code) == "table" and type(code.allocation) == "table" then
+                codes[name] = code
+                used[#used + 1] = keys[name] .. ".json"
+            end
         end
+    end
+    if cacheDirectory then
+        sharedcache.touch(cacheDirectory, used)
     end
     phase("cache")
 
@@ -276,11 +243,8 @@ export function select(
         codes[name] = selectCode(result, mode)
         if cacheDirectory then
             -- Written aside and renamed into place: processes sharing the
-            -- cache never read a part-written entry.
-            local final = cacheDirectory .. "/" .. keys[name] .. ".json"
-            local aside = final .. "." .. (tostring({}):match("0x(%x+)") or "tmp") .. tostring(os.clock()) .. ".part"
-            writeFile(aside, json.encodevalue(codes[name]))
-            assert(os.rename(aside, final))
+            -- cache, in any checkout, never read a part-written entry.
+            sharedcache.put(cacheDirectory, keys[name] .. ".json", json.encodevalue(codes[name]))
         end
     end
     phase("selection")

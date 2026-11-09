@@ -8,6 +8,7 @@
 --
 -- NUPP_CORE_BRIDGE selects a prebuilt bridge; otherwise cargo builds one.
 local runner = require("nupp.core.unitrunner")
+local sharedcache = require("nupp.core.sharedcache")
 
 local function cwd()
     local pipe = assert(io.popen("pwd"))
@@ -1408,7 +1409,7 @@ for _, unit in ipairs(UNITS) do
                 fixtures,
                 entries,
                 mode,
-                ROOT .. "/build/core-unit-cache",
+                sharedcache.directory("kernels"),
                 unit.observeLanding,
                 unit.sharedhandoff,
                 unit.observerEntry and (fixtureNames[unit.observerEntry] or unit.observerEntry)
