@@ -290,6 +290,13 @@ function hash.digest(input: string): string
         return native(input)
     end
 
+    return hash.portabledigest(input)
+end
+
+--- `digest` as this file computes it, whatever the host offers: what a host
+--- without a native digest (the native core) answers `nupp.compiler.nativehash`
+--- with.
+function hash.portabledigest(input: string): string
     return hex64(xxh64(input, SEED_A_HI, SEED_A_LO)) .. hex64(xxh64(input, SEED_B_HI, SEED_B_LO))
 end
 

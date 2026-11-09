@@ -1,0 +1,15 @@
+@!internal
+
+--[[
+The core's answer to `nupp.compiler.nativecdecl`, the VM's C declaration
+parser: the core has none, so every request answers that, and the checker
+reports it where a program declares C.
+]]
+module nupp.compiler.corecdecl
+
+const UNAVAILABLE = '{"ok":false,"error":"C declarations need the native C-header service, which the core does not have"}'
+
+--- Answers a JSON request as the native service would, with its refusal.
+export function request(_: string): string
+    return UNAVAILABLE
+end

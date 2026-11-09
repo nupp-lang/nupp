@@ -1135,8 +1135,10 @@ export function hoistedFunctionName(stat: any): any
 end
 
 -- The image module the core answers a host module's `require` with: the
--- portable BitOp library for `bit`, storage on the guest heap, and the
--- checked buffer fallback instead of LuaJIT's pointer fast path.
+-- portable BitOp library for `bit`, storage on the guest heap, the checked
+-- buffer fallback instead of LuaJIT's pointer fast path, and the compiler's
+-- host services written for the core: its digest, its build clock, and C
+-- declarations and Markdown answered as unavailable.
 local coremodules: {
     [string]: string
 } = {
@@ -1146,6 +1148,10 @@ local coremodules: {
     ["nupp.vm.cryptobinding"] = "nupp.runtime.provider.coreentropy",
     ["nupp.vm.systembinding"] = "nupp.runtime.provider.coresystem",
     ["nupp.vm.clock"] = "nupp.runtime.provider.coreclock",
+    ["nupp.tools.build.clockhost"] = "nupp.runtime.provider.coreclock",
+    ["nupp.compiler.nativehash"] = "nupp.compiler.corehash",
+    ["nupp.compiler.nativecdecl"] = "nupp.compiler.corecdecl",
+    ["nupp.vm.markdown"] = "nupp.tools.doc.coremarkdown",
     ["nupp.runtime.bindings.clock"] = "nupp.runtime.provider.coretime",
     ["debug.internal.clock"] = "nupp.runtime.provider.corelogclock",
     ["nupp.runtime.bindings.suspension"] = "nupp.runtime.provider.suspension",

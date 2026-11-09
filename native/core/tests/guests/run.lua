@@ -271,6 +271,8 @@ local CASES = {
     {"osfiles", 0x7FFF00000003FFFF},
     {"filesystem", 0x7FFF000000000001},
     {"osremove", 0x7FFF000000001FFF},
+    -- The compiler's host services as the core answers them for check and build.
+    {"clihosts", 0x7FFF0000000000FF},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
