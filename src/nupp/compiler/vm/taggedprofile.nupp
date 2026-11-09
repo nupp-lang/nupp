@@ -179,6 +179,11 @@ function tagged.constant(ctx: any, node: any, expected: string?): integer
     )
 end
 
+-- A reassigned local's own copy of a parameter's value (functiongraph).
+function tagged.freshLocal(ctx: any, node: any, value: integer): integer
+    return ctx.emit(node, "Move", {value}, "tagged") as integer
+end
+
 -- A static switch case is equality dispatch: its constant against the
 -- selector, as Lua's == compares them.
 function tagged.switchCase(ctx: any, value: any, subject: integer, kind: string): integer

@@ -1462,8 +1462,8 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                         -- A reassigned local never shares a parameter's value: the
                         -- loops and branches that change it carry it, and they
                         -- carry no parameter.
-                        if value <= g.nparams and key.reassigned then
-                            value = ctx.emit(stat, "Move", {value}, profile.valueKind(g, value))
+                        if value <= g.nparams and key.reassigned and profile.freshLocal then
+                            value = profile.freshLocal(ctx, stat, value)
                         end
                         ctx.bind(key, initializeBinding(stat, key, value))
                     end
