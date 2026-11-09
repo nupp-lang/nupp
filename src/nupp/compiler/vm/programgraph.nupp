@@ -16,6 +16,7 @@ local ownedcallables = require("nupp.compiler.vm.ownedcallables")
 local forwardedexports = require("nupp.compiler.vm.forwardedexports")
 local derivedrecipes = require("nupp.compiler.vm.derivedrecipes")
 local indexedaccess = require("nupp.compiler.vm.indexedaccess")
+local namedarguments = require("nupp.compiler.vm.namedarguments")
 
 local typeSyntax = {
     tconst = true,
@@ -956,6 +957,13 @@ export function describe(modules: {any}, entryModule: string): any
         -- only the statement it annotates.
         if node.kind == "annotationArg" then
             return
+        end
+        -- A call with named arguments passes the positional list the checker
+        -- bound them to; each skipped slot is a `nil` literal of its own.
+        if node.kind == "call" or node.kind == "methodCall" then
+            for _, skipped in ipairs(namedarguments.normalize(node) or {}) do
+                collect(skipped, owner)
+            end
         end
         local bodyOwner = p.byBody[node]
         if bodyOwner then
