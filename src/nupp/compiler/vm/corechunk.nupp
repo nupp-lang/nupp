@@ -92,6 +92,8 @@ triviaarena.installDefault(require("nupp.compiler.syntax.triviaarena.table"))
 
 -- The checking environment, made once: its prelude is the costly part.
 local held: any = nil
+-- Directories checked against beside the checkout (checkingRoot).
+local extraRoots: {string} = {}
 
 local function checkingEnvironment(): any
     if held == nil then
@@ -101,16 +103,31 @@ local function checkingEnvironment(): any
         local root = named ~= nil and named ~= "" and named or environment.compilerRoot() or "."
         bundled.checkout(root)
         held = environment.new(root, {
-            memoryOnly = true,
+            -- Module sources are found on disk only under extra roots.
+            memoryOnly = #extraRoots == 0,
             cache = false,
             nativeCompilerServices = false,
             -- The checkout's nupp.lua configures its projects, not a chunk;
             -- reading it would load Lua text from within `load`.
-            config = {}
+            config = {include = extraRoots}
         })
     end
 
     return held
+end
+
+--- Checks chunk sources against the modules under `path` too, beside the
+--- checkout's: a guest build's staged fixtures, which its module instance
+--- fixtures require.
+export function checkingRoot(path: string): nil
+    for _, root in ipairs(extraRoots) do
+        if root == path then
+            return
+        end
+    end
+    extraRoots[#extraRoots + 1] = path
+    -- The environment indexes its roots as it is made.
+    held = nil
 end
 
 -- Marks the opening's own require, which finds the environment the rest

@@ -2,6 +2,7 @@ module nupp.compiler.vm.programgraph
 
 local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
+local types = require("nupp.compiler.types")
 local graph = require("nupp.compiler.vm.graph")
 local construction = require("nupp.compiler.vm.construction")
 local builtinextensions = require("nupp.compiler.builtinextensions")
@@ -388,6 +389,23 @@ local function eachToken(node: any, visit: function(any): nil, enter: (function(
     for _, child in ipairs(node) do
         eachToken(child, visit, enter)
     end
+end
+
+-- A call of a chunk's global `require` of module `name`, issued at `anchor`
+-- and never written into the checked tree, which a chunk makes where it
+-- reads what a module it does not carry exports.
+local function chunkRequire(name: string, anchor: any): any
+    local function token(kind: string, text: string): any
+        return {kind = kind, text = text, line = anchor.line, col = anchor.col, offset = anchor.offset, trivia = {}}
+    end
+
+    local callee = token("name", "require")
+    local quoted = token("string", string.format("%q", name))
+    local argument = {kind = "string", token = quoted, inferredType = types.string, quoted}
+    local args = {kind = "args", exprs = {argument}, argument}
+    local obj = {kind = "name", token = callee, callee}
+
+    return {kind = "call", obj = obj, args = args, inferredType = types.any, obj, args}
 end
 
 -- The library calls a chunk guards: those it makes through a global name
@@ -1390,6 +1408,11 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
                     tokens[
                         super.interfaceName
                     ] = {qualifiedModule = origin.moduleName, inheritFrom = declaration.name.text}
+                elseif super.interfaceName and definition and definition.filename ~= owner.scope.path and p.chunk then
+                    -- A chunk's interface from a module the program does not
+                    -- carry: that module as the chunk's `require` answers it,
+                    -- as main's `require(...).Interface` is read.
+                    tokens[super.interfaceName] = {chunkModule = origin.moduleName, inheritFrom = declaration.name.text}
                 elseif super.interfaceName and definition and definition.filename == owner.scope.path then
                     local token: any = {
                         kind = "name",
@@ -1429,6 +1452,11 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
                     }
                     p.requires[#p.requires + 1], p.requireByNode[site] = item, item
                     tokens[taken] = site
+                elseif from and from.chunkModule then
+                    local call = chunkRequire(from.chunkModule, cst.firstToken(node))
+                    call.inheritFrom, call.inheritedDefault = from.inheritFrom, taken
+                    collect(call, owner)
+                    tokens[taken] = call
                 end
             end
             p.inheritTokens[node] = tokens

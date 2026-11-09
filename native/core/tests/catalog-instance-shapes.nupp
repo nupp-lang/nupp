@@ -1,0 +1,12 @@
+module nupp.core.cataloginstanceshapes
+
+-- An interface with a default method, which catalog-instance-inherits's
+-- record takes from this module: an instance chunk that does not carry it
+-- reads the default from what its require answers for it.
+export interface Shape
+    area: function(self: Shape): integer
+
+    function describe(self): string
+        return "area " .. tostring(self:area())
+    end
+end

@@ -1118,6 +1118,15 @@ export function forVersion(version: integer): any
                     local loaded = ctx.emit(stat, "Require", {pool(ctx, "str", site.module)}, "tagged")
                     local name = ctx.emit(stat, "K", {pool(ctx, "str", token.inheritFrom)}, "tagged")
                     parent = ctx.emit(stat, "GetIdx", {loaded, name}, "tagged")
+                elseif token.kind == "call" then
+                    -- A chunk's: what its require answers for the module.
+                    local loaded = ctx.expression(token, "tagged")
+                    if loaded == nil then
+                        ctx.release(held)
+                        return nil
+                    end
+                    local name = ctx.emit(stat, "K", {pool(ctx, "str", token.inheritFrom)}, "tagged")
+                    parent = ctx.emit(stat, "GetIdx", {loaded, name}, "tagged")
                 else
                     parent = ctx.expression({kind = "name", token = token, token}, "tagged")
                 end

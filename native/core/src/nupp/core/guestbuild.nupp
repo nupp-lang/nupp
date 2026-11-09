@@ -369,6 +369,12 @@ local CASES: {[string]: {
     forwardfunctions = {fixture = "catalog-forward-functions", version = 8},
     debuggetinfo = {fixture = "catalog-debug-getinfo", version = 8},
     moduleinstances = {fixture = "catalog-module-instances", version = 8, instances = {"catalog-instance-module"}},
+    instancedefaults = {
+        fixture = "catalog-instance-defaults",
+        version = 8,
+        modules = {"catalog-instance-shapes"},
+        instances = {"catalog-instance-inherits"}
+    },
     osfilesystem = {fixture = "catalog-os-filesystem", version = 8},
     -- The compiler's lexer and parser on the core.
     compilerfront = {fixture = "catalog-compiler-front", version = 8, follow = true},
@@ -1277,6 +1283,10 @@ export function guest(caseName: string, mode: string, cacheDirectory: string?, a
         bytes: string
     }} = {}
     local corechunk: any = case.instances and require("nupp.compiler.vm.corechunk")
+    if corechunk then
+        -- Its instance fixtures may require other fixtures, staged here.
+        corechunk.checkingRoot(assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/build/core-guest-programs/source")
+    end
     for _, name in ipairs(case.instances or {}) do
         local display = "native/core/tests/" .. name .. ".nupp"
         local bytes, problem = corechunk.compileModule(

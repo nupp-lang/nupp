@@ -298,6 +298,9 @@ local CASES = {
     -- Instances of a Nupp module compiled as a chunk: fresh state, requires
     -- through the instance's environment, core call modules swapped.
     {"moduleinstances", 0x7FFF0000000000FF},
+    -- A module instance's record taking a default from an interface in a
+    -- module its chunk does not carry, through the instance's require.
+    {"instancedefaults", 0x7FFF000000000003},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
@@ -513,7 +516,8 @@ local STRESS = {
     osfilesystem = true,
     loadsource = true,
     debuggetinfo = true,
-    moduleinstances = true
+    moduleinstances = true,
+    instancedefaults = true
 }
 -- Shell statements a case's runs start with: the io and pool cases may hold
 -- 64 descriptors, so a handle left open, or opened by a cancelled pool job,
