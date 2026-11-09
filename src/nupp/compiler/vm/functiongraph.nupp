@@ -643,7 +643,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             end
             result = results[1]
         end
-        local transported, order, args, keys = {}, {}, {}, {}
+        local transported, order, args, keys, identity = {}, {}, {}, {}, {}
         for _, key in ipairs(bindingOrder) do
             local value = bindings[key]
             order[#order + 1] = key
@@ -654,6 +654,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 )
             then
                 transported[key] = value
+                identity[#identity + 1] = {key = key, value = value}
             else
                 local parameter = (
                     profile.copyValue and profile.copyValue(g, value)
@@ -673,6 +674,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             bindings = transported,
             order = order,
             keys = keys,
+            identity = identity,
             edge = {target = target.id, args = args}
         }
     end
@@ -683,13 +685,16 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
 
     currentEdge = function(state: any): any
         local args = {}
-        for _, key in ipairs(state.order) do
-            -- A value held and released since (an operand inside the loop,
-            -- whose hold `resume` recorded in this state's own tables) is
-            -- carried by no edge.
-            if state.bindings[key] <= g.nparams and handles[key] ~= false then
+        -- Only the bindings the target was made with carry a parameter by
+        -- identity. A binding made since, in this state's own tables once
+        -- `resume` handed them on (a body's local aliasing a parameter, say),
+        -- is not live at the target. A value held and released since is
+        -- carried by no edge.
+        for _, carried in ipairs(state.identity) do
+            local key = carried.key
+            if handles[key] ~= false then
                 need(
-                    bindings[key] == state.bindings[key],
+                    bindings[key] == carried.value,
                     "loop changes a function parameter binding: " .. tostring(
                         type(key) == "table" and (key.token and key.token.text or key.name) or key
                     ) .. " at line " .. tostring(type(key) == "table" and key.token and key.token.line)

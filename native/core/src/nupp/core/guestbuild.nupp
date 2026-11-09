@@ -266,6 +266,7 @@ local CASES: {[string]: {
         modules = {"catalog-derive-helpers", "catalog-derive-provider"},
     },
     namedarguments = {fixture = "catalog-named-arguments", version = 8},
+    loopparameteralias = {fixture = "catalog-loop-parameter-alias", version = 8},
     modulescycle = {
         fixture = "catalog-modules-cycle",
         version = 8,
