@@ -1086,13 +1086,34 @@ export function discardTarget(node: any): boolean
     return node.kind == "name" and node.token ~= nil and node.token.text == "_" and node.token.definition == nil
 end
 
+--- The named export a module-level statement is, through the annotations
+--- written before it (`@allow(...) export function f()`), or nil.
+export function exportedStatement(stat: any): any
+    while stat and stat.kind == "pragmaStmt" do
+        stat = stat.stat
+    end
+    if stat == nil or stat.kind ~= "exportStmt" or not stat.stat then
+        return nil
+    end
+
+    return stat
+end
+
 -- The name a module-level statement exports a function under, which the
 -- checker hoists to the top of its module, or nil for any other statement.
 export function hoistedFunctionName(stat: any): any
-    if stat.kind ~= "exportStmt" or not stat.stat then
+    stat = exportedStatement(stat)
+    if stat == nil then
         return nil
     end
     local declared = stat.stat
+    while declared and declared.kind == "pragmaStmt" do
+        declared = declared.stat
+    end
+    -- A compile-time function erases: nothing is hoisted for it.
+    if declared == nil or declared.comptimeFunction ~= nil or declared.comptimeTok ~= nil then
+        return nil
+    end
     if declared.kind == "localFuncStmt" then
         return declared.name
     elseif declared.kind == "funcStmt"

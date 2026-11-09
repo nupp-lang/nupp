@@ -2104,7 +2104,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         local named = false
         for _, sourceBlock in ipairs(body.blocks) do
             for _, stat in ipairs(sourceBlock.stats or {}) do
-                if stat.kind == "exportStmt" and stat.stat then
+                if graphcalls.exportedStatement(stat) then
                     named = true
                 end
             end
