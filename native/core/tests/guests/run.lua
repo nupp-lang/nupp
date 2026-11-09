@@ -193,7 +193,7 @@ local CASES = {
     {"pluckedarguments", 0x7FFF001C1CF80790},
     {"ownmanage", 0x7FFF000000000200},
     {"aliasdowncast", 0x7FFF000000000C21},
-    {"methodspread", 0x7FFF000000001FFF},
+    {"methodspread", 0x7FFF000000003FFF},
     {"loopparameteralias", 0x7FFF000000000002},
     {"namedarguments", 0x7FFF000337156A8D},
     {"legacyglobals", 0x7FFF000000000463},

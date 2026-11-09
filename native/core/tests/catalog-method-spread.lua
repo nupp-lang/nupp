@@ -75,4 +75,16 @@ if show(5, 6) == "56" then
     score = score + 4096
 end
 
+local function newBox(width, height)
+    return {width = width, height = height}
+end
+local function make(...)
+    return newBox(...)
+end
+local spread = newBox(span())
+local passed = make(7, 11)
+if spread.width * spread.height + passed.width * passed.height == 85 then
+    score = score + 8192
+end
+
 return score

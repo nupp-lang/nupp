@@ -475,12 +475,9 @@ export function construct(ctx: any, node: any, origin: any): any
             ctx.emit(node, "SetIdx", {ctx.readHeld(instance), slotKey, value}, nil)
         end
     end
-    local exprs, kinds = {}, {}
-    for _, argument in ipairs(call.args and call.args.exprs or {}) do
-        need(argument.kind ~= "vararg", "a constructor call cannot spread `...` yet")
-        exprs[#exprs + 1], kinds[#kinds + 1] = argument, "tagged"
-    end
-    local args = ctx.operands(exprs, kinds)
+    -- A `...` or a call giving other than one result last spreads its pack
+    -- after the instance and the fixed arguments, as any call's does.
+    local args, pack = callOperands(ctx, call, 1)
     if args == nil then
         return nil
     end
@@ -488,7 +485,7 @@ export function construct(ctx: any, node: any, origin: any): any
     table.insert(args, 1, first)
     local value = ctx.readHeld(callee)
     ctx.release(callee)
-    ctx.invoke(call, value, args, contract, false)
+    ctx.invoke(call, value, args, contract, false, pack)
     local result = ctx.readHeld(instance)
     ctx.release(instance)
 

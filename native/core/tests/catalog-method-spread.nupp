@@ -1,7 +1,8 @@
 module nupp.core.catalogmethodspread
 
 -- A library call in method form spreads a call's results last as Lua does:
--- `s:sub(f())` passes every value f answers, not only its first.
+-- `s:sub(f())` passes every value f answers, not only its first, and so do
+-- the other call forms: a record method's, a thread's, a constructor's.
 local function span(): (integer, integer)
     return 2, 4
 end
@@ -79,6 +80,26 @@ end
 
 if show(5, 6) == "56" then
     score += 4096
+end
+
+-- A record's constructor takes a spread last too.
+local record Box
+    width: integer
+    height: integer
+    constructor(self, width: integer, height: integer)
+        self.width = width
+        self.height = height
+    end
+end
+
+local function make(...: integer): Box
+    return Box(...)
+end
+
+local spread = Box(span())
+local passed = make(7, 11)
+if spread.width * spread.height + passed.width * passed.height == 85 then
+    score += 8192
 end
 
 export const result = score
