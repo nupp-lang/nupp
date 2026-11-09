@@ -219,11 +219,19 @@ local function wide(bytes: string): boolean
     return not (low == 0 and high == 0 and sign < 0x80 or low == 0xff and high == 0xff and sign >= 0x80)
 end
 
+-- Holds `code` to the executable it was issued as, unless the inner build
+-- loop opts out (NUPP_GUEST_VALIDATE=0); batch gates keep the check.
+local function revalidate(code: any): nil
+    if os.getenv("NUPP_GUEST_VALIDATE") ~= "0" then
+        executable.validate(code)
+    end
+end
+
 -- This writes a trusted checked-source artifact, not a native loader token.
 -- `raises` lists the runtime's literal raises ({id, site, literal}), whose
 -- texts a v8 program carries for the errors they raise.
 export function encode(code: any, dispatch: {integer}, codeBytes: integer, raises: {any}?): any
-    executable.validate(code)
+    revalidate(code)
     assert(#dispatch >= 1 and #dispatch <= 256, "guest dispatch extent")
     local layouts = recordLayouts
     local records, signatures, calls = code.semantic.catalog, code.semantic.signatures, {}
@@ -551,7 +559,7 @@ export function encode(code: any, dispatch: {integer}, codeBytes: integer, raise
         assert(#raw == 8, "checked integer constant width")
         place(assert(integerOffsets[raw]), raw)
     end
-    executable.validate(code)
+    revalidate(code)
 
     return {
         bytes = assemble(pieces, cursor),
