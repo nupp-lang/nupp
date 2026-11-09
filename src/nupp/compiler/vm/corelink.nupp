@@ -1,0 +1,363 @@
+module nupp.compiler.vm.corelink
+
+-- Joins module pieces (nupp.compiler.vm.corepiece) into a program executable.
+-- Program ids are those a whole-program build gives: module initializers
+-- first, in module order, then each module's functions in discovery order;
+-- signatures interned as normalizing interns them, and contracts numbered in
+-- program owner order. A module's owners are not one contiguous range, so each
+-- piece's local ids are placed by an explicit map, and the instructions and
+-- call records that name an owner, a symbol, a signature or a contract are
+-- rewritten through it.
+--
+-- Linking checks what no piece can see alone: that every symbol names a
+-- function or module the program has, by the signature its caller expects;
+-- that module names are unique and the entry initializes last; that what a
+-- piece read of another module's initializer result holds; and the program's
+-- resource bounds, instance budget and frame depth (`executable.bound`).
+local executable = require("nupp.compiler.vm.coregraphexecutable")
+local bytecode = require("nupp.compiler.vm.corebytecode")
+local schema = require("nupp.compiler.vm.coregraphschema")
+local contracts = require("nupp.compiler.vm.coregraphcontracts")
+local corepiece = require("nupp.compiler.vm.corepiece")
+local bounds = schema.limits()
+-- An encoded instruction's bytes.
+const INSTRUCTION_BYTES = 16
+
+local function need(ok: any, message: string): any
+    if not ok then
+        error("core link: " .. message, 0)
+    end
+    return ok
+end
+
+local function shallow(value: any): any
+    local result = {}
+    for key in pairs(value) do
+        result[key] = value[key]
+    end
+
+    return result
+end
+
+-- A piece's initializer result kind.
+local function initializer(piece: any): string
+    return piece.signatures[piece.owners[1].signature + 1].result
+end
+
+-- Each piece's owners at their program ids, and each program id's piece and
+-- local id, in order.
+local function placeOwners(pieces: {any}): ({{integer}}, {{integer}})
+    local places: {{integer}} = {}
+    local order: {{integer}} = {}
+    for index in ipairs(pieces) do
+        places[index], order[index] = {index - 1}, {index, 0}
+    end
+    local id = #pieces
+    for index, piece in ipairs(pieces) do
+        for at = 2, #piece.owners do
+            places[index][at] = id
+            order[id + 1] = {index, at - 1}
+            id += 1
+        end
+    end
+    need(id <= bounds.owners, "program owner budget exceeded")
+
+    return places, order
+end
+
+-- Each piece's symbols at their program ids: its owners where they are
+-- placed, and what it names outside itself resolved by module and key.
+local function resolve(pieces: {any}, byName: {[string]: integer}, places: {{integer}}): {{integer}}
+    local keyed: {{[string]: integer}} = {}
+    for index, piece in ipairs(pieces) do
+        local keys: {[string]: integer} = {}
+        for at, owner in ipairs(piece.owners) do
+            if owner.kind == "function" then
+                need(keys[owner.key] == nil, "duplicate definition key " .. owner.key .. " in " .. piece.module.name)
+                keys[owner.key] = at - 1
+            end
+        end
+        keyed[index] = keys
+    end
+    local resolved: {{integer}} = {}
+    for index, piece in ipairs(pieces) do
+        local ids: {integer} = {}
+        for at in ipairs(piece.owners) do
+            ids[at] = places[index][at]
+        end
+        for _, symbol in ipairs(piece.symbols) do
+            local target = need(
+                byName[symbol.module],
+                "module " .. tostring(symbol.module) .. " named by " .. piece.module.name .. " is not linked"
+            ) as integer
+            if symbol.kind == "function" then
+                local found = need(
+                    keyed[target][symbol.key],
+                    "function " .. tostring(
+                        symbol.key
+                    ) .. " of " .. symbol.module .. " named by " .. piece.module.name .. " is missing"
+                ) as integer
+                local other = pieces[target]
+                local expected = contracts.signatureKey(piece.signatures[symbol.signature + 1])
+                local actual = contracts.signatureKey(other.signatures[other.owners[found + 1].signature + 1])
+                need(
+                    expected == actual,
+                    "function "
+                    .. symbol.key
+                    .. " of "
+                    .. symbol.module
+                    .. " is "
+                    .. actual
+                    .. ", not the "
+                    .. expected
+                    .. " "
+                    .. piece.module.name
+                    .. " calls"
+                )
+                ids[#ids + 1] = places[target][found + 1]
+            else
+                need(symbol.kind == "module", "unknown piece symbol kind")
+                ids[#ids + 1] = target - 1
+            end
+        end
+        -- What it read of another initializer's result still holds.
+        for name, kind in pairs(piece.observed) do
+            local other = pieces[need(byName[name], "module " .. name .. " is not linked")]
+            need(
+                initializer(other) == kind,
+                piece.module.name .. " was built reading " .. name .. " as " .. kind .. ", not " .. initializer(other)
+            )
+        end
+        resolved[index] = ids
+    end
+
+    return resolved
+end
+
+-- Signature interning in the order normalizing a whole program takes:
+-- functions' own in owner order, then dynamic calls' in contract order, then
+-- initializers' in module order. `records` is the program's signatures and `ids`
+-- each key's program id.
+local function interner(): (any, function(any): integer)
+    local records: {any} = {}
+    local ids: {[string]: integer} = {}
+
+    local function intern(signature: any): integer
+        local key = contracts.signatureKey(signature)
+        local id = ids[key]
+        if id == nil then
+            id = #records
+            local params: {string} = {}
+            for index, kind in ipairs(signature.params) do
+                params[index] = kind
+            end
+            records[
+                id + 1
+            ] = {
+                id = id,
+                kind = signature.kind,
+                params = params,
+                result = signature.result,
+                variadic = signature.variadic
+            }
+            ids[key] = id
+        end
+
+        return id
+    end
+
+    return records, intern
+end
+
+-- Each piece's contracts by local owner: the first's local id and how many.
+local function contractRanges(piece: any): {{integer}}
+    local ranges: {{integer}} = {}
+    for at = 1, #piece.owners do
+        ranges[at] = {0, 0}
+    end
+    for index, contract in ipairs(piece.contracts) do
+        local range = ranges[(contract.owner as integer) + 1]
+        if range[2] == 0 then
+            range[1] = index - 1
+        else
+            need(range[1] + range[2] == index - 1, "piece contracts are not grouped by owner")
+        end
+        range[2] += 1
+    end
+
+    return ranges
+end
+
+-- Function `fn` of a piece at program id `owner`, whose first contract has
+-- program id `first`: its call records, requires and the instructions
+-- `relocations` lists rewritten from local ids to program ones.
+local function place(
+    fn: any,
+    relocations: {{integer}},
+    owner: integer,
+    first: integer,
+    symbols: {integer},
+    signature: function(integer): integer,
+    absent: integer
+): any
+    local placed = shallow(fn)
+    placed.owner = owner
+    local calls: {any} = {}
+    for index, call in ipairs(fn.calls) do
+        local moved = shallow(call)
+        moved.contract = first + index - 1
+        moved.target = call.target == absent and absent or symbols[(call.target as integer) + 1]
+        moved.signature = signature(call.signature)
+        calls[index] = moved
+    end
+    placed.calls = calls
+    local requires: {integer} = {}
+    for index, target in ipairs(fn.requires) do
+        requires[index] = symbols[(target as integer) + 1]
+    end
+    placed.requires = requires
+    if #relocations > 0 then
+        local instructions: {any} = {}
+        for index, instruction in ipairs(fn.instructions) do
+            instructions[index] = instruction
+        end
+        local code = fn.code as string
+        local parts: {string} = {}
+        local cursor = 1
+        for _, relocation in ipairs(relocations) do
+            local pc, operand = relocation[1], relocation[2]
+            local instruction = shallow(instructions[pc])
+            local value = instruction[operand]
+            instruction[operand] = value == absent and absent or symbols[(value as integer) + 1]
+            instructions[pc] = instruction
+            parts[#parts + 1] = code:sub(cursor, (pc - 1) * INSTRUCTION_BYTES)
+            parts[#parts + 1] = bytecode.encode(instruction)
+            cursor = pc * INSTRUCTION_BYTES + 1
+        end
+        parts[#parts + 1] = code:sub(cursor)
+        placed.instructions, placed.code = instructions, table.concat(parts)
+    end
+
+    return placed
+end
+
+-- The program executable `pieces` make, in program order with the entry
+-- module, `entry`, last.
+export function link(pieces: {any}, entry: string): any
+    local count = #pieces
+    need(count > 0 and count <= bounds.modules, "program module budget exceeded")
+    local definition = schema.describe(corepiece.VERSION)
+    local absent = definition.absent as integer
+    local byName: {[string]: integer} = {}
+    local items, bytes = 0, 0
+    for index, piece in ipairs(pieces) do
+        need(piece.format == corepiece.FORMAT and piece.version == corepiece.VERSION, "unknown piece format")
+        need(byName[piece.module.name] == nil, "duplicate module " .. piece.module.name)
+        byName[piece.module.name] = index
+        items += piece.measured.items
+        bytes += piece.measured.bytes
+    end
+    need(pieces[count].module.name == entry, "entry module must initialize last")
+    need(items <= bounds.treeitems, "semantic expansion limit exceeded")
+    need(bytes <= bounds.treetext, "semantic string expansion limit exceeded")
+    local places, order = placeOwners(pieces)
+    local symbols = resolve(pieces, byName, places)
+    local ranges: {{{integer}}} = {}
+    for index, piece in ipairs(pieces) do
+        ranges[index] = contractRanges(piece)
+    end
+    local signatures, intern = interner()
+    local placedSignatures: {{[integer]: integer}} = {}
+
+    local function signatureOf(index: integer, id: integer): integer
+        local placed = placedSignatures[index]
+        local found = placed[id]
+        if found == nil then
+            found = intern(pieces[index].signatures[id + 1])
+            placed[id] = found
+        end
+
+        return found
+    end
+
+    for index in ipairs(pieces) do
+        placedSignatures[index] = {}
+    end
+    for id = count + 1, #order do
+        local index, at = order[id][1], order[id][2]
+        signatureOf(index, pieces[index].owners[at + 1].signature)
+    end
+    for _, item in ipairs(order) do
+        local piece = pieces[item[1]]
+        local range = ranges[item[1]][item[2] + 1]
+        for slot = range[1] + 1, range[1] + range[2] do
+            local contract = piece.contracts[slot]
+            if contract.target == absent then
+                signatureOf(item[1], contract.signature)
+            end
+        end
+    end
+    for index, piece in ipairs(pieces) do
+        signatureOf(index, piece.owners[1].signature)
+    end
+    need(#signatures <= bounds.signatures, "program signature budget exceeded")
+    local catalog: {any}, functions: {any}, diagnostics: {any} = {}, {}, {}
+    local diagnosed = false
+    for _, piece in ipairs(pieces) do
+        diagnosed = diagnosed or piece.diagnosed
+    end
+    local first: integer = 0
+    for id, item in ipairs(order) do
+        local index = item[1]
+        local piece, at = pieces[index], item[2]
+        local owner = piece.owners[at + 1]
+        local record: any = {
+            id = id - 1,
+            kind = owner.kind,
+            graph = id - 1,
+            effect = owner.effect,
+            signature = signatureOf(index, owner.signature)
+        }
+        if owner.kind == "function" then
+            record.parent = places[index][(owner.parent as integer) + 1]
+        end
+        catalog[id] = record
+        local range = ranges[index][at + 1]
+        local fn = piece.functions[at + 1]
+        need(#fn.calls == range[2], "piece calls differ from its contracts")
+        for call, made in ipairs(fn.calls) do
+            need(made.contract == range[1] + call - 1, "piece calls differ from its contracts")
+        end
+        functions[id] = place(
+            fn,
+            piece.relocations[at + 1],
+            id - 1,
+            first,
+            symbols[index],
+            function(signature: integer): integer
+                return signatureOf(index, signature)
+            end,
+            absent
+        )
+        if diagnosed then
+            for slot = range[1] + 1, range[1] + range[2] do
+                diagnostics[#diagnostics + 1] = piece.diagnostics[slot]
+            end
+        end
+        first += range[2]
+        need(first <= bounds.calls, "program call budget exceeded")
+    end
+    local modules: {any} = {}
+    for index, piece in ipairs(pieces) do
+        modules[index] = {name = piece.module.name, path = piece.module.path, chunk = index - 1}
+    end
+    local tables = {
+        schema = definition,
+        entry = count - 1,
+        modules = modules,
+        catalog = catalog,
+        signatures = signatures
+    }
+
+    return executable.fromLinked(tables, functions, diagnosed and diagnostics or nil)
+end
