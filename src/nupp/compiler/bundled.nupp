@@ -169,6 +169,21 @@ function bundled.staleDeclarations(): {string}
     return staleRelative
 end
 
+-- A compiler running from `src` itself, as an image lowered from the checkout
+-- does, finds what a build would have carried where the build copies it from.
+-- The library itself rather than the global: the native core publishes `_G.os`
+-- only once its os module starts, and a host without one reads nil either way.
+local function sourceCheckout(): string?
+    local hostOs: any = os
+    local named = hostOs and hostOs.getenv("NUPP_COMPILER_ROOT") or nil
+
+    return namedCheckout
+        or named ~= nil
+        and named ~= ""
+        and named
+        or moduleDir():gsub("\\", "/"):match("^(.*)/src/nupp/compiler$")
+end
+
 --- The source of a declaration the compiler carries, or nil when it carries no such
 --- file.
 ---
@@ -190,18 +205,23 @@ function bundled.source(relative: string): string?
         noteStale(relative, carried)
         return carried
     end
-    -- A compiler running from `src` itself, as an image lowered from the
-    -- checkout does, finds what a build would have carried where the build
-    -- copies it from.
-    local hostOs: any = rawget(_G, "os")
-    local named = hostOs and hostOs.getenv("NUPP_COMPILER_ROOT") or nil
-    local checkout = namedCheckout
-        or named ~= nil
-        and named ~= ""
-        and named
-        or moduleDir():gsub("\\", "/"):match("^(.*)/src/nupp/compiler$")
+    local checkout = sourceCheckout()
 
     return checkout and readFile(sourcePath(checkout, relative)) or nil
+end
+
+--- The checkout directory a carried directory was copied from, for a compiler
+--- that carries none of it and reads the checkout's instead, as `source` does.
+---
+--- @param prefix the directory under the compiled modules, beginning with a slash
+--- @return its checkout path, without a trailing separator, or nil outside a checkout
+function bundled.sourceDirectory(prefix: string): string?
+    local checkout = sourceCheckout()
+    if checkout == nil then
+        return nil
+    end
+
+    return (sourcePath(checkout, prefix:gsub("/$", "") .. "/"):gsub("/$", ""))
 end
 
 --- The directory the compiled compiler modules were loaded from.

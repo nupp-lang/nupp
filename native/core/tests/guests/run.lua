@@ -303,6 +303,8 @@ local CASES = {
     {"callsspreadshort", 0x7FFF00000000001F},
     -- `nupp check` on the core: a clean file and one with a type error.
     {"compilercheck", 0x7FFF000000000003},
+    -- The compiler's carried files listed where none are carried.
+    {"bundledlist", 0x7FFF000000000007},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.

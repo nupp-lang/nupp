@@ -7,10 +7,34 @@ local bundled = require("nupp.compiler.bundled")
 const files = require("io.internal.files")
 local resource: any = {source = bundled.source,}
 
+-- The files under `directory`, spelled as `prefix` and the path below it.
+local function walk(directory: string, prefix: string): {string}
+    local found, pending = {}, {""}
+    while #pending > 0 do
+        local below = table.remove(pending) as string
+        local entries = files.list(directory .. below)
+        if entries then
+            for name, kind in entries do
+                local child = below .. "/" .. name
+                if kind == "directory" then
+                    pending[#pending + 1] = child
+                elseif kind == "file" then
+                    found[#found + 1] = prefix .. child
+                end
+            end
+        end
+    end
+
+    return found
+end
+
 function resource.list(prefix: string): {string}
     local embedded = package.preload["nupp.embedded"]
-    if embedded then
-        local found = bundled.embeddedUnder(embedded(), prefix)
+    -- A preload may answer nothing: the command line's root installs one that
+    -- does on a host that carries no resources.
+    local carried = embedded and embedded()
+    if carried then
+        local found = bundled.embeddedUnder(carried, prefix)
         -- Only when it answered. A table carrying some of what the compiler carries
         -- is not proof that it carries all of it: the test binary embeds the modules
         -- and not the templates, and reading "no entries under this prefix" as "there
@@ -22,19 +46,14 @@ function resource.list(prefix: string): {string}
             return found
         end
     end
-    local found, pending = {}, {prefix}
-    while #pending > 0 do
-        local relative = table.remove(pending) as string
-        local entries = files.list(bundled.moduleDir() .. relative)
-        if entries then
-            for name, kind in entries do
-                local child = relative .. "/" .. name
-                if kind == "directory" then
-                    pending[#pending + 1] = child
-                elseif kind == "file" then
-                    found[#found + 1] = child
-                end
-            end
+    local base = prefix:gsub("/$", "")
+    local found = walk(bundled.moduleDir() .. base, base)
+    -- Nothing beside the modules, as for a compiler running from an image or
+    -- the native core: the checkout's copy, which `source` also reads.
+    if #found == 0 then
+        local directory = bundled.sourceDirectory(prefix)
+        if directory ~= nil then
+            found = walk(directory, base)
         end
     end
     table.sort(found)

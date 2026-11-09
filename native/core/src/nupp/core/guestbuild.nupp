@@ -391,6 +391,8 @@ local CASES: {[string]: {
     -- `nupp check` on the core through the CLI's real root, carrying what
     -- the CLI's image carries beside it.
     compilercheck = {fixture = "catalog-compiler-check", version = 8, follow = true, modules = cliextras()},
+    -- The compiler's carried files listed where none are carried.
+    bundledlist = {fixture = "catalog-bundled-list", version = 8, follow = true},
     -- The bench harness's own entry: the bench/vm workloads under debug.bench.
     benchworkloads = {
         fixture = "bench/vm/workloads.bench",
