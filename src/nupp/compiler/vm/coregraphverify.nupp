@@ -11,7 +11,10 @@ local bounds = schema.limits()
 const GRAPH_VALUES = 1048576
 
 local function need(ok: any, message: string): any
-    assert(ok, "core graph contracts: " .. message)
+    -- The message is built only for a failure: checks run millions of times.
+    if not ok then
+        error("core graph contracts: " .. message, 0)
+    end
     return ok
 end
 

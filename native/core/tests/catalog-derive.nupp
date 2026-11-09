@@ -1,0 +1,20 @@
+module nupp.core.catalogderive
+
+-- A record whose derive recipe gives it members: each forwards to a helper
+-- with its field, its argument, its registry entry and fresh constants. Its
+-- export sits inside the annotation, as the compiler CLI's commands do.
+const provider = require("nupp.core.catalogderiveprovider")
+
+@derive(provider.deriveGreeting)
+export record Friend
+    name: string
+    mood: string = "calm"
+end
+
+local friend = Friend(name = "ann")
+local first = friend:describe()
+local second = friend:describe()
+
+export const result = (
+    friend:greet("bob") == "ann greets bob" and 1 or 0
+) + (first == "pal:2:pal" and 2 or 0) + (second == first and 4 or 0) + (friend.mood == "calm" and 8 or 0)

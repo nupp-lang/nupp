@@ -31,7 +31,7 @@ end
 -- failure's message.
 local function answer(command)
     local process = require("io.internal.process")
-    local child, problem = process.spawn({args = {"sh", "-c", command}, stdin = "null", timeoutms = 30000})
+    local child, problem = process.spawn({"sh", "-c", command}, {stdin = "null", timeoutms = 30000})
     assert(child, problem)
     local result, failed = child:communicate({maxoutputbytes = 16 * 1024 * 1024})
     child:close()
@@ -434,11 +434,10 @@ function M.selfEdgesRespectTheExecutionBudget()
         assert(count == 5, "the harness did not set all entry budgets")
         local path = tempDirectory() .. "/spin.clif"
         write(path, harness)
-        local child, problem = process.spawn({
-            args = {glueTool(), "native", "jit", path, "exit_0"},
-            stdin = "null",
-            timeoutms = 10000,
-        })
+        local child, problem = process.spawn(
+            {glueTool(), "native", "jit", path, "exit_0"},
+            {stdin = "null", timeoutms = 10000}
+        )
         assert(child, problem)
         local result, failed = child:communicate()
         child:close()
@@ -448,11 +447,10 @@ function M.selfEdgesRespectTheExecutionBudget()
         if caseIndex == 1 then
             for _, entry in ipairs({"word_0", "integer_word_0"}) do
                 local incomplete = assert(
-                    process.spawn({
-                        args = {glueTool(), "native", "jit", path, entry},
-                        stdin = "null",
-                        timeoutms = 10000,
-                    })
+                    process.spawn(
+                        {glueTool(), "native", "jit", path, entry},
+                        {stdin = "null", timeoutms = 10000}
+                    )
                 )
                 local refused, problem = incomplete:communicate()
                 incomplete:close()

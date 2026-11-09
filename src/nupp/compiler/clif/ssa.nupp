@@ -18,7 +18,10 @@ uses and unreachable blocks never print.
 ]]
 
 local function need(ok: any, message: string): any
-    assert(ok, "lower: " .. message)
+    -- The message is built only for a failure: checks run millions of times.
+    if not ok then
+        error("lower: " .. message, 0)
+    end
     return ok
 end
 

@@ -3,7 +3,10 @@ module nupp.compiler.vm.coregraphshape
 local NONE: integer = 4294967295
 
 local function need(ok: any, message: string): any
-    assert(ok, "core graph shape: " .. message)
+    -- The message is built only for a failure: checks run millions of times.
+    if not ok then
+        error("core graph shape: " .. message, 0)
+    end
     return ok
 end
 

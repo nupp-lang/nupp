@@ -69,7 +69,10 @@ local sharedPaths = {
 }
 
 local function need(ok: any, message: string): any
-    assert(ok, "native final frame: " .. message)
+    -- The message is built only for a failure: checks run millions of times.
+    if not ok then
+        error("native final frame: " .. message, 0)
+    end
     return ok
 end
 

@@ -1,0 +1,40 @@
+module nupp.core.catalogclihosts
+
+-- The compiler's host services as the core answers them for `check` and
+-- `build`: the content digest (the same digits main's native digest gives),
+-- the build clock, and C declarations and Markdown, which the core reports
+-- unavailable. Each check is a bit of the score.
+local hash = require("nupp.compiler.hash")
+local nativehash = require("nupp.compiler.nativehash")
+local clock = require("nupp.tools.build.clockhost")
+local markdown = require("nupp.tools.doc.markdownhost")
+local cdecl = require("nupp.compiler.cinterop.cdecl")
+
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+-- Main's digests of these inputs.
+check(hash.digest("") == "ef46db3751d8e999c4349fc93c010000")
+check(hash.digest("abc") == "44bc2cf5ad7709992ed0f59d6b43ac8b")
+check(hash.digest(string.rep("nupp", 300)) == "4ced7f4d7e2684d2e8ef7384b88f00b9")
+check(nativehash.digest("abc") == "44bc2cf5ad7709992ed0f59d6b43ac8b")
+check(hash.portabledigest("abc") == hash.digest("abc"))
+
+local first = clock.now()
+local second = clock.now()
+check(type(first) == "number" and second >= first)
+
+local html, reason = markdown.render("# Title")
+check(html == nil and reason == "Markdown rendering is not available on the core")
+
+local declared, problem = cdecl.declare("int width;")
+check(not declared and string.find(tostring(problem), "native C-header service", 1, true) ~= nil)
+
+export const result = score

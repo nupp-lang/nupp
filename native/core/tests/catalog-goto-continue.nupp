@@ -1,0 +1,34 @@
+module nupp.core.cataloggotocontinue
+
+-- `goto continue` to a label ending its loop's body goes on to the next
+-- iteration, in each kind of loop.
+local odd: integer = 0
+for index = 1, 10 do
+    if index % 2 == 0 then
+        goto continue
+    end
+    odd += index
+    ::continue::
+end
+
+local words: integer = 0
+for _, word in ipairs({"a", "", "b", "", "c"}) do
+    if word == "" then
+        goto continue
+    end
+    words += 1
+    ::continue::
+end
+
+local count: integer = 0
+local steps: integer = 0
+while count < 6 do
+    count += 1
+    if count == 3 then
+        goto continue
+    end
+    steps += 1
+    ::continue::
+end
+
+export const result = odd * 100 + words * 10 + steps
