@@ -20,7 +20,7 @@ export const FORWARD_FORM: uint64 = 64ULL
 export const FORWARD_SHIFT: uint64 = 6ULL
 export const ARGUMENTS: uint64 = 4ULL
 
--- The operations HOST_FILES takes first, by group.
+-- The operations HOST_FILES, TASKS and DEBUG_INFO take first, by group.
 export const FS_INFO: uint64 = 39ULL
 export const FS_STATUS: uint64 = 40ULL
 export const FS_READLINK: uint64 = 41ULL
@@ -98,6 +98,21 @@ export const TASK_SLEEP: uint64 = 8ULL
 export const TASK_INSTALL: uint64 = 9ULL
 export const TASK_FIRST: uint64 = 1ULL
 export const TASK_LAST: uint64 = 9ULL
+export const DEBUG_WHAT: uint64 = 1ULL
+export const DEBUG_SOURCE: uint64 = 2ULL
+export const DEBUG_SHORT: uint64 = 3ULL
+export const DEBUG_LINE: uint64 = 4ULL
+export const DEBUG_DEFINED: uint64 = 5ULL
+export const DEBUG_LASTDEFINED: uint64 = 6ULL
+export const DEBUG_NAME: uint64 = 7ULL
+export const DEBUG_NAMEWHAT: uint64 = 8ULL
+export const DEBUG_FUNC: uint64 = 9ULL
+export const DEBUG_TAILCALL: uint64 = 10ULL
+export const DEBUG_UPVALUES: uint64 = 11ULL
+export const DEBUG_PARAMS: uint64 = 12ULL
+export const DEBUG_VARARG: uint64 = 13ULL
+export const DEBUG_FIRST: uint64 = 1ULL
+export const DEBUG_LAST: uint64 = 13ULL
 
 -- The keys of the state tables some calls keep between steps.
 export const GMATCH_SUBJECT: uint64 = 1ULL

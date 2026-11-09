@@ -1,0 +1,55 @@
+@!internal
+
+--- What the native core's Lua `debug.getinfo` reads, a field a call
+--- (`nupp.runtime.libraryvalues`). A call of one is the core's own library
+--- call (DEBUG_INFO, its operation first, numbered once in
+--- `nupp.compiler.vm.corelibrary`), and requiring this module loads nothing:
+--- it exists only on the core.
+---
+--- Each takes a target: a level, 1 being the function that makes the call,
+--- 2 the one that called it and so on, or a function value. Each answers nil
+--- for a level no function is at.
+local record debugcalls
+    --- "main", "Lua" or "C".
+    what: function(target: any): string?
+
+    --- Lua's `source`: "@" and the file a function was written in, or the
+    --- name `load` was given; "=[C]" for a C function.
+    source: function(target: any): string?
+
+    --- Lua's `short_src`: the source as an error message names it.
+    short: function(target: any): string?
+
+    --- The line a running function is at, or -1 where none is known.
+    line: function(target: any): integer?
+
+    --- The lines a function's definition starts and ends on: 0 for a main
+    --- chunk, -1 for a C function.
+    defined: function(target: any): integer?
+
+    lastdefined: function(target: any): integer?
+
+    --- The name the call of a running function gave it, and what kind of
+    --- name that is ("global", "local", "method", "field", "upvalue" or
+    --- "for iterator"); nil where its caller did not name it.
+    name: function(target: any): string?
+
+    namewhat: function(target: any): string?
+
+    --- The function itself, where the core holds it as a value.
+    func: function(target: any): any
+
+    --- Whether a running function was called in a tail call.
+    tailcall: function(target: any): boolean?
+
+    --- How many upvalues the function holds, how many parameters it
+    --- declares, and whether it takes `...`.
+    upvalues: function(target: any): integer?
+
+    params: function(target: any): integer?
+
+    vararg: function(target: any): boolean?
+end
+
+local calls: debugcalls
+return calls

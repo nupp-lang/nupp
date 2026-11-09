@@ -13,11 +13,15 @@ const catalog = require("nupp.runtime.core.guestcatalog")
 const frames = require("nupp.runtime.core.frames")
 const guestscope = require("nupp.runtime.core.guestscope")
 
+-- The frame running now: level 1 of a walk out through its callers.
+export function activeframe(ctx: voidptr): uint64
+    return native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+end
+
 -- Physical frames for the argument-forwarding contract. A protected target
 -- is visible, but walking past its C-like boundary is refused.
 export function physicalframeat(ctx: voidptr, level: uint64): uint64
-    local state = native.loadPointer(ctx, context.STATE)
-    local frame = native.load64(state, native.fieldOffset<frames.State>("active"))
+    local frame = activeframe(ctx)
     local k: uint64 = 1ULL
     if level == 0ULL then
         return 0ULL
@@ -34,7 +38,7 @@ export function physicalframeat(ctx: voidptr, level: uint64): uint64
 end
 
 -- The catalog record of function `owner`, or 0 when the catalog has none.
-local function record(c: voidptr, owner: uint64): uint64
+export function record(c: voidptr, owner: uint64): uint64
     if owner >= native.load64(c, native.fieldOffset<catalog.Catalog>("count")) then
         return 0ULL
     end
@@ -44,7 +48,7 @@ end
 
 -- Whether the frame runs a function of the core's C library, written in
 -- Nupp for Lua's C functions: the compiler gives those no line table.
-local function clibrary(ctx: voidptr, frame: uint64): boolean
+export function clibrary(ctx: voidptr, frame: uint64): boolean
     local fn = record(
         native.loadPointer(ctx, context.CATALOG),
         native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("functionId"))
@@ -56,7 +60,7 @@ end
 -- The diagnostic row of the call `frame` waits on, at its resume pc less
 -- one, or 0: no diagnostics, no catalog function or no call there, or, with
 -- `nonlanding`, a function that lands its calls' errors.
-local function waitingrow(c: voidptr, frame: uint64, nonlanding: boolean): uint64
+export function waitingrow(c: voidptr, frame: uint64, nonlanding: boolean): uint64
     local rows = catalog.diagnostics(c)
     local resume = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("resumePC"))
     local fn = record(c, native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("functionId")))
@@ -79,7 +83,8 @@ local function waitingrow(c: voidptr, frame: uint64, nonlanding: boolean): uint6
     return row
 end
 
-local function tailcaller(ctx: voidptr, frame: uint64): boolean
+-- Whether `frame` waits on a call it made as a tail call.
+export function tailcaller(ctx: voidptr, frame: uint64): boolean
     local row = waitingrow(native.loadPointer(ctx, context.CATALOG), frame, true)
 
     return row ~= 0ULL
@@ -90,8 +95,7 @@ end
 -- Tail-returned guest calls hide their caller without changing physical roots
 -- or cleanup. A protected target remains visible, but its boundary does not.
 export function frameat(ctx: voidptr, level: uint64): uint64
-    local state = native.loadPointer(ctx, context.STATE)
-    local frame = native.load64(state, native.fieldOffset<frames.State>("active"))
+    local frame = activeframe(ctx)
     local k: uint64 = 1ULL
     if level == 0ULL then
         return 0ULL

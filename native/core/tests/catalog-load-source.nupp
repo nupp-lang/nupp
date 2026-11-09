@@ -131,4 +131,34 @@ if sum == 3 and unprinted == true and sandbox.x == 1 and rawget(_G, "x") == nil 
     score = score + 65536
 end
 
+-- A library call through a global calls what the chunk's environment holds:
+-- nothing in an empty one, the environment's own function where it has one,
+-- and the core's where it still holds the program's.
+local unprintable: any = load("print('hidden')", "=unprintable", "t", {})
+local printed, printProblem = pcall(unprintable)
+if not printed and cites(printProblem, "a nil value") then
+    score = score + 131072
+end
+local captured: any = nil
+local capturing: any = load("print('captured')\nreturn string.format('%d', 7), type(1)", "=capturing", "t", {
+    print = function(text: any): nil
+        captured = text
+    end,
+    string = {
+        format = function(_: any, _: any): string
+            return "own format"
+        end
+    },
+    type = type
+})
+local formatted, typed = capturing()
+if captured == "captured" and formatted == "own format" and typed == "number" then
+    score = score + 262144
+end
+local ordinary: any = load("return type(1), string.format('%d', 7), tostring(nil)")
+local kind, seven, none = ordinary()
+if kind == "number" and seven == "7" and none == "nil" then
+    score = score + 524288
+end
+
 export const result = score
