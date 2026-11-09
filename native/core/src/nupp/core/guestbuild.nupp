@@ -1062,7 +1062,7 @@ end
 
 -- Fixture `name` compiled at profile `version` as a binary chunk's program:
 -- a program of its own, which a case loads (`chunks`).
-function build.chunk(name: string, version: integer): any
+export function chunk(name: string, version: integer): any
     local compiled = programs[name]
     if compiled == nil then
         compiled = compileProgram(name, name, version)
@@ -1125,7 +1125,7 @@ export function guest(caseName: string, mode: string, cacheDirectory: string?, a
     -- Its chunks compile before the runtime's selection, as its program
     -- does: a chunk checked after the runtime's session is refused.
     for _, name in ipairs(case.chunks or {}) do
-        build.chunk(name, case.version)
+        chunk(name, case.version)
     end
     local compiled = os.clock()
     local held = runtime(mode, cacheDirectory, audited == true)
@@ -1141,7 +1141,7 @@ export function guest(caseName: string, mode: string, cacheDirectory: string?, a
         bytes: string
     }} = {}
     for _, name in ipairs(case.chunks or {}) do
-        chunks[#chunks + 1] = {name = name, bytes = writer.chunk(build.chunk(name, case.version), held.scopes)}
+        chunks[#chunks + 1] = {name = name, bytes = writer.chunk(chunk(name, case.version), held.scopes)}
     end
 
     return {
