@@ -6,7 +6,10 @@ export function main(argv: {string}): integer
     -- The VM's carried resources; a host without them, as the native core is,
     -- reads the checkout's (`nupp.compiler.bundled`).
     package.preload["nupp.embedded"] = function(): any
-        local found, resources = pcall(require, "nupp.vm.cliResources")
+        -- Required by its literal name, which is how the VM finds them.
+        local found, resources = pcall(function(): any
+            return require("nupp.vm.cliResources")
+        end)
         return found and resources or nil
     end
 
