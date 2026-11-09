@@ -230,7 +230,7 @@ local function storagePlan(p: any): any
             local ownRecord = p.recordMembers[owner.node] == b.definition
             -- An exported function may be captured before its statement runs:
             -- a cell made as the module starts holds it from then on.
-            local hoisted = p.hoistedFunctions[b.definition] == true
+            local hoisted = p.hoistedFunctions[b.definition] == true or p.assignedFunctions[b.definition] == true
             if b.mode == "cell" or item.recursive or ownRecord or hoisted then
                 storage[b.definition] = "cell"
             end
@@ -402,6 +402,9 @@ function program.describe(modules: {any}, entryModule: string, options: any?): a
         -- The definitions of the functions a module exports, which the checker
         -- hoists: a closure made above the declaration may already name one.
         hoistedFunctions = {},
+        -- The locals a function statement assigns after their declaration
+        -- (`local f` ... `function f()`), which closures made between hold.
+        assignedFunctions = {},
         byDefinition = {},
         functionsByDefinition = {},
         byBody = {},
@@ -508,6 +511,10 @@ function program.describe(modules: {any}, entryModule: string, options: any?): a
         end
         if node.kind == "recordDecl" then
             p.recordDecls[node] = true
+        end
+        local base = node.kind == "funcStmt" and node.name and node.name.base
+        if base and base.definition and base.definition.token ~= base then
+            p.assignedFunctions[base.definition] = true
         end
         if node.kind == "recordDecl" and node.name then
             for _, entry in ipairs(node.entries or {}) do
