@@ -3,6 +3,7 @@ module nupp.compiler.vm.taggedprofile
 local graph = require("nupp.compiler.vm.graph")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
+local graphcalls = require("nupp.compiler.vm.graphcalls")
 local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
 local indexedviews = require("nupp.compiler.types.indexedviews")
@@ -1223,6 +1224,10 @@ function tagged.forVersion(version: integer): any
             if graph.coreLibraryCall(node) == "pcall" or graph.coreLibraryCall(node) == "xpcall" then
                 return invokeProtected(ctx, node, true, count)
             end
+            -- A library call spreading `...` calls its function's value.
+            if graphcalls.spreadsLibrary(node) then
+                return invoke(ctx, node, true, true, count)
+            end
             -- A library call with several results answers a pack, read in
             -- order; past its end is nil.
             if graph.packedcall(node) then
@@ -1324,6 +1329,7 @@ function tagged.forVersion(version: integer): any
                     and (ctx.fn.signature.retPack.alternatives == nil or lastSite and not lastSite.construct)
                     or last.kind == "methodCall" and lastSite and lastSite.method
                     or graph.packedcall(last)
+                    or graphcalls.spreadsLibrary(last)
                     or libraryLast == "pcall"
                     or libraryLast == "xpcall"
                 )
@@ -1431,6 +1437,11 @@ function tagged.forVersion(version: integer): any
                 return tagged.call(ctx, node, expected)
             end
             local library = graph.coreLibraryCall(node)
+            -- A library call spreading `...` where its core form cannot calls
+            -- the library function's value with that pack, as Lua does.
+            if graphcalls.spreadsLibrary(node) then
+                return invoke(ctx, node, true, true) as integer
+            end
             if library == "tostring" or library == "table.concat" then
                 return libraryCall(
                     ctx,

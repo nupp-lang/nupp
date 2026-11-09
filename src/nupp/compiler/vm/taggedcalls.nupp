@@ -7,6 +7,7 @@ module nupp.compiler.vm.taggedcalls
 local graph = require("nupp.compiler.vm.graph")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
+local graphcalls = require("nupp.compiler.vm.graphcalls")
 local taggedvalues = require("nupp.compiler.vm.taggedvalues")
 local catalog = taggedvalues.catalog
 local cleanupGraphs = taggedvalues.cleanupGraphs
@@ -182,7 +183,7 @@ export function invoke(
     open: boolean?
 ): any
     -- A library call with several results is open already: its pack.
-    if open and graph.packedcall(node) then
+    if open and graph.packedcall(node) and not graphcalls.spreadsLibrary(node) then
         return librarypack(ctx, node)
     end
     local p = catalog(ctx)

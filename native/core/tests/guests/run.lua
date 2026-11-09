@@ -231,6 +231,8 @@ local CASES = {
     {"affineconstructors", 0x7FFF0000000000FF},
     {"absentffi", 0x7FFF000000000007},
     {"runnerresiduals", 0x7FFF00000000007F},
+    -- Library calls spreading `...` through the library function's value.
+    {"spreadlibrary", 0x7FFF0000000003FF},
     {"processlines", 0x7FFF000000000FFF},
     {"processlayer", 0x7FFF000000FFFFFF},
     -- os.exit(3): the program ends there, publishing nothing (EXITS).
@@ -448,6 +450,7 @@ local STRESS = {
     affineconstructors = true,
     absentffi = true,
     runnerresiduals = true,
+    spreadlibrary = true,
     processlines = true,
     processlayer = true,
     processexit = true,

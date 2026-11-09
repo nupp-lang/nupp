@@ -817,6 +817,18 @@ local libraryValues: {
     warn = true
 }
 
+-- The library values whose core forms take a `...` last as a pack: select's,
+-- string.format's packed call, and the coroutine calls' value packs.
+const packsVararg: {
+    [string]: boolean
+} = {
+    select = true,
+    ["string.format"] = true,
+    ["coroutine.create"] = true,
+    ["coroutine.resume"] = true,
+    ["coroutine.yield"] = true
+}
+
 -- The library name `node` reads when it names a library function, `tostring`
 -- or `string.upper`, outside the callee of a call the core makes itself.
 -- The task surface (Decision 18), which the scheduler written in Nupp
@@ -933,6 +945,13 @@ for _, subject in ipairs(corelibrary.subjects()) do
     end
 end
 
+-- A call's last argument, or nil when it has none.
+local function lastArgument(call: any): any
+    local exprs = call.args and call.args.exprs or {}
+
+    return exprs[#exprs]
+end
+
 -- Whether an unchecked tree may take a library function as a value: a name
 -- or field spelled as one, outside a call's callee. A builder reads it to
 -- carry `nupp.runtime.libraryvalues` conservatively before checked lowering.
@@ -998,8 +1017,19 @@ export function mayTakeLibraryValue(root: any, dynamic: boolean?): boolean
         if node.kind == "dotIndex" and node.obj and node.obj.kind == "name" then
             return
         end
+        -- A library call spreading `...` calls the library function's value
+        -- (spreadsLibrary), so its callee is read as one.
+        local last = node.kind == "call" and lastArgument(node) or nil
+        local spelled = node.obj
+            and node.obj.kind == "dotIndex"
+            and node.obj.obj
+            and node.obj.obj.token
+            and node.obj.name
+            and node.obj.obj.token.text .. "." .. node.obj.name.text
+            or node.obj and node.obj.token and node.obj.token.text
+        local spreads = last ~= nil and last.kind == "vararg" and not packsVararg[spelled or ""]
         for _, child in ipairs(node) do
-            walk(child, (node.kind == "call" or node.kind == "methodCall") and child == node.obj)
+            walk(child, (node.kind == "call" and not spreads or node.kind == "methodCall") and child == node.obj)
         end
     end
     walk(root, false)
@@ -1418,11 +1448,23 @@ end
 -- Whether a call's last argument spreads a pack: `...`, or a call whose
 -- results it takes all of, pcall's and xpcall's among them.
 export function spreadsLast(call: any): boolean
-    local exprs = call.args and call.args.exprs or {}
-    local last = exprs[#exprs]
+    local last = lastArgument(call)
     local library = last ~= nil and last.kind == "call" and coreLibraryCall(last) or nil
 
     return last ~= nil and (last.kind == "vararg" or expandsResults(last) or library == "pcall" or library == "xpcall")
+end
+
+-- Whether a library call spreads `...` last where its core form, which takes
+-- a fixed count of arguments, cannot, as `string.char(...)`: it calls the
+-- library function's value with the pack instead, as Lua does.
+export function spreadsLibrary(node: any): boolean
+    if type(node) ~= "table" or node.kind ~= "call" or libraryValue(node.obj) == nil then
+        return false
+    end
+    local library = coreLibraryCall(node)
+    local last = lastArgument(node)
+
+    return library ~= nil and not packsVararg[library] and last ~= nil and last.kind == "vararg"
 end
 
 -- The argument a library call calls back, by its index among the call's
