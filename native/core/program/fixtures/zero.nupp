@@ -1,7 +1,0 @@
-local First = {}
-function First.answer(): integer
-    local zero: integer = 0
-    return zero
-end
-
-return First
