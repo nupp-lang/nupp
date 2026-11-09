@@ -51,10 +51,10 @@ local function readFile(path: string): string?
     return content
 end
 
-local embedded: any = nil
 -- The checkout a host names for the declarations, where nothing else does:
 -- the native core's `load` compiles with no module paths or `_G.os` to find it.
 local namedCheckout: string? = nil
+local embedded: any = nil
 
 --- Read the compiler's declarations from checkout `root`, where they live
 --- under `src`, unless a bundle carries its own.

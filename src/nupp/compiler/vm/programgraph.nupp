@@ -363,30 +363,42 @@ end
 -- `function f()`) assigns that local, as in Lua; the checker declares the
 -- statement's name anew. This points the statement's name, and every name
 -- the checker resolved to it, at the local it assigns.
+-- Calls `visit` with every token in the tree under `node`, and `enter`, when
+-- given, with every node.
+local function eachToken(node: any, visit: function(any): nil, enter: (function(any): nil)?): nil
+    if type(node) ~= "table" then
+        return
+    end
+    if cst.isToken(node) then
+        visit(node)
+        return
+    end
+    if enter then
+        enter(node)
+    end
+    for _, child in ipairs(node) do
+        eachToken(child, visit, enter)
+    end
+end
+
 local function assignForwardLocals(root: any, replaced: {[any]: any}): nil
     local declared: {any} = {}
     local statements: {any} = {}
-    local walk: function(any): nil
-    walk = function(node: any): nil
-        if type(node) ~= "table" then
-            return
-        end
-        if cst.isToken(node) then
-            local definition = node.definition
-            if definition and definition.token == node and definition.lexical and definition.scopeFrom then
+    eachToken(
+        root,
+        function(token: any): nil
+            local definition = token.definition
+            if definition and definition.token == token and definition.lexical and definition.scopeFrom then
                 declared[#declared + 1] = definition
             end
-            return
+        end,
+        function(node: any): nil
+            local base = node.kind == "funcStmt" and node.name and node.name.base
+            if base and #node.name == 1 and base.definition and base.definition.token == base then
+                statements[#statements + 1] = base
+            end
         end
-        local base = node.kind == "funcStmt" and node.name and node.name.base
-        if base and #node.name == 1 and base.definition and base.definition.token == base then
-            statements[#statements + 1] = base
-        end
-        for _, child in ipairs(node) do
-            walk(child)
-        end
-    end
-    walk(root)
+    )
     local changed = false
     for _, base in ipairs(statements) do
         local own = base.definition
@@ -409,23 +421,12 @@ local function assignForwardLocals(root: any, replaced: {[any]: any}): nil
     if not changed then
         return
     end
-    local rebind: function(any): nil
-    rebind = function(node: any): nil
-        if type(node) ~= "table" then
-            return
+    eachToken(root, function(token: any): nil
+        local to = token.definition and replaced[token.definition]
+        if to then
+            token.definition = to
         end
-        if cst.isToken(node) then
-            local to = node.definition and replaced[node.definition]
-            if to then
-                node.definition = to
-            end
-            return
-        end
-        for _, child in ipairs(node) do
-            rebind(child)
-        end
-    end
-    rebind(root)
+    end)
 end
 
 -- `options.chunk` describes a chunk Lua's `load` compiles (nupp.compiler.vm.corechunk):
@@ -859,12 +860,31 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
 
     local loopForms: {[any]: boolean} = {}
 
+    -- Registers the qualified read `node` makes of `module` in `owner`, with
+    -- what else its site says (`fields`).
+    local function qualifiedSite(owner: any, node: any, module: string, fields: {[string]: any}): nil
+        local item: any = {
+            id = #p.requires,
+            owner = owner.id,
+            node = node,
+            module = module,
+            typeOnly = false,
+            qualified = true
+        }
+        for key, value in pairs(fields) do
+            item[key] = value
+        end
+        p.requires[#p.requires + 1], p.requireByNode[node] = item, item
+    end
+
     local function reference(token: any, owner: any): nil
         local definition = token and token.definition
         local location = tostring(
             token and token.text
         ) .. " at " .. owner.scope.path .. ":" .. tostring(token and token.line)
-        if definition == nil and p.chunk then
+        -- A chunk reads a name nothing declares, or what the prelude declares
+        -- (`io`, `require`), as the running program's global of that name.
+        if p.chunk and (definition == nil or definition.token ~= token and p.byDefinition[definition] == nil) then
             p.globals[token] = true
             return
         end
@@ -873,12 +893,6 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             return
         end
         local b = p.byDefinition[definition]
-        -- A chunk reads what the prelude declares (`io`, `require`) as the
-        -- running program's global of that name.
-        if not b and p.chunk then
-            p.globals[token] = true
-            return
-        end
         if not b then
             need(
                 definition.token and type(definition.filename) == "string" and not sourcePaths[definition.filename],
@@ -1068,17 +1082,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         -- A chunk's qualified path into a module it does not hold is into
         -- the running program's, required by name where it is read.
         if p.chunk and not qualified and (projection or node.kind == "dotIndex") and node.qualifiedModule then
-            local item = {
-                id = #p.requires,
-                owner = owner.id,
-                node = node,
-                module = graph.coremodule(node.qualifiedModule),
-                typeOnly = false,
-                qualified = true,
-                builtin = projection,
-                absent = true
-            }
-            p.requires[#p.requires + 1], p.requireByNode[node] = item, item
+            qualifiedSite(owner, node, graph.coremodule(node.qualifiedModule), {builtin = projection, absent = true})
             return
         end
         if projection then
@@ -1146,17 +1150,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         local valuesModule = libraryValue and graph.libraryModule(libraryValue)
         local values = valuesModule and moduleNames[valuesModule]
         if libraryValue and values then
-            local item = {
-                id = #p.requires,
-                owner = owner.id,
-                node = node,
-                module = valuesModule,
-                typeOnly = false,
-                target = values.chunk,
-                qualified = true,
-                library = libraryValue
-            }
-            p.requires[#p.requires + 1], p.requireByNode[node] = item, item
+            qualifiedSite(owner, node, valuesModule as string, {target = values.chunk, library = libraryValue})
             return
         end
         -- `for i, v in ipairs(t)` and `pairs(t)` are loop forms the profile lowers
