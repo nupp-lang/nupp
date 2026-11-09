@@ -364,6 +364,8 @@ local CASES: {[string]: {
     compilerfront = {fixture = "catalog-compiler-front", version = 8, follow = true},
     -- Lua's loaders over source text, compiled on the core by the compiler
     -- the program carries (`follow` reaches it).
+    compilerlexer = {fixture = "catalog-compiler-lexer", version = 8, follow = true},
+    callsspreadshort = {fixture = "catalog-calls-spread-short", version = 8},
     loadsource = {fixture = "catalog-load-source", version = 8, modules = {"catalog-load-helper"}, follow = true},
     -- The packaged test runner (nupp.lua build.targets.testRunner): the
     -- delivery path runs it on the core.
