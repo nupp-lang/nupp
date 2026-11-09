@@ -899,7 +899,9 @@ function verify.semantic(p: any): nil
         local signature = p.signatures[owner.signature + 1]
         local kind = verify.resultKind(g, signature, p)
         need(
-            kind == signature.result or p.schema.version >= 8 and (kind == "value" or signature.result == "value"),
+            kind == signature.result or p.schema.version >= 8 and (kind == "value" or signature.result == "value")
+            -- A function that ends only by raising answers nil (contracts).
+            or p.schema.version >= 8 and kind == "nil",
             "semantic result differs from signature"
         )
     end
