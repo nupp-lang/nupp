@@ -227,16 +227,6 @@ export function environment(scope: voidptr, name: voidptr, nameBytes: uint64, ou
     return os.environment(name, nameBytes, out, room)
 end
 
-export function formatNumber(scope: voidptr, bits: uint64, out: voidptr, room: uint64): int64
-    local _ = scope
-    return os.formatNumber(bits, out, room)
-end
-
-export function parseNumber(scope: voidptr, text: voidptr, bytes: uint64, out: voidptr): int64
-    local _ = scope
-    return os.parseNumber(text, bytes, out)
-end
-
 export function writeOutput(scope: voidptr, base: voidptr, bytes: uint64): int64
     local _ = scope
     return os.writeOutput(base, bytes)
