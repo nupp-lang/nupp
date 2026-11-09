@@ -1,0 +1,64 @@
+module nupp.core.catalognonreturningbodies
+
+-- Checked functions whose bodies end in a call that never returns: nothing
+-- follows that call, so none of them answers a made-up nil, and the result
+-- each declares holds of the returns it does have. Each check adds a bit.
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score + bit
+    end
+    bit = bit * 2
+end
+
+-- 1: an integer function whose body only raises.
+local function rejected(value: integer): integer
+    error("rejected " .. tostring(value), 0)
+end
+
+local ok1, e1 = pcall(rejected, 3)
+check(not ok1 and e1 == "rejected 3")
+
+-- 2: one that ends in a function of its own that never returns.
+local function fail(message: string): never
+    error(message, 0)
+end
+
+local function refused(value: integer): integer
+    fail("refused " .. tostring(value))
+end
+
+local ok2, e2 = pcall(refused, 4)
+check(not ok2 and e2 == "refused 4")
+
+-- 3: one that returns on one path and raises at its end on the other.
+local function doubled(value: integer): integer
+    if value > 0 then
+        return value * 2
+    end
+    error("not positive", 0)
+end
+
+local ok3, e3 = pcall(doubled, -1)
+check(doubled(5) == 10 and not ok3 and e3 == "not positive")
+
+-- 4: a string function raising a table, called directly in a protected one.
+local function named(value: integer): string
+    error({code = value})
+end
+
+local ok4, e4 = pcall(function(): string
+    return named(9)
+end)
+check(not ok4 and (e4 as {code: integer}).code == 9)
+
+-- 5: a boolean closure.
+local raise = function(): boolean
+    error("closure", 0)
+end
+local ok5, e5 = pcall(raise)
+check(not ok5 and e5 == "closure")
+
+export const result = score

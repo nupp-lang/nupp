@@ -891,6 +891,8 @@ function tagged.forVersion(version: integer): any
         -- A block nothing reaches (after a loop body that always leaves) is
         -- dropped rather than verified.
         profile.dropUnreachable = true
+        -- Statements that end in a call that never returns end there.
+        profile.unreachableEnds = true
         -- `e as T` is a static cast: the value is the operand's.
         profile.cast = function(ctx: any, node: any, expected: string?): integer
             need(expected == nil or expected == "tagged", "cast requires tagged destination")
