@@ -189,6 +189,39 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
     local selectTail: {any} = {}
     local position, operation, segment, blockIndex = 0, 0, 0, 1
 
+    -- Records where machine instruction `at` came from.
+    local function placed(at: integer): nil
+        positions[at], instructions[at], segments[at], blocks[at] = position, operation, segment, blockIndex
+    end
+
+    -- A machine value no graph value names.
+    local function fresh(): integer
+        nextValue = nextValue + 1
+        return nextValue
+    end
+
+    -- The import `symbol` names, added with `signature` the first time.
+    local function imported(symbol: string, signature: ir.Signature): integer
+        local index: integer? = imports[symbol]
+        if index == nil then
+            f.signatures[#f.signatures + 1] = signature
+            index = #f.importNames + 1
+            f.importNames[index as integer], f.importSignatures[index as integer] = symbol, #f.signatures
+            imports[symbol] = index
+        end
+
+        return index as integer
+    end
+
+    -- `values`, then the machine values of graph operands args[2] onward.
+    local function operands(args: any, values: {integer}): {integer}
+        for at = 2, #args do
+            values[#values + 1] = (args[at] as integer) + 1
+        end
+
+        return values
+    end
+
     local function emit(
         op: string,
         destination: any,
@@ -207,8 +240,7 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
             and op ~= "jump"
             and op ~= "brif"
         then
-            nextValue = nextValue + 1
-            result = nextValue
+            result = fresh()
         end
         local immediate: int64 = text and literal.integer(text) or 0
         local aux = op == "return_call_indirect" and 1
@@ -230,7 +262,7 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
             immediate,
             aux
         )
-        positions[at], instructions[at], segments[at], blocks[at] = position, operation, segment, blockIndex
+        placed(at)
 
         return result
     end
@@ -349,32 +381,26 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                         )
                         kinds[at] = ir.kind(machineKind(kind))
                     end
-                    local imported: integer? = imports[symbol]
-                    if not imported then
-                        local sig = ir.Signature(
+                    local index = imported(
+                        symbol,
+                        ir.Signature(
                             params = kinds,
                             results = declaration.result == "nil" and {} or {ir.kind(machineKind(declaration.result))},
                             convention = ir.INTERNAL
                         )
-                        f.signatures[#f.signatures + 1] = sig
-                        imported = #f.importNames + 1
-                        f.importNames[imported], f.importSignatures[imported] = symbol, #f.signatures
-                        imports[symbol], callees[symbol] = imported, target
-                    end
-                    local values: {integer} = {}
-                    for at = 2, #args do
-                        values[#values + 1] = (args[at] as integer) + 1
-                    end
-                    local at = ir.instruction(
-                        f,
-                        ir.opcode("call"),
-                        result or 0,
-                        declaration.result == "nil" and 0 or ir.kind(machineKind(declaration.result)),
-                        values,
-                        0,
-                        assert(imported)
                     )
-                    positions[at], instructions[at], segments[at], blocks[at] = position, operation, segment, blockIndex
+                    callees[symbol] = target
+                    placed(
+                        ir.instruction(
+                            f,
+                            ir.opcode("call"),
+                            result or 0,
+                            declaration.result == "nil" and 0 or ir.kind(machineKind(declaration.result)),
+                            operands(args, {}),
+                            0,
+                            index
+                        )
+                    )
                     yield nil
                 end
                 case "NativeHelperCall" -> do
@@ -394,12 +420,11 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                         convention = ir.C,
                         fixed = binding and binding.fixed or nil
                     )
-                    local op: integer = ir.opcode("call")
-                    local aux: integer = 0
-                    local values: {integer} = {}
+                    -- An OS import is called through its slot; a foreign symbol
+                    -- is resolved once into the bridge's table (s0.select), then
+                    -- called through what it resolved to.
+                    local call = {op = ir.opcode("call"), aux = 0, values = {} as {integer}}
                     if binding then
-                        -- The symbol, resolved once into the bridge's table
-                        -- (s0.select), then called through.
                         local tableSlot, openSlot, symbolSlot = nativeos.foreignImports()
                         local symbol = table.concat(
                             {
@@ -412,59 +437,31 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                             },
                             "\0"
                         )
-                        local resolver = imports[symbol]
-                        if not resolver then
-                            f.signatures[
-                                #f.signatures + 1
-                            ] = ir.Signature(params = {}, results = {ir.I64}, convention = ir.C)
-                            resolver = #f.importNames + 1
-                            f.importNames[resolver], f.importSignatures[resolver] = symbol, #f.signatures
-                            imports[symbol] = resolver
-                        end
-                        nextValue = nextValue + 1
-                        values[1] = nextValue
-                        local at = ir.instruction(f, op, nextValue, ir.I64, {}, 0, resolver)
-                        positions[
-                            at
-                        ], instructions[at], segments[at], blocks[at] = position, operation, segment, blockIndex
+                        local resolver = imported(
+                            symbol,
+                            ir.Signature(params = {}, results = {ir.I64}, convention = ir.C)
+                        )
+                        local pointer = fresh()
+                        placed(ir.instruction(f, call.op, pointer, ir.I64, {}, 0, resolver))
                         f.signatures[#f.signatures + 1] = signature
-                        op, aux = ir.opcode("call_indirect"), #f.signatures
+                        call.op, call.aux, call.values = ir.opcode("call_indirect"), #f.signatures, {pointer}
                     else
                         local symbol = "core_os_" .. tostring(nativeos.slot(declaration, bound.body))
-                        local imported = imports[symbol]
-                        if not imported then
-                            f.signatures[#f.signatures + 1] = signature
-                            imported = #f.importNames + 1
-                            f.importNames[imported], f.importSignatures[imported] = symbol, #f.signatures
-                            imports[symbol], pageImports[symbol] = imported, declaration
-                        end
-                        aux = imported
-                    end
-                    for at = 2, #args do
-                        values[#values + 1] = (args[at] as integer) + 1
+                        call.aux = imported(symbol, signature)
+                        pageImports[symbol] = declaration
                     end
                     -- A 32-bit C result arrives with its upper bits unset
                     -- and is extended to the value the graph names.
                     local called: integer = result or 0
                     if narrow and result then
-                        nextValue = nextValue + 1
-                        called = nextValue
+                        called = fresh()
                     end
-                    local at = ir.instruction(f, op, called, returned, values, 0, aux)
-                    positions[at], instructions[at], segments[at], blocks[at] = position, operation, segment, blockIndex
+                    placed(ir.instruction(f, call.op, called, returned, operands(args, call.values), 0, call.aux))
                     if narrow and result then
-                        at = ir.instruction(
-                            f,
-                            ir.opcode(narrow == "int32" and "sextend" or "uextend"),
-                            result,
-                            ir.kind(machineKind(declaration.result)),
-                            {called},
-                            0,
-                            0
+                        local extend = ir.opcode(narrow == "int32" and "sextend" or "uextend")
+                        placed(
+                            ir.instruction(f, extend, result, ir.kind(machineKind(declaration.result)), {called}, 0, 0)
                         )
-                        positions[
-                            at
-                        ], instructions[at], segments[at], blocks[at] = position, operation, segment, blockIndex
                     end
                     yield nil
                 end

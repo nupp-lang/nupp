@@ -8,6 +8,17 @@ local link = {}
 -- Where an unsigned-offset load or store keeps its scaled offset.
 const SCALED_OFFSET: integer = 10
 
+-- The keys of `t`, in order.
+local function sortedKeys(t: {[string]: any}): {string}
+    local keys: {string} = {}
+    for key in pairs(t) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys)
+
+    return keys
+end
+
 -- Build-time local Nupp calls only. Typed callers and targets are checked by
 -- the graph sink before selection; this layer resolves code offsets and extent.
 local function assemble(
@@ -18,11 +29,7 @@ local function assemble(
     imports: any?,
     extentError: string?
 ): any
-    local names: {string} = {}
-    for name in pairs(functions) do
-        names[#names + 1] = name
-    end
-    table.sort(names)
+    local names = sortedKeys(functions)
     assert(#roots > 0 and #roots <= 256 and #names <= 4096, "core link function count")
     assert(available >= 0, "core link available extent")
     local spillError = extentError or "core link call-chain spill extent"
@@ -84,11 +91,7 @@ local function assemble(
     end
     -- Each foreign symbol and library the code resolves keeps one word of
     -- the bridge's table, numbered in name order.
-    local cellNames: {string} = {}
-    for name in pairs(cells) do
-        cellNames[#cellNames + 1] = name
-    end
-    table.sort(cellNames)
+    local cellNames = sortedKeys(cells)
     assert(#cellNames <= nativeos.foreignSlots(), "core link foreign symbol count")
     local cellSlots: {[string]: integer} = {}
     for index, name in ipairs(cellNames) do

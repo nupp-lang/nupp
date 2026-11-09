@@ -256,9 +256,9 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     local transportDestinations: {integer} = {}
     local transportKinds: {integer} = {}
     local abiRegisters: {integer} = {}
-    local abiOffsets: {integer} = {}
-    local abiSizes: {integer} = {}
-    local stagedRegisters: {integer} = {}
+    -- Where abi puts what the registers do not hold, and the registers a
+    -- staged call restores.
+    local abiOffsets: {integer}, abiSizes: {integer}, stagedRegisters: {integer} = {}, {}, {}
     local moveTarget = selector.target()
     local moveWorkspace = allocate.workspace()
 
@@ -510,6 +510,29 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         return bytes
     end
 
+    -- Gives back `bytes` of the C stack below sp.
+    local function popStack(bytes: integer): nil
+        if bytes > 0 then
+            emit(arm.add_imm(64, 31, 31, bytes, 0))
+        end
+    end
+
+    -- Calls the import at `slot` (a numeral) of x22's table.
+    local function callSlot(slot: string): nil
+        emit(arm.ldr(8, 16, 22, (tonumber(slot) as integer) * 8))
+        emit(arm.blr(16))
+    end
+
+    -- Calls the loader import at `slot`, gives back the `bytes` its name took
+    -- below sp, and keeps what it answered (x0) in the table word `key` names;
+    -- the table is import `tableAt`.
+    local function load(slot: string, bytes: integer, tableAt: integer, key: string): nil
+        callSlot(slot)
+        popStack(bytes)
+        emit(arm.ldr(8, 16, 22, tableAt))
+        cell(arm.str(8, 0, 16, 0), key)
+    end
+
     -- A foreign call's symbol in x0, as a C call answers it. The bridge's
     -- table (x22's import `table`) keeps each symbol and library once
     -- resolved; the first call loads the library with dlopen, the program
@@ -537,13 +560,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
             emit(arm.add_imm(64, 0, 31, 0, 0))
         end
         constant(1, LOAD_NOW, 64)
-        emit(arm.ldr(8, 16, 22, (tonumber(openSlot) as integer) * 8))
-        emit(arm.blr(16))
-        if bytes > 0 then
-            emit(arm.add_imm(64, 31, 31, bytes, 0))
-        end
-        emit(arm.ldr(8, 16, 22, tableAt))
-        cell(arm.str(8, 0, 16, 0), libraryKey)
+        load(openSlot, bytes, tableAt, libraryKey)
         emit(arm.mov_reg(64, 1, 0))
         code.words[opened] = arm.cbnz(64, 1, (#code.words + 1 - opened) * 4)
         -- A library that did not load leaves x0 zero.
@@ -552,11 +569,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         emit(arm.mov_reg(64, 0, 1))
         bytes = pushText(symbol)
         emit(arm.add_imm(64, 1, 31, 0, 0))
-        emit(arm.ldr(8, 16, 22, (tonumber(symbolSlot) as integer) * 8))
-        emit(arm.blr(16))
-        emit(arm.add_imm(64, 31, 31, bytes, 0))
-        emit(arm.ldr(8, 16, 22, tableAt))
-        cell(arm.str(8, 0, 16, 0), symbolKey)
+        load(symbolSlot, bytes, tableAt, symbolKey)
         local done = #code.words + 1
         code.words[cached] = arm.cbnz(64, 0, (done - cached) * 4)
         code.words[missing] = arm.cbz(64, 1, (done - missing) * 4)
@@ -572,8 +585,8 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     local function abi(kinds: {integer}, fixed: integer?): integer
         local ints: integer = 0
         local floats: integer = 0
-        local offset: integer = 0
         local registers = abiRegisters
+        local offset: integer = 0
         for p, kind in ipairs(kinds) do
             local named = fixed == nil or p <= fixed
             local floating = ir.isFloat(kind)
@@ -896,8 +909,8 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                                 local reg = source(value)
                                 save(ir.isFloat(colValueKinds[value]) and reg + 65 or reg + 1, stageBase + staged * 8)
                                 finish(0, 0)
+                                stagedRegisters[staged + 1] = physical
                                 staged = staged + 1
-                                stagedRegisters[staged] = physical
                             end
                         end
                         for p = 1, staged do
@@ -934,9 +947,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                         end
                         emit(tail and arm.br(16) or arm.blr(16))
                     end
-                    if stackBytes > 0 then
-                        emit(arm.add_imm(64, 31, 31, stackBytes, 0))
-                    end
+                    popStack(stackBytes)
                     if not tail and second ~= 0 then
                         assert(
                             result ~= 0 and not ir.isFloat(kind) and not ir.isFloat(colKind2[at]),

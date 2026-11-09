@@ -913,13 +913,12 @@ local function foreignCall(ctx: any, n: any, expected: string?, value: boolean):
     need(not value or declaration.result ~= "nil", "void foreign call is a statement")
     need(expected == nil or expected == declaration.result, "foreign result changes exact kind")
     local operands = ctx.operands(n.args.exprs or {}, declaration.params)
-    if not operands then
+    if operands == nil then
         return nil
     end
-    table.insert(operands, 1, declaration)
     local result = declaration.result ~= "nil" and declaration.result or nil
 
-    return ctx.emit(n, "NativeHelperCall", operands, result) as integer?
+    return ctx.emit(n, "NativeHelperCall", {declaration, table.unpack(operands)}, result) as integer?
 end
 
 function nativegraph.call(ctx: any, n: any, expected: string?): integer?

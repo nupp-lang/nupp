@@ -124,8 +124,8 @@ end
 -- The exact kind a foreign argument or result has: an integer literal or an
 -- `integer` is int64, as the core holds both.
 local function foreignKind(t: any): string
-    while t and (t.tag == "literal" or t.tag == "const") do
-        t = t.tag == "literal" and t.base or t.inner
+    if t and (t.tag == "literal" or t.tag == "const") then
+        return foreignKind(t.tag == "literal" and t.base or t.inner)
     end
     local tag = t and (t.tag == "integer" and "int64" or t.tag) or nil
 
@@ -299,9 +299,7 @@ function os.foreign(owner: any, call: any, expected: string?): any
     for index = fixed + 1, #exprs do
         params[index] = foreignKind(exprs[index].inferredType)
     end
-    for index, item in ipairs(params) do
-        snapshot[index] = item
-    end
+    table.move(params, 1, #params, 1, snapshot)
     local narrow = nil
     local machineResult = "nil"
     if signature.rets[1] then
