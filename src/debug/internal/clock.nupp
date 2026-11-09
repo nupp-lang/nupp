@@ -29,4 +29,5 @@ if hasffi then
     end
 end
 
+-- The module's value is the clock function itself, which callers call.
 export = clock

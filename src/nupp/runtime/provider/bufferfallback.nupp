@@ -3,4 +3,5 @@ module nupp.runtime.provider.bufferfallback
 
 -- Missing private fast-path hooks select bytes.Buffer's checked storage path.
 local fallback: any = {}
+-- Its value is an empty table: every hook a caller reads from it is nil.
 export = fallback

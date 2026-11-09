@@ -9,4 +9,6 @@ answers that no engine is available; this one replaces it on the VM.
 
 const host = require("nupp.vm.regex")
 
+-- The module's value is the VM's engine table itself, which stands in for
+-- the checkout's copy of this module.
 export = host
