@@ -2423,8 +2423,8 @@ export function select(p: any, moduleName: string, name: string): any
 end
 
 -- One owner's graph from a verified catalog whose external references and
--- intrinsics the caller has established for this owner.
-local function ownerGraph(p: any, owner: any, profile: any): any
+-- intrinsics the caller has established for this owner (`admit`).
+export function ownerGraph(p: any, owner: any, profile: any): any
     need(p.owners[owner.id + 1] == owner, "foreign function owner")
     graph.checking(owner.scope and owner.scope.path)
     -- A profile may give a function that acquires cleanups its own variant.
@@ -2464,6 +2464,76 @@ local function explicitOperands(op: string): nil
     end
 end
 
+-- Checked `owner`'s graph `g` names only what the catalog holds: its own
+-- identity and source, closures of its own children, its captures, and the
+-- checked callsites and callees of its calls.
+export function verifyOwner(p: any, owner: any, g: any): nil
+    need(g.native == nil, "core guest program cannot admit a native graph")
+    local nparams = owner.kind == "module" and 0 or #graph.parameters(owner.body)
+    need(g.nparams == nparams, "graph parameter count differs from checked owner")
+    need(g.programOwner == owner.id, "graph owner identity mismatch")
+    need(
+        g.name == owner.name and g.module == owner.scope.name and g.path == owner.scope.path,
+        "graph owner source mismatch"
+    )
+    graph.verify(g)
+    for _, block in ipairs(g.blocks) do
+        for at, op in ipairs(block.op) do
+            local args = block.args[at]
+            need(op ~= "NewClosure", "core program requires explicit closure capture SSA operands")
+            explicitOperands(op)
+            local targetId, captureCount = graph.closureTarget(op, args)
+            if targetId ~= nil then
+                local target = need(p.owners[targetId + 1], "invalid closure function reference")
+                need(target.kind == "function", "closure target is not a function")
+                need(target.parent == g.programOwner, "closure crosses lexical parent")
+                need(captureCount == #target.captures, "closure capture count mismatch")
+            elseif op == "GetUpval" then
+                local captureId = args[1]
+                need(
+                    type(captureId) == "number"
+                    and captureId >= 0
+                    and captureId < #owner.captures
+                    and captureId % 1 == 0,
+                    "invalid graph capture reference"
+                )
+            end
+        end
+        if block.term.kind == "invoke" then
+            local contract = block.term.contract
+            local site = need(p.callByNode[contract.call], "invoke lacks checked callsite")
+            need(site.owner == owner.id, "invoke callsite belongs to another owner")
+            if contract.dynamic then
+                need(p.functionsByDefinition[site.definition] == nil, "dynamic invoke names a declaration")
+            else
+                local target = contract.owner
+                need(
+                    p.owners[target.id + 1] == target
+                    and p.functionsByDefinition[site.definition] == target
+                    and target.definition == contract.definition,
+                    "invoke callee belongs to another catalog"
+                )
+            end
+        end
+        if block.term.kind == "returns" then
+            explicitOperands("RetN")
+        end
+    end
+    for _, constant in ipairs(g.constants) do
+        if constant.kind == "func" then
+            local functionId = constant.value
+            need(
+                type(functionId) == "number"
+                and functionId >= 0
+                and functionId < #p.owners
+                and functionId % 1 == 0
+                and p.owners[functionId + 1].kind == "function",
+                "invalid graph function reference"
+            )
+        end
+    end
+end
+
 -- Every checked owner has exactly one graph. This verifies program references;
 -- capture storage modes, runtime roots and execution admission remain separate.
 export function verifyGraphs(p: any, graphs: {any}): nil
@@ -2478,71 +2548,7 @@ export function verifyGraphs(p: any, graphs: {any}): nil
     for index = 1, #p.owners do
         local g = graphs[index]
         need(type(g) == "table", "incomplete graph table")
-        local owner = p.owners[index]
-        need(g.native == nil, "core guest program cannot admit a native graph")
-        local nparams = owner.kind == "module" and 0 or #graph.parameters(owner.body)
-        need(g.nparams == nparams, "graph parameter count differs from checked owner")
-        need(g.programOwner == owner.id, "graph owner identity mismatch")
-        need(
-            g.name == owner.name and g.module == owner.scope.name and g.path == owner.scope.path,
-            "graph owner source mismatch"
-        )
-        graph.verify(g)
-        for _, block in ipairs(g.blocks) do
-            for at, op in ipairs(block.op) do
-                local args = block.args[at]
-                need(op ~= "NewClosure", "core program requires explicit closure capture SSA operands")
-                explicitOperands(op)
-                local targetId, captureCount = graph.closureTarget(op, args)
-                if targetId ~= nil then
-                    local target = need(p.owners[targetId + 1], "invalid closure function reference")
-                    need(target.kind == "function", "closure target is not a function")
-                    need(target.parent == g.programOwner, "closure crosses lexical parent")
-                    need(captureCount == #target.captures, "closure capture count mismatch")
-                elseif op == "GetUpval" then
-                    local captureId = args[1]
-                    need(
-                        type(captureId) == "number"
-                        and captureId >= 0
-                        and captureId < #owner.captures
-                        and captureId % 1 == 0,
-                        "invalid graph capture reference"
-                    )
-                end
-            end
-            if block.term.kind == "invoke" then
-                local contract = block.term.contract
-                local site = need(p.callByNode[contract.call], "invoke lacks checked callsite")
-                need(site.owner == owner.id, "invoke callsite belongs to another owner")
-                if contract.dynamic then
-                    need(p.functionsByDefinition[site.definition] == nil, "dynamic invoke names a declaration")
-                else
-                    local target = contract.owner
-                    need(
-                        p.owners[target.id + 1] == target
-                        and p.functionsByDefinition[site.definition] == target
-                        and target.definition == contract.definition,
-                        "invoke callee belongs to another catalog"
-                    )
-                end
-            end
-            if block.term.kind == "returns" then
-                explicitOperands("RetN")
-            end
-        end
-        for _, constant in ipairs(g.constants) do
-            if constant.kind == "func" then
-                local functionId = constant.value
-                need(
-                    type(functionId) == "number"
-                    and functionId >= 0
-                    and functionId < #p.owners
-                    and functionId % 1 == 0
-                    and p.owners[functionId + 1].kind == "function",
-                    "invalid graph function reference"
-                )
-            end
-        end
+        verifyOwner(p, p.owners[index], g)
     end
 end
 
@@ -2577,9 +2583,9 @@ local function unexecutableIntrinsics(p: any): {string}
     return names
 end
 
--- No graph is omitted, and no image is returned after a partial lowering.
--- Profiles must explicitly support real module initializer owners.
-export function compile(p: any, profile: any): any
+-- What a catalog must establish before any of its owners lowers: no
+-- unresolved reference, no unbound external and only executable intrinsics.
+export function admit(p: any): nil
     verify(p)
     if #p.unresolved > 0 then
         local first = p.unresolved[1]
@@ -2597,6 +2603,12 @@ export function compile(p: any, profile: any): any
     -- owner lowers without verifying the catalog again, which made compiling
     -- quadratic in the program's owners.
     need(#p.externalReferences == 0, "external execution bindings are not established")
+end
+
+-- No graph is omitted, and no image is returned after a partial lowering.
+-- Profiles must explicitly support real module initializer owners.
+export function compile(p: any, profile: any): any
+    admit(p)
     local graphs, modules = {}, {}
     for index, owner in ipairs(p.owners) do
         graphs[index] = ownerGraph(p, owner, profile)
