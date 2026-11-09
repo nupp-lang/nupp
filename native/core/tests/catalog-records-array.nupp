@@ -1,0 +1,38 @@
+module nupp.core.catalogrecordsarray
+
+-- A record with an array part, as the parser's tree nodes are: its fields
+-- and its integer-keyed elements live side by side, and neither overwrites
+-- the other.
+local record Node
+    {string}
+
+    kind: string
+    count: integer = 0
+    label: string?
+end
+
+local score: integer = 0
+local node = Node(kind = "args")
+node[1] = "first"
+node[#node + 1] = "second"
+node.count = #node
+if node.kind == "args" and node[1] == "first" and node[2] == "second" then
+    score = score + 1
+end
+if node.count == 2 and node.label == nil then
+    score = score + 2
+end
+local seen: {string} = {}
+for _, child in ipairs(node) do
+    seen[#seen + 1] = child
+end
+if table.concat(seen, ",") == "first,second" then
+    score = score + 4
+end
+node.label = "named"
+node[3] = "third"
+if node.label == "named" and #node == 3 and node.kind == "args" then
+    score = score + 8
+end
+
+export const result = score

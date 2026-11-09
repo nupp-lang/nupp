@@ -282,6 +282,8 @@ local CASES: {[string]: {
     osremove = {fixture = "catalog-os-remove", version = 8},
     -- Lua's loaders over a binary chunk installed into the running program.
     loadbinary = {fixture = "catalog-load-binary", version = 8, chunks = {"catalog-load-chunk"}},
+    -- A record with an array part: fields and elements apart.
+    recordsarray = {fixture = "catalog-records-array", version = 8},
     -- The packaged test runner (nupp.lua build.targets.testRunner): the
     -- delivery path runs it on the core.
     testrunner = {fixture = "tests/tools/test/runner/main", version = 8, follow = true, rooted = true, module = "main"},

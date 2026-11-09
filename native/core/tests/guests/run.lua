@@ -268,6 +268,8 @@ local CASES = {
     {"filesystem", 0x7FFF000000000001},
     {"osremove", 0x7FFF000000001FFF},
     {"loadbinary", 0x7FFF000000001FFF},
+    -- A record with an array part: fields and elements apart.
+    {"recordsarray", 0x7FFF00000000000F},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
