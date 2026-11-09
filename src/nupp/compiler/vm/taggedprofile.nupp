@@ -43,7 +43,6 @@ local packedkind = taggedvalues.packedkind
 local pool = taggedvalues.pool
 local printValues = taggedcalls.printValues
 local recordOrigin = taggedvalues.recordOrigin
-local recordSlot = taggedvalues.recordSlot
 local requireSite = taggedcalls.requireSite
 local sortWith = taggedcalls.sortWith
 local stringSpec = taggedcalls.stringSpec
@@ -655,7 +654,7 @@ function tagged.forVersion(version: integer): any
             for _, binding in ipairs(call.recordFields) do
                 if binding.node then
                     nodes[#nodes + 1], kinds[#kinds + 1] = binding.node, "tagged"
-                    slots[#slots + 1] = need(recordSlot(origin, binding.name), "record field is not declared")
+                    slots[#slots + 1] = binding.name
                 else
                     need(binding.isDefault, "record initializer is missing")
                     defaults[#defaults + 1] = binding
@@ -667,12 +666,11 @@ function tagged.forVersion(version: integer): any
             end
             for _, binding in ipairs(defaults) do
                 values[#values + 1] = defaultConstant(ctx, node, binding.defaultValue)
-                slots[#slots + 1] = need(recordSlot(origin, binding.name), "record field is not declared")
+                slots[#slots + 1] = binding.name
             end
             local record = ctx.emit(node, "NewTable", {}, "tagged")
             for index, value in ipairs(values) do
-                local key = ctx.emit(node, "K", {pool(ctx, "int64", tostring(slots[index]))}, "tagged")
-                ctx.emit(node, "SetIdx", {record, key, value}, nil)
+                ctx.emit(node, "SetIdx", {record, taggedvalues.slotKey(ctx, node, origin, slots[index]), value}, nil)
             end
             -- The record's table is the instance's metatable.
             local held = ctx.hold(record)
@@ -1050,7 +1048,13 @@ function tagged.forVersion(version: integer): any
             -- can be: a read or write of an instance by name, where no type
             -- gave the slot, finds the field there.
             -- An interface's instances are its implementers': no slots.
-            local order = stat.declKind ~= "interface" and stat.resolvedType and stat.resolvedType.fieldOrder or {}
+            -- A record with an array part keeps its fields by name: its
+            -- integer keys are its elements.
+            local order = stat.declKind ~= "interface"
+                and stat.resolvedType
+                and stat.resolvedType.arrayOf == nil
+                and stat.resolvedType.fieldOrder
+                or {}
             if #order > 0 then
                 local fields = ctx.hold(ctx.emit(stat, "NewTable", {}, "tagged"))
                 for slot, field in ipairs(order) do
@@ -1841,7 +1845,8 @@ function tagged.forVersion(version: integer): any
                         slot ~= nil or keyedByName((view as indexedviews.Descriptor).nominal),
                         "indexed length count layout is unavailable"
                     )
-                    local key = slot ~= nil and ctx.emit(node, "K", {pool(ctx, "int64", tostring(slot))}, "tagged")
+                    local origin = recordOrigin(node.operand.inferredType)
+                    local key = slot ~= nil and origin ~= nil and taggedvalues.slotKey(ctx, node, origin, "count")
                         or ctx.emit(node, "K", {pool(ctx, "str", "count")}, "tagged")
                     return ctx.emit(node, "GetIdx", {operand, key}, "tagged") as integer
                 end
