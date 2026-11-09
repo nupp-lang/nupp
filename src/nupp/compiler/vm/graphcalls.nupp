@@ -1100,8 +1100,9 @@ export function hoistedFunctionName(stat: any): any
 end
 
 -- The image module the core answers a host module's `require` with: the
--- portable BitOp library for `bit`, storage on the guest heap, and the
--- checked buffer fallback instead of LuaJIT's pointer fast path.
+-- portable BitOp library for `bit`, storage on the guest heap, the checked
+-- buffer fallback instead of LuaJIT's pointer fast path, and UUIDs from the
+-- core's entropy and clock rather than the native loader's.
 local coremodules: {
     [string]: string
 } = {
@@ -1109,6 +1110,7 @@ local coremodules: {
     ["io.internal.argumenterror"] = "nupp.runtime.provider.coreargumenterror",
     ["nupp.vm.storagebinding"] = "nupp.runtime.provider.heapstorage",
     ["nupp.vm.cryptobinding"] = "nupp.runtime.provider.coreentropy",
+    ["nupp.runtime.uuidprovider"] = "nupp.runtime.provider.coreuuid",
     ["nupp.vm.systembinding"] = "nupp.runtime.provider.coresystem",
     ["nupp.vm.clock"] = "nupp.runtime.provider.coreclock",
     ["nupp.runtime.bindings.clock"] = "nupp.runtime.provider.coretime",
