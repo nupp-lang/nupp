@@ -508,6 +508,9 @@ local SETUP = {
     -- The runner reads tests/run.lua and the suites from the checkout.
     testrunner = "cd " .. ROOT .. " && export NUPP_CORE_CHUNKS=" .. ROOT .. "/build/core-guests/chunks; "
 }
+-- The trees of the cases whose programs are checkout sources
+-- (guestbuild's `rooted`), which no selection's key covers otherwise.
+local ROOTED = {testrunner = "tests/tools/test/runner", benchworkloads = "bench/vm"}
 -- Lua sources a case loads, compiled here to chunks it finds where
 -- NUPP_CORE_CHUNKS names (nupp.runtime.chunkfiles), as the core cannot
 -- compile text itself yet.
@@ -1349,6 +1352,11 @@ local function main()
         local began = os.time()
         timing.phase, timing.case = "select", name
         local parts = {name, mode, tostring(UNITS and SCRATCH or 131072), UNITS and "units" or "frozen"}
+        -- A case whose program is a checkout source outside the trees the
+        -- store keys every selection by keys it by its own tree too.
+        if ROOTED[name] then
+            parts[#parts + 1] = assert(sharedcache.treeDigest(ROOT, {ROOTED[name]}))
+        end
         local held, extra = selectioncache.lookup(ROOT, parts)
         if held and type(extra) == "table" and math.type(extra.version) == "integer" then
             selections[name .. "-" .. mode], versions[name] = held, extra.version
