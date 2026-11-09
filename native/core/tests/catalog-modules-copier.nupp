@@ -1,0 +1,20 @@
+module nupp.core.catalogmodulescopier
+
+-- Copies `twice` out of a partner that is still loading. Main's partner has
+-- published a forwarder for it: a function, whose call raises until the
+-- partner's statement has run and calls the function from then on.
+const early = require("nupp.core.catalogmodulesearly")
+
+export const copy = early.twice
+export const test = early.positive
+local ok, problem = pcall(copy, 1)
+
+-- What this module saw while its partner was loading.
+export const loading = (
+    type(copy) == "function" and 1 or 0
+) + (not ok and 2 or 0) + (string.find(tostring(problem), "attempt to call a nil value", 1, true) ~= nil and 4 or 0)
+
+-- A closure over the copy calls whatever the partner bound later.
+export function later(n: integer): integer
+    return copy(n)
+end

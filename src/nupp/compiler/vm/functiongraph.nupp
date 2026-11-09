@@ -2120,6 +2120,14 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 end
             end
         end
+        -- A module a require cycle can re-enter publishes forwarders for the
+        -- functions it exports before its body runs.
+        if ctx.exports and profile.exportForwarders then
+            local forwards = invoke("exportForwarders", fn.node, nil)
+            if forwards ~= nil then
+                ctx.forwards = ctx.hold(forwards)
+            end
+        end
         for _, sourceBlock in ipairs(body.blocks) do
             need(sourceBlock.kind == "block" and sourceBlock.stats, "unsupported module initializer block")
             statements(sourceBlock.stats)
@@ -2149,6 +2157,16 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             end
         end
         ctx.exports = nil
+    end
+    if ctx.forwards then
+        handles[ctx.forwards], bindings[ctx.forwards] = false, nil
+        for index, key in ipairs(bindingOrder) do
+            if key == ctx.forwards then
+                table.remove(bindingOrder, index)
+                break
+            end
+        end
+        ctx.forwards = nil
     end
     if cleanupEnabled then
         forgetCleanups(0)

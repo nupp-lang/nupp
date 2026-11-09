@@ -1,0 +1,225 @@
+--[[
+Forwarders for the functions a module in a require cycle exports.
+
+Main publishes each function a declared module exports as a forwarder when
+the module starts, and the function itself once its statement has run. Only a
+partner in a require cycle can read the export table in between, so only a
+module some module it loads loads back (itself included) publishes them. Each
+is made by one checked call of the core's factory, issued here against the
+factory's declaration and never written into the checked tree.
+]]
+module nupp.compiler.vm.forwardedexports
+
+local cst = require("nupp.compiler.syntax.cst")
+local graph = require("nupp.compiler.vm.graph")
+local ownedcallables = require("nupp.compiler.vm.ownedcallables")
+
+export const MODULE = "nupp.runtime.provider.coreforward"
+
+-- The factory for each result kind the core checks a call by: a forwarder
+-- answers the kind of its function, as the call that reaches it expects.
+const MEMBERS: {
+    [string]: string
+} = {value = "create", boolean = "createboolean", number = "createnumber", ["nil"] = "createnil"}
+
+local function need(value: any, message: string): any
+    assert(value, "forwarded export: " .. message)
+    return value
+end
+
+--- The exported functions of a checked module root that the checker hoists,
+--- in statement order: each one's statement and declared name.
+export function functions(root: any): {any}
+    local found: {any} = {}
+    for _, block in ipairs(root.blocks or {}) do
+        for _, stat in ipairs(block.stats or {}) do
+            local name = graph.hoistedFunctionName(stat)
+            local declared = stat.stat
+            if name and not declared.comptimeFunction and not declared.comptimeTok then
+                found[#found + 1] = {stat = stat, name = name, text = name.text}
+            end
+        end
+    end
+
+    return found
+end
+
+-- The modules a checked tree loads as it runs: its requires and the modules
+-- its qualified paths name. A require of types alone loads nothing.
+local function loads(root: any): {string}
+    local found: {string} = {}
+    local walk: function(any): nil
+    walk = function(node: any): nil
+        if type(node) ~= "table" then
+            return
+        end
+        if node.kind == "call"
+            and node.runtimeLoader == "require"
+            and type(node.requiredModule) == "string"
+            and not node.typeOnlyRequire
+        then
+            found[#found + 1] = node.requiredModule
+        elseif node.kind == "dotIndex" and type(node.qualifiedModule) == "string" then
+            found[#found + 1] = node.qualifiedModule
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+    walk(root)
+
+    return found
+end
+
+--- The names of the checked modules (each `{name, parsed}`) that export a
+--- function and load, through what they load, a module that loads them back.
+export function cyclic(modules: {any}): {[string]: boolean}
+    local canonical: {[string]: string} = {}
+    for _, input in ipairs(modules) do
+        canonical[input.name] = input.name
+        for _, alias in ipairs(graph.coremodulenames(input.name)) do
+            canonical[alias] = canonical[alias] or input.name
+        end
+    end
+    local edges: {[string]: {string}} = {}
+    for _, input in ipairs(modules) do
+        local targets: {string} = {}
+        for _, name in ipairs(loads(input.parsed.root)) do
+            local target = canonical[name]
+            if target then
+                targets[#targets + 1] = target
+            end
+        end
+        edges[input.name] = targets
+    end
+    local found: {[string]: boolean} = {}
+    for _, input in ipairs(modules) do
+        if #functions(input.parsed.root) > 0 then
+            local seen: {[string]: boolean} = {}
+            local pending: {string} = {}
+            for _, target in ipairs(edges[input.name] or {}) do
+                pending[#pending + 1] = target
+            end
+            while #pending > 0 and not found[input.name] do
+                local current = table.remove(pending) as string
+                if current == input.name then
+                    found[input.name] = true
+                elseif not seen[current] then
+                    seen[current] = true
+                    for _, target in ipairs(edges[current] or {}) do
+                        pending[#pending + 1] = target
+                    end
+                end
+            end
+        end
+    end
+
+    return found
+end
+
+-- The result kind the core gives a checked function: a single boolean, nil or
+-- number, or any values for everything else.
+local function resultKind(signature: any): string
+    local pack = signature.retPack
+    if not pack or pack.tail ~= nil or pack.alternatives ~= nil or #(signature.rets or {}) ~= 1 then
+        return "value"
+    end
+    local tag = signature.rets[1].tag
+    if tag == "boolean" or tag == "nil" then
+        return tag
+    elseif tag == "number" or tag == "integer" or tag == "int64" or tag == "float64" then
+        return "number"
+    end
+
+    return "value"
+end
+
+-- The factory for result kind `kind`.
+local function factory(p: any, kind: string): any
+    return ownedcallables.checkedFactory(p, MODULE, need(MEMBERS[kind], "unknown forwarder result kind " .. kind))
+end
+
+-- The kind of the exported function an item names, from its checked owner.
+local function itemKind(p: any, item: any): string
+    local owner = need(p.functionsByDefinition[item.name.definition], "forwarded function has no checked owner")
+    return resultKind(owner.signature)
+end
+
+--- The forwarders module chunk `chunk` publishes: the factory, and for each
+--- function it exports the call that makes its forwarder, positioned at the
+--- function's statement. The caller issues the calls and the loader.
+export function prepare(p: any, chunk: any): any
+    need(p.owners[chunk.id + 1] == chunk and chunk.kind == "module", "foreign module chunk")
+    local root = chunk.node
+    local items: {any} = {}
+    for _, item in ipairs(functions(root)) do
+        local target = factory(p, itemKind(p, item))
+        item.target = target
+        item.call = ownedcallables.factoryCall(target, cst.firstToken(item.stat))
+        items[#items + 1] = item
+    end
+    need(#items > 0, "a forwarding module exports no function")
+
+    return {owner = chunk.id, chunk = chunk, functions = items}
+end
+
+--- Whether a plan still answers its checked module: the same functions, each
+--- call issued against the factory, and the factory's module loaded once.
+export function verify(p: any, plan: any): nil
+    local chunk = plan.chunk
+    need(
+        p.owners[plan.owner + 1] == chunk and chunk.kind == "module" and p.forwards[plan.owner] == plan,
+        "forwarders belong to another module"
+    )
+    local current = functions(chunk.node)
+    need(#current == #plan.functions, "forwarded functions changed")
+    for index, item in ipairs(plan.functions) do
+        local now = current[index]
+        need(now.stat == item.stat and now.name == item.name and now.text == item.text, "forwarded function changed")
+        need(item.target == factory(p, itemKind(p, item)), "forwarder factory changed")
+        local call = item.call
+        need(
+            call.kind == "call"
+            and call.calleeType == item.target.signature
+            and call.obj.kind == "name"
+            and call.obj.token.definition == item.target.definition
+            and call.obj.token.text == item.target.name
+            and call.token == cst.firstToken(item.stat)
+            and call.args.kind == "args"
+            and #call.args.exprs == 2,
+            "forwarder call differs from its checked function"
+        )
+        for position, t in ipairs(item.target.signature.params) do
+            local argument = call.args.exprs[position]
+            need(argument.kind == "nil" and argument.inferredType == t, "forwarder operand contract changed")
+        end
+        local site = p.callByNode[call]
+        need(
+            site
+            and p.calls[site.id + 1] == site
+            and site.forward == plan
+            and site.node == call
+            and site.owner == plan.owner
+            and site.definition == item.target.definition,
+            "forwarder lacks its issued callsite"
+        )
+    end
+    local loader = plan.loader
+    local anchor = plan.functions[1].stat
+    need(
+        loader
+        and p.requires[loader.id + 1] == loader
+        and p.requireByNode[loader.node] == loader
+        and loader.forward == plan
+        and loader.owner == plan.owner
+        and loader.module == MODULE
+        and loader.target == plan.functions[1].target.parent
+        and loader.qualified == true
+        and not loader.eager
+        and not loader.typeOnly
+        and loader.node.kind == "qualifiedLoad"
+        and loader.node.qualifiedModule == MODULE
+        and loader.node[1] == cst.firstToken(anchor),
+        "forwarder loader differs from its checked function"
+    )
+end
