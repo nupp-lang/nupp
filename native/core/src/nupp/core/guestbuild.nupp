@@ -17,6 +17,7 @@ local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local ownedcallables = require("nupp.compiler.vm.ownedcallables")
 local forwardedexports = require("nupp.compiler.vm.forwardedexports")
 local derivedrecipes = require("nupp.compiler.vm.derivedrecipes")
+local managedcalls = require("nupp.compiler.vm.managedcalls")
 local tagged = require("nupp.compiler.vm.taggedprofile")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
@@ -271,6 +272,8 @@ local CASES: {[string]: {
     },
     namedarguments = {fixture = "catalog-named-arguments", version = 8},
     loopparameteralias = {fixture = "catalog-loop-parameter-alias", version = 8},
+    ownmanage = {fixture = "catalog-own-manage", version = 8},
+    pluckedarguments = {fixture = "catalog-plucked-arguments", version = 8},
     modulescycle = {
         fixture = "catalog-modules-cycle",
         version = 8,
@@ -357,17 +360,18 @@ local CASES: {[string]: {
     clihosts = {fixture = "catalog-cli-hosts", version = 8},
     -- Lua's loaders over a binary chunk installed into the running program.
     loadbinary = {fixture = "catalog-load-binary", version = 8, chunks = {"catalog-load-chunk"}},
-    -- Lua's loaders over source text, compiled on the core by the compiler
-    -- the program carries (`follow` reaches it).
     recordsarray = {fixture = "catalog-records-array", version = 8},
     forwardfunctions = {fixture = "catalog-forward-functions", version = 8},
-    compilerfront = {fixture = "catalog-compiler-front", version = 8, follow = true},
-    compilerlexer = {fixture = "catalog-compiler-lexer", version = 8, follow = true},
     closurecaptures = {fixture = "catalog-closure-captures", version = 8},
     standardosfirst = {fixture = "catalog-standard-os-first", version = 8, follow = true},
+    osfilesystem = {fixture = "catalog-os-filesystem", version = 8},
+    -- The compiler's lexer and parser on the core.
+    compilerfront = {fixture = "catalog-compiler-front", version = 8, follow = true},
+    -- Lua's loaders over source text, compiled on the core by the compiler
+    -- the program carries (`follow` reaches it).
+    compilerlexer = {fixture = "catalog-compiler-lexer", version = 8, follow = true},
     callsspreadshort = {fixture = "catalog-calls-spread-short", version = 8},
     loadsource = {fixture = "catalog-load-source", version = 8, modules = {"catalog-load-helper"}, follow = true},
-    osfilesystem = {fixture = "catalog-os-filesystem", version = 8},
     -- The packaged test runner (nupp.lua build.targets.testRunner): the
     -- delivery path runs it on the core.
     testrunner = {fixture = "tests/tools/test/runner/main", version = 8, follow = true, rooted = true, module = "main"},
@@ -751,6 +755,9 @@ local function requiredmodules(root: any, source: string, follow: boolean): ({st
         end
         -- A record a derive recipe gives members loads the factory, and
         -- each helper its members call.
+        if managedcalls.managing(node) then
+            add(managedcalls.MODULE, false)
+        end
         if derivedrecipes.derived(node) then
             add(derivedrecipes.MODULE, false)
             for _, helper in ipairs(derivedrecipes.helperModules(node)) do

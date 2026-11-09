@@ -871,6 +871,14 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         bindings[entry.live] = flag(node, true)
     end
 
+    -- An intrinsic that takes its argument (`own.manage(v)`): v's obligation,
+    -- a fresh result's or a moved owner's, passes to what the intrinsic makes.
+    ctx.takeArgument = function(argument: any): nil
+        if cleanupEnabled and block then
+            transferExpression(argument)
+        end
+    end
+
     -- A profile calls this only after resolving the checked callee and
     -- evaluating every argument, immediately before the actual call. Nested
     -- calls have already updated their own independent live flags.

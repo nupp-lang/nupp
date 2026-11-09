@@ -15,6 +15,7 @@ local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local ownedcallables = require("nupp.compiler.vm.ownedcallables")
 local forwardedexports = require("nupp.compiler.vm.forwardedexports")
 local derivedrecipes = require("nupp.compiler.vm.derivedrecipes")
+local managedcalls = require("nupp.compiler.vm.managedcalls")
 local indexedaccess = require("nupp.compiler.vm.indexedaccess")
 local namedarguments = require("nupp.compiler.vm.namedarguments")
 
@@ -63,23 +64,23 @@ end
 -- The ownership intrinsics the core runs: transfers, which answer the value
 -- they move, and `partition`, which answers its two parts. Their ownership
 -- is the checker's; at run time each is its value.
-local executableintrinsics: {
-    [string]: boolean
-} = {adopt = true, release = true, borrow = true, borrowFrom = true, region = true, partition = true}
-
--- Ownership intrinsics the core lowers to a refusal where they run, by what it
--- says: a program reaching one only on paths it does not take still runs.
--- An inventory names each (`deferred`).
-export const DEFERRED_INTRINSICS: {[string]: string} = {manage = "own.manage: managed cells are not on the native core"}
+local executableintrinsics: {[string]: boolean} = {
+    adopt = true,
+    release = true,
+    borrow = true,
+    borrowFrom = true,
+    region = true,
+    partition = true,
+    -- A managed cell is made by coremanaged's factory (managedcalls).
+    manage = true
+}
 
 -- Whether the core runs ownership intrinsic call `node`: an executable one,
--- a deferred one, or a `drop`, which runs its owner's cleanups then.
+-- or a `drop`, which runs its owner's cleanups then.
 local function executable(node: any): boolean
     local operation = node.ownershipIntrinsic
 
-    return executableintrinsics[operation] == true
-        or DEFERRED_INTRINSICS[operation] ~= nil
-        or operation == "drop" and not node.cleanupRegistrations
+    return executableintrinsics[operation] == true or operation == "drop" and not node.cleanupRegistrations
 end
 
 local function need(ok: any, message: string): any
@@ -447,8 +448,11 @@ end
 export function describe(modules: {any}, entryModule: string, options: any?): any
     local p: any = {
         chunk = options ~= nil and options.chunk == true,
-        -- In a chunk, the name tokens that read or write a global.
+        -- In a chunk, the name tokens that read or write a global, each to
+        -- the read of the chunk's environment it is a field of.
         globals = {},
+        -- In a chunk, the name of the local its environment is in.
+        environment = options ~= nil and options.environment or nil,
         modules = {},
         owners = {},
         bindings = {},
@@ -470,6 +474,8 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         forwards = {},
         -- By record declaration, the derived members it makes.
         derives = {},
+        -- By `own.manage` call, the factory call that makes its cell.
+        manages = {},
         qualifiedLoads = {},
         calls = {},
         callByNode = {},
@@ -762,6 +768,15 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             )
         end
     end
+    -- A chunk's environment: the declaration of the local its opening makes.
+    if p.chunk then
+        for _, b in ipairs(p.bindings) do
+            if b.definition.name == p.environment and p.owners[b.owner + 1].kind == "module" then
+                p.chunkEnvironment = b.definition
+            end
+        end
+        need(p.chunkEnvironment ~= nil, "chunk environment declaration is missing")
+    end
     -- The checker names an exported function a call reaches before its
     -- statement by the definition it hoisted, which the statement then
     -- replaces. Such a call names the function the statement declares.
@@ -899,7 +914,26 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         p.requires[#p.requires + 1], p.requireByNode[node] = item, item
     end
 
-    local function reference(token: any, owner: any): nil
+    local reference: function(any, any): nil
+
+    -- A read of the chunk's environment where global `token` is, in `owner`:
+    -- a reference of its own, which capture analysis carries into closures.
+    local function environmentRead(token: any, owner: any): any
+        local read: any = {
+            kind = "name",
+            text = p.environment,
+            line = token.line,
+            col = token.col,
+            offset = token.offset,
+            trivia = {},
+            definition = p.chunkEnvironment
+        }
+        reference(read, owner)
+
+        return read
+    end
+
+    reference = function(token: any, owner: any): nil
         local definition = token and token.definition
         local location = tostring(
             token and token.text
@@ -907,7 +941,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         -- A chunk reads a name nothing declares, or what the prelude declares
         -- (`io`, `require`), as the running program's global of that name.
         if p.chunk and (definition == nil or definition.token ~= token and p.byDefinition[definition] == nil) then
-            p.globals[token] = true
+            p.globals[token] = environmentRead(token, owner)
             return
         end
         -- Recorded rather than raised, so an inventory names every one;
@@ -1335,6 +1369,22 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             for _, captured in ipairs(plan.captures) do
                 cleanupToken(node, captured.type, captured.token)
             end
+        end
+        if managedcalls.managing(node) then
+            local plan = managedcalls.prepare(p, node, owner)
+            p.manages[node] = plan
+            local site = {
+                id = #p.calls,
+                owner = owner.id,
+                node = plan.call,
+                definition = plan.target.definition,
+                managed = plan
+            }
+            p.calls[#p.calls + 1], p.callByNode[plan.call] = site, site
+            local load = {kind = "qualifiedLoad", qualifiedModule = managedcalls.MODULE, cst.firstToken(node)}
+            local module = need(moduleNames[managedcalls.MODULE], "managed cell module is missing")
+            plan.loader = qualifiedload(owner, module, load)
+            plan.loader.managed = plan
         end
         if derivedrecipes.derived(node) then
             local plan = derivedrecipes.prepare(p, node, owner)
@@ -1845,6 +1895,9 @@ export function verify(p: any): boolean
             if item.derived then
                 derivedrecipes.verify(p, item.derived)
             end
+            if item.managed then
+                managedcalls.verify(p, item.managed)
+            end
             -- A chunk's absent module initializes in the running program.
             if item.builtin and not item.absent then
                 local current = builtinprojection(node)
@@ -1900,6 +1953,7 @@ export function verify(p: any): boolean
                         or item.callable and node.kind == "qualifiedLoad"
                         or item.forward and node.kind == "qualifiedLoad"
                         or item.derived and node.kind == "qualifiedLoad"
+                        or item.managed and node.kind == "qualifiedLoad"
                     )
                     and node.qualifiedModule ~= nil
                     and graph.coremodule(node.qualifiedModule) == item.module
@@ -2156,6 +2210,8 @@ export function verify(p: any): boolean
             forwardedexports.verify(p, item.forward)
         elseif item.derived then
             derivedrecipes.verify(p, item.derived)
+        elseif item.managed then
+            managedcalls.verify(p, item.managed)
         elseif item.scalarWitness then
 
             local witness = item.scalarWitness
@@ -2245,6 +2301,9 @@ export function verify(p: any): boolean
     end
     for _, plan in pairs(p.derives) do
         derivedrecipes.verify(p, plan)
+    end
+    for _, plan in pairs(p.manages) do
+        managedcalls.verify(p, plan)
     end
     for node, access in pairs(p.indexedByNode) do
         local site = need(p.callByNode[access.call], "indexed span lacks its issued callsite")
@@ -2431,14 +2490,10 @@ local function unboundExternals(p: any): {string}
 end
 
 -- The intrinsics the profile cannot execute, each with its source position.
--- The intrinsics the core refuses, or with `deferred` those it lowers to a
--- refusal where they run.
-local function unexecutableIntrinsics(p: any, deferred: boolean?): {string}
+local function unexecutableIntrinsics(p: any): {string}
     local names = {}
     for _, intrinsic in ipairs(p.intrinsics) do
-        local listed = deferred and DEFERRED_INTRINSICS[intrinsic.operation] ~= nil
-            or not deferred and not executable(intrinsic.node)
-        if listed then
+        if not executable(intrinsic.node) then
             local token = cst.firstToken(intrinsic.node)
             names[
                 #names + 1
@@ -2515,7 +2570,6 @@ export function inventory(p: any, profile: any): any
     return {
         externals = unboundExternals(p),
         intrinsics = unexecutableIntrinsics(p),
-        deferred = unexecutableIntrinsics(p, true),
         owners = refused,
         unresolved = unresolved
     }

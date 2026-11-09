@@ -26,9 +26,13 @@ const VERSION = 8
 const MODULE = "nupp.chunk"
 -- The checker reads a source as plain Lua by this suffix.
 const LUA_SUFFIX = ".lua"
--- A chunk is the body of a function of `...`. The opening shares the first
--- line, so every line keeps its number.
-const OPENING = "return function(...) "
+-- A chunk is the body of a function of `...`, whose globals are fields of
+-- its environment (Lua's _ENV): the table `load` was given, else the running
+-- program's `_G` (nupp.runtime.luaload.environment, required by a computed
+-- name the checker does not read). The opening shares the first line, so
+-- every line keeps its number.
+const ENVIRONMENT = "__nupp_env"
+const OPENING = "local __nupp_env = require(\"nupp.runtime.\" .. \"luaload\").environment() return function(...) "
 const CLOSING = "\nend\n"
 
 -- Calls `visit` with each call's argument list in the tree under `node`.
@@ -123,7 +127,7 @@ export function describe(text: string, display: string): (any, string?)
     local catalog = program.describe(
         {{name = MODULE, path = display, parsed = parsed, diagnostics = diagnostics}},
         MODULE,
-        {chunk = true}
+        {chunk = true, environment = ENVIRONMENT}
     )
 
     return catalog, nil

@@ -8,12 +8,22 @@ starts. A text chunk is compiled to one by the compiler running on the core
 (`nupp.compiler.vm.corechunk`), which a program carries by naming it
 (`@requires-dynamically`); one that only returns a literal answers it
 without, as the compiler's own `loadstring("return " .. token)` reads a
-literal's value.
+literal's value. A compiled chunk's globals are fields of the environment
+`load` was given, as Lua's _ENV, else of the running program's `_G`.
 ]]
 module nupp.runtime.luaload
 
 const hostcalls = require("nupp.runtime.hostcalls")
 const libraryvalues = require("nupp.runtime.libraryvalues")
+
+-- The environment (Lua's _ENV) `load` was given for the chunk now starting.
+local pending: table? = nil
+
+--- The environment a chunk the compiler wrote reads its globals from, as it
+--- starts: the table `load` was given, else the running program's `_G`.
+export function environment(): any
+    return pending or libraryvalues.functions._G
+end
 
 -- The compiler a text chunk compiles with, required by a name the program
 -- carries only where it names it.
@@ -239,9 +249,6 @@ local function loadchunk(chunk: any, name: string?, mode: string?, env: table?):
     elseif not binary and not allowed:find("t", 1, true) then
         return nil, "attempt to load a text chunk (mode is '" .. allowed .. "')"
     end
-    if env ~= nil then
-        return nil, chunkid(chunkname) .. ": a chunk's own environment is not available on the core yet"
-    end
     if not binary then
         local found, value = literal(text)
         if found then
@@ -264,7 +271,17 @@ local function loadchunk(chunk: any, name: string?, mode: string?, env: table?):
         return nil, chunkid(chunkname) .. ": bad binary format (not a chunk this core loads)"
     end
 
-    return hostcalls.start(entry), nil
+    -- A chunk the compiler wrote reads its environment as it starts.
+    pending = env
+    local ok, started = pcall(function(): any
+        return hostcalls.start(entry)
+    end)
+    pending = nil
+    if not ok then
+        error(started, 0)
+    end
+
+    return started, nil
 end
 
 local function loadpath(filename: string?, mode: string?, env: table?): (any, string?)

@@ -190,6 +190,8 @@ local CASES = {
     {"modulespattern", 0x7FFF0000000000E6},
     {"modulesrecords", 0x7FFF000000002BD9},
     {"modulescycle", 0x7FFF000000000017},
+    {"pluckedarguments", 0x7FFF001C1CF80790},
+    {"ownmanage", 0x7FFF000000000200},
     {"loopparameteralias", 0x7FFF000000000002},
     {"namedarguments", 0x7FFF000337156A8D},
     {"legacyglobals", 0x7FFF000000000C33},
@@ -276,25 +278,25 @@ local CASES = {
     -- The compiler's host services as the core answers them for check and build.
     {"clihosts", 0x7FFF0000000000FF},
     {"loadbinary", 0x7FFF000000001FFF},
-    -- Lua's loaders over source text, compiled on the core by the compiler
-    -- the program carries.
-    {"loadsource", 0x7FFF00000000FFFF},
     -- A record with an array part: fields and elements apart.
     {"recordsarray", 0x7FFF00000000000F},
     -- A function statement assigning a local declared before it.
     {"forwardfunctions", 0x7FFF000000000003},
-    -- The compiler's lexer and parser on the core.
-    {"compilerfront", 0x7FFF00000000000F},
-    -- The compiler's lexer alone on the core, over whole source files.
-    {"compilerlexer", 0x7FFF00000000000F},
     -- A closure capturing seventy values.
     {"closurecaptures", 0x7FFF0000000009B5},
     -- The os namespace's module first, before anything reads Lua's os.
     {"standardosfirst", 0x7FFF000000000003},
-    -- A checked call spreading fewer or more results than it has parameters.
-    {"callsspreadshort", 0x7FFF00000000001F},
     -- Main's os filesystem and system functions; main answers the same word.
     {"osfilesystem", 0x7FFF0007FFFFFFFF},
+    -- The compiler's lexer and parser on the core.
+    {"compilerfront", 0x7FFF00000000000F},
+    -- Lua's loaders over source text, compiled on the core by the compiler
+    -- the program carries.
+    {"loadsource", 0x7FFF00000001FFFF},
+    -- The compiler's lexer alone on the core, over whole source files.
+    {"compilerlexer", 0x7FFF00000000000F},
+    -- A checked call spreading fewer or more results than it has parameters.
+    {"callsspreadshort", 0x7FFF00000000001F},
     -- `nupp check` on the core: a clean file and one with a type error.
     {"compilercheck", 0x7FFF000000000003},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
@@ -514,8 +516,8 @@ local STRESS = {
     filesystem = true,
     osremove = true,
     loadbinary = true,
-    loadsource = true,
-    osfilesystem = true
+    osfilesystem = true,
+    loadsource = true
 }
 -- Shell statements a case's runs start with: the io and pool cases may hold
 -- 64 descriptors, so a handle left open, or opened by a cancelled pool job,
@@ -621,6 +623,8 @@ local NUMERIC = {
     modulespattern = "catalog-modules-pattern",
     modulesrecords = "catalog-modules-records",
     modulescycle = "catalog-modules-cycle",
+    pluckedarguments = "catalog-plucked-arguments",
+    ownmanage = "catalog-own-manage",
     loopparameteralias = "catalog-loop-parameter-alias",
     namedarguments = "catalog-named-arguments",
     legacyglobals = "catalog-legacy-globals",
@@ -702,7 +706,8 @@ local RAISES = {
         {"raising", reported("nupp: [^\n]*catalogerrorsuncaught%.nupp:42: inner")},
         {"named", reported("nupp: already named")},
         {"table", reported("nupp: table: 0x%x+")},
-        {"nil", reported("nupp: nil")}
+        {"nil", reported("nupp: nil")},
+        {"module", reported("nupp: module 'nupp.core.absentmodule' not found:\n.*")}
     }
 }
 -- The twins that run commands: the reference interpreter they run under is
