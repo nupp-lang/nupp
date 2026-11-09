@@ -1,9 +1,12 @@
 module nupp.core.cataloglegacyglobals
 
--- LuaJIT's globals as values: `unpack` is `table.unpack`, and `jit`, which the
--- core does not have, reads nil, as on a Lua without it.
+-- LuaJIT's globals as values: `unpack` is `table.unpack`, and `jit` and
+-- `setfenv`, which the core does not have, read nil, as on a Lua without them.
 local unpackAny = unpack as function(table, integer?, integer?): ...any
 local a, b, c = unpackAny({1, 2, 3})
 local platform = tostring(jit and jit.os)
+local environment = setfenv as any
 
-export const result = (a as integer) * 100 + (b as integer) * 10 + (c as integer) + (platform == "nil" and 1000 or 0)
+export const result = (
+    a as integer
+) * 100 + (b as integer) * 10 + (c as integer) + (platform == "nil" and 1000 or 0) + (environment == nil and 2000 or 0)

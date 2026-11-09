@@ -5,6 +5,7 @@ local graph = require("nupp.compiler.vm.graph")
 local schema = require("nupp.compiler.vm.coregraphschema")
 local semantic = require("nupp.compiler.vm.coregraphverify")
 local cst = require("nupp.compiler.syntax.cst")
+local graphcalls = require("nupp.compiler.vm.graphcalls")
 local lexer = require("nupp.compiler.syntax.lexer")
 local bounds = schema.limits()
 
@@ -499,12 +500,33 @@ local function forwardcontext(p: any, owner: any, call: any): integer
 end
 
 -- Diagnostic names describe the issued source call, never its runtime target.
-local function diagnostic(call: any, protected: boolean): any
+-- The kind of name callee `name` is to the call in `owner`, as Lua's
+-- debug.getinfo says it: a global where no declaration binds it (a chunk's
+-- global or the prelude's), a local where `owner` declares it, and an
+-- upvalue where a function around it does.
+local function namekind(p: any, owner: any, name: any): string
+    local token = name.token
+    local definition = token.definition
+    if definition == nil or p.globals and p.globals[token] ~= nil or graphcalls.preludeName(name) then
+        return "global"
+    end
+    local first, last = cst.firstToken(owner.node), cst.lastToken(owner.node)
+    local at = definition.token and definition.token.offset
+    if at ~= nil and first ~= nil and last ~= nil and first.offset <= at and at <= last.offset then
+        return "local"
+    end
+
+    return "upvalue"
+end
+
+-- A call's diagnostic row: whether it is a method call, the name it gives
+-- the function it calls and what kind of name that is.
+local function diagnostic(p: any, owner: any, call: any, protected: boolean): any
     if protected then
         return {method = false}
     end
     if call.kind == "forinStmt" then
-        return {method = false, name = "for iterator"}
+        return {method = false, name = "for iterator", namewhat = "for iterator"}
     end
     if call.kind == "methodCall" then
         return {method = true, name = call.name.text}
@@ -515,9 +537,9 @@ local function diagnostic(call: any, protected: boolean): any
         callee = callee.expr
     end
     if callee and callee.kind == "name" then
-        return {method = false, name = callee.token.text}
+        return {method = false, name = callee.token.text, namewhat = namekind(p, owner, callee)}
     elseif callee and callee.kind == "dotIndex" then
-        return {method = false, name = callee.name.text}
+        return {method = false, name = callee.name.text, namewhat = "field"}
     end
 
     return {method = false}
@@ -826,7 +848,7 @@ export function normalize(compiled: any, version: integer?): (any, any)
                     -- xpcall(f, handler, ...): its handler is staged apart.
                     handled = source.handled == true or nil
                 }
-                local row = diagnostic(source.call, source.protected == true)
+                local row = diagnostic(p, p.owners[index], source.call, source.protected == true)
                 row.tail = tails[source.call] == true or nil
                 row.forward = forwardcontext(p, p.owners[index], source.call)
                 if row.forward ~= FORWARD_NONE then

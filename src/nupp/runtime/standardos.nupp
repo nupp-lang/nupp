@@ -85,7 +85,20 @@ const {
 const {type Path as PathType} = require("io.internal.files.path")
 const {type TemporaryPath as TemporaryPathType} = require("io.internal.files.contracts")
 
-local host: any = rawget(_G, "os")
+-- Lua's own os table: the host's, or on the native core the library that
+-- publishes it as it initializes, which nothing may have required before this.
+local function hostos(): any
+    local found = rawget(_G, "os")
+    if found == nil then
+        local load: function(string): any = require
+        pcall(load, "nupp.runtime.luaos")
+        found = rawget(_G, "os")
+    end
+
+    return (assert(found, "no os library to extend"))
+end
+
+local host: any = hostos()
 local luaRemove = host.remove
 local luaRename = host.rename
 

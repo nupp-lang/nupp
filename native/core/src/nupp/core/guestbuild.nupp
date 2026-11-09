@@ -365,10 +365,11 @@ local CASES: {[string]: {
     clihosts = {fixture = "catalog-cli-hosts", version = 8},
     -- Lua's loaders over a binary chunk installed into the running program.
     loadbinary = {fixture = "catalog-load-binary", version = 8, chunks = {"catalog-load-chunk"}},
-    -- A record with an array part: fields and elements apart.
     recordsarray = {fixture = "catalog-records-array", version = 8},
-    -- A function statement assigning a local declared before it.
     forwardfunctions = {fixture = "catalog-forward-functions", version = 8},
+    closurecaptures = {fixture = "catalog-closure-captures", version = 8},
+    standardosfirst = {fixture = "catalog-standard-os-first", version = 8, follow = true},
+    debuggetinfo = {fixture = "catalog-debug-getinfo", version = 8},
     osfilesystem = {fixture = "catalog-os-filesystem", version = 8},
     -- The compiler's lexer and parser on the core.
     compilerfront = {fixture = "catalog-compiler-front", version = 8, follow = true},
@@ -390,6 +391,9 @@ local CASES: {[string]: {
         module = "nupp.tools.vm.root",
         modules = cliextras()
     },
+    -- `nupp check` on the core through the CLI's real root, carrying what
+    -- the CLI's image carries beside it.
+    compilercheck = {fixture = "catalog-compiler-check", version = 8, follow = true, modules = cliextras()},
     -- The bench harness's own entry: the bench/vm workloads under debug.bench.
     benchworkloads = {
         fixture = "bench/vm/workloads.bench",
@@ -880,8 +884,12 @@ export function fixtures(): {{
     for _, case in pairs(CASES) do
         if case.generated ~= true and case.rooted ~= true then
             paths[case.fixture] = true
+            -- A library module a case carries is no fixture: it is checked
+            -- where it lives.
             for _, name in ipairs(case.modules or {}) do
-                paths[name] = true
+                if not libraryModule(name) then
+                    paths[name] = true
+                end
             end
             for _, name in ipairs(case.chunks or {}) do
                 paths[name] = true

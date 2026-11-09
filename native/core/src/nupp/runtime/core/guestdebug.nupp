@@ -1,0 +1,356 @@
+module nupp.runtime.core.guestdebug
+
+-- Lua's debug.getinfo on the core: the DEBUG group's operations
+-- (librarylayouts DEBUG_FIRST to DEBUG_LAST), which the DEBUG_INFO call
+-- takes first (nupp.runtime.debugcalls), each one field of a target. A target
+-- is a level, 1 being the frame that makes the call and each further one its
+-- caller as Lua counts them, or a function value. The library value
+-- debug.getinfo (nupp.runtime.libraryvalues) builds Lua's table from them.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const context = require("nupp.runtime.core.context")
+const frames = require("nupp.runtime.core.frames")
+const catalog = require("nupp.runtime.core.guestcatalog")
+const ints = require("nupp.runtime.core.coreintegers")
+const guestscope = require("nupp.runtime.core.guestscope")
+const guesterrors = require("nupp.runtime.core.guesterrors")
+const guesttexts = require("nupp.runtime.core.guesttexts")
+const guestops = require("nupp.runtime.core.guestops")
+const librarylayouts = require("nupp.runtime.core.librarylayouts")
+const librarytexts = require("nupp.runtime.core.librarytexts")
+
+-- A level's spot with this bit set is the protected call (pcall) its frame
+-- is the callee of: a C function, which has no frame of its own. Frames are
+-- word aligned, so the bit is free.
+const PROTECTED_LEVEL: uint64 = 1ULL
+
+-- What a field reads where Lua knows no line.
+const NO_LINE: uint64 = 0xffffffffffffffffULL
+
+-- The sign bit of a level's int64 bits: a negative level names no function.
+const SIGN: uint64 = 0x8000000000000000ULL
+
+local function previous(frame: uint64): uint64
+    return native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("previous"))
+end
+
+-- The spot of Lua's level `level` from the active frame (1): its frame,
+-- PROTECTED_LEVEL over a protected callee's frame for the protected call
+-- that called it, or 0 where no function is at that level. A frame that
+-- tail called the next is gone in Lua; one running a C function never tail
+-- calls.
+local function spot(ctx: voidptr, level: uint64): uint64
+    if level == 0ULL then
+        return 0ULL
+    end
+    local frame = guesterrors.activeframe(ctx)
+    local protectedLevel = false
+    local k: uint64 = 1ULL
+    while k < level and frame ~= 0ULL do
+        if protectedLevel then
+            protectedLevel = false
+            frame = previous(frame)
+        elseif frames.isprotected(native.pointer(frame)) then
+            protectedLevel = true
+        else
+            local kept = guesterrors.clibrary(ctx, frame)
+            frame = previous(frame)
+            while frame ~= 0ULL
+                and not kept
+                and guesterrors.tailcaller(ctx, frame)
+                and not frames.isprotected(native.pointer(frame)) do
+                frame = previous(frame)
+            end
+        end
+        k = k + 1ULL
+    end
+    if frame ~= 0ULL and protectedLevel then
+        return frame | PROTECTED_LEVEL
+    end
+
+    return frame
+end
+
+-- The catalog record of the function a spot or function value runs, or 0
+-- for a C function the catalog has no lines for, or none at all.
+local function runs(ctx: voidptr, at: uint64, fn: uint64): uint64
+    local c = native.loadPointer(ctx, context.CATALOG)
+    local owner = fn
+    if at ~= 0ULL then
+        if at & PROTECTED_LEVEL ~= 0ULL then
+            return 0ULL
+        end
+        owner = native.load64(native.pointer(at), native.fieldOffset<frames.Frame>("functionId"))
+    end
+    local record = guesterrors.record(c, owner)
+    if record == 0ULL
+        or native.load64(native.pointer(record), native.fieldOffset<catalog.Function>("lines")) == 0ULL
+    then
+        return 0ULL
+    end
+
+    return record
+end
+
+-- How many instructions function `record` has.
+local function instructions(record: uint64): uint64
+    return native.load64(native.pointer(record), native.fieldOffset<catalog.Function>("instructionCount"))
+end
+
+-- Word `index` of function `record`'s line table: an instruction's line,
+-- then its trailer (catalog.LINE_TRAILER).
+local function lineword(ctx: voidptr, record: uint64, index: uint64): uint64
+    local data = native.load64(native.loadPointer(ctx, context.CATALOG), native.fieldOffset<catalog.Catalog>("data"))
+    local lines = native.load64(native.pointer(record), native.fieldOffset<catalog.Function>("lines"))
+
+    return native.load64(native.pointer(data + lines + index * 8ULL), 0)
+end
+
+-- Word `index` of a function's line trailer.
+local function trailer(ctx: voidptr, record: uint64, index: uint64): uint64
+    return lineword(ctx, record, instructions(record) + index)
+end
+
+-- Line `line` as a value, or -1 where it is not `known`.
+local function linevalue(ctx: voidptr, known: boolean, line: uint64): uint64
+    if not known then
+        return guestscope.integer(ctx, NO_LINE)
+    end
+
+    return values.TAG_INTEGER | line
+end
+
+-- A line of function `record`, its trailer's word `index` (-1 for a C
+-- function, which has no lines).
+local function definedline(ctx: voidptr, record: uint64, index: uint64): uint64
+    local line: uint64 = 0ULL
+    if record ~= 0ULL then
+        line = trailer(ctx, record, index)
+    end
+
+    return linevalue(ctx, record ~= 0ULL, line)
+end
+
+-- A pooled string word of function `record` as a string value, or nil.
+local function pooled(ctx: voidptr, record: uint64, word: uint64): uint64
+    if word == 0ULL then
+        return values.NIL
+    end
+
+    return values.TAG_OBJ
+        | guestscope.stringConstant(
+            ctx,
+            native.load64(native.pointer(record), native.fieldOffset<catalog.Function>("id")),
+            word
+        )
+end
+
+-- The diagnostic row of the call that called the frame at `at`, or 0 where
+-- Lua names no caller's call: a protected call's callee, a function a C
+-- function called, and one called in a tail call.
+local function callingrow(ctx: voidptr, at: uint64): uint64
+    if at == 0ULL or at & PROTECTED_LEVEL ~= 0ULL or frames.isprotected(native.pointer(at)) then
+        return 0ULL
+    end
+    local parent = previous(at)
+    if parent == 0ULL or guesterrors.clibrary(ctx, parent) then
+        return 0ULL
+    end
+    local row = guesterrors.waitingrow(native.loadPointer(ctx, context.CATALOG), parent, false)
+    if row == 0ULL
+        or native.load64(native.pointer(row), native.fieldOffset<catalog.CallDiagnostic>("method"))
+        & catalog.CALL_TAIL ~= 0ULL
+    then
+        return 0ULL
+    end
+
+    return row
+end
+
+-- Whether the frame at `at` was called in a tail call.
+local function tailcalled(ctx: voidptr, at: uint64): uint64
+    if at == 0ULL or at & PROTECTED_LEVEL ~= 0ULL or frames.isprotected(native.pointer(at)) then
+        return values.FALSE
+    end
+    local parent = previous(at)
+    if parent ~= 0ULL and not guesterrors.clibrary(ctx, parent) and guesterrors.tailcaller(ctx, parent) then
+        return values.TRUE
+    end
+
+    return values.FALSE
+end
+
+-- The text of the kind of name a call row gives, or 0 for none.
+local function namekind(row: uint64): uint64
+    local flags = native.load64(native.pointer(row), native.fieldOffset<catalog.CallDiagnostic>("method"))
+    if flags & catalog.CALL_METHOD ~= 0ULL then
+        return librarytexts.TEXT_METHOD
+    elseif flags & catalog.CALL_GLOBAL ~= 0ULL then
+        return librarytexts.TEXT_GLOBAL
+    elseif flags & catalog.CALL_LOCAL ~= 0ULL then
+        return librarytexts.TEXT_LOCAL
+    elseif flags & catalog.CALL_UPVALUE ~= 0ULL then
+        return librarytexts.TEXT_UPVALUE
+    elseif flags & catalog.CALL_FIELD ~= 0ULL then
+        return librarytexts.TEXT_FIELD
+    elseif flags & catalog.CALL_ITERATOR ~= 0ULL then
+        return librarytexts.TEXT_ITERATOR
+    end
+
+    return 0ULL
+end
+
+-- The name a call row gives the function it calls, as a string, or nil.
+local function rowname(ctx: voidptr, row: uint64): uint64
+    local name = native.load64(native.pointer(row), native.fieldOffset<catalog.CallDiagnostic>("name"))
+    if name == 0ULL then
+        return values.NIL
+    end
+    local data = native.load64(native.loadPointer(ctx, context.CATALOG), native.fieldOffset<catalog.Catalog>("data"))
+
+    return values.TAG_OBJ
+        | guestscope.makeString(ctx, data + name + 8ULL, native.load64(native.pointer(data + name), 0))
+end
+
+-- The line the frame at `at` running `record` is at: where it waits on the
+-- call it made; -1 for a function value, a C function or no known line.
+local function currentline(ctx: voidptr, at: uint64, record: uint64): uint64
+    local line: uint64 = 0ULL
+    if at ~= 0ULL and record ~= 0ULL then
+        local resume = native.load64(native.pointer(at), native.fieldOffset<frames.Frame>("resumePC"))
+        if resume ~= 0ULL and resume <= instructions(record) then
+            line = lineword(ctx, record, resume - 1ULL)
+        end
+    end
+
+    return linevalue(ctx, line ~= 0ULL, line)
+end
+
+-- The function at `at`, a frame where it was called as a value, or
+-- `target` itself for a function value.
+local function closure(at: uint64, target: uint64): uint64
+    if at == 0ULL then
+        return target
+    elseif at & PROTECTED_LEVEL ~= 0ULL then
+        return values.NIL
+    end
+    local held = native.load64(native.pointer(at), native.fieldOffset<frames.Frame>("closureRoot"))
+    if guestops.heapTarget(held) == 0ULL then
+        return values.NIL
+    end
+
+    return held
+end
+
+-- How many captures a function value holds: its closure's slots past the
+-- first, which holds its target.
+local function captures(value: uint64): uint64
+    if guestops.heapTarget(value) == 0ULL then
+        return 0ULL
+    end
+
+    return native.load64(native.pointer(value & values.PAYLOAD), native.fieldOffset<heap.Header>("auxLen")) - 1ULL
+end
+
+-- Lua's nparams (or with `vararg`, isvararg) of the function `record` runs:
+-- a C function and a main chunk take `...` and declare none; a function's
+-- pack of extra arguments is its signature's last parameter.
+local function parameters(ctx: voidptr, record: uint64, vararg: boolean): uint64
+    if record == 0ULL
+        or native.load64(native.pointer(record), native.fieldOffset<catalog.Function>("kind")) == catalog.INITIALIZER
+    then
+        if vararg then
+            return values.TRUE
+        end
+        return values.TAG_INTEGER
+    end
+    local c = native.loadPointer(ctx, context.CATALOG)
+    local signature = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("signatures")),
+        native.index(
+            native.load64(
+                native.pointer(record),
+                native.fieldOffset<catalog.Function>("signature")
+            ) * native.sizeOf<catalog.Signature>()
+        )
+    )
+    local variadic = native.load64(signature, native.fieldOffset<catalog.Signature>("variadic"))
+    if vararg then
+        if variadic == 1ULL then
+            return values.TRUE
+        end
+        return values.FALSE
+    end
+
+    return values.TAG_INTEGER
+        | (native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount")) - variadic)
+end
+
+-- debugcalls' operation `op` of `target`.
+export function info(ctx: voidptr, op: uint64, target: uint64): uint64
+    local at: uint64 = 0ULL
+    local fn: uint64 = 0ULL
+    if ints.isInteger(target) then
+        local level = ints.bitsOf(target)
+        if level & SIGN ~= 0ULL then
+            return values.NIL
+        end
+        at = spot(ctx, level)
+        if at == 0ULL then
+            return values.NIL
+        end
+    else
+        fn = guestops.heapTarget(target)
+        if fn == 0ULL then
+            return values.NIL
+        end
+        fn = fn - 1ULL
+    end
+    local record = runs(ctx, at, fn)
+    if op == librarylayouts.DEBUG_WHAT then
+        if record == 0ULL then
+            return guesttexts.textvalue(ctx, librarytexts.TEXT_C)
+        elseif trailer(ctx, record, catalog.LINE_DEFINED) == 0ULL then
+            return guesttexts.textvalue(ctx, librarytexts.TEXT_MAIN)
+        end
+        return guesttexts.textvalue(ctx, librarytexts.TEXT_LUA)
+    elseif op == librarylayouts.DEBUG_SOURCE or op == librarylayouts.DEBUG_SHORT then
+        if record == 0ULL then
+            if op == librarylayouts.DEBUG_SOURCE then
+                return guesttexts.textvalue(ctx, librarytexts.TEXT_C_SOURCE)
+            end
+            return guesttexts.textvalue(ctx, librarytexts.TEXT_C_SHORT)
+        elseif op == librarylayouts.DEBUG_SOURCE then
+            return pooled(ctx, record, trailer(ctx, record, catalog.LINE_SOURCE))
+        end
+        return pooled(ctx, record, native.load64(native.pointer(record), native.fieldOffset<catalog.Function>("chunk")))
+    elseif op == librarylayouts.DEBUG_LINE then
+        return currentline(ctx, at, record)
+    elseif op == librarylayouts.DEBUG_DEFINED then
+        return definedline(ctx, record, catalog.LINE_DEFINED)
+    elseif op == librarylayouts.DEBUG_LASTDEFINED then
+        return definedline(ctx, record, catalog.LINE_LASTDEFINED)
+    elseif op == librarylayouts.DEBUG_NAME or op == librarylayouts.DEBUG_NAMEWHAT then
+        local row = callingrow(ctx, at)
+        if row == 0ULL then
+            return values.NIL
+        elseif op == librarylayouts.DEBUG_NAME then
+            return rowname(ctx, row)
+        end
+        local kind = namekind(row)
+        if kind == 0ULL then
+            return values.NIL
+        end
+        return guesttexts.textvalue(ctx, kind)
+    elseif op == librarylayouts.DEBUG_FUNC then
+        return closure(at, target)
+    elseif op == librarylayouts.DEBUG_TAILCALL then
+        return tailcalled(ctx, at)
+    elseif op == librarylayouts.DEBUG_UPVALUES then
+        return values.TAG_INTEGER | captures(closure(at, target))
+    elseif op == librarylayouts.DEBUG_PARAMS or op == librarylayouts.DEBUG_VARARG then
+        return parameters(ctx, record, op == librarylayouts.DEBUG_VARARG)
+    end
+    error("debug calls: unknown operation")
+end

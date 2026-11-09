@@ -55,7 +55,7 @@ export function source(): string
     constant("ARGUMENTS", corelibrary.ARGUMENTS)
 
     lines[#lines + 1] = ""
-    lines[#lines + 1] = "-- The operations HOST_FILES takes first, by group."
+    lines[#lines + 1] = "-- The operations HOST_FILES, TASKS and DEBUG_INFO take first, by group."
     for _, group in ipairs(corelibrary.groups()) do
         for _, operation in ipairs(group.operations) do
             constant(operation.name, operation.operation)

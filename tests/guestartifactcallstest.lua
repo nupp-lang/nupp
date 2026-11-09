@@ -45,7 +45,7 @@ local function fixture()
     local described = program.describe({{name = name, path = path, parsed = parsed, diagnostics = diagnostics}}, name)
     local code = executable.fromChecked(program.compile(described, tagged.forVersion(8)), 8)
     local requested = {}
-    for _, short in ipairs({"guestcatalog", "librarycalls", "storagelibrary", "loadlibrary", "corestorage", "coretables"}) do
+    for _, short in ipairs({"guestcatalog", "librarycalls", "storagelibrary", "loadlibrary", "debuglibrary", "corestorage", "coretables"}) do
         requested[
             #requested + 1
         ] = {

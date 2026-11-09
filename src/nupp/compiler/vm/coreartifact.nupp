@@ -38,11 +38,29 @@ export const constants = {
     DIAGNOSTIC_FORMAT = 4,
     CALL_METHOD = 1,
     CALL_TAIL = 2,
+    CALL_GLOBAL = 4,
+    CALL_LOCAL = 8,
+    CALL_UPVALUE = 16,
+    CALL_FIELD = 32,
+    CALL_ITERATOR = 64,
     DIAGNOSTIC_NAME_LIMIT = 65536,
+    LINE_TRAILER = 3,
     MAGIC = 0x0001007070754E1B,
     RELOCATE_FUNCTION = 1,
     RELOCATE_MODULE = 2,
     RELOCATION_SHIFT = 48
+}
+
+-- The flag a call's diagnostic carries for the kind of name it gives the
+-- function it calls (debug.getinfo's namewhat), by that kind.
+const NAMEWHAT: {
+    [string]: integer
+} = {
+    global = constants.CALL_GLOBAL,
+    ["local"] = constants.CALL_LOCAL,
+    upvalue = constants.CALL_UPVALUE,
+    field = constants.CALL_FIELD,
+    ["for iterator"] = constants.CALL_ITERATOR
 }
 
 -- The fields of each catalog record the artifact holds, in order; every
@@ -319,19 +337,22 @@ export function encode(code: any, dispatch: {integer}, codeBytes: integer, raise
         end
     end
     -- From v8 each function's source lines follow, a word per instruction,
-    -- and its chunk name joins the string payloads.
+    -- then its trailer (the lines its definition starts and ends on, and
+    -- its Lua source), and its chunk name and source join the string
+    -- payloads.
     local lineOffsets: {integer} = {}
     if version >= 8 then
         for index, fn in ipairs(code.functions) do
-            local chunk = fn.chunk
-            if type(chunk) == "string" and stringOffsets[chunk] == nil then
-                stringOffsets[chunk] = cursor
-                stringOrder[#stringOrder + 1] = chunk
-                cursor += 8 + ((#chunk + 8) // 8) * 8
+            for _, text in ipairs({fn.chunk or false, fn.source or false}) do
+                if type(text) == "string" and stringOffsets[text] == nil then
+                    stringOffsets[text] = cursor
+                    stringOrder[#stringOrder + 1] = text
+                    cursor += 8 + ((#text + 8) // 8) * 8
+                end
             end
             if fn.lines and #fn.lines == fn.instructionCount then
                 lineOffsets[index] = cursor
-                cursor += fn.instructionCount * 8
+                cursor += (fn.instructionCount + constants.LINE_TRAILER) * 8
             end
         end
     end
@@ -473,6 +494,9 @@ export function encode(code: any, dispatch: {integer}, codeBytes: integer, raise
         })
         if lineOffsets[index] then
             run(lineOffsets[index], fn.lines)
+            local defined = fn.defined or {}
+            local source = type(fn.source) == "string" and STRING_CONSTANT | assert(stringOffsets[fn.source]) or 0
+            run((lineOffsets[index] + fn.instructionCount * 8) as integer, {defined[1] or 0, defined[2] or 0, source})
         end
         nextCall += #fn.calls
         word((targetOffset + (index - 1) * 8) as integer, owner.id)
@@ -530,7 +554,9 @@ export function encode(code: any, dispatch: {integer}, codeBytes: integer, raise
             record("CallDiagnostic", (diagnosticOffset + (index - 1) * layouts.CallDiagnostic.size) as integer, {
                 method = (
                     diagnostic.method and constants.CALL_METHOD or 0
-                ) + (diagnostic.tail and constants.CALL_TAIL or 0),
+                ) + (
+                    diagnostic.tail and constants.CALL_TAIL or 0
+                ) + (diagnostic.namewhat and assert(NAMEWHAT[diagnostic.namewhat], "call name kind") or 0),
                 name = diagnostic.name and assert(stringOffsets[diagnostic.name]) or 0,
                 forward = diagnostic.forward
             })
