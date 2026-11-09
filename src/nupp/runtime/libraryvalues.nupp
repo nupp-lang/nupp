@@ -24,8 +24,12 @@ export const functions: {[string]: any} = {
     tostring = function(value: any): string
         return tostring(value)
     end,
-    tonumber = function(value: any): number?
-        return tonumber(value)
+    tonumber = function(value: any, base: integer?): number?
+        if base == nil then
+            return tonumber(value)
+        end
+
+        return tonumber(value, base)
     end,
     type = function(value: any): string
         return type(value)
@@ -43,7 +47,8 @@ export const functions: {[string]: any} = {
             if count < 2 then
                 message = "assertion failed!"
             end
-            error(message, 2)
+            -- As Lua raises it: the message alone, with no position.
+            error(message, 0)
         end
 
         return ...
