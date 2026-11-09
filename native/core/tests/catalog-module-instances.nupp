@@ -95,5 +95,24 @@ end
 if #askedA == 2 and askedA[1] == "nupp.compiler.floatparts" and askedA[2] == "nupp.runtime.clockcalls" then
     score = score + 64
 end
+-- A core call module the environment stands in for nothing: its own
+-- operation, through its value.
+local own: any = luaload.instance(
+    path,
+    environment(
+        {
+            ["nupp.compiler.floatparts"] = {
+                frexp = function(x: number): (number, integer)
+                    return x, 1
+                end
+            }
+        },
+        {}
+    )
+)
+local wall = own.now()
+if type(wall) == "number" and wall > 1000000000 then
+    score = score + 128
+end
 
 export const result = score

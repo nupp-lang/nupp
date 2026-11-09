@@ -15,6 +15,7 @@ module nupp.runtime.luaload
 
 const hostcalls = require("nupp.runtime.hostcalls")
 const libraryvalues = require("nupp.runtime.libraryvalues")
+const corecallvalues = require("nupp.runtime.corecallvalues")
 
 -- The environment (Lua's _ENV) `load` was given for the chunk now starting.
 local pending: table? = nil
@@ -367,4 +368,11 @@ export const functions: {
 -- Lua chunks read the loaders as globals (`pcall(dofile, path)`).
 for name, value in pairs(functions) do
     libraryvalues.publish(name, value)
+end
+
+-- A module instance's require of a core call module its environment stands
+-- in for nothing answers the module's operations as values, as Lua's
+-- require answers what package.loaded holds.
+for name, value in pairs(corecallvalues.modules) do
+    libraryvalues.functions.package.loaded[name] = value
 end

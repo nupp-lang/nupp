@@ -297,7 +297,7 @@ local CASES = {
     {"debuggetinfo", 0x7FFF00000001FFFF},
     -- Instances of a Nupp module compiled as a chunk: fresh state, requires
     -- through the instance's environment, core call modules swapped.
-    {"moduleinstances", 0x7FFF00000000007F},
+    {"moduleinstances", 0x7FFF0000000000FF},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
