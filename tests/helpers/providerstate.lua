@@ -4,10 +4,36 @@
 -- An instance runs a module's body again with its own `require`, so each one
 -- holds its own provider state. On the VM the module's Nupp source is lowered
 -- once with its globals read from an environment, which is what that `require`
--- lives in; under LuaJIT the compiled Lua a build left is loaded with one.
+-- lives in; on the native core it is compiled as a module instance chunk
+-- (nupp.runtime.luaload.instance), whose requires call that `require`; under
+-- LuaJIT the compiled Lua a build left is loaded with one.
 local M = {}
 
 local loadImage = rawget(_G, "__nupp_load_image")
+
+-- The native core's module instances: neither the VM's image loader nor
+-- LuaJIT's setfenv, and the core's loader module.
+local coreInstance = nil
+if loadImage == nil and rawget(_G, "setfenv") == nil then
+    local ok, luaload = pcall(require, "nupp.runtime.luaload")
+    coreInstance = ok and type(luaload) == "table" and luaload.instance or nil
+end
+
+-- The checkout this helper lives in, whose src/ holds the modules' sources.
+local checkout = (debug.getinfo(1, "S").source:gsub("^@", ""):gsub("\\", "/"):match("^(.*)/tests/helpers/[^/]*$"))
+
+-- The Nupp source of module `name` under the checkout's src/.
+local function sourcefile(name)
+    local base = (checkout or ".") .. "/src/" .. name:gsub("%.", "/")
+    for _, path in ipairs({base .. ".nupp", base .. "/init.nupp"}) do
+        local file = io.open(path, "rb")
+        if file then
+            file:close()
+            return path
+        end
+    end
+    error("no Nupp source for " .. name)
+end
 local images = {}
 local checkEnv = nil
 
@@ -111,6 +137,8 @@ local function instance(owned, replacements, preloads, globals)
         local value
         if loadImage then
             value = vmModule(name)({value = environment})
+        elseif coreInstance then
+            value = coreInstance(sourcefile(name), environment)
         else
             local chunk = assert(loadfile(filename(name)))
             setfenv(chunk, environment)

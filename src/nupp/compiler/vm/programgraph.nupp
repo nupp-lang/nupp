@@ -397,6 +397,25 @@ end
 -- library's name, which keys the function the program started with.
 local UNGUARDED: {[string]: boolean} = {pcall = true, xpcall = true, ["require.dynamic"] = true}
 
+-- Whether a call is made in the arguments under `node`, outside the bodies
+-- of functions they make. Each arm of a guarded call lowers its arguments,
+-- and a call there would be two callsites of one checked call: such a
+-- library call is made through the environment alone.
+local function callsWithin(p: any, node: any): boolean
+    if type(node) ~= "table" or cst.isToken(node) or p.byBody[node] ~= nil then
+        return false
+    elseif node.kind == "call" or node.kind == "methodCall" then
+        return true
+    end
+    for _, child in ipairs(node) do
+        if callsWithin(p, child) then
+            return true
+        end
+    end
+
+    return false
+end
+
 local function guardedLibrary(p: any, node: any): string?
     local library = graph.coreLibraryCall(node)
     if library == nil or UNGUARDED[library] or graph.callbackArgument(node) ~= nil or p.callByNode[node] ~= nil then
@@ -472,6 +491,9 @@ end
 export function describe(modules: {any}, entryModule: string, options: any?): any
     local p: any = {
         chunk = options ~= nil and options.chunk == true,
+        -- A chunk that is a Nupp module (an instance of it), not a function
+        -- of `...`.
+        chunkModule = options ~= nil and options.module == true,
         -- In a chunk, the name tokens that read or write a global, each to
         -- the read of the chunk's environment it is a field of.
         globals = {},
@@ -696,7 +718,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
                 scope = owner.scope,
                 -- A chunk is the function of `...` its module returns, which
                 -- Lua's debug.getinfo calls a main chunk.
-                main = p.chunk and owner.kind == "module" or nil,
+                main = p.chunk and not p.chunkModule and owner.kind == "module" or nil,
                 signature = signature,
                 paramKinds = {},
                 captures = {},
@@ -1292,6 +1314,16 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             and (node.exprs[1].resolvedGlobal == "ipairs" or node.exprs[1].resolvedGlobal == "pairs")
         then
             loopForms[node.exprs[1]] = true
+        end
+        -- A chunk's library call through a global that makes a call in its
+        -- arguments calls what its environment holds (callsWithin).
+        if p.chunk
+            and p.chunkBuiltins ~= nil
+            and node.kind == "call"
+            and callsWithin(p, node.args)
+            and guardedLibrary(p, node) ~= nil
+        then
+            node.chunkDynamic = true
         end
         -- Library intrinsics the core implements as operations (math.floor) are
         -- forms too: the global they name is never read, unless the call

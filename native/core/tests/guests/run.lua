@@ -298,7 +298,7 @@ local CASES = {
     {"compilerfront", 0x7FFF00000000000F},
     -- Lua's loaders over source text, compiled on the core by the compiler
     -- the program carries.
-    {"loadsource", 0x7FFF0000000FFFFF},
+    {"loadsource", 0x7FFF0000007FFFFF},
     -- The compiler's lexer alone on the core, over whole source files.
     {"compilerlexer", 0x7FFF00000000000F},
     -- A checked call spreading fewer or more results than it has parameters.
@@ -307,6 +307,9 @@ local CASES = {
     {"compilercheck", 0x7FFF000000000003},
     -- Lua's debug.getinfo: sources, lines and names by level and of values.
     {"debuggetinfo", 0x7FFF00000001FFFF},
+    -- Instances of a Nupp module compiled as a chunk: fresh state, requires
+    -- through the instance's environment, core call modules swapped.
+    {"moduleinstances", 0x7FFF0000000000FF},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
@@ -527,7 +530,8 @@ local STRESS = {
     loadbinary = true,
     osfilesystem = true,
     loadsource = true,
-    debuggetinfo = true
+    debuggetinfo = true,
+    moduleinstances = true
 }
 -- Shell statements a case's runs start with: the io and pool cases may hold
 -- 64 descriptors, so a handle left open, or opened by a cancelled pool job,

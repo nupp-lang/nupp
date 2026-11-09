@@ -1,0 +1,118 @@
+module nupp.core.catalogmoduleinstances
+
+-- Module instances (nupp.runtime.luaload.instance) of a Nupp module compiled
+-- as a chunk beside this program (catalog-instance-module): each starts
+-- afresh, keeps its own state, calls what its environment's require answers
+-- for an ordinary module and for a core call module alike, honors its
+-- checked record and positions its errors in its own source.
+const luaload = require("nupp.runtime.luaload")
+
+const path = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/catalog-instance-module.chunk"
+
+local function cites(message: any, text: string): boolean
+    return string.find(tostring(message), text, 1, true) ~= nil
+end
+
+-- The program's own require, as a value: what it answers for a core call
+-- module is that module's operations as values.
+const globalRequire: any = require
+
+-- An environment whose require answers `stands` by name, else what the
+-- program's require does, and records each name it was asked for.
+local function environment(stands: {[string]: any}, asked: {string}): table
+    local env: {[string]: any} = {}
+    env.require = function(name: string): any
+        asked[#asked + 1] = name
+        local stand = stands[name]
+        if stand == nil then
+            return globalRequire(name)
+        end
+
+        return stand
+    end
+
+    return setmetatable(env, {__index = _G})
+end
+
+local score: integer = 0
+local askedA: {string} = {}
+local a: any = luaload.instance(
+    path,
+    environment(
+        {
+            ["nupp.compiler.floatparts"] = {
+                frexp = function(x: number): (number, integer)
+                    return x, 7
+                end
+            },
+            ["nupp.runtime.clockcalls"] = {
+                walltime = function(): number
+                    return 42
+                end
+            }
+        },
+        askedA
+    )
+)
+local askedB: {string} = {}
+local b: any = luaload.instance(
+    path,
+    environment(
+        {
+            ["nupp.compiler.floatparts"] = {
+                frexp = function(x: number): (number, integer)
+                    return x, 9
+                end
+            },
+            ["nupp.runtime.clockcalls"] = {
+                walltime = function(): number
+                    return 7.5
+                end
+            }
+        },
+        askedB
+    )
+)
+if type(a) == "table" and type(b) == "table" and a ~= b then
+    score = score + 1
+end
+if a.bump() == 1 and a.bump() == 2 and b.bump() == 1 then
+    score = score + 2
+end
+if a.exponent(1.5) == 7 and b.exponent(1.5) == 9 then
+    score = score + 4
+end
+if a.now() == 42 and b.now() == 7.5 then
+    score = score + 8
+end
+if a.pair(3, 4) == 34 then
+    score = score + 16
+end
+local ok, message = pcall(a.fail)
+if not ok and cites(message, "catalog-instance-module.nupp:37: instance failure") then
+    score = score + 32
+end
+if #askedA == 2 and askedA[1] == "nupp.compiler.floatparts" and askedA[2] == "nupp.runtime.clockcalls" then
+    score = score + 64
+end
+-- A core call module the environment stands in for nothing: its own
+-- operation, through its value.
+local own: any = luaload.instance(
+    path,
+    environment(
+        {
+            ["nupp.compiler.floatparts"] = {
+                frexp = function(x: number): (number, integer)
+                    return x, 1
+                end
+            }
+        },
+        {}
+    )
+)
+local wall = own.now()
+if type(wall) == "number" and wall > 1000000000 then
+    score = score + 128
+end
+
+export const result = score
