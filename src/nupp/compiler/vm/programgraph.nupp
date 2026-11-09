@@ -547,9 +547,10 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         sourcePaths[input.path] = true
         local parsed = need(input.parsed, "checked parse required")
         need(parsed.root and parsed.symbols and parsed.moduleName == input.name, "checked module identity required")
-        -- Once per checked tree: a project shares its trees across programs.
-        if parsed.forwardNames == nil then
-            parsed.forwardNames = {}
+        -- Once per check of a tree: a project shares its trees across
+        -- programs, and checking one again declares its names anew.
+        if parsed.forwardSymbols ~= parsed.symbols then
+            parsed.forwardNames, parsed.forwardSymbols = {}, parsed.symbols
             assignForwardLocals(parsed.root, parsed.forwardNames)
         end
         for own, assigned in pairs(parsed.forwardNames) do
