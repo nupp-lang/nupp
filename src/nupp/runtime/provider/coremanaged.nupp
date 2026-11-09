@@ -1,0 +1,63 @@
+@!internal
+module nupp.runtime.provider.coremanaged
+
+-- The core's half of main's `own.manage`. Main hands the value to
+-- `__nupp.__manage` with a function that runs the value's cleanups, each
+-- protected, raising the first failure (with a count of the rest) once every
+-- cleanup has run. The core makes the same cell through this factory, given
+-- the cleanups as the checker described them and the value's policy.
+
+const managed = require("nupp.runtime.managed")
+
+-- The ownership runtime main installs on its `nupp` table, installed on a
+-- table of this module's own so no global is needed.
+local namespace: any = {}
+managed.install(namespace, {})
+
+-- One cleanup of `value`, as main's protectedCleanupCall makes it.
+local function run(cleanup: any, value: any): (boolean, any)
+    local kind = cleanup.kind
+    if kind == "function" then
+        return pcall(cleanup.fn, value)
+    elseif kind == "closure" then
+        return pcall(function(): any
+            return value:__nuppRelease()
+        end)
+    elseif kind == "method" then
+        return pcall(function(): any
+            return value[cleanup.name](value)
+        end)
+    elseif kind == "field" then
+        return run(cleanup.cleanup, value[cleanup.field])
+    end
+    error("unknown managed cleanup " .. tostring(kind))
+end
+
+--- The managed cell owning `value`: `spec.cleanups` run when it closes, and
+--- `spec.policy` is the policy its aliases are checked against.
+export function create(value: any, spec: any): any
+    local cleanups = spec.cleanups
+
+    local function cleanup(owned: any): nil
+        local first: any = nil
+        local suppressed: integer = 0
+        for _, item in ipairs(cleanups) do
+            local ok, reason = run(item, owned)
+            if not ok then
+                if first == nil then
+                    first = reason
+                else
+                    suppressed += 1
+                end
+            end
+        end
+        if first ~= nil then
+            if suppressed > 0 then
+                error(tostring(first) .. " (suppressed " .. tostring(suppressed) .. " cleanup failure(s))", 0)
+            end
+            error(first, 0)
+        end
+    end
+
+    return namespace.__manage(value, cleanup, spec.policy)
+end

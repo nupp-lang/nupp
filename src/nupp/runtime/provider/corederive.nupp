@@ -1,0 +1,91 @@
+@!internal
+module nupp.runtime.provider.corederive
+
+-- The core's half of main's derive emission. Main registers a declaration's
+-- recipe with `nupp.derive` and stores, on the declaration's table, a member
+-- for each forwarding recipe entry that calls its helper with the arguments
+-- the entry names. The core lowers the same steps as calls of these
+-- factories, each handed the recipe data main renders.
+
+const derive = require("nupp.derive")
+
+-- The registry main reaches through `_G.nupp.__derive`, installed on a table
+-- of this module's own so no global is needed.
+local namespace: any = {}
+derive.install(namespace)
+
+-- A constant as main renders it: a fresh table for each evaluation.
+local function copy(value: any): any
+    if type(value) ~= "table" then
+        return value
+    end
+    local fresh: any = {}
+    for key, item in pairs(value) do
+        fresh[key] = copy(item)
+    end
+
+    return fresh
+end
+
+-- One forwarding argument of a call, from the member's own arguments.
+local function argument(spec: any, entry: any, given: any): any
+    local kind = spec.kind
+    if kind == "receiver" then
+        return given[1]
+    elseif kind == "entry" then
+        return entry
+    elseif kind == "argument" then
+        return given[spec.position]
+    elseif kind == "field" then
+        return given[1][spec.name]
+    elseif kind == "constant" then
+        return copy(spec.value)
+    elseif kind == "array" then
+        local values: any = {}
+        for index, child in ipairs(spec.values) do
+            values[index] = argument(child, entry, given)
+        end
+        return values
+    end
+    error("unknown derived forwarding argument " .. tostring(kind))
+end
+
+--- Registers declaration `owner`'s recipe, answering its registry entry.
+export function register(owner: any, recipe: any): any
+    return namespace.__derive.register(recipe.key, owner, recipe)
+end
+
+--- A member forwarding to helper `spec.member` of module `spec.module` with
+--- the arguments `spec.arguments` name, as main's
+--- `function(params) return _G.require(module)[member](args) end` does: the
+--- helper is loaded when the member is first called.
+export function member(entry: any, spec: any): any
+    return function(...: any): ...any
+        local given: any = {...}
+        local values: any = {}
+        for index, item in ipairs(spec.arguments) do
+            values[index] = argument(item, entry, given)
+        end
+
+        local helper = _G.require(spec.module)[spec.member]
+
+        return helper(table.unpack(values, 1, #spec.arguments))
+    end
+end
+
+--- The initializer a derive asked for on a declaration built from its fields:
+--- each stored field from its argument, its default where that is nil.
+export function initializer(owner: any, spec: any): any
+    return function(self: any, ...: any): any
+        local given: any = {...}
+        for index, field in ipairs(spec.fields) do
+            local value = given[index]
+            if value == nil and spec.defaulted[index] then
+                value = copy(spec.defaults[index])
+            end
+            self[field] = value
+        end
+
+        return self
+    end
+end

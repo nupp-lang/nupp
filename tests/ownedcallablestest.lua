@@ -104,7 +104,7 @@ local function catalog()
     local input = fixture()
     return compiler()(
         "nupp.compiler.vm.programgraph"
-    ).describe({module("nupp.runtime.libraryvalues"), module(FACTORY), input}, input.name)
+    ).describe({module(FACTORY), input}, input.name)
 end
 
 function M.checkedCapturesReachCompleteExecutableLowering()

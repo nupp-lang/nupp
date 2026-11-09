@@ -190,6 +190,14 @@ local CASES = {
     {"modulespattern", 0x7FFF0000000000E6},
     {"modulesrecords", 0x7FFF000000002BD9},
     {"modulescycle", 0x7FFF000000000017},
+    {"pluckedarguments", 0x7FFF001C1CF80790},
+    {"ownmanage", 0x7FFF000000000200},
+    {"loopparameteralias", 0x7FFF000000000002},
+    {"namedarguments", 0x7FFF000337156A8D},
+    {"legacyglobals", 0x7FFF000000000463},
+    {"gotocontinue", 0x7FFF0000000009E7},
+    {"derivedmembers", 0x7FFF00000000000F},
+    {"shortfunctions", 0x7FFF000000003BEE},
     {"modulesforward", 0x7FFF0000000000FF},
     {"modulesself", 0x7FFF000000000007},
     {"modulesdynamic", 0x7FFF000000002B20},
@@ -272,16 +280,24 @@ local CASES = {
     {"osfiles", 0x7FFF00000003FFFF},
     {"filesystem", 0x7FFF000000000001},
     {"osremove", 0x7FFF000000001FFF},
+    -- The compiler's host services as the core answers them for check and build.
+    {"clihosts", 0x7FFF0000000000FF},
     {"loadbinary", 0x7FFF000000001FFF},
-    -- Lua's loaders over source text, compiled on the core by the compiler
-    -- the program carries.
-    {"loadsource", 0x7FFF00000000FFFF},
     -- A record with an array part: fields and elements apart.
     {"recordsarray", 0x7FFF00000000000F},
     -- A function statement assigning a local declared before it.
     {"forwardfunctions", 0x7FFF000000000003},
+    -- Main's os filesystem and system functions; main answers the same word.
+    {"osfilesystem", 0x7FFF0007FFFFFFFF},
     -- The compiler's lexer and parser on the core.
     {"compilerfront", 0x7FFF00000000000F},
+    -- Lua's loaders over source text, compiled on the core by the compiler
+    -- the program carries.
+    {"loadsource", 0x7FFF00000001FFFF},
+    -- The compiler's lexer alone on the core, over whole source files.
+    {"compilerlexer", 0x7FFF00000000000F},
+    -- A checked call spreading fewer or more results than it has parameters.
+    {"callsspreadshort", 0x7FFF00000000001F},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
@@ -495,6 +511,7 @@ local STRESS = {
     filesystem = true,
     osremove = true,
     loadbinary = true,
+    osfilesystem = true,
     loadsource = true
 }
 -- Shell statements a case's runs start with: the io and pool cases may hold
@@ -628,6 +645,14 @@ local NUMERIC = {
     modulespattern = "catalog-modules-pattern",
     modulesrecords = "catalog-modules-records",
     modulescycle = "catalog-modules-cycle",
+    pluckedarguments = "catalog-plucked-arguments",
+    ownmanage = "catalog-own-manage",
+    loopparameteralias = "catalog-loop-parameter-alias",
+    namedarguments = "catalog-named-arguments",
+    legacyglobals = "catalog-legacy-globals",
+    gotocontinue = "catalog-goto-continue",
+    derivedmembers = "catalog-derive",
+    shortfunctions = "catalog-short-functions",
     modulesforward = "catalog-modules-forward",
     modulesself = "catalog-modules-self",
     modulesdynamic = "catalog-modules-dynamic",
@@ -703,7 +728,8 @@ local RAISES = {
         {"raising", reported("nupp: [^\n]*catalogerrorsuncaught%.nupp:42: inner")},
         {"named", reported("nupp: already named")},
         {"table", reported("nupp: table: 0x%x+")},
-        {"nil", reported("nupp: nil")}
+        {"nil", reported("nupp: nil")},
+        {"module", reported("nupp: module 'nupp.core.absentmodule' not found:\n.*")}
     }
 }
 -- The twins that run commands: the reference interpreter they run under is

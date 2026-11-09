@@ -15,6 +15,7 @@ local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local ownedclosures = require("nupp.compiler.vm.ownedclosures")
 local construction = require("nupp.compiler.vm.construction")
 local exportforwarders = require("nupp.compiler.vm.exportforwarders")
+local derivedmembers = require("nupp.compiler.vm.derivedmembers")
 export const booleanKind = "tagged"
 local binding = taggedvalues.binding
 local catalog = taggedvalues.catalog
@@ -66,7 +67,8 @@ local function setup(fn: any, options: any, alternatives: boolean): any
         or fn.node.kind == "funcExpr"
         or fn.node.kind == "funcStmt"
         or fn.node.kind == "inlineMethod"
-        or fn.node.kind == "constructorDecl",
+        or fn.node.kind == "constructorDecl"
+        or fn.node.kind == "shortfn",
         "unsupported function declaration form"
     )
     -- Plain type parameters erase, and so do const ones (`const N: integer`):
@@ -262,10 +264,13 @@ export function closure(ctx: any, node: any, expected: string?): integer
         or node.kind == "funcExpr"
         or node.kind == "funcStmt"
         or node.kind == "inlineMethod"
-        or node.kind == "constructorDecl",
+        or node.kind == "constructorDecl"
+        or node.kind == "shortfn",
         "unsupported function declaration form"
     )
-    local target = need(catalog(ctx).byBody[node.body], "closure lacks checked owner")
+    -- A short function `|x| -> e` is its own body.
+    local body = node.kind == "shortfn" and node or node.body
+    local target = need(catalog(ctx).byBody[body], "closure lacks checked owner")
     need(target.node == node and target.parent == ctx.fn.id, "closure owner identity mismatch")
     ordinaryCaptures(target)
     local args = {target.id}
@@ -505,15 +510,40 @@ export function forVersion(version: integer): any
     -- suspends, which it holds without the core's help.
     -- Built-in `@deprecated` records tooling metadata; its declaration still
     -- runs as written and its checked migration lint remains unchanged.
-    local pragmas: {[string]: boolean} = {unsafe = true, aot = true, allow = true, nosuspend = true, deprecated = true}
+    -- `@cli`, `@debug` and `@event` configure what a derive generates and
+    -- `@syntax` an editor's highlighting: metadata the checker read. Main
+    -- emits the statement each annotates as written. `@derive` is admitted on
+    -- a record whose recipe the core makes (derivedmembers).
+    local pragmas: {
+        [string]: boolean
+    } = {
+        unsafe = true,
+        aot = true,
+        allow = true,
+        nosuspend = true,
+        deprecated = true,
+        cli = true,
+        debug = true,
+        event = true,
+        syntax = true
+    }
     profile.checkedPragma = function(ctx: any, node: any): nil
         local name = node.name and node.name.text
+        local definition = node.annotationDefinition
+        local target = node.stat
+        while target and (target.kind == "pragmaStmt" or target.kind == "exportStmt") do
+            target = target.stat
+        end
+        local derived = name == "derive" and target ~= nil and catalog(ctx).derives[target] ~= nil
         need(
-            pragmas[name or ""] == true
-            and node.annotationDefinition
-            and node.annotationDefinition.name == name
-            and (name ~= "deprecated" or node.annotationDefinition.builtin == true),
-            "only a checked @unsafe, @aot, @allow, @nosuspend or @deprecated annotation is admitted, not @" .. tostring(
+            (pragmas[name or ""] == true or derived)
+            and definition
+            and definition.name == name
+            and (name ~= "deprecated" or definition.builtin == true),
+            "only a checked @unsafe, @aot, @allow, @nosuspend, @deprecated, @cli, @debug, @event, @syntax or lowered @derive "
+            .. "annotation "
+            .. "is admitted, not @"
+            .. tostring(
                 name
             )
         )
@@ -739,11 +769,9 @@ export function forVersion(version: integer): any
         profile.assignmentTarget = function(ctx: any, node: any, rhs: any): any
             -- A chunk's global is a field of the running program's `_G`.
             if taggedvalues.isGlobal(ctx, node) then
-                local globals = ctx.hold(taggedvalues.globalTable(ctx, node))
-                local key = ctx.emit(node, "K", {pool(ctx, "str", node.token.text)}, "tagged")
-                local object = ctx.readHeld(globals)
-                ctx.release(globals)
-                return {receiver = object, index = key, kind = "tagged"}
+                local globals = taggedvalues.globalTable(ctx, node)
+                local name = ctx.emit(node, "K", {pool(ctx, "str", node.token.text)}, "tagged")
+                return {receiver = globals, index = name, kind = "tagged"}
             end
             if node.kind == "dotIndex" then
                 local slot = fieldSlot(ctx, node.obj.inferredType, node.name and node.name.text)
@@ -1121,6 +1149,12 @@ export function forVersion(version: integer): any
                     ctx.emit(entry, "SetIdx", {ctx.readHeld(held), key, ctx.readHeld(nested)}, nil)
                     ctx.release(nested)
                 end
+            end
+            -- A derive recipe's members, after the declaration's own, as main
+            -- makes them.
+            if not derivedmembers.emit(ctx, stat, held) then
+                ctx.release(held)
+                return nil
             end
             local value = ctx.readHeld(held)
             ctx.release(held)

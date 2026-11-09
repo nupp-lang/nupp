@@ -5,8 +5,10 @@ module nupp.core.catalogiofiles
 -- setvbuf, flush and close; and an io.open handle closed as its owner leaves
 -- scope. Each check is a bit of the score. Files go under NUPP_GUEST_TEMP.
 local base = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/io-" .. string.sub(os.tmpname(), -6)
-local score = 0
-local bit = 1
+-- Integers, for more than 32 checks: a bitwise operation on a `number` is
+-- an int32 one in Nupp, which would shift the 33rd bit out.
+local score: integer = 0
+local bit: integer = 1
 local path = base .. "-text"
 local numbers = base .. "-numbers"
 
@@ -30,7 +32,7 @@ do
     local closedOk, closedMessage = pcall(function(): any
         return f:read("a")
     end)
-    check(not closedOk and ends(closedMessage, ":31: attempt to use a closed file"))
+    check(not closedOk and ends(closedMessage, ":33: attempt to use a closed file"))
 end
 
 -- Reading every format; "n" leaves the byte it stopped at.

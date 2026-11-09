@@ -4,7 +4,10 @@ module nupp.compiler.vm.nativecellcontract
 -- identities. It is not an owner/effect registration API or a raw-code loader.
 
 local function need(ok: any, message: string): any
-    assert(ok, "native cell: " .. message)
+    -- The message is built only for a failure: checks run millions of times.
+    if not ok then
+        error("native cell: " .. message, 0)
+    end
     return ok
 end
 

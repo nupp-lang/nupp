@@ -16,6 +16,8 @@ local programgraph = require("nupp.compiler.vm.programgraph")
 local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local ownedcallables = require("nupp.compiler.vm.ownedcallables")
 local forwardedexports = require("nupp.compiler.vm.forwardedexports")
+local derivedrecipes = require("nupp.compiler.vm.derivedrecipes")
+local managedcalls = require("nupp.compiler.vm.managedcalls")
 local tagged = require("nupp.compiler.vm.taggedprofile")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
@@ -32,6 +34,68 @@ local function manymodules(): {string}
     local list: {string} = {}
     for index = 1, 260 do
         list[index] = ("modulesmany%03d"):format(index)
+    end
+
+    return list
+end
+
+-- A file's text, or nil when there is none.
+local function contents(path: string): string?
+    local file = io.open(path, "rb")
+    if file == nil then
+        return nil
+    end
+    local text = file:read("a") as string
+    file:close()
+
+    return text
+end
+
+-- The namespace of the VM's host modules, which the core answers only where
+-- `graph.coremodule` maps one.
+const VM_HOST_PREFIX = "nupp.vm."
+
+-- Whether `name` is a VM host module the core does not answer.
+local function unansweredhost(name: string): boolean
+    local graph: any = require("nupp.compiler.vm.graph")
+
+    return name:sub(1, #VM_HOST_PREFIX) == VM_HOST_PREFIX
+        and graph.coremodule(name) == name
+        and not graph.corecallmodule(name)
+end
+
+-- The modules the compiler CLI's image carries beside what its entry requires,
+-- as `nupp.tools.vm.project` names them for the image bin/nupp runs: its
+-- ROOT_EXTRAS line, read as scripts/vm-cli reads it, so the two cannot drift.
+local function cliextras(): {string}
+    local root = os.getenv("NUPP_COMPILER_ROOT")
+    if root == nil then
+        return {}
+    end
+    local text = assert(contents(root .. "/src/nupp/tools/vm/project.nupp"), "VM project module missing")
+    local start = assert(text:find("project.ROOT_EXTRAS = ", 1, true), "ROOT_EXTRAS line missing")
+    local stop = assert(text:find("\n\n", start, true), "ROOT_EXTRAS line unterminated")
+    local list: {string} = {}
+    for name in text:sub(start, stop):gmatch("\"([^\"]*)\"") do
+        for module in name:gmatch("[%w%._]+") do
+            -- A VM host provider the core replaces is carried as the core's.
+            local graph: any = require("nupp.compiler.vm.graph")
+            local relative = "src/" .. (graph.coremodule(module) as string):gsub("%.", "/")
+            local source = contents(root .. "/" .. relative .. ".nupp")
+            if source == nil then
+                relative = relative .. "/init"
+                source = contents(root .. "/" .. relative .. ".nupp")
+            end
+            -- A provider over a VM host the core does not answer (compression,
+            -- the network, URIs, workers) is one check and build never select.
+            local usable = source ~= nil
+            for required in (source or ""):gmatch("require%(%s*[\"']([%w%._]+)[\"']%s*%)") do
+                usable = usable and not unansweredhost(required)
+            end
+            if usable then
+                list[#list + 1] = relative
+            end
+        end
     end
 
     return list
@@ -197,6 +261,19 @@ local CASES: {[string]: {
     spanreads = {fixture = "nupp/core/catalogspanreads", version = 8, follow = true},
     spanwrites = {fixture = "nupp/core/catalogspanwrites", version = 8, follow = true},
     modulesdynamic = {fixture = "catalog-modules-dynamic", version = 8, modules = {"catalog-modules-geometry"},},
+    shortfunctions = {fixture = "catalog-short-functions", version = 8},
+    gotocontinue = {fixture = "catalog-goto-continue", version = 8},
+    legacyglobals = {fixture = "catalog-legacy-globals", version = 8},
+    derivedmembers = {
+        fixture = "catalog-derive",
+        version = 8,
+        follow = true,
+        modules = {"catalog-derive-helpers", "catalog-derive-provider"},
+    },
+    namedarguments = {fixture = "catalog-named-arguments", version = 8},
+    loopparameteralias = {fixture = "catalog-loop-parameter-alias", version = 8},
+    ownmanage = {fixture = "catalog-own-manage", version = 8},
+    pluckedarguments = {fixture = "catalog-plucked-arguments", version = 8},
     modulescycle = {
         fixture = "catalog-modules-cycle",
         version = 8,
@@ -281,17 +358,34 @@ local CASES: {[string]: {
     osfiles = {fixture = "catalog-os-files", version = 8},
     filesystem = {fixture = "catalog-filesystem", version = 8, follow = true},
     osremove = {fixture = "catalog-os-remove", version = 8},
+    clihosts = {fixture = "catalog-cli-hosts", version = 8},
     -- Lua's loaders over a binary chunk installed into the running program.
     loadbinary = {fixture = "catalog-load-binary", version = 8, chunks = {"catalog-load-chunk"}},
+    -- A record with an array part: fields and elements apart.
+    recordsarray = {fixture = "catalog-records-array", version = 8},
+    -- A function statement assigning a local declared before it.
+    forwardfunctions = {fixture = "catalog-forward-functions", version = 8},
+    osfilesystem = {fixture = "catalog-os-filesystem", version = 8},
+    -- The compiler's lexer and parser on the core.
+    compilerfront = {fixture = "catalog-compiler-front", version = 8, follow = true},
     -- Lua's loaders over source text, compiled on the core by the compiler
     -- the program carries (`follow` reaches it).
-    recordsarray = {fixture = "catalog-records-array", version = 8},
-    forwardfunctions = {fixture = "catalog-forward-functions", version = 8},
-    compilerfront = {fixture = "catalog-compiler-front", version = 8, follow = true},
+    compilerlexer = {fixture = "catalog-compiler-lexer", version = 8, follow = true},
+    callsspreadshort = {fixture = "catalog-calls-spread-short", version = 8},
     loadsource = {fixture = "catalog-load-source", version = 8, modules = {"catalog-load-helper"}, follow = true},
     -- The packaged test runner (nupp.lua build.targets.testRunner): the
     -- delivery path runs it on the core.
     testrunner = {fixture = "tests/tools/test/runner/main", version = 8, follow = true, rooted = true, module = "main"},
+    -- The compiler CLI bin/nupp runs (`check`, `build`): its VM entry and the
+    -- modules its image carries beside it. The delivery path runs it on the core.
+    compilercli = {
+        fixture = "src/nupp/tools/vm/root",
+        version = 8,
+        follow = true,
+        rooted = true,
+        module = "nupp.tools.vm.root",
+        modules = cliextras()
+    },
     -- The bench harness's own entry: the bench/vm workloads under debug.bench.
     benchworkloads = {
         fixture = "bench/vm/workloads.bench",
@@ -517,10 +611,6 @@ local function libraryModule(name: string): boolean
     return name:sub(1, 4) == "src/" or name:find("/src/", 1, true) ~= nil
 end
 
--- The namespace of the VM's host modules, which the core answers only where
--- `graph.coremodule` maps one.
-const VM_HOST_PREFIX = "nupp.vm."
-
 const NATIVE_HOST_LOADER = "nupp.runtime.native"
 
 -- The library module under `src/` that module `name` loads from on the
@@ -661,6 +751,17 @@ local function requiredmodules(root: any, source: string, follow: boolean): ({st
         if ownedcallables.taking(node) then
             add(ownedcallables.MODULE, false)
         end
+        -- A record a derive recipe gives members loads the factory, and
+        -- each helper its members call.
+        if managedcalls.managing(node) then
+            add(managedcalls.MODULE, false)
+        end
+        if derivedrecipes.derived(node) then
+            add(derivedrecipes.MODULE, false)
+            for _, helper in ipairs(derivedrecipes.helperModules(node)) do
+                add(helper, false)
+            end
+        end
         -- A library call the core makes itself (`assert(v)`) loads nothing,
         -- whatever module its name is checked through.
         if node.kind == "call" and graph.coreLibraryCall(node) ~= nil then
@@ -742,10 +843,7 @@ local function portable(root: string, library: string, seen: {[string]: boolean}
             if not portable(root, found, visited) then
                 return false
             end
-        elseif name:sub(1, #VM_HOST_PREFIX) == VM_HOST_PREFIX
-            and graph.coremodule(name) == name
-            and not graph.corecallmodule(name)
-        then
+        elseif unansweredhost(name) then
             return false
         end
     end

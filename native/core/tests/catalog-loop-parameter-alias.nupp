@@ -1,0 +1,16 @@
+module nupp.core.catalogloopparameteralias
+
+-- A loop body's local that aliases a parameter, followed by a branch, does
+-- not change the parameter the loop carries.
+local function count(t: {[string]: integer}, limit: integer): integer
+    local n: integer = 0
+    for name, value in pairs(t) do
+        local same = t
+        if same[name] == value and value > limit then
+            n += 1
+        end
+    end
+    return n
+end
+
+export const result = count({a = 1, b = 5, c = 9}, 3)

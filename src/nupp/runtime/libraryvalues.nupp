@@ -74,8 +74,7 @@ export const functions: {[string]: any} = {
             if count < 2 then
                 message = "assertion failed!"
             end
-            -- As Lua raises it: the message alone, with no position.
-            error(message, 0)
+            error(message, 2)
         end
 
         return ...
@@ -236,6 +235,12 @@ export const functions: {[string]: any} = {
     end,
     ["table.concat"] = function(t: {string}, sep: string?, i: integer?, j: integer?): string
         return table.concat(t, sep, i, j)
+    end,
+    ["table.unpack"] = function(t: any, i: integer?, j: integer?): ...any
+        return table.unpack(t, i, j)
+    end,
+    unpack = function(t: any, i: integer?, j: integer?): ...any
+        return table.unpack(t, i, j)
     end,
     ["table.insert"] = function(t: {any}, position: any, value: any): nil
         if value == nil then

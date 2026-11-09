@@ -14,7 +14,10 @@ local lower = require("nupp.compiler.vm.lower")
 local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local ownedcallables = require("nupp.compiler.vm.ownedcallables")
 local forwardedexports = require("nupp.compiler.vm.forwardedexports")
+local derivedrecipes = require("nupp.compiler.vm.derivedrecipes")
+local managedcalls = require("nupp.compiler.vm.managedcalls")
 local indexedaccess = require("nupp.compiler.vm.indexedaccess")
+local namedarguments = require("nupp.compiler.vm.namedarguments")
 
 local typeSyntax = {
     tconst = true,
@@ -61,9 +64,16 @@ end
 -- The ownership intrinsics the core runs: transfers, which answer the value
 -- they move, and `partition`, which answers its two parts. Their ownership
 -- is the checker's; at run time each is its value.
-local executableintrinsics: {
-    [string]: boolean
-} = {adopt = true, release = true, borrow = true, borrowFrom = true, region = true, partition = true}
+local executableintrinsics: {[string]: boolean} = {
+    adopt = true,
+    release = true,
+    borrow = true,
+    borrowFrom = true,
+    region = true,
+    partition = true,
+    -- A managed cell is made by coremanaged's factory (managedcalls).
+    manage = true
+}
 
 -- Whether the core runs ownership intrinsic call `node`: an executable one,
 -- or a `drop`, which runs its owner's cleanups then.
@@ -74,7 +84,10 @@ local function executable(node: any): boolean
 end
 
 local function need(ok: any, message: string): any
-    assert(ok, "program graph: " .. message)
+    -- The message is built only for a failure: checks run millions of times.
+    if not ok then
+        error("program graph: " .. message, 0)
+    end
     return ok
 end
 
@@ -359,6 +372,24 @@ local function chunkGlobal(p: any, node: any): boolean
     return definition == nil or p.byDefinition[definition] == nil
 end
 
+-- Calls `visit` with every token in the tree under `node`, and `enter`, when
+-- given, with every node.
+local function eachToken(node: any, visit: function(any): nil, enter: (function(any): nil)?): nil
+    if type(node) ~= "table" then
+        return
+    end
+    if cst.isToken(node) then
+        visit(node)
+        return
+    end
+    if enter then
+        enter(node)
+    end
+    for _, child in ipairs(node) do
+        eachToken(child, visit, enter)
+    end
+end
+
 -- A function statement naming a local declared before it (`local f` then
 -- `function f()`) assigns that local, as in Lua; the checker declares the
 -- statement's name anew. This points the statement's name, and every name
@@ -366,27 +397,21 @@ end
 local function assignForwardLocals(root: any, replaced: {[any]: any}): nil
     local declared: {any} = {}
     local statements: {any} = {}
-    local walk: function(any): nil
-    walk = function(node: any): nil
-        if type(node) ~= "table" then
-            return
-        end
-        if cst.isToken(node) then
-            local definition = node.definition
-            if definition and definition.token == node and definition.lexical and definition.scopeFrom then
+    eachToken(
+        root,
+        function(token: any): nil
+            local definition = token.definition
+            if definition and definition.token == token and definition.lexical and definition.scopeFrom then
                 declared[#declared + 1] = definition
             end
-            return
+        end,
+        function(node: any): nil
+            local base = node.kind == "funcStmt" and node.name and node.name.base
+            if base and #node.name == 1 and base.definition and base.definition.token == base then
+                statements[#statements + 1] = base
+            end
         end
-        local base = node.kind == "funcStmt" and node.name and node.name.base
-        if base and #node.name == 1 and base.definition and base.definition.token == base then
-            statements[#statements + 1] = base
-        end
-        for _, child in ipairs(node) do
-            walk(child)
-        end
-    end
-    walk(root)
+    )
     local changed = false
     for _, base in ipairs(statements) do
         local own = base.definition
@@ -409,23 +434,12 @@ local function assignForwardLocals(root: any, replaced: {[any]: any}): nil
     if not changed then
         return
     end
-    local rebind: function(any): nil
-    rebind = function(node: any): nil
-        if type(node) ~= "table" then
-            return
+    eachToken(root, function(token: any): nil
+        local to = token.definition and replaced[token.definition]
+        if to then
+            token.definition = to
         end
-        if cst.isToken(node) then
-            local to = node.definition and replaced[node.definition]
-            if to then
-                node.definition = to
-            end
-            return
-        end
-        for _, child in ipairs(node) do
-            rebind(child)
-        end
-    end
-    rebind(root)
+    end)
 end
 
 -- `options.chunk` describes a chunk Lua's `load` compiles (nupp.compiler.vm.corechunk):
@@ -434,8 +448,11 @@ end
 export function describe(modules: {any}, entryModule: string, options: any?): any
     local p: any = {
         chunk = options ~= nil and options.chunk == true,
-        -- In a chunk, the name tokens that read or write a global.
+        -- In a chunk, the name tokens that read or write a global, each to
+        -- the read of the chunk's environment it is a field of.
         globals = {},
+        -- In a chunk, the name of the local its environment is in.
+        environment = options ~= nil and options.environment or nil,
         modules = {},
         owners = {},
         bindings = {},
@@ -450,9 +467,15 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         requireByNode = {},
         scalartypes = {imports = {}, definitions = {}, witnesses = {}},
         callables = {},
+        -- Executable references the checker resolved to no declaration.
+        unresolved = {},
         -- By module chunk id, the forwarders a module in a require cycle
         -- publishes for the functions it exports.
         forwards = {},
+        -- By record declaration, the derived members it makes.
+        derives = {},
+        -- By `own.manage` call, the factory call that makes its cell.
+        manages = {},
         qualifiedLoads = {},
         calls = {},
         callByNode = {},
@@ -495,7 +518,14 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         sourcePaths[input.path] = true
         local parsed = need(input.parsed, "checked parse required")
         need(parsed.root and parsed.symbols and parsed.moduleName == input.name, "checked module identity required")
-        assignForwardLocals(parsed.root, forwardNames)
+        -- Once per checked tree: a project shares its trees across programs.
+        if parsed.forwardNames == nil then
+            parsed.forwardNames = {}
+            assignForwardLocals(parsed.root, parsed.forwardNames)
+        end
+        for own, assigned in pairs(parsed.forwardNames) do
+            forwardNames[own] = assigned
+        end
         need(input.diagnostics ~= nil and #parsed.errors == 0, "checked diagnostics required")
         -- A chunk compiles whatever its checking found, as Lua's `load` does.
         for _, diagnostic in ipairs(input.diagnostics) do
@@ -609,7 +639,13 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         local body = node.kind == "shortfn" and node or isDeclaration and node.body
         need(not isDeclaration or body ~= nil, "function declaration lacks a checked body")
         if body and p.byBody[body] ~= owner then
-            local signature = need(body.signatureType, "checked function signature required")
+            local where = cst.firstToken(node)
+            local signature = need(
+                body.signatureType,
+                "checked function signature required at " .. tostring(
+                    owner.scope.path
+                ) .. ":" .. tostring(where and where.line)
+            )
             local child: any = {
                 id = #p.owners,
                 kind = "function",
@@ -726,9 +762,20 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
                 or p.byDefinition[definition] ~= nil
                 or erasedDefinitions[definition]
                 or forwardNames[definition] ~= nil,
-                "checked declaration outside ordered syntax is unsupported"
+                "checked declaration outside ordered syntax is unsupported: " .. tostring(
+                    definition.name
+                ) .. " in " .. module.path .. ":" .. tostring(definition.token and definition.token.line)
             )
         end
+    end
+    -- A chunk's environment: the declaration of the local its opening makes.
+    if p.chunk then
+        for _, b in ipairs(p.bindings) do
+            if b.definition.name == p.environment and p.owners[b.owner + 1].kind == "module" then
+                p.chunkEnvironment = b.definition
+            end
+        end
+        need(p.chunkEnvironment ~= nil, "chunk environment declaration is missing")
     end
     -- The checker names an exported function a call reaches before its
     -- statement by the definition it hoisted, which the statement then
@@ -850,26 +897,63 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
 
     local loopForms: {[any]: boolean} = {}
 
-    local function reference(token: any, owner: any): nil
+    -- Registers the qualified read `node` makes of `module` in `owner`, with
+    -- what else its site says (`fields`).
+    local function qualifiedSite(owner: any, node: any, module: string, fields: {[string]: any}): nil
+        local item: any = {
+            id = #p.requires,
+            owner = owner.id,
+            node = node,
+            module = module,
+            typeOnly = false,
+            qualified = true
+        }
+        for key, value in pairs(fields) do
+            item[key] = value
+        end
+        p.requires[#p.requires + 1], p.requireByNode[node] = item, item
+    end
+
+    local reference: function(any, any): nil
+
+    -- A read of the chunk's environment where global `token` is, in `owner`:
+    -- a reference of its own, which capture analysis carries into closures.
+    local function environmentRead(token: any, owner: any): any
+        local read: any = {
+            kind = "name",
+            text = p.environment,
+            line = token.line,
+            col = token.col,
+            offset = token.offset,
+            trivia = {},
+            definition = p.chunkEnvironment
+        }
+        reference(read, owner)
+
+        return read
+    end
+
+    reference = function(token: any, owner: any): nil
         local definition = token and token.definition
         local location = tostring(
             token and token.text
         ) .. " at " .. owner.scope.path .. ":" .. tostring(token and token.line)
-        if definition == nil and p.chunk then
-            p.globals[token] = true
+        -- A chunk reads a name nothing declares, or what the prelude declares
+        -- (`io`, `require`), as the running program's global of that name.
+        if p.chunk and (definition == nil or definition.token ~= token and p.byDefinition[definition] == nil) then
+            p.globals[token] = environmentRead(token, owner)
             return
         end
-        need(definition ~= nil, "unresolved executable reference " .. location)
+        -- Recorded rather than raised, so an inventory names every one;
+        -- compile refuses a catalog that has any.
+        if definition == nil then
+            p.unresolved[#p.unresolved + 1] = {owner = owner.id, token = token, location = location}
+            return
+        end
         if definition.token == token then
             return
         end
         local b = p.byDefinition[definition]
-        -- A chunk reads what the prelude declares (`io`, `require`) as the
-        -- running program's global of that name.
-        if not b and p.chunk then
-            p.globals[token] = true
-            return
-        end
         if not b then
             need(
                 definition.token and type(definition.filename) == "string" and not sourcePaths[definition.filename],
@@ -957,6 +1041,18 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
     collect = function(node: any, owner: any): nil
         if cst.isToken(node) or typeSyntax[node.kind] or graph.erased(node) then
             return
+        end
+        -- An annotation's arguments are metadata the checker read; main emits
+        -- only the statement it annotates.
+        if node.kind == "annotationArg" then
+            return
+        end
+        -- A call with named arguments passes the positional list the checker
+        -- bound them to; each skipped slot is a `nil` literal of its own.
+        if node.kind == "call" or node.kind == "methodCall" then
+            for _, skipped in ipairs(namedarguments.normalize(node) or {}) do
+                collect(skipped, owner)
+            end
         end
         local bodyOwner = p.byBody[node]
         if bodyOwner then
@@ -1059,17 +1155,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         -- A chunk's qualified path into a module it does not hold is into
         -- the running program's, required by name where it is read.
         if p.chunk and not qualified and (projection or node.kind == "dotIndex") and node.qualifiedModule then
-            local item = {
-                id = #p.requires,
-                owner = owner.id,
-                node = node,
-                module = graph.coremodule(node.qualifiedModule),
-                typeOnly = false,
-                qualified = true,
-                builtin = projection,
-                absent = true
-            }
-            p.requires[#p.requires + 1], p.requireByNode[node] = item, item
+            qualifiedSite(owner, node, graph.coremodule(node.qualifiedModule), {builtin = projection, absent = true})
             return
         end
         if projection then
@@ -1137,17 +1223,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         local valuesModule = libraryValue and graph.libraryModule(libraryValue)
         local values = valuesModule and moduleNames[valuesModule]
         if libraryValue and values then
-            local item = {
-                id = #p.requires,
-                owner = owner.id,
-                node = node,
-                module = valuesModule,
-                typeOnly = false,
-                target = values.chunk,
-                qualified = true,
-                library = libraryValue
-            }
-            p.requires[#p.requires + 1], p.requireByNode[node] = item, item
+            qualifiedSite(owner, node, valuesModule as string, {target = values.chunk, library = libraryValue})
             return
         end
         -- `for i, v in ipairs(t)` and `pairs(t)` are loop forms the profile lowers
@@ -1294,6 +1370,40 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
                 cleanupToken(node, captured.type, captured.token)
             end
         end
+        if managedcalls.managing(node) then
+            local plan = managedcalls.prepare(p, node, owner)
+            p.manages[node] = plan
+            local site = {
+                id = #p.calls,
+                owner = owner.id,
+                node = plan.call,
+                definition = plan.target.definition,
+                managed = plan
+            }
+            p.calls[#p.calls + 1], p.callByNode[plan.call] = site, site
+            local load = {kind = "qualifiedLoad", qualifiedModule = managedcalls.MODULE, cst.firstToken(node)}
+            local module = need(moduleNames[managedcalls.MODULE], "managed cell module is missing")
+            plan.loader = qualifiedload(owner, module, load)
+            plan.loader.managed = plan
+        end
+        if derivedrecipes.derived(node) then
+            local plan = derivedrecipes.prepare(p, node, owner)
+            p.derives[node] = plan
+            for _, made in ipairs(derivedrecipes.steps(plan)) do
+                local site = {
+                    id = #p.calls,
+                    owner = owner.id,
+                    node = made.call,
+                    definition = made.target.definition,
+                    derived = plan
+                }
+                p.calls[#p.calls + 1], p.callByNode[made.call] = site, site
+            end
+            local load = {kind = "qualifiedLoad", qualifiedModule = derivedrecipes.MODULE, cst.firstToken(node)}
+            local module = need(moduleNames[derivedrecipes.MODULE], "derive factory module is missing")
+            plan.loader = qualifiedload(owner, module, load)
+            plan.loader.derived = plan
+        end
         if node.kind == "localStmt" and node.automaticOwners then
             for index, automatic in pairs(node.automaticOwners) do
                 local anchor = node.names and node.names[index]
@@ -1375,7 +1485,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             p.calls[#p.calls + 1], p.callByNode[built.call] = item, item
             loopForms[built.call] = true
         end
-        if node.kind == "name" then
+        if node.kind == "name" and not graphcalls.discardTarget(node) then
             reference(node.token, owner)
         elseif node.kind == "recordDecl" and node.qualifiers and node.qualifiers[1].definition then
             -- `record t.R` stores its table in the table `t` names.
@@ -1589,8 +1699,19 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         -- value its require answers by name.
         local foreign = p.chunk and required and moduleNames[importmodule(p, b)] == nil
         if required and not graph.corecallmodule(required) and not foreign then
-            local target = need(moduleNames[importmodule(p, b)], "required checked module is missing: " .. required)
-            p.imports[#p.imports + 1] = {binding = b.id, target = target.chunk, projection = b.builtinImport}
+            local target = moduleNames[importmodule(p, b)]
+            -- Recorded rather than raised, as an unresolved reference is.
+            if target == nil then
+                p.unresolved[
+                    #p.unresolved + 1
+                ] = {
+                    owner = b.owner,
+                    token = b.token,
+                    location = "required checked module " .. required .. " (not carried)"
+                }
+            else
+                p.imports[#p.imports + 1] = {binding = b.id, target = target.chunk, projection = b.builtinImport}
+            end
         end
     end
 
@@ -1777,6 +1898,12 @@ export function verify(p: any): boolean
             if item.forward then
                 forwardedexports.verify(p, item.forward)
             end
+            if item.derived then
+                derivedrecipes.verify(p, item.derived)
+            end
+            if item.managed then
+                managedcalls.verify(p, item.managed)
+            end
             -- A chunk's absent module initializes in the running program.
             if item.builtin and not item.absent then
                 local current = builtinprojection(node)
@@ -1831,6 +1958,8 @@ export function verify(p: any): boolean
                         or item.eager and node.kind == "qualifiedLoad"
                         or item.callable and node.kind == "qualifiedLoad"
                         or item.forward and node.kind == "qualifiedLoad"
+                        or item.derived and node.kind == "qualifiedLoad"
+                        or item.managed and node.kind == "qualifiedLoad"
                     )
                     and node.qualifiedModule ~= nil
                     and graph.coremodule(node.qualifiedModule) == item.module
@@ -2085,6 +2214,10 @@ export function verify(p: any): boolean
             ownedcallables.verify(p, item.callable)
         elseif item.forward then
             forwardedexports.verify(p, item.forward)
+        elseif item.derived then
+            derivedrecipes.verify(p, item.derived)
+        elseif item.managed then
+            managedcalls.verify(p, item.managed)
         elseif item.scalarWitness then
 
             local witness = item.scalarWitness
@@ -2173,6 +2306,12 @@ export function verify(p: any): boolean
     for _, plan in pairs(p.forwards) do
         forwardedexports.verify(p, plan)
     end
+    for _, plan in pairs(p.derives) do
+        derivedrecipes.verify(p, plan)
+    end
+    for _, plan in pairs(p.manages) do
+        managedcalls.verify(p, plan)
+    end
     for node, access in pairs(p.indexedByNode) do
         local site = need(p.callByNode[access.call], "indexed span lacks its issued callsite")
         need(site.indexed == access, "indexed span callsite points to another operator")
@@ -2237,6 +2376,9 @@ end
 export function functionGraph(p: any, owner: any, profile: any): any
     verify(p)
     need(p.owners[owner.id + 1] == owner, "foreign function owner")
+    for _, item in ipairs(p.unresolved) do
+        need(item.owner ~= owner.id, "unresolved executable reference " .. item.location)
+    end
     for _, reference in ipairs(p.externalReferences) do
         need(reference.owner ~= owner.id, "external execution bindings are not established")
     end
@@ -2377,6 +2519,13 @@ end
 -- Profiles must explicitly support real module initializer owners.
 export function compile(p: any, profile: any): any
     verify(p)
+    if #p.unresolved > 0 then
+        local first = p.unresolved[1]
+        need(
+            false,
+            "unresolved executable reference " .. first.location .. " and " .. tostring(#p.unresolved - 1) .. " more"
+        )
+    end
     local externals = unboundExternals(p)
     need(#externals == 0, "external execution bindings are not established: " .. table.concat(externals, ", "))
     local intrinsics = unexecutableIntrinsics(p)
@@ -2420,7 +2569,17 @@ export function inventory(p: any, profile: any): any
         end
     end
 
-    return {externals = unboundExternals(p), intrinsics = unexecutableIntrinsics(p), owners = refused}
+    local unresolved = {}
+    for _, item in ipairs(p.unresolved) do
+        unresolved[#unresolved + 1] = {owner = item.owner, location = item.location}
+    end
+
+    return {
+        externals = unboundExternals(p),
+        intrinsics = unexecutableIntrinsics(p),
+        owners = refused,
+        unresolved = unresolved
+    }
 end
 
 export function image(p: any, profile: any): string

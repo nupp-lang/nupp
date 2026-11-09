@@ -7,6 +7,7 @@ local process = require("nupp.compiler.process")
 local hash = require("nupp.compiler.hash")
 local json = require("serde.json")
 local aot = require("nupp.tools.vm.aotparts")
+local steps = require("nupp.tools.vm.buildsteps")
 const GENERATION_LENGTH = 64
 
 export function available(): integer
@@ -168,21 +169,43 @@ local function run(arg: {string}): integer
     local staging = OUT .. "/native-new"
     assert(fs.mkdir(staging))
     run({objecttool, "native", "layouts", staging .. "/layouts.json"}, nil, "native layouts")
-    run(
-        {
-            seed .. "/runtime",
-            "run",
-            image,
-            "nupp.compiler.clif.lower",
-            "compileRuntime",
-            ROOT,
-            staging .. "/layouts.json",
-            "--output",
-            staging .. "/runtime.clif"
-        },
-        {NO_JIT = "1", NO_AOT = "1", NUPP_COMPILER_ROOT = ROOT, NUPP_VM_EMIT_CACHE = ""},
-        "native core lowering"
-    )
+    -- The lowering reads the code the image carries for it, the runtime sources,
+    -- the layouts and the interpreter running it: with all of them as a build
+    -- before had them, that build's lowering is reused (`nupp.tools.vm.buildsteps`).
+    local loweringEnv = {NO_JIT = "1", NO_AOT = "1", NUPP_COMPILER_ROOT = ROOT, NUPP_VM_EMIT_CACHE = ""}
+    local loweringInputs = {
+        "seed " .. digest(seed .. "/runtime"),
+        "layouts " .. digest(staging .. "/layouts.json"),
+        "lowering " .. assert(
+            capture({seed .. "/runtime", "run", image, "nupp.tools.vm.buildsteps", "loweringInputs", ROOT}, loweringEnv)
+                :match("(%x+)%s*$"),
+            "native core lowering inputs unavailable"
+        ),
+    }
+    local loweringKept = steps.kept("native core lowering", loweringInputs)
+    local loweringReused = false
+    if loweringKept and loweringKept["runtime.clif"] then
+        write(staging .. "/runtime.clif", loweringKept["runtime.clif"] as string)
+        io.stderr:write("vm-build: native core lowering reused\n")
+        loweringReused = true
+    else
+        run(
+            {
+                seed .. "/runtime",
+                "run",
+                image,
+                "nupp.compiler.clif.lower",
+                "compileRuntime",
+                ROOT,
+                staging .. "/layouts.json",
+                "--output",
+                staging .. "/runtime.clif"
+            },
+            loweringEnv,
+            "native core lowering"
+        )
+        steps.keep("native core lowering", loweringInputs, {["runtime.clif"] = read(staging .. "/runtime.clif")})
+    end
     run(
         {objecttool, "native", "object", staging .. "/runtime.clif", staging .. "/runtime.o"},
         nil,
@@ -203,7 +226,36 @@ local function run(arg: {string}): integer
     copy(built, tool, true)
     local aotstarted = os.monotonic()
     local fresh = OUT .. "/compiler-next.o"
-    local receipt = aot.compile(tool, image, fresh, {jobs = jobs, maps = OUT .. "/compiler.o.maps"})
+    -- The AOT reads the image and the tool, and its sidecar names the maps file:
+    -- with all of them as a build before had them, that build's objects are reused.
+    local suffixes = {"", ".rs", ".maps", ".manifest"}
+    local aotInputs = {
+        "image " .. digest(image),
+        "tool " .. digest(tool),
+        "jobs " .. tostring(jobs),
+        "maps " .. fs.absolute(OUT .. "/compiler.o.maps"),
+    }
+    local aotKept = steps.kept("parallel AOT", aotInputs)
+    for _, suffix in ipairs(suffixes) do
+        if aotKept and aotKept["compiler.o" .. suffix] == nil then
+            aotKept = nil
+        end
+    end
+    local receipt: any = nil
+    if aotKept and aotKept["receipt.json"] then
+        for _, suffix in ipairs(suffixes) do
+            write(fresh .. suffix, aotKept["compiler.o" .. suffix] as string)
+        end
+        receipt = json.decodevalue(aotKept["receipt.json"] as string)
+        receipt.reused = true
+    else
+        receipt = aot.compile(tool, image, fresh, {jobs = jobs, maps = OUT .. "/compiler.o.maps"})
+        local made: {[string]: string} = {["receipt.json"] = json.encodevalue(receipt)}
+        for _, suffix in ipairs(suffixes) do
+            made["compiler.o" .. suffix] = read(fresh .. suffix)
+        end
+        steps.keep("parallel AOT", aotInputs, made)
+    end
     receipt.seconds = (os.monotonic() - aotstarted) / 1000
     write(OUT .. "/parallel-aot.json", json.encodevalue(receipt))
     io.stderr:write(("vm-build: parallel AOT took %.3fs\n"):format(receipt.seconds))
@@ -279,7 +331,8 @@ local function run(arg: {string}): integer
         execution = "JIT disabled during validation; supplied matching-image AOT remains enabled",
         linked = true,
         validation = {"image verifier", "full root CLI --help"},
-        parallelAot = {jobs = jobs, functions = receipt.functions},
+        parallelAot = {jobs = jobs, functions = receipt.functions, reused = receipt.reused == true},
+        nativeCoreLowering = {reused = loweringReused},
         buildCompiler = {
             generation = generation,
             runtimeSha256 = oldreceipt.runtimeSha256,

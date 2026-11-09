@@ -1,0 +1,35 @@
+module nupp.core.catalogownmanage
+
+-- `own.manage` moves an owner into a managed cell: closing the cell, by hand
+-- or as its owner's scope ends, runs the value's cleanup once.
+local closed: integer = 0
+
+local record Handle
+    id: integer
+end
+
+local function release(takes value: Handle): nil
+    closed += value.id
+end
+
+local function open(id: integer): affine(Handle, release)
+    return Handle(id = id)
+end
+
+local function explicit(): integer
+    local owner = own.manage(open(5))
+    local alias = owner:alias()
+    local before = closed
+    owner:close()
+    return before * 10 + closed + (alias ~= nil and 0 or 1000)
+end
+
+local function scoped(): nil
+    local owner = own.manage(open(7))
+    local _ = owner:alias()
+end
+
+local first = explicit()
+scoped()
+
+export const result = first * 100 + closed

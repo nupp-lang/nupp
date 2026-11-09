@@ -9,8 +9,9 @@ declaration binds is a field of the running program's `_G`, and a module it
 requires is the running program's, found by name as the call runs.
 ]]
 local parser = require("nupp.compiler.syntax.parser")
-local cst = require("nupp.compiler.syntax.cst")
 local types = require("nupp.compiler.types")
+local cst = require("nupp.compiler.syntax.cst")
+local triviaarena = require("nupp.compiler.syntax.triviaarena")
 local checker: any = require("nupp.compiler.check")
 local environment: any = require("nupp.compiler.project.env")
 local bundled = require("nupp.compiler.bundled")
@@ -25,18 +26,32 @@ const VERSION = 8
 const MODULE = "nupp.chunk"
 -- The checker reads a source as plain Lua by this suffix.
 const LUA_SUFFIX = ".lua"
--- A chunk is the body of a function of `...`. The opening shares the first
--- line, so every line keeps its number.
-const OPENING = "return function(...) "
+-- A chunk is the body of a function of `...`, whose globals are fields of
+-- its environment (Lua's _ENV): the table `load` was given, else the running
+-- program's `_G` (nupp.runtime.luaload.environment, required by a computed
+-- name the checker does not read). The opening shares the first line, so
+-- every line keeps its number.
+const ENVIRONMENT = "__nupp_env"
+const OPENING = "local __nupp_env = require(\"nupp.runtime.\" .. \"luaload\").environment() return function(...) "
 const CLOSING = "\nend\n"
+
+-- Calls `visit` with each call's argument list in the tree under `node`.
+local function eachArguments(node: any, visit: function(any): nil): nil
+    if type(node) ~= "table" or cst.isToken(node) then
+        return
+    end
+    if node.kind == "args" then
+        visit(node)
+    end
+    for _, child in ipairs(node) do
+        eachArguments(child, visit)
+    end
+end
 
 -- Lua's `f "s"` and `f {...}` written as the calls of one argument they are,
 -- which is the only form the core's lowering calls by.
 local function positional(node: any): nil
-    if type(node) ~= "table" or cst.isToken(node) then
-        return
-    end
-    if node.kind == "args" and node.exprs == nil then
+    if node.exprs == nil then
         if node.str ~= nil then
             local token = node.str
             local literal: any = cst.StringLit(kind = "string")
@@ -51,28 +66,20 @@ local function positional(node: any): nil
             node.exprs, node.table = {node.table}, nil
         end
     end
-    for _, child in ipairs(node) do
-        positional(child)
-    end
 end
 
 -- Gives `any` to the call arguments checking left untyped (those of a call
 -- the checker reads itself, `ffi.cdef [[...]]`): a chunk passes them as values.
 local function untyped(node: any): nil
-    if type(node) ~= "table" or cst.isToken(node) then
-        return
-    end
-    if node.kind == "args" then
-        for _, argument in ipairs(node.exprs or {}) do
-            if argument.inferredType == nil then
-                argument.inferredType = types.any
-            end
+    for _, argument in ipairs(node.exprs or {}) do
+        if argument.inferredType == nil then
+            argument.inferredType = types.any
         end
     end
-    for _, child in ipairs(node) do
-        untyped(child)
-    end
 end
+
+-- The core has no FFI: the lexer keeps its trivia in tables.
+triviaarena.installDefault(require("nupp.compiler.syntax.triviaarena.table"))
 
 -- The checking environment, made once: its prelude is the costly part.
 local held: any = nil
@@ -109,21 +116,32 @@ export function describe(text: string, display: string): (any, string?)
         local problem = parsed.errors[1]
         return nil, display .. ":" .. tostring(problem.line or 0) .. ": " .. tostring(problem.msg or problem.message)
     end
-    positional(parsed.root)
+    eachArguments(parsed.root, positional)
     local diagnostics = checker.check(parsed, path, checkingEnvironment(), {
         moduleName = MODULE,
         strict = false,
         lints = {["unused-binding"] = "off"}
     })
     parsed.moduleName = parsed.moduleName or MODULE
-    untyped(parsed.root)
+    eachArguments(parsed.root, untyped)
     local catalog = program.describe(
         {{name = MODULE, path = display, parsed = parsed, diagnostics = diagnostics}},
         MODULE,
-        {chunk = true}
+        {chunk = true, environment = ENVIRONMENT}
     )
 
     return catalog, nil
+end
+
+-- What `use` makes of the chunk `text` describes, or nil and why it does not
+-- parse.
+local function described(text: string, display: string, use: function(any): any): (any, string?)
+    local catalog, refused = describe(text, display)
+    if catalog == nil then
+        return nil, refused
+    end
+
+    return use(catalog), nil
 end
 
 --- Compile Lua source `text` to a binary chunk. `display` is the name its
@@ -131,13 +149,9 @@ end
 --- nil and a message as Lua's loaders do.
 export function compile(text: string, display: string): (string?, string?)
     local ok, result, problem = pcall(function(): (string?, string?)
-        local catalog, refused = describe(text, display)
-        if catalog == nil then
-            return nil, refused
-        end
-        local code = executable.fromChecked(program.compile(catalog, tagged.forVersion(VERSION)), VERSION)
-
-        return writer.chunk(code), nil
+        return described(text, display, function(catalog: any): any
+            return writer.chunk(executable.fromChecked(program.compile(catalog, tagged.forVersion(VERSION)), VERSION))
+        end)
     end)
     if not ok then
         return nil, display .. ": " .. tostring(result)
@@ -149,10 +163,7 @@ end
 --- Everything that keeps Lua source `text` from compiling as a chunk, across
 --- all of it (program.inventory), or nil and a message where it does not parse.
 export function inventory(text: string, display: string): (any, string?)
-    local catalog, refused = describe(text, display)
-    if catalog == nil then
-        return nil, refused
-    end
-
-    return program.inventory(catalog, tagged.forVersion(VERSION)), nil
+    return described(text, display, function(catalog: any): any
+        return program.inventory(catalog, tagged.forVersion(VERSION))
+    end)
 end

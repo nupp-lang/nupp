@@ -1,0 +1,15 @@
+@!internal
+
+--[[
+The core's answer to `nupp.compiler.nativehash`, the compiler's host digest:
+the same 32 hex digits, computed by the XXH64 that `nupp.compiler.hash`
+writes in Nupp, since the core has no native digest of its own.
+]]
+module nupp.compiler.corehash
+
+const hash = require("nupp.compiler.hash")
+
+--- The same 32 lowercase hex digits as `nupp.compiler.hash.digest`.
+export function digest(input: string): string
+    return hash.portabledigest(input)
+end
