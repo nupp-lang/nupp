@@ -13,6 +13,7 @@ local taggedstatements = require("nupp.compiler.vm.taggedstatements")
 local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local ownedclosures = require("nupp.compiler.vm.ownedclosures")
 local construction = require("nupp.compiler.vm.construction")
+local exportforwarders = require("nupp.compiler.vm.exportforwarders")
 export const booleanKind = "tagged"
 local binding = taggedvalues.binding
 local catalog = taggedvalues.catalog
@@ -461,6 +462,11 @@ export function forVersion(version: integer): any
         local exports = ctx.emit(node, "NewTable", {}, "tagged")
         return ctx.emit(node, "LibCall", {corelibrary.id("MODULE_PUBLISH"), exports}, "tagged") as integer
     end
+    -- A module a require cycle can re-enter publishes forwarders for the
+    -- functions it exports, as main does.
+    profile.exportForwarders = function(ctx: any, node: any): integer?
+        return exportforwarders.publish(ctx)
+    end
     -- After a named export's statement: each name it declared, stored in the
     -- export table under that name.
     profile.exportNames = function(ctx: any, stat: any): nil
@@ -482,6 +488,7 @@ export function forVersion(version: integer): any
                 local field = ctx.emit(stat, "K", {pool(ctx, "str", text)}, "tagged")
                 ctx.emit(stat, "SetIdx", {ctx.readHeld(ctx.exports), field, value}, nil)
                 taggedvalues.noteExport(ctx, text)
+                exportforwarders.bind(ctx, stat, text, value)
             end
         end
     end

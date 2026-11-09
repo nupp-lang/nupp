@@ -1,0 +1,35 @@
+@!internal
+module nupp.runtime.provider.coreforward
+
+-- Main publishes each exported function as a forwarder when its module
+-- starts and the function itself once its statement has run. A partner in a
+-- require cycle that copies the function before then holds the forwarder: a
+-- call of it calls what the statement later bound, and a call before the
+-- statement has run calls nil, as main's does.
+--
+-- The core checks a call's result kind against its callee's, so a forwarder
+-- answers the kind its function does: any values, a boolean, a number or nil.
+
+export function create(functions: any, name: any): any
+    return function(...: any): ...any
+        return functions[name](...)
+    end
+end
+
+export function createboolean(functions: any, name: any): any
+    return function(...: any): boolean
+        return functions[name](...) as boolean
+    end
+end
+
+export function createnumber(functions: any, name: any): any
+    return function(...: any): number
+        return functions[name](...) as number
+    end
+end
+
+export function createnil(functions: any, name: any): any
+    return function(...: any): nil
+        functions[name](...)
+    end
+end
