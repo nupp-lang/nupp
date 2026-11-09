@@ -7,7 +7,16 @@
 //! pipe tells the reactor's poller that results are waiting; which tasks
 //! they answer, and in what order, is the guest's.
 use std::collections::{HashMap, VecDeque};
+use std::ffi::{c_char, c_int, c_uint, c_void};
 use std::sync::{Condvar, Mutex, OnceLock};
+
+unsafe extern "C" {
+    fn open(path: *const c_char, flags: c_int, ...) -> c_int;
+    fn read(fd: c_int, buffer: *mut c_void, count: usize) -> isize;
+    fn write(fd: c_int, buffer: *const c_void, count: usize) -> isize;
+    fn pipe(fds: *mut c_int) -> c_int;
+    fn fcntl(fd: c_int, command: c_int, ...) -> c_int;
+}
 
 /// What a job does, as the guest encodes it.
 const OPEN: u64 = 1;
@@ -15,6 +24,14 @@ const READ: u64 = 2;
 const WRITE: u64 = 3;
 const EINVAL: i64 = 22;
 const EFAULT: i64 = 14;
+/// An open job's word: the C open flags, and the mode above them
+/// (`hostfiles.poolFlags`), so its policy is Nupp's.
+const MODE_SHIFT: u64 = 32;
+const F_SETFD: c_int = 2;
+const F_GETFL: c_int = 3;
+const F_SETFL: c_int = 4;
+const FD_CLOEXEC: c_int = 1;
+const O_NONBLOCK: c_int = if cfg!(target_os = "macos") { 0x4 } else { 0o4000 };
 
 struct Job {
     kind: u64,
@@ -52,17 +69,57 @@ fn failed(code: i64) -> u64 {
     (-code) as u64
 }
 
+/// The system call `call` makes, again while a signal interrupts it: its
+/// count or descriptor, or the negated error number.
+fn retried(mut call: impl FnMut() -> isize) -> u64 {
+    loop {
+        let result = call();
+        if result >= 0 {
+            return result as u64;
+        }
+        if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+            return last();
+        }
+    }
+}
+
+/// The negated error number of the system call that just failed.
+fn last() -> u64 {
+    failed(std::io::Error::last_os_error().raw_os_error().unwrap_or(EINVAL as i32).into())
+}
+
 fn perform(kind: u64, word: u64, bytes: Vec<u8>, count: usize) -> (u64, Vec<u8>) {
     match kind {
-        OPEN => (unsafe { crate::files::file_open(bytes.as_ptr() as u64, bytes.len() as u64, word) }, Vec::new()),
+        OPEN => {
+            let mut name: Vec<u8> = bytes.split(|byte| *byte == 0).next().unwrap_or(&[]).to_vec();
+            name.push(0);
+            let (flags, mode) = (word as u32 as c_int, (word >> MODE_SHIFT) as c_uint);
+            (retried(|| unsafe { open(name.as_ptr().cast(), flags, mode) } as isize), Vec::new())
+        }
         READ => {
             let mut out = vec![0u8; count];
-            let result = unsafe { crate::files::file_read(word, out.as_mut_ptr() as u64, count as u64) };
+            let result = retried(|| unsafe { read(word as c_int, out.as_mut_ptr().cast(), count) });
             out.truncate(if (result as i64) < 0 { 0 } else { result as usize });
             (result, out)
         }
-        _ => (unsafe { crate::files::file_write(word, bytes.as_ptr() as u64, bytes.len() as u64) }, Vec::new()),
+        _ => (retried(|| unsafe { write(word as c_int, bytes.as_ptr().cast(), bytes.len()) }), Vec::new()),
     }
+}
+
+/// The wake pipe, both ends closing on exec and nonblocking: its read end
+/// and its write end, or the negated error number.
+fn wake_pipe() -> Result<(u64, u64), u64> {
+    let mut fds: [c_int; 2] = [-1, -1];
+    if unsafe { pipe(fds.as_mut_ptr()) } != 0 {
+        return Err(last());
+    }
+    for fd in fds {
+        unsafe {
+            fcntl(fd, F_SETFD, FD_CLOEXEC);
+            fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
+        }
+    }
+    Ok((fds[0] as u64, fds[1] as u64))
 }
 
 fn work(pool: &'static Pool) {
@@ -86,7 +143,7 @@ fn work(pool: &'static Pool) {
         }
         // A full wake pipe already says results are waiting.
         let byte = [1u8];
-        unsafe { crate::files::file_write(pool.wake, byte.as_ptr() as u64, 1) };
+        unsafe { write(pool.wake as c_int, byte.as_ptr().cast(), 1) };
     }
 }
 
@@ -99,11 +156,8 @@ fn started() -> Option<&'static Pool> {
 /// number. Later calls answer the same descriptor.
 pub extern "C" fn pool_start(threads: u64) -> u64 {
     let pool = POOL.get_or_init(|| {
-        let ends = crate::poll::pipe_open();
-        if (ends as i64) < 0 {
-            return Err(ends);
-        }
-        Ok(Pool { state: Mutex::default(), work: Condvar::new(), settled: Condvar::new(), awake: ends & crate::poll::READ_END, wake: ends >> crate::poll::WRITE_END })
+        let (awake, wake) = wake_pipe()?;
+        Ok(Pool { state: Mutex::default(), work: Condvar::new(), settled: Condvar::new(), awake, wake })
     });
     let pool = match pool {
         Ok(pool) => pool,
@@ -203,69 +257,66 @@ pub extern "C" fn pool_cancel(ticket: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ffi::c_int;
     static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     unsafe extern "C" {
         fn close(fd: c_int) -> c_int;
+        fn lseek(fd: c_int, offset: i64, whence: c_int) -> i64;
     }
 
-    /// The next `want` tickets to finish, as the reactor collects them: the
-    /// wake pipe drained before the finished jobs are taken.
-    fn gather(awake: u64, want: usize) -> Vec<u64> {
+    /// An open job's word for reading and writing a file it creates and
+    /// truncates, as `hostfiles.poolFlags` makes it.
+    const READ_WRITE_CREATE: u64 = if cfg!(target_os = "macos") { 0x2 | 0x200 | 0x400 } else { 0o2 | 0o100 | 0o1000 };
+    const READ_ONLY: u64 = 0;
+    const SHARED_MODE: u64 = 0o666 << MODE_SHIFT;
+
+    /// The next `want` tickets to finish, as the reactor collects them.
+    fn gather(want: usize) -> Vec<u64> {
         let mut tickets = Vec::new();
-        let poller = crate::poll::poll_open();
         while tickets.len() < want {
-            assert_eq!(crate::poll::poll_arm(poller, awake, crate::poll::READABLE), 0);
-            assert_eq!(crate::poll::poll_wait(poller, u64::MAX) >> crate::poll::EVENT_BITS, awake);
-            let mut drain = [0u8; 64];
-            while (unsafe { crate::files::file_read(awake, drain.as_mut_ptr() as u64, 64) } as i64) > 0 {}
-            loop {
-                match pool_take() {
-                    0 => break,
-                    ticket => tickets.push(ticket),
-                }
+            match pool_take() {
+                0 => std::thread::sleep(std::time::Duration::from_millis(1)),
+                ticket => tickets.push(ticket),
             }
         }
-        unsafe { close(poller as c_int) };
         tickets
     }
 
-#[test]
-fn settlement_keeps_other_completions_and_spends_only_its_ticket() {
+    #[test]
+    fn settlement_keeps_other_completions_and_spends_only_its_ticket() {
         let _serial = TEST_LOCK.lock().unwrap();
-    let awake = pool_start(2);
-    let path = b"/dev/null";
-    let first = unsafe { pool_submit(OPEN, 1, path.as_ptr() as u64, path.len() as u64) };
-    let second = unsafe { pool_submit(OPEN, 1, path.as_ptr() as u64, path.len() as u64) };
-    let first_fd = pool_settle(first);
-    assert!((first_fd as i64) >= 0);
-    assert_eq!(pool_settle(first) as i64, -EINVAL);
-    assert_eq!(gather(awake, 1), [second]);
-    let second_fd = unsafe { pool_finish(second, 0, 0) };
-    assert!((second_fd as i64) >= 0);
-    assert_eq!(pool_take(), 0);
-    unsafe {
-        assert_eq!(crate::files::file_close(first_fd), 0);
-        assert_eq!(crate::files::file_close(second_fd), 0);
+        let _awake = pool_start(2);
+        let path = b"/dev/null";
+        let first = unsafe { pool_submit(OPEN, READ_ONLY, path.as_ptr() as u64, path.len() as u64) };
+        let second = unsafe { pool_submit(OPEN, READ_ONLY, path.as_ptr() as u64, path.len() as u64) };
+        let first_fd = pool_settle(first);
+        assert!((first_fd as i64) >= 0);
+        assert_eq!(pool_settle(first) as i64, -EINVAL);
+        assert_eq!(gather(1), [second]);
+        let second_fd = unsafe { pool_finish(second, 0, 0) };
+        assert!((second_fd as i64) >= 0);
+        assert_eq!(pool_take(), 0);
+        unsafe {
+            assert_eq!(close(first_fd as c_int), 0);
+            assert_eq!(close(second_fd as c_int), 0);
+        }
     }
-}
 
-#[test]
-fn settlement_waits_for_inflight_io_before_descriptor_release() {
+    #[test]
+    fn settlement_waits_for_inflight_io_before_descriptor_release() {
         let _serial = TEST_LOCK.lock().unwrap();
-    use std::io::Write;
-    use std::os::fd::AsRawFd;
-    use std::os::unix::net::UnixStream;
-    let _awake = pool_start(2);
-    let (reader, mut writer) = UnixStream::pair().unwrap();
-    let ticket = unsafe { pool_submit(READ, reader.as_raw_fd() as u64, 0, 1) };
-    let wait = std::thread::spawn(move || pool_settle(ticket));
-    writer.write_all(b"x").unwrap();
-    assert_eq!(wait.join().unwrap(), 1);
-    assert_eq!(pool_settle(ticket) as i64, -EINVAL);
-    assert_eq!(pool_take(), 0);
-}
+        use std::io::Write;
+        use std::os::fd::AsRawFd;
+        use std::os::unix::net::UnixStream;
+        let _awake = pool_start(2);
+        let (reader, mut writer) = UnixStream::pair().unwrap();
+        let ticket = unsafe { pool_submit(READ, reader.as_raw_fd() as u64, 0, 1) };
+        let wait = std::thread::spawn(move || pool_settle(ticket));
+        writer.write_all(b"x").unwrap();
+        assert_eq!(wait.join().unwrap(), 1);
+        assert_eq!(pool_settle(ticket) as i64, -EINVAL);
+        assert_eq!(pool_take(), 0);
+    }
 
     #[test]
     fn jobs_open_write_and_read_off_the_calling_thread() {
@@ -275,20 +326,19 @@ fn settlement_waits_for_inflight_io_before_descriptor_release() {
         assert_eq!(pool_start(8), awake);
         let path = std::env::temp_dir().join(format!("nupp-pool-{}", std::process::id()));
         let name = path.as_os_str().as_encoded_bytes();
-        // Read and write, created and truncated.
-        let open = unsafe { pool_submit(OPEN, 1 | 2 | 4 | 8, name.as_ptr() as u64, name.len() as u64) };
-        assert_eq!(gather(awake, 1), [open]);
+        let open = unsafe { pool_submit(OPEN, READ_WRITE_CREATE | SHARED_MODE, name.as_ptr() as u64, name.len() as u64) };
+        assert_eq!(gather(1), [open]);
         let fd = unsafe { pool_finish(open, 0, 0) };
         assert!((fd as i64) >= 0);
         assert_eq!(unsafe { pool_finish(open, 0, 0) } as i64, -EINVAL);
         let text = b"pooled";
         let write = unsafe { pool_submit(WRITE, fd, text.as_ptr() as u64, text.len() as u64) };
-        assert_eq!(gather(awake, 1), [write]);
+        assert_eq!(gather(1), [write]);
         assert_eq!(unsafe { pool_finish(write, 0, 0) }, 6);
-        assert_eq!(unsafe { crate::files::file_seek(fd, 0, 0) }, 0);
+        assert_eq!(unsafe { lseek(fd as c_int, 0, 0) }, 0);
         // Concurrent reads share the offset: each takes two of the bytes.
         let reads: Vec<_> = (0..3).map(|_| unsafe { pool_submit(READ, fd, 0, 2) }).collect();
-        let mut tickets = gather(awake, 3);
+        let mut tickets = gather(3);
         tickets.sort();
         assert_eq!(tickets, reads);
         let mut seen = Vec::new();

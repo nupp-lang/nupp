@@ -1,15 +1,10 @@
 //! Standalone, opaque native-code transport. Nupp owns all execution semantics.
 mod entropy;
-mod files;
-mod filesystem;
 mod library;
 mod platform;
-mod poll;
 mod pool;
-mod process;
 mod system;
 mod time;
-mod tree;
 
 #[cfg(all(test, target_arch = "aarch64"))]
 #[path = "../tests/support/abi.rs"]
@@ -176,54 +171,22 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, Failure> {
         platform::read_input as *const () as u64,
         platform::monotonic_nanos as *const () as u64,
         platform::argument as *const () as u64,
-        files::file_open as *const () as u64,
-        files::file_read as *const () as u64,
-        files::file_write as *const () as u64,
-        files::file_seek as *const () as u64,
-        files::file_close as *const () as u64,
-        files::error_text as *const () as u64,
-        poll::poll_open as *const () as u64,
-        poll::poll_arm as *const () as u64,
-        poll::poll_wait as *const () as u64,
-        poll::pipe_open as *const () as u64,
         pool::pool_start as *const () as u64,
         pool::pool_submit as *const () as u64,
         pool::pool_take as *const () as u64,
         pool::pool_finish as *const () as u64,
         pool::pool_cancel as *const () as u64,
         platform::sleep_nanos as *const () as u64,
-        process::process_pipe as *const () as u64,
-        process::process_spawn as *const () as u64,
-        poll::process_watch as *const () as u64,
-        poll::process_unwatch as *const () as u64,
-        process::process_reap as *const () as u64,
-        process::process_kill as *const () as u64,
-        process::process_exit as *const () as u64,
         time::wall_clock as *const () as u64,
         time::cpu_clock as *const () as u64,
         time::time_parts as *const () as u64,
         time::time_make as *const () as u64,
         time::time_format as *const () as u64,
-        files::file_remove as *const () as u64,
-        files::file_rename as *const () as u64,
-        files::file_temporary as *const () as u64,
-        tree::dir_open as *const () as u64,
-        tree::dir_names as *const () as u64,
-        tree::unlink_entry as *const () as u64,
         platform::atomic_load64 as *const () as u64,
         platform::atomic_cas64 as *const () as u64,
         entropy::secure_fill as *const () as u64,
         system::system_query as *const () as u64,
         time::wall_millis as *const () as u64,
-        filesystem::file_info as *const () as u64,
-        filesystem::file_status as *const () as u64,
-        filesystem::read_link as *const () as u64,
-        filesystem::make_directory as *const () as u64,
-        filesystem::make_symlink as *const () as u64,
-        filesystem::change_mode as *const () as u64,
-        filesystem::sync_file as *const () as u64,
-        filesystem::path_query as *const () as u64,
-        process::process_signal as *const () as u64,
         pool::pool_settle as *const () as u64,
         library[0],
         library[1],

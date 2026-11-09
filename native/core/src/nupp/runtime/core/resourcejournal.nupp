@@ -4,6 +4,8 @@ module nupp.runtime.core.resourcejournal
 -- frames and the collector. Only the raw service boundary mutates them.
 const native = require("nupp.runtime.vm.intrinsics")
 
+cdef function close(fd: int64): int32
+
 export struct Record
     kind: uint64
     value: uint64
@@ -13,7 +15,6 @@ end
 export const EMPTY: uint64 = 0ULL
 export const RESERVED: uint64 = 1ULL
 export const FILE: uint64 = 2ULL
-export const CHILD: uint64 = 3ULL
 export const JOB: uint64 = 4ULL
 export const TAKEN: uint64 = 5ULL
 export const CAPACITY: uint64 = 256ULL
@@ -69,4 +70,10 @@ export function find(base: voidptr, tag: uint64, word: uint64): uint64
     end
 
     return 0ULL
+end
+
+-- Closes descriptor `fd`, which a journaled job opened, for the fallback
+-- drain: it is gone whether or not C's close succeeds.
+export function closeDescriptor(fd: uint64): nil
+    local _: int64 = close(native.index(fd))
 end
