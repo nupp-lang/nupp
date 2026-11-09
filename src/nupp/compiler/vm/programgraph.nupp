@@ -507,7 +507,13 @@ export function describe(modules: {any}, entryModule: string): any
         local body = node.kind == "shortfn" and node or isDeclaration and node.body
         need(not isDeclaration or body ~= nil, "function declaration lacks a checked body")
         if body and p.byBody[body] ~= owner then
-            local signature = need(body.signatureType, "checked function signature required")
+            local where = cst.firstToken(node)
+            local signature = need(
+                body.signatureType,
+                "checked function signature required at " .. tostring(
+                    owner.scope.path
+                ) .. ":" .. tostring(where and where.line)
+            )
             local child: any = {
                 id = #p.owners,
                 kind = "function",
