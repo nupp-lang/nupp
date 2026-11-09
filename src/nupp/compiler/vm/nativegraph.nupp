@@ -1030,26 +1030,13 @@ export function call(ctx: any, n: any, expected: string?): integer?
         end
         local frame, window, slot = operands[1], operands[2], operands[3]
         return put(n, "FrameSlotRead", {frame, window, slot, contract}, contract.kind) as integer
-    elseif moduleName == "nupp.runtime.vm.os" then
-        local decl = nativeos.call(ctx.fn, n)
-        need(decl.name ~= "unmapPages", "unmap is a source statement")
-        need(expected == nil or expected == decl.result, "OS result changes exact kind")
-        local operands = ctx.operands(args, decl.params)
-        if not operands then
-            return nil
-        end
-        table.insert(operands, 1, decl)
-        local value = put(n, "NativeHelperCall", operands, decl.result) as integer
-        local descriptor = nativeos.result(decl)
-        if descriptor then
-            need(ctx.g.nativePhysical, "OS pointer result requires physical context")
-            ctx.g.nativePhysical.values[value] = descriptor
-        end
-        return value
-    elseif moduleName and options.helperModules and options.helperModules[moduleName] then
-        local decl = helperDeclaration(ctx, n, moduleName, name as string)
-        need(decl.result ~= "nil", "helper effect is a statement")
-        need(expected == nil or expected == decl.result, "helper changes exact result kind")
+    elseif moduleName == "nupp.runtime.vm.os"
+        or moduleName and options.helperModules and options.helperModules[moduleName]
+    then
+        local fromOS = moduleName == "nupp.runtime.vm.os"
+        local decl = fromOS and nativeos.call(ctx.fn, n) or helperDeclaration(ctx, n, moduleName, name as string)
+        need(fromOS or decl.result ~= "nil", "helper effect is a statement")
+        need(expected == nil or expected == decl.result, "helper or OS call changes exact result kind")
         local operands = ctx.operands(args, decl.params)
         if not operands then
             return nil
@@ -1204,27 +1191,7 @@ export function statementCall(ctx: any, callsite: any): nil
         operands[4] = access
         put(callsite, "NativeStore", operands, nil)
     elseif moduleName == "nupp.runtime.vm.os" then
-        local decl = nativeos.call(ctx.fn, callsite)
-        need(decl.name == "unmapPages", "OS scalar result must be bound")
-        local operands = ctx.operands(args, decl.params)
-        if not operands then
-            return nil
-        end
-        table.insert(operands, 1, decl)
-        local status = put(callsite, "NativeHelperCall", operands, "uint64") as integer
-        local out = nativeos.status(decl)
-        local offset = put(callsite, "NativeConstant", {tostring(out.offset)}, "int64") as integer
-        put(
-            callsite,
-            "NativeStore",
-            {
-                out.parameter,
-                offset,
-                status,
-                {source = "borrowed", kind = "uint64", width = 8, signed = false, write = true}
-            },
-            nil
-        )
+        need(false, "OS scalar result must be bound")
     elseif moduleName and options.helperModules and options.helperModules[moduleName] then
         local decl = helperDeclaration(ctx, callsite, moduleName, name as string)
         need(decl.result == "nil", "helper result must be bound explicitly")

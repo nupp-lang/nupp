@@ -38,6 +38,9 @@ local allowed = {
     ["nupp.runtime.core.servicescope"] = true,
     ["nupp.runtime.core.resourcejournal"] = true,
     ["nupp.runtime.core.hostfiles"] = true,
+    ["nupp.runtime.core.hostpages"] = true,
+    ["nupp.runtime.core.hostentropy"] = true,
+    ["nupp.runtime.core.hostarguments"] = true,
     ["nupp.runtime.core.hostclock"] = true,
     ["nupp.runtime.core.hostprocess"] = true,
     ["nupp.runtime.core.hostc"] = true,
@@ -80,6 +83,30 @@ local function need(ok: any, message: string): any
         error("native service: " .. message, 0)
     end
     return ok
+end
+
+-- The system's pages are mapped only by the ledger's constructors and
+-- unmapped only by its exact wrappers (pagemappings), which keep the
+-- status the system answers.
+local function pageCall(owner: any, target: any): nil
+    if target.scope.name ~= "nupp.runtime.core.hostpages"
+        or target.name ~= "mapPages" and target.name ~= "unmapPages"
+    then
+        return
+    end
+    need(owner.scope.name == "nupp.runtime.core.pagemappings", "page mapping bypasses ownership ledger")
+    local pages = unit.ownerModule(owner, "nupp.runtime.core.pagemappings").exports
+    need(
+        target.name ~= "mapPages" or owner == pages.map or owner == pages.acquireEntry or owner == pages.acquireshared,
+        "raw map bypasses ownership ledger"
+    )
+    need(
+        target.name ~= "unmapPages"
+        or owner == pages.unmapOwned
+        or owner == pages.releaseEntry
+        or owner == pages.releaseshared,
+        "raw unmap bypasses status capture"
+    )
 end
 
 local function member(node: any): (string?, string?)
@@ -245,23 +272,10 @@ local function catalog(entry: any, roots: any, review: any): any
                     if moduleName == "nupp.runtime.vm.os" then
                         local bound = unit.osDeclaration(owner, node)
                         need(osNames[name], "unsupported OS service")
-                        if item.raw then
-                            local pages = unit.ownerModule(owner, "nupp.runtime.core.pagemappings")
-                            need(
-                                name ~= "mapPages"
-                                or owner == pages.exports.map
-                                or owner == pages.exports.acquireEntry
-                                or owner == pages.exports.acquireshared,
-                                "raw map bypasses ownership ledger"
-                            )
-                            need(
-                                name ~= "unmapPages"
-                                or owner == pages.exports.unmapOwned
-                                or owner == pages.exports.releaseEntry
-                                or owner == pages.exports.releaseshared,
-                                "raw unmap bypasses status capture"
-                            )
-                        else
+                        -- Pages are mapped through the ledger (pagemappings,
+                        -- over hostpages), never by an OS import.
+                        need(not item.raw or name ~= "mapPages" and name ~= "unmapPages", "raw OS page call")
+                        if not item.raw then
                             local wrapper = unit.ownerModule(owner, "nupp.runtime.core.servicescope")
                             local target = need(wrapper.exports[name], "missing exact OS wrapper")
                             edge(item, target)
@@ -299,6 +313,7 @@ local function catalog(entry: any, roots: any, review: any): any
                             error(tostring(target) .. " [" .. location .. "]", 0)
                         end
                         need(target, "unresolved service call: " .. location)
+                        pageCall(owner, target)
                         edge(item, target)
                         state.calls[node] = {owner = owner, target = target}
                     end
