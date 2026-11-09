@@ -42,6 +42,28 @@ local function run(arg: {string}): integer
         assert(fs.writeFile(path, text))
     end
 
+    -- What a staged generation holds, and a fresh directory to stage it in.
+    -- os.mktempdir would make one, but the pinned stage-zero release does not
+    -- know it, and src/ is built by that release first (AGENTS.md).
+    local STAGED = {"runtime", "compiler.image", "format", "runtime-identity", "receipt.json"}
+
+    local function stagingDirectory(): string
+        local path = PACKAGES .. "/.install-" .. fs.stagingSuffix()
+        while fs.exists(path) do
+            path = PACKAGES .. "/.install-" .. fs.stagingSuffix()
+        end
+        assert(fs.mkdir(path), "cannot create staging directory " .. path)
+
+        return path
+    end
+
+    local function discardStaging(path: string): nil
+        for _, name in ipairs(STAGED) do
+            os.remove(path .. "/" .. name)
+        end
+        os.remove(path)
+    end
+
     local function digest(path)
         return hash.sha256(read(path))
     end
@@ -290,8 +312,7 @@ local function run(arg: {string}): integer
         .. runtimehash
         .. '"}'
     local selected = hash.sha256(key)
-    local temporary = assert(os.mktempdir(".install-", nil, PACKAGES))
-    local stage = temporary:path():tostring()
+    local stage = stagingDirectory()
     copy(runtime, stage .. "/runtime", true)
     copy(image, stage .. "/compiler.image")
     local validation = {
@@ -349,10 +370,13 @@ local function run(arg: {string}): integer
             "existing generation artifacts differ"
         )
         write(destination .. "/receipt.json", json.encodevalue(installed))
+        discardStaging(stage)
     else
-        assert(temporary:persist(destination))
+        assert(os.rename(stage, destination))
     end
-    assert(os.writeatomic(PACKAGES .. "/current", selected .. "\n"))
+    -- fs.writeFile stages and renames, as os.writeatomic does; the pinned
+    -- stage-zero release knows only the former.
+    write(PACKAGES .. "/current", selected .. "\n")
     -- A content check establishes freshness. Keep no end-of-build timestamp that
     -- could hide an edit; the launcher's next current check refreshes its own stamp.
     run({PYTHON, ROOT .. "/scripts/vm-cli", "current", "--refresh-stamp"}, nil, "compiler freshness")
