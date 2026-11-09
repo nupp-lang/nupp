@@ -1,0 +1,64 @@
+module nupp.core.kernelcompiler
+
+-- The compiler part of every runtime kernel's key (`nupp.core.unitrunner`):
+-- everything that shapes selected code besides a function's own modules.
+local fingerprint = require("nupp.compiler.project.fingerprint")
+
+-- Cache keys use the build's content digest, which the CLI answers natively:
+-- SHA-256 in Nupp ran at about 75 KB/s here, and hashing the lowering's 2 MB
+-- of sources took most of every cached selection.
+local contentDigest = fingerprint.contentDigest(true)
+
+local function readFile(path: string): string?
+    local file = io.open(path, "rb")
+    if not file then
+        return nil
+    end
+    local text = file:read("*a")
+    file:close()
+
+    return text
+end
+
+local function writeFile(path: string, text: string): nil
+    local file = assert(io.open(path, "wb"))
+    file:write(text)
+    file:close()
+end
+
+-- The lowering, backend and declaration sources. Any edit there invalidates all.
+export function digest(root: string): string
+    local command = "cd '"
+        .. root
+        .. "' && ls src/nupp/compiler/vm/*.nupp src/nupp/runtime/vm/*.d.nupp "
+        .. "spike/native-lowering/src/s0/*.nupp spike/native-lowering/nativegraph/src/nupp/compiler/s0/*.nupp | sort"
+    local parts = {}
+    do
+        local listing = assert(io.popen(command))
+        for path in listing:lines() do
+            parts[#parts + 1] = path .. "\0" .. (readFile(root .. "/" .. path) or "")
+        end
+    end
+
+    return contentDigest(table.concat(parts, "\0"))
+end
+
+-- The inner loop may pin the compiler part of every key: NUPP_UNIT_COMPILER_PIN
+-- names a file holding it, written on first use. A lowering edit then reuses
+-- the code the previous compiler selected, and a handler edit still misses by
+-- its own module. Batch gates and milestones leave it unset, so every key there
+-- follows the compiler exactly.
+export function keyed(root: string): string
+    local pin = os.getenv("NUPP_UNIT_COMPILER_PIN")
+    if pin == nil or pin == "" then
+        return digest(root)
+    end
+    local held = readFile(pin)
+    if held ~= nil and held ~= "" then
+        return held
+    end
+    local computed = digest(root)
+    writeFile(pin, computed)
+
+    return computed
+end

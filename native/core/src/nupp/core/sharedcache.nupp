@@ -1,0 +1,137 @@
+module nupp.core.sharedcache
+
+-- The machine-wide build store every checkout and worktree shares
+-- (`scripts/shared-cache`): NUPP_CACHE_HOME, by default ~/.cache/nupp, with a
+-- directory per kind of entry. An entry is named by the content it was
+-- computed from and renamed into place whole, so a reader never sees part of
+-- one, and a missing or unreadable entry is a miss: the store is never
+-- load-bearing.
+
+-- Bytes of /dev/urandom naming this process's aside files.
+const UNIQUE_BYTES = 8
+-- Where the store lives beneath HOME when NUPP_CACHE_HOME is unset.
+const DEFAULT_HOME = "/.cache/nupp"
+
+local function quote(value: string): string
+    return "'" .. value:gsub("'", "'\\''") .. "'"
+end
+
+export function home(): string
+    local configured = os.getenv("NUPP_CACHE_HOME")
+    if configured ~= nil and configured ~= "" then
+        return configured
+    end
+
+    return assert(os.getenv("HOME"), "set HOME or NUPP_CACHE_HOME") .. DEFAULT_HOME
+end
+
+local made: {[string]: boolean} = {}
+
+-- The directory the store keeps entries of `kind` in, made on first use.
+export function directory(kind: string): string
+    local path = home() .. "/" .. kind
+    if not made[path] then
+        os.execute("mkdir -p " .. quote(path))
+        made[path] = true
+    end
+
+    return path
+end
+
+-- Entry `name` in `dir`, or nil.
+export function get(dir: string, name: string): string?
+    local file = io.open(dir .. "/" .. name, "rb")
+    if not file then
+        return nil
+    end
+    local text = file:read("*a")
+    file:close()
+
+    return text
+end
+
+-- This process's prefix for aside files, drawn once: the VM reads a device
+-- to its end whatever count it is asked for, so /dev/urandom is read by `od`.
+local prefix: string? = nil
+local written = 0
+
+-- A name no other writer beside this one can pick, across processes and
+-- checkouts.
+local function unique(): string
+    if prefix == nil then
+        local pipe = io.popen(("od -An -N%d -tx1 /dev/urandom 2>/dev/null"):format(UNIQUE_BYTES))
+        local drawn = ""
+        if pipe then
+            drawn = pipe:read("*a") or ""
+            pipe:close()
+        end
+        drawn = drawn:gsub("%s", "")
+        prefix = #drawn == UNIQUE_BYTES * 2 and drawn or tostring(os.time()) .. tostring({}):gsub("%W", "")
+    end
+    written = written + 1
+
+    return (prefix as string) .. "-" .. tostring(written)
+end
+
+-- Keeps `text` as entry `name` in `dir`: written aside, then renamed into
+-- place, so readers see the whole entry or none. Answers whether it was kept;
+-- a store that cannot be written is a store that keeps nothing.
+export function put(dir: string, name: string, text: string): boolean
+    local aside = dir .. "/.part-" .. unique()
+    local file = io.open(aside, "wb")
+    if not file then
+        return false
+    end
+    local written = file:write(text) ~= nil
+    file:close()
+    if not written or not os.rename(aside, dir .. "/" .. name) then
+        os.remove(aside)
+        return false
+    end
+
+    return true
+end
+
+-- Marks entries `names` in `dir` used now, in the background and in one
+-- process: reading one does not reliably move its access time, and the sweep
+-- removes the least recently used first.
+export function touch(dir: string, names: {string}): nil
+    if #names == 0 then
+        return
+    end
+    local list = dir .. "/.part-" .. unique()
+    local file = io.open(list, "wb")
+    if not file then
+        return
+    end
+    file:write(table.concat(names, "\n"), "\n")
+    file:close()
+    os.execute(
+        "(cd " .. quote(
+            dir
+        ) .. " && xargs touch -c < " .. quote(list) .. "; rm -f " .. quote(list) .. ") > /dev/null 2>&1 &"
+    )
+end
+
+-- Starts a sweep of the store in the background when one is due, so it
+-- stays under its size limit without anyone running one.
+export function sweep(root: string): nil
+    os.execute(quote(root .. "/scripts/shared-cache") .. " sweep --if-due > /dev/null 2>&1 &")
+end
+
+-- The content digest of the files git lists under `paths` in `root`, tracked
+-- or not, ignored ones left out: what changes when any of them does.
+export function treeDigest(root: string, paths: {string}): string?
+    local words = {quote(root .. "/scripts/shared-cache"), "digest", quote(root)}
+    for _, path in ipairs(paths) do
+        words[#words + 1] = quote(path)
+    end
+    local pipe = io.popen(table.concat(words, " ") .. " 2>/dev/null")
+    if not pipe then
+        return nil
+    end
+    local line = pipe:read("*l")
+    pipe:close()
+
+    return line and line:match("^(%x+)$") or nil
+end

@@ -1,0 +1,144 @@
+module nupp.core.selectioncache
+
+-- Guest program selections kept in the shared store (`nupp.core.sharedcache`),
+-- so a case whose inputs are unchanged is not compiled again, in this checkout
+-- or any other.
+--
+-- A selection is keyed by everything it is computed from: the compiler generation
+-- running the producer, the content of every file under the trees the guest project
+-- reads its modules from (which holds the producer, the runtime, the cases and the
+-- generators of the generated ones), the compiler part of the runtime kernels' keys
+-- (`nupp.core.kernelcompiler`, pinned or not), and the case, mode, scratch capacity and
+-- build kind. Nothing is kept or reused while a variable asks the lowering to report as
+-- it goes, since a hit would skip the report.
+local sharedcache = require("nupp.core.sharedcache")
+local kernelcompiler = require("nupp.core.kernelcompiler")
+local fingerprint = require("nupp.compiler.project.fingerprint")
+local json = require("serde.json")
+
+-- Bumped when an entry's shape or meaning changes.
+const FORMAT = "guest-selection/1"
+const KIND = "programs"
+-- The trees the guest project (native/core/tests/units/nupp.lua) resolves
+-- modules from, relative to the checkout root.
+const INPUTS = {"src", "native", "spike", "nupp.lua", "tests/fixtures/nativeheap"}
+const REPORTING = {"EMIT_SURVEY", "EMIT_TRACE", "EMIT_STUBS", "DEBUG_REGS", "NUPP_CORE_SYMBOLS", "NUPP_MIR_OUT"}
+const GENERATION = "/(%x+)/compiler%.image$"
+const GENERATION_LENGTH = 64
+
+local contentDigest = fingerprint.contentDigest(true)
+
+-- The installed generation the producer runs on, when the image and runtime
+-- are one generation's pair; anything else keeps nothing.
+local function generation(): string?
+    local image, runtime = os.getenv("NUPP_VM_CLI_IMAGE"), os.getenv("NUPP_VM_BINARY")
+    if image == nil or runtime == nil then
+        return nil
+    end
+    local named = image:match(GENERATION)
+    if named == nil or #named ~= GENERATION_LENGTH or runtime ~= image:gsub("compiler%.image$", "runtime") then
+        return nil
+    end
+
+    return named
+end
+
+local base: string? = nil
+local disabled = false
+
+-- What every key in this process shares, computed once; nil when nothing may
+-- be kept.
+local function shared(root: string): string?
+    if disabled then
+        return nil
+    end
+    if base then
+        return base
+    end
+    for _, variable in ipairs(REPORTING) do
+        if os.getenv(variable) then
+            disabled = true
+            return nil
+        end
+    end
+    local named = generation()
+    local inputs = named and sharedcache.treeDigest(root, INPUTS)
+    if not inputs then
+        disabled = true
+        return nil
+    end
+    -- The kernels' compiler part, pinned or not, as the unit runner keys them.
+    local kernels = kernelcompiler.keyed(root)
+    base = contentDigest(table.concat({FORMAT, named as string, inputs as string, kernels}, "\0"))
+
+    return base
+end
+
+local function keyOf(root: string, parts: {string}): string?
+    local common = shared(root)
+    if not common then
+        return nil
+    end
+
+    return contentDigest(common .. "\0" .. table.concat(parts, "\0")) .. ".json"
+end
+
+-- Two values that are the same data, numbers by their subtype too: what a
+-- kept selection must be of the one it was made from.
+local function same(a: any, b: any): boolean
+    if type(a) ~= type(b) then
+        return false
+    elseif type(a) == "number" then
+        return math.type(a) == math.type(b) and a == b
+    elseif type(a) ~= "table" then
+        return a == b
+    end
+    for key, value in pairs(a as table) do
+        if not same(value, (b as table)[key]) then
+            return false
+        end
+    end
+    for key in pairs(b as table) do
+        if (a as table)[key] == nil then
+            return false
+        end
+    end
+
+    return true
+end
+
+-- The kept selection for `parts` (case, mode, capacity, build kind) and the
+-- extra fields kept beside it, or nil.
+export function lookup(root: string, parts: {string}): (any, any)
+    local key = keyOf(root, parts)
+    local text = key and sharedcache.get(sharedcache.directory(KIND), key as string)
+    if not text then
+        return nil, nil
+    end
+    local ok, entry = pcall(json.decodevalue, text)
+    if not ok or type(entry) ~= "table" or entry.format ~= FORMAT or type(entry.selection) ~= "table" then
+        return nil, nil
+    end
+    sharedcache.touch(sharedcache.directory(KIND), {key as string})
+
+    return entry.selection, entry.extra
+end
+
+-- Keeps `selection` for `parts`, with `extra` beside it, when it reads back as
+-- the same data: a value JSON cannot carry exactly is not kept.
+export function keep(root: string, parts: {string}, selection: any, extra: any): boolean
+    local key = keyOf(root, parts)
+    if not key then
+        return false
+    end
+    local text = json.encodevalue({format = FORMAT, selection = selection, extra = extra})
+    local ok, decoded = pcall(json.decodevalue, text)
+    if not ok or not same(decoded.selection, selection) or not same(decoded.extra, extra) then
+        io.stderr:write("guest selection not kept: it does not read back as itself\n")
+        return false
+    end
+    local kept = sharedcache.put(sharedcache.directory(KIND), key as string, text)
+    sharedcache.sweep(root)
+
+    return kept
+end
