@@ -153,6 +153,17 @@ export const TEXT_STEPSIZE: uint64 = 143ULL
 export const TEXT_WRITABLE_STORAGE: uint64 = 145ULL
 export const TEXT_ENTROPY_FAILED: uint64 = 146ULL
 export const TEXT_CALL_CHAIN: uint64 = 147ULL
+export const TEXT_MAIN: uint64 = 148ULL
+export const TEXT_LUA: uint64 = 149ULL
+export const TEXT_C: uint64 = 150ULL
+export const TEXT_C_SOURCE: uint64 = 151ULL
+export const TEXT_C_SHORT: uint64 = 152ULL
+export const TEXT_GLOBAL: uint64 = 153ULL
+export const TEXT_LOCAL: uint64 = 154ULL
+export const TEXT_METHOD: uint64 = 155ULL
+export const TEXT_FIELD: uint64 = 156ULL
+export const TEXT_UPVALUE: uint64 = 157ULL
+export const TEXT_ITERATOR: uint64 = 158ULL
 
 -- Appends text `id` to `b`: nonzero when the builder refused it.
 export function append(h: heap.Heap*, borrows b: strings.Builder*, id: uint64): uint64
@@ -712,6 +723,39 @@ export function append(h: heap.Heap*, borrows b: strings.Builder*, id: uint64): 
         return strings.appendWord(h, b, 0x276c6c61635f5f27ULL, 8ULL)
             | strings.appendWord(h, b, 0x74206e6961686320ULL, 8ULL)
             | strings.appendWord(h, b, 0x676e6f6c206f6fULL, 7ULL)
+    elseif id == TEXT_MAIN then
+        -- "main"
+        return strings.appendWord(h, b, 0x6e69616dULL, 4ULL)
+    elseif id == TEXT_LUA then
+        -- "Lua"
+        return strings.appendWord(h, b, 0x61754cULL, 3ULL)
+    elseif id == TEXT_C then
+        -- "C"
+        return strings.appendWord(h, b, 0x43ULL, 1ULL)
+    elseif id == TEXT_C_SOURCE then
+        -- "=[C]"
+        return strings.appendWord(h, b, 0x5d435b3dULL, 4ULL)
+    elseif id == TEXT_C_SHORT then
+        -- "[C]"
+        return strings.appendWord(h, b, 0x5d435bULL, 3ULL)
+    elseif id == TEXT_GLOBAL then
+        -- "global"
+        return strings.appendWord(h, b, 0x6c61626f6c67ULL, 6ULL)
+    elseif id == TEXT_LOCAL then
+        -- "local"
+        return strings.appendWord(h, b, 0x6c61636f6cULL, 5ULL)
+    elseif id == TEXT_METHOD then
+        -- "method"
+        return strings.appendWord(h, b, 0x646f6874656dULL, 6ULL)
+    elseif id == TEXT_FIELD then
+        -- "field"
+        return strings.appendWord(h, b, 0x646c656966ULL, 5ULL)
+    elseif id == TEXT_UPVALUE then
+        -- "upvalue"
+        return strings.appendWord(h, b, 0x65756c61767075ULL, 7ULL)
+    elseif id == TEXT_ITERATOR then
+        -- "for iterator"
+        return strings.appendWord(h, b, 0x7265746920726f66ULL, 8ULL) | strings.appendWord(h, b, 0x726f7461ULL, 4ULL)
     end
 
     return 0ULL

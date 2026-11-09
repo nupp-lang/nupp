@@ -194,7 +194,7 @@ local CASES = {
     {"ownmanage", 0x7FFF000000000200},
     {"loopparameteralias", 0x7FFF000000000002},
     {"namedarguments", 0x7FFF000337156A8D},
-    {"legacyglobals", 0x7FFF000000000463},
+    {"legacyglobals", 0x7FFF000000000C33},
     {"gotocontinue", 0x7FFF0000000009E7},
     {"derivedmembers", 0x7FFF00000000000F},
     {"shortfunctions", 0x7FFF000000003BEE},
@@ -286,17 +286,25 @@ local CASES = {
     {"recordsarray", 0x7FFF00000000000F},
     -- A function statement assigning a local declared before it.
     {"forwardfunctions", 0x7FFF000000000003},
+    -- A closure capturing seventy values.
+    {"closurecaptures", 0x7FFF0000000009B5},
+    -- The os namespace's module first, before anything reads Lua's os.
+    {"standardosfirst", 0x7FFF000000000003},
     -- Main's os filesystem and system functions; main answers the same word.
     {"osfilesystem", 0x7FFF0007FFFFFFFF},
     -- The compiler's lexer and parser on the core.
     {"compilerfront", 0x7FFF00000000000F},
     -- Lua's loaders over source text, compiled on the core by the compiler
     -- the program carries.
-    {"loadsource", 0x7FFF00000001FFFF},
+    {"loadsource", 0x7FFF0000000FFFFF},
     -- The compiler's lexer alone on the core, over whole source files.
     {"compilerlexer", 0x7FFF00000000000F},
     -- A checked call spreading fewer or more results than it has parameters.
     {"callsspreadshort", 0x7FFF00000000001F},
+    -- `nupp check` on the core: a clean file and one with a type error.
+    {"compilercheck", 0x7FFF000000000003},
+    -- Lua's debug.getinfo: sources, lines and names by level and of values.
+    {"debuggetinfo", 0x7FFF00000001FFFF},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
@@ -337,6 +345,11 @@ local OUTPUT = {
 }
 -- The bench entry's record, which holds times: its shape and fib(20)'s
 -- checksum (SETUP) are what is checked, not what it measured.
+-- The broken file's diagnostic, as check prints it: position, code, message.
+OUTPUT.compilercheck = function(printed)
+    return printed:find("compilercheck%-broken%.nupp:1:%d+: error: NUPP%d+") ~= nil
+end
+
 OUTPUT.benchworkloads = function(printed)
     local ok, record = pcall(json.decodevalue, printed)
     local case = ok and type(record) == "table" and type(record.cases) == "table" and record.cases[1]
@@ -511,7 +524,8 @@ local STRESS = {
     osremove = true,
     loadbinary = true,
     osfilesystem = true,
-    loadsource = true
+    loadsource = true,
+    debuggetinfo = true
 }
 -- Shell statements a case's runs start with: the io and pool cases may hold
 -- 64 descriptors, so a handle left open, or opened by a cancelled pool job,
@@ -664,7 +678,8 @@ local NUMERIC = {
     gcoptions = "catalog-gc-options",
     gcwarn = "catalog-gc-warn",
     ostime = "catalog-os-time",
-    osfiles = "catalog-os-files"
+    osfiles = "catalog-os-files",
+    debuggetinfo = "catalog-debug-getinfo"
 }
 -- The status a program ends with when an error no protected call takes
 -- ends it, as the command line's: the bridge exits so once the program has

@@ -166,7 +166,20 @@ local texts: {Text} = {
     {name = "TEXT_STEPSIZE", id = 143, text = "stepsize"},
     {name = "TEXT_WRITABLE_STORAGE", id = 145, text = "writable storage"},
     {name = "TEXT_ENTROPY_FAILED", id = 146, text = "secure random source failed: "},
-    {name = "TEXT_CALL_CHAIN", id = 147, text = "'__call' chain too long"}
+    {name = "TEXT_CALL_CHAIN", id = 147, text = "'__call' chain too long"},
+    -- What debug.getinfo says of a function: its kind, a C function's source,
+    -- and the kinds of name a call gives the function it calls.
+    {name = "TEXT_MAIN", id = 148, text = "main"},
+    {name = "TEXT_LUA", id = 149, text = "Lua"},
+    {name = "TEXT_C", id = 150, text = "C"},
+    {name = "TEXT_C_SOURCE", id = 151, text = "=[C]"},
+    {name = "TEXT_C_SHORT", id = 152, text = "[C]"},
+    {name = "TEXT_GLOBAL", id = 153, text = "global"},
+    {name = "TEXT_LOCAL", id = 154, text = "local"},
+    {name = "TEXT_METHOD", id = 155, text = "method"},
+    {name = "TEXT_FIELD", id = 156, text = "field"},
+    {name = "TEXT_UPVALUE", id = 157, text = "upvalue"},
+    {name = "TEXT_ITERATOR", id = 158, text = "for iterator"}
 }
 
 local byName: {[string]: Text} = {}

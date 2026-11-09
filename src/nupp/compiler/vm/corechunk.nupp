@@ -32,7 +32,11 @@ const LUA_SUFFIX = ".lua"
 -- name the checker does not read). The opening shares the first line, so
 -- every line keeps its number.
 const ENVIRONMENT = "__nupp_env"
-const OPENING = "local __nupp_env = require(\"nupp.runtime.\" .. \"luaload\").environment() return function(...) "
+-- And the library functions as the program started, which a call through
+-- a global calls the core for directly while the environment holds them.
+const BUILTINS = "__nupp_builtins"
+const OPENING = "local __nupp_env, __nupp_builtins = require(\"nupp.runtime.\" .. \"luaload\").environment() "
+    .. "return function(...) "
 const CLOSING = "\nend\n"
 
 -- Calls `visit` with each call's argument list in the tree under `node`.
@@ -107,8 +111,9 @@ end
 -- The program catalog of Lua source `text` as a chunk, or nil and a message
 -- for text that does not parse. What the checker finds does not refuse it:
 -- Lua's loaders refuse only syntax, and a chunk's values are dynamic where
--- its checking found them wanting.
-export function describe(text: string, display: string): (any, string?)
+-- its checking found them wanting. Its Lua source (debug.getinfo's) is
+-- `source`, the name the loader was given, or "=" and `display`.
+export function describe(text: string, display: string, source: string?): (any, string?)
     local source = OPENING .. text .. CLOSING
     local path = display .. LUA_SUFFIX
     local parsed: any = parser.parse(source, path)
@@ -125,9 +130,17 @@ export function describe(text: string, display: string): (any, string?)
     parsed.moduleName = parsed.moduleName or MODULE
     eachArguments(parsed.root, untyped)
     local catalog = program.describe(
-        {{name = MODULE, path = display, parsed = parsed, diagnostics = diagnostics}},
+        {
+            {
+                name = MODULE,
+                path = display,
+                chunkname = source or "=" .. display,
+                parsed = parsed,
+                diagnostics = diagnostics
+            }
+        },
         MODULE,
-        {chunk = true, environment = ENVIRONMENT}
+        {chunk = true, environment = ENVIRONMENT, builtins = BUILTINS}
     )
 
     return catalog, nil
@@ -135,8 +148,8 @@ end
 
 -- What `use` makes of the chunk `text` describes, or nil and why it does not
 -- parse.
-local function described(text: string, display: string, use: function(any): any): (any, string?)
-    local catalog, refused = describe(text, display)
+local function described(text: string, display: string, source: string?, use: function(any): any): (any, string?)
+    local catalog, refused = describe(text, display, source)
     if catalog == nil then
         return nil, refused
     end
@@ -145,11 +158,13 @@ local function described(text: string, display: string, use: function(any): any)
 end
 
 --- Compile Lua source `text` to a binary chunk. `display` is the name its
---- errors cite (Lua's chunkid of the chunk's name). Answers the chunk, or
---- nil and a message as Lua's loaders do.
-export function compile(text: string, display: string): (string?, string?)
+--- errors cite (Lua's chunkid of the chunk's name) and `source` that name
+--- itself, which debug.getinfo answers ("@" and a file for `loadfile`);
+--- without it, "=" and `display`. Answers the chunk, or nil and a message as
+--- Lua's loaders do.
+export function compile(text: string, display: string, source: string?): (string?, string?)
     local ok, result, problem = pcall(function(): (string?, string?)
-        return described(text, display, function(catalog: any): any
+        return described(text, display, source, function(catalog: any): any
             return writer.chunk(executable.fromChecked(program.compile(catalog, tagged.forVersion(VERSION)), VERSION))
         end)
     end)
@@ -163,7 +178,7 @@ end
 --- Everything that keeps Lua source `text` from compiling as a chunk, across
 --- all of it (program.inventory), or nil and a message where it does not parse.
 export function inventory(text: string, display: string): (any, string?)
-    return described(text, display, function(catalog: any): any
+    return described(text, display, nil, function(catalog: any): any
         return program.inventory(catalog, tagged.forVersion(VERSION))
     end)
 end
