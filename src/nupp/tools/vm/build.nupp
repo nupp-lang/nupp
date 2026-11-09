@@ -374,7 +374,9 @@ local function run(arg: {string}): integer
     else
         assert(os.rename(stage, destination))
     end
-    assert(os.writeatomic(PACKAGES .. "/current", selected .. "\n"))
+    -- fs.writeFile stages and renames, as os.writeatomic does; the pinned
+    -- stage-zero release knows only the former.
+    write(PACKAGES .. "/current", selected .. "\n")
     -- A content check establishes freshness. Keep no end-of-build timestamp that
     -- could hide an edit; the launcher's next current check refreshes its own stamp.
     run({PYTHON, ROOT .. "/scripts/vm-cli", "current", "--refresh-stamp"}, nil, "compiler freshness")
