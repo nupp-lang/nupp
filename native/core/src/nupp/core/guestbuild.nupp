@@ -339,6 +339,8 @@ local CASES: {[string]: {
     spreadlibrary = {fixture = "catalog-spread-library", version = 8},
     libraryresults = {fixture = "catalog-library-results", version = 8},
     processlines = {fixture = "catalog-process-lines", version = 8},
+    processreuse = {fixture = "catalog-process-reuse", version = 8},
+    selectvalues = {fixture = "catalog-select-values", version = 8},
     processexit = {fixture = "catalog-process-exit", version = 8},
     gcweak = {fixture = "catalog-gc-weak", version = 8},
     gcfinalizers = {fixture = "catalog-gc-finalizers", version = 8},
@@ -1215,6 +1217,22 @@ export function chunk(name: string, version: integer): any
     end
 
     return compiled
+end
+
+--- The kept chunk (nupp.runtime.chunkfiles) for the Lua source file at
+--- `path` under the checkout: its text compiled here as a text chunk
+--- (nupp.compiler.vm.corechunk), as `loadfile` would compile it on the core,
+--- or with `display`, as `load` would compile the file's text named so; or
+--- nil and why it does not compile.
+export function sourceChunk(path: string, display: string?): (string?, string?)
+    local corechunk: any = require("nupp.compiler.vm.corechunk")
+    local chunkfiles: any = require("nupp.runtime.chunkfiles")
+    local text = read(assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/" .. path)
+    -- loadfile skips a Unix exec line; load does not.
+    local compiled = display == nil and chunkfiles.execLineSkipped(text) or text
+    local bytes, problem = corechunk.compile(compiled, display or path)
+
+    return bytes and chunkfiles.contents(text, bytes as string), problem
 end
 
 -- The modules a case names beside its entry, as written for a generated case.

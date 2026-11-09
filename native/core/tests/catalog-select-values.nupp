@@ -1,0 +1,36 @@
+module nupp.core.catalogselectvalues
+
+-- select over values written out, not only over `...` or a call's results:
+-- a call giving one value, several values, none, and a negative index.
+local function one(): integer
+    return 7
+end
+
+local function count(...: any): integer
+    return select("#", ...)
+end
+
+local score = 0
+if select("#", one()) == 1 then
+    score += 1
+end
+if select("#", 1, 2, 3) == 3 then
+    score += 2
+end
+if select(2, "a", "b", "c") == "b" then
+    score += 4
+end
+if select("#") == 0 then
+    score += 8
+end
+if count(nil, nil) == 2 then
+    score += 16
+end
+if select(-1, 4, 5, 6) == 6 then
+    score += 32
+end
+if select(2, one(), one() + 1) == 8 then
+    score += 64
+end
+
+export const result = score

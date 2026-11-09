@@ -15,6 +15,7 @@ module nupp.runtime.luaload
 
 const hostcalls = require("nupp.runtime.hostcalls")
 const libraryvalues = require("nupp.runtime.libraryvalues")
+const chunkfiles = require("nupp.runtime.chunkfiles")
 
 -- The environment (Lua's _ENV) `load` was given for the chunk now starting.
 local pending: table? = nil
@@ -258,6 +259,11 @@ local function loadchunk(chunk: any, name: string?, mode: string?, env: table?):
                 return value
             end, nil
         end
+        -- A chunk compiled from this text ahead of time (chunkfiles).
+        local kept = chunkfiles.lookup(nil, text)
+        if kept ~= nil then
+            return loadchunk(kept, name, mode, env)
+        end
         local compile = textCompiler()
         if compile == nil then
             return nil, chunkid(chunkname) .. ": text chunks need the compiler, which did not load: " .. missing
@@ -300,14 +306,11 @@ local function loadpath(filename: string?, mode: string?, env: table?): (any, st
         file:close()
         name = "@" .. filename
     end
-    -- A first line that starts with '#' is skipped, as Lua skips a Unix
-    -- exec line; its newline stays, so lines keep their numbers.
-    if text:sub(1, 1) == "#" then
-        local at = text:find("\n", 1, true)
-        text = at and text:sub(at) or ""
-    end
+    -- A chunk compiled from this very text ahead of time, where one is kept
+    -- (chunkfiles), loads in its place.
+    local kept = filename ~= nil and chunkfiles.lookup(filename, text) or nil
 
-    return loadchunk(text, name, mode, env)
+    return loadchunk(kept ?? chunkfiles.execLineSkipped(text), name, mode, env)
 end
 
 local function runpath(filename: string?): ...any
@@ -319,9 +322,53 @@ local function runpath(filename: string?): ...any
     return chunk()
 end
 
+-- What the core says of a module its image does not hold.
+const NOT_IN_IMAGE = "no module of that name in the image"
+
+-- The first file `package.path`'s templates name for module `name` that
+-- opens, as Lua's package.searchpath finds it, or nil.
+local function searchpath(name: string, templates: string): string?
+    local file = name:gsub("%.", "/")
+    for template in templates:gmatch("[^;]+") do
+        local candidate = template:gsub("%?", file)
+        local handle = io.open(candidate, "rb")
+        if handle ~= nil then
+            handle:close()
+            return candidate
+        end
+    end
+
+    return nil
+end
+
+-- Lua's `require` for chunks: the program's (package.loaded, package.preload,
+-- then the modules its image holds), then a Lua file on `package.path`,
+-- loaded as `loadfile` loads one, as Lua's file searcher does.
+local programRequire: function(string): (any, any) = libraryvalues.functions.require
+
+local function requirevalue(name: string): (any, any)
+    local ok, value, extra = pcall(programRequire, name)
+    if ok then
+        return value, extra
+    end
+    local ambient: any = libraryvalues.functions.package
+    local filename = type(value) == "string"
+        and (value as string):find(NOT_IN_IMAGE, 1, true) ~= nil
+        and searchpath(name, tostring(ambient.path))
+        or nil
+    if filename ~= nil then
+        local chunk, problem = loadpath(filename, nil, nil)
+        if chunk ~= nil then
+            return libraryvalues.settle(name, chunk(name, filename)), filename
+        end
+        error("error loading module '" .. name .. "' from file '" .. filename .. "':\n\t" .. tostring(problem), 2)
+    end
+    error(value, 0)
+end
+
 export const functions: {
     [string]: any
-} = {load = loadchunk, loadstring = loadchunk, loadfile = loadpath, dofile = runpath}
+} = {load = loadchunk, loadstring = loadchunk, loadfile = loadpath, dofile = runpath, require = requirevalue}
 
 -- Lua chunks read the loaders as globals (`pcall(dofile, path)`).
 for name, value in pairs(functions) do

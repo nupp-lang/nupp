@@ -372,6 +372,13 @@ local function chunkGlobal(p: any, node: any): boolean
     return definition == nil or p.byDefinition[definition] == nil
 end
 
+-- Whether call `node` is a chunk's call of a global through its value: one
+-- the core does not make itself, or `require`, the program's (which looks
+-- in package.loaded and package.preload first).
+local function chunkValueCall(p: any, node: any): boolean
+    return chunkGlobal(p, node.obj) and (graph.coreLibraryCall(node) == nil or node.chunkRequire == true)
+end
+
 -- Calls `visit` with every token in the tree under `node`, and `enter`, when
 -- given, with every node.
 local function eachToken(node: any, visit: function(any): nil, enter: (function(any): nil)?): nil
@@ -944,6 +951,10 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
 
     local loopForms: {[any]: boolean} = {}
 
+    -- The calls in a chunk's opening, which makes its environment: theirs
+    -- is the image's require, as there is no environment yet.
+    local opening: {[any]: boolean} = {}
+
     -- Registers the qualified read `node` makes of `module` in `owner`, with
     -- what else its site says (`fields`).
     local function qualifiedSite(owner: any, node: any, module: string, fields: {[string]: any}): nil
@@ -1288,10 +1299,38 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         then
             loopForms[node.exprs[1]] = true
         end
+        -- A chunk's `require` is the running program's global, which looks in
+        -- package.loaded and package.preload first (libraryvalues): a call
+        -- through its value, as of any global.
+        if p.chunk and node.kind == "localStmt" and node.names[1].definition == p.chunkEnvironment then
+            for _, value in ipairs(node.exprs or {}) do
+                eachToken(
+                    value,
+                    function(_: any): nil
+                    end,
+                    function(inner: any): nil
+                        opening[inner] = true
+                    end
+                )
+            end
+        end
+        if p.chunk
+            and node.kind == "call"
+            and node.runtimeLoader == "require"
+            and chunkGlobal(p, node.obj)
+            and not opening[node]
+        then
+            node.runtimeLoader = nil
+            node.chunkRequire = true
+        end
         -- Library intrinsics the core implements as operations (math.floor) are
         -- forms too: the global they name is never read, unless the call
         -- spreads `...` where its form cannot, calling the function's value.
-        if node.kind == "call" and graph.coreLibraryCall(node) and not graphcalls.spreadsLibrary(node) then
+        if node.kind == "call"
+            and graph.coreLibraryCall(node)
+            and not graphcalls.spreadsLibrary(node)
+            and not node.chunkRequire
+        then
             loopForms[node] = true
         end
         -- So are the library constants it folds (math.pi).
@@ -1597,7 +1636,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             and (
                 graph.libraryValue(node.obj) ~= nil
                 and moduleNames[graph.libraryModule(graph.libraryValue(node.obj) as string)] ~= nil
-                or chunkGlobal(p, node.obj) and graph.coreLibraryCall(node) == nil
+                or chunkValueCall(p, node)
             )
         if node.kind == "call"
             and node.obj.kind == "name"
@@ -2334,7 +2373,7 @@ export function verify(p: any): boolean
                 (node.kind == "call" and node.obj.kind ~= "name"
                 -- A library function called by its name through its value.
                 or node.kind == "call" and graph.libraryValue(node.obj) ~= nil
-                or node.kind == "call" and chunkGlobal(p, node.obj) and graph.coreLibraryCall(node) == nil
+                or node.kind == "call" and chunkValueCall(p, node)
                 or item.guarded == true and p.guarded[node] ~= nil
                 or node.kind == "methodCall"
                 and graph.callbackArgument(node) ~= nil)
@@ -2356,8 +2395,9 @@ export function verify(p: any): boolean
                 p.callByNode[node] == item and node.obj.token.definition == item.definition,
                 "callsite declaration identity mismatch"
             )
+            -- A chunk's global is no binding of its own: no owner reads it.
             need(
-                item.protected or referenceOwners[node.obj.token] == item.owner,
+                item.protected or referenceOwners[node.obj.token] == item.owner or chunkGlobal(p, node.obj),
                 "callsite does not belong to its checked owner"
             )
         end

@@ -1,0 +1,80 @@
+@!internal
+
+--[[
+Lua source compiled to binary chunks ahead of time, on the host, for a core
+that cannot compile text itself: `loadfile` and `dofile` answer the chunk
+kept for a file whose text is the text it was compiled from, and `load` the
+one kept for its text. A kept chunk is a file in the directory
+NUPP_CORE_CHUNKS names, called after the source's path (or, for text, its
+digest), holding a header line (MAGIC, the source's digest and its length)
+and then the chunk's bytes.
+]]
+module nupp.runtime.chunkfiles
+
+-- The directory kept chunks are in.
+export const VARIABLE = "NUPP_CORE_CHUNKS"
+const MAGIC = "nupp-core-chunk"
+const SUFFIX = ".chunk"
+const TEXT_PREFIX = "text-"
+-- FNV-1a's 64-bit offset basis and prime.
+const BASIS = 0xcbf29ce484222325
+const PRIME = 0x100000001b3
+
+--- The 64-bit FNV-1a digest of `text`, in hexadecimal.
+export function digest(text: string): string
+    local hash = BASIS
+    for at = 1, #text do
+        hash = (hash ~ text:byte(at)) * PRIME
+    end
+
+    return string.format("%016x", hash)
+end
+
+--- Source text `text` as Lua compiles a file of it: a first line that starts
+--- with '#', a Unix exec line, is skipped, its newline kept so lines keep
+--- their numbers.
+export function execLineSkipped(text: string): string
+    if text:sub(1, 1) ~= "#" then
+        return text
+    end
+    local at = text:find("\n", 1, true)
+
+    return at and text:sub(at) or ""
+end
+
+--- The name the chunk kept for source path `path` has in the directory.
+export function name(path: string): string
+    return (path:gsub("[^%w%.%-]", "_")) .. SUFFIX
+end
+
+--- The name the chunk kept for text `text` itself has in the directory.
+export function textname(text: string): string
+    return TEXT_PREFIX .. digest(text) .. SUFFIX
+end
+
+--- What a kept chunk's file holds for source `text` compiled to `chunk`.
+export function contents(text: string, chunk: string): string
+    return MAGIC .. " " .. digest(text) .. " " .. tostring(#text) .. "\n" .. chunk
+end
+
+--- The chunk kept for source path `path` (or, when nil, for the text
+--- itself) whose text is `text`, or nil when none is kept or the one kept
+--- is of other text.
+export function lookup(path: string?, text: string): string?
+    local directory = os.getenv(VARIABLE)
+    if directory == nil or directory == "" then
+        return nil
+    end
+    local file = io.open(directory .. "/" .. (path ~= nil and name(path) or textname(text)), "rb")
+    if file == nil then
+        return nil
+    end
+    local kept = file:read("a") or ""
+    file:close()
+    local header = kept:match("^[^\n]*") as string
+    if header ~= MAGIC .. " " .. digest(text) .. " " .. tostring(#text) then
+        return nil
+    end
+
+    return kept:sub(#header + 2)
+end
