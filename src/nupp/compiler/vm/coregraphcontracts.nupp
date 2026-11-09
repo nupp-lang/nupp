@@ -106,7 +106,9 @@ local function scalar(value: any, numeric: boolean, dynamic: boolean?): string
         or value.tag == "float32"
         -- A metatable is a table; a type a generic computes (a const
         -- parameter's `N`) erases as a type parameter does.
-        or value.tag == "metatable" or value.tag == "neutral" or value.tag == "any" or value.tag == "unknown") then
+        or value.tag == "metatable" or value.tag == "neutral" or value.tag == "any" or value.tag == "unknown"
+        -- A struct is storage of its bytes (taggedstructs).
+        or value.tag == "nominal" and value.declKind == "struct") then
         return "value"
     end
     -- An optional or other union is dynamic too, each member admissible.
@@ -592,14 +594,16 @@ export function normalize(compiled: any, version: integer?): (any, any)
         -- name when it runs.
         local loading = {}
         for _, site in ipairs(p.requires) do
-            if not (
-                type(site) == "table"
-                and (
-                    site.typeOnly and type(site.node) == "table" and site.node.typeOnlyRequire
-                    or site.corecalls
-                    or site.absent and site.target == nil and site.node.runtimeLoader == "require"
-                )
-            ) then
+            if not (type(
+                site
+            ) == "table"
+                and (site.typeOnly and type(
+                    site.node
+                ) == "table" and site.node.typeOnlyRequire
+                or site.corecalls
+                or site.absent and site.target == nil and site.node.runtimeLoader == "require"
+                -- A chunk's qualified path into the running program's module.
+                or site.absent and site.target == nil and site.qualified and p.chunk)) then
                 loading[#loading + 1] = site
             end
         end
@@ -865,7 +869,11 @@ export function normalize(compiled: any, version: integer?): (any, any)
             })
         else
             need(
-                result == signature.result or v >= 8 and (result == "value" or signature.result == "value"),
+                result == signature.result or v >= 8 and (result == "value" or signature.result == "value")
+                -- Every return answering nil, where the checker gave a result,
+                -- is a function that ends only by raising (`error(...)` last):
+                -- its end is unreachable, and answers nil.
+                or v >= 8 and result == "nil",
                 "graph result differs from checked signature: " .. tostring(
                     g.name
                 ) .. " in " .. tostring(

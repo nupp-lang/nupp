@@ -41,7 +41,7 @@ if answer.bump() == 3 then
     score = score + 32
 end
 local ok, message = pcall(answer.fail)
-if not ok and cites(message, ":31: chunk failure") then
+if not ok and cites(message, "catalog-load-chunk.nupp:31: chunk failure") then
     score = score + 64
 end
 local again: any = assert(loadfile(path, "b"))

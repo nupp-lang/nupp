@@ -190,6 +190,8 @@ local CASES = {
     {"modulespattern", 0x7FFF0000000000E6},
     {"modulesrecords", 0x7FFF000000002BD9},
     {"modulescycle", 0x7FFF000000000017},
+    {"pluckedarguments", 0x7FFF001C1CF80790},
+    {"ownmanage", 0x7FFF000000000200},
     {"loopparameteralias", 0x7FFF000000000002},
     {"namedarguments", 0x7FFF000337156A8D},
     {"legacyglobals", 0x7FFF000000000463},
@@ -241,6 +243,7 @@ local CASES = {
     {"affineconstructors", 0x7FFF0000000000FF},
     {"absentffi", 0x7FFF000000000007},
     {"guestffi", 0x7FFF000000001FFF},
+    {"ffiaggregates", 0x7FFF0000003FFFFF},
     {"runnerresiduals", 0x7FFF00000000007F},
     -- Library calls spreading `...` through the library function's value.
     {"spreadlibrary", 0x7FFF0000000003FF},
@@ -275,6 +278,9 @@ local CASES = {
     {"osremove", 0x7FFF000000001FFF},
     -- The compiler's host services as the core answers them for check and build.
     {"clihosts", 0x7FFF0000000000FF},
+    -- C declarations through libclang, and the VM's answers to every
+    -- request core-cdecl-record.lua records.
+    {"corecdecl", 0x7FFF0000000007FF},
     {"loadbinary", 0x7FFF000000001FFF},
     -- A record with an array part: fields and elements apart.
     {"recordsarray", 0x7FFF00000000000F},
@@ -282,6 +288,15 @@ local CASES = {
     {"forwardfunctions", 0x7FFF000000000003},
     -- Main's os filesystem and system functions; main answers the same word.
     {"osfilesystem", 0x7FFF0007FFFFFFFF},
+    -- The compiler's lexer and parser on the core.
+    {"compilerfront", 0x7FFF00000000000F},
+    -- Lua's loaders over source text, compiled on the core by the compiler
+    -- the program carries.
+    {"loadsource", 0x7FFF00000001FFFF},
+    -- The compiler's lexer alone on the core, over whole source files.
+    {"compilerlexer", 0x7FFF00000000000F},
+    -- A checked call spreading fewer or more results than it has parameters.
+    {"callsspreadshort", 0x7FFF00000000001F},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
@@ -474,6 +489,7 @@ local STRESS = {
     affineconstructors = true,
     absentffi = true,
     guestffi = true,
+    ffiaggregates = true,
     runnerresiduals = true,
     spreadlibrary = true,
     libraryresults = true,
@@ -494,7 +510,8 @@ local STRESS = {
     filesystem = true,
     osremove = true,
     loadbinary = true,
-    osfilesystem = true
+    osfilesystem = true,
+    loadsource = true
 }
 -- Shell statements a case's runs start with: the io and pool cases may hold
 -- 64 descriptors, so a handle left open, or opened by a cancelled pool job,
@@ -506,7 +523,19 @@ local SETUP = {
     processpopen = "ulimit -n 64; ",
     processlines = "ulimit -n 64; ",
     processlayer = "ulimit -n 64; ",
-    benchworkloads = "export BENCH_SCALE=-9; "
+    benchworkloads = "export BENCH_SCALE=-9; ",
+    -- The C library catalog-ffi-aggregates calls, built where each run finds it.
+    -- The VM's C declaration answers catalog-core-cdecl compares its own
+    -- with, recorded in the directory it then runs in.
+    corecdecl = (
+        "d=$(mktemp -d '%s/cdecl.XXXXXX') && cd \"$d\" && NUPP_VM_AUTO_REBUILD=0 '%s/bin/nupp' run "
+        .. "'%s/native/core/tests/core-cdecl-record.lua' \"$d/recorded\" > /dev/null "
+        .. "&& export CDECL_DIFF=\"$d/recorded\"; "
+    ):format(OUT, ROOT, ROOT),
+    ffiaggregates = (
+        "d=$(mktemp -d '%s/ffi.XXXXXX') && cc -dynamiclib -o \"$d/libnuppffiaggregates.dylib\" '%s' "
+        .. "&& export DYLD_LIBRARY_PATH=\"$d\"; "
+    ):format(OUT, TESTS .. "/ffi-aggregates.c")
 }
 -- The program arguments a case is run with, after the bridge's own.
 -- The bench entry measures one case, writes its record as JSON on standard
@@ -600,6 +629,8 @@ local NUMERIC = {
     modulespattern = "catalog-modules-pattern",
     modulesrecords = "catalog-modules-records",
     modulescycle = "catalog-modules-cycle",
+    pluckedarguments = "catalog-plucked-arguments",
+    ownmanage = "catalog-own-manage",
     loopparameteralias = "catalog-loop-parameter-alias",
     namedarguments = "catalog-named-arguments",
     legacyglobals = "catalog-legacy-globals",
@@ -681,7 +712,8 @@ local RAISES = {
         {"raising", reported("nupp: [^\n]*catalogerrorsuncaught%.nupp:42: inner")},
         {"named", reported("nupp: already named")},
         {"table", reported("nupp: table: 0x%x+")},
-        {"nil", reported("nupp: nil")}
+        {"nil", reported("nupp: nil")},
+        {"module", reported("nupp: module 'nupp.core.absentmodule' not found:\n.*")}
     }
 }
 -- The twins that run commands: the reference interpreter they run under is

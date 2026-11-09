@@ -362,6 +362,14 @@ export function recoverEntry(ctx: voidptr): uint64
             end
             parent = frames.recover(state, result)
         end
+        -- The runtime's own raise that no protected call takes ends the
+        -- program as any error does, reported (guestuncaught) with the text
+        -- and position made above. A scope error left set would end every
+        -- call after this one too, the report's included.
+        if parent == 0ULL and status == 0ULL and raisedInScope and not closing then
+            native.store64(ctx, context.STATUS, context.GUEST_ERROR_STATUS)
+            return 0ULL
+        end
         if parent == 0ULL then
             native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("error"), scopeError)
             native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorOwner"), scopeOwner)

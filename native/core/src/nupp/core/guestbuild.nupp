@@ -17,6 +17,7 @@ local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local ownedcallables = require("nupp.compiler.vm.ownedcallables")
 local forwardedexports = require("nupp.compiler.vm.forwardedexports")
 local derivedrecipes = require("nupp.compiler.vm.derivedrecipes")
+local managedcalls = require("nupp.compiler.vm.managedcalls")
 local tagged = require("nupp.compiler.vm.taggedprofile")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
@@ -271,6 +272,8 @@ local CASES: {[string]: {
     },
     namedarguments = {fixture = "catalog-named-arguments", version = 8},
     loopparameteralias = {fixture = "catalog-loop-parameter-alias", version = 8},
+    ownmanage = {fixture = "catalog-own-manage", version = 8},
+    pluckedarguments = {fixture = "catalog-plucked-arguments", version = 8},
     modulescycle = {
         fixture = "catalog-modules-cycle",
         version = 8,
@@ -329,6 +332,9 @@ local CASES: {[string]: {
     absentffi = {fixture = "catalog-absent-ffi", version = 8},
     -- `cdef function` calls through the generic foreign call.
     guestffi = {fixture = "catalog-guest-ffi", version = 8},
+    ffiaggregates = {fixture = "catalog-ffi-aggregates", version = 8},
+    -- C declarations through libclang (nupp.compiler.corecdecl).
+    corecdecl = {fixture = "catalog-core-cdecl", version = 8},
     runnerresiduals = {fixture = "catalog-runner-residuals", version = 8},
     spreadlibrary = {fixture = "catalog-spread-library", version = 8},
     libraryresults = {fixture = "catalog-library-results", version = 8},
@@ -362,6 +368,13 @@ local CASES: {[string]: {
     -- A function statement assigning a local declared before it.
     forwardfunctions = {fixture = "catalog-forward-functions", version = 8},
     osfilesystem = {fixture = "catalog-os-filesystem", version = 8},
+    -- The compiler's lexer and parser on the core.
+    compilerfront = {fixture = "catalog-compiler-front", version = 8, follow = true},
+    -- Lua's loaders over source text, compiled on the core by the compiler
+    -- the program carries (`follow` reaches it).
+    compilerlexer = {fixture = "catalog-compiler-lexer", version = 8, follow = true},
+    callsspreadshort = {fixture = "catalog-calls-spread-short", version = 8},
+    loadsource = {fixture = "catalog-load-source", version = 8, modules = {"catalog-load-helper"}, follow = true},
     -- The packaged test runner (nupp.lua build.targets.testRunner): the
     -- delivery path runs it on the core.
     testrunner = {fixture = "tests/tools/test/runner/main", version = 8, follow = true, rooted = true, module = "main"},
@@ -742,6 +755,9 @@ local function requiredmodules(root: any, source: string, follow: boolean): ({st
         end
         -- A record a derive recipe gives members loads the factory, and
         -- each helper its members call.
+        if managedcalls.managing(node) then
+            add(managedcalls.MODULE, false)
+        end
         if derivedrecipes.derived(node) then
             add(derivedrecipes.MODULE, false)
             for _, helper in ipairs(derivedrecipes.helperModules(node)) do

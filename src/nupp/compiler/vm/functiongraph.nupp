@@ -871,6 +871,14 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         bindings[entry.live] = flag(node, true)
     end
 
+    -- An intrinsic that takes its argument (`own.manage(v)`): v's obligation,
+    -- a fresh result's or a moved owner's, passes to what the intrinsic makes.
+    ctx.takeArgument = function(argument: any): nil
+        if cleanupEnabled and block then
+            transferExpression(argument)
+        end
+    end
+
     -- A profile calls this only after resolving the checked callee and
     -- evaluating every argument, immediately before the actual call. Nested
     -- calls have already updated their own independent live flags.
@@ -1584,7 +1592,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 for index, target in ipairs(stat.targets) do
                     if graphcalls.discardTarget(target) then
                         targets[index] = {discard = true}
-                    elseif target.kind == "name" then
+                    elseif target.kind == "name" and not (profile.isGlobal and profile.isGlobal(ctx, target)) then
                         local key = target.token.definition or target.token
                         local previous = need(bindings[key], "assignment requires a checked local binding")
                         targets[index] = {key = key, kind = profile.valueKind(g, previous)}
@@ -2096,6 +2104,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 or stat.kind == "typeAlias"
                 or stat.kind == "recordDecl"
                 or stat.kind == "cdefFunc"
+                or stat.kind == "cdefStruct"
             then
                 invoke("erasedStatement", stat, nil)
             elseif stat.kind == "returnStmt" then
