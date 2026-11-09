@@ -171,6 +171,8 @@ invokeScalar = function(t: any): nil
         -- A plain type parameter erases to a value, as does a type a
         -- generic computes (a const parameter's `N`), and a record is a table.
         or t.tag == "typevar" or t.tag == "neutral" or t.tag == "nominal" and t.declKind == "record"
+        -- A struct is storage of its bytes (taggedstructs).
+        or t.tag == "nominal" and t.declKind == "struct"
         -- `any` and `unknown` are values checked where they are used.
         or t.tag == "any" or t.tag == "unknown"),
         "invoke requires a checked scalar type, got " .. tostring(t and t.tag) .. checkingat()
@@ -674,6 +676,7 @@ local coreLibrary: {[string]: boolean} = {
     ["os.monotonic"] = true,
     collectgarbage = true,
     ["hostcalls.arguments"] = true,
+    ["hostcalls.collector"] = true,
     ["hostcalls.stringmeta"] = true,
     ["hostcalls.gmatchstate"] = true,
     ["hostcalls.gmatchvalues"] = true,
@@ -753,7 +756,8 @@ for _, group in ipairs(corelibrary.groups()) do
     end
 end
 
-local function preludeName(node: any): boolean
+-- Whether `node` is a name the prelude declares (Lua's globals).
+export function preludeName(node: any): boolean
     local definition = node and node.kind == "name" and node.token and node.token.definition
     return type(definition) == "table" and definition.filename == "nupp:lua.d.nupp"
 end
@@ -795,6 +799,9 @@ local libraryValues: {[string]: boolean} = {
     -- is the nil the library values hold under its name, as on a Lua
     -- without it, so `jit and jit.os` reads nil.
     jit = true,
+    -- LuaJIT's `setfenv`, which Lua 5.5 does not have: it reads nil too, so a
+    -- call of it raises as Lua's does.
+    setfenv = true,
     ["math.type"] = true,
     ["math.max"] = true,
     ["math.min"] = true,
@@ -1244,6 +1251,11 @@ export function coreLibraryField(node: any): string?
 end
 
 export function coreLibraryCall(call: any): string?
+    -- A chunk's guarded call, lowered as the call of what its environment
+    -- holds (nupp.compiler.vm.taggedprofile), is no library call there.
+    if call and call.chunkDynamic then
+        return nil
+    end
     if dynamicRequire(call) then
         return "require.dynamic"
     end
@@ -1467,7 +1479,7 @@ export function dynamicInvokeContract(call: any, count: integer?): any
     -- One the checker could not type (a plain Lua chunk's, which compiles
     -- whatever its checking found) is a call through `any` too.
     local called = call.calleeType
-    if called == nil or called.tag ~= "func" or alternativeresults(called) then
+    if called == nil or called.tag ~= "func" or alternativeresults(called) or call.chunkDynamic then
         called = anySignature(call, count or 1)
     end
     local contract = {

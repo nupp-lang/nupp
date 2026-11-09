@@ -292,7 +292,8 @@ export function invoke(
     keepResult: boolean,
     dynamic: boolean?,
     count: integer?,
-    open: boolean?
+    open: boolean?,
+    given: integer?
 ): any
     -- `own.recoveralias` is the managed runtime's, through coremanaged.
     if node.recoverManagedAlias and catalog(ctx).manages[node] then
@@ -351,7 +352,8 @@ export function invoke(
     -- The declaration supplies an expected contract, never the runtime callee.
     -- Evaluate that callee before any argument, and retain its snapshot across
     -- every nested call. Runtime FunctionInfo authentication remains pending.
-    local callee = ctx.hold(ctx.expression(node.obj, "tagged"))
+    -- A callee already read (a chunk's guarded call's) is not read again.
+    local callee = ctx.hold(given or ctx.expression(node.obj, "tagged"))
     -- A `...` last spreads its whole pack after the fixed arguments, and so
     -- does a call last that gives other than one result.
     local args, pack = callOperands(ctx, node, 1)

@@ -1,0 +1,227 @@
+module nupp.core.catalogffiaggregates
+
+-- Structs on the core, and passed to and answered by C by value: built,
+-- read and written in their C layout; homogeneous aggregates of floats in
+-- float registers and, past them, on the stack; small composites in integer
+-- registers and on the stack; larger ones by reference to a copy and
+-- answered through x8; and a struct passed where C takes a pointer. The C
+-- side is ffi-aggregates.c, which the guest runner builds; div and ldiv are
+-- the C library's. Last, the core's collector, a C visitor, keeps what a
+-- C walk shows it. Each check is a bit of the score.
+const hostcalls = require("nupp.runtime.hostcalls")
+
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+cdef struct F2
+    x: float32
+    y: float32
+end
+
+cdef struct F3
+    x: float32
+    y: float32
+    z: float32
+end
+
+cdef struct D4
+    a: float64
+    b: float64
+    c: float64
+    d: float64
+end
+
+cdef struct F2x2
+    low: F2
+    high: F2
+end
+
+cdef struct D3
+    v: float64[3]
+end
+
+cdef struct I2
+    a: int32
+    b: int32
+end
+
+cdef struct Mixed
+    a: int8
+    b: int16
+    c: int32
+end
+
+cdef struct L12
+    a: int64
+    b: int32
+end
+
+cdef struct L3
+    a: int64
+    b: int64
+    c: int64
+end
+
+cdef struct Collected
+    base: uint64
+    count: uint64
+    limit: uint64
+    words: uint64
+end
+
+cdef struct Quotient
+    quot: int32
+    rem: int32
+end
+
+cdef struct LongQuotient
+    quot: int64
+    rem: int64
+end
+
+cdef function f2_scale(p: F2, k: float32): F2 from"libnuppffiaggregates.dylib"
+cdef function f3_add(a: F3, b: F3): F3 from"libnuppffiaggregates.dylib"
+cdef function d4_scale(r: D4, k: float64): D4 from"libnuppffiaggregates.dylib"
+cdef function f2x2_swap(q: F2x2): F2x2 from"libnuppffiaggregates.dylib"
+cdef function d3_sum(d: D3): float64 from"libnuppffiaggregates.dylib"
+cdef function d4_spill(
+    a: float64,
+    b: float64,
+    c: float64,
+    d: float64,
+    e: float64,
+    f: float64,
+    r: D4,
+    tail: float64
+): float64 from"libnuppffiaggregates.dylib"
+cdef function f3_spill(
+    a: float64,
+    b: float64,
+    c: float64,
+    d: float64,
+    e: float64,
+    f: float64,
+    g: float64,
+    s: F3,
+    tail: float32
+): float32 from"libnuppffiaggregates.dylib"
+cdef function i2_swap(v: I2): I2 from"libnuppffiaggregates.dylib"
+cdef function mixed_bump(m: Mixed): Mixed from"libnuppffiaggregates.dylib"
+cdef function l12_make(a: int64, b: int32): L12 from"libnuppffiaggregates.dylib"
+cdef function l12_sum(v: L12): int64 from"libnuppffiaggregates.dylib"
+cdef function l12_spill(
+    a: int64,
+    b: int64,
+    c: int64,
+    d: int64,
+    e: int64,
+    f: int64,
+    g: int64,
+    v: L12,
+    tail: int64
+): int64 from"libnuppffiaggregates.dylib"
+cdef function l3_add(x: L3, y: L3): L3 from"libnuppffiaggregates.dylib"
+cdef function l3_spill(
+    a: int64,
+    b: int64,
+    c: int64,
+    d: int64,
+    e: int64,
+    f: int64,
+    g: int64,
+    h: int64,
+    v: L3,
+    t: int32
+): int64 from"libnuppffiaggregates.dylib"
+cdef function l3_make(a: int64, b: int64, c: int64): L3 from"libnuppffiaggregates.dylib"
+cdef function div(n: int32, d: int32): Quotient
+cdef function ldiv(n: int64, d: int64): LongQuotient
+cdef function memcpy(borrows target: L3*, borrows source: L3*, count: uint64): voidptr
+cdef function memmove(borrows target: L3*, source: uint64, count: uint64): voidptr
+cdef function malloc(size: uint64): uint64
+cdef function free(block: uint64)
+cdef function walk_l3(
+    borrows visit: voidptr,
+    borrows data: Collected*,
+    count: int64
+): uint32 from"libnuppffiaggregates.dylib"
+
+do
+    -- Built in C layout, read and written by field.
+    local p = F2(1.5, 2.5)
+    check(p.x == 1.5 and p.y == 2.5)
+    p.y = 4.0
+    check(p.y == 4.0 and p.x == 1.5)
+    -- A nested struct is a view of its parent's bytes.
+    local q = F2x2(F2(1.0, 2.0), F2(3.0, 4.0))
+    local low = q.low
+    low.x = 9.0
+    check(q.low.x == 9.0 and q.high.y == 4.0)
+    -- A fixed array's elements, from zero.
+    local d = D3()
+    d.v[0] = 1.5
+    d.v[1] = 2.5
+    d.v[2] = 3.0
+    check(d.v[1] == 2.5 and d3_sum(d) == 7.0)
+
+    -- Aggregates of floats in s and d registers.
+    local scaled = f2_scale(F2(1.5, -2.0), 2.0)
+    check(scaled.x == 3.0 and scaled.y == -4.0)
+    local added = f3_add(F3(1.0, 2.0, 3.0), F3(0.5, 0.25, 0.125))
+    check(added.x == 1.5 and added.y == 2.25 and added.z == 3.125)
+    local wide = d4_scale(D4(1.0, 2.0, 3.0, 4.0), 0.5)
+    check(wide.a == 0.5 and wide.b == 1.0 and wide.c == 1.5 and wide.d == 2.0)
+    local swapped = f2x2_swap(F2x2(F2(1.0, 2.0), F2(3.0, 4.0)))
+    check(swapped.low.x == 3.0 and swapped.low.y == 4.0 and swapped.high.x == 1.0 and swapped.high.y == 2.0)
+    -- Past the float registers, on the stack.
+    check(d4_spill(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, D4(1.0, 2.0, 3.0, 4.0), 5.0) == 543231.0)
+    check(f3_spill(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, F3(1.0, 2.0, 3.0), 4.0) == 43238.0)
+
+    -- Composites of up to 16 bytes in x registers, and on the stack.
+    local pair = i2_swap(I2(7, -9))
+    check(pair.a == -9 and pair.b == 7)
+    local mixed = mixed_bump(Mixed(1, 300, 70000))
+    check(mixed.a == 2 and mixed.b == 301 and mixed.c == 70001)
+    local made = l12_make(5, -6)
+    check(made.a == 5 and made.b == -6 and l12_sum(L12(5, 6)) == 11)
+    check(l12_spill(1, 2, 3, 4, 5, 6, 7, L12(2, 3), 4) == 43228)
+
+    -- Larger composites by reference to a copy, answered through x8.
+    local x = L3(1, 2, 3)
+    local sum = l3_add(x, L3(10, 20, 30))
+    check(sum.a == 11 and sum.b == 22 and sum.c == 33 and x.a == 1)
+    check(l3_spill(1, 2, 3, 4, 5, 6, 7, 8, L3(1, 2, 3), 4) == 432136)
+    local three = l3_make(4, 5, 6)
+    check(three.a == 4 and three.b == 5 and three.c == 6)
+
+    -- The C library's own.
+    local divided = div(17, 5)
+    check(divided.quot == 3 and divided.rem == 2)
+    local long = ldiv(-17, 5)
+    check(long.quot == -3 and long.rem == -2)
+    -- A struct where C takes a pointer is its bytes.
+    local copy = L3(0, 0, 0)
+    memcpy(copy, three, 24)
+    check(copy.a == 4 and copy.c == 6)
+
+    -- The collector keeps each struct a walk shows it, and stops the walk
+    -- once no place is left.
+    local base = malloc(4 * 24)
+    local kept = Collected(base, 0, 4, 3)
+    local walked = walk_l3(hostcalls.collector(), kept, 3)
+    local second = L3(0, 0, 0)
+    memmove(second, base + 24, 24)
+    check(walked == 1 and kept.count == 3 and second.a == 2 and second.b == 20 and second.c == 200)
+    local short = Collected(base, 0, 2, 3)
+    check(walk_l3(hostcalls.collector(), short, 3) == 0 and short.count == 2)
+    free(base)
+end
+
+export const result = score

@@ -50,6 +50,14 @@ export const LEGACY_DIAGNOSTIC_FORMAT: uint64 = 3ULL
 export const DIAGNOSTIC_FORMAT: uint64 = 4ULL
 export const CALL_METHOD: uint64 = 1ULL
 export const CALL_TAIL: uint64 = 2ULL
+-- What kind of name a call gives the function it calls, for debug.getinfo's
+-- namewhat: at most one of these beside CALL_METHOD, which is "method".
+export const CALL_GLOBAL: uint64 = 4ULL
+export const CALL_LOCAL: uint64 = 8ULL
+export const CALL_UPVALUE: uint64 = 16ULL
+export const CALL_FIELD: uint64 = 32ULL
+export const CALL_ITERATOR: uint64 = 64ULL
+export const CALL_FLAGS: uint64 = 127ULL
 export const DIAGNOSTIC_NAME_LIMIT: uint64 = 65536ULL
 export const FORWARD_NONE: uint64 = 0ULL
 export const FORWARD_CALL: uint64 = 1ULL
@@ -97,7 +105,10 @@ export struct Function
     firstCall: uint64
     callCount: uint64
     -- From v8, 0 or the offset of one source line word per instruction (0
-    -- where none is known), and 0 or the pooled string (STRING_CONSTANT over
+    -- where none is known) and then LINE_TRAILER words: the lines the
+    -- function's definition starts and ends on (0 for a main chunk) and 0 or
+    -- the pooled string of its Lua source ("@" and its file, or the name
+    -- `load` was given); and 0 or the pooled string (STRING_CONSTANT over
     -- its offset) naming the chunk an error position cites.
     lines: uint64
     chunk: uint64
@@ -172,6 +183,12 @@ export const STRING_CONSTANT: uint64 = 0x7ffe000000000000ULL
 export const INTEGER_CONSTANT: uint64 = 0xfffe000000000000ULL
 export const INITIALIZER: uint64 = 0ULL
 export const FUNCTION: uint64 = 1ULL
+-- The words a function's line table holds past its instructions' lines, and
+-- where among them its definition's first and last lines and its source are.
+export const LINE_TRAILER: uint64 = 3ULL
+export const LINE_DEFINED: uint64 = 0ULL
+export const LINE_LASTDEFINED: uint64 = 1ULL
+export const LINE_SOURCE: uint64 = 2ULL
 -- Program-size bounds, the schema's (coregraphschema.limits): owners,
 -- signatures, modules, call sites and instructions across the program. The
 -- artifact producer refuses to build against bounds that differ.
@@ -198,6 +215,19 @@ local function contains(bytes: uint64, offset: uint64, count: uint64, stride: ui
         return 0ULL
     end
     return 1ULL
+end
+
+-- Whether `word` is 0 or a pooled string within the `bytes` at `data`.
+local function pooled(data: voidptr, bytes: uint64, word: uint64): boolean
+    if word == 0ULL then
+        return true
+    end
+    local at = word & values.PAYLOAD
+
+    return word & 0xffff000000000000ULL == STRING_CONSTANT
+        and at % 8ULL == 0ULL
+        and at + 8ULL <= bytes
+        and native.load64(data, native.index(at)) <= bytes - at - 8ULL
 end
 
 export function scalar(kind: uint64, value: uint64): uint64
@@ -475,7 +505,14 @@ local function valid(data: voidptr, bytes: uint64): uint64
         end
         cursor = cursor + size * 16ULL
         local lines = native.load64(fn, native.fieldOffset<Function>("lines"))
-        if lines ~= 0ULL and (version < 8ULL or lines % 8ULL ~= 0ULL or contains(bytes, lines, size, 8ULL) == 0ULL) then
+        if lines ~= 0ULL
+            and (
+                version < 8ULL
+                or lines % 8ULL ~= 0ULL
+                or contains(bytes, lines, size + LINE_TRAILER, 8ULL) == 0ULL
+                or not pooled(data, bytes, native.load64(data, native.index(lines + (size + LINE_SOURCE) * 8ULL)))
+            )
+        then
             return 0ULL
         end
         local lands = native.load64(fn, native.fieldOffset<Function>("lands"))
@@ -483,16 +520,8 @@ local function valid(data: voidptr, bytes: uint64): uint64
             return 0ULL
         end
         local chunk = native.load64(fn, native.fieldOffset<Function>("chunk"))
-        if chunk ~= 0ULL then
-            local at = chunk & values.PAYLOAD
-            if version < 8ULL
-                or chunk & 0xffff000000000000ULL ~= STRING_CONSTANT
-                or at % 8ULL ~= 0ULL
-                or at + 8ULL > bytes
-                or native.load64(data, native.index(at)) > bytes - at - 8ULL
-            then
-                return 0ULL
-            end
+        if chunk ~= 0ULL and (version < 8ULL or not pooled(data, bytes, chunk)) then
+            return 0ULL
         end
         local call: uint64 = 0ULL
         local previousPC: uint64 = 0ULL
@@ -583,7 +612,7 @@ local function valid(data: voidptr, bytes: uint64): uint64
             if forward > FORWARD_RECEIVER
                 or forward ~= FORWARD_NONE and name == 0ULL
                 or forward == FORWARD_RECEIVER and method & CALL_METHOD ~= CALL_METHOD
-                or method > (CALL_METHOD | CALL_TAIL)
+                or method > CALL_FLAGS
                 or diagnosticFormat == LEGACY_DIAGNOSTIC_FORMAT and method > CALL_METHOD
                 or method & CALL_METHOD == CALL_METHOD
                 and native.load64(

@@ -391,6 +391,29 @@ local function eachToken(node: any, visit: function(any): nil, enter: (function(
     end
 end
 
+-- The library calls a chunk guards: those it makes through a global name
+-- (`print`, `io.write`) other than the forms the core lowers itself around
+-- the call (pcall, xpcall, require, a callback's library). Answers the
+-- library's name, which keys the function the program started with.
+local UNGUARDED: {[string]: boolean} = {pcall = true, xpcall = true, ["require.dynamic"] = true}
+
+local function guardedLibrary(p: any, node: any): string?
+    local library = graph.coreLibraryCall(node)
+    if library == nil or UNGUARDED[library] or graph.callbackArgument(node) ~= nil or p.callByNode[node] ~= nil then
+        return nil
+    end
+    local callee = node.obj
+    local root = callee and callee.kind == "dotIndex" and callee.obj or callee
+    if root == nil or root.kind ~= "name" or not chunkGlobal(p, root) then
+        return nil
+    end
+    if callee ~= root and (callee.obj ~= root or callee.name == nil) then
+        return nil
+    end
+
+    return library
+end
+
 -- A function statement naming a local declared before it (`local f` then
 -- `function f()`) assigns that local, as in Lua; the checker declares the
 -- statement's name anew. This points the statement's name, and every name
@@ -452,8 +475,14 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         -- In a chunk, the name tokens that read or write a global, each to
         -- the read of the chunk's environment it is a field of.
         globals = {},
-        -- In a chunk, the name of the local its environment is in.
+        -- In a chunk, the name of the local its environment is in, and of
+        -- the one the library functions as the program started are in.
         environment = options ~= nil and options.environment or nil,
+        builtins = options ~= nil and options.builtins or nil,
+        -- In a chunk, the library calls through a global, each to what its
+        -- guard reads: the call is the core's own while the environment
+        -- still holds the function the program started with.
+        guarded = {},
         modules = {},
         owners = {},
         bindings = {},
@@ -519,9 +548,10 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         sourcePaths[input.path] = true
         local parsed = need(input.parsed, "checked parse required")
         need(parsed.root and parsed.symbols and parsed.moduleName == input.name, "checked module identity required")
-        -- Once per checked tree: a project shares its trees across programs.
-        if parsed.forwardNames == nil then
-            parsed.forwardNames = {}
+        -- Once per check of a tree: a project shares its trees across
+        -- programs, and checking one again declares its names anew.
+        if parsed.forwardSymbols ~= parsed.symbols then
+            parsed.forwardNames, parsed.forwardSymbols = {}, parsed.symbols
             assignForwardLocals(parsed.root, parsed.forwardNames)
         end
         for own, assigned in pairs(parsed.forwardNames) do
@@ -532,7 +562,16 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         for _, diagnostic in ipairs(input.diagnostics) do
             need(p.chunk or diagnostic.severity ~= "error", "module has checker errors")
         end
-        local scope: any = {name = input.name, path = input.path, constants = {}, functions = {}, exports = {}}
+        -- A chunk's Lua source, the name Lua's `load` was given; a module's
+        -- is "@" and its path.
+        local scope: any = {
+            name = input.name,
+            path = input.path,
+            chunkname = input.chunkname,
+            constants = {},
+            functions = {},
+            exports = {}
+        }
         local owner: any = {
             id = #p.owners,
             kind = "module",
@@ -655,6 +694,9 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
                 body = body,
                 parent = owner.id,
                 scope = owner.scope,
+                -- A chunk is the function of `...` its module returns, which
+                -- Lua's debug.getinfo calls a main chunk.
+                main = p.chunk and owner.kind == "module" or nil,
                 signature = signature,
                 paramKinds = {},
                 captures = {},
@@ -769,11 +811,16 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             )
         end
     end
-    -- A chunk's environment: the declaration of the local its opening makes.
+    -- A chunk's environment and the library functions as the program
+    -- started: the declarations of the locals its opening makes.
     if p.chunk then
         for _, b in ipairs(p.bindings) do
-            if b.definition.name == p.environment and p.owners[b.owner + 1].kind == "module" then
-                p.chunkEnvironment = b.definition
+            if p.owners[b.owner + 1].kind == "module" then
+                if b.definition.name == p.environment then
+                    p.chunkEnvironment = b.definition
+                elseif b.definition.name == p.builtins then
+                    p.chunkBuiltins = b.definition
+                end
             end
         end
         need(p.chunkEnvironment ~= nil, "chunk environment declaration is missing")
@@ -919,19 +966,23 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
 
     -- A read of the chunk's environment where global `token` is, in `owner`:
     -- a reference of its own, which capture analysis carries into closures.
-    local function environmentRead(token: any, owner: any): any
+    local function chunkLocalRead(token: any, owner: any, name: string, definition: any): any
         local read: any = {
             kind = "name",
-            text = p.environment,
+            text = name,
             line = token.line,
             col = token.col,
             offset = token.offset,
             trivia = {},
-            definition = p.chunkEnvironment
+            definition = definition
         }
         reference(read, owner)
 
         return read
+    end
+
+    local function environmentRead(token: any, owner: any): any
+        return chunkLocalRead(token, owner, p.environment, p.chunkEnvironment)
     end
 
     reference = function(token: any, owner: any): nil
@@ -1586,6 +1637,23 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             or node.kind == "methodCall" and graph.callbackArgument(node) ~= nil
         then
             local item = {id = #p.calls, owner = owner.id, node = node, field = true}
+            p.calls[#p.calls + 1], p.callByNode[node] = item, item
+        end
+        -- A chunk's library call through a global (`print(x)`, `io.write(s)`)
+        -- calls what its environment holds: the core's own operation while
+        -- that is the function the program started with, else a call of it.
+        local guard = p.chunk and p.chunkBuiltins ~= nil and node.kind == "call" and guardedLibrary(p, node)
+        if guard then
+            local root = node.obj.kind == "dotIndex" and node.obj.obj or node.obj
+            p.globals[root.token] = p.globals[root.token] or environmentRead(root.token, owner)
+            p.guarded[
+                node
+            ] = {
+                library = guard,
+                root = root,
+                builtins = chunkLocalRead(cst.firstToken(node), owner, p.builtins, p.chunkBuiltins)
+            }
+            local item = {id = #p.calls, owner = owner.id, node = node, field = true, guarded = true}
             p.calls[#p.calls + 1], p.callByNode[node] = item, item
         end
         -- A generic `for` over anything but ipairs, pairs or gmatch calls its
@@ -2276,6 +2344,7 @@ export function verify(p: any): boolean
                 -- A library function called by its name through its value.
                 or node.kind == "call" and graph.libraryValue(node.obj) ~= nil
                 or node.kind == "call" and chunkGlobal(p, node.obj) and graph.coreLibraryCall(node) == nil
+                or item.guarded == true and p.guarded[node] ~= nil
                 or node.kind == "methodCall"
                 and graph.callbackArgument(node) ~= nil)
                 and p.callByNode[node] == item

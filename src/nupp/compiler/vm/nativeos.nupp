@@ -25,9 +25,11 @@ local definitions = {
     foreignTable = {slot = 14, table = true},
     -- Not imports: routines the selector writes where they are called
     -- (s0.select). The generic foreign call takes a block of words and
-    -- answers x0; the other answers the address of the table above.
+    -- answers x0; the next answers the address of the table above, and the
+    -- collector the address of a C visitor the selector writes.
     foreignCall = {routine = "call", params = {"voidptr"}, result = "uint64", cResult = "uint64"},
     foreignCells = {routine = "cells", params = {}, result = "voidptr", cResult = "voidptr"},
+    foreignCollector = {routine = "collector", params = {}, result = "voidptr", cResult = "voidptr"},
     -- Sequentially consistent word access, as LDAR and CASAL do it.
     atomicload64 = {routine = "atomicload", params = {"voidptr", "int64"}, result = "uint64", cResult = "uint64"},
     atomiccas64 = {

@@ -196,7 +196,7 @@ local CASES = {
     {"methodspread", 0x7FFF000000003FFF},
     {"loopparameteralias", 0x7FFF000000000002},
     {"namedarguments", 0x7FFF000337156A8D},
-    {"legacyglobals", 0x7FFF000000000463},
+    {"legacyglobals", 0x7FFF000000000C33},
     {"gotocontinue", 0x7FFF0000000009E7},
     {"derivedmembers", 0x7FFF00000000000F},
     {"shortfunctions", 0x7FFF000000003BEE},
@@ -245,6 +245,7 @@ local CASES = {
     {"affineconstructors", 0x7FFF0000000000FF},
     {"absentffi", 0x7FFF000000000007},
     {"guestffi", 0x7FFF000000001FFF},
+    {"ffiaggregates", 0x7FFF0000003FFFFF},
     {"runnerresiduals", 0x7FFF00000000007F},
     -- Library calls spreading `...` through the library function's value.
     {"spreadlibrary", 0x7FFF0000000003FF},
@@ -279,22 +280,33 @@ local CASES = {
     {"osremove", 0x7FFF000000001FFF},
     -- The compiler's host services as the core answers them for check and build.
     {"clihosts", 0x7FFF0000000000FF},
+    -- C declarations through libclang, and the VM's answers to every
+    -- request core-cdecl-record.lua records.
+    {"corecdecl", 0x7FFF0000000007FF},
     {"loadbinary", 0x7FFF000000001FFF},
     -- A record with an array part: fields and elements apart.
     {"recordsarray", 0x7FFF00000000000F},
     -- A function statement assigning a local declared before it.
     {"forwardfunctions", 0x7FFF000000000003},
+    -- A closure capturing seventy values.
+    {"closurecaptures", 0x7FFF0000000009B5},
+    -- The os namespace's module first, before anything reads Lua's os.
+    {"standardosfirst", 0x7FFF000000000003},
     -- Main's os filesystem and system functions; main answers the same word.
     {"osfilesystem", 0x7FFF0007FFFFFFFF},
     -- The compiler's lexer and parser on the core.
     {"compilerfront", 0x7FFF00000000000F},
     -- Lua's loaders over source text, compiled on the core by the compiler
     -- the program carries.
-    {"loadsource", 0x7FFF00000001FFFF},
+    {"loadsource", 0x7FFF0000000FFFFF},
     -- The compiler's lexer alone on the core, over whole source files.
     {"compilerlexer", 0x7FFF00000000000F},
     -- A checked call spreading fewer or more results than it has parameters.
     {"callsspreadshort", 0x7FFF00000000001F},
+    -- `nupp check` on the core: a clean file and one with a type error.
+    {"compilercheck", 0x7FFF000000000003},
+    -- Lua's debug.getinfo: sources, lines and names by level and of values.
+    {"debuggetinfo", 0x7FFF00000001FFFF},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
@@ -335,6 +347,11 @@ local OUTPUT = {
 }
 -- The bench entry's record, which holds times: its shape and fib(20)'s
 -- checksum (SETUP) are what is checked, not what it measured.
+-- The broken file's diagnostic, as check prints it: position, code, message.
+OUTPUT.compilercheck = function(printed)
+    return printed:find("compilercheck%-broken%.nupp:1:%d+: error: NUPP%d+") ~= nil
+end
+
 OUTPUT.benchworkloads = function(printed)
     local ok, record = pcall(json.decodevalue, printed)
     local case = ok and type(record) == "table" and type(record.cases) == "table" and record.cases[1]
@@ -487,6 +504,7 @@ local STRESS = {
     affineconstructors = true,
     absentffi = true,
     guestffi = true,
+    ffiaggregates = true,
     runnerresiduals = true,
     spreadlibrary = true,
     libraryresults = true,
@@ -508,7 +526,8 @@ local STRESS = {
     osremove = true,
     loadbinary = true,
     osfilesystem = true,
-    loadsource = true
+    loadsource = true,
+    debuggetinfo = true
 }
 -- Shell statements a case's runs start with: the io and pool cases may hold
 -- 64 descriptors, so a handle left open, or opened by a cancelled pool job,
@@ -520,7 +539,19 @@ local SETUP = {
     processpopen = "ulimit -n 64; ",
     processlines = "ulimit -n 64; ",
     processlayer = "ulimit -n 64; ",
-    benchworkloads = "export BENCH_SCALE=-9; "
+    benchworkloads = "export BENCH_SCALE=-9; ",
+    -- The C library catalog-ffi-aggregates calls, built where each run finds it.
+    -- The VM's C declaration answers catalog-core-cdecl compares its own
+    -- with, recorded in the directory it then runs in.
+    corecdecl = (
+        "d=$(mktemp -d '%s/cdecl.XXXXXX') && cd \"$d\" && NUPP_VM_AUTO_REBUILD=0 '%s/bin/nupp' run "
+        .. "'%s/native/core/tests/core-cdecl-record.lua' \"$d/recorded\" > /dev/null "
+        .. "&& export CDECL_DIFF=\"$d/recorded\"; "
+    ):format(OUT, ROOT, ROOT),
+    ffiaggregates = (
+        "d=$(mktemp -d '%s/ffi.XXXXXX') && cc -dynamiclib -o \"$d/libnuppffiaggregates.dylib\" '%s' "
+        .. "&& export DYLD_LIBRARY_PATH=\"$d\"; "
+    ):format(OUT, TESTS .. "/ffi-aggregates.c")
 }
 -- The program arguments a case is run with, after the bridge's own.
 -- The bench entry measures one case, writes its record as JSON on standard
@@ -651,7 +682,8 @@ local NUMERIC = {
     gcoptions = "catalog-gc-options",
     gcwarn = "catalog-gc-warn",
     ostime = "catalog-os-time",
-    osfiles = "catalog-os-files"
+    osfiles = "catalog-os-files",
+    debuggetinfo = "catalog-debug-getinfo"
 }
 -- The status a program ends with when an error no protected call takes
 -- ends it, as the command line's: the bridge exits so once the program has
