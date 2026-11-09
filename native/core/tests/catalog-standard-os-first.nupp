@@ -1,0 +1,17 @@
+module nupp.core.catalogstandardosfirst
+
+-- The os namespace's own module initialized before anything reads Lua's os,
+-- as the compiler CLI's first command does: it finds the core's os library
+-- and extends it. Each check adds a bit.
+const standardos = require("nupp.runtime.standardos")
+
+local score = 0
+local extended: any = standardos.value
+if extended ~= nil and extended == rawget(_G, "os") then
+    score = score + 1
+end
+if type(extended.stat) == "function" and type(extended.remove) == "function" then
+    score = score + 2
+end
+
+export const result = score

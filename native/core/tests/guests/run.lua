@@ -289,6 +289,8 @@ local CASES = {
     {"compilerlexer", 0x7FFF00000000000F},
     -- A closure capturing seventy values.
     {"closurecaptures", 0x7FFF0000000009B5},
+    -- The os namespace's module first, before anything reads Lua's os.
+    {"standardosfirst", 0x7FFF000000000003},
     -- A checked call spreading fewer or more results than it has parameters.
     {"callsspreadshort", 0x7FFF00000000001F},
     -- Main's os filesystem and system functions; main answers the same word.

@@ -364,6 +364,7 @@ local CASES: {[string]: {
     compilerfront = {fixture = "catalog-compiler-front", version = 8, follow = true},
     compilerlexer = {fixture = "catalog-compiler-lexer", version = 8, follow = true},
     closurecaptures = {fixture = "catalog-closure-captures", version = 8},
+    standardosfirst = {fixture = "catalog-standard-os-first", version = 8, follow = true},
     callsspreadshort = {fixture = "catalog-calls-spread-short", version = 8},
     loadsource = {fixture = "catalog-load-source", version = 8, modules = {"catalog-load-helper"}, follow = true},
     osfilesystem = {fixture = "catalog-os-filesystem", version = 8},
