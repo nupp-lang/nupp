@@ -67,7 +67,6 @@ local osNames = {
     poolCancel = true,
     poolsettle = true,
     sleepNanos = true,
-    errnoLocation = true,
     foreignCall = true,
     foreignCells = true,
     atomicload64 = true,

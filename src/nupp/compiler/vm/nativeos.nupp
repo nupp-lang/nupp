@@ -28,10 +28,9 @@ local definitions = {
     dlopen = {slot = 19, params = {"voidptr", "int64"}, result = "voidptr", cResult = "voidptr"},
     dlsym = {slot = 20, params = {"voidptr", "voidptr"}, result = "voidptr", cResult = "voidptr"},
     dlclose = {slot = 21, params = {"voidptr"}, result = "int64", cResult = "int64", narrow = "int32"},
-    errnoLocation = {slot = 22, params = {}, result = "voidptr", cResult = "voidptr"},
     -- Not a function: the table foreign calls cache their resolved symbols
     -- in, foreignSlots words the bridge zeroes.
-    foreignTable = {slot = 23, table = true},
+    foreignTable = {slot = 22, table = true},
     -- Not imports: routines the selector writes where they are called
     -- (s0.select). The generic foreign call takes a block of words and
     -- answers x0; the other answers the address of the table above.

@@ -181,7 +181,6 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, Failure> {
         library[1],
         library[2],
         library[3],
-        library[4],
     ];
     #[cfg(test)]
     let imports = shared::imports(imports);

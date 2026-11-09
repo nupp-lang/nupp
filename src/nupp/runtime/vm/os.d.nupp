@@ -150,10 +150,6 @@ local record Os
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     dlclose: function(library: voidptr): int64
 
-    --- Where the calling thread's C `errno` lives, a 32-bit integer.
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    errnoLocation: function(): voidptr
-
     --- Calls the C function a block of words names, as the platform's C
     --- calling convention passes its arguments: the function, then x0-x7,
     --- d0-d7 and the first sixteen words of the stack. Answers x0 and leaves
