@@ -1,0 +1,29 @@
+module nupp.core.catalogforwardfunctions
+
+-- A local declared before the function statement that assigns it, as mutually
+-- recursive helpers are written: closures made in between see the function.
+local odd: function(integer): boolean
+
+local function even(n: integer): boolean
+    if n == 0 then
+        return true
+    end
+    return odd(n - 1)
+end
+
+function odd(n: integer): boolean
+    if n == 0 then
+        return false
+    end
+    return even(n - 1)
+end
+
+local score: integer = 0
+if even(10) and not even(7) then
+    score = score + 1
+end
+if odd(7) and not odd(4) then
+    score = score + 2
+end
+
+export const result = score
