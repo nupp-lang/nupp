@@ -26,6 +26,7 @@ const loader = require("nupp.runtime.core.guestloader")
 const texts = require("nupp.runtime.core.guesttexts")
 const librarycalls = require("nupp.runtime.core.librarycalls")
 const storagelibrary = require("nupp.runtime.core.storagelibrary")
+const loadlibrary = require("nupp.runtime.core.loadlibrary")
 const librarylayouts = require("nupp.runtime.core.librarylayouts")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 const guesttables = require("nupp.runtime.core.guesttables")
@@ -1466,9 +1467,9 @@ export function LibCall(
     -- `require` of a computed name: the module the image holds by it, as a
     -- static require of it answers or starts it. A loaded chunk's entry
     -- (`load`) starts as a module does, by its id.
-    if libraryId == librarycalls.MODULE_REQUIRE or libraryId == librarycalls.MODULE_START then
+    if libraryId == librarycalls.MODULE_REQUIRE or libraryId == loadlibrary.MODULE_START then
         local target: uint64 = 0ULL
-        if libraryId == librarycalls.MODULE_START then
+        if libraryId == loadlibrary.MODULE_START then
             if not wide.isInteger(a) or not loader.installed(ctx, wide.bitsOf(a)) then
                 ops.fail(ctx, frame, pc, ops.INVALID)
                 return native.fail()

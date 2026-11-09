@@ -33,9 +33,7 @@ local bounds: Limits = {
     treeitems = 268435456,
     treetext = 1073741824,
     blocks = 4096,
-    -- Before the executable assigns registers: a block passes every live
-    -- binding as a parameter, so a long chunk's top level holds many.
-    values = 1048576,
+    values = 65536,
     items = 1048576
 }
 

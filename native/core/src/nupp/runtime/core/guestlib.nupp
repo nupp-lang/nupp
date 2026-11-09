@@ -15,6 +15,7 @@ const texts = require("nupp.runtime.core.guesttexts")
 const ints = require("nupp.runtime.core.coreintegers")
 const os = require("nupp.runtime.vm.os")
 const librarycalls = require("nupp.runtime.core.librarycalls")
+const loadlibrary = require("nupp.runtime.core.loadlibrary")
 const librarylayouts = require("nupp.runtime.core.librarylayouts")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 const guestvalues = require("nupp.runtime.core.guestvalues")
@@ -391,7 +392,7 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         )
     elseif id == librarycalls.LANDED then
         return guestlanding.takeLanded(ctx)
-    elseif id == librarycalls.MODULE_INSTALL then
+    elseif id == loadlibrary.MODULE_INSTALL then
         -- A binary chunk's entry, which MODULE_START runs, or nil.
         local installed = loader.install(ctx, a)
         if installed == 0ULL then

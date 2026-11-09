@@ -5,6 +5,10 @@ local graphimage = require("nupp.compiler.vm.graphimage")
 local schema = require("nupp.compiler.vm.coregraphschema")
 local budget = require("nupp.compiler.vm.coregraphbudget")
 local bounds = schema.limits()
+-- A checked graph's values before the executable assigns registers, more
+-- than a raw image's (schema `values`): a block passes every live binding as
+-- a parameter, so a long chunk's top level holds many.
+const GRAPH_VALUES = 1048576
 
 local function need(ok: any, message: string): any
     assert(ok, "core graph contracts: " .. message)
@@ -90,10 +94,10 @@ export function copyGraph(g: any, version: integer?, fromSource: boolean?): any
     end
     fields(g.counts, "v i f x")
     for _, class in ipairs({"v", "i", "f", "x"}) do
-        copy.counts[class] = integer(g.counts[class], bounds.values)
+        copy.counts[class] = integer(g.counts[class], GRAPH_VALUES)
         need(class == "v" or copy.counts[class] == 0, "only tagged values are admitted")
     end
-    need(dense(g.types, bounds.values) == #copy.slots, "value columns differ")
+    need(dense(g.types, GRAPH_VALUES) == #copy.slots, "value columns differ")
     for index, class in ipairs(g.types) do
         need(class == "v", "only tagged values are admitted")
         copy.types[index] = class
