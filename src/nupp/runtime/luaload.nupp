@@ -14,6 +14,7 @@ module nupp.runtime.luaload
 
 const hostcalls = require("nupp.runtime.hostcalls")
 const libraryvalues = require("nupp.runtime.libraryvalues")
+const chunkfiles = require("nupp.runtime.chunkfiles")
 
 -- The compiler a text chunk compiles with, required by a name the program
 -- carries only where it names it.
@@ -280,6 +281,12 @@ local function loadpath(filename: string?, mode: string?, env: table?): (any, st
         text = file:read("a") or ""
         file:close()
         name = "@" .. filename
+        -- A chunk compiled from this very text ahead of time, where one is
+        -- kept (chunkfiles), loads in its place.
+        local kept = chunkfiles.lookup(filename, text)
+        if kept ~= nil then
+            return loadchunk(kept, name, mode, env)
+        end
     end
     -- A first line that starts with '#' is skipped, as Lua skips a Unix
     -- exec line; its newline stays, so lines keep their numbers.

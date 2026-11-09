@@ -235,6 +235,9 @@ local CASES = {
     {"affineconstructors", 0x7FFF0000000000FF},
     {"absentffi", 0x7FFF000000000007},
     {"guestffi", 0x7FFF000000001FFF},
+    -- The packaged test runner over real suites, its loadfile and dofile
+    -- served chunks compiled here (SOURCES).
+    {"testrunner", 0},
     {"runnerresiduals", 0x7FFF00000000007F},
     -- Library calls spreading `...` through the library function's value.
     {"spreadlibrary", 0x7FFF0000000003FF},
@@ -501,12 +504,32 @@ local SETUP = {
     processpopen = "ulimit -n 64; ",
     processlines = "ulimit -n 64; ",
     processlayer = "ulimit -n 64; ",
-    benchworkloads = "export BENCH_SCALE=-9; "
+    benchworkloads = "export BENCH_SCALE=-9; ",
+    -- The runner reads tests/run.lua and the suites from the checkout.
+    testrunner = "cd " .. ROOT .. " && export NUPP_CORE_CHUNKS=" .. ROOT .. "/build/core-guests/chunks; "
+}
+-- Lua sources a case loads, compiled here to chunks it finds where
+-- NUPP_CORE_CHUNKS names (nupp.runtime.chunkfiles), as the core cannot
+-- compile text itself yet.
+local RUNNER_SUITES = {"iopathargumenttest", "iofileargumenttest", "corewarnlogtest", "typefactoriestest"}
+local SOURCES = {
+    testrunner = {
+        "tests/run.lua",
+        "tests/groups.lua",
+        "tests/iopathargumenttest.lua",
+        "tests/iofileargumenttest.lua",
+        "tests/corewarnlogtest.lua",
+        "tests/stdlib/typefactoriestest.lua"
+    }
 }
 -- The program arguments a case is run with, after the bridge's own.
 -- The bench entry measures one case, writes its record as JSON on standard
 -- output, and writes the record file it always writes nowhere.
-local ARGUMENTS = {hostlibrary = "alpha beta", benchworkloads = "--case fib --json --out /dev/null"}
+local ARGUMENTS = {
+    hostlibrary = "alpha beta",
+    benchworkloads = "--case fib --json --out /dev/null",
+    testrunner = "--jobs=1 " .. table.concat(RUNNER_SUITES, " ")
+}
 -- Cases whose program the core refuses to compile, and what it says.
 local REFUSED = {}
 -- What stress cases see in place of their full size under collection at
@@ -1142,6 +1165,27 @@ local function compiler()
     return producer, guestbuild
 end
 
+-- Compiles the Lua source at `path` under the checkout to the chunk its
+-- case's loadfile finds (nupp.runtime.chunkfiles), unless the one kept is
+-- of the same text already.
+local function sourceChunk(path)
+    local chunkfiles = require("nupp.runtime.chunkfiles")
+    local kept = OUT .. "/chunks/" .. chunkfiles.name(path)
+    local text = read(ROOT .. "/" .. path)
+    local held = read(kept)
+    if text == nil or held ~= nil and held:sub(1, #chunkfiles.contents(text, "")) == chunkfiles.contents(text, "") then
+        return
+    end
+    os.execute("mkdir -p " .. quote(OUT .. "/chunks"))
+    local _, build = compiler()
+    local began = os.time()
+    local contents, problem = build.sourceChunk(path)
+    print(("compiled %s in %ds%s"):format(path, os.time() - began, contents and "" or ": " .. tostring(problem)))
+    if contents then
+        write(kept, contents)
+    end
+end
+
 -- Runs the cases in NUPP_GUEST_SHARDS processes at once (default 4), each
 -- selecting and running its share: selection is one process's work, so
 -- shards are what spread it. Cases are dealt by what they cost last run; the
@@ -1419,6 +1463,9 @@ local function main()
             -- The binary chunks it loads, where it reads them.
             for _, chunk in ipairs(selected.chunks or {}) do
                 write(OUT .. "/temp/" .. chunk.name .. ".chunk", fromHex(chunk.hex))
+            end
+            for _, source in ipairs(SOURCES[name] or {}) do
+                sourceChunk(source)
             end
             if mode == "spill" then
                 local normal = selections[name .. "-normal"]
