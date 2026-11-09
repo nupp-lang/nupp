@@ -9,7 +9,10 @@ local primitive = {["nil"] = true, boolean = true, int64 = true, uint64 = true, 
 local scalarPlans = setmetatable({}, {__mode = "k"})
 
 local function need(ok: any, message: string): any
-    assert(ok, "native cleanup: " .. message)
+    -- The message is built only for a failure: checks run millions of times.
+    if not ok then
+        error("native cleanup: " .. message, 0)
+    end
     return ok
 end
 

@@ -6,9 +6,15 @@ local finalframe = require("nupp.compiler.vm.nativeframecontract")
 
 local graphsignatures = require("nupp.compiler.vm.graphsignatures")
 local classes = graphsignatures.classes
-local operandClass = graphsignatures.operandClass
 local parsed = graphsignatures.parsed
 local resultOffset = graphsignatures.resultOffset
+
+-- Whether operand `index` of an operation with signature `sig` is a value:
+-- operandClass inlined, as this runs for every operand of every graph.
+local function valueOperand(sig: any, index: integer): boolean
+    local class = sig.args[index] or (sig.variadic and (sig.variadicClass or "a"))
+    return classes[class] ~= nil or class == "a"
+end
 
 --- Removes the transported parameters no block uses downstream, with the
 --- values that only fed them. Nothing else is deleted: every instruction
@@ -25,7 +31,7 @@ export function prune(g: any): nil
         for i = 1, #ops do
             local sig, args = parsed[ops[i]], allArgs[i]
             for j = 1, #args do
-                if classes[operandClass(sig, j)] or operandClass(sig, j) == "a" then
+                if valueOperand(sig, j) then
                     used[args[j]] = true
                 end
             end
@@ -55,25 +61,40 @@ export function prune(g: any): nil
     for i = 1, #certs do
         used[certs[i].guard], used[certs[i].cursor], used[certs[i].span] = true, true, true
     end
-    -- A used parameter makes every argument feeding it used. Edges are few,
-    -- so passes over them until nothing changes beat per-parameter lists.
-    local changed = true
-    while changed do
-        changed = false
-        for bi = 1, #blocks do
-            local term = blocks[bi].term
-            local offset = resultOffset(term)
-            local edges = term.edges
-            for ei = 1, #edges do
-                local e = edges[ei]
-                local params, args = blocks[e.target].params, e.args
-                for i = offset + 1, #params do
-                    local v = args[i - offset]
-                    if used[params[i]] and not used[v] then
-                        used[v] = true
-                        changed = true
-                    end
+    -- A used parameter makes every argument feeding it used, and so on back
+    -- through the edges: each parameter lists the arguments feeding it, and
+    -- a worklist follows them once each, however long the chains.
+    local feeders: {[integer]: {integer}} = {}
+    for bi = 1, #blocks do
+        local term = blocks[bi].term
+        local offset = resultOffset(term)
+        local edges = term.edges
+        for ei = 1, #edges do
+            local e = edges[ei]
+            local params, args = blocks[e.target].params, e.args
+            for i = offset + 1, #params do
+                local list = feeders[params[i]]
+                if list == nil then
+                    list = {}
+                    feeders[params[i]] = list
                 end
+                list[#list + 1] = args[i - offset]
+            end
+        end
+    end
+    local pending: {integer} = {}
+    local none: {integer} = {}
+    for parameter in pairs(feeders) do
+        if used[parameter] then
+            pending[#pending + 1] = parameter
+        end
+    end
+    while #pending > 0 do
+        local value = table.remove(pending) as integer
+        for _, feeder in ipairs(feeders[value] or none) do
+            if not used[feeder] then
+                used[feeder] = true
+                pending[#pending + 1] = feeder
             end
         end
     end
@@ -134,7 +155,7 @@ export function prune(g: any): nil
         for i = 1, #ops do
             local sig, args = parsed[ops[i]], allArgs[i]
             for j = 1, #args do
-                if classes[operandClass(sig, j)] or operandClass(sig, j) == "a" then
+                if valueOperand(sig, j) then
                     args[j] = assert(remap[args[j]])
                 end
             end
@@ -280,7 +301,7 @@ export function dropUnreachable(g: any): nil
         for i, op in ipairs(b.op) do
             local sig, args = parsed[op], b.args[i]
             for j = 1, #args do
-                if classes[operandClass(sig, j)] or operandClass(sig, j) == "a" then
+                if valueOperand(sig, j) then
                     args[j] = value(args[j])
                 end
             end
