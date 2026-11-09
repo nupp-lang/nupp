@@ -1380,6 +1380,9 @@ export function LibCall(
         return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
     end
     guestscope.librarySite(ctx, frame, pc, count, counted >> librarylayouts.METHOD_SHIFT)
+    if (counted >> librarylayouts.FORWARD_SHIFT) & 1ULL == 1ULL then
+        guesterrors.callerSite(ctx, frame)
+    end
     -- The coroutine library. Resume and yield switch threads: the context
     -- then runs the other thread, from its active frame.
     if libraryId >= librarycalls.COROUTINES_FIRST and libraryId <= librarycalls.COROUTINES_LAST
@@ -1774,82 +1777,26 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         return native.dispatch(activePC, activeValues, activeIntegers, activeFloats, ctx, active)
     end
     if ops.uncallable(ctx, callee) == 1ULL then
-        -- A table with __call is called through it, the table first: the
-        -- arguments move up a slot and __call takes the callee's place.
-        local handler = guestmeta.binaryMeta(ctx, guestmeta.META_CALL, callee, values.NIL)
-        local first = native.word(base)
-        if handler ~= 0ULL
-            and first + native.word(nargs) + 1ULL < native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
-        then
-            local i = native.word(nargs)
-            while i > 0ULL do
-                slots.writeValue(
-                    frame,
-                    regs,
-                    native.index(first + i + 1ULL),
-                    slots.readValue(frame, regs, native.index(first + i))
-                )
-                i = i - 1ULL
-            end
-            slots.writeValue(frame, regs, native.index(first + 1ULL), callee)
-            slots.writeValue(frame, regs, native.index(first), handler)
-            -- A wrapped coroutine's closure as __call: its thread resumes with
-            -- the table and the arguments, as a call of it would.
-            local wrappedCall = threads.wrapped(handler)
-            if wrappedCall ~= 0ULL then
-                local answer = threads.callwrapped(
-                    ctx,
-                    frame,
-                    pc,
-                    wrappedCall,
-                    first + 1ULL,
-                    native.word(nargs) + 1ULL,
-                    (first + 1ULL) | (native.word(wanted) << 32ULL)
-                )
-                if answer == threads.RAISED then
-                    ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
-                    return native.fail()
-                elseif answer ~= threads.SWITCHED then
-                    ops.fail(ctx, frame, pc, ops.INVALID)
-                    return native.fail()
-                end
-                local resumed = native.pointer(ops.state(ctx))
-                local active = native.pointer(access.active(resumed))
-                local activeValues = native.pointer(access.values(resumed, active))
-                local activeIntegers = native.pointer(access.integers(resumed, active))
-                local activeFloats = native.pointer(access.floats(resumed, active))
-                local activePC = native.pointer(access.pc(resumed, active))
-                access.refresh(resumed, active, ctx)
-                return native.dispatch(activePC, activeValues, activeIntegers, activeFloats, ctx, active)
-            end
-            local child = ops.metaPrepare(ctx, frame, pc, first, native.word(nargs) + 1ULL, first + 1ULL)
-            if child == 0ULL then
-                return native.fail()
-            end
-            local s = native.pointer(ops.state(ctx))
-            if wanted > 1 and frames.wantResults(s, native.pointer(child), native.word(wanted)) ~= 1ULL then
-                ops.failure(ctx, ops.INVALID)
-                return native.fail()
-            end
-            if wanted == 0 and frames.packResults(s, native.pointer(child)) ~= 1ULL then
-                ops.failure(ctx, ops.INVALID)
-                return native.fail()
-            end
-            if frames.publish(s, frame, native.pointer(child), ops.resume(ctx, frame, pc)) ~= 1ULL then
-                ops.failure(ctx, ops.INVALID)
-                return native.fail()
-            end
-            local current = native.pointer(access.active(s))
-            local currentValues = native.pointer(access.values(s, current))
-            local currentIntegers = native.pointer(access.integers(s, current))
-            local currentFloats = native.pointer(access.floats(s, current))
-            local currentPC = native.pointer(access.pc(s, current))
-            access.refresh(s, current, ctx)
-            return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+        -- A table with __call is called through it, the table first.
+        if ops.callTable(
+            ctx,
+            frame,
+            pc,
+            native.word(base),
+            native.word(nargs),
+            native.word(wanted),
+            0ULL
+        ) ~= ops.CALL_STARTED then
+            return native.fail()
         end
-        guesterrors.fault(ctx, guestscope.FAULT_CALL, callee, values.NIL)
-        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
-        return native.fail()
+        local s = native.pointer(ops.state(ctx))
+        local current = native.pointer(access.active(s))
+        local currentValues = native.pointer(access.values(s, current))
+        local currentIntegers = native.pointer(access.integers(s, current))
+        local currentFloats = native.pointer(access.floats(s, current))
+        local currentPC = native.pointer(access.pc(s, current))
+        access.refresh(s, current, ctx)
+        return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
     end
     local s = native.pointer(ops.state(ctx))
     local resumePC = ops.resume(ctx, frame, pc)
@@ -2274,9 +2221,18 @@ export function CallV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         return native.dispatch(activePC, activeValues, activeIntegers, activeFloats, ctx, active)
     end
     if ops.uncallable(ctx, callee) == 1ULL then
-        guesterrors.fault(ctx, guestscope.FAULT_CALL, callee, values.NIL)
-        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
-        return native.fail()
+        -- A table with __call is called through it, the table first.
+        if ops.callTable(ctx, frame, pc, native.word(base), total, native.word(wanted), 0ULL) ~= ops.CALL_STARTED then
+            return native.fail()
+        end
+        local s = native.pointer(ops.state(ctx))
+        local current = native.pointer(access.active(s))
+        local currentValues = native.pointer(access.values(s, current))
+        local currentIntegers = native.pointer(access.integers(s, current))
+        local currentFloats = native.pointer(access.floats(s, current))
+        local currentPC = native.pointer(access.pc(s, current))
+        access.refresh(s, current, ctx)
+        return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
     end
     local s = native.pointer(ops.state(ctx))
     local resumePC = ops.resume(ctx, frame, pc)
@@ -2594,6 +2550,29 @@ export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         local activePC = native.pointer(access.pc(resumed, active))
         access.refresh(resumed, active, ctx)
         return native.dispatch(activePC, activeValues, activeIntegers, activeFloats, ctx, active)
+    end
+    -- A table with __call, or no function at all: pcall answers false and
+    -- the error for what cannot be called, as Lua's does.
+    if ops.uncallable(ctx, callee) == 1ULL then
+        local called = ops.callTable(ctx, frame, pc, native.word(base), native.word(nargs), native.word(wanted), 1ULL)
+        if called == ops.CALL_ANSWERED then
+            local after = ops.branch(ctx, frame, pc, 0)
+            if after == 0ULL then
+                ops.fail(ctx, frame, pc, ops.INVALID)
+                return native.fail()
+            end
+            return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
+        elseif called ~= ops.CALL_STARTED then
+            return native.fail()
+        end
+        local s = native.pointer(ops.state(ctx))
+        local current = native.pointer(access.active(s))
+        local currentValues = native.pointer(access.values(s, current))
+        local currentIntegers = native.pointer(access.integers(s, current))
+        local currentFloats = native.pointer(access.floats(s, current))
+        local currentPC = native.pointer(access.pc(s, current))
+        access.refresh(s, current, ctx)
+        return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
     end
     local s = native.pointer(ops.state(ctx))
     local resumePC = ops.resume(ctx, frame, pc)

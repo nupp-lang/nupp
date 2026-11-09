@@ -254,6 +254,37 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         return value
     end
 
+    -- The last of `stats` when the open block ends in it, a call that never
+    -- returns (`error(...)`); nil otherwise.
+    local function neverReturns(stats: any): any
+        local final = stats[#stats]
+        if block
+            and final
+            and final.kind == "callStmt"
+            and final.expr.inferredType
+            and final.expr.inferredType.tag == "never"
+        then
+            return final
+        end
+
+        return nil
+    end
+
+    -- Nothing follows `final`, a call that never returns, so no result is
+    -- made up for what would: the block jumps to one that loops on itself,
+    -- which nothing reaches. A profile without such ends returns nil there.
+    local function endUnreachably(final: any): nil
+        if profile.unreachableEnds then
+            local stuck = graph.block(g)
+            block.term = {kind = "jump", edges = {{target = stuck.id, args = {}}}, pos = position(final)}
+            stuck.term = {kind = "jump", edges = {{target = stuck.id, args = {}}}, pos = position(final)}
+        else
+            local none = ctx.emit(final, "Nil", {}, profile.kind(nil))
+            block.term = {kind = "return", value = none, edges = {}, pos = position(final)}
+        end
+        block = nil
+    end
+
     local branch: function(string?): any
     local resume: function(any): nil
     local jump: function(any, any): nil
@@ -433,16 +464,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             yields[#yields] = nil
             -- A body that ends in a call that never returns (`error(...)`)
             -- yields nothing: the block ends there, unreachably.
-            local final = node.body.stats[#node.body.stats]
-            if block
-                and final
-                and final.kind == "callStmt"
-                and final.expr.inferredType
-                and final.expr.inferredType.tag == "never"
-            then
-                local none = ctx.emit(final, "Nil", {}, profile.kind(nil))
-                block.term = {kind = "return", value = none, edges = {}, pos = position(final)}
-                block = nil
+            local final = neverReturns(node.body.stats)
+            if final then
+                endUnreachably(final)
             end
             need(block == nil, "a do expression ends without a yield")
             resume(done)
@@ -579,10 +603,15 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         -- this temporary, never the original owner's obligation twice.
         if cleanupEnabled and block and freshOwner(node) then
             -- assert answers its first argument: a fresh owner given it
-            -- is the one its result now holds.
+            -- is the one its result now holds. One spreading a call's results
+            -- passes them in a pack, which holds no obligation of its own.
             local first = node.args and node.args.exprs and node.args.exprs[1]
             local given = first and cleanup.source(first)
-            if graph.coreLibraryCall(node) == "assert" and given and freshOwner(given) then
+            if graph.coreLibraryCall(node) == "assert"
+                and given
+                and freshOwner(given)
+                and not graph.spreadsLast(node)
+            then
                 transfer(given, given.statementOwner or given)
             end
             registerCleanup(node, node.statementOwner or node, cleanup.affine(node.inferredType), value)
@@ -854,7 +883,12 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         local modes = t and t.tag == "func" and t.paramPack and (t.paramPack.modes or {}) or nil
         for index, argument in ipairs(node.args.exprs) do
             local source = cleanup.source(argument)
-            if source and freshOwner(source) then
+            local library = graph.coreLibraryCall(node)
+            if source and freshOwner(source) and library and index == #node.args.exprs and graph.spreadsLast(node) then
+                -- A library call given an owner among a call's results passes
+                -- it in a pack: assert answers it, and its result holds it.
+                need(library == "assert", "an owner among the results a library call spreads")
+            elseif source and freshOwner(source) then
                 need(modes ~= nil, "an owning argument to a call with no checked closed signature")
                 if modes[index] == "takes" then
                     transfer(source, source.statementOwner or source)
@@ -2101,6 +2135,11 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
     else
         need(body.body and body.body.stats, "statement-bodied function required")
         statements(body.body.stats)
+        -- A body that ends in a call that never returns does not fall through.
+        local final = neverReturns(body.body.stats)
+        if final and profile.unreachableEnds then
+            endUnreachably(final)
+        end
     end
     if block and cleanupEnabled then
         cleanupReturn(fn.node, true)

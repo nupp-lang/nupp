@@ -1,0 +1,68 @@
+module nupp.core.catalogspreadlibrary
+
+-- Library calls spreading `...` last, as comptime's bounded adapters make them:
+-- each calls the library function's value with the pack, as Lua does. Each
+-- check is a bit of the score.
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+local function chars(...: integer): string
+    return string.char(...)
+end
+
+local function cut(...: any): string
+    return string.sub(...)
+end
+
+local function biggest(...: number): number
+    return math.max(...)
+end
+
+local function repeated(...: any): string
+    return "<" .. string.rep(...) .. ">"
+end
+
+-- Every result of the call, through an open return.
+local function bytes(...: any): ...integer
+    return string.byte(...)
+end
+
+-- Two of its results, kept as locals.
+local function pair(...: any): boolean
+    local first, second = string.byte(...)
+
+    return first == 104 and second == 105
+end
+
+local function show(...: any): string
+    return tostring(...)
+end
+
+local function fail(...: any): nil
+    error(...)
+end
+
+do
+    check(chars(104, 105) == "hi")
+    check(cut("hello", 2, 3) == "el")
+    check(chars() == "")
+    check(biggest(3, 9, 4) == 9)
+    check(repeated("ab", 3) == "<ababab>")
+    local first, second, third = bytes("hi!", 1, 3)
+    check(first == 104 and second == 105 and third == 33)
+    check(pair("hi", 1, 2))
+    check(show(42) == "42")
+    local ok, message = pcall(fail, "boom", 0)
+    check(not ok and message == "boom")
+    local raised = pcall(chars, 256)
+    check(not raised)
+end
+
+export const result = score

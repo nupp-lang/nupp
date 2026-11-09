@@ -9,6 +9,7 @@ local taggedvalues = require("nupp.compiler.vm.taggedvalues")
 local opcodes = require("nupp.compiler.vm.opcodes")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local graphemit = require("nupp.compiler.vm.graphemit")
+local graphcalls = require("nupp.compiler.vm.graphcalls")
 local lower = require("nupp.compiler.vm.lower")
 local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local ownedcallables = require("nupp.compiler.vm.ownedcallables")
@@ -1034,8 +1035,9 @@ export function describe(modules: {any}, entryModule: string): any
             loopForms[node.exprs[1]] = true
         end
         -- Library intrinsics the core implements as operations (math.floor) are
-        -- forms too: the global they name is never read.
-        if node.kind == "call" and graph.coreLibraryCall(node) then
+        -- forms too: the global they name is never read, unless the call
+        -- spreads `...` where its form cannot, calling the function's value.
+        if node.kind == "call" and graph.coreLibraryCall(node) and not graphcalls.spreadsLibrary(node) then
             loopForms[node] = true
         end
         -- So are the library constants it folds (math.pi).
