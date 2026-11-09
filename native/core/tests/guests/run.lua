@@ -239,7 +239,7 @@ local CASES = {
     {"affineconstructors", 0x7FFF0000000000FF},
     {"absentffi", 0x7FFF000000000007},
     {"guestffi", 0x7FFF000000001FFF},
-    {"ffiaggregates", 0x7FFF0000000FFFFF},
+    {"ffiaggregates", 0x7FFF0000003FFFFF},
     {"runnerresiduals", 0x7FFF00000000007F},
     -- Library calls spreading `...` through the library function's value.
     {"spreadlibrary", 0x7FFF0000000003FF},

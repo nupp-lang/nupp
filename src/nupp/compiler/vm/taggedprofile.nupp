@@ -1667,20 +1667,17 @@ export function forVersion(version: integer): any
             elseif library == "os.getenv" then
                 need(#(node.args.exprs or {}) == 1, "os.getenv takes one name")
                 return libraryCall(ctx, node, corelibrary.id("OS_GETENV"), node.args.exprs)
-            elseif library == "os.monotonic" or library == "hostcalls.arguments" then
+            elseif library == "os.monotonic"
+                or library == "hostcalls.arguments"
+                or library == "hostcalls.collector"
+            then
                 -- No arguments: a placeholder nil is the call's one value.
                 need(#(node.args.exprs or {}) == 0, tostring(library) .. " takes no arguments")
                 local none = ctx.emit(node, "Nil", {}, "tagged")
-                return ctx.emit(
-                    node,
-                    "LibCall",
-                    {
-                        library == "os.monotonic" and corelibrary.id("OS_MONOTONIC")
-                        or corelibrary.id("HOST_ARGUMENTS"),
-                        none
-                    },
-                    "tagged"
-                ) as integer
+                local id = library == "os.monotonic" and corelibrary.id("OS_MONOTONIC")
+                    or library == "hostcalls.collector" and corelibrary.id("FOREIGN_COLLECTOR")
+                    or corelibrary.id("HOST_ARGUMENTS")
+                return ctx.emit(node, "LibCall", {id, none}, "tagged") as integer
             elseif corelibrary.operation(library) then
                 -- The file calls are one library call, the operation first.
                 local spec = need(corelibrary.operation(library), "file call")

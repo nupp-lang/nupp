@@ -661,3 +661,11 @@ export function call(ctx: voidptr, descriptor: uint64, packValue: uint64): uint6
         return result(ctx, resultKind, x0, native.load64(block, FLOATS))
     end
 end
+
+-- FOREIGN_COLLECTOR: the address of the C visitor the selector writes
+-- (os.foreignCollector), as an integer.
+export function collector(ctx: voidptr): uint64
+    @unsafe do
+        return ints.make(guestvalues.guestheap(ctx), native.address(os.foreignCollector()))
+    end
+end

@@ -672,6 +672,7 @@ local coreLibrary: {[string]: boolean} = {
     ["os.monotonic"] = true,
     collectgarbage = true,
     ["hostcalls.arguments"] = true,
+    ["hostcalls.collector"] = true,
     ["hostcalls.stringmeta"] = true,
     ["hostcalls.gmatchstate"] = true,
     ["hostcalls.gmatchvalues"] = true,

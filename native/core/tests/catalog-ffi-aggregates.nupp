@@ -6,7 +6,10 @@ module nupp.core.catalogffiaggregates
 -- registers and on the stack; larger ones by reference to a copy and
 -- answered through x8; and a struct passed where C takes a pointer. The C
 -- side is ffi-aggregates.c, which the guest runner builds; div and ldiv are
--- the C library's. Each check is a bit of the score.
+-- the C library's. Last, the core's collector, a C visitor, keeps what a
+-- C walk shows it. Each check is a bit of the score.
+const hostcalls = require("nupp.runtime.hostcalls")
+
 local score = 0
 local bit = 1
 
@@ -64,6 +67,13 @@ cdef struct L3
     a: int64
     b: int64
     c: int64
+end
+
+cdef struct Collected
+    base: uint64
+    count: uint64
+    limit: uint64
+    words: uint64
 end
 
 cdef struct Quotient
@@ -134,6 +144,14 @@ cdef function l3_make(a: int64, b: int64, c: int64): L3 from"libnuppffiaggregate
 cdef function div(n: int32, d: int32): Quotient
 cdef function ldiv(n: int64, d: int64): LongQuotient
 cdef function memcpy(borrows target: L3*, borrows source: L3*, count: uint64): voidptr
+cdef function memmove(borrows target: L3*, source: uint64, count: uint64): voidptr
+cdef function malloc(size: uint64): uint64
+cdef function free(block: uint64)
+cdef function walk_l3(
+    borrows visit: voidptr,
+    borrows data: Collected*,
+    count: int64
+): uint32 from"libnuppffiaggregates.dylib"
 
 do
     -- Built in C layout, read and written by field.
@@ -192,6 +210,18 @@ do
     local copy = L3(0, 0, 0)
     memcpy(copy, three, 24)
     check(copy.a == 4 and copy.c == 6)
+
+    -- The collector keeps each struct a walk shows it, and stops the walk
+    -- once no place is left.
+    local base = malloc(4 * 24)
+    local kept = Collected(base, 0, 4, 3)
+    local walked = walk_l3(hostcalls.collector(), kept, 3)
+    local second = L3(0, 0, 0)
+    memmove(second, base + 24, 24)
+    check(walked == 1 and kept.count == 3 and second.a == 2 and second.b == 20 and second.c == 200)
+    local short = Collected(base, 0, 2, 3)
+    check(walk_l3(hostcalls.collector(), short, 3) == 0 and short.count == 2)
+    free(base)
 end
 
 export const result = score

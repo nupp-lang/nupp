@@ -41,6 +41,14 @@ local record hostcalls
 
     --- The value userdata `u` carries, nil for anything else.
     uservalue: function(u: any): any
+
+    --- The address of a C visitor f(item, parent, record) for a walk that
+    --- passes each struct it visits by reference, such as libclang's
+    --- clang_visitChildren. The record is four words: where it keeps the
+    --- structs, how many it has kept, how many fit, and the words each
+    --- takes. It keeps a copy of each and answers 1, or answers 0, which
+    --- stops such a walk, once none fits.
+    collector: function(): voidptr
 end
 
 return hostcalls

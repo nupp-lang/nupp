@@ -274,6 +274,8 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return printValues(ctx, a)
     elseif id == librarycalls.FOREIGN_CALL then
         return guestforeign.call(ctx, a, b)
+    elseif id == librarycalls.FOREIGN_COLLECTOR then
+        return guestforeign.collector(ctx)
     elseif id == librarycalls.STRING_FORMAT_PACK then
         -- The pack holds its count at key 0.
         local pack = b & values.PAYLOAD

@@ -52,3 +52,18 @@ int64_t l3_spill(int64_t a, int64_t b, int64_t c, int64_t d, int64_t e, int64_t 
     return a + b + c + d + e + f + g + h + v.a * 100 + v.b * 1000 + v.c * 10000 + t * 100000;
 }
 L3 l3_make(int64_t a, int64_t b, int64_t c) { return (L3){a, b, c}; }
+
+// A walk that hands each struct it visits to a C visitor by value, which
+// AAPCS64 passes by reference, as libclang's clang_visitChildren does: it
+// stops when the visitor answers 0.
+typedef unsigned (*Visitor)(L3 item, L3 parent, void *data);
+unsigned walk_l3(Visitor visit, void *data, int64_t count) {
+    L3 parent = {-1, -1, -1};
+    for (int64_t i = 0; i < count; i++) {
+        L3 item = {i + 1, (i + 1) * 10, (i + 1) * 100};
+        if (visit(item, parent, data) == 0) {
+            return 0;
+        }
+    }
+    return 1;
+}

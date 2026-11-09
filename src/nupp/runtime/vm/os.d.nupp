@@ -162,5 +162,11 @@ local record Os
     --- linked code's the guest's foreign calls cache theirs in.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     foreignCells: function(): voidptr
+
+    --- The address of a C visitor f(item, parent, record) the selector writes
+    --- in place: it keeps the struct `item` points at in the record's next
+    --- place and answers 1, or answers 0 once none is left (guestforeign).
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    foreignCollector: function(): voidptr
 end
 return Os

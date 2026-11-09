@@ -36,6 +36,7 @@ const ROUTINE_CALL: string = "routine\0call"
 const ROUTINE_CELLS: string = "routine\0cells\0"
 const ROUTINE_ATOMIC_LOAD: string = "routine\0atomicload"
 const ROUTINE_ATOMIC_CAS: string = "routine\0atomiccas"
+const ROUTINE_COLLECTOR: string = "routine\0collector"
 -- The generic foreign call's block of words (nupp.runtime.core.guestforeign):
 -- the function, then x0-x7, d0-d7, the first words of the C stack and the
 -- address x8 passes for a result returned in memory. The call answers x0 and
@@ -52,6 +53,19 @@ const CALL_RESULT_INTEGERS: integer = 2
 const CALL_RESULT_FLOATS: integer = 4
 -- AAPCS64 indirect result location register.
 const INDIRECT_RESULT: integer = 8
+-- The byte offsets of the collector's record's words (hostcalls.collector):
+-- where it keeps what it is shown, how many it has kept, how many fit, and
+-- the words each takes; and what it answers a C visitor's caller, to go on or to stop.
+const COLLECT_BASE_AT: integer = 0
+const COLLECT_COUNT_AT: integer = 8
+const COLLECT_LIMIT_AT: integer = 16
+const COLLECT_WORDS_AT: integer = 24
+const VISIT_CONTINUE: integer = 1
+const VISIT_BREAK: integer = 0
+-- ARM64's unsigned higher-or-same condition and the zero register.
+const HIGHER_SAME: integer = 2
+const ZERO: integer = 31
+const LINK: integer = 30
 -- Below the stack words, the block's address is kept across the call.
 const CALL_SAVED: integer = 16
 
@@ -633,6 +647,50 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         emit(arm.add_imm(64, 31, 31, bytes + CALL_SAVED, 0))
     end
 
+    -- The collector: x0 answers the address of a C function written here
+    -- and jumped over, f(item, parent, record), which keeps the struct
+    -- `item` points at, the record's words a struct, in the record's next
+    -- place and answers VISIT_CONTINUE, or answers VISIT_BREAK once no
+    -- place is left. It is the visitor a C walk such as libclang's
+    -- clang_visitChildren is given, whose structs AAPCS64 passes by
+    -- reference; it uses x9-x14 and no stack.
+    local function foreignCollector(): nil
+        -- A word the branch to a later place is written into.
+        local function hole(): integer
+            emit(0)
+            return #code.words
+        end
+
+        emit(arm.adr(0, 8))
+        local skip = hole()
+        emit(arm.ldr(8, 9, 2, COLLECT_COUNT_AT))
+        emit(arm.ldr(8, 10, 2, COLLECT_LIMIT_AT))
+        emit(arm.cmp_reg(64, 9, 10))
+        local full = hole()
+        emit(arm.ldr(8, 11, 2, COLLECT_WORDS_AT))
+        emit(arm.ldr(8, 12, 2, COLLECT_BASE_AT))
+        emit(arm.madd(64, 13, 9, 11, ZERO))
+        emit(arm.add_reg(64, 12, 12, 13, 3))
+        emit(arm.movz(64, 13, 0, 0))
+        local loop = #code.words + 1
+        emit(arm.cmp_reg(64, 13, 11))
+        local copied = hole()
+        emit(arm.memory64(false, 14, 0, 13))
+        emit(arm.memory64(true, 14, 12, 13))
+        emit(arm.add_imm(64, 13, 13, 1, 0))
+        emit(arm.b((loop - (#code.words + 1)) * 4))
+        code.words[copied] = arm.b_cond(HIGHER_SAME, (#code.words + 1 - copied) * 4)
+        emit(arm.add_imm(64, 9, 9, 1, 0))
+        emit(arm.str(8, 9, 2, COLLECT_COUNT_AT))
+        emit(arm.movz(32, 0, VISIT_CONTINUE, 0))
+        local answer = #code.words + 1
+        emit(arm.ret(LINK))
+        code.words[full] = arm.b_cond(HIGHER_SAME, (#code.words + 1 - full) * 4)
+        emit(arm.movz(32, 0, VISIT_BREAK, 0))
+        emit(arm.b((answer - (#code.words + 1)) * 4))
+        code.words[skip] = arm.b((#code.words + 1 - skip) * 4)
+    end
+
     -- Where each argument goes: abiRegisters holds its register, or 0 for
     -- one on the C stack at abiOffsets (abiSizes bytes); the answer is the
     -- stack's extent. Past the registers, and for each variadic argument,
@@ -1000,6 +1058,9 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                     elseif name == ROUTINE_CALL then
                         assert(not tail and nargs == 1, "S0 select: a foreign call takes its block")
                         foreignCall()
+                    elseif name == ROUTINE_COLLECTOR then
+                        assert(not tail and nargs == 0, "S0 select: the collector takes nothing")
+                        foreignCollector()
                     elseif name == ROUTINE_ATOMIC_LOAD then
                         -- The sequentially consistent word at base (x0) plus
                         -- offset (x1).
