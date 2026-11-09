@@ -37,14 +37,21 @@ const ROUTINE_CELLS: string = "routine\0cells\0"
 const ROUTINE_ATOMIC_LOAD: string = "routine\0atomicload"
 const ROUTINE_ATOMIC_CAS: string = "routine\0atomiccas"
 -- The generic foreign call's block of words (nupp.runtime.core.guestforeign):
--- the function, then x0-x7, d0-d7 and the first words of the C stack. The
--- call answers x0 and leaves d0 at its word.
+-- the function, then x0-x7, d0-d7, the first words of the C stack and the
+-- address x8 passes for a result returned in memory. The call answers x0 and
+-- leaves the registers a result comes back in at their words: x0 and x1,
+-- for a composite of up to 16 bytes, and d0-d3, for one of floats.
 const CALL_FUNCTION: integer = 0
 const CALL_INTEGERS: integer = 1
 const CALL_FLOATS: integer = 9
 const CALL_STACK: integer = 17
 const CALL_STACK_WORDS: integer = 16
 const CALL_REGISTERS: integer = 8
+const CALL_RESULT_ADDRESS: integer = CALL_STACK + CALL_STACK_WORDS
+const CALL_RESULT_INTEGERS: integer = 2
+const CALL_RESULT_FLOATS: integer = 4
+-- AAPCS64 indirect result location register.
+const INDIRECT_RESULT: integer = 8
 -- Below the stack words, the block's address is kept across the call.
 const CALL_SAVED: integer = 16
 
@@ -597,8 +604,8 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
 
     -- The generic foreign call: x0 holds its block. Every stack word is
     -- copied, since a callee reads only those its signature has; then the
-    -- registers are loaded, x0 last, the function is called, and d0 is kept
-    -- in the block. x0 is the answer.
+    -- registers are loaded, x0 last, the function is called, and the result
+    -- registers are kept in the block. x0 is the answer.
     local function foreignCall(): nil
         local bytes = CALL_STACK_WORDS * 8
         emit(arm.sub_imm(64, 31, 31, bytes + CALL_SAVED, 0))
@@ -611,12 +618,18 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
             emit(arm.ldr_fp(64, reg, 0, (CALL_FLOATS + reg) * 8))
         end
         emit(arm.ldr(8, 16, 0, CALL_FUNCTION * 8))
+        emit(arm.ldr(8, INDIRECT_RESULT, 0, CALL_RESULT_ADDRESS * 8))
         for reg = CALL_REGISTERS - 1, 0, -1 do
             emit(arm.ldr(8, reg, 0, (CALL_INTEGERS + reg) * 8))
         end
         emit(arm.blr(16))
         emit(arm.ldr(8, 17, 31, bytes))
-        emit(arm.str_fp(64, 0, 17, CALL_FLOATS * 8))
+        for reg = 0, CALL_RESULT_INTEGERS - 1 do
+            emit(arm.str(8, reg, 17, (CALL_INTEGERS + reg) * 8))
+        end
+        for reg = 0, CALL_RESULT_FLOATS - 1 do
+            emit(arm.str_fp(64, reg, 17, (CALL_FLOATS + reg) * 8))
+        end
         emit(arm.add_imm(64, 31, 31, bytes + CALL_SAVED, 0))
     end
 

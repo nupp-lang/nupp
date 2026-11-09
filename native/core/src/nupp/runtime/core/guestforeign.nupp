@@ -8,11 +8,21 @@ module nupp.runtime.core.guestforeign
 -- as Apple's arm64 C convention passes them, in the block of words the
 -- generic foreign call (os.foreignCall, which the selector writes) loads
 -- into the registers and the stack before it calls.
+--
+-- A struct passes by value as AAPCS64 and Apple pass one: a homogeneous
+-- aggregate of up to four floats in float registers, any other of up to 16
+-- bytes in integer registers, a larger one as the address of a copy the
+-- caller makes; one that no longer fits its registers goes on the stack,
+-- and the registers of its class are then spent. A struct result comes back
+-- in the same registers, or through the memory x8 names when it is larger.
+-- A guest struct is core storage of its bytes (taggedstructs), so its bytes
+-- are what C reads and writes.
 const native = require("nupp.runtime.vm.intrinsics")
 const os = require("nupp.runtime.vm.os")
 const values = require("nupp.runtime.vm.values")
 const guestvalues = require("nupp.runtime.core.guestvalues")
 const strings = require("nupp.runtime.core.corestrings")
+const corestorage = require("nupp.runtime.core.corestorage")
 const ints = require("nupp.runtime.core.coreintegers")
 const tables = require("nupp.runtime.core.coretables")
 
@@ -21,13 +31,15 @@ cdef function dlsym(borrows library: voidptr, borrows name: voidptr): voidptr
 cdef function strlen(borrows text: voidptr): uint64
 
 -- The block's words (`CALL_` in spike/native-lowering/src/s0/select.nupp):
--- the function, x0-x7, d0-d7, then the C stack's first STACK_WORDS words.
+-- the function, x0-x7, d0-d7, the C stack's first STACK_WORDS words, then
+-- the address x8 passes. After the call x0, x1 and d0-d3 are at their words.
 const FUNCTION: int64 = 0
 const INTEGERS: int64 = 8
 const FLOATS: int64 = 72
 const STACK: int64 = 136
 const STACK_BYTES: int64 = 128
-const BLOCK_BYTES: uint64 = 264ULL
+const RESULT_ADDRESS: int64 = 264
+const BLOCK_BYTES: uint64 = 272ULL
 const REGISTERS: int64 = 8
 const WORD: int64 = 8
 
@@ -54,6 +66,19 @@ const UINT32: uint64 = 0x75ULL
 const FLOAT32: uint64 = 0x66ULL
 const FLOAT64: uint64 = 0x64ULL
 const VARIADIC: uint64 = 0x2eULL
+-- A struct's codes: "F" or "D" and a digit, an aggregate of that many
+-- binary32 or binary64 members; "A", its size in decimal and ";", any
+-- other composite.
+const HFA32: uint64 = 0x46ULL
+const HFA64: uint64 = 0x44ULL
+const COMPOSITE: uint64 = 0x41ULL
+const COMPOSITE_END: uint64 = 0x3bULL
+const DIGIT: int64 = 0x30
+const DECIMAL: int64 = 10
+-- The largest composite passed in registers, and the alignment the copies
+-- of larger ones are made at.
+const REGISTER_COMPOSITE: int64 = 16
+const COPY_ALIGNMENT: int64 = 16
 
 const SIGN32: uint64 = 0x80000000ULL
 const LOW32: uint64 = 0xffffffffULL
@@ -279,6 +304,9 @@ local function word(ctx: voidptr, pack: uint64, position: uint64, kind: uint64, 
             return 0ULL
         elseif strings.header(value) ~= 0ULL then
             return text(ctx, pack, position, value)
+        elseif corestorage.isstorage(value) then
+            -- A struct or storage passed where C takes a pointer: its bytes.
+            return corestorage.storagebase(value & values.PAYLOAD)
         end
     end
     local bits = native.word(guestvalues.intarg(ctx, value, 0, position))
@@ -326,13 +354,214 @@ local function letter(bytes: voidptr, at: int64): uint64
     return native.word(native.load8(bytes, at))
 end
 
+-- Whether a code starting with `kind` is a struct's.
+local function aggregate(kind: uint64): boolean
+    return kind == HFA32 or kind == HFA64 or kind == COMPOSITE
+end
+
+-- The bytes of each member of an aggregate of floats.
+local function memberWidth(kind: uint64): int64
+    if kind == HFA32 then
+        return 4
+    end
+
+    return WORD
+end
+
+-- Where the code at `at` ends, which is before `limit`: past a struct's
+-- digits, or past its one letter.
+local function after(bytes: voidptr, at: int64, limit: int64): int64
+    local kind = letter(bytes, at)
+    local next = at + 1
+    if kind == HFA32 or kind == HFA64 then
+        next = at + 2
+    elseif kind == COMPOSITE then
+        while next < limit and letter(bytes, next) ~= COMPOSITE_END do
+            next = next + 1
+        end
+        next = next + 1
+    end
+    if next > limit then
+        error("foreign call: its descriptor is malformed")
+    end
+
+    return next
+end
+
+-- The bytes of the struct whose code is at `at`.
+local function aggregateSize(bytes: voidptr, at: int64): int64
+    local kind = letter(bytes, at)
+    if kind == HFA32 or kind == HFA64 then
+        return (native.index(letter(bytes, at + 1)) - DIGIT) * memberWidth(kind)
+    end
+    local size: int64 = 0
+    local next = at + 1
+    while letter(bytes, next) ~= COMPOSITE_END do
+        size = size * DECIMAL + native.index(letter(bytes, next)) - DIGIT
+        next = next + 1
+    end
+
+    return size
+end
+
+-- Copies `count` bytes from `source` to `target`.
+local function copy(target: voidptr, source: voidptr, count: int64): nil
+    local index: int64 = 0
+    while index < count do
+        native.store8(target, index, native.word(native.load8(source, index)))
+        index = index + 1
+    end
+end
+
+-- The bytes every struct argument larger than registers take as the copy
+-- the caller passes, each at COPY_ALIGNMENT, of the descriptor `bytes`
+-- whose codes end before `limit`.
+local function copied(bytes: voidptr, limit: int64): int64
+    local total: int64 = 0
+    local at = after(bytes, 0, limit)
+    while at < limit do
+        if letter(bytes, at) == COMPOSITE then
+            local size = aggregateSize(bytes, at)
+            if size > REGISTER_COMPOSITE then
+                total = total + (size + COPY_ALIGNMENT - 1) // COPY_ALIGNMENT * COPY_ALIGNMENT
+            end
+        end
+        at = after(bytes, at, limit)
+    end
+
+    return total
+end
+
+-- The storage holding struct argument `position`, which has `size` bytes.
+local function structargument(pack: uint64, position: uint64, size: int64): uint64
+    local value = tables.get(pack, values.TAG_INTEGER | position)
+    if not corestorage.isstorage(value) or corestorage.bytelength(value & values.PAYLOAD) < native.word(size) then
+        error("foreign call: a struct argument is not its struct")
+    end
+
+    return value & values.PAYLOAD
+end
+
+-- How far the arguments have taken the registers and the stack.
+local struct Place
+    integers: int64
+    floats: int64
+    stack: int64
+end
+
+-- The block offset of `size` more bytes of the C stack at `alignment`.
+local function stackslot(place: Place*, size: int64, alignment: int64): int64
+    @unsafe do
+        local at = (place.stack + alignment - 1) // alignment * alignment
+        if at + size > STACK_BYTES then
+            error("foreign call: its arguments take more stack than it passes")
+        end
+        place.stack = at + size
+
+        return STACK + at
+    end
+end
+
+-- Lays scalar argument `value` of `kind` in the block: in the next register
+-- of its class while one is left and it is declared, else on the stack, a
+-- declared one at its own alignment and a variadic one in a word of its own.
+local function layScalar(block: voidptr, place: Place*, kind: uint64, value: uint64, named: boolean): nil
+    @unsafe do
+        if named and floating(kind) and place.floats < REGISTERS then
+            native.store64(block, FLOATS + place.floats * WORD, value)
+            place.floats = place.floats + 1
+            return
+        elseif named and not floating(kind) and place.integers < REGISTERS then
+            native.store64(block, INTEGERS + place.integers * WORD, value)
+            place.integers = place.integers + 1
+            return
+        end
+        local size = WORD
+        if named then
+            size = stackSize(kind)
+        end
+        local at = stackslot(place, size, size)
+        if size == 1 then
+            native.store8(block, at, value)
+        elseif size == 4 then
+            native.store32(block, at, native.index(value & LOW32))
+        else
+            native.store64(block, at, value)
+        end
+    end
+end
+
+-- Lays the `size` bytes of a struct of code `kind` at `source` in the
+-- block: an aggregate of floats a member a float register, another of up
+-- to 16 bytes in integer registers, a larger one as the address of its copy
+-- at `copy`. One its class's registers no longer hold spends them and goes
+-- on the stack: an aggregate of floats at its members' alignment, any other
+-- in whole words.
+local function layStruct(
+    block: voidptr,
+    place: Place*,
+    kind: uint64,
+    size: int64,
+    source: voidptr,
+    copyAt: voidptr
+): nil
+    @unsafe do
+        if kind == HFA32 or kind == HFA64 then
+            local width = memberWidth(kind)
+            local count = size // width
+            if place.floats + count <= REGISTERS then
+                local member: int64 = 0
+                while member < count do
+                    local register = native.offset(block, FLOATS + (place.floats + member) * WORD)
+                    copy(register, native.offset(source, member * width), width)
+                    member = member + 1
+                end
+                place.floats = place.floats + count
+            else
+                place.floats = REGISTERS
+                copy(native.offset(block, stackslot(place, size, width)), source, size)
+            end
+            return
+        elseif size > REGISTER_COMPOSITE then
+            copy(copyAt, source, size)
+            layScalar(block, place, POINTER, native.address(copyAt), true)
+            return
+        end
+        local words = (size + WORD - 1) // WORD
+        if place.integers + words <= REGISTERS then
+            copy(native.offset(block, INTEGERS + place.integers * WORD), source, size)
+            place.integers = place.integers + words
+        else
+            place.integers = REGISTERS
+            copy(native.offset(block, stackslot(place, words * WORD, WORD)), source, size)
+        end
+    end
+end
+
+-- Moves a struct result of code `kind` and `size` bytes to `target` from
+-- the registers it came back in; one returned through x8 is already there.
+local function answered(block: voidptr, kind: uint64, size: int64, target: voidptr): nil
+    if kind == HFA32 or kind == HFA64 then
+        local width = memberWidth(kind)
+        local member: int64 = 0
+        while member < size // width do
+            copy(native.offset(target, member * width), native.offset(block, FLOATS + member * WORD), width)
+            member = member + 1
+        end
+    elseif size <= REGISTER_COMPOSITE then
+        copy(target, native.offset(block, INTEGERS), size)
+    end
+end
+
 -- FOREIGN_CALL: calls the function `descriptor` names with the pack's
--- arguments, answering its result. The block and a NUL-ended copy of the
--- descriptor are made first, then the string arguments, whose making may
+-- arguments, answering its result. The block, a NUL-ended copy of the
+-- descriptor and room for the copies of large struct arguments are made
+-- first, then the string arguments and a struct result, whose making may
 -- collect; nothing allocates after the block's addresses are taken.
 export function call(ctx: voidptr, descriptor: uint64, packValue: uint64): uint64
     local d = strings.header(descriptor)
     local state = strings.Builder(0ULL, 0ULL)
+    local place = Place(0, 0, 0)
     if d == 0ULL or packValue & values.TAG_MASK ~= values.TAG_OBJ then
         error("foreign call: its descriptor or arguments are malformed")
     end
@@ -341,8 +570,18 @@ export function call(ctx: voidptr, descriptor: uint64, packValue: uint64): uint6
     @unsafe do
         local h = guestvalues.guestheap(ctx)
         local length = native.index(strings.length(d))
+        local source = native.pointer(strings.bytes(d))
+        local kinds: int64 = 0
+        while kinds < length and native.load8(source, kinds) ~= 0 do
+            kinds = kinds + 1
+        end
+        if kinds == 0 or kinds >= length then
+            error("foreign call: its descriptor is malformed")
+        end
+        local copies = copied(source, kinds)
+        local start = (native.index(BLOCK_BYTES) + length + COPY_ALIGNMENT) // COPY_ALIGNMENT * COPY_ALIGNMENT
         local lifetime = strings.open(h, state as strings.Builder*)
-        if strings.reserve(h, lifetime, BLOCK_BYTES + strings.length(d) + 1ULL) ~= 0ULL then
+        if strings.reserve(h, lifetime, native.word(start + copies)) ~= 0ULL then
             error("not enough memory")
         end
         local block = native.pointer(strings.descriptor(lifetime).base)
@@ -352,21 +591,10 @@ export function call(ctx: voidptr, descriptor: uint64, packValue: uint64): uint6
             native.store64(block, at, 0ULL)
             at = at + WORD
         end
-        at = 0
-        while at < length do
-            native.store8(bytes, at, native.word(native.load8(native.pointer(strings.bytes(d)), at)))
-            at = at + 1
-        end
+        copy(bytes, native.pointer(strings.bytes(d)), length)
         native.store8(bytes, length, 0ULL)
-        local kinds: int64 = 0
-        while kinds < length and native.load8(bytes, kinds) ~= 0 do
-            kinds = kinds + 1
-        end
-        if kinds == 0 or kinds >= length then
-            error("foreign call: its descriptor is malformed")
-        end
         local position: uint64 = 0ULL
-        at = 1
+        at = after(bytes, 0, kinds)
         while at < kinds do
             local kind = letter(bytes, at)
             if kind ~= VARIADIC then
@@ -374,61 +602,62 @@ export function call(ctx: voidptr, descriptor: uint64, packValue: uint64): uint6
                 local value = tables.get(pack, values.TAG_INTEGER | position)
                 if position <= count and (kind == TEXT or kind == POINTER and strings.header(value) ~= 0ULL) then
                     text(ctx, pack, position, value)
+                elseif position <= count and aggregate(kind) then
+                    structargument(pack, position, aggregateSize(bytes, at))
                 end
             end
-            at = at + 1
+            at = after(bytes, at, kinds)
         end
         if position ~= count then
             error("foreign call: its arguments differ from its declaration")
         end
+        -- A struct result's storage, kept in the pack past the arguments.
+        local resultKind = letter(bytes, 0)
+        local made: uint64 = 0ULL
+        if aggregate(resultKind) then
+            made = corestorage.newstorage(h, corestorage.UINT8, native.word(aggregateSize(bytes, 0)))
+            if made == 0ULL then
+                error("not enough memory")
+            end
+            guestvalues.packput(h, pack, count + 1ULL, values.TAG_OBJ | made)
+            tables.drain(h)
+        end
         native.store64(block, FUNCTION, resolve(native.offset(bytes, kinds + 1), length - kinds - 1))
-        local integers: int64 = 0
-        local floats: int64 = 0
-        local stack: int64 = 0
+        local spot = place as Place*
+        local copyAt = native.offset(block, start)
         local named = true
         position = 0ULL
-        at = 1
+        at = after(bytes, 0, kinds)
         while at < kinds do
             local kind = letter(bytes, at)
             if kind == VARIADIC then
                 named = false
+            elseif aggregate(kind) then
+                position = position + 1ULL
+                local size = aggregateSize(bytes, at)
+                local from = native.pointer(corestorage.storagebase(structargument(pack, position, size)))
+                layStruct(block, spot, kind, size, from, copyAt)
+                if kind == COMPOSITE and size > REGISTER_COMPOSITE then
+                    copyAt = native.offset(copyAt, (size + COPY_ALIGNMENT - 1) // COPY_ALIGNMENT * COPY_ALIGNMENT)
+                end
             else
                 position = position + 1ULL
-                local value = word(ctx, pack, position, kind, named)
-                -- The register's word: x0-x7, then d0-d7.
-                local register: int64 = -1
-                if named and floating(kind) and floats < REGISTERS then
-                    register, floats = REGISTERS + floats, floats + 1
-                elseif named and not floating(kind) and integers < REGISTERS then
-                    register, integers = integers, integers + 1
-                end
-                if register >= 0 then
-                    native.store64(block, INTEGERS + register * WORD, value)
-                else
-                    -- Apple's stack arguments: a declared one at its own
-                    -- alignment, a variadic one in a word of its own.
-                    local size = WORD
-                    if named then
-                        size = stackSize(kind)
-                    end
-                    stack = (stack + size - 1) // size * size
-                    if stack + size > STACK_BYTES then
-                        error("foreign call: its arguments take more stack than it passes")
-                    end
-                    if size == 1 then
-                        native.store8(block, STACK + stack, value)
-                    elseif size == 4 then
-                        native.store32(block, STACK + stack, native.index(value & LOW32))
-                    else
-                        native.store64(block, STACK + stack, value)
-                    end
-                    stack = stack + size
-                end
+                layScalar(block, spot, kind, word(ctx, pack, position, kind, named), named)
             end
-            at = at + 1
+            at = after(bytes, at, kinds)
+        end
+        if made ~= 0ULL then
+            local target = native.pointer(corestorage.storagebase(made))
+            local size = aggregateSize(bytes, 0)
+            if size > REGISTER_COMPOSITE and resultKind == COMPOSITE then
+                native.store64(block, RESULT_ADDRESS, native.address(target))
+            end
+            local _ = os.foreignCall(block)
+            answered(block, resultKind, size, target)
+            return values.TAG_OBJ | made
         end
         local x0 = os.foreignCall(block)
 
-        return result(ctx, letter(bytes, 0), x0, native.load64(block, FLOATS))
+        return result(ctx, resultKind, x0, native.load64(block, FLOATS))
     end
 end

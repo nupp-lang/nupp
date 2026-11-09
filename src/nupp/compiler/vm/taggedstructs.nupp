@@ -1,0 +1,284 @@
+module nupp.compiler.vm.taggedstructs
+
+-- A guest program's structs in the tagged profile. An instance is core
+-- storage of its bytes in C layout (the storage library's allocbytes), so a
+-- struct handed to C is the memory C reads. A field is read and written
+-- through a view of its bytes at its offset (STORAGE_VIEW), as an element of
+-- the field's storage kind; a nested struct or fixed array is that view
+-- itself, a reference into its parent's bytes, as the language states.
+--
+-- The layout is Apple arm64's, the one target the core runs on and whose C
+-- convention the generic foreign call speaks (guestforeign).
+const taggedvalues = require("nupp.compiler.vm.taggedvalues")
+const corelibrary = require("nupp.compiler.vm.corelibrary")
+const layouts = require("nupp.compiler.targetlayout")
+const need = taggedvalues.need
+const pool = taggedvalues.pool
+
+const TARGET = "aarch64-apple-darwin"
+-- The storage element kinds (corestorage): each scalar's code.
+const UINT8 = 1
+const KINDS: {
+    [string]: integer
+} = {
+    uint8 = 1,
+    int8 = 2,
+    uint16 = 3,
+    int16 = 4,
+    uint32 = 5,
+    int32 = 6,
+    uint64 = 7,
+    int64 = 8,
+    float32 = 9,
+    float64 = 10,
+    number = 10
+}
+-- A pointer field holds an address, which the core keeps as an integer.
+const POINTER_KIND = 7
+-- `integer` takes the width the layout gives it.
+const INTEGER_KINDS: {[integer]: integer} = {[4] = 6, [8] = 8}
+-- The most members a homogeneous floating-point aggregate has.
+const HFA_MEMBERS = 4
+-- The descriptor's aggregate codes (guestforeign): an aggregate of N
+-- binary32 or binary64 members, or any other composite of its bytes.
+const HFA32 = "F"
+const HFA64 = "D"
+const COMPOSITE = "A"
+const COMPOSITE_END = ";"
+-- Composites past this alignment have no word-at-a-time placement here.
+const MAX_ALIGNMENT = 8
+
+-- The type behind ownership and constant wrappers.
+local function bare(t: any): any
+    while t
+        and (
+            t.tag == "const"
+            or t.tag == "literal"
+            or t.tag == "affine"
+            or t.tag == "borrowed"
+            or t.tag == "pinned"
+            or t.tag == "genericAlias"
+        ) do
+        t = t.tag == "literal" and t.base or t.tag == "genericAlias" and t.body or t.inner
+    end
+
+    return t
+end
+
+-- The struct declaration a checked type names, or nil.
+export function origin(t: any): any
+    local subject = bare(t)
+    local declared = subject and (subject.origin or subject)
+    if declared and declared.tag == "nominal" and declared.declKind == "struct" then
+        return declared
+    end
+
+    return nil
+end
+
+local laid: any = setmetatable({}, {__mode = "k"})
+
+-- The struct's layout: size, alignment and each field's offset and size.
+local function layout(declared: any): any
+    local known = laid[declared]
+    if known == nil then
+        local measured, reason = layouts.of(declared, TARGET)
+        known = need(measured, "a struct has no C layout: " .. tostring(reason))
+        laid[declared] = known
+    end
+
+    return known
+end
+
+-- A pointer the core passes as its address: any C pointer, nullable or not.
+local function pointer(t: any): boolean
+    if t.tag == "union" and t.hasNil and #(t.members or {}) == 2 then
+        local other = t.members[1].tag == "nil" and t.members[2] or t.members[1]
+        return other ~= nil and pointer(other)
+    end
+
+    return t.tag == "ptr" or t.tag == "cstring" or t.tag == "voidptr" or t.tag == "func" and t.foreign == true
+end
+
+-- The storage kind of a scalar or pointer of `size` bytes, or nil.
+local function scalarKind(t: any, size: integer): integer?
+    if pointer(t) then
+        return POINTER_KIND
+    elseif t.tag == "integer" then
+        return INTEGER_KINDS[size]
+    end
+
+    return KINDS[t.tag]
+end
+
+-- How field `name` of a struct is reached: its offset and bytes, and the
+-- storage kind of a scalar one, or the element kind and count of a fixed
+-- array of scalars, or the struct a nested one is.
+local function member(declared: any, name: string): any
+    local measured = layout(declared)
+    local placed = nil
+    for _, field in ipairs(measured.fields) do
+        if field.name == name then
+            placed = field
+        end
+    end
+    need(placed and placed.bitWidth == nil, "a struct field is a bitfield or is not declared: " .. name)
+    local t = need(bare(declared.byname[name]), "a struct field has no type")
+    local reached: any = {offset = placed.offset, size = placed.size}
+    if origin(t) then
+        reached.nested = origin(t)
+    elseif t.tag == "carray" then
+        local element = need(bare(t.elem), "a fixed array has no element type")
+        local width = (placed.size as integer) // (t.count as integer)
+        reached.element = need(scalarKind(element, width), "a fixed array of structs or arrays is not lowered")
+        reached.count = t.count
+    else
+        reached.kind = need(scalarKind(t, placed.size), "a struct field kind is not lowered: " .. tostring(t.tag))
+    end
+
+    return reached
+end
+
+local function integerConstant(ctx: any, node: any, value: integer): integer
+    return ctx.emit(node, "K", {pool(ctx, "int64", tostring(value))}, "tagged") as integer
+end
+
+-- A view of `count` elements of `kind` from `offset` in `object`'s bytes.
+local function view(ctx: any, node: any, object: integer, kind: integer, offset: integer, count: integer): integer
+    local id = corelibrary.id("STORAGE_VIEW")
+    local k = integerConstant(ctx, node, kind)
+    local at = integerConstant(ctx, node, offset)
+    local n = integerConstant(ctx, node, count)
+
+    return ctx.emit(node, "LibCall", {id, object, k, at, n}, "tagged") as integer
+end
+
+-- The field the access `node` (obj.name) reaches, when obj is a struct.
+export function access(node: any): any
+    local declared = node.kind == "dotIndex" and node.name and origin(node.obj.inferredType)
+    if not declared then
+        return nil
+    end
+
+    return member(declared, node.name.text)
+end
+
+-- Reads field `field` of `object`: a scalar's value, or the view a nested
+-- struct or fixed array is.
+local function load(ctx: any, node: any, object: integer, field: any): integer
+    if field.nested then
+        return view(ctx, node, object, UINT8, field.offset, field.size)
+    elseif field.element then
+        return view(ctx, node, object, field.element, field.offset, field.count)
+    end
+    local cell = view(ctx, node, object, field.kind, field.offset, 1)
+
+    return ctx.emit(node, "GetIdx", {cell, integerConstant(ctx, node, 0)}, "tagged") as integer
+end
+
+-- Writes `value` to field `field` of `object`: a scalar converted as C
+-- converts it, a nested struct's or fixed array's bytes copied.
+local function store(ctx: any, node: any, object: integer, field: any, value: integer): nil
+    local held = ctx.hold(value)
+    if field.nested or field.element then
+        local bytes = view(ctx, node, object, UINT8, field.offset, field.size)
+        local size = integerConstant(ctx, node, field.size)
+        ctx.emit(node, "LibCall", {corelibrary.id("STORAGE_COPY"), bytes, ctx.readHeld(held), size}, "tagged")
+    else
+        local cell = view(ctx, node, object, field.kind, field.offset, 1)
+        ctx.emit(node, "SetIdx", {cell, integerConstant(ctx, node, 0), ctx.readHeld(held)}, nil)
+    end
+    ctx.release(held)
+end
+
+-- `obj.name` of a struct.
+export function read(ctx: any, node: any, field: any): integer?
+    local object = ctx.expression(node.obj, "tagged")
+    if object == nil then
+        return nil
+    end
+
+    return load(ctx, node, object, field)
+end
+
+-- Writes `value` to the struct field an assignment target names: the
+-- receiver is the struct, `given.structField` the field.
+export function assign(ctx: any, node: any, given: any, receiver: integer, value: integer): nil
+    store(ctx, node, receiver, given.structField, value)
+end
+
+-- A struct's construction: its zeroed bytes, then each field written, in
+-- the order given, from its argument or its default: `names[i]` is written
+-- with `values[i]`.
+export function construct(ctx: any, node: any, declared: any, names: {string}, values: {integer}): integer?
+    local measured = layout(declared)
+    local held = {}
+    for index, value in ipairs(values) do
+        held[index] = ctx.hold(value)
+    end
+    local size = integerConstant(ctx, node, measured.size)
+    local made = ctx.emit(node, "LibCall", {corelibrary.id("STORAGE_ALLOCBYTES"), size}, "tagged")
+    local instance = ctx.hold(made)
+    for index, name in ipairs(names) do
+        store(ctx, node, ctx.readHeld(instance), member(declared, name), ctx.readHeld(held[index]))
+        ctx.release(held[index])
+    end
+    local result = ctx.readHeld(instance)
+    ctx.release(instance)
+    need(result ~= nil, "a struct construction keeps its instance")
+
+    return result
+end
+
+-- Gathers the members of `t` as their aggregate codes, answering false once
+-- one is not a float: the homogeneous floating-point aggregate test.
+local function floats(t: any, into: {string}): boolean
+    t = bare(t)
+    local declared = origin(t)
+    if declared then
+        for _, name in ipairs(declared.fieldOrder or {}) do
+            if not floats(declared.byname[name], into) then
+                return false
+            end
+        end
+        return true
+    elseif t.tag == "carray" then
+        for _ = 1, t.count as integer do
+            if not floats(t.elem, into) then
+                return false
+            end
+        end
+        return true
+    elseif t.tag == "float32" or t.tag == "float64" or t.tag == "number" then
+        into[#into + 1] = t.tag == "float32" and HFA32 or HFA64
+        return true
+    end
+
+    return false
+end
+
+-- The descriptor code of a struct passed or answered by value, or nil for a
+-- type that is not a struct. A homogeneous aggregate of at most four floats
+-- of one width travels in float registers; anything else by its bytes.
+export function aggregate(t: any): string?
+    local declared = origin(t)
+    if not declared then
+        return nil
+    end
+    need(declared.cdefKind ~= "union", "a union is not passed by value")
+    local measured = layout(declared)
+    need(measured.alignment <= MAX_ALIGNMENT, "a struct aligned past eight bytes is not passed by value")
+    local leaves: {string} = {}
+    if floats(declared, leaves) and #leaves <= HFA_MEMBERS then
+        local first = leaves[1]
+        local same = true
+        for _, leaf in ipairs(leaves) do
+            same = same and leaf == first
+        end
+        if same then
+            return first .. tostring(#leaves)
+        end
+    end
+
+    return COMPOSITE .. tostring(measured.size) .. COMPOSITE_END
+end

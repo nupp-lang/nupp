@@ -7,8 +7,11 @@ module nupp.compiler.vm.taggedforeign
 --
 -- The descriptor is the result's kind and each argument's, one letter each,
 -- those past a variadic function's declared ones after VARIADIC; then a NUL,
--- the library ("" for the program's own symbols), a NUL and the symbol.
+-- the library ("" for the program's own symbols), a NUL and the symbol. A
+-- struct passed or answered by value is its aggregate code (taggedstructs)
+-- in place of a letter.
 const taggedvalues = require("nupp.compiler.vm.taggedvalues")
+const taggedstructs = require("nupp.compiler.vm.taggedstructs")
 const nativeos = require("nupp.compiler.vm.nativeos")
 const need = taggedvalues.need
 
@@ -37,6 +40,10 @@ const DEFAULT_LIBRARY = "<default>"
 -- The letter of a foreign argument's or result's kind: a literal or a
 -- constant is its base type's.
 local function code(given: any): string
+    local aggregate = taggedstructs.aggregate(given)
+    if aggregate then
+        return aggregate
+    end
     local t = nativeos.passed(given)
 
     return need(
@@ -70,6 +77,7 @@ export function descriptor(node: any, signature: any): string
         codes[#codes + 1] = VARIADIC
         for index = #signature.params + 1, #exprs do
             need(exprs[index].kind ~= "vararg", "a foreign call cannot spread `...`")
+            need(taggedstructs.origin(exprs[index].inferredType) == nil, "a struct is not a variadic argument")
             codes[#codes + 1] = code(exprs[index].inferredType)
         end
     end

@@ -2079,6 +2079,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 or stat.kind == "typeAlias"
                 or stat.kind == "recordDecl"
                 or stat.kind == "cdefFunc"
+                or stat.kind == "cdefStruct"
             then
                 invoke("erasedStatement", stat, nil)
             elseif stat.kind == "returnStmt" then

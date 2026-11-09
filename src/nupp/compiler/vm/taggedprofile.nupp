@@ -14,6 +14,7 @@ local taggedstatements = require("nupp.compiler.vm.taggedstatements")
 local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local ownedclosures = require("nupp.compiler.vm.ownedclosures")
 local construction = require("nupp.compiler.vm.construction")
+local taggedstructs = require("nupp.compiler.vm.taggedstructs")
 local exportforwarders = require("nupp.compiler.vm.exportforwarders")
 local derivedmembers = require("nupp.compiler.vm.derivedmembers")
 export const booleanKind = "tagged"
@@ -50,6 +51,16 @@ local stringSpec = taggedcalls.stringSpec
 local typeKind = taggedvalues.typeKind
 local valuespack = taggedcalls.valuespack
 local typeNames = taggedvalues.typeNames
+
+-- Each of `nodes` evaluated as a tagged value, or nil once one ends the block.
+local function taggedOperands(ctx: any, nodes: {any}): {any}?
+    local kinds = {}
+    for index = 1, #nodes do
+        kinds[index] = "tagged"
+    end
+
+    return ctx.operands(nodes, kinds)
+end
 
 local function scalarwitness(ctx: any, node: any): any
     local described = catalog(ctx).scalartypes
@@ -380,9 +391,10 @@ export function erasedStatement(ctx: any, stat: any): nil
         end
         return
     end
-    -- A `cdef function` declares what its calls call (taggedforeign).
+    -- A `cdef function` declares what its calls call (taggedforeign), and a
+    -- `cdef struct` the layout its instances have (taggedstructs).
     need(
-        stat.kind == "moduleStmt" or stat.kind == "typeAlias" or stat.kind == "cdefFunc",
+        stat.kind == "moduleStmt" or stat.kind == "typeAlias" or stat.kind == "cdefFunc" or stat.kind == "cdefStruct",
         "unsupported erased statement"
     )
 end
@@ -675,6 +687,31 @@ export function forVersion(version: integer): any
             need(expected == nil or expected == "tagged", "record requires tagged destination")
             local origin = recordOrigin(node.inferredType)
             local callsite = node.call
+            local declared = taggedstructs.origin(node.inferredType)
+            if declared then
+                need(
+                    callsite and not callsite.constructorEntry and type(callsite.recordFields) == "table",
+                    "only plain struct construction is admitted"
+                )
+                local nodes, names, defaults = {}, {}, {}
+                for _, binding in ipairs(callsite.recordFields) do
+                    if binding.node then
+                        nodes[#nodes + 1], names[#names + 1] = binding.node, binding.name
+                    else
+                        need(binding.isDefault, "struct initializer is missing")
+                        defaults[#defaults + 1] = binding
+                    end
+                end
+                local values = taggedOperands(ctx, nodes)
+                if values == nil then
+                    return nil as any
+                end
+                for _, binding in ipairs(defaults) do
+                    values[#values + 1] = defaultConstant(ctx, node, binding.defaultValue)
+                    names[#names + 1] = binding.name
+                end
+                return taggedstructs.construct(ctx, node, declared, names, values) as integer
+            end
             if origin and callsite and callsite.constructorEntry then
                 return construct(ctx, node, origin) as integer
             end
@@ -736,6 +773,10 @@ export function forVersion(version: integer): any
             elseif libraryField == "math.mininteger" then
                 return ctx.emit(node, "K", {pool(ctx, "int64", "-9223372036854775808")}, "tagged") as integer
             end
+            local field = taggedstructs.access(node)
+            if field ~= nil then
+                return taggedstructs.read(ctx, node, field) as integer
+            end
             -- A record's metatable can also be attached to a named table.
             -- Its field name reaches either layout through the runtime adapter.
             local slot = fieldSlot(ctx, node.obj.inferredType, node.name and node.name.text)
@@ -755,13 +796,17 @@ export function forVersion(version: integer): any
         end
         profile.assignmentTarget = function(ctx: any, node: any, rhs: any): any
             if node.kind == "dotIndex" then
+                -- A struct's field is written through a view (taggedstructs).
+                local field = taggedstructs.access(node)
                 local slot = fieldSlot(ctx, node.obj.inferredType, node.name and node.name.text)
                 -- `R.f = ...` writes the table a record's name holds.
                 local plain = slot == nil and keyedByName(node.obj.inferredType) and node.name ~= nil
-                need(slot ~= nil or plain, "only record and table field assignment is admitted")
+                need(field ~= nil or slot ~= nil or plain, "only record and table field assignment is admitted")
                 local object = ctx.expression(node.obj, "tagged")
                 if object == nil then
                     return {receiver = 0, kind = "tagged"}
+                elseif field ~= nil then
+                    return {receiver = object, kind = "tagged", structField = field}
                 end
                 local held = ctx.hold(object)
                 local key = ctx.emit(node, "K", {pool(ctx, "str", node.name.text)}, "tagged")
@@ -783,6 +828,10 @@ export function forVersion(version: integer): any
             return {receiver = operands[1], index = operands[2], kind = "tagged", indexed = access}
         end
         profile.assignTarget = function(ctx: any, node: any, target: any, receiver: integer, value: integer): nil
+            if target.structField then
+                taggedstructs.assign(ctx, node, target, receiver, value)
+                return
+            end
             if target.indexed then
                 local access = target.indexed
                 indexedaccess.verify(access, node, ctx.fn.id)
@@ -1637,11 +1686,7 @@ export function forVersion(version: integer): any
                 local spec = need(corelibrary.operation(library), "file call")
                 local args = node.args.exprs or {}
                 need(#args == spec.arguments, tostring(library) .. " argument count is not admitted")
-                local kinds = {}
-                for index = 1, #args do
-                    kinds[index] = "tagged"
-                end
-                local evaluated = ctx.operands(args, kinds)
+                local evaluated = taggedOperands(ctx, args)
                 if evaluated == nil then
                     return nil as any
                 end
@@ -1686,11 +1731,7 @@ export function forVersion(version: integer): any
                     last.kind ~= "vararg" and not graph.expandsResults(last),
                     "string.char cannot spread its last argument yet"
                 )
-                local kinds = {}
-                for index = 1, #args do
-                    kinds[index] = "tagged"
-                end
-                local operands = ctx.operands(args, kinds)
+                local operands = taggedOperands(ctx, args)
                 if operands == nil then
                     return nil as any
                 end

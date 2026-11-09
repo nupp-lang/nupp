@@ -152,9 +152,9 @@ local record Os
 
     --- Calls the C function a block of words names, as the platform's C
     --- calling convention passes its arguments: the function, then x0-x7,
-    --- d0-d7 and the first sixteen words of the stack. Answers x0 and leaves
-    --- d0 in its word. The selector writes it where it is called; the core's
-    --- guest foreign calls make it (guestforeign).
+    --- d0-d7, the first sixteen words of the stack and x8. Answers x0 and
+    --- leaves x0, x1 and d0-d3 in their words. The selector writes it where
+    --- it is called; the core's guest foreign calls make it (guestforeign).
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     foreignCall: function(block: voidptr): uint64
 
