@@ -2,7 +2,6 @@ module nupp.compiler.vm.coregraphschema
 
 local graphsignatures = require("nupp.compiler.vm.graphsignatures")
 local opcodes = require("nupp.compiler.vm.opcodes")
-local schema = {}
 
 -- Program-size bounds: the one source the contracts, codec, verifier, budget,
 -- executable and the generated native policies read. Each stays finite and
@@ -12,7 +11,7 @@ local schema = {}
 -- (`treeitems`, `treetext`). Per function: blocks, values and items
 -- (operations, operands, positions). Sized for the compiler on the core:
 -- about 400 modules and tens of thousands of functions.
-type schema.Limits = {
+export type Limits = {
     owners: integer,
     signatures: integer,
     modules: integer,
@@ -25,7 +24,7 @@ type schema.Limits = {
     items: integer
 }
 
-local bounds: schema.Limits = {
+local bounds: Limits = {
     owners = 65536,
     signatures = 65536,
     modules = 65536,
@@ -39,7 +38,7 @@ local bounds: schema.Limits = {
 }
 
 -- A fresh copy of the program-size bounds.
-function schema.limits(): schema.Limits
+export function limits(): Limits
     return {
         owners = bounds.owners,
         signatures = bounds.signatures,
@@ -57,7 +56,7 @@ end
 -- The most bytes a guest artifact holds: the native bridge's region limits
 -- are held to it (native/core/bridge reads this function's literal). Apart
 -- from `limits`, which a raw image's schema describes.
-function schema.artifactBytes(): integer
+export function artifactBytes(): integer
     return 1073741824
 end
 
@@ -89,7 +88,7 @@ end
 -- Closure because those loop profiles do not bound repeated allocation; v7
 -- admits them again, and the executable refuses a closure created in a loop.
 -- Only v2 has a raw wire form; v3 and later are trusted checked-source input.
-function schema.describe(version: integer?): any
+export function describe(version: integer?): any
     local v: integer = version or 2
     assert(v >= 2 and v <= 8, "unknown source graph profile")
     local loops = v >= 5
@@ -159,7 +158,7 @@ function schema.describe(version: integer?): any
         byteOrder = "little",
         alignment = 8,
         absent = 4294967295,
-        limits = schema.limits(),
+        limits = limits(),
         scalarKinds = scalarKinds,
         effects = {
             {id = 0, mayCollect = false, mayRaise = false, mayPark = false, pure = true},
@@ -255,8 +254,8 @@ end
 
 -- Validation metadata only. Keep describe() and the wire schema unchanged.
 -- These attributes classify persistent scalar provenance, not execution.
-function schema.validationPolicy(): any
-    local described, result = schema.describe(), {}
+export function validationPolicy(): any
+    local described, result = describe(), {}
     for index, operation in ipairs(described.operations) do
         result[
             index
@@ -360,7 +359,7 @@ local wireShapes: {
 -- core, which is the checked v8 catalog (coregraphexecutable, guestartifact).
 -- When the native raw loader is bound to that catalog, these limits are
 -- raised with its executable profile.
-function schema.wire(): any
+export function wire(): any
     local result: any = {
         magic = "NUPPCGRF",
         version = 2,
@@ -408,7 +407,7 @@ function schema.wire(): any
         result.sections[index] = item
     end
 
-    local definition = schema.describe()
+    local definition = describe()
     result.absent = definition.absent
     local byName = {}
     result.shape = {
@@ -451,5 +450,3 @@ function schema.wire(): any
 
     return result
 end
-
-export = schema

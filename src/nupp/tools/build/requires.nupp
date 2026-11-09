@@ -11,10 +11,8 @@ with a literal string.
 local lexer = require("nupp.compiler.syntax.lexer")
 local parser = require("nupp.compiler.syntax.parser")
 
-local requires = {}
-
 --- Every module `code` requires by a literal name, sorted.
-function requires.modules(code: string): {string}
+export function modules(code: string): {string}
     local parsed = parser.parse(code, "=generated")
     local found: {[string]: boolean} = {}
 
@@ -65,5 +63,3 @@ function requires.modules(code: string): {string}
 
     return modules
 end
-
-export = requires

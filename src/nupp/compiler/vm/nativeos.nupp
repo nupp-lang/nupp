@@ -4,7 +4,6 @@ local unit = require("nupp.compiler.vm.nativeunit")
 local physical = require("nupp.compiler.vm.nativephysical")
 local effects = require("nupp.compiler.vm.helpercontract")
 local layout = require("nupp.compiler.targetlayout")
-local os = {}
 local issued: any = setmetatable({}, {__mode = "k"})
 local definitions = {
     mapPages = {slot = 0, params = {"uint64"}, result = "voidptr", cResult = "uint64"},
@@ -88,21 +87,21 @@ end
 -- How many imports the bridge passes: the slots run 0 to one less, each
 -- one import's. A shim refuses a bridge whose table is not this long, and
 -- the linker an import index past it.
-local importCount: integer = 0
+local imports: integer = 0
 do
     local taken: {[integer]: string} = {}
     for name, spec in pairs(definitions) do
         need(taken[spec.slot] == nil, "OS import slot taken twice: " .. name)
         taken[spec.slot] = name
-        importCount += 1
+        imports += 1
     end
-    for slot = 0, importCount - 1 do
+    for slot = 0, imports - 1 do
         need(taken[slot] ~= nil, "OS import slots have a gap")
     end
 end
 
-function os.importCount(): integer
-    return importCount
+export function importCount(): integer
+    return imports
 end
 
 local function same(actual: any, expected: any): nil
@@ -194,7 +193,7 @@ local function statusOutput(bound: any): any
     return {parameter = 1, offset = status, bytes = target.size, type = scope}
 end
 
-function os.call(owner: any, call: any): any
+export function call(owner: any, call: any): any
     local bound = unit.osDeclaration(owner, call)
     local spec = shape(bound)
     need(#call.args.exprs == #spec.params, "OS source argument count")
@@ -234,11 +233,11 @@ function os.call(owner: any, call: any): any
     return declaration
 end
 
-function os.isIssued(declaration: any): boolean
+export function isIssued(declaration: any): boolean
     return issued[declaration] ~= nil
 end
 
-function os.validate(declaration: any, owner: any?): any
+export function validate(declaration: any, owner: any?): any
     local held = need(issued[declaration], "unissued import contract")
     same(declaration, held.fields)
     same(declaration.params, held.params)
@@ -266,19 +265,19 @@ function os.validate(declaration: any, owner: any?): any
     return true
 end
 
-function os.result(declaration: any): any
-    os.validate(declaration)
+export function result(declaration: any): any
+    validate(declaration)
     return issued[declaration].result
 end
 
-function os.status(declaration: any): any
-    os.validate(declaration)
+export function status(declaration: any): any
+    validate(declaration)
     local out = issued[declaration].out
     return out and {parameter = out.parameter, offset = out.offset, bytes = out.bytes} or nil
 end
 
-function os.slot(declaration: any, owner: any?): integer
-    os.validate(declaration, owner)
+export function slot(declaration: any, owner: any?): integer
+    validate(declaration, owner)
     return issued[declaration].slot
 end
 
@@ -286,20 +285,20 @@ end
 -- graph inspection can describe mapPages, but authenticated publication admits
 -- it only through the fixed ledger wrapper or the entry metadata bootstrap
 -- in the same retained unit. Bootstrap storage has its own terminal owner.
-function os.ownedSlot(declaration: any, owner: any): integer
-    local slot = os.slot(declaration, owner)
-    if slot == 0 then
+export function ownedSlot(declaration: any, owner: any): integer
+    local index = slot(declaration, owner)
+    if index == 0 then
         need(
             pageOwner(owner, "map") or pageOwner(owner, "acquireEntry") or pageOwner(owner, "acquireshared"),
             "published map requires owned ledger wrapper"
         )
     end
 
-    return slot
+    return index
 end
 
-function os.graph(declaration: any, g: any, args: any, dst: integer): nil
-    os.validate(declaration)
+export function graph(declaration: any, g: any, args: any, dst: integer): nil
+    validate(declaration)
     local held = issued[declaration]
     local owner = held.bound.owner
     need(
@@ -324,13 +323,13 @@ end
 
 -- Raw status is a visible SSA value and its scope write is a normal graph store.
 -- No machine-only mutation is hidden behind the source's nil result.
-function os.verifyStores(g: any): nil
+export function verifyStores(g: any): nil
     for _, block in ipairs(g.blocks) do
         for index, op in ipairs(block.op) do
             local declaration = op == "NativeHelperCall" and block.args[index][1] or nil
             local held = declaration and issued[declaration]
             if held and held.out then
-                os.validate(declaration)
+                validate(declaration)
                 need(
                     block.op[index + 1] == "NativeConstant"
                     and block.args[index + 1][1] == tostring(held.out.offset)
@@ -350,5 +349,3 @@ function os.verifyStores(g: any): nil
         end
     end
 end
-
-export = os

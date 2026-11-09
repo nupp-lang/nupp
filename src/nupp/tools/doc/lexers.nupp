@@ -11,11 +11,9 @@ and a construct the table does not describe is left uncoloured rather than
 guessed at. A fence in any other language renders as plain escaped text.
 ]]
 
-local lexers = {}
-
 --- A run of source and the style it carries, covering every byte in order. A
 --- run with no style is whitespace or text the language table does not colour.
-type lexers.Span = {
+export type Span = {
     text: string,
     style: string?
 }
@@ -191,8 +189,8 @@ local function keywordStyle(spec: Spec, word: string): string?
     return nil
 end
 
-local function scan(source: string, spec: Spec): {lexers.Span}
-    local spans: {lexers.Span} = {}
+local function scan(source: string, spec: Spec): {Span}
+    local spans: {Span} = {}
 
     local function emit(text: string, style: string?)
         if text ~= "" then
@@ -328,8 +326,8 @@ local function scan(source: string, spec: Spec): {lexers.Span}
 end
 
 -- A unified diff, a line at a time: what it adds, removes and where.
-local function diff(source: string): {lexers.Span}
-    local spans: {lexers.Span} = {}
+local function diff(source: string): {Span}
+    local spans: {Span} = {}
     for line, ending in source:gmatch("([^\n]*)(\n?)") do
         if line == "" and ending == "" then
             break
@@ -356,7 +354,7 @@ end
 --- Whether a fence language has a table here.
 --- @param language the fence's language, as written
 --- @return whether `spans` can colour it
-function lexers.knows(language: string): boolean
+export function knows(language: string): boolean
     local name = language:lower()
     return SPECS[name] ~= nil or name == "diff" or name == "patch"
 end
@@ -366,7 +364,7 @@ end
 --- @param language the fence's language, as written
 --- @return the runs, covering every byte in order, or nil for a language with no
 ---     table here
-function lexers.spans(source: string, language: string): {lexers.Span}?
+export function spans(source: string, language: string): {Span}?
     local name = language:lower()
     if name == "diff" or name == "patch" then
         return diff(source)
@@ -378,5 +376,3 @@ function lexers.spans(source: string, language: string): {lexers.Span}?
 
     return scan(source, spec)
 end
-
-export = lexers

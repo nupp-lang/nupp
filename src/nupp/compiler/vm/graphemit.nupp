@@ -11,12 +11,10 @@ local numbertext = require("nupp.compiler.numbertext")
 local G = require("nupp.compiler.vm.graph")
 local graphimage = require("nupp.compiler.vm.graphimage")
 
-local graphemit = {}
-
 --- The image's shape table as the graph codec takes it: slot types by
 --- name, a record slot naming its shape's index, and the identity a shape
 --- of a module's own record carries.
-function graphemit.shapes(order: {any}): {any}
+export function shapes(order: {any}): {any}
     local shapes = {}
     for i, shape in ipairs(order) do
         local slots = {}
@@ -40,7 +38,7 @@ end
 ---
 --- The optional `seen` callback receives each graph before encoding.
 --- @raises string when a graph does not verify
-function graphemit.image(functions: {any}, header: any, seen: (function(g: any): nil)?): string
+export function image(functions: {any}, header: any, seen: (function(g: any): nil)?): string
     local encoder = graphimage.encoder()
     for i = 1, #functions do
         local g = functions[i]
@@ -51,7 +49,7 @@ function graphemit.image(functions: {any}, header: any, seen: (function(g: any):
         encoder.add(g)
     end
 
-    return encoder.finish({shapes = graphemit.shapes(header.shapes), modules = header.modules, entry = header.entry})
+    return encoder.finish({shapes = shapes(header.shapes), modules = header.modules, entry = header.entry})
 end
 
 -- Every byte outside printable ASCII is escaped, so a listing is ASCII text
@@ -63,7 +61,7 @@ local function quote(s: string): string
 end
 
 --- Returns the executable listing of verified graph `g` for function `f`.
-function graphemit.listing(f: any, g: any): any
+export function listing(f: any, g: any): any
     local derived = G.lower(g)
     local lines: {
         string
@@ -138,5 +136,3 @@ function graphemit.listing(f: any, g: any): any
         image = table.concat(lines, "\n")
     }
 end
-
-export = graphemit

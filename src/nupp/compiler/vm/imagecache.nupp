@@ -43,8 +43,6 @@ local storeMod = require("nupp.compiler.project.store")
 local fingerprint = require("nupp.compiler.project.fingerprint")
 local envMod = require("nupp.compiler.project.env")
 
-local imagecache = {}
-
 --- Bumped when an entry's shape or meaning changes.
 const FORMAT = "vm-image/3"
 
@@ -57,10 +55,10 @@ local REPORTING = {"EMIT_SURVEY", "EMIT_TRACE", "DEBUG_REGS"}
 
 --- What this process asked of the cache, for tests: they can otherwise only see
 --- that something got faster.
-imagecache.stats = {lookups = 0, hits = 0, misses = 0, stores = 0, declined = 0}
+export const stats = {lookups = 0, hits = 0, misses = 0, stores = 0, declined = 0}
 
---- A module's place in the cache, opened by `imagecache.open`.
-record imagecache.Entry
+--- A module's place in the cache, opened by `open`.
+export record Entry
     --- The image kept for this module, when there is one and everything it was
     --- computed from is unchanged; nil otherwise.
     lookup: function(): string?
@@ -313,14 +311,14 @@ end
 --- @param producers the modules outside the compiler that decide the image beside
 ---   the checker and the lowering -- the caller that drives them -- named here
 ---   because the compiler may not name the tools built on it
-function imagecache.open(
+export function open(
     env: any,
     path: string,
     name: string?,
     source: string,
     producers: {string}?,
     strict: boolean?
-): imagecache.Entry?
+): Entry?
     if env.cacheDisabled or env.memoryOnly then
         return nil
     end
@@ -332,39 +330,37 @@ function imagecache.open(
     local digest = contentDigest(env)
     local file = storeDirectory(env) .. "/" .. keyFor(env, path, name, source, digest, strict) .. ".buf"
     local stamp = stampFor(env, producers or {}, digest)
-    local stats = imagecache.stats
+    local counts = stats
 
     local function lookup(): string?
-        stats.lookups = stats.lookups + 1
+        counts.lookups = counts.lookups + 1
         local value = storeMod.openValue(file, stamp).value
         if wellFormed(value) and current(env, value, digest) then
-            stats.hits = stats.hits + 1
+            counts.hits = counts.hits + 1
 
             return value.image
         end
-        stats.misses = stats.misses + 1
+        counts.misses = counts.misses + 1
 
         return nil
     end
 
     local function store(image: string): nil
         if env.cacheReadOnly or env.observedExternalInput then
-            stats.declined = stats.declined + 1
+            counts.declined = counts.declined + 1
             return
         end
         local project = envMod.projectDigest(env)
         local modules, carried = loadedRows(env, digest)
         if project == nil or modules == nil or carried == nil then
-            stats.declined = stats.declined + 1
+            counts.declined = counts.declined + 1
             return
         end
         local kept = storeMod.openValue(file, stamp)
         kept.set({image = image, project = project, modules = modules, carried = carried})
         kept.save()
-        stats.stores = stats.stores + 1
+        counts.stores = counts.stores + 1
     end
 
-    return imagecache.Entry(lookup = lookup, store = store)
+    return Entry(lookup = lookup, store = store)
 end
-
-export = imagecache
