@@ -14,8 +14,8 @@ unsafe extern "C" fn failed_fill(base: u64, bytes: u64) -> i64 {
 
 pub(super) fn imports<const N: usize>(mut imports: [u64; N]) -> [u64; N] {
     if ENABLED.load(Ordering::SeqCst) {
-        assert!(N > 18);
-        imports[18] = failed_fill as *const () as u64;
+        assert!(N > 16);
+        imports[16] = failed_fill as *const () as u64;
     }
     imports
 }

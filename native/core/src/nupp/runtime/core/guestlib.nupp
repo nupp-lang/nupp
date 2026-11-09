@@ -26,6 +26,7 @@ const guestlanding = require("nupp.runtime.core.guestlanding")
 const guestmeta = require("nupp.runtime.core.guestmeta")
 const guestbuffer = require("nupp.runtime.core.guestbuffer")
 const guestforeign = require("nupp.runtime.core.guestforeign")
+const files = require("nupp.runtime.core.hostfiles")
 
 -- One step of `for k, v in pairs(t)` over a state table {t, key, k, v}:
 -- advances key and stores the pair at 3 and 4. Answers true or false.
@@ -136,7 +137,7 @@ local function printValues(ctx: voidptr, packValue: uint64): uint64
             strings.release(builder)
             error("not enough memory")
         end
-        local written = os.writeOutput(
+        local written = files.writeOutput(
             native.pointer(strings.descriptor(builderLifetime).base),
             strings.descriptor(builderLifetime).len
         )

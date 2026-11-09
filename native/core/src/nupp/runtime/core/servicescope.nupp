@@ -4,6 +4,7 @@ const native = require("nupp.runtime.vm.intrinsics")
 const pages = require("nupp.runtime.core.pagemappings")
 const os = require("nupp.runtime.vm.os")
 const journal = require("nupp.runtime.core.resourcejournal")
+const files = require("nupp.runtime.core.hostfiles")
 
 const RESOURCE_REFUSAL: int64 = 24
 const INVALID: int64 = 22
@@ -229,12 +230,12 @@ end
 
 export function writeOutput(scope: voidptr, base: voidptr, bytes: uint64): int64
     local _ = scope
-    return os.writeOutput(base, bytes)
+    return files.writeOutput(base, bytes)
 end
 
 export function readInput(scope: voidptr, base: voidptr, bytes: uint64): int64
     local _ = scope
-    return os.readInput(base, bytes)
+    return files.readInput(base, bytes)
 end
 
 export function securefill(scope: voidptr, base: voidptr, bytes: uint64): int64
