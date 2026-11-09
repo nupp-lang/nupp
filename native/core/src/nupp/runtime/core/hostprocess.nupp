@@ -44,10 +44,11 @@ cdef function exit(code: int64)
 cdef function _NSGetEnviron(): voidptr
 cdef function memcmp(borrows left: voidptr, borrows right: voidptr, count: uint64): int32
 cdef function getenv(borrows name: voidptr): voidptr
-cdef function memchr(borrows text: voidptr, byte: int64, count: uint64): voidptr
+cdef function sysconf(name: int64): int64
 cdef function strlen(borrows text: voidptr): uint64
-cdef function calloc(count: uint64, size: uint64): voidptr
+cdef function memchr(borrows text: voidptr, byte: int64, count: uint64): voidptr
 cdef function memcpy(borrows target: voidptr, borrows source: voidptr, count: uint64): voidptr
+cdef function calloc(count: uint64, size: uint64): voidptr
 cdef function free(borrows block: voidptr)
 
 -- The spec's tags (processcalls.spawn): the program, an argument, an
@@ -419,6 +420,71 @@ export function environment(name: voidptr, nameBytes: uint64, out: voidptr, room
         end
         local length = strlen(native.pointer(value))
         local _ = memcpy(out, native.pointer(value), c.fitted(length, room))
+
+        return native.index(length)
+    end
+end
+
+-- systemquery's fields: the platform's, architecture's and byte order's
+-- names, each with its text as the little-endian word it is and its length
+-- (the core targets aarch64-apple-darwin), then the pointer width and
+-- usable parallelism; and its refusal.
+const PLATFORM: uint64 = 0ULL
+const PLATFORM_TEXT: uint64 = 0x736f63616dULL
+const PLATFORM_BYTES: uint64 = 5ULL
+const ARCHITECTURE: uint64 = 1ULL
+const ARCHITECTURE_TEXT: uint64 = 0x34366863726161ULL
+const ARCHITECTURE_BYTES: uint64 = 7ULL
+const ENDIANNESS: uint64 = 2ULL
+const ENDIANNESS_TEXT: uint64 = 0x656c7474696cULL
+const ENDIANNESS_BYTES: uint64 = 6ULL
+const PARALLELISM: uint64 = 4ULL
+const POINTER_BITS: uint64 = 3ULL
+const INVALID_QUERY: int64 = 22
+const WORD_BITS: int64 = 64
+const BYTE_BITS: uint64 = 8ULL
+const BYTE: uint64 = 0xffULL
+-- sysconf's _SC_NPROCESSORS_ONLN on macOS.
+const ONLINE_PROCESSORS: int64 = 58
+
+-- Facts about the executing core: text fields size with a zero range, then
+-- fill an exact range; the scalar ones take only a zero range. A query that
+-- is not one, or a short range, writes nothing: -INVALID_QUERY.
+export function systemquery(field: uint64, base: voidptr, room: uint64): int64
+    @unsafe do
+        local empty = native.address(base) == 0ULL and room == 0ULL
+        if field == POINTER_BITS or field == PARALLELISM then
+            if not empty then
+                return 0 - INVALID_QUERY
+            elseif field == POINTER_BITS then
+                return WORD_BITS
+            end
+            local online = sysconf(ONLINE_PROCESSORS)
+            if online < 1 then
+                return 1
+            end
+            return online
+        end
+        local text = PLATFORM_TEXT
+        local length = PLATFORM_BYTES
+        if field == ARCHITECTURE then
+            text, length = ARCHITECTURE_TEXT, ARCHITECTURE_BYTES
+        elseif field == ENDIANNESS then
+            text, length = ENDIANNESS_TEXT, ENDIANNESS_BYTES
+        elseif field ~= PLATFORM then
+            return 0 - INVALID_QUERY
+        end
+        if empty then
+            return native.index(length)
+        elseif native.address(base) == 0ULL or room < length then
+            return 0 - INVALID_QUERY
+        end
+        -- Exactly its bytes: the range may end with them.
+        local index: uint64 = 0ULL
+        while index < length do
+            native.store8(base, native.index(index), (text >> (index * BYTE_BITS)) & BYTE)
+            index = index + 1ULL
+        end
 
         return native.index(length)
     end

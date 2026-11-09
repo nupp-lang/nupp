@@ -18,14 +18,13 @@ local definitions = {
     atomicload64 = {slot = 9, params = {"voidptr", "int64"}, result = "uint64", cResult = "uint64"},
     atomiccas64 = {slot = 10, params = {"voidptr", "int64", "uint64", "uint64"}, result = "uint64", cResult = "uint64"},
     securefill = {slot = 11, params = {"voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    systemquery = {slot = 12, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    poolsettle = {slot = 13, params = {"uint64"}, result = "int64", cResult = "int64"},
-    dlopen = {slot = 14, params = {"voidptr", "int64"}, result = "voidptr", cResult = "voidptr"},
-    dlsym = {slot = 15, params = {"voidptr", "voidptr"}, result = "voidptr", cResult = "voidptr"},
-    dlclose = {slot = 16, params = {"voidptr"}, result = "int64", cResult = "int64", narrow = "int32"},
+    poolsettle = {slot = 12, params = {"uint64"}, result = "int64", cResult = "int64"},
+    dlopen = {slot = 13, params = {"voidptr", "int64"}, result = "voidptr", cResult = "voidptr"},
+    dlsym = {slot = 14, params = {"voidptr", "voidptr"}, result = "voidptr", cResult = "voidptr"},
+    dlclose = {slot = 15, params = {"voidptr"}, result = "int64", cResult = "int64", narrow = "int32"},
     -- Not a function: the table foreign calls cache their resolved symbols
     -- in, foreignSlots words the bridge zeroes.
-    foreignTable = {slot = 17, table = true},
+    foreignTable = {slot = 16, table = true},
     -- Not imports: routines the selector writes where they are called
     -- (s0.select). The generic foreign call takes a block of words and
     -- answers x0; the other answers the address of the table above.

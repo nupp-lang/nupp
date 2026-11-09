@@ -3,7 +3,6 @@ mod entropy;
 mod library;
 mod platform;
 mod pool;
-mod system;
 
 #[cfg(all(test, target_arch = "aarch64"))]
 #[path = "../tests/support/abi.rs"]
@@ -170,7 +169,6 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, Failure> {
         platform::atomic_load64 as *const () as u64,
         platform::atomic_cas64 as *const () as u64,
         entropy::secure_fill as *const () as u64,
-        system::system_query as *const () as u64,
         pool::pool_settle as *const () as u64,
         library[0],
         library[1],

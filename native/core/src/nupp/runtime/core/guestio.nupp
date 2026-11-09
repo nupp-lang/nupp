@@ -10,7 +10,6 @@ const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const values = require("nupp.runtime.vm.values")
 const os = require("nupp.runtime.vm.os")
-const clock = require("nupp.runtime.core.hostclock")
 const context = require("nupp.runtime.core.context")
 const strings = require("nupp.runtime.core.corestrings")
 const tables = require("nupp.runtime.core.coretables")
@@ -19,6 +18,8 @@ const guestscope = require("nupp.runtime.core.guestscope")
 const guestreactor = require("nupp.runtime.core.guestreactor")
 const librarylayouts = require("nupp.runtime.core.librarylayouts")
 const guestprocess = require("nupp.runtime.core.guestprocess")
+const hostprocess = require("nupp.runtime.core.hostprocess")
+const clock = require("nupp.runtime.core.hostclock")
 const guestgc = require("nupp.runtime.core.guestgc")
 const guesttime = require("nupp.runtime.core.guesttime")
 const guestfiles = require("nupp.runtime.core.guestfiles")
@@ -393,7 +394,7 @@ export function systemtext(ctx: voidptr, requested: uint64): uint64
     local field = ints.bitsOf(requested)
     @unsafe do
         local h = heapOf(ctx)
-        local length = os.systemquery(field, native.pointer(0ULL), 0ULL)
+        local length = hostprocess.systemquery(field, native.pointer(0ULL), 0ULL)
         if length <= 0 then
             error("system text query failed")
         end
@@ -401,7 +402,11 @@ export function systemtext(ctx: voidptr, requested: uint64): uint64
         if strings.reserve(h, lifetime, native.word(length)) ~= 0ULL then
             error("not enough memory")
         end
-        local written = os.systemquery(field, native.pointer(strings.descriptor(lifetime).base), native.word(length))
+        local written = hostprocess.systemquery(
+            field,
+            native.pointer(strings.descriptor(lifetime).base),
+            native.word(length)
+        )
         if written ~= length then
             error("system text query failed")
         end
@@ -421,7 +426,7 @@ export function systeminteger(ctx: voidptr, requested: uint64): uint64
         error("invalid integer system field")
     end
     @unsafe do
-        local result = os.systemquery(field, native.pointer(0ULL), 0ULL)
+        local result = hostprocess.systemquery(field, native.pointer(0ULL), 0ULL)
         if result <= 0 then
             error("system integer query failed")
         end

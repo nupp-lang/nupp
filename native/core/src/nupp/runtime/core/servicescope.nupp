@@ -6,6 +6,7 @@ const os = require("nupp.runtime.vm.os")
 const journal = require("nupp.runtime.core.resourcejournal")
 const files = require("nupp.runtime.core.hostfiles")
 const clock = require("nupp.runtime.core.hostclock")
+const process = require("nupp.runtime.core.hostprocess")
 
 const RESOURCE_REFUSAL: int64 = 24
 const INVALID: int64 = 22
@@ -234,7 +235,7 @@ end
 
 export function systemquery(scope: voidptr, field: uint64, base: voidptr, room: uint64): int64
     local _ = scope
-    return os.systemquery(field, base, room)
+    return process.systemquery(field, base, room)
 end
 
 export function monotonicNanos(scope: voidptr): uint64
