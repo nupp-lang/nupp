@@ -194,7 +194,12 @@ local function derive(g: any, catalog: any): any
         -- A capturing closure stages its captures in the call window too.
         for at, op in ipairs(block.op) do
             if op == "Closure" then
-                need(#block.args[at] - 1 <= 63, "closure capture capacity")
+                need(
+                    #block.args[at] - 1 <= bytecode.CLOSURE_CAPTURES,
+                    "closure capture capacity: " .. tostring(
+                        #block.args[at] - 1
+                    ) .. " captures in " .. tostring(g.name) .. " at " .. tostring(g.path)
+                )
                 maximumArguments = math.max(maximumArguments, #block.args[at] - 1) as integer
             elseif op == "LibCall" then
                 maximumArguments = math.max(maximumArguments, #block.args[at] - 1) as integer

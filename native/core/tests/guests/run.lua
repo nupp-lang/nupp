@@ -287,6 +287,8 @@ local CASES = {
     {"compilerfront", 0x7FFF00000000000F},
     -- The compiler's lexer alone on the core, over whole source files.
     {"compilerlexer", 0x7FFF00000000000F},
+    -- A closure capturing seventy values.
+    {"closurecaptures", 0x7FFF0000000009B5},
     -- A checked call spreading fewer or more results than it has parameters.
     {"callsspreadshort", 0x7FFF00000000001F},
     -- Main's os filesystem and system functions; main answers the same word.
