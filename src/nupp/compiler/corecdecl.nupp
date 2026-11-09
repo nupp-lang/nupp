@@ -1,15 +1,1462 @@
 @!internal
 
 --[[
-The core's answer to `nupp.compiler.nativecdecl`, the VM's C declaration
-parser: the core has none, so every request answers that, and the checker
-reports it where a program declares C.
+The core's C declaration service: `nupp.compiler.nativecdecl` written in
+Nupp over libclang, which the core answers that module with. It asks the
+same library the VM's service (native/crates/vm/src/cdecl.rs) asks, through
+the core's foreign calls, the same questions in the same order, and answers
+the same requests with the same JSON: `declare`, `type`, `struct`,
+`functions`, `float32`, `inspect` and `abi`, with the same declaration ids,
+cache and token replay, so the checker cannot tell the two apart.
+
+libclang is opened once, globally, from NUPP_LIBCLANG or the places the
+VM's service looks, so the declarations below, which name no library, find
+it. A walk over a cursor's children hands each child to the core's
+collector (nupp.runtime.hostcalls), a C visitor the selector writes,
+which keeps them in memory this module allocates.
 ]]
 module nupp.compiler.corecdecl
 
-const UNAVAILABLE = '{"ok":false,"error":"C declarations need the native C-header service, which the core does not have"}'
+const json = require("nupp.serde.internal.json.values")
+const paths = require("io.internal.path")
+const hostcalls = require("nupp.runtime.hostcalls")
 
---- Answers a JSON request as the native service would, with its refusal.
-export function request(_: string): string
-    return UNAVAILABLE
+-- libclang's structs, which its API passes and answers by value.
+cdef struct Cursor
+    kind: uint32
+    xdata: int32
+    data: voidptr[3]
+end
+
+cdef struct Type
+    kind: uint32
+    data: voidptr[2]
+end
+
+cdef struct Text
+    data: voidptr
+    flags: uint32
+end
+
+cdef struct Location
+    data: voidptr[2]
+    offset: uint32
+end
+
+cdef struct Range
+    data: voidptr[2]
+    first: uint32
+    last: uint32
+end
+
+cdef struct Token
+    words: uint32[4]
+    data: voidptr
+end
+
+cdef struct Unsaved
+    filename: uint64
+    contents: uint64
+    length: uint64
+end
+
+-- The two files a parse reads: the declarations and the probe that
+-- includes them.
+cdef struct Files
+    header: Unsaved
+    main: Unsaved
+end
+
+-- The parse's command line, and the cells libclang answers through.
+cdef struct Arguments
+    values: uint64[5]
+end
+
+cdef struct Word
+    value: uint64
+end
+
+cdef struct Half
+    value: uint32
+end
+
+-- The collector's record: where it keeps the cursors it is shown, how many
+-- it has kept, how many fit and the words each takes.
+cdef struct Collected
+    base: uint64
+    count: uint64
+    limit: uint64
+    words: uint64
+end
+
+cdef function dlopen(path: string, mode: int32): voidptr
+cdef function dlerror(): cstring?
+cdef function getenv(name: string): cstring?
+cdef function malloc(size: uint64): uint64
+cdef function free(block: uint64)
+cdef function strdup(text: string): uint64
+cdef function memmove(borrows target: Token*, source: uint64, count: uint64): uint64
+cdef function memcpy(borrows target: Cursor*, source: uint64, count: uint64): uint64
+
+cdef function clang_getClangVersion(): Text
+cdef function clang_getCursorExtent(cursor: Cursor): Range
+cdef function clang_getRangeStart(range: Range): Location
+cdef function clang_getRangeEnd(range: Range): Location
+cdef function clang_getFile(borrows unit: voidptr, name: string): voidptr
+cdef function clang_getLocationForOffset(borrows unit: voidptr, borrows file: voidptr, offset: uint32): Location
+cdef function clang_getRange(first: Location, last: Location): Range
+cdef function clang_tokenize(borrows unit: voidptr, range: Range, borrows tokens: Word*, borrows count: Half*)
+cdef function clang_getTokenKind(token: Token): uint32
+cdef function clang_getTokenSpelling(borrows unit: voidptr, token: Token): Text
+cdef function clang_getTokenExtent(borrows unit: voidptr, token: Token): Range
+cdef function clang_disposeTokens(borrows unit: voidptr, tokens: uint64, count: uint32)
+cdef function clang_getCanonicalCursor(cursor: Cursor): Cursor
+cdef function clang_isCursorDefinition(cursor: Cursor): uint32
+cdef function clang_getCursorReferenced(cursor: Cursor): Cursor
+cdef function clang_createIndex(excluded: int32, diagnostics: int32): voidptr
+cdef function clang_disposeIndex(borrows index: voidptr)
+cdef function clang_parseTranslationUnit(
+    borrows index: voidptr,
+    name: string,
+    borrows arguments: Arguments*,
+    count: int32,
+    borrows files: Files*,
+    unsaved: uint32,
+    options: uint32
+): voidptr
+cdef function clang_disposeTranslationUnit(borrows unit: voidptr)
+cdef function clang_getTranslationUnitCursor(borrows unit: voidptr): Cursor
+cdef function clang_getNumDiagnostics(borrows unit: voidptr): uint32
+cdef function clang_getDiagnostic(borrows unit: voidptr, index: uint32): voidptr
+cdef function clang_getDiagnosticSeverity(borrows diagnostic: voidptr): uint32
+cdef function clang_getDiagnosticCategoryText(borrows diagnostic: voidptr): Text
+cdef function clang_getDiagnosticSpelling(borrows diagnostic: voidptr): Text
+cdef function clang_disposeDiagnostic(borrows diagnostic: voidptr)
+cdef function clang_getDiagnosticLocation(borrows diagnostic: voidptr): Location
+cdef function clang_getSpellingLocation(
+    location: Location,
+    borrows file: Word*,
+    borrows line: Half*?,
+    borrows column: Half*?,
+    borrows offset: Half*
+)
+cdef function clang_visitChildren(cursor: Cursor, borrows visitor: voidptr, borrows data: Collected*): uint32
+cdef function clang_getCursorSpelling(cursor: Cursor): Text
+cdef function clang_getCursorUSR(cursor: Cursor): Text
+cdef function clang_getCString(text: Text): cstring?
+cdef function clang_disposeString(text: Text)
+cdef function clang_getCursorType(cursor: Cursor): Type
+cdef function clang_getCanonicalType(t: Type): Type
+cdef function clang_getTypedefDeclUnderlyingType(cursor: Cursor): Type
+cdef function clang_getTypeDeclaration(t: Type): Cursor
+cdef function clang_getTypeSpelling(t: Type): Text
+cdef function clang_getPointeeType(t: Type): Type
+cdef function clang_isConstQualifiedType(t: Type): uint32
+cdef function clang_Type_getSizeOf(t: Type): int64
+cdef function clang_Type_getAlignOf(t: Type): int64
+cdef function clang_Cursor_getOffsetOfField(cursor: Cursor): int64
+cdef function clang_Cursor_isBitField(cursor: Cursor): uint32
+cdef function clang_getFieldDeclBitWidth(cursor: Cursor): int32
+cdef function clang_getArrayElementType(t: Type): Type
+cdef function clang_getArraySize(t: Type): int64
+cdef function clang_getElementType(t: Type): Type
+cdef function clang_getNumElements(t: Type): int64
+cdef function clang_getNumArgTypes(t: Type): int32
+cdef function clang_Cursor_getNumArguments(cursor: Cursor): int32
+cdef function clang_Cursor_isAnonymous(cursor: Cursor): uint32
+cdef function clang_Cursor_isAnonymousRecordDecl(cursor: Cursor): uint32
+cdef function clang_Cursor_getArgument(cursor: Cursor, index: uint32): Cursor
+cdef function clang_getArgType(t: Type, index: uint32): Type
+cdef function clang_getResultType(t: Type): Type
+cdef function clang_isFunctionTypeVariadic(t: Type): uint32
+cdef function clang_getEnumDeclIntegerType(cursor: Cursor): Type
+cdef function clang_getEnumConstantDeclValue(cursor: Cursor): int64
+
+-- dlopen's RTLD_NOW | RTLD_GLOBAL, and where the VM's service looks for
+-- libclang when NUPP_LIBCLANG names none.
+const OPEN_GLOBAL: int32 = 0x2 | 0x8
+const CANDIDATES = {
+    "/Library/Developer/CommandLineTools/usr/lib/libclang.dylib",
+    "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/libclang.dylib",
+    "libclang.dylib"
+}
+
+-- libclang's numbers this service reads: cursor kinds, type kinds, token
+-- kinds, diagnostic severities, and what a parse is asked for.
+const CURSOR_STRUCT = 2
+const CURSOR_UNION = 3
+const CURSOR_ENUM = 5
+const CURSOR_FIELD = 6
+const CURSOR_ENUMERATOR = 7
+const CURSOR_FUNCTION = 8
+const CURSOR_VARIABLE = 9
+const CURSOR_TYPEDEF = 20
+const TYPE_BOOL = 3
+const TYPE_VOID = 2
+const TYPE_LAST_UNSIGNED = 12
+const TYPE_LAST_INTEGER = 20
+const TYPE_POINTER = 101
+const TYPE_RECORD = 105
+const TYPE_ENUM = 106
+const TYPE_COMPLEX = 100
+const TOKEN_IDENTIFIER = 2
+const TOKEN_COMMENT = 4
+const SEVERITY_ERROR = 3
+const SEVERITY_FATAL = 4
+const SEVERITY_WARNING = 2
+const DETAILED_PREPROCESSING = 1
+-- Bytes: a cursor and a token as libclang lays them out, and the words a
+-- cursor takes in the collector's memory.
+const CURSOR_BYTES = 32
+const CURSOR_WORDS = 4
+const TOKEN_BYTES = 24
+const FIRST_CHILDREN = 64
+-- The deepest type the model follows.
+const MAX_DEPTH = 100
+
+-- Match the standard C names accepted by the old compiler's declaration
+-- service. Widths and layout come from libclang's target.
+const PRELUDE = "typedef _Bool bool; typedef __SIZE_TYPE__ size_t; typedef __PTRDIFF_TYPE__ ptrdiff_t; "
+    .. "typedef __INTPTR_TYPE__ intptr_t; typedef __UINTPTR_TYPE__ uintptr_t; typedef __INT8_TYPE__ int8_t; "
+    .. "typedef __UINT8_TYPE__ uint8_t; typedef __INT16_TYPE__ int16_t; typedef __UINT16_TYPE__ uint16_t; "
+    .. "typedef __INT32_TYPE__ int32_t; typedef __UINT32_TYPE__ uint32_t; typedef __INT64_TYPE__ int64_t; "
+    .. "typedef __UINT64_TYPE__ uint64_t;\n"
+
+-- The architecture, system and pointer bytes `abi` names after the version.
+const TARGET = "aarch64-macos-8"
+
+local loaded = false
+
+-- Opens libclang once, globally, as the VM's service finds it.
+local function load(): nil
+    if loaded then
+        return
+    end
+    local wanted = getenv("NUPP_LIBCLANG")
+    local candidates = wanted and {tostring(wanted)} or CANDIDATES
+    local errors: {string} = {}
+    for _, path in ipairs(candidates) do
+        if dlopen(path, OPEN_GLOBAL) ~= nil then
+            loaded = true
+            return
+        end
+        local reason = dlerror()
+        errors[#errors + 1] = reason and tostring(reason) or path
+    end
+    error({
+        cdecl = "C declaration service requires libclang; set NUPP_LIBCLANG to its library path: " .. table.concat(
+            errors,
+            "; "
+        )
+    })
+end
+
+-- A libclang string's text, which is then disposed of.
+local function text(value: Text): string
+    local spelled = clang_getCString(value)
+    clang_disposeString(value)
+
+    return spelled and tostring(spelled) or ""
+end
+
+local function spelling(cursor: Cursor): string
+    return text(clang_getCursorSpelling(cursor))
+end
+
+local function usr(cursor: Cursor): string
+    return text(clang_getCursorUSR(cursor))
+end
+
+-- A cursor's children in order, each kept by the collector.
+local function children(cursor: Cursor): {Cursor}
+    local limit = FIRST_CHILDREN
+    while true do
+        local base = malloc(limit * CURSOR_BYTES)
+        local record = Collected(base, 0, limit, CURSOR_WORDS)
+        clang_visitChildren(cursor, hostcalls.collector(), record)
+        local count = record.count as integer
+        if count < limit then
+            local out: {Cursor} = {}
+            for index = 0, count - 1 do
+                local child = Cursor()
+                memcpy(child, base + index * CURSOR_BYTES, CURSOR_BYTES)
+                out[#out + 1] = child
+            end
+            free(base)
+            return out
+        end
+        free(base)
+        limit = limit * 2
+    end
+end
+
+-- A string libclang reads for the length of a parse: a C copy, freed by
+-- `release`.
+local function cstring(held: {uint64}, value: string): uint64
+    local copy = strdup(value)
+    held[#held + 1] = copy
+    return copy
+end
+
+local function release(held: {uint64}): nil
+    for _, copy in ipairs(held) do
+        free(copy)
+    end
+end
+
+-- A parsed translation unit: its index, the unit and the declarations'
+-- virtual header.
+local type Unit = {
+    index: voidptr,
+    unit: voidptr,
+    header: voidptr?
+}
+
+local function dispose(unit: Unit): nil
+    clang_disposeTranslationUnit(unit.unit)
+    clang_disposeIndex(unit.index)
+end
+
+-- The line of a diagnostic's location.
+local function lineOf(location: Location): integer
+    local file, line, column, offset = Word(), Half(), Half(), Half()
+    clang_getSpellingLocation(location, file, line, column, offset)
+    return line.value as integer
+end
+
+-- Parses `source` as the declarations' header, with `probe` after an
+-- include of it in a probe file of its own; with `diagnose`, an error is
+-- the parse's failure, else only a lexical replay's certificate is read.
+local function parseMode(source: string, probe: string, identity: integer, diagnose: boolean): (Unit?, string?)
+    if source:find("\0", 1, true) then
+        return nil, "C declarations contain a NUL byte"
+    end
+    if probe:find("\0", 1, true) then
+        return nil, "C type contains a NUL byte"
+    end
+    local cwd = paths.cwd()
+    local directory = cwd and cwd:tostring() or "."
+    local filename = directory .. "/nupp-probe-" .. tostring(identity) .. ".c"
+    local headerName = directory .. "/nupp-declarations.h"
+    local main = "#include \"nupp-declarations.h\"\n" .. probe .. "\n"
+    local held: {uint64} = {}
+    local arguments = Arguments()
+    local spelled = {"-x", "c", "-std=gnu11", "-fno-builtin", "-Wno-everything"}
+    for index, argument in ipairs(spelled) do
+        arguments.values[index - 1] = cstring(held, argument)
+    end
+    local files = Files(
+        Unsaved(cstring(held, headerName), cstring(held, source), #source),
+        Unsaved(cstring(held, filename), cstring(held, main), #main)
+    )
+    local index = clang_createIndex(0, 0)
+    local unit = clang_parseTranslationUnit(index, filename, arguments, #spelled, files, 2, DETAILED_PREPROCESSING)
+    release(held)
+    if unit == nil then
+        clang_disposeIndex(index)
+        return nil, "libclang could not parse C declarations"
+    end
+    local parsed: Unit = {index = index, unit = unit, header = clang_getFile(unit, headerName)}
+    local errors: {string} = {}
+    local certificate = true
+    local firstLine = 0
+    for at = 0, (clang_getNumDiagnostics(unit) as integer) - 1 do
+        local diagnostic = clang_getDiagnostic(unit, at)
+        local severity = clang_getDiagnosticSeverity(diagnostic)
+        if not diagnose and severity >= SEVERITY_WARNING then
+            -- Category metadata, not messages or version-dependent category
+            -- numbers. Unknown categories fail closed.
+            local category = text(clang_getDiagnosticCategoryText(diagnostic))
+            if severity >= SEVERITY_FATAL or category ~= "Semantic Issue" then
+                certificate = false
+            end
+        end
+        if severity >= SEVERITY_ERROR then
+            errors[#errors + 1] = text(clang_getDiagnosticSpelling(diagnostic))
+            if firstLine == 0 then
+                firstLine = lineOf(clang_getDiagnosticLocation(diagnostic))
+            end
+        end
+        clang_disposeDiagnostic(diagnostic)
+    end
+    if not diagnose and not certificate then
+        dispose(parsed)
+        return nil, "C lexical replay certification unavailable"
+    end
+    if diagnose and #errors > 0 then
+        dispose(parsed)
+        -- LuaJIT's spelling, which callers map back to a header's own line.
+        local message = table.concat(errors, "; ")
+        if firstLine > 0 then
+            message = message .. " at line " .. tostring(firstLine)
+        end
+        return nil, message
+    end
+
+    return parsed, nil
+end
+
+local function parse(source: string): (Unit?, string?)
+    return parseMode(source, "", 0, true)
+end
+
+-- A location's byte offset in the declarations' header, or nil elsewhere.
+local function offsetOf(unit: Unit, location: Location): integer?
+    local file, offset = Word(), Half()
+    clang_getSpellingLocation(location, file, nil, nil, offset)
+    if unit.header == nil or file.value == 0 or file.value ~= unit.header as uint64 then
+        return nil
+    end
+
+    return offset.value as integer
+end
+
+local function extentOf(unit: Unit, range: Range): (integer?, integer?)
+    local first = offsetOf(unit, clang_getRangeStart(range))
+    local last = offsetOf(unit, clang_getRangeEnd(range))
+    if first == nil or last == nil then
+        return nil, nil
+    end
+
+    return first, last
+end
+
+-- The header's tokens from byte `first` to `last`, comments left out, each
+-- its kind, spelling and extent; nil when one lies outside the header.
+local type Lexeme = {
+    kind: integer,
+    spelling: string,
+    first: integer,
+    last: integer
+}
+
+local function tokensOf(unit: Unit, first: integer, last: integer): {Lexeme}?
+    if unit.header == nil then
+        return nil
+    end
+    local range = clang_getRange(
+        clang_getLocationForOffset(unit.unit, unit.header, first),
+        clang_getLocationForOffset(unit.unit, unit.header, last)
+    )
+    local data, count = Word(), Half()
+    clang_tokenize(unit.unit, range, data, count)
+    local result: {Lexeme} = {}
+    local token = Token()
+    local whole = true
+    for at = 0, (count.value as integer) - 1 do
+        memmove(token, data.value + at * TOKEN_BYTES, TOKEN_BYTES)
+        local kind = clang_getTokenKind(token) as integer
+        if kind ~= TOKEN_COMMENT then
+            local a, b = extentOf(unit, clang_getTokenExtent(unit.unit, token))
+            if a == nil then
+                whole = false
+                break
+            end
+            result[
+                #result + 1
+            ] = {
+                kind = kind,
+                spelling = text(clang_getTokenSpelling(unit.unit, token)),
+                first = a as integer,
+                last = b as integer
+            }
+        end
+    end
+    clang_disposeTokens(unit.unit, data.value, count.value)
+
+    return whole and result or nil
+end
+
+-- A deep copy of a JSON value.
+local function copy(value: any): any
+    if type(value) ~= "table" then
+        return value
+    end
+    local out = {}
+    for key, item in pairs(value) do
+        out[key] = copy(item)
+    end
+
+    return setmetatable(out, getmetatable(value))
+end
+
+local function shallow(map: {[any]: any}): {[any]: any}
+    local out: {[any]: any} = {}
+    for key, value in pairs(map) do
+        out[key] = value
+    end
+
+    return out
+end
+
+-- The declarations a chunk claims: struct and enum ids and function names,
+-- each a set.
+local type Claims = {
+    structs: {[integer]: boolean},
+    enums: {[integer]: boolean},
+    functions: {[string]: boolean}
+}
+
+local function emptyClaims(): Claims
+    return {structs = {}, enums = {}, functions = {}}
+end
+
+local function extend(into: Claims, other: Claims): nil
+    for id in pairs(other.structs) do
+        into.structs[id] = true
+    end
+    for id in pairs(other.enums) do
+        into.enums[id] = true
+    end
+    for name in pairs(other.functions) do
+        into.functions[name] = true
+    end
+end
+
+-- The model: each declaration's id by its USR, and the struct and enum
+-- declarations by id.
+local type Model = {
+    ids: {[string]: integer},
+    count: integer,
+    structs: {[integer]: any},
+    enums: {[integer]: any}
+}
+
+local function claimCursor(claims: Claims, model: Model, cursor: Cursor): nil
+    local kind = cursor.kind as integer
+    if kind == CURSOR_FUNCTION then
+        claims.functions[spelling(cursor)] = true
+    elseif kind == CURSOR_STRUCT or kind == CURSOR_UNION or kind == CURSOR_ENUM or kind == CURSOR_TYPEDEF then
+        local t = kind == CURSOR_TYPEDEF and clang_getTypedefDeclUnderlyingType(cursor) or clang_getCursorType(cursor)
+        t = clang_getCanonicalType(t)
+        local typeKind = t.kind as integer
+        if typeKind == TYPE_RECORD or typeKind == TYPE_ENUM then
+            local id = model.ids[usr(clang_getTypeDeclaration(t))]
+            if id ~= nil then
+                if typeKind == TYPE_RECORD then
+                    claims.structs[id] = true
+                else
+                    claims.enums[id] = true
+                end
+            end
+        end
+    end
+end
+
+-- A name's file-scope bindings: the USRs it names in the ordinary and the
+-- tag namespaces, each a set.
+local type Binding = {
+    ordinary: {[string]: boolean},
+    tags: {[string]: boolean}
+}
+
+-- Whether every key of `a` holds the same value in `b`.
+local function within(a: {[any]: any}, b: {[any]: any}): boolean
+    for key, value in pairs(a) do
+        if b[key] ~= value then
+            return false
+        end
+    end
+
+    return true
+end
+
+local function sameSet(a: {[any]: any}, b: {[any]: any}): boolean
+    return within(a, b) and within(b, a)
+end
+
+local function sameBinding(a: Binding?, b: Binding?): boolean
+    local empty: Binding = {ordinary = {}, tags = {}}
+    local x = a or empty
+    local y = b or empty
+
+    return sameSet(x.ordinary, y.ordinary) and sameSet(x.tags, y.tags)
+end
+
+-- What a translation unit binds at file scope, and every USR its cursors
+-- reach with the model id each has, false for none.
+local type Environment = {
+    bindings: {[string]: Binding},
+    identities: {[string]: any}
+}
+
+local function bindingOf(environment: Environment, name: string): Binding
+    local binding = environment.bindings[name]
+    if binding == nil then
+        binding = {ordinary = {}, tags = {}}
+        environment.bindings[name] = binding
+    end
+
+    return binding
+end
+
+local function references(environment: Environment, model: Model, cursor: Cursor): nil
+    for _, bound in ipairs({cursor, clang_getCursorReferenced(cursor)}) do
+        local key = usr(clang_getCanonicalCursor(bound))
+        if key ~= "" then
+            local id = model.ids[key]
+            environment.identities[key] = id == nil and false or id
+        end
+    end
+    for _, child in ipairs(children(cursor)) do
+        references(environment, model, child)
+    end
+end
+
+local function environmentOf(unit: Unit, model: Model): Environment
+    local result: Environment = {bindings = {}, identities = {}}
+    for _, cursor in ipairs(children(clang_getTranslationUnitCursor(unit.unit))) do
+        local name = spelling(cursor)
+        local key = usr(clang_getCanonicalCursor(cursor))
+        local kind = cursor.kind as integer
+        if name ~= "" and key ~= "" then
+            local binding = bindingOf(result, name)
+            if kind == CURSOR_STRUCT or kind == CURSOR_UNION or kind == CURSOR_ENUM then
+                binding.tags[key] = true
+            elseif kind == CURSOR_FUNCTION or kind == CURSOR_VARIABLE or kind == CURSOR_TYPEDEF then
+                binding.ordinary[key] = true
+            end
+        end
+        -- Enumerators occupy the ordinary namespace even though their cursor
+        -- parent is the enum. Field and parameter names do not bind at file
+        -- scope.
+        if kind == CURSOR_ENUM then
+            for _, child in ipairs(children(cursor)) do
+                if child.kind as integer == CURSOR_ENUMERATOR then
+                    bindingOf(result, spelling(child)).ordinary[usr(clang_getCanonicalCursor(child))] = true
+                end
+            end
+        end
+        references(result, model, cursor)
+    end
+
+    return result
+end
+
+-- A certified declaration group: its tokens, each kind and spelling, the
+-- bindings its identifiers had, the identities its cursors reached, and
+-- what it claims.
+local type Group = {
+    tokens: {any},
+    bindings: {[string]: Binding},
+    identities: {[string]: any},
+    claims: Claims
+}
+
+local function valid(group: Group, environment: Environment): boolean
+    for name, binding in pairs(group.bindings) do
+        if not sameBinding(environment.bindings[name], binding) then
+            return false
+        end
+    end
+
+    return within(group.identities, environment.identities)
+end
+
+local function sameClaims(a: Claims, b: Claims): boolean
+    return sameSet(a.structs, b.structs) and sameSet(a.enums, b.enums) and sameSet(a.functions, b.functions)
+end
+
+local function sameGroup(a: Group, b: Group): boolean
+    if #a.tokens ~= #b.tokens then
+        return false
+    end
+    for index, token in ipairs(a.tokens) do
+        local other = b.tokens[index]
+        if token[1] ~= other[1] or token[2] ~= other[2] then
+            return false
+        end
+    end
+    for name, binding in pairs(a.bindings) do
+        if b.bindings[name] == nil or not sameBinding(b.bindings[name], binding) then
+            return false
+        end
+    end
+    for name in pairs(b.bindings) do
+        if a.bindings[name] == nil then
+            return false
+        end
+    end
+
+    return sameSet(a.identities, b.identities) and sameClaims(a.claims, b.claims)
+end
+
+-- A declaration's model id, assigned on first sight by its USR.
+local function identify(model: Model, cursor: Cursor): integer
+    local key = usr(cursor)
+    local id = model.ids[key]
+    if id == nil then
+        model.count = model.count + 1
+        id = model.count
+        model.ids[key] = id
+    end
+
+    return id as integer
+end
+
+-- A failure the model raises, which `request` answers as its error.
+local function fail(message: string): nil
+    error({cdecl = message})
+end
+
+-- The message of a failure the model raised; any other is raised again.
+local function failed(failure: any): string
+    if type(failure) == "table" and (failure as any).cdecl then
+        return (failure as any).cdecl
+    end
+    error(failure, 0)
+end
+
+local typeModel: function(Model, Type, integer): any
+
+-- Writes a type's size and alignment into its model, each where libclang
+-- knows it (a negative answer is its error).
+local function measured(value: {[string]: any}, size: integer, align: integer): nil
+    if size >= 0 then
+        value.size = size
+    end
+    if align >= 0 then
+        value.align = align
+    end
+end
+
+-- A JSON object, typed as one whatever fields it starts with.
+local function object(fields: {[string]: any}): {[string]: any}
+    return fields
+end
+
+-- A record's declaration: a placeholder first, so a recursive pointer ends,
+-- then its fields, as the VM's model registers it.
+local function record(
+    model: Model,
+    t: Type,
+    cursor: Cursor,
+    id: integer,
+    size: integer,
+    align: integer,
+    depth: integer
+): nil
+    local kind = cursor.kind as integer == CURSOR_UNION and "union" or "struct"
+    local name = spelling(cursor)
+    local placeholder: {[string]: any} = {kind = kind, id = id, name = name, fields = json.asArray({})}
+    measured(placeholder, size, -1)
+    model.structs[id] = placeholder
+    local fields: {any} = {}
+    local anonymous, unnamed = 0, 0
+    for _, field in ipairs(children(cursor)) do
+        local fieldKind = field.kind as integer
+        -- An anonymous struct or union member is a record declaration with
+        -- no field of its own: counted, not listed.
+        if (fieldKind == CURSOR_STRUCT or fieldKind == CURSOR_UNION)
+            and clang_Cursor_isAnonymousRecordDecl(field) ~= 0
+        then
+            anonymous = anonymous + 1
+        elseif fieldKind == CURSOR_FIELD then
+            local fieldName = spelling(field)
+            -- A member without a name of its own: an anonymous struct or
+            -- union folded into this one, which newer libclang spells after
+            -- its type.
+            local declared = clang_getTypeDeclaration(clang_getCursorType(field))
+            local folded = clang_Cursor_isAnonymousRecordDecl(declared) ~= 0
+                and (
+                    fieldName == ""
+                    or fieldName:find("(anonymous", 1, true) ~= nil
+                    or fieldName:find("(unnamed", 1, true) ~= nil
+                )
+            if fieldName == "" or folded then
+                if clang_Cursor_isBitField(field) ~= 0 then
+                    unnamed = unnamed + 1
+                else
+                    anonymous = anonymous + 1
+                end
+            else
+                local offset = clang_Cursor_getOffsetOfField(field)
+                local data: {
+                    [string]: any
+                } = {name = fieldName, type = typeModel(model, clang_getCursorType(field), depth + 1)}
+                if offset >= 0 then
+                    data.offset = offset // 8
+                end
+                if clang_Cursor_isBitField(field) ~= 0 then
+                    data.bitWidth = clang_getFieldDeclBitWidth(field)
+                    data.bitPos = offset % 8
+                end
+                fields[#fields + 1] = data
+            end
+        end
+    end
+    local declaration: {
+        [string]: any
+    } = {kind = kind, id = id, name = name, fields = json.asArray(fields), anonymous = anonymous, unnamed = unnamed}
+    measured(declaration, size, align)
+    model.structs[id] = declaration
+end
+
+typeModel = function(model: Model, given: Type, depth: integer): any
+    if depth > MAX_DEPTH then
+        fail("C type nesting exceeds 100")
+    end
+    local t = clang_getCanonicalType(given)
+    local size = clang_Type_getSizeOf(t) as integer
+    local align = clang_Type_getAlignOf(t) as integer
+    local kind = t.kind as integer
+    local value: any
+    if kind == TYPE_VOID then
+        value = object({kind = "void"})
+    elseif kind == TYPE_BOOL then
+        value = object({kind = "boolean"})
+    elseif kind >= 4 and kind <= TYPE_LAST_INTEGER then
+        value = object({kind = "integer", bits = size * 8, unsigned = kind <= TYPE_LAST_UNSIGNED})
+    elseif kind >= 21 and kind <= 23 or kind >= 30 and kind <= 32 or kind == 39 then
+        value = object({kind = "float", bits = size * 8})
+    elseif kind == TYPE_POINTER then
+        local pointee = clang_getPointeeType(t)
+        value = object({
+            kind = "pointer",
+            to = typeModel(model, pointee, depth + 1),
+            const = clang_isConstQualifiedType(pointee) ~= 0
+        })
+    elseif kind == TYPE_RECORD then
+        local cursor = clang_getTypeDeclaration(t)
+        local id = identify(model, cursor)
+        local name = spelling(cursor)
+        local known = model.structs[id]
+        if known == nil or known.size == nil and size >= 0 then
+            record(model, t, cursor, id, size, align, depth)
+        end
+        if name == "" then
+            name = model.structs[id].name or ""
+        end
+        value = object({kind = cursor.kind as integer == CURSOR_UNION and "union" or "struct", id = id, name = name})
+    elseif kind == TYPE_ENUM then
+        local cursor = clang_getTypeDeclaration(t)
+        local integer = typeModel(model, clang_getEnumDeclIntegerType(cursor), depth + 1)
+        -- An anonymous enum has no name of its own, even under a typedef. Its
+        -- USR marks it anonymous where the spelling borrows a typedef's.
+        local key = usr(cursor)
+        local name: any = json.NULL
+        if not (
+            clang_Cursor_isAnonymous(cursor) ~= 0
+            or key:find("@EA@", 1, true) ~= nil
+            or key:find("@Ea@", 1, true) ~= nil
+        ) then
+            name = spelling(cursor)
+        end
+        value = object({
+            kind = "enum",
+            id = identify(model, cursor),
+            name = name,
+            bits = integer.bits,
+            unsigned = integer.unsigned
+        })
+    elseif kind == 110 or kind == 111 then
+        local params: {any} = {}
+        local count = clang_getNumArgTypes(t)
+        for index = 0, count - 1 do
+            params[#params + 1] = {type = typeModel(model, clang_getArgType(t, index), depth + 1)}
+        end
+        value = object({
+            kind = "function",
+            params = json.asArray(params),
+            returns = typeModel(model, clang_getResultType(t), depth + 1),
+            vararg = clang_isFunctionTypeVariadic(t) ~= 0
+        })
+    elseif kind == 112 or kind == 114 or kind == 115 or kind == 116 then
+        local count = clang_getArraySize(t)
+        value = object({kind = "array", of = typeModel(model, clang_getArrayElementType(t), depth + 1)})
+        if count >= 0 then
+            value.count = count
+        end
+        if size >= 0 then
+            value.bytes = size
+        end
+    elseif kind == TYPE_COMPLEX or kind == 113 or kind == 176 then
+        value = object({
+            kind = kind == TYPE_COMPLEX and "complex" or "vector",
+            of = typeModel(model, clang_getElementType(t), depth + 1),
+            count = clang_getNumElements(t)
+        })
+    else
+        fail("unsupported C type " .. text(clang_getTypeSpelling(t)))
+    end
+    measured(value, size, align)
+
+    return value
+end
+
+-- The service's state, as the VM's Registry keeps it.
+local type Registry = {
+    declarations: string,
+    blocks: {[string]: Claims},
+    groups: {Group},
+    closed: boolean,
+    types: {[string]: any},
+    functions: {[string]: any},
+    model: Model,
+    probe: integer
+}
+
+local registry: Registry? = nil
+
+local function fresh(): Registry
+    load()
+    return {
+        declarations = PRELUDE,
+        blocks = {},
+        groups = {},
+        closed = true,
+        types = {},
+        functions = {},
+        model = {ids = {}, count = 0, structs = {}, enums = {}},
+        probe = 1
+    }
+end
+
+-- Where `chunk` starts in the source it is parsed in, and that source: the
+-- declarations in force, then it.
+local function appended(state: Registry, chunk: string): (integer, string)
+    return #state.declarations + 1, state.declarations .. "\n" .. chunk .. "\n"
+end
+
+-- The tokens of `chunk` lexed after the declarations in force, in a private
+-- unit that keeps their typedef context and whose diagnostics never
+-- publish, and what the declarations alone bind; nil when either cannot be
+-- had.
+local function replayed(state: Registry, chunk: string): ({Lexeme}?, Environment?)
+    local start, source = appended(state, chunk)
+    local lexical = parseMode(source, "", 0, false)
+    local tokens = lexical and tokensOf(lexical, start, #source)
+    local accepted = tokens and parse(state.declarations)
+    if lexical then
+        dispose(lexical)
+    end
+    if not accepted then
+        return nil, nil
+    end
+    local environment = environmentOf(accepted, state.model)
+    dispose(accepted)
+
+    return tokens, environment
+end
+
+local function cloneModel(model: Model): Model
+    return {
+        ids = shallow(model.ids) as {[string]: integer},
+        count = model.count,
+        structs = shallow(model.structs) as {[integer]: any},
+        enums = shallow(model.enums) as {[integer]: any}
+    }
+end
+
+-- The claims a text makes when it is a sequence of groups already
+-- certified, each still meaning what it meant, in exactly one way.
+local function replay(state: Registry, chunk: string): Claims?
+    if not state.closed or #state.groups == 0 then
+        return nil
+    end
+    local tokens, environment = replayed(state, chunk)
+    if tokens == nil or environment == nil then
+        return nil
+    end
+    local count = #tokens
+    local ways: {[integer]: integer} = {[count] = 1}
+    local choice: {[integer]: integer} = {}
+    for at = count - 1, 0, -1 do
+        ways[at] = 0
+        for g, group in ipairs(state.groups) do
+            local finish = at + #group.tokens
+            if finish <= count and (ways[finish] or 0) ~= 0 and valid(group, environment) then
+                local matched = true
+                for k, expected in ipairs(group.tokens) do
+                    local token = tokens[at + k]
+                    if token.kind ~= expected[1] or token.spelling ~= expected[2] then
+                        matched = false
+                        break
+                    end
+                end
+                if matched then
+                    local total = (ways[at] or 0) + (ways[finish] or 0)
+                    ways[at] = total > 2 and 2 or total
+                    choice[at] = g
+                end
+            end
+        end
+    end
+    if ways[0] ~= 1 then
+        return nil
+    end
+    local at: integer = 0
+    local claims = emptyClaims()
+    while at < count do
+        local g = choice[at]
+        if not g then
+            return nil
+        end
+        local group = state.groups[g]
+        extend(claims, group.claims)
+        at = at + #group.tokens
+    end
+
+    return claims
+end
+
+-- Whether a tag cursor, or one beneath it, binds a tag the unit's own
+-- top-level cursors do not.
+local function unindexedTag(cursor: Cursor, roots: {[string]: boolean}): boolean
+    local kind = cursor.kind as integer
+    if kind == CURSOR_STRUCT or kind == CURSOR_UNION or kind == CURSOR_ENUM then
+        local key = usr(clang_getCanonicalCursor(cursor))
+        -- An anonymous aggregate member has no tag name to bind. Its
+        -- children still need the same namespace check.
+        local member = (kind == CURSOR_STRUCT or kind == CURSOR_UNION)
+            and clang_Cursor_isAnonymousRecordDecl(cursor) ~= 0
+        if not member and (key == "" or not roots[key]) then
+            return true
+        end
+    end
+    for _, child in ipairs(children(cursor)) do
+        if unindexedTag(child, roots) then
+            return true
+        end
+    end
+
+    return false
+end
+
+-- The groups the unit's tokens from `start` to `finish` divide into, one
+-- per run of overlapping top-level declarations, or nil when they cannot
+-- be certified.
+local function certify(unit: Unit, start: integer, finish: integer, model: Model): {Group}?
+    local tokens = tokensOf(unit, start, finish)
+    if not tokens then
+        return nil
+    end
+    for _, token in ipairs(tokens) do
+        if token.spelling == "#" or token.spelling == "_Pragma" or token.spelling == "__pragma" then
+            return nil
+        end
+    end
+    local environment = environmentOf(unit, model)
+    local roots = children(clang_getTranslationUnitCursor(unit.unit))
+    local rootTags: {[string]: boolean} = {}
+    for _, cursor in ipairs(roots) do
+        local kind = cursor.kind as integer
+        if kind == CURSOR_STRUCT or kind == CURSOR_UNION or kind == CURSOR_ENUM then
+            rootTags[usr(clang_getCanonicalCursor(cursor))] = true
+        end
+    end
+    local ranges: {any} = {}
+    for _, cursor in ipairs(roots) do
+        local a, b = extentOf(unit, clang_getCursorExtent(cursor))
+        if a ~= nil and a >= start and a < finish then
+            local kind = cursor.kind as integer
+            if not (
+                kind == CURSOR_STRUCT
+                or kind == CURSOR_UNION
+                or kind == CURSOR_ENUM
+                or kind == CURSOR_FUNCTION
+                or kind == CURSOR_TYPEDEF
+            )
+                or kind == CURSOR_FUNCTION and clang_isCursorDefinition(cursor) ~= 0
+            then
+                return nil
+            end
+            -- Nested tag declarations can bind at file scope even when absent
+            -- from the unit's direct children: an incomplete namespace
+            -- inventory is not certified.
+            if unindexedTag(cursor, rootTags) then
+                return nil
+            end
+            ranges[#ranges + 1] = {a, b, {cursor}, #ranges + 1}
+        end
+    end
+    table.sort(ranges, function(x: any, y: any): boolean
+        if x[1] ~= y[1] then
+            return x[1] < y[1]
+        elseif x[2] ~= y[2] then
+            return x[2] < y[2]
+        end
+
+        return x[4] < y[4]
+    end)
+    local merged: {any} = {}
+    for _, range in ipairs(ranges) do
+        local last = merged[#merged]
+        if last ~= nil and range[1] < last[2] then
+            last[2] = math.max(last[2], range[2])
+            for _, cursor in ipairs(range[3]) do
+                last[3][#last[3] + 1] = cursor
+            end
+        else
+            merged[#merged + 1] = {range[1], range[2], range[3]}
+        end
+    end
+    local at: integer = 1
+    local result: {Group} = {}
+    for index, range in ipairs(merged) do
+        if at > #tokens or tokens[at].first ~= range[1] then
+            return nil
+        end
+        local first = at
+        -- Clang can end a declaration cursor before its trailing type
+        -- attributes: the next top-level declaration bounds this group's
+        -- tokens, those attributes and its semicolon included.
+        local limit = merged[index + 1] and merged[index + 1][1] or finish
+        while at <= #tokens and tokens[at].last <= limit do
+            at = at + 1
+        end
+        if at == first or tokens[at - 1].last < range[2] or tokens[at - 1].spelling ~= ";" then
+            return nil
+        end
+        local refs: Environment = {bindings = {}, identities = {}}
+        local claims = emptyClaims()
+        for _, cursor in ipairs(range[3]) do
+            references(refs, model, cursor)
+            claimCursor(claims, model, cursor)
+        end
+        local bindings: {[string]: Binding} = {}
+        local spelled: {any} = {}
+        for k = first, at - 1 do
+            local token = tokens[k]
+            spelled[#spelled + 1] = {token.kind, token.spelling}
+            if token.kind == TOKEN_IDENTIFIER then
+                bindings[token.spelling] = environment.bindings[token.spelling] or {ordinary = {}, tags = {}}
+            end
+        end
+        result[#result + 1] = {tokens = spelled, bindings = bindings, identities = refs.identities, claims = claims}
+    end
+    if at ~= #tokens + 1 then
+        return nil
+    end
+
+    return result
+end
+
+-- Declares `chunk` after the declarations in force: the claims it makes,
+-- or the error that refuses it.
+local function declare(state: Registry, chunk: string): (Claims?, string?)
+    local known = state.blocks[chunk] or replay(state, chunk)
+    if known ~= nil then
+        return known, nil
+    end
+    local start, source = appended(state, chunk)
+    local unit, problem = parse(source)
+    if unit == nil then
+        -- An error's line is the source's; the text this call was given
+        -- starts after the declarations already in force.
+        local reason = problem as string
+        local _, newlines = state.declarations:gsub("\n", "")
+        local before = newlines + 1
+        local message, line = reason:match("^(.*) at line (%d+)$")
+        if message ~= nil then
+            local number = math.tointeger(tonumber(line))
+            -- As LuaJIT, the first line goes unnamed.
+            if number ~= nil and number > before + 1 then
+                return nil, message .. " at line " .. tostring(number - before)
+            end
+            return nil, message
+        end
+        return nil, reason
+    end
+    local claims = emptyClaims()
+    local model = cloneModel(state.model)
+    local functions = shallow(state.functions) as {[string]: any}
+    local modeled, failure = pcall(function(): nil
+        for _, cursor in ipairs(children(clang_getTranslationUnitCursor(unit.unit))) do
+            local kind = cursor.kind as integer
+            if kind == CURSOR_FUNCTION then
+                local name = spelling(cursor)
+                local fn = typeModel(model, clang_getCursorType(cursor), 0)
+                fn.name = name
+                -- A declaration's parameter names live on its cursor, not its type.
+                local count = clang_Cursor_getNumArguments(cursor)
+                for index, param in ipairs(fn.params or {}) do
+                    if index > count then
+                        break
+                    end
+                    local spelled = spelling(clang_Cursor_getArgument(cursor, index - 1))
+                    if spelled ~= "" then
+                        param.name = spelled
+                    end
+                end
+                functions[name] = fn
+            elseif kind == CURSOR_STRUCT or kind == CURSOR_UNION or kind == CURSOR_ENUM or kind == CURSOR_TYPEDEF then
+                local t = kind == CURSOR_TYPEDEF and clang_getTypedefDeclUnderlyingType(cursor)
+                    or clang_getCursorType(cursor)
+                local value = typeModel(model, t, 0)
+                if kind == CURSOR_TYPEDEF and (value.kind == "struct" or value.kind == "union") then
+                    local declaration = model.structs[value.id]
+                    if declaration.name == "" then
+                        local named = shallow(declaration)
+                        named.name = spelling(cursor)
+                        named.typedefName = true
+                        model.structs[value.id] = named
+                    end
+                end
+                if kind == CURSOR_ENUM then
+                    local values: {any} = {}
+                    for _, child in ipairs(children(cursor)) do
+                        if child.kind as integer == CURSOR_ENUMERATOR then
+                            values[
+                                #values + 1
+                            ] = {name = spelling(child), value = clang_getEnumConstantDeclValue(child)}
+                        end
+                    end
+                    value.values = json.asArray(values)
+                    model.enums[value.id] = value
+                end
+            end
+            local a = extentOf(unit, clang_getCursorExtent(cursor))
+            if a ~= nil and a >= start and a < #source then
+                claimCursor(claims, model, cursor)
+            end
+        end
+    end)
+    if not modeled then
+        dispose(unit)
+        return nil, failed(failure)
+    end
+    -- Certification and model conversion publish together. An uncertifiable
+    -- chunk closes only the new token replay path, for good.
+    local groups = state.closed and certify(unit, start, #source, model) or nil
+    dispose(unit)
+    state.model = model
+    state.functions = functions
+    state.declarations = source
+    state.types = {}
+    if groups ~= nil then
+        for _, group in ipairs(groups) do
+            local known = false
+            for _, other in ipairs(state.groups) do
+                known = known or sameGroup(other, group)
+            end
+            if not known then
+                state.groups[#state.groups + 1] = group
+            end
+        end
+    else
+        state.closed = false
+    end
+    state.blocks[chunk] = claims
+
+    return claims, nil
+end
+
+-- Every `struct`, `union` or `enum` tag a text names, as keyword and name.
+local function tags(spelled: string): {any}
+    local out: {any} = {}
+    for keyword, name in spelled:gmatch("([%w_]+)%s*([%w_]*)") do
+        if (keyword == "struct" or keyword == "union" or keyword == "enum") and name ~= "" then
+            out[#out + 1] = {keyword, name}
+        end
+    end
+
+    return out
+end
+
+-- The model of the C type `spec` names, after the declarations in force.
+local function typeFromString(state: Registry, spec: string): (any, string?)
+    if state.types[spec] ~= nil then
+        return state.types[spec], nil
+    end
+    -- A type string may not introduce a tag, which C's typeof would do
+    -- silently: the legacy FFI refuses one the declarations never named.
+    local declared = tags(state.declarations)
+    for _, tag in ipairs(tags(spec)) do
+        local known = false
+        for _, other in ipairs(declared) do
+            known = known or other[1] == tag[1] and other[2] == tag[2]
+        end
+        if not known then
+            return nil, "undeclared or implicit tag '" .. tag[2] .. "'"
+        end
+    end
+    -- [?] is the legacy FFI's variable array notation; an incomplete C array
+    -- has the same declaration model.
+    local spelled = spec:gsub("%[%?%]", "[]")
+    local source = "typedef __typeof__(" .. spelled .. ") __nupp_probe;"
+    local identity = state.probe
+    state.probe = state.probe + 1
+    local unit, problem = parseMode(state.declarations, source, identity, true)
+    if not unit then
+        return nil, problem
+    end
+    local found: any = nil
+    local modeled, failure = pcall(function(): nil
+        for _, cursor in ipairs(children(clang_getTranslationUnitCursor(unit.unit))) do
+            if cursor.kind as integer == CURSOR_TYPEDEF and spelling(cursor) == "__nupp_probe" then
+                found = typeModel(state.model, clang_getTypedefDeclUnderlyingType(cursor), 0)
+                return
+            end
+        end
+    end)
+    dispose(unit)
+    if not modeled then
+        return nil, failed(failure)
+    end
+    if found == nil then
+        return nil, "not a C type: " .. spec
+    end
+    state.types[spec] = found
+
+    return found, nil
+end
+
+local function units(value: any): {string}
+    if type(value) == "string" then
+        return {value as string}
+    end
+    local out: {string} = {}
+    if type(value) == "table" then
+        for _, item in ipairs(value) do
+            if type(item) == "string" then
+                out[#out + 1] = item as string
+            end
+        end
+    end
+
+    return out
+end
+
+-- The declarations `set` claims from `store`, each a copy marked with its
+-- unit.
+local function collect(into: {any}, store: any, set: any, unit: integer): nil
+    for key in pairs(set) do
+        local declaration = store[key]
+        if declaration ~= nil then
+            local entry = shallow(declaration)
+            entry.unit = unit
+            into[#into + 1] = setmetatable(entry, getmetatable(declaration))
+        end
+    end
+end
+
+-- Sorts by `field` and then by unit, as the VM's stable sorts leave a
+-- unit's declarations.
+local function order(list: {any}, field: string): nil
+    table.sort(list, function(a: any, b: any): boolean
+        return a[field] < b[field] or a[field] == b[field] and a.unit < b.unit
+    end)
+end
+
+local function inspect(state: Registry, input: any): (any, string?)
+    for _, prelude in ipairs(units(input.prelude)) do
+        declare(state, prelude)
+    end
+    local texts = units(input.text)
+    local partial = type(input.text) == "table"
+    local rejected, structures, functions, enums = {} as {any}, {} as {any}, {} as {any}, {} as {any}
+    for index, chunk in ipairs(texts) do
+        local claims, problem = declare(state, chunk)
+        if claims ~= nil then
+            local first = #enums
+            collect(structures, state.model.structs, claims.structs, index)
+            collect(functions, state.functions, claims.functions, index)
+            collect(enums, state.model.enums, claims.enums, index)
+            -- A unit's enums in id order, as the VM's ordered sets give them.
+            local slice: {any} = {}
+            for k = first + 1, #enums do
+                slice[#slice + 1] = enums[k]
+            end
+            order(slice, "id")
+            for k, item in ipairs(slice) do
+                enums[first + k] = item
+            end
+        elseif partial then
+            local reason = problem as string
+            if reason:find("incomplete type", 1, true) then
+                reason = reason .. " (its size is unknown)"
+            end
+            rejected[#rejected + 1] = {text = chunk, reason = reason, unit = index}
+        else
+            return nil, problem
+        end
+    end
+    order(structures, "id")
+    order(functions, "name")
+
+    return {
+        structs = json.asArray(structures),
+        functions = json.asArray(functions),
+        enums = json.asArray(enums),
+        rejected = json.asArray(rejected),
+        declared = #texts
+    }, nil
+end
+
+-- A number rounded to binary32, as a double.
+local function float32(spelled: string): (any, string?)
+    -- Rust's float parser's spellings of the values JSON cannot hold.
+    local word = spelled:lower():gsub("^[+-]", "")
+    if word == "inf" or word == "infinity" or word == "nan" then
+        return json.NULL, nil
+    end
+    local number = tonumber(spelled)
+    if number == nil then
+        return nil, "invalid float literal"
+    end
+    local rounded = math.f32.narrow(number as number) as number
+    -- JSON has no infinity or NaN: the VM's service answers null.
+    if rounded ~= rounded or rounded == math.huge or rounded == -math.huge then
+        return json.NULL, nil
+    end
+
+    return rounded, nil
+end
+
+local function execute(state: Registry, input: any): (any, string?)
+    local spelled = type(input.text) == "string" and input.text or ""
+    local operation = input.operation
+    if operation == "declare" then
+        local claims, problem = declare(state, spelled)
+        return claims and json.asObject(shallow(claims.functions)), problem
+    elseif operation == "type" then
+        return typeFromString(state, spelled)
+    elseif operation == "struct" then
+        local id = math.tointeger(input.id) or 0
+        return state.model.structs[id] or json.NULL, nil
+    elseif operation == "functions" then
+        return json.asObject(state.functions), nil
+    elseif operation == "float32" then
+        return float32(spelled)
+    elseif operation == "inspect" then
+        local decoded, problem = json.decode(spelled)
+        if decoded == nil then
+            return nil, problem
+        end
+        return inspect(state, decoded)
+    elseif operation == "abi" then
+        return text(clang_getClangVersion()) .. "-" .. TARGET, nil
+    end
+
+    return nil, "unknown C declaration operation"
+end
+
+--- Answers one JSON request as the VM's service does: {"ok":true,"value":…}
+--- or {"ok":false,"error":…}.
+export function request(spelled: string): string
+    local input, problem = json.decode(spelled)
+    if input == nil then
+        return json.encode({ok = false, error = problem or "invalid request"})
+    end
+    local ok, value, failure = pcall(function(): (any, string?)
+        if registry == nil then
+            registry = fresh()
+        end
+        return execute(registry as Registry, input)
+    end)
+    if not ok then
+        local reason = type(value) == "table" and (value as any).cdecl or tostring(value)
+        return json.encode({ok = false, error = reason})
+    end
+    if failure ~= nil then
+        return json.encode({ok = false, error = failure})
+    end
+
+    return json.encode({ok = true, value = value}, json.NULL)
+end
+
+--- Forgets every declaration, as a new process's service starts.
+export function reset(): nil
+    registry = nil
 end

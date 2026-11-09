@@ -106,7 +106,9 @@ local function scalar(value: any, numeric: boolean, dynamic: boolean?): string
         or value.tag == "float32"
         -- A metatable is a table; a type a generic computes (a const
         -- parameter's `N`) erases as a type parameter does.
-        or value.tag == "metatable" or value.tag == "neutral" or value.tag == "any" or value.tag == "unknown") then
+        or value.tag == "metatable" or value.tag == "neutral" or value.tag == "any" or value.tag == "unknown"
+        -- A struct is storage of its bytes (taggedstructs).
+        or value.tag == "nominal" and value.declKind == "struct") then
         return "value"
     end
     -- An optional or other union is dynamic too, each member admissible.
