@@ -1,0 +1,110 @@
+@!internal
+module nupp.runtime.provider.corerecord
+
+local function copy(value: any): any
+    if type(value) ~= "table" then
+        return value
+    end
+    local fresh: any = {}
+    for key, item in pairs(value) do
+        fresh[key] = copy(item)
+    end
+
+    return fresh
+end
+
+local function nominal(owner: any, spec: any, domain: any): any
+    if domain.self then
+        return owner
+    end
+    if domain.cell then
+        return spec.cells[domain.cell][1]
+    end
+    local class: any = nil
+    if domain.bound then
+        class = spec.imports[domain.bound]
+    elseif spec.environment then
+        class = spec.loader(domain.module)
+    else
+        class = require(domain.module)
+    end
+    for _, member in ipairs(domain.path) do
+        class = class[member]
+    end
+
+    return class
+end
+
+local function admits(owner: any, spec: any, domains: any, value: any): boolean
+    for _, domain in ipairs(domains) do
+        if domain.literal then
+            if value == domain.value then
+                return true
+            end
+        elseif domain.nominal then
+            if domain.kind ~= "record" then
+                return true
+            end
+            local mt: any = type(value) == "table" and getmetatable(value)
+            if type(value) == "table" and type(mt) == "table" then
+                local class = nominal(owner, spec, domain)
+                if type(class) == "table" and mt.__index == class then
+                    return true
+                end
+            end
+        elseif domain.kind == "any" or type(value) == domain.kind then
+            return true
+        end
+    end
+
+    return false
+end
+
+export function create(owner: any, spec: any): any
+    local function construct(_: any, ...: any): any
+        local count = select("#", ...)
+        local chosen = 1
+        if #spec.constructors > 1 then
+            chosen = 0
+            for index, entry in ipairs(spec.constructors) do
+                local accepted = count >= entry.min and count <= entry.max
+                if accepted then
+                    for position, domains in ipairs(entry.params) do
+                        if not admits(owner, spec, domains, (select(position, ...))) then
+                            accepted = false
+                            break
+                        end
+                    end
+                end
+                if accepted then
+                    chosen = index
+                    break
+                end
+            end
+            if chosen == 0 then
+                error("no constructor accepts these arguments", 2)
+            end
+        end
+        local instance: any = setmetatable({}, owner)
+        for index, field in ipairs(spec.fields) do
+            local position: integer = spec.positions[index]
+            local value: any = nil
+            if #spec.constructors == 0 then
+                value = (select(position, ...))
+            end
+            if (#spec.constructors > 0 or count < position) and spec.defaulted[index] then
+                value = copy(spec.defaults[index])
+            end
+            instance[field] = value
+        end
+        if #spec.constructors > 0 then
+            owner["\0new" .. tostring(chosen)](instance, ...)
+        end
+
+        return instance
+    end
+
+    setmetatable(owner, {__call = construct, __metatable = false})
+
+    return owner
+end

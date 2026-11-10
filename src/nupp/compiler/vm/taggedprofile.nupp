@@ -17,6 +17,7 @@ local construction = require("nupp.compiler.vm.construction")
 local taggedstructs = require("nupp.compiler.vm.taggedstructs")
 local exportforwarders = require("nupp.compiler.vm.exportforwarders")
 local derivedmembers = require("nupp.compiler.vm.derivedmembers")
+local recordcallables = require("nupp.compiler.vm.recordcallables")
 export const booleanKind = "tagged"
 local binding = taggedvalues.binding
 local catalog = taggedvalues.catalog
@@ -224,11 +225,25 @@ end
 export function initializeBinding(ctx: any, node: any, key: any, value: integer): integer
     local b = binding(ctx, key)
     need(b.owner == ctx.fn.id and b.storage ~= "erased", "invalid local storage owner")
+    if catalog(ctx).classCells[key] then
+        local cell = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
+        local slot = ctx.emit(node, "K", {pool(ctx, "int64", "1")}, "tagged")
+        ctx.emit(node, "SetIdx", {ctx.readHeld(cell), slot, value}, nil)
+        local answer = ctx.readHeld(cell)
+        ctx.release(cell)
+        return answer
+    end
+
     return b.storage == "cell" and ctx.emit(node, "NewCell", {value}, "tagged") or value
 end
 
 export function readBinding(ctx: any, node: any, key: any, value: integer, expected: string?): integer
     need(expected == nil or expected == "tagged", "lexical read requires tagged value")
+    if catalog(ctx).classCells[key] then
+        local slot = ctx.emit(node, "K", {pool(ctx, "int64", "1")}, "tagged")
+        return ctx.emit(node, "GetIdx", {value, slot}, "tagged")
+    end
+
     return binding(ctx, key).storage == "cell" and ctx.emit(node, "GetCell", {value}, "tagged") or value
 end
 
@@ -241,12 +256,29 @@ export function writeBinding(ctx: any, node: any, key: any, previous: integer, v
         "assignment to immutable declaration"
     )
     if b.storage == "cell" then
-        ctx.emit(node, "SetCell", {previous, value}, nil)
+        if catalog(ctx).classCells[key] then
+            local slot = ctx.emit(node, "K", {pool(ctx, "int64", "1")}, "tagged")
+            ctx.emit(node, "SetIdx", {previous, slot, value}, nil)
+        else
+            ctx.emit(node, "SetCell", {previous, value}, nil)
+        end
         return previous
     end
     need(b.owner == ctx.fn.id, "assignment cannot replace captured value storage")
 
     return value
+end
+
+export function recordBindings(ctx: any, stats: any): nil
+    for _, stat in ipairs(stats) do
+        local node = stat.kind == "exportStmt" and stat.stat or stat
+        if node and recordcallables.record(node) then
+            local key = node.name.definition
+            if catalog(ctx).classCells[key] and not ctx.bound(key) then
+                ctx.bind(key, ctx.emit(node, "NewTable", {}, "tagged"))
+            end
+        end
+    end
 end
 
 export function entryBindings(ctx: any, node: any): nil
@@ -260,6 +292,9 @@ export function entryBindings(ctx: any, node: any): nil
 end
 
 export function recursiveBinding(ctx: any, node: any, key: any): integer?
+    if catalog(ctx).classCells[key] then
+        return ctx.emit(node, "NewTable", {}, "tagged")
+    end
     if binding(ctx, key).storage == "cell" then
         local value = ctx.emit(node, "Nil", {}, "tagged")
         return ctx.emit(node, "NewCell", {value}, "tagged")
@@ -1210,7 +1245,7 @@ export function forVersion(version: integer): any
             end
             -- A derive recipe's members, after the declaration's own, as main
             -- makes them.
-            if not derivedmembers.emit(ctx, stat, held) then
+            if not derivedmembers.emit(ctx, stat, held) or not recordcallables.emit(ctx, stat, held) then
                 ctx.release(held)
                 return nil
             end

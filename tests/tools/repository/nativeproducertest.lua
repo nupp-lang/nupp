@@ -139,8 +139,8 @@ function M.frozenProducerKeepsProgramEditsAndRejectsBuilderChanges()
     assert(
         os.execute(
             (
-                "mkdir -p %s/scripts %s/src/nupp/tools/vm %s/src/nupp/core %s/%s %s/%s"
-            ):format(quote(root), quote(root), quote(root), quote(root), pair, quote(root), producer)
+                "mkdir -p %s/scripts %s/src/nupp/tools/vm %s/src/nupp/core %s/%s %s/%s %s/src/nupp/runtime/provider"
+            ):format(quote(root), quote(root), quote(root), quote(root), pair, quote(root), producer, quote(root))
         ) == 0
     )
     root = require("nupp.compiler.fs").canonical(root)
@@ -151,6 +151,9 @@ function M.frozenProducerKeepsProgramEditsAndRejectsBuilderChanges()
         local projectPath = "src/nupp/tools/vm/project.nupp"
         local projectText = 'local ROOT_EXTRAS = "test.compiler"\n'
         write(projectPath, projectText)
+        local factoryPath = "src/nupp/runtime/provider/corerecord.nupp"
+        local factoryText = "export function create(a: any, b: any): any return a end\n"
+        write(factoryPath, factoryText)
         for _, path in ipairs({
             "nupp.lua",
             "scripts/native-producer-build.lua",
@@ -194,12 +197,14 @@ function M.frozenProducerKeepsProgramEditsAndRejectsBuilderChanges()
         )
         assert(#inputs == 1 and inputs[1].path == "src/nupp/core/builder.nupp")
         carried["nupp.tools.vm.project"] = true
+        carried["nupp.runtime.provider.corerecord"] = true
         inputs = driver.producerInputs(
             root,
             {
                 ["test.builder"] = "src/nupp/core/builder.nupp",
                 ["test.carried"] = "src/carried.nupp",
-                ["nupp.tools.vm.project"] = projectPath
+                ["nupp.tools.vm.project"] = projectPath,
+                ["nupp.runtime.provider.corerecord"] = factoryPath
             },
             carried
         )
@@ -246,6 +251,10 @@ function M.frozenProducerKeepsProgramEditsAndRejectsBuilderChanges()
         assert(not valid(), "changed shipping ROOT_EXTRAS invalidates even a carried project module")
         write(projectPath, projectText)
         assert(valid(), "restoring packaging inputs restores reuse")
+        write(factoryPath, factoryText .. "-- changed source data\n")
+        assert(not valid(), "record factory source data invalidates even its carried implementation")
+        write(factoryPath, factoryText)
+        assert(valid(), "restoring record factory source restores reuse")
 
         write("src/carried.nupp", "return 2\n")
         assert(valid(), "a carried program edit keeps the fixed producer")

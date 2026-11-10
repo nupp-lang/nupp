@@ -50,7 +50,8 @@ export function producerInputs(root: string, modules: {[string]: string}, carrie
         "scripts/toolchain",
         "scripts/toolchain.pins",
         "scripts/sccache-wrapper",
-        "src/nupp/tools/vm/project.nupp"
+        "src/nupp/tools/vm/project.nupp",
+        "src/nupp/runtime/provider/corerecord.nupp"
     }) do
         table.insert(inputs, {path = path, sha256 = assert(digest(root .. "/" .. path))})
     end

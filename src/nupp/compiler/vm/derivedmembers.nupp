@@ -65,6 +65,20 @@ data = function(ctx: any, node: any, value: any): integer
     return made
 end
 
+export const plainData = data
+
+export function appendField(spec: any, field: string, position: integer, default: any): nil
+    local index = #spec.fields + 1
+    spec.fields[index] = field
+    if spec.positions then
+        spec.positions[index] = position
+    end
+    spec.defaulted[index] = default ~= nil
+    if default then
+        spec.defaults[index] = default.value
+    end
+end
+
 -- A forwarding argument as the factory evaluates it: an argument by its
 -- position among the member's parameters, as main maps it.
 local function argument(spec: any, member: any): any
@@ -98,13 +112,8 @@ local function initializerSpec(stat: any): any
             and not (nominal.nestedTypes and nominal.nestedTypes[field])
             and not (nominal.privateFields and nominal.privateFields[field])
         if stored then
-            local index = #spec.fields + 1
-            spec.fields[index] = field
             local default = nominal.fieldDefaults and nominal.fieldDefaults[field] or nil
-            spec.defaulted[index] = default ~= nil
-            if default then
-                spec.defaults[index] = default.value
-            end
+            appendField(spec, field, 0, default)
         end
     end
 

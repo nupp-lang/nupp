@@ -19,6 +19,10 @@ local program = require("nupp.compiler.vm.programgraph")
 local tagged = require("nupp.compiler.vm.taggedprofile")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
 local writer = require("nupp.compiler.vm.coreartifact")
+local lexer = require("nupp.compiler.syntax.lexer")
+local recordcallables = require("nupp.compiler.vm.recordcallables")
+local recordruntime = require("nupp.runtime.provider.corerecord")
+local fs = require("nupp.compiler.fs")
 
 -- The graph profile and executable version the core runs.
 const VERSION = 8
@@ -193,6 +197,76 @@ local function parsed(text: string, path: string, display: string): (any, string
     return tree, nil
 end
 
+-- The one runtime implementation, in a private lexical function of this
+-- chunk. Tokens, rather than lines, keep comments out and strings intact;
+-- the opening stays on one line, preserving the user's source lines.
+local function recordOpening(text: string): (string, string)
+    assert(type(recordruntime.create) == "function", "record factory implementation missing")
+    local env = checkingEnvironment(true)
+    local path = assert(environment.findRuntimeModulePath(env, recordcallables.MODULE), "record factory source missing")
+    local source = assert(fs.readFile(path))
+    local tree = parser.parse(source, path)
+    assert(#tree.errors == 0, "record factory source does not parse")
+    local name, suffix = "__nupp_record_factory", 0
+    local used = {}
+    local userTokens = lexer.lex(text)
+    for _, token in ipairs(userTokens) do
+        used[token.text] = true
+    end
+    while used[name] do
+        suffix = suffix + 1
+        name = "__nupp_record_factory" .. tostring(suffix)
+    end
+    local parts = {"local function " .. name .. "(owner: any, spec: any): any "}
+    for _, primitive in ipairs({
+        "type",
+        "select",
+        "pairs",
+        "ipairs",
+        "getmetatable",
+        "setmetatable",
+        "error",
+        "tostring",
+        "require"
+    }) do
+        parts[#parts + 1] = "local " .. primitive .. " = " .. BUILTINS .. "[" .. string.format("%q", primitive) .. "]"
+    end
+    local tokens = lexer.lex(source)
+    local exported = false
+    for _, block in ipairs(tree.root.blocks) do
+        for _, stat in ipairs(block.stats) do
+            if stat.kind ~= "moduleStmt" then
+                local actual: any = stat.kind == "exportStmt" and stat.stat or stat
+                assert(
+                    actual and (actual.kind == "localFuncStmt" or actual.kind == "funcStmt"),
+                    "record factory source has a non-function statement"
+                )
+                if stat.kind == "exportStmt" then
+                    assert(not exported and actual.name.base.text == "create", "record factory export differs")
+                    exported = true
+                    parts[#parts + 1] = "local"
+                end
+                local first, last = assert(cst.firstToken(actual)), assert(cst.lastToken(actual))
+                for _, token in ipairs(tokens) do
+                    if token.offset >= first.offset and token.offset <= last.offset then
+                        local value = token.text
+                        if value:find("[\r\n]") then
+                            local literal = lexer.literalstring(value, token.kind == "dedentString")
+                            assert(literal ~= nil, "record factory token cannot fit its opening")
+                            value = string.format("%q", literal):gsub("\\\n", "\\n")
+                        end
+                        parts[#parts + 1] = value
+                    end
+                end
+            end
+        end
+    end
+    assert(exported, "record factory export missing")
+    parts[#parts + 1] = "return create(owner, spec) end "
+
+    return table.concat(parts, " "), name
+end
+
 -- What checking a chunk's tree as module `name` finds.
 local function checked(tree: any, path: string, name: string, moduleInstance: boolean?): {any}
     return checker.check(tree, path, checkingEnvironment(moduleInstance), {
@@ -297,11 +371,21 @@ export function describeModule(text: string, display: string, source: string?): 
     -- checkout's src/, as the standard library's are, and its environment
     -- is declared where its first statement starts.
     local name, statement = cst.declaredModule(plain.root)
+    local opening = ENVIRONMENT_OPENING
+    local factoryName: string? = nil
+    local factorySource: string? = nil
+    if recordcallables.contains(plain.root) then
+        local fragment, privateName = recordOpening(text)
+        factorySource, factoryName = fragment, privateName
+        opening = opening .. fragment
+    end
     local wrapped: string? = nil
+    local openingAt: integer? = nil
     local last = statement and cst.lastToken(statement)
     if last ~= nil then
         local at = last.offset + #last.text - 1
-        wrapped = string.sub(text, 1, at) .. " " .. ENVIRONMENT_OPENING .. string.sub(text, at + 1)
+        openingAt = at + 2
+        wrapped = string.sub(text, 1, at) .. " " .. opening .. string.sub(text, at + 1)
     else
         local relative = string.match(path, "^src/(.+)%.nupp$") or string.match(path, "/src/(.+)%.nupp$")
         local first = plain.root.blocks
@@ -311,7 +395,8 @@ export function describeModule(text: string, display: string, source: string?): 
         local token = first and cst.firstToken(first)
         if relative ~= nil and token ~= nil then
             name = (string.gsub(string.gsub(relative as string, "/init$", ""), "/", "."))
-            wrapped = string.sub(text, 1, token.offset - 1) .. ENVIRONMENT_OPENING .. string.sub(text, token.offset)
+            openingAt = token.offset
+            wrapped = string.sub(text, 1, token.offset - 1) .. opening .. string.sub(text, token.offset)
         end
     end
     if name == nil or wrapped == nil then
@@ -320,6 +405,21 @@ export function describeModule(text: string, display: string, source: string?): 
     local tree, wrappedProblem = parsed(wrapped as string, path, display)
     if tree == nil then
         return nil, wrappedProblem
+    end
+    local factory: any = nil
+    if factorySource then
+        local at = (openingAt as integer) + #ENVIRONMENT_OPENING
+        for _, block in ipairs(tree.root.blocks) do
+            for _, stat in ipairs(block.stats) do
+                if stat.kind == "localFuncStmt"
+                    and stat.name.text == factoryName
+                    and (assert(cst.firstToken(stat))).offset == at
+                then
+                    factory = {node = stat, source = factorySource, start = at, finish = at + #factorySource - 1}
+                end
+            end
+        end
+        assert(factory ~= nil, "record factory opening lost its declaration")
     end
     local diagnostics = checked(tree, path, name as string, true)
     for _, diagnostic in ipairs(diagnostics) do
@@ -331,7 +431,7 @@ export function describeModule(text: string, display: string, source: string?): 
     local catalog = program.describe(
         {{name = name, path = path, chunkname = source or "@" .. display, parsed = tree, diagnostics = diagnostics}},
         name,
-        {chunk = true, module = true, environment = ENVIRONMENT, builtins = BUILTINS}
+        {chunk = true, module = true, environment = ENVIRONMENT, builtins = BUILTINS, recordFactory = factory}
     )
 
     return catalog, nil

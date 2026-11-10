@@ -1436,8 +1436,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         local key = stat.name and stat.name.definition
         -- Its methods may name it: then a cell holds it from before
         -- they are made, as a local function's does.
-        local initial = key and invoke("recursiveBinding", stat, key)
-        if initial then
+        local existing = key and ctx.bound(key)
+        local initial = existing and ctx.storage(key) or key and invoke("recursiveBinding", stat, key)
+        if initial and not existing then
             ctx.bind(key, initial)
         end
         local value = key and invoke("recordValue", stat, nil)
@@ -1454,6 +1455,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
     end
 
     statements = function(stats: any): nil
+        if block and profile.recordBindings then
+            invoke("recordBindings", stats, nil)
+        end
         for _, stat in ipairs(stats) do
             local statementDepth = #cleanups
             if cleanupEnabled and not block then

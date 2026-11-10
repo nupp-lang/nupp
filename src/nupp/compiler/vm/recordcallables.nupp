@@ -1,0 +1,486 @@
+module nupp.compiler.vm.recordcallables
+
+local cst = require("nupp.compiler.syntax.cst")
+local constructors = require("nupp.compiler.constructors")
+local ownedcallables = require("nupp.compiler.vm.ownedcallables")
+local values = require("nupp.compiler.vm.taggedvalues")
+local data = require("nupp.compiler.vm.derivedmembers")
+local calls = require("nupp.compiler.vm.graphcalls")
+
+export const MODULE = "nupp.runtime.provider.corerecord"
+local need = values.need
+
+local function sourceOf(p: any, owner: any): any
+    for _, module in ipairs(p.modules) do
+        if p.owners[module.chunk + 1].scope == owner.scope then
+            return module.parsed
+        end
+    end
+    error("record factory source module is missing", 0)
+end
+
+export function record(node: any): boolean
+    return type(node) == "table" and node.kind == "recordDecl" and node.declKind == "record"
+end
+
+export function contains(root: any): boolean
+    if cst.isToken(root) then
+        return false
+    end
+    if record(root) then
+        return true
+    end
+    for _, child in ipairs(root) do
+        if contains(child) then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function domains(node: any): {any}
+    local found = {}
+    if #(node.resolvedType.constructors or {}) > 1 then
+        for _, entry in ipairs(constructors.plan(node.resolvedType)) do
+            for position, params in ipairs(entry.params) do
+                for _, domain in ipairs(params) do
+                    if domain.nominal and domain.nominal.declKind == "record" then
+                        local declaration = node.resolvedType.constructorEntries[entry.index].declaration
+                        found[
+                            #found + 1
+                        ] = {nominal = domain.nominal, type = declaration.body.params[position + 1].type}
+                    end
+                end
+            end
+        end
+    end
+
+    return found
+end
+
+export function modules(node: any): {string}
+    local found = {}
+    for _, domain in ipairs(domains(node)) do
+        local nominal = domain.nominal
+        if nominal.moduleName then
+            found[#found + 1] = nominal.moduleName
+        end
+    end
+
+    return found
+end
+
+-- The runtime path the checked annotation actually names, including an
+-- import of a re-export. The origin's module name alone loses that binding.
+local function boundPath(p: any, owner: any, syntax: any, nominal: any): any
+    local visiting = {}
+    local resolve: function(any): any
+    resolve = function(node: any): any
+        if type(node) ~= "table" or cst.isToken(node) or visiting[node] then
+            return nil
+        end
+        visiting[node] = true
+        if node.kind == "tname" and values.recordOrigin(node.resolvedType) == nominal then
+            local names = {}
+            for _, item in ipairs(node) do
+                if cst.isToken(item) and item.kind == "name" then
+                    names[#names + 1] = item
+                end
+            end
+            if #names > 1 then
+                local root = names[1]
+                local best: any = nil
+                for _, binding in ipairs(p.bindings) do
+                    local definition = binding.definition
+                    if binding.mode ~= "type"
+                        and definition.filename == owner.scope.path
+                        and definition.name == root.text
+                        and definition.token.offset < root.offset
+                        and definition.scopeFrom
+                        and definition.scopeFrom <= root.offset
+                        and root.offset <= definition.scopeTo
+                        and (
+                            best == nil
+                            or definition.scopeFrom > best.scopeFrom
+                            or definition.scopeFrom == best.scopeFrom and definition.token.offset > best.token.offset
+                        )
+                    then
+                        best = definition
+                    end
+                end
+                if best then
+                    local path = {}
+                    for index = 2, #names do
+                        path[#path + 1] = names[index].text
+                    end
+                    return {definition = best, path = path, syntax = node}
+                end
+            elseif node.base and node.base.definition then
+                local alias: any = nil
+
+                local function find(item: any): nil
+                    if cst.isToken(item) then
+                        return
+                    end
+                    if item.kind == "typeAlias" and item.name.definition == node.base.definition then
+                        alias = item
+                    end
+                    for _, child in ipairs(item) do
+                        find(child)
+                    end
+                end
+
+                find(sourceOf(p, owner).root)
+                if alias then
+                    return resolve(alias.value)
+                end
+            end
+        end
+        for _, child in ipairs(node) do
+            local found = resolve(child)
+            if found then
+                return found
+            end
+        end
+
+        return nil
+    end
+
+    return resolve(syntax)
+end
+
+local function target(p: any): any
+    local factory = p.localRecordFactory
+    if not factory then
+        return ownedcallables.checkedFactory(p, MODULE, "create")
+    end
+    need(p.chunk and p.chunkModule and factory.node.kind == "localFuncStmt", "private record factory lacks its module")
+    local found = need(
+        p.functionsByDefinition[factory.node.name.definition],
+        "private record factory lacks its checked owner"
+    )
+    local parent = p.owners[found.parent + 1]
+    local first, last = need(
+        cst.firstToken(factory.node),
+        "private factory has no opening"
+    ), need(cst.lastToken(factory.node), "private factory has no ending")
+    need(
+        found.node == factory.node
+        and parent.kind == "module"
+        and found.scope == parent.scope
+        and sourceOf(p, found).source:sub(factory.start, factory.finish) == factory.source
+        and first.offset == factory.start
+        and last.offset
+        + #last.text
+        - 1 <= factory.finish,
+        "private record factory source changed"
+    )
+    local signature = found.signature
+    need(
+        #signature.params == 2
+        and signature.params[1].tag == "any"
+        and signature.params[2].tag == "any"
+        and #signature.rets == 1
+        and signature.rets[1].tag == "any"
+        and not signature.paramPack.tail
+        and not signature.retPack.tail,
+        "private record factory signature changed"
+    )
+
+    return found
+end
+
+local function tokenAt(definition: any, anchor: any): any
+    return {
+        kind = "name",
+        text = definition.token.text,
+        definition = definition,
+        line = anchor.line,
+        col = anchor.col,
+        offset = anchor.offset,
+        trivia = {}
+    }
+end
+
+export function prepare(p: any, node: any, owner: any, reference: any): any
+    local selected = target(p)
+    local plan: any = {
+        node = node,
+        owner = owner.id,
+        target = selected,
+        call = ownedcallables.factoryCall(selected, cst.firstToken(node)),
+        witnesses = {}
+    }
+    if p.localRecordFactory then
+        plan.factoryToken = tokenAt(selected.definition, cst.firstToken(node))
+        reference(plan.factoryToken, owner)
+    end
+    for _, domain in ipairs(domains(node)) do
+        local nominal = domain.nominal
+        local declaration = need(nominal.deriveDeclaration, "constructor domain lacks its declaration")
+        local definition = need(declaration.name.definition, "constructor domain lacks its definition")
+        local witness: any = {nominal = nominal, declaration = declaration, type = domain.type}
+        local bound = boundPath(p, owner, domain.type, nominal)
+        if nominal == node.resolvedType then
+            witness.self = true
+        elseif bound then
+            witness.bound = bound
+            witness.token = tokenAt(bound.definition, cst.firstToken(node))
+            reference(witness.token, owner)
+        elseif definition.filename == owner.scope.path then
+            need(p.recordDecls[declaration] and not declaration.qualifiers, "unsupported local constructor domain")
+            local anchor = need(cst.firstToken(node), "record constructor domain lacks its position")
+            local token = {
+                kind = "name",
+                text = declaration.name.text,
+                definition = definition,
+                line = anchor.line,
+                col = anchor.col,
+                offset = anchor.offset,
+                trivia = {}
+            }
+            witness.token = token
+            p.classCells[definition] = declaration
+            reference(token, owner)
+        else
+            need(type(nominal.moduleName) == "string", "constructor domain lacks its module")
+            witness.module = nominal.moduleName
+        end
+        plan.witnesses[#plan.witnesses + 1] = witness
+    end
+    if p.chunk then
+        plan.environmentToken = tokenAt(p.chunkEnvironment, cst.firstToken(node))
+        reference(plan.environmentToken, owner)
+    end
+
+    return plan
+end
+
+export function verify(p: any, plan: any): nil
+    local node, call = plan.node, plan.call
+    need(p.recordFactories[node] == plan and record(node), "record factory declaration changed")
+    need(plan.target == target(p), "record factory target changed")
+    need(
+        call.kind == "call"
+        and call.obj.kind == "name"
+        and call.obj.token.text == plan.target.name
+        and call.calleeType == plan.target.signature
+        and call.obj.token.definition == plan.target.definition
+        and call.token == cst.firstToken(node)
+        and call.args.kind == "args"
+        and #call.args.exprs == 2,
+        "record factory call changed"
+    )
+    for index, parameter in ipairs(plan.target.signature.params) do
+        local argument = call.args.exprs[index]
+        need(argument.kind == "nil" and argument.inferredType == parameter, "record factory operand changed")
+    end
+    local site = p.callByNode[call]
+    need(
+        site
+        and p.calls[site.id + 1] == site
+        and site.recordFactory == plan
+        and site.owner == plan.owner
+        and site.definition == plan.target.definition,
+        "record factory site changed"
+    )
+
+    local function referenced(token: any, definition: any): boolean
+        if token == nil or token.definition ~= definition then
+            return false
+        end
+        for _, ref in ipairs(p.references) do
+            if ref.token == token
+                and ref.owner == plan.owner
+                and p.bindings[ref.binding + 1].definition == definition
+            then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    if p.localRecordFactory then
+        need(
+            plan.loader == nil and referenced(plan.factoryToken, plan.target.definition),
+            "private record factory reference changed"
+        )
+    else
+        local loader = plan.loader
+        need(
+            loader
+            and p.requires[loader.id + 1] == loader
+            and p.requireByNode[loader.node] == loader
+            and loader.recordFactory == plan
+            and loader.owner == plan.owner
+            and loader.module == MODULE
+            and loader.target == plan.target.parent
+            and loader.qualified
+            and not loader.eager
+            and not loader.typeOnly
+            and loader.node.kind == "qualifiedLoad"
+            and loader.node.qualifiedModule == MODULE
+            and loader.node[1] == cst.firstToken(node),
+            "record factory loader changed"
+        )
+    end
+    if p.chunk then
+        need(referenced(plan.environmentToken, p.chunkEnvironment), "record factory environment changed")
+    else
+        need(plan.environmentToken == nil, "record factory has a foreign environment")
+    end
+    local current = domains(node)
+    need(#current == #plan.witnesses, "record factory domains changed")
+    for index, domain in ipairs(current) do
+        local nominal = domain.nominal
+        local witness = plan.witnesses[index]
+        local declaration = nominal.deriveDeclaration
+        need(
+            witness.nominal == nominal and witness.declaration == declaration and witness.type == domain.type,
+            "record domain identity changed"
+        )
+        if witness.self then
+            need(nominal == node.resolvedType, "record self domain changed")
+        elseif witness.bound then
+            local currentPath = need(
+                boundPath(p, p.owners[plan.owner + 1], domain.type, nominal),
+                "record import path lost"
+            )
+            need(
+                currentPath.definition == witness.bound.definition
+                and currentPath.syntax == witness.bound.syntax
+                and table.concat(currentPath.path, ".") == table.concat(witness.bound.path, ".")
+                and referenced(witness.token, currentPath.definition),
+                "record import binding changed"
+            )
+        elseif witness.token then
+            local definition = declaration.name.definition
+            need(
+                p.classCells[definition] == declaration
+                and p.recordDecls[declaration]
+                and witness.token.definition == definition
+                and definition.filename == p.owners[plan.owner + 1].scope.path,
+                "record domain cell changed"
+            )
+            local found = false
+            for _, ref in ipairs(p.references) do
+                found = found
+                    or ref.token == witness.token
+                    and ref.owner == plan.owner
+                    and p.bindings[ref.binding + 1].definition == definition
+            end
+            need(found, "record domain cell lacks its capture reference")
+        else
+            need(witness.module == nominal.moduleName, "record domain module changed")
+        end
+    end
+end
+
+local function spec(plan: any): any
+    local node = plan.node
+    local nominal = node.resolvedType
+    local made: any = {fields = {}, positions = {}, defaulted = {}, defaults = {}, constructors = {}}
+    for position, field in ipairs(nominal.fieldOrder or {}) do
+        local declared = nominal.byname and nominal.byname[field]
+        if not (declared and (declared.tag == "func" or declared.tag == "typeobject")) then
+            local default = nominal.fieldDefaults and nominal.fieldDefaults[field]
+            data.appendField(made, field, position, default)
+        end
+    end
+    local at = 0
+    for index, entry in ipairs(constructors.plan(nominal)) do
+        local params = {}
+        for position, list in ipairs(entry.params) do
+            local choices = {}
+            for _, domain in ipairs(list) do
+                local row: any = {kind = domain.kind, literal = domain.literal, value = domain.value}
+                if domain.nominal then
+                    row.nominal, row.kind = true, domain.nominal.declKind
+                    if domain.nominal.declKind == "record" and #(nominal.constructors or {}) > 1 then
+                        at = at + 1
+                        local witness = plan.witnesses[at]
+                        row.self = witness.self
+                        if witness.bound then
+                            row.bound, row.path = at, witness.bound.path
+                        elseif witness.token then
+                            row.cell = at
+                        end
+                        if witness.module then
+                            row.module, row.path = witness.module, {}
+                            for member in (
+                                domain.nominal.runtimePath or witness.declaration.name.text
+                            ):gmatch("[%w_]+") do
+                                row.path[#row.path + 1] = member
+                            end
+                        end
+                    end
+                elseif row.kind == "cdata" then
+                    row.kind = "number"
+                end
+                choices[#choices + 1] = row
+            end
+            params[position] = choices
+        end
+        made.constructors[index] = {min = entry.min, max = entry.max, params = params}
+    end
+
+    return made
+end
+
+export function emit(ctx: any, node: any, owner: any): boolean
+    local p = values.catalog(ctx)
+    if not record(node) then
+        return true
+    end
+    local plan = need(p.recordFactories[node], "record emission requires its checked callable factory")
+    verify(p, plan)
+    local held = ctx.hold(data.plainData(ctx, node, spec(plan)))
+    local cells = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
+    local imports = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
+    for index, witness in ipairs(plan.witnesses) do
+        if witness.bound then
+            local key = ctx.emit(node, "K", {values.pool(ctx, "int64", tostring(index))}, "tagged")
+            local imported = need(ctx.readname(node, witness.token.definition), "record import is not initialized")
+            ctx.emit(node, "SetIdx", {ctx.readHeld(imports), key, imported}, nil)
+        elseif witness.token then
+            local key = ctx.emit(node, "K", {values.pool(ctx, "int64", tostring(index))}, "tagged")
+            ctx.emit(node, "SetIdx", {ctx.readHeld(cells), key, ctx.storage(witness.token.definition)}, nil)
+        end
+    end
+    local key = ctx.emit(node, "K", {values.pool(ctx, "str", "cells")}, "tagged")
+    ctx.emit(node, "SetIdx", {ctx.readHeld(held), key, ctx.readHeld(cells)}, nil)
+    ctx.release(cells)
+    key = ctx.emit(node, "K", {values.pool(ctx, "str", "imports")}, "tagged")
+    ctx.emit(node, "SetIdx", {ctx.readHeld(held), key, ctx.readHeld(imports)}, nil)
+    ctx.release(imports)
+    if plan.environmentToken then
+        local env = ctx.readname(node, plan.environmentToken.definition)
+        key = ctx.emit(node, "K", {values.pool(ctx, "str", "require")}, "tagged")
+        local loader = ctx.emit(node, "GetIdx", {env, key}, "tagged")
+        key = ctx.emit(node, "K", {values.pool(ctx, "str", "loader")}, "tagged")
+        ctx.emit(node, "SetIdx", {ctx.readHeld(held), key, loader}, nil)
+        key = ctx.emit(node, "K", {values.pool(ctx, "str", "environment")}, "tagged")
+        local yes = ctx.emit(node, "K", {values.pool(ctx, "true", "")}, "tagged")
+        ctx.emit(node, "SetIdx", {ctx.readHeld(held), key, yes}, nil)
+    end
+    local callee: integer
+    if plan.factoryToken then
+        callee = need(ctx.readname(node, plan.factoryToken.definition), "private record factory is not initialized")
+    else
+        local module = ctx.emit(node, "Require", {values.pool(ctx, "str", MODULE)}, "tagged")
+        key = ctx.emit(node, "K", {values.pool(ctx, "str", "create")}, "tagged")
+        callee = ctx.emit(node, "GetIdx", {module, key}, "tagged")
+    end
+    local answer = ctx.invoke(
+        node,
+        callee,
+        {ctx.readHeld(owner), ctx.readHeld(held)},
+        calls.invokeContract(plan.target, plan.call),
+        true
+    )
+    ctx.release(held)
+
+    return answer ~= nil and ctx.block ~= nil
+end

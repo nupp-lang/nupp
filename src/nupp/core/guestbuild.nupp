@@ -13,6 +13,7 @@ local checker: any = require("nupp.compiler.check")
 local environment: any = require("nupp.compiler.project.env")
 local cst = require("nupp.compiler.syntax.cst")
 local programgraph = require("nupp.compiler.vm.programgraph")
+local recordcallables = require("nupp.compiler.vm.recordcallables")
 local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local ownedcallables = require("nupp.compiler.vm.ownedcallables")
 local forwardedexports = require("nupp.compiler.vm.forwardedexports")
@@ -216,6 +217,12 @@ local CASES: {[string]: {
     recordsaffineraise = {fixture = "catalog-records-affine-raise", version = 8},
     recordsdynamic = {fixture = "catalog-records-dynamic", version = 8},
     recordscallable = {fixture = "catalog-records-callable", version = 8, modules = {"catalog-modules-boxes"}},
+    recordruntime = {
+        fixture = "catalog-record-runtime",
+        version = 8,
+        modules = {"catalog-modules-boxes"},
+        instances = {"catalog-modules-boxes", "catalog-record-instance"}
+    },
     tablesSort = {fixture = "catalog-tables-sort", version = 8},
     stringsGsubFunction = {fixture = "catalog-strings-gsubfn", version = 8},
     stringsQuoted = {fixture = "catalog-strings-quoted", version = 8},
@@ -812,6 +819,12 @@ local function requiredmodules(root: any, source: string, follow: boolean): ({st
         end
         if ownedcallables.taking(node) then
             add(ownedcallables.MODULE, false)
+        end
+        if recordcallables.record(node) then
+            add(recordcallables.MODULE, false)
+            for _, name in ipairs(recordcallables.modules(node)) do
+                add(name, false)
+            end
         end
         -- A record a derive recipe gives members loads the factory, and
         -- each helper its members call.

@@ -1,0 +1,157 @@
+module nupp.core.catalogrecordruntime
+
+const luaload = require("nupp.runtime.luaload")
+local score: integer = 0
+
+local function invoke(make: any, ...: any): any
+    return make(...)
+end
+
+local record Fields
+    value: integer
+    label: string? = "default"
+    enabled: boolean? = false
+    items: {integer} = {}
+end
+
+local a: any = invoke(Fields, 1)
+local b: any = invoke(Fields, 2, nil, nil)
+a.items[1] = 7
+if a.label == "default" and a.enabled == false and b.label == nil and b.enabled == nil and b.items[1] == nil then
+    score = score + 1
+end
+if not pcall(setmetatable, Fields, {}) then
+    score = score + 2
+end
+
+local record Single
+    count: integer
+    first: any
+    constructor(self, first: integer, ...: any)
+        self.first = first
+        self.count = select("#", ...)
+    end
+end
+local single: any = invoke(Single, false, nil, "extra")
+if single.first == false and single.count == 2 and invoke(Single).first == nil then
+    score = score + 4
+end
+
+local record Forward
+    answer: integer
+    constructor(self, value: Later)
+        self.answer = 3
+    end
+    constructor(self, value: string)
+        self.answer = 4
+    end
+end
+local missing = pcall(invoke, Forward, setmetatable({}, {}))
+local record Later
+end
+if not missing
+    and invoke(Forward, invoke(Later)).answer == 3
+    and invoke(Forward, "text").answer == 4
+    and not pcall(invoke, Forward, {})
+then
+    score = score + 8
+end
+
+local function activation(): any
+    local record A
+    end
+    local record Pick
+        answer: integer
+        constructor(self, value: A)
+            self.answer = 1
+        end
+        constructor(self, value: string)
+            self.answer = 2
+        end
+    end
+
+    return {A = A, Pick = Pick}
+end
+
+local first, second = activation(), activation()
+if first.Pick(first.A()).answer == 1
+    and second.Pick(second.A()).answer == 1
+    and not pcall(first.Pick, second.A())
+    and not pcall(second.Pick, first.A())
+then
+    score = score + 16
+end
+
+local loops: {any} = {}
+for index = 1, 2 do
+    local record Iteration
+    end
+    local record LoopPick
+        iteration: integer
+        constructor(self, value: Iteration)
+            self.iteration = 1
+        end
+        constructor(self, value: string)
+            self.iteration = 2
+        end
+    end
+    loops[index] = {A = Iteration, Pick = LoopPick}
+end
+if loops[1].Pick(loops[1].A()).iteration == 1
+    and loops[2].Pick(loops[2].A()).iteration == 1
+    and not pcall(loops[1].Pick, loops[2].A())
+then
+    score = score + 32
+end
+
+local temp = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/"
+local boxPath = temp .. "catalog-modules-boxes.chunk"
+local pickPath = temp .. "catalog-record-instance.chunk"
+local calls: integer = 0
+
+local function poison(...: any): any
+    error("helper used a shadowed primitive")
+end
+
+local function environment(): any
+    return {
+        type = poison,
+        pairs = poison,
+        ipairs = poison,
+        select = poison,
+        error = poison,
+        tostring = poison,
+        getmetatable = poison,
+        setmetatable = poison,
+        _G = false
+    }
+end
+
+local function fresh(name: string): any
+    if name ~= "nupp.core.catalogmodulesboxes" then
+        error("unexpected module " .. name)
+    end
+    calls = calls + 1
+
+    return luaload.instance(boxPath, environment())
+end
+
+local env = environment()
+env.require = fresh
+local left: any = luaload.instance(pickPath, env)
+local right: any = luaload.instance(pickPath, env)
+if calls == 2
+    and left.Pick(left.Bound(2, 3)).answer == 7
+    and right.Pick(right.Bound(4, 5)).answer == 7
+    and calls == 2
+then
+    score = score + 64
+end
+if not pcall(left.Pick, right.Bound(1, 2)) and not pcall(right.Pick, left.Bound(1, 2)) and calls == 2 then
+    score = score + 128
+end
+if left.Pick("other").answer == 9 and not pcall(left.Pick, {}) and calls == 2 then
+    score = score + 256
+end
+
+export const result = score

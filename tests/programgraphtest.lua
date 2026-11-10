@@ -8,6 +8,7 @@ local graph = require("nupp.compiler.vm.graph")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local tagged = require("nupp.compiler.vm.taggedprofile")
 local json = require("serde.json")
+local recordfactory = require("helpers.recordfactory")
 local M = {}
 
 local function checked(source, name, preparedEnvironment, path)
@@ -34,6 +35,10 @@ end
 
 local function describe(source)
     return program.describe({checked(source)}, "programgraph_fixture")
+end
+
+local function describeRuntime(source)
+    return recordfactory.describe({checked(source)}, "programgraph_fixture")
 end
 
 local function owner(p, name)
@@ -1016,7 +1021,7 @@ function M.namedArgumentsDescribeTwice()
         .. "return draw({x, y} = v, scale = 3)"
     )
     for _ = 1, 2 do
-        assert(program.compile(program.describe({input}, input.name), tagged.forVersion(8)))
+        assert(program.compile(recordfactory.describe({input}, input.name), tagged.forVersion(8)))
     end
 end
 
@@ -1029,6 +1034,7 @@ function M.forwardFunctionStatementAssignsItsLocalAfterARecheck()
         .. "function odd(n: integer): boolean return n % 2 == 1 end\n"
         .. "return odd(3)"
     )
+
     local function statementName(node)
         if type(node) ~= "table" then
             return nil
@@ -1042,6 +1048,7 @@ function M.forwardFunctionStatementAssignsItsLocalAfterARecheck()
             end
         end
     end
+
     local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
     for round = 1, 2 do
         if round == 2 then
@@ -1230,7 +1237,7 @@ return f
 end
 
 function M.qualifiedRecordMethodsCaptureTheirInitializedClass()
-    local p = describe(
+    local p = describeRuntime(
         [[
 local box = {}
 record box.R
@@ -1254,7 +1261,7 @@ return box.R(4):copy().value
 end
 
 function M.borrowedRecordUnionsKeepTheirSharedFieldSlots()
-    local p = describe(
+    local p = describeRuntime(
         [[
 local record Reader
     closed: boolean
@@ -1734,7 +1741,7 @@ function M.completeGuestGraphsBindParametersAndRefuseNativeProfiles()
 end
 
 function M.taggedRecordTestsCaptureTheirCheckedDeclaration()
-    local p = describe(
+    local p = describeRuntime(
         [[
 local record First value: integer end
 local record Second value: integer end
@@ -1775,7 +1782,7 @@ return matches
         "nominalconsumer",
         env
     )
-    local p = program.describe({consumer, dependency}, "nominalconsumer")
+    local p = recordfactory.describe({consumer, dependency}, "nominalconsumer")
     local node, site = next(p.recordTests)
     assert(node and site.token == nil)
     test.eq(site.expression.qualifiedModule, "nominaltypes")
@@ -1956,7 +1963,7 @@ function M.checkedBuiltinAliasesRetainTheirSourceAndMappedTarget()
 end
 
 function M.guestTailCallsRetainReturnSyntaxAndCleanupBoundaries()
-    local p = describe(
+    local p = describeRuntime(
         [[
 local function leaf(level: integer): nil error("tail", level) end
 local function plain(level: integer): nil return leaf(level) end
@@ -2180,17 +2187,17 @@ return Child()
         "defaultconsumer",
         env
     )
-    local p = program.describe({consumer, dependency}, "defaultconsumer")
+    local p = recordfactory.describe({consumer, dependency}, "defaultconsumer")
     local compiled = program.compile(p, tagged.forVersion(8))
     local contracts = require("nupp.compiler.vm.coregraphcontracts")
     local issued = {}
     for _, site in ipairs(p.requires) do
-        if site.qualified then
+        if site.qualified and site.module == "defaultsource" then
             issued[#issued + 1] = site
         end
     end
     test.eq(#issued, 2)
-    test.eq(#operations(compiled.graphs[1], "Require"), 2)
+    test.eq(#operations(compiled.graphs[1], "Require"), 3)
     assert(require("nupp.compiler.syntax.cst").firstToken(issued[1].node))
     assert(issued[1].node ~= issued[2].node)
     assert(contracts.normalize(compiled, 8))

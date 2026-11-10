@@ -344,6 +344,7 @@ local CASES = {
     -- Instances of a Nupp module compiled as a chunk: fresh state, requires
     -- through the instance's environment, core call modules swapped.
     {"moduleinstances", 0x7FFF0000000001FF},
+    {"recordruntime", 0x7FFF0000000001FF},
     -- A module instance's record taking a default from an interface in a
     -- module its chunk does not carry, through the instance's require.
     {"instancedefaults", 0x7FFF000000000003},
@@ -575,6 +576,7 @@ local STRESS = {
     loadsource = true,
     debuggetinfo = true,
     moduleinstances = true,
+    recordruntime = true,
     instancedefaults = true
 }
 -- Shell statements a case's runs start with: the io and pool cases may hold
@@ -773,6 +775,7 @@ local NUMERIC = {
     recordsaffineraise = "catalog-records-affine-raise",
     recordsdynamic = "catalog-records-dynamic",
     recordscallable = "catalog-records-callable",
+    recordruntime = "catalog-record-runtime",
     tablesSort = "catalog-tables-sort",
     stringsGsubFunction = "catalog-strings-gsubfn",
     stringsQuoted = "catalog-strings-quoted",

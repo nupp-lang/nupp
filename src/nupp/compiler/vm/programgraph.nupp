@@ -17,6 +17,7 @@ local ownedcallables = require("nupp.compiler.vm.ownedcallables")
 local forwardedexports = require("nupp.compiler.vm.forwardedexports")
 local derivedrecipes = require("nupp.compiler.vm.derivedrecipes")
 local managedcalls = require("nupp.compiler.vm.managedcalls")
+local recordcallables = require("nupp.compiler.vm.recordcallables")
 local indexedaccess = require("nupp.compiler.vm.indexedaccess")
 local namedarguments = require("nupp.compiler.vm.namedarguments")
 local aliasdowncast = require("nupp.compiler.vm.aliasdowncast")
@@ -246,7 +247,7 @@ end
 local function storagePlan(p: any): any
     local storage = {}
     for _, b in ipairs(p.bindings) do
-        storage[b.definition] = b.mode == "type" and "erased" or "value"
+        storage[b.definition] = p.classCells[b.definition] and "cell" or b.mode == "type" and "erased" or "value"
     end
     for _, owner in ipairs(p.owners) do
         for _, item in ipairs(owner.captures) do
@@ -536,6 +537,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         -- the one the library functions as the program started are in.
         environment = options ~= nil and options.environment or nil,
         builtins = options ~= nil and options.builtins or nil,
+        localRecordFactory = options ~= nil and options.recordFactory or nil,
         -- In a chunk, the library calls through a global, each to what its
         -- guard reads: the call is the core's own while the environment
         -- still holds the function the program started with.
@@ -554,6 +556,8 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         requireByNode = {},
         scalartypes = {imports = {}, definitions = {}, witnesses = {}},
         callables = {},
+        recordFactories = {},
+        classCells = {},
         -- Executable references the checker resolved to no declaration.
         unresolved = {},
         -- By module chunk id, the forwarders a module in a require cycle
@@ -1562,6 +1566,24 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             plan.loader = qualifiedload(owner, module, load)
             plan.loader.managed = plan
         end
+        if recordcallables.record(node) and (moduleNames[recordcallables.MODULE] or p.localRecordFactory) then
+            local plan = recordcallables.prepare(p, node, owner, reference)
+            p.recordFactories[node] = plan
+            local site = {
+                id = #p.calls,
+                owner = owner.id,
+                node = plan.call,
+                definition = plan.target.definition,
+                recordFactory = plan
+            }
+            p.calls[#p.calls + 1], p.callByNode[plan.call] = site, site
+            if not p.localRecordFactory then
+                local load = {kind = "qualifiedLoad", qualifiedModule = recordcallables.MODULE, cst.firstToken(node)}
+                local module = need(moduleNames[recordcallables.MODULE], "record factory module is missing")
+                plan.loader = qualifiedload(owner, module, load)
+                plan.loader.recordFactory = plan
+            end
+        end
         if derivedrecipes.derived(node) then
             local plan = derivedrecipes.prepare(p, node, owner)
             p.derives[node] = plan
@@ -2097,6 +2119,9 @@ export function verify(p: any): boolean
             if item.managed then
                 managedcalls.verify(p, item.managed)
             end
+            if item.recordFactory then
+                recordcallables.verify(p, item.recordFactory)
+            end
             -- A chunk's absent module initializes in the running program.
             if item.builtin and not item.absent then
                 local current = builtinprojection(node)
@@ -2411,6 +2436,8 @@ export function verify(p: any): boolean
             derivedrecipes.verify(p, item.derived)
         elseif item.managed then
             managedcalls.verify(p, item.managed)
+        elseif item.recordFactory then
+            recordcallables.verify(p, item.recordFactory)
         elseif item.scalarWitness then
 
             local witness = item.scalarWitness
@@ -2505,6 +2532,30 @@ export function verify(p: any): boolean
     end
     for _, plan in pairs(p.manages) do
         managedcalls.verify(p, plan)
+    end
+    for _, plan in pairs(p.recordFactories) do
+        recordcallables.verify(p, plan)
+    end
+    for declaration in pairs(p.recordDecls) do
+        if recordcallables.record(declaration) and (modules[recordcallables.MODULE] or p.localRecordFactory) then
+            need(p.recordFactories[declaration], "record declaration lacks its callable factory")
+        end
+    end
+    for definition, declaration in pairs(p.classCells) do
+        need(
+            recordcallables.record(declaration)
+            and p.recordDecls[declaration]
+            and declaration.name.definition == definition
+            and p.byDefinition[definition],
+            "record class cell lacks its checked declaration"
+        )
+        local found = false
+        for _, plan in pairs(p.recordFactories) do
+            for _, witness in ipairs(plan.witnesses) do
+                found = found or witness.token ~= nil and witness.token.definition == definition
+            end
+        end
+        need(found, "record class cell lacks its constructor domain")
     end
     for node, access in pairs(p.indexedByNode) do
         local site = need(p.callByNode[access.call], "indexed span lacks its issued callsite")

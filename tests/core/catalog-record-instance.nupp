@@ -1,0 +1,16 @@
+module nupp.core.catalogrecordinstance
+
+const facade = require("nupp.core.catalogmodulesboxes")
+local type Alias = facade.Box
+
+export record Pick
+    answer: integer
+    constructor(self, value: Alias)
+        self.answer = 7
+    end
+    constructor(self, value: string)
+        self.answer = 9
+    end
+end
+
+export const Bound = facade.Box
