@@ -640,6 +640,7 @@ assert runtime_state()['fingerprint'] == base_runtime
 reuse(True)
 core.write_text(fixtures['src/nupp/runtime/core/receipt.json'])
 addition = root / 'src/nupp/core/new-input.nupp'
+addition.parent.mkdir(parents=True, exist_ok=True)
 addition.write_text('untracked independent core source')
 assert state()['fingerprint'] != base_cli
 assert runtime_state()['fingerprint'] == base_runtime
