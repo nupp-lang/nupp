@@ -43,6 +43,16 @@ check(hashes[#hashes] == "ea5685e94f1438edcce8c1861e0cfb3e307c89d61a9492992aa675
 check(corehash.digest(table.concat(digests)) == "77750a501835c1cf101aa1b4fbdbff46")
 check(sha256.sha256(table.concat(hashes)) == "1ac3d821cf8c635560318448a874c2162d77bc9b008df8700f353463e8bcf65d")
 
+-- Every byte value four times over, then three bytes with the high bit
+-- set and clear: no byte is read as signed.
+local everyByte: {string} = {}
+for value = 0, 255 do
+    everyByte[#everyByte + 1] = string.char(value)
+end
+local bytes = string.rep(table.concat(everyByte), 4) .. "\255\128\0"
+check(corehash.digest(bytes) == "4c5f8e577936737b31bd208d303d37c4")
+check(sha256.sha256(bytes) == "fb9332b9b5708b1850d0ab747139e851161c3f4bb5df519143c9131de9d0cd7b")
+
 -- The compiler's digest resolves to the core's.
 check(hash.digest(BASE) == corehash.digest(BASE))
 
