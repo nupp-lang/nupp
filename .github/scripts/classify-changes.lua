@@ -69,6 +69,9 @@ local rules = {
     {"^src/io/gpu/", {"library", "gpu"}},
     {"^src/events%.nupp$", {"library"}},
     {"^src/nupp/runtime/", {"library", "browser", "native"}},
+    -- The native core's build tooling: it builds the guest programs and
+    -- runtime units the core runs, so it reaches what core runtime code does.
+    {"^src/nupp/core/", {"native"}},
     {"^src/nupp/io/", {"library", "native"}},
     -- The host facility's browser and native providers both implement it.
     {"^src/os/host%.nupp$", {"library", "browser", "native"}},
