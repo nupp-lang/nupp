@@ -229,6 +229,16 @@ export function prepare(base: voidptr, bytes: uint64): uint64
     return native.address(services)
 end
 
+-- The standalone guest owns grown ledger metadata until its payload closes.
+export function prepareOwned(base: voidptr, bytes: uint64): uint64
+    local services = prepare(base, bytes)
+    if services == 0ULL or pages.enableGrowth(base, LEDGER) ~= 1ULL then
+        return 0ULL
+    end
+
+    return services
+end
+
 -- Maps `bytes` for the entry, its address noted in `field` and its mapped
 -- bytes in the field after it for close to unmap; 0 when refused.
 local function mapEntry(services: voidptr, field: int64, bytes: uint64): uint64

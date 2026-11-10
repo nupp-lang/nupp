@@ -93,6 +93,36 @@ end
 -- and cases of {function, arguments, expected result}.
 local UNITS = {
     {
+        name = "mappingunits",
+        modules = {"mappingunits", "mappingentry", "unitentry"},
+        observeLanding = true,
+        observerEntry = "nupp.core.mappingentry",
+        entries = {
+            {"mappingunits", "controls", 1},
+            {"mappingunits", "growth", 2},
+            {"mappingunits", "arrayGrowth", 1},
+            {"mappingunits", "terminalGuard", 1}
+        },
+        cases = function()
+            return {
+                {"controls", {0}, 0},
+                {"growth", {0, 257}, 0},
+                {"growth", {0, 1025}, 0},
+                {"growth", {0, 4096}, 0},
+                {"arrayGrowth", {0}, 0},
+                {"terminalGuard", {0}, 0}
+            }
+        end
+    },
+    {
+        name = "mappingfaultunits",
+        modules = {"mappingunits", "ticketunits", "unitentry"},
+        entries = {{"mappingunits", "mapfailure", 0}, {"ticketunits", "terminal", 1}},
+        cases = function()
+            return {}
+        end
+    },
+    {
         name = "acquisitionunits",
         modules = {"acquisitionunits", "acquisitionentry", "unitentry"},
         observeLanding = true,

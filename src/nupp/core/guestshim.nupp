@@ -159,7 +159,7 @@ export function build(source: any, selected: {[string]: any}, capacity: integer?
         startIndex
     ], rootNames[completeIndex] = "nupp.runtime.core.guestentry.start", "nupp.runtime.core.guestentry.complete"
     local servicesIndex = #rootNames + 1
-    for _, name in ipairs({"prepare", "open", "close", "finish"}) do
+    for _, name in ipairs({"prepareOwned", "open", "close", "finish"}) do
         rootNames[#rootNames + 1] = "nupp.runtime.core.guestscope." .. name
     end
     -- Recovery crosses coroutines (threads), and an error it leaves

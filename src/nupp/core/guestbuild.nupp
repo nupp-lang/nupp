@@ -591,7 +591,7 @@ local function runtime(mode: string, cacheDirectory: string?, audited: boolean):
     end
     roots[#roots + 1] = {"nupp.runtime.core.guestentry", "start"}
     roots[#roots + 1] = {"nupp.runtime.core.guestentry", "complete"}
-    for _, name in ipairs({"prepare", "open", "close", "finish"}) do
+    for _, name in ipairs({"prepareOwned", "open", "close", "finish"}) do
         roots[#roots + 1] = {"nupp.runtime.core.guestscope", name}
     end
     roots[#roots + 1] = {"nupp.runtime.core.guestuncaught", "recover"}

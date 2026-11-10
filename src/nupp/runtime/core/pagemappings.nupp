@@ -17,6 +17,11 @@ export struct Scope
     cleanupFailed: uint64
 end
 
+local struct Growth
+    maximum: uint64
+    ownedRecords: uint64
+end
+
 export struct Mapping
     base: uint64
     bytes: uint64
@@ -24,9 +29,9 @@ export struct Mapping
     state: uint64
 end
 
--- The one bootstrap mapping contains all retained entry metadata and helpers.
--- It is outside its own heap ledger and is released last, after that ledger
--- closes successfully. This is not permission for general unjournaled maps.
+-- Bootstrap and grown record metadata own their mappings independently of
+-- the payload ledger. Their checked owners release them after that ledger
+-- closes successfully; payload mappings still require journal records.
 export struct EntryBacking
     base: uint64
     bytes: uint64
@@ -70,6 +75,8 @@ const WORD_MASK: uint64 = 7ULL
 const LIMIT: uint64 = 281474976710656ULL
 const MAXIMUM: uint64 = 0xffffffffffffffffULL
 const MAX_RECORDS: uint64 = 4096ULL
+const ACTIVE: uint64 = 1ULL
+const OWNED_ACTIVE: uint64 = 4ULL
 
 local function extent(base: uint64, bytes: uint64): boolean
     return base ~= 0ULL and bytes ~= 0ULL and bytes <= MAXIMUM - base
@@ -225,6 +232,22 @@ export function releaseshared(statusScope: voidptr, block: voidptr): uint64
     return 1ULL
 end
 
+local function publishRecords(scope: voidptr, records: uint64, capacity: uint64): nil
+    native.store64(scope, native.fieldOffset<Scope>("records"), records)
+    native.store64(scope, native.fieldOffset<Scope>("capacity"), capacity)
+end
+
+local function activate(scope: voidptr, phase: uint64): uint64
+    native.store64(scope, native.fieldOffset<Scope>("phase"), phase)
+    return 1ULL
+end
+
+local function failedClose(scope: voidptr): uint64
+    native.store64(scope, native.fieldOffset<Scope>("cleanupFailed"), 1ULL)
+    native.store64(scope, native.fieldOffset<Scope>("phase"), 3ULL)
+    return 0ULL
+end
+
 -- All pointer parameters are borrowed mapped extents, not integer-address
 -- authentication. Caller retains exclusive access through the entire scope.
 export function initialize(
@@ -261,15 +284,13 @@ export function initialize(
         native.store64(records, native.index(at), 0ULL)
         at = at + 8ULL
     end
-    native.store64(scope, native.fieldOffset<Scope>("records"), rb)
-    native.store64(scope, native.fieldOffset<Scope>("capacity"), capacity)
-    native.store64(scope, native.fieldOffset<Scope>("phase"), 1ULL)
+    publishRecords(scope, rb, capacity)
 
-    return 1ULL
+    return activate(scope, ACTIVE)
 end
 
--- Only the authenticated mechanical entry may expose these two wrappers.
--- Failure leaves a self-contained mapping; no bridge-scratch pointer is stored.
+-- The mechanical entry and the ledger's owned record chain use these exact
+-- wrappers. Failure leaves a self-contained mapping without scratch pointers.
 export function acquireEntry(bytes: uint64): voidptr?
     if bytes < native.sizeOf<EntryBacking>() or bytes > 67108864ULL then
         return nil
@@ -316,8 +337,13 @@ export function releaseEntry(statusScope: voidptr, base: voidptr, bytes: uint64)
     return 1ULL
 end
 
+local function growth(scope: voidptr): Growth*
+    return @unsafe native.offset(scope, native.index(native.sizeOf<Scope>())) as Growth*
+end
+
 local function valid(scope: voidptr): boolean
-    if native.load64(scope, native.fieldOffset<Scope>("phase")) ~= 1ULL then
+    local phase = native.load64(scope, native.fieldOffset<Scope>("phase"))
+    if phase ~= ACTIVE and phase ~= OWNED_ACTIVE then
         return false
     end
     local base = native.load64(scope, native.fieldOffset<Scope>("records"))
@@ -330,8 +356,79 @@ local function valid(scope: voidptr): boolean
         and native.load64(scope, native.fieldOffset<Scope>("live")) <= count
 end
 
+-- Opt in before the first payload mapping. Ordinary initialize remains fixed.
+export function enableGrowth(scope: voidptr, scopeBytes: uint64): uint64
+    local bytes = native.sizeOf<Scope>() + native.sizeOf<Growth>()
+    if scopeBytes < bytes
+        or not extent(native.address(scope), scopeBytes)
+        or (native.address(scope) & WORD_MASK) ~= 0ULL
+    then
+        return 0ULL
+    end
+    if not valid(scope)
+        or overlap(
+            native.address(scope),
+            bytes,
+            native.load64(scope, native.fieldOffset<Scope>("records")),
+            native.load64(scope, native.fieldOffset<Scope>("capacity")) * native.sizeOf<Mapping>()
+        )
+        or native.load64(scope, native.fieldOffset<Scope>("phase")) ~= ACTIVE
+        or native.load64(scope, native.fieldOffset<Scope>("issued")) ~= 0ULL
+        or native.load64(scope, native.fieldOffset<Scope>("live")) ~= 0ULL
+    then
+        return 0ULL
+    end
+    @unsafe do
+        local extra = growth(scope)
+        if extra.maximum ~= 0ULL or extra.ownedRecords ~= 0ULL then
+            return 0ULL
+        end
+        extra.maximum = MAX_RECORDS
+    end
+
+    return activate(scope, OWNED_ACTIVE)
+end
+
 local function entry(scope: voidptr, index: uint64): voidptr
     return native.pointer(native.load64(scope, native.fieldOffset<Scope>("records")) + index * native.sizeOf<Mapping>())
+end
+
+local function grow(scope: voidptr): uint64
+    if native.load64(scope, native.fieldOffset<Scope>("phase")) ~= OWNED_ACTIVE then
+        return 0ULL
+    end
+    local before = native.load64(scope, native.fieldOffset<Scope>("capacity"))
+    @unsafe local maximum = growth(scope).maximum
+    if maximum ~= MAX_RECORDS or before >= maximum then
+        return 0ULL
+    end
+    local capacity = before * 2ULL
+    if capacity > maximum then
+        capacity = maximum
+    end
+    -- The immutable backing prefix is followed by the previous owned block,
+    -- then the records. Prior blocks stay owned until payload close succeeds.
+    local offset = native.sizeOf<EntryBacking>() + 8ULL
+    local block = acquireEntry(offset + capacity * native.sizeOf<Mapping>())
+    if block == nil then
+        return 0ULL
+    end
+    local records = native.address(block) + offset
+    local old = native.loadPointer(scope, native.fieldOffset<Scope>("records"))
+    local at: uint64 = 0ULL
+    while at < capacity * native.sizeOf<Mapping>() do
+        local word: uint64 = 0ULL
+        if at < before * native.sizeOf<Mapping>() then
+            word = native.load64(old, native.index(at))
+        end
+        native.store64(native.pointer(records), native.index(at), word)
+        at = at + 8ULL
+    end
+    native.store64(block, native.index(native.sizeOf<EntryBacking>()), @unsafe growth(scope).ownedRecords)
+    publishRecords(scope, records, capacity)
+    @unsafe growth(scope).ownedRecords = native.address(block)
+
+    return 1ULL
 end
 
 local function reserve(scope: voidptr, bytes: uint64): uint64
@@ -344,7 +441,13 @@ local function reserve(scope: voidptr, bytes: uint64): uint64
     end
     local count = native.load64(scope, native.fieldOffset<Scope>("capacity"))
     local index: uint64 = 0ULL
-    while index < count do
+    while index < MAX_RECORDS do
+        if index == count then
+            if grow(scope) ~= 1ULL then
+                return 0ULL
+            end
+            count = native.load64(scope, native.fieldOffset<Scope>("capacity"))
+        end
         local record = entry(scope, index)
         if native.load64(record, native.fieldOffset<Mapping>("state")) == 0ULL then
             serial = serial + 1ULL
@@ -490,14 +593,13 @@ export function close(scope: voidptr): uint64
         return 0ULL
     end
     local index: uint64 = 0ULL
+    local owned = native.load64(scope, native.fieldOffset<Scope>("phase")) == OWNED_ACTIVE
     local count = native.load64(scope, native.fieldOffset<Scope>("capacity"))
     while index < count do
         local record = entry(scope, index)
         local state = native.load64(record, native.fieldOffset<Mapping>("state"))
         if state == 1ULL or state > 2ULL then
-            native.store64(scope, native.fieldOffset<Scope>("cleanupFailed"), 1ULL)
-            native.store64(scope, native.fieldOffset<Scope>("phase"), 3ULL)
-            return 0ULL
+            return failedClose(scope)
         end
         index = index + 1ULL
     end
@@ -515,10 +617,29 @@ export function close(scope: voidptr): uint64
     if native.load64(scope, native.fieldOffset<Scope>("live")) ~= 0ULL
         or native.load64(scope, native.fieldOffset<Scope>("cleanupFailed")) ~= 0ULL
     then
-        native.store64(scope, native.fieldOffset<Scope>("phase"), 3ULL)
-        return 0ULL
+        return failedClose(scope)
     end
     native.store64(scope, native.fieldOffset<Scope>("phase"), 2ULL)
+    if not owned then
+        return 1ULL
+    end
+    @unsafe local block = growth(scope).ownedRecords
+    if block ~= 0ULL then
+        -- No record pointer remains in use. Consume the table before freeing
+        -- its storage; a failed terminal release retains the entire tail.
+        native.store64(scope, native.fieldOffset<Scope>("records"), 0ULL)
+        native.store64(scope, native.fieldOffset<Scope>("capacity"), 0ULL)
+    end
+    while block ~= 0ULL do
+        local base = native.pointer(block)
+        local previous = native.load64(base, native.index(native.sizeOf<EntryBacking>()))
+        local bytes = native.load64(base, native.fieldOffset<EntryBacking>("bytes"))
+        if releaseEntry(scope, base, bytes) ~= 1ULL then
+            return failedClose(scope)
+        end
+        @unsafe growth(scope).ownedRecords = previous
+        block = previous
+    end
 
     return 1ULL
 end

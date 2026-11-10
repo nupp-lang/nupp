@@ -1,0 +1,31 @@
+module nupp.core.mappingentry
+
+const native = require("nupp.runtime.vm.intrinsics")
+local pages, servicescope = require("nupp.runtime.core.pagemappings"), require("nupp.runtime.core.servicescope")
+const entry = require("nupp.core.unitentry")
+
+export function prepare(base: voidptr, bytes: uint64): uint64
+    if bytes < 256ULL + 256ULL * native.sizeOf<pages.Mapping>() + native.sizeOf<servicescope.ServiceScope>() + 8ULL then
+        return 0ULL
+    end
+    local scope = entry.prepare(base, bytes)
+    if scope == 0ULL or pages.enableGrowth(base, 256ULL) ~= 1ULL then
+        return 0ULL
+    end
+
+    return scope
+end
+
+export function finish(scope: voidptr): uint64
+    local wrong = native.load64(scope, native.index(native.sizeOf<servicescope.ServiceScope>()))
+    local ledger = native.loadPointer(scope, native.fieldOffset<servicescope.ServiceScope>("pages"))
+    local grew = native.load64(ledger, native.fieldOffset<pages.Scope>("capacity")) > 256ULL
+    wrong += native.asWord(servicescope.close(scope) ~= 1ULL)
+    wrong += native.asWord(native.load64(ledger, native.fieldOffset<pages.Scope>("phase")) ~= 2ULL)
+    if grew then
+        wrong += native.asWord(native.load64(ledger, native.fieldOffset<pages.Scope>("capacity")) ~= 0ULL)
+        wrong += native.asWord(native.load64(ledger, native.index(native.sizeOf<pages.Scope>() + 8ULL)) ~= 0ULL)
+    end
+
+    return wrong
+end

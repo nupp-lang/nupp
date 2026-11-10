@@ -1,0 +1,244 @@
+module nupp.core.mappingunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const os = require("nupp.runtime.vm.os")
+local pages, servicescope = require("nupp.runtime.core.pagemappings"), require("nupp.runtime.core.servicescope")
+local arena, heap = require("nupp.runtime.vm.arena"), require("nupp.runtime.vm.heap")
+const arrays = require("nupp.runtime.vm.valuearray")
+const values = require("nupp.runtime.vm.values")
+
+const LEDGER: uint64 = 256ULL
+const SAMPLE: uint64 = 41ULL
+
+local function recordWrong(scope: voidptr, wrong: uint64): uint64
+    native.store64(scope, native.index(native.sizeOf<servicescope.ServiceScope>()), wrong)
+    return wrong
+end
+
+local function initialize(base: voidptr, count: uint64): uint64
+    return pages.initialize(
+        base,
+        LEDGER,
+        native.offset(base, native.index(LEDGER)),
+        count * native.sizeOf<pages.Mapping>(),
+        count
+    )
+end
+
+-- The entry ledger retains this mapping until explicit unmap or entry close.
+local function scratch(bytes: uint64): uint64
+    local base = os.mapPages(bytes)
+    if base == nil then
+        error("mapping units: scratch refused")
+    end
+
+    return native.address(base)
+end
+
+local function finish(scope: voidptr, base: voidptr, bytes: uint64, wrong: uint64): uint64
+    os.unmapPages(base, bytes)
+    return recordWrong(scope, wrong)
+end
+
+local function retained(service: voidptr): uint64
+    return native.asWord(native.load64(service, native.fieldOffset<servicescope.ServiceScope>("retainBacking")) ~= 1ULL)
+end
+
+export function controls(scope: voidptr): uint64
+    local page, base = os.pageSize(), native.pointer(scratch(os.pageSize()))
+    local wrong = native.asWord(native.sizeOf<pages.Scope>() ~= 56ULL or initialize(base, 1ULL) ~= 1ULL)
+    wrong += native.asWord(pages.enableGrowth(base, native.sizeOf<pages.Scope>()) ~= 0ULL)
+    wrong += native.asWord(pages.enableGrowth(native.offset(base, 1), LEDGER) ~= 0ULL)
+    native.store64(base, native.index(native.sizeOf<pages.Scope>()), 1ULL)
+    wrong += native.asWord(pages.enableGrowth(base, LEDGER) ~= 0ULL)
+    native.store64(base, native.index(native.sizeOf<pages.Scope>()), 0ULL)
+    local first = pages.map(base, page)
+    if first == nil then
+        error("mapping units: fixed payload refused")
+    end
+    native.store64(first, 0, SAMPLE)
+    wrong += native.asWord(pages.map(base, page) ~= nil or native.load64(first, 0) ~= SAMPLE)
+    wrong += native.asWord(native.load64(base, native.fieldOffset<pages.Scope>("issued")) ~= 1ULL)
+    wrong += native.asWord(pages.enableGrowth(base, LEDGER) ~= 0ULL)
+    wrong += native.asWord(pages.unmapOwned(base, 65537ULL) ~= 1ULL)
+    local replacement = pages.map(base, page)
+    if replacement == nil then
+        error("mapping units: reused slot refused")
+    end
+    native.store64(replacement, 0, SAMPLE)
+    wrong += native.asWord(pages.unmapOwned(base, 65537ULL) ~= 0ULL or native.load64(replacement, 0) ~= SAMPLE)
+    wrong += native.asWord(pages.unmapOwned(base, 131073ULL) ~= 1ULL or pages.close(base) ~= 1ULL)
+    wrong += native.asWord(pages.close(base) ~= 0ULL)
+    os.unmapPages(base, page)
+    base = native.pointer(scratch(page))
+    local records = native.offset(base, native.index(native.sizeOf<pages.Scope>()))
+    wrong += native.asWord(
+        pages.initialize(base, native.sizeOf<pages.Scope>(), records, native.sizeOf<pages.Mapping>(), 1ULL) ~= 1ULL
+    )
+    wrong += native.asWord(pages.enableGrowth(base, LEDGER) ~= 0ULL or pages.close(base) ~= 1ULL)
+
+    return finish(scope, base, page, wrong)
+end
+
+export function growth(scope: voidptr, count: uint64): uint64
+    local bytes = LEDGER + 256ULL * native.sizeOf<pages.Mapping>()
+    local base = native.pointer(scratch(bytes))
+    local original = native.address(base) + LEDGER
+    local wrong = native.asWord(initialize(base, 256ULL) ~= 1ULL or pages.enableGrowth(base, LEDGER) ~= 1ULL)
+    wrong += native.asWord(pages.enableGrowth(base, LEDGER) ~= 0ULL)
+    local i: uint64 = 0ULL
+    while i < count do
+        local mapped = pages.map(base, os.pageSize())
+        if mapped == nil then
+            error("mapping units: owned growth refused")
+        end
+        native.store64(mapped, 0, i + SAMPLE)
+        i = i + 1ULL
+    end
+    wrong += native.asWord(native.load64(base, native.fieldOffset<pages.Scope>("live")) ~= count)
+    wrong += native.asWord(native.load64(base, native.fieldOffset<pages.Scope>("records")) == original)
+    local records = native.loadPointer(base, native.fieldOffset<pages.Scope>("records"))
+    local first = native.loadPointer(records, native.fieldOffset<pages.Mapping>("base"))
+    wrong += native.asWord(native.load64(first, 0) ~= SAMPLE)
+    wrong += native.asWord(pages.unmapOwned(base, 65537ULL) ~= 1ULL)
+    local reused = pages.map(base, os.pageSize())
+    if reused == nil then
+        error("mapping units: grown slot reuse refused")
+    end
+    wrong += native.asWord(pages.unmapOwned(base, 65537ULL) ~= 0ULL)
+    wrong += native.asWord(pages.unmapOwned(base, ((count + 1ULL) << 16) | 1ULL) ~= 1ULL)
+    if count == 4096ULL then
+        local extra = pages.map(base, os.pageSize())
+        if extra == nil then
+            error("mapping units: final slot refill refused")
+        end
+        wrong += native.asWord(pages.map(base, os.pageSize()) ~= nil)
+        wrong += native.asWord(native.load64(base, native.fieldOffset<pages.Scope>("issued")) ~= count + 2ULL)
+    end
+    wrong += native.asWord(pages.close(base) ~= 1ULL)
+    wrong += native.asWord(native.load64(base, native.fieldOffset<pages.Scope>("live")) ~= 0ULL)
+    wrong += native.asWord(native.load64(base, native.fieldOffset<pages.Scope>("capacity")) ~= 0ULL)
+    wrong += native.asWord(native.load64(base, native.fieldOffset<pages.Scope>("phase")) ~= 2ULL)
+    wrong += native.asWord(native.load64(base, native.index(native.sizeOf<pages.Scope>() + 8ULL)) ~= 0ULL)
+    wrong += native.asWord(pages.close(base) ~= 0ULL)
+
+    return finish(scope, base, bytes, wrong)
+end
+
+-- The measured self-build refusal: backing grows at key8193 while every
+-- existing ledger record is live. The replaced8192-word backing remains owned
+-- until the larger allocation has succeeded.
+export function arrayGrowth(scope: voidptr): uint64
+    local descriptor = heap.ValueArray(0ULL, 0ULL, 0ULL, 0ULL)
+    local ledger = native.loadPointer(scope, native.fieldOffset<servicescope.ServiceScope>("pages"))
+    local wrong: uint64 = 0ULL
+    do
+        local source = arena.open(1048576ULL)
+        local h = heap.create(source)
+        @unsafe do
+            local a = descriptor as heap.ValueArray*
+            wrong += native.asWord(arrays.arrayInitialize(a, h, 8192ULL) ~= 0ULL)
+            wrong += native.asWord(arrays.arrayResize(a, 8192ULL, values.NIL) ~= 0ULL)
+            while native.load64(ledger, native.fieldOffset<pages.Scope>("live")) < 256ULL do
+                if os.mapPages(os.pageSize()) == nil then
+                    error("mapping units: ledger fill refused")
+                end
+            end
+            wrong += native.asWord(native.load64(ledger, native.fieldOffset<pages.Scope>("capacity")) ~= 256ULL)
+            local before = a.base
+            wrong += native.asWord(arrays.arrayPush(a, values.TAG_INTEGER | 5ULL) ~= 0ULL)
+            wrong += native.asWord(a.length ~= 8193ULL or a.capacity ~= 16384ULL or a.base == before)
+            wrong += native.asWord(native.load64(native.pointer(a.base), 8192 * 8) ~= (values.TAG_INTEGER | 5ULL))
+            wrong += native.asWord(native.load64(native.pointer(a.base), 0) ~= values.NIL)
+            wrong += native.asWord(native.load64(ledger, native.fieldOffset<pages.Scope>("capacity")) ~= 512ULL)
+            wrong += native.asWord(native.load64(ledger, native.fieldOffset<pages.Scope>("live")) ~= 256ULL)
+            arrays.arrayRelease(a)
+            heap.destroy(h)
+        end
+    end
+
+    return recordWrong(scope, wrong)
+end
+
+-- Existing test transport refuses its second one-page mmap. Scratch is the
+-- first; the two-page payload succeeds; the growing record block is refused.
+export function mapfailure(): uint64
+    local page, base = os.pageSize(), native.pointer(scratch(os.pageSize()))
+    local wrong = native.asWord(initialize(base, 1ULL) ~= 1ULL or pages.enableGrowth(base, LEDGER) ~= 1ULL)
+    local payload = pages.map(base, page * 2ULL)
+    if payload == nil then
+        error("mapping units: fault payload refused")
+    end
+    native.store64(payload, 0, SAMPLE)
+    local records = native.load64(base, native.fieldOffset<pages.Scope>("records"))
+    wrong += native.asWord(pages.map(base, page * 2ULL) ~= nil)
+    wrong += native.asWord(native.load64(base, native.fieldOffset<pages.Scope>("records")) ~= records)
+    wrong += native.asWord(native.load64(base, native.fieldOffset<pages.Scope>("capacity")) ~= 1ULL)
+    wrong += native.asWord(native.load64(base, native.fieldOffset<pages.Scope>("live")) ~= 1ULL)
+    wrong += native.asWord(native.load64(base, native.fieldOffset<pages.Scope>("issued")) ~= 1ULL)
+    wrong += native.asWord(native.load64(base, native.fieldOffset<pages.Scope>("phase")) ~= 4ULL)
+    wrong += native.asWord(native.load64(base, native.index(native.sizeOf<pages.Scope>() + 8ULL)) ~= 0ULL)
+    wrong += native.asWord(native.load64(payload, 0) ~= SAMPLE or pages.unmapOwned(base, 65537ULL) ~= 1ULL)
+    wrong += native.asWord(pages.close(base) ~= 1ULL)
+    os.unmapPages(base, page)
+
+    return wrong
+end
+
+-- Deliberately invalidate only the private head prefix before release. This
+-- exercises terminal refusal/retention, not an OS errno injection. Cleanup
+-- restores that deliberate corruption under an independent status owner;
+-- the failed scope and its service owner remain consumed and retained.
+export function terminalGuard(scope: voidptr): uint64
+    local status = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local page, base = os.pageSize(), native.pointer(scratch(os.pageSize()))
+    local service = native.offset(base, 128)
+    local wrong = native.asWord(initialize(base, 1ULL) ~= 1ULL)
+    wrong += native.asWord(
+        servicescope.initialize(service, native.sizeOf<servicescope.ServiceScope>(), base, LEDGER) ~= 1ULL
+    )
+    wrong += native.asWord(pages.enableGrowth(base, LEDGER) ~= 1ULL)
+    local at: uint64 = 0ULL
+    while at < 3ULL do
+        if pages.map(base, page) == nil then
+            error("mapping units: terminal growth refused")
+        end
+        at += 1ULL
+    end
+    local headOffset = native.index(native.sizeOf<pages.Scope>() + 8ULL)
+    local head = native.load64(base, headOffset)
+    if head == 0ULL then
+        error("mapping units: terminal head absent")
+    end
+    local tail = native.load64(native.pointer(head), native.index(native.sizeOf<pages.EntryBacking>()))
+    if tail == 0ULL then
+        error("mapping units: terminal chain absent")
+    end
+    native.store64(native.pointer(head), native.fieldOffset<pages.EntryBacking>("phase"), 2ULL)
+    wrong += native.asWord(servicescope.close(service) ~= 0ULL)
+    wrong += native.asWord(native.load64(base, native.fieldOffset<pages.Scope>("phase")) ~= 3ULL)
+    wrong += native.asWord(native.load64(base, native.fieldOffset<pages.Scope>("live")) ~= 0ULL)
+    wrong += native.asWord(native.load64(base, native.fieldOffset<pages.Scope>("cleanupFailed")) ~= 1ULL)
+    wrong += native.asWord(native.load64(base, headOffset) ~= head)
+    wrong += native.asWord(
+        native.load64(native.pointer(head), native.index(native.sizeOf<pages.EntryBacking>())) ~= tail
+    )
+    wrong += native.asWord(native.load64(native.pointer(tail), native.fieldOffset<pages.EntryBacking>("phase")) ~= 1ULL)
+    wrong += retained(service)
+    wrong += native.asWord(native.load64(service, native.fieldOffset<servicescope.ServiceScope>("error")) ~= 2ULL)
+    wrong += native.asWord(pages.close(base) ~= 0ULL or servicescope.close(service) ~= 0ULL)
+    wrong += native.asWord(pages.enableGrowth(base, LEDGER) ~= 0ULL)
+    wrong += native.asWord(native.load64(base, headOffset) ~= head)
+    native.store64(native.pointer(head), native.fieldOffset<pages.EntryBacking>("phase"), 1ULL)
+    local block = head
+    while block ~= 0ULL do
+        local pointer = native.pointer(block)
+        local previous = native.load64(pointer, native.index(native.sizeOf<pages.EntryBacking>()))
+        local bytes = native.load64(pointer, native.fieldOffset<pages.EntryBacking>("bytes"))
+        @unsafe wrong += native.asWord(pages.releaseEntry(status as pages.Scope*, pointer, bytes) ~= 1ULL)
+        block = previous
+    end
+    wrong += retained(service)
+
+    return finish(scope, base, page, wrong)
+end
