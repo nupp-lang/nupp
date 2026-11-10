@@ -1191,7 +1191,7 @@ end
 function M.scalarVectorSpecializationKeepsSourceTerminalRefusals()
     for _, variant in ipairs({
         {before = "", terminal = "return 8", suffix = "return 0"},
-        {before = "", terminal = "", suffix = "do return 0 end\nlocal after = 1\nreturn after"},
+        {before = "", terminal = "", suffix = "do return 0 end\nlocal after: integer = 1\nreturn after"},
         {
             before = "if earlier = simd.vectors(array.uint8) then local unused = earlier end\n",
             terminal = "return 8",
