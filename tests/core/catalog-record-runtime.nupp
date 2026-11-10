@@ -34,7 +34,18 @@ local record Single
     end
 end
 local single: any = invoke(Single, false, nil, "extra")
-if single.first == false and single.count == 2 and invoke(Single).first == nil then
+local record Numeric
+    answer: integer
+    constructor(self, value: integer)
+        self.answer = value + 1
+    end
+end
+if single.first == false
+    and single.count == 2
+    and invoke(Single).first == nil
+    and invoke(Numeric, 6).answer == 7
+    and not pcall(invoke, Numeric, false)
+then
     score = score + 4
 end
 

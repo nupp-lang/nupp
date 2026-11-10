@@ -75,20 +75,34 @@ end
 -- import of a re-export. The origin's module name alone loses that binding.
 local function boundPath(p: any, owner: any, syntax: any, nominal: any): any
     local visiting = {}
-    local resolve: function(any): any
-    resolve = function(node: any): any
+    local resolve: function(any, any): any
+    resolve = function(node: any, alias: any): any
         if type(node) ~= "table" or cst.isToken(node) or visiting[node] then
             return nil
         end
         visiting[node] = true
-        if node.kind == "tname" and values.recordOrigin(node.resolvedType) == nominal then
+        if node.kind == "tname" then
             local names = {}
             for _, item in ipairs(node) do
                 if cst.isToken(item) and item.kind == "name" then
                     names[#names + 1] = item
                 end
             end
-            if #names > 1 then
+            local checked = values.recordOrigin(node.resolvedType) == nominal
+            if alias then
+                local terminal = names[#names]
+                local declaration = nominal.deriveDeclaration
+                checked = alias.value == node
+                    and values.recordOrigin(alias.resolvedType) == nominal
+                    and terminal ~= nil
+                    and values.recordOrigin(terminal.inferredType) == nominal
+                    and terminal.definition ~= nil
+                    and (
+                        #names == 1
+                        or declaration and declaration.name and terminal.definition == declaration.name.definition
+                    )
+            end
+            if checked and #names > 1 then
                 local root = names[1]
                 local best: any = nil
                 for _, binding in ipairs(p.bindings) do
@@ -116,7 +130,7 @@ local function boundPath(p: any, owner: any, syntax: any, nominal: any): any
                     end
                     return {definition = best, path = path, syntax = node}
                 end
-            elseif node.base and node.base.definition then
+            elseif checked and node.base and node.base.definition then
                 local alias: any = nil
 
                 local function find(item: any): nil
@@ -133,12 +147,12 @@ local function boundPath(p: any, owner: any, syntax: any, nominal: any): any
 
                 find(sourceOf(p, owner).root)
                 if alias then
-                    return resolve(alias.value)
+                    return resolve(alias.value, alias)
                 end
             end
         end
         for _, child in ipairs(node) do
-            local found = resolve(child)
+            local found = resolve(child, nil)
             if found then
                 return found
             end
@@ -147,7 +161,7 @@ local function boundPath(p: any, owner: any, syntax: any, nominal: any): any
         return nil
     end
 
-    return resolve(syntax)
+    return resolve(syntax, nil)
 end
 
 local function target(p: any): any

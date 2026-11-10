@@ -272,6 +272,13 @@ local function checkedSignature(owner: any, numeric: boolean, dynamic: boolean):
     need(summary and (summary.top == false or dynamic) and summary.external == false, "unknown callable effects")
 
     local result = typeSignature(signature, numeric, dynamic, owner.node.kind == "constructorDecl")
+    -- Ordinary constructor bodies receive tagged Lua values. Source calls
+    -- keep their checked types; the body's operations check values when used.
+    if dynamic and owner.node.kind == "constructorDecl" then
+        for index in ipairs(result.params) do
+            result.params[index] = "value"
+        end
+    end
     -- A method's receiver is its first parameter on the core, though its
     -- function type leaves it out: a `:` method's implicit one, or the `self`
     -- an instance method in a record body spells.

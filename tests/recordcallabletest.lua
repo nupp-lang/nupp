@@ -158,19 +158,21 @@ function suite.moduleCatalogCarriesCheckedFactoryAndLazyNominalCell()
     assert(cells == 1, "only the required overload nominal gets a class cell")
 end
 
-local function ordinaryCatalog(source, name)
+local function ordinaryInput(source, name, env)
     local path = "=" .. name .. ".nupp"
     local parsed = require("nupp.compiler.syntax.parser").parse(source, path)
     assert(#parsed.errors == 0)
-    local env = require("nupp.compiler.project.env").new(".", {memoryOnly = true, cache = false})
-    local diagnostics = require("nupp.compiler.check").check(parsed, path, env, {moduleName = name})
+    env = env or require("nupp.compiler.project.env").new(".", {memoryOnly = true, cache = false})
+    local diagnostics, moduleType = require("nupp.compiler.check").check(parsed, path, env, {moduleName = name})
     for _, diagnostic in ipairs(diagnostics) do
         assert(diagnostic.severity ~= "error", diagnostic.msg)
     end
 
-    return require(
-        "helpers.recordfactory"
-    ).describe({{name = name, path = path, parsed = parsed, diagnostics = diagnostics}}, name)
+    return {name = name, path = path, parsed = parsed, diagnostics = diagnostics, type = moduleType}
+end
+
+local function ordinaryCatalog(source, name)
+    return require("helpers.recordfactory").describe({ordinaryInput(source, name)}, name)
 end
 
 function suite.ordinaryCatalogVerifiesItsExactFactoryLoader()
@@ -248,6 +250,108 @@ end
     assert(not pcall(program.verify, p), "erased declarations cannot acquire forged factory sites")
     p.recordFactories[declarations.Components] = nil
     assert(program.verify(p))
+end
+
+function suite.constructorsKeepTaggedTransportAndOrdinaryScalarContracts()
+    local p = ordinaryCatalog(
+        [[
+module recordcallabletransport
+export record Single
+    first: any
+    constructor(self, first: integer, ...: any)
+        self.first = first
+    end
+end
+
+export function number(value: integer): integer return value + 1 end
+export function boolean(value: boolean): boolean return value end
+]],
+        "recordcallabletransport"
+    )
+    local compiled = require(
+        "nupp.compiler.vm.programgraph"
+    ).compile(p, require("nupp.compiler.vm.taggedprofile").forVersion(8))
+    local code = require("nupp.compiler.vm.coregraphexecutable").fromChecked(compiled, 8)
+    local constructors, scalar = 0, {}
+    for _, owner in ipairs(code.semantic.catalog) do
+        if owner.kind == "function" then
+            local checked = p.owners[owner.id + 1]
+            local signature = code.semantic.signatures[owner.signature + 1]
+            if checked.node.kind == "constructorDecl" then
+                constructors = constructors + 1
+                assert(signature.variadic and #signature.params == 3, "constructor keeps receiver and variadic slot")
+                for _, parameter in ipairs(signature.params) do
+                    assert(parameter == "value", "constructor arguments use checked tagged transport")
+                end
+            elseif checked.name == "number" or checked.name == "boolean" then
+                scalar[checked.name] = signature.params[1]
+            end
+        end
+    end
+    assert(
+        constructors == 1 and scalar.number == "number" and scalar.boolean == "boolean",
+        "ordinary scalar kinds stay checked"
+    )
+end
+
+function suite.aliasedNominalsCaptureTheirCheckedImportBinding()
+    local dependency = ordinaryInput(
+        "module recordcallablealiasdep\nexport record Box value: integer end\n",
+        "recordcallablealiasdep"
+    )
+    local env = require("nupp.compiler.project.env").new(".", {memoryOnly = true, cache = false})
+    env.loaded[dependency.name] = {type = dependency.type, exports = dependency.parsed.moduleExports}
+    local consumer = ordinaryInput(
+        [[
+module recordcallablealias
+const facade = require("recordcallablealiasdep")
+local type Alias = facade.Box
+export record Pick
+    answer: integer
+    constructor(self, value: Alias) self.answer = 7 end
+    constructor(self, value: string) self.answer = 9 end
+end
+]],
+        "recordcallablealias",
+        env
+    )
+    local p = require("helpers.recordfactory").describe({dependency, consumer}, consumer.name)
+    local program = require("nupp.compiler.vm.programgraph")
+    assert(program.verify(p))
+    local plan
+    for node, value in pairs(p.recordFactories) do
+        if node.name.text == "Pick" then
+            plan = value
+        end
+    end
+    local witness = assert(plan.witnesses[1])
+    assert(witness.bound and not witness.module, "an alias must capture its actual imported module instance")
+    assert(witness.bound.definition.name == "facade" and table.concat(witness.bound.path, ".") == "Box")
+    local alias
+    for _, stat in ipairs(consumer.parsed.root.blocks[1].stats) do
+        if stat.kind == "typeAlias" then
+            alias = stat
+        end
+    end
+    assert(alias and witness.bound.syntax == alias.value, "the bound syntax must be the actual checked alias body")
+    local terminal = alias.value[#alias.value]
+    assert(terminal.text == "Box", "the checked alias ends at its exported record")
+
+    local function rejects(object, key, value)
+        local original = object[key]
+        object[key] = value
+        assert(not pcall(program.verify, p), "changed alias authority must refuse: " .. key)
+        object[key] = original
+        assert(program.verify(p))
+    end
+
+    rejects(alias, "resolvedType", nil)
+    rejects(terminal, "definition", nil)
+    rejects(terminal, "definition", alias.name.definition)
+    rejects(terminal, "inferredType", {})
+    rejects(witness.bound.path, 1, "Other")
+    local compiled = program.compile(p, require("nupp.compiler.vm.taggedprofile").forVersion(8))
+    assert(require("nupp.compiler.vm.coregraphexecutable").fromChecked(compiled, 8))
 end
 
 function suite.factoryVerificationRejectsChangedOperandsLoaderAndCells()
