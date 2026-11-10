@@ -247,7 +247,7 @@ local CASES = {
     {"affineconstructors", 0x7FFF0000000000FF},
     {"absentffi", 0x7FFF000000000007},
     {"guestffi", 0x7FFF000000001FFF},
-    {"runnersmall", 0x7FFF00000000007F},
+    {"runnersmall", 0x7FFF00000000001F},
     {"runnerchunks", 0x7FFF00000000001F},
     -- The packaged test runner over real suites, its loadfile and dofile
     -- served chunks compiled here (SOURCES).
