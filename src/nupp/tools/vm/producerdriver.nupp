@@ -6,6 +6,7 @@ local json = require("serde.json")
 local fs = require("nupp.compiler.fs")
 local hash = require("nupp.compiler.hash")
 local process = require("nupp.compiler.process")
+local imagemodules = require("nupp.compiler.imagemodules")
 
 local function digest(path: string): string?
     local text = fs.readFile(path)
@@ -41,20 +42,7 @@ end
 -- The runtime describes only the image it started from, excluding modules
 -- loaded from source later. Unknown hosts conservatively carry nothing.
 export function carriedModules(): {[string]: boolean}
-    local describe: any = rawget(_G, "__nupp_image_modules")
-    local modules: {[string]: boolean} = {}
-    if describe then
-        local graph = describe()
-        if type(graph) == "table" and type(graph.digests) == "table" then
-            for name, digest in pairs(graph.digests) do
-                if type(name) == "string" and type(digest) == "string" then
-                    modules[name] = true
-                end
-            end
-        end
-    end
-
-    return modules
+    return imagemodules.carriedModules()
 end
 
 -- Hash every executable dependency the fixed image does not actually carry.
