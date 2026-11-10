@@ -1,8 +1,0 @@
-local First = {}
-function First.answer(): integer
-    local left: integer = 20
-    local right: integer = 22
-    return left + right
-end
-
-return First
