@@ -944,7 +944,10 @@ local function checkedProject(root: string): any
         require("nupp.compiler.project.projectconfig")
         require("nupp.compiler.hash")
         sharedProject = incremental.new(root, {
-            cache = false,
+            -- The project index is built from the headers the shared store
+            -- keeps by content: reading them back is what keeps an unchanged
+            -- project from being parsed again by every build.
+            cache = true,
             nativeCompilerServices = false,
             -- Its output is not the build directory the staged sources sit
             -- in, which the project index would leave out, and a qualified
@@ -1207,6 +1210,9 @@ local function programCatalog(caseName: string, fixture: string, version: intege
     timings["compile describe"] = (timings["compile describe"] or 0) + os.clock() - describing
     -- What a kept piece is keyed by: what each module's check read.
     catalog.checkedProject = project
+    if project ~= nil then
+        project.persist()
+    end
     catalog.openingRequests = names
     -- A fixture exports `result`, which is what its program answers.
     catalog.entryExport = "result"
