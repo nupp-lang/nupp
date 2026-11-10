@@ -1,5 +1,99 @@
 local json = require("serde.json")
+local diagnosticSchema = require("nupp.tools.cli.report").DIAGNOSTICS
 local M = {}
+
+-- Use the CLI's own diagnostic schema, including nested fixes and locations.
+local function matches(value, schema)
+    local kind = schema.type
+    if kind == "array" or kind == "object" then
+        if type(value) ~= "table" then
+            return false
+        end
+    elseif kind == "integer" then
+        if type(value) ~= "number" or value % 1 ~= 0 then
+            return false
+        end
+    elseif kind and type(value) ~= kind then
+        return false
+    end
+    if schema.enum then
+        local found = false
+        for _, option in ipairs(schema.enum) do
+            found = found or value == option
+        end
+        if not found then
+            return false
+        end
+    end
+    if kind == "array" then
+        for index, item in pairs(value) do
+            if type(index) ~= "number"
+                or index % 1 ~= 0
+                or index < 1
+                or index > #value
+                or not matches(item, schema.items)
+            then
+                return false
+            end
+        end
+    elseif kind == "object" then
+        for _, name in ipairs(schema.required or {}) do
+            if value[name] == nil then
+                return false
+            end
+        end
+        for name, child in pairs(schema.properties or {}) do
+            if value[name] ~= nil and not matches(value[name], child) then
+                return false
+            end
+        end
+    end
+
+    return true
+end
+
+local function diagnosticsValid(diagnostics)
+    if not matches(diagnostics, diagnosticSchema) then
+        return false
+    end
+    for _, diagnostic in ipairs(diagnostics) do
+        if diagnostic.severity == "error" then
+            return false
+        end
+    end
+
+    return true
+end
+
+-- store.writeFailure prefixes the path/reason; native persist.save_plain and
+-- plaincodec.encode refuse executable type-function cache payloads safely.
+local CACHE_REASONS = {
+    ["plain data must contain one non-executable root"] = true,
+    ["runtime error: plain data must contain one non-executable root"] = true,
+    ["plain data cannot contain a function"] = true,
+    ["runtime error: plain data cannot contain a function"] = true,
+}
+
+local function cacheWarning(line)
+    local path, reason = line:match("^nupp: cannot save compiler cache (.+/cache/type%-functions%.buf): (.+)$")
+    if path and (path:sub(1, 1) == "/" or path:match("^%a:/")) and CACHE_REASONS[reason] then
+        return {path = path, reason = reason, text = line}
+    end
+
+    return nil
+end
+
+function M.cacheWarnings(printed)
+    local warnings = {}
+    for line in printed:gsub("\r\n", "\n"):gmatch("[^\n]+") do
+        local warning = cacheWarning(line)
+        if warning then
+            warnings[#warnings + 1] = warning
+        end
+    end
+
+    return warnings
+end
 
 local function duration(text)
     local milliseconds = text:match("^(%d+)ms$")
@@ -40,8 +134,8 @@ local function step(line)
         or label:match("^[%w_.%-]+$") ~= nil
 end
 
--- Success output is a complete build report surrounded only by the fixture's
--- marks and the reporter's progress. Diagnostics are never stripped to find it.
+-- Success output retains non-error diagnostics and recognized cache warnings;
+-- every other line must be the fixture's marks or the reporter's progress.
 local function accepts(printed)
     printed = printed:gsub("\r\n", "\n")
     if printed:sub(-1) ~= "\n" then
@@ -49,7 +143,11 @@ local function accepts(printed)
     end
     local lines = {}
     for line in printed:gmatch("(.-)\n") do
-        lines[#lines + 1] = line
+        -- Kept in the original output, exposed by cacheWarnings, and counted
+        -- in the milestone receipt instead of implying an incorrect image.
+        if not cacheWarning(line) then
+            lines[#lines + 1] = line
+        end
     end
     local began = lines[1] and lines[1]:match("^(%d+%.%d%d%d) compiler target dist: start core build$")
     local ended = lines[#lines] and lines[#lines]:match("^(%d+%.%d%d%d) compiler target dist: finished with status 0$")
@@ -69,10 +167,8 @@ local function accepts(printed)
     if type(report) ~= "table"
         or report.ok ~= true
         or report.target ~= "dist"
-        or type(report.diagnostics) ~= "table"
-        or next(report.diagnostics) ~= nil
+        or not diagnosticsValid(report.diagnostics)
         or type(report.timing) ~= "table"
-        or reportAt ~= #lines - 1
     then
         return false
     end
@@ -102,10 +198,14 @@ local function accepts(printed)
         slowest[item.module] = item.durationMs
     end
     local summary, slowRows, slowHeading = false, 0, false
-    for index = 2, reportAt - 1 do
+    for index = 2, #lines - 1 do
         local line = lines[index]
         local took, actualCounts = line:match("^built dist in (%S+): (.+)$")
-        if took then
+        if index == reportAt then
+            -- Retained in the complete output and the driver's warning receipt.
+        elseif index > reportAt then
+            return false
+        elseif took then
             if summary or actualCounts ~= counts or not measured(took, timing.totalMs) then
                 return false
             end

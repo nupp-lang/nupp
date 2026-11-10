@@ -1,7 +1,8 @@
 local paths = require("helpers.paths")
 local json = require("serde.json")
 local test = require("assert")
-local accepts = dofile(paths.absoluteTests .. "/core/guests/selfbuildoutput.lua").compilerselfbuild
+local validator = dofile(paths.absoluteTests .. "/core/guests/selfbuildoutput.lua")
+local accepts = validator.compilerselfbuild
 local M = {}
 
 local function report()
@@ -62,7 +63,9 @@ function M.rejectsFailedWrongTargetOrDiagnosticReports()
             value.target = "docs"
         end,
         function(value)
-            value.diagnostics = {{severity = "warning", message = "preserve this diagnostic"}}
+            value.diagnostics = {
+                {severity = "error", message = "reject this diagnostic", fixes = {}, notes = {}, related = {}}
+            }
         end,
         function(value)
             value.diagnostics = nil
@@ -77,6 +80,104 @@ function M.rejectsFailedWrongTargetOrDiagnosticReports()
         local value = report()
         change(value)
         test.eq(accepts(output(value)), false)
+    end
+end
+
+function M.acceptsValidWarningsAndNotesWithoutChangingTheReport()
+    local value = report()
+    value.diagnostics = {
+        {
+            severity = "warning",
+            code = "NUPP2000",
+            message = "visible warning",
+            fixes = {},
+            notes = {"explanation"},
+            related = {}
+        },
+        {severity = "note", message = "visible note", fixes = {}, notes = {}, related = {}},
+    }
+    local encoded = json.encodevalue(value)
+    local printed = output(value)
+    assert(accepts(printed))
+    assert(printed:find(encoded, 1, true), "the complete diagnostic report remains visible")
+end
+
+function M.rejectsMalformedDiagnosticRecords()
+    for _, diagnostic in ipairs({
+        {severity = "warning", fixes = {}, notes = {}, related = {}},
+        {severity = "unknown", message = "bad severity", fixes = {}, notes = {}, related = {}},
+        {severity = "warning", message = "missing required arrays"},
+        {severity = "warning", message = "bad notes", fixes = {}, notes = {42}, related = {}},
+        {severity = "warning", message = "bad fix", fixes = {{title = "missing edits"}}, notes = {}, related = {}},
+        {
+            severity = "warning",
+            message = "bad location",
+            range = {start = {}, ["end"] = {}},
+            fixes = {},
+            notes = {},
+            related = {}
+        },
+    }) do
+        local value = report()
+        value.diagnostics = {diagnostic}
+        test.eq(accepts(output(value)), false)
+    end
+    local value = report()
+    value.diagnostics = {
+        unexpected = {severity = "warning", message = "not an array", fixes = {}, notes = {}, related = {}}
+    }
+    test.eq(accepts(output(value)), false)
+end
+
+function M.preservesAndCountsOnlyTheKnownTypeFunctionCacheRejections()
+    local path = "/checkout/build/self-build-core/cache/type-functions.buf"
+    local native = "nupp: cannot save compiler cache "
+        .. path
+        .. ": runtime error: plain data must contain one non-executable root\n"
+    local pure = "nupp: cannot save compiler cache " .. path .. ": plain data cannot contain a function\n"
+    local printed = output():gsub(
+        "built dist",
+        function()
+            return native .. pure .. "built dist"
+        end,
+        1
+    )
+    assert(accepts(printed))
+    local warnings = validator.cacheWarnings(printed)
+    test.eq(#warnings, 2)
+    test.eq(warnings[1].path, path)
+    test.eq(warnings[1].text .. "\n", native)
+    test.eq(warnings[2].text .. "\n", pure)
+    assert(accepts(native .. output() .. pure))
+    assert(
+        accepts(
+            output():gsub(
+                "1.123 compiler",
+                function()
+                    return native .. "1.123 compiler"
+                end,
+                1
+            )
+        )
+    )
+    for _, unknown in ipairs({
+        native:gsub("type%-functions.buf", "checks.buf"),
+        native:gsub("runtime error: plain data must contain one non%-executable root", "permission denied"),
+        native:gsub("one non%-executable root", "one non-executable root and unexpected suffix"),
+        (native:gsub("/checkout/build/self%-build%-core/cache/", "")),
+    }) do
+        test.eq(
+            accepts(
+                output():gsub(
+                    "built dist",
+                    function()
+                        return unknown .. "built dist"
+                    end,
+                    1
+                )
+            ),
+            false
+        )
     end
 end
 
