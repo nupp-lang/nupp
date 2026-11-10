@@ -383,11 +383,18 @@ end
 --- `path` as a program image names it: relative to the project, or to the
 --- compiler checkout for the library it carries, so where either sat on the
 --- building machine is not part of the binary. A build names its project `.`,
---- and the sources it lowers by their absolute paths, so both bases are made
---- absolute before they are compared.
+--- and the lowering spells a relative source against `PWD`, which may be the
+--- logical spelling of a directory the filesystem names physically (`/var`
+--- and `/private/var` on macOS), so the project is tried under both.
 local function programPath(root: string, compilerRoot: string, path: string): string
-    for _, base in ipairs({root, compilerRoot}) do
-        local prefix = fs.absolute(base) .. "/"
+    local bases = {fs.absolute(root)}
+    local pwd = os.getenv("PWD")
+    if pwd ~= nil and pwd ~= "" and root:sub(1, 1) ~= "/" then
+        bases[#bases + 1] = fs.absolute(fs.join(pwd, root))
+    end
+    bases[#bases + 1] = fs.absolute(compilerRoot)
+    for _, base in ipairs(bases) do
+        local prefix = base .. "/"
         if path:sub(1, #prefix) == prefix then
             return "@" .. path:sub(#prefix + 1)
         end
