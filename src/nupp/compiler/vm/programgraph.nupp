@@ -19,6 +19,7 @@ local managedcalls = require("nupp.compiler.vm.managedcalls")
 local indexedaccess = require("nupp.compiler.vm.indexedaccess")
 local namedarguments = require("nupp.compiler.vm.namedarguments")
 local aliasdowncast = require("nupp.compiler.vm.aliasdowncast")
+local stubmodules = require("nupp.compiler.vm.stubmodules")
 
 local typeSyntax = {
     tconst = true,
@@ -559,7 +560,12 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         functionsByDefinition = {},
         byBody = {},
         byNode = {},
-        immutable = {}
+        immutable = {},
+        -- The modules held without their checked trees, by name
+        -- (nupp.compiler.vm.stubmodules).
+        stubs = {},
+        -- The modules a require cycle can re-enter, by name.
+        cyclic = {}
     }
     local moduleNames, topLevel, sourcePaths = {}, {}, {}
     -- Function statements' own names, which name the locals they assign.
@@ -568,6 +574,9 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         need(type(input.name) == "string" and type(input.path) == "string", "module source required")
         need(not moduleNames[input.name], "duplicate module " .. input.name)
         sourcePaths[input.path] = true
+        if input.stub == true then
+            p.stubs[input.name] = true
+        end
         local parsed = need(input.parsed, "checked parse required")
         need(parsed.root and parsed.symbols and parsed.moduleName == input.name, "checked module identity required")
         -- Once per check of a tree: a project shares its trees across
@@ -872,6 +881,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
 
     local scalarTarget: any = nil
     if next(p.scalartypes.witnesses) ~= nil then
+        stubmodules.demand(p, scalartypeof.MODULE)
         for _, owner in ipairs(p.owners) do
             if owner.kind == "function"
                 and owner.scope.name == scalartypeof.MODULE
@@ -1823,15 +1833,17 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
     -- eager require, as a qualified path's.
     local warns = moduleNames[graph.WARN_MODULE]
     local entry = p.modules[#p.modules]
-    if warns and entry and warns ~= entry then
+    if warns and entry and warns ~= entry and not p.stubs[entry.name] then
         eagerLoad(p.owners[entry.chunk + 1], warns, cst.firstToken(entry.parsed.root), true)
     end
     -- A module a require cycle can re-enter publishes each function it exports
     -- as a forwarder as it starts, as main does: one checked factory call per
     -- function, from one hidden load of the factory's module.
     local cyclic = forwardedexports.cyclic(modules)
+    p.cyclic = cyclic
     for _, module in ipairs(p.modules) do
-        if cyclic[module.name] then
+        -- A stub's forwarders are in the piece kept for it.
+        if cyclic[module.name] and not p.stubs[module.name] then
             local chunk = p.owners[module.chunk + 1]
             local factory = need(moduleNames[forwardedexports.MODULE], "export forwarding module is missing")
             local plan = forwardedexports.prepare(p, chunk)

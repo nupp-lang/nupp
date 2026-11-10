@@ -252,4 +252,48 @@ function M.keptPiecesLinkAsTheyWereBuilt()
     same(corelink.link({after[1], kept(before[2]), kept(before[3])}, "pieces.main"), whole(edited))
 end
 
+-- A catalog holding a module as a stub (nupp.compiler.vm.stubmodules)
+-- describes the others as the whole program does: their pieces, beside the
+-- stub's kept one, link to the whole program's executable. A checked module
+-- that reaches into a stub's tree is refused.
+function M.stubbedModulesKeepTheirPieces()
+    local stubmodules = require("nupp.compiler.vm.stubmodules")
+    local forwardedexports = require("nupp.compiler.vm.forwardedexports")
+    local function stubbed(catalog, index)
+        local input = catalog.modules[index]
+        local loads, exported = forwardedexports.summary(input)
+        return {
+            name = input.name,
+            path = input.path,
+            stub = true,
+            loads = loads,
+            exported = exported,
+            parsed = {root = stubmodules.root(), symbols = {}, errors = {}, moduleName = input.name},
+            diagnostics = {}
+        }
+    end
+    local function inputs(catalog, stubs)
+        local result = {}
+        for index, module in ipairs(catalog.modules) do
+            result[index] = stubs[index] and stubbed(catalog, index)
+                or {name = module.name, path = module.path, parsed = module.parsed, diagnostics = {}}
+        end
+        return result
+    end
+    local full = checkedProgram(sources())
+    local kept = corepiece.compile(full, tagged.forVersion(8))
+    local catalog = program.describe(inputs(full, {[3] = true}), "pieces.main")
+    test.eq(catalog.stubs["pieces.main"], true)
+    local state = corepiece.program(catalog, tagged.forVersion(8))
+    corepiece.start(state, 1)
+    corepiece.start(state, 2)
+    corepiece.adopt(state, 3, kept[3])
+    local built = {corepiece.finish(state, 1), corepiece.finish(state, 2), kept[3]}
+    same(corelink.link(built, "pieces.main"), whole())
+    refuses(function()
+        local refused = program.describe(inputs(full, {[1] = true}), "pieces.main")
+        corepiece.compile(refused, tagged.forVersion(8))
+    end, "")
+end
+
 return M

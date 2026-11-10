@@ -1,0 +1,35 @@
+module nupp.compiler.vm.stubmodules
+
+-- Modules a program catalog (nupp.compiler.vm.programgraph) holds without
+-- their checked trees: a build that keeps their pieces describes only the
+-- modules it compiles, and the modules those read. A stub has a name, a path,
+-- an initializer and what a require cycle is found from (the modules it loads
+-- and how many functions it exports), and nothing else. Describing something
+-- that needs more of one -- a factory it declares -- refuses with
+-- `NEEDS_TREE` and the module's name, so the build checks that module too
+-- and describes again.
+
+-- What a refusal for a stub's tree starts with; the module's name follows.
+export const NEEDS_TREE = "catalog needs the checked tree of module "
+
+-- The empty tree a stub stands on: a chunk that declares and runs nothing.
+export function root(): any
+    return {kind = "chunk", blocks = {}}
+end
+
+-- Refuses unless module `name` of catalog `p` has its checked tree.
+export function demand(p: any, name: string): nil
+    if p.stubs ~= nil and p.stubs[name] then
+        error(NEEDS_TREE .. name, 0)
+    end
+end
+
+-- The module whose tree a refusal `problem` names, or nil for any other.
+export function needed(problem: any): string?
+    local text = tostring(problem)
+    if text:sub(1, #NEEDS_TREE) ~= NEEDS_TREE then
+        return nil
+    end
+
+    return text:sub(#NEEDS_TREE + 1)
+end

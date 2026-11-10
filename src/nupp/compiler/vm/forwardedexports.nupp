@@ -78,8 +78,20 @@ local function loads(root: any): {string}
     return found
 end
 
---- The names of the checked modules (each `{name, parsed}`) that export a
---- function and load, through what they load, a module that loads them back.
+--- What checked module `input` (`{name, parsed}`) loads and how many functions
+--- it exports: a stub (nupp.compiler.vm.stubmodules) says, as `loads` and
+--- `exported`, what its tree did.
+export function summary(input: any): ({string}, integer)
+    if input.stub == true then
+        return input.loads, input.exported
+    end
+
+    return loads(input.parsed.root), #functions(input.parsed.root)
+end
+
+--- The names of the checked modules (each `{name, parsed}`, or a stub) that
+--- export a function and load, through what they load, a module that loads them
+--- back.
 export function cyclic(modules: {any}): {[string]: boolean}
     local canonical: {[string]: string} = {}
     for _, input in ipairs(modules) do
@@ -89,9 +101,12 @@ export function cyclic(modules: {any}): {[string]: boolean}
         end
     end
     local edges: {[string]: {string}} = {}
+    local exporting: {[string]: boolean} = {}
     for _, input in ipairs(modules) do
         local targets: {string} = {}
-        for _, name in ipairs(loads(input.parsed.root)) do
+        local loaded, exported = summary(input)
+        exporting[input.name] = exported > 0
+        for _, name in ipairs(loaded) do
             local target = canonical[name]
             if target then
                 targets[#targets + 1] = target
@@ -101,7 +116,7 @@ export function cyclic(modules: {any}): {[string]: boolean}
     end
     local found: {[string]: boolean} = {}
     for _, input in ipairs(modules) do
-        if #functions(input.parsed.root) > 0 then
+        if exporting[input.name] then
             local seen: {[string]: boolean} = {}
             local pending: {string} = {}
             for _, target in ipairs(edges[input.name] or {}) do
