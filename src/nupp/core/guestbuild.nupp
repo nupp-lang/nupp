@@ -183,6 +183,7 @@ local CASES: {[string]: {
     recordsMethods = {fixture = "catalog-records-methods", version = 8},
     callsProtected = {fixture = "catalog-calls-protected", version = 8},
     protectedpacks = {fixture = "catalog-protected-packs", version = 8},
+    compoundfloat = {fixture = "catalog-compound-float", version = 8},
     callstables = {fixture = "catalog-calls-tables", version = 8},
     nonreturningbodies = {fixture = "catalog-nonreturning-bodies", version = 8},
     recordsInline = {fixture = "catalog-records-inline", version = 8},

@@ -3014,4 +3014,12 @@ function M.constructionWidensAnInferredLiteral()
     )
 end
 
+-- An unannotated local a number literal initializes is a `number`, so a
+-- compound assignment may store a float in it, as `x = x + f` may.
+function M.compoundAssignmentWidensAnIntegerInitializedLocal()
+    assertClean("local stored = 0\nstored += 0.5\nlocal total: number = stored\nreturn total")
+    assertClean("local stored = 0\nfor _ = 1, 3 do stored += os.clock() end\nreturn stored")
+    testAssert.eq((diagsOf("local stored = 0\nstored += 0.5\nlocal exact: integer = stored\nreturn exact")), "NUPP2001:3")
+end
+
 return M

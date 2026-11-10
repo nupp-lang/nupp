@@ -1,0 +1,13 @@
+module nupp.core.catalogcompoundfloat
+
+-- A local an integer literal initializes takes the floats a compound
+-- assignment adds to it; one only ever adding integers stays exact.
+local stored = 0
+local count = 0
+for i = 1, 4 do
+    stored += i / 4
+    count += 1
+end
+stored += 0.25
+
+export const result = stored * 4 + count + 0.5
