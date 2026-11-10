@@ -1,0 +1,75 @@
+module nupp.core.catalogcompilerbuild
+
+-- The compiler CLI's `nupp build` run on the core through its real root
+-- (`nupp.tools.vm.root`, what bin/nupp starts), in a fresh project the
+-- case's run starts in: the build reads the project it is run from. First
+-- as a library, which checks its modules and records them; then as a
+-- binary, a VM program image stamped onto the VM runtime, which is then
+-- run for its answer. Each check is a bit of the score.
+const root = require("nupp.tools.vm.root")
+
+-- A project's nupp.lua is a text chunk, which the core compiles with the
+-- compiler the program carries.
+@allow("unused-binding")
+const _DYNAMIC_REQUIRES = [[
+@requires-dynamically nupp.compiler.vm.corechunk
+]]
+
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+local function write(path: string, text: string): nil
+    local file = assert(io.open(path, "wb"))
+    file:write(text)
+    file:close()
+end
+
+local function exists(path: string): boolean
+    local file = io.open(path, "rb")
+    if file == nil then
+        return false
+    end
+    file:close()
+
+    return true
+end
+
+write("main.nupp", "local total: integer = 1 + 2\nprint(total)\n")
+
+-- A library: no target, so the build checks and records its modules.
+write("nupp.lua", "return {include = {\".\"}}\n")
+check(root.main({"build"}) == 0)
+check(exists("build/.nupp-state.json") and exists("build/.nupp-complete"))
+
+-- A program: its image lowered from the sources and stamped onto the
+-- runtime, which then runs and prints what the source computes.
+write(
+    "nupp.lua",
+    "return {include = {\".\"}, build = {default = \"app\", targets = {app = "
+    .. "{kind = \"binary\", entries = {\"main\"}, stub = \"nupp\", output = \"build/app\"}}}}\n"
+)
+check(root.main({"build"}) == 0)
+check(exists("build/app"))
+-- The image names its source relative to the project, as the host's does, so
+-- the directory the project was built in is not part of the program.
+local image = assert(io.open("build/.nupp-vm-program.image", "rb"))
+local lowered = image:read("a")
+image:close()
+check(lowered:find("@main.nupp", 1, true) ~= nil and lowered:find("/main.nupp", 1, true) == nil)
+-- Through its value, so the handle is a plain value as Lua's files are.
+local popen: any = io.popen
+local ran = popen("./build/app")
+local printed = ran and ran:read("a")
+if ran then
+    ran:close()
+end
+check(printed == "3\n")
+
+export const result = score

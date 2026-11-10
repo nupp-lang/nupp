@@ -1,0 +1,32 @@
+module nupp.core.catalogbundledlist
+
+-- The compiler's carried files listed on a host that carries none, as the
+-- native core is: the command line's root installs a `nupp.embedded`
+-- preload that answers nothing there, and the list falls through to the
+-- checkout NUPP_COMPILER_ROOT names, as reading one file does. Each check
+-- is a bit of the score.
+const resources = require("nupp.compiler.bundledlist")
+
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+package.preload["nupp.embedded"] = function(): any
+    return nil
+end
+local listed, found = pcall(resources.list, "/decls")
+check(listed)
+local prelude = false
+for _, path in ipairs(listed and found as {string} or {}) do
+    prelude = prelude or path == "/decls/prelude.d.nupp"
+end
+check(prelude)
+check(prelude and resources.source("/decls/prelude.d.nupp") ~= nil)
+
+export const result = score

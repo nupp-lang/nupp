@@ -45,6 +45,12 @@ function M.oneBundleTreeCarriesRunsRebuildsAndTravelsAlone()
     assert(ok, "the binary target builds" .. where .. ": " .. out)
     local first = readFile(dir .. BUILT)
     assert(first, "the program was written to build/app" .. where)
+    -- Its sources are named relative to the project, so where the project sat
+    -- is not part of the program.
+    assert(
+        not first:find(assert(dir:match("([^/]+)/*$")), 1, true),
+        "the program does not name the directory it was built in" .. where
+    )
 
     -- One file, runnable with no toolchain beside it.
     local ran, ranOk = run(dir, EXECUTABLE)
