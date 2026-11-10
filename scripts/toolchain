@@ -895,6 +895,9 @@ select_host_features() {
             native-compression|compression)
                 host_cargo_features="$host_cargo_features,native-compression"
                 ;;
+            native-uuid|uuid)
+                host_cargo_features="$host_cargo_features,native-uuid"
+                ;;
             native-codegen|codegen)
                 if codegen_wanted; then
                     host_cargo_features="$host_cargo_features,native-codegen"
