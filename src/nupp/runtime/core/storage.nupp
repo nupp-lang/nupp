@@ -93,36 +93,67 @@ local function valid(s: Storage*): boolean
     end
 end
 
+-- Copies and fills go a run of four words at a time, the bytes past the
+-- last run one by one.
+const RUN_BYTES: uint64 = 32ULL
+
 local function zero(base: uint64, count: uint64): nil
+    local to = native.pointer(base)
     local i: uint64 = 0ULL
+    while i + RUN_BYTES <= count do
+        local at = native.index(i)
+        native.store64(to, at, 0ULL)
+        native.store64(to, at + 8, 0ULL)
+        native.store64(to, at + 16, 0ULL)
+        native.store64(to, at + 24, 0ULL)
+        i = i + RUN_BYTES
+    end
     while i < count do
-        native.store8(native.pointer(base), native.index(i), 0ULL)
+        native.store8(to, native.index(i), 0ULL)
         i = i + 1ULL
     end
 end
 
+-- Copies the bytes of a copy past its last whole run, from `whole` to
+-- `count`: up from the first, or down from the last.
+local function copytail(to: voidptr, from: voidptr, whole: uint64, count: uint64, up: boolean): nil
+    local last = native.index(count - 1ULL)
+    local k: uint64 = 0ULL
+    while whole + k < count do
+        local at = native.chooseIndex(up, native.index(whole + k), last - native.index(k))
+        native.store8(to, at, native.word(native.load8(from, at)))
+        k = k + 1ULL
+    end
+end
+
 -- Both ranges are caller-proven and may overlap, including in either direction.
+-- A copy toward lower addresses goes up from the start and one toward higher
+-- addresses down from the end, so no load reads a byte a store has already
+-- written: whatever a run stores lies wholly before (or after) every byte
+-- still to be loaded. Each run is loaded whole before any of it is stored.
 export function copy(target: uint64, source: uint64, count: uint64, stats: CopyStats*): nil
-    if target <= source then
-        local i: uint64 = 0ULL
-        while i < count do
-            native.store8(
-                native.pointer(target),
-                native.index(i),
-                native.word(native.load8(native.pointer(source), native.index(i)))
-            )
-            i = i + 1ULL
-        end
-    else
-        local i = count
-        while i > 0ULL do
-            i = i - 1ULL
-            native.store8(
-                native.pointer(target),
-                native.index(i),
-                native.word(native.load8(native.pointer(source), native.index(i)))
-            )
-        end
+    local to = native.pointer(target)
+    local from = native.pointer(source)
+    local up = target <= source
+    local whole = count - count % RUN_BYTES
+    if not up then
+        copytail(to, from, whole, count, up)
+    end
+    local i: uint64 = 0ULL
+    while i < whole do
+        local at = native.chooseIndex(up, native.index(i), native.index(whole - RUN_BYTES - i))
+        local w0 = native.load64(from, at)
+        local w1 = native.load64(from, at + 8)
+        local w2 = native.load64(from, at + 16)
+        local w3 = native.load64(from, at + 24)
+        native.store64(to, at, w0)
+        native.store64(to, at + 8, w1)
+        native.store64(to, at + 16, w2)
+        native.store64(to, at + 24, w3)
+        i = i + RUN_BYTES
+    end
+    if up then
+        copytail(to, from, whole, count, up)
     end
     if native.address(stats as voidptr) ~= 0ULL then
         @unsafe stats.bytes = stats.bytes + count
