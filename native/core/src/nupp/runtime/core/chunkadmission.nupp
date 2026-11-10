@@ -1,0 +1,340 @@
+module nupp.runtime.core.chunkadmission
+
+-- Admission of a binary chunk's code (guestloader), once its rows have
+-- validated (guestcatalog.validate) and before its functions renumber into
+-- the running program. A chunk is a string any program can make, so it
+-- passes here or does not load: every instruction is one the core runs,
+-- naming registers inside its function's window, constants inside its
+-- function's, branch targets inside its code, the call-site row that
+-- describes its call, closures of functions nested in it with the captures
+-- their upvalue reads need, and modules of its own; and the relocation
+-- words name exactly the instructions' function operands, in order. What a
+-- handler would refuse as it ran, ending the program (guestops.INVALID),
+-- is instead a `load` that answers nil and "bad binary format".
+--
+-- The program's own artifact is not scanned. It is the checked-source
+-- build's, trusted as built, and its handlers check what each instruction
+-- names as it runs, which is what keeps a chunk admitted here safe too.
+const native = require("nupp.runtime.vm.intrinsics")
+const catalog = require("nupp.runtime.core.guestcatalog")
+const frames = require("nupp.runtime.core.frames")
+const opcodes = require("nupp.runtime.core.chunkopcodes")
+const librarylayouts = require("nupp.runtime.core.librarylayouts")
+
+-- A relocation word: its kind over the artifact offset of the operand it
+-- moves, an instruction's function word (a call's or a closure's, the
+-- absent index left as it is), or its required module.
+export const RELOCATE_FUNCTION: uint64 = 1ULL
+export const RELOCATE_MODULE: uint64 = 2ULL
+export const RELOCATION_SHIFT: uint64 = 48ULL
+const OFFSET_MASK: uint64 = 0xffffffffffffULL
+-- Where in its instruction each wide operand is: the function word, and
+-- the signed word holding a constant, a module, a branch's displacement or
+-- an upvalue's index.
+const FUNCTION_FIELD: uint64 = 8ULL
+const SIGNED_FIELD: uint64 = 4ULL
+const INSTRUCTION_BYTES: uint64 = 16ULL
+const WORD: uint64 = 8ULL
+const BYTE_MASK: uint64 = 0xffULL
+const SIGNED_MASK: uint64 = 0xffffffffULL
+-- A signed word at or past this is negative.
+const NEGATIVE: uint64 = 0x80000000ULL
+const ABSENT: uint64 = 0xffffffffULL
+-- The largest id a module operand, a signed word, holds.
+const MODULE_LIMIT: uint64 = 0x7fffffffULL
+-- The bytes after the opcode, by what the call-shaped instructions keep in
+-- them: the callee or result source, the window's base or second operand,
+-- an argument or capture count, the results wanted, a pack.
+const BYTE_A: uint64 = 1ULL
+const BYTE_B: uint64 = 2ULL
+const BYTE_C: uint64 = 3ULL
+const BYTE_D: uint64 = 4ULL
+const BYTE_E: uint64 = 5ULL
+-- The register bytes a shape may mark.
+const REGISTER_BYTES: uint64 = 8ULL
+-- The most arguments a call stages itself (guestops.CALL_ARGUMENTS), and
+-- the slots a spreading call's window takes: the callee and 63 arguments.
+const CALL_ARGUMENTS: uint64 = 63ULL
+const CALL_WINDOW: uint64 = 64ULL
+-- The fewest values a frame running XPHandle or Destroy holds: they call
+-- through its last slots.
+const META_VALUES: uint64 = 5ULL
+-- The two passes over a chunk's code (scan).
+const CHECK: uint64 = 0ULL
+const UPVALUES: uint64 = 1ULL
+
+local function byteAt(d: voidptr, at: uint64, field: uint64): uint64
+    return native.word(native.load8(d, native.index(at + field))) & BYTE_MASK
+end
+
+local function signedAt(d: voidptr, at: uint64): uint64
+    return native.word(native.load32(d, native.index(at + SIGNED_FIELD))) & SIGNED_MASK
+end
+
+local function kindOf(d: voidptr, id: uint64): uint64
+    return native.load64(catalog.functionRecord(d, id), native.fieldOffset<catalog.Function>("kind"))
+end
+
+-- Whether the branch at `pc` of `size` instructions, displaced by signed
+-- word `displacement`, lands inside them (guestops.branch).
+local function lands(displacement: uint64, pc: uint64, size: uint64): boolean
+    if displacement < NEGATIVE then
+        return displacement < size - pc - 1ULL
+    end
+
+    return SIGNED_MASK - displacement <= pc
+end
+
+-- A NewClosure at `at` in function `owner`: of a function nested directly
+-- in it, its captures inside the window. Keeps in `captures` the fewest any
+-- closure of the function gives, plus one.
+local function closure(d: voidptr, owner: uint64, at: uint64, nv: uint64, captures: voidptr): boolean
+    local target = native.load64(d, native.index(at + FUNCTION_FIELD))
+    if target >= native.load64(d, native.fieldOffset<catalog.Descriptor>("ownerCount")) then
+        return false
+    end
+    local fn = catalog.functionRecord(d, target)
+    local count = byteAt(d, at, BYTE_C)
+    if native.load64(fn, native.fieldOffset<catalog.Function>("kind")) ~= catalog.FUNCTION
+        or native.load64(fn, native.fieldOffset<catalog.Function>("parentPlusOne")) ~= owner + 1ULL
+        or byteAt(d, at, BYTE_B) + count >= nv
+    then
+        return false
+    end
+    local held = native.load64(captures, native.index(target * WORD))
+    if held == 0ULL or count + 1ULL < held then
+        native.store64(captures, native.index(target * WORD), count + 1ULL)
+    end
+
+    return true
+end
+
+-- A CallK, CallV or PCall at `at`, the `pc`th instruction: its window is
+-- the frame's and its call-site row, `site`, is the call it makes.
+local function call(d: voidptr, op: uint64, at: uint64, pc: uint64, nv: uint64, site: voidptr): boolean
+    local base = byteAt(d, at, BYTE_B)
+    local nargs = byteAt(d, at, BYTE_C)
+    local hint = native.load64(d, native.index(at + FUNCTION_FIELD))
+    if byteAt(d, at, BYTE_A) ~= base
+        or nargs > CALL_ARGUMENTS
+        or byteAt(d, at, BYTE_D) > frames.MAX_RESULTS
+        or base + 1ULL >= nv
+        or nargs > nv - base - 1ULL
+        or hint ~= ABSENT and hint >= native.load64(d, native.fieldOffset<catalog.Descriptor>("ownerCount"))
+    then
+        return false
+    end
+    local spreads = op == opcodes.CALL_V
+    if op == opcodes.P_CALL then
+        local packed = byteAt(d, at, BYTE_E)
+        spreads = packed ~= 0ULL
+        if packed > nv then
+            return false
+        end
+    end
+    if spreads and base + CALL_WINDOW > nv then
+        return false
+    end
+
+    return native.load64(site, native.fieldOffset<catalog.Callsite>("pc")) == pc
+        and native.load64(site, native.fieldOffset<catalog.Callsite>("target")) == hint
+        and native.load64(site, native.fieldOffset<catalog.Callsite>("argumentBase")) == base
+end
+
+-- The checks of the instructions whose counts size a window of their own.
+local function windows(d: voidptr, op: uint64, at: uint64, nv: uint64): boolean
+    if op == opcodes.LIB_CALL then
+        local count = byteAt(d, at, BYTE_C) & librarylayouts.COUNT_MASK
+
+        return count >= 1ULL and count <= librarylayouts.ARGUMENTS and byteAt(d, at, BYTE_B) + count < nv
+    elseif op == opcodes.RET_N then
+        local count = byteAt(d, at, BYTE_B)
+
+        return count <= frames.MAX_RESULTS and byteAt(d, at, BYTE_A) + count <= nv
+    elseif op == opcodes.RET_V then
+        return byteAt(d, at, BYTE_B) <= frames.MAX_RESULTS and byteAt(d, at, BYTE_A) + frames.MAX_RESULTS <= nv
+    elseif op == opcodes.XP_HANDLE then
+        return nv >= META_VALUES and byteAt(d, at, BYTE_A) + 1ULL < nv
+    elseif op == opcodes.DESTROY then
+        return nv >= META_VALUES
+    end
+
+    return true
+end
+
+-- Whether the operands `shape` marks fit a function of `size` instructions,
+-- `nv` values and `nk` constants: registers, constants, branch targets and
+-- modules.
+local function operands(
+    d: voidptr,
+    at: uint64,
+    pc: uint64,
+    size: uint64,
+    nv: uint64,
+    nk: uint64,
+    shape: uint64
+): boolean
+    local b = BYTE_A
+    while b < REGISTER_BYTES do
+        if shape & (1ULL << b) ~= 0ULL and byteAt(d, at, b) >= nv then
+            return false
+        end
+        b = b + 1ULL
+    end
+    if shape & opcodes.FALLS ~= 0ULL and pc + 1ULL >= size
+        or shape & opcodes.CONSTANT_OPERAND ~= 0ULL and signedAt(d, at) >= nk
+        or shape & opcodes.BRANCH_OPERAND ~= 0ULL and not lands(signedAt(d, at), pc, size)
+    then
+        return false
+    end
+    if shape & opcodes.MODULE_OPERAND ~= 0ULL then
+        local target = signedAt(d, at)
+
+        return target < native.load64(d, native.fieldOffset<catalog.Descriptor>("ownerCount"))
+            and kindOf(d, target) == catalog.INITIALIZER
+    end
+
+    return true
+end
+
+-- Whether relocation word `word` moves the operand of the instruction at
+-- `at` that `shape` marks: its module, else its function word.
+local function relocates(word: uint64, shape: uint64, at: uint64): boolean
+    if shape & opcodes.MODULE_OPERAND ~= 0ULL then
+        return word == RELOCATE_MODULE << RELOCATION_SHIFT | at + SIGNED_FIELD
+    end
+
+    return word == RELOCATE_FUNCTION << RELOCATION_SHIFT | at + FUNCTION_FIELD
+end
+
+-- Scans function `owner`'s code: in CHECK every instruction's operands, its
+-- relocations the `count` words at `words` from `relocation` on, keeping
+-- the captures each closure it makes gives; in UPVALUES, once every
+-- function's closures are known, its upvalue reads against the fewest
+-- captures any closure of it holds (a function no closure makes never
+-- runs). Answers the relocation after its own plus one, or 0 when it is
+-- refused.
+local function scan(
+    d: voidptr,
+    owner: uint64,
+    words: voidptr,
+    count: uint64,
+    relocation: uint64,
+    captures: voidptr,
+    phase: uint64
+): uint64
+    local fn = catalog.functionRecord(d, owner)
+    local code = native.load64(fn, native.fieldOffset<catalog.Function>("code"))
+    local size = native.load64(fn, native.fieldOffset<catalog.Function>("instructionCount"))
+    local nv = native.load64(fn, native.fieldOffset<catalog.Function>("valueCount"))
+    local nk = native.load64(fn, native.fieldOffset<catalog.Function>("constantCount"))
+    local held = native.load64(captures, native.index(owner * WORD))
+    local sites = native.load64(d, native.fieldOffset<catalog.Descriptor>("contracts"))
+    local site = native.load64(fn, native.fieldOffset<catalog.Function>("firstCall"))
+    local last = site + native.load64(fn, native.fieldOffset<catalog.Function>("callCount"))
+    local next = relocation
+    local pc: uint64 = 0ULL
+    while pc < size do
+        local at = code + pc * INSTRUCTION_BYTES
+        local op = byteAt(d, at, 0ULL)
+        if phase == UPVALUES then
+            if op == opcodes.GET_UPVAL and held ~= 0ULL and signedAt(d, at) + 1ULL >= held then
+                return 0ULL
+            end
+        else
+            local shape = opcodes.shape(op)
+            local relocated = shape & (opcodes.FUNCTION_OPERAND | opcodes.MODULE_OPERAND) ~= 0ULL
+            if shape == 0ULL
+                or relocated
+                and (next >= count or not relocates(native.load64(words, native.index(next * WORD)), shape, at))
+                or not operands(d, at, pc, size, nv, nk, shape)
+                or not windows(d, op, at, nv)
+            then
+                return 0ULL
+            end
+            if relocated then
+                next = next + 1ULL
+            end
+            if op == opcodes.NEW_CLOSURE then
+                if not closure(d, owner, at, nv, captures) then
+                    return 0ULL
+                end
+            elseif op == opcodes.CALL_K or op == opcodes.CALL_V or op == opcodes.P_CALL then
+                local row = native.offset(d, native.index(sites + site * native.sizeOf<catalog.Callsite>()))
+                if site >= last or not call(d, op, at, pc, nv, row) then
+                    return 0ULL
+                end
+                site = site + 1ULL
+            elseif op == opcodes.GET_UPVAL then
+                -- A module's chunk runs with no closure to read.
+                if signedAt(d, at) >= NEGATIVE or kindOf(d, owner) ~= catalog.FUNCTION then
+                    return 0ULL
+                end
+            end
+        end
+        pc = pc + 1ULL
+    end
+    if phase == CHECK and site ~= last then
+        return 0ULL
+    end
+
+    return next + 1ULL
+end
+
+-- Moves the chunk's operands onto ids from `first`, the checked relocations
+-- having named exactly them.
+local function relocate(d: voidptr, words: voidptr, count: uint64, first: uint64): nil
+    local i: uint64 = 0ULL
+    while i < count do
+        local word = native.load64(words, native.index(i * WORD))
+        local at = word & OFFSET_MASK
+        if word >> RELOCATION_SHIFT == RELOCATE_FUNCTION then
+            local value = native.load64(d, native.index(at))
+            if value ~= ABSENT then
+                native.store64(d, native.index(at), value + first)
+            end
+        else
+            native.store32(
+                d,
+                native.index(at),
+                native.index((native.word(native.load32(d, native.index(at))) & SIGNED_MASK) + first)
+            )
+        end
+        i = i + 1ULL
+    end
+end
+
+-- Admits the code of the validated chunk artifact `d`, whose relocations
+-- are the `count` words at `relocations`, and moves its operands onto the
+-- function ids it joins the catalog at, from `first`. `captures` is fresh
+-- zeroed room for a word per function. Answers 1, or 0 when it is refused,
+-- leaving the artifact as it was.
+export function admit(d: voidptr, relocations: uint64, count: uint64, first: uint64, captures: voidptr): uint64
+    local owners = native.load64(d, native.fieldOffset<catalog.Descriptor>("ownerCount"))
+    if first + owners > MODULE_LIMIT then
+        return 0ULL
+    end
+    local words = native.pointer(relocations)
+    local next: uint64 = 0ULL
+    local phase = CHECK
+    while phase <= UPVALUES do
+        local owner: uint64 = 0ULL
+        while owner < owners do
+            local after = scan(d, owner, words, count, next, captures, phase)
+            if after == 0ULL then
+                return 0ULL
+            end
+            if phase == CHECK then
+                next = after - 1ULL
+            end
+            owner = owner + 1ULL
+        end
+        if next ~= count then
+            return 0ULL
+        end
+        phase = phase + 1ULL
+    end
+    relocate(d, words, count, first)
+
+    return 1ULL
+end
