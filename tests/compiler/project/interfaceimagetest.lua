@@ -923,4 +923,38 @@ return {value = original, read = read, matches = matches}
     end
 end
 
+-- An unannotated body's signature says `rets = {any}` over `(...any)`; a declared
+-- `function(): (...any)` says `rets = {}` over the same pack. Whichever a process
+-- made first used to answer for both, so a module's checked interface depended on
+-- what was checked before it. Made in either order, each keeps its own.
+function M.aSignatureDoesNotDependOnWhichSpellingWasMadeFirst()
+    local tail = T.pack({}, {kind = "unknown", type = T.any})
+    local orders = {
+        {name = "unannotated first", "unannotated", "declared"},
+        {name = "declared first", "declared", "unannotated"},
+    }
+    local seen = {}
+    for index, order in ipairs(orders) do
+        -- A parameter no other signature has, so each order interns afresh.
+        local base = T.func({T.literal("interning-order-" .. index)}, {})
+        local made = {}
+        for _, which in ipairs(order) do
+            made[which] = T.funcWith(base, {rets = which == "unannotated" and {T.any} or {}, retPack = tail})
+        end
+        seen[
+            index
+        ] = {
+            unannotated = #made.unannotated.rets,
+            declared = #made.declared.rets,
+            unannotatedImage = #roundTrip(made.unannotated).rets,
+            declaredImage = #roundTrip(made.declared).rets,
+        }
+    end
+    for _, field in ipairs({"unannotated", "declared", "unannotatedImage", "declaredImage"}) do
+        testAssert.eq(seen[1][field], seen[2][field], field .. " is the same in either order")
+    end
+    testAssert.eq(seen[1].unannotated, 1, "an unannotated body keeps its one any")
+    testAssert.eq(seen[1].declared, 0, "a declared pack keeps no fixed result")
+end
+
 return M
