@@ -382,10 +382,12 @@ end
 
 --- `path` as a program image names it: relative to the project, or to the
 --- compiler checkout for the library it carries, so where either sat on the
---- building machine is not part of the binary.
+--- building machine is not part of the binary. A build names its project `.`,
+--- and the sources it lowers by their absolute paths, so both bases are made
+--- absolute before they are compared.
 local function programPath(root: string, compilerRoot: string, path: string): string
     for _, base in ipairs({root, compilerRoot}) do
-        local prefix = fs.normalize(base) .. "/"
+        local prefix = fs.absolute(base) .. "/"
         if path:sub(1, #prefix) == prefix then
             return "@" .. path:sub(#prefix + 1)
         end
