@@ -23,7 +23,7 @@ export function checked(source: any, path: string, moduleName: string): (any, an
     local env: any = environment.new(ROOT, {
         cache = false,
         nativeCompilerServices = false,
-        config = {include = {"src", "native/core/src"}}
+        config = {include = {"src"}}
     })
     local parsed: any = parser.parse(source, path)
     assert(#parsed.errors == 0, "core fixture did not parse")

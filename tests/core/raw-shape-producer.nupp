@@ -21,7 +21,7 @@ export function compile(mode: string, entry: string): string
     assert(mode == "normal" or mode == "spill")
     assert(entry == "admit" or entry == "probe")
     assert(
-        front.read(ROOT .. "/native/core/src/nupp/runtime/core/rawroles.nupp") == generator.source(),
+        front.read(ROOT .. "/src/nupp/runtime/core/rawroles.nupp") == generator.source(),
         "generated wire source differs"
     )
     local groups, modules = {}, {}
@@ -30,13 +30,13 @@ export function compile(mode: string, entry: string): string
         {"rawheader", "src/nupp/runtime/core/rawheader.nupp"},
         {"rawroles", "src/nupp/runtime/core/rawroles.nupp"},
         {"rawshape", "src/nupp/runtime/core/rawshape.nupp"},
-        {"rawshapeprobe", "tests/raw-shape-probe.nupp"},
-        {"rawheaderlayout", "tests/raw-header-layout.nupp"}
+        {"rawshapeprobe", "tests/core/raw-shape-probe.nupp"},
+        {"rawheaderlayout", "tests/core/raw-header-layout.nupp"}
     }) do
         local name = "nupp.runtime.core." .. item[1]
         local owners, options = front.checked(
-            front.read(ROOT .. "/native/core/" .. item[2]),
-            ROOT .. "/native/core/src/nupp/runtime/core/" .. item[1] .. ".nupp",
+            front.read(ROOT .. "/" .. item[2]),
+            ROOT .. "/src/nupp/runtime/core/" .. item[1] .. ".nupp",
             name
         )
         groups[#groups + 1] = {name = name, owners = owners}

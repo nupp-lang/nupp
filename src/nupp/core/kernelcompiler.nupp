@@ -25,13 +25,12 @@ const ROOT_MODULE = "nupp.core.unitrunner"
 -- that only it reaches lives.
 const GUEST_MODULE = "nupp.core.guestbuild"
 const GUEST_LOWERING = "src/nupp/compiler/vm/"
--- Where the units project (native/core/tests/units/nupp.lua) resolves modules
+-- Where the units project (tests/core/units/nupp.lua) resolves modules
 -- from, relative to the checkout root, in its order.
 const SEARCH = {
-    "native/core/tests/units",
+    "tests/core/units",
     "tests/fixtures/nativeheap",
     "src",
-    "native/core/src",
     "spike/native-lowering/src",
     "spike/native-lowering/nativegraph/src",
     "native/crates/vm/lib",
@@ -43,7 +42,7 @@ const SUFFIXES = {".nupp", ".d.nupp", "/init.nupp", ".lua", "/init.lua"}
 -- configuration.
 const READ = "find src/nupp/compiler -name '*.nupp'; ls src/nupp/runtime/vm/*.d.nupp "
     .. "spike/native-lowering/src/s0/*.nupp spike/native-lowering/nativegraph/src/nupp/compiler/s0/*.nupp "
-    .. "native/core/tests/units/nupp.lua"
+    .. "tests/core/units/nupp.lua"
 
 local function readFile(path: string): string?
     local file = io.open(path, "rb")

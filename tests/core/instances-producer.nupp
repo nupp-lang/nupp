@@ -17,15 +17,11 @@ local PROBE = "nupp.runtime.core.instancesprobe"
 
 export function compile(mode: string): string
     assert(mode == "normal" or mode == "spill")
-    local path = ROOT .. "/native/core/src/nupp/runtime/core/instances.nupp"
+    local path = ROOT .. "/src/nupp/runtime/core/instances.nupp"
     local owners, options = front.checked(front.read(path), path, MODULE)
     options.abi = "leaf"
-    local probePath = ROOT .. "/native/core/src/nupp/runtime/core/instancesprobe.nupp"
-    local probes, probeOptions = front.checked(
-        front.read(ROOT .. "/native/core/tests/instances-probe.nupp"),
-        probePath,
-        PROBE
-    )
+    local probePath = ROOT .. "/src/nupp/runtime/core/instancesprobe.nupp"
+    local probes, probeOptions = front.checked(front.read(ROOT .. "/tests/core/instances-probe.nupp"), probePath, PROBE)
     probeOptions.abi = "leaf"
     probeOptions.modules[MODULE] = options.modules[MODULE]
     local resolved, names = {}, {}

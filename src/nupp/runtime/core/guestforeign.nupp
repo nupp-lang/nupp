@@ -43,7 +43,7 @@ const BLOCK_BYTES: uint64 = 272ULL
 const REGISTERS: int64 = 8
 const WORD: int64 = 8
 
--- The bridge's table (`SLOTS` in native/core/bridge/src/library.rs) and the
+-- The bridge's table (`SLOTS` in native/crates/core-bridge/src/library.rs) and the
 -- words of it the linked code keeps (nativeos.kernelCells): the guest's
 -- entries follow, each its key's length (0 past the last), the address and
 -- the key's bytes, a word at a time.

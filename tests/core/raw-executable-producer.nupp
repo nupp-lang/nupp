@@ -45,27 +45,21 @@ end
 export function compile(mode: string): string
     assert(mode == "normal" or mode == "spill")
     assert(
-        front.read(ROOT .. "/native/core/src/nupp/runtime/core/rawsemanticpolicy.nupp") == generator.source(),
+        front.read(ROOT .. "/src/nupp/runtime/core/rawsemanticpolicy.nupp") == generator.source(),
         "generated wire source differs"
     )
     assert(
-        front.read(ROOT .. "/native/core/src/nupp/runtime/core/rawbudgetpolicy.nupp") == budgetgen.source(),
+        front.read(ROOT .. "/src/nupp/runtime/core/rawbudgetpolicy.nupp") == budgetgen.source(),
         "generated budget source differs"
     )
     assert(
-        front.read(ROOT .. "/native/core/src/nupp/runtime/core/rawexecutablepolicy.nupp") == executablegen.source(),
+        front.read(ROOT .. "/src/nupp/runtime/core/rawexecutablepolicy.nupp") == executablegen.source(),
         "generated executable policy differs"
     )
+    assert(front.read(ROOT .. "/src/nupp/runtime/core/rawwire.nupp") == wiregen.source(), "generated wire differs")
+    assert(front.read(ROOT .. "/src/nupp/runtime/core/rawroles.nupp") == shapegen.source(), "generated shape differs")
     assert(
-        front.read(ROOT .. "/native/core/src/nupp/runtime/core/rawwire.nupp") == wiregen.source(),
-        "generated wire differs"
-    )
-    assert(
-        front.read(ROOT .. "/native/core/src/nupp/runtime/core/rawroles.nupp") == shapegen.source(),
-        "generated shape differs"
-    )
-    assert(
-        front.read(ROOT .. "/native/core/src/nupp/runtime/core/rawcatalogpolicy.nupp") == cataloggen.source(),
+        front.read(ROOT .. "/src/nupp/runtime/core/rawcatalogpolicy.nupp") == cataloggen.source(),
         "generated catalog differs"
     )
     local groups, modules = {}, {}
@@ -83,12 +77,12 @@ export function compile(mode: string): string
         {"guestcatalog", "src/nupp/runtime/core/guestcatalog.nupp"},
         {"rawexecutablepolicy", "src/nupp/runtime/core/rawexecutablepolicy.nupp"},
         {"rawexecutable", "src/nupp/runtime/core/rawexecutable.nupp"},
-        {"rawheaderlayout", "tests/raw-header-layout.nupp"}
+        {"rawheaderlayout", "tests/core/raw-header-layout.nupp"}
     }) do
         local name = "nupp.runtime.core." .. item[1]
         local owners, options = front.checked(
-            front.read(ROOT .. "/native/core/" .. item[2]),
-            ROOT .. "/native/core/src/nupp/runtime/core/" .. item[1] .. ".nupp",
+            front.read(ROOT .. "/" .. item[2]),
+            ROOT .. "/src/nupp/runtime/core/" .. item[1] .. ".nupp",
             name
         )
         groups[#groups + 1] = {name = name, owners = owners}

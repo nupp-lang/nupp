@@ -39,14 +39,14 @@ export function compile(mode: string): string
         {"arena", "src/nupp/runtime/core/arena.nupp"},
         {"frames", "src/nupp/runtime/core/frames.nupp"},
         {"rootentry", "src/nupp/runtime/core/rootentry.nupp"},
-        {"rootprobe", "tests/root-probe.nupp"},
+        {"rootprobe", "tests/core/root-probe.nupp"},
         {"context", "src/nupp/runtime/core/context.nupp"},
-        {"rootlayout", "tests/root-layout.nupp"}
+        {"rootlayout", "tests/core/root-layout.nupp"}
     }) do
         local name = "nupp.runtime.core." .. item[1]
         local functions, options = front.checked(
-            front.read(ROOT .. "/native/core/" .. item[2]),
-            ROOT .. "/native/core/src/nupp/runtime/core/" .. item[1] .. ".nupp",
+            front.read(ROOT .. "/" .. item[2]),
+            ROOT .. "/src/nupp/runtime/core/" .. item[1] .. ".nupp",
             name
         )
         groups[#groups + 1] = {name = name, functions = functions}

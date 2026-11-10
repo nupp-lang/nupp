@@ -2,7 +2,7 @@
 -- interleaved and repeated, so neither startup nor a loaded machine decides
 -- the comparison.
 --
---   cd native/core/tests/perf && ../../../../bin/nupp run run.lua [OPTION...]
+--   cd tests/core/perf && ../../../bin/nupp run run.lua [OPTION...]
 --
 -- Each run is one process measuring one workload with debug.bench: a warmup
 -- and seven rounds with collection stopped, timed on the monotonic clock in
@@ -39,7 +39,7 @@
 -- The core bundles come from the guest runner (`run.lua benchworkloads
 -- workloadLoops` in ../guests); the bridge from its cargo build.
 local HERE = debug.getinfo(1, "S").source:match("^@(/.*)/[^/]*$")
-local ROOT = os.getenv("NUPP_COMPILER_ROOT") or (HERE and HERE .. "/../../../..") or "../../../.."
+local ROOT = os.getenv("NUPP_COMPILER_ROOT") or (HERE and HERE .. "/../../..") or "../../.."
 local BRIDGE = os.getenv("NUPP_CORE_BRIDGE") or ROOT .. "/build/core-bridge/debug/nupp-core"
 local SOURCE = ROOT .. "/bench/vm/workloads.bench.nupp"
 local CASES = {"fib", "closures", "records", "tables", "strings", "loops"}
@@ -53,6 +53,7 @@ local function split(text)
     for item in text:gmatch("[^,]+") do
         list[#list + 1] = item
     end
+
     return list
 end
 
@@ -110,6 +111,7 @@ local function record(command, case)
     if not median or printed:match('"name":"([^"]+)"') ~= case then
         return nil
     end
+
     return median
 end
 
@@ -121,6 +123,7 @@ local function whole(command)
     if not ok then
         return nil
     end
+
     return elapsed
 end
 
@@ -138,6 +141,7 @@ local function counted(command)
     if not ok then
         return nil
     end
+
     return tonumber(printed:match("(%d+)%s+" .. COUNTERS[metric]))
 end
 
@@ -161,23 +165,16 @@ for _, core in ipairs(cores) do
             end
             if metric ~= "time" then
                 return counted(
-                    ("%s %s %s %s --case %s --json --out /dev/null"):format(
-                        quote(BRIDGE),
-                        quote(core.bundle),
-                        quote(empty),
-                        quote(nowhere),
-                        quote(case)
-                    )
+                    (
+                        "%s %s %s %s --case %s --json --out /dev/null"
+                    ):format(quote(BRIDGE), quote(core.bundle), quote(empty), quote(nowhere), quote(case))
                 )
             end
+
             return record(
-                ("%s %s %s %s --case %s --json --out /dev/null"):format(
-                    quote(BRIDGE),
-                    quote(core.bundle),
-                    quote(empty),
-                    quote(nowhere),
-                    quote(case)
-                ),
+                (
+                    "%s %s %s %s --case %s --json --out /dev/null"
+                ):format(quote(BRIDGE), quote(core.bundle), quote(empty), quote(nowhere), quote(case)),
                 case
             )
         end
@@ -191,11 +188,9 @@ if vm then
                 return nil
             end
             return record(
-                ("cd %s && ./bin/nupp run %s --case %s --json --out /dev/null"):format(
-                    quote(ROOT),
-                    quote(SOURCE),
-                    quote(case)
-                ),
+                (
+                    "cd %s && ./bin/nupp run %s --case %s --json --out /dev/null"
+                ):format(quote(ROOT), quote(SOURCE), quote(case)),
                 case
             )
         end
@@ -215,6 +210,7 @@ local function median(list)
     if n % 2 == 1 then
         return sorted[(n + 1) // 2]
     end
+
     return (sorted[n // 2] + sorted[n // 2 + 1]) / 2
 end
 
@@ -223,6 +219,7 @@ local function range(list)
     for _, value in pairs(list) do
         low, high = math.min(low, value), math.max(high, value)
     end
+
     return low, high
 end
 
@@ -241,7 +238,9 @@ for round = 1, repeats do
             local value = runner.measure(case)
             results[case][runner.name][round] = value
             io.stderr:write(
-                ("repeat %d %s %s %s\n"):format(
+                (
+                    "repeat %d %s %s %s\n"
+                ):format(
                     round,
                     case,
                     runner.name,
@@ -253,9 +252,11 @@ for round = 1, repeats do
 end
 
 local lines = {}
+
 local function line(text)
     lines[#lines + 1] = text
 end
+
 local header = {"| workload"}
 local rule = {"| ---"}
 for index, runner in ipairs(runners) do
@@ -302,12 +303,16 @@ end
 line("")
 if metric == "time" then
     line(
-        ("%d repeats; each figure is the median over repeats of one process's median of seven in-process rounds"):format(
-            repeats
-        ) .. " (core loops: one whole process)."
+        (
+            "%d repeats; each figure is the median over repeats of one process's median of seven in-process rounds"
+        ):format(repeats) .. " (core loops: one whole process)."
     )
 else
-    line(("%d repeats; each figure is the median over repeats of one whole process's %s."):format(repeats, COUNTERS[metric]))
+    line(
+        (
+            "%d repeats; each figure is the median over repeats of one whole process's %s."
+        ):format(repeats, COUNTERS[metric])
+    )
 end
 local text = table.concat(lines, "\n") .. "\n"
 io.write(text)

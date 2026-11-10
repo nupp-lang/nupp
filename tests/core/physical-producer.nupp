@@ -17,8 +17,8 @@ local MODULE = "nupp.runtime.core.physicalprobe"
 
 export function compile(mode: string): string
     assert(mode == "normal" or mode == "spill")
-    local path = ROOT .. "/native/core/src/nupp/runtime/core/physicalprobe.nupp"
-    local owners, options = front.checked(front.read(ROOT .. "/native/core/tests/physical-probe.nupp"), path, MODULE)
+    local path = ROOT .. "/src/nupp/runtime/core/physicalprobe.nupp"
+    local owners, options = front.checked(front.read(ROOT .. "/tests/core/physical-probe.nupp"), path, MODULE)
     options.abi, options.physicalTarget = "leaf", "aarch64-apple-darwin"
     local resolved, names = {}, {}
     for name, owner in pairs(owners) do

@@ -17,8 +17,8 @@ local MODULE = "nupp.runtime.core.voidprobe"
 
 export function compile(mode: string): string
     assert(mode == "normal" or mode == "spill")
-    local path = ROOT .. "/native/core/src/nupp/runtime/core/voidprobe.nupp"
-    local owners, options = front.checked(front.read(ROOT .. "/native/core/tests/void-probe.nupp"), path, MODULE)
+    local path = ROOT .. "/src/nupp/runtime/core/voidprobe.nupp"
+    local owners, options = front.checked(front.read(ROOT .. "/tests/core/void-probe.nupp"), path, MODULE)
     options.abi = "leaf"
     local resolved, names = {}, {}
     for name, owner in pairs(owners) do

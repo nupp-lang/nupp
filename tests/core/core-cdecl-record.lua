@@ -264,7 +264,7 @@ end
 
 local native = require("nupp.compiler.nativecdecl")
 local json = require("nupp.serde.internal.json.values")
-local ROOT = debug.getinfo(1, "S").source:match("^@(/.*)/native/core/tests/[^/]*$")
+local ROOT = debug.getinfo(1, "S").source:match("^@(/.*)/tests/core/[^/]*$")
 assert(ROOT, "run this script by its absolute path")
 
 local requests = {}
@@ -293,7 +293,7 @@ local listing = assert(
     io.popen(
         "cd '"
         .. ROOT
-        .. "' && find src tests bench native/core/src native/core/tests docs -type f "
+        .. "' && find src tests bench docs -type f "
         .. "\\( -name '*.nupp' -o -name '*.lua' -o -name '*.md' \\) | LC_ALL=C sort"
     )
 )

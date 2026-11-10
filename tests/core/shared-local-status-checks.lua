@@ -155,13 +155,13 @@ local module = STEP == "producer" and "nupp.core.sharedlocalproducer" or CLIENT
 local fixtures = {
     {
         moduleName = module,
-        path = ROOT .. "/native/core/tests/units/nupp/core/" .. module:match("[^.]+$") .. ".nupp",
-        include = "native/core/tests/units"
+        path = ROOT .. "/tests/core/units/nupp/core/" .. module:match("[^.]+$") .. ".nupp",
+        include = "tests/core/units"
     },
     {
         moduleName = "nupp.core.unitentry",
-        path = ROOT .. "/native/core/tests/units/nupp/core/unitentry.nupp",
-        include = "native/core/tests/units"
+        path = ROOT .. "/tests/core/units/nupp/core/unitentry.nupp",
+        include = "tests/core/units"
     }
 }
 local entries

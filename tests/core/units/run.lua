@@ -2,7 +2,7 @@
 -- content-addressed code cache, runs every case through the standalone bridge
 -- and checks the answers against counts computed here.
 --
---   cd native/core/tests/units && NUPP_COMPILER_ROOT=$PWD/../../../.. ../../../../bin/nupp run run.lua [normal|spill|all] [UNIT...]
+--   cd tests/core/units && NUPP_COMPILER_ROOT=$PWD/../../.. ../../../bin/nupp run run.lua [normal|spill|all] [UNIT...]
 --
 -- `run.lua generate` rewrites the generated runtime files from their generators.
 --
@@ -82,7 +82,7 @@ local function bridge()
     local status, output = shell(
         (
             "cargo +stable build --manifest-path %s --offline --locked --bin nupp-core --target-dir %s"
-        ):format(quote(ROOT .. "/native/core/bridge/Cargo.toml"), quote(target))
+        ):format(quote(ROOT .. "/native/crates/core-bridge/Cargo.toml"), quote(target))
     )
     assert(status == 0, "bridge build failed: " .. output)
 
@@ -118,12 +118,11 @@ local UNITS = {
             "nupp.runtime.core.coretables"
         },
         paths = {
-            ["nupp.core.bufferviewunits"] = ROOT .. "/native/core/tests/units/nupp/core/bufferviewunits.nupp",
-            ["nupp.runtime.core.corestorage"] = ROOT .. "/native/core/src/nupp/runtime/core/corestorage.nupp",
-            ["nupp.runtime.core.corestrings"] = ROOT .. "/native/core/src/nupp/runtime/core/corestrings.nupp",
-            ["nupp.runtime.core.coretables"] = ROOT .. "/native/core/src/nupp/runtime/core/coretables.nupp"
+            ["nupp.core.bufferviewunits"] = ROOT .. "/tests/core/units/nupp/core/bufferviewunits.nupp",
+            ["nupp.runtime.core.corestorage"] = ROOT .. "/src/nupp/runtime/core/corestorage.nupp",
+            ["nupp.runtime.core.corestrings"] = ROOT .. "/src/nupp/runtime/core/corestrings.nupp",
+            ["nupp.runtime.core.coretables"] = ROOT .. "/src/nupp/runtime/core/coretables.nupp"
         },
-        include = "native/core/src",
         entries = {{"nupp.core.bufferviewunits", "lifetime", 1}},
         cases = function()
             return {{"lifetime", {0}, 0}, {"lifetime", {1}, 0}}
@@ -169,12 +168,9 @@ local UNITS = {
         name = "bufferstoragefaultunits",
         modules = {"nupp.core.bufferstoragefaultunits", "unitentry", "nupp.runtime.core.storage"},
         paths = {
-            [
-                "nupp.core.bufferstoragefaultunits"
-            ] = ROOT .. "/native/core/tests/units/nupp/core/bufferstoragefaultunits.nupp",
-            ["nupp.runtime.core.storage"] = ROOT .. "/native/core/src/nupp/runtime/core/storage.nupp"
+            ["nupp.core.bufferstoragefaultunits"] = ROOT .. "/tests/core/units/nupp/core/bufferstoragefaultunits.nupp",
+            ["nupp.runtime.core.storage"] = ROOT .. "/src/nupp/runtime/core/storage.nupp"
         },
-        include = "native/core/src",
         entries = {
             {"nupp.core.bufferstoragefaultunits", "maprefusal", 0},
             {"nupp.core.bufferstoragefaultunits", "cleanup", 0},
@@ -188,10 +184,9 @@ local UNITS = {
         name = "bufferstorageunits",
         modules = {"nupp.core.bufferstorageunits", "unitentry", "nupp.runtime.core.storage"},
         paths = {
-            ["nupp.core.bufferstorageunits"] = ROOT .. "/native/core/tests/units/nupp/core/bufferstorageunits.nupp",
-            ["nupp.runtime.core.storage"] = ROOT .. "/native/core/src/nupp/runtime/core/storage.nupp"
+            ["nupp.core.bufferstorageunits"] = ROOT .. "/tests/core/units/nupp/core/bufferstorageunits.nupp",
+            ["nupp.runtime.core.storage"] = ROOT .. "/src/nupp/runtime/core/storage.nupp"
         },
-        include = "native/core/src",
         entries = {
             {"nupp.core.bufferstorageunits", "cow", 0},
             {"nupp.core.bufferstorageunits", "admission", 0},
@@ -218,10 +213,9 @@ local UNITS = {
         name = "writerunits",
         modules = {"nupp.core.writerunits", "unitentry", "nupp.runtime.core.sharedbacking"},
         paths = {
-            ["nupp.core.writerunits"] = ROOT .. "/native/core/tests/units/nupp/core/writerunits.nupp",
-            ["nupp.runtime.core.sharedbacking"] = ROOT .. "/native/core/src/nupp/runtime/core/sharedbacking.nupp"
+            ["nupp.core.writerunits"] = ROOT .. "/tests/core/units/nupp/core/writerunits.nupp",
+            ["nupp.runtime.core.sharedbacking"] = ROOT .. "/src/nupp/runtime/core/sharedbacking.nupp"
         },
-        include = "native/core/src",
         entries = {{"nupp.core.writerunits", "admission", 0}},
         cases = function()
             return {{"admission", {}, 0}}
@@ -238,12 +232,11 @@ local UNITS = {
             "nupp.runtime.core.coretables"
         },
         paths = {
-            ["nupp.core.stringviewunits"] = ROOT .. "/native/core/tests/units/nupp/core/stringviewunits.nupp",
-            ["nupp.runtime.core.corestorage"] = ROOT .. "/native/core/src/nupp/runtime/core/corestorage.nupp",
-            ["nupp.runtime.core.corestrings"] = ROOT .. "/native/core/src/nupp/runtime/core/corestrings.nupp",
-            ["nupp.runtime.core.coretables"] = ROOT .. "/native/core/src/nupp/runtime/core/coretables.nupp"
+            ["nupp.core.stringviewunits"] = ROOT .. "/tests/core/units/nupp/core/stringviewunits.nupp",
+            ["nupp.runtime.core.corestorage"] = ROOT .. "/src/nupp/runtime/core/corestorage.nupp",
+            ["nupp.runtime.core.corestrings"] = ROOT .. "/src/nupp/runtime/core/corestrings.nupp",
+            ["nupp.runtime.core.coretables"] = ROOT .. "/src/nupp/runtime/core/coretables.nupp"
         },
-        include = "native/core/src",
         entries = {{"nupp.core.stringviewunits", "lifetime", 2}},
 
         cases = function()
@@ -757,8 +750,7 @@ end
 UNITS[#UNITS + 1] = {
     name = "tablekeyunits",
     modules = {"tablekeyunits", "unitentry", "nupp.runtime.core.coretables"},
-    paths = {["nupp.runtime.core.coretables"] = ROOT .. "/native/core/src/nupp/runtime/core/coretables.nupp"},
-    include = "native/core/src",
+    paths = {["nupp.runtime.core.coretables"] = ROOT .. "/src/nupp/runtime/core/coretables.nupp"},
     entries = {
         {"tablekeyunits", "equality", 1},
         {"tablekeyunits", "growth", 1},
@@ -797,8 +789,7 @@ UNITS[#UNITS + 1] = {
 UNITS[#UNITS + 1] = {
     name = "tableunits",
     modules = {"tableunits", "unitentry", "nupp.runtime.core.coretables"},
-    paths = {["nupp.runtime.core.coretables"] = ROOT .. "/native/core/src/nupp/runtime/core/coretables.nupp"},
-    include = "native/core/src",
+    paths = {["nupp.runtime.core.coretables"] = ROOT .. "/src/nupp/runtime/core/coretables.nupp"},
     entries = {
         {"tableunits", "sequence", 1},
         {"tableunits", "migrate", 1},
@@ -899,8 +890,7 @@ end
 UNITS[#UNITS + 1] = {
     name = "genunits",
     modules = {"genunits", "unitentry", "nupp.runtime.core.coretables"},
-    paths = {["nupp.runtime.core.coretables"] = ROOT .. "/native/core/src/nupp/runtime/core/coretables.nupp"},
-    include = "native/core/src",
+    paths = {["nupp.runtime.core.coretables"] = ROOT .. "/src/nupp/runtime/core/coretables.nupp"},
     entries = {
         {"genunits", "promotion", 1},
         {"genunits", "barrier", 1},
@@ -953,8 +943,7 @@ UNITS[#UNITS + 1] = {
 UNITS[#UNITS + 1] = {
     name = "weakunits",
     modules = {"weakunits", "unitentry", "nupp.runtime.core.coretables"},
-    paths = {["nupp.runtime.core.coretables"] = ROOT .. "/native/core/src/nupp/runtime/core/coretables.nupp"},
-    include = "native/core/src",
+    paths = {["nupp.runtime.core.coretables"] = ROOT .. "/src/nupp/runtime/core/coretables.nupp"},
     entries = {
         {"weakunits", "ephemerons", 1},
         {"weakunits", "resurrection", 1},
@@ -1063,10 +1052,9 @@ UNITS[#UNITS + 1] = {
     name = "storagelifetimeunits",
     modules = {"storagelifetimeunits", "unitentry", "nupp.runtime.core.corestorage", "nupp.runtime.core.coretables"},
     paths = {
-        ["nupp.runtime.core.corestorage"] = ROOT .. "/native/core/src/nupp/runtime/core/corestorage.nupp",
-        ["nupp.runtime.core.coretables"] = ROOT .. "/native/core/src/nupp/runtime/core/coretables.nupp"
+        ["nupp.runtime.core.corestorage"] = ROOT .. "/src/nupp/runtime/core/corestorage.nupp",
+        ["nupp.runtime.core.coretables"] = ROOT .. "/src/nupp/runtime/core/coretables.nupp"
     },
-    include = "native/core/src",
     entries = {
         {"storagelifetimeunits", "reclamation", 2},
         {"storagelifetimeunits", "relocation", 1},
@@ -1092,8 +1080,7 @@ UNITS[#UNITS + 1] = {
 UNITS[#UNITS + 1] = {
     name = "storageunits",
     modules = {"storageunits", "unitentry", "nupp.runtime.core.storage"},
-    paths = {["nupp.runtime.core.storage"] = ROOT .. "/native/core/src/nupp/runtime/core/storage.nupp"},
-    include = "native/core/src",
+    paths = {["nupp.runtime.core.storage"] = ROOT .. "/src/nupp/runtime/core/storage.nupp"},
     entries = {
         {"storageunits", "basics", 1},
         {"storageunits", "rollback", 0},
@@ -1133,8 +1120,7 @@ UNITS[#UNITS + 1] = {
 UNITS[#UNITS + 1] = {
     name = "systemunits",
     modules = {"systemunits", "unitentry", "nupp.runtime.core.coretables"},
-    paths = {["nupp.runtime.core.coretables"] = ROOT .. "/native/core/src/nupp/runtime/core/coretables.nupp"},
-    include = "native/core/src",
+    paths = {["nupp.runtime.core.coretables"] = ROOT .. "/src/nupp/runtime/core/coretables.nupp"},
     entries = {{"systemunits", "facts", 2}, {"systemunits", "integers", 0}},
     cases = function()
         local cases = {{"integers", {}, 15}}
@@ -1151,8 +1137,7 @@ UNITS[#UNITS + 1] = {
 UNITS[#UNITS + 1] = {
     name = "entropyunits",
     modules = {"entropyunits", "unitentry", "nupp.runtime.core.coretables"},
-    paths = {["nupp.runtime.core.coretables"] = ROOT .. "/native/core/src/nupp/runtime/core/coretables.nupp"},
-    include = "native/core/src",
+    paths = {["nupp.runtime.core.coretables"] = ROOT .. "/src/nupp/runtime/core/coretables.nupp"},
     entries = {{"entropyunits", "roundtrip", 2}},
     cases = function()
         local cases = {}
@@ -1176,11 +1161,10 @@ UNITS[#UNITS + 1] = {
         "nupp.runtime.core.reportprefix"
     },
     paths = {
-        ["nupp.runtime.core.corestrings"] = ROOT .. "/native/core/src/nupp/runtime/core/corestrings.nupp",
-        ["nupp.runtime.core.corepattern"] = ROOT .. "/native/core/src/nupp/runtime/core/corepattern.nupp",
-        ["nupp.runtime.core.reportprefix"] = ROOT .. "/native/core/src/nupp/runtime/core/reportprefix.nupp"
+        ["nupp.runtime.core.corestrings"] = ROOT .. "/src/nupp/runtime/core/corestrings.nupp",
+        ["nupp.runtime.core.corepattern"] = ROOT .. "/src/nupp/runtime/core/corepattern.nupp",
+        ["nupp.runtime.core.reportprefix"] = ROOT .. "/src/nupp/runtime/core/reportprefix.nupp"
     },
-    include = "native/core/src",
     entries = {{"stringunits", "basics", 3}, {"stringunits", "gmatch", 6}, {"stringunits", "named", 4}},
     cases = function()
         local cases = {{"basics", {pack("abc", 1)[1], pack("ab", 1)[1], pack("c", 1)[1]}, 15}}
@@ -1325,7 +1309,7 @@ local function generatedPath(name)
         return ROOT .. "/" .. name .. ".nupp"
     end
 
-    return ROOT .. "/native/core/src/nupp/runtime/core/" .. name .. ".nupp"
+    return ROOT .. "/src/nupp/runtime/core/" .. name .. ".nupp"
 end
 
 -- `run.lua generate` writes every generated file and stops.
@@ -1415,17 +1399,22 @@ do
             problems[#problems + 1] = path .. " is no input"
         end
     end
-    for _, path in ipairs({"src/nupp/compiler/vm/taggedprofile.nupp", "src/nupp/compiler/vm/coregraphexecutable.nupp"}) do
+    for _, path in ipairs({
+        "src/nupp/compiler/vm/taggedprofile.nupp",
+        "src/nupp/compiler/vm/coregraphexecutable.nupp"
+    }) do
         if covered[path] then
             problems[#problems + 1] = path .. " is an input"
         end
     end
+
     local function edited(target)
         return function(path)
             local bytes = read(path) or ""
             return path == ROOT .. "/" .. target and bytes .. "\n-- edited\n" or bytes
         end
     end
+
     local base = kernelcompiler.digestOf(ROOT, inputs)
     if kernelcompiler.digestOf(ROOT, inputs, edited("src/nupp/compiler/check/init.nupp")) == base then
         problems[#problems + 1] = "an edited input left the digest as it was"
@@ -1453,8 +1442,14 @@ for _, unit in ipairs(UNITS) do
     end
     local fixtures, fixtureNames = {}, {}
     for _, name in ipairs(unit.modules) do
-        local path = unit.paths and unit.paths[name] or HERE .. "/nupp/core/" .. name .. ".nupp"
-        local include = unit.paths and unit.paths[name] and unit.include or "native/core/tests/units"
+        local named = unit.paths and unit.paths[name]
+        local path = named or HERE .. "/nupp/core/" .. name .. ".nupp"
+        -- A module named by its path brings only the unit's own extra root, if
+        -- any: the core it reaches is under src, which every unit includes.
+        local include = "tests/core/units"
+        if named then
+            include = unit.include
+        end
         local moduleName = name:find(".", 1, true) and name or "nupp.core." .. name
         fixtureNames[name] = moduleName
         fixtures[#fixtures + 1] = {moduleName = moduleName, path = path, include = include}

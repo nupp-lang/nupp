@@ -18,21 +18,9 @@ export function compile(mode: string): string
     assert(mode == "normal" or mode == "spill")
     local groups, modules = {}, {}
     for _, item in ipairs({
-        {
-            "nupp.runtime.core.arena",
-            "/native/core/src/nupp/runtime/core/arena.nupp",
-            "/native/core/src/nupp/runtime/core/arena.nupp"
-        },
-        {
-            "nupp.runtime.core.frames",
-            "/native/core/src/nupp/runtime/core/frames.nupp",
-            "/native/core/src/nupp/runtime/core/frames.nupp"
-        },
-        {
-            PROBE,
-            "/native/core/tests/abort-active-probe.nupp",
-            "/native/core/src/nupp/runtime/core/abortactiveprobe.nupp"
-        }
+        {"nupp.runtime.core.arena", "/src/nupp/runtime/core/arena.nupp", "/src/nupp/runtime/core/arena.nupp"},
+        {"nupp.runtime.core.frames", "/src/nupp/runtime/core/frames.nupp", "/src/nupp/runtime/core/frames.nupp"},
+        {PROBE, "/tests/core/abort-active-probe.nupp", "/src/nupp/runtime/core/abortactiveprobe.nupp"}
     }) do
         local owners, options = front.checked(front.read(ROOT .. item[2]), ROOT .. item[3], item[1])
         groups[#groups + 1] = owners

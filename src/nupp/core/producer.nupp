@@ -17,11 +17,11 @@ local checked, read = front.checked, front.read
 export function compile(mode: string): string
     assert(mode == "normal" or mode == "spill", "invalid allocation mode")
     local functions, options = checked(read(CORE), CORE, "nupp.runtime.vm.core")
-    local stopPath = ROOT .. "/native/core/src/nupp/runtime/core/entry.nupp"
+    local stopPath = ROOT .. "/src/nupp/runtime/core/entry.nupp"
     local stops, stopOptions = checked(read(stopPath), stopPath, "nupp.runtime.core.entry")
-    local callsPath = ROOT .. "/native/core/src/nupp/runtime/core/calls.nupp"
+    local callsPath = ROOT .. "/src/nupp/runtime/core/calls.nupp"
     local _, callsOptions = checked(read(callsPath), callsPath, "nupp.runtime.core.calls")
-    local contextPath = ROOT .. "/native/core/src/nupp/runtime/core/context.nupp"
+    local contextPath = ROOT .. "/src/nupp/runtime/core/context.nupp"
     local _, contextOptions = checked(read(contextPath), contextPath, "nupp.runtime.core.context")
     options.modules["nupp.runtime.vm.calls"] = callsOptions.modules["nupp.runtime.core.calls"]
     options.modules["nupp.runtime.core.context"] = contextOptions.modules["nupp.runtime.core.context"]

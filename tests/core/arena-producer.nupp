@@ -51,7 +51,7 @@ end
 
 export function compile(mode: string, fixture: string): string
     assert(mode == "normal" or mode == "spill")
-    local arenaPath = ROOT .. "/native/core/src/nupp/runtime/core/arena.nupp"
+    local arenaPath = ROOT .. "/src/nupp/runtime/core/arena.nupp"
     local functions, options = front.checked(front.read(arenaPath), arenaPath, MODULE)
     options.abi = "leaf"
     local resolved, codes, metrics = {}, {}, {}
@@ -78,10 +78,10 @@ export function compile(mode: string, fixture: string): string
         end
     end
     assert(fixture == "arena" or fixture == "boolean")
-    local probePath = ROOT .. "/native/core/tests/" .. fixture .. "-probe.nupp"
+    local probePath = ROOT .. "/tests/core/" .. fixture .. "-probe.nupp"
     -- The fixture is checked as an in-memory module; retain its physical input
     -- separately from the canonical diagnostic path expected by the checker.
-    local checkedPath = ROOT .. "/native/core/src/nupp/runtime/core/arenaprobe.nupp"
+    local checkedPath = ROOT .. "/src/nupp/runtime/core/arenaprobe.nupp"
     local probes, probeOptions = front.checked(front.read(probePath), checkedPath, "nupp.runtime.core.arenaprobe")
     probeOptions.modules[MODULE] = options.modules[MODULE]
     probeOptions.abi = "leaf"

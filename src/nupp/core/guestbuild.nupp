@@ -523,10 +523,7 @@ local function runtime(mode: string, cacheDirectory: string?, audited: boolean):
     for _, name in ipairs(RUNTIME) do
         fixtures[
             #fixtures + 1
-        ] = {
-            moduleName = "nupp.runtime.core." .. name,
-            path = root .. "/native/core/src/nupp/runtime/core/" .. name .. ".nupp"
-        }
+        ] = {moduleName = "nupp.runtime.core." .. name, path = root .. "/src/nupp/runtime/core/" .. name .. ".nupp"}
     end
     -- Every handler is built, so one selection serves every profile version.
     local all = handlerNames("modulePair", 8)
@@ -620,7 +617,7 @@ local function runtime(mode: string, cacheDirectory: string?, audited: boolean):
     return held
 end
 
--- A case names its modules as fixtures (`native/core/tests`), absolute
+-- A case names its modules as fixtures (`tests/core`), absolute
 -- paths, or library modules under `src/`, which it carries as they are.
 local function libraryModule(name: string): boolean
     return name:sub(1, 4) == "src/" or name:find("/src/", 1, true) ~= nil
@@ -876,7 +873,7 @@ local function modulePath(root: string, name: string): string
         return root .. "/" .. name .. ".nupp"
     end
 
-    return root .. "/native/core/tests/" .. name .. ".nupp"
+    return root .. "/tests/core/" .. name .. ".nupp"
 end
 
 -- The static sources the runner snapshots and stages, named by their parsed
@@ -925,7 +922,7 @@ export function fixtures(): {{
         local module = assert(cst.declaredModule(parsed.root), "guest fixture module required: " .. path)
         assert(declared[module] == nil or declared[module] == source, "conflicting guest fixture module: " .. module)
         declared[module] = source
-        fixtures[#fixtures + 1] = {path = "native/core/tests/" .. name .. ".nupp", module = module, source = source}
+        fixtures[#fixtures + 1] = {path = "tests/core/" .. name .. ".nupp", module = module, source = source}
     end
 
     return fixtures
@@ -1299,7 +1296,7 @@ end
 -- runtime's selected code by qualified name, and the scopes whose layouts
 -- the shim and artifact writer read.
 export function guest(caseName: string, mode: string, cacheDirectory: string?, audited: boolean?): any
-    -- Generated oracle programs (tests/guests/oracle.lua) live under build.
+    -- Generated oracle programs (tests/core/guests/oracle.lua) live under build.
     local case = CASES[caseName]
     if case == nil and caseName:match("^generated%d+$") then
         case = {
@@ -1320,7 +1317,7 @@ export function guest(caseName: string, mode: string, cacheDirectory: string?, a
     -- Refuse invalid guest source before preparing the native runtime.
     -- Keyed by the entry's text too: a generated case may be rewritten.
     local fixturePath = (case.fixture as string):sub(1, 1) == "/" and case.fixture .. ".nupp"
-        or assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/native/core/tests/" .. case.fixture .. ".nupp"
+        or assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/tests/core/" .. case.fixture .. ".nupp"
     local key = caseName .. "\0" .. read(fixturePath)
     local cached = programs[key]
     if cached == nil then
@@ -1341,7 +1338,7 @@ export function guest(caseName: string, mode: string, cacheDirectory: string?, a
     }} = {}
     local corechunk: any = case.instances and require("nupp.compiler.vm.corechunk")
     for _, name in ipairs(case.instances or {}) do
-        local display = "native/core/tests/" .. name .. ".nupp"
+        local display = "tests/core/" .. name .. ".nupp"
         local bytes, problem = corechunk.compileModule(
             read(assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/" .. display),
             display

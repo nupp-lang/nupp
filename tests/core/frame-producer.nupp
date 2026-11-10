@@ -75,13 +75,9 @@ export function compile(mode: string): string
     local arenaName, framesName, probeName = "nupp.runtime.core.arena", "nupp.runtime.core.frames", "nupp.runtime.core.frameprobe"
     local groups, modules = {}, {}
     for _, item in ipairs({
-        {arenaName, "/native/core/src/nupp/runtime/core/arena.nupp", "/native/core/src/nupp/runtime/core/arena.nupp"},
-        {
-            framesName,
-            "/native/core/src/nupp/runtime/core/frames.nupp",
-            "/native/core/src/nupp/runtime/core/frames.nupp"
-        },
-        {probeName, "/native/core/tests/frame-probe.nupp", "/native/core/src/nupp/runtime/core/frameprobe.nupp"}
+        {arenaName, "/src/nupp/runtime/core/arena.nupp", "/src/nupp/runtime/core/arena.nupp"},
+        {framesName, "/src/nupp/runtime/core/frames.nupp", "/src/nupp/runtime/core/frames.nupp"},
+        {probeName, "/tests/core/frame-probe.nupp", "/src/nupp/runtime/core/frameprobe.nupp"}
     }) do
         local functions, options = front.checked(front.read(ROOT .. item[2]), ROOT .. item[3], item[1])
         groups[#groups + 1] = {name = item[1], functions = functions}

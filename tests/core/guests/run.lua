@@ -2,7 +2,7 @@
 -- through the shared guest unit, run through the bridge and the ABI/scratch
 -- guard, and checked against independent expectations.
 --
---   cd native/core/tests/guests && NUPP_COMPILER_ROOT=$PWD/../../../.. ../../../../bin/nupp run run.lua [CASE...]
+--   cd tests/core/guests && NUPP_COMPILER_ROOT=$PWD/../../.. ../../../bin/nupp run run.lua [CASE...]
 --
 -- NUPP_LUA_REFERENCE names a reference Lua 5.5 interpreter; when set, the
 -- numeric expectations are recomputed with it. Bundles and outputs go under
@@ -32,9 +32,9 @@ end
 local HERE = debug.getinfo(1, "S").source:match("^@(/.*)/[^/]*$") or cwd()
 -- Another spelling of the root runs this again under its own (compilerroot).
 local ROOT = require("nupp.core.compilerroot").resolve(arg[0], arg)
-local shardplan = dofile(ROOT .. "/native/core/tests/guests/shardplan.lua")
+local shardplan = dofile(ROOT .. "/tests/core/guests/shardplan.lua")
 local OUT = ROOT .. "/build/core-guests"
-local TESTS = ROOT .. "/native/core/tests"
+local TESTS = ROOT .. "/tests/core"
 -- The guest runtime is built through the service catalog and the unit code
 -- cache; NUPP_GUEST_BUILD=frozen selects the frozen final-frame build instead.
 local UNITS = os.getenv("NUPP_GUEST_BUILD") ~= "frozen"
@@ -552,7 +552,7 @@ local SETUP = {
     -- with, recorded in the directory it then runs in.
     corecdecl = (
         "d=$(mktemp -d '%s/cdecl.XXXXXX') && cd \"$d\" && NUPP_VM_AUTO_REBUILD=0 '%s/bin/nupp' run "
-        .. "'%s/native/core/tests/core-cdecl-record.lua' \"$d/recorded\" > /dev/null "
+        .. "'%s/tests/core/core-cdecl-record.lua' \"$d/recorded\" > /dev/null "
         .. "&& export CDECL_DIFF=\"$d/recorded\"; "
     ):format(OUT, ROOT, ROOT),
     -- The getentropy that fails the entropy failure guard's request.
@@ -935,7 +935,7 @@ end
 -- The bridge and its ABI/scratch guard, built once with cargo.
 local function tools()
     local target = ROOT .. "/build/core-bridge"
-    local manifest = quote(ROOT .. "/native/core/bridge/Cargo.toml")
+    local manifest = quote(ROOT .. "/native/crates/core-bridge/Cargo.toml")
     local status, output = shell(
         (
             "cargo +stable build --manifest-path %s --offline --locked --bin nupp-core --target-dir %s"
@@ -974,12 +974,12 @@ local function stage()
         "guestops",
         "guesthandlers"
     }) do
-        canonical[#canonical + 1] = "native/core/src/nupp/runtime/core/" .. name .. ".nupp"
+        canonical[#canonical + 1] = "src/nupp/runtime/core/" .. name .. ".nupp"
     end
     for _, name in ipairs({"intrinsics.d.nupp", "program.d.nupp", "slots.d.nupp", "values.nupp"}) do
         canonical[#canonical + 1] = "src/nupp/runtime/vm/" .. name
     end
-    canonical[#canonical + 1] = "native/core/tests/guest-contract-negatives.nupp"
+    canonical[#canonical + 1] = "tests/core/guest-contract-negatives.nupp"
     for _, fixture in ipairs(fixtures) do
         canonical[#canonical + 1] = fixture.path
     end
@@ -994,7 +994,7 @@ local function stage()
         end
         write(base .. "/source/nupp/runtime/core/guestnegatives.nupp", read(TESTS .. "/guest-contract-negatives.nupp"))
         if directory == "core-guest-audit" then
-            names[#names + 1] = "native/core/tests/guest-lifecycle-audit.nupp"
+            names[#names + 1] = "tests/core/guest-lifecycle-audit.nupp"
             write(base .. "/source/nupp/runtime/core/guestaudit.nupp", read(TESTS .. "/guest-lifecycle-audit.nupp"))
         end
         local directories = {}
@@ -1353,7 +1353,7 @@ local function main()
     -- of them claim prints the one in place of the other.
     local claimed = {}
     for name, id in (
-        shard and "" or read(ROOT .. "/native/core/src/nupp/runtime/core/guesttexts.nupp")
+        shard and "" or read(ROOT .. "/src/nupp/runtime/core/guesttexts.nupp")
     ):gmatch("export const ([%u_]+): uint64 = (%d+)ULL") do
         check(claimed[id] == nil, ("text id %s is both %s and %s"):format(id, tostring(claimed[id]), name))
         claimed[id] = name

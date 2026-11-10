@@ -16,13 +16,9 @@ local MODULE = "nupp.runtime.core.transportprobe"
 
 export function compile(mode: string): string
     assert(mode == "normal" or mode == "spill")
-    local path = ROOT .. "/native/core/src/nupp/runtime/core/transportprobe.nupp"
-    local functions, options = front.checked(
-        front.read(ROOT .. "/native/core/tests/transport-probe.nupp"),
-        path,
-        MODULE
-    )
-    local contextPath = ROOT .. "/native/core/src/nupp/runtime/core/context.nupp"
+    local path = ROOT .. "/src/nupp/runtime/core/transportprobe.nupp"
+    local functions, options = front.checked(front.read(ROOT .. "/tests/core/transport-probe.nupp"), path, MODULE)
+    local contextPath = ROOT .. "/src/nupp/runtime/core/context.nupp"
     local _, contextOptions = front.checked(front.read(contextPath), contextPath, "nupp.runtime.core.context")
     local context = contextOptions.modules["nupp.runtime.core.context"]
     options.modules[context.name] = context

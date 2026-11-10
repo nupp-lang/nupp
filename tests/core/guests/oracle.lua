@@ -3,8 +3,8 @@
 -- interpreter, and their checksums must agree word for word. One process
 -- builds the guest runtime once and compiles each program against it.
 --
---   cd native/core/tests/guests && NUPP_COMPILER_ROOT=$PWD/../../../.. \
---     NUPP_LUA_REFERENCE=path/to/lua ../../../../bin/nupp run oracle.lua [COUNT] [FIRST-SEED]
+--   cd tests/core/guests && NUPP_COMPILER_ROOT=$PWD/../../.. \
+--     NUPP_LUA_REFERENCE=path/to/lua ../../../bin/nupp run oracle.lua [COUNT] [FIRST-SEED]
 --
 -- Each disagreement leaves its program and twin under build/core-guests/generated.
 local producer = require("nupp.core.guestprogramproducer")

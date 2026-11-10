@@ -26,11 +26,11 @@ export function compile(mode: string, entry: string): string
     assert(mode == "normal" or mode == "spill")
     assert(entry == "admit" or entry == "probe")
     assert(
-        front.read(ROOT .. "/native/core/src/nupp/runtime/core/rawsemanticpolicy.nupp") == generator.source(),
+        front.read(ROOT .. "/src/nupp/runtime/core/rawsemanticpolicy.nupp") == generator.source(),
         "generated wire source differs"
     )
     assert(
-        front.read(ROOT .. "/native/core/src/nupp/runtime/core/rawbudgetpolicy.nupp") == budgetgen.source(),
+        front.read(ROOT .. "/src/nupp/runtime/core/rawbudgetpolicy.nupp") == budgetgen.source(),
         "generated budget source differs"
     )
     local groups, modules = {}, {}
@@ -45,13 +45,13 @@ export function compile(mode: string, entry: string): string
         {"rawbudget", "src/nupp/runtime/core/rawbudget.nupp"},
         {"rawsemanticpolicy", "src/nupp/runtime/core/rawsemanticpolicy.nupp"},
         {"rawsemantics", "src/nupp/runtime/core/rawsemantics.nupp"},
-        {"rawsemanticprobe", "tests/raw-semantic-probe.nupp"},
-        {"rawheaderlayout", "tests/raw-header-layout.nupp"}
+        {"rawsemanticprobe", "tests/core/raw-semantic-probe.nupp"},
+        {"rawheaderlayout", "tests/core/raw-header-layout.nupp"}
     }) do
         local name = "nupp.runtime.core." .. item[1]
         local owners, options = front.checked(
-            front.read(ROOT .. "/native/core/" .. item[2]),
-            ROOT .. "/native/core/src/nupp/runtime/core/" .. item[1] .. ".nupp",
+            front.read(ROOT .. "/" .. item[2]),
+            ROOT .. "/src/nupp/runtime/core/" .. item[1] .. ".nupp",
             name
         )
         groups[#groups + 1] = {name = name, owners = owners}

@@ -3,7 +3,7 @@ module nupp.core.compilerroot
 -- The checkout root the core's test runners build from, NUPP_COMPILER_ROOT.
 -- The compiler matches module paths made from it by their text, so it must
 -- be one spelling: absolute, with no `.` or `..` in it. A runner given
--- another spelling, `$PWD/../../../..` or a relative one, runs again under
+-- another spelling, `$PWD/../../..` or a relative one, runs again under
 -- that spelling (`resolve`).
 
 -- A wait status's exit code: os.execute answers the raw status under the
