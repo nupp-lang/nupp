@@ -278,6 +278,13 @@ for name in (
 end
 scopes.advancestage0test = "delivery"
 
+-- The owned native backend's own cases (nupp.compiler.s0).
+for name in (
+    "s0allocationtest s0arm64test s0framepairtest s0oracletest s0readertest s0selectiontest"
+):gmatch("%S+") do
+    scopes[name] = "component"
+end
+
 -- Independent packages retain the original suite obligations.
 scopes.derivemanifesttest = "component"
 scopes.derivetecstest = "component"
@@ -789,7 +796,10 @@ packages[
     "compiler/project/contracts/generators"
 ] = {cache = false, reason = "Local generator rocks also read external LuaRocks configuration."}
 
-enable("repository", [[nupp/test]])
+enable("repository", [[
+nupp/compiler/s0
+nupp/test
+]])
 packages["."] = {cache = false, reason = "Native compiler, core ABI and external C oracle inputs share this package."}
 
 return groups, {scopes = scopes, packages = packages}

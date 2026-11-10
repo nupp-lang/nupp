@@ -22,9 +22,9 @@ local definitions = {
     -- in, foreignSlots words the bridge zeroes.
     foreignTable = {slot = 9, table = true},
     -- Not imports: routines the selector writes where they are called
-    -- (s0.select). The generic foreign call takes a block of words and
-    -- answers x0; the next answers the address of the table above, and the
-    -- collector the address of a C visitor the selector writes.
+    -- (nupp.compiler.s0.select). The generic foreign call takes a block of
+    -- words and answers x0; the next answers the address of the table above,
+    -- and the collector the address of a C visitor the selector writes.
     foreignCall = {routine = "call", params = {"voidptr"}, result = "uint64", cResult = "uint64"},
     foreignCells = {routine = "cells", params = {}, result = "voidptr", cResult = "voidptr"},
     foreignCollector = {routine = "collector", params = {}, result = "voidptr", cResult = "voidptr"},
@@ -237,9 +237,9 @@ end
 
 -- A call of a `cdef function` its sealed unit declares: a direct C call
 -- through the symbol the first call resolves and the bridge's table keeps
--- (s0.select). Arguments past a variadic function's declared ones take the
--- kinds the caller gives them. A 32-bit C result reads as int64 where the
--- caller expects one or names no kind, since the call extends it.
+-- (nupp.compiler.s0.select). Arguments past a variadic function's declared
+-- ones take the kinds the caller gives them. A 32-bit C result reads as int64
+-- where the caller expects one or names no kind, since the call extends it.
 export function foreign(owner: any, site: any, expected: string?): any
     local identity = need(cdefOf(site), "foreign site requires a cdef function")
     local definition = site.obj.token.definition
@@ -341,9 +341,9 @@ export function routine(declaration: any): string?
     return name and "routine\0" .. name or nil
 end
 
--- The generic foreign call's block (s0.select's `CALL_` words, and
--- guestforeign's): the function, x0-x7, d0-d7, the C stack's first words,
--- and the address x8 passes; in bytes.
+-- The generic foreign call's block (nupp.compiler.s0.select's `CALL_`
+-- words, and guestforeign's): the function, x0-x7, d0-d7, the C stack's
+-- first words, and the address x8 passes; in bytes.
 const BLOCK_FUNCTION = 0
 const BLOCK_INTEGERS = 8
 const BLOCK_FLOATS = 72

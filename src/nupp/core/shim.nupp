@@ -1,6 +1,6 @@
 module nupp.core.shim
 
-local arm = require("s0.arm64")
+local arm = require("nupp.compiler.s0.arm64")
 local context = require("nupp.runtime.core.context")
 local linker = require("nupp.core.link")
 

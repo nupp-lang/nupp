@@ -30,7 +30,7 @@ cdef function dlopen(borrows path: voidptr, mode: int64): voidptr
 cdef function dlsym(borrows library: voidptr, borrows name: voidptr): voidptr
 cdef function strlen(borrows text: voidptr): uint64
 
--- The block's words (`CALL_` in spike/native-lowering/src/s0/select.nupp):
+-- The block's words (`CALL_` in src/nupp/compiler/s0/select.nupp):
 -- the function, x0-x7, d0-d7, the C stack's first STACK_WORDS words, then
 -- the address x8 passes. After the call x0, x1 and d0-d3 are at their words.
 const FUNCTION: int64 = 0

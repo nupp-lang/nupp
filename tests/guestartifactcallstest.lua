@@ -23,7 +23,7 @@ local function fixture()
     if held then
         return held
     end
-    local env = environment.new(ROOT, {config = {include = {"src", "spike/native-lowering/src"}}})
+    local env = environment.new(ROOT, {config = {include = {"src"}}})
 
     local compile = require("nupp.tools.cli.compile")
     local loadImage = assert(rawget(_G, "__nupp_load_image"))

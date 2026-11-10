@@ -1392,7 +1392,7 @@ do
         "src/nupp/compiler/vm/nativegraph.nupp",
         "src/nupp/compiler/vm/functiongraph.nupp",
         "src/nupp/compiler/check/init.nupp",
-        "spike/native-lowering/src/s0/select.nupp",
+        "src/nupp/compiler/s0/select.nupp",
         "src/nupp/runtime/vm/intrinsics.d.nupp"
     }) do
         if not covered[path] then

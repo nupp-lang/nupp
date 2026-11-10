@@ -1,8 +1,8 @@
 module nupp.core.rootshim
 
-local arm = require("s0.arm64")
+local arm = require("nupp.compiler.s0.arm64")
 local linker = require("nupp.core.link")
-local selector = require("s0.select")
+local selector = require("nupp.compiler.s0.select")
 local context = require("nupp.runtime.core.context")
 
 export type Layout = {

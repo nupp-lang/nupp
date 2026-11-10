@@ -257,7 +257,7 @@ function M.theCoreBoundaryReadingRejectsFrozenImportsAndEmitAliases()
     assert(count('local emit = require("nupp.compiler.vm.lower").emit') > 0, "direct member import")
     assert(count(import .. 'return compiler.functionGraph(...)') == 0, "shared frontend")
     assert(count('const graph = require("nupp.compiler.vm.graph")') == 0, "shared graph")
-    assert(count('local arm = require("s0.arm64")') == 0, "owned backend")
+    assert(count('local arm = require("nupp.compiler.s0.arm64")') == 0, "owned backend")
     assert(count('-- require("nupp.compiler.vm.legacylower")') == 0, "comments are not imports")
 end
 

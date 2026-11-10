@@ -5,9 +5,9 @@ module nupp.core.unitrunner
 -- backend, behind a small entry that dispatches on input word 0. The core's
 -- own code is tested, not proven (runtime plan, "Direction"), so nothing here
 -- authenticates graphs, code or links.
-local arm = require("s0.arm64")
-local allocate = require("s0.allocate")
-local selector = require("s0.select")
+local arm = require("nupp.compiler.s0.arm64")
+local allocate = require("nupp.compiler.s0.allocate")
+local selector = require("nupp.compiler.s0.select")
 local service = require("nupp.compiler.vm.nativeservice")
 local nativeunit = require("nupp.compiler.vm.nativeunit")
 local lower = require("nupp.compiler.vm.lower")
