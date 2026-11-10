@@ -164,6 +164,8 @@ export const TEXT_METHOD: uint64 = 155ULL
 export const TEXT_FIELD: uint64 = 156ULL
 export const TEXT_UPVALUE: uint64 = 157ULL
 export const TEXT_ITERATOR: uint64 = 158ULL
+export const TEXT_BOOLEAN: uint64 = 159ULL
+export const TEXT_NIL: uint64 = 160ULL
 
 -- Appends text `id` to `b`: nonzero when the builder refused it.
 export function append(h: heap.Heap*, borrows b: strings.Builder*, id: uint64): uint64
@@ -756,6 +758,12 @@ export function append(h: heap.Heap*, borrows b: strings.Builder*, id: uint64): 
     elseif id == 158ULL then
         -- "for iterator"
         return strings.appendWord(h, b, 0x7265746920726f66ULL, 8ULL) | strings.appendWord(h, b, 0x726f7461ULL, 4ULL)
+    elseif id == 159ULL then
+        -- "boolean"
+        return strings.appendWord(h, b, 0x6e61656c6f6f62ULL, 7ULL)
+    elseif id == 160ULL then
+        -- "nil"
+        return strings.appendWord(h, b, 0x6c696eULL, 3ULL)
     end
 
     return 0ULL

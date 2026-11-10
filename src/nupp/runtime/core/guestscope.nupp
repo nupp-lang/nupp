@@ -173,6 +173,8 @@ export const FAULT_BITWISE: uint64 = 8ULL
 export const FAULT_NOINT: uint64 = 9ULL
 -- A store into a frozen table: Luau's "attempt to modify a readonly table".
 export const FAULT_READONLY: uint64 = 10ULL
+-- Argument admission failed before a callee frame could be prepared.
+export const FAULT_ARGUMENT: uint64 = 11ULL
 
 -- Services.finalclose: the exit has not begun to finalize every marked
 -- table, is running their finalizers (setmetatable marks no more, as in

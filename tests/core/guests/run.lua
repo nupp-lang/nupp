@@ -303,6 +303,7 @@ local CASES = {
     -- request core-cdecl-record.lua records.
     {"corecdecl", 0x7FFF0000000007FF},
     {"loadbinary", 0x7FFF000000001FFF},
+    {"chunkvalues", 0x7FFF000000000FFF},
     -- Binary chunks a program altered: truncated, corrupted, with operands,
     -- branches, call sites, closures, relocations and entries out of place,
     -- each refused as a bad format, and every byte inverted in turn; a copy
@@ -571,6 +572,7 @@ local STRESS = {
     filesystem = true,
     osremove = true,
     loadbinary = true,
+    chunkvalues = true,
     loadhostile = true,
     osfilesystem = true,
     loadsource = true,
@@ -776,6 +778,7 @@ local NUMERIC = {
     recordsdynamic = "catalog-records-dynamic",
     recordscallable = "catalog-records-callable",
     recordruntime = "catalog-record-runtime",
+    chunkvalues = "catalog-chunk-values",
     tablesSort = "catalog-tables-sort",
     stringsGsubFunction = "catalog-strings-gsubfn",
     stringsQuoted = "catalog-strings-quoted",

@@ -260,6 +260,34 @@ export function argumentError(ctx: voidptr, position: uint64, expected: uint64, 
     end
 end
 
+-- A checked call refused a value before its callee's frame existed. Its
+-- caller roots `value`; the returned message is rooted by the result or raise.
+export function checkedArgument(ctx: voidptr, position: uint64, expected: uint64, detail: uint64, value: uint64): uint64
+    local state = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local h = guestHeap(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
+        local builder = state as strings.Builder*
+        local refused = librarytexts.append(h, builder, librarytexts.TEXT_BAD)
+            | strings.appendInteger(h, builder, native.index(position))
+            | strings.appendWord(h, builder, 0x2820ULL, 2ULL)
+        if expected ~= 0ULL then
+            refused = refused
+                | librarytexts.append(h, builder, expected)
+                | librarytexts.append(h, builder, librarytexts.TEXT_EXPECTED)
+                | strings.appendString(h, builder, strings.header(guesterrors.typeName(ctx, value)))
+        else
+            refused = refused | librarytexts.append(h, builder, detail)
+        end
+        refused = refused | librarytexts.append(h, builder, librarytexts.TEXT_CLOSE)
+        if refused ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
+        return values.TAG_OBJ | strings.finish(h, builder)
+    end
+end
+
 -- Raises "bad argument #n to 'name' (invalid option 'X')", X the text of
 -- the string `value`, as Lua's luaL_checkoption does.
 export function optionError(ctx: voidptr, position: uint64, value: uint64): nil

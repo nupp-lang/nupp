@@ -1,0 +1,123 @@
+module nupp.core.catalogchunkvalues
+
+const path = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/catalog-chunk-value-source.chunk"
+local file = assert(io.open(path, "rb"))
+local bytes: string = file:read("a") or ""
+file:close()
+local run: any = assert(load(bytes, "=values", "b", {os = false, require = false, _G = false}))
+local score: integer = 0
+
+local function check(bit: integer, ok: boolean): nil
+    if ok then
+        score = score | (1 << bit)
+    end
+end
+
+local function cites(message: any, line: integer, detail: string): boolean
+    local source = assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/tests/core/catalog-chunk-value-source.nupp"
+    local shown = #source <= 59 and source or "..." .. source:sub(#source - 55)
+    return message == shown .. ":" .. tostring(line) .. ": " .. detail
+end
+
+-- Value validation happens while executing admitted code, and is catchable.
+local ok, message = pcall(run, 1, 0)
+check(0, not ok and cites(message, 18, "bad argument #1 (value out of range)"))
+check(1, run(0) == 8)
+ok, message = pcall(run, 2, false)
+local detailOK, detailMessage = pcall(run, 10, false)
+local levelOK, levelMessage = pcall(run, 11, false)
+check(
+    2,
+    not ok
+    and cites(message, 25, "bad argument #2 (string expected, got boolean)")
+    and not detailOK
+    and cites(detailMessage, 49, "bad argument #3 (string expected, got boolean)")
+    and not levelOK
+    and cites(levelMessage, 51, "bad argument #4 (number expected, got boolean)")
+)
+local ordinaryOK, ordinaryMessage = pcall(run, 13, false)
+local validOK, validMessage = pcall(run, 12, nil)
+check(
+    3,
+    run(0) == 8
+    and not ordinaryOK
+    and cites(ordinaryMessage, 55, "bad argument #1 to 'rep' (string expected, got boolean)")
+    and not validOK
+    and cites(validMessage, 53, "bad argument #1 to 'probe' (kept)")
+)
+
+-- A static CallK, a spreading CallV, and direct PCall all keep scalar ABI
+-- admission, but the first two raise and PCall returns its own failure pair.
+ok, message = pcall(run, 3, false)
+check(4, not ok and cites(message, 27, "bad argument #1 (number expected, got boolean)"))
+ok, message = pcall(run, 4, nil, false)
+local missing, missingMessage = pcall(run, 4, nil)
+check(
+    5,
+    not ok
+    and cites(message, 29, "bad argument #1 (number expected, got boolean)")
+    and not missing
+    and cites(missingMessage, 29, "bad argument #1 (number expected, got nil)")
+)
+local protected = run(5, false)
+local packed = run(9, false)
+local continued = run(5, 4)
+check(
+    6,
+    protected[1] == false
+    and protected[2] == "bad argument #1 (number expected, got boolean)"
+    and packed[1] == false
+    and packed[2] == protected[2]
+    and continued[1] == true
+    and continued[2] == 5
+)
+ok, message = pcall(run, 7, 1)
+local nilOK, nilMessage = pcall(run, 8, 1)
+check(
+    7,
+    not ok
+    and cites(message, 37, "bad argument #1 (boolean expected, got number)")
+    and not nilOK
+    and cites(nilMessage, 39, "bad argument #1 (nil expected, got number)")
+)
+check(8, run(3, 4) == 5 and run(4, nil, 4) == 5 and run(7, true) == true and run(8, nil) == nil)
+
+-- The environment is a globals table, not a restriction on the loader's
+-- library access: this binary chunk retains a benign host getenv call.
+check(9, run(6) == os.getenv("NUPP_GUEST_PROBE") and run(6) == "core-environment")
+
+-- Structural admission remains separate from runtime values.
+local refused, reason = load(bytes:sub(1, 24), "=broken", "b")
+
+local function word(at: integer): integer
+    local result: integer = 0
+    for index = 8, 1, -1 do
+        result = (result << 8) | bytes:byte(at + index)
+    end
+
+    return result
+end
+
+local malformed: string? = nil
+local records = word(24 + 4 * 8)
+for owner = 0, word(24 + 2 * 8) - 1 do
+    local record = 24 + records + owner * 15 * 8
+    for index = 0, word(record + 6 * 8) - 1 do
+        local at = 24 + word(record + 5 * 8) + index * 16
+        if bytes:byte(at + 1) == 251 and bytes:byte(at + 5) == 200 then
+            -- ARGUMENT_ERROR with no argument window is malformed code.
+            malformed = bytes:sub(1, at + 3) .. "\0" .. bytes:sub(at + 5)
+        end
+    end
+end
+local invalid, invalidReason = load(assert(malformed), "=bad-window", "b")
+check(
+    10,
+    refused == nil
+    and tostring(reason):find("bad binary format", 1, true) ~= nil
+    and invalid == nil
+    and tostring(invalidReason):find("bad binary format", 1, true) ~= nil
+)
+check(11, run(0) == 8)
+
+export const result = score
