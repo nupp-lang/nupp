@@ -572,10 +572,11 @@ import contextlib, io, json, runpy, subprocess
 from pathlib import Path
 from types import SimpleNamespace
 root = Path.cwd()
+CORE = ('src/nupp/runtime/core/', 'src/nupp/core/', 'native/crates/core-bridge/')
 fixtures = {
     'src/runtime-input.nupp': 'runtime source',
     'native/crates/vm/src/input.rs': 'Rust glue',
-    'native/core/tests/receipt.json': 'independent core receipt',
+    'src/nupp/runtime/core/receipt.json': 'independent core receipt',
     'scripts/runtime-input': 'build script',
     'Cargo.toml': 'workspace',
     'Cargo.lock': 'locked dependencies',
@@ -628,17 +629,17 @@ def reuse(expected):
 receipt()
 reuse(True)
 base_cli, base_runtime = state()['fingerprint'], runtime_state()['fingerprint']
-core = root / 'native/core/tests/receipt.json'
+core = root / 'src/nupp/runtime/core/receipt.json'
 core.write_text('changed independent receipt')
-assert state()['fingerprint'] != base_cli, 'CLI freshness lost native/core'
+assert state()['fingerprint'] != base_cli, 'CLI freshness lost the core'
 assert runtime_state()['fingerprint'] == base_runtime
 reuse(True)
 core.unlink()
 assert state()['fingerprint'] != base_cli
 assert runtime_state()['fingerprint'] == base_runtime
 reuse(True)
-core.write_text(fixtures['native/core/tests/receipt.json'])
-addition = root / 'native/core/new-input.nupp'
+core.write_text(fixtures['src/nupp/runtime/core/receipt.json'])
+addition = root / 'src/nupp/core/new-input.nupp'
 addition.write_text('untracked independent core source')
 assert state()['fingerprint'] != base_cli
 assert runtime_state()['fingerprint'] == base_runtime
@@ -647,7 +648,7 @@ addition.unlink()
 assert state()['fingerprint'] == base_cli
 # Every other previously keyed input remains keyed, including seed contents.
 for name in fixtures:
-    if name.startswith('native/core/'):
+    if name.startswith(CORE):
         continue
     path = root / name
     original = path.read_bytes()
