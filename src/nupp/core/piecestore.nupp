@@ -31,6 +31,7 @@ local fingerprint = require("nupp.compiler.project.fingerprint")
 local interfacetext = require("nupp.compiler.project.interfacetext")
 local corepiece = require("nupp.compiler.vm.corepiece")
 local interfaceimage = require("nupp.compiler.project.interfaceimage")
+local imagemodules = require("nupp.compiler.imagemodules")
 local persisted, persist = pcall(require, "nupp.vm.persist")
 
 -- Bumped when an entry's shape or meaning changes.
@@ -38,8 +39,6 @@ const FORMAT = "guest-piece/2"
 const KIND = "pieces"
 -- The module the guest build starts from: what it reaches is the producer.
 const BUILDER = "nupp.core.guestbuild"
--- How the compiler image names a module it carries: its path below src.
-const CARRIED_PREFIX = "src"
 const GENERATION = "/(%x+)/compiler%.image$"
 -- Variables that make a build report as it goes; a reused piece would skip it.
 const REPORTING = {"EMIT_SURVEY", "EMIT_TRACE", "EMIT_STUBS", "DEBUG_REGS", "NUPP_CORE_SYMBOLS", "NUPP_MIR_OUT"}
@@ -60,25 +59,25 @@ local function producerOf(root: string): string?
     end
     local image = os.getenv("NUPP_VM_CLI_IMAGE")
     local generation = image and image:match(GENERATION)
-    local carried = image and fs.readFile(image)
-    disabled = not persisted or carried == nil or generation == nil or os.getenv("NUPP_GUEST_PIECE_STORE") == "0"
+    local installed = image and fs.readFile(image)
+    disabled = not persisted or installed == nil or generation == nil or os.getenv("NUPP_GUEST_PIECE_STORE") == "0"
     for _, variable in ipairs(REPORTING) do
         disabled = disabled or os.getenv(variable) ~= nil
     end
     if disabled then
         return nil
     end
-    local loaded: {string} = {}
-    for _, path in ipairs(kernelcompiler.reachedFiles(root, {BUILDER})) do
-        local below = path:sub(1, #CARRIED_PREFIX) == CARRIED_PREFIX and path:sub(#CARRIED_PREFIX + 1) or path
-        if not (carried as string):find(below, 1, true) then
-            loaded[#loaded + 1] = path
+    local carried = imagemodules.carriedModules()
+    local loaded: {[string]: boolean} = {}
+    for name, path in pairs(kernelcompiler.reachedModules(root, {BUILDER})) do
+        if not carried[name] then
+            loaded[path] = true
         end
     end
     producer = contentDigest(
         FORMAT .. "\0" .. corepiece.FORMAT .. "\0" .. (
             generation as string
-        ) .. "\0" .. kernelcompiler.digestOf(root, loaded)
+        ) .. "\0" .. kernelcompiler.digestOf(root, kernelcompiler.sorted(loaded))
     )
 
     return producer

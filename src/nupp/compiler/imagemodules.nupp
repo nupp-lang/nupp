@@ -1,0 +1,18 @@
+module nupp.compiler.imagemodules
+
+export function carriedModules(): {[string]: boolean}
+    local describe: any = rawget(_G, "__nupp_image_modules")
+    local modules: {[string]: boolean} = {}
+    if type(describe) == "function" then
+        local okay, graph = pcall(describe)
+        if okay and type(graph) == "table" and type(graph.digests) == "table" then
+            for name, digest in pairs(graph.digests) do
+                if type(name) == "string" and type(digest) == "string" then
+                    modules[name] = true
+                end
+            end
+        end
+    end
+
+    return modules
+end
