@@ -1,0 +1,62 @@
+module nupp.core.catalogpipereadmemory
+
+const provider = require("nupp.runtime.provider.coreprocesshost")
+
+-- Repeated small process reads exercise short reads, readiness retries and
+-- EOF while each read's builder is opened and released independently.
+local total: integer = 0
+local popen: any = io.popen
+for _ = 1, 32 do
+    local child = assert(
+        popen("(sleep 0.02; printf 'a small process output\\n'; sleep 0.02; printf 'stderr\\n' >&2) 2>&1")
+    )
+    local text: string = child:read("a")
+    child:close()
+    if text ~= "a small process output\nstderr\n" then
+        error("process output changed", 0)
+    end
+    total = total + #text
+end
+
+for _ = 1, 8 do
+    local child = assert(popen({"sh", "-c", "sleep 0.05; printf 'out\\n'; printf 'err\\n' >&2"}, {stderr = "pipe"}))
+    local captured = assert(child:communicate())
+    child:close()
+    if captured.output ~= "out\n" or captured.erroroutput ~= "err\n" then
+        error("separate process streams changed", 0)
+    end
+    total = total + #captured.output + #captured.erroroutput
+end
+
+-- Pending reads must release their native buffers before collection. A
+-- sleeping child keeps every retry pending without allocating guest data.
+do
+    local collecting = collectgarbage("isrunning")
+    collectgarbage("stop")
+    local child, _, output = provider.spawn({
+        args = {"sh", "-c", "sleep 1; printf late"},
+        stdin = "null",
+        stdout = "pipe",
+        stderr = "null"
+    })
+    assert(child ~= nil and output ~= nil)
+    local attempts: integer = 0
+    local ok, problem = pcall(function(): nil
+        for _ = 1, 400 do
+            attempts = attempts + 1
+            provider.read(output, 65536)
+        end
+    end)
+    provider.kill(child, true)
+    provider.closeStream(output)
+    provider.reap(child)
+    if collecting then
+        collectgarbage("restart")
+    end
+    if not ok then
+        error(problem, 0)
+    end
+    total = total + attempts
+end
+
+export const result = total

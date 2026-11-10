@@ -262,6 +262,7 @@ local CASES = {
     {"processlines", 0x7FFF000000000FFF},
     -- Files read after a popen child closes, its pipe's descriptor reused.
     {"processreuse", 0x7FFF0000000003FF},
+    {"pipereadmemory", 0x7FFF000000000590},
     {"selectvalues", 0x7FFF00000000007F},
     {"processlayer", 0x7FFF000000FFFFFF},
     -- os.exit(3): the program ends there, publishing nothing (EXITS).
@@ -533,6 +534,7 @@ local STRESS = {
     libraryresults = true,
     processlines = true,
     processreuse = true,
+    pipereadmemory = true,
     processlayer = true,
     processexit = true,
     gcweak = true,

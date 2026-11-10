@@ -355,6 +355,7 @@ local CASES: {[string]: {
     libraryresults = {fixture = "catalog-library-results", version = 8},
     processlines = {fixture = "catalog-process-lines", version = 8},
     processreuse = {fixture = "catalog-process-reuse", version = 8},
+    pipereadmemory = {fixture = "catalog-pipe-read-memory", version = 8},
     selectvalues = {fixture = "catalog-select-values", version = 8},
     processexit = {fixture = "catalog-process-exit", version = 8},
     gcweak = {fixture = "catalog-gc-weak", version = 8},
