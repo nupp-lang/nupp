@@ -1,0 +1,114 @@
+module nupp.tools.vm.privateproducer
+
+-- A development compiler image carrying the guest builder, so loading it
+-- does not check the builder again after editing a carried program module.
+-- Compiler modules already carried by the base are fixed for this producer;
+-- their checkout sources remain inputs to the program being built. Every
+-- producer dependency not carried by that base remains a content input.
+local hash = require("nupp.compiler.hash")
+local sharedcache = require("nupp.core.sharedcache")
+local fs = require("nupp.compiler.fs")
+local kernelcompiler = require("nupp.core.kernelcompiler")
+local process = require("nupp.compiler.process")
+local packaging = require("nupp.tools.vm.packaging")
+local driver = require("nupp.tools.vm.producerdriver")
+
+const FORMAT = "nupp-native-producer/2"
+const ROOTS = {"nupp.core.guestprogramproducer", "nupp.tools.vm.privateproducer"}
+const SOURCE_INPUTS = {
+    "src",
+    "templates",
+    "native",
+    "runtime",
+    "scripts",
+    "bin",
+    "nupp.lua",
+    "tests/run.lua",
+    "Cargo.toml",
+    "Cargo.lock",
+    "rust-toolchain.toml",
+    ".cargo"
+}
+
+local function read(path: string): string
+    return (assert(fs.readFile(path)))
+end
+
+local function capture(root: string, arguments: {string}): string
+    local status, text = process.capture(arguments, {cwd = root})
+    if status ~= 0 then
+        error(text, 0)
+    end
+
+    return text
+end
+
+export function main(arguments: {string}): integer
+    local root = assert(arguments[1], "checkout root required")
+    local generation = assert(os.getenv("NUPP_PRIVATE_PRODUCER_BASE"), "base compiler generation required")
+    local base = root .. "/.nupp/vm-cli/" .. generation
+    local image = read(base .. "/compiler.image")
+    local inputs = driver.sourceInputs(root, kernelcompiler.reachedModules(root, ROOTS), driver.carriedModules())
+    for _, path in ipairs({
+        "nupp.lua",
+        "scripts/native-producer",
+        "scripts/native-producer-build.lua",
+        "scripts/native-producer-driver.lua",
+        "scripts/toolchain",
+        "scripts/toolchain.pins",
+        "scripts/sccache-wrapper"
+    }) do
+        inputs[#inputs + 1] = {path = path, sha256 = hash.sha256(read(root .. "/" .. path))}
+    end
+    local identity = {
+        format = FORMAT,
+        root = root,
+        base = generation,
+        baseImage = hash.sha256(image),
+        baseRuntime = hash.sha256(read(base .. "/runtime")),
+        inventory = driver.inventory(root),
+        inputs = inputs,
+        extras = table.concat(ROOTS, ","),
+        seal = ""
+    }
+    identity.seal = assert(driver.identitySeal(identity))
+    local output = root .. "/build/native-producer"
+    local packages = root .. "/.nupp/native-producer"
+    assert(fs.mkdir(packages))
+    -- Hidden staging cannot become a second path for the checkout's
+    -- modules when another project scans its root through canonical paths.
+    local source = packages .. "/source"
+    assert(fs.mkdir(source))
+    -- Generated manifest and links are build artifacts. The checkout's public
+    -- manifest and the ordinary shipping compiler remain unchanged.
+    for _, name in ipairs({"src", "native", "templates", "tests", "evals", "docs"}) do
+        if fs.exists(root .. "/" .. name) then
+            local staged = source .. "/" .. name
+            if not fs.exists(staged) then
+                capture(root, {"ln", "-s", root .. "/" .. name, staged})
+            end
+            assert(fs.canonical(staged) == fs.canonical(root .. "/" .. name), "unexpected producer source: " .. staged)
+        end
+    end
+    assert(fs.writeFile(source .. "/nupp.lua", ("return assert(loadfile(%q))()\n"):format(root .. "/nupp.lua")))
+    packaging.producer(root, {
+        generation = generation,
+        outDir = output .. "/work",
+        packages = packages,
+        emitRoot = source,
+        extras = identity.extras,
+        identity = identity,
+        snapshot = function(): table
+            return {
+                revision = capture(root, {
+                    "git",
+                    "rev-parse",
+                    "HEAD"
+                }):match("^(%S+)"),
+                fingerprint = assert(sharedcache.treeDigest(root, SOURCE_INPUTS))
+            }
+        end
+    })
+
+    return 0
+end

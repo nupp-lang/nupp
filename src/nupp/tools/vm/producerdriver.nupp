@@ -1,0 +1,251 @@
+module nupp.tools.vm.producerdriver
+
+-- The launcher checks a small record on the installed compiler before it
+-- starts the separately packaged guest producer.
+local json = require("serde.json")
+local fs = require("nupp.compiler.fs")
+local hash = require("nupp.compiler.hash")
+local process = require("nupp.compiler.process")
+
+local function digest(path: string): string?
+    local text = fs.readFile(path)
+    return text and hash.sha256(text) or nil
+end
+
+export function inventory(root: string): string
+    local status, text = process.capture(
+        {
+            "git",
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "-z",
+            "--",
+            "src",
+            "native/crates/vm/lib",
+            "native/crates/vm/decls"
+        },
+        {cwd = root}
+    )
+    assert(status == 0, "cannot list producer sources")
+    local paths: {string} = {}
+    for path in text:gmatch("[^%z]+") do
+        paths[#paths + 1] = path
+    end
+    table.sort(paths)
+
+    return hash.sha256(table.concat(paths, "\0"))
+end
+
+-- The runtime describes only the image it started from, excluding modules
+-- loaded from source later. Unknown hosts conservatively carry nothing.
+export function carriedModules(): {[string]: boolean}
+    local describe: any = rawget(_G, "__nupp_image_modules")
+    local modules: {[string]: boolean} = {}
+    if describe then
+        local graph = describe()
+        if type(graph) == "table" and type(graph.digests) == "table" then
+            for name, digest in pairs(graph.digests) do
+                if type(name) == "string" and type(digest) == "string" then
+                    modules[name] = true
+                end
+            end
+        end
+    end
+
+    return modules
+end
+
+-- Hash every executable dependency the fixed image does not actually carry.
+-- Names come from resolution; a path literal in image data proves nothing.
+export function sourceInputs(root: string, modules: {[string]: string}, carried: {[string]: boolean}): {any}
+    local names: {string} = {}
+    for name in pairs(modules) do
+        table.insert(names, name)
+    end
+    table.sort(names)
+    local inputs: {any} = {}
+    local seen: {[string]: boolean} = {}
+    for _, name in ipairs(names) do
+        local path = assert(modules[name])
+        if path:sub(1, 1) ~= "?" and not carried[name] and not seen[path] then
+            seen[path] = true
+            inputs[#inputs + 1] = {path = path, sha256 = assert(digest(root .. "/" .. path))}
+        end
+    end
+
+    return inputs
+end
+
+-- Every identity field, including the complete executable input list, is
+-- sealed so damaged metadata cannot accidentally remove a dependency.
+export function identitySeal(identity: any): string?
+    local sealed = {
+        identity.format,
+        identity.root,
+        identity.base,
+        identity.baseImage,
+        identity.baseRuntime,
+        identity.inventory,
+        identity.extras
+    }
+    for _, input in ipairs(identity.inputs) do
+        if type(input) ~= "table" or type(input.path) ~= "string" or type(input.sha256) ~= "string" then
+            return nil
+        end
+        sealed[#sealed + 1], sealed[#sealed + 2] = input.path, input.sha256
+    end
+    for _, value in ipairs(sealed) do
+        if type(value) ~= "string" then
+            return nil
+        end
+    end
+    if #sealed ~= 7 + 2 * #identity.inputs then
+        return nil
+    end
+
+    return hash.sha256(table.concat(sealed, "\0"))
+end
+
+-- A corrupt or missing record is a miss. Program source already carried by
+-- the fixed compiler is data for that compiler; uncarried builder code is an
+-- executable dependency and must still match.
+export function selected(root: string, base: string): string?
+    local okay, result = pcall(function(): string?
+        local packages = root .. "/.nupp/native-producer"
+        local generation = assert(fs.readFile(packages .. "/current")):match("^(%x+)%s*$")
+        if not generation or #generation ~= 64 then
+            return nil
+        end
+        local directory = packages .. "/" .. generation
+        local receipt: any = json.decodevalue(assert(fs.readFile(directory .. "/receipt.json")))
+        if type(receipt) ~= "table"
+            or receipt.format ~= "nupp-vm-cli-1"
+            or receipt.linked ~= true
+            or type(receipt.imageSha256) ~= "string"
+            or type(receipt.runtimeSha256) ~= "string"
+        then
+            return nil
+        end
+        local identity = receipt.privateProducer
+        if type(identity) ~= "table"
+            or identity.format ~= "nupp-native-producer/2"
+            or identity.root ~= root
+            or identity.base ~= base
+            or identity.inventory ~= inventory(root)
+        then
+            return nil
+        end
+        local original = root .. "/.nupp/vm-cli/" .. base
+        if digest(original .. "/compiler.image") ~= identity.baseImage
+            or digest(original .. "/runtime") ~= identity.baseRuntime
+        then
+            return nil
+        end
+        if type(identity.inputs) ~= "table" then
+            return nil
+        end
+        local seal = identitySeal(identity)
+        if seal == nil or seal ~= identity.seal then
+            return nil
+        end
+        for _, input in ipairs(identity.inputs) do
+            if digest(root .. "/" .. input.path) ~= input.sha256 then
+                return nil
+            end
+        end
+        if digest(directory .. "/compiler.image") ~= receipt.imageSha256
+            or digest(directory .. "/runtime") ~= receipt.runtimeSha256
+        then
+            return nil
+        end
+
+        return directory
+    end)
+    if okay then
+        return result
+    end
+
+    return nil
+end
+
+export function main(arguments: {string}): integer
+    local root = assert(os.getenv("NUPP_COMPILER_ROOT"), "checkout root required")
+    local base = assert(fs.readFile(root .. "/.nupp/vm-cli/current")):match("^(%x+)%s*$")
+    assert(base and #base == 64, "invalid base compiler generation")
+    local statusOnly, buildOnly, refresh = false, false, false
+    local cases: {string} = {}
+    for _, argument in ipairs(arguments) do
+        if argument == "--status" then
+            statusOnly = true
+        elseif argument == "--build-only" then
+            buildOnly = true
+        elseif argument == "--refresh" then
+            refresh = true
+        else
+            cases[#cases + 1] = argument
+        end
+    end
+    assert(statusOnly or buildOnly or #cases > 0, "choose at least one guest case")
+    local artifact = selected(root, base as string)
+    if statusOnly then
+        if artifact then
+            print(artifact);
+            return 0
+        end
+        return 1
+    end
+    if refresh then
+        artifact = nil
+    end
+    if not artifact then
+        -- Only the shell wrapper owns the build lock. It retries this command
+        -- under that lock, where another completed build is checked again.
+        if os.getenv("NUPP_PRIVATE_PRODUCER_BUILD") ~= "1" then
+            return 75
+        end
+        local original = root .. "/.nupp/vm-cli/" .. base
+        local status = process.run({root .. "/bin/nupp", "run", root .. "/scripts/native-producer-build.lua"}, {
+            cwd = root .. "/tests/core/units",
+            env = {
+                NUPP_PRIVATE_PRODUCER_BASE = base,
+                NUPP_VM_BINARY = original .. "/runtime",
+                NUPP_VM_CLI_IMAGE = original .. "/compiler.image"
+            }
+        })
+        assert(status == 0, "private producer build failed")
+        artifact = assert(selected(root, base as string), "private producer did not validate")
+    end
+    if buildOnly then
+        print(artifact);
+        return 0
+    end
+    local directory = artifact as string
+    local command = {
+        directory .. "/runtime",
+        "exec",
+        directory .. "/compiler.image",
+        "nupp.tools.vm.root",
+        "run",
+        "../guests/run.lua"
+    }
+    for _, name in ipairs(cases) do
+        table.insert(command, name)
+    end
+
+    return process.run(command, {
+        cwd = root .. "/tests/core/units",
+        env = {
+            NUPP_VM_BINARY = directory .. "/runtime",
+            NUPP_VM_CLI_IMAGE = directory .. "/compiler.image",
+            NUPP_GUEST_SHARDS = "1",
+            NUPP_GUEST_JOBS = "2",
+            NUPP_GUEST_AUDITS = "0",
+            NUPP_GUEST_QUICK = "1",
+            NUPP_GUEST_MODES = "normal",
+            NUPP_GUEST_STRESS = "0",
+            NUPP_GUEST_VALIDATE = "0"
+        }
+    })
+end

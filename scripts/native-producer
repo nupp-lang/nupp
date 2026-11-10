@@ -1,0 +1,36 @@
+#!/bin/sh
+# Internal development route for an immutable, separately packaged producer.
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd -P)
+GENERATION=$(cat "$ROOT/.nupp/vm-cli/current")
+case "$GENERATION" in ""|*[!0-9a-f]*) echo "invalid base compiler generation" >&2; exit 1 ;; esac
+[ "${#GENERATION}" -eq 64 ] || exit 1
+PAIR="$ROOT/.nupp/vm-cli/$GENERATION"
+unset NUPP_LUA_REFERENCE GC_STRESS GC_INTERLEAVE GC_ORACLE NUPP_PRIVATE_PRODUCER_BUILD
+export NUPP_VM_AUTO_REBUILD=0 NO_JIT=1 NUPP_COMPILER_ROOT="$ROOT"
+export NUPP_VM_BINARY="$PAIR/runtime" NUPP_VM_CLI_IMAGE="$PAIR/compiler.image"
+run() {
+    "$PAIR/runtime" exec "$PAIR/compiler.image" nupp.tools.vm.root run "$ROOT/scripts/native-producer-driver.lua" "$@"
+}
+status=0
+run "$@" || status=$?
+[ "$status" -eq 75 ] || exit "$status"
+PACKAGES="$ROOT/.nupp/native-producer"
+mkdir -p "$PACKAGES"
+LOCK="$PACKAGES/build-lock"
+while ! mkdir "$LOCK" 2>/dev/null; do
+    if [ -f "$LOCK/owner" ]; then
+        owner=$(cat "$LOCK/owner")
+        case "$owner" in ""|*[!0-9]*) echo "invalid producer lock owner" >&2; exit 1 ;; esac
+        if ! kill -0 "$owner" 2>/dev/null; then
+            echo "stale producer lock: $LOCK" >&2
+            exit 1
+        fi
+    fi
+    sleep 1
+done
+trap 'rm -f "$LOCK/owner"; rmdir "$LOCK"' EXIT
+trap 'exit 1' HUP INT TERM
+echo "$$" > "$LOCK/owner"
+export NUPP_PRIVATE_PRODUCER_BUILD=1
+run "$@"

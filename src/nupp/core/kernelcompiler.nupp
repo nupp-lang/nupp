@@ -88,7 +88,7 @@ end
 
 -- The files of the modules `roots` reach by literal requires under `root`,
 -- by path; a name no file answers (a host module) as `?name`.
-local function reached(root: string, roots: {string}): {[string]: boolean}
+local function reached(root: string, roots: {string}, modules: {[string]: string}?): {[string]: boolean}
     local seen: {[string]: boolean} = {}
     local files: {[string]: boolean} = {}
     local pending: {string} = {}
@@ -100,6 +100,9 @@ local function reached(root: string, roots: {string}): {[string]: boolean}
         if not seen[name] then
             seen[name] = true
             local path = resolve(root, name)
+            if modules then
+                modules[name] = path or ("?" .. name)
+            end
             if path == nil then
                 files["?" .. name] = true
             else
@@ -129,6 +132,14 @@ end
 -- a name no file answers as `?name`.
 export function reachedFiles(root: string, roots: {string}): {string}
     return sorted(reached(root, roots))
+end
+
+-- Every reached module's exact require name and resolved path. A host name
+-- keeps its `?` marker, as reachedFiles does.
+export function reachedModules(root: string, roots: {string}): {[string]: string}
+    local modules: {[string]: string} = {}
+    reached(root, roots, modules)
+    return modules
 end
 
 -- The guest program's own lowering under `root`, sorted: what the kernel key
