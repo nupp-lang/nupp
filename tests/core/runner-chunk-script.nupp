@@ -1,0 +1,2 @@
+local result: integer = 1
+return result

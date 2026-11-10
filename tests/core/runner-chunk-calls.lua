@@ -48,10 +48,11 @@ local limits = require("nupp.gpu.limits")
 check(limits.PORTABLE_WORKGROUP_THREADS == 256)
 check(require("nupp.gpu.limits") == limits)
 
--- One whose source the host could not compile: the refusal it kept is
--- raised at once, where the core would only refuse it again, slowly.
-local net = "io" .. ".net"
-local loaded, why = pcall(require, net)
-check(not loaded and tostring(why):find("only checked static require", 1, true) ~= nil)
+-- A standalone checked script cannot be compiled as a module instance.
+-- Its recorded refusal comes back from loadfile without compiling it again.
+local refused, problem = loadfile("tests/core/runner-chunk-script.nupp")
+check(
+    refused == nil and problem == "tests/core/runner-chunk-script.nupp:0: a module instance needs a module declaration"
+)
 
 return score

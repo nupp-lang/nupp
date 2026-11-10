@@ -264,6 +264,7 @@ local CASES = {
     {"processreuse", 0x7FFF0000000003FF},
     -- The compiler's content digest and SHA-256, which the core computes.
     {"hashdigests", 0x7FFF0000000003FF},
+    {"pipereadmemory", 0x7FFF000000000590},
     {"selectvalues", 0x7FFF00000000007F},
     {"processlayer", 0x7FFF000000FFFFFF},
     -- os.exit(3): the program ends there, publishing nothing (EXITS).
@@ -544,6 +545,7 @@ local STRESS = {
     processlines = true,
     processreuse = true,
     hashdigests = true,
+    pipereadmemory = true,
     processlayer = true,
     processexit = true,
     gcweak = true,
@@ -620,7 +622,11 @@ local ROOTED = {testrunner = "tests/tools/test/runner", benchworkloads = "bench/
 -- compile text itself yet.
 local RUNNER_SUITES = {"iopathargumenttest", "iofileargumenttest", "corewarnlogtest", "typefactoriestest"}
 local SOURCES = {
-    runnerchunks = {"tests/core/runner-chunk-calls.lua", "src/nupp/gpu/limits.nupp", "src/io/net/init.nupp"},
+    runnerchunks = {
+        "tests/core/runner-chunk-calls.lua",
+        "tests/core/runner-chunk-script.nupp",
+        "src/nupp/gpu/limits.nupp"
+    },
     testrunner = {
         "tests/run.lua",
         "tests/groups.lua",
