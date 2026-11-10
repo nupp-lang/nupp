@@ -4,6 +4,95 @@ local json = require("serde.json")
 local driver = require("nupp.tools.vm.producerdriver")
 local M = {}
 
+function M.sharedInventoryMatchesTheInstalledImage()
+    local carried = require("nupp.compiler.imagemodules").carriedModules()
+    local original = driver.carriedModules()
+    for name in pairs(carried) do
+        assert(original[name], "shared inventory added a module the installed image does not carry")
+    end
+    for name in pairs(original) do
+        assert(carried[name], "shared inventory dropped an installed module")
+    end
+end
+
+function M.pieceProducerHashesSourceUnlessTheImageCarriesItsModule()
+    local fs = require("nupp.compiler.fs")
+    local instances = require("helpers.providerstate")
+    local root = os.tmpname()
+    os.remove(root)
+    assert(fs.mkdir(root .. "/src/nupp/core"))
+    assert(fs.mkdir(root .. "/src/test"))
+    local generation = string.rep("a", 64)
+    local pair = root .. "/.nupp/vm-cli/" .. generation
+    assert(fs.mkdir(pair))
+    root = fs.canonical(root)
+    pair = root .. "/.nupp/vm-cli/" .. generation
+    local image = pair .. "/compiler.image"
+    local builder = root .. "/src/test/builder.nupp"
+    local okay, problem = pcall(function()
+        assert(fs.writeFile(root .. "/src/nupp/core/guestbuild.nupp", 'return require("test.builder")\n'))
+        assert(fs.writeFile(builder, "return 'builder'\n"))
+        assert(fs.writeFile(root .. "/program.nupp", "return 1\n"))
+        assert(fs.writeFile(image, "image data mentions /test/builder.nupp"))
+        local environment = setmetatable(
+            {
+                getenv = function(name)
+                    return name == "NUPP_VM_CLI_IMAGE" and image or nil
+                end
+            },
+            {__index = os}
+        )
+
+        local function key(inventory)
+            local load = instances.instance(
+                {["nupp.core.piecestore"] = true, ["nupp.compiler.imagemodules"] = true},
+                {["nupp.vm.persist"] = {}},
+                nil,
+                {os = environment, __nupp_image_modules = inventory or false}
+            )
+            local store = assert(
+                load("nupp.core.piecestore").open(root, {
+                    modules = {{name = "test.program", path = root .. "/program.nupp"}},
+                    entry = 0,
+                    cyclic = {}
+                })
+            )
+
+            return assert(store.key(1))
+        end
+
+        local function inventory()
+            return {digests = {["nupp.core.guestbuild"] = "fixed guest builder"}}
+        end
+
+        local original = key(inventory)
+        assert(fs.writeFile(builder, "return 'changed builder'\n"))
+        assert(key(inventory) ~= original, "a path literal does not freeze executable source")
+        local unavailable = key(nil)
+        assert(fs.writeFile(builder, "return 'changed again'\n"))
+        assert(key(nil) ~= unavailable, "an unavailable inventory conservatively hashes executable source")
+
+        local function failedInventory()
+            error("fixture inventory unavailable")
+        end
+
+        local failed = key(failedInventory)
+        assert(failed == key(nil), "a failed inventory hashes the same complete source closure")
+        assert(fs.writeFile(builder, "return 'changed after inventory failure'\n"))
+        assert(key(failedInventory) ~= failed, "an inventory failure does not freeze executable source")
+
+        local function carried()
+            return {digests = {["nupp.core.guestbuild"] = "fixed guest builder", ["test.builder"] = "fixed builder"}}
+        end
+
+        local frozen = key(carried)
+        assert(fs.writeFile(builder, "return 'source edit to frozen builder'\n"))
+        assert(key(carried) == frozen, "an actually carried module keeps the same producer identity")
+    end)
+    os.remove(root, true)
+    assert(okay, problem)
+end
+
 function M.frozenProducerKeepsProgramEditsAndRejectsBuilderChanges()
     local root = os.tmpname()
     os.remove(root)
