@@ -167,342 +167,342 @@ export const TEXT_ITERATOR: uint64 = 158ULL
 
 -- Appends text `id` to `b`: nonzero when the builder refused it.
 export function append(h: heap.Heap*, borrows b: strings.Builder*, id: uint64): uint64
-    if id == TEXT_BAD then
+    if id == 1ULL then
         -- "bad argument #"
         return strings.appendWord(h, b, 0x7567726120646162ULL, 8ULL) | strings.appendWord(h, b, 0x2320746e656dULL, 6ULL)
-    elseif id == TEXT_TO then
+    elseif id == 2ULL then
         -- " to '"
         return strings.appendWord(h, b, 0x27206f7420ULL, 5ULL)
-    elseif id == TEXT_OPEN then
+    elseif id == 3ULL then
         -- "' ("
         return strings.appendWord(h, b, 0x282027ULL, 3ULL)
-    elseif id == TEXT_CLOSE then
+    elseif id == 4ULL then
         -- ")"
         return strings.appendWord(h, b, 0x29ULL, 1ULL)
-    elseif id == TEXT_EXPECTED then
+    elseif id == 5ULL then
         -- " expected, got "
         return strings.appendWord(h, b, 0x6574636570786520ULL, 8ULL)
             | strings.appendWord(h, b, 0x20746f67202c64ULL, 7ULL)
-    elseif id == TEXT_NO_VALUE then
+    elseif id == 6ULL then
         -- "no value"
         return strings.appendWord(h, b, 0x65756c6176206f6eULL, 8ULL)
-    elseif id == TEXT_STRING then
+    elseif id == 7ULL then
         -- "string"
         return strings.appendWord(h, b, 0x676e69727473ULL, 6ULL)
-    elseif id == TEXT_NUMBER then
+    elseif id == 8ULL then
         -- "number"
         return strings.appendWord(h, b, 0x7265626d756eULL, 6ULL)
-    elseif id == TEXT_TABLE then
+    elseif id == 9ULL then
         -- "table"
         return strings.appendWord(h, b, 0x656c626174ULL, 5ULL)
-    elseif id == TEXT_REPLACEMENT_KINDS then
+    elseif id == 10ULL then
         -- "string/function/table"
         return strings.appendWord(h, b, 0x662f676e69727473ULL, 8ULL)
             | strings.appendWord(h, b, 0x2f6e6f6974636e75ULL, 8ULL)
             | strings.appendWord(h, b, 0x656c626174ULL, 5ULL)
-    elseif id == TEXT_NO_INTEGER then
+    elseif id == 11ULL then
         -- "number has no integer representation"
         return strings.appendWord(h, b, 0x68207265626d756eULL, 8ULL)
             | strings.appendWord(h, b, 0x6e69206f6e207361ULL, 8ULL)
             | strings.appendWord(h, b, 0x6572207265676574ULL, 8ULL)
             | strings.appendWord(h, b, 0x61746e6573657270ULL, 8ULL)
             | strings.appendWord(h, b, 0x6e6f6974ULL, 4ULL)
-    elseif id == TEXT_EMPTY_INTERVAL then
+    elseif id == 12ULL then
         -- "interval is empty"
         return strings.appendWord(h, b, 0x6c61767265746e69ULL, 8ULL)
             | strings.appendWord(h, b, 0x74706d6520736920ULL, 8ULL)
             | strings.appendWord(h, b, 0x79ULL, 1ULL)
-    elseif id == TEXT_OUT_OF_BOUNDS then
+    elseif id == 13ULL then
         -- "position out of bounds"
         return strings.appendWord(h, b, 0x6e6f697469736f70ULL, 8ULL)
             | strings.appendWord(h, b, 0x20666f2074756f20ULL, 8ULL)
             | strings.appendWord(h, b, 0x73646e756f62ULL, 6ULL)
-    elseif id == TEXT_ZERO then
+    elseif id == 14ULL then
         -- "zero"
         return strings.appendWord(h, b, 0x6f72657aULL, 4ULL)
-    elseif id == TEXT_VALUE_RANGE then
+    elseif id == 15ULL then
         -- "value out of range"
         return strings.appendWord(h, b, 0x756f2065756c6176ULL, 8ULL)
             | strings.appendWord(h, b, 0x6e617220666f2074ULL, 8ULL)
             | strings.appendWord(h, b, 0x6567ULL, 2ULL)
-    elseif id == TEXT_INDEX_RANGE then
+    elseif id == 16ULL then
         -- "index out of range"
         return strings.appendWord(h, b, 0x756f207865646e69ULL, 8ULL)
             | strings.appendWord(h, b, 0x6e617220666f2074ULL, 8ULL)
             | strings.appendWord(h, b, 0x6567ULL, 2ULL)
-    elseif id == TEXT_TOO_MANY_MOVE then
+    elseif id == 17ULL then
         -- "too many elements to move"
         return strings.appendWord(h, b, 0x796e616d206f6f74ULL, 8ULL)
             | strings.appendWord(h, b, 0x746e656d656c6520ULL, 8ULL)
             | strings.appendWord(h, b, 0x766f6d206f742073ULL, 8ULL)
             | strings.appendWord(h, b, 0x65ULL, 1ULL)
-    elseif id == TEXT_WRAP then
+    elseif id == 18ULL then
         -- "destination wrap around"
         return strings.appendWord(h, b, 0x74616e6974736564ULL, 8ULL)
             | strings.appendWord(h, b, 0x70617277206e6f69ULL, 8ULL)
             | strings.appendWord(h, b, 0x646e756f726120ULL, 7ULL)
-    elseif id == TEXT_VALUE_EXPECTED then
+    elseif id == 19ULL then
         -- "value expected"
         return strings.appendWord(h, b, 0x78652065756c6176ULL, 8ULL) | strings.appendWord(h, b, 0x646574636570ULL, 6ULL)
-    elseif id == TEXT_NO_LITERAL then
+    elseif id == 20ULL then
         -- "value has no literal form"
         return strings.appendWord(h, b, 0x61682065756c6176ULL, 8ULL)
             | strings.appendWord(h, b, 0x74696c206f6e2073ULL, 8ULL)
             | strings.appendWord(h, b, 0x726f66206c617265ULL, 8ULL)
             | strings.appendWord(h, b, 0x6dULL, 1ULL)
-    elseif id == TEXT_INVALID_CONCAT then
+    elseif id == 21ULL then
         -- "invalid value ("
         return strings.appendWord(h, b, 0x2064696c61766e69ULL, 8ULL)
             | strings.appendWord(h, b, 0x282065756c6176ULL, 7ULL)
-    elseif id == TEXT_IN_CONCAT then
+    elseif id == 22ULL then
         -- " in table for 'concat'"
         return strings.appendWord(h, b, 0x6c626174206e6920ULL, 8ULL)
             | strings.appendWord(h, b, 0x632720726f662065ULL, 8ULL)
             | strings.appendWord(h, b, 0x277461636e6fULL, 6ULL)
-    elseif id == TEXT_INVALID_REPLACEMENT then
+    elseif id == 23ULL then
         -- "invalid replacement value (a "
         return strings.appendWord(h, b, 0x2064696c61766e69ULL, 8ULL)
             | strings.appendWord(h, b, 0x6d6563616c706572ULL, 8ULL)
             | strings.appendWord(h, b, 0x756c617620746e65ULL, 8ULL)
             | strings.appendWord(h, b, 0x2061282065ULL, 5ULL)
-    elseif id == TEXT_CAPTURE_INDEX then
+    elseif id == 24ULL then
         -- "invalid capture index %"
         return strings.appendWord(h, b, 0x2064696c61766e69ULL, 8ULL)
             | strings.appendWord(h, b, 0x2065727574706163ULL, 8ULL)
             | strings.appendWord(h, b, 0x25207865646e69ULL, 7ULL)
-    elseif id == TEXT_AT_INDEX then
+    elseif id == 25ULL then
         -- ") at index "
         return strings.appendWord(h, b, 0x646e692074612029ULL, 8ULL) | strings.appendWord(h, b, 0x207865ULL, 3ULL)
-    elseif id == TEXT_PERCENT_USE then
+    elseif id == 26ULL then
         -- "invalid use of '%' in replacement string"
         return strings.appendWord(h, b, 0x2064696c61766e69ULL, 8ULL)
             | strings.appendWord(h, b, 0x2720666f20657375ULL, 8ULL)
             | strings.appendWord(h, b, 0x6572206e69202725ULL, 8ULL)
             | strings.appendWord(h, b, 0x6e656d6563616c70ULL, 8ULL)
             | strings.appendWord(h, b, 0x676e697274732074ULL, 8ULL)
-    elseif id == TEXT_UNFINISHED then
+    elseif id == 27ULL then
         -- "unfinished capture"
         return strings.appendWord(h, b, 0x6873696e69666e75ULL, 8ULL)
             | strings.appendWord(h, b, 0x7574706163206465ULL, 8ULL)
             | strings.appendWord(h, b, 0x6572ULL, 2ULL)
-    elseif id == TEXT_UNPACK_MANY then
+    elseif id == 28ULL then
         -- "too many results to unpack"
         return strings.appendWord(h, b, 0x796e616d206f6f74ULL, 8ULL)
             | strings.appendWord(h, b, 0x73746c7573657220ULL, 8ULL)
             | strings.appendWord(h, b, 0x61706e75206f7420ULL, 8ULL)
             | strings.appendWord(h, b, 0x6b63ULL, 2ULL)
-    elseif id == TEXT_TOO_LARGE then
+    elseif id == 29ULL then
         -- "resulting string too large"
         return strings.appendWord(h, b, 0x6e69746c75736572ULL, 8ULL)
             | strings.appendWord(h, b, 0x676e697274732067ULL, 8ULL)
             | strings.appendWord(h, b, 0x72616c206f6f7420ULL, 8ULL)
             | strings.appendWord(h, b, 0x6567ULL, 2ULL)
-    elseif id == TEXT_WRONG_COUNT then
+    elseif id == 30ULL then
         -- "wrong number of arguments"
         return strings.appendWord(h, b, 0x756e20676e6f7277ULL, 8ULL)
             | strings.appendWord(h, b, 0x20666f207265626dULL, 8ULL)
             | strings.appendWord(h, b, 0x746e656d75677261ULL, 8ULL)
             | strings.appendWord(h, b, 0x73ULL, 1ULL)
-    elseif id == TEXT_CONVERSION then
+    elseif id == 31ULL then
         -- "invalid conversion '"
         return strings.appendWord(h, b, 0x2064696c61766e69ULL, 8ULL)
             | strings.appendWord(h, b, 0x69737265766e6f63ULL, 8ULL)
             | strings.appendWord(h, b, 0x27206e6fULL, 4ULL)
-    elseif id == TEXT_TO_FORMAT then
+    elseif id == 32ULL then
         -- "' to 'format'"
         return strings.appendWord(h, b, 0x6f6627206f742027ULL, 8ULL) | strings.appendWord(h, b, 0x2774616d72ULL, 5ULL)
-    elseif id == TEXT_Q_MODIFIERS then
+    elseif id == 33ULL then
         -- "specifier '%q' cannot have modifiers"
         return strings.appendWord(h, b, 0x6569666963657073ULL, 8ULL)
             | strings.appendWord(h, b, 0x6320277125272072ULL, 8ULL)
             | strings.appendWord(h, b, 0x616820746f6e6e61ULL, 8ULL)
             | strings.appendWord(h, b, 0x6669646f6d206576ULL, 8ULL)
             | strings.appendWord(h, b, 0x73726569ULL, 4ULL)
-    elseif id == TEXT_NEXT_KEY then
+    elseif id == 34ULL then
         -- "invalid key to 'next'"
         return strings.appendWord(h, b, 0x2064696c61766e69ULL, 8ULL)
             | strings.appendWord(h, b, 0x27206f742079656bULL, 8ULL)
             | strings.appendWord(h, b, 0x277478656eULL, 5ULL)
-    elseif id == TEXT_IDIV_ZERO then
+    elseif id == 35ULL then
         -- "attempt to perform 'n//0'"
         return strings.appendWord(h, b, 0x2074706d65747461ULL, 8ULL)
             | strings.appendWord(h, b, 0x6f66726570206f74ULL, 8ULL)
             | strings.appendWord(h, b, 0x302f2f6e27206d72ULL, 8ULL)
             | strings.appendWord(h, b, 0x27ULL, 1ULL)
-    elseif id == NAME_TOSTRING then
+    elseif id == 36ULL then
         -- "tostring"
         return strings.appendWord(h, b, 0x676e697274736f74ULL, 8ULL)
-    elseif id == NAME_FORMAT then
+    elseif id == 37ULL then
         -- "format"
         return strings.appendWord(h, b, 0x74616d726f66ULL, 6ULL)
-    elseif id == NAME_CONCAT then
+    elseif id == 38ULL then
         -- "concat"
         return strings.appendWord(h, b, 0x7461636e6f63ULL, 6ULL)
-    elseif id == NAME_GMATCH then
+    elseif id == 39ULL then
         -- "gmatch"
         return strings.appendWord(h, b, 0x686374616d67ULL, 6ULL)
-    elseif id == NAME_NEXT then
+    elseif id == 40ULL then
         -- "next"
         return strings.appendWord(h, b, 0x7478656eULL, 4ULL)
-    elseif id == NAME_TONUMBER then
+    elseif id == 41ULL then
         -- "tonumber"
         return strings.appendWord(h, b, 0x7265626d756e6f74ULL, 8ULL)
-    elseif id == NAME_GETENV then
+    elseif id == 42ULL then
         -- "getenv"
         return strings.appendWord(h, b, 0x766e65746567ULL, 6ULL)
-    elseif id == NAME_SUB then
+    elseif id == 43ULL then
         -- "sub"
         return strings.appendWord(h, b, 0x627573ULL, 3ULL)
-    elseif id == NAME_BYTE then
+    elseif id == 44ULL then
         -- "byte"
         return strings.appendWord(h, b, 0x65747962ULL, 4ULL)
-    elseif id == NAME_CHAR then
+    elseif id == 45ULL then
         -- "char"
         return strings.appendWord(h, b, 0x72616863ULL, 4ULL)
-    elseif id == NAME_REP then
+    elseif id == 46ULL then
         -- "rep"
         return strings.appendWord(h, b, 0x706572ULL, 3ULL)
-    elseif id == NAME_UPPER then
+    elseif id == 47ULL then
         -- "upper"
         return strings.appendWord(h, b, 0x7265707075ULL, 5ULL)
-    elseif id == NAME_LOWER then
+    elseif id == 48ULL then
         -- "lower"
         return strings.appendWord(h, b, 0x7265776f6cULL, 5ULL)
-    elseif id == NAME_LEN then
+    elseif id == 49ULL then
         -- "len"
         return strings.appendWord(h, b, 0x6e656cULL, 3ULL)
-    elseif id == NAME_FIND then
+    elseif id == 50ULL then
         -- "find"
         return strings.appendWord(h, b, 0x646e6966ULL, 4ULL)
-    elseif id == NAME_MATCH then
+    elseif id == 51ULL then
         -- "match"
         return strings.appendWord(h, b, 0x686374616dULL, 5ULL)
-    elseif id == NAME_SELECT then
+    elseif id == 52ULL then
         -- "select"
         return strings.appendWord(h, b, 0x7463656c6573ULL, 6ULL)
-    elseif id == NAME_GSUB then
+    elseif id == 53ULL then
         -- "gsub"
         return strings.appendWord(h, b, 0x62757367ULL, 4ULL)
-    elseif id == NAME_SETMETATABLE then
+    elseif id == 54ULL then
         -- "setmetatable"
         return strings.appendWord(h, b, 0x746174656d746573ULL, 8ULL) | strings.appendWord(h, b, 0x656c6261ULL, 4ULL)
-    elseif id == NAME_GETMETATABLE then
+    elseif id == 55ULL then
         -- "getmetatable"
         return strings.appendWord(h, b, 0x746174656d746567ULL, 8ULL) | strings.appendWord(h, b, 0x656c6261ULL, 4ULL)
-    elseif id == NAME_RAWGET then
+    elseif id == 56ULL then
         -- "rawget"
         return strings.appendWord(h, b, 0x746567776172ULL, 6ULL)
-    elseif id == NAME_RAWSET then
+    elseif id == 57ULL then
         -- "rawset"
         return strings.appendWord(h, b, 0x746573776172ULL, 6ULL)
-    elseif id == NAME_TYPE then
+    elseif id == 58ULL then
         -- "type"
         return strings.appendWord(h, b, 0x65707974ULL, 4ULL)
-    elseif id == NAME_INSERT then
+    elseif id == 59ULL then
         -- "insert"
         return strings.appendWord(h, b, 0x747265736e69ULL, 6ULL)
-    elseif id == NAME_REMOVE then
+    elseif id == 60ULL then
         -- "remove"
         return strings.appendWord(h, b, 0x65766f6d6572ULL, 6ULL)
-    elseif id == NAME_UNPACK then
+    elseif id == 61ULL then
         -- "unpack"
         return strings.appendWord(h, b, 0x6b6361706e75ULL, 6ULL)
-    elseif id == NAME_ABS then
+    elseif id == 62ULL then
         -- "abs"
         return strings.appendWord(h, b, 0x736261ULL, 3ULL)
-    elseif id == NAME_CEIL then
+    elseif id == 63ULL then
         -- "ceil"
         return strings.appendWord(h, b, 0x6c696563ULL, 4ULL)
-    elseif id == NAME_MAX then
+    elseif id == 64ULL then
         -- "max"
         return strings.appendWord(h, b, 0x78616dULL, 3ULL)
-    elseif id == NAME_MIN then
+    elseif id == 65ULL then
         -- "min"
         return strings.appendWord(h, b, 0x6e696dULL, 3ULL)
-    elseif id == NAME_TOINTEGER then
+    elseif id == 66ULL then
         -- "tointeger"
         return strings.appendWord(h, b, 0x656765746e696f74ULL, 8ULL) | strings.appendWord(h, b, 0x72ULL, 1ULL)
-    elseif id == NAME_SQRT then
+    elseif id == 67ULL then
         -- "sqrt"
         return strings.appendWord(h, b, 0x74727173ULL, 4ULL)
-    elseif id == NAME_SORT then
+    elseif id == 68ULL then
         -- "sort"
         return strings.appendWord(h, b, 0x74726f73ULL, 4ULL)
-    elseif id == NAME_PRINT then
+    elseif id == 69ULL then
         -- "print"
         return strings.appendWord(h, b, 0x746e697270ULL, 5ULL)
-    elseif id == NAME_EXP then
+    elseif id == 70ULL then
         -- "exp"
         return strings.appendWord(h, b, 0x707865ULL, 3ULL)
-    elseif id == NAME_LOG then
+    elseif id == 71ULL then
         -- "log"
         return strings.appendWord(h, b, 0x676f6cULL, 3ULL)
-    elseif id == NAME_SIN then
+    elseif id == 72ULL then
         -- "sin"
         return strings.appendWord(h, b, 0x6e6973ULL, 3ULL)
-    elseif id == NAME_COS then
+    elseif id == 73ULL then
         -- "cos"
         return strings.appendWord(h, b, 0x736f63ULL, 3ULL)
-    elseif id == NAME_TAN then
+    elseif id == 74ULL then
         -- "tan"
         return strings.appendWord(h, b, 0x6e6174ULL, 3ULL)
-    elseif id == NAME_ASIN then
+    elseif id == 75ULL then
         -- "asin"
         return strings.appendWord(h, b, 0x6e697361ULL, 4ULL)
-    elseif id == NAME_ACOS then
+    elseif id == 76ULL then
         -- "acos"
         return strings.appendWord(h, b, 0x736f6361ULL, 4ULL)
-    elseif id == NAME_ATAN then
+    elseif id == 77ULL then
         -- "atan"
         return strings.appendWord(h, b, 0x6e617461ULL, 4ULL)
-    elseif id == NAME_FMOD then
+    elseif id == 78ULL then
         -- "fmod"
         return strings.appendWord(h, b, 0x646f6d66ULL, 4ULL)
-    elseif id == NAME_REVERSE then
+    elseif id == 79ULL then
         -- "reverse"
         return strings.appendWord(h, b, 0x65737265766572ULL, 7ULL)
-    elseif id == NAME_MOVE then
+    elseif id == 80ULL then
         -- "move"
         return strings.appendWord(h, b, 0x65766f6dULL, 4ULL)
-    elseif id == NAME_RANDOM then
+    elseif id == 81ULL then
         -- "random"
         return strings.appendWord(h, b, 0x6d6f646e6172ULL, 6ULL)
-    elseif id == NAME_RANDOMSEED then
+    elseif id == 82ULL then
         -- "randomseed"
         return strings.appendWord(h, b, 0x65736d6f646e6172ULL, 8ULL) | strings.appendWord(h, b, 0x6465ULL, 2ULL)
-    elseif id == TEXT_CALLING then
+    elseif id == 83ULL then
         -- "calling '"
         return strings.appendWord(h, b, 0x20676e696c6c6163ULL, 8ULL) | strings.appendWord(h, b, 0x27ULL, 1ULL)
-    elseif id == TEXT_BAD_SELF then
+    elseif id == 84ULL then
         -- "' on bad self ("
         return strings.appendWord(h, b, 0x646162206e6f2027ULL, 8ULL)
             | strings.appendWord(h, b, 0x2820666c657320ULL, 7ULL)
-    elseif id == TEXT_SUSPENDED then
+    elseif id == 85ULL then
         -- "suspended"
         return strings.appendWord(h, b, 0x65646e6570737573ULL, 8ULL) | strings.appendWord(h, b, 0x64ULL, 1ULL)
-    elseif id == TEXT_RUNNING then
+    elseif id == 86ULL then
         -- "running"
         return strings.appendWord(h, b, 0x676e696e6e7572ULL, 7ULL)
-    elseif id == TEXT_NORMAL then
+    elseif id == 87ULL then
         -- "normal"
         return strings.appendWord(h, b, 0x6c616d726f6eULL, 6ULL)
-    elseif id == TEXT_DEAD then
+    elseif id == 88ULL then
         -- "dead"
         return strings.appendWord(h, b, 0x64616564ULL, 4ULL)
-    elseif id == TEXT_RESUME_DEAD then
+    elseif id == 89ULL then
         -- "cannot resume dead coroutine"
         return strings.appendWord(h, b, 0x7220746f6e6e6163ULL, 8ULL)
             | strings.appendWord(h, b, 0x656420656d757365ULL, 8ULL)
             | strings.appendWord(h, b, 0x756f726f63206461ULL, 8ULL)
             | strings.appendWord(h, b, 0x656e6974ULL, 4ULL)
-    elseif id == TEXT_RESUME_ACTIVE then
+    elseif id == 90ULL then
         -- "cannot resume non-suspended coroutine"
         return strings.appendWord(h, b, 0x7220746f6e6e6163ULL, 8ULL)
             | strings.appendWord(h, b, 0x6f6e20656d757365ULL, 8ULL)
             | strings.appendWord(h, b, 0x6e65707375732d6eULL, 8ULL)
             | strings.appendWord(h, b, 0x6f726f6320646564ULL, 8ULL)
             | strings.appendWord(h, b, 0x656e697475ULL, 5ULL)
-    elseif id == TEXT_YIELD_OUTSIDE then
+    elseif id == 91ULL then
         -- "attempt to yield from outside a coroutine"
         return strings.appendWord(h, b, 0x2074706d65747461ULL, 8ULL)
             | strings.appendWord(h, b, 0x646c656979206f74ULL, 8ULL)
@@ -510,54 +510,54 @@ export function append(h: heap.Heap*, borrows b: strings.Builder*, id: uint64): 
             | strings.appendWord(h, b, 0x2061206564697374ULL, 8ULL)
             | strings.appendWord(h, b, 0x6e6974756f726f63ULL, 8ULL)
             | strings.appendWord(h, b, 0x65ULL, 1ULL)
-    elseif id == TEXT_COROUTINE then
+    elseif id == 92ULL then
         -- "coroutine"
         return strings.appendWord(h, b, 0x6e6974756f726f63ULL, 8ULL) | strings.appendWord(h, b, 0x65ULL, 1ULL)
-    elseif id == NAME_CREATE then
+    elseif id == 93ULL then
         -- "create"
         return strings.appendWord(h, b, 0x657461657263ULL, 6ULL)
-    elseif id == NAME_RESUME then
+    elseif id == 94ULL then
         -- "resume"
         return strings.appendWord(h, b, 0x656d75736572ULL, 6ULL)
-    elseif id == NAME_YIELD then
+    elseif id == 95ULL then
         -- "yield"
         return strings.appendWord(h, b, 0x646c656979ULL, 5ULL)
-    elseif id == NAME_STATUS then
+    elseif id == 96ULL then
         -- "status"
         return strings.appendWord(h, b, 0x737574617473ULL, 6ULL)
-    elseif id == NAME_WRAP then
+    elseif id == 97ULL then
         -- "wrap"
         return strings.appendWord(h, b, 0x70617277ULL, 4ULL)
-    elseif id == NAME_ISYIELDABLE then
+    elseif id == 98ULL then
         -- "isyieldable"
         return strings.appendWord(h, b, 0x61646c6569797369ULL, 8ULL) | strings.appendWord(h, b, 0x656c62ULL, 3ULL)
-    elseif id == TEXT_FUNCTION then
+    elseif id == 99ULL then
         -- "function"
         return strings.appendWord(h, b, 0x6e6f6974636e7566ULL, 8ULL)
-    elseif id == TEXT_CLOSE_MAIN then
+    elseif id == 100ULL then
         -- "cannot close main thread"
         return strings.appendWord(h, b, 0x6320746f6e6e6163ULL, 8ULL)
             | strings.appendWord(h, b, 0x69616d2065736f6cULL, 8ULL)
             | strings.appendWord(h, b, 0x646165726874206eULL, 8ULL)
-    elseif id == TEXT_CLOSE_NORMAL then
+    elseif id == 101ULL then
         -- "cannot close a normal coroutine"
         return strings.appendWord(h, b, 0x6320746f6e6e6163ULL, 8ULL)
             | strings.appendWord(h, b, 0x6e20612065736f6cULL, 8ULL)
             | strings.appendWord(h, b, 0x6f63206c616d726fULL, 8ULL)
             | strings.appendWord(h, b, 0x656e6974756f72ULL, 7ULL)
-    elseif id == NAME_CLOSE then
+    elseif id == 102ULL then
         -- "close"
         return strings.appendWord(h, b, 0x65736f6c63ULL, 5ULL)
-    elseif id == TEXT_STACK_OVERFLOW then
+    elseif id == 104ULL then
         -- "stack overflow"
         return strings.appendWord(h, b, 0x766f206b63617473ULL, 8ULL) | strings.appendWord(h, b, 0x776f6c667265ULL, 6ULL)
-    elseif id == TEXT_LENGTH_INTEGER then
+    elseif id == 105ULL then
         -- "object length is not an integer"
         return strings.appendWord(h, b, 0x6c207463656a626fULL, 8ULL)
             | strings.appendWord(h, b, 0x7369206874676e65ULL, 8ULL)
             | strings.appendWord(h, b, 0x206e6120746f6e20ULL, 8ULL)
             | strings.appendWord(h, b, 0x72656765746e69ULL, 7ULL)
-    elseif id == TEXT_YIELD_ACROSS then
+    elseif id == 106ULL then
         -- "attempt to yield across a C-call boundary"
         return strings.appendWord(h, b, 0x2074706d65747461ULL, 8ULL)
             | strings.appendWord(h, b, 0x646c656979206f74ULL, 8ULL)
@@ -565,195 +565,195 @@ export function append(h: heap.Heap*, borrows b: strings.Builder*, id: uint64): 
             | strings.appendWord(h, b, 0x6c6c61632d432061ULL, 8ULL)
             | strings.appendWord(h, b, 0x7261646e756f6220ULL, 8ULL)
             | strings.appendWord(h, b, 0x79ULL, 1ULL)
-    elseif id == NAME_REQUIRE then
+    elseif id == 107ULL then
         -- "require"
         return strings.appendWord(h, b, 0x65726975716572ULL, 7ULL)
-    elseif id == TEXT_ASSERTION then
+    elseif id == 108ULL then
         -- "assertion failed!"
         return strings.appendWord(h, b, 0x6f69747265737361ULL, 8ULL)
             | strings.appendWord(h, b, 0x64656c696166206eULL, 8ULL)
             | strings.appendWord(h, b, 0x21ULL, 1ULL)
-    elseif id == TEXT_NUMBER_EXPECTED then
+    elseif id == 109ULL then
         -- "number expected"
         return strings.appendWord(h, b, 0x65207265626d756eULL, 8ULL)
             | strings.appendWord(h, b, 0x64657463657078ULL, 7ULL)
-    elseif id == TEXT_STORAGE then
+    elseif id == 110ULL then
         -- "storage"
         return strings.appendWord(h, b, 0x656761726f7473ULL, 7ULL)
-    elseif id == TEXT_BASE_RANGE then
+    elseif id == 111ULL then
         -- "base out of range"
         return strings.appendWord(h, b, 0x74756f2065736162ULL, 8ULL)
             | strings.appendWord(h, b, 0x676e617220666f20ULL, 8ULL)
             | strings.appendWord(h, b, 0x65ULL, 1ULL)
-    elseif id == TEXT_FOR_LIMIT then
+    elseif id == 112ULL then
         -- "bad 'for' limit (number expected, got "
         return strings.appendWord(h, b, 0x726f662720646162ULL, 8ULL)
             | strings.appendWord(h, b, 0x2074696d696c2027ULL, 8ULL)
             | strings.appendWord(h, b, 0x207265626d756e28ULL, 8ULL)
             | strings.appendWord(h, b, 0x6465746365707865ULL, 8ULL)
             | strings.appendWord(h, b, 0x20746f67202cULL, 6ULL)
-    elseif id == TEXT_PROTECTED_TABLE then
+    elseif id == 113ULL then
         -- "table has a protected metatable"
         return strings.appendWord(h, b, 0x616820656c626174ULL, 8ULL)
             | strings.appendWord(h, b, 0x746f727020612073ULL, 8ULL)
             | strings.appendWord(h, b, 0x656d206465746365ULL, 8ULL)
             | strings.appendWord(h, b, 0x656c6261746174ULL, 7ULL)
-    elseif id == NAME_FREEZE then
+    elseif id == 114ULL then
         -- "freeze"
         return strings.appendWord(h, b, 0x657a65657266ULL, 6ULL)
-    elseif id == NAME_ISFROZEN then
+    elseif id == 115ULL then
         -- "isfrozen"
         return strings.appendWord(h, b, 0x6e657a6f72667369ULL, 8ULL)
-    elseif id == TEXT_ALREADY_FROZEN then
+    elseif id == 116ULL then
         -- "table is already frozen"
         return strings.appendWord(h, b, 0x736920656c626174ULL, 8ULL)
             | strings.appendWord(h, b, 0x79646165726c6120ULL, 8ULL)
             | strings.appendWord(h, b, 0x6e657a6f726620ULL, 7ULL)
-    elseif id == TEXT_INVALID_OPTION then
+    elseif id == 117ULL then
         -- "invalid option '"
         return strings.appendWord(h, b, 0x2064696c61766e69ULL, 8ULL)
             | strings.appendWord(h, b, 0x27206e6f6974706fULL, 8ULL)
-    elseif id == NAME_COLLECTGARBAGE then
+    elseif id == 118ULL then
         -- "collectgarbage"
         return strings.appendWord(h, b, 0x677463656c6c6f63ULL, 8ULL) | strings.appendWord(h, b, 0x656761627261ULL, 6ULL)
-    elseif id == TEXT_PARKED then
+    elseif id == 119ULL then
         -- "parked"
         return strings.appendWord(h, b, 0x64656b726170ULL, 6ULL)
-    elseif id == TEXT_RESUME_TASK then
+    elseif id == 120ULL then
         -- "cannot resume a scheduled coroutine"
         return strings.appendWord(h, b, 0x7220746f6e6e6163ULL, 8ULL)
             | strings.appendWord(h, b, 0x206120656d757365ULL, 8ULL)
             | strings.appendWord(h, b, 0x656c756465686373ULL, 8ULL)
             | strings.appendWord(h, b, 0x74756f726f632064ULL, 8ULL)
             | strings.appendWord(h, b, 0x656e69ULL, 3ULL)
-    elseif id == TEXT_ERROR_OBJECT then
+    elseif id == 121ULL then
         -- "(error object is a "
         return strings.appendWord(h, b, 0x6f20726f72726528ULL, 8ULL)
             | strings.appendWord(h, b, 0x7369207463656a62ULL, 8ULL)
             | strings.appendWord(h, b, 0x206120ULL, 3ULL)
-    elseif id == TEXT_OBJECT_VALUE then
+    elseif id == 122ULL then
         -- " value"
         return strings.appendWord(h, b, 0x65756c617620ULL, 6ULL)
-    elseif id == TEXT_FIELD_GC then
+    elseif id == 123ULL then
         -- "__gc"
         return strings.appendWord(h, b, 0x63675f5fULL, 4ULL)
-    elseif id == TEXT_FIELD_MODE then
+    elseif id == 124ULL then
         -- "__mode"
         return strings.appendWord(h, b, 0x65646f6d5f5fULL, 6ULL)
-    elseif id == TEXT_WARNING then
+    elseif id == 125ULL then
         -- "warn warn: "
         return strings.appendWord(h, b, 0x726177206e726177ULL, 8ULL) | strings.appendWord(h, b, 0x203a6eULL, 3ULL)
-    elseif id == TEXT_GC_ERROR then
+    elseif id == 126ULL then
         -- "error in __gc ("
         return strings.appendWord(h, b, 0x6e6920726f727265ULL, 8ULL)
             | strings.appendWord(h, b, 0x282063675f5f20ULL, 7ULL)
-    elseif id == TEXT_NOT_STRING then
+    elseif id == 127ULL then
         -- "error object is not a string"
         return strings.appendWord(h, b, 0x626f20726f727265ULL, 8ULL)
             | strings.appendWord(h, b, 0x207369207463656aULL, 8ULL)
             | strings.appendWord(h, b, 0x7473206120746f6eULL, 8ULL)
             | strings.appendWord(h, b, 0x676e6972ULL, 4ULL)
-    elseif id == TEXT_CALL_VALUE then
+    elseif id == 128ULL then
         -- "attempt to call a "
         return strings.appendWord(h, b, 0x2074706d65747461ULL, 8ULL)
             | strings.appendWord(h, b, 0x206c6c6163206f74ULL, 8ULL)
             | strings.appendWord(h, b, 0x2061ULL, 2ULL)
-    elseif id == TEXT_GC_METAMETHOD then
+    elseif id == 144ULL then
         -- " (metamethod '__gc')"
         return strings.appendWord(h, b, 0x656d6174656d2820ULL, 8ULL)
             | strings.appendWord(h, b, 0x5f5f2720646f6874ULL, 8ULL)
             | strings.appendWord(h, b, 0x29276367ULL, 4ULL)
-    elseif id == TEXT_COLLECT then
+    elseif id == 129ULL then
         -- "collect"
         return strings.appendWord(h, b, 0x7463656c6c6f63ULL, 7ULL)
-    elseif id == TEXT_STOP then
+    elseif id == 130ULL then
         -- "stop"
         return strings.appendWord(h, b, 0x706f7473ULL, 4ULL)
-    elseif id == TEXT_RESTART then
+    elseif id == 131ULL then
         -- "restart"
         return strings.appendWord(h, b, 0x74726174736572ULL, 7ULL)
-    elseif id == TEXT_COUNT then
+    elseif id == 132ULL then
         -- "count"
         return strings.appendWord(h, b, 0x746e756f63ULL, 5ULL)
-    elseif id == TEXT_STEP then
+    elseif id == 133ULL then
         -- "step"
         return strings.appendWord(h, b, 0x70657473ULL, 4ULL)
-    elseif id == TEXT_ISRUNNING then
+    elseif id == 134ULL then
         -- "isrunning"
         return strings.appendWord(h, b, 0x6e696e6e75727369ULL, 8ULL) | strings.appendWord(h, b, 0x67ULL, 1ULL)
-    elseif id == TEXT_GENERATIONAL then
+    elseif id == 135ULL then
         -- "generational"
         return strings.appendWord(h, b, 0x69746172656e6567ULL, 8ULL) | strings.appendWord(h, b, 0x6c616e6fULL, 4ULL)
-    elseif id == TEXT_INCREMENTAL then
+    elseif id == 136ULL then
         -- "incremental"
         return strings.appendWord(h, b, 0x6e656d6572636e69ULL, 8ULL) | strings.appendWord(h, b, 0x6c6174ULL, 3ULL)
-    elseif id == TEXT_PARAM then
+    elseif id == 137ULL then
         -- "param"
         return strings.appendWord(h, b, 0x6d61726170ULL, 5ULL)
-    elseif id == TEXT_MINORMUL then
+    elseif id == 138ULL then
         -- "minormul"
         return strings.appendWord(h, b, 0x6c756d726f6e696dULL, 8ULL)
-    elseif id == TEXT_MAJORMINOR then
+    elseif id == 139ULL then
         -- "majorminor"
         return strings.appendWord(h, b, 0x6e696d726f6a616dULL, 8ULL) | strings.appendWord(h, b, 0x726fULL, 2ULL)
-    elseif id == TEXT_MINORMAJOR then
+    elseif id == 140ULL then
         -- "minormajor"
         return strings.appendWord(h, b, 0x6a616d726f6e696dULL, 8ULL) | strings.appendWord(h, b, 0x726fULL, 2ULL)
-    elseif id == TEXT_PAUSE then
+    elseif id == 141ULL then
         -- "pause"
         return strings.appendWord(h, b, 0x6573756170ULL, 5ULL)
-    elseif id == TEXT_STEPMUL then
+    elseif id == 142ULL then
         -- "stepmul"
         return strings.appendWord(h, b, 0x6c756d70657473ULL, 7ULL)
-    elseif id == TEXT_STEPSIZE then
+    elseif id == 143ULL then
         -- "stepsize"
         return strings.appendWord(h, b, 0x657a697370657473ULL, 8ULL)
-    elseif id == TEXT_WRITABLE_STORAGE then
+    elseif id == 145ULL then
         -- "writable storage"
         return strings.appendWord(h, b, 0x656c626174697277ULL, 8ULL)
             | strings.appendWord(h, b, 0x656761726f747320ULL, 8ULL)
-    elseif id == TEXT_ENTROPY_FAILED then
+    elseif id == 146ULL then
         -- "secure random source failed: "
         return strings.appendWord(h, b, 0x7220657275636573ULL, 8ULL)
             | strings.appendWord(h, b, 0x6f73206d6f646e61ULL, 8ULL)
             | strings.appendWord(h, b, 0x6961662065637275ULL, 8ULL)
             | strings.appendWord(h, b, 0x203a64656cULL, 5ULL)
-    elseif id == TEXT_CALL_CHAIN then
+    elseif id == 147ULL then
         -- "'__call' chain too long"
         return strings.appendWord(h, b, 0x276c6c61635f5f27ULL, 8ULL)
             | strings.appendWord(h, b, 0x74206e6961686320ULL, 8ULL)
             | strings.appendWord(h, b, 0x676e6f6c206f6fULL, 7ULL)
-    elseif id == TEXT_MAIN then
+    elseif id == 148ULL then
         -- "main"
         return strings.appendWord(h, b, 0x6e69616dULL, 4ULL)
-    elseif id == TEXT_LUA then
+    elseif id == 149ULL then
         -- "Lua"
         return strings.appendWord(h, b, 0x61754cULL, 3ULL)
-    elseif id == TEXT_C then
+    elseif id == 150ULL then
         -- "C"
         return strings.appendWord(h, b, 0x43ULL, 1ULL)
-    elseif id == TEXT_C_SOURCE then
+    elseif id == 151ULL then
         -- "=[C]"
         return strings.appendWord(h, b, 0x5d435b3dULL, 4ULL)
-    elseif id == TEXT_C_SHORT then
+    elseif id == 152ULL then
         -- "[C]"
         return strings.appendWord(h, b, 0x5d435bULL, 3ULL)
-    elseif id == TEXT_GLOBAL then
+    elseif id == 153ULL then
         -- "global"
         return strings.appendWord(h, b, 0x6c61626f6c67ULL, 6ULL)
-    elseif id == TEXT_LOCAL then
+    elseif id == 154ULL then
         -- "local"
         return strings.appendWord(h, b, 0x6c61636f6cULL, 5ULL)
-    elseif id == TEXT_METHOD then
+    elseif id == 155ULL then
         -- "method"
         return strings.appendWord(h, b, 0x646f6874656dULL, 6ULL)
-    elseif id == TEXT_FIELD then
+    elseif id == 156ULL then
         -- "field"
         return strings.appendWord(h, b, 0x646c656966ULL, 5ULL)
-    elseif id == TEXT_UPVALUE then
+    elseif id == 157ULL then
         -- "upvalue"
         return strings.appendWord(h, b, 0x65756c61767075ULL, 7ULL)
-    elseif id == TEXT_ITERATOR then
+    elseif id == 158ULL then
         -- "for iterator"
         return strings.appendWord(h, b, 0x7265746920726f66ULL, 8ULL) | strings.appendWord(h, b, 0x726f7461ULL, 4ULL)
     end

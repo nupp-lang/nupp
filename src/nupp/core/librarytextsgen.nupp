@@ -50,7 +50,9 @@ export function source(): string
     lines[#lines + 1] = "export function append(h: heap.Heap*, borrows b: strings.Builder*, id: uint64): uint64"
     for index, entry in ipairs(texts) do
         assert(not entry.text:find("[%c\"\\]"), "core text needs no escapes: " .. entry.name)
-        lines[#lines + 1] = (index == 1 and "    if" or "    elseif") .. " id == " .. entry.name .. " then"
+        -- Canonical ids avoid capturing every exported constant again when
+        -- the VM initializer constructs append's closure.
+        lines[#lines + 1] = (index == 1 and "    if" or "    elseif") .. " id == " .. tostring(entry.id) .. "ULL then"
         lines[#lines + 1] = "        -- \"" .. entry.text .. "\""
         local calls = words(entry.text)
         local whole = "        return " .. table.concat(calls, " | ")
