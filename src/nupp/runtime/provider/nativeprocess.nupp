@@ -4,12 +4,14 @@ local host = require("nupp.vm.process")
 local shared = require("io.internal.process.types")
 local provider = {}
 const SIGNAL_BASE = 128
+const INT32_MIN = -2147483648
+const INT32_MAX = 2147483647
 
 -- Older VM hosts report a failed start by its reason alone; the core also
 -- returns the platform error code.
 function provider.spawn(_: any, options: shared.SpawnOptions): (any?, any?, any?, any?, integer, string?, integer?)
     -- Public option names stop here; the frozen host consumes this private descriptor.
-    return host.spawn({
+    local child, input, output, errors, pid, problem, code = host.spawn({
         args = options.args,
         cwd = options.cwd,
         env = options.env,
@@ -19,6 +21,16 @@ function provider.spawn(_: any, options: shared.SpawnOptions): (any?, any?, any?
         stderr = options.stderr,
         timeoutMs = options.timeoutms,
     })
+    if child == nil and code == nil and problem ~= nil then
+        -- The frozen host kept std::io::Error's complete display text, whose
+        -- final suffix retains raw_os_error even though the result omitted it.
+        local legacy = tonumber(problem:match("%(os error (%-?%d+)%)$"))
+        if legacy ~= nil and legacy ~= 0 and legacy >= INT32_MIN and legacy <= INT32_MAX then
+            code = legacy as integer
+        end
+    end
+
+    return child, input, output, errors, pid, problem, code
 end
 
 function provider.poll(_: any, child: any): shared.Exit?
