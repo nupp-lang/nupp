@@ -42,11 +42,21 @@ const TAIL_ROOM: uint64 = 128ULL
 const STATE_AT: uint64 = 1152ULL
 const HEX_AT: uint64 = 1216ULL
 const SHA_SCRATCH: uint64 = 1280ULL
+-- A word's width within a 64-bit slot.
+const HALF_BITS: uint64 = 32ULL
+-- As offsets: a slot's bytes and a message word's.
+const SLOT_BYTES: int64 = 8
+const WORD_BYTES: int64 = 4
+-- From the word sixteen before a new one in the schedule: the words
+-- fifteen, seven and two before it, and the new word's own slot.
+const BACK15: int64 = 8
+const BACK7: int64 = 72
+const BACK2: int64 = 112
+const BACK0: int64 = 128
 const LENGTH_BYTES: uint64 = 8ULL
 const STATE_WORDS: uint64 = 8ULL
 const PAD_BYTE: uint64 = 0x80ULL
 const WORD_DIGITS: uint64 = 8ULL
-const BYTE_TWO: uint64 = 0xff00ULL
 const SHA_HEX: uint64 = 64ULL
 const XXH_HEX: uint64 = 32ULL
 const XXH_WORDS: uint64 = 16ULL
@@ -282,71 +292,74 @@ local function constants(at: voidptr): nil
     native.store64(at, 504, 0xc67178f2ULL)
 end
 
--- The big-endian 32-bit word at `at` bytes past `base`.
-local function bigEndian(base: voidptr, at: int64): uint64
-    local x = native.word(native.load32(base, at)) & LOW32
-    return ((x & LOW8) << 24ULL) | ((x & BYTE_TWO) << 8ULL) | ((x >> 8ULL) & BYTE_TWO) | (x >> 24ULL)
-end
-
 -- Runs SHA-256's compression over the block `at` bytes past `source`, on
 -- the state, schedule and constants in `scratch`. Words sit in 64-bit
--- slots, their high halves clear; each 32-bit rotation is written out, the
--- bits it pushes past the word masked off once the sum is taken.
+-- slots. The working variables a and e, which the round's sums rotate,
+-- hold their word in both halves, so each 32-bit rotation is one shift
+-- whose low half is the rotated word; the rest only take part in sums and
+-- bitwise operations whose low halves are what count, masked once a new
+-- word is taken. It calls nothing, so every value stays in a register;
+-- and the loops step pointers, so each load is one instruction.
 local function compress(scratch: voidptr, source: voidptr, at: int64): nil
-    local t: int64 = 0
-    while t < native.index(SCHEDULE_WORDS) do
-        native.store64(scratch, t * 8, bigEndian(source, at + t * 4))
-        t = t + 1
+    local from = native.offset(source, at)
+    local to = native.offset(scratch, 0)
+    local loaded = native.address(scratch) + SCHEDULE_WORDS * SLOT
+    while native.address(to) < loaded do
+        local high = (native.word(native.load8(from, 0)) << 24ULL) + (native.word(native.load8(from, 1)) << 16ULL)
+        local low = (native.word(native.load8(from, 2)) << 8ULL) + native.word(native.load8(from, 3))
+        native.store64(to, 0, high + low)
+        from = native.offset(from, WORD_BYTES)
+        to = native.offset(to, SLOT_BYTES)
     end
-    while t < native.index(ROUNDS) do
-        local w15 = native.load64(scratch, (t - 15) * 8)
-        local w2 = native.load64(scratch, (t - 2) * 8)
-        local s0 = ((w15 >> 7ULL) | (w15 << 25ULL)) ~ ((w15 >> 18ULL) | (w15 << 14ULL)) ~ (w15 >> 3ULL)
-        local s1 = ((w2 >> 17ULL) | (w2 << 15ULL)) ~ ((w2 >> 19ULL) | (w2 << 13ULL)) ~ (w2 >> 10ULL)
-        local w = native.load64(
-            scratch,
-            (t - 16) * 8
-        ) + (s0 & LOW32) + native.load64(scratch, (t - 7) * 8) + (s1 & LOW32)
-        native.store64(scratch, t * 8, w & LOW32)
-        t = t + 1
+    local window = native.offset(scratch, 0)
+    local scheduled = native.address(scratch) + (ROUNDS - SCHEDULE_WORDS) * SLOT
+    while native.address(window) < scheduled do
+        local w15 = native.load64(window, BACK15)
+        local w2 = native.load64(window, BACK2)
+        local d15 = w15 + (w15 << HALF_BITS)
+        local d2 = w2 + (w2 << HALF_BITS)
+        local s0 = (d15 >> 7ULL) ~ (d15 >> 18ULL) ~ (w15 >> 3ULL)
+        local s1 = (d2 >> 17ULL) ~ (d2 >> 19ULL) ~ (w2 >> 10ULL)
+        local w = native.load64(window, 0) + s0 + native.load64(window, BACK7) + s1
+        native.store64(window, BACK0, w & LOW32)
+        window = native.offset(window, SLOT_BYTES)
     end
-    local state = native.index(STATE_AT)
-    local a = native.load64(scratch, state)
-    local b = native.load64(scratch, state + 8)
-    local c = native.load64(scratch, state + 16)
-    local d = native.load64(scratch, state + 24)
-    local e = native.load64(scratch, state + 32)
-    local f = native.load64(scratch, state + 40)
-    local g = native.load64(scratch, state + 48)
-    local h = native.load64(scratch, state + 56)
-    local constant = native.index(CONSTANTS_AT)
-    t = 0
-    while t < native.index(ROUNDS) do
-        local big1 = (((e >> 6ULL) | (e << 26ULL)) ~ ((e >> 11ULL) | (e << 21ULL)) ~ ((e >> 25ULL) | (e << 7ULL)))
-            & LOW32
-        local choose = (e & f) ~ ((e ~ LOW32) & g)
-        local first = h + big1 + choose + native.load64(scratch, constant + t * 8) + native.load64(scratch, t * 8)
-        local big0 = (((a >> 2ULL) | (a << 30ULL)) ~ ((a >> 13ULL) | (a << 19ULL)) ~ ((a >> 22ULL) | (a << 10ULL)))
-            & LOW32
-        local majority = (a & b) ~ (a & c) ~ (b & c)
-        h = g
-        g = f
-        f = e
-        e = (d + first) & LOW32
-        d = c
-        c = b
-        b = a
-        a = (first + big0 + majority) & LOW32
-        t = t + 1
+    local state = native.offset(scratch, native.index(STATE_AT))
+    local a = native.load64(state, 0)
+    local b = native.load64(state, 8)
+    local c = native.load64(state, 16)
+    local d = native.load64(state, 24)
+    local e = native.load64(state, 32)
+    local f = native.load64(state, 40)
+    local g = native.load64(state, 48)
+    local h = native.load64(state, 56)
+    a = a + (a << HALF_BITS)
+    e = e + (e << HALF_BITS)
+    local bc = b ~ c
+    -- The schedule ends where the round constants start.
+    local keys = native.offset(scratch, native.index(CONSTANTS_AT))
+    local finished = native.address(keys)
+    local words = native.offset(scratch, 0)
+    while native.address(words) < finished do
+        local sum = (e >> 6ULL) ~ (e >> 11ULL) ~ (e >> 25ULL)
+        local first = h + sum + (g ~ (e & (f ~ g))) + native.load64(keys, 0) + native.load64(words, 0)
+        local ab = a ~ b
+        local second = ((a >> 2ULL) ~ (a >> 13ULL) ~ (a >> 22ULL)) + (b ~ (ab & bc))
+        bc = ab
+        local low = (d + first) & LOW32
+        local top = (first + second) & LOW32
+        h, g, f, e, d, c, b, a = g, f, e, low + (low << HALF_BITS), c, b, a, top + (top << HALF_BITS)
+        keys = native.offset(keys, SLOT_BYTES)
+        words = native.offset(words, SLOT_BYTES)
     end
-    native.store64(scratch, state, (native.load64(scratch, state) + a) & LOW32)
-    native.store64(scratch, state + 8, (native.load64(scratch, state + 8) + b) & LOW32)
-    native.store64(scratch, state + 16, (native.load64(scratch, state + 16) + c) & LOW32)
-    native.store64(scratch, state + 24, (native.load64(scratch, state + 24) + d) & LOW32)
-    native.store64(scratch, state + 32, (native.load64(scratch, state + 32) + e) & LOW32)
-    native.store64(scratch, state + 40, (native.load64(scratch, state + 40) + f) & LOW32)
-    native.store64(scratch, state + 48, (native.load64(scratch, state + 48) + g) & LOW32)
-    native.store64(scratch, state + 56, (native.load64(scratch, state + 56) + h) & LOW32)
+    native.store64(state, 0, (native.load64(state, 0) + a) & LOW32)
+    native.store64(state, 8, (native.load64(state, 8) + b) & LOW32)
+    native.store64(state, 16, (native.load64(state, 16) + c) & LOW32)
+    native.store64(state, 24, (native.load64(state, 24) + d) & LOW32)
+    native.store64(state, 32, (native.load64(state, 32) + e) & LOW32)
+    native.store64(state, 40, (native.load64(state, 40) + f) & LOW32)
+    native.store64(state, 48, (native.load64(state, 48) + g) & LOW32)
+    native.store64(state, 56, (native.load64(state, 56) + h) & LOW32)
 end
 
 -- SHA-256's initial state, as 64-bit slots from `at`.
