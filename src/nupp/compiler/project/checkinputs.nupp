@@ -1,0 +1,157 @@
+module nupp.compiler.project.checkinputs
+
+local fingerprint = require("nupp.compiler.project.fingerprint")
+local interfacetext = require("nupp.compiler.project.interfacetext")
+local interfaceimage = require("nupp.compiler.project.interfaceimage")
+local contentDigest = fingerprint.contentDigest(true)
+local tracing = os.getenv("NUPP_GUEST_PIECE_TRACE") == "1"
+
+-- What the modules checked in `project` read of each other: by path, the
+-- interfaces of every module in the closure of what checking it read, as
+-- one text; and by module name, the digest of its interface.
+export function readers(
+    project: any,
+    strict: boolean?,
+    observe: (function(string): nil)?
+): (function(string): string, function(string): string)
+    local projectPaths: {string} = {}
+    for _, path in pairs(project.projectIndex().modules or {}) do
+        projectPaths[#projectPaths + 1] = path
+    end
+    table.sort(projectPaths)
+    -- Interface digests by module name, and the module names each path's check
+    -- read.
+    local interfaces: {[string]: string} = {}
+    local reads: {[string]: {string}} = {}
+
+    -- The digest of module `name`'s interface. One that does not encode names
+    -- nothing a later build can match: its readers are compiled again.
+    local function interfaceOf(name: string): string
+        local path = project.modulePath(name)
+        local semantic = project.moduleSemantic(name, path)
+        local described: any = {
+            interface = semantic.interface,
+            exports = semantic.exports,
+            diags = {},
+            annotations = semantic.annotations,
+            path = path
+        }
+        local ok, image = pcall(interfaceimage.encode, {[name] = described}, {
+            projectPaths = projectPaths,
+            origins = {},
+            arenas = {}
+        })
+        local encoded = ok and type(image) == "table"
+        assert(not strict or encoded, "checked interface cannot be fingerprinted")
+        if tracing then
+            io.stderr:write(
+                "guest piece interface ",
+                name,
+                encoded and "" or " does not encode: " .. tostring(image),
+                "\n"
+            )
+        end
+
+        return encoded and contentDigest(interfacetext.text(image, path or name)) or "unencodable:" .. tostring({})
+    end
+
+    local function digestOf(name: string): string
+        local digest = interfaces[name] or interfaceOf(name)
+        interfaces[name] = digest
+
+        return digest
+    end
+
+    return function(path: string): string
+        -- Each module reached, after its name, and the names reached.
+        local found: {string}, reached: {[string]: boolean} = {}, {}
+
+        local function visit(from: string): nil
+            local names = reads[from] or project.moduleReads(from)
+            reads[from] = names
+            if observe then
+                observe(from)
+            end
+            for _, name in ipairs(names) do
+                if not reached[name] then
+                    reached[name] = true
+                    found[#found + 1] = name .. "\1" .. digestOf(name)
+                    local target = project.modulePath(name)
+                    if target ~= nil then
+                        visit(target)
+                    end
+                end
+            end
+        end
+
+        visit(path)
+        table.sort(found)
+
+        return table.concat(found, "\0")
+    end, digestOf
+end
+
+-- Detached from the live project: the sources checked, their transitive semantic
+-- reads, keyed project answers and external files, including absent candidates.
+-- Unknown observations return nil so private builds disable persistent reuse.
+export function digest(project: any, paths: {string}, configuration: string): (string?, any?)
+    local sources: {[string]: any} = {}
+    local okay, result = pcall(function(): string
+        local transitive: {string} = {}
+        local closure = readers(project, true, function(path: string): nil
+            if sources[path] == nil then
+                sources[path] = assert(project.fileText(path), "observed source is unavailable")
+                transitive[#transitive + 1] = path
+            end
+        end)
+        local ordered: {string} = {}
+        for index, path in ipairs(paths) do
+            ordered[index] = path
+        end
+        table.sort(ordered)
+        local parts = {"checked-inputs/1", configuration}
+        for _, path in ipairs(ordered) do
+            local source = project.fileText(path)
+            assert(type(source) == "string", "checked source is unavailable")
+            parts[#parts + 1] = path .. "\1" .. source .. "\1" .. closure(path)
+        end
+        table.sort(transitive)
+        for _, path in ipairs(transitive) do
+            parts[#parts + 1] = "observed\1" .. path
+            for _, dependency in ipairs(project.projectDependencies(path)) do
+                assert(
+                    type(dependency.name) == "string"
+                    and type(dependency.key) == "string"
+                    and type(dependency.fingerprint) == "string",
+                    "project observation is unavailable"
+                )
+                parts[#parts + 1] = dependency.name .. "\1" .. dependency.key .. "\1" .. dependency.fingerprint
+                -- Indexed nominals can be known before their fields are forced.
+                -- Keep the contributing declaration bytes as a conservative input.
+                for _, contributed in ipairs(project.projectDependencyPaths(dependency.name, dependency.key)) do
+                    local text = assert(project.fileText(contributed), "project observation source is unavailable")
+                    parts[#parts + 1] = contributed .. "\1" .. contentDigest(text)
+                    sources[contributed] = text
+                end
+            end
+            for _, input in ipairs(project.externalInputs(path)) do
+                assert(
+                    type(input.path) == "string" and type(input.fingerprint) == "string",
+                    "external observation is unavailable"
+                )
+                parts[#parts + 1] = input.path .. "\1" .. input.fingerprint
+                local external = project.externalFile(input.path)
+                assert(external == nil or type(external) == "string", "external source is unavailable")
+                assert(
+                    input.fingerprint == (external == nil and "absent" or "file:" .. contentDigest(external as string)),
+                    "external observation differs from its checked bytes"
+                )
+                sources[input.path] = external or false
+            end
+        end
+
+        return contentDigest(table.concat(parts, "\0"))
+    end)
+
+    return okay and result or nil, okay and sources or nil
+end

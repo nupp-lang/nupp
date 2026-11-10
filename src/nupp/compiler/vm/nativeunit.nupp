@@ -539,6 +539,44 @@ export function session(projectRoot: string, requested: any, target: string, inc
         return need(state.modules[name], "module is outside sealed batch")
     end
 
+    local cachedInputs: any = {attempted = false}
+    function api.cacheFingerprint(): string?
+        if not cachedInputs.attempted then
+            cachedInputs.attempted = true
+            local paths: {string} = {}
+            for path in pairs(state.checked) do
+                paths[#paths + 1] = path
+            end
+            local stable = require("nupp.compiler.stable")
+            local digest, sources = require("nupp.compiler.project.checkinputs").digest(
+                project,
+                paths,
+                stable({
+                    target = target,
+                    config = project.env.config,
+                    roots = project.env.roots
+                })
+            )
+            if digest ~= nil and type(sources) == "table" then
+                for path, text in pairs(sources) do
+                    remember(path, text)
+                end
+                cachedInputs.digest = digest
+            end
+        end
+
+        -- Test sessions skip repeated graph audits, but never publish a key
+        -- after their checked sources or observed external inputs have changed.
+        for path, text in pairs(state.sources) do
+            if (read(path) or false) ~= text then
+                cachedInputs.digest = nil
+                return nil
+            end
+        end
+
+        return cachedInputs.digest
+    end
+
     function api.options(fn: any, abi: string): any
         validate(state, true)
         need(state.owners[fn], "owner is outside sealed batch")

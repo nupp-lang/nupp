@@ -8,12 +8,13 @@ module nupp.tools.vm.privateproducer
 local hash = require("nupp.compiler.hash")
 local sharedcache = require("nupp.core.sharedcache")
 local fs = require("nupp.compiler.fs")
+local producermodules = require("nupp.core.producermodules")
 local kernelcompiler = require("nupp.core.kernelcompiler")
 local process = require("nupp.compiler.process")
 local packaging = require("nupp.tools.vm.packaging")
 local driver = require("nupp.tools.vm.producerdriver")
 
-const FORMAT = "nupp-native-producer/2"
+const FORMAT = "nupp-native-producer/3"
 const ROOTS = {"nupp.core.guestprogramproducer", "nupp.tools.vm.privateproducer"}
 const SOURCE_INPUTS = {
     "src",
@@ -48,7 +49,11 @@ export function main(arguments: {string}): integer
     local generation = assert(os.getenv("NUPP_PRIVATE_PRODUCER_BASE"), "base compiler generation required")
     local base = root .. "/.nupp/vm-cli/" .. generation
     local image = read(base .. "/compiler.image")
-    local inputs = driver.producerInputs(root, kernelcompiler.reachedModules(root, ROOTS), driver.carriedModules())
+    local inputs = driver.producerInputs(
+        root,
+        producermodules.reached(root, ROOTS, kernelcompiler.reachedModules),
+        driver.carriedModules()
+    )
     local identity = {
         format = FORMAT,
         root = root,

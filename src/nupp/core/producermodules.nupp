@@ -1,0 +1,46 @@
+module nupp.core.producermodules
+
+local process = require("nupp.compiler.process")
+
+-- compilerPrivate and the incremental host-service resolver use this computed
+-- prefix. Any working compiler module not carried by the image can answer it.
+export function reached(
+    root: string,
+    roots: {string},
+    reach: function(string, {string}): {[string]: string}
+): {[string]: string}
+    local modules = reach(root, roots)
+    if modules["nupp.compiler."] ~= nil then
+        local status, listed = process.capture({"find", root .. "/src/nupp/compiler", "-type", "f", "-name", "*.nupp"})
+        assert(status == 0, "cannot list executable compiler dependencies")
+        local prefix = root .. "/src/"
+        local computed: {string} = {}
+        for full in listed:gmatch("[^\n]+") do
+            if full:sub(1, #prefix) == prefix and not full:match("%.d%.nupp$") then
+                local name = full:sub(#prefix + 1):gsub("%.nupp$", ""):gsub("/init$", ""):gsub("/", ".")
+                computed[#computed + 1] = name
+            end
+        end
+        -- Their literal dependencies outside compiler/ execute too. Resolve all
+        -- roots together so shared dependencies are walked once.
+        for name, path in pairs(reach(root, computed)) do
+            if modules[name] == nil then
+                modules[name] = path
+            end
+        end
+    end
+
+    return modules
+end
+
+-- Source files of executable modules absent from the initial image.
+export function uncarried(modules: {[string]: string}, carried: {[string]: boolean}): {[string]: boolean}
+    local files: {[string]: boolean} = {}
+    for name, path in pairs(modules) do
+        if not carried[name] then
+            files[path] = true
+        end
+    end
+
+    return files
+end

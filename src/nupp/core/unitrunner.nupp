@@ -164,7 +164,10 @@ export function select(
         paths[owner.scope.name] = owner.scope.path
         owner.nativeABI = handlers and handlers[name] and "handler" or "leaf"
     end
-    local compiler = kernelcompiler.keyed(root)
+    local compiler, reusable = kernelcompiler.keyed(root, build.session.cacheFingerprint)
+    if not reusable then
+        cacheDirectory = nil
+    end
     -- Handlers read the dispatch table through the context layout.
     if context then
         compiler = digestOf(compiler .. "\0" .. (readFile(context.path) or ""))

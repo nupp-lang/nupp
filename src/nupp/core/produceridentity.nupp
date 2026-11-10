@@ -1,0 +1,163 @@
+module nupp.core.produceridentity
+
+local json = require("serde.json")
+local fs = require("nupp.compiler.fs")
+local hash = require("nupp.compiler.hash")
+local process = require("nupp.compiler.process")
+local imagemodules = require("nupp.compiler.imagemodules")
+
+export function fileDigest(path: string): string?
+    local text = fs.readFile(path)
+    return text and hash.sha256(text) or nil
+end
+
+export function inventory(root: string): string
+    local status, text = process.capture(
+        {
+            "git",
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "-z",
+            "--",
+            "src",
+            "native/crates/vm/lib",
+            "native/crates/vm/decls"
+        },
+        {cwd = root}
+    )
+    assert(status == 0, "cannot list producer sources")
+    local paths: {string} = {}
+    for path in text:gmatch("[^%z]+") do
+        paths[#paths + 1] = path
+    end
+    table.sort(paths)
+
+    return hash.sha256(table.concat(paths, "\0"))
+end
+
+-- Every identity field, including the complete executable input list, is
+-- sealed so damaged metadata cannot accidentally remove a dependency.
+export function identitySeal(identity: any): string?
+    local sealed = {
+        identity.format,
+        identity.root,
+        identity.base,
+        identity.baseImage,
+        identity.baseRuntime,
+        identity.inventory,
+        identity.extras
+    }
+    for _, input in ipairs(identity.inputs) do
+        if type(input) ~= "table" or type(input.path) ~= "string" or type(input.sha256) ~= "string" then
+            return nil
+        end
+        sealed[#sealed + 1], sealed[#sealed + 2] = input.path, input.sha256
+    end
+    for _, value in ipairs(sealed) do
+        if type(value) ~= "string" then
+            return nil
+        end
+    end
+    if #sealed ~= 7 + 2 * #identity.inputs then
+        return nil
+    end
+
+    return hash.sha256(table.concat(sealed, "\0"))
+end
+
+-- A corrupt or missing record is a miss. Program source already carried by
+-- the fixed compiler is data for that compiler; uncarried builder code is an
+-- executable dependency and must still match.
+export function selected(root: string, base: string): string?
+    local okay, result = pcall(function(): string?
+        local packages = root .. "/.nupp/native-producer"
+        local generation = assert(fs.readFile(packages .. "/current")):match("^(%x+)%s*$")
+        if not generation or #generation ~= 64 then
+            return nil
+        end
+        local directory = packages .. "/" .. generation
+        local receipt: any = json.decodevalue(assert(fs.readFile(directory .. "/receipt.json")))
+        if type(receipt) ~= "table"
+            or receipt.format ~= "nupp-vm-cli-1"
+            or receipt.linked ~= true
+            or type(receipt.imageSha256) ~= "string"
+            or type(receipt.runtimeSha256) ~= "string"
+        then
+            return nil
+        end
+        local identity = receipt.privateProducer
+        if type(identity) ~= "table"
+            or identity.format ~= "nupp-native-producer/3"
+            or identity.root ~= root
+            or identity.base ~= base
+            or identity.inventory ~= inventory(root)
+        then
+            return nil
+        end
+        local original = root .. "/.nupp/vm-cli/" .. base
+        if fileDigest(original .. "/compiler.image") ~= identity.baseImage
+            or fileDigest(original .. "/runtime") ~= identity.baseRuntime
+        then
+            return nil
+        end
+        if type(identity.inputs) ~= "table" then
+            return nil
+        end
+        local seal = identitySeal(identity)
+        if seal == nil or seal ~= identity.seal then
+            return nil
+        end
+        for _, input in ipairs(identity.inputs) do
+            if fileDigest(root .. "/" .. input.path) ~= input.sha256 then
+                return nil
+            end
+        end
+        if fileDigest(directory .. "/compiler.image") ~= receipt.imageSha256
+            or fileDigest(directory .. "/runtime") ~= receipt.runtimeSha256
+        then
+            return nil
+        end
+
+        return directory
+    end)
+    if okay then
+        return result
+    end
+
+    return nil
+end
+
+-- Only the authenticated private pair actually running may freeze executable
+-- compiler inputs. An ordinary image, unknown inventory or changed pair misses.
+export function running(root: string): string?
+    local okay, result = pcall(function(): string?
+        local image = os.getenv("NUPP_VM_CLI_IMAGE") or ""
+        local directory = image:match("^(.*)/compiler%.image$")
+        local generation = directory and directory:match("/(%x+)$")
+        if generation == nil
+            or #generation ~= 64
+            or directory ~= root .. "/.nupp/native-producer/" .. generation
+            or os.getenv("NUPP_VM_BINARY") ~= directory .. "/runtime"
+        then
+            return nil
+        end
+        local carried = imagemodules.carriedModules()
+        if not carried["nupp.compiler.project.incremental"] or not carried["nupp.core.guestprogramproducer"] then
+            return nil
+        end
+        local identify: any = rawget(_G, "__nupp_image_identity")
+        if type(identify) ~= "function" or identify() ~= hash.digest((assert(fs.readFile(image)))) then
+            return nil
+        end
+        local base = (fs.readFile(root .. "/.nupp/vm-cli/current") or ""):match("^(%x+)%s*$")
+        if base == nil or #base ~= 64 or selected(root, base) ~= directory then
+            return nil
+        end
+
+        return generation .. "\0" .. assert(fileDigest(image)) .. "\0" .. assert(fileDigest(directory .. "/runtime"))
+    end)
+
+    return okay and result or nil
+end

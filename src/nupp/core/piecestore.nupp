@@ -28,10 +28,10 @@ local sharedcache = require("nupp.core.sharedcache")
 local kernelcompiler = require("nupp.core.kernelcompiler")
 local fs = require("nupp.compiler.fs")
 local fingerprint = require("nupp.compiler.project.fingerprint")
-local interfacetext = require("nupp.compiler.project.interfacetext")
+local checkinputs = require("nupp.compiler.project.checkinputs")
 local corepiece = require("nupp.compiler.vm.corepiece")
-local interfaceimage = require("nupp.compiler.project.interfaceimage")
 local imagemodules = require("nupp.compiler.imagemodules")
+local producermodules = require("nupp.core.producermodules")
 local persisted, persist = pcall(require, "nupp.vm.persist")
 
 -- Bumped when an entry's shape or meaning changes.
@@ -43,9 +43,9 @@ const GENERATION = "/(%x+)/compiler%.image$"
 -- Variables that make a build report as it goes; a reused piece would skip it.
 const REPORTING = {"EMIT_SURVEY", "EMIT_TRACE", "EMIT_STUBS", "DEBUG_REGS", "NUPP_CORE_SYMBOLS", "NUPP_MIR_OUT"}
 
-local contentDigest = fingerprint.contentDigest(true)
 -- NUPP_GUEST_PIECE_TRACE=1 says what each piece key is made of.
 local tracing = os.getenv("NUPP_GUEST_PIECE_TRACE") == "1"
+local contentDigest = fingerprint.contentDigest(true)
 
 -- The producer's identity under `root`, computed once per process, or nil
 -- when nothing may be kept: the generation the image names, and the sources
@@ -68,17 +68,16 @@ local function producerOf(root: string): string?
         return nil
     end
     local carried = imagemodules.carriedModules()
-    local loaded: {[string]: boolean} = {}
-    for name, path in pairs(kernelcompiler.reachedModules(root, {BUILDER})) do
-        if not carried[name] then
-            loaded[path] = true
-        end
+    local okay, modules = pcall(producermodules.reached, root, {BUILDER}, kernelcompiler.reachedModules)
+    disabled = not okay
+    if okay then
+        local loaded = producermodules.uncarried(modules, carried)
+        producer = contentDigest(
+            FORMAT .. "\0" .. corepiece.FORMAT .. "\0" .. (
+                generation as string
+            ) .. "\0" .. kernelcompiler.digestOf(root, kernelcompiler.sorted(loaded))
+        )
     end
-    producer = contentDigest(
-        FORMAT .. "\0" .. corepiece.FORMAT .. "\0" .. (
-            generation as string
-        ) .. "\0" .. kernelcompiler.digestOf(root, kernelcompiler.sorted(loaded))
-    )
 
     return producer
 end
@@ -99,83 +98,6 @@ local function programOf(made: string, p: any): string
     return contentDigest(
         table.concat({made, table.concat(names, "\0"), p.modules[p.entry + 1].name, table.concat(cyclic, "\0")}, "\2")
     )
-end
-
--- What the modules checked in `project` read of each other: by path, the
--- interfaces of every module in the closure of what checking it read, as
--- one text; and by module name, the digest of its interface.
-local function readsIn(project: any): (function(string): string, function(string): string)
-    local projectPaths: {string} = {}
-    for _, path in pairs(project.projectIndex().modules or {}) do
-        projectPaths[#projectPaths + 1] = path
-    end
-    table.sort(projectPaths)
-    -- Interface digests by module name, and the module names each path's check
-    -- read.
-    local interfaces: {[string]: string} = {}
-    local reads: {[string]: {string}} = {}
-
-    -- The digest of module `name`'s interface. One that does not encode names
-    -- nothing a later build can match: its readers are compiled again.
-    local function interfaceOf(name: string): string
-        local path = project.modulePath(name)
-        local semantic = project.moduleSemantic(name, path)
-        local described: any = {
-            interface = semantic.interface,
-            exports = semantic.exports,
-            diags = {},
-            annotations = semantic.annotations,
-            path = path
-        }
-        local ok, image = pcall(interfaceimage.encode, {[name] = described}, {
-            projectPaths = projectPaths,
-            origins = {},
-            arenas = {}
-        })
-        local encoded = ok and type(image) == "table"
-        if tracing then
-            io.stderr:write(
-                "guest piece interface ",
-                name,
-                encoded and "" or " does not encode: " .. tostring(image),
-                "\n"
-            )
-        end
-
-        return encoded and contentDigest(interfacetext.text(image, path or name)) or "unencodable:" .. tostring({})
-    end
-
-    local function digestOf(name: string): string
-        local digest = interfaces[name] or interfaceOf(name)
-        interfaces[name] = digest
-
-        return digest
-    end
-
-    return function(path: string): string
-        -- Each module reached, after its name, and the names reached.
-        local found: {string}, reached: {[string]: boolean} = {}, {}
-
-        local function visit(from: string): nil
-            local names = reads[from] or project.moduleReads(from)
-            reads[from] = names
-            for _, name in ipairs(names) do
-                if not reached[name] then
-                    reached[name] = true
-                    found[#found + 1] = name .. "\1" .. digestOf(name)
-                    local target = project.modulePath(name)
-                    if target ~= nil then
-                        visit(target)
-                    end
-                end
-            end
-        end
-
-        visit(path)
-        table.sort(found)
-
-        return table.concat(found, "\0")
-    end, digestOf
 end
 
 -- `value` as an entry kept under `key`: a header holding the format, the key
@@ -244,7 +166,7 @@ local function storeOf(made: string, p: any, project: any?): any
     local program = programOf(made, p)
     local closure, interfaceOf = nil, nil
     if project ~= nil then
-        closure, interfaceOf = readsIn(project)
+        closure, interfaceOf = checkinputs.readers(project)
     end
     local store: any = {}
     -- The entries this build reused, marked used together when it closes.

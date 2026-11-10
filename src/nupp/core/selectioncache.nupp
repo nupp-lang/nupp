@@ -74,7 +74,11 @@ local function shared(root: string): string?
         return nil
     end
     -- The kernels' compiler part, pinned or not, as the unit runner keys them.
-    local kernels = kernelcompiler.keyed(root)
+    local kernels, reusable = kernelcompiler.keyed(root)
+    disabled = not reusable
+    if disabled then
+        return nil
+    end
     base = contentDigest(table.concat({FORMAT, named as string, inputs as string, kernels}, "\0"))
 
     return base
