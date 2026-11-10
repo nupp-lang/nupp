@@ -170,6 +170,10 @@ export struct Catalog
     bases: uint64
     -- The call diagnostics by call site id, or zero while they are data's.
     rows: uint64
+    -- Where the next loaded chunk's artifact goes in the region its
+    -- predecessors share, and where that region ends; zero before any.
+    region: uint64
+    regionEnd: uint64
 end
 
 export const BOOLEAN: uint64 = 1ULL
@@ -253,6 +257,14 @@ export function scalar(kind: uint64, value: uint64): uint64
     end
 
     return 0ULL
+end
+
+-- The record of function `id` in the validated artifact at `d`.
+export function functionRecord(d: voidptr, id: uint64): voidptr
+    return native.offset(
+        d,
+        native.index(native.load64(d, native.fieldOffset<Descriptor>("records")) + id * native.sizeOf<Function>())
+    )
 end
 
 export function storageBytes(count: uint64): uint64
