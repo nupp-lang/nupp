@@ -1236,7 +1236,7 @@ export const result = guarded(false)
             local catalog, problem = chunk.describeModule(
                 CAPABILITY_OPENING
                 .. [[
-local function stop(): never error("stop") end
+local function stop(): 4 error("stop") end
 local function guarded(): integer
     if species = simd.vectors(array.uint8, stop()) then
         local block = species:splat(123)
@@ -1255,7 +1255,7 @@ export const result = guarded()
             local call = profile.call
             profile.call = function(ctx, node, expected)
                 if node.obj.kind == "name" and node.obj.token.text == "stop" then
-                    -- Model a profile that ends this never-returning argument.
+                    -- Model a profile that ends this terminating argument.
                     local stopped = require("nupp.compiler.vm.graph").block(ctx.g)
                     ctx.block.term = {
                         kind = "jump",
