@@ -1108,6 +1108,14 @@ export const result = guarded(false)
         assert(#unsupported.owners > 0)
         assert(unsupported.owners[1].problem:find("profile does not support scalar capability bindings", 1, true))
         local g = ownerGraph(complete, "guarded")
+        local noPruning = tagged.forVersion(8)
+        noPruning.dropUnreachable = false
+        refuses(
+            function()
+                program.compile(catalog, noPruning)
+            end,
+            "profile cannot prune a specialized continuation"
+        )
         local evaluated = false
         for _, item in ipairs(terms(g, "invoke")) do
             local site = item.term.contract.call
@@ -1138,6 +1146,132 @@ export const result = guarded(false)
         identity.module = oldModule
         assert(program.verify(catalog))
     end
+end
+
+function M.scalarVectorSpecializationPreservesNestedSourceContinuations()
+    local _, complete = capabilityChunk(
+        CAPABILITY_OPENING
+        .. [[
+local calls: integer = 0
+local function note(value: integer): integer
+    calls = calls + 1
+    return value
+end
+local function nested(first: boolean): integer
+    local saved: integer = 9
+    if first then
+        do
+            if species = simd.vectors(array.uint8) then
+                local block = species:splat(123)
+                if (block == 123):any() then return 7 end
+            else
+                return 11
+            end
+            saved = note(saved)
+        end
+    else
+        return 12
+    end
+    return saved
+end
+export const result = nested(true)
+]]
+    )
+    local g = ownerGraph(complete, "nested")
+    test.eq(#terms(g, "return"), 2)
+    for _, item in ipairs(terms(g, "invoke")) do
+        local call = item.term.contract.call
+        assert(
+            not (call.obj.kind == "name" and call.obj.token.text == "note"),
+            "the scalar path must not execute the detached suffix"
+        )
+    end
+end
+
+function M.scalarVectorSpecializationKeepsSourceTerminalRefusals()
+    for _, variant in ipairs({
+        {before = "", terminal = "return 8", suffix = "return 0"},
+        {before = "", terminal = "", suffix = "do return 0 end\nlocal after = 1\nreturn after"},
+        {
+            before = "if earlier = simd.vectors(array.uint8) then local unused = earlier end\n",
+            terminal = "return 8",
+            suffix = "return 0"
+        }
+    }) do
+        refuses(
+            function()
+                capabilityChunk(
+                    CAPABILITY_OPENING
+                    .. [[
+local function guarded(first: boolean): integer
+]]
+                    .. variant.before
+                    .. [[
+    if first then
+        return 11
+    elseif species = simd.vectors(array.uint8) then
+        local block = species:splat(123)
+        if (block == 123):any() then return 7 end
+        ]]
+                    .. variant.terminal
+                    .. [[
+    else
+        return 3
+    end
+    ]]
+                    .. variant.suffix
+                    .. [[
+end
+export const result = guarded(false)
+]]
+                )
+            end,
+            "statement after dispatch"
+        )
+    end
+    refuses(
+        function()
+            local chunk = require("nupp.compiler.vm.corechunk")
+            local catalog, problem = chunk.describeModule(
+                CAPABILITY_OPENING
+                .. [[
+local function stop(): never error("stop") end
+local function guarded(): integer
+    if species = simd.vectors(array.uint8, stop()) then
+        local block = species:splat(123)
+        if (block == 123):any() then return 7 end
+    else
+        return 3
+    end
+    return 0
+end
+export const result = guarded()
+]],
+                "scalar-capability.nupp"
+            )
+            assert(catalog, problem)
+            local profile = tagged.forVersion(8)
+            local call = profile.call
+            profile.call = function(ctx, node, expected)
+                if node.obj.kind == "name" and node.obj.token.text == "stop" then
+                    -- Model a profile that ends this never-returning argument.
+                    local stopped = require("nupp.compiler.vm.graph").block(ctx.g)
+                    ctx.block.term = {
+                        kind = "jump",
+                        edges = {{target = stopped.id, args = {}}},
+                        pos = ctx.position(node)
+                    }
+                    stopped.term = {kind = "jump", edges = {{target = stopped.id, args = {}}}, pos = ctx.position(node)}
+                    ctx.block = nil
+                    return nil
+                end
+
+                return call(ctx, node, expected)
+            end
+            program.compile(catalog, profile)
+        end,
+        "statement after dispatch"
+    )
 end
 
 function M.scalarVectorCapabilityDoesNotPruneShadowedCallsOrRequiredVectors()

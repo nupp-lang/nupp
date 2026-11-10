@@ -7,6 +7,7 @@ local graphcalls = require("nupp.compiler.vm.graphcalls")
 local graphverify = require("nupp.compiler.vm.graphverify")
 local graphprune = require("nupp.compiler.vm.graphprune")
 local cst = require("nupp.compiler.syntax.cst")
+local completion = require("nupp.compiler.syntax.completion")
 local cleanup = require("nupp.compiler.vm.functioncleanup")
 local construction = require("nupp.compiler.vm.construction")
 
@@ -1695,7 +1696,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                     originalOrder[#originalOrder + 1] = key
                     originalBindings[key] = bindings[key]
                 end
-                local incoming = {}
+                local incoming, omittedContinuation = {}, false
 
                 local function continuation(): nil
                     if block then
@@ -1723,6 +1724,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                         not cleanupEnabled or #cleanups == conditionDepth,
                         "owning temporaries in a condition require conditional cleanup"
                     )
+                    if absent and completion.fallsThrough(clause.body) then
+                        omittedContinuation = true
+                    end
                     if not absent then
                         local parent = block
                         -- The bound value belongs only to the true arm. Its leading
@@ -1801,6 +1805,13 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                         }
                     end
                     block = join
+                elseif omittedContinuation then
+                    need(profile.dropUnreachable == true, "profile cannot prune a specialized continuation")
+                    -- The source arm could continue, but this target cannot
+                    -- enter it. Keep lowering its detached continuation so
+                    -- source-terminal statements still refuse their suffix.
+                    block = graph.block(g)
+                    bindings, bindingOrder = originalBindings, originalOrder
                 end
             elseif stat.kind == "whileStmt" then
                 local before = block
