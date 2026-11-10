@@ -25,4 +25,23 @@ function M.new(options)
     }
 end
 
+-- Decodes the first value in a borrowed byte range and reports how many bytes it
+-- took, so a caller can consume exactly one value from a larger stream. The
+-- scratch buffer only references the range, and is cleared before returning.
+local scratch = native.new()
+function M.decodeprefix(pointer, length)
+    if length == 0 then
+        error("no binary value in an empty input", 2)
+    end
+    scratch:set(pointer, length)
+    local ok, value = pcall(scratch.decode, scratch)
+    local remaining = #scratch
+    scratch:reset()
+    if not ok then
+        error(value, 2)
+    end
+
+    return value, length - remaining
+end
+
 return M
