@@ -3,7 +3,7 @@ module nupp.compiler.vm.corelibrary
 -- The core's library calls (the core-only LibCall instruction), defined once.
 -- The compiler reads this table to emit them, and nupp.core.librarycallsgen
 -- writes the runtime's constants from it
--- (native/core/src/nupp/runtime/core/librarycalls.nupp), which the native
+-- (src/nupp/runtime/core/librarycalls.nupp), which the native
 -- units harness holds to exactly what the generator writes.
 --
 -- Each call has a name, the constant both sides spell it by, and an id no

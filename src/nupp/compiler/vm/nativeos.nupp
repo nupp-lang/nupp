@@ -65,8 +65,8 @@ export function importCount(): integer
     return imports
 end
 
--- How many symbols and libraries one program's foreign calls may resolve:
--- the words of the bridge's table (`SLOTS` in native/core/bridge/src/library.rs).
+-- How many symbols and libraries one program's foreign calls may resolve: the words of
+-- the bridge's table (`SLOTS` in native/crates/core-bridge/src/library.rs).
 const FOREIGN_SLOTS: integer = 1024
 
 export function foreignSlots(): integer
@@ -75,7 +75,7 @@ end
 
 -- The words below this are the linked code's, one per symbol and library
 -- (nupp.core.link); the guest's foreign calls cache theirs in the rest
--- (`KERNEL_CELLS` in native/core/src/nupp/runtime/core/guestforeign.nupp).
+-- (`KERNEL_CELLS` in src/nupp/runtime/core/guestforeign.nupp).
 const KERNEL_CELLS: integer = 512
 
 export function kernelCells(): integer
