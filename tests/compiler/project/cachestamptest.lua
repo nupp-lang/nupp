@@ -531,6 +531,85 @@ function M.theModuleStampMovesWhenACarriedDeclarationChanges()
     )
 end
 
+-- A carried library module that fails to check is `unknown` to every importer, and
+-- the importers' stored diagnostics said so. Stamped with `decls/` alone, they went
+-- on saying it after the library was fixed: `json.decodevalue` was "no field in
+-- unknown" in a project until `checks.buf` was deleted by hand.
+function M.theModuleStampMovesWhenACarriedLibrarySourceChanges()
+    -- Every carried file is listed from the root of the carried tree, in the
+    -- filesystem layout and in a stamped binary alike.
+    local list = function(prefix)
+        assert(prefix == "", "the carried tree was listed under " .. tostring(prefix))
+        return {
+            "/decls/lua.d.nupp",
+            "/serde/json/init.nupp",
+            "/nupp/serde/internal/binarycodec.lua",
+            "/nupp/test/runner.lua",
+            "/templates/app/src/main.nupp",
+        }
+    end
+
+    local function reader(json, codec, runner, template)
+        return function(path)
+            if path == "/serde/json/init.nupp" then
+                return json
+            elseif path == "/nupp/serde/internal/binarycodec.lua" then
+                return codec
+            elseif path == "/nupp/test/runner.lua" then
+                return runner
+            elseif path == "/templates/app/src/main.nupp" then
+                return template
+            end
+
+            return "declarations"
+        end
+    end
+
+    local function stamp(json, codec, runner, template)
+        return cache.moduleCompilerFingerprint(nil, nil, list, reader(json, codec, runner, template))
+    end
+
+    local stamped = stamp("module serde.json", "return {}", "return 0", "print('hello')")
+    assert(
+        stamped ~= stamp("module serde.json -- edited", "return {}", "return 0", "print('hello')"),
+        "an edited carried library module left the module stamp where it was"
+    )
+    -- A carried Lua module is checked when a carried module requires it.
+    assert(
+        stamped ~= stamp("module serde.json", "return {1}", "return 0", "print('hello')"),
+        "an edited carried Lua module left the module stamp where it was"
+    )
+    -- Nothing is checked against a carried template or the rest of the carried Lua.
+    assert(
+        stamped == stamp("module serde.json", "return {}", "return 0", "print('edited')"),
+        "a carried template moved the stamp"
+    )
+    assert(
+        stamped == stamp("module serde.json", "return {}", "return 1", "print('hello')"),
+        "carried Lua that nothing is checked against moved the stamp"
+    )
+end
+
+-- The stamp covers every carried `.nupp` source by its suffix, and the checked
+-- Lua modules by the spelling the carried map gives them. A `.nupp` entry may name
+-- `init.nupp` where the tree holds the flat file, but a Lua entry has no second
+-- spelling, so it has to be in the carried tree exactly as written.
+function M.theCarriedTreeHoldsEveryCheckedLuaModuleTheStampCovers()
+    local present = {}
+    for _, relative in ipairs(require("nupp.compiler.bundledlist").list("")) do
+        present[relative] = true
+    end
+    assert(present["/serde/json/init.nupp"], "the carried tree has no /serde/json/init.nupp")
+    local lua = 0
+    for _, file in ipairs(require("nupp.compiler.project.carried").files()) do
+        if file:match("%.lua$") then
+            lua = lua + 1
+            assert(present[file], "the carried tree has no " .. file)
+        end
+    end
+    assert(lua > 0, "the carried map names no Lua module")
+end
+
 -- A build adds its generated directory to the include roots and nothing else does.
 -- Keyed on the roots, that made every header a build stored a header a check missed.
 function M.twoEnvironmentsAgreeOnAHeaderKeyWhenTheModuleNameAgrees()
