@@ -792,6 +792,18 @@ local grouprows: {Group} = {
         operations = {{name = "PROCESS_SIGNAL", library = "processcalls.signal", operation = 48, arguments = 2}}
     },
     {
+        -- The digests guesthash computes over a string's bytes: the compiler's
+        -- content digest (nupp.compiler.corehash) and SHA-256
+        -- (nupp.runtime.provider.coresha256), each as lowercase hex digits.
+        name = "HASH",
+        call = "HOST_FILES",
+        modules = {"hashcalls"},
+        operations = {
+            {name = "HASH_DIGEST", library = "hashcalls.digest", operation = 49, arguments = 1},
+            {name = "HASH_SHA256", library = "hashcalls.sha256", operation = 50, arguments = 1}
+        }
+    },
+    {
         -- The scheduler's primitives (nupp.runtime.taskcalls), which the
         -- TASKS call takes: a task of a function and the pack of its
         -- arguments; running one until it returns, fails, parks or yields,

@@ -351,14 +351,12 @@ local wireShapes: {
     {"edges", nil, "argsFirst:span:words:argsCount:65536"}
 }
 
--- The raw v2 wire, the untrusted loader's input. Its aggregate limits (a
--- 64 MiB file, 1,048,576 records and as much expansion across the program)
--- hold a raw image to about 12,000 owners, below the program-size bounds
--- above. That is deliberate: the raw profile executes one scalar initializer
--- (K, Nil, Move, Ret) and is not how a compiler-sized program reaches the
--- core, which is the checked v8 catalog (coregraphexecutable, guestartifact).
--- When the native raw loader is bound to that catalog, these limits are
--- raised with its executable profile.
+-- The v2 wire encoding of a graph image. Its aggregate limits (a 64 MiB
+-- file, 1,048,576 records and as much expansion across the program) hold an
+-- image to about 12,000 owners, below the program-size bounds above. No
+-- loader reads it: programs reach the core as the checked v8 catalog
+-- (coregraphexecutable, coreartifact), and loaded chunks as its artifacts
+-- (guestloader).
 export function wire(): any
     local result: any = {
         magic = "NUPPCGRF",

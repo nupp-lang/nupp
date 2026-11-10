@@ -15,6 +15,7 @@ module nupp.runtime.luaload
 
 const hostcalls = require("nupp.runtime.hostcalls")
 const libraryvalues = require("nupp.runtime.libraryvalues")
+const chunkfiles = require("nupp.runtime.chunkfiles")
 const corecallvalues = require("nupp.runtime.corecallvalues")
 
 -- The environment (Lua's _ENV) `load` was given for the chunk now starting.
@@ -38,6 +39,9 @@ local missing: string = ""
 
 local function textCompiler(): any
     if compiler == nil then
+        -- While it loads there is none: a require of a module it does not
+        -- carry compiles nothing (requirevalue).
+        compiler = false
         local loader: function(string): any = require
         local ok, found = pcall(loader, COMPILER)
         compiler = ok and found or false
@@ -257,6 +261,68 @@ local function started(bytes: string, chunkname: string, env: table?): (any, str
     return value, nil
 end
 
+-- The checkout sources are read from: where NUPP_COMPILER_ROOT names, else
+-- the working directory.
+local function checkout(): string?
+    local named = os.getenv("NUPP_COMPILER_ROOT")
+
+    return named ~= nil and named ~= "" and named or nil
+end
+
+-- The name a chunk is kept under for the file at `path` (chunkfiles): its
+-- path below the checkout, as the host compiled it, or `path` itself.
+local function keptname(path: string): string
+    local root = checkout()
+    if root ~= nil and path:sub(1, #root + 1) == root .. "/" then
+        return path:sub(#root + 2)
+    end
+
+    return path
+end
+
+-- The text of the file at `path`, or nil and why it does not open.
+local function contents(path: string): (string?, string?)
+    local file, reason = io.open(path, "rb")
+    if file == nil then
+        return nil, tostring(reason)
+    end
+    local text: string = file:read("a") or ""
+    file:close()
+
+    return text, nil
+end
+
+-- The binary chunk of source `text` named `chunkname`, the file at `path` when there is
+-- one: itself where it is one, else the chunk kept for it (chunkfiles, by its path or
+-- its text), else the refusal the host kept for it, else what the compiler on the core
+-- makes of it, as a module instance for `module`; or nil and why it does not compile. A
+-- file's Unix exec line is skipped, as Lua skips it.
+local function compiled(text: string, chunkname: string, path: string?, module: boolean): (string?, string?)
+    if text:byte(1) == BINARY then
+        return text, nil
+    end
+    local key = path and keptname(path)
+    local kept = chunkfiles.lookup(key, text)
+    if kept ~= nil then
+        return kept, nil
+    end
+    -- Where the host could not compile this text, the core would not either:
+    -- it says so at once rather than after checking it all again.
+    local refused = chunkfiles.refusal(key, text)
+    if refused ~= nil then
+        return nil, refused
+    end
+    local compile = textCompiler()
+    if compile == nil then
+        return nil, chunkid(chunkname) .. ": text chunks need the compiler, which did not load: " .. missing
+    end
+    if module then
+        return compile.compileModule(text, chunkid(chunkname), chunkname)
+    end
+
+    return compile.compile(path and chunkfiles.execLineSkipped(text) or text, chunkid(chunkname), chunkname)
+end
+
 local function loadchunk(chunk: any, name: string?, mode: string?, env: table?): (any, string?)
     if type(chunk) ~= "string" and type(chunk) ~= "function" then
         error("bad argument #1 to 'load' (string expected, got " .. type(chunk) .. ")", 2)
@@ -280,11 +346,7 @@ local function loadchunk(chunk: any, name: string?, mode: string?, env: table?):
                 return value
             end, nil
         end
-        local compile = textCompiler()
-        if compile == nil then
-            return nil, chunkid(chunkname) .. ": text chunks need the compiler, which did not load: " .. missing
-        end
-        local bytes, problem = compile.compile(text, chunkid(chunkname), chunkname)
+        local bytes, problem = compiled(text, chunkname, nil, false)
         if bytes == nil then
             return nil, problem
         end
@@ -302,25 +364,16 @@ end
 --- (`nupp.runtime.gccalls`) included. Answers the module's value, and raises
 --- what reading, compiling or running it raises.
 export function instance(path: string, env: table): any
-    local file, reason = io.open(path, "rb")
-    if file == nil then
+    local text, reason = contents(path)
+    if text == nil then
         error("cannot open " .. tostring(reason), 2)
     end
-    local text: string = file:read("a") or ""
-    file:close()
     local chunkname = "@" .. path
-    if text:byte(1) ~= BINARY then
-        local compile = textCompiler()
-        if compile == nil then
-            error(chunkid(chunkname) .. ": module instances need the compiler, which did not load: " .. missing, 2)
-        end
-        local bytes, problem = compile.compileModule(text, chunkid(chunkname), chunkname)
-        if bytes == nil then
-            error(problem, 2)
-        end
-        text = bytes as string
+    local bytes, refused = compiled(text, chunkname, path, true)
+    if bytes == nil then
+        error(refused, 2)
     end
-    local value, problem = started(text, chunkname, env)
+    local value, problem = started(bytes, chunkname, env)
     if problem ~= nil then
         error(problem, 2)
     end
@@ -334,22 +387,18 @@ local function loadpath(filename: string?, mode: string?, env: table?): (any, st
     if filename == nil then
         text = io.read("a") or ""
     else
-        local file, reason = io.open(filename, "rb")
-        if file == nil then
+        local read, reason = contents(filename)
+        if read == nil then
             return nil, "cannot open " .. tostring(reason)
         end
-        text = file:read("a") or ""
-        file:close()
+        text = read
         name = "@" .. filename
     end
-    -- A first line that starts with '#' is skipped, as Lua skips a Unix
-    -- exec line; its newline stays, so lines keep their numbers.
-    if text:sub(1, 1) == "#" then
-        local at = text:find("\n", 1, true)
-        text = at and text:sub(at) or ""
-    end
+    -- A chunk compiled from this very text ahead of time, where one is kept
+    -- (chunkfiles), loads in its place.
+    local kept = filename ~= nil and chunkfiles.lookup(filename, text) or nil
 
-    return loadchunk(text, name, mode, env)
+    return loadchunk(kept ?? chunkfiles.execLineSkipped(text), name, mode, env)
 end
 
 local function runpath(filename: string?): ...any
@@ -361,9 +410,105 @@ local function runpath(filename: string?): ...any
     return chunk()
 end
 
+-- What the core says of a module its image does not hold.
+const NOT_IN_IMAGE = "no module of that name in the image"
+
+-- The first file `package.path`'s templates name for module `name` that
+-- opens, as Lua's package.searchpath finds it, or nil.
+local function searchpath(name: string, templates: string): string?
+    local file = name:gsub("%.", "/")
+    for template in templates:gmatch("[^;]+") do
+        local candidate = template:gsub("%?", file)
+        local handle = io.open(candidate, "rb")
+        if handle ~= nil then
+            handle:close()
+            return candidate
+        end
+    end
+
+    return nil
+end
+
+-- Where a module the image does not carry has its source, below the
+-- checkout: Nupp before Lua, as the VM's loader looks.
+const SOURCE_TEMPLATES: {string} = {"src/?.nupp", "src/?/init.nupp", "src/?.lua", "src/?/init.lua"}
+const NUPP_SUFFIX = ".nupp"
+
+-- Module `name` from its source under the checkout's src/, which the image
+-- does not carry: its kept chunk, else compiled on the core, Nupp source as
+-- a module instance whose requires go through the program's `require`.
+-- Answers what it settles as, and the file; nil where there is no source.
+local function sourcemodule(name: string): (any, string?)
+    if compiler == false then
+        -- The compiler itself, while it loads, or a program without it.
+        return nil, nil
+    end
+    local file = name:gsub("%.", "/")
+    local root = checkout()
+    for _, template in ipairs(SOURCE_TEMPLATES) do
+        local relative = template:gsub("%?", file)
+        local path = relative
+        local text = contents(path)
+        if text == nil and root ~= nil then
+            path = root .. "/" .. relative
+            text = contents(path)
+        end
+        if text ~= nil then
+            local module = relative:sub(-#NUPP_SUFFIX) == NUPP_SUFFIX
+            local bytes, problem = compiled(text, "@" .. path, path, module)
+            if bytes == nil then
+                error("error loading module '" .. name .. "' from file '" .. path .. "':\n\t" .. tostring(problem), 3)
+            end
+            local value: any = nil
+            if module then
+                value = started(bytes, "@" .. path, libraryvalues.functions._G)
+            else
+                local chunk: any = started(bytes, "@" .. path, nil)
+                value = chunk(name, path)
+            end
+
+            return libraryvalues.settle(name, value), path
+        end
+    end
+
+    return nil, nil
+end
+
+-- Lua's `require` for chunks: the program's (package.loaded, package.preload,
+-- then the modules its image holds), then a Lua file on `package.path`,
+-- loaded as `loadfile` loads one, as Lua's file searcher does, then a
+-- module's source under the checkout (sourcemodule).
+local programRequire: function(string): (any, any) = libraryvalues.functions.require
+
+local function requirevalue(name: string): (any, any)
+    local ok, value, extra = pcall(programRequire, name)
+    if ok then
+        return value, extra
+    end
+    local ambient: any = libraryvalues.functions.package
+    local filename = type(value) == "string"
+        and (value as string):find(NOT_IN_IMAGE, 1, true) ~= nil
+        and searchpath(name, tostring(ambient.path))
+        or nil
+    if filename ~= nil then
+        local chunk, problem = loadpath(filename, nil, nil)
+        if chunk ~= nil then
+            return libraryvalues.settle(name, chunk(name, filename)), filename
+        end
+        error("error loading module '" .. name .. "' from file '" .. filename .. "':\n\t" .. tostring(problem), 2)
+    end
+    if type(value) == "string" and (value as string):find(NOT_IN_IMAGE, 1, true) ~= nil then
+        local found, source = sourcemodule(name)
+        if source ~= nil then
+            return found, source
+        end
+    end
+    error(value, 0)
+end
+
 export const functions: {
     [string]: any
-} = {load = loadchunk, loadstring = loadchunk, loadfile = loadpath, dofile = runpath}
+} = {load = loadchunk, loadstring = loadchunk, loadfile = loadpath, dofile = runpath, require = requirevalue}
 
 -- Lua chunks read the loaders as globals (`pcall(dofile, path)`).
 for name, value in pairs(functions) do

@@ -90,30 +90,54 @@ end
 -- The core has no FFI: the lexer keeps its trivia in tables.
 triviaarena.installDefault(require("nupp.compiler.syntax.triviaarena.table"))
 
--- The checking environment, made once: its prelude is the costly part.
-local held: any = nil
+-- The checking environments, made once: their prelude is the costly part.
+local held: {
+    lua: any?,
+    source: any?
+} = {}
 -- Directories checked against beside the checkout (checkingRoot).
 local extraRoots: {string} = {}
 
-local function checkingEnvironment(): any
-    if held == nil then
+local function checkingEnvironment(moduleInstance: boolean?): any
+    local found = held.lua
+    if moduleInstance then
+        found = held.source
+    end
+    if found == nil then
         -- The checkout the compiler's declarations are read from, which the
         -- core names only through its environment.
         local named = os.getenv("NUPP_COMPILER_ROOT")
         local root = named ~= nil and named ~= "" and named or environment.compilerRoot() or "."
         bundled.checkout(root)
-        held = environment.new(root, {
-            -- Module sources are found on disk only under extra roots.
-            memoryOnly = #extraRoots == 0,
+        local roots: {string} = {}
+        if moduleInstance then
+            roots[#roots + 1] = root .. "/src"
+        end
+        for _, extra in ipairs(extraRoots) do
+            roots[#roots + 1] = extra
+        end
+        found = environment.new(root, {
+            -- Lua chunks need only the prelude. Typed module instances also
+            -- resolve their imports against the checkout's source modules.
+            memoryOnly = #roots == 0,
             cache = false,
             nativeCompilerServices = false,
+            -- C declarations a checked module makes (`cdef`, import-c) are read
+            -- by the C-header service: the VM's libclang on the host, the
+            -- core's corecdecl over the same library on the core.
+            compilerServices = {cheader = require("nupp.compiler.cinterop.cheader")},
             -- The checkout's nupp.lua configures its projects, not a chunk;
             -- reading it would load Lua text from within `load`.
-            config = {include = extraRoots}
+            config = {include = roots}
         })
+        if moduleInstance then
+            held.source = found
+        else
+            held.lua = found
+        end
     end
 
-    return held
+    return found
 end
 
 --- Checks chunk sources against the modules under `path` too, beside the
@@ -127,7 +151,7 @@ export function checkingRoot(path: string): nil
     end
     extraRoots[#extraRoots + 1] = path
     -- The environment indexes its roots as it is made.
-    held = nil
+    held = {}
 end
 
 -- Marks the opening's own require, which finds the environment the rest
@@ -170,8 +194,8 @@ local function parsed(text: string, path: string, display: string): (any, string
 end
 
 -- What checking a chunk's tree as module `name` finds.
-local function checked(tree: any, path: string, name: string): {any}
-    return checker.check(tree, path, checkingEnvironment(), {
+local function checked(tree: any, path: string, name: string, moduleInstance: boolean?): {any}
+    return checker.check(tree, path, checkingEnvironment(moduleInstance), {
         moduleName = name,
         strict = false,
         lints = {["unused-binding"] = "off"}
@@ -297,7 +321,7 @@ export function describeModule(text: string, display: string, source: string?): 
     if tree == nil then
         return nil, wrappedProblem
     end
-    local diagnostics = checked(tree, path, name as string)
+    local diagnostics = checked(tree, path, name as string, true)
     for _, diagnostic in ipairs(diagnostics) do
         if diagnostic.severity == "error" then
             return nil, positioned(display, diagnostic.line, diagnostic.msg)

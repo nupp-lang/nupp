@@ -1,0 +1,278 @@
+module nupp.core.piecestore
+
+-- Module pieces (nupp.compiler.vm.corepiece) kept in the shared store
+-- (`nupp.core.sharedcache`), so a guest build compiles only the modules whose
+-- pieces it cannot reuse.
+--
+-- A piece is trusted as the output of the compiler that made it, and is
+-- reused only under the key of everything it was made from:
+--
+-- - the producer: the compiler generation running the build, and the source
+--   of every module the build reaches that the generation does not carry,
+--   which this process loads from source (the guest lowering and builder);
+-- - the program: its modules in order, its entry and the modules a require
+--   cycle re-enters, which numbering, eager loads and forwarders follow;
+-- - the module: its name, path and the bytes its check read;
+-- - what its check read: the interface of every module in the closure of the
+--   interfaces and exports it read, as position-free text
+--   (`nupp.compiler.project.interfacetext`), so a body edit that leaves an
+--   interface alone leaves the key alone; and the project answers (callable
+--   facts, module resolution, index entries) and external inputs it observed.
+--
+-- What a piece observed of other pieces, its callees' signatures and the
+-- initializer results it read, the link checks again. An entry is sealed by
+-- its digest and names its key; one that does not match its seal or its key,
+-- or does not decode, is a miss. NUPP_GUEST_PIECE_STORE=0 keeps and reuses
+-- nothing.
+local sharedcache = require("nupp.core.sharedcache")
+local kernelcompiler = require("nupp.core.kernelcompiler")
+local fs = require("nupp.compiler.fs")
+local fingerprint = require("nupp.compiler.project.fingerprint")
+local interfacetext = require("nupp.compiler.project.interfacetext")
+local corepiece = require("nupp.compiler.vm.corepiece")
+local interfaceimage = require("nupp.compiler.project.interfaceimage")
+local persisted, persist = pcall(require, "nupp.vm.persist")
+
+-- Bumped when an entry's shape or meaning changes.
+const FORMAT = "guest-piece/2"
+const KIND = "pieces"
+-- The module the guest build starts from: what it reaches is the producer.
+const BUILDER = "nupp.core.guestbuild"
+-- How the compiler image names a module it carries: its path below src.
+const CARRIED_PREFIX = "src"
+const GENERATION = "/(%x+)/compiler%.image$"
+-- Variables that make a build report as it goes; a reused piece would skip it.
+const REPORTING = {"EMIT_SURVEY", "EMIT_TRACE", "EMIT_STUBS", "DEBUG_REGS", "NUPP_CORE_SYMBOLS", "NUPP_MIR_OUT"}
+
+local contentDigest = fingerprint.contentDigest(true)
+-- NUPP_GUEST_PIECE_TRACE=1 says what each piece key is made of.
+local tracing = os.getenv("NUPP_GUEST_PIECE_TRACE") == "1"
+
+-- The producer's identity under `root`, computed once per process, or nil
+-- when nothing may be kept: the generation the image names, and the sources
+-- of every module the builder reaches that the image does not carry.
+local producer: string? = nil
+local disabled = false
+
+local function producerOf(root: string): string?
+    if producer ~= nil or disabled then
+        return producer
+    end
+    local image = os.getenv("NUPP_VM_CLI_IMAGE")
+    local generation = image and image:match(GENERATION)
+    local carried = image and fs.readFile(image)
+    disabled = not persisted or carried == nil or generation == nil or os.getenv("NUPP_GUEST_PIECE_STORE") == "0"
+    for _, variable in ipairs(REPORTING) do
+        disabled = disabled or os.getenv(variable) ~= nil
+    end
+    if disabled then
+        return nil
+    end
+    local loaded: {string} = {}
+    for _, path in ipairs(kernelcompiler.reachedFiles(root, {BUILDER})) do
+        local below = path:sub(1, #CARRIED_PREFIX) == CARRIED_PREFIX and path:sub(#CARRIED_PREFIX + 1) or path
+        if not (carried as string):find(below, 1, true) then
+            loaded[#loaded + 1] = path
+        end
+    end
+    producer = contentDigest(
+        FORMAT .. "\0" .. corepiece.FORMAT .. "\0" .. (
+            generation as string
+        ) .. "\0" .. kernelcompiler.digestOf(root, loaded)
+    )
+
+    return producer
+end
+
+-- What every key of checked catalog `p`'s pieces shares, made by `made`: its
+-- modules in order, its entry and its cyclic modules.
+local function programOf(made: string, p: any): string
+    local names: {string} = {}
+    for _, module in ipairs(p.modules) do
+        names[#names + 1] = module.name .. "\1" .. module.path
+    end
+    local cyclic: {string} = {}
+    for chunk in pairs(p.forwards) do
+        cyclic[#cyclic + 1] = p.modules[(chunk as integer) + 1].name
+    end
+    table.sort(cyclic)
+
+    return contentDigest(
+        table.concat({made, table.concat(names, "\0"), p.modules[p.entry + 1].name, table.concat(cyclic, "\0")}, "\2")
+    )
+end
+
+-- What the modules checked in `project` read of each other: by path, the
+-- interfaces of every module in the closure of what checking it read, as
+-- one text.
+local function readsIn(project: any): function(string): string
+    local projectPaths: {string} = {}
+    for _, path in pairs(project.projectIndex().modules or {}) do
+        projectPaths[#projectPaths + 1] = path
+    end
+    table.sort(projectPaths)
+    -- Interface digests by module name, and the module names each path's check
+    -- read.
+    local interfaces: {[string]: string} = {}
+    local reads: {[string]: {string}} = {}
+
+    -- The digest of module `name`'s interface. One that does not encode names
+    -- nothing a later build can match: its readers are compiled again.
+    local function interfaceOf(name: string): string
+        local path = project.modulePath(name)
+        local semantic = project.moduleSemantic(name, path)
+        local described: any = {
+            interface = semantic.interface,
+            exports = semantic.exports,
+            diags = {},
+            annotations = semantic.annotations,
+            path = path
+        }
+        local ok, image = pcall(interfaceimage.encode, {[name] = described}, {
+            projectPaths = projectPaths,
+            origins = {},
+            arenas = {}
+        })
+        local encoded = ok and type(image) == "table"
+        if tracing then
+            io.stderr:write(
+                "guest piece interface ",
+                name,
+                encoded and "" or " does not encode: " .. tostring(image),
+                "\n"
+            )
+        end
+
+        return encoded and contentDigest(interfacetext.text(image, path or name)) or "unencodable:" .. tostring({})
+    end
+
+    return function(path: string): string
+        -- Each module reached, after its name, and the names reached.
+        local found: {string}, reached: {[string]: boolean} = {}, {}
+
+        local function visit(from: string): nil
+            local names = reads[from] or project.moduleReads(from)
+            reads[from] = names
+            for _, name in ipairs(names) do
+                if not reached[name] then
+                    reached[name] = true
+                    local digest = interfaces[name] or interfaceOf(name)
+                    interfaces[name] = digest
+                    found[#found + 1] = name .. "\1" .. digest
+                    local target = project.modulePath(name)
+                    if target ~= nil then
+                        visit(target)
+                    end
+                end
+            end
+        end
+
+        visit(path)
+        table.sort(found)
+
+        return table.concat(found, "\0")
+    end
+end
+
+-- The store of checked catalog `p`'s pieces, made by `made`, checked in
+-- `project` or on their own.
+local function storeOf(made: string, p: any, project: any?): any
+    local program = programOf(made, p)
+    local closure = project ~= nil and readsIn(project) or nil
+    local store: any = {}
+    -- The entries this build reused, marked used together when it closes.
+    local used: {string} = {}
+
+    -- The key of the `index`th module's piece, whose check read `source`.
+    local function keyOf(module: any, source: string): string
+        local parts = {program, module.name, module.path, contentDigest(source)}
+        if project ~= nil then
+            parts[#parts + 1] = (closure as function(string): string)(module.path)
+            for _, dependency in ipairs(project.projectDependencies(module.path)) do
+                parts[
+                    #parts + 1
+                ] = dependency.name .. "\1" .. tostring(dependency.key) .. "\1" .. dependency.fingerprint
+            end
+            for _, input in ipairs(project.externalInputs(module.path)) do
+                parts[#parts + 1] = input.path .. "\1" .. input.fingerprint
+            end
+        end
+        if tracing then
+            for at, part in ipairs(parts) do
+                io.stderr:write("guest piece key ", module.name, " ", tostring(at), " ", contentDigest(part), "\n")
+            end
+        end
+
+        return contentDigest(table.concat(parts, "")) .. ".bin"
+    end
+
+    -- The key of the `index`th module's piece, or nil when the source its
+    -- check read cannot be read back.
+    function store.key(index: integer): string?
+        local module = p.modules[index]
+        local source = project ~= nil and project.fileText(module.path) or fs.readFile(module.path)
+
+        return source and keyOf(module, source as string) or nil
+    end
+
+    -- The piece kept under `key`, or nil.
+    function store.lookup(key: string): any
+        local text = sharedcache.get(sharedcache.directory(KIND), key)
+        local length = text and tonumber(text:match("^(%d+)\n"))
+        if not length then
+            return nil
+        end
+        local at = #tostring(length) + 2
+        local opened, envelope = pcall(persist.loadData, (text as string):sub(at, at + length - 1))
+        local body = (text as string):sub(at + length)
+        if not opened
+            or type(envelope) ~= "table"
+            or envelope.format ~= FORMAT
+            or envelope.key ~= key
+            or envelope.seal ~= contentDigest(body)
+        then
+            return nil
+        end
+        local decoded, piece = pcall(persist.loadData, body)
+        if not decoded or type(piece) ~= "table" or piece.format ~= corepiece.FORMAT then
+            return nil
+        end
+        used[#used + 1] = key
+
+        return piece
+    end
+
+    -- Marks every entry this build reused as used, at once: the store sweeps
+    -- the least recently used first.
+    function store.close(): nil
+        sharedcache.touch(sharedcache.directory(KIND), used)
+        used = {}
+    end
+
+    -- Keeps `piece` under `key`, sealed by its digest.
+    function store.keep(key: string, piece: any): boolean
+        local encoded, body = pcall(persist.saveData, piece)
+        if not encoded then
+            io.stderr:write("guest piece not kept: ", tostring(body), "\n")
+            return false
+        end
+        local header = persist.saveData({format = FORMAT, key = key, seal = contentDigest(body as string)})
+
+        return sharedcache.put(
+            sharedcache.directory(KIND),
+            key,
+            tostring(#header) .. "\n" .. header .. (body as string)
+        )
+    end
+
+    return store
+end
+
+-- A store for the pieces of checked catalog `p`, checked in `project` (an
+-- incremental project, or nil for a program checked on its own), under
+-- checkout `root`. Nil when nothing may be kept.
+export function open(root: string, p: any, project: any?): any
+    local made = producerOf(root)
+
+    return made and storeOf(made as string, p, project) or nil
+end

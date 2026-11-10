@@ -322,7 +322,7 @@ sweep() {
         rm -rf "$path"
     done
     # What a writer that died left aside, once nobody could still be writing it.
-    for kind in kernels programs vm-cli-builds build-steps vm-cli; do
+    for kind in kernels programs pieces vm-cli-builds build-steps vm-cli; do
         [ -d "$STORE/$kind" ] || continue
         find "$STORE/$kind" -maxdepth 1 -name '.part-*' -mmin +$((keep / 60)) -exec rm -rf {} + 2>/dev/null || true
     done

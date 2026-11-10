@@ -1,0 +1,50 @@
+module nupp.core.catalogrunnersmall
+
+-- Small library behaviors the test runner's suites lean on, as main has
+-- them: a traversal of a table with Boolean keys reaches them all;
+-- package.loaded holds the standard libraries, so require("coroutine") as
+-- a value is the coroutine table; and a read count with a fraction reads
+-- its whole part. Each check is a bit of the score.
+
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+do
+    local booleans: {[boolean]: string} = {[true] = "yes", [false] = "no"}
+    local count = 0
+    for _ in pairs(booleans) do
+        count = count + 1
+    end
+    check(count == 2)
+    local ok, after = pcall(next, booleans, true)
+    check(ok and (after == nil or after == false))
+end
+
+do
+    local load: function(string): any = require
+    local tasks: any = load("coroutine")
+    check(tasks == coroutine)
+    check(package.loaded.coroutine == coroutine and package.loaded.math == math and package.loaded.string == string)
+end
+
+do
+    local name = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/runner-small.txt"
+    local out = assert(io.open(name, "w"))
+    out:write("abcdef")
+    out:close()
+    local input = assert(io.open(name, "r"))
+    local read = input:read(1.8)
+    local rest = input:read(2.5)
+    input:close()
+    os.remove(name)
+    check(read == "a" and rest == "bc")
+end
+
+export const result = score

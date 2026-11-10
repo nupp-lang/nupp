@@ -15,6 +15,23 @@ local debugcalls = require("nupp.runtime.debugcalls")
 
 local type PairIterator = @nosuspend function(): ((any, any) | (nil))
 
+-- The ambient `package` table: its `loaded` and `preload` as Lua's, and
+-- fields a program sets on it. `loaded` holds the standard libraries, as
+-- Lua's does (require("coroutine") is the coroutine table); the image
+-- holds the other modules.
+const ambient = {loaded = {}, preload = {}, path = "", cpath = "", config = "/\n;\n?\n!\n-\n"}
+-- What Lua's require names a preload's module source as.
+const PRELOAD = ":preload:"
+
+--- What `require` answers for module `name` whose loader answered `value`:
+--- it, or what the loader left in package.loaded, or true; kept there.
+export function settle(name: string, value: any): any
+    local settled = value ?? ambient.loaded[name] ?? true
+    ambient.loaded[name] = settled
+
+    return settled
+end
+
 -- The options debug.getinfo answers when it is given none: every field
 -- but the active lines.
 const ALL_OPTIONS = "flnSrtu"
@@ -93,12 +110,6 @@ local function getinfo(...: any): any
     return info
 end
 
--- The ambient `package` table: its `loaded` and `preload` as Lua's, empty
--- because the image holds the modules, and fields a program sets on it.
-const ambient = {loaded = {}, preload = {}, path = "", cpath = "", config = "/\n;\n?\n!\n-\n"}
--- What Lua's require names a preload's module source as.
-const PRELOAD = ":preload:"
-
 export const functions: {[string]: any} = {
     package = ambient,
     -- `require` as a value looks where Lua's looks first, package.loaded
@@ -110,13 +121,7 @@ export const functions: {[string]: any} = {
         end
         local preload = ambient.preload[name]
         if preload ~= nil then
-            local value = preload(name, PRELOAD)
-            if value == nil then
-                value = ambient.loaded[name] ?? true
-            end
-            ambient.loaded[name] = value
-
-            return value, PRELOAD
+            return settle(name, preload(name, PRELOAD)), PRELOAD
         end
 
         return require(name)
@@ -522,6 +527,11 @@ for name, value in pairs(functions) do
     end
 end
 globals._G = globals
+-- Lua's package.loaded holds `_G` and each standard library table.
+ambient.loaded._G = globals
+for library in pairs(libraries) do
+    ambient.loaded[library] = globals[library]
+end
 -- `arg`: the program's arguments, as Lua's standalone interpreter sets it.
 globals.arg = hostcalls.arguments()
 -- `nupp`: the runtime's namespace, which reflection and derive install
@@ -545,6 +555,7 @@ export function publish(name: string, value: any): nil
     functions[name] = value
     globals[name] = value
     if type(value) == "table" then
+        ambient.loaded[name] = value
         for member, entry in pairs(value as table) do
             if type(member) == "string" and type(entry) == "function" then
                 originals[name .. "." .. member] = entry

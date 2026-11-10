@@ -1,0 +1,301 @@
+module nupp.core.catalogloadhostile
+
+-- Lua's `load` over binary chunks a program made itself, from the chunk the
+-- runner compiled beside this program (catalog-load-chunk). Truncated,
+-- corrupted, or with its operands, branches, call sites, closures,
+-- relocations or entry altered, each is refused as a bad binary format and
+-- the program goes on. With each byte inverted in turn it loads, raises or
+-- is refused, and the program survives every one. Meanwhile a copy's entry
+-- waits in a coroutine on its callback while those loads move the catalog
+-- into larger mappings; resumed, it finishes, and the first copy's closures
+-- still count on.
+const path = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/catalog-load-chunk.chunk"
+
+-- The chunk's header of three words, its artifact's words (guestcatalog):
+-- the descriptor's, a function record's and a call site's, by field.
+const HEADER = 24
+const WORD = 8
+const INSTRUCTION = 16
+const RELOCATIONS = 2
+const DESCRIPTOR: {
+    owners: integer,
+    entry: integer,
+    records: integer,
+    contracts: integer,
+    modules: integer
+} = {owners = 2, entry = 3, records = 4, contracts = 7, modules = 14}
+const RECORD: {
+    words: integer,
+    parent: integer,
+    kind: integer,
+    code: integer,
+    instructions: integer,
+    values: integer,
+    constants: integer,
+    firstCall: integer,
+    calls: integer
+} = {
+    words = 15,
+    parent = 1,
+    kind = 2,
+    code = 5,
+    instructions = 6,
+    values = 7,
+    constants = 9,
+    firstCall = 10,
+    calls = 11
+}
+const SITE: {
+    words: integer,
+    pc: integer,
+    target: integer
+} = {words = 11, pc = 2, target = 4}
+-- The opcodes the alterations look for (corebytecode), and one the core
+-- does not run.
+const OPCODE: {
+    k: integer,
+    move: integer,
+    jmp: integer,
+    callK: integer,
+    ret: integer,
+    newClosure: integer,
+    getUpval: integer,
+    unknown: integer
+} = {k = 0, move = 1, jmp = 9, callK = 50, ret = 56, newClosure = 100, getUpval = 104, unknown = 200}
+const FUNCTION_KIND = 1
+-- More copies than the service ledger has mappings for (256), so many
+-- more functions than the catalog's first room holds.
+const COPIES = 600
+
+local function cites(message: any, text: string): boolean
+    return string.find(tostring(message), text, 1, true) ~= nil
+end
+
+local file = assert(io.open(path, "rb"))
+local chunk: string = file:read("a") or ""
+file:close()
+
+-- The little-endian word at byte `at` (from zero) of `s`.
+local function word(s: string, at: integer): integer
+    local value: integer = 0
+    for index = WORD, 1, -1 do
+        value = (value << 8) | s:byte(at + index)
+    end
+
+    return value
+end
+
+local function bytes(value: integer, count: integer): string
+    local out: {string} = {}
+    for index = 1, count do
+        out[index] = string.char((value >> ((index - 1) * 8)) & 255)
+    end
+
+    return table.concat(out)
+end
+
+-- `s` with `replacement` over its bytes from `at` on.
+local function put(s: string, at: integer, replacement: string): string
+    return s:sub(1, at) .. replacement .. s:sub(at + #replacement + 1)
+end
+
+local function descriptor(index: integer): integer
+    return word(chunk, HEADER + index * WORD)
+end
+
+-- Where function `id`'s record word `field` is in the chunk, and what it holds.
+local function recordAt(id: integer, field: integer): integer
+    return HEADER + descriptor(DESCRIPTOR.records) + (id * RECORD.words + field) * WORD
+end
+
+local function field(id: integer, at: integer): integer
+    return word(chunk, recordAt(id, at))
+end
+
+local function siteAt(site: integer, at: integer): integer
+    return HEADER + descriptor(DESCRIPTOR.contracts) + (site * SITE.words + at) * WORD
+end
+
+local owners = descriptor(DESCRIPTOR.owners)
+
+-- The first instruction with opcode `op`: its function, its index and
+-- where it is in the chunk; nil when none has it.
+local function find(op: integer): (integer?, integer, integer)
+    for id = 0, owners - 1 do
+        for pc = 0, field(id, RECORD.instructions) - 1 do
+            local at = HEADER + field(id, RECORD.code) + pc * INSTRUCTION
+            if chunk:byte(at + 1) == op then
+                return id, pc, at
+            end
+        end
+    end
+
+    return nil, 0, 0
+end
+
+-- Whether `bytes` loads as nothing, the way a malformed chunk does.
+local function refused(bytes: string): boolean
+    local made, reason = load(bytes, "=hostile", "b")
+
+    return made == nil and cites(reason, "bad binary format")
+end
+
+local score = 0
+
+local function check(bit: integer, passed: boolean): nil
+    if passed then
+        score = score | (1 << bit)
+    end
+end
+
+local function same(n: integer): integer
+    return n
+end
+
+-- The chunk as written loads and runs.
+local fine: any = load(chunk, "=fine", "b")
+local early: any = fine and fine(same, 1)
+check(0, early ~= nil and early.total == 5 and early.bump() == 3)
+
+-- A second copy's entry, waiting in a coroutine on its callback.
+local second: any = assert(load(chunk, "=second", "b"))
+local worker = coroutine.create(function(): any
+    return second(
+        function(n: integer): any
+            return coroutine.yield(n)
+        end,
+        3
+    )
+end)
+local started, asked = coroutine.resume(worker)
+check(1, started and asked == 3 and coroutine.status(worker) == "suspended")
+
+-- Truncated: the header alone, the artifact cut short, a relocation gone.
+local relocations = word(chunk, RELOCATIONS * WORD)
+check(2, refused(chunk:sub(1, HEADER)) and refused(chunk:sub(1, #chunk // 2)) and refused(chunk:sub(1, #chunk - WORD)))
+-- A corrupted header: its magic, the artifact's length, the relocation count.
+check(3, refused(put(chunk, 0, "\27Nupq")) and refused(put(chunk, WORD, bytes(word(chunk, WORD) + WORD, WORD))))
+check(4, relocations > 0 and refused(put(chunk, RELOCATIONS * WORD, bytes(relocations - 1, WORD))))
+-- A relocation that moves the wrong word, or another kind of operand.
+local last = #chunk - WORD
+local moved = word(chunk, last)
+check(
+    5,
+    refused(put(chunk, last, bytes(moved + 1, WORD))) and refused(put(chunk, last, bytes(moved ~ (3 << 48), WORD)))
+)
+-- The entry: out of range, a function that is not the module's, and a
+-- module list naming one more module than there are.
+local entryAt = HEADER + DESCRIPTOR.entry * WORD
+local entry = descriptor(DESCRIPTOR.entry)
+local inner = entry == 0 and 1 or 0
+check(6, refused(put(chunk, entryAt, bytes(owners, WORD))) and refused(put(chunk, entryAt, bytes(inner, WORD))))
+check(7, refused(put(chunk, HEADER + DESCRIPTOR.modules * WORD, bytes(descriptor(DESCRIPTOR.modules) + 1, WORD))))
+-- A register past the function's window, and an opcode the core does not run.
+local kFunction, _, kAt = find(OPCODE.k)
+check(8, kFunction ~= nil and refused(put(chunk, kAt + 1, bytes(255, 1))))
+check(9, kFunction ~= nil and refused(put(chunk, kAt, bytes(OPCODE.unknown, 1))))
+if kFunction ~= nil then
+    -- A constant past the function's, and one below zero.
+    local count = field(kFunction, RECORD.constants)
+    check(10, refused(put(chunk, kAt + 4, bytes(count, 4))) and refused(put(chunk, kAt + 4, bytes(-1, 4))))
+    -- A branch out of its function's code either way: the K made a jump.
+    local jump = put(chunk, kAt, bytes(OPCODE.jmp, 1))
+    local beyond = field(kFunction, RECORD.instructions)
+    check(11, refused(put(jump, kAt + 4, bytes(beyond, 4))) and refused(put(jump, kAt + 4, bytes(-1000000, 4))))
+end
+-- A window larger than a record admits, and a constant window shifted.
+local constantsAt = recordAt(entry, RECORD.constants)
+check(
+    12,
+    refused(put(chunk, recordAt(entry, RECORD.values), bytes(251, WORD)))
+    and refused(put(chunk, constantsAt, bytes(field(entry, RECORD.constants) + 1, WORD)))
+)
+-- A function whose last instruction falls through past its code.
+local ends = HEADER + field(entry, RECORD.code) + (field(entry, RECORD.instructions) - 1) * INSTRUCTION
+check(13, chunk:byte(ends + 1) == OPCODE.ret and refused(put(chunk, ends, bytes(OPCODE.move, 1) .. bytes(0, 2))))
+local closing, _, closureAt = find(OPCODE.newClosure)
+if closing ~= nil then
+    -- A closure of a function not nested in the closing one.
+    local target = word(chunk, closureAt + WORD)
+    local other: integer = -1
+    for id = 0, owners - 1 do
+        if id ~= target and field(id, RECORD.parent) ~= closing + 1 then
+            other = id
+        end
+    end
+    check(14, other >= 0 and refused(put(chunk, closureAt + WORD, bytes(other, WORD))))
+    -- Its captures past the window.
+    check(15, refused(put(chunk, closureAt + 3, bytes(255, 1))))
+end
+local caller, callPC, callAt = find(OPCODE.callK)
+if caller ~= nil then
+    -- A call whose function word is not its call site's target, a call
+    -- site at no call, and one whose target is out of range.
+    local hint = word(chunk, callAt + WORD)
+    local wrong = hint == 0xffffffff and 0 or 0xffffffff
+    local site = field(caller, RECORD.firstCall)
+    while word(chunk, siteAt(site, SITE.pc)) ~= callPC do
+        site = site + 1
+    end
+    check(16, refused(put(chunk, callAt + WORD, bytes(wrong, WORD))))
+    check(17, callPC > 0 and refused(put(chunk, siteAt(site, SITE.pc), bytes(callPC - 1, WORD))))
+    check(18, refused(put(chunk, siteAt(site, SITE.target), bytes(owners + 1, WORD))))
+end
+-- An upvalue past those its closures capture.
+local reader, _, upvalueAt = find(OPCODE.getUpval)
+check(
+    19,
+    reader ~= nil and field(reader, RECORD.kind) == FUNCTION_KIND and refused(put(chunk, upvalueAt + 4, bytes(200, 4)))
+)
+-- A function nested in itself, and a call count past the call sites.
+check(20, refused(put(chunk, recordAt(inner, RECORD.parent), bytes(inner + 1, WORD))))
+check(21, refused(put(chunk, recordAt(entry, RECORD.calls), bytes(field(entry, RECORD.calls) + 1, WORD))))
+
+-- Each byte inverted in turn: an altered chunk loads, raises as its entry
+-- starts, or is refused, and the program runs on past every one.
+local admitted, raised, refusals = 0, 0, 0
+for at = 0, #chunk - 1 do
+    local ok, made = pcall(load, put(chunk, at, string.char(chunk:byte(at + 1) ~ 255)), "=swept", "b")
+    if not ok then
+        raised = raised + 1
+    elseif made == nil then
+        refusals = refusals + 1
+    else
+        admitted = admitted + 1
+    end
+end
+check(22, refusals > 0 and admitted + raised + refusals == #chunk)
+
+-- More copies than the catalog had room for, each run once.
+local made: {any} = {}
+for index = 1, COPIES do
+    local copy: any = assert(load(chunk, "=copy", "b"))
+    made[index] = copy(
+        function(n: integer): integer
+            return n + index
+        end,
+        index
+    )
+end
+local copies = 0
+for index = 1, COPIES do
+    local answer = made[index]
+    if answer.total == 2 * index + 3 and answer.called == 2 * index and answer.bump() == 3 then
+        copies = copies + 1
+    end
+end
+check(23, copies == COPIES)
+
+-- The suspended entry finishes over the moved catalog.
+local resumed, answer = coroutine.resume(worker, 70)
+local finished: any = answer
+check(24, resumed and coroutine.status(worker) == "dead")
+check(25, resumed and finished.called == 70 and finished.total == 9 and finished.text == "hello from a chunk!")
+check(26, resumed and finished.wide == 0x123456789ABCD and finished.bump() == 3)
+-- The first copy's closure still counts on from where it was, and raises
+-- where it stands.
+check(27, early.bump() == 4)
+local failed, message = pcall(early.fail)
+check(28, not failed and cites(message, "catalog-load-chunk.nupp:31: chunk failure"))
+
+export const result = score

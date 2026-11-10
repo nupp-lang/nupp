@@ -134,6 +134,7 @@ local CASES = {
     {"recordsMethods", 0x7FFF000AFDC52FB5},
     {"callsProtected", 0x7FFF00001E76EFC7},
     {"protectedpacks", 0x7FFF000000000001},
+    {"compoundfloat", 0x402F000000000000},
     {"callstables", 0x7FFF00000000FFFF},
     {"nonreturningbodies", 0x7FFF00000000001F},
     {"recordsInline", 0x7FFF0000000A1A00},
@@ -247,6 +248,11 @@ local CASES = {
     {"affineconstructors", 0x7FFF0000000000FF},
     {"absentffi", 0x7FFF000000000007},
     {"guestffi", 0x7FFF000000001FFF},
+    {"runnersmall", 0x7FFF00000000001F},
+    {"runnerchunks", 0x7FFF00000000007F},
+    -- The packaged test runner over real suites, its loadfile and dofile
+    -- served chunks compiled here (SOURCES).
+    {"testrunner", 0},
     {"ffiaggregates", 0x7FFF0000003FFFFF},
     {"runnerresiduals", 0x7FFF00000000007F},
     -- Library calls spreading `...` through the library function's value.
@@ -254,6 +260,10 @@ local CASES = {
     -- Library calls given every result of a call last, through the value.
     {"libraryresults", 0x7FFF000000001FFF},
     {"processlines", 0x7FFF000000000FFF},
+    -- Files read after a popen child closes, its pipe's descriptor reused.
+    {"processreuse", 0x7FFF0000000003FF},
+    -- The compiler's content digest and SHA-256, which the core computes.
+    {"hashdigests", 0x7FFF0000000003FF},
     {"selectvalues", 0x7FFF00000000007F},
     {"processlayer", 0x7FFF000000FFFFFF},
     -- os.exit(3): the program ends there, publishing nothing (EXITS).
@@ -287,6 +297,12 @@ local CASES = {
     -- request core-cdecl-record.lua records.
     {"corecdecl", 0x7FFF0000000007FF},
     {"loadbinary", 0x7FFF000000001FFF},
+    -- Binary chunks a program altered: truncated, corrupted, with operands,
+    -- branches, call sites, closures, relocations and entries out of place,
+    -- each refused as a bad format, and every byte inverted in turn; a copy
+    -- suspended in a coroutine meanwhile, while later loads move the
+    -- catalog into larger mappings, then finished.
+    {"loadhostile", 0x7FFF00001FFFFFFF},
     -- A record with an array part: fields and elements apart.
     {"recordsarray", 0x7FFF00000000000F},
     -- A function statement assigning a local declared before it.
@@ -301,7 +317,7 @@ local CASES = {
     {"compilerfront", 0x7FFF00000000000F},
     -- Lua's loaders over source text, compiled on the core by the compiler
     -- the program carries.
-    {"loadsource", 0x7FFF0000007FFFFF},
+    {"loadsource", 0x7FFF000000FFFFFF},
     -- The compiler's lexer alone on the core, over whole source files.
     {"compilerlexer", 0x7FFF00000000000F},
     -- A checked call spreading fewer or more results than it has parameters.
@@ -320,7 +336,7 @@ local CASES = {
     {"debuggetinfo", 0x7FFF00000001FFFF},
     -- Instances of a Nupp module compiled as a chunk: fresh state, requires
     -- through the instance's environment, core call modules swapped.
-    {"moduleinstances", 0x7FFF0000000000FF},
+    {"moduleinstances", 0x7FFF0000000001FF},
     -- A module instance's record taking a default from an interface in a
     -- module its chunk does not carry, through the instance's require.
     {"instancedefaults", 0x7FFF000000000003},
@@ -526,6 +542,8 @@ local STRESS = {
     spreadlibrary = true,
     libraryresults = true,
     processlines = true,
+    processreuse = true,
+    hashdigests = true,
     processlayer = true,
     processexit = true,
     gcweak = true,
@@ -542,6 +560,7 @@ local STRESS = {
     filesystem = true,
     osremove = true,
     loadbinary = true,
+    loadhostile = true,
     osfilesystem = true,
     loadsource = true,
     debuggetinfo = true,
@@ -557,6 +576,7 @@ local SETUP = {
     reactorfiles = "ulimit -n 64; ",
     processpopen = "ulimit -n 64; ",
     processlines = "ulimit -n 64; ",
+    processreuse = "ulimit -n 64; ",
     processlayer = "ulimit -n 64; ",
     benchworkloads = "export BENCH_SCALE=-9; ",
     -- The C library catalog-ffi-aggregates calls, built where each run finds it.
@@ -580,12 +600,48 @@ local SETUP = {
     ffiaggregates = (
         "d=$(mktemp -d '%s/ffi.XXXXXX') && cc -dynamiclib -o \"$d/libnuppffiaggregates.dylib\" '%s' "
         .. "&& export DYLD_LIBRARY_PATH=\"$d\"; "
-    ):format(OUT, TESTS .. "/ffi-aggregates.c")
+    ):format(OUT, TESTS .. "/ffi-aggregates.c"),
+    -- The runner-chunks case's chunk is kept by its path under the
+    -- checkout, as the runner's are.
+    runnerchunks = ("cd %s && export NUPP_CORE_CHUNKS=%s/build/core-guests/chunks; "):format(ROOT, ROOT),
+    -- The runner reads tests/run.lua and the suites from the checkout. Its
+    -- result cache digests the files the VM variables name, the runtime's
+    -- hundreds of megabytes, which guest code takes most of an hour over;
+    -- they name the host's VM, not this runner's, anyway.
+    testrunner = (
+        "cd %s && unset NUPP_VM_BINARY NUPP_VM_CLI_IMAGE && export NUPP_CORE_CHUNKS=%s/build/core-guests/chunks; "
+    ):format(ROOT, ROOT)
 }
+-- The trees of the cases whose programs are checkout sources
+-- (guestbuild's `rooted`), which no selection's key covers otherwise.
+local ROOTED = {testrunner = "tests/tools/test/runner", benchworkloads = "bench/vm"}
+-- Lua sources a case loads, compiled here to chunks it finds where
+-- NUPP_CORE_CHUNKS names (nupp.runtime.chunkfiles), as the core cannot
+-- compile text itself yet.
+local RUNNER_SUITES = {"iopathargumenttest", "iofileargumenttest", "corewarnlogtest", "typefactoriestest"}
+local SOURCES = {
+    runnerchunks = {"tests/core/runner-chunk-calls.lua", "src/nupp/gpu/limits.nupp", "src/io/net/init.nupp"},
+    testrunner = {
+        "tests/run.lua",
+        "tests/groups.lua",
+        "tests/iopathargumenttest.lua",
+        "tests/iofileargumenttest.lua",
+        "tests/corewarnlogtest.lua",
+        "tests/stdlib/typefactoriestest.lua",
+        "tests/helpers/providerstate.lua"
+    }
+}
+-- Lua text a case loads with `load`, compiled here as that text named so,
+-- kept under the text's own digest.
+local TEXT_SOURCES = {testrunner = {{"tests/cache.lua", "nupp:test-cache"}}}
 -- The program arguments a case is run with, after the bridge's own.
 -- The bench entry measures one case, writes its record as JSON on standard
 -- output, and writes the record file it always writes nowhere.
-local ARGUMENTS = {hostlibrary = "alpha beta", benchworkloads = "--case fib --json --out /dev/null"}
+local ARGUMENTS = {
+    hostlibrary = "alpha beta",
+    benchworkloads = "--case fib --json --out /dev/null",
+    testrunner = "--jobs=1 " .. table.concat(RUNNER_SUITES, " ")
+}
 -- Cases whose program the core refuses to compile, and what it says.
 local REFUSED = {}
 -- What stress cases see in place of their full size under collection at
@@ -626,6 +682,7 @@ local NUMERIC = {
     recordsMethods = "catalog-records-methods",
     callsProtected = "catalog-calls-protected",
     protectedpacks = "catalog-protected-packs",
+    compoundfloat = "catalog-compound-float",
     recordsInline = "catalog-records-inline",
     errorsPositions = "catalog-errors-positions",
     tablesMeta = "catalog-tables-meta",
@@ -657,7 +714,6 @@ local NUMERIC = {
     errorsMethods = "catalog-errors-methods",
     recordsAffineReturns = "catalog-records-affine-returns",
     threadsbasic = "catalog-threads-basic",
-    coroutineinheritance = "catalog-coroutine-inheritance",
     threadscalls = "catalog-threads-calls",
     threadsclose = "catalog-threads-close",
     threadsiterate = "catalog-threads-iterate",
@@ -1234,6 +1290,40 @@ local function compiler()
     return producer, guestbuild
 end
 
+-- The digest of the compiler and runtime sources a kept chunk was
+-- compiled by, once per run.
+local compiledBy
+
+-- Compiles the Lua source at `path` under the checkout to the chunk its
+-- case's loadfile finds (nupp.runtime.chunkfiles), unless the one kept is
+-- of the same text and was compiled by the same sources (`.by` beside it).
+local function sourceChunk(path, display)
+    local chunkfiles = require("nupp.runtime.chunkfiles")
+    local text = read(ROOT .. "/" .. path)
+    local kept = OUT .. "/chunks/" .. (display and text and chunkfiles.textname(text) or chunkfiles.name(path))
+    local held = read(kept)
+    compiledBy = compiledBy or assert(sharedcache.treeDigest(ROOT, {"src"}))
+
+    local function heldas(header)
+        return held ~= nil and held:sub(1, #header) == header
+    end
+
+    if text == nil
+        or (heldas(chunkfiles.contents(text, "")) or heldas(chunkfiles.refusedcontents(text, "")))
+        and read(kept .. ".by") == compiledBy
+    then
+        return
+    end
+    os.execute("mkdir -p " .. quote(OUT .. "/chunks"))
+    local _, build = compiler()
+    local began = os.time()
+    local contents, problem = build.sourceChunk(path, display)
+    print(("compiled %s in %ds%s"):format(path, os.time() - began, contents and "" or ": " .. tostring(problem)))
+    -- A refusal is kept too, so the core does not compile the text again.
+    write(kept, contents or chunkfiles.refusedcontents(text, tostring(problem)))
+    write(kept .. ".by", compiledBy)
+end
+
 -- Runs the cases in NUPP_GUEST_SHARDS processes at once (default 4), each
 -- selecting and running its share: selection is one process's work, so
 -- shards are what spread it. Cases are dealt by what they cost last run; the
@@ -1397,6 +1487,11 @@ local function main()
         local began = os.time()
         timing.phase, timing.case = "select", name
         local parts = {name, mode, tostring(UNITS and SCRATCH or 131072), UNITS and "units" or "frozen"}
+        -- A case whose program is a checkout source outside the trees the
+        -- store keys every selection by keys it by its own tree too.
+        if ROOTED[name] then
+            parts[#parts + 1] = assert(sharedcache.treeDigest(ROOT, {ROOTED[name]}))
+        end
         local held, extra = selectioncache.lookup(ROOT, parts)
         if held and type(extra) == "table" and math.type(extra.version) == "integer" then
             selections[name .. "-" .. mode], versions[name] = held, extra.version
@@ -1511,6 +1606,12 @@ local function main()
             -- The binary chunks it loads, where it reads them.
             for _, chunk in ipairs(selected.chunks or {}) do
                 write(OUT .. "/temp/" .. chunk.name .. ".chunk", fromHex(chunk.hex))
+            end
+            for _, source in ipairs(SOURCES[name] or {}) do
+                sourceChunk(source)
+            end
+            for _, source in ipairs(TEXT_SOURCES[name] or {}) do
+                sourceChunk(source[1], source[2])
             end
             if mode == "spill" then
                 local normal = selections[name .. "-normal"]

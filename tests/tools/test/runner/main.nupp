@@ -28,12 +28,16 @@ const _DYNAMIC_REQUIRES = [[
 @requires-dynamically nupp.tools.vm.project
 @requires-dynamically nupp.compiler.hostservices
 @requires-dynamically nupp.compiler.project.preludecache
+@requires-dynamically io.net
+@requires-dynamically nupp.compiler.project.fingerprint
 ]]
 if rawget(_G, "__nupp_load_image") then
     local load: function(string): any = require
     load("nupp.compiler.syntax.triviaarena").install(load("nupp.compiler.syntax.triviaarena.table"))
     load("nupp.compiler.vm.chunks").install()
-else
+elseif rawget(_G, "jit") ~= nil then
+    -- LuaJIT's stamped host has worker states; the native core has none,
+    -- and runs its suites in its own state as the VM does.
     rawset(_G, "__NUPP_TEST_WORKER_HOST", true)
 end
 -- A process worker is this same program started again, on either host: its
@@ -63,12 +67,17 @@ const carriedpath = io.Path.of
 const carrieduri = io.URI.of
 const _carriedbuffer = byteapi.Buffer
 require("coroutine")
-require("io.net")
+-- io.net's provider is the VM's or LuaJIT's. The native core has neither yet,
+-- so there it fails to load, and the runner goes on without it.
+local loadNet: function(string): any = require
+pcall(loadNet, "io.net")
 const carriedprocess = io.popen
 -- These three reach providers only the LuaJIT host loads up front. A VM lane is a
 -- process of its own with no worker states to share them with, so there a suite
 -- requires them when it uses them, which keeps them out of the runner's image.
-if not rawget(_G, "__nupp_load_image") then
+-- The native core is such a host too: it carries no module it was not built
+-- with, and it has neither an image loader nor LuaJIT's `jit`.
+if not rawget(_G, "__nupp_load_image") and rawget(_G, "jit") ~= nil then
     local load: function(string): any = require
     load("nupp.io.tls")
     load("nupp.io.http")

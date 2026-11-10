@@ -19,9 +19,12 @@ local bytecode = require("nupp.compiler.vm.corebytecode")
 local schema = require("nupp.compiler.vm.coregraphschema")
 local contracts = require("nupp.compiler.vm.coregraphcontracts")
 local corepiece = require("nupp.compiler.vm.corepiece")
+local budget = require("nupp.compiler.vm.coregraphbudget")
 local bounds = schema.limits()
 -- An encoded instruction's bytes.
 const INSTRUCTION_BYTES = 16
+-- The semantic items a whole program's contract has that a piece's lacks.
+const CONTRACT_CALLSITE_ITEMS = 2
 
 local function need(ok: any, message: string): any
     if not ok then
@@ -258,8 +261,6 @@ export function link(pieces: {any}, entry: string): any
         bytes += piece.measured.bytes
     end
     need(pieces[count].module.name == entry, "entry module must initialize last")
-    need(items <= bounds.treeitems, "semantic expansion limit exceeded")
-    need(bytes <= bounds.treetext, "semantic string expansion limit exceeded")
     local places, order = placeOwners(pieces)
     local symbols = resolve(pieces, byName, places)
     local ranges: {{{integer}}} = {}
@@ -351,6 +352,14 @@ export function link(pieces: {any}, entry: string): any
     for index, piece in ipairs(pieces) do
         modules[index] = {name = piece.module.name, path = piece.module.path, chunk = index - 1}
     end
+    -- The semantic tree budget holds the whole program's tables to it: the
+    -- pieces', and what only the program has, its schema and module table and
+    -- the callsite each contract carries (a key and its value).
+    local shared = budget.measure({schema = definition, entry = count - 1, modules = modules})
+    items += shared.items + CONTRACT_CALLSITE_ITEMS * first
+    bytes += shared.bytes
+    need(items <= bounds.treeitems, "semantic expansion limit exceeded")
+    need(bytes <= bounds.treetext, "semantic string expansion limit exceeded")
     local tables = {
         schema = definition,
         entry = count - 1,

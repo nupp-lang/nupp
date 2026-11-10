@@ -1,0 +1,17 @@
+module nupp.core.catalogrunnerhelper
+
+-- What catalog-runner-chunks' Lua chunk calls and constructs from this
+-- program: a typed function and a record, declared here, not in the chunk.
+export function double(n: integer): integer
+    return n * 2
+end
+
+export record Box
+    width: integer
+    height: integer = 1
+
+    constructor(self, width: integer, height: integer)
+        self.width = width
+        self.height = height
+    end
+end

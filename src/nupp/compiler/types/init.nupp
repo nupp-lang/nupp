@@ -3024,6 +3024,24 @@ function types.func(
     -- it for every later one. Read from the pack, one pack is one function.
     vararg = paramPack.tail ~= nil
     local key = "fn" .. paramPack.id .. ":" .. retPack.id
+    -- `rets` can say more than the pack's head, and callers do disagree: an
+    -- unannotated body is `rets = {any}` over `(...any)`, a declared
+    -- `function(): (...any)` is `rets = {}` over the same pack. With only the
+    -- pack in the key, the first spelling interned decided `rets` for the other,
+    -- so a module's checked interface depended on what had been checked before.
+    -- A spelling that differs from the head is its own function.
+    local head = retPack.head or EMPTY
+    local sameHead = #rets == #head
+    for j = 1, #rets do
+        sameHead = sameHead and rets[j] == head[j]
+    end
+    if not sameHead then
+        local ids: {string} = {}
+        for j, result in ipairs(rets) do
+            ids[j] = result.id
+        end
+        key = key .. "|rets(" .. table.concat(ids, ",") .. ")"
+    end
     if predicate then
         key = key .. "|is" .. predicate.param .. ":" .. predicate.type.id
     end
