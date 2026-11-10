@@ -1,0 +1,28 @@
+module nupp.core.catalogrunnersmall
+
+-- Small library behaviors the test runner's suites lean on, as main has
+-- them: a traversal of a table with Boolean keys reaches them all. Each
+-- check is a bit of the score.
+
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+do
+    local booleans: {[boolean]: string} = {[true] = "yes", [false] = "no"}
+    local count = 0
+    for _ in pairs(booleans) do
+        count = count + 1
+    end
+    check(count == 2)
+    local ok, after = pcall(next, booleans, true)
+    check(ok and (after == nil or after == false))
+end
+
+export const result = score

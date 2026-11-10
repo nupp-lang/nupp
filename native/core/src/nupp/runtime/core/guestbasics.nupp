@@ -31,7 +31,7 @@ export function rawnext(ctx: voidptr, subject: uint64, after: uint64, all: boole
         end
         -- A record instance's fields go by name (guestmeta.slotname).
         local key = tables.nextKey(t, guestmeta.slotkey(ctx, t, after))
-        if key == values.TRUE then
+        if key == tables.ABSENT then
             texts.libraryError(ctx, librarytexts.TEXT_NEXT_KEY)
         end
         local name = key

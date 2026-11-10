@@ -258,7 +258,7 @@ export function slotname(ctx: voidptr, t: uint64, key: uint64): uint64
         return key
     end
     local name = tables.nextKey(fields, values.NIL)
-    while name ~= values.NIL and name ~= values.TRUE do
+    while name ~= values.NIL and name ~= tables.ABSENT do
         if tables.get(fields, name) == key then
             if tables.get(t, name) ~= values.NIL then
                 return key
