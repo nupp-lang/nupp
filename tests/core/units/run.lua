@@ -1291,6 +1291,7 @@ local GENERATED = {
     {require("nupp.core.rawcataloggen"), "rawcatalogpolicy", "nupp.core.rawcataloggen"},
     {require("nupp.core.rawbudgetgen"), "rawbudgetpolicy", "nupp.core.rawbudgetgen"},
     {require("nupp.core.rawsemanticgen"), "rawsemanticpolicy", "nupp.core.rawsemanticgen"},
+    {require("nupp.core.rawexecutablegen"), "rawexecutablepolicy", "nupp.core.rawexecutablegen"},
     {require("nupp.core.librarycallsgen"), "librarycalls", "nupp.core.librarycallsgen"},
     {require("nupp.core.storagelibrarygen"), "storagelibrary", "nupp.core.storagelibrarygen"},
     {require("nupp.core.loadlibrarygen"), "loadlibrary", "nupp.core.loadlibrarygen"},
