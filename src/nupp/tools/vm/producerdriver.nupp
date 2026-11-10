@@ -182,7 +182,7 @@ export function main(arguments: {string}): integer
     local root = assert(os.getenv("NUPP_COMPILER_ROOT"), "checkout root required")
     local base = assert(fs.readFile(root .. "/.nupp/vm-cli/current")):match("^(%x+)%s*$")
     assert(base and #base == 64, "invalid base compiler generation")
-    local statusOnly, buildOnly, refresh = false, false, false
+    local statusOnly, buildOnly, refresh, emitOnly = false, false, false, false
     local cases: {string} = {}
     for _, argument in ipairs(arguments) do
         if argument == "--status" then
@@ -191,6 +191,8 @@ export function main(arguments: {string}): integer
             buildOnly = true
         elseif argument == "--refresh" then
             refresh = true
+        elseif argument == "--emit-only" then
+            emitOnly = true
         else
             cases[#cases + 1] = argument
         end
@@ -253,7 +255,8 @@ export function main(arguments: {string}): integer
             NUPP_GUEST_QUICK = "1",
             NUPP_GUEST_MODES = "normal",
             NUPP_GUEST_STRESS = "0",
-            NUPP_GUEST_VALIDATE = "0"
+            NUPP_GUEST_VALIDATE = "0",
+            NUPP_GUEST_EMIT_ONLY = emitOnly and "1" or "0"
         }
     })
 end

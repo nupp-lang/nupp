@@ -44,6 +44,9 @@ local SCRATCH = UNITS and 1048576 or 131072
 -- NUPP_GUEST_QUICK=1 checks selections and results only: no ABI guard,
 -- refusal or audit runs, which each run the program again.
 local QUICK = os.getenv("NUPP_GUEST_QUICK") == "1"
+-- The private producer's build endpoint publishes the same complete bundles
+-- and checks their build invariants, leaving their execution to the caller.
+local EMIT_ONLY = os.getenv("NUPP_GUEST_EMIT_ONLY") == "1"
 -- NUPP_GUEST_MODES=normal runs each case's normal program only, the inner
 -- loop's choice; spill joins it by default. NUPP_GUEST_STRESS=0 skips the
 -- collect-at-every-allocation and interleaved runs, which a change to the heap,
@@ -902,6 +905,9 @@ local queue = {}
 local pool = nil
 
 local function defer(phase, command, done)
+    if EMIT_ONLY then
+        return
+    end
     local directory = timing.jobs
     if pool == nil then
         os.execute("rm -rf " .. quote(directory) .. " && mkdir -p " .. quote(directory))
@@ -1644,6 +1650,9 @@ local function main()
             check(version == (profile >= 3 and profile or modules), label .. " descriptor version")
             local bundle = OUT .. "/" .. label .. ".bundle"
             write(bundle, bundleBytes)
+            if EMIT_ONLY then
+                print("emitted " .. bundle)
+            end
             -- Each in every collection mode the case runs in.
             local modes = {{"", empty}}
             if RAISES[name] and UNITS and STRESSED and STRESS[name] then
@@ -1930,7 +1939,7 @@ local function main()
     print(("primary checks done at %ds"):format(os.time() - started))
     -- Supplemental lifecycle audits wrap selected primary programs.
     for _, mode in ipairs(MODES) do
-        if QUICK or os.getenv("NUPP_GUEST_AUDITS") == "0" then
+        if QUICK or EMIT_ONLY or os.getenv("NUPP_GUEST_AUDITS") == "0" then
             break
         end
         for _, item in ipairs(AUDITS) do
@@ -1988,6 +1997,9 @@ local function main()
         end
     end
     drain()
+    if EMIT_ONLY then
+        print("bundle build complete; execution skipped")
+    end
     -- What each case cost, which the next run's shards are balanced by.
     if shard then
         local costs = {}

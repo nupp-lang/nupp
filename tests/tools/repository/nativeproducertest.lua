@@ -255,6 +255,29 @@ function M.frozenProducerKeepsProgramEditsAndRejectsBuilderChanges()
         write(producer .. "/compiler.image", "corrupt image")
         assert(not valid(), "a corrupt artifact is never reused")
         write(producer .. "/compiler.image", "complete producer image")
+        local process = require("nupp.compiler.process")
+        local getenv, run = os.getenv, process.run
+        os.getenv = function(name)
+            return name == "NUPP_COMPILER_ROOT" and root or getenv(name)
+        end
+        local invoked = {}
+        process.run = function(command, options)
+            invoked[#invoked + 1] = {command = command, options = options}
+            return 0
+        end
+        local ran, issue = pcall(function()
+            assert(driver.main({"--emit-only", "loadsource"}) == 0)
+            assert(driver.main({"loadsource"}) == 0)
+            assert(#invoked == 2)
+            for _, call in ipairs(invoked) do
+                assert(call.command[6] == "../guests/run.lua" and call.command[7] == "loadsource")
+                assert(call.options.cwd == root .. "/tests/core/units")
+            end
+            assert(invoked[1].options.env.NUPP_GUEST_EMIT_ONLY == "1")
+            assert(invoked[2].options.env.NUPP_GUEST_EMIT_ONLY == "0")
+        end)
+        os.getenv, process.run = getenv, run
+        assert(ran, issue)
         write(pair .. "/runtime", "changed base runtime")
         assert(not valid(), "a different base runtime is never reused")
     end)
