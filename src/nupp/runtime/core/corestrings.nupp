@@ -36,10 +36,12 @@ export function release(borrows b: Builder*): nil
             -- file reads can otherwise exhaust the page ledger before the
             -- small storage headers create enough debt to collect them.
             local owner = collector.handleValue(h, index) & values.PAYLOAD
-            storage.release(corestorage.descriptor(owner))
             b.handle = 0ULL
             b.heap = 0ULL
             collector.handleRelease(h, index)
+            -- Its checked failure boundary leaves error-path backing for GC.
+            -- On ordinary close, reclaim it immediately after unrooting.
+            storage.release(corestorage.descriptor(owner))
         end
     end
 end

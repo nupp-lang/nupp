@@ -10,7 +10,9 @@ const collector = require("nupp.runtime.vm.collector")
 const values = require("nupp.runtime.vm.values")
 const tables = require("nupp.runtime.core.coretables")
 const os = require("nupp.runtime.vm.os")
+const arena = require("nupp.runtime.vm.arena")
 
+const WORD_POOL_CLASSES: uint64 = 11ULL
 const LEDGER: uint64 = 256ULL
 const RECORDS: uint64 = 256ULL
 
@@ -108,7 +110,18 @@ export function finish(scope: voidptr): uint64
             end
             collector.fullCycle(h)
             tables.drain(h)
-            if h.liveCount == 0ULL and h.released.count == 0ULL then
+            local balanced, class = true, 0ULL
+            while class < WORD_POOL_CLASSES do
+                local address = native.load64(
+                    native.pointer(h.arrayPools),
+                    native.index(class * native.sizeOf<heap.ArrayPoolSlot>())
+                )
+                if address ~= 0ULL then
+                    balanced = balanced and (native.pointer(address) as arena.Pool*).live == 0
+                end
+                class = class + 1ULL
+            end
+            if h.liveCount == 0ULL and h.released.count == 0ULL and balanced then
                 answer = answer | 32ULL
             end
             heap.destroy(h)

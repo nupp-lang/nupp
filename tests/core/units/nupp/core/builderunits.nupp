@@ -14,6 +14,7 @@ const tables = require("nupp.runtime.core.coretables")
 const backing = require("nupp.runtime.vm.backing")
 
 const WORD: uint64 = 0x3837363534333231ULL
+const POISON: uint64 = 0xaaaaaaaaaaaaaaaaULL
 const MAPPED: uint64 = 16777216ULL
 
 local function bit(ok: boolean, mask: uint64): uint64
@@ -23,12 +24,42 @@ local function bit(ok: boolean, mask: uint64): uint64
     return 0ULL
 end
 
+-- A returned slot occurs exactly once, independent of other pooled owners.
+local function reclaimed(poolAddress: uint64, first: uint64, second: uint64): boolean
+    if poolAddress == 0ULL or first == second then
+        return false
+    end
+    @unsafe do
+        local pool = native.pointer(poolAddress) as arena.Pool*
+        local cursor = pool.free
+        local checkpoint = pool.free
+        local distance, span = 0ULL, 1ULL
+        local firstCount, secondCount = 0ULL, 0ULL
+        while cursor ~= nil do
+            local base = native.address(cursor as voidptr) + backing.wordBackingPrefix()
+            firstCount, secondCount = firstCount + bit(base == first, 1ULL), secondCount + bit(base == second, 1ULL)
+            cursor = cursor.next
+            distance = distance + 1ULL
+            if cursor ~= nil and cursor == checkpoint then
+                return false
+            end
+            if distance == span then
+                checkpoint = cursor
+                distance = 0ULL
+                span = span * 2ULL
+            end
+        end
+        return firstCount == 1ULL and secondCount == 1ULL and pool.live >= 0
+    end
+end
+
 export function lifetime(minorFirst: uint64): uint64
     local state = strings.Builder(0ULL, 0ULL)
     local nested = strings.Builder(0ULL, 0ULL)
-    local finalBase: uint64 = 0ULL
-    local finalCap: uint64 = 0ULL
-    local finalDescriptor: uint64 = 0ULL
+    local finalBase, finalCap, finalDescriptor = 0ULL, 0ULL, 0ULL
+    local finalPool: uint64 = 0ULL
+    local samePool = false
+    local heldData, heldOther = 0ULL, 0ULL
     local answer: uint64 = 0ULL
     do
         local a = arena.open(MAPPED)
@@ -94,15 +125,31 @@ export function lifetime(minorFirst: uint64): uint64
                 finalDescriptor = native.address(d as voidptr)
                 finalBase = d.base
                 finalCap = d.cap
+                finalPool = native.load64(native.pointer(finalBase - backing.wordBackingPrefix()), 0)
+                samePool = finalPool ~= 0ULL
+                    and native.load64(native.pointer(finalDescriptor - backing.wordBackingPrefix()), 0) == finalPool
                 h.stress = true
                 local result = strings.finish(h, b)
                 h.stress = false
-                local finished = strings.length(result) == 128ULL
+                heldData = backing.wordBackingTake(h, (finalCap + 7ULL) // 8ULL)
+                local immediate = heldData == finalBase and d.base == 0ULL and d.cap == 0ULL and d.len == 0ULL
+                if heldData ~= 0ULL then
+                    native.store64(native.pointer(heldData), 0, POISON)
+                end
+                local finished = immediate
+                    and strings.length(result) == 128ULL
+                    and native.load64(native.pointer(strings.bytes(result)), 0) == WORD
                     and native.load64(native.pointer(strings.bytes(result) + 120ULL), 0) == WORD
                     and b.heap == 0ULL
                     and b.handle == 0ULL
                 strings.release(b)
                 strings.release(b)
+                heldOther = backing.wordBackingTake(h, (finalCap + 7ULL) // 8ULL)
+                finished = finished
+                    and heldOther ~= 0ULL
+                    and heldOther ~= heldData
+                    and heldData ~= 0ULL
+                    and native.load64(native.pointer(heldData), 0) == POISON
                 answer = answer
                     | bit(opened, 1ULL)
                     | bit(refusedGrowth, 2ULL)
@@ -118,20 +165,9 @@ export function lifetime(minorFirst: uint64): uint64
                 | bit(closed, 64ULL)
                 | bit(h.liveCount == 0ULL and h.released.count == 0ULL, 128ULL)
                 | bit(oracle, 256ULL)
-            local reused = backing.wordBackingTake(h, (finalCap + 7ULL) // 8ULL)
-            local reusedDescriptor = backing.wordBackingTake(h, (native.sizeOf<storage.Storage>() + 7ULL) // 8ULL)
-            -- Both allocations now share a size class. Reclaim both owners
-            -- without prescribing their order in the backing pool.
-            local reclaimed = reused ~= 0ULL
-                and reusedDescriptor ~= 0ULL
-                and reused ~= reusedDescriptor
-                and (
-                    (reused == finalBase and reusedDescriptor == finalDescriptor)
-                    or (reused == finalDescriptor and reusedDescriptor == finalBase)
-                )
-            answer = answer | bit(reclaimed, 512ULL)
-            backing.wordBackingRelease(reused)
-            backing.wordBackingRelease(reusedDescriptor)
+            backing.wordBackingRelease(heldData)
+            backing.wordBackingRelease(heldOther)
+            answer = answer | bit(samePool and reclaimed(finalPool, finalBase, finalDescriptor), 512ULL)
             heap.destroy(h)
         end
     end
