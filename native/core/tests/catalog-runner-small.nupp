@@ -1,8 +1,11 @@
 module nupp.core.catalogrunnersmall
 
 -- Small library behaviors the test runner's suites lean on, as main has
--- them: a traversal of a table with Boolean keys reaches them all. Each
+-- them: a traversal of a table with Boolean keys reaches them all; and
+-- package.loaded holds the standard libraries, so require("coroutine") as
+-- a value is the coroutine table with the tasks surface installed. Each
 -- check is a bit of the score.
+require("nupp.runtime.standardcoroutine")
 
 local score = 0
 local bit = 1
@@ -23,6 +26,15 @@ do
     check(count == 2)
     local ok, after = pcall(next, booleans, true)
     check(ok and (after == nil or after == false))
+end
+
+do
+    local load: function(string): any = require
+    local tasks: any = load("coroutine")
+    check(tasks == coroutine)
+    check(type(tasks.scope) == "function" and type(tasks.race) == "function")
+    check(type(tasks.iscancelled) == "function")
+    check(package.loaded.coroutine == coroutine and package.loaded.math == math and package.loaded.string == string)
 end
 
 export const result = score
