@@ -319,7 +319,17 @@ end
 
 function M.tableBuilderRejectsIncompleteRowsBeforeWritingAndCanBeReused()
     terminal.setcolormode("never")
-    local file = assert(io.tmpfile())
+    -- A named file read back by its name: the VM's file handles have neither
+    -- io.tmpfile nor seek.
+    local path = os.tmpname()
+    local file = assert(io.open(path, "wb"))
+    local function written()
+        file:flush()
+        local reader = assert(io.open(path, "rb"))
+        local text = reader:read("*a")
+        reader:close()
+        return text
+    end
     local output = terminal.table(file)
 
     local function refused(body, message)
@@ -355,7 +365,7 @@ function M.tableBuilderRejectsIncompleteRowsBeforeWritingAndCanBeReused()
         end,
         "complete the current row"
     )
-    assert(file:seek() == 0, "incomplete rows write no bytes")
+    assert(written() == "", "incomplete rows write no bytes")
     assert(output:cell("binary") == output)
     refused(
         function()
@@ -374,9 +384,9 @@ function M.tableBuilderRejectsIncompleteRowsBeforeWritingAndCanBeReused()
     output:headings(false):indent("  "):gap(" | "):row():cell("x"):cell("y")
     assert(output:tostring() == "  x | y\n", "clear resets measured widths and retains columns")
     output:write()
-    file:seek("set", 0)
-    assert(file:read("*a") == "  x | y\n", "write uses the bound stream")
+    assert(written() == "  x | y\n", "write uses the bound stream")
     file:close()
+    os.remove(path)
     terminal.setcolormode("auto")
 end
 
