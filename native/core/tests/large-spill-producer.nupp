@@ -1,9 +1,9 @@
 module nupp.core.largespillproducer
 
-local ir = require("s0.ir")
-local allocate = require("s0.allocate")
-local check = require("s0.allocationcheck")
-local selector = require("s0.select")
+local ir = require("nupp.compiler.s0.ir")
+local allocate = require("nupp.compiler.s0.allocate")
+local check = require("nupp.compiler.s0.allocationcheck")
+local selector = require("nupp.compiler.s0.select")
 local shim = require("nupp.core.shim")
 local json = require("serde.json")
 

@@ -32,18 +32,14 @@ const SEARCH = {
     "tests/fixtures/nativeheap",
     "src",
     "native/core/src",
-    "spike/native-lowering/src",
-    "spike/native-lowering/nativegraph/src",
     "native/crates/vm/lib",
     "native/crates/vm/decls"
 }
 const SUFFIXES = {".nupp", ".d.nupp", "/init.nupp", ".lua", "/init.lua"}
 -- What the selection reads besides what it requires: every compiler source,
--- the VM's declarations, the backend whole, and the units project's
--- configuration.
-const READ = "find src/nupp/compiler -name '*.nupp'; ls src/nupp/runtime/vm/*.d.nupp "
-    .. "spike/native-lowering/src/s0/*.nupp spike/native-lowering/nativegraph/src/nupp/compiler/s0/*.nupp "
-    .. "native/core/tests/units/nupp.lua"
+-- the owned backend (nupp.compiler.s0) whole among them, the VM's
+-- declarations, and the units project's configuration.
+const READ = "find src/nupp/compiler -name '*.nupp'; ls src/nupp/runtime/vm/*.d.nupp native/core/tests/units/nupp.lua"
 
 local function readFile(path: string): string?
     local file = io.open(path, "rb")

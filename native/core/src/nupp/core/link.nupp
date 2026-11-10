@@ -1,7 +1,7 @@
 module nupp.core.link
 
-local arm = require("s0.arm64")
-local selector = require("s0.select")
+local arm = require("nupp.compiler.s0.arm64")
+local selector = require("nupp.compiler.s0.select")
 local nativeos = require("nupp.compiler.vm.nativeos")
 
 -- Where an unsigned-offset load or store keeps its scaled offset.

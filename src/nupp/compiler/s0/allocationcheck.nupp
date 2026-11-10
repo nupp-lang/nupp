@@ -1,0 +1,155 @@
+module nupp.compiler.s0.allocationcheck
+
+local ir = require("nupp.compiler.s0.ir")
+local allocate = require("nupp.compiler.s0.allocate")
+local check = {}
+
+local function slot(location: integer): integer
+    assert(location ~= 0, "S0 checker: missing location")
+    return location > 0 and location or 96 - location
+end
+
+-- Independent backwards dataflow is intentionally confined to the checker.
+-- It neither consumes production intervals nor trusts production live-in sets.
+local function liveIn(f: ir.Function): {{boolean}}
+    local live: {{boolean}} = {}
+    for b = 1, #f.blockStart do
+        live[b] = {}
+    end
+    local changed = true
+    while changed do
+        changed = false
+        for b = #f.blockStart, 1, -1 do
+            local values: {boolean} = {}
+            for i = f.blockEnd[b], f.blockStart[b], -1 do
+                for e = f.firstEdge[i], f.firstEdge[i] + f.nedges[i] - 1 do
+                    local target = f.edgeTarget[e]
+                    for v = 1, #f.valueKinds do
+                        if live[target][v] then
+                            values[v] = true
+                        end
+                    end
+                    for p = f.edgeFirstArg[e], f.edgeFirstArg[e] + f.edgeNargs[e] - 1 do
+                        values[f.edgeArgs[p]] = true
+                    end
+                end
+                if f.result[i] ~= 0 then
+                    values[f.result[i]] = false
+                end
+                if f.result2[i] ~= 0 then
+                    values[f.result2[i]] = false
+                end
+                for p = f.firstArg[i], f.firstArg[i] + f.nargs[i] - 1 do
+                    values[f.args[p]] = true
+                end
+            end
+            for p = f.firstParam[b], f.firstParam[b] + f.nparams[b] - 1 do
+                values[f.params[p]] = false
+            end
+            for v = 1, #f.valueKinds do
+                if values[v] and not live[b][v] then
+                    live[b][v], changed = true, true
+                end
+            end
+        end
+    end
+
+    return live
+end
+
+function check.run(f: ir.Function, target: allocate.Target, a: allocate.Allocation): boolean
+    local live = liveIn(f)
+    local valid: {boolean} = {}
+    for _, r in ipairs(target.integerRegisters) do
+        valid[r] = true
+    end
+    for _, r in ipairs(target.floatRegisters) do
+        valid[r] = true
+    end
+    for v = 1, #f.valueKinds do
+        if f.valueKinds[v] ~= 0 then
+            local location = a.location[v]
+            assert(location ~= 0 and (location < 0 or valid[location]), "S0 checker: unavailable register")
+            assert(location < 0 or ir.isFloat(f.valueKinds[v]) == (location >= 65), "S0 checker: register class")
+            assert(location >= 0 or -location <= a.spillSlots, "S0 checker: invalid spill slot")
+        end
+    end
+    for b = 1, #f.blockStart do
+        local state: {integer} = {}
+
+        local function place(v: integer): nil
+            local at = slot(a.location[v])
+            assert(state[at] == nil or state[at] == v, "S0 checker: live-in interference")
+            state[at] = v
+        end
+
+        for v = 1, #f.valueKinds do
+            if live[b][v] then
+                place(v)
+            end
+        end
+        for p = f.firstParam[b], f.firstParam[b] + f.nparams[b] - 1 do
+            place(f.params[p])
+        end
+
+        local function use(v: integer): nil
+            assert(
+                state[slot(a.location[v])] == v,
+                "S0 checker: use reads another value in " .. f.name .. " value " .. tostring(v)
+            )
+        end
+
+        for i = f.blockStart[b], f.blockEnd[b] do
+            for p = f.firstArg[i], f.firstArg[i] + f.nargs[i] - 1 do
+                use(f.args[p])
+            end
+            for e = f.firstEdge[i], f.firstEdge[i] + f.nedges[i] - 1 do
+                for p = f.edgeFirstArg[e], f.edgeFirstArg[e] + f.edgeNargs[e] - 1 do
+                    use(f.edgeArgs[p])
+                end
+                local after: {integer} = {}
+                for at, value in pairs(state) do
+                    after[at] = value
+                end
+                for m = a.firstMove[e], a.firstMove[e] + a.nmoves[e] - 1 do
+                    local s, d = a.moveSource[m], a.moveTarget[m]
+                    assert(after[slot(s)] ~= nil, "S0 checker: move reads undefined location")
+                    assert(s < 0 or ir.isFloat(a.moveKind[m]) == (s >= 65), "S0 checker: move source class")
+                    assert(d < 0 or ir.isFloat(a.moveKind[m]) == (d >= 65), "S0 checker: move destination class")
+                    after[slot(d)] = after[slot(s)]
+                end
+                local destination = f.edgeTarget[e]
+                for v = 1, #f.valueKinds do
+                    if live[destination][v] then
+                        assert(after[slot(a.location[v])] == v, "S0 checker: edge loses live value")
+                    end
+                end
+                for p = 0, f.edgeNargs[e] - 1 do
+                    local value = f.edgeArgs[f.edgeFirstArg[e] + p]
+                    local parameter = f.params[f.firstParam[destination] + p]
+                    assert(after[slot(a.location[parameter])] == value, "S0 checker: parallel edge assignment")
+                end
+            end
+            if f.op[i] == ir.opcode("call") or f.op[i] == ir.opcode("call_indirect") then
+                local signature = f.op[i] == ir.opcode("call") and f.importSignatures[f.aux[i]] or f.aux[i]
+                local preserved = f.signatures[signature].convention == ir.INTERNAL and target.preservedInternal
+                    or target.preservedC
+                for r = 1, 96 do
+                    if not preserved[r] then
+                        state[r] = nil
+                    end
+                end
+            end
+            if f.result[i] ~= 0 then
+                state[slot(a.location[f.result[i]])] = f.result[i]
+            end
+            if f.result2[i] ~= 0 then
+                state[slot(a.location[f.result2[i]])] = f.result2[i]
+            end
+        end
+    end
+
+    return true
+end
+
+export = check
