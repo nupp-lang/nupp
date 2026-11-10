@@ -540,15 +540,21 @@ export function install(
         -- declaration rather than at a call, because the declaration is what
         -- asks for the loader: the default namespace is still reachable, so
         -- dropping the clause and linking the code in is the fix.
-        if stat.fromLib ~= nil then
+        if stat.fromLib ~= nil or stat.fromHandle ~= nil then
             local profile = c.env and c.env.targetProfile or nil
             if profile ~= nil and not (profile as any).dynamicLoader then
                 c.diag(
                     "NUPP2904",
-                    stat.fromLib,
+                    stat.fromLib or stat.fromHandle,
                     "a named library needs a dynamic loader, and " .. tostring((profile as any).target) .. " has none"
                 )
             end
+        end
+        -- A handle is an ordinary expression the declaration reads once, when it
+        -- binds the symbol: whatever `ffi.load` returned, kept by the program so the
+        -- library stays loaded for as long as the binding is used.
+        if stat.fromHandle ~= nil then
+            c.infer(stat.fromHandle)
         end
         local cdefName = stat.name
         stat.signatureType = cdefType
@@ -562,7 +568,8 @@ export function install(
         c.bindVar(cdefName.text, cdefType, true, cdefName, "function")
         if cdefName.definition then
             cdefName.definition.cdef = true
-            local library = stringLiteral(stat.fromLib) or "<default>"
+            local handle = stat.fromHandle and stat.fromHandle.token and stat.fromHandle.token.text or nil
+            local library = stringLiteral(stat.fromLib) or (handle and "binding:" .. handle) or "<default>"
             stat.cdefIdentity = table.concat({"function", library, cdefName.text}, "\0")
             stat.cdefSemantic = table.concat(
                 {

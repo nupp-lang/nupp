@@ -613,6 +613,36 @@ function M.defaultNamespaceStillUsedWithoutFrom()
     assert(not code:find("__nuppLib(", 1, true), "no ffi.load emitted")
 end
 
+-- A program that finds its library itself, from a search the platform loader
+-- does not do, binds through the handle `ffi.load` gave it rather than through
+-- the process namespace, which on Windows holds no library loaded later.
+function M.fromAHandleBindsThroughTheLoadedLibrary()
+    local load = windows and "local library = ffi.load('kernel32')" or "local library = ffi.load('z')"
+    local declaration = windows and "cdef function GetCurrentProcessId(): uint32 from library"
+        or "cdef function crc32(crc: uint64, buf: cstring, len: uint32): uint64 from library"
+    local source = table.concat({"local ffi = require('ffi')", load, declaration}, "\n")
+    assertClean(source)
+    local code = compile(source)
+    local symbol = windows and "GetCurrentProcessId" or "crc32"
+    assert(code:find("=%s*library%s*%." .. symbol), "binds through the handle:\n" .. code)
+    assert(not code:find("__nuppLib(", 1, true), "loads nothing itself:\n" .. code)
+    assert(not code:find("__nuppFfi.C." .. symbol, 1, true), "not the default namespace:\n" .. code)
+    if windows then
+        assert(run(source .. "\nreturn GetCurrentProcessId()") > 0)
+    else
+        testAssert.eq(run(source .. "\nreturn tonumber(crc32(0, 'hello, world', 12))"), 4289425978)
+    end
+end
+
+function M.aHandleHasToBeABindingInScope()
+    local _, diags = diagsOf("cdef function f(): int32 from missing")
+    local found = false
+    for _, diag in ipairs(diags) do
+        found = found or diag.severity == "error" and diag.msg:find("missing", 1, true) ~= nil
+    end
+    assert(found, "an unbound handle is reported")
+end
+
 function M.levelZeroCdefNameUntouched()
     -- 'cdef' stays an ordinary identifier when not followed by a
     -- declaration form

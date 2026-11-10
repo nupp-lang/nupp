@@ -611,6 +611,9 @@ local function nativeUses(parsed)
         end
         if (node.kind == "cdefFunc" or node.kind == "cdefStruct") and node.fromLib then
             add(stringLiteral(node.fromLib.text), false, node)
+        elseif node.kind == "cdefFunc" and node.fromHandle then
+            -- Which library a handle holds is decided when the program runs.
+            add(nil, true, node)
         elseif node.cheaderLib then
             add(node.cheaderLib, false, node)
         elseif node.ffiLoadLib then
