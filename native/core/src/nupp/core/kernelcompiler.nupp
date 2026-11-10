@@ -130,6 +130,12 @@ local function sorted(set: {[string]: boolean}): {string}
     return result
 end
 
+-- The files the modules `roots` reach by literal requires under `root`, sorted;
+-- a name no file answers as `?name`.
+export function reachedFiles(root: string, roots: {string}): {string}
+    return sorted(reached(root, roots))
+end
+
 -- The guest program's own lowering under `root`, sorted: what the kernel key
 -- leaves out.
 export function excluded(root: string): {string}

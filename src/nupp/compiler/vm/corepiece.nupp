@@ -330,6 +330,14 @@ export function finish(state: any, index: integer): any
     }
 end
 
+-- Takes `piece`, kept from an earlier build, as the `index`th module's: what the
+-- modules after it read of it. It takes no part in starting or finishing.
+export function adopt(state: any, index: integer, piece: any): nil
+    local module = state.catalog.modules[index]
+    need(piece.module.name == module.name and piece.module.path == module.path, "kept piece is another module's")
+    state.results[module.name] = piece.signatures[piece.owners[1].signature + 1].result
+end
+
 -- Every module of checked catalog `p` as a piece, in program order.
 export function compile(p: any, profile: any): {any}
     local state = program(p, profile)

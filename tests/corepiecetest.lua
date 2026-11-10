@@ -237,4 +237,19 @@ function M.piecesRefuseWhatTheWholeProgramRefuses()
     end, "unsupported branch value")
 end
 
+-- Pieces kept as the shared store keeps them, the host's durable data
+-- encoding, link as they were built: unchanged ones relinked beside a module
+-- that gained an early function give that program's whole build.
+function M.keptPiecesLinkAsTheyWereBuilt()
+    local persist = require("nupp.vm.persist")
+    local function kept(piece)
+        return persist.loadData(persist.saveData(piece))
+    end
+    local before = pieces()
+    same(corelink.link({kept(before[1]), kept(before[2]), kept(before[3])}, "pieces.main"), whole())
+    local edited = ALPHA:gsub("^module pieces.alpha\n", "module pieces.alpha\nexport function zero(): integer return 0 end\n")
+    local after = pieces(edited)
+    same(corelink.link({after[1], kept(before[2]), kept(before[3])}, "pieces.main"), whole(edited))
+end
+
 return M
