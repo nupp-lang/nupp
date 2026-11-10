@@ -99,6 +99,10 @@ local function checkingEnvironment(): any
             memoryOnly = true,
             cache = false,
             nativeCompilerServices = false,
+            -- C declarations a checked module makes (`cdef`, import-c) are read
+            -- by the C-header service: the VM's libclang on the host, the
+            -- core's corecdecl over the same library on the core.
+            compilerServices = {cheader = require("nupp.compiler.cinterop.cheader")},
             -- The checkout's nupp.lua configures its projects, not a chunk;
             -- reading it would load Lua text from within `load`.
             config = {}

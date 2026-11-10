@@ -24,4 +24,18 @@ local box = helper.Box(3, 4)
 check(box.width == 3)
 check(box.height == 4)
 
+-- C declarations a chunk makes are typed by the C-header service; a C
+-- function is called through its value, and the core has no FFI to call.
+local loaded, ffi = pcall(require, "ffi")
+if loaded then
+    ffi.cdef([[
+    int isatty(int);
+    ]])
+    local isatty = ffi.C.isatty
+    local called = pcall(isatty, 0)
+    check(called == true or called == false)
+else
+    check(true)
+end
+
 return score

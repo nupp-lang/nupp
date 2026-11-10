@@ -1606,9 +1606,10 @@ export function protectedInvokeContract(call: any): any
     local callee = call.args and call.args.exprs and call.args.exprs[1]
     local handled = coreLibraryCall(call) == "xpcall"
     -- A callee through `any`, or one whose results are alternatives (a
-    -- wrapped coroutine's), is checked against the call itself.
+    -- wrapped coroutine's), is checked against the call itself; so is a C
+    -- function a header declares, which the core calls through its value.
     local called = callee and callee.inferredType
-    if called and (called.tag ~= "func" or alternativeresults(called)) then
+    if called and (called.tag ~= "func" or alternativeresults(called) or called.foreign) then
         called = anySignature(call, 1, handled and 2 or 1)
     end
     local contract = {
