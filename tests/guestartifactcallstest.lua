@@ -45,13 +45,18 @@ local function fixture()
     local described = program.describe({{name = name, path = path, parsed = parsed, diagnostics = diagnostics}}, name)
     local code = executable.fromChecked(program.compile(described, tagged.forVersion(8)), 8)
     local requested = {}
-    for _, short in ipairs({"guestcatalog", "librarycalls", "storagelibrary", "loadlibrary", "debuglibrary", "corestorage", "coretables"}) do
+    for _, short in ipairs({
+        "guestcatalog",
+        "librarycalls",
+        "storagelibrary",
+        "loadlibrary",
+        "debuglibrary",
+        "corestorage",
+        "coretables"
+    }) do
         requested[
             #requested + 1
-        ] = {
-            moduleName = "nupp.runtime.core." .. short,
-            path = ROOT .. "/src/nupp/runtime/core/" .. short .. ".nupp"
-        }
+        ] = {moduleName = "nupp.runtime.core." .. short, path = ROOT .. "/src/nupp/runtime/core/" .. short .. ".nupp"}
     end
     requested[
         #requested + 1
@@ -128,6 +133,29 @@ function M.generatedSubjectFilesMatchTheCanonicalTable()
     local f = fixture()
     test.eq(f.generator.source(), read(ROOT .. "/src/nupp/runtime/core/librarycalls.nupp"))
     test.eq(f.generator.subject("storage"), read(ROOT .. "/src/nupp/runtime/core/storagelibrary.nupp"))
+end
+
+function M.generatedLibraryNamesKeepEveryCanonicalTextId()
+    local texts = {}
+    for _, item in ipairs(require("nupp.compiler.vm.coretexts").all()) do
+        texts[item.name] = item.id
+    end
+    local actual, total = {}, 0
+    for name, id in fixture().generator.source():gmatch("id == ([%w_]+) then%s+return (%d+)ULL") do
+        assert(actual[name] == nil)
+        actual[name] = tonumber(id)
+        total = total + 1
+    end
+    local expected = 0
+    for _, subject in ipairs(corelibrary.subjects()) do
+        for _, entry in ipairs(subject.calls) do
+            if entry.text then
+                test.eq(actual[entry.name], texts[entry.text], entry.name)
+                expected = expected + 1
+            end
+        end
+    end
+    test.eq(total, expected)
 end
 
 function M.issuedExecutableEncodesWithTheRealSplitCallScopes()
