@@ -246,6 +246,9 @@ end
 function M.catalogOwnerSignatureAndEffectRelationsRefuse()
     local bytes = fixture()
     local _, _, offsets = rows(bytes)
+    -- Checked graphs retain pre-register values beyond the raw image limit.
+    local semanticValues = 1048576
+    codec.validateCatalog(patch(bytes, field(offsets, "graphs", 1, "nv"), semanticValues))
     for _, mutation in ipairs({
         {"catalog", 2, "id", 0},
         {"catalog", 2, "graph", 0},
@@ -254,13 +257,14 @@ function M.catalogOwnerSignatureAndEffectRelationsRefuse()
         {"signatures", 2, "id", 0},
         {"graphs", 2, "owner", 0},
         {"graphs", 2, "nparams", 239},
-        {"graphs", 1, "nv", 65537},
+        {"graphs", 1, "nv", semanticValues + 1},
         {"blocks", 1, "id", 0},
         {"contracts", 1, "block", 0},
         {"contracts", 1, "callsite", schema.limits().calls},
         {"contracts", 1, "effect", 0}
     }) do
         local changed = patch(bytes, field(offsets, mutation[1], mutation[2], mutation[3]), mutation[4])
+        assert(changed ~= bytes, mutation[1] .. "." .. mutation[3] .. " mutation must change encoded bytes")
         codec.validateShape(changed)
         refuses(function()
             codec.validateCatalog(changed)

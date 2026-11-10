@@ -860,6 +860,8 @@ function M.checkedNumericForRunsLuaIntegerAndFloatLoops()
         {"local t = 0.0\nfor x = 0.5, 2.0, 0.5 do t = t + x end\nexport = t", 5.0},
         {"local t = 0\nfor x = 0.25, 1 do t = t + x end\nexport = t", 0.25},
         {"local t = 0\nfor i = 1, 2.5 do t = t + i end\nexport = t", 3},
+        {"local n: number = 1\nlocal t = 0\nfor i = n, 3 do t = t + i end\nexport = t", 6},
+        {"local t = 0\nfor i = 1, 3, 0.5 do t = t + i end\nexport = t", 10.0},
         {"local t = 0\nfor i = 1, 20 do t = (t + i * i * 7) % 1003 end\nexport = t", 30},
         {"local t = 0\nfor i = 1, 4 do for j = i, 4 do t = t + j - i end end\nexport = t", 10},
         {"local nan = 0.0 * (1e308 * 10.0)\nlocal t = 0\nfor x = 1.0, nan do t = t + 1 end\nexport = t", 1},
@@ -966,18 +968,13 @@ function M.checkedNumericOperatorsFollowLuaFloorModulo()
     end
 end
 
-function M.checkedNumericForRefusesWhatTheCoreCannotRunYet()
+function M.checkedNumericForRefusesInvalidAndEarlierProfileControls()
     local refusals = {
         {"local t = 0\nfor i = 1, 3, 0 do t = t + i end\nexport = t", "'for' step is zero"},
         {
             "local s = 2\nlocal t = 0\nfor i = 1, 3, s do t = t + i end\nexport = t",
             "numeric for step must be a numeric literal"
         },
-        {
-            "local n: number = 1\nlocal t = 0\nfor i = n, 3 do t = t + i end\nexport = t",
-            "statically integer or float initial value"
-        },
-        {"local t = 0\nfor i = 1, 3, 0.5 do t = t + i end\nexport = t", "statically integer or float initial value"},
         {
             "local t = 0\nfor i = 1, 3 do t = t + i end\nexport = 140737488355328",
             "integer constant exceeds the immediate range"

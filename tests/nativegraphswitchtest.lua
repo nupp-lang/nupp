@@ -133,7 +133,7 @@ local function dispatch(code: uint64): uint64
     end
 end
 ]],
-        "one unguarded static value"
+        "numeric switch admits unguarded static values"
     )
     refuse(
         [[
