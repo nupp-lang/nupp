@@ -1,5 +1,8 @@
 [workspace]
 members = ["native/crates/*"]
+# The core's bridge is frozen and builds alone, with its own lockfile and
+# release profile.
+exclude = ["native/crates/core-bridge"]
 resolver = "3"
 
 [workspace.package]

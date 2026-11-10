@@ -11,14 +11,114 @@ this module when it takes a library function as a value.
 
 local hostcalls = require("nupp.runtime.hostcalls")
 local scalarcalls = require("nupp.runtime.scalarcalls")
+local debugcalls = require("nupp.runtime.debugcalls")
 
 local type PairIterator = @nosuspend function(): ((any, any) | (nil))
 
+-- The options debug.getinfo answers when it is given none: every field
+-- but the active lines.
+const ALL_OPTIONS = "flnSrtu"
+
+-- Lua's debug.getinfo([thread,] f [, what]): a table of what the core knows
+-- of the function at level `f` (1 its caller) or of function `f`, the fields
+-- `what`'s option letters name; nil for a level no function is at. Its own
+-- frame is the first level debugcalls counts, so a caller's level is one
+-- further out than it says: every debugcalls call is made here, in it.
+local function getinfo(...: any): any
+    local f: any, what: any = ...
+    if type(f) == "thread" then
+        error("bad argument #1 to 'getinfo' (another thread's levels are not available on the core)", 2)
+    end
+    local options: string = ALL_OPTIONS
+    if what ~= nil then
+        if type(what) ~= "string" and type(what) ~= "number" then
+            error("bad argument #2 to 'getinfo' (string expected, got " .. type(what) .. ")", 2)
+        end
+        options = tostring(what)
+    end
+    if string.sub(options, 1, 1) == ">" then
+        error("bad argument #2 to 'getinfo' (invalid option)", 2)
+    end
+    local target: any = f
+    if type(f) ~= "function" then
+        local number = (type(f) == "number" or type(f) == "string") and tonumber(f) or nil
+        if number == nil then
+            error(
+                "bad argument #1 to 'getinfo' (number expected, got " .. (f == nil and "no value" or type(f)) .. ")",
+                2
+            )
+        end
+        local level = math.tointeger(number)
+        if level == nil then
+            error("bad argument #1 to 'getinfo' (number has no integer representation)", 2)
+        end
+        target = level + 1
+    end
+    if debugcalls.what(target) == nil then
+        return nil
+    end
+    local info: {[string]: any} = {}
+    for index = 1, #options do
+        local option = string.sub(options, index, index)
+        if option == "S" then
+            info.source = debugcalls.source(target) or "=?"
+            info.short_src = debugcalls.short(target) or "?"
+            info.linedefined = debugcalls.defined(target)
+            info.lastlinedefined = debugcalls.lastdefined(target)
+            info.what = debugcalls.what(target)
+        elseif option == "l" then
+            info.currentline = debugcalls.line(target)
+        elseif option == "u" then
+            info.nups = debugcalls.upvalues(target)
+            info.nparams = debugcalls.params(target)
+            info.isvararg = debugcalls.vararg(target)
+        elseif option == "n" then
+            info.name = debugcalls.name(target)
+            info.namewhat = debugcalls.namewhat(target) or ""
+        elseif option == "r" then
+            -- What a hook was handed; outside one, none.
+            info.ftransfer = 0
+            info.ntransfer = 0
+        elseif option == "t" then
+            info.istailcall = debugcalls.tailcall(target)
+        elseif option == "f" then
+            info.func = debugcalls.func(target)
+        elseif option == "L" then
+            error("bad argument #2 to 'getinfo' (active lines are not available on the core)", 2)
+        else
+            error("bad argument #2 to 'getinfo' (invalid option)", 2)
+        end
+    end
+
+    return info
+end
+
+-- The ambient `package` table: its `loaded` and `preload` as Lua's, empty
+-- because the image holds the modules, and fields a program sets on it.
+const ambient = {loaded = {}, preload = {}, path = "", cpath = "", config = "/\n;\n?\n!\n-\n"}
+-- What Lua's require names a preload's module source as.
+const PRELOAD = ":preload:"
+
 export const functions: {[string]: any} = {
-    -- The ambient `package` table: its `loaded` and `preload` as Lua's, empty
-    -- because the image holds the modules, and fields a program sets on it.
-    package = {loaded = {}, preload = {}, path = "", cpath = "", config = "/\n;\n?\n!\n-\n"},
-    require = function(name: string): any
+    package = ambient,
+    -- `require` as a value looks where Lua's looks first, package.loaded
+    -- then package.preload, which a program fills; then the image's modules.
+    require = function(name: string): (any, any)
+        local loaded = ambient.loaded[name]
+        if loaded ~= nil then
+            return loaded
+        end
+        local preload = ambient.preload[name]
+        if preload ~= nil then
+            local value = preload(name, PRELOAD)
+            if value == nil then
+                value = ambient.loaded[name] ?? true
+            end
+            ambient.loaded[name] = value
+
+            return value, PRELOAD
+        end
+
         return require(name)
     end,
     tostring = function(value: any): string
@@ -50,7 +150,8 @@ export const functions: {[string]: any} = {
             if count < 2 then
                 message = "assertion failed!"
             end
-            error(message, 2)
+            -- As main's and Lua's: the message as it is, with no position.
+            error(message, 0)
         end
 
         return ...
@@ -118,8 +219,7 @@ export const functions: {[string]: any} = {
     ["coroutine.close"] = function(co: thread): (boolean, any)
         return coroutine.close(co)
     end,
-    -- The core's debug library: none of its functions yet.
-    debug = {},
+    ["debug.getinfo"] = getinfo,
     ["os.getenv"] = function(name: string): string?
         return os.getenv(name)
     end,
@@ -164,6 +264,21 @@ export const functions: {[string]: any} = {
         end
 
         return iterate
+    end,
+    -- The base functions the core calls itself, as values: a chunk Lua's
+    -- load compiled calls them through its environment once it no longer
+    -- holds these (nupp.compiler.vm.corechunk).
+    print = function(...: any): nil
+        print(...)
+    end,
+    pcall = function(f: any, ...: any): ...any
+        return pcall(f, ...)
+    end,
+    xpcall = function(f: any, handler: any, ...: any): ...any
+        return xpcall(f, handler, ...)
+    end,
+    rawequal = function(a: any, b: any): boolean
+        return rawequal(a, b)
     end,
     select = function(n: any, ...: any): ...any
         if n == "#" then
@@ -255,7 +370,9 @@ local mathmembers: {
     [string]: any
 } = {huge = math.huge, pi = math.pi, maxinteger = math.maxinteger, mininteger = math.mininteger}
 local stringmembers: {[string]: any} = {}
-local libraries: {[string]: {[string]: any}} = {math = mathmembers, string = stringmembers, table = {}, coroutine = {}}
+local libraries: {
+    [string]: {[string]: any}
+} = {math = mathmembers, string = stringmembers, table = {}, coroutine = {}, debug = {}}
 for name, value in pairs(functions) do
     local library, field = string.match(name, "^(%a+)%.(%a+)$")
     local members = library and libraries[library]
@@ -412,9 +529,28 @@ globals.arg = hostcalls.arguments()
 globals.nupp = {}
 functions._G = globals
 
+-- Each library function as the program started, by its name (`print`,
+-- `io.write`): a chunk Lua's load compiled calls the core directly while
+-- its environment still holds that function, and what replaced it when not.
+export const originals: {[string]: any} = {}
+for name, value in pairs(functions) do
+    if type(value) == "function" then
+        originals[name] = value
+    end
+end
+
 -- A separately initialized base library publishes its existing table into
 -- both value routes before a standard extension reads it through `_G`.
 export function publish(name: string, value: any): nil
     functions[name] = value
     globals[name] = value
+    if type(value) == "table" then
+        for member, entry in pairs(value as table) do
+            if type(member) == "string" and type(entry) == "function" then
+                originals[name .. "." .. member] = entry
+            end
+        end
+    elseif type(value) == "function" then
+        originals[name] = value
+    end
 end

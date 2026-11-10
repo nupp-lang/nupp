@@ -630,7 +630,7 @@ return caller]]
 end
 
 function M.closedGuestFixtureRetainsOuterComparisonAcrossLogicalRHS()
-    local file = assert(io.open(ROOT .. "/native/core/program/call-front-fixtures/held-branch.nupp", "rb"))
+    local file = assert(io.open(ROOT .. "/tests/fixtures/callfront/held-branch.nupp", "rb"))
     local source = file:read("*a")
     file:close()
     local p = checked(source)

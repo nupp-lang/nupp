@@ -735,6 +735,12 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         context()
     end
 
+    -- Replace the value a held handle carries, as a branch's result.
+    ctx.write = function(handle: any, value: integer): nil
+        need(handles[handle] == true, "write to a released held-value handle")
+        bindings[handle] = value
+    end
+
     -- Select already evaluated values through the ordinary binding transport.
     ctx.select = function(node: any, condition: integer, yes: integer, no: integer): integer
         local selected, alternative = ctx.hold(no), ctx.hold(yes)

@@ -380,7 +380,7 @@ return choose
 end
 
 function M.bindingConditionGuestRetainsScopeCapturesAndCleanup()
-    local path = ROOT .. "/native/core/tests/catalog-binding-conditions.nupp"
+    local path = ROOT .. "/tests/core/catalog-binding-conditions.nupp"
     local file = assert(io.open(path, "rb"))
     local source = file:read("*a")
     file:close()
@@ -552,7 +552,7 @@ function M.declaredModuleFixturesRetainTheirCheckedBranchBodies()
         {"live", "catalogbranchlive", 2},
     }
     for _, fixture in ipairs(fixtures) do
-        local path = ROOT .. "/native/core/tests/catalog-branch-" .. fixture[1] .. ".nupp"
+        local path = ROOT .. "/tests/core/catalog-branch-" .. fixture[1] .. ".nupp"
         local file = assert(io.open(path, "rb"))
         local text = file:read("*a")
         file:close()
@@ -577,7 +577,7 @@ function M.declaredModuleFixturesRetainTheirCheckedBranchBodies()
 end
 
 function M.checkedNumericLessThanFeedsBothBranchEdges()
-    local path = ROOT .. "/native/core/tests/catalog-number-branch.nupp"
+    local path = ROOT .. "/tests/core/catalog-number-branch.nupp"
     local file = assert(io.open(path, "rb"))
     local text = file:read("*a")
     file:close()
@@ -625,7 +625,7 @@ function M.checkedNumericLessThanFeedsBothBranchEdges()
 end
 
 local function checkedLoop(name)
-    local path = ROOT .. "/native/core/tests/catalog-number-loop" .. (name == "zero" and "-zero" or "") .. ".nupp"
+    local path = ROOT .. "/tests/core/catalog-number-loop" .. (name == "zero" and "-zero" or "") .. ".nupp"
     local file = assert(io.open(path, "rb"))
     local source = file:read("*a")
     file:close()
@@ -1007,7 +1007,7 @@ end
 function M.nativeNumericFixturesInterpretToTheirLuaResults()
     -- The native proof's expected words come from reference Lua 5.5.1.
     for name, expected in pairs({["for"] = 385223012282, float = 697397.75, control = 35372520123}) do
-        local path = ROOT .. "/native/core/tests/catalog-numeric-" .. name .. ".nupp"
+        local path = ROOT .. "/tests/core/catalog-numeric-" .. name .. ".nupp"
         local file = assert(io.open(path, "rb"))
         local source = file:read("*a")
         file:close()

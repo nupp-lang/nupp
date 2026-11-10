@@ -1,0 +1,399 @@
+module nupp.compiler.s0.oracle
+
+local ir = require("nupp.compiler.s0.ir")
+local oracle = {}
+oracle.OK, oracle.TRAP, oracle.DIVZERO, oracle.OVERFLOW = 0, 1, 2, 3
+oracle.BOUNDS, oracle.FUEL, oracle.UNSUPPORTED, oracle.INVALID = 4, 5, 6, 7
+local ONE: int64 = 1
+local MIN: int64 = ONE << 63
+local widths = {8, 16, 32, 64, 32, 64}
+record oracle.Memory
+    bytes: {integer}
+    stackBase: integer
+end
+record oracle.Hooks
+    call: (function(importId: integer, address: integer, args: {integer}): (integer, integer, integer))?
+    fma64: (function(a: integer, b: integer, c: integer): integer)?
+end
+record oracle.Result
+    status: integer
+    word: integer
+    word2: integer
+    steps: integer
+end
+
+local function mask(width: integer): integer
+    return width == 64 and -1 or (1 << width) - 1
+end
+
+local function signed(value: integer, width: integer): integer
+    value = value & mask(width)
+    return width < 64 and value >= 1 << (width - 1) and value - (1 << width) or value
+end
+
+local function ult(a: integer, b: integer): boolean
+    return (a ~ MIN) < (b ~ MIN)
+end
+
+local function quotient(a: integer, b: integer): integer
+    if b < 0 then
+        return ult(a, b) and 0 or 1
+    end
+    if a >= 0 then
+        return a // b
+    end
+    local q: int64 = ((a >> 1) // b) << 1
+
+    return ult(a - q * b, b) and q or q + 1
+end
+
+local function high(a: integer, b: integer): integer
+    local lo: int64 = 0xffffffff
+    local w0: int64 = (a & lo) * (b & lo)
+    local t: int64 = (a >> 32) * (b & lo) + (w0 >> 32)
+    local w1: int64 = (a & lo) * (b >> 32) + (t & lo)
+
+    return (a >> 32) * (b >> 32) + (t >> 32) + (w1 >> 32)
+end
+
+-- Bitwise operations never decode floats. Arithmetic NaNs compare canonically.
+function oracle.decode(word: integer, kind: integer): float64
+    local bits: integer = kind == ir.F32 and 23 or 52
+    local bias: integer = kind == ir.F32 and 127 or 1023
+    local exponent = (word >> bits) & (bias * 2 + 1)
+    local fraction = word & ((1 << bits) - 1)
+    local negative = (word & (1 << (bits + (kind == ir.F32 and 8 or 11)))) ~= 0
+    local value: float64
+    if exponent == bias * 2 + 1 then
+        value = fraction == 0 and math.huge or 0.0 / 0.0
+    else
+        value = math.ldexp(
+            (fraction + (exponent == 0 and 0 or 1 << bits)) as float64,
+            (exponent == 0 and 1 or exponent) - bias - bits
+        )
+    end
+
+    return negative and -value or value
+end
+
+function oracle.encode(value: float64, kind: integer): integer
+    local bits: integer = kind == ir.F32 and 23 or 52
+    local bias: integer = kind == ir.F32 and 127 or 1023
+    local sign: int64 = 0
+    if value < 0 or value == 0 and 1.0 / value < 0 then
+        sign, value = 1 << (bits + (kind == ir.F32 and 8 or 11)), -value
+    end
+    local hidden: int64 = 1 << bits
+    if value ~= value then
+        return ((bias * 2 + 1) << bits) | (hidden >> 1)
+    end
+    if value == math.huge then
+        return sign | ((bias * 2 + 1) << bits)
+    end
+    if value == 0 then
+        return sign
+    end
+    local mantissa, exponent = math.frexp(value)
+    local encoded: integer = exponent + bias - 1
+    local scaled: float64 = math.ldexp(mantissa, encoded <= 0 and exponent + bias + bits - 1 or bits + 1)
+    local whole: int64 = math.floor(scaled) as int64
+    local fraction = scaled - whole
+    if fraction > 0.5 or fraction == 0.5 and (whole & 1) ~= 0 then
+        whole = whole + 1
+    end
+    if encoded <= 0 then
+        return sign | whole
+    end
+    if whole == hidden * 2 then
+        whole, encoded = hidden, encoded + 1
+    end
+    if encoded >= bias * 2 + 1 then
+        return sign | ((bias * 2 + 1) << bits)
+    end
+
+    return sign | (encoded << bits) | (whole - hidden)
+end
+
+function oracle.equivalent(a: integer, b: integer, kind: integer): boolean
+    local x = ir.isFloat(kind) and oracle.decode(a, kind) or 0.0
+    local y = ir.isFloat(kind) and oracle.decode(b, kind) or 0.0
+    return a == b or x ~= x and y ~= y
+end
+
+local function compare(c: integer, a: integer, b: integer, kind: integer, floating: boolean): boolean
+    if floating then
+        local x, y = oracle.decode(a, kind), oracle.decode(b, kind)
+        local nan = x ~= x or y ~= y
+        if c == 1 or c == 17 then
+            return x == y or c == 17 and nan
+        elseif c == 2 or c == 18 or c == 20 then
+            return x ~= y and (c == 2 or not nan)
+        elseif c == 11 or c == 12 or c == 19 then
+            return (c == 11) ~= nan
+        elseif c == 13 or c == 7 then
+            return x < y or c == 7 and nan
+        elseif c == 14 or c == 8 then
+            return x <= y or c == 8 and nan
+        elseif c == 15 or c == 9 then
+            return x > y or c == 9 and nan
+        else
+            return x >= y or c == 10 and nan
+        end
+    end
+    if c == 1 or c == 2 then
+        return (c == 1) == (a == b)
+    end
+    if c <= 6 then
+        a, b = signed(a, widths[kind]), signed(b, widths[kind])
+    end
+    local less = c <= 6 and a < b or c > 6 and ult(a, b)
+
+    return (c == 3 or c == 7) and less
+        or (c == 4 or c == 8) and (less or a == b)
+        or (c == 5 or c == 9) and (not less and a ~= b)
+        or (c == 6 or c == 10) and not less
+end
+
+function oracle.run(
+    f: ir.Function,
+    args: {integer},
+    memory: oracle.Memory,
+    hooks: oracle.Hooks,
+    fuel: integer
+): oracle.Result
+    local steps: integer = 0
+
+    local function finish(status: integer, word: integer, word2: integer?): oracle.Result
+        return oracle.Result(status = status, word = word, word2 = word2 or 0, steps = steps)
+    end
+
+    if #args ~= f.nparams[1] or memory.stackBase < 0 or memory.stackBase > #memory.bytes then
+        return finish(oracle.INVALID, 0)
+    end
+    local values: {integer} = {}
+    local slots: {integer} = {}
+    local extent: integer = memory.stackBase
+    for slot, size in ipairs(f.stackBytes) do
+        local align = f.stackAlign[slot]
+        if align < 1 or (align & (align - 1)) ~= 0 or size < 0 or align > #memory.bytes + 1 then
+            return finish(oracle.INVALID, 0)
+        end
+        local padding = (-extent) & (align - 1)
+        if padding > #memory.bytes - extent or size > #memory.bytes - extent - padding then
+            return finish(oracle.BOUNDS, 0)
+        end
+        slots[slot], extent = extent + padding, extent + padding + size
+    end
+    for p, value in ipairs(args) do
+        local id = f.params[f.firstParam[1] + p - 1]
+        values[id] = value & mask(widths[f.valueKinds[id]])
+    end
+    local pc: integer = f.blockStart[1]
+    while true do
+        if steps >= fuel then
+            return finish(oracle.FUEL, 0)
+        end
+        if pc < 1 or pc > #f.op then
+            return finish(oracle.INVALID, 0)
+        end
+        steps = steps + 1
+        local op, kind, aux, resultId = f.op[pc], f.kind[pc], f.aux[pc], f.result[pc]
+        local at = f.firstArg[pc]
+        local a: int64 = f.nargs[pc] >= 1 and values[f.args[at]] or 0
+        local b: int64 = f.nargs[pc] >= 2 and values[f.args[at + 1]] or 0
+        local c: int64 = f.nargs[pc] >= 3 and values[f.args[at + 2]] or 0
+        local operandKind = f.nargs[pc] >= 1 and f.valueKinds[f.args[at]] or kind
+        local width: integer = widths[kind] or 64
+        local result: int64 = 0
+        local second: int64 = 0
+        local secondId = f.result2[pc]
+        if op == 1 or op == 2 then
+            result = f.imm[pc]
+        elseif op >= 3 and op <= 5 then
+            result = op == 3 and a + b or op == 4 and a - b or a * b
+        elseif op >= 6 and op <= 9 then
+            if b == 0 then
+                return finish(oracle.DIVZERO, 0)
+            end
+            if op == 7 or op == 9 then
+                a, b = signed(a, width), signed(b, width)
+                if a == -(1 << (width - 1)) and b == -1 and op == 7 then
+                    return finish(oracle.OVERFLOW, 0)
+                end
+                result = quotient(a < 0 and -a or a, b < 0 and -b or b)
+                if (a < 0) ~= (b < 0) then
+                    result = -result
+                end
+            else
+                result = quotient(a, b)
+            end
+            if op == 8 or op == 9 then
+                result = a - result * b
+            end
+        elseif op == 10 or op == 11 then
+            result = width == 64 and high(a, b) or (a * b) >> width
+            if op == 11 then
+                result = result - (signed(a, width) < 0 and b or 0) - (signed(b, width) < 0 and a or 0)
+            end
+        elseif op >= 12 and op <= 14 then
+            result = op == 12 and a & b or op == 13 and a | b or a ~ b
+        elseif op == 15 then
+            result = ~a
+        elseif op >= 16 and op <= 18 then
+            local shift = b & (width - 1)
+            result = op == 16 and a << shift or a >> shift
+            if op == 18 and signed(a, width) < 0 and shift ~= 0 then
+                result = result | (mask(shift) << (width - shift))
+            end
+        elseif op == 19 then
+            while a ~= 0 do
+                a, result = a & (a - 1), result + 1
+            end
+        elseif op == 20 or op == 21 then
+            result = compare(aux, a, b, operandKind, op == 21) and 1 or 0
+        elseif op == 22 then
+            result = a ~= 0 and b or c
+        elseif op >= 23 and op <= 25 then
+            local store = op == 25
+            local base, offset = store and b or a, f.imm[pc]
+            local address = base + offset
+            if offset > 0 and address < base or offset < 0 and address > base then
+                return finish(oracle.BOUNDS, 0)
+            end
+            local bytes: integer = (aux ~= 0 and aux or widths[store and operandKind or kind]) // 8
+            if address < 0 or bytes < 1 or bytes > 8 or address > #memory.bytes - bytes then
+                return finish(oracle.BOUNDS, 0)
+            end
+            for offset = 0, bytes - 1 do
+                if store then
+                    memory.bytes[address + offset + 1] = (a >> (offset * 8)) & 255
+                else
+                    local byte = memory.bytes[address + offset + 1]
+                    if byte < 0 or byte > 255 then
+                        return finish(oracle.INVALID, 0)
+                    end
+                    result = result | (byte << (offset * 8))
+                end
+            end
+            if op == 24 then
+                result = signed(result, bytes * 8)
+            end
+        elseif op == 26 or op == 27 or op == 29 then
+            result = a
+        elseif op == 28 then
+            result = signed(a, widths[operandKind])
+        elseif op == 30 or op == 31 then
+            result = oracle.encode(oracle.decode(a, operandKind), kind)
+        elseif op >= 32 and op <= 41 then
+            if op == 36 or op == 37 then
+                local sign = 1 << (width - 1)
+                result = op == 36 and a ~ sign or a & ~sign
+            elseif op == 41 and kind == ir.F64 then
+                if hooks.fma64 == nil then
+                    return finish(oracle.UNSUPPORTED, op)
+                end
+                result = hooks.fma64(a, b, c)
+            else
+                local x, y, z = oracle.decode(a, kind), oracle.decode(b, kind), oracle.decode(c, kind)
+                local value: float64 = 0.0
+                if op <= 35 then
+                    value = op == 32 and x + y or op == 33 and x - y or op == 34 and x * y or x / y
+                elseif op == 38 then
+                    value = math.sqrt(x) as float64
+                elseif op == 39 or op == 40 then
+                    value = (op == 39 and math.floor(x) or math.ceil(x)) as float64
+                    if value == 0 then
+                        value = (x < 0 or 1.0 / x < 0) and -0.0 or 0.0
+                    end
+                else
+                    value = math.f32.fma(math.f32.narrow(x), math.f32.narrow(y), math.f32.narrow(z))
+                end
+                if kind == ir.F32 and op == 35 then
+                    value = math.f32.div(math.f32.narrow(x), math.f32.narrow(y))
+                end
+                if kind == ir.F32 and op == 38 then
+                    value = math.f32.sqrt(math.f32.narrow(x))
+                end
+                result = oracle.encode(value, kind)
+            end
+        elseif op == 42 or op == 43 then
+            local value: float64 = signed(a, widths[operandKind]) as float64
+            if op == 43 then
+                value = ((a >> 32) as float64) * 4294967296.0 + ((a & 0xffffffff) as float64)
+            end
+            local magnitude: int64 = op == 42 and signed(a, widths[operandKind]) or a
+            local negative = op == 42 and magnitude < 0
+            magnitude = negative and -magnitude or magnitude
+            if kind == ir.F32 and (magnitude >> 53) ~= 0 then
+                local odd: int64 = (magnitude >> 11) | ((magnitude & 2047) ~= 0 and 1 or 0)
+                value = (odd as float64) * (negative and -2048.0 or 2048.0)
+            end
+            result = oracle.encode(value, kind)
+        elseif op == 44 or op == 45 then
+            local x = oracle.decode(a, operandKind)
+            local unsigned = op == 45
+            local upper: float64 = 2.0 ^ (unsigned and width or width - 1)
+            if x ~= x then
+                result = 0
+            elseif unsigned and x <= 0 then
+                result = 0
+            elseif not unsigned and x <= -upper then
+                result = -(1 << (width - 1))
+            elseif x >= upper then
+                result = unsigned and mask(width) or mask(width - 1)
+            elseif unsigned and width == 64 and x >= 9223372036854775808.0 then
+                result = (math.floor(x - 9223372036854775808.0) as int64) | MIN
+            else
+                result = (x < 0 and math.ceil(x) or math.floor(x)) as int64
+            end
+        elseif op == 46 then
+            if slots[aux] == nil then
+                return finish(oracle.INVALID, 0)
+            end
+            result = slots[aux] + f.imm[pc]
+        elseif op >= 47 and op <= 50 then
+            if hooks.call == nil then
+                return finish(oracle.UNSUPPORTED, op)
+            end
+            local indirect = op == 48 or op == 50
+            local passed: {integer} = {}
+            for p = at + (indirect and 1 or 0), at + f.nargs[pc] - 1 do
+                passed[#passed + 1] = values[f.args[p]]
+            end
+            local status: integer
+            status, result, second = hooks.call(indirect and 0 or aux, indirect and a or 0, passed)
+            if status ~= oracle.OK or op >= 49 then
+                return finish(status, result, second)
+            end
+        elseif op == 51 or op == 52 then
+            local edge = f.firstEdge[pc] + (op == 52 and a == 0 and 1 or 0)
+            local block = f.edgeTarget[edge]
+            if block == nil then
+                return finish(oracle.INVALID, 0)
+            end
+            local parallel: {integer} = {}
+            for p = 0, f.edgeNargs[edge] - 1 do
+                parallel[p + 1] = values[f.edgeArgs[f.edgeFirstArg[edge] + p]]
+            end
+            for p, value in ipairs(parallel) do
+                values[f.params[f.firstParam[block] + p - 1]] = value
+            end
+            pc = f.blockStart[block] - 1
+        elseif op == 53 then
+            return finish(oracle.OK, a, b)
+        elseif op == 54 then
+            return finish(oracle.TRAP, f.imm[pc])
+        else
+            return finish(oracle.UNSUPPORTED, op)
+        end
+        if resultId ~= 0 then
+            values[resultId] = result & mask(width)
+        end
+        if secondId ~= 0 then
+            values[secondId] = second & mask(widths[f.valueKinds[secondId]])
+        end
+        pc = pc + 1
+    end
+end
+
+export = oracle

@@ -67,11 +67,12 @@ def source_state(excluded_prefixes=()):
 
 def runtime_source_state():
     """The frozen runtime lowers src with native/crates VM libraries/declarations.
-    Cargo's glue workspace also lives in native/crates. The independent native/core
-    implementation, tests and receipts are not inputs to this build. Keep CLI
-    freshness broader, and retain every other source/configuration input here.
+    Cargo's glue workspace also lives in native/crates. The independent core --
+    its runtime and build tooling under src and its bridge crate, which is no
+    workspace member -- is not an input to this build. Keep CLI freshness
+    broader, and retain every other source/configuration input here.
     """
-    return source_state((b"native/core/",))
+    return source_state((b"src/nupp/runtime/core/", b"src/nupp/core/", b"native/crates/core-bridge/"))
 
 
 def selected():

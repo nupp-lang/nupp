@@ -239,6 +239,26 @@ export function globalTable(ctx: any, node: any): integer
     return need(ctx.readname(node, read.definition), "chunk environment is out of reach")
 end
 
+-- What a chunk's guarded library call (programgraph `guarded`) names in
+-- its environment: `print`, or `io` then its `write`.
+export function guardedCallee(ctx: any, node: any): integer
+    local guard = catalog(ctx).guarded[node]
+    local path = {guard.root.token.text}
+    if node.obj ~= guard.root then
+        path[2] = node.obj.name.text
+    end
+
+    return fieldPath(ctx, node, globalTable(ctx, guard.root), path)
+end
+
+-- The library function a chunk's guarded call names, as the program started.
+export function guardedOriginal(ctx: any, node: any): integer
+    local guard = catalog(ctx).guarded[node]
+    local builtins = need(ctx.readname(node, guard.builtins.definition), "chunk builtins are out of reach")
+
+    return fieldPath(ctx, node, builtins, {guard.library})
+end
+
 -- A chunk's read of global `node`, or nil when it names no global.
 export function globalValue(ctx: any, node: any): integer?
     if not isGlobal(ctx, node) then

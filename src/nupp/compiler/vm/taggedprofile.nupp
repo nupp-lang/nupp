@@ -1167,6 +1167,15 @@ export function forVersion(version: integer): any
                     local loaded = ctx.emit(stat, "Require", {pool(ctx, "str", site.module)}, "tagged")
                     local name = ctx.emit(stat, "K", {pool(ctx, "str", token.inheritFrom)}, "tagged")
                     parent = ctx.emit(stat, "GetIdx", {loaded, name}, "tagged")
+                elseif token.kind == "call" then
+                    -- A chunk's: what its require answers for the module.
+                    local loaded = ctx.expression(token, "tagged")
+                    if loaded == nil then
+                        ctx.release(held)
+                        return nil
+                    end
+                    local name = ctx.emit(stat, "K", {pool(ctx, "str", token.inheritFrom)}, "tagged")
+                    parent = ctx.emit(stat, "GetIdx", {loaded, name}, "tagged")
                 else
                     parent = ctx.expression({kind = "name", token = token, token}, "tagged")
                 end
@@ -1541,7 +1550,56 @@ export function forVersion(version: integer): any
             ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(node.eof or node)}
             ctx.block = nil
         end
+        local libraryCallOrCall: function(any, any, string?): integer
+        -- A chunk's library call through a global: the core's own operation
+        -- while the chunk's environment holds the function the program
+        -- started with there, else a call of what it holds, as Lua resolves
+        -- a global name through its environment.
         profile.call = function(ctx: any, node: any, expected: string?): integer
+            if catalog(ctx).guarded[node] == nil then
+                return libraryCallOrCall(ctx, node, expected)
+            end
+            local actual = ctx.hold(taggedvalues.guardedCallee(ctx, node))
+            local original = taggedvalues.guardedOriginal(ctx, node)
+            local same = ctx.hold(ctx.emit(node, "Eq", {ctx.readHeld(actual), original}, "tagged"))
+            local result = ctx.hold(ctx.emit(node, "Nil", {}, "tagged"))
+
+            -- One way of making the call, whose value is the result.
+            local function arm(lower: function(any): integer?): function(any, any): nil
+                return function(c: any, site: any): nil
+                    local value = lower(c)
+                    if value ~= nil and c.block then
+                        c.write(result, value)
+                    end
+                end
+            end
+
+            ctx.when(
+                node,
+                ctx.readHeld(same),
+                arm(function(c: any): integer?
+                    return libraryCallOrCall(c, node, expected)
+                end)
+            )
+            local different = ctx.emit(node, "Not", {ctx.readHeld(same)}, "tagged")
+            ctx.when(
+                node,
+                different,
+                arm(function(c: any): integer?
+                    node.chunkDynamic = true
+                    local value = invoke(c, node, true, true, nil, nil, c.readHeld(actual))
+                    node.chunkDynamic = nil
+                    return value
+                end)
+            )
+            local value = ctx.readHeld(result)
+            for _, handle in ipairs({actual, same, result}) do
+                ctx.release(handle)
+            end
+
+            return value
+        end
+        libraryCallOrCall = function(ctx: any, node: any, expected: string?): integer
             if scalarwitness(ctx, node) then
                 return call(ctx, node, expected)
             end
@@ -1598,18 +1656,19 @@ export function forVersion(version: integer): any
                 return libraryCall(ctx, node, corelibrary.id("ERROR"), node.args.exprs)
             elseif library == "select" then
                 -- select over the pack: "#" reads its count at key 0.
-                -- So is a call's results, last, as an open call's pack.
+                -- So is a call's results, last, as an open call's pack, and
+                -- any other values, packed in order.
                 local args = node.args.exprs or {}
-                need(
-                    #args == 2 and (args[2].kind == "vararg" or graph.expandsResults(args[2])),
-                    "select takes an index and `...` or a call"
-                )
+                need(#args >= 1, "select takes an index")
 
                 local function values(): integer?
-                    if args[2].kind == "vararg" then
+                    if #args == 2 and args[2].kind == "vararg" then
                         return ctx.varargPack()
+                    elseif #args == 2 and graph.expandsResults(args[2]) then
+                        return taggedcalls.openinvoke(ctx, args[2])
                     end
-                    return taggedcalls.openinvoke(ctx, args[2])
+
+                    return taggedcalls.valuespack(ctx, node, table.move(args, 2, #args, 1, {}))
                 end
 
                 local first = args[1]

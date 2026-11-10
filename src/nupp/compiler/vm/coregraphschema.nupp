@@ -54,7 +54,7 @@ export function limits(): Limits
 end
 
 -- The most bytes a guest artifact holds: the native bridge's region limits
--- are held to it (native/core/bridge reads this function's literal). Apart
+-- are held to it (native/crates/core-bridge reads this function's literal). Apart
 -- from `limits`, which a raw image's schema describes.
 export function artifactBytes(): integer
     return 1073741824

@@ -1,0 +1,38 @@
+module nupp.core.cataloginstancemodule
+
+-- A Nupp module that catalog-module-instances starts as instances of its
+-- own, compiled as a chunk (corechunk.compileModule): each instance holds
+-- its own state, and its requires, a core call module's included, answer
+-- what the instance's environment gives.
+const floatparts = require("nupp.compiler.floatparts")
+const clock = require("nupp.runtime.clockcalls")
+
+local record Pair
+    left: integer
+    right: integer
+end
+
+local count: integer = 0
+
+export function bump(): integer
+    count = count + 1
+    return count
+end
+
+export function exponent(x: number): integer
+    local _, e = floatparts.frexp(x)
+    return e
+end
+
+export function now(): number
+    return clock.walltime()
+end
+
+export function pair(a: integer, b: integer): integer
+    local p = Pair(left = a, right = b)
+    return p.left * 10 + p.right
+end
+
+export function fail(): nil
+    error("instance failure")
+end

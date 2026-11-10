@@ -1,0 +1,58 @@
+module nupp.runtime.core.hostarguments
+
+-- The program's arguments, as the process was started with them: the
+-- bridge's command line is `nupp-core BUNDLE INPUT OUTPUT [ARGUMENT...]`,
+-- and the guest's `arg` is the bundle as its program, then what follows
+-- OUTPUT. macOS's C library keeps the command line where _NSGetArgc and
+-- _NSGetArgv point.
+const native = require("nupp.runtime.vm.intrinsics")
+
+cdef function _NSGetArgc(): voidptr
+cdef function _NSGetArgv(): voidptr
+cdef function strlen(borrows text: voidptr): uint64
+cdef function memcpy(borrows target: voidptr, borrows source: voidptr, count: uint64): voidptr
+
+-- Where the bundle is on the command line, and how many of the bridge's own
+-- entries come before the program's arguments.
+const BUNDLE: int64 = 1
+const OWN: int64 = 3
+const WORD: int64 = 8
+-- What an index past the last answers, negated.
+const PAST: int64 = 1
+
+-- Where argument `index` is on the command line.
+local function position(index: uint64): int64
+    if index == 0ULL then
+        return BUNDLE
+    end
+
+    return OWN + native.index(index)
+end
+
+-- Copies the program argument at `index` (0 the program, then its
+-- arguments in order) into `out`, at most `room` bytes: its whole length, or
+-- -1 past the last.
+export function argument(index: uint64, out: voidptr, room: uint64): int64
+    @unsafe do
+        local count = native.load32(_NSGetArgc(), 0)
+        if index > native.word(count) then
+            return 0 - PAST
+        end
+        local at = position(index)
+        if at >= count then
+            return 0 - PAST
+        end
+        local vector = native.loadPointer(_NSGetArgv(), 0)
+        local text = native.loadPointer(vector, at * WORD)
+        local length = strlen(text)
+        if native.address(out) ~= 0ULL then
+            local copied = room
+            if length < room then
+                copied = length
+            end
+            memcpy(out, text, copied)
+        end
+
+        return native.index(length)
+    end
+end
