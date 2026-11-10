@@ -653,7 +653,6 @@ local NUMERIC = {
     errorsMethods = "catalog-errors-methods",
     recordsAffineReturns = "catalog-records-affine-returns",
     threadsbasic = "catalog-threads-basic",
-    coroutineinheritance = "catalog-coroutine-inheritance",
     threadscalls = "catalog-threads-calls",
     threadsclose = "catalog-threads-close",
     threadsiterate = "catalog-threads-iterate",
