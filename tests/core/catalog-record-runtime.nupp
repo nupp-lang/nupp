@@ -20,7 +20,8 @@ a.items[1] = 7
 if a.label == "default" and a.enabled == false and b.label == nil and b.enabled == nil and b.items[1] == nil then
     score = score + 1
 end
-if not pcall(setmetatable, Fields, {}) then
+local setClassMetatable: any = setmetatable
+if not pcall(setClassMetatable, Fields, {}) then
     score = score + 2
 end
 
