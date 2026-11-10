@@ -1241,24 +1241,6 @@ end
 -- the Rust heap, on standard input, replayed into the core's collector. A case
 -- names its trace as a fourth field; the answer is the disagreements, zero.
 UNITS[#UNITS + 1] = {
-    name = "catalogunits",
-    modules = {"catalogunits", "unitentry"},
-    entries = {{"catalogunits", "calls", 2}},
-    cases = function()
-        -- Past the 256 owners the raw catalog once admitted, up to its bound.
-        local cases = {}
-        for _, count in ipairs({300, 65536}) do
-            cases[#cases + 1] = {"calls", {count, 0}, 1}
-            cases[#cases + 1] = {"calls", {count, 1}, 0}
-            cases[#cases + 1] = {"calls", {count, 2}, 1}
-            cases[#cases + 1] = {"calls", {count, 3}, 0}
-        end
-
-        return cases
-    end
-}
-
-UNITS[#UNITS + 1] = {
     name = "replay",
     modules = {"replay", "unitentry"},
     paths = {replay = FIXTURES .. "/nupp/core/replay.nupp"},
@@ -1280,22 +1262,16 @@ for index = 2, #arg do
     only[arg[index]] = true
 end
 
--- The raw loader's policies are generated from the graph schema and its
--- bounds, and the core library's call and text ids from their one tables:
--- each committed file stays exactly what its generator writes.
+-- The core library's call and text ids are generated from their one
+-- tables: each committed file stays exactly what its generator writes.
 -- Each generator by a literal require: the core reaches no module by a
 -- computed name (toollayeringtest).
 local GENERATED = {
-    {require("nupp.core.rawwiregen"), "rawwire", "nupp.core.rawwiregen"},
-    {require("nupp.core.rawshapegen"), "rawroles", "nupp.core.rawshapegen"},
-    {require("nupp.core.rawcataloggen"), "rawcatalogpolicy", "nupp.core.rawcataloggen"},
-    {require("nupp.core.rawbudgetgen"), "rawbudgetpolicy", "nupp.core.rawbudgetgen"},
-    {require("nupp.core.rawsemanticgen"), "rawsemanticpolicy", "nupp.core.rawsemanticgen"},
-    {require("nupp.core.rawexecutablegen"), "rawexecutablepolicy", "nupp.core.rawexecutablegen"},
     {require("nupp.core.librarycallsgen"), "librarycalls", "nupp.core.librarycallsgen"},
     {require("nupp.core.storagelibrarygen"), "storagelibrary", "nupp.core.storagelibrarygen"},
     {require("nupp.core.loadlibrarygen"), "loadlibrary", "nupp.core.loadlibrarygen"},
     {require("nupp.core.debuglibrarygen"), "debuglibrary", "nupp.core.debuglibrarygen"},
+    {require("nupp.core.chunkopcodesgen"), "chunkopcodes", "nupp.core.chunkopcodesgen"},
     {require("nupp.core.scalarkindsgen"), "scalarkinds", "nupp.core.scalarkindsgen"},
     {require("nupp.core.librarylayoutsgen"), "librarylayouts", "nupp.core.librarylayoutsgen"},
     {require("nupp.core.librarytextsgen"), "librarytexts", "nupp.core.librarytextsgen"},

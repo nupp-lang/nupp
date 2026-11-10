@@ -287,6 +287,12 @@ local CASES = {
     -- request core-cdecl-record.lua records.
     {"corecdecl", 0x7FFF0000000007FF},
     {"loadbinary", 0x7FFF000000001FFF},
+    -- Binary chunks a program altered: truncated, corrupted, with operands,
+    -- branches, call sites, closures, relocations and entries out of place,
+    -- each refused as a bad format, and every byte inverted in turn; a copy
+    -- suspended in a coroutine meanwhile, while later loads move the
+    -- catalog into larger mappings, then finished.
+    {"loadhostile", 0x7FFF00001FFFFFFF},
     -- A record with an array part: fields and elements apart.
     {"recordsarray", 0x7FFF00000000000F},
     -- A function statement assigning a local declared before it.
@@ -534,6 +540,7 @@ local STRESS = {
     filesystem = true,
     osremove = true,
     loadbinary = true,
+    loadhostile = true,
     osfilesystem = true,
     loadsource = true,
     debuggetinfo = true,
