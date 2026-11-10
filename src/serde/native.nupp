@@ -27,6 +27,22 @@ Its input is bounded at 16 MiB, 128 levels of nesting, and a million values.
 The frame is versioned and a reader rejects any version it does not know.
 It is specific to LuaJIT: this module raises on other hosts before it selects
 a binding. Use [](serde.json) for data that leaves the machine.
+
+[](encodevalue) and [](decodevalue) save a plain Lua value with no binding, in
+LuaJIT's own binary serialization format and with no frame around it.
+[](encodevalueinto) and [](decodevaluefrom) do the same through a
+[](bytes.Buffer), so values can sit between raw bytes in one stream:
+
+```nupp
+local native = serde.native
+local stream = bytes.Buffer.create()
+native.encodevalueinto({kind = "header", count = 2}, stream)
+stream:put("raw")
+native.encodevalueinto(7, stream)
+assert(native.decodevaluefrom(stream).count == 2)
+assert(stream:get(3) == "raw")
+assert(native.decodevaluefrom(stream) == 7 and #stream == 0)
+```
 ]]
 module serde.native
 
@@ -41,6 +57,7 @@ local numbers = require("nupp.serde.internal.numbers")
 local json = require("nupp.serde.internal.json.values")
 local contexts = require("nupp.serde.internal.context")
 local memos = require("nupp.serde.internal.memo")
+const {type Buffer} = require("nupp.io.internal.bytes")
 
 --- Identifies this codec in a [](serde.Context) it attaches.
 export const identity: table = {}
@@ -488,4 +505,81 @@ end
 --- @raises serde.Error when the frame is malformed or of an unknown version
 export function decodedocument<D>(adapter: core.DocumentAdapter<D>, bytes: string): D
     return defaultCodec:decodedocument(adapter, bytes)
+end
+
+--- Encodes a plain Lua value in LuaJIT's binary serialization format, with no
+--- binding and no frame.
+---
+--- The value may be nil, a boolean, a number, a string, a 64-bit integer or
+--- complex number, or a table of those with no metatable. A table shared in two
+--- places is written twice, and nesting deeper than LuaJIT's limit raises, which
+--- is also what a cycle does. The bytes are the ones LuaJIT's `string.buffer`
+--- writes, so its stability is LuaJIT's.
+---
+--- ```nupp
+--- local native = serde.native
+--- local restored = native.decodevalue(native.encodevalue({1, 2, name = "pair"}))
+--- assert(restored[2] == 2 and restored.name == "pair")
+--- ```
+---
+--- @param value the value
+--- @return the encoded bytes
+--- @raises string when the host is not native LuaJIT, or the value holds a
+---     function, a userdata, a thread, other cdata, a metatable, or nests too deeply
+export function encodevalue(value: any): string
+    return runtime().encode(value) as string
+end
+
+--- Decodes bytes [](encodevalue) wrote.
+---
+--- The whole input must be one value. Decoding runs no code from the input, but
+--- an input can ask for large tables and strings, so decode only bytes from a
+--- source you trust.
+---
+--- @param bytes the encoded bytes
+--- @return the value
+--- @raises string when the host is not native LuaJIT, or the bytes are empty,
+---     malformed, truncated, or followed by trailing bytes
+export function decodevalue(bytes: string): any
+    local value, used = runtime().decodeprefix(bytes, #bytes)
+    if used ~= #bytes then
+        error("serde.native: trailing bytes after a binary value", 2)
+    end
+
+    return value
+end
+
+--- Appends a plain value's [](encodevalue) bytes to a [](bytes.Buffer).
+---
+--- On failure the buffer is left as it was.
+---
+--- @param value the value
+--- @param buffer the buffer to append to
+--- @raises string under the same conditions as [](encodevalue)
+export function encodevalueinto(value: any, exclusive buffer: Buffer): nil
+    buffer:put(runtime().encode(value) as string)
+end
+
+--- Decodes one value from the front of a [](bytes.Buffer) and consumes exactly
+--- its bytes, leaving whatever follows for the next read.
+---
+--- @param buffer the buffer holding the value at its front
+--- @return the value
+--- @raises string when the host is not native LuaJIT, or the buffer is empty or
+---     does not start with a complete value; the buffer is then left as it was
+export function decodevaluefrom(exclusive buffer: Buffer): any
+    const decodeprefix = runtime().decodeprefix as function(
+        borrows pointer: const uint8[?],
+        length: integer
+    ): (any, integer)
+    local value: any = nil
+    local used: integer = 0
+    do
+        const view = buffer:span()
+        const pointer, length = view:ref()
+        value, used = decodeprefix(pointer, length)
+    end
+    buffer:skip(used)
+
+    return value
 end

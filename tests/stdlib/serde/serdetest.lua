@@ -363,6 +363,75 @@ return {first = first, embedded = buffer:tostring()}
     assert(result.first == 'prefix:{"id":7}' and result.embedded == '[{"id":8},{"id":9}]')
 end
 
+function M.nativeValuesUseLuaJITsBinaryFormat()
+    local result = run(
+        imports
+        .. [[
+local native = require("serde.native")
+local value = {1, 2.5, "a\0b", true, nested = {flag = false, big = 9007199254740993LL}}
+local encoded: string = native.encodevalue(value)
+local restored: any = native.decodevalue(encoded)
+assert(restored[1] == 1 and restored[2] == 2.5 and restored[3] == "a\0b" and restored[4] == true)
+assert(restored.nested.flag == false and restored.nested.big == 9007199254740993LL)
+return encoded
+]]
+    )
+    local expected = {1, 2.5, "a\0b", true, nested = {flag = false, big = 9007199254740993LL}}
+    assert(result == require("string.buffer").encode(expected), "the bytes are LuaJIT's own")
+end
+
+function M.nativeValuesInterleaveWithRawBytesInABuffer()
+    local result = run(
+        imports
+        .. [[
+local native = require("serde.native")
+local stream = bytes.Buffer.create()
+native.encodevalueinto({kind = "header", count = 2}, stream)
+stream:put("raw")
+native.encodevalueinto(7, stream)
+native.encodevalueinto("tail", stream)
+const written = stream:tostring()
+assert(native.decodevaluefrom(stream).count == 2)
+assert(stream:get(3) == "raw")
+assert(native.decodevaluefrom(stream) == 7)
+assert(native.decodevaluefrom(stream) == "tail")
+assert(#stream == 0, "each read consumed exactly its value")
+return written
+]]
+    )
+    local codec = require("string.buffer")
+    local expected = codec.encode({kind = "header", count = 2}) .. "raw" .. codec.encode(7) .. codec.encode("tail")
+    assert(result == expected, "values and raw bytes share one stream")
+end
+
+function M.nativeValueFailuresLeaveTheirInputs()
+    local result = run(
+        imports
+        .. [[
+local native = require("serde.native")
+local function failure(action: function(): any): string
+    local ok, why = pcall(action)
+    assert(not ok, "the call should have raised")
+    return tostring(why)
+end
+const whole = native.encodevalue({1, 2, 3})
+const truncated = bytes.Buffer.create(whole:sub(1, #whole - 1))
+const before = #truncated
+const read, partial = pcall(native.decodevaluefrom, truncated)
+assert(not read and tostring(partial) ~= "")
+assert(#truncated == before, "a failed read leaves the buffer as it was")
+return {
+    unencodable = failure(function(): any return native.encodevalue({print}) end),
+    trailing = failure(function(): any return native.decodevalue(whole .. "x") end),
+    empty = failure(function(): any return native.decodevalue("") end),
+}
+]]
+    )
+    assert(result.unencodable ~= "")
+    assert(result.trailing:find("trailing bytes", 1, true), result.trailing)
+    assert(result.empty:find("empty input", 1, true), result.empty)
+end
+
 function M.bindingsKeepTheirValueType()
     local problems = diagnostics(
         imports

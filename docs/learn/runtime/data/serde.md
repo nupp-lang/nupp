@@ -235,6 +235,24 @@ object identity, execute code from the input, or save process handles.
 registry of entry names, bindings, versions, and migrations, and any codec
 carries the snapshot through `document.storebinding()`.
 
+A value with no binding uses `serde.native.encodevalue` and `decodevalue`,
+which write LuaJIT's own binary serialization of a plain Lua value with no
+frame. `encodevalueinto` and `decodevaluefrom` append to and consume from an
+[](bytes.Buffer), one value at a time, so values can share a stream with raw
+bytes:
+
+```nupp
+local native = serde.native
+local stream = bytes.Buffer.create()
+native.encodevalueinto({name = "Transform2D", count = 3}, stream)
+stream:put("\1\2\3")
+assert(native.decodevaluefrom(stream).count == 3)
+assert(stream:get(3) == "\1\2\3" and #stream == 0)
+```
+
+These values carry no version or member names, so a reader decides what the
+bytes mean. Decode only bytes from a source you trust.
+
 The frame is not compatible with the previous JSON store snapshot format.
 Read old snapshots with the previous codec and write them through an explicit
 binding and registry before changing the reader. Native frames reject unknown
