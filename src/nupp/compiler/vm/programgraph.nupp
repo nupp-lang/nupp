@@ -2178,6 +2178,7 @@ export function verify(p: any): boolean
                         or item.forward and node.kind == "qualifiedLoad"
                         or item.derived and node.kind == "qualifiedLoad"
                         or item.managed and node.kind == "qualifiedLoad"
+                        or item.recordFactory and node.kind == "qualifiedLoad"
                     )
                     and node.qualifiedModule ~= nil
                     and graph.coremodule(node.qualifiedModule) == item.module

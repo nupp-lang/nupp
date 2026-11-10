@@ -158,6 +158,41 @@ function suite.moduleCatalogCarriesCheckedFactoryAndLazyNominalCell()
     assert(cells == 1, "only the required overload nominal gets a class cell")
 end
 
+function suite.ordinaryCatalogVerifiesItsExactFactoryLoader()
+    local source = "module recordcallableordinary\nlocal record R value: integer end\nexport const Make = R\n"
+    local path = "=recordcallableordinary.nupp"
+    local parsed = require("nupp.compiler.syntax.parser").parse(source, path)
+    assert(#parsed.errors == 0)
+    local env = require("nupp.compiler.project.env").new(".", {memoryOnly = true, cache = false})
+    local diagnostics = require("nupp.compiler.check").check(parsed, path, env, {moduleName = "recordcallableordinary"})
+    for _, diagnostic in ipairs(diagnostics) do
+        assert(diagnostic.severity ~= "error", diagnostic.msg)
+    end
+    local p = require(
+        "helpers.recordfactory"
+    ).describe(
+        {{name = "recordcallableordinary", path = path, parsed = parsed, diagnostics = diagnostics}},
+        "recordcallableordinary"
+    )
+    local program = require("nupp.compiler.vm.programgraph")
+    assert(program.verify(p))
+    assert(program.compile(p, require("nupp.compiler.vm.taggedprofile").forVersion(8)))
+    local plan
+    for _, value in pairs(p.recordFactories) do
+        plan = value
+    end
+    assert(plan and plan.loader and plan.loader.recordFactory == plan)
+    local loader = plan.loader
+    local kind = loader.node.kind
+    loader.node.kind = "name"
+    assert(not pcall(program.verify, p), "factory loader cannot become a source name")
+    loader.node.kind = kind
+    loader.recordFactory = nil
+    assert(not pcall(program.verify, p), "factory loader must retain its exact plan")
+    loader.recordFactory = plan
+    assert(program.verify(p))
+end
+
 function suite.factoryVerificationRejectsChangedOperandsLoaderAndCells()
     local p = catalog()
     local program = require("nupp.compiler.vm.programgraph")
