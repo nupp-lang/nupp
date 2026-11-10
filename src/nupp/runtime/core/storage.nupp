@@ -303,8 +303,9 @@ end
 
 export function release(s: Storage*): nil
     @unsafe do
-        backing.wordBackingRelease(s.base)
+        local base = s.base
         clear(s)
+        backing.wordBackingRelease(base)
     end
 end
 
