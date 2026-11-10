@@ -606,7 +606,11 @@ local ROOTED = {testrunner = "tests/tools/test/runner", benchworkloads = "bench/
 -- compile text itself yet.
 local RUNNER_SUITES = {"iopathargumenttest", "iofileargumenttest", "corewarnlogtest", "typefactoriestest"}
 local SOURCES = {
-    runnerchunks = {"tests/core/runner-chunk-calls.lua", "src/nupp/gpu/limits.nupp", "src/io/net/init.nupp"},
+    runnerchunks = {
+        "tests/core/runner-chunk-calls.lua",
+        "tests/core/runner-chunk-script.nupp",
+        "src/nupp/gpu/limits.nupp"
+    },
     testrunner = {
         "tests/run.lua",
         "tests/groups.lua",

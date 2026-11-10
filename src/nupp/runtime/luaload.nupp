@@ -323,7 +323,7 @@ local function compiled(text: string, chunkname: string, path: string?, module: 
     return compile.compile(path and chunkfiles.execLineSkipped(text) or text, chunkid(chunkname), chunkname)
 end
 
-local function loadchunk(chunk: any, name: string?, mode: string?, env: table?): (any, string?)
+local function loaded(chunk: any, name: string?, mode: string?, env: table?, path: string?): (any, string?)
     if type(chunk) ~= "string" and type(chunk) ~= "function" then
         error("bad argument #1 to 'load' (string expected, got " .. type(chunk) .. ")", 2)
     end
@@ -346,7 +346,7 @@ local function loadchunk(chunk: any, name: string?, mode: string?, env: table?):
                 return value
             end, nil
         end
-        local bytes, problem = compiled(text, chunkname, nil, false)
+        local bytes, problem = compiled(text, chunkname, path, false)
         if bytes == nil then
             return nil, problem
         end
@@ -354,6 +354,10 @@ local function loadchunk(chunk: any, name: string?, mode: string?, env: table?):
     end
 
     return started(text, chunkname, env)
+end
+
+local function loadchunk(chunk: any, name: string?, mode: string?, env: table?): (any, string?)
+    return loaded(chunk, name, mode, env, nil)
 end
 
 --- A fresh instance of the Nupp module whose source, or binary chunk
@@ -398,7 +402,7 @@ local function loadpath(filename: string?, mode: string?, env: table?): (any, st
     -- (chunkfiles), loads in its place.
     local kept = filename ~= nil and chunkfiles.lookup(filename, text) or nil
 
-    return loadchunk(kept ?? chunkfiles.execLineSkipped(text), name, mode, env)
+    return loaded(kept ?? chunkfiles.execLineSkipped(text), name, mode, env, filename)
 end
 
 local function runpath(filename: string?): ...any
