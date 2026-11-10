@@ -746,6 +746,31 @@ provision_rust_vendor() {
 # state of one facility set shares a target directory, so an edit to the VM is
 # an incremental rebuild rather than a cold one beside every earlier result;
 # each result is copied out to its content key, which is the file a build reads.
+build_native_core_object() {
+    # This tool only writes layouts and objects. Execution of the Nupp sources
+    # stays on the immutable compiler pair selected by the launcher.
+    object_target="$RUST_BUILD_ROOT/native-core-object/target"
+    set -- "$CARGO" build --manifest-path "$ROOT/Cargo.toml" --package nupp-vm \
+        --bin nupp-vm --release --locked --features aot --target-dir "$(cargo_dir "$object_target")"
+    offline && set -- "$@" --offline
+    vendor_arguments=$(rust_vendor_arguments)
+    if [ -n "$vendor_arguments" ]; then
+        while IFS= read -r config; do
+            set -- "$@" --config "$config"
+        done <<EOF
+$vendor_arguments
+EOF
+    fi
+    set -- "$@" --config "$(rust_remap_arguments)"
+    (unset NUPP_AOT_OBJECT NUPP_NATIVE_RUNTIME_OBJECT; CC="$CC" CXX="$CXX" RUSTC="$RUSTC" "$@" >&2) \
+        || die "Cargo could not build the native object writer"
+    object_tool="$object_target/release/nupp-vm"
+    [ "$PLATFORM" != windows ] || object_tool="$object_tool.exe"
+    NUPP_VM_AUTO_REBUILD=0 NUPP_COMPILER_ROOT="$ROOT" \
+        "$ROOT/bin/nupp" run "$ROOT/scripts/native-runtime-build.lua" "$object_tool" \
+        || die "cannot build the Nupp execution core"
+}
+
 build_rust_vm_runtime() {
     facilities=$(normalize_rust_features "${1:-}")
     for facility in $(printf '%s' "$facilities" | tr ',' ' '); do
@@ -757,7 +782,7 @@ build_rust_vm_runtime() {
     select_rust_tools
     # The execution core is built before this runtime is linked; Cargo's
     # machine tool never supplies an interpreter during bootstrap.
-    native_core_output=$(python3 "$ROOT/scripts/vm-cli" runtime --reuse) \
+    native_core_output=$(build_native_core_object) \
         || die "cannot build the Nupp execution core"
     core=$(printf '%s\n' "$native_core_output" | tail -n 1)
     [ -f "$core" ] || die "native core builder named no object"
@@ -823,7 +848,7 @@ EOF
 # is built once per source state without the program runtime's LTO.
 build_rust_vm_aot_tool() {
     select_rust_tools
-    native_core_output=$(python3 "$ROOT/scripts/vm-cli" runtime --reuse) \
+    native_core_output=$(build_native_core_object) \
         || die "cannot build the Nupp object core"
     core=$(printf '%s\n' "$native_core_output" | tail -n 1)
     [ -f "$core" ] || die "native core builder named no object"
@@ -874,7 +899,7 @@ vm_program_archive_ready() {
 build_rust_vm_program_archive() {
     facilities=$1
     select_rust_tools
-    native_core_output=$(python3 "$ROOT/scripts/vm-cli" runtime --reuse) \
+    native_core_output=$(build_native_core_object) \
         || die "cannot build the Nupp execution core"
     core=$(printf '%s\n' "$native_core_output" | tail -n 1)
     [ -f "$core" ] || die "native core builder named no object"
