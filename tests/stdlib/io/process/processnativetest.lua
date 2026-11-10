@@ -224,6 +224,13 @@ local function packed(...)
     return {n = select("#", ...), ...}
 end
 
+local function assertStartFailure(result)
+    test.eq(result.n, 3)
+    test.eq(result[1], nil)
+    assert(type(result[2]) == "string" and #result[2] > 0, tostring(result[2]))
+    assert(type(result[3]) == "number" and result[3] ~= 0, tostring(result[3]))
+end
+
 local function assertExit(child, expected)
     local result = packed(child:close())
     test.eq(result.n, 3)
@@ -379,11 +386,55 @@ end
 
 function M.publicMissingProgramsReturnTheLuaFailureTriple()
     local public = ready()
-    local result = packed(public.popen({"nupp-no-such-executable-8d368ef7"}))
-    test.eq(result.n, 3)
-    test.eq(result[1], nil)
-    assert(type(result[2]) == "string" and #result[2] > 0, tostring(result[2]))
-    assert(type(result[3]) == "number" and result[3] ~= 0, tostring(result[3]))
+    assertStartFailure(packed(public.popen({"nupp-no-such-executable-8d368ef7"})))
+end
+
+function M.publicMissingDirectoriesReturnTheLuaFailureTriple()
+    local public = ready()
+    local missing = os.tmpname()
+    os.remove(missing)
+    assertStartFailure(packed(public.popen(shell("exit 0"), {cwd = missing .. "-missing-cwd"})))
+end
+
+function M.theNativeAdapterRetainsLegacyAndExplicitSystemErrors()
+    local name = "nupp.runtime.provider.nativeprocess"
+    local answer
+    local provider = require("helpers.providerstate").instance({[name] = true}, {
+        ["nupp.vm.process"] = {
+            spawn = function()
+                return unpack(answer, 1, answer.n)
+            end,
+        },
+    })(name)
+    for _, scenario in ipairs({
+        {reason = "No such file or directory (os error 2)", expected = 2},
+        {reason = "Access is denied. (os error 5)", expected = 5},
+        {reason = "host reason (os error 2)", explicit = 13, expected = 13},
+        {reason = "missing program"},
+        {reason = "host reason (os error 2) extra"},
+        {reason = "host reason (os error 0)"},
+        {reason = "host reason (os error 2.5)"},
+        {reason = "host reason (os error 2147483648)"},
+        {reason = "host reason (os error -2147483649)"},
+    }) do
+        answer = packed(nil, nil, nil, nil, 0, scenario.reason)
+        if scenario.explicit ~= nil then
+            answer.n, answer[7] = 7, scenario.explicit
+        end
+        local result = packed(provider:spawn({args = {"missing"}}))
+        test.eq(result.n, 7)
+        test.eq(result[1], nil)
+        test.eq(result[6], scenario.reason)
+        test.eq(result[7], scenario.expected)
+    end
+    local child, input, output, errors = {}, {}, {}, {}
+    answer = packed(child, input, output, errors, 42)
+    local result = packed(provider:spawn({args = {"present"}}))
+    for index = 1, 5 do
+        test.eq(result[index], answer[index])
+    end
+    test.eq(result[6], nil)
+    test.eq(result[7], nil)
 end
 
 function M.publicModesRejectInvalidCallsBeforeLaunching()
