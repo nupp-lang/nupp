@@ -96,6 +96,10 @@ cc -std=c11 -I"$SDK" host/examples/embed.c \
   -L"$SDK" -lnupp -Wl,-rpath,"$SDK" -o build/embed-nupp
 ```
 
+A component that generates UUIDs through `os.uuid` also needs `native-uuid` in
+that list. Without it, the first `os.uuid` call raises "the Rust native provider
+was built without UUID support".
+
 The same SDK directory contains `libnupp.dylib` on macOS, `libnupp.so` on
 Linux, or `nupp.dll` plus `libnupp.dll.a` on Windows. `link.json` names the
 header, static library, dynamic library, exact features, and Windows import
